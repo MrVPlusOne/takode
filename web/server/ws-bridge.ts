@@ -614,18 +614,10 @@ export class WsBridge {
     };
     this.sendToBrowser(ws, snapshot);
 
-    // Replay message history so the browser can reconstruct the conversation
-    if (session.messageHistory.length > 0) {
-      this.sendToBrowser(ws, {
-        type: "message_history",
-        messages: session.messageHistory,
-      });
-    }
-
-    // Send any pending permission requests
-    for (const perm of session.pendingPermissions.values()) {
-      this.sendToBrowser(ws, { type: "permission_request", request: perm });
-    }
+    // History replay and pending permissions are sent by handleSessionSubscribe
+    // (triggered when the browser sends session_subscribe after onopen).
+    // Sending them here too would cause double delivery, leading to duplicate
+    // or tangled messages across sessions during reconnects.
 
     // Notify if backend is not connected and request relaunch
     const backendConnected = session.backendType === "codex"
@@ -1029,6 +1021,34 @@ export class WsBridge {
     const lastAckSeq = Number.isFinite(lastSeq) ? Math.max(0, Math.floor(lastSeq)) : 0;
     data.lastAckSeq = lastAckSeq;
 
+    // Fresh connection (no prior state) — send full history + pending permissions.
+    // This is the single source of truth for initial state delivery (previously
+    // also done in handleBrowserOpen, causing double delivery).
+    if (lastAckSeq === 0) {
+      if (session.messageHistory.length > 0) {
+        this.sendToBrowser(ws, {
+          type: "message_history",
+          messages: session.messageHistory,
+        });
+      }
+      for (const perm of session.pendingPermissions.values()) {
+        this.sendToBrowser(ws, { type: "permission_request", request: perm });
+      }
+      // Also replay any buffered events so transient messages (stream_event,
+      // tool_progress, status_change, etc.) are caught up
+      if (session.eventBuffer.length > 0) {
+        const transient = session.eventBuffer
+          .filter((evt) => !this.isHistoryBackedEvent(evt.message));
+        if (transient.length > 0) {
+          this.sendToBrowser(ws, {
+            type: "event_replay",
+            events: transient,
+          });
+        }
+      }
+      return;
+    }
+
     if (session.eventBuffer.length === 0) return;
     if (lastAckSeq >= session.nextEventSeq - 1) return;
 
@@ -1039,6 +1059,9 @@ export class WsBridge {
         type: "message_history",
         messages: session.messageHistory,
       });
+      for (const perm of session.pendingPermissions.values()) {
+        this.sendToBrowser(ws, { type: "permission_request", request: perm });
+      }
       const transientMissed = session.eventBuffer
         .filter((evt) => evt.seq > lastAckSeq && !this.isHistoryBackedEvent(evt.message));
       if (transientMissed.length > 0) {

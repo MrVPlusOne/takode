@@ -579,9 +579,15 @@ export function connectSession(sessionId: string) {
   sockets.set(sessionId, ws);
 
   ws.onopen = () => {
-    useStore.getState().setConnectionStatus(sessionId, "connected");
+    const currentStore = useStore.getState();
+    currentStore.setConnectionStatus(sessionId, "connected");
     reconnectAttempts.delete(sessionId); // Reset backoff on successful connect
-    const lastSeq = getLastSeq(sessionId);
+    // After a page refresh the Zustand store is empty but localStorage still
+    // holds a high last_seq. Sending that stale seq would tell the server we
+    // already have all messages, so it skips sending message_history. Fix: when
+    // the in-memory store has no messages, request full history with last_seq=0.
+    const storeMessages = currentStore.messages.get(sessionId);
+    const lastSeq = (storeMessages && storeMessages.length > 0) ? getLastSeq(sessionId) : 0;
     ws.send(JSON.stringify({ type: "session_subscribe", last_seq: lastSeq }));
     // Clear any reconnect timer
     const timer = reconnectTimers.get(sessionId);

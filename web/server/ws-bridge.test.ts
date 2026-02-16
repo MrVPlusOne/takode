@@ -473,8 +473,9 @@ describe("Browser handlers", () => {
     expect(gitInfoCb).toHaveBeenCalledWith("s1", "/repo", "feat/dynamic-branch");
   });
 
-  it("handleBrowserOpen: replays message history", () => {
-    // First populate some history
+  it("handleBrowserOpen: replays message history via session_subscribe", () => {
+    // History is now delivered via handleSessionSubscribe (triggered by session_subscribe
+    // from the browser) instead of handleBrowserOpen, to prevent double delivery.
     mockExecSync.mockImplementation(() => {
       throw new Error("not a git repo");
     });
@@ -499,9 +500,10 @@ describe("Browser handlers", () => {
     });
     bridge.handleCLIMessage(cli, assistantMsg);
 
-    // Now connect a new browser
+    // Now connect a new browser and send session_subscribe (as the real client does)
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
+    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     const historyMsg = calls.find((c: any) => c.type === "message_history");
@@ -510,7 +512,9 @@ describe("Browser handlers", () => {
     expect(historyMsg.messages[0].type).toBe("assistant");
   });
 
-  it("handleBrowserOpen: sends pending permissions", () => {
+  it("handleBrowserOpen: sends pending permissions via session_subscribe", () => {
+    // Pending permissions are now delivered via handleSessionSubscribe instead of
+    // handleBrowserOpen, to prevent double delivery on reconnect.
     const cli = makeCliSocket("s1");
     bridge.handleCLIOpen(cli, "s1");
 
@@ -527,9 +531,10 @@ describe("Browser handlers", () => {
     });
     bridge.handleCLIMessage(cli, controlReq);
 
-    // Now connect a browser
+    // Now connect a browser and send session_subscribe
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
+    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     const permMsg = calls.find((c: any) => c.type === "permission_request");
@@ -2126,9 +2131,11 @@ describe("Restore from disk with pendingPermissions", () => {
     const cli = makeCliSocket("perm-replay");
     bridge.handleCLIOpen(cli, "perm-replay");
 
-    // Now connect a browser
+    // Now connect a browser and send session_subscribe (permissions are
+    // delivered via handleSessionSubscribe, not handleBrowserOpen)
     const browser = makeBrowserSocket("perm-replay");
     bridge.handleBrowserOpen(browser, "perm-replay");
+    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     const permMsg = calls.find((c: any) => c.type === "permission_request");
