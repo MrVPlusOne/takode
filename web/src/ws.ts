@@ -371,11 +371,14 @@ function handleParsedMessage(
       if (!document.hasFocus() && store.notificationDesktop) {
         sendBrowserNotification("Session completed", "Claude finished the task", sessionId);
       }
-      if (r.is_error && r.errors?.length) {
+      if (r.is_error) {
+        const errorText = r.errors?.length
+          ? r.errors.join(", ")
+          : r.result || "An error occurred";
         store.appendMessage(sessionId, {
           id: nextId(),
           role: "system",
-          content: `Error: ${r.errors.join(", ")}`,
+          content: `Error: ${errorText}`,
           timestamp: Date.now(),
           variant: "error",
         });
@@ -533,12 +536,15 @@ function handleParsedMessage(
             extractChangedFilesFromBlocks(sessionId, msg.content);
           }
         } else if (histMsg.type === "result") {
-          const r = histMsg.data as { is_error?: boolean; errors?: string[] };
-          if (r.is_error && r.errors?.length) {
+          const r = histMsg.data as { is_error?: boolean; errors?: string[]; result?: string };
+          if (r.is_error) {
+            const errorText = r.errors?.length
+              ? r.errors.join(", ")
+              : r.result || "An error occurred";
             chatMessages.push({
               id: `hist-error-${i}`,
               role: "system",
-              content: `Error: ${r.errors.join(", ")}`,
+              content: `Error: ${errorText}`,
               timestamp: Date.now(),
               variant: "error",
             });
