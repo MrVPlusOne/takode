@@ -188,7 +188,7 @@ export type CLIMessage =
 
 export interface ToolResultPreview {
   tool_use_id: string;
-  /** Truncated content (first TOOL_RESULT_PREVIEW_LIMIT chars) */
+  /** Truncated content (last TOOL_RESULT_PREVIEW_LIMIT chars) */
   content: string;
   is_error: boolean;
   /** Original content size in characters */
@@ -197,7 +197,7 @@ export interface ToolResultPreview {
   is_truncated: boolean;
 }
 
-export const TOOL_RESULT_PREVIEW_LIMIT = 200;
+export const TOOL_RESULT_PREVIEW_LIMIT = 300;
 
 // ─── Content Block Types ──────────────────────────────────────────────────────
 

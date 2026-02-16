@@ -965,7 +965,7 @@ export class WsBridge {
       previews.push({
         tool_use_id: block.tool_use_id,
         content: isTruncated
-          ? resultContent.slice(0, TOOL_RESULT_PREVIEW_LIMIT)
+          ? resultContent.slice(-TOOL_RESULT_PREVIEW_LIMIT)
           : resultContent,
         is_error: !!block.is_error,
         total_size: totalSize,

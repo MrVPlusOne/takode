@@ -149,6 +149,15 @@ function ToolResultSection({ toolUseId, sessionId }: { toolUseId: string; sessio
           <span className="text-[10px] text-cc-muted">{formatBytes(preview.total_size)}</span>
         )}
       </div>
+      {showExpandButton && (
+        <button
+          onClick={fetchFull}
+          disabled={loading}
+          className="mb-1 text-[10px] text-cc-primary hover:underline cursor-pointer disabled:opacity-50"
+        >
+          {loading ? "Loading..." : `Show full result (${formatBytes(preview.total_size)})`}
+        </button>
+      )}
       <pre className={`text-[11px] font-mono-code whitespace-pre-wrap leading-relaxed rounded-lg px-2.5 py-2 ${
         fullContent === null ? "max-h-40" : "max-h-96"
       } overflow-y-auto ${
@@ -156,17 +165,8 @@ function ToolResultSection({ toolUseId, sessionId }: { toolUseId: string; sessio
           ? "bg-cc-error/5 border border-cc-error/20 text-cc-error"
           : "bg-cc-code-bg text-cc-muted"
       }`}>
-        {displayContent}{showExpandButton ? "..." : ""}
+        {showExpandButton ? "..." : ""}{displayContent}
       </pre>
-      {showExpandButton && (
-        <button
-          onClick={fetchFull}
-          disabled={loading}
-          className="mt-1 text-[10px] text-cc-primary hover:underline cursor-pointer disabled:opacity-50"
-        >
-          {loading ? "Loading..." : `Show full result (${formatBytes(preview.total_size)})`}
-        </button>
-      )}
     </div>
   );
 }
