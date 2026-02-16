@@ -375,6 +375,19 @@ export class WsBridge {
     return Array.from(this.sessions.values()).map((s) => s.state);
   }
 
+  /** Returns the truncated content of the last user message for a session. */
+  getLastUserMessage(sessionId: string): string | undefined {
+    const session = this.sessions.get(sessionId);
+    if (!session) return undefined;
+    for (let i = session.messageHistory.length - 1; i >= 0; i--) {
+      const m = session.messageHistory[i];
+      if (m.type === "user_message") {
+        return m.content.slice(0, 80);
+      }
+    }
+    return undefined;
+  }
+
   getCodexRateLimits(sessionId: string) {
     const session = this.sessions.get(sessionId);
     return session?.codexAdapter?.getRateLimits() ?? null;

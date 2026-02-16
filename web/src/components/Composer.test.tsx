@@ -26,6 +26,7 @@ vi.mock("../api.js", () => ({
 const mockAppendMessage = vi.fn();
 const mockUpdateSession = vi.fn();
 const mockSetPreviousPermissionMode = vi.fn();
+const mockSetSessionPreview = vi.fn();
 
 vi.mock("../store.js", () => {
   // Create a mock store function that acts like zustand's useStore
@@ -97,6 +98,7 @@ function setupMockStore(overrides: {
     appendMessage: mockAppendMessage,
     updateSession: mockUpdateSession,
     setPreviousPermissionMode: mockSetPreviousPermissionMode,
+    setSessionPreview: mockSetSessionPreview,
   };
 }
 

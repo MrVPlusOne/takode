@@ -8,6 +8,7 @@ interface ProjectGroupProps {
   onToggleCollapse: (projectKey: string) => void;
   currentSessionId: string | null;
   sessionNames: Map<string, string>;
+  sessionPreviews: Map<string, string>;
   pendingPermissions: Map<string, Map<string, unknown>>;
   recentlyRenamed: Set<string>;
   onSelect: (id: string) => void;
@@ -16,6 +17,7 @@ interface ProjectGroupProps {
   onUnarchive: (e: React.MouseEvent, id: string) => void;
   onDelete: (e: React.MouseEvent, id: string) => void;
   onClearRecentlyRenamed: (id: string) => void;
+  onContextMenu?: (e: React.MouseEvent, id: string) => void;
   editingSessionId: string | null;
   editingName: string;
   setEditingName: (name: string) => void;
@@ -31,6 +33,7 @@ export function ProjectGroup({
   onToggleCollapse,
   currentSessionId,
   sessionNames,
+  sessionPreviews,
   pendingPermissions,
   recentlyRenamed,
   onSelect,
@@ -39,6 +42,7 @@ export function ProjectGroup({
   onUnarchive,
   onDelete,
   onClearRecentlyRenamed,
+  onContextMenu,
   editingSessionId,
   editingName,
   setEditingName,
@@ -97,6 +101,7 @@ export function ProjectGroup({
                 session={s}
                 isActive={currentSessionId === s.id}
                 sessionName={sessionNames.get(s.id)}
+                sessionPreview={sessionPreviews.get(s.id)}
                 permCount={permCount}
                 isRecentlyRenamed={recentlyRenamed.has(s.id)}
                 onSelect={onSelect}
@@ -105,6 +110,7 @@ export function ProjectGroup({
                 onUnarchive={onUnarchive}
                 onDelete={onDelete}
                 onClearRecentlyRenamed={onClearRecentlyRenamed}
+                onContextMenu={onContextMenu}
                 editingSessionId={editingSessionId}
                 editingName={editingName}
                 setEditingName={setEditingName}

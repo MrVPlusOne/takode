@@ -4,6 +4,7 @@ import { api } from "../api.js";
 import { connectSession, connectAllSessions, disconnectSession } from "../ws.js";
 import { ProjectGroup } from "./ProjectGroup.js";
 import { SessionItem } from "./SessionItem.js";
+import { ContextMenu } from "./ContextMenu.js";
 import { groupSessionsByProject, type SessionItem as SessionItemType } from "../utils/project-grouping.js";
 
 export function Sidebar() {
@@ -11,6 +12,7 @@ export function Sidebar() {
   const [editingName, setEditingName] = useState("");
   const [showArchived, setShowArchived] = useState(false);
   const [confirmArchiveId, setConfirmArchiveId] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ sessionId: string; x: number; y: number } | null>(null);
   const [hash, setHash] = useState(() => (typeof window !== "undefined" ? window.location.hash : ""));
   const editInputRef = useRef<HTMLInputElement>(null);
   const sessions = useStore((s) => s.sessions);
@@ -23,6 +25,7 @@ export function Sidebar() {
   const sessionNames = useStore((s) => s.sessionNames);
   const recentlyRenamed = useStore((s) => s.recentlyRenamed);
   const clearRecentlyRenamed = useStore((s) => s.clearRecentlyRenamed);
+  const sessionPreviews = useStore((s) => s.sessionPreviews);
   const pendingPermissions = useStore((s) => s.pendingPermissions);
   const assistantSessionId = useStore((s) => s.assistantSessionId);
   const setAssistantSessionId = useStore((s) => s.setAssistantSessionId);
@@ -55,6 +58,10 @@ export function Sidebar() {
                   store.markRecentlyRenamed(s.sessionId);
                 }
               }
+            }
+            // Hydrate last message preview from server (only if client doesn't have one yet)
+            if (s.lastMessagePreview && !store.sessionPreviews.has(s.sessionId)) {
+              store.setSessionPreview(s.sessionId, s.lastMessagePreview);
             }
           }
         }
@@ -91,6 +98,7 @@ export function Sidebar() {
   }, []);
 
   function handleSelectSession(sessionId: string) {
+    setContextMenu(null);
     useStore.getState().closeTerminal();
     window.location.hash = "";
     if (currentSessionId === sessionId) return;
@@ -137,6 +145,10 @@ export function Sidebar() {
   function handleStartRename(id: string, currentName: string) {
     setEditingSessionId(id);
     setEditingName(currentName);
+  }
+
+  function handleContextMenu(e: React.MouseEvent, sessionId: string) {
+    setContextMenu({ sessionId, x: e.clientX, y: e.clientY });
   }
 
   const handleDeleteSession = useCallback(async (e: React.MouseEvent, sessionId: string) => {
@@ -257,6 +269,7 @@ export function Sidebar() {
     onUnarchive: handleUnarchiveSession,
     onDelete: handleDeleteSession,
     onClearRecentlyRenamed: clearRecentlyRenamed,
+    onContextMenu: handleContextMenu,
     editingSessionId,
     editingName,
     setEditingName,
@@ -394,6 +407,7 @@ export function Sidebar() {
                 onToggleCollapse={toggleProjectCollapse}
                 currentSessionId={currentSessionId}
                 sessionNames={sessionNames}
+                sessionPreviews={sessionPreviews}
                 pendingPermissions={pendingPermissions}
                 recentlyRenamed={recentlyRenamed}
                 isFirst={i === 0}
@@ -421,6 +435,7 @@ export function Sidebar() {
                         isActive={currentSessionId === s.id}
                         isArchived
                         sessionName={sessionNames.get(s.id)}
+                        sessionPreview={sessionPreviews.get(s.id)}
                         permCount={pendingPermissions.get(s.id)?.size ?? 0}
                         isRecentlyRenamed={recentlyRenamed.has(s.id)}
                         {...sessionItemProps}
@@ -503,6 +518,30 @@ export function Sidebar() {
           <span>Settings</span>
         </button>
       </div>
+      {/* Context menu */}
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          items={[
+            {
+              label: "Rename",
+              onClick: () => {
+                const name = sessionNames.get(contextMenu.sessionId) || "";
+                handleStartRename(contextMenu.sessionId, name);
+              },
+            },
+            {
+              label: "Archive",
+              onClick: () => {
+                const syntheticEvent = { stopPropagation: () => {} } as React.MouseEvent;
+                handleArchiveSession(syntheticEvent, contextMenu.sessionId);
+              },
+            },
+          ]}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
     </aside>
   );
 }

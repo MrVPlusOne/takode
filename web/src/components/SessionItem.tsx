@@ -6,6 +6,7 @@ interface SessionItemProps {
   isActive: boolean;
   isArchived?: boolean;
   sessionName: string | undefined;
+  sessionPreview?: string;
   permCount: number;
   isRecentlyRenamed: boolean;
   onSelect: (id: string) => void;
@@ -14,6 +15,7 @@ interface SessionItemProps {
   onUnarchive: (e: React.MouseEvent, id: string) => void;
   onDelete: (e: React.MouseEvent, id: string) => void;
   onClearRecentlyRenamed: (id: string) => void;
+  onContextMenu?: (e: React.MouseEvent, id: string) => void;
   editingSessionId: string | null;
   editingName: string;
   setEditingName: (name: string) => void;
@@ -27,6 +29,7 @@ export function SessionItem({
   isActive,
   isArchived: archived,
   sessionName,
+  sessionPreview,
   permCount,
   isRecentlyRenamed,
   onSelect,
@@ -35,6 +38,7 @@ export function SessionItem({
   onUnarchive,
   onDelete,
   onClearRecentlyRenamed,
+  onContextMenu: onCtxMenu,
   editingSessionId,
   editingName,
   setEditingName,
@@ -81,6 +85,12 @@ export function SessionItem({
         onDoubleClick={(e) => {
           e.preventDefault();
           onStartRename(s.id, label);
+        }}
+        onContextMenu={(e) => {
+          if (onCtxMenu) {
+            e.preventDefault();
+            onCtxMenu(e, s.id);
+          }
         }}
         className={`w-full pl-3.5 pr-8 py-2 ${archived ? "pr-14" : ""} text-left rounded-lg transition-all duration-100 cursor-pointer ${
           isActive
@@ -154,7 +164,14 @@ export function SessionItem({
               )}
             </div>
 
-            {/* Row 2: Branch (directory already shown in group header) */}
+            {/* Row 2: Last user message preview */}
+            {sessionPreview && !isEditing && (
+              <div className="mt-0.5 text-[10.5px] text-cc-muted/60 leading-tight truncate">
+                {sessionPreview}
+              </div>
+            )}
+
+            {/* Row 3: Branch (directory already shown in group header) */}
             {s.gitBranch && (
               <div className="flex items-center gap-1 mt-0.5 text-[10.5px] text-cc-muted leading-tight truncate">
                 {s.gitBranch && (

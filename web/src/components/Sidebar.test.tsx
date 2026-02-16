@@ -46,6 +46,7 @@ interface MockStoreState {
   cliConnected: Map<string, boolean>;
   sessionStatus: Map<string, "idle" | "running" | "compacting" | null>;
   sessionNames: Map<string, string>;
+  sessionPreviews: Map<string, string>;
   recentlyRenamed: Set<string>;
   pendingPermissions: Map<string, Map<string, unknown>>;
   collapsedProjects: Set<string>;
@@ -56,6 +57,7 @@ interface MockStoreState {
   newSession: ReturnType<typeof vi.fn>;
   setSidebarOpen: ReturnType<typeof vi.fn>;
   setSessionName: ReturnType<typeof vi.fn>;
+  setSessionPreview: ReturnType<typeof vi.fn>;
   markRecentlyRenamed: ReturnType<typeof vi.fn>;
   clearRecentlyRenamed: ReturnType<typeof vi.fn>;
   setSdkSessions: ReturnType<typeof vi.fn>;
@@ -111,6 +113,7 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
     cliConnected: new Map(),
     sessionStatus: new Map(),
     sessionNames: new Map(),
+    sessionPreviews: new Map(),
     recentlyRenamed: new Set(),
     pendingPermissions: new Map(),
     collapsedProjects: new Set(),
@@ -121,6 +124,7 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
     newSession: vi.fn(),
     setSidebarOpen: vi.fn(),
     setSessionName: vi.fn(),
+    setSessionPreview: vi.fn(),
     markRecentlyRenamed: vi.fn(),
     clearRecentlyRenamed: vi.fn(),
     setSdkSessions: vi.fn(),

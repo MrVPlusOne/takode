@@ -332,6 +332,8 @@ export function HomePage() {
         images: images.length > 0 ? images.map((img) => ({ media_type: img.mediaType, data: img.base64 })) : undefined,
       });
 
+      useStore.getState().setSessionPreview(sessionId, msg.slice(0, 80));
+
       // Add user message to store
       useStore.getState().appendMessage(sessionId, {
         id: `user-${Date.now()}-${++idCounter}`,

@@ -59,4 +59,6 @@ export interface SdkSessionInfo {
   cronJobId?: string;
   /** Human-readable name of the cron job that spawned this session */
   cronJobName?: string;
+  /** Truncated preview of the last user message */
+  lastMessagePreview?: string;
 }

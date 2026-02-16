@@ -545,6 +545,14 @@ function handleParsedMessage(
           }
         }
       }
+      // Extract last user message as sidebar preview
+      for (let i = data.messages.length - 1; i >= 0; i--) {
+        const m = data.messages[i];
+        if (m.type === "user_message" && m.content) {
+          store.setSessionPreview(sessionId, m.content.slice(0, 80));
+          break;
+        }
+      }
       break;
     }
 
