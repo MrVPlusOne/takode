@@ -917,6 +917,9 @@ export class WsBridge {
       return;
     }
 
+    // Heartbeat — keeps the connection alive, no action needed
+    if ((msg as { type: string }).type === "ping") return;
+
     if (
       WsBridge.IDEMPOTENT_BROWSER_MESSAGE_TYPES.has(msg.type)
       && "client_msg_id" in msg
