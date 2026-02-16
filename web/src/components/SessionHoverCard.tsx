@@ -1,6 +1,7 @@
 import type { SessionItem as SessionItemType } from "../utils/project-grouping.js";
 import type { SessionState } from "../../server/session-types.js";
 import { useRef, useLayoutEffect } from "react";
+import { createPortal } from "react-dom";
 
 interface SessionHoverCardProps {
   session: SessionItemType;
@@ -92,7 +93,10 @@ export function SessionHoverCard({
     }
   }, [anchorRect, cardWidth]);
 
-  return (
+  // Render via portal to escape sidebar wrapper's overflow:hidden clipping.
+  // The sidebar wrapper uses overflow-hidden for collapse animation, which
+  // clips fixed-position children. Portaling to document.body avoids this.
+  return createPortal(
     <div
       ref={cardRef}
       className="fixed z-50 pointer-events-auto hidden-on-touch"
@@ -131,11 +135,11 @@ export function SessionHoverCard({
           </div>
         </div>
 
-        {/* Preview section */}
+        {/* Preview section — preview is stored truncated at 80 chars */}
         {sessionPreview && (
           <div className="px-4 py-2 border-t border-cc-border/50">
             <p className="text-[12px] text-cc-muted leading-relaxed line-clamp-3 italic">
-              &ldquo;{sessionPreview}&rdquo;
+              {sessionPreview.length >= 80 ? `${sessionPreview}...` : sessionPreview}
             </p>
           </div>
         )}
@@ -200,6 +204,7 @@ export function SessionHoverCard({
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
