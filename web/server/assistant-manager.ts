@@ -196,7 +196,32 @@ export class AssistantManager {
 
     this.ensureWorkspace();
 
-    console.log("[assistant] Launching assistant session...");
+    // Try to relaunch existing session (reuses session ID + --resume for context)
+    if (this.config.sessionId) {
+      const existingSession = this.launcher.getSession(this.config.sessionId);
+      if (existingSession) {
+        console.log("[assistant] Relaunching existing session:", this.config.sessionId);
+        const ok = await this.launcher.relaunch(this.config.sessionId);
+        if (ok) {
+          this.config.enabled = true;
+          this.config.lastActiveAt = Date.now();
+          this.saveConfig();
+
+          // Re-register the name (may have been lost from in-memory map)
+          sessionNames.setName(this.config.sessionId, "Companion");
+
+          try {
+            await this.waitForCLIConnection(this.config.sessionId);
+            console.log("[assistant] Assistant session relaunched:", this.config.sessionId);
+            return this.launcher.getSession(this.config.sessionId) ?? null;
+          } catch (e) {
+            console.warn("[assistant] Relaunch failed, starting fresh:", e);
+          }
+        }
+      }
+    }
+
+    console.log("[assistant] Launching new assistant session...");
 
     const session = this.launcher.launch({
       model: this.config.model,
