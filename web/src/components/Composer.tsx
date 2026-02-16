@@ -135,6 +135,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
       images: images.length > 0 ? images.map((img) => ({ media_type: img.mediaType, data: img.base64 })) : undefined,
     });
 
+    useStore.getState().setSessionPreview(sessionId, msg.slice(0, 80));
     useStore.getState().appendMessage(sessionId, {
       id: `user-${Date.now()}-${++idCounter}`,
       role: "user",

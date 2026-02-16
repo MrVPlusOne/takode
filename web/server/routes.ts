@@ -725,6 +725,7 @@ export function createRoutes(
         gitBehind: bridge?.git_behind || 0,
         totalLinesAdded: bridge?.total_lines_added || 0,
         totalLinesRemoved: bridge?.total_lines_removed || 0,
+        lastMessagePreview: wsBridge.getLastUserMessage(s.sessionId) || "",
       };
     });
     return c.json(enriched);

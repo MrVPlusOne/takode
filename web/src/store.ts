@@ -43,6 +43,9 @@ interface AppState {
   // Track sessions that were just renamed (for animation)
   recentlyRenamed: Set<string>;
 
+  // Last user message preview per session (truncated)
+  sessionPreviews: Map<string, string>;
+
   // PR status per session (pushed by server via WebSocket)
   prStatus: Map<string, PRStatusResponse>;
 
@@ -122,6 +125,9 @@ interface AppState {
   setSessionName: (sessionId: string, name: string) => void;
   markRecentlyRenamed: (sessionId: string) => void;
   clearRecentlyRenamed: (sessionId: string) => void;
+
+  // Session preview actions
+  setSessionPreview: (sessionId: string, preview: string) => void;
 
   // PR status action
   setPRStatus: (sessionId: string, status: PRStatusResponse) => void;
@@ -239,6 +245,7 @@ export const useStore = create<AppState>((set) => ({
   changedFiles: new Map(),
   sessionNames: getInitialSessionNames(),
   recentlyRenamed: new Set(),
+  sessionPreviews: new Map(),
   prStatus: new Map(),
   mcpServers: new Map(),
   toolProgress: new Map(),
@@ -377,6 +384,8 @@ export const useStore = create<AppState>((set) => ({
       sessionNames.delete(sessionId);
       const recentlyRenamed = new Set(s.recentlyRenamed);
       recentlyRenamed.delete(sessionId);
+      const sessionPreviews = new Map(s.sessionPreviews);
+      sessionPreviews.delete(sessionId);
       const diffPanelSelectedFile = new Map(s.diffPanelSelectedFile);
       diffPanelSelectedFile.delete(sessionId);
       const mcpServers = new Map(s.mcpServers);
@@ -404,6 +413,7 @@ export const useStore = create<AppState>((set) => ({
         changedFiles,
         sessionNames,
         recentlyRenamed,
+        sessionPreviews,
         diffPanelSelectedFile,
         mcpServers,
         toolProgress,
@@ -560,6 +570,13 @@ export const useStore = create<AppState>((set) => ({
       return { recentlyRenamed };
     }),
 
+  setSessionPreview: (sessionId, preview) =>
+    set((s) => {
+      const sessionPreviews = new Map(s.sessionPreviews);
+      sessionPreviews.set(sessionId, preview.slice(0, 80));
+      return { sessionPreviews };
+    }),
+
   setPRStatus: (sessionId, status) =>
     set((s) => {
       const prStatus = new Map(s.prStatus);
@@ -683,6 +700,7 @@ export const useStore = create<AppState>((set) => ({
       changedFiles: new Map(),
       sessionNames: new Map(),
       recentlyRenamed: new Set(),
+      sessionPreviews: new Map(),
       mcpServers: new Map(),
       toolProgress: new Map(),
       prStatus: new Map(),
