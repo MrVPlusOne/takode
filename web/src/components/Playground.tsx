@@ -516,6 +516,7 @@ export function Playground() {
     const prevPerms = snapshot.pendingPermissions.get(sessionId);
     const prevConn = snapshot.connectionStatus.get(sessionId);
     const prevCli = snapshot.cliConnected.get(sessionId);
+    const prevCliEver = snapshot.cliEverConnected.get(sessionId);
     const prevStatus = snapshot.sessionStatus.get(sessionId);
     const prevStreaming = snapshot.streaming.get(sessionId);
     const prevStreamingStartedAt = snapshot.streamingStartedAt.get(sessionId);
@@ -592,6 +593,7 @@ export function Playground() {
         const pendingPermissions = new Map(s.pendingPermissions);
         const connectionStatus = new Map(s.connectionStatus);
         const cliConnected = new Map(s.cliConnected);
+        const cliEverConnected = new Map(s.cliEverConnected);
         const sessionStatus = new Map(s.sessionStatus);
         const streaming = new Map(s.streaming);
         const streamingStartedAt = new Map(s.streamingStartedAt);
@@ -602,6 +604,7 @@ export function Playground() {
         if (prevPerms) pendingPermissions.set(sessionId, prevPerms); else pendingPermissions.delete(sessionId);
         if (prevConn) connectionStatus.set(sessionId, prevConn); else connectionStatus.delete(sessionId);
         if (typeof prevCli === "boolean") cliConnected.set(sessionId, prevCli); else cliConnected.delete(sessionId);
+        if (typeof prevCliEver === "boolean") cliEverConnected.set(sessionId, prevCliEver); else cliEverConnected.delete(sessionId);
         if (prevStatus) sessionStatus.set(sessionId, prevStatus); else sessionStatus.delete(sessionId);
         if (typeof prevStreaming === "string") streaming.set(sessionId, prevStreaming); else streaming.delete(sessionId);
         if (typeof prevStreamingStartedAt === "number") streamingStartedAt.set(sessionId, prevStreamingStartedAt); else streamingStartedAt.delete(sessionId);
@@ -613,6 +616,7 @@ export function Playground() {
           pendingPermissions,
           connectionStatus,
           cliConnected,
+          cliEverConnected,
           sessionStatus,
           streaming,
           streamingStartedAt,

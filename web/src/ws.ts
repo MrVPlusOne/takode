@@ -622,6 +622,11 @@ function handleParsedMessage(
       // This prevents cross-session message contamination that occurred
       // when the old merge logic kept stale messages from a previous session.
       store.setMessages(sessionId, chatMessages);
+      // If we received history with messages, the CLI was connected before (e.g. page refresh).
+      // Mark it so the UI shows "CLI disconnected" instead of "Starting session..." if it drops.
+      if (chatMessages.length > 0) {
+        store.setCliEverConnected(sessionId);
+      }
       processedToolUseIds.delete(sessionId);
       taskCounters.delete(sessionId);
       // Extract last user message as sidebar preview

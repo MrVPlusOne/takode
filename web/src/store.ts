@@ -29,6 +29,8 @@ interface AppState {
   // Connection state per session
   connectionStatus: Map<string, "connecting" | "connected" | "disconnected">;
   cliConnected: Map<string, boolean>;
+  // Whether the CLI has ever connected for this session (to distinguish "starting" from "disconnected")
+  cliEverConnected: Map<string, boolean>;
 
   // Session status
   sessionStatus: Map<string, "idle" | "running" | "compacting" | null>;
@@ -165,6 +167,7 @@ interface AppState {
   // Connection actions
   setConnectionStatus: (sessionId: string, status: "connecting" | "connected" | "disconnected") => void;
   setCliConnected: (sessionId: string, connected: boolean) => void;
+  setCliEverConnected: (sessionId: string) => void;
   setSessionStatus: (sessionId: string, status: "idle" | "running" | "compacting" | null) => void;
 
   // Diff panel actions
@@ -249,6 +252,7 @@ export const useStore = create<AppState>((set) => ({
   pendingPermissions: new Map(),
   connectionStatus: new Map(),
   cliConnected: new Map(),
+  cliEverConnected: new Map(),
   sessionStatus: new Map(),
   previousPermissionMode: new Map(),
   askPermission: new Map(),
@@ -384,6 +388,8 @@ export const useStore = create<AppState>((set) => ({
       connectionStatus.delete(sessionId);
       const cliConnected = new Map(s.cliConnected);
       cliConnected.delete(sessionId);
+      const cliEverConnected = new Map(s.cliEverConnected);
+      cliEverConnected.delete(sessionId);
       const sessionStatus = new Map(s.sessionStatus);
       sessionStatus.delete(sessionId);
       const previousPermissionMode = new Map(s.previousPermissionMode);
@@ -426,6 +432,7 @@ export const useStore = create<AppState>((set) => ({
         streamingPauseStartedAt,
         connectionStatus,
         cliConnected,
+        cliEverConnected,
         sessionStatus,
         previousPermissionMode,
         askPermission,
@@ -739,7 +746,19 @@ export const useStore = create<AppState>((set) => ({
     set((s) => {
       const cliConnected = new Map(s.cliConnected);
       cliConnected.set(sessionId, connected);
+      if (connected) {
+        const cliEverConnected = new Map(s.cliEverConnected);
+        cliEverConnected.set(sessionId, true);
+        return { cliConnected, cliEverConnected };
+      }
       return { cliConnected };
+    }),
+
+  setCliEverConnected: (sessionId) =>
+    set((s) => {
+      const cliEverConnected = new Map(s.cliEverConnected);
+      cliEverConnected.set(sessionId, true);
+      return { cliEverConnected };
     }),
 
   setSessionStatus: (sessionId, status) =>
@@ -783,6 +802,7 @@ export const useStore = create<AppState>((set) => ({
       pendingPermissions: new Map(),
       connectionStatus: new Map(),
       cliConnected: new Map(),
+      cliEverConnected: new Map(),
       sessionStatus: new Map(),
       previousPermissionMode: new Map(),
       askPermission: new Map(),

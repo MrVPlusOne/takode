@@ -11,6 +11,7 @@ export function ChatView({ sessionId }: { sessionId: string }) {
     (s) => s.connectionStatus.get(sessionId) ?? "disconnected"
   );
   const cliConnected = useStore((s) => s.cliConnected.get(sessionId) ?? false);
+  const cliEverConnected = useStore((s) => s.cliEverConnected.get(sessionId) ?? false);
 
   const perms = useMemo(
     () => (sessionPerms ? Array.from(sessionPerms.values()) : []),
@@ -19,8 +20,21 @@ export function ChatView({ sessionId }: { sessionId: string }) {
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      {/* CLI disconnected banner */}
-      {connStatus === "connected" && !cliConnected && (
+      {/* CLI starting banner (CLI has never connected yet — still spawning) */}
+      {connStatus === "connected" && !cliConnected && !cliEverConnected && (
+        <div className="px-4 py-2 bg-cc-border/30 border-b border-cc-border text-center flex items-center justify-center gap-2">
+          <svg className="animate-spin h-3 w-3 text-cc-text-secondary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+          <span className="text-xs text-cc-text-secondary font-medium">
+            Starting session...
+          </span>
+        </div>
+      )}
+
+      {/* CLI disconnected banner (CLI was connected before but dropped) */}
+      {connStatus === "connected" && !cliConnected && cliEverConnected && (
         <div className="px-4 py-2 bg-cc-warning/10 border-b border-cc-warning/20 text-center flex items-center justify-center gap-3">
           <span className="text-xs text-cc-warning font-medium">
             CLI disconnected
