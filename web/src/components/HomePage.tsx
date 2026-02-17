@@ -32,15 +32,43 @@ function readFileAsBase64(file: File): Promise<{ base64: string; mediaType: stri
 
 let idCounter = 0;
 
+// ─── Branch persistence helpers ─────────────────────────────────────────────
+
+function getSavedBranches(): Record<string, string> {
+  try {
+    return JSON.parse(localStorage.getItem("cc-branch") || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function saveBranch(repoRoot: string, branchName: string) {
+  const map = getSavedBranches();
+  map[repoRoot] = branchName;
+  // Cap at 20 entries to prevent unbounded growth
+  const keys = Object.keys(map);
+  if (keys.length > 20) {
+    delete map[keys[0]];
+  }
+  localStorage.setItem("cc-branch", JSON.stringify(map));
+}
+
 export function HomePage() {
   const [text, setText] = useState("");
   const [backend, setBackend] = useState<BackendType>(() =>
     (localStorage.getItem("cc-backend") as BackendType) || "claude",
   );
   const [backends, setBackends] = useState<BackendInfo[]>([]);
-  const [model, setModel] = useState(() => getDefaultModel(
-    (localStorage.getItem("cc-backend") as BackendType) || "claude",
-  ));
+  const [model, setModel] = useState(() => {
+    const b = (localStorage.getItem("cc-backend") as BackendType) || "claude";
+    const saved = localStorage.getItem(`cc-model-${b}`);
+    if (saved) {
+      const statics = getModelsForBackend(b);
+      // Accept if in static list, or optimistically for codex (dynamic models load later)
+      if (statics.some((m) => m.value === saved) || b === "codex") return saved;
+    }
+    return getDefaultModel(b);
+  });
   const [mode, setMode] = useState(() => {
     const saved = localStorage.getItem("cc-mode");
     const b = (localStorage.getItem("cc-backend") as BackendType) || "claude";
@@ -80,7 +108,9 @@ export function HomePage() {
 
   // Git branch state
   const [gitRepoInfo, setGitRepoInfo] = useState<GitRepoInfo | null>(null);
-  const [useWorktree, setUseWorktree] = useState(false);
+  const [useWorktree, setUseWorktree] = useState(
+    () => localStorage.getItem("cc-worktree") === "true",
+  );
   const [selectedBranch, setSelectedBranch] = useState("");
   const [branches, setBranches] = useState<GitBranchInfo[]>([]);
   const [showBranchDropdown, setShowBranchDropdown] = useState(false);
@@ -125,12 +155,20 @@ export function HomePage() {
     localStorage.setItem("cc-mode", value);
   }
 
-  // When backend changes, reset model and mode to defaults
+  // When backend changes, restore saved model or fall back to default
   function switchBackend(newBackend: BackendType) {
     setBackend(newBackend);
     localStorage.setItem("cc-backend", newBackend);
     setDynamicModels(null);
-    setModel(getDefaultModel(newBackend));
+
+    const savedModel = localStorage.getItem(`cc-model-${newBackend}`);
+    const statics = getModelsForBackend(newBackend);
+    if (savedModel && (statics.some((m) => m.value === savedModel) || newBackend === "codex")) {
+      setModel(savedModel);
+    } else {
+      setModel(getDefaultModel(newBackend));
+    }
+
     updateMode(getDefaultMode(newBackend));
   }
 
@@ -144,9 +182,10 @@ export function HomePage() {
       if (models.length > 0) {
         const options = toModelOptions(models);
         setDynamicModels(options);
-        // If current model isn't in the list, switch to first
+        // If current model isn't in the list, switch to first and persist
         if (!options.some((m) => m.value === model)) {
           setModel(options[0].value);
+          localStorage.setItem(`cc-model-${backend}`, options[0].value);
         }
       }
     }).catch(() => {
@@ -174,7 +213,7 @@ export function HomePage() {
     return () => document.removeEventListener("pointerdown", handleClick);
   }, []);
 
-  // Detect git repo when cwd changes
+  // Detect git repo when cwd changes; restore saved branch if valid
   useEffect(() => {
     if (!cwd) {
       setGitRepoInfo(null);
@@ -182,20 +221,23 @@ export function HomePage() {
     }
     api.getRepoInfo(cwd).then((info) => {
       setGitRepoInfo(info);
-      setSelectedBranch(info.currentBranch);
       setIsNewBranch(false);
-      api.listBranches(info.repoRoot).then(setBranches).catch(() => setBranches([]));
+      api.listBranches(info.repoRoot).then((branchList) => {
+        setBranches(branchList);
+        const saved = getSavedBranches()[info.repoRoot];
+        if (saved && branchList.some((b) => b.name === saved)) {
+          setSelectedBranch(saved);
+        } else {
+          setSelectedBranch(info.currentBranch);
+        }
+      }).catch(() => {
+        setBranches([]);
+        setSelectedBranch(info.currentBranch);
+      });
     }).catch(() => {
       setGitRepoInfo(null);
     });
   }, [cwd]);
-
-  // Fetch branches when git repo changes
-  useEffect(() => {
-    if (gitRepoInfo) {
-      api.listBranches(gitRepoInfo.repoRoot).then(setBranches).catch(() => setBranches([]));
-    }
-  }, [gitRepoInfo]);
 
 
   const selectedModel = MODELS.find((m) => m.value === model) || MODELS[0];
@@ -767,6 +809,7 @@ export function HomePage() {
                                   onClick={() => {
                                     setSelectedBranch(b.name);
                                     setIsNewBranch(false);
+                                    if (gitRepoInfo) saveBranch(gitRepoInfo.repoRoot, b.name);
                                     setShowBranchDropdown(false);
                                   }}
                                   className={`w-full px-3 py-1.5 text-xs text-left hover:bg-cc-hover transition-colors cursor-pointer flex items-center gap-2 ${
@@ -802,6 +845,7 @@ export function HomePage() {
                                   onClick={() => {
                                     setSelectedBranch(b.name);
                                     setIsNewBranch(false);
+                                    if (gitRepoInfo) saveBranch(gitRepoInfo.repoRoot, b.name);
                                     setShowBranchDropdown(false);
                                   }}
                                   className={`w-full px-3 py-1.5 text-xs text-left hover:bg-cc-hover transition-colors cursor-pointer flex items-center gap-2 ${
@@ -823,8 +867,10 @@ export function HomePage() {
                             <div className="border-t border-cc-border mt-1 pt-1">
                               <button
                                 onClick={() => {
-                                  setSelectedBranch(branchFilter.trim());
+                                  const name = branchFilter.trim();
+                                  setSelectedBranch(name);
                                   setIsNewBranch(true);
+                                  if (gitRepoInfo) saveBranch(gitRepoInfo.repoRoot, name);
                                   setShowBranchDropdown(false);
                                 }}
                                 className="w-full px-3 py-1.5 text-xs text-left hover:bg-cc-hover transition-colors cursor-pointer flex items-center gap-2 text-cc-primary"
@@ -848,7 +894,7 @@ export function HomePage() {
           {/* Worktree toggle (only when cwd is a git repo) */}
           {gitRepoInfo && (
             <button
-              onClick={() => setUseWorktree(!useWorktree)}
+              onClick={() => { const next = !useWorktree; setUseWorktree(next); localStorage.setItem("cc-worktree", String(next)); }}
               className={`flex items-center gap-1.5 px-2 py-1 text-xs rounded-md transition-colors cursor-pointer ${
                 useWorktree
                   ? "bg-cc-primary/15 text-cc-primary font-medium"
@@ -948,7 +994,7 @@ export function HomePage() {
                 {MODELS.map((m) => (
                   <button
                     key={m.value}
-                    onClick={() => { setModel(m.value); setShowModelDropdown(false); }}
+                    onClick={() => { setModel(m.value); localStorage.setItem(`cc-model-${backend}`, m.value); setShowModelDropdown(false); }}
                     className={`w-full px-3 py-2 text-xs text-left hover:bg-cc-hover transition-colors cursor-pointer flex items-center gap-2 ${
                       m.value === model ? "text-cc-primary font-medium" : "text-cc-fg"
                     }`}
