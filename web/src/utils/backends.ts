@@ -111,11 +111,11 @@ export function resolveClaudeCliMode(uiMode: string, askPermission: boolean): st
  *
  * | Ask Permission | Post-Plan CLI Mode   |
  * |---------------|---------------------|
- * | true          | "bypassPermissions" |
- * | false         | "acceptEdits"       |
+ * | true          | "acceptEdits"       |
+ * | false         | "bypassPermissions" |
  */
 export function resolvePostPlanMode(askPermission: boolean): string {
-  return askPermission ? "bypassPermissions" : "acceptEdits";
+  return askPermission ? "acceptEdits" : "bypassPermissions";
 }
 
 /**

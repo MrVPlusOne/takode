@@ -168,14 +168,14 @@ describe("resolvePostPlanMode", () => {
   // Tests the mode that should be set after a plan (ExitPlanMode) is approved.
   // After plan approval, the session should transition to an execution mode.
 
-  it("askPermission=true transitions to 'bypassPermissions' after plan approval", () => {
-    // Plan was reviewed and approved, so execute freely without per-tool prompts
-    expect(resolvePostPlanMode(true)).toBe("bypassPermissions");
+  it("askPermission=true transitions to 'acceptEdits' after plan approval", () => {
+    // User wants to review tool use, so prompt for each tool after plan approval
+    expect(resolvePostPlanMode(true)).toBe("acceptEdits");
   });
 
-  it("askPermission=false transitions to 'acceptEdits' after plan approval", () => {
-    // User opted out of asking, but plan was still reviewed; use acceptEdits for safety
-    expect(resolvePostPlanMode(false)).toBe("acceptEdits");
+  it("askPermission=false transitions to 'bypassPermissions' after plan approval", () => {
+    // User opted out of asking, so execute freely without per-tool prompts
+    expect(resolvePostPlanMode(false)).toBe("bypassPermissions");
   });
 });
 

@@ -1000,6 +1000,24 @@ export class WsBridge {
 
   private handleControlRequest(session: Session, msg: CLIControlRequestMessage) {
     if (msg.request.subtype === "can_use_tool") {
+      // Auto-approve tool permissions when askPermission is false, except for
+      // ExitPlanMode which always requires explicit user approval.
+      if (session.state.askPermission === false && msg.request.tool_name !== "ExitPlanMode") {
+        const ndjson = JSON.stringify({
+          type: "control_response",
+          response: {
+            subtype: "success",
+            request_id: msg.request_id,
+            response: {
+              behavior: "allow",
+              updatedInput: msg.request.input ?? {},
+            },
+          },
+        });
+        this.sendToCLI(session, ndjson);
+        return;
+      }
+
       const perm: PermissionRequest = {
         request_id: msg.request_id,
         tool_name: msg.request.tool_name,
@@ -1398,11 +1416,11 @@ export class WsBridge {
       // Auto-switch mode after ExitPlanMode approval.
       // When a plan is approved, transition to the appropriate execution mode
       // based on the session's askPermission setting:
-      //   askPermission=true  → bypassPermissions (plan was reviewed, execute freely)
-      //   askPermission=false → acceptEdits (allow edits without full bypass)
+      //   askPermission=true  → acceptEdits (user wants to review tool use)
+      //   askPermission=false → bypassPermissions (user wants no prompts)
       if (pending?.tool_name === "ExitPlanMode") {
         const askPerm = session.state.askPermission !== false; // default true
-        const postPlanMode = askPerm ? "bypassPermissions" : "acceptEdits";
+        const postPlanMode = askPerm ? "acceptEdits" : "bypassPermissions";
         this.handleSetPermissionMode(session, postPlanMode);
         console.log(`[ws-bridge] ExitPlanMode approved for session ${session.id}, switching to ${postPlanMode} (askPermission=${askPerm})`);
       }
