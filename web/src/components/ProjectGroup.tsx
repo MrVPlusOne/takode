@@ -26,6 +26,9 @@ interface ProjectGroupProps {
   onConfirmRename: () => void;
   onCancelRename: () => void;
   editInputRef: RefObject<HTMLInputElement | null>;
+  confirmArchiveId?: string | null;
+  onConfirmArchive?: () => void;
+  onCancelArchive?: () => void;
   isFirst: boolean;
 }
 
@@ -53,6 +56,9 @@ export function ProjectGroup({
   onConfirmRename,
   onCancelRename,
   editInputRef,
+  confirmArchiveId,
+  onConfirmArchive,
+  onCancelArchive,
   isFirst,
 }: ProjectGroupProps) {
   // Build summary badges
@@ -123,6 +129,9 @@ export function ProjectGroup({
                 onConfirmRename={onConfirmRename}
                 onCancelRename={onCancelRename}
                 editInputRef={editInputRef}
+                confirmArchiveId={confirmArchiveId}
+                onConfirmArchive={onConfirmArchive}
+                onCancelArchive={onCancelArchive}
               />
             );
           })}

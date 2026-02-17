@@ -191,11 +191,12 @@ export function Sidebar() {
 
   const handleArchiveSession = useCallback((e: React.MouseEvent, sessionId: string) => {
     e.stopPropagation();
-    // Check if session uses a container — if so, ask for confirmation
+    // Check if session uses a container or worktree — if so, ask for confirmation
     const sdkInfo = sdkSessions.find((s) => s.sessionId === sessionId);
     const bridgeState = sessions.get(sessionId);
     const isContainerized = bridgeState?.is_containerized || !!sdkInfo?.containerId || false;
-    if (isContainerized) {
+    const isWorktree = bridgeState?.is_worktree || sdkInfo?.isWorktree || false;
+    if (isContainerized || isWorktree) {
       setConfirmArchiveId(sessionId);
       return;
     }
@@ -309,6 +310,9 @@ export function Sidebar() {
     onConfirmRename: confirmRename,
     onCancelRename: cancelRename,
     editInputRef,
+    confirmArchiveId,
+    onConfirmArchive: confirmArchive,
+    onCancelArchive: cancelArchive,
   };
 
   return (
@@ -399,36 +403,6 @@ export function Sidebar() {
           );
         })()}
       </div>
-
-      {/* Container archive confirmation */}
-      {confirmArchiveId && (
-        <div className="mx-2 mb-1 p-2.5 rounded-[10px] bg-amber-500/10 border border-amber-500/20">
-          <div className="flex items-start gap-2">
-            <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4 text-amber-500 shrink-0 mt-0.5">
-              <path d="M8.982 1.566a1.13 1.13 0 00-1.96 0L.165 13.233c-.457.778.091 1.767.98 1.767h13.713c.889 0 1.438-.99.98-1.767L8.982 1.566zM8 5c.535 0 .954.462.9.995l-.35 3.507a.552.552 0 01-1.1 0L7.1 5.995A.905.905 0 018 5zm.002 6a1 1 0 110 2 1 1 0 010-2z" />
-            </svg>
-            <div className="flex-1 min-w-0">
-              <p className="text-[11px] text-cc-fg leading-snug">
-                Archiving will <strong>remove the container</strong> and any uncommitted changes.
-              </p>
-              <div className="flex gap-2 mt-2">
-                <button
-                  onClick={cancelArchive}
-                  className="px-2.5 py-1 text-[11px] font-medium rounded-md bg-cc-hover text-cc-muted hover:text-cc-fg transition-colors cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={confirmArchive}
-                  className="px-2.5 py-1 text-[11px] font-medium rounded-md bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors cursor-pointer"
-                >
-                  Archive
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Session list */}
       <div className="flex-1 overflow-y-auto px-2 pb-2">
