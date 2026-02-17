@@ -20,6 +20,7 @@ export interface SessionItem {
   permCount: number;
   cronJobId?: string;
   cronJobName?: string;
+  isWorktree?: boolean;
 }
 
 export interface ProjectGroup {
