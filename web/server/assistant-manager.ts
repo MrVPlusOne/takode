@@ -38,9 +38,9 @@ const DEFAULT_CONFIG: AssistantConfig = {
   contextRestorations: 0,
 };
 
-const DEFAULT_CLAUDE_MD = `# Companion
+const DEFAULT_CLAUDE_MD = `# Takode
 
-You are the Companion — the brain of The Companion,
+You are Takode — the brain of Takode,
 a web UI for Claude Code and Codex.
 
 ## Your Role
@@ -51,7 +51,7 @@ a web UI for Claude Code and Codex.
 
 ## Available Commands
 
-Use \`companion\` to manage The Companion. All commands output JSON.
+Use \`companion\` to manage Takode. All commands output JSON.
 
 ### Sessions
 - \`companion sessions list\` — list all sessions
@@ -84,7 +84,7 @@ Use \`companion\` to manage The Companion. All commands output JSON.
 - \`companion skills delete <slug>\` — delete a skill
 
 ### Status
-- \`companion status\` — overall Companion status
+- \`companion status\` — overall Takode status
 
 ## Creating Skills
 
@@ -120,10 +120,10 @@ The skill will be available in the next Claude Code session as \`/my-skill\`.
 
 ## Troubleshooting: \`companion\` command not found
 
-The \`companion\` CLI is defined in the \`bin\` field of the Companion's \`package.json\` (entry point: \`bin/cli.ts\`).
+The \`companion\` CLI is defined in the \`bin\` field of Takode's \`package.json\` (entry point: \`bin/cli.ts\`).
 If it's not in PATH, you can invoke it directly with \`bun <path-to-companion-repo>/web/bin/cli.ts <command> [args]\`.
 To fix permanently, create a symlink: \`ln -s <path-to-companion-repo>/web/bin/cli.ts ~/.local/bin/companion\`.
-Find the repo path by checking where this Companion server is running from (e.g. look at the process or check \`__COMPANION_PACKAGE_ROOT\` env var).
+Find the repo path by checking where this Takode server is running from (e.g. look at the process or check \`__COMPANION_PACKAGE_ROOT\` env var).
 
 ## Guidelines
 1. For coding tasks: create a NEW session in the right project directory rather than doing work yourself
@@ -208,7 +208,7 @@ export class AssistantManager {
           this.saveConfig();
 
           // Re-register the name (may have been lost from in-memory map)
-          sessionNames.setName(this.config.sessionId, "Companion");
+          sessionNames.setName(this.config.sessionId, "Takode");
 
           try {
             await this.waitForCLIConnection(this.config.sessionId);
@@ -240,7 +240,7 @@ export class AssistantManager {
     this.saveConfig();
 
     // Name the session
-    sessionNames.setName(session.sessionId, "Companion");
+    sessionNames.setName(session.sessionId, "Takode");
 
     try {
       await this.waitForCLIConnection(session.sessionId);
@@ -248,7 +248,7 @@ export class AssistantManager {
       // Send the initial greeting
       this.wsBridge.injectUserMessage(
         session.sessionId,
-        "You are the Companion. Say a brief hello and let the user know what you can help with (managing sessions, environments, scheduled tasks, and coding workflows). Keep it to 2-3 sentences.",
+        "You are Takode. Say a brief hello and let the user know what you can help with (managing sessions, environments, scheduled tasks, and coding workflows). Keep it to 2-3 sentences.",
       );
 
       console.log("[assistant] Assistant session started:", session.sessionId);
