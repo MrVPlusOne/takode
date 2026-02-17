@@ -318,6 +318,9 @@ export function Sidebar() {
         <div className="flex items-center gap-2 mb-4">
           <img src={logoSrc} alt="" className="w-7 h-7" />
           <span className="text-sm font-semibold text-cc-fg tracking-tight">Takode</span>
+          {import.meta.env.DEV && (
+            <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 leading-none">Dev</span>
+          )}
         </div>
 
         <button
@@ -375,7 +378,12 @@ export function Sidebar() {
 
               {/* Label + subtitle */}
               <div className="flex flex-col min-w-0">
-                <span className="text-[13px] font-semibold leading-tight tracking-tight">Takode</span>
+                <span className="text-[13px] font-semibold leading-tight tracking-tight">
+                  Takode
+                  {import.meta.env.DEV && (
+                    <span className="ml-1.5 text-[9px] font-bold uppercase tracking-wider px-1 py-px rounded bg-amber-500/20 text-amber-400 leading-none align-middle">Dev</span>
+                  )}
+                </span>
                 {isAlive ? (
                   <span className="text-[10px] text-cc-success leading-tight mt-0.5 flex items-center gap-1">
                     <span className="w-1 h-1 rounded-full bg-cc-success inline-block" />
