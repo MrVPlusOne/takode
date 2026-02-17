@@ -275,6 +275,7 @@ export function Sidebar() {
       permCount: pendingPermissions.get(id)?.size ?? 0,
       cronJobId: bridgeState?.cronJobId || sdkInfo?.cronJobId,
       cronJobName: bridgeState?.cronJobName || sdkInfo?.cronJobName,
+      isWorktree: bridgeState?.is_worktree || sdkInfo?.isWorktree || false,
     };
   }).sort((a, b) => b.createdAt - a.createdAt);
 

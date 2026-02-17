@@ -66,4 +66,6 @@ export interface SdkSessionInfo {
   cronJobName?: string;
   /** Truncated preview of the last user message */
   lastMessagePreview?: string;
+  /** Whether this session uses a git worktree */
+  isWorktree?: boolean;
 }
