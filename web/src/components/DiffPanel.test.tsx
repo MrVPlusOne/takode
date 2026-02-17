@@ -5,12 +5,14 @@ import "@testing-library/jest-dom";
 // ─── Mocks ──────────────────────────────────────────────────────────────────
 
 const mockApi = {
-  getFileDiff: vi.fn().mockResolvedValue({ path: "/repo/file.ts", diff: "" }),
+  getFileDiff: vi.fn().mockResolvedValue({ path: "/repo/file.ts", diff: "", baseBranch: "main" }),
+  listBranches: vi.fn().mockResolvedValue([]),
 };
 
 vi.mock("../api.js", () => ({
   api: {
     getFileDiff: (...args: unknown[]) => mockApi.getFileDiff(...args),
+    listBranches: (...args: unknown[]) => mockApi.listBranches(...args),
   },
 }));
 
@@ -48,7 +50,9 @@ import { DiffPanel } from "./DiffPanel.js";
 beforeEach(() => {
   vi.clearAllMocks();
   // Reset to default empty diff (clearAllMocks doesn't reset implementations)
-  mockApi.getFileDiff.mockResolvedValue({ path: "/repo/file.ts", diff: "" });
+  mockApi.getFileDiff.mockResolvedValue({ path: "/repo/file.ts", diff: "", baseBranch: "main" });
+  mockApi.listBranches.mockResolvedValue([]);
+  localStorage.clear();
   resetStore();
 });
 
@@ -83,7 +87,7 @@ describe("DiffPanel", () => {
   });
 
   it("fetches diff when a file is selected", async () => {
-    // Validates that file diffs are fetched and rendered, including the baseline context label in the header.
+    // Validates that file diffs are fetched and rendered, with the base branch selector in the header.
     const diffOutput = `diff --git a/src/app.ts b/src/app.ts
 --- a/src/app.ts
 +++ b/src/app.ts
@@ -93,7 +97,7 @@ describe("DiffPanel", () => {
 +new line
  line3`;
 
-    mockApi.getFileDiff.mockResolvedValue({ path: "/repo/src/app.ts", diff: diffOutput });
+    mockApi.getFileDiff.mockResolvedValue({ path: "/repo/src/app.ts", diff: diffOutput, baseBranch: "main" });
 
     resetStore({
       changedFiles: new Map([["s1", new Set(["/repo/src/app.ts"])]]),
@@ -103,18 +107,21 @@ describe("DiffPanel", () => {
     const { container } = render(<DiffPanel sessionId="s1" />);
 
     await waitFor(() => {
-      expect(mockApi.getFileDiff).toHaveBeenCalledWith("/repo/src/app.ts");
+      // getFileDiff is called with optional baseBranch param (undefined when using default)
+      expect(mockApi.getFileDiff).toHaveBeenCalledWith("/repo/src/app.ts", undefined);
     });
 
     // DiffViewer should render the diff content (may appear in top bar + DiffViewer header)
     await waitFor(() => {
       expect(container.querySelector(".diff-line-add")).toBeTruthy();
     });
-    expect(screen.getByText("Compared to default branch")).toBeInTheDocument();
+    // Base branch selector should show the resolved default
+    const select = container.querySelector("select") as HTMLSelectElement;
+    expect(select).toBeTruthy();
   });
 
   it("shows 'No changes' when diff is empty for selected file", async () => {
-    mockApi.getFileDiff.mockResolvedValueOnce({ path: "/repo/file.ts", diff: "" });
+    mockApi.getFileDiff.mockResolvedValueOnce({ path: "/repo/file.ts", diff: "", baseBranch: "main" });
 
     resetStore({
       changedFiles: new Map([["s1", new Set(["/repo/file.ts"])]]),
@@ -146,6 +153,30 @@ describe("DiffPanel", () => {
     render(<DiffPanel sessionId="s1" />);
     await waitFor(() => {
       expect(storeState.setDiffPanelSelectedFile).toHaveBeenCalledWith("s1", "/repo/src/inside.ts");
+    });
+  });
+
+  it("passes user-selected base branch to API calls", async () => {
+    // When a base branch is saved in localStorage, it should be passed to getFileDiff.
+    localStorage.setItem("cc-diff-base", JSON.stringify({ "/repo": "develop" }));
+
+    const diffOutput = `diff --git a/src/app.ts b/src/app.ts
+--- a/src/app.ts
++++ b/src/app.ts
+@@ -1 +1,2 @@
+ line1
++added`;
+    mockApi.getFileDiff.mockResolvedValue({ path: "/repo/src/app.ts", diff: diffOutput, baseBranch: "develop" });
+
+    resetStore({
+      changedFiles: new Map([["s1", new Set(["/repo/src/app.ts"])]]),
+      diffPanelSelectedFile: new Map([["s1", "/repo/src/app.ts"]]),
+    });
+
+    render(<DiffPanel sessionId="s1" />);
+
+    await waitFor(() => {
+      expect(mockApi.getFileDiff).toHaveBeenCalledWith("/repo/src/app.ts", "develop");
     });
   });
 });

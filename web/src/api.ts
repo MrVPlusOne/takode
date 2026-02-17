@@ -599,10 +599,11 @@ export const api = {
     ),
   writeFile: (path: string, content: string) =>
     put<{ ok: boolean; path: string }>("/fs/write", { path, content }),
-  getFileDiff: (path: string) =>
-    get<{ path: string; diff: string }>(
-      `/fs/diff?path=${encodeURIComponent(path)}`,
-    ),
+  getFileDiff: (path: string, base?: string) => {
+    let url = `/fs/diff?path=${encodeURIComponent(path)}`;
+    if (base) url += `&base=${encodeURIComponent(base)}`;
+    return get<{ path: string; diff: string; baseBranch?: string }>(url);
+  },
   getClaudeMdFiles: (cwd: string) =>
     get<{ cwd: string; files: { path: string; content: string }[] }>(
       `/fs/claude-md?cwd=${encodeURIComponent(cwd)}`,

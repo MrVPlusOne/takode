@@ -44,30 +44,18 @@ function execCaptureStdout(
   }
 }
 
-function resolveBranchDiffBases(
-  repoRoot: string,
-): string[] {
-  const options = { cwd: repoRoot, encoding: "utf-8", timeout: 5000 } as const;
-
+/** Resolve the commit to diff against (merge-base of baseBranch and HEAD). */
+function resolveDiffBase(repoRoot: string, baseBranch?: string): string {
+  const branch = baseBranch || gitUtils.resolveDefaultBranch(repoRoot);
   try {
-    const originHead = execSync("git symbolic-ref refs/remotes/origin/HEAD", options).trim();
-    const match = originHead.match(/^refs\/remotes\/origin\/(.+)$/);
-    if (match?.[1]) {
-      return [`origin/${match[1]}`, match[1]];
-    }
+    const mergeBase = execSync(`git merge-base ${branch} HEAD`, {
+      cwd: repoRoot, encoding: "utf-8", timeout: 5000,
+    }).trim();
+    if (mergeBase) return mergeBase;
   } catch {
-    // No remote HEAD ref available, fallback to common local defaults.
+    // No common ancestor — fall back to branch name directly
   }
-
-  try {
-    const branches = execSync("git branch --list main master", options).trim();
-    if (branches.includes("main")) return ["main"];
-    if (branches.includes("master")) return ["master"];
-  } catch {
-    // Ignore and use a conservative fallback below.
-  }
-
-  return ["main"];
+  return branch;
 }
 
 export function createRoutes(
@@ -1107,6 +1095,7 @@ export function createRoutes(
   api.get("/fs/diff", (c) => {
     const filePath = c.req.query("path");
     if (!filePath) return c.json({ error: "path required" }, 400);
+    const baseParam = c.req.query("base"); // optional user-selected base branch
     const absPath = resolve(filePath);
     try {
       const repoRoot = execSync("git rev-parse --show-toplevel", {
@@ -1119,19 +1108,19 @@ export function createRoutes(
         timeout: 5000,
       }).trim() || absPath;
 
+      const defaultBranch = gitUtils.resolveDefaultBranch(repoRoot);
+      const effectiveBase = baseParam || defaultBranch;
+      const diffBase = resolveDiffBase(repoRoot, effectiveBase);
+
       let diff = "";
-      const diffBases = resolveBranchDiffBases(repoRoot);
-      for (const base of diffBases) {
-        try {
-          diff = execCaptureStdout(`git diff ${base} -- "${relPath}"`, {
-            cwd: repoRoot,
-            encoding: "utf-8",
-            timeout: 5000,
-          });
-          break;
-        } catch {
-          // If a base ref is unavailable, try the next candidate.
-        }
+      try {
+        diff = execCaptureStdout(`git diff ${diffBase} -- "${relPath}"`, {
+          cwd: repoRoot,
+          encoding: "utf-8",
+          timeout: 5000,
+        });
+      } catch {
+        // Base ref unavailable — leave diff empty
       }
 
       // For untracked files, base-branch diff is empty. Show full file as added.
@@ -1150,7 +1139,7 @@ export function createRoutes(
         }
       }
 
-      return c.json({ path: absPath, diff });
+      return c.json({ path: absPath, diff, baseBranch: effectiveBase });
     } catch {
       return c.json({ path: absPath, diff: "" });
     }

@@ -38,6 +38,7 @@ vi.mock("./git-utils.js", () => ({
   checkoutBranch: vi.fn(),
   removeWorktree: vi.fn(),
   isWorktreeDirty: vi.fn(() => false),
+  resolveDefaultBranch: vi.fn(() => "main"),
 }));
 
 vi.mock("./session-names.js", () => ({
@@ -1314,8 +1315,8 @@ describe("GET /api/fs/diff", () => {
     expect(json).toEqual({ error: "path required" });
   });
 
-  it("returns unified diff for a file", async () => {
-    // Validates that /api/fs/diff uses the repository default branch as base (origin/main here).
+  it("returns unified diff for a file using merge-base", async () => {
+    // Validates that /api/fs/diff uses merge-base of the default branch and HEAD as the diff base.
     const diffOutput = `diff --git a/file.ts b/file.ts
 --- a/file.ts
 +++ b/file.ts
@@ -1327,8 +1328,8 @@ describe("GET /api/fs/diff", () => {
     vi.mocked(execSync)
       .mockReturnValueOnce("/repo\n") // rev-parse --show-toplevel
       .mockReturnValueOnce("file.ts\n") // ls-files --full-name
-      .mockReturnValueOnce("refs/remotes/origin/main\n") // symbolic-ref refs/remotes/origin/HEAD
-      .mockReturnValueOnce(diffOutput); // git diff origin/main
+      .mockReturnValueOnce("abc123\n") // merge-base main HEAD
+      .mockReturnValueOnce(diffOutput); // git diff abc123
 
     const res = await app.request("/api/fs/diff?path=/repo/file.ts", { method: "GET" });
 
@@ -1336,8 +1337,13 @@ describe("GET /api/fs/diff", () => {
     const json = await res.json();
     expect(json.diff).toBe(diffOutput);
     expect(json.path).toContain("file.ts");
+    expect(json.baseBranch).toBe("main");
     expect(vi.mocked(execSync)).toHaveBeenCalledWith(
-      expect.stringContaining("git diff origin/main"),
+      expect.stringContaining("git merge-base main HEAD"),
+      expect.objectContaining({ encoding: "utf-8", timeout: 5000 }),
+    );
+    expect(vi.mocked(execSync)).toHaveBeenCalledWith(
+      expect.stringContaining("git diff abc123"),
       expect.objectContaining({ encoding: "utf-8", timeout: 5000 }),
     );
   });
@@ -1355,8 +1361,8 @@ index 0000000..e69de29
     vi.mocked(execSync)
       .mockReturnValueOnce("/repo\n") // rev-parse --show-toplevel
       .mockReturnValueOnce("new.txt\n") // ls-files --full-name
-      .mockReturnValueOnce("refs/remotes/origin/main\n") // symbolic-ref refs/remotes/origin/HEAD
-      .mockReturnValueOnce("") // git diff origin/main -> empty for untracked
+      .mockReturnValueOnce("abc123\n") // merge-base main HEAD
+      .mockReturnValueOnce("") // git diff abc123 -> empty for untracked
       .mockReturnValueOnce("new.txt\n") // ls-files --others --exclude-standard
       .mockImplementationOnce(() => {
         const err = new Error("diff exits with 1 for differences") as Error & { stdout: string };
@@ -1375,8 +1381,8 @@ index 0000000..e69de29
     );
   });
 
-  it("falls back to local default branch when origin HEAD is unavailable", async () => {
-    // Ensures fallback chain works when symbolic-ref fails (e.g. no origin/HEAD): use local fallback branch.
+  it("falls back to branch name when merge-base fails", async () => {
+    // When merge-base fails (no common ancestor), falls back to diffing against the branch name directly.
     const diffOutput = `diff --git a/file.ts b/file.ts
 --- a/file.ts
 +++ b/file.ts
@@ -1387,20 +1393,40 @@ index 0000000..e69de29
       .mockReturnValueOnce("/repo\n") // rev-parse --show-toplevel
       .mockReturnValueOnce("file.ts\n") // ls-files --full-name
       .mockImplementationOnce(() => {
-        const err = new Error("no symbol ref") as Error & { stdout: string };
-        err.stdout = "error: ref refs/remotes/origin/HEAD is not a symbolic ref";
-        throw err;
-      }) // symbolic-ref refs/remotes/origin/HEAD unavailable
-      .mockReturnValueOnce("main\n") // branch --list fallback
-      .mockReturnValueOnce(diffOutput); // git diff main
+        throw new Error("fatal: no merge base found");
+      }) // merge-base main HEAD fails
+      .mockReturnValueOnce(diffOutput); // git diff main (fallback to branch name)
 
     const res = await app.request("/api/fs/diff?path=/repo/file.ts", { method: "GET" });
 
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.diff).toBe(diffOutput);
+    expect(json.baseBranch).toBe("main");
+  });
+
+  it("uses user-specified base branch when provided", async () => {
+    // The ?base= query param overrides the default branch for diff comparison.
+    const diffOutput = `diff --git a/file.ts b/file.ts
+--- a/file.ts
++++ b/file.ts
+@@ -1 +1,2 @@
+ line1
++added from develop`;
+    vi.mocked(execSync)
+      .mockReturnValueOnce("/repo\n") // rev-parse --show-toplevel
+      .mockReturnValueOnce("file.ts\n") // ls-files --full-name
+      .mockReturnValueOnce("def456\n") // merge-base develop HEAD
+      .mockReturnValueOnce(diffOutput); // git diff def456
+
+    const res = await app.request("/api/fs/diff?path=/repo/file.ts&base=develop", { method: "GET" });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.diff).toBe(diffOutput);
+    expect(json.baseBranch).toBe("develop");
     expect(vi.mocked(execSync)).toHaveBeenCalledWith(
-      expect.stringContaining("git diff main"),
+      expect.stringContaining("git merge-base develop HEAD"),
       expect.objectContaining({ encoding: "utf-8", timeout: 5000 }),
     );
   });

@@ -19,6 +19,27 @@ interface FileStats {
   deletions: number;
 }
 
+function getSavedDiffBases(): Record<string, string> {
+  try {
+    return JSON.parse(localStorage.getItem("cc-diff-base") || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function saveDiffBase(cwd: string, branch: string | null) {
+  const map = getSavedDiffBases();
+  if (branch) {
+    map[cwd] = branch;
+    // Cap at 20 entries
+    const keys = Object.keys(map);
+    if (keys.length > 20) delete map[keys[0]];
+  } else {
+    delete map[cwd];
+  }
+  localStorage.setItem("cc-diff-base", JSON.stringify(map));
+}
+
 export function DiffPanel({ sessionId }: { sessionId: string }) {
   const session = useStore((s) => s.sessions.get(sessionId));
   const sdkSession = useStore((s) => s.sdkSessions.find((sdk) => sdk.sessionId === sessionId));
@@ -38,6 +59,17 @@ export function DiffPanel({ sessionId }: { sessionId: string }) {
   // Track which set of files we've already fetched stats for
   const fetchedFilesRef = useRef<Set<string>>(new Set());
 
+  // Base branch for diff comparison (null = server default)
+  const [baseBranch, setBaseBranch] = useState<string | null>(() => {
+    if (!cwd) return null;
+    return getSavedDiffBases()[cwd] || null;
+  });
+  // The server-resolved default branch name (from first API response)
+  const [resolvedDefault, setResolvedDefault] = useState<string | null>(null);
+  // Available branches for the dropdown (fetched lazily)
+  const [availableBranches, setAvailableBranches] = useState<string[]>([]);
+  const branchesFetched = useRef(false);
+
   const changedFiles = useMemo(() => changedFilesSet ?? new Set<string>(), [changedFilesSet]);
 
   const relativeChangedFiles = useMemo(() => {
@@ -49,6 +81,23 @@ export function DiffPanel({ sessionId }: { sessionId: string }) {
       .sort((a, b) => a.rel.localeCompare(b.rel));
   }, [changedFiles, cwd]);
 
+  // Fetch branch list lazily (once per cwd)
+  useEffect(() => {
+    if (!cwd || branchesFetched.current) return;
+    branchesFetched.current = true;
+    api.listBranches(cwd).then((branches) => {
+      setAvailableBranches(branches.map((b) => b.name));
+    }).catch(() => {});
+  }, [cwd]);
+
+  const handleBaseBranchChange = useCallback((value: string | null) => {
+    setBaseBranch(value);
+    if (cwd) saveDiffBase(cwd, value);
+    // Invalidate all cached stats so they re-fetch with new base
+    fetchedFilesRef.current.clear();
+    setFileStats(new Map());
+  }, [cwd]);
+
   // Fetch diff stats for all changed files (in parallel)
   useEffect(() => {
     if (relativeChangedFiles.length === 0) return;
@@ -57,8 +106,15 @@ export function DiffPanel({ sessionId }: { sessionId: string }) {
     if (newFiles.length === 0) return;
 
     let cancelled = false;
+    const base = baseBranch || undefined;
     const promises = newFiles.map(({ abs }) =>
-      api.getFileDiff(abs).then((res) => ({ abs, stats: countDiffStats(res.diff) })).catch(() => ({ abs, stats: { additions: 0, deletions: 0 } })),
+      api.getFileDiff(abs, base).then((res) => {
+        // Capture the server-resolved default branch from first response
+        if (res.baseBranch && !resolvedDefault) {
+          setResolvedDefault(res.baseBranch);
+        }
+        return { abs, stats: countDiffStats(res.diff) };
+      }).catch(() => ({ abs, stats: { additions: 0, deletions: 0 } })),
     );
     Promise.all(promises).then((results) => {
       if (cancelled) return;
@@ -72,7 +128,7 @@ export function DiffPanel({ sessionId }: { sessionId: string }) {
       });
     });
     return () => { cancelled = true; };
-  }, [relativeChangedFiles]);
+  }, [relativeChangedFiles, baseBranch, resolvedDefault]);
 
   // Aggregate totals across all files
   const totalStats = useMemo(() => {
@@ -99,7 +155,7 @@ export function DiffPanel({ sessionId }: { sessionId: string }) {
     setSelectedFile(sessionId, relativeChangedFiles[0]?.abs ?? null);
   }, [selectedFile, relativeChangedFiles, sessionId, setSelectedFile]);
 
-  // Fetch diff when selected file changes
+  // Fetch diff when selected file or base branch changes
   useEffect(() => {
     if (!selectedFile) {
       setDiffContent("");
@@ -107,11 +163,13 @@ export function DiffPanel({ sessionId }: { sessionId: string }) {
     }
     let cancelled = false;
     setDiffLoading(true);
+    const base = baseBranch || undefined;
     api
-      .getFileDiff(selectedFile)
+      .getFileDiff(selectedFile, base)
       .then((res) => {
         if (!cancelled) {
           setDiffContent(res.diff);
+          if (res.baseBranch) setResolvedDefault(res.baseBranch);
           // Update stats from the fetched diff (may already exist but ensures freshness)
           setFileStats((prev) => {
             const next = new Map(prev);
@@ -128,7 +186,7 @@ export function DiffPanel({ sessionId }: { sessionId: string }) {
         }
       });
     return () => { cancelled = true; };
-  }, [selectedFile]);
+  }, [selectedFile, baseBranch]);
 
   const handleFileSelect = useCallback(
     (path: string) => {
@@ -272,9 +330,19 @@ export function DiffPanel({ sessionId }: { sessionId: string }) {
                 <span className="text-red-400">-{fileStats.get(selectedFile)!.deletions}</span>
               </span>
             )}
-            <span className="text-cc-muted text-[11px] shrink-0 hidden sm:inline">
-              Compared to default branch
-            </span>
+            <select
+              value={baseBranch || ""}
+              onChange={(e) => handleBaseBranchChange(e.target.value || null)}
+              className="text-cc-muted text-[11px] bg-transparent border border-cc-border rounded px-1.5 py-0.5 cursor-pointer hover:text-cc-fg hover:border-cc-fg/30 transition-colors shrink-0 hidden sm:block max-w-[180px]"
+              title="Base branch for diff comparison"
+            >
+              <option value="">
+                {resolvedDefault ? `vs ${resolvedDefault} (default)` : "vs default branch"}
+              </option>
+              {availableBranches.map((b) => (
+                <option key={b} value={b}>vs {b}</option>
+              ))}
+            </select>
           </div>
         )}
 

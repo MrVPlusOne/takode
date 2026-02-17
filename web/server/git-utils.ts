@@ -92,7 +92,7 @@ export function getRepoInfo(cwd: string): GitRepoInfo | null {
   };
 }
 
-function resolveDefaultBranch(repoRoot: string): string {
+export function resolveDefaultBranch(repoRoot: string): string {
   // Try origin HEAD
   const originRef = gitSafe("symbolic-ref refs/remotes/origin/HEAD", repoRoot);
   if (originRef) {
