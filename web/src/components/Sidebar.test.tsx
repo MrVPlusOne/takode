@@ -595,7 +595,7 @@ describe("Sidebar", () => {
     expect(screen.queryByText("from-rest")).not.toBeInTheDocument();
   });
 
-  it("codex session shows Codex pill when bridgeState is missing", () => {
+  it("codex session shows Codex icon when bridgeState is missing", () => {
     // Only sdkInfo available (no WS session_init received yet)
     const sdk = makeSdkSession("s1", { backendType: "codex" });
     mockState = createMockState({
@@ -604,11 +604,11 @@ describe("Sidebar", () => {
     });
 
     render(<Sidebar />);
-    // Should show "Codex" pill text
-    expect(screen.getByText("Codex")).toBeInTheDocument();
+    // Should show Codex backend icon
+    expect(screen.getByAltText("Codex")).toBeInTheDocument();
   });
 
-  it("session shows correct backend pill based on backendType", () => {
+  it("session shows correct backend icon based on backendType", () => {
     const session1 = makeSession("s1", { backend_type: "claude" });
     const session2 = makeSession("s2", { backend_type: "codex" });
     const sdk1 = makeSdkSession("s1", { backendType: "claude" });
@@ -619,11 +619,11 @@ describe("Sidebar", () => {
     });
 
     render(<Sidebar />);
-    // Both backend pills should be present
-    const claudePills = screen.getAllByText("Claude");
-    const codexPills = screen.getAllByText("Codex");
-    expect(claudePills.length).toBeGreaterThanOrEqual(1);
-    expect(codexPills.length).toBeGreaterThanOrEqual(1);
+    // Both backend icons should be present
+    const claudeIcons = screen.getAllByAltText("Claude");
+    const codexIcons = screen.getAllByAltText("Codex");
+    expect(claudeIcons.length).toBeGreaterThanOrEqual(1);
+    expect(codexIcons.length).toBeGreaterThanOrEqual(1);
   });
 
   it("sessions are grouped by project directory", () => {

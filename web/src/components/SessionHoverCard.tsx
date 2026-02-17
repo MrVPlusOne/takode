@@ -120,7 +120,7 @@ export function SessionHoverCard({
             </span>
           </div>
           <div className="flex items-center gap-1.5 mt-0.5">
-            <span className={`text-[11px] font-medium ${s.backendType === "codex" ? "text-blue-500" : "text-[#5BA8A0]"}`}>
+            <span className={`text-[11px] font-medium ${s.backendType === "codex" ? "text-blue-500" : "text-[#D97757]"}`}>
               {backendLabel}
             </span>
             {model && (

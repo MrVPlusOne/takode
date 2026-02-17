@@ -56,10 +56,9 @@ export function SessionItem({
   const label = sessionName || s.model || shortId;
   const isEditing = editingSessionId === s.id;
 
-  // Backend pill colors
-  const pillColors = s.backendType === "codex"
-    ? "text-blue-500 bg-blue-500/10"
-    : "text-[#5BA8A0] bg-[#5BA8A0]/10";
+  // Backend icon source
+  const backendLogo = s.backendType === "codex" ? "/logo-codex.svg" : "/logo.svg";
+  const backendAlt = s.backendType === "codex" ? "Codex" : "Claude";
 
   return (
     <div className={`relative group ${archived ? "opacity-50" : ""}`}>
@@ -95,7 +94,7 @@ export function SessionItem({
           className={`absolute left-0 top-2 bottom-2 w-[2px] rounded-full ${
             s.backendType === "codex"
               ? "bg-blue-500"
-              : "bg-[#5BA8A0]"
+              : "bg-[#D97757]"
           } ${isActive ? "opacity-100" : "opacity-40 group-hover:opacity-70"} transition-opacity`}
         />
 
@@ -143,9 +142,11 @@ export function SessionItem({
                   >
                     {label}
                   </span>
-                  <span className={`text-[9px] font-medium px-1.5 rounded-full leading-[16px] shrink-0 ${pillColors}`}>
-                    {s.backendType === "codex" ? "Codex" : "Claude"}
-                  </span>
+                  <img
+                    src={backendLogo}
+                    alt={backendAlt}
+                    className="w-3.5 h-3.5 shrink-0 object-contain"
+                  />
                   {s.isContainerized && (
                     <span className="text-[9px] font-medium px-1.5 rounded-full leading-[16px] shrink-0 text-blue-400 bg-blue-500/10">
                       Docker
