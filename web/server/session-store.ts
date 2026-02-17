@@ -1,6 +1,6 @@
 import { mkdirSync, readdirSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { homedir } from "node:os";
 import type {
   SessionState,
   BrowserIncomingMessage,
@@ -27,14 +27,19 @@ export interface PersistedSession {
 
 // ─── Store ──────────────────────────────────────────────────────────────────
 
-const DEFAULT_DIR = join(tmpdir(), "vibe-sessions");
+const DEFAULT_BASE_DIR = join(homedir(), ".companion", "sessions");
 
 export class SessionStore {
   private dir: string;
   private debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-  constructor(dir?: string) {
-    this.dir = dir || DEFAULT_DIR;
+  constructor(dir?: string, port?: number) {
+    if (dir) {
+      this.dir = dir;
+    } else {
+      // Isolate storage per port so dev/prod servers don't share state
+      this.dir = port ? join(DEFAULT_BASE_DIR, String(port)) : DEFAULT_BASE_DIR;
+    }
     mkdirSync(this.dir, { recursive: true });
   }
 
