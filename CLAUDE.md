@@ -7,6 +7,10 @@ This file provides guidance to Claude Code & Codex when working with code in thi
 The Companion — a web UI for Claude Code & Codex. 
 It reverse-engineers the undocumented `--sdk-url` WebSocket protocol in the Claude Code CLI to provide a browser-based interface for running multiple Claude Code sessions with streaming, tool call visibility, and permission control.
 
+## Roadmap
+
+`ROADMAP.md` tracks ongoing work, planned features, and ideas. Consult it for context on what's in progress and update it when work begins or completes.
+
 ## Development Commands
 
 ```bash
