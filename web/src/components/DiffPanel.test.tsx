@@ -47,6 +47,8 @@ import { DiffPanel } from "./DiffPanel.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Reset to default empty diff (clearAllMocks doesn't reset implementations)
+  mockApi.getFileDiff.mockResolvedValue({ path: "/repo/file.ts", diff: "" });
   resetStore();
 });
 
@@ -91,7 +93,7 @@ describe("DiffPanel", () => {
 +new line
  line3`;
 
-    mockApi.getFileDiff.mockResolvedValueOnce({ path: "/repo/src/app.ts", diff: diffOutput });
+    mockApi.getFileDiff.mockResolvedValue({ path: "/repo/src/app.ts", diff: diffOutput });
 
     resetStore({
       changedFiles: new Map([["s1", new Set(["/repo/src/app.ts"])]]),

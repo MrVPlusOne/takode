@@ -17,16 +17,14 @@ _Nothing currently in progress._
 
 ## Planned
 
-- [ ] **Fix "CLI disconnected" banner on new session startup** — New sessions briefly show a "CLI disconnected" banner with a "Reconnect" button while the CLI process is still starting up. The browser WebSocket connects before the CLI has connected back. Should show a "Starting session..." loading state instead.
 - [ ] **Session branching (fork at earlier conversation point)** — Investigate adding the ability to branch/fork a session at an earlier point in the conversation, creating a new session that starts from that point. Both the Claude Code CLI and the VS Code extension already support this. This is a foundational capability that other features (like plan-approval-with-compaction) could build on top of.
-- [ ] **Diff view: show total additions/deletions** — The diff view currently lists changed files but doesn't show aggregate stats. Add a summary line with total additions and deletions (e.g. "+120 -45") similar to the GitHub PR UI, both per-file and as a total across all changed files.
 - [ ] **Diff view shows modified files as pure additions** — When a file is modified (not newly created), the diff view sometimes renders it as a full-file addition (`@@ -0,0 +1,N @@`) instead of showing the actual hunks that changed. This makes it impossible to see what actually changed. Likely a bug in how the diff is computed or how git diff output is parsed.
+- [ ] **Grouped terminal tool calls don't show individual output** — When consecutive Bash/terminal tool calls are grouped into a single "Terminal N" block, only the command descriptions are listed. There's no way to expand each command to see its output. Each command in the group should be expandable to reveal its stdout/stderr.
 
 ## To Verify
 
-- [ ] **Fix React duplicate key errors in message feed** — Server-side dedup on `messageHistory.push()` and client-side dedup in `setMessages()` prevent duplicate message IDs. Verify: open DevTools console during a session, check for no "two children with the same key" React warnings.
-- [ ] **Fix worktree session relaunch sharing directory** — Relaunching a worktree session now checks if the worktree path exists and isn't claimed by another session, creating a fresh worktree if needed. Verify: archive a worktree session, create a new session for the same branch, then unarchive and relaunch the old one — it should get a new worktree directory.
-- [ ] **Assistant port awareness** — The assistant's CLAUDE.md now instructs it to use `--port $COMPANION_PORT` in all `companion` commands (env var set automatically at launch). Verify: start the assistant in dev mode, ask it to create a session — it should use the correct port and the session should appear in the sidebar.
+- [ ] **Fix "CLI disconnected" banner on new session startup** — New sessions should now show a "Starting session..." banner with a spinner instead of "CLI disconnected" with a Reconnect button. The "CLI disconnected" banner only appears after the CLI has connected at least once and then drops. Verify: create a new session and observe the brief loading state before the CLI connects. Also verify that if a running session's CLI crashes, the "CLI disconnected" + Reconnect banner still appears correctly.
+- [ ] **Diff view: total additions/deletions** — The diff panel sidebar now shows per-file `+X -Y` stats next to each filename, a total `+X -Y` summary under the "Changed (N)" header, and per-file stats in the diff top bar next to the filename. Verify: make changes in a session (Edit/Write tools), switch to the Diff tab, and confirm the green/red stats appear in the sidebar and top bar. Check that totals update as new files are changed.
 
 ## Ideas
 

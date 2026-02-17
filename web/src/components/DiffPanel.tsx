@@ -1,7 +1,23 @@
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
 import { DiffViewer } from "./DiffViewer.js";
+
+/** Count additions and deletions from a unified diff string */
+function countDiffStats(diff: string): { additions: number; deletions: number } {
+  let additions = 0;
+  let deletions = 0;
+  for (const line of diff.split("\n")) {
+    if (line.startsWith("+") && !line.startsWith("+++")) additions++;
+    else if (line.startsWith("-") && !line.startsWith("---")) deletions++;
+  }
+  return { additions, deletions };
+}
+
+interface FileStats {
+  additions: number;
+  deletions: number;
+}
 
 export function DiffPanel({ sessionId }: { sessionId: string }) {
   const session = useStore((s) => s.sessions.get(sessionId));
@@ -17,6 +33,10 @@ export function DiffPanel({ sessionId }: { sessionId: string }) {
   const [sidebarOpen, setSidebarOpen] = useState(() =>
     typeof window !== "undefined" ? window.innerWidth >= 640 : true,
   );
+  // Per-file diff stats (abs path → { additions, deletions })
+  const [fileStats, setFileStats] = useState<Map<string, FileStats>>(new Map());
+  // Track which set of files we've already fetched stats for
+  const fetchedFilesRef = useRef<Set<string>>(new Set());
 
   const changedFiles = useMemo(() => changedFilesSet ?? new Set<string>(), [changedFilesSet]);
 
@@ -28,6 +48,42 @@ export function DiffPanel({ sessionId }: { sessionId: string }) {
       .map((fp) => ({ abs: fp, rel: fp.startsWith(cwd + "/") ? fp.slice(cwd.length + 1) : fp }))
       .sort((a, b) => a.rel.localeCompare(b.rel));
   }, [changedFiles, cwd]);
+
+  // Fetch diff stats for all changed files (in parallel)
+  useEffect(() => {
+    if (relativeChangedFiles.length === 0) return;
+    // Only fetch stats for files we haven't fetched yet
+    const newFiles = relativeChangedFiles.filter((f) => !fetchedFilesRef.current.has(f.abs));
+    if (newFiles.length === 0) return;
+
+    let cancelled = false;
+    const promises = newFiles.map(({ abs }) =>
+      api.getFileDiff(abs).then((res) => ({ abs, stats: countDiffStats(res.diff) })).catch(() => ({ abs, stats: { additions: 0, deletions: 0 } })),
+    );
+    Promise.all(promises).then((results) => {
+      if (cancelled) return;
+      setFileStats((prev) => {
+        const next = new Map(prev);
+        for (const { abs, stats } of results) {
+          next.set(abs, stats);
+          fetchedFilesRef.current.add(abs);
+        }
+        return next;
+      });
+    });
+    return () => { cancelled = true; };
+  }, [relativeChangedFiles]);
+
+  // Aggregate totals across all files
+  const totalStats = useMemo(() => {
+    let additions = 0;
+    let deletions = 0;
+    for (const stats of fileStats.values()) {
+      additions += stats.additions;
+      deletions += stats.deletions;
+    }
+    return { additions, deletions };
+  }, [fileStats]);
 
   // Auto-select first changed file if none selected
   useEffect(() => {
@@ -56,6 +112,12 @@ export function DiffPanel({ sessionId }: { sessionId: string }) {
       .then((res) => {
         if (!cancelled) {
           setDiffContent(res.diff);
+          // Update stats from the fetched diff (may already exist but ensures freshness)
+          setFileStats((prev) => {
+            const next = new Map(prev);
+            next.set(selectedFile, countDiffStats(res.diff));
+            return next;
+          });
           setDiffLoading(false);
         }
       })
@@ -128,19 +190,27 @@ export function DiffPanel({ sessionId }: { sessionId: string }) {
           shrink-0 h-full flex flex-col bg-cc-sidebar border-r border-cc-border transition-all duration-200 overflow-hidden
         `}
       >
-        <div className="w-[220px] px-4 py-3 text-[11px] font-semibold text-cc-fg uppercase tracking-wider border-b border-cc-border shrink-0 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-cc-warning" />
-            <span>Changed ({relativeChangedFiles.length})</span>
+        <div className="w-[220px] px-4 py-3 text-[11px] font-semibold text-cc-fg border-b border-cc-border shrink-0 flex flex-col gap-1">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 uppercase tracking-wider">
+              <span className="w-2 h-2 rounded-full bg-cc-warning" />
+              <span>Changed ({relativeChangedFiles.length})</span>
+            </div>
+            <button
+              onClick={() => setSidebarOpen(false)}
+              className="w-5 h-5 flex items-center justify-center rounded-md text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer sm:hidden"
+            >
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" className="w-3 h-3">
+                <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
+              </svg>
+            </button>
           </div>
-          <button
-            onClick={() => setSidebarOpen(false)}
-            className="w-5 h-5 flex items-center justify-center rounded-md text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer sm:hidden"
-          >
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" className="w-3 h-3">
-              <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
-            </svg>
-          </button>
+          {(totalStats.additions > 0 || totalStats.deletions > 0) && (
+            <div className="flex items-center gap-2 text-[11px] font-normal pl-4">
+              <span className="text-green-500">+{totalStats.additions}</span>
+              <span className="text-red-400">-{totalStats.deletions}</span>
+            </div>
+          )}
         </div>
 
         <div className="flex-1 overflow-y-auto overflow-x-hidden py-1">
@@ -160,7 +230,13 @@ export function DiffPanel({ sessionId }: { sessionId: string }) {
                   clipRule="evenodd"
                 />
               </svg>
-              <span className="truncate leading-snug">{rel}</span>
+              <span className="truncate leading-snug flex-1">{rel}</span>
+              {fileStats.has(abs) && (
+                <span className="text-[10px] font-mono-code shrink-0 flex items-center gap-1 ml-auto">
+                  <span className="text-green-500">+{fileStats.get(abs)!.additions}</span>
+                  <span className="text-red-400">-{fileStats.get(abs)!.deletions}</span>
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -190,6 +266,12 @@ export function DiffPanel({ sessionId }: { sessionId: string }) {
                 {selectedRelPath}
               </span>
             </div>
+            {selectedFile && fileStats.has(selectedFile) && (
+              <span className="text-[11px] font-mono-code shrink-0 flex items-center gap-1.5">
+                <span className="text-green-500">+{fileStats.get(selectedFile)!.additions}</span>
+                <span className="text-red-400">-{fileStats.get(selectedFile)!.deletions}</span>
+              </span>
+            )}
             <span className="text-cc-muted text-[11px] shrink-0 hidden sm:inline">
               Compared to default branch
             </span>
