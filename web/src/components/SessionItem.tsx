@@ -1,5 +1,6 @@
 import { useRef, type RefObject } from "react";
 import type { SessionItem as SessionItemType } from "../utils/project-grouping.js";
+import { SessionStatusDot } from "./SessionStatusDot.js";
 
 interface SessionItemProps {
   session: SessionItemType;
@@ -53,30 +54,7 @@ export function SessionItem({
   const buttonRef = useRef<HTMLButtonElement>(null);
   const shortId = s.id.slice(0, 8);
   const label = sessionName || s.model || shortId;
-  const isRunning = s.status === "running";
-  const isCompacting = s.status === "compacting";
   const isEditing = editingSessionId === s.id;
-
-  // Status dot class
-  const statusDotClass = archived
-    ? "bg-cc-muted/40"
-    : permCount > 0
-    ? "bg-cc-warning"
-    : s.sdkState === "exited"
-    ? "bg-cc-muted/40"
-    : isRunning
-    ? "bg-cc-success"
-    : isCompacting
-    ? "bg-cc-warning"
-    : "bg-cc-success/60";
-
-  // Pulse animation for running or permissions
-  const showPulse = !archived && (
-    permCount > 0 || (isRunning && s.isConnected)
-  );
-  const pulseClass = permCount > 0
-    ? "bg-cc-warning/40"
-    : "bg-cc-success/40";
 
   // Backend pill colors
   const pillColors = s.backendType === "codex"
@@ -122,15 +100,14 @@ export function SessionItem({
         />
 
         <div className="flex items-start gap-2">
-          {/* Status dot (replaces avatar) */}
-          <div className="relative shrink-0 mt-[7px]">
-            <span
-              className={`block w-2 h-2 rounded-full ${statusDotClass}`}
-            />
-            {showPulse && (
-              <span className={`absolute inset-0 w-2 h-2 rounded-full ${pulseClass} animate-[pulse-dot_1.5s_ease-in-out_infinite]`} />
-            )}
-          </div>
+          {/* Status indicator dot */}
+          <SessionStatusDot
+            archived={!!archived}
+            permCount={permCount}
+            isConnected={s.isConnected}
+            sdkState={s.sdkState}
+            status={s.status}
+          />
 
           {/* Content */}
           <div className="flex-1 min-w-0">
