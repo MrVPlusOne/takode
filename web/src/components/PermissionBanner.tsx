@@ -1,7 +1,6 @@
 import { useState } from "react";
-import Markdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { useStore } from "../store.js";
+import { MarkdownContent } from "./MarkdownContent.js";
 import { sendToSession } from "../ws.js";
 import type { PermissionRequest } from "../types.js";
 import type { PermissionUpdate } from "../../server/session-types.js";
@@ -58,6 +57,7 @@ export function PermissionBanner({
   }
 
   const isAskUser = permission.tool_name === "AskUserQuestion";
+  const isExitPlanMode = permission.tool_name === "ExitPlanMode";
   const suggestions = permission.permission_suggestions;
 
   // Extract first question info for collapsed preview
@@ -69,6 +69,14 @@ export function PermissionBanner({
   const previewText = firstQuestion && typeof firstQuestion.question === "string"
     ? firstQuestion.question
     : "Question from assistant";
+
+  // Extract plan preview for collapsed ExitPlanMode chip
+  const planText = isExitPlanMode && typeof permission.input?.plan === "string"
+    ? permission.input.plan
+    : "";
+  const planPreview = planText
+    ? planText.split("\n").find((l: string) => l.trim())?.replace(/^#+\s*/, "").trim() || "Plan approval"
+    : "Plan approval requested";
 
   // Collapsed AskUser chip — compact single-line view
   if (isAskUser && collapsed) {
@@ -114,6 +122,42 @@ export function PermissionBanner({
     );
   }
 
+  // Collapsed ExitPlanMode chip — compact single-line view
+  if (isExitPlanMode && collapsed) {
+    return (
+      <div className="px-2 sm:px-4 py-2 border-b border-cc-border animate-[fadeSlideIn_0.2s_ease-out]">
+        <div className="max-w-3xl mx-auto">
+          <button
+            onClick={() => setCollapsed(false)}
+            title="Expand plan"
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg border border-cc-warning/20 bg-cc-warning/5 hover:bg-cc-warning/10 transition-colors cursor-pointer text-left"
+          >
+            {/* Plan icon */}
+            <div className="w-6 h-6 rounded-md flex items-center justify-center shrink-0 bg-cc-warning/10 border border-cc-warning/20">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5 text-cc-warning">
+                <rect x="3" y="2" width="10" height="12" rx="1" />
+                <path d="M6 5h4M6 8h4M6 11h2" />
+              </svg>
+            </div>
+
+            {/* "Plan" badge */}
+            <span className="inline-block text-[10px] font-medium px-1.5 py-0.5 rounded bg-cc-warning/10 text-cc-warning shrink-0">
+              Plan
+            </span>
+
+            {/* Plan preview text */}
+            <span className="text-xs text-cc-fg truncate flex-1">{planPreview}</span>
+
+            {/* Expand chevron */}
+            <svg className="w-3 h-3 text-cc-muted shrink-0" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 5l3 3 3-3" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="px-2 sm:px-4 py-3 border-b border-cc-border animate-[fadeSlideIn_0.2s_ease-out]">
       <div className="max-w-3xl mx-auto">
@@ -139,16 +183,16 @@ export function PermissionBanner({
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1.5">
               <span className={`text-xs font-semibold ${isAskUser ? "text-cc-primary" : "text-cc-warning"}`}>
-                {isAskUser ? "Question" : "Permission Request"}
+                {isAskUser ? "Question" : isExitPlanMode ? "Plan" : "Permission Request"}
               </span>
-              {!isAskUser && (
+              {!isAskUser && !isExitPlanMode && (
                 <span className="text-[11px] text-cc-muted font-mono-code">{permission.tool_name}</span>
               )}
-              {isAskUser && (
+              {(isAskUser || isExitPlanMode) && (
                 <button
                   onClick={() => setCollapsed(true)}
                   className="ml-auto p-1 rounded hover:bg-cc-hover transition-colors cursor-pointer text-cc-muted hover:text-cc-fg"
-                  title="Minimize question"
+                  title={isAskUser ? "Minimize question" : "Minimize plan"}
                 >
                   <svg className="w-3.5 h-3.5" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
                     <path d="M3 7h8" />
@@ -514,8 +558,8 @@ function ExitPlanModeDisplay({ input }: { input: Record<string, unknown> }) {
               </svg>
             </button>
           </div>
-          <div className="px-3 py-2.5 max-h-64 overflow-y-auto text-xs text-cc-fg leading-relaxed markdown-body">
-            <Markdown remarkPlugins={[remarkGfm]}>{plan}</Markdown>
+          <div className="px-3 py-2.5 max-h-64 overflow-y-auto">
+            <MarkdownContent text={plan} size="sm" />
           </div>
         </div>
 
@@ -538,8 +582,8 @@ function ExitPlanModeDisplay({ input }: { input: Record<string, unknown> }) {
                   </svg>
                 </button>
               </div>
-              <div className="px-6 py-4 overflow-y-auto flex-1 text-sm text-cc-fg leading-relaxed markdown-body">
-                <Markdown remarkPlugins={[remarkGfm]}>{plan}</Markdown>
+              <div className="px-6 py-4 overflow-y-auto flex-1">
+                <MarkdownContent text={plan} />
               </div>
             </div>
           </div>

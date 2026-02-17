@@ -1,8 +1,7 @@
-import { useState, useMemo, type ComponentProps } from "react";
-import Markdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { useState, useMemo } from "react";
 import type { ChatMessage, ContentBlock } from "../types.js";
 import { ToolBlock, getToolIcon, getToolLabel, getPreview, ToolIcon } from "./ToolBlock.js";
+import { MarkdownContent } from "./MarkdownContent.js";
 import { Lightbox } from "./Lightbox.js";
 
 export function MessageBubble({ message, sessionId }: { message: ChatMessage; sessionId?: string }) {
@@ -177,108 +176,6 @@ function AssistantAvatar() {
       <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 text-cc-primary">
         <circle cx="8" cy="8" r="3" />
       </svg>
-    </div>
-  );
-}
-
-function MarkdownContent({ text }: { text: string }) {
-  return (
-    <div className="markdown-body text-[14px] sm:text-[15px] text-cc-fg leading-relaxed overflow-hidden">
-      <Markdown
-        remarkPlugins={[remarkGfm]}
-        components={{
-          p: ({ children }) => (
-            <p className="mb-3 last:mb-0">{children}</p>
-          ),
-          strong: ({ children }) => (
-            <strong className="font-semibold text-cc-fg">{children}</strong>
-          ),
-          em: ({ children }) => (
-            <em className="italic">{children}</em>
-          ),
-          h1: ({ children }) => (
-            <h1 className="text-xl font-bold text-cc-fg mt-4 mb-2">{children}</h1>
-          ),
-          h2: ({ children }) => (
-            <h2 className="text-lg font-bold text-cc-fg mt-3 mb-2">{children}</h2>
-          ),
-          h3: ({ children }) => (
-            <h3 className="text-base font-semibold text-cc-fg mt-3 mb-1">{children}</h3>
-          ),
-          ul: ({ children }) => (
-            <ul className="list-disc pl-5 mb-3 space-y-1">{children}</ul>
-          ),
-          ol: ({ children }) => (
-            <ol className="list-decimal pl-5 mb-3 space-y-1">{children}</ol>
-          ),
-          li: ({ children }) => (
-            <li className="text-cc-fg">{children}</li>
-          ),
-          a: ({ href, children }) => (
-            <a href={href} target="_blank" rel="noopener noreferrer" className="text-cc-primary hover:underline">
-              {children}
-            </a>
-          ),
-          blockquote: ({ children }) => (
-            <blockquote className="border-l-2 border-cc-primary/30 pl-3 my-2 text-cc-muted italic">
-              {children}
-            </blockquote>
-          ),
-          hr: () => (
-            <hr className="border-cc-border my-4" />
-          ),
-          code: (props: ComponentProps<"code">) => {
-            const { children, className } = props;
-            const match = /language-(\w+)/.exec(className || "");
-            const isBlock = match || (typeof children === "string" && children.includes("\n"));
-
-            if (isBlock) {
-              const lang = match?.[1] || "";
-              return (
-                <div className="my-2 rounded-lg overflow-hidden border border-cc-border">
-                  {lang && (
-                    <div className="px-3 py-1.5 bg-cc-code-bg/80 border-b border-cc-border text-[10px] text-cc-muted font-mono-code uppercase tracking-wider">
-                      {lang}
-                    </div>
-                  )}
-                  <pre className="px-2 sm:px-3 py-2 sm:py-2.5 bg-cc-code-bg text-cc-code-fg text-[12px] sm:text-[13px] font-mono-code leading-relaxed overflow-x-auto">
-                    <code>{children}</code>
-                  </pre>
-                </div>
-              );
-            }
-
-            return (
-              <code className="px-1 py-0.5 rounded bg-cc-code-bg/30 text-[13px] font-mono-code text-cc-primary">
-                {children}
-              </code>
-            );
-          },
-          pre: ({ children }) => <>{children}</>,
-          table: ({ children }) => (
-            <div className="overflow-x-auto my-2">
-              <table className="min-w-full text-sm border border-cc-border rounded-lg overflow-hidden">
-                {children}
-              </table>
-            </div>
-          ),
-          thead: ({ children }) => (
-            <thead className="bg-cc-code-bg/50">{children}</thead>
-          ),
-          th: ({ children }) => (
-            <th className="px-3 py-1.5 text-left text-xs font-semibold text-cc-fg border-b border-cc-border">
-              {children}
-            </th>
-          ),
-          td: ({ children }) => (
-            <td className="px-3 py-1.5 text-xs text-cc-fg border-b border-cc-border">
-              {children}
-            </td>
-          ),
-        }}
-      >
-        {text}
-      </Markdown>
     </div>
   );
 }

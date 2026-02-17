@@ -1,7 +1,6 @@
 import { useState } from "react";
-import Markdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { DiffViewer } from "./DiffViewer.js";
+import { MarkdownContent } from "./MarkdownContent.js";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
 
@@ -444,8 +443,8 @@ function ExitPlanModeDetail({ input }: { input: Record<string, unknown> }) {
           <div className="px-2.5 py-1.5 bg-cc-code-bg/10 border-b border-cc-border text-[10px] text-cc-muted font-mono-code uppercase tracking-wider">
             Plan
           </div>
-          <div className="px-3 py-2.5 max-h-64 overflow-y-auto text-xs text-cc-fg leading-relaxed markdown-body">
-            <Markdown remarkPlugins={[remarkGfm]}>{plan}</Markdown>
+          <div className="px-3 py-2.5 max-h-64 overflow-y-auto">
+            <MarkdownContent text={plan} size="sm" />
           </div>
         </div>
       )}
