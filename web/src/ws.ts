@@ -159,6 +159,7 @@ const IDEMPOTENT_OUTGOING_TYPES = new Set<BrowserOutgoingMessage["type"]>([
   "mcp_toggle",
   "mcp_reconnect",
   "mcp_set_servers",
+  "set_ask_permission",
 ]);
 
 function getWsUrl(sessionId: string): string {
@@ -257,11 +258,19 @@ function handleParsedMessage(
         const name = generateUniqueSessionName(existingNames);
         store.setSessionName(sessionId, name);
       }
+      // Sync askPermission from server state
+      if (typeof data.session.askPermission === "boolean") {
+        store.setAskPermission(sessionId, data.session.askPermission);
+      }
       break;
     }
 
     case "session_update": {
       store.updateSession(sessionId, data.session);
+      // Sync askPermission if updated
+      if (typeof data.session.askPermission === "boolean") {
+        store.setAskPermission(sessionId, data.session.askPermission);
+      }
       break;
     }
 
@@ -764,6 +773,7 @@ export function sendToSession(sessionId: string, msg: BrowserOutgoingMessage) {
       case "mcp_toggle":
       case "mcp_reconnect":
       case "mcp_set_servers":
+      case "set_ask_permission":
         if (!msg.client_msg_id) {
           outgoing = { ...msg, client_msg_id: nextClientMsgId() };
         }

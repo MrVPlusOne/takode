@@ -5,6 +5,9 @@ import {
   getModesForBackend,
   getDefaultModel,
   getDefaultMode,
+  resolveClaudeCliMode,
+  resolvePostPlanMode,
+  deriveUiMode,
   CLAUDE_MODELS,
   CODEX_MODELS,
   CLAUDE_MODES,
@@ -126,5 +129,73 @@ describe("static model/mode lists", () => {
   it("has at least 2 modes for each backend", () => {
     expect(CLAUDE_MODES.length).toBeGreaterThanOrEqual(2);
     expect(CODEX_MODES.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("claude modes contain plan and agent virtual modes", () => {
+    const values = CLAUDE_MODES.map((m) => m.value);
+    expect(values).toContain("plan");
+    expect(values).toContain("agent");
+  });
+
+  it("default claude mode is agent", () => {
+    expect(getDefaultMode("claude")).toBe("agent");
+  });
+});
+
+// ─── Mode mapping helpers ─────────────────────────────────────────────────────
+
+describe("resolveClaudeCliMode", () => {
+  // Tests the mapping from UI mode + askPermission to actual CLI permission mode.
+  // This is the core logic that translates the simplified UI into Claude Code CLI modes.
+
+  it("plan mode always resolves to 'plan' regardless of askPermission", () => {
+    expect(resolveClaudeCliMode("plan", true)).toBe("plan");
+    expect(resolveClaudeCliMode("plan", false)).toBe("plan");
+  });
+
+  it("agent mode with askPermission=true resolves to 'acceptEdits'", () => {
+    // User wants agent mode but still wants to be asked before tool execution
+    expect(resolveClaudeCliMode("agent", true)).toBe("acceptEdits");
+  });
+
+  it("agent mode with askPermission=false resolves to 'bypassPermissions'", () => {
+    // User wants full autonomous agent mode with no permission prompts
+    expect(resolveClaudeCliMode("agent", false)).toBe("bypassPermissions");
+  });
+});
+
+describe("resolvePostPlanMode", () => {
+  // Tests the mode that should be set after a plan (ExitPlanMode) is approved.
+  // After plan approval, the session should transition to an execution mode.
+
+  it("askPermission=true transitions to 'bypassPermissions' after plan approval", () => {
+    // Plan was reviewed and approved, so execute freely without per-tool prompts
+    expect(resolvePostPlanMode(true)).toBe("bypassPermissions");
+  });
+
+  it("askPermission=false transitions to 'acceptEdits' after plan approval", () => {
+    // User opted out of asking, but plan was still reviewed; use acceptEdits for safety
+    expect(resolvePostPlanMode(false)).toBe("acceptEdits");
+  });
+});
+
+describe("deriveUiMode", () => {
+  // Tests reverse mapping from CLI mode back to UI concept (plan vs agent).
+
+  it("'plan' CLI mode maps to 'plan' UI mode", () => {
+    expect(deriveUiMode("plan")).toBe("plan");
+  });
+
+  it("'acceptEdits' CLI mode maps to 'agent' UI mode", () => {
+    expect(deriveUiMode("acceptEdits")).toBe("agent");
+  });
+
+  it("'bypassPermissions' CLI mode maps to 'agent' UI mode", () => {
+    expect(deriveUiMode("bypassPermissions")).toBe("agent");
+  });
+
+  it("'default' CLI mode (legacy) maps to 'agent' UI mode", () => {
+    // Legacy mode from before this change should map to agent
+    expect(deriveUiMode("default")).toBe("agent");
   });
 });

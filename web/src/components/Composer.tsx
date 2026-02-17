@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useStore } from "../store.js";
 import { sendToSession } from "../ws.js";
 import { api } from "../api.js";
-import { CLAUDE_MODES, CODEX_MODES, getNextMode } from "../utils/backends.js";
+import { CLAUDE_MODES, CODEX_MODES, getNextMode, resolveClaudeCliMode, deriveUiMode } from "../utils/backends.js";
 import type { ModeOption } from "../utils/backends.js";
 
 let idCounter = 0;
@@ -47,10 +47,18 @@ export function Composer({ sessionId }: { sessionId: string }) {
 
   const isConnected = cliConnected.get(sessionId) ?? false;
   const currentMode = sessionData?.permissionMode || "acceptEdits";
-  const isPlan = currentMode === "plan";
   const isCodex = sessionData?.backend_type === "codex";
+  const askPermission = useStore((s) => s.askPermission.get(sessionId) ?? true);
+
+  // For Claude Code: derive UI mode from the CLI mode
+  const uiMode = isCodex ? currentMode : deriveUiMode(currentMode);
+  const isPlan = uiMode === "plan";
+
+  // Codex uses its own modes; Claude uses the new plan/agent modes
   const modes: ModeOption[] = isCodex ? CODEX_MODES : CLAUDE_MODES;
-  const modeLabel = modes.find((m) => m.value === currentMode)?.label?.toLowerCase() || currentMode;
+  const modeLabel = isCodex
+    ? (modes.find((m) => m.value === currentMode)?.label?.toLowerCase() || currentMode)
+    : uiMode;
 
   // Build command list from session data
   const allCommands = useMemo<CommandItem[]>(() => {
@@ -241,13 +249,38 @@ export function Composer({ sessionId }: { sessionId: string }) {
   }
 
   function selectMode(mode: string) {
+    if (!isConnected) return;
+    if (isCodex) {
+      // Codex: send mode directly as-is
+      sendToSession(sessionId, { type: "set_permission_mode", mode });
+      useStore.getState().updateSession(sessionId, { permissionMode: mode });
+      return;
+    }
+    // Claude Code: resolve the UI mode + askPermission to the actual CLI mode
+    const cliMode = resolveClaudeCliMode(mode, askPermission);
+    sendToSession(sessionId, { type: "set_permission_mode", mode: cliMode });
+    useStore.getState().updateSession(sessionId, { permissionMode: cliMode, uiMode: mode as "plan" | "agent" });
+  }
+
+  function toggleAskPermission() {
     if (!isConnected || isCodex) return;
-    sendToSession(sessionId, { type: "set_permission_mode", mode });
-    useStore.getState().updateSession(sessionId, { permissionMode: mode });
+    const newValue = !askPermission;
+    useStore.getState().setAskPermission(sessionId, newValue);
+    // Propagate to server for plan approval auto-switch
+    sendToSession(sessionId, { type: "set_ask_permission", askPermission: newValue });
+    // Re-resolve the CLI mode with the new ask permission value
+    const cliMode = resolveClaudeCliMode(uiMode, newValue);
+    sendToSession(sessionId, { type: "set_permission_mode", mode: cliMode });
+    useStore.getState().updateSession(sessionId, { permissionMode: cliMode, askPermission: newValue });
   }
 
   function cycleMode() {
-    selectMode(getNextMode(currentMode, modes));
+    if (isCodex) {
+      selectMode(getNextMode(currentMode, modes));
+    } else {
+      // Claude: toggle between plan and agent
+      selectMode(uiMode === "plan" ? "agent" : "plan");
+    }
   }
 
   const sessionStatus = useStore((s) => s.sessionStatus);
@@ -406,35 +439,23 @@ export function Composer({ sessionId }: { sessionId: string }) {
                 </svg>
                 <span>bypass</span>
               </span>
-            ) : (
+            ) : isCodex ? (
+              /* Codex sessions: keep the existing dropdown unchanged */
               <div className="relative" ref={modeDropdownRef}>
                 <button
-                  onClick={() => !isConnected || isCodex ? undefined : setShowModeDropdown(!showModeDropdown)}
-                  disabled={!isConnected || isCodex}
+                  onClick={() => setShowModeDropdown(!showModeDropdown)}
+                  disabled={!isConnected}
                   className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-[12px] font-medium transition-all select-none ${
-                    !isConnected || isCodex
+                    !isConnected
                       ? "opacity-30 cursor-not-allowed text-cc-muted"
-                      : isPlan
-                      ? "text-cc-primary hover:bg-cc-primary/10 cursor-pointer"
                       : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover cursor-pointer"
                   }`}
-                  title={isCodex ? "Mode is fixed for Codex sessions" : "Change mode (Shift+Tab to cycle)"}
+                  title="Change mode"
                 >
-                  {isPlan ? (
-                    <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
-                      <rect x="3" y="3" width="3.5" height="10" rx="0.75" />
-                      <rect x="9.5" y="3" width="3.5" height="10" rx="0.75" />
-                    </svg>
-                  ) : currentMode === "default" ? (
-                    <svg viewBox="0 0 16 16" fill="none" className="w-3.5 h-3.5">
-                      <path d="M8 1.5l5 2.5v4c0 3-2.2 5.2-5 6.5-2.8-1.3-5-3.5-5-6.5V4z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-                    </svg>
-                  ) : (
-                    <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
-                      <path d="M2.5 4l4 4-4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-                      <path d="M8.5 4l4 4-4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-                    </svg>
-                  )}
+                  <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
+                    <path d="M2.5 4l4 4-4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                    <path d="M8.5 4l4 4-4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                  </svg>
                   <span>{modeLabel}</span>
                   <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 opacity-50">
                     <path d="M4 6l4 4 4-4" />
@@ -455,6 +476,65 @@ export function Composer({ sessionId }: { sessionId: string }) {
                     ))}
                   </div>
                 )}
+              </div>
+            ) : (
+              /* Claude Code sessions: Plan/Agent toggle + Ask Permission switch */
+              <div className="flex items-center gap-2">
+                {/* Plan / Agent toggle */}
+                <div className="flex items-center bg-cc-hover/50 rounded-lg p-0.5">
+                  <button
+                    onClick={() => selectMode("plan")}
+                    disabled={!isConnected}
+                    className={`px-2 py-1 text-[11px] font-medium rounded-md transition-colors select-none ${
+                      !isConnected
+                        ? "opacity-30 cursor-not-allowed text-cc-muted"
+                        : isPlan
+                        ? "bg-cc-primary/15 text-cc-primary cursor-pointer"
+                        : "text-cc-muted hover:text-cc-fg cursor-pointer"
+                    }`}
+                    title="Plan mode: Claude creates a plan before executing (Shift+Tab to toggle)"
+                  >
+                    Plan
+                  </button>
+                  <button
+                    onClick={() => selectMode("agent")}
+                    disabled={!isConnected}
+                    className={`px-2 py-1 text-[11px] font-medium rounded-md transition-colors select-none ${
+                      !isConnected
+                        ? "opacity-30 cursor-not-allowed text-cc-muted"
+                        : !isPlan
+                        ? "bg-cc-card text-cc-fg shadow-sm cursor-pointer"
+                        : "text-cc-muted hover:text-cc-fg cursor-pointer"
+                    }`}
+                    title="Agent mode: Claude executes tools directly (Shift+Tab to toggle)"
+                  >
+                    Agent
+                  </button>
+                </div>
+
+                {/* Ask Permission toggle */}
+                <button
+                  onClick={toggleAskPermission}
+                  disabled={!isConnected}
+                  className={`flex items-center gap-1 px-1.5 py-1 rounded-md text-[11px] transition-colors select-none ${
+                    !isConnected
+                      ? "opacity-30 cursor-not-allowed text-cc-muted"
+                      : "cursor-pointer"
+                  }`}
+                  title={askPermission ? "Permissions: asking before tool use" : "Permissions: auto-approving tool use"}
+                >
+                  {/* Toggle track */}
+                  <span className={`relative inline-flex h-[14px] w-[24px] items-center rounded-full transition-colors ${
+                    askPermission ? "bg-cc-primary" : "bg-cc-border"
+                  }`}>
+                    <span className={`inline-block h-[10px] w-[10px] rounded-full bg-white transition-transform ${
+                      askPermission ? "translate-x-[12px]" : "translate-x-[2px]"
+                    }`} />
+                  </span>
+                  <span className={`${askPermission ? "text-cc-fg" : "text-cc-muted"}`}>
+                    Ask
+                  </span>
+                </button>
               </div>
             )}
 

@@ -54,8 +54,7 @@ export const CODEX_MODELS: ModelOption[] = [
 ];
 
 export const CLAUDE_MODES: ModeOption[] = [
-  { value: "bypassPermissions", label: "Agent" },
-  { value: "default", label: "Default" },
+  { value: "agent", label: "Agent" },
   { value: "plan", label: "Plan" },
 ];
 
@@ -87,4 +86,42 @@ export function getDefaultMode(backend: BackendType): string {
 export function getNextMode(currentMode: string, modes: ModeOption[]): string {
   const idx = modes.findIndex((m) => m.value === currentMode);
   return modes[(idx + 1) % modes.length].value;
+}
+
+// ─── Claude Code mode mapping ─────────────────────────────────────────────────
+
+/**
+ * Maps the UI mode ("plan" or "agent") + askPermission toggle to the actual
+ * Claude Code CLI permission mode string.
+ *
+ * | UI Mode | Ask Permission | CLI Mode          |
+ * |---------|---------------|-------------------|
+ * | plan    | true/false    | "plan"            |
+ * | agent   | true          | "acceptEdits"     |
+ * | agent   | false         | "bypassPermissions"|
+ */
+export function resolveClaudeCliMode(uiMode: string, askPermission: boolean): string {
+  if (uiMode === "plan") return "plan";
+  // agent mode
+  return askPermission ? "acceptEdits" : "bypassPermissions";
+}
+
+/**
+ * After a plan is approved (ExitPlanMode), determine the CLI mode to switch to.
+ *
+ * | Ask Permission | Post-Plan CLI Mode   |
+ * |---------------|---------------------|
+ * | true          | "bypassPermissions" |
+ * | false         | "acceptEdits"       |
+ */
+export function resolvePostPlanMode(askPermission: boolean): string {
+  return askPermission ? "bypassPermissions" : "acceptEdits";
+}
+
+/**
+ * Derive the UI mode from a raw CLI permission mode string.
+ * Used to translate server-reported permissionMode back to the UI concept.
+ */
+export function deriveUiMode(cliMode: string): "plan" | "agent" {
+  return cliMode === "plan" ? "plan" : "agent";
 }

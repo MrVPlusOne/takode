@@ -194,6 +194,7 @@ export class WsBridge {
     "mcp_toggle",
     "mcp_reconnect",
     "mcp_set_servers",
+    "set_ask_permission",
   ]);
   private sessions = new Map<string, Session>();
   private store: SessionStore | null = null;
@@ -1183,6 +1184,10 @@ export class WsBridge {
       case "mcp_set_servers":
         this.handleMcpSetServers(session, msg.servers);
         break;
+
+      case "set_ask_permission":
+        this.handleSetAskPermission(session, msg.askPermission);
+        break;
     }
   }
 
@@ -1355,6 +1360,18 @@ export class WsBridge {
         },
       });
       this.sendToCLI(session, ndjson);
+
+      // Auto-switch mode after ExitPlanMode approval.
+      // When a plan is approved, transition to the appropriate execution mode
+      // based on the session's askPermission setting:
+      //   askPermission=true  → bypassPermissions (plan was reviewed, execute freely)
+      //   askPermission=false → acceptEdits (allow edits without full bypass)
+      if (pending?.tool_name === "ExitPlanMode") {
+        const askPerm = session.state.askPermission !== false; // default true
+        const postPlanMode = askPerm ? "bypassPermissions" : "acceptEdits";
+        this.handleSetPermissionMode(session, postPlanMode);
+        console.log(`[ws-bridge] ExitPlanMode approved for session ${session.id}, switching to ${postPlanMode} (askPermission=${askPerm})`);
+      }
     } else {
       const ndjson = JSON.stringify({
         type: "control_response",
@@ -1402,6 +1419,15 @@ export class WsBridge {
     this.broadcastToBrowsers(session, {
       type: "session_update",
       session: { permissionMode: mode },
+    });
+    this.persistSession(session);
+  }
+
+  private handleSetAskPermission(session: Session, askPermission: boolean) {
+    session.state.askPermission = askPermission;
+    this.broadcastToBrowsers(session, {
+      type: "session_update",
+      session: { askPermission },
     });
     this.persistSession(session);
   }
