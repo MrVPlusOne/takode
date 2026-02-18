@@ -73,15 +73,13 @@ describe("deriveSessionStatus", () => {
     expect(result).toBe("idle");
   });
 
-  it("does NOT return 'disconnected' when not connected but sdkState is 'connected'", () => {
-    // For non-active sessions, the browser has no WebSocket so isConnected is
-    // always false. The REST API reports sdkState="connected" — this should NOT
-    // show as disconnected (red dot).
+  it("returns 'idle' when CLI is connected (REST fallback provides accurate isConnected)", () => {
+    // With the REST API enriching sessions with cliConnected, non-active sessions
+    // now get an accurate isConnected value. When the CLI is alive, isConnected=true.
     const result = deriveSessionStatus(makeProps({
-      isConnected: false,
+      isConnected: true,
       sdkState: "connected",
     }));
-    expect(result).not.toBe("disconnected");
     expect(result).toBe("idle");
   });
 

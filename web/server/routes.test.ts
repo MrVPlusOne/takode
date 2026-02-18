@@ -110,6 +110,7 @@ function createMockBridge() {
     getSession: vi.fn(() => null),
     getAllSessions: vi.fn(() => []),
     getLastUserMessage: vi.fn(() => undefined),
+    isCliConnected: vi.fn(() => false),
     getCodexRateLimits: vi.fn(() => null),
     markContainerized: vi.fn(),
   } as any;
@@ -595,12 +596,12 @@ describe("GET /api/sessions", () => {
       {
         sessionId: "s1", state: "running", cwd: "/a", name: "Fix auth bug",
         gitBranch: "", gitAhead: 0, gitBehind: 0, totalLinesAdded: 0, totalLinesRemoved: 0,
-        lastMessagePreview: "",
+        lastMessagePreview: "", cliConnected: false,
       },
       {
         sessionId: "s2", state: "stopped", cwd: "/b",
         gitBranch: "", gitAhead: 0, gitBehind: 0, totalLinesAdded: 0, totalLinesRemoved: 0,
-        lastMessagePreview: "",
+        lastMessagePreview: "", cliConnected: false,
       },
     ]);
   });

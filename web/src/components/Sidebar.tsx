@@ -320,7 +320,7 @@ export function Sidebar() {
       gitBehind: bridgeState?.git_behind || sdkInfo?.gitBehind || 0,
       linesAdded: bridgeState?.total_lines_added || sdkInfo?.totalLinesAdded || 0,
       linesRemoved: bridgeState?.total_lines_removed || sdkInfo?.totalLinesRemoved || 0,
-      isConnected: cliConnected.get(id) ?? false,
+      isConnected: cliConnected.get(id) ?? sdkInfo?.cliConnected ?? false,
       status: sessionStatus.get(id) ?? null,
       sdkState: sdkInfo?.state ?? null,
       createdAt: sdkInfo?.createdAt ?? 0,

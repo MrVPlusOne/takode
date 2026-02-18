@@ -40,10 +40,9 @@ export function deriveSessionStatus(props: SessionStatusDotProps): SessionVisual
 
   if (archived) return "archived";
   if (permCount > 0) return "permission";
-  // Disconnected: CLI process exited, or WebSocket says disconnected AND REST API
-  // doesn't indicate the process is alive. For non-active sessions (no browser WebSocket),
-  // isConnected is always false — rely on sdkState from the REST API instead.
-  if (sdkState === "exited" || (!isConnected && sdkState !== "starting" && sdkState !== "connected")) return "disconnected";
+  // Disconnected: CLI not connected and not still starting up.
+  // isConnected is accurate for all sessions (active via WebSocket, non-active via REST fallback).
+  if (!isConnected && sdkState !== "starting") return "disconnected";
   if (status === "running") return "running";
   if (status === "compacting") return "compacting";
   return "idle";

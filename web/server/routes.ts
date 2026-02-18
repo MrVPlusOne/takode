@@ -726,6 +726,7 @@ export function createRoutes(
           totalLinesAdded: bridge?.total_lines_added || 0,
           totalLinesRemoved: bridge?.total_lines_removed || 0,
           lastMessagePreview: wsBridge.getLastUserMessage(s.sessionId) || "",
+          cliConnected: wsBridge.isCliConnected(s.sessionId),
         };
       } catch (e) {
         console.warn(`[routes] Failed to enrich session ${s.sessionId}:`, e);

@@ -66,6 +66,8 @@ export interface SdkSessionInfo {
   cronJobName?: string;
   /** Truncated preview of the last user message */
   lastMessagePreview?: string;
+  /** Whether the CLI process is currently connected (from REST API) */
+  cliConnected?: boolean;
   /** Whether this session uses a git worktree */
   isWorktree?: boolean;
 }
