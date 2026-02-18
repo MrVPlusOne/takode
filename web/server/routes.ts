@@ -323,6 +323,7 @@ export function createRoutes(
         containerId,
         containerName,
         containerImage,
+        worktreeInfo,
       });
 
       // Re-track container with real session ID and mark session as containerized
@@ -686,6 +687,7 @@ export function createRoutes(
           containerId,
           containerName,
           containerImage,
+          worktreeInfo,
         });
 
         // Re-track container and mark session as containerized
