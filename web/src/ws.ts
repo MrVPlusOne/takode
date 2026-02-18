@@ -378,6 +378,7 @@ function handleParsedMessage(
       store.setStreamingStats(sessionId, null);
       store.clearToolProgress(sessionId);
       store.setSessionStatus(sessionId, "idle");
+      store.recordSessionActivity(sessionId, r.is_error ? "error" : "completed");
       // Play notification sound if enabled and tab is not focused
       if (!document.hasFocus() && store.notificationSound) {
         playNotificationSound();
@@ -432,6 +433,7 @@ function handleParsedMessage(
 
     case "permission_request": {
       store.addPermission(sessionId, data.request);
+      store.recordSessionActivity(sessionId, "permission");
       // Pause generation timer while waiting for user input
       store.pauseStreamingTimer(sessionId);
       if (!document.hasFocus() && store.notificationDesktop) {
@@ -548,6 +550,7 @@ function handleParsedMessage(
     case "cli_disconnected": {
       store.setCliConnected(sessionId, false);
       store.setSessionStatus(sessionId, null);
+      store.recordSessionActivity(sessionId, "disconnect");
       break;
     }
 

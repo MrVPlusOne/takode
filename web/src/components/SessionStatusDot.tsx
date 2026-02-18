@@ -2,12 +2,13 @@
  * SessionStatusDot — a small colored indicator showing the current state of a session.
  *
  * Status priority (highest to lowest):
- *   1. archived       -> gray dot, no glow
- *   2. permission      -> amber dot, breathing glow (needs user action)
- *   3. disconnected    -> red dot, no glow
- *   4. running         -> green dot, breathing glow (agent actively working)
- *   5. compacting      -> amber dot, breathing glow (context compaction)
- *   6. idle            -> dim green dot, no glow
+ *   1. archived          -> gray dot, no glow
+ *   2. permission         -> amber dot, breathing glow (needs user action)
+ *   3. disconnected       -> red dot, no glow
+ *   4. running            -> green dot, breathing glow (agent actively working)
+ *   5. compacting         -> amber dot, breathing glow (context compaction)
+ *   6. completed_unread   -> blue dot, no glow (agent finished, user hasn't checked)
+ *   7. idle               -> dim green dot, no glow
  */
 
 export type SessionVisualStatus =
@@ -16,6 +17,7 @@ export type SessionVisualStatus =
   | "disconnected"
   | "running"
   | "compacting"
+  | "completed_unread"
   | "idle";
 
 export interface SessionStatusDotProps {
@@ -29,6 +31,8 @@ export interface SessionStatusDotProps {
   sdkState: "starting" | "connected" | "running" | "exited" | null;
   /** Session activity status */
   status: "idle" | "running" | "compacting" | null;
+  /** Whether the session has unread results the user hasn't seen */
+  hasUnread?: boolean;
 }
 
 /**
@@ -36,7 +40,7 @@ export interface SessionStatusDotProps {
  * Exported for testability.
  */
 export function deriveSessionStatus(props: SessionStatusDotProps): SessionVisualStatus {
-  const { archived, permCount, isConnected, sdkState, status } = props;
+  const { archived, permCount, isConnected, sdkState, status, hasUnread } = props;
 
   if (archived) return "archived";
   if (permCount > 0) return "permission";
@@ -45,6 +49,7 @@ export function deriveSessionStatus(props: SessionStatusDotProps): SessionVisual
   if (!isConnected && sdkState !== "starting") return "disconnected";
   if (status === "running") return "running";
   if (status === "compacting") return "compacting";
+  if (hasUnread) return "completed_unread";
   return "idle";
 }
 
@@ -55,6 +60,7 @@ const DOT_COLOR: Record<SessionVisualStatus, string> = {
   disconnected: "bg-cc-error",
   running: "bg-cc-success",
   compacting: "bg-cc-warning",
+  completed_unread: "bg-blue-500",
   idle: "bg-cc-success/60",
 };
 
@@ -65,6 +71,7 @@ const SHOULD_GLOW: Record<SessionVisualStatus, boolean> = {
   disconnected: false,
   running: true,
   compacting: true,
+  completed_unread: false,
   idle: false,
 };
 
@@ -78,6 +85,7 @@ const GLOW_RGB: Record<SessionVisualStatus, string> = {
   disconnected: "",
   running: "34, 197, 94",       // green
   compacting: "245, 158, 11",   // amber
+  completed_unread: "",
   idle: "",
 };
 
@@ -88,6 +96,7 @@ const STATUS_LABEL: Record<SessionVisualStatus, string> = {
   disconnected: "Disconnected",
   running: "Running",
   compacting: "Compacting context",
+  completed_unread: "Completed — needs review",
   idle: "Idle",
 };
 

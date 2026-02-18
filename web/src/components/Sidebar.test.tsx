@@ -52,6 +52,8 @@ interface MockStoreState {
   recentlyRenamed: Set<string>;
   pendingPermissions: Map<string, Map<string, unknown>>;
   collapsedProjects: Set<string>;
+  sessionAttention: Map<string, "action" | "error" | "review" | null>;
+  sessionOrder: Map<string, string[]>;
   serverName: string;
   setServerName: ReturnType<typeof vi.fn>;
   setCurrentSession: ReturnType<typeof vi.fn>;
@@ -66,6 +68,10 @@ interface MockStoreState {
   clearRecentlyRenamed: ReturnType<typeof vi.fn>;
   setSdkSessions: ReturnType<typeof vi.fn>;
   closeTerminal: ReturnType<typeof vi.fn>;
+  markSessionViewed: ReturnType<typeof vi.fn>;
+  markAllSessionsViewed: ReturnType<typeof vi.fn>;
+  markSessionUnread: ReturnType<typeof vi.fn>;
+  clearSessionAttention: ReturnType<typeof vi.fn>;
 }
 
 function makeSession(id: string, overrides: Partial<SessionState> = {}): SessionState {
@@ -122,6 +128,8 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
     recentlyRenamed: new Set(),
     pendingPermissions: new Map(),
     collapsedProjects: new Set(),
+    sessionAttention: new Map(),
+    sessionOrder: new Map(),
     serverName: "",
     setServerName: vi.fn(),
     setCurrentSession: vi.fn(),
@@ -136,6 +144,10 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
     clearRecentlyRenamed: vi.fn(),
     setSdkSessions: vi.fn(),
     closeTerminal: vi.fn(),
+    markSessionViewed: vi.fn(),
+    markAllSessionsViewed: vi.fn(),
+    markSessionUnread: vi.fn(),
+    clearSessionAttention: vi.fn(),
     ...overrides,
   };
 }

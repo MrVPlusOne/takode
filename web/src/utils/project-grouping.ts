@@ -29,6 +29,7 @@ export interface ProjectGroup {
   sessions: SessionItem[];
   runningCount: number;
   permCount: number;
+  unreadCount: number;
   mostRecentActivity: number;
 }
 
@@ -57,6 +58,8 @@ export function extractProjectLabel(projectKey: string): string {
  */
 export function groupSessionsByProject(
   sessions: SessionItem[],
+  sessionAttention?: Map<string, "action" | "error" | "review" | null>,
+  sessionOrder?: Map<string, string[]>,
 ): ProjectGroup[] {
   const groups = new Map<string, ProjectGroup>();
 
@@ -71,6 +74,7 @@ export function groupSessionsByProject(
         sessions: [],
         runningCount: 0,
         permCount: 0,
+        unreadCount: 0,
         mostRecentActivity: 0,
       });
     }
@@ -79,6 +83,8 @@ export function groupSessionsByProject(
     group.sessions.push(session);
     if (session.status === "running") group.runningCount++;
     group.permCount += session.permCount;
+    const attention = sessionAttention?.get(session.id);
+    if (attention) group.unreadCount++;
     group.mostRecentActivity = Math.max(group.mostRecentActivity, session.createdAt);
   }
 
@@ -87,9 +93,24 @@ export function groupSessionsByProject(
     (a, b) => a.label.localeCompare(b.label),
   );
 
-  // Within each group, sort sessions by createdAt desc (stable order, no reordering on status change)
+  // Within each group, sort sessions by custom order if available, else by createdAt desc
   for (const group of sorted) {
-    group.sessions.sort((a, b) => b.createdAt - a.createdAt);
+    const customOrder = sessionOrder?.get(group.key);
+    if (customOrder && customOrder.length > 0) {
+      const orderMap = new Map(customOrder.map((id, idx) => [id, idx]));
+      group.sessions.sort((a, b) => {
+        const aIdx = orderMap.get(a.id);
+        const bIdx = orderMap.get(b.id);
+        // Sessions in custom order come first, in that order
+        // Sessions not in custom order (newly created) go to the top
+        if (aIdx === undefined && bIdx === undefined) return b.createdAt - a.createdAt;
+        if (aIdx === undefined) return -1; // a is new, goes first
+        if (bIdx === undefined) return 1;  // b is new, goes first
+        return aIdx - bIdx;
+      });
+    } else {
+      group.sessions.sort((a, b) => b.createdAt - a.createdAt);
+    }
   }
 
   return sorted;

@@ -15,6 +15,7 @@ import type { GitHubPRInfo } from "../api.js";
 import { GitHubPRDisplay, CodexRateLimitsSection, CodexTokenDetailsSection } from "./TaskPanel.js";
 import { SessionCreationProgress } from "./SessionCreationProgress.js";
 import { SessionLaunchOverlay } from "./SessionLaunchOverlay.js";
+import { SessionStatusDot } from "./SessionStatusDot.js";
 import type { CreationProgressEvent } from "../types.js";
 
 // ─── Mock Data ──────────────────────────────────────────────────────────────
@@ -989,6 +990,38 @@ export function Playground() {
                   <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5" strokeDasharray="28" strokeDashoffset="8" strokeLinecap="round" />
                 </svg>
                 <span className="text-xs text-cc-muted font-medium">Compacting context...</span>
+              </div>
+            </Card>
+            <Card label="Session Status Dots (sidebar attention states)">
+              <div className="flex items-center gap-6 px-4 py-3">
+                <div className="flex items-center gap-2">
+                  <SessionStatusDot archived={false} permCount={0} isConnected={true} sdkState="connected" status="idle" />
+                  <span className="text-xs text-cc-muted">Idle</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <SessionStatusDot archived={false} permCount={0} isConnected={true} sdkState="connected" status="running" />
+                  <span className="text-xs text-cc-muted">Running</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <SessionStatusDot archived={false} permCount={2} isConnected={true} sdkState="connected" status="running" />
+                  <span className="text-xs text-cc-muted">Permission</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <SessionStatusDot archived={false} permCount={0} isConnected={true} sdkState="connected" status="idle" hasUnread />
+                  <span className="text-xs text-blue-500 font-semibold">Needs Review</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <SessionStatusDot archived={false} permCount={0} isConnected={false} sdkState="exited" status={null} />
+                  <span className="text-xs text-cc-muted">Disconnected</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <SessionStatusDot archived={false} permCount={0} isConnected={true} sdkState="connected" status="compacting" />
+                  <span className="text-xs text-cc-muted">Compacting</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <SessionStatusDot archived permCount={0} isConnected={false} sdkState={null} status={null} />
+                  <span className="text-xs text-cc-muted">Archived</span>
+                </div>
               </div>
             </Card>
           </div>

@@ -75,6 +75,7 @@ export default function App() {
       if (store.currentSessionId !== route.sessionId) {
         store.setCurrentSession(route.sessionId);
       }
+      store.markSessionViewed(route.sessionId);
       connectSession(route.sessionId);
     } else if (route.page === "home") {
       const store = useStore.getState();

@@ -103,6 +103,34 @@ describe("deriveSessionStatus", () => {
     expect(result).toBe("idle");
   });
 
+  // Unread/attention tests
+  it("returns 'completed_unread' when idle with hasUnread=true", () => {
+    // Agent finished and user hasn't checked yet — blue dot.
+    const result = deriveSessionStatus(makeProps({ hasUnread: true }));
+    expect(result).toBe("completed_unread");
+  });
+
+  it("returns 'running' over 'completed_unread' when still running", () => {
+    // Even if marked unread, running status takes priority.
+    const result = deriveSessionStatus(makeProps({ status: "running", hasUnread: true }));
+    expect(result).toBe("running");
+  });
+
+  it("returns 'permission' over 'completed_unread'", () => {
+    const result = deriveSessionStatus(makeProps({ permCount: 1, hasUnread: true }));
+    expect(result).toBe("permission");
+  });
+
+  it("returns 'disconnected' over 'completed_unread'", () => {
+    const result = deriveSessionStatus(makeProps({ isConnected: false, sdkState: "exited", hasUnread: true }));
+    expect(result).toBe("disconnected");
+  });
+
+  it("returns 'idle' when hasUnread is false or undefined", () => {
+    expect(deriveSessionStatus(makeProps({ hasUnread: false }))).toBe("idle");
+    expect(deriveSessionStatus(makeProps())).toBe("idle");
+  });
+
   // Priority tests: permission > disconnected > running
   it("prioritizes 'permission' over 'running'", () => {
     // If agent is running but also has a pending permission, permission wins.
@@ -215,5 +243,14 @@ describe("SessionStatusDot component", () => {
     expect(dot.className).toContain("bg-cc-success");
     // Should be solid green, not the dim variant
     expect(dot.className).not.toContain("bg-cc-success/60");
+  });
+
+  it("renders blue dot for completed_unread state with correct title", () => {
+    render(<SessionStatusDot {...makeProps({ hasUnread: true })} />);
+    const dot = screen.getByTestId("session-status-dot");
+    expect(dot).toHaveAttribute("data-status", "completed_unread");
+    expect(dot.className).toContain("bg-blue-500");
+    expect(dot.style.animation).toBe(""); // no glow
+    expect(screen.getByTitle("Completed — needs review")).toBeInTheDocument();
   });
 });

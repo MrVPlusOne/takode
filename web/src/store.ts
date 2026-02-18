@@ -68,6 +68,14 @@ interface AppState {
   // Tool results (session → tool_use_id → truncated preview)
   toolResults: Map<string, Map<string, ToolResultPreview>>;
 
+  // Attention tracking (inbox-style unread state)
+  sessionLastViewed: Map<string, number>;
+  sessionUnreadCount: Map<string, number>;
+  sessionAttention: Map<string, "action" | "error" | "review" | null>;
+
+  // Manual session ordering per project group
+  sessionOrder: Map<string, string[]>;
+
   // Sidebar project grouping
   collapsedProjects: Set<string>;
 
@@ -162,6 +170,16 @@ interface AppState {
   // Tool result actions
   setToolResult: (sessionId: string, toolUseId: string, preview: ToolResultPreview) => void;
 
+  // Attention tracking actions
+  markSessionViewed: (sessionId: string) => void;
+  recordSessionActivity: (sessionId: string, reason: "completed" | "permission" | "error" | "disconnect") => void;
+  markSessionUnread: (sessionId: string) => void;
+  markAllSessionsViewed: () => void;
+  clearSessionAttention: (sessionId: string) => void;
+
+  // Manual session ordering actions
+  setSessionOrder: (groupKey: string, orderedIds: string[]) => void;
+
   // Sidebar project grouping actions
   toggleProjectCollapse: (projectKey: string) => void;
 
@@ -246,6 +264,24 @@ function getInitialAssistantSessionId(): string | null {
   return scopedGetItem("cc-assistant-session-id") || null;
 }
 
+function getInitialSessionLastViewed(): Map<string, number> {
+  if (typeof window === "undefined") return new Map();
+  try {
+    return new Map(JSON.parse(scopedGetItem("cc-session-last-viewed") || "[]"));
+  } catch {
+    return new Map();
+  }
+}
+
+function getInitialSessionOrder(): Map<string, string[]> {
+  if (typeof window === "undefined") return new Map();
+  try {
+    return new Map(JSON.parse(scopedGetItem("cc-session-order") || "[]"));
+  } catch {
+    return new Map();
+  }
+}
+
 function getInitialCollapsedProjects(): Set<string> {
   if (typeof window === "undefined") return new Set();
   try {
@@ -282,6 +318,10 @@ export const useStore = create<AppState>((set) => ({
   mcpServers: new Map(),
   toolProgress: new Map(),
   toolResults: new Map(),
+  sessionLastViewed: getInitialSessionLastViewed(),
+  sessionUnreadCount: new Map(),
+  sessionAttention: new Map(),
+  sessionOrder: getInitialSessionOrder(),
   collapsedProjects: getInitialCollapsedProjects(),
   creationProgress: null,
   creationError: null,
@@ -443,7 +483,14 @@ export const useStore = create<AppState>((set) => ({
       toolResults.delete(sessionId);
       const prStatus = new Map(s.prStatus);
       prStatus.delete(sessionId);
+      const sessionLastViewed = new Map(s.sessionLastViewed);
+      sessionLastViewed.delete(sessionId);
+      const sessionUnreadCount = new Map(s.sessionUnreadCount);
+      sessionUnreadCount.delete(sessionId);
+      const sessionAttention = new Map(s.sessionAttention);
+      sessionAttention.delete(sessionId);
       scopedSetItem("cc-session-names", JSON.stringify(Array.from(sessionNames.entries())));
+      scopedSetItem("cc-session-last-viewed", JSON.stringify(Array.from(sessionLastViewed.entries())));
       if (s.currentSessionId === sessionId) {
         scopedRemoveItem("cc-current-session");
       }
@@ -472,6 +519,9 @@ export const useStore = create<AppState>((set) => ({
         toolProgress,
         toolResults,
         prStatus,
+        sessionLastViewed,
+        sessionUnreadCount,
+        sessionAttention,
         sdkSessions: s.sdkSessions.filter((sdk) => sdk.sessionId !== sessionId),
         currentSessionId: s.currentSessionId === sessionId ? null : s.currentSessionId,
       };
@@ -734,6 +784,83 @@ export const useStore = create<AppState>((set) => ({
       return { toolResults };
     }),
 
+  markSessionViewed: (sessionId) =>
+    set((s) => {
+      const sessionLastViewed = new Map(s.sessionLastViewed);
+      sessionLastViewed.set(sessionId, Date.now());
+      const sessionUnreadCount = new Map(s.sessionUnreadCount);
+      sessionUnreadCount.set(sessionId, 0);
+      const sessionAttention = new Map(s.sessionAttention);
+      sessionAttention.set(sessionId, null);
+      scopedSetItem("cc-session-last-viewed", JSON.stringify(Array.from(sessionLastViewed.entries())));
+      return { sessionLastViewed, sessionUnreadCount, sessionAttention };
+    }),
+
+  recordSessionActivity: (sessionId, reason) =>
+    set((s) => {
+      // Don't flag attention if user is currently viewing this session
+      if (s.currentSessionId === sessionId) return s;
+
+      const sessionUnreadCount = new Map(s.sessionUnreadCount);
+      const current = sessionUnreadCount.get(sessionId) || 0;
+      sessionUnreadCount.set(sessionId, current + 1);
+
+      const sessionAttention = new Map(s.sessionAttention);
+      const currentAttention = sessionAttention.get(sessionId);
+      const newAttention = reason === "permission" ? "action" as const
+        : (reason === "error" || reason === "disconnect") ? "error" as const
+        : "review" as const;
+      // Only upgrade, never downgrade (action > error > review)
+      const priority: Record<string, number> = { action: 3, error: 2, review: 1 };
+      if (!currentAttention || priority[newAttention] > (priority[currentAttention] || 0)) {
+        sessionAttention.set(sessionId, newAttention);
+      }
+
+      return { sessionUnreadCount, sessionAttention };
+    }),
+
+  markSessionUnread: (sessionId) =>
+    set((s) => {
+      const sessionAttention = new Map(s.sessionAttention);
+      sessionAttention.set(sessionId, "review");
+      const sessionUnreadCount = new Map(s.sessionUnreadCount);
+      const current = sessionUnreadCount.get(sessionId) || 0;
+      sessionUnreadCount.set(sessionId, Math.max(1, current));
+      return { sessionAttention, sessionUnreadCount };
+    }),
+
+  markAllSessionsViewed: () =>
+    set((s) => {
+      const now = Date.now();
+      const sessionLastViewed = new Map(s.sessionLastViewed);
+      const sessionUnreadCount = new Map(s.sessionUnreadCount);
+      const sessionAttention = new Map(s.sessionAttention);
+      for (const sdk of s.sdkSessions) {
+        sessionLastViewed.set(sdk.sessionId, now);
+        sessionUnreadCount.set(sdk.sessionId, 0);
+        sessionAttention.set(sdk.sessionId, null);
+      }
+      scopedSetItem("cc-session-last-viewed", JSON.stringify(Array.from(sessionLastViewed.entries())));
+      return { sessionLastViewed, sessionUnreadCount, sessionAttention };
+    }),
+
+  clearSessionAttention: (sessionId) =>
+    set((s) => {
+      const sessionAttention = new Map(s.sessionAttention);
+      sessionAttention.set(sessionId, null);
+      const sessionUnreadCount = new Map(s.sessionUnreadCount);
+      sessionUnreadCount.set(sessionId, 0);
+      return { sessionAttention, sessionUnreadCount };
+    }),
+
+  setSessionOrder: (groupKey, orderedIds) =>
+    set((s) => {
+      const sessionOrder = new Map(s.sessionOrder);
+      sessionOrder.set(groupKey, orderedIds);
+      scopedSetItem("cc-session-order", JSON.stringify(Array.from(sessionOrder.entries())));
+      return { sessionOrder };
+    }),
+
   toggleProjectCollapse: (projectKey) =>
     set((s) => {
       const collapsedProjects = new Set(s.collapsedProjects);
@@ -840,6 +967,10 @@ export const useStore = create<AppState>((set) => ({
       toolProgress: new Map(),
       toolResults: new Map(),
       prStatus: new Map(),
+      sessionLastViewed: new Map(),
+      sessionUnreadCount: new Map(),
+      sessionAttention: new Map(),
+      sessionOrder: new Map(),
       activeTab: "chat" as const,
       diffPanelSelectedFile: new Map(),
       terminalOpen: false,

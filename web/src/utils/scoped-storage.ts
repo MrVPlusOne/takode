@@ -36,6 +36,8 @@ const SCOPED_KEYS = [
   "cc-branch",
   "cc-diff-base",
   "cc-recent-dirs",
+  "cc-session-last-viewed",
+  "cc-session-order",
 ];
 
 function getServerIdPrefix(): string {

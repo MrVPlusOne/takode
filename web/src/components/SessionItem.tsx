@@ -28,6 +28,8 @@ interface SessionItemProps {
   confirmArchiveId?: string | null;
   onConfirmArchive?: () => void;
   onCancelArchive?: () => void;
+  attention?: "action" | "error" | "review" | null;
+  hasUnread?: boolean;
 }
 
 export function SessionItem({
@@ -56,6 +58,8 @@ export function SessionItem({
   confirmArchiveId,
   onConfirmArchive,
   onCancelArchive,
+  attention,
+  hasUnread,
 }: SessionItemProps) {
   const buttonRef = useRef<HTMLButtonElement>(null);
   const shortId = s.id.slice(0, 8);
@@ -112,6 +116,7 @@ export function SessionItem({
             isConnected={s.isConnected}
             sdkState={s.sdkState}
             status={s.status}
+            hasUnread={hasUnread}
           />
 
           {/* Content */}
@@ -141,9 +146,9 @@ export function SessionItem({
               ) : (
                 <>
                   <span
-                    className={`text-[13px] font-medium truncate text-cc-fg leading-snug ${
-                      isRecentlyRenamed ? "animate-name-appear" : ""
-                    }`}
+                    className={`text-[13px] truncate text-cc-fg leading-snug ${
+                      attention ? "font-semibold" : "font-medium"
+                    } ${isRecentlyRenamed ? "animate-name-appear" : ""}`}
                     onAnimationEnd={() => onClearRecentlyRenamed(s.id)}
                   >
                     {label}
@@ -252,6 +257,11 @@ export function SessionItem({
         <span className="absolute right-8 sm:right-2 top-1/2 -translate-y-1/2 min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-cc-warning text-white text-[10px] font-bold leading-none px-1 sm:group-hover:opacity-0 transition-opacity pointer-events-none">
           {permCount}
         </span>
+      )}
+
+      {/* Attention badge (shown when session needs review and no permission badge is displayed) */}
+      {!archived && attention === "review" && permCount === 0 && (
+        <span className="absolute right-8 sm:right-2 top-1/2 -translate-y-1/2 min-w-[6px] h-[6px] rounded-full bg-blue-500 sm:group-hover:opacity-0 transition-opacity pointer-events-none" />
       )}
 
       {/* Action buttons */}
