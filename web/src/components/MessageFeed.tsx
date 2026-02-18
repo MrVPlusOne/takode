@@ -410,7 +410,9 @@ export function MessageFeed({ sessionId }: { sessionId: string }) {
   const toolProgress = useStore((s) => s.toolProgress.get(sessionId));
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
   const isNearBottom = useRef(true);
+  const loadingMore = useRef(false);
   const [elapsed, setElapsed] = useState(0);
   const [visibleCount, setVisibleCount] = useState(FEED_PAGE_SIZE);
 
@@ -424,9 +426,10 @@ export function MessageFeed({ sessionId }: { sessionId: string }) {
   const totalEntries = grouped.length;
   const hasMore = totalEntries > visibleCount;
   const visibleEntries = hasMore ? grouped.slice(totalEntries - visibleCount) : grouped;
-  const hiddenCount = totalEntries - visibleEntries.length;
 
   const handleLoadMore = useCallback(() => {
+    if (loadingMore.current) return;
+    loadingMore.current = true;
     const el = containerRef.current;
     const prevHeight = el?.scrollHeight ?? 0;
     setVisibleCount((c) => c + FEED_PAGE_SIZE);
@@ -436,8 +439,27 @@ export function MessageFeed({ sessionId }: { sessionId: string }) {
         const newHeight = el.scrollHeight;
         el.scrollTop += newHeight - prevHeight;
       }
+      loadingMore.current = false;
     });
   }, []);
+
+  // Auto-load older messages when scrolling near the top
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    const container = containerRef.current;
+    if (!sentinel || !container || !hasMore) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          handleLoadMore();
+        }
+      },
+      { root: container, rootMargin: "200px 0px 0px 0px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, handleLoadMore]);
 
   // Tick elapsed time every second while generating (subtracting any paused duration)
   useEffect(() => {
@@ -496,16 +518,14 @@ export function MessageFeed({ sessionId }: { sessionId: string }) {
       >
         <div className="max-w-3xl mx-auto space-y-3 sm:space-y-5">
           {hasMore && (
-            <div className="flex justify-center pb-2">
-              <button
-                onClick={handleLoadMore}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-cc-muted hover:text-cc-fg bg-cc-card border border-cc-border rounded-lg hover:bg-cc-hover transition-colors cursor-pointer"
-              >
-                <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
-                  <path d="M8 2a.75.75 0 01.75.75v4.5h4.5a.75.75 0 010 1.5h-4.5v4.5a.75.75 0 01-1.5 0v-4.5h-4.5a.75.75 0 010-1.5h4.5v-4.5A.75.75 0 018 2z" />
+            <div ref={sentinelRef} className="flex justify-center pb-2">
+              <span className="flex items-center gap-1.5 text-xs text-cc-muted">
+                <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>
-                Load {Math.min(FEED_PAGE_SIZE, hiddenCount)} more ({hiddenCount} hidden)
-              </button>
+                Loading older messages...
+              </span>
             </div>
           )}
           <FeedEntries entries={visibleEntries} sessionId={sessionId} />
