@@ -6,7 +6,6 @@ import type { WsBridge } from "./ws-bridge.js";
 import * as sessionNames from "./session-names.js";
 
 const ASSISTANT_DIR = join(homedir(), ".companion", "assistant");
-const CONFIG_PATH = join(ASSISTANT_DIR, "config.json");
 const CLAUDE_MD_PATH = join(ASSISTANT_DIR, "CLAUDE.md");
 
 /** How long to wait for the CLI to connect after launch (ms) */
@@ -143,6 +142,7 @@ export class AssistantManager {
   private launcher: CliLauncher;
   private wsBridge: WsBridge;
   private port: number;
+  private configPath: string;
   private config: AssistantConfig = { ...DEFAULT_CONFIG };
   private relaunching = false;
 
@@ -150,6 +150,7 @@ export class AssistantManager {
     this.launcher = launcher;
     this.wsBridge = wsBridge;
     this.port = port;
+    this.configPath = join(ASSISTANT_DIR, `config-${port}.json`);
     this.loadConfig();
   }
 
@@ -157,8 +158,8 @@ export class AssistantManager {
 
   private loadConfig(): void {
     try {
-      if (existsSync(CONFIG_PATH)) {
-        const raw = readFileSync(CONFIG_PATH, "utf-8");
+      if (existsSync(this.configPath)) {
+        const raw = readFileSync(this.configPath, "utf-8");
         this.config = { ...DEFAULT_CONFIG, ...JSON.parse(raw) };
       }
     } catch (e) {
@@ -169,7 +170,7 @@ export class AssistantManager {
   private saveConfig(): void {
     try {
       mkdirSync(ASSISTANT_DIR, { recursive: true });
-      writeFileSync(CONFIG_PATH, JSON.stringify(this.config, null, 2));
+      writeFileSync(this.configPath, JSON.stringify(this.config, null, 2));
     } catch (e) {
       console.warn("[assistant] Failed to save config:", e);
     }
