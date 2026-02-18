@@ -657,7 +657,7 @@ export function Playground() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-cc-bg text-cc-fg font-sans-ui">
+    <div className="h-screen overflow-y-auto bg-cc-bg text-cc-fg font-sans-ui">
       {/* Header */}
       <header className="sticky top-0 z-50 bg-cc-sidebar border-b border-cc-border">
         <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
