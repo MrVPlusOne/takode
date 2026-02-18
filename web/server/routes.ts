@@ -810,6 +810,35 @@ export function createRoutes(
     return c.json({ ok: true });
   });
 
+  api.post("/sessions/:id/force-compact", async (c) => {
+    const id = c.req.param("id");
+    const info = launcher.getSession(id);
+    if (!info) return c.json({ error: "Session not found" }, 404);
+    if (!info.cliSessionId) return c.json({ error: "No CLI session to resume" }, 400);
+    if (info.backendType === "codex") return c.json({ error: "Force compact not supported for Codex" }, 400);
+
+    // Queue /compact to be sent as first message after relaunch.
+    // The CLI in SDK mode doesn't intercept slash commands from user messages,
+    // so we kill and relaunch with --resume. On a fresh connection, /compact
+    // as the first user message will fit in the context and trigger compaction.
+    const session = wsBridge.getOrCreateSession(id);
+    session.pendingMessages.push(JSON.stringify({
+      type: "user",
+      message: { role: "user", content: "/compact" },
+      parent_tool_use_id: null,
+      session_id: info.cliSessionId,
+    }));
+
+    // Notify browsers compaction is starting
+    wsBridge.broadcastToSession(id, { type: "status_change", status: "compacting" });
+
+    const result = await launcher.relaunch(id);
+    if (!result.ok) {
+      return c.json({ error: result.error || "Relaunch failed" }, 503);
+    }
+    return c.json({ ok: true });
+  });
+
   api.delete("/sessions/:id", async (c) => {
     const id = c.req.param("id");
     if (assistantManager?.isAssistantSession(id)) {

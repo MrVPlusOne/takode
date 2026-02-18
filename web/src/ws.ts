@@ -386,6 +386,36 @@ function handleParsedMessage(
         const errorText = r.errors?.length
           ? r.errors.join(", ")
           : r.result || "An error occurred";
+        const isContextLimit = errorText.toLowerCase().includes("prompt is too long");
+
+        // If user tried /compact but it failed because context is full,
+        // auto-recover by killing the CLI and relaunching with --resume.
+        // The SDK protocol doesn't intercept slash commands from user messages,
+        // so /compact gets treated as a regular prompt and overflows again.
+        if (isContextLimit) {
+          const msgs = store.messages.get(sessionId) || [];
+          const lastUserMsg = [...msgs].reverse().find(m => m.role === "user");
+          if (lastUserMsg?.content.trim().toLowerCase() === "/compact") {
+            store.appendMessage(sessionId, {
+              id: nextId(),
+              role: "system",
+              content: "Context is full — restarting session to compact...",
+              timestamp: Date.now(),
+              variant: "info",
+            });
+            fetch(`/api/sessions/${encodeURIComponent(sessionId)}/force-compact`, { method: "POST" }).catch(() => {
+              store.appendMessage(sessionId, {
+                id: nextId(),
+                role: "system",
+                content: `Error: ${errorText}`,
+                timestamp: Date.now(),
+                variant: "error",
+              });
+            });
+            break;
+          }
+        }
+
         store.appendMessage(sessionId, {
           id: nextId(),
           role: "system",

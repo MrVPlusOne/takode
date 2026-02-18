@@ -463,6 +463,9 @@ export const api = {
   relaunchSession: (sessionId: string) =>
     post(`/sessions/${encodeURIComponent(sessionId)}/relaunch`),
 
+  forceCompact: (sessionId: string) =>
+    post(`/sessions/${encodeURIComponent(sessionId)}/force-compact`),
+
   archiveSession: (sessionId: string, opts?: { force?: boolean }) =>
     post(`/sessions/${encodeURIComponent(sessionId)}/archive`, opts),
 
