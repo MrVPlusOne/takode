@@ -287,7 +287,7 @@ function ContentBlockRenderer({ block }: { block: ContentBlock }) {
 }
 
 function ToolGroupBlock({ name, items, sessionId }: { name: string; items: ToolGroupItem[]; sessionId?: string }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
   const iconType = getToolIcon(name);
   const label = getToolLabel(name);
 
