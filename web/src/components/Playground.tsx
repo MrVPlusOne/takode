@@ -4,6 +4,7 @@ import { MessageBubble } from "./MessageBubble.js";
 import { Lightbox } from "./Lightbox.js";
 import { ToolBlock, getToolIcon, getToolLabel, getPreview, ToolIcon } from "./ToolBlock.js";
 import { DiffViewer } from "./DiffViewer.js";
+import { MarkdownContent } from "./MarkdownContent.js";
 import { useStore } from "../store.js";
 import { navigateToSession, navigateHome } from "../utils/routing.js";
 import { ClaudeMdEditor } from "./ClaudeMdEditor.js";
@@ -1198,11 +1199,19 @@ export function Playground() {
         {/* ─── Subagent Groups ──────────────────────────────── */}
         <Section title="Subagent Groups" description="Nested messages from Task tool subagents shown in a collapsible indent">
           <div className="space-y-4 max-w-3xl">
-            <Card label="Subagent with nested tool calls">
+            <Card label="Subagent with nested tool calls and result">
               <PlaygroundSubagentGroup
                 description="Search codebase for auth patterns"
                 agentType="Explore"
                 items={MOCK_SUBAGENT_TOOL_ITEMS}
+                resultText={"Found **3 authentication-related files**:\n\n- `src/auth/middleware.ts` — JWT validation middleware\n- `src/auth/session.ts` — Session management with Redis\n- `src/routes/login.ts` — Login endpoint with rate limiting\n\nThe codebase uses a standard JWT + refresh token pattern."}
+              />
+            </Card>
+            <Card label="Subagent with no result yet (still running)">
+              <PlaygroundSubagentGroup
+                description="Run database migration tests"
+                agentType="general-purpose"
+                items={MOCK_SUBAGENT_TOOL_ITEMS.slice(0, 2)}
               />
             </Card>
           </div>
@@ -1486,7 +1495,7 @@ function PlaygroundToolGroup({ toolName, items }: { toolName: string; items: Too
 
 // ─── Inline Subagent Group (mirrors MessageFeed's SubagentContainer) ────────
 
-function PlaygroundSubagentGroup({ description, agentType, items }: { description: string; agentType: string; items: ToolItem[] }) {
+function PlaygroundSubagentGroup({ description, agentType, items, resultText }: { description: string; agentType: string; items: ToolItem[]; resultText?: string }) {
   const [open, setOpen] = useState(true);
 
   return (
@@ -1508,6 +1517,11 @@ function PlaygroundSubagentGroup({ description, agentType, items }: { descriptio
             {agentType}
           </span>
         )}
+        {!open && resultText && (
+          <span className="text-[11px] text-cc-muted truncate ml-1 font-mono-code">
+            {resultText.length > 120 ? resultText.slice(0, 120) + "..." : resultText}
+          </span>
+        )}
         <span className="text-[10px] text-cc-muted bg-cc-hover rounded-full px-1.5 py-0.5 tabular-nums shrink-0 ml-auto">
           {items.length}
         </span>
@@ -1515,6 +1529,19 @@ function PlaygroundSubagentGroup({ description, agentType, items }: { descriptio
       {open && (
         <div className="space-y-3 pb-2">
           <PlaygroundToolGroup toolName={items[0]?.name || "Grep"} items={items} />
+          {resultText && (
+            <div className="border-t border-cc-border/50 pt-2 mt-1">
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 text-cc-primary/60 shrink-0">
+                  <path d="M8 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM7.25 5a.75.75 0 011.5 0v.5a.75.75 0 01-1.5 0V5zM6.5 7.75A.75.75 0 017.25 7h1a.75.75 0 01.75.75v2.5h.25a.75.75 0 010 1.5h-2a.75.75 0 010-1.5h.25v-1.75H7.25a.75.75 0 01-.75-.75z" />
+                </svg>
+                <span className="text-[11px] font-medium text-cc-muted">Result</span>
+              </div>
+              <div className="text-sm max-h-96 overflow-y-auto">
+                <MarkdownContent text={resultText} />
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

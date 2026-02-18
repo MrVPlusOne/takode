@@ -2,6 +2,8 @@ import { useEffect, useRef, useMemo, useState, useCallback } from "react";
 import { useStore } from "../store.js";
 import { MessageBubble } from "./MessageBubble.js";
 import { ToolBlock, getToolIcon, getToolLabel, ToolIcon } from "./ToolBlock.js";
+import { MarkdownContent } from "./MarkdownContent.js";
+import { api } from "../api.js";
 import type { ChatMessage, ContentBlock } from "../types.js";
 
 const FEED_PAGE_SIZE = 100;
@@ -267,12 +269,14 @@ function SubagentContainer({ group, sessionId }: { group: SubagentGroup; session
   const agentType = group.agentType;
   const childCount = group.children.length;
 
-  // Get the last visible entry for a compact preview
+  // Read the subagent's final result from the toolResults store
+  const resultPreview = useStore((s) => s.toolResults.get(sessionId)?.get(group.taskToolUseId));
+
+  // Get the last visible entry for a compact preview (fallback when no result)
   const lastEntry = group.children[group.children.length - 1];
   const lastPreview = useMemo(() => {
     if (!lastEntry) return "";
     if (lastEntry.kind === "tool_msg_group") {
-      const item = lastEntry.items[lastEntry.items.length - 1];
       return `${getToolLabel(lastEntry.toolName)}${lastEntry.items.length > 1 ? ` ×${lastEntry.items.length}` : ""}`;
     }
     if (lastEntry.kind === "message" && lastEntry.msg.role === "assistant") {
@@ -285,6 +289,15 @@ function SubagentContainer({ group, sessionId }: { group: SubagentGroup; session
     }
     return "";
   }, [lastEntry]);
+
+  // When collapsed, prefer showing result preview over lastPreview
+  const collapsedPreview = useMemo(() => {
+    if (resultPreview?.content) {
+      const text = resultPreview.content.trim();
+      return text.length > 120 ? text.slice(0, 120) + "..." : text;
+    }
+    return lastPreview;
+  }, [resultPreview, lastPreview]);
 
   return (
     <div className="animate-[fadeSlideIn_0.2s_ease-out]">
@@ -306,9 +319,9 @@ function SubagentContainer({ group, sessionId }: { group: SubagentGroup; session
               {agentType}
             </span>
           )}
-          {!open && lastPreview && (
+          {!open && collapsedPreview && (
             <span className="text-[11px] text-cc-muted truncate ml-1 font-mono-code">
-              {lastPreview}
+              {collapsedPreview}
             </span>
           )}
           <span className="text-[10px] text-cc-muted bg-cc-hover rounded-full px-1.5 py-0.5 tabular-nums shrink-0 ml-auto">
@@ -319,9 +332,57 @@ function SubagentContainer({ group, sessionId }: { group: SubagentGroup; session
         {open && (
           <div className="space-y-3 pb-2">
             <FeedEntries entries={group.children} sessionId={sessionId} />
+            {resultPreview && (
+              <SubagentResult preview={resultPreview} sessionId={sessionId} toolUseId={group.taskToolUseId} />
+            )}
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function SubagentResult({ preview, sessionId, toolUseId }: { preview: { content: string; is_truncated: boolean }; sessionId: string; toolUseId: string }) {
+  const [fullContent, setFullContent] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
+  const displayText = fullContent ?? preview.content;
+  const needsExpand = preview.is_truncated && !fullContent;
+
+  const fetchFull = async () => {
+    setLoading(true);
+    try {
+      const result = await api.getToolResult(sessionId, toolUseId);
+      setFullContent(result.content);
+      setExpanded(true);
+    } catch {
+      setFullContent("[Failed to load full result]");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="border-t border-cc-border/50 pt-2 mt-1">
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 text-cc-primary/60 shrink-0">
+          <path d="M8 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM7.25 5a.75.75 0 011.5 0v.5a.75.75 0 01-1.5 0V5zM6.5 7.75A.75.75 0 017.25 7h1a.75.75 0 01.75.75v2.5h.25a.75.75 0 010 1.5h-2a.75.75 0 010-1.5h.25v-1.75H7.25a.75.75 0 01-.75-.75z" />
+        </svg>
+        <span className="text-[11px] font-medium text-cc-muted">Result</span>
+      </div>
+      <div className={`text-sm ${expanded || !needsExpand ? "max-h-96" : "max-h-24"} overflow-y-auto`}>
+        <MarkdownContent text={displayText} />
+      </div>
+      {needsExpand && (
+        <button
+          onClick={fetchFull}
+          disabled={loading}
+          className="text-[11px] text-cc-primary hover:text-cc-primary/80 mt-1 cursor-pointer disabled:opacity-50"
+        >
+          {loading ? "Loading..." : "Show full result"}
+        </button>
+      )}
     </div>
   );
 }
