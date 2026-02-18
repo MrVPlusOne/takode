@@ -51,6 +51,17 @@ function worktreeDir(repoName: string, branch: string): string {
   return join(WORKTREES_BASE, repoName, sanitizeBranch(branch));
 }
 
+/** Find a unique directory path by appending a random suffix if needed. */
+function findUniquePath(basePath: string): string {
+  if (!existsSync(basePath)) return basePath;
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const suffix = Math.floor(1000 + Math.random() * 9000);
+    const candidate = `${basePath}-${suffix}`;
+    if (!existsSync(candidate)) return candidate;
+  }
+  return `${basePath}-${Date.now()}`;
+}
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function git(cmd: string, cwd: string): string {
@@ -222,27 +233,23 @@ export function ensureWorktree(
     }
   }
 
-  // Find a unique path: append random 4-digit suffix if the base path is taken
-  const basePath = worktreeDir(repoName, branchName);
-  let targetPath = basePath;
-  for (let attempt = 0; attempt < 100 && existsSync(targetPath); attempt++) {
-    const suffix = Math.floor(1000 + Math.random() * 9000);
-    targetPath = `${basePath}-${suffix}`;
-  }
-  if (existsSync(targetPath)) {
-    targetPath = `${basePath}-${Date.now()}`;
-  }
-
   // Ensure parent directory exists
   mkdirSync(join(WORKTREES_BASE, repoName), { recursive: true });
+
+  // Helper: when we need a unique branch, generate it first and derive the
+  // directory path from it so both share the same suffix (e.g. jiayi-wt-8076).
+  const createWithUniqueBranch = (commitish: string): WorktreeCreateResult => {
+    const uniqueBranch = generateUniqueWorktreeBranch(repoRoot, branchName);
+    const targetPath = worktreeDir(repoName, uniqueBranch);
+    git(`worktree add -b ${uniqueBranch} "${targetPath}" ${commitish}`, repoRoot);
+    return { worktreePath: targetPath, branch: branchName, actualBranch: uniqueBranch, isNew: false };
+  };
 
   // A worktree already exists for this branch — create a new uniquely-named
   // branch so multiple sessions can work on the same branch independently.
   if (found) {
     const commitHash = git("rev-parse HEAD", found.path);
-    const uniqueBranch = generateUniqueWorktreeBranch(repoRoot, branchName);
-    git(`worktree add -b ${uniqueBranch} "${targetPath}" ${commitHash}`, repoRoot);
-    return { worktreePath: targetPath, branch: branchName, actualBranch: uniqueBranch, isNew: false };
+    return createWithUniqueBranch(commitHash);
   }
 
   // Check if branch already exists locally or on remote
@@ -253,24 +260,21 @@ export function ensureWorktree(
 
   if (branchExists) {
     if (options?.forceNew) {
-      // Create a uniquely-named branch so multiple sessions can work independently
       const commitHash = git(`rev-parse refs/heads/${branchName}`, repoRoot);
-      const uniqueBranch = generateUniqueWorktreeBranch(repoRoot, branchName);
-      git(`worktree add -b ${uniqueBranch} "${targetPath}" ${commitHash}`, repoRoot);
-      return { worktreePath: targetPath, branch: branchName, actualBranch: uniqueBranch, isNew: false };
+      return createWithUniqueBranch(commitHash);
     }
-    // Worktree add with existing local branch
+    // Worktree add with existing local branch — use branch name as dir name
+    const targetPath = findUniquePath(worktreeDir(repoName, branchName));
     git(`worktree add "${targetPath}" ${branchName}`, repoRoot);
     return { worktreePath: targetPath, branch: branchName, actualBranch: branchName, isNew: false };
   }
 
   if (remoteBranchExists) {
     if (options?.forceNew) {
-      const uniqueBranch = generateUniqueWorktreeBranch(repoRoot, branchName);
-      git(`worktree add -b ${uniqueBranch} "${targetPath}" origin/${branchName}`, repoRoot);
-      return { worktreePath: targetPath, branch: branchName, actualBranch: uniqueBranch, isNew: false };
+      return createWithUniqueBranch(`origin/${branchName}`);
     }
     // Create local tracking branch from remote
+    const targetPath = findUniquePath(worktreeDir(repoName, branchName));
     git(`worktree add -b ${branchName} "${targetPath}" origin/${branchName}`, repoRoot);
     return { worktreePath: targetPath, branch: branchName, actualBranch: branchName, isNew: false };
   }
@@ -278,6 +282,7 @@ export function ensureWorktree(
   if (options?.createBranch !== false) {
     // Create new branch from base
     const base = options?.baseBranch || resolveDefaultBranch(repoRoot);
+    const targetPath = findUniquePath(worktreeDir(repoName, branchName));
     git(`worktree add -b ${branchName} "${targetPath}" ${base}`, repoRoot);
     return { worktreePath: targetPath, branch: branchName, actualBranch: branchName, isNew: true };
   }

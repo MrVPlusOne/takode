@@ -513,7 +513,8 @@ describe("ensureWorktree", () => {
     const result = gitUtils.ensureWorktree("/repo", "main");
     // Should NOT return the main repo path
     expect(result.worktreePath).not.toBe("/repo");
-    expect(result.worktreePath).toBe("/fake/home/.companion/worktrees/repo/main");
+    // Directory is derived from the unique branch name so both share the same suffix
+    expect(result.worktreePath).toMatch(/^\/fake\/home\/\.companion\/worktrees\/repo\/main-wt-\d{4}$/);
     expect(result.branch).toBe("main");
     expect(result.actualBranch).toMatch(/^main-wt-\d{4}$/);
     // Should create a branch-tracking worktree
@@ -571,7 +572,8 @@ describe("ensureWorktree", () => {
     mockExistsSync.mockReturnValue(false);
 
     const result = gitUtils.ensureWorktree("/repo", "feat/existing", { forceNew: true });
-    expect(result.worktreePath).toBe("/fake/home/.companion/worktrees/repo/feat--existing");
+    // Directory derived from unique branch name — both share the same suffix
+    expect(result.worktreePath).toMatch(/^\/fake\/home\/\.companion\/worktrees\/repo\/feat--existing-wt-\d{4}$/);
     expect(result.branch).toBe("feat/existing");
     expect(result.actualBranch).toMatch(/^feat\/existing-wt-\d{4}$/);
 
@@ -606,7 +608,8 @@ describe("ensureWorktree", () => {
     mockExistsSync.mockReturnValue(false);
 
     const result = gitUtils.ensureWorktree("/repo", "main", { forceNew: true });
-    expect(result.worktreePath).toBe("/fake/home/.companion/worktrees/repo/main");
+    // Directory derived from unique branch name — both share the same suffix
+    expect(result.worktreePath).toMatch(/^\/fake\/home\/\.companion\/worktrees\/repo\/main-wt-\d{4}$/);
     expect(result.branch).toBe("main");
     // Should get a unique branch, NOT the raw "main" branch
     expect(result.actualBranch).toMatch(/^main-wt-\d{4}$/);
