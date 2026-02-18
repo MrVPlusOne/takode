@@ -112,6 +112,7 @@ export function HomePage() {
   const [useWorktree, setUseWorktree] = useState(
     () => scopedGetItem("cc-worktree") === "true",
   );
+  const [assistantMode, setAssistantMode] = useState(false);
   const [selectedBranch, setSelectedBranch] = useState("");
   const [branches, setBranches] = useState<GitBranchInfo[]>([]);
   const [showBranchDropdown, setShowBranchDropdown] = useState(false);
@@ -365,6 +366,7 @@ export function HomePage() {
           useWorktree: useWorktree || undefined,
           backend,
           codexInternetAccess: backend === "codex" ? codexInternetAccess : undefined,
+          assistantMode: assistantMode || undefined,
         },
         (progress) => {
           useStore.getState().addCreationProgress(progress);
@@ -910,6 +912,29 @@ export function HomePage() {
               <span>Worktree</span>
             </button>
           )}
+
+          {/* Assistant mode toggle */}
+          <button
+            onClick={() => {
+              const next = !assistantMode;
+              setAssistantMode(next);
+              if (next) {
+                // Force claude backend for assistant mode
+                if (backend !== "claude") switchBackend("claude");
+              }
+            }}
+            className={`flex items-center gap-1.5 px-2 py-1 text-xs rounded-md transition-colors cursor-pointer ${
+              assistantMode
+                ? "bg-cc-primary/15 text-cc-primary font-medium"
+                : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
+            }`}
+            title="Create an assistant session (Takode) with a dedicated workspace"
+          >
+            <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5 opacity-70">
+              <path d="M8 1l1.545 4.752h4.997l-4.043 2.938 1.545 4.752L8 10.504l-4.044 2.938 1.545-4.752L1.458 5.752h4.997z" />
+            </svg>
+            <span>Assistant</span>
+          </button>
 
           {/* Environment selector */}
           <div className="relative" ref={envDropdownRef}>

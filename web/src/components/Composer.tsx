@@ -44,7 +44,6 @@ export function Composer({ sessionId }: { sessionId: string }) {
   const menuRef = useRef<HTMLDivElement>(null);
   const modeDropdownRef = useRef<HTMLDivElement>(null);
   const cliConnected = useStore((s) => s.cliConnected);
-  const assistantSessionId = useStore((s) => s.assistantSessionId);
   const sessionData = useStore((s) => s.sessions.get(sessionId));
 
   const isConnected = cliConnected.get(sessionId) ?? false;
@@ -386,9 +385,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             placeholder={isConnected
-              ? (sessionId === assistantSessionId
-                ? "Ask the assistant to manage sessions, schedule tasks..."
-                : "Type a message... (/ for commands)")
+              ? "Type a message... (/ for commands)"
               : "Waiting for CLI connection..."}
             disabled={!isConnected}
             rows={1}
@@ -396,8 +393,8 @@ export function Composer({ sessionId }: { sessionId: string }) {
             style={{ minHeight: "36px", maxHeight: "200px" }}
           />
 
-          {/* Git branch + lines info — hidden for assistant */}
-          {sessionData?.git_branch && sessionId !== assistantSessionId && (
+          {/* Git branch + lines info */}
+          {sessionData?.git_branch && (
             <div className="flex items-center gap-2 px-2 sm:px-4 pb-1 text-[11px] text-cc-muted overflow-hidden">
               <span className="flex items-center gap-1 truncate min-w-0">
                 <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 shrink-0 opacity-60">
@@ -443,16 +440,8 @@ export function Composer({ sessionId }: { sessionId: string }) {
 
           {/* Bottom toolbar */}
           <div className="flex items-center justify-between px-2.5 pb-2.5">
-            {/* Left: mode indicator — static for assistant (always bypass) */}
-            {sessionId === assistantSessionId ? (
-              <span className="flex items-center gap-1.5 px-2 py-1 text-[12px] font-medium text-cc-muted select-none">
-                <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
-                  <path d="M2.5 4l4 4-4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-                  <path d="M8.5 4l4 4-4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-                </svg>
-                <span>bypass</span>
-              </span>
-            ) : isCodex ? (
+            {/* Left: mode indicator */}
+            {isCodex ? (
               /* Codex sessions: keep the existing dropdown unchanged */
               <div className="relative" ref={modeDropdownRef}>
                 <button

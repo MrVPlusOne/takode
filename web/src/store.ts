@@ -8,7 +8,6 @@ interface AppState {
   sessions: Map<string, SessionState>;
   sdkSessions: SdkSessionInfo[];
   currentSessionId: string | null;
-  assistantSessionId: string | null;
 
   // Messages per session
   messages: Map<string, ChatMessage[]>;
@@ -118,7 +117,6 @@ interface AppState {
 
   // Session actions
   setCurrentSession: (id: string | null) => void;
-  setAssistantSessionId: (id: string | null) => void;
   addSession: (session: SessionState) => void;
   updateSession: (sessionId: string, updates: Partial<SessionState>) => void;
   removeSession: (sessionId: string) => void;
@@ -259,11 +257,6 @@ function getInitialZoomLevel(): number {
   return 0.9;
 }
 
-function getInitialAssistantSessionId(): string | null {
-  if (typeof window === "undefined") return null;
-  return scopedGetItem("cc-assistant-session-id") || null;
-}
-
 function getInitialSessionLastViewed(): Map<string, number> {
   if (typeof window === "undefined") return new Map();
   try {
@@ -297,6 +290,7 @@ function getInitialSessionOrder(): Map<string, string[]> {
   }
 }
 
+
 function getInitialCollapsedProjects(): Set<string> {
   if (typeof window === "undefined") return new Set();
   try {
@@ -310,7 +304,6 @@ export const useStore = create<AppState>((set) => ({
   sessions: new Map(),
   sdkSessions: [],
   currentSessionId: getInitialSessionId(),
-  assistantSessionId: getInitialAssistantSessionId(),
   messages: new Map(),
   streaming: new Map(),
   streamingStartedAt: new Map(),
@@ -420,15 +413,6 @@ export const useStore = create<AppState>((set) => ({
       scopedRemoveItem("cc-current-session");
     }
     set({ currentSessionId: id });
-  },
-
-  setAssistantSessionId: (id) => {
-    if (id) {
-      scopedSetItem("cc-assistant-session-id", id);
-    } else {
-      scopedRemoveItem("cc-assistant-session-id");
-    }
-    set({ assistantSessionId: id });
   },
 
   addSession: (session) =>
@@ -965,7 +949,6 @@ export const useStore = create<AppState>((set) => ({
       sessions: new Map(),
       sdkSessions: [],
       currentSessionId: null,
-      assistantSessionId: null,
       messages: new Map(),
       streaming: new Map(),
       streamingStartedAt: new Map(),

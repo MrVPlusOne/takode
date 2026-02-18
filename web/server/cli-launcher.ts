@@ -84,6 +84,9 @@ export interface SdkSessionInfo {
   /** Actual git branch in the worktree (may differ for -wt-N branches) */
   actualBranch?: string;
 
+  /** Whether this is an assistant-mode session */
+  isAssistant?: boolean;
+
   // Container fields
   /** Docker container ID when session runs inside a container */
   containerId?: string;
@@ -141,6 +144,11 @@ export class CliLauncher {
 
   constructor(port: number) {
     this.port = port;
+  }
+
+  /** Get the server port number. */
+  getPort(): number {
+    return this.port;
   }
 
   /** Register a callback for when a CodexAdapter is created (WsBridge needs to attach it). */

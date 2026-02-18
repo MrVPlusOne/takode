@@ -22,7 +22,7 @@ import { hasContainerClaudeAuth } from "./claude-container-auth.js";
 import { hasContainerCodexAuth } from "./codex-container-auth.js";
 import { DEFAULT_OPENROUTER_MODEL, getSettings, updateSettings, getServerName, setServerName, getServerId } from "./settings-manager.js";
 import { getUsageLimits } from "./usage-limits.js";
-import type { AssistantManager } from "./assistant-manager.js";
+import { ensureAssistantWorkspace, ASSISTANT_DIR } from "./assistant-workspace.js";
 import { generateUniqueSessionName } from "../src/utils/names.js";
 
 const ROUTES_DIR = dirname(fileURLToPath(import.meta.url));
@@ -67,7 +67,6 @@ export function createRoutes(
   prPoller?: import("./pr-poller.js").PRPoller,
   recorder?: import("./recorder.js").RecorderManager,
   cronScheduler?: import("./cron-scheduler.js").CronScheduler,
-  assistantManager?: AssistantManager,
 ) {
   const api = new Hono();
 
@@ -99,7 +98,15 @@ export function createRoutes(
       }
 
       let cwd = body.cwd;
+      const isAssistantMode = body.assistantMode === true;
       let worktreeInfo: { isWorktree: boolean; repoRoot: string; branch: string; actualBranch: string; worktreePath: string } | undefined;
+
+      // Assistant mode: override cwd and ensure workspace exists
+      if (isAssistantMode) {
+        ensureAssistantWorkspace();
+        cwd = ASSISTANT_DIR;
+        envVars = { ...envVars, COMPANION_PORT: String(launcher.getPort()) };
+      }
 
       // Validate branch name to prevent command injection via shell metacharacters
       if (body.branch && !/^[a-zA-Z0-9/_.\-]+$/.test(body.branch)) {
@@ -337,10 +344,19 @@ export function createRoutes(
         });
       }
 
+      // Mark as assistant session if in assistant mode
+      if (isAssistantMode) {
+        session.isAssistant = true;
+      }
+
       // Generate a session name so all creation paths (browser, CLI, API) get names
-      const existingNames = new Set(Object.values(sessionNames.getAllNames()));
-      const generatedName = generateUniqueSessionName(existingNames);
-      sessionNames.setName(session.sessionId, generatedName);
+      if (isAssistantMode) {
+        sessionNames.setName(session.sessionId, "Takode");
+      } else {
+        const existingNames = new Set(Object.values(sessionNames.getAllNames()));
+        const generatedName = generateUniqueSessionName(existingNames);
+        sessionNames.setName(session.sessionId, generatedName);
+      }
 
       return c.json(session);
     } catch (e: unknown) {
@@ -390,7 +406,15 @@ export function createRoutes(
         await emitProgress(stream, "resolving_env", "Environment resolved", "done");
 
         let cwd = body.cwd;
+        const isAssistantMode = body.assistantMode === true;
         let worktreeInfo: { isWorktree: boolean; repoRoot: string; branch: string; actualBranch: string; worktreePath: string } | undefined;
+
+        // Assistant mode: override cwd and ensure workspace exists
+        if (isAssistantMode) {
+          ensureAssistantWorkspace();
+          cwd = ASSISTANT_DIR;
+          envVars = { ...envVars, COMPANION_PORT: String(launcher.getPort()) };
+        }
 
         // Validate branch name
         if (body.branch && !/^[a-zA-Z0-9/_.\-]+$/.test(body.branch)) {
@@ -682,10 +706,19 @@ export function createRoutes(
           });
         }
 
+        // Mark as assistant session if in assistant mode
+        if (isAssistantMode) {
+          session.isAssistant = true;
+        }
+
         // Generate a session name so all creation paths (browser, CLI, API) get names
-        const existingNames = new Set(Object.values(sessionNames.getAllNames()));
-        const generatedName = generateUniqueSessionName(existingNames);
-        sessionNames.setName(session.sessionId, generatedName);
+        if (isAssistantMode) {
+          sessionNames.setName(session.sessionId, "Takode");
+        } else {
+          const existingNames = new Set(Object.values(sessionNames.getAllNames()));
+          const generatedName = generateUniqueSessionName(existingNames);
+          sessionNames.setName(session.sessionId, generatedName);
+        }
 
         await emitProgress(stream, "launching_cli", "Session started", "done");
 
@@ -842,9 +875,6 @@ export function createRoutes(
 
   api.delete("/sessions/:id", async (c) => {
     const id = c.req.param("id");
-    if (assistantManager?.isAssistantSession(id)) {
-      return c.json({ error: "Cannot delete the assistant session. Use companion assistant stop instead." }, 403);
-    }
     await launcher.kill(id);
 
     // Clean up container if any
@@ -859,9 +889,6 @@ export function createRoutes(
 
   api.post("/sessions/:id/archive", async (c) => {
     const id = c.req.param("id");
-    if (assistantManager?.isAssistantSession(id)) {
-      return c.json({ error: "Cannot archive the assistant session. Use companion assistant stop instead." }, 403);
-    }
     const body = await c.req.json().catch(() => ({}));
     await launcher.kill(id);
 
@@ -1564,42 +1591,6 @@ export function createRoutes(
     }
     wsBridge.injectUserMessage(id, body.content);
     return c.json({ ok: true, sessionId: id });
-  });
-
-  // ─── Companion Assistant ──────────────────────────────────────────
-
-  api.get("/assistant/status", (c) => {
-    if (!assistantManager) return c.json({ error: "Assistant not available" }, 501);
-    return c.json(assistantManager.getStatus());
-  });
-
-  api.post("/assistant/launch", async (c) => {
-    if (!assistantManager) return c.json({ error: "Assistant not available" }, 501);
-    const session = await assistantManager.start();
-    if (!session) return c.json({ error: "Failed to launch assistant" }, 500);
-    return c.json({ ok: true, sessionId: session.sessionId });
-  });
-
-  api.post("/assistant/stop", async (c) => {
-    if (!assistantManager) return c.json({ error: "Assistant not available" }, 501);
-    const stopped = await assistantManager.stop();
-    return c.json({ ok: stopped });
-  });
-
-  api.get("/assistant/config", (c) => {
-    if (!assistantManager) return c.json({ error: "Assistant not available" }, 501);
-    return c.json(assistantManager.getConfig());
-  });
-
-  api.put("/assistant/config", async (c) => {
-    if (!assistantManager) return c.json({ error: "Assistant not available" }, 501);
-    const body = await c.req.json().catch(() => ({}));
-    const config = assistantManager.updateConfig({
-      model: typeof body.model === "string" ? body.model : undefined,
-      permissionMode: typeof body.permissionMode === "string" ? body.permissionMode : undefined,
-      enabled: typeof body.enabled === "boolean" ? body.enabled : undefined,
-    });
-    return c.json(config);
   });
 
   // ─── Skills ─────────────────────────────────────────────────────────

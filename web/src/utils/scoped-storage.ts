@@ -25,7 +25,6 @@ const GLOBAL_KEYS = new Set([
 const SCOPED_KEYS = [
   "cc-current-session",
   "cc-session-names",
-  "cc-assistant-session-id",
   "cc-collapsed-projects",
   "cc-backend",
   "cc-mode",
