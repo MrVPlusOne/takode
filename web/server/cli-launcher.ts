@@ -769,6 +769,16 @@ This is a git worktree. The main repository is at: \`${repoRoot}\`
 2. All your work MUST stay on the \`${branch}\` branch
 3. When committing, commit to \`${branch}\` only
 4. If you need to reference code from another branch, use \`git show other-branch:path/to/file\`
+
+## Porting Commits to the Main Repo
+
+When asked to port/sync commits from this worktree to the main repository at \`${repoRoot}\`, follow this workflow **exactly**:
+
+1. **Check the main repo first.** Run \`git -C ${repoRoot} status\` and \`git -C ${repoRoot} log --oneline -5\`. If there are uncommitted changes, **stop and tell the user** — another agent may have work in progress. Never run \`git reset --hard\`, \`git checkout .\`, or \`git clean\` on the main repo without explicit user approval. Read any new commits briefly to understand what changed since your branch diverged.
+2. **Rebase in the worktree.** Rebase your worktree branch onto the main repo's local branch. Since all worktrees share the same git object store, the main repo's local branch is directly visible as a ref — no fetch needed. Use \`git rebase <main-repo-branch>\` (the local branch name, not \`origin/...\`). Resolve all merge conflicts here in the worktree — this is the safe place to do it without affecting other agents.
+3. **Cherry-pick clean commits to main.** Once the worktree branch is cleanly rebased with your new commits on top, cherry-pick only your new commits into the main repo using \`git -C ${repoRoot} cherry-pick <commit-hash>\`. Cherry-pick one at a time in chronological order.
+4. **Handle unexpected conflicts.** If cherry-pick still conflicts (it shouldn't after a clean rebase), tell the user the conflicting files and ask how to proceed. Do not force-resolve or abort without asking.
+5. **Verify after porting.** Run \`git -C ${repoRoot} log --oneline -5\` to confirm the commits landed correctly.
 ${MARKER_END}`;
 
     const claudeDir = join(worktreePath, ".claude");
@@ -792,8 +802,51 @@ ${MARKER_END}`;
         writeFileSync(claudeMdPath, guardrails, "utf-8");
       }
       console.log(`[cli-launcher] Injected worktree guardrails for branch ${branch}`);
+
+      // Add .claude/CLAUDE.md to the worktree-local git exclude so it doesn't
+      // show as untracked and is protected from `git clean -fd`.
+      // Worktrees store their git metadata at the path inside .git (a file, not dir).
+      this.addWorktreeGitExclude(worktreePath, ".claude/CLAUDE.md");
     } catch (e) {
       console.warn(`[cli-launcher] Failed to inject worktree guardrails:`, e);
+    }
+  }
+
+  /**
+   * Add an entry to the worktree-local .git/info/exclude file.
+   * This is a local-only gitignore that doesn't modify the repo's .gitignore.
+   */
+  private addWorktreeGitExclude(worktreePath: string, pattern: string): void {
+    try {
+      const dotGitPath = join(worktreePath, ".git");
+      let gitDir: string;
+
+      if (existsSync(dotGitPath)) {
+        const stat = readFileSync(dotGitPath, "utf-8").trim();
+        // Worktrees have a .git file with "gitdir: <path>"
+        if (stat.startsWith("gitdir: ")) {
+          gitDir = stat.slice("gitdir: ".length);
+        } else {
+          return; // unexpected format
+        }
+      } else {
+        return; // no .git entry
+      }
+
+      const excludeDir = join(gitDir, "info");
+      const excludePath = join(excludeDir, "exclude");
+
+      mkdirSync(excludeDir, { recursive: true });
+
+      if (existsSync(excludePath)) {
+        const existing = readFileSync(excludePath, "utf-8");
+        if (existing.includes(pattern)) return; // already present
+      }
+
+      writeFileSync(excludePath, (existsSync(excludePath) ? readFileSync(excludePath, "utf-8") : "") + `\n${pattern}\n`, "utf-8");
+      console.log(`[cli-launcher] Added "${pattern}" to worktree git exclude`);
+    } catch (e) {
+      console.warn(`[cli-launcher] Failed to add git exclude entry:`, e);
     }
   }
 
