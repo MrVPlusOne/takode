@@ -21,6 +21,7 @@ const mockApi = {
   archiveSession: vi.fn().mockResolvedValue({}),
   unarchiveSession: vi.fn().mockResolvedValue({}),
   getAssistantStatus: vi.fn().mockResolvedValue({ running: false, sessionId: null }),
+  getSettings: vi.fn().mockResolvedValue({ openrouterApiKeyConfigured: false, openrouterModel: "openrouter/free", serverName: "" }),
 };
 
 vi.mock("../api.js", () => ({
@@ -30,6 +31,7 @@ vi.mock("../api.js", () => ({
     archiveSession: (...args: unknown[]) => mockApi.archiveSession(...args),
     unarchiveSession: (...args: unknown[]) => mockApi.unarchiveSession(...args),
     getAssistantStatus: (...args: unknown[]) => mockApi.getAssistantStatus(...args),
+    getSettings: (...args: unknown[]) => mockApi.getSettings(...args),
   },
 }));
 
@@ -50,6 +52,8 @@ interface MockStoreState {
   recentlyRenamed: Set<string>;
   pendingPermissions: Map<string, Map<string, unknown>>;
   collapsedProjects: Set<string>;
+  serverName: string;
+  setServerName: ReturnType<typeof vi.fn>;
   setCurrentSession: ReturnType<typeof vi.fn>;
   setAssistantSessionId: ReturnType<typeof vi.fn>;
   toggleProjectCollapse: ReturnType<typeof vi.fn>;
@@ -118,6 +122,8 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
     recentlyRenamed: new Set(),
     pendingPermissions: new Map(),
     collapsedProjects: new Set(),
+    serverName: "",
+    setServerName: vi.fn(),
     setCurrentSession: vi.fn(),
     setAssistantSessionId: vi.fn(),
     toggleProjectCollapse: vi.fn(),

@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import {
   getSettings,
   updateSettings,
+  getServerName,
+  setServerName,
   _resetForTest,
   DEFAULT_OPENROUTER_MODEL,
 } from "./settings-manager.js";
@@ -27,6 +29,7 @@ describe("settings-manager", () => {
     expect(getSettings()).toEqual({
       openrouterApiKey: "",
       openrouterModel: DEFAULT_OPENROUTER_MODEL,
+      serverName: "",
       updatedAt: 0,
     });
   });
@@ -58,6 +61,7 @@ describe("settings-manager", () => {
     expect(getSettings()).toEqual({
       openrouterApiKey: "existing",
       openrouterModel: "openai/gpt-4o-mini",
+      serverName: "",
       updatedAt: 123,
     });
   });
@@ -97,7 +101,54 @@ describe("settings-manager", () => {
     expect(getSettings()).toEqual({
       openrouterApiKey: "",
       openrouterModel: DEFAULT_OPENROUTER_MODEL,
+      serverName: "",
       updatedAt: 0,
     });
+  });
+});
+
+describe("server name", () => {
+  it("returns empty string by default", () => {
+    expect(getServerName()).toBe("");
+  });
+
+  it("sets and retrieves server name", () => {
+    setServerName("Frontend");
+    expect(getServerName()).toBe("Frontend");
+  });
+
+  it("persists server name to disk", () => {
+    setServerName("Backend");
+    const saved = JSON.parse(readFileSync(settingsPath, "utf-8"));
+    expect(saved.serverName).toBe("Backend");
+  });
+
+  it("clears name when set to empty string", () => {
+    setServerName("Frontend");
+    expect(getServerName()).toBe("Frontend");
+
+    setServerName("");
+    expect(getServerName()).toBe("");
+  });
+
+  it("trims whitespace from server name", () => {
+    setServerName("  My Server  ");
+    expect(getServerName()).toBe("My Server");
+  });
+
+  it("loads serverName from existing settings file", () => {
+    writeFileSync(
+      settingsPath,
+      JSON.stringify({
+        openrouterApiKey: "",
+        openrouterModel: "openrouter/free",
+        serverName: "Saved Name",
+        updatedAt: 0,
+      }),
+      "utf-8",
+    );
+    _resetForTest(settingsPath);
+
+    expect(getServerName()).toBe("Saved Name");
   });
 });

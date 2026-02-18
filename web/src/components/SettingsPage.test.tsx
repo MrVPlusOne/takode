@@ -62,10 +62,12 @@ beforeEach(() => {
   mockApi.getSettings.mockResolvedValue({
     openrouterApiKeyConfigured: true,
     openrouterModel: "openrouter/free",
+    serverName: "",
   });
   mockApi.updateSettings.mockResolvedValue({
     openrouterApiKeyConfigured: true,
     openrouterModel: "openrouter/free",
+    serverName: "",
   });
   mockTelemetry.getTelemetryPreferenceEnabled.mockReturnValue(true);
 });
@@ -83,6 +85,7 @@ describe("SettingsPage", () => {
     mockApi.getSettings.mockResolvedValueOnce({
       openrouterApiKeyConfigured: false,
       openrouterModel: "openrouter/free",
+      serverName: "",
     });
 
     render(<SettingsPage />);
@@ -191,6 +194,7 @@ describe("SettingsPage", () => {
     let resolveSave: ((value: {
       openrouterApiKeyConfigured: boolean;
       openrouterModel: string;
+      serverName: string;
     }) => void) | undefined;
     mockApi.updateSettings.mockReturnValueOnce(
       new Promise((resolve) => {
@@ -211,6 +215,7 @@ describe("SettingsPage", () => {
     resolveSave?.({
       openrouterApiKeyConfigured: true,
       openrouterModel: "openrouter/free",
+      serverName: "",
     });
 
     await screen.findByText("Settings saved.");

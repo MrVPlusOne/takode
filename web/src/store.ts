@@ -80,6 +80,10 @@ interface AppState {
   setSessionCreating: (creating: boolean, backend?: "claude" | "codex") => void;
   setCreationError: (error: string | null) => void;
 
+  // Server instance name
+  serverName: string;
+  setServerName: (name: string) => void;
+
   // UI
   darkMode: boolean;
   zoomLevel: number;
@@ -282,6 +286,8 @@ export const useStore = create<AppState>((set) => ({
   creationError: null,
   sessionCreating: false,
   sessionCreatingBackend: null,
+  serverName: "",
+  setServerName: (name) => set({ serverName: name }),
   darkMode: getInitialDarkMode(),
   zoomLevel: getInitialZoomLevel(),
   notificationSound: getInitialNotificationSound(),

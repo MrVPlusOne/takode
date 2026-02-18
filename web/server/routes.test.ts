@@ -54,13 +54,17 @@ vi.mock("./settings-manager.js", () => ({
   getSettings: vi.fn(() => ({
     openrouterApiKey: "",
     openrouterModel: "openrouter/free",
+    serverName: "",
     updatedAt: 0,
   })),
   updateSettings: vi.fn((patch) => ({
     openrouterApiKey: patch.openrouterApiKey ?? "",
     openrouterModel: patch.openrouterModel ?? "openrouter/free",
+    serverName: "",
     updatedAt: Date.now(),
   })),
+  getServerName: vi.fn(() => ""),
+  setServerName: vi.fn(),
 }));
 
 const mockGetUsageLimits = vi.hoisted(() => vi.fn());
@@ -940,6 +944,7 @@ describe("GET /api/settings", () => {
     vi.mocked(settingsManager.getSettings).mockReturnValue({
       openrouterApiKey: "or-secret",
       openrouterModel: "openrouter/free",
+      serverName: "",
       updatedAt: 123,
     });
 
@@ -950,6 +955,7 @@ describe("GET /api/settings", () => {
     expect(json).toEqual({
       openrouterApiKeyConfigured: true,
       openrouterModel: "openrouter/free",
+      serverName: "",
     });
   });
 
@@ -957,6 +963,7 @@ describe("GET /api/settings", () => {
     vi.mocked(settingsManager.getSettings).mockReturnValue({
       openrouterApiKey: "",
       openrouterModel: "openai/gpt-4o-mini",
+      serverName: "",
       updatedAt: 123,
     });
 
@@ -967,7 +974,25 @@ describe("GET /api/settings", () => {
     expect(json).toEqual({
       openrouterApiKeyConfigured: false,
       openrouterModel: "openai/gpt-4o-mini",
+      serverName: "",
     });
+  });
+
+  it("includes serverName when configured", async () => {
+    vi.mocked(settingsManager.getServerName).mockReturnValue("My Frontend");
+    vi.mocked(settingsManager.getSettings).mockReturnValue({
+      openrouterApiKey: "",
+      openrouterModel: "openrouter/free",
+      serverName: "My Frontend",
+      updatedAt: 0,
+    });
+
+    const res = await app.request("/api/settings", { method: "GET" });
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.serverName).toBe("My Frontend");
+
+    vi.mocked(settingsManager.getServerName).mockReturnValue("");
   });
 });
 
@@ -976,6 +1001,7 @@ describe("PUT /api/settings", () => {
     vi.mocked(settingsManager.updateSettings).mockReturnValue({
       openrouterApiKey: "new-key",
       openrouterModel: "openrouter/free",
+      serverName: "",
       updatedAt: 456,
     });
 
@@ -994,6 +1020,7 @@ describe("PUT /api/settings", () => {
     expect(json).toEqual({
       openrouterApiKeyConfigured: true,
       openrouterModel: "openrouter/free",
+      serverName: "",
     });
   });
 
@@ -1001,6 +1028,7 @@ describe("PUT /api/settings", () => {
     vi.mocked(settingsManager.updateSettings).mockReturnValue({
       openrouterApiKey: "trimmed-key",
       openrouterModel: "openrouter/free",
+      serverName: "",
       updatedAt: 789,
     });
 
@@ -1021,6 +1049,7 @@ describe("PUT /api/settings", () => {
     vi.mocked(settingsManager.updateSettings).mockReturnValue({
       openrouterApiKey: "existing-key",
       openrouterModel: "openai/gpt-4o-mini",
+      serverName: "",
       updatedAt: 999,
     });
 
@@ -1035,6 +1064,41 @@ describe("PUT /api/settings", () => {
       openrouterApiKey: undefined,
       openrouterModel: "openai/gpt-4o-mini",
     });
+  });
+
+  it("persists serverName via setServerName when provided", async () => {
+    vi.mocked(settingsManager.updateSettings).mockReturnValue({
+      openrouterApiKey: "",
+      openrouterModel: "openrouter/free",
+      serverName: "My Backend",
+      updatedAt: Date.now(),
+    });
+    vi.mocked(settingsManager.getServerName).mockReturnValue("My Backend");
+
+    const res = await app.request("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ serverName: "My Backend" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(settingsManager.setServerName).toHaveBeenCalledWith("My Backend");
+    const json = await res.json();
+    expect(json.serverName).toBe("My Backend");
+
+    vi.mocked(settingsManager.getServerName).mockReturnValue("");
+  });
+
+  it("returns 400 for non-string serverName", async () => {
+    const res = await app.request("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ serverName: 123 }),
+    });
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json).toEqual({ error: "serverName must be a string" });
   });
 
   it("returns 400 for non-string model", async () => {

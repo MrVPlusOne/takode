@@ -20,7 +20,7 @@ import { containerManager, ContainerManager, type ContainerConfig, type Containe
 import type { CreationStepId } from "./session-types.js";
 import { hasContainerClaudeAuth } from "./claude-container-auth.js";
 import { hasContainerCodexAuth } from "./codex-container-auth.js";
-import { DEFAULT_OPENROUTER_MODEL, getSettings, updateSettings } from "./settings-manager.js";
+import { DEFAULT_OPENROUTER_MODEL, getSettings, updateSettings, getServerName, setServerName } from "./settings-manager.js";
 import { getUsageLimits } from "./usage-limits.js";
 import type { AssistantManager } from "./assistant-manager.js";
 import { generateUniqueSessionName } from "../src/utils/names.js";
@@ -1327,6 +1327,7 @@ export function createRoutes(
     return c.json({
       openrouterApiKeyConfigured: !!settings.openrouterApiKey.trim(),
       openrouterModel: settings.openrouterModel || DEFAULT_OPENROUTER_MODEL,
+      serverName: getServerName(),
     });
   });
 
@@ -1338,8 +1339,15 @@ export function createRoutes(
     if (body.openrouterModel !== undefined && typeof body.openrouterModel !== "string") {
       return c.json({ error: "openrouterModel must be a string" }, 400);
     }
-    if (body.openrouterApiKey === undefined && body.openrouterModel === undefined) {
+    if (body.serverName !== undefined && typeof body.serverName !== "string") {
+      return c.json({ error: "serverName must be a string" }, 400);
+    }
+    if (body.openrouterApiKey === undefined && body.openrouterModel === undefined && body.serverName === undefined) {
       return c.json({ error: "At least one settings field is required" }, 400);
+    }
+
+    if (typeof body.serverName === "string") {
+      setServerName(body.serverName);
     }
 
     const settings = updateSettings({
@@ -1356,6 +1364,7 @@ export function createRoutes(
     return c.json({
       openrouterApiKeyConfigured: !!settings.openrouterApiKey.trim(),
       openrouterModel: settings.openrouterModel || DEFAULT_OPENROUTER_MODEL,
+      serverName: getServerName(),
     });
   });
 

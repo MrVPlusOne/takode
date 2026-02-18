@@ -291,6 +291,7 @@ export interface UsageLimits {
 export interface AppSettings {
   openrouterApiKeyConfigured: boolean;
   openrouterModel: string;
+  serverName: string;
 }
 
 export interface GitHubPRInfo {
@@ -525,7 +526,7 @@ export const api = {
 
   // Settings
   getSettings: () => get<AppSettings>("/settings"),
-  updateSettings: (data: { openrouterApiKey?: string; openrouterModel?: string }) =>
+  updateSettings: (data: { openrouterApiKey?: string; openrouterModel?: string; serverName?: string }) =>
     put<AppSettings>("/settings", data),
 
   // Git operations

@@ -12,6 +12,8 @@ export const DEFAULT_OPENROUTER_MODEL = "openrouter/free";
 export interface CompanionSettings {
   openrouterApiKey: string;
   openrouterModel: string;
+  /** Display name for this server instance */
+  serverName: string;
   updatedAt: number;
 }
 
@@ -22,6 +24,7 @@ let filePath = DEFAULT_PATH;
 let settings: CompanionSettings = {
   openrouterApiKey: "",
   openrouterModel: DEFAULT_OPENROUTER_MODEL,
+  serverName: "",
   updatedAt: 0,
 };
 
@@ -32,6 +35,7 @@ function normalize(raw: Partial<CompanionSettings> | null | undefined): Companio
       typeof raw?.openrouterModel === "string" && raw.openrouterModel.trim()
         ? raw.openrouterModel
         : DEFAULT_OPENROUTER_MODEL,
+    serverName: typeof raw?.serverName === "string" ? raw.serverName : "",
     updatedAt: typeof raw?.updatedAt === "number" ? raw.updatedAt : 0,
   };
 }
@@ -71,6 +75,17 @@ export function updateSettings(
   };
   persist();
   return { ...settings };
+}
+
+export function getServerName(): string {
+  ensureLoaded();
+  return settings.serverName;
+}
+
+export function setServerName(name: string): void {
+  ensureLoaded();
+  settings = { ...settings, serverName: name.trim(), updatedAt: Date.now() };
+  persist();
 }
 
 export function _resetForTest(customPath?: string): void {

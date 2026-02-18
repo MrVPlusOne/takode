@@ -18,6 +18,9 @@ export function Sidebar() {
   const [hoveredSession, setHoveredSession] = useState<{ sessionId: string; rect: DOMRect } | null>(null);
   const [hash, setHash] = useState(() => (typeof window !== "undefined" ? window.location.hash : ""));
   const editInputRef = useRef<HTMLInputElement>(null);
+  const [editingServerName, setEditingServerName] = useState(false);
+  const [serverNameDraft, setServerNameDraft] = useState("");
+  const serverNameInputRef = useRef<HTMLInputElement>(null);
   const sessions = useStore((s) => s.sessions);
   const sdkSessions = useStore((s) => s.sdkSessions);
   const currentSessionId = useStore((s) => s.currentSessionId);
@@ -34,6 +37,8 @@ export function Sidebar() {
   const setAssistantSessionId = useStore((s) => s.setAssistantSessionId);
   const collapsedProjects = useStore((s) => s.collapsedProjects);
   const toggleProjectCollapse = useStore((s) => s.toggleProjectCollapse);
+  const serverName = useStore((s) => s.serverName);
+  const setServerName = useStore((s) => s.setServerName);
   const route = parseHash(hash);
   const isSettingsPage = route.page === "settings";
   const isTerminalPage = route.page === "terminal";
@@ -94,6 +99,37 @@ export function Sidebar() {
       // server not ready
     });
   }, []);
+
+  // Fetch server name on mount
+  useEffect(() => {
+    api.getSettings().then((s) => {
+      if (s.serverName) setServerName(s.serverName);
+    }).catch(() => {});
+  }, []);
+
+  // Update document.title when serverName changes
+  useEffect(() => {
+    document.title = serverName ? `${serverName} — Takode` : "Takode";
+  }, [serverName]);
+
+  // Focus server name input when entering edit mode
+  useEffect(() => {
+    if (editingServerName && serverNameInputRef.current) {
+      serverNameInputRef.current.focus();
+      serverNameInputRef.current.select();
+    }
+  }, [editingServerName]);
+
+  function confirmServerNameEdit() {
+    const trimmed = serverNameDraft.trim();
+    setServerName(trimmed);
+    api.updateSettings({ serverName: trimmed }).catch(() => {});
+    setEditingServerName(false);
+  }
+
+  function cancelServerNameEdit() {
+    setEditingServerName(false);
+  }
 
   useEffect(() => {
     const onHashChange = () => setHash(window.location.hash);
@@ -321,7 +357,32 @@ export function Sidebar() {
       <div className="p-4 pb-3">
         <div className="flex items-center gap-2 mb-4">
           <img src={logoSrc} alt="" className="w-7 h-7" />
-          <span className="text-sm font-semibold text-cc-fg tracking-tight">Takode</span>
+          {editingServerName ? (
+            <input
+              ref={serverNameInputRef}
+              value={serverNameDraft}
+              onChange={(e) => setServerNameDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") confirmServerNameEdit();
+                if (e.key === "Escape") cancelServerNameEdit();
+              }}
+              onBlur={confirmServerNameEdit}
+              className="text-sm font-semibold text-cc-fg tracking-tight bg-cc-input-bg border border-cc-border rounded px-1.5 py-0.5 outline-none focus:border-cc-primary/60 min-w-0 w-[140px]"
+              placeholder="Takode"
+              maxLength={30}
+            />
+          ) : (
+            <span
+              onClick={() => {
+                setServerNameDraft(serverName || "");
+                setEditingServerName(true);
+              }}
+              className="text-sm font-semibold text-cc-fg tracking-tight cursor-pointer hover:text-cc-primary transition-colors"
+              title="Click to rename this server instance"
+            >
+              {serverName || "Takode"}
+            </span>
+          )}
           {import.meta.env.DEV && (
             <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 leading-none">Dev</span>
           )}

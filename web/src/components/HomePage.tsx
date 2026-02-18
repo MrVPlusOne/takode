@@ -130,6 +130,7 @@ export function HomePage() {
 
   const setCurrentSession = useStore((s) => s.setCurrentSession);
   const currentSessionId = useStore((s) => s.currentSessionId);
+  const serverName = useStore((s) => s.serverName);
 
   // Auto-focus textarea (desktop only — on mobile it triggers the keyboard immediately)
   useEffect(() => {
@@ -483,7 +484,7 @@ export function HomePage() {
         <div className="flex flex-col items-center justify-center mb-4 sm:mb-6">
           <img src={logoSrc} alt="Takode" className="w-24 h-24 sm:w-32 sm:h-32 mb-3" />
           <h1 className="text-xl sm:text-2xl font-semibold text-cc-fg">
-            Takode
+            {serverName || "Takode"}
           </h1>
         </div>
 
