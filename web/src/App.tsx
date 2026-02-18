@@ -52,7 +52,23 @@ export default function App() {
   }, [darkMode]);
 
   useEffect(() => {
-    document.documentElement.style.overflow = "hidden";
+    // Size the parent chain (html → body → #root) to the viewport so the
+    // app container can use percentage-based dimensions for zoom scaling.
+    // We use % instead of viewport units (vw/dvh) because CSS `zoom`
+    // interacts unpredictably with viewport units in some environments.
+    const html = document.documentElement;
+    const body = document.body;
+    const root = document.getElementById("root");
+    html.style.overflow = "hidden";
+    html.style.height = "100dvh";
+    html.style.width = "100vw";
+    body.style.height = "100%";
+    body.style.width = "100%";
+    body.style.margin = "0";
+    if (root) {
+      root.style.height = "100%";
+      root.style.width = "100%";
+    }
   }, []);
 
   // Capture the localStorage-restored session ID during render (before any effects run)
@@ -90,7 +106,7 @@ export default function App() {
   }
 
   return (
-    <div className="flex font-sans-ui bg-cc-bg text-cc-fg antialiased" style={{ zoom: zoomLevel, width: `${100 / zoomLevel}vw`, height: `${100 / zoomLevel}dvh` }}>
+    <div className="flex font-sans-ui bg-cc-bg text-cc-fg antialiased" style={zoomLevel !== 1 ? { transform: `scale(${zoomLevel})`, transformOrigin: 'top left', width: `${100 / zoomLevel}%`, height: `${100 / zoomLevel}%` } : undefined}>
       {/* Mobile overlay backdrop */}
       {sidebarOpen && (
         <div
