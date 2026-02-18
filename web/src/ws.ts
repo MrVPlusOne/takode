@@ -516,6 +516,7 @@ function handleParsedMessage(
     }
 
     case "permission_denied": {
+      if (data.request_id) store.removePermission(sessionId, data.request_id);
       const denialMsg: ChatMessage = {
         id: data.id,
         role: "system",
@@ -528,6 +529,7 @@ function handleParsedMessage(
     }
 
     case "permission_approved": {
+      if (data.request_id) store.removePermission(sessionId, data.request_id);
       const approvedMsg: ChatMessage = {
         id: data.id,
         role: "system",
@@ -570,6 +572,17 @@ function handleParsedMessage(
         store.setSessionStatus(sessionId, "compacting");
       } else {
         store.setSessionStatus(sessionId, data.status);
+      }
+      break;
+    }
+
+    case "state_snapshot": {
+      // Authoritative state from server — overrides any stale transient state
+      store.setSessionStatus(sessionId, data.sessionStatus as "idle" | "running" | "compacting" | null);
+      store.setCliConnected(sessionId, data.cliConnected);
+      if (data.cliConnected) store.setCliEverConnected(sessionId);
+      if (data.askPermission !== undefined) {
+        store.setAskPermission(sessionId, data.askPermission);
       }
       break;
     }
@@ -897,7 +910,7 @@ export function waitForConnection(sessionId: string): Promise<void> {
   });
 }
 
-export function sendToSession(sessionId: string, msg: BrowserOutgoingMessage) {
+export function sendToSession(sessionId: string, msg: BrowserOutgoingMessage): boolean {
   const ws = sockets.get(sessionId);
   let outgoing: BrowserOutgoingMessage = msg;
   if (IDEMPOTENT_OUTGOING_TYPES.has(msg.type)) {
@@ -920,7 +933,9 @@ export function sendToSession(sessionId: string, msg: BrowserOutgoingMessage) {
   }
   if (ws?.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(outgoing));
+    return true;
   }
+  return false;
 }
 
 export function sendMcpGetStatus(sessionId: string) {

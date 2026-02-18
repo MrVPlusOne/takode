@@ -1407,39 +1407,40 @@ export class WsBridge {
           });
         }
       }
-      return;
-    }
-
-    if (session.eventBuffer.length === 0) return;
-    if (lastAckSeq >= session.nextEventSeq - 1) return;
-
-    const earliest = session.eventBuffer[0]?.seq ?? session.nextEventSeq;
-    const hasGap = lastAckSeq < earliest - 1;
-    if (hasGap) {
-      this.sendToBrowser(ws, {
-        type: "message_history",
-        messages: session.messageHistory,
-      });
-      for (const perm of session.pendingPermissions.values()) {
-        this.sendToBrowser(ws, { type: "permission_request", request: perm });
-      }
-      const transientMissed = session.eventBuffer
-        .filter((evt) => evt.seq > lastAckSeq && !this.isHistoryBackedEvent(evt.message));
-      if (transientMissed.length > 0) {
+    } else if (session.eventBuffer.length > 0 && lastAckSeq < session.nextEventSeq - 1) {
+      const earliest = session.eventBuffer[0]?.seq ?? session.nextEventSeq;
+      const hasGap = lastAckSeq < earliest - 1;
+      if (hasGap) {
         this.sendToBrowser(ws, {
-          type: "event_replay",
-          events: transientMissed,
+          type: "message_history",
+          messages: session.messageHistory,
         });
+        for (const perm of session.pendingPermissions.values()) {
+          this.sendToBrowser(ws, { type: "permission_request", request: perm });
+        }
+        const transientMissed = session.eventBuffer
+          .filter((evt) => evt.seq > lastAckSeq && !this.isHistoryBackedEvent(evt.message));
+        if (transientMissed.length > 0) {
+          this.sendToBrowser(ws, {
+            type: "event_replay",
+            events: transientMissed,
+          });
+        }
+      } else {
+        const missed = session.eventBuffer.filter((evt) => evt.seq > lastAckSeq);
+        if (missed.length > 0) {
+          this.sendToBrowser(ws, {
+            type: "event_replay",
+            events: missed,
+          });
+        }
       }
-      return;
     }
 
-    const missed = session.eventBuffer.filter((evt) => evt.seq > lastAckSeq);
-    if (missed.length === 0) return;
-    this.sendToBrowser(ws, {
-      type: "event_replay",
-      events: missed,
-    });
+    // Always send authoritative state snapshot last — ensures transient state
+    // (session status, CLI connection, permission mode) is correct regardless
+    // of which events the browser may have missed.
+    this.sendStateSnapshot(session, ws);
   }
 
   private handleSessionAck(
@@ -1537,6 +1538,7 @@ export class WsBridge {
           const approvedMsg: BrowserIncomingMessage = {
             type: "permission_approved",
             id: `approval-${msg.request_id}`,
+            request_id: msg.request_id,
             tool_name: pending.tool_name,
             tool_use_id: pending.tool_use_id,
             summary: getApprovalSummary(pending.tool_name, pending.input),
@@ -1577,6 +1579,7 @@ export class WsBridge {
       const deniedMsg: BrowserIncomingMessage = {
         type: "permission_denied",
         id: `denial-${msg.request_id}`,
+        request_id: msg.request_id,
         tool_name: pending?.tool_name || "unknown",
         tool_use_id: pending?.tool_use_id || "",
         summary: getDenialSummary(pending?.tool_name || "unknown", pending?.input || {}),
@@ -1719,6 +1722,29 @@ export class WsBridge {
     const session = this.sessions.get(sessionId);
     if (!session) return;
     this.broadcastToBrowsers(session, { type: "session_name_update", name });
+  }
+
+  /** Derive current session status from existing state (no extra field needed). */
+  private deriveSessionStatus(session: Session): string | null {
+    if (session.state.is_compacting) return "compacting";
+    const hasBackend = !!(session.cliSocket || session.codexAdapter);
+    if (!hasBackend) return null;
+    // If last history message is assistant (no result after it), session is running
+    const last = session.messageHistory[session.messageHistory.length - 1];
+    if (last?.type === "assistant") return "running";
+    return "idle";
+  }
+
+  /** Send authoritative state snapshot to a single browser after subscribe replay. */
+  private sendStateSnapshot(session: Session, ws: ServerWebSocket<SocketData>): void {
+    this.sendToBrowser(ws, {
+      type: "state_snapshot",
+      sessionStatus: this.deriveSessionStatus(session),
+      permissionMode: session.state.permissionMode,
+      cliConnected: !!(session.cliSocket || session.codexAdapter),
+      uiMode: session.state.uiMode ?? null,
+      askPermission: session.state.askPermission ?? true,
+    });
   }
 
   private shouldBufferForReplay(msg: BrowserIncomingMessage): msg is ReplayableBrowserIncomingMessage {

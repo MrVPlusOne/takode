@@ -7,7 +7,7 @@ import type { SessionState } from "../../server/session-types.js";
 // Polyfill scrollIntoView for jsdom
 Element.prototype.scrollIntoView = vi.fn();
 
-const mockSendToSession = vi.fn();
+const mockSendToSession = vi.fn().mockReturnValue(true);
 
 // Build a controllable mock store state
 let mockStoreState: Record<string, unknown> = {};

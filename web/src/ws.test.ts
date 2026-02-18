@@ -1499,3 +1499,177 @@ describe("handleMessage: message_history with compact_marker", () => {
     expect(msgs[0].content).toBe("Conversation compacted");
   });
 });
+
+// ===========================================================================
+// handleMessage: state_snapshot
+// ===========================================================================
+describe("handleMessage: state_snapshot", () => {
+  it("updates session status, CLI connection, and askPermission from snapshot", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    fireMessage({
+      type: "state_snapshot",
+      sessionStatus: "running",
+      permissionMode: "acceptEdits",
+      cliConnected: true,
+      uiMode: null,
+      askPermission: false,
+    });
+
+    expect(useStore.getState().sessionStatus.get("s1")).toBe("running");
+    expect(useStore.getState().cliConnected.get("s1")).toBe(true);
+    expect(useStore.getState().cliEverConnected.get("s1")).toBe(true);
+    expect(useStore.getState().askPermission.get("s1")).toBe(false);
+  });
+
+  it("sets cliConnected to false and sessionStatus to null when CLI is disconnected", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    // First set connected
+    fireMessage({
+      type: "state_snapshot",
+      sessionStatus: "idle",
+      permissionMode: "default",
+      cliConnected: true,
+      uiMode: null,
+      askPermission: true,
+    });
+    expect(useStore.getState().cliConnected.get("s1")).toBe(true);
+
+    // Then snapshot with CLI disconnected
+    fireMessage({
+      type: "state_snapshot",
+      sessionStatus: null,
+      permissionMode: "default",
+      cliConnected: false,
+      uiMode: null,
+      askPermission: true,
+    });
+    expect(useStore.getState().cliConnected.get("s1")).toBe(false);
+    expect(useStore.getState().sessionStatus.get("s1")).toBeNull();
+  });
+});
+
+// ===========================================================================
+// handleMessage: permission_approved removes pending permission
+// ===========================================================================
+describe("handleMessage: permission_approved", () => {
+  it("removes the permission from pending when request_id is present", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    // Add a pending permission
+    const request: PermissionRequest = {
+      request_id: "req-approve-1",
+      tool_name: "Edit",
+      input: { file_path: "/test.ts" },
+      tool_use_id: "tu-approve-1",
+      timestamp: Date.now(),
+    };
+    useStore.getState().addPermission("s1", request);
+    expect(useStore.getState().pendingPermissions.get("s1")!.has("req-approve-1")).toBe(true);
+
+    // Fire permission_approved with request_id
+    fireMessage({
+      type: "permission_approved",
+      id: "approval-req-approve-1",
+      request_id: "req-approve-1",
+      tool_name: "Edit",
+      tool_use_id: "tu-approve-1",
+      summary: "Approved Edit",
+      timestamp: Date.now(),
+    });
+
+    // Permission should be removed from pending
+    const perms = useStore.getState().pendingPermissions.get("s1");
+    expect(perms!.has("req-approve-1")).toBe(false);
+
+    // System message should be appended
+    const msgs = useStore.getState().messages.get("s1")!;
+    expect(msgs.some((m) => m.variant === "approved")).toBe(true);
+  });
+
+  it("still works without request_id (backward compat with old messages)", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    // Fire permission_approved WITHOUT request_id (old format)
+    fireMessage({
+      type: "permission_approved",
+      id: "approval-old",
+      tool_name: "Bash",
+      tool_use_id: "tu-old",
+      summary: "Approved Bash",
+      timestamp: Date.now(),
+    });
+
+    // Should still append the system message without errors
+    const msgs = useStore.getState().messages.get("s1")!;
+    expect(msgs.some((m) => m.variant === "approved")).toBe(true);
+  });
+});
+
+// ===========================================================================
+// handleMessage: permission_denied removes pending permission
+// ===========================================================================
+describe("handleMessage: permission_denied", () => {
+  it("removes the permission from pending when request_id is present", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    // Add a pending permission
+    const request: PermissionRequest = {
+      request_id: "req-deny-1",
+      tool_name: "Bash",
+      input: { command: "rm -rf /" },
+      tool_use_id: "tu-deny-1",
+      timestamp: Date.now(),
+    };
+    useStore.getState().addPermission("s1", request);
+    expect(useStore.getState().pendingPermissions.get("s1")!.has("req-deny-1")).toBe(true);
+
+    // Fire permission_denied with request_id
+    fireMessage({
+      type: "permission_denied",
+      id: "denial-req-deny-1",
+      request_id: "req-deny-1",
+      tool_name: "Bash",
+      tool_use_id: "tu-deny-1",
+      summary: "Denied Bash",
+      timestamp: Date.now(),
+    });
+
+    // Permission should be removed from pending
+    const perms = useStore.getState().pendingPermissions.get("s1");
+    expect(perms!.has("req-deny-1")).toBe(false);
+
+    // System message should be appended with denied variant
+    const msgs = useStore.getState().messages.get("s1")!;
+    expect(msgs.some((m) => m.variant === "denied")).toBe(true);
+  });
+});
+
+// ===========================================================================
+// sendToSession: returns boolean indicating success
+// ===========================================================================
+describe("sendToSession return value", () => {
+  it("returns true when WebSocket is open", () => {
+    wsModule.connectSession("s1");
+    const result = wsModule.sendToSession("s1", { type: "interrupt" });
+    expect(result).toBe(true);
+  });
+
+  it("returns false when WebSocket is closed", () => {
+    wsModule.connectSession("s1");
+    lastWs.readyState = MockWebSocket.CLOSED;
+    const result = wsModule.sendToSession("s1", { type: "interrupt" });
+    expect(result).toBe(false);
+  });
+
+  it("returns false when session has no socket", () => {
+    const result = wsModule.sendToSession("nonexistent", { type: "interrupt" });
+    expect(result).toBe(false);
+  });
+});

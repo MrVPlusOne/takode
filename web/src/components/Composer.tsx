@@ -152,12 +152,14 @@ export function Composer({ sessionId }: { sessionId: string }) {
     const msg = text.trim();
     if (!msg || !isConnected) return;
 
-    sendToSession(sessionId, {
+    const sent = sendToSession(sessionId, {
       type: "user_message",
       content: msg,
       session_id: sessionId,
       images: images.length > 0 ? images.map((img) => ({ media_type: img.mediaType, data: img.base64 })) : undefined,
     });
+
+    if (!sent) return; // WebSocket not open — keep draft so user can retry
 
     useStore.getState().setSessionPreview(sessionId, msg.slice(0, 80));
     useStore.getState().appendMessage(sessionId, {

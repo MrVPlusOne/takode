@@ -3358,10 +3358,19 @@ describe("handleSessionSubscribe — no double message_history", () => {
       last_seq: 0,
     }));
 
-    // Should now receive message_history
+    // Should now receive message_history + state_snapshot
     const calls = browser.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
     const historyMsgs = calls.filter((m: any) => m.type === "message_history");
     expect(historyMsgs.length).toBe(1);
+
+    // state_snapshot should be sent last with authoritative transient state
+    const snapshots = calls.filter((m: any) => m.type === "state_snapshot");
+    expect(snapshots.length).toBe(1);
+    expect(snapshots[0]).toEqual(expect.objectContaining({
+      type: "state_snapshot",
+      cliConnected: true,
+      permissionMode: expect.any(String),
+    }));
   });
 
   it("includes nextEventSeq in session_init", () => {
@@ -3377,5 +3386,166 @@ describe("handleSessionSubscribe — no double message_history", () => {
     expect(sessionInit).toBeTruthy();
     expect(typeof sessionInit.nextEventSeq).toBe("number");
     expect(sessionInit.nextEventSeq).toBeGreaterThan(0);
+  });
+});
+
+// ─── state_snapshot on subscribe ─────────────────────────────────────────────
+
+describe("state_snapshot", () => {
+  let cli: ReturnType<typeof makeCliSocket>;
+  let browser: ReturnType<typeof makeBrowserSocket>;
+
+  beforeEach(() => {
+    cli = makeCliSocket("s1");
+    bridge.handleCLIOpen(cli, "s1");
+    bridge.handleCLIMessage(cli, makeInitMsg());
+
+    browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+    browser.send.mockClear();
+  });
+
+  it("sends state_snapshot after session_subscribe with lastSeq=0", () => {
+    bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "session_subscribe",
+      last_seq: 0,
+    }));
+
+    const calls = browser.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
+    const snapshots = calls.filter((m: any) => m.type === "state_snapshot");
+    expect(snapshots.length).toBe(1);
+    expect(snapshots[0].cliConnected).toBe(true);
+    expect(snapshots[0].sessionStatus).toBe("idle");
+    expect(typeof snapshots[0].permissionMode).toBe("string");
+    expect(typeof snapshots[0].askPermission).toBe("boolean");
+  });
+
+  it("state_snapshot is the last message sent during subscribe", () => {
+    // Add history so multiple messages are sent
+    bridge.handleCLIMessage(cli, JSON.stringify({
+      type: "assistant",
+      message: { id: "msg-1", type: "message", role: "assistant", model: "claude", content: [{ type: "text", text: "hi" }], stop_reason: null, usage: { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } },
+      parent_tool_use_id: null,
+      uuid: "u2",
+      session_id: "cli-123",
+    }));
+    browser.send.mockClear();
+
+    bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "session_subscribe",
+      last_seq: 0,
+    }));
+
+    const calls = browser.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
+    // state_snapshot should be the very last message
+    expect(calls[calls.length - 1].type).toBe("state_snapshot");
+  });
+
+  it("reports sessionStatus as 'running' when last history entry is assistant", () => {
+    // Send an assistant message (no result after it)
+    bridge.handleCLIMessage(cli, JSON.stringify({
+      type: "assistant",
+      message: { id: "msg-1", type: "message", role: "assistant", model: "claude", content: [{ type: "text", text: "working..." }], stop_reason: null, usage: { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } },
+      parent_tool_use_id: null,
+      uuid: "u3",
+      session_id: "cli-123",
+    }));
+    browser.send.mockClear();
+
+    bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "session_subscribe",
+      last_seq: 0,
+    }));
+
+    const calls = browser.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
+    const snapshot = calls.find((m: any) => m.type === "state_snapshot");
+    expect(snapshot.sessionStatus).toBe("running");
+  });
+
+  it("reports cliConnected as false when CLI is disconnected", () => {
+    bridge.handleCLIClose(cli);
+    browser.send.mockClear();
+
+    bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "session_subscribe",
+      last_seq: 0,
+    }));
+
+    const calls = browser.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
+    const snapshot = calls.find((m: any) => m.type === "state_snapshot");
+    expect(snapshot.cliConnected).toBe(false);
+    expect(snapshot.sessionStatus).toBeNull();
+  });
+});
+
+// ─── permission approval/denial includes request_id ──────────────────────────
+
+describe("permission broadcasts include request_id", () => {
+  let cli: ReturnType<typeof makeCliSocket>;
+  let browser: ReturnType<typeof makeBrowserSocket>;
+
+  beforeEach(() => {
+    cli = makeCliSocket("s1");
+    bridge.handleCLIOpen(cli, "s1");
+    bridge.handleCLIMessage(cli, makeInitMsg());
+
+    browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+  });
+
+  it("permission_approved broadcast includes request_id", () => {
+    // Create pending permission for a notable tool (ExitPlanMode) so approval is broadcast
+    bridge.handleCLIMessage(cli, JSON.stringify({
+      type: "control_request",
+      request_id: "req-plan",
+      request: {
+        subtype: "can_use_tool",
+        tool_name: "ExitPlanMode",
+        input: {},
+        tool_use_id: "tu-plan",
+      },
+    }));
+    browser.send.mockClear();
+
+    // Approve the permission
+    bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "permission_response",
+      request_id: "req-plan",
+      behavior: "allow",
+    }));
+
+    const calls = browser.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
+    const approved = calls.find((m: any) => m.type === "permission_approved");
+    expect(approved).toBeDefined();
+    expect(approved.request_id).toBe("req-plan");
+    expect(approved.tool_name).toBe("ExitPlanMode");
+  });
+
+  it("permission_denied broadcast includes request_id", () => {
+    bridge.handleCLIMessage(cli, JSON.stringify({
+      type: "control_request",
+      request_id: "req-deny-test",
+      request: {
+        subtype: "can_use_tool",
+        tool_name: "Bash",
+        input: { command: "rm -rf /" },
+        tool_use_id: "tu-deny-test",
+      },
+    }));
+    browser.send.mockClear();
+
+    bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "permission_response",
+      request_id: "req-deny-test",
+      behavior: "deny",
+      message: "Nope",
+    }));
+
+    const calls = browser.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
+    const denied = calls.find((m: any) => m.type === "permission_denied");
+    expect(denied).toBeDefined();
+    expect(denied.request_id).toBe("req-deny-test");
+    expect(denied.tool_name).toBe("Bash");
   });
 });
