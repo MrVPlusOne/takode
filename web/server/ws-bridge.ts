@@ -1193,17 +1193,20 @@ export class WsBridge {
           const answers = pending.tool_name === "AskUserQuestion"
             ? extractAskUserAnswers(pending.input, msg.updated_input)
             : undefined;
-          const approvedMsg: BrowserIncomingMessage = {
-            type: "permission_approved",
-            id: `approval-${msg.request_id}`,
-            tool_name: pending.tool_name,
-            tool_use_id: pending.tool_use_id,
-            summary: getApprovalSummary(pending.tool_name, pending.input),
-            timestamp: Date.now(),
-            ...(answers ? { answers } : {}),
-          };
-          session.messageHistory.push(approvedMsg);
-          this.broadcastToBrowsers(session, approvedMsg);
+          // Skip AskUserQuestion if we couldn't extract answers (avoids redundant chip)
+          if (pending.tool_name !== "AskUserQuestion" || answers) {
+            const approvedMsg: BrowserIncomingMessage = {
+              type: "permission_approved",
+              id: `approval-${msg.request_id}`,
+              tool_name: pending.tool_name,
+              tool_use_id: pending.tool_use_id,
+              summary: getApprovalSummary(pending.tool_name, pending.input),
+              timestamp: Date.now(),
+              ...(answers ? { answers } : {}),
+            };
+            session.messageHistory.push(approvedMsg);
+            this.broadcastToBrowsers(session, approvedMsg);
+          }
         }
         if (msg.behavior === "deny" && pending) {
           const deniedMsg: BrowserIncomingMessage = {
@@ -1454,17 +1457,20 @@ export class WsBridge {
         const answers = pending.tool_name === "AskUserQuestion"
           ? extractAskUserAnswers(pending.input, msg.updated_input)
           : undefined;
-        const approvedMsg: BrowserIncomingMessage = {
-          type: "permission_approved",
-          id: `approval-${msg.request_id}`,
-          tool_name: pending.tool_name,
-          tool_use_id: pending.tool_use_id,
-          summary: getApprovalSummary(pending.tool_name, pending.input),
-          timestamp: Date.now(),
-          ...(answers ? { answers } : {}),
-        };
-        session.messageHistory.push(approvedMsg);
-        this.broadcastToBrowsers(session, approvedMsg);
+        // Skip AskUserQuestion if we couldn't extract answers (avoids redundant chip)
+        if (pending.tool_name !== "AskUserQuestion" || answers) {
+          const approvedMsg: BrowserIncomingMessage = {
+            type: "permission_approved",
+            id: `approval-${msg.request_id}`,
+            tool_name: pending.tool_name,
+            tool_use_id: pending.tool_use_id,
+            summary: getApprovalSummary(pending.tool_name, pending.input),
+            timestamp: Date.now(),
+            ...(answers ? { answers } : {}),
+          };
+          session.messageHistory.push(approvedMsg);
+          this.broadcastToBrowsers(session, approvedMsg);
+        }
       }
 
       // Auto-switch mode after ExitPlanMode approval.

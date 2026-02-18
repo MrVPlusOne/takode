@@ -326,14 +326,6 @@ const MSG_DENIED_EDIT: ChatMessage = {
   variant: "denied",
 };
 
-const MSG_APPROVED_BASH: ChatMessage = {
-  id: "approval-bash-1",
-  role: "system",
-  content: "Approved: Bash \u2014 git push origin main",
-  timestamp: Date.now() - 16500,
-  variant: "approved",
-};
-
 const MSG_APPROVED_PLAN: ChatMessage = {
   id: "approval-plan-1",
   role: "system",
@@ -772,9 +764,6 @@ export function Playground() {
             </Card>
             <Card label="Denied — Edit file">
               <MessageBubble message={MSG_DENIED_EDIT} />
-            </Card>
-            <Card label="Approved — Bash command">
-              <MessageBubble message={MSG_APPROVED_BASH} />
             </Card>
             <Card label="Approved — Plan">
               <MessageBubble message={MSG_APPROVED_PLAN} />
