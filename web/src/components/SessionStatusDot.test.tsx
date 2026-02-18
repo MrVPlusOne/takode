@@ -53,11 +53,11 @@ describe("deriveSessionStatus", () => {
     expect(result).toBe("disconnected");
   });
 
-  it("returns 'disconnected' when not connected and not starting", () => {
-    // WebSocket disconnected, CLI not starting up — disconnected state.
+  it("returns 'disconnected' when not connected and sdkState is null", () => {
+    // WebSocket disconnected and no SDK process info — disconnected state.
     const result = deriveSessionStatus(makeProps({
       isConnected: false,
-      sdkState: "connected",
+      sdkState: null,
     }));
     expect(result).toBe("disconnected");
   });
@@ -70,7 +70,18 @@ describe("deriveSessionStatus", () => {
       sdkState: "starting",
     }));
     expect(result).not.toBe("disconnected");
-    // It should fall through to idle since status is "idle"
+    expect(result).toBe("idle");
+  });
+
+  it("does NOT return 'disconnected' when not connected but sdkState is 'connected'", () => {
+    // For non-active sessions, the browser has no WebSocket so isConnected is
+    // always false. The REST API reports sdkState="connected" — this should NOT
+    // show as disconnected (red dot).
+    const result = deriveSessionStatus(makeProps({
+      isConnected: false,
+      sdkState: "connected",
+    }));
+    expect(result).not.toBe("disconnected");
     expect(result).toBe("idle");
   });
 
