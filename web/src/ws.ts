@@ -214,6 +214,42 @@ function extractTextFromBlocks(blocks: ContentBlock[]): string {
     .join("\n");
 }
 
+/** Merge content blocks from two versions of the same assistant message.
+ *  Deduplicates tool_use blocks by their unique `id` and text/thinking
+ *  blocks by content equality. Returns all unique blocks in order. */
+function mergeContentBlocks(existing: ContentBlock[], incoming: ContentBlock[]): ContentBlock[] {
+  const seenToolIds = new Set<string>();
+  const seenTexts = new Set<string>();
+  const result: ContentBlock[] = [];
+
+  for (const block of existing) {
+    if (block.type === "tool_use" && block.id) {
+      seenToolIds.add(block.id);
+    } else if (block.type === "text") {
+      seenTexts.add(block.text);
+    } else if (block.type === "thinking") {
+      seenTexts.add(`thinking:${block.thinking}`);
+    }
+    result.push(block);
+  }
+
+  for (const block of incoming) {
+    if (block.type === "tool_use" && block.id) {
+      if (seenToolIds.has(block.id)) continue;
+      seenToolIds.add(block.id);
+    } else if (block.type === "text") {
+      if (seenTexts.has(block.text)) continue;
+      seenTexts.add(block.text);
+    } else if (block.type === "thinking") {
+      if (seenTexts.has(`thinking:${block.thinking}`)) continue;
+      seenTexts.add(`thinking:${block.thinking}`);
+    }
+    result.push(block);
+  }
+
+  return result;
+}
+
 function handleMessage(sessionId: string, event: MessageEvent) {
   let data: BrowserIncomingMessage;
   try {
@@ -293,13 +329,17 @@ function handleParsedMessage(
         stopReason: msg.stop_reason,
       };
       // Server accumulates content blocks for same-ID messages (parallel tool calls).
-      // If this ID already exists, update rather than append.
+      // If this ID already exists, merge content blocks rather than replace — this
+      // handles both accumulated messages (server sends full set) and non-accumulated
+      // messages (old server sends partial blocks) correctly.
       const existingMsgs = store.messages.get(sessionId) || [];
-      if (msg.id && existingMsgs.some((m) => m.id === msg.id)) {
-        store.updateMessage(sessionId, msg.id, {
-          content: textContent,
-          contentBlocks: msg.content,
-          stopReason: msg.stop_reason,
+      const existing = msg.id ? existingMsgs.find((m) => m.id === msg.id) : undefined;
+      if (existing) {
+        const mergedBlocks = mergeContentBlocks(existing.contentBlocks || [], msg.content || []);
+        store.updateMessage(sessionId, msg.id!, {
+          content: extractTextFromBlocks(mergedBlocks),
+          contentBlocks: mergedBlocks,
+          stopReason: msg.stop_reason || existing.stopReason,
         });
       } else {
         store.appendMessage(sessionId, chatMsg);

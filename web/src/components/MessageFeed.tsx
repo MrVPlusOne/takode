@@ -166,17 +166,19 @@ function groupMessages(messages: ChatMessage[]): FeedEntry[] {
     }
   }
 
-  // If no Task tool_uses found, skip the overhead
-  if (taskInfo.size === 0) {
-    return groupToolMessages(messages);
-  }
-
-  // Phase 2: Partition into top-level and child messages
+  // Phase 2: Partition into top-level and child messages.
+  // Also detect orphaned children whose parent Task block was lost (e.g. due to
+  // message dedup dropping a split assistant message). Create synthetic taskInfo
+  // entries so they still get grouped under a SubagentContainer.
   const childrenByParent = new Map<string, ChatMessage[]>();
   const topLevel: ChatMessage[] = [];
 
   for (const msg of messages) {
-    if (msg.parentToolUseId && taskInfo.has(msg.parentToolUseId)) {
+    if (msg.parentToolUseId) {
+      if (!taskInfo.has(msg.parentToolUseId)) {
+        // Orphaned child — parent Task block was lost. Create synthetic entry.
+        taskInfo.set(msg.parentToolUseId, { description: "Subagent", agentType: "" });
+      }
       let arr = childrenByParent.get(msg.parentToolUseId);
       if (!arr) { arr = []; childrenByParent.set(msg.parentToolUseId, arr); }
       arr.push(msg);
@@ -185,8 +187,35 @@ function groupMessages(messages: ChatMessage[]): FeedEntry[] {
     }
   }
 
-  // Phase 3: Build grouped entries with subagent nesting
-  return buildEntries(topLevel, taskInfo, childrenByParent);
+  // If no Task tool_uses found (including synthetic), skip the overhead
+  if (taskInfo.size === 0) {
+    return groupToolMessages(messages);
+  }
+
+  // Phase 3: Build grouped entries with subagent nesting.
+  // Orphaned subagent groups (no parent entry in topLevel) are appended at the end.
+  const entries = buildEntries(topLevel, taskInfo, childrenByParent);
+
+  // Emit any orphaned subagent groups whose parent Task wasn't in any top-level entry
+  const emittedTaskIds = new Set<string>();
+  for (const entry of entries) {
+    if (entry.kind === "subagent") emittedTaskIds.add(entry.taskToolUseId);
+  }
+  for (const [taskId, children] of childrenByParent) {
+    if (emittedTaskIds.has(taskId)) continue;
+    if (children.length === 0) continue;
+    const info = taskInfo.get(taskId) || { description: "Subagent", agentType: "" };
+    const childEntries = buildEntries(children, taskInfo, childrenByParent);
+    entries.push({
+      kind: "subagent",
+      taskToolUseId: taskId,
+      description: info.description,
+      agentType: info.agentType,
+      children: childEntries,
+    });
+  }
+
+  return entries;
 }
 
 // ─── Components ──────────────────────────────────────────────────────────────

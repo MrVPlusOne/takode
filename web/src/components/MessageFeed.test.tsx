@@ -397,4 +397,50 @@ describe("MessageFeed - subagent grouping", () => {
     // The agent type badge should be shown
     expect(screen.getByText("researcher")).toBeTruthy();
   });
+
+  it("groups orphaned child messages when parent Task tool_use block is missing", () => {
+    // This simulates a scenario where the CLI sent the parent assistant message
+    // in two parts (text block first, Task tool_use second) and the Task block
+    // was lost due to browser-side message deduplication. The child messages
+    // still have parentToolUseId set and should be grouped under a fallback
+    // SubagentContainer instead of appearing as flat top-level entries.
+    const sid = "test-orphan-subagent";
+    setStoreMessages(sid, [
+      // Parent message only has text — no Task tool_use block (it was lost)
+      makeMessage({
+        id: "a1",
+        role: "assistant",
+        content: "Let me use the playwright agent to check this",
+        contentBlocks: [
+          { type: "text", text: "Let me use the playwright agent to check this" },
+        ],
+      }),
+      // Child messages have parentToolUseId but no matching Task in any message
+      makeMessage({
+        id: "child-1",
+        role: "assistant",
+        content: "",
+        parentToolUseId: "task-orphan-1",
+        contentBlocks: [
+          { type: "tool_use", id: "tu-bash-1", name: "Bash", input: { command: "ls" } },
+        ],
+      }),
+      makeMessage({
+        id: "child-2",
+        role: "assistant",
+        content: "",
+        parentToolUseId: "task-orphan-1",
+        contentBlocks: [
+          { type: "tool_use", id: "tu-bash-2", name: "Bash", input: { command: "pwd" } },
+        ],
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    // The orphaned children should be nested under a fallback "Subagent" container
+    // instead of appearing as top-level entries. The SubagentContainer renders
+    // the description text as a label — our fallback is "Subagent".
+    expect(screen.getByText("Subagent")).toBeTruthy();
+  });
 });
