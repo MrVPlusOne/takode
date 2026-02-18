@@ -72,9 +72,11 @@ function extractAskUserAnswers(
   if (!answers || !questions.length) return undefined;
 
   const pairs: { question: string; answer: string }[] = [];
-  for (const q of questions) {
+  for (let i = 0; i < questions.length; i++) {
+    const q = questions[i];
     const questionText = typeof q.question === "string" ? q.question : "";
-    const answer = questionText ? answers[questionText] : undefined;
+    // Protocol uses numeric index keys ("0", "1", ...) or question text as keys
+    const answer = answers[String(i)] ?? (questionText ? answers[questionText] : undefined);
     if (questionText && answer) {
       pairs.push({ question: questionText, answer });
     }
