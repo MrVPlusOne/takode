@@ -30,7 +30,8 @@ interface OAuthCredentials {
 
 function readRawCredentials(): { raw: string; parsed: Record<string, unknown>; oauth: OAuthCredentials } | null {
   try {
-    if (process.platform === "win32") {
+    if (process.platform !== "darwin") {
+      // Windows and Linux: read from credentials file
       const home =
         process.env.USERPROFILE || process.env.HOME || homedir() || "";
       const credPath = join(home, ".claude", ".credentials.json");
@@ -41,6 +42,7 @@ function readRawCredentials(): { raw: string; parsed: Record<string, unknown>; o
       return { raw, parsed, oauth: parsed.claudeAiOauth };
     }
 
+    // macOS: use Keychain
     const raw = execSync(
       'security find-generic-password -s "Claude Code-credentials" -w',
       { encoding: "utf-8", timeout: 5000, stdio: ["pipe", "pipe", "pipe"] },
@@ -61,12 +63,14 @@ function readRawCredentials(): { raw: string; parsed: Record<string, unknown>; o
 function writeCredentials(creds: Record<string, unknown>): void {
   try {
     const json = JSON.stringify(creds);
-    if (process.platform === "win32") {
+    if (process.platform !== "darwin") {
+      // Windows and Linux: write to credentials file
       const home =
         process.env.USERPROFILE || process.env.HOME || homedir() || "";
       const credPath = join(home, ".claude", ".credentials.json");
       require("node:fs").writeFileSync(credPath, json, "utf-8");
     } else {
+      // macOS: use Keychain
       execFileSync(
         "security",
         ["add-generic-password", "-U", "-s", "Claude Code-credentials", "-a", "Claude Code", "-w", json],

@@ -73,7 +73,16 @@ const SAMPLE_LIMITS = {
 // ===========================================================================
 // getCredentials
 // ===========================================================================
-describe("getCredentials", () => {
+describe("getCredentials (macOS Keychain)", () => {
+  beforeEach(async () => {
+    // These tests exercise the macOS Keychain (execSync) path
+    Object.defineProperty(process, "platform", { value: "darwin" });
+    vi.resetModules();
+    mockExecSync.mockReset();
+    mockFetch.mockReset();
+    mod = await import("./usage-limits.js");
+  });
+
   it("extracts token from plain JSON output", () => {
     mockExecSync.mockReturnValue(makeCredentialsJson(SAMPLE_TOKEN));
     expect(mod.getCredentials()).toBe(SAMPLE_TOKEN);
@@ -214,6 +223,15 @@ describe("fetchUsageLimits", () => {
 describe("getUsageLimits", () => {
   const EMPTY = { five_hour: null, seven_day: null, extra_usage: null };
 
+  // These tests use mockExecSync (macOS Keychain path)
+  beforeEach(async () => {
+    Object.defineProperty(process, "platform", { value: "darwin" });
+    vi.resetModules();
+    mockExecSync.mockReset();
+    mockFetch.mockReset();
+    mod = await import("./usage-limits.js");
+  });
+
   it("returns empty when no credentials are available", async () => {
     mockExecSync.mockImplementation(() => {
       throw new Error("no keychain");
@@ -273,6 +291,16 @@ describe("getUsageLimits", () => {
 // ===========================================================================
 describe("token refresh", () => {
   const EMPTY = { five_hour: null, seven_day: null, extra_usage: null };
+
+  // These tests use mockExecSync (macOS Keychain path)
+  beforeEach(async () => {
+    Object.defineProperty(process, "platform", { value: "darwin" });
+    vi.resetModules();
+    mockExecSync.mockReset();
+    mockExecFileSync.mockReset();
+    mockFetch.mockReset();
+    mod = await import("./usage-limits.js");
+  });
 
   it("refreshes an expired token and uses the new one", async () => {
     // Provide an expired token
