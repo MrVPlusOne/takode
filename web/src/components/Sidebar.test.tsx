@@ -46,6 +46,8 @@ interface MockStoreState {
   sessionStatus: Map<string, "idle" | "running" | "compacting" | null>;
   sessionNames: Map<string, string>;
   sessionPreviews: Map<string, string>;
+  sessionPreviewUpdatedAt: Map<string, number>;
+  sessionTaskPreview: Map<string, string>;
   recentlyRenamed: Set<string>;
   pendingPermissions: Map<string, Map<string, unknown>>;
   collapsedProjects: Set<string>;
