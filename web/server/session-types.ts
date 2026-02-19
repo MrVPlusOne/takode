@@ -292,6 +292,7 @@ export interface SessionState {
   repo_root: string;
   git_ahead: number;
   git_behind: number;
+  git_dirty_count?: number;
   total_lines_added: number;
   total_lines_removed: number;
   // Codex-specific token details (forwarded from thread/tokenUsage/updated)

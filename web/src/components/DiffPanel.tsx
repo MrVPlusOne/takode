@@ -356,6 +356,7 @@ export function DiffPanel({ sessionId }: { sessionId: string }) {
                 {selectedRelPath}
               </span>
             </div>
+            {!sidebarOpen && branchSelector}
             {selectedFile && fileStats.has(selectedFile) && (
               <span className="text-[11px] font-mono-code shrink-0 flex items-center gap-1.5">
                 <span className="text-green-500">+{fileStats.get(selectedFile)!.additions}</span>
