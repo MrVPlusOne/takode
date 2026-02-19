@@ -696,7 +696,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
                 </svg>
               </button>
 
-              {isRunning ? (
+              {isRunning && (
                 <button
                   onClick={handleInterrupt}
                   className="flex items-center justify-center w-8 h-8 rounded-lg bg-cc-error/10 hover:bg-cc-error/20 text-cc-error transition-colors cursor-pointer"
@@ -706,22 +706,21 @@ export function Composer({ sessionId }: { sessionId: string }) {
                     <rect x="3" y="3" width="10" height="10" rx="1" />
                   </svg>
                 </button>
-              ) : (
-                <button
-                  onClick={handleSend}
-                  disabled={!canSend}
-                  className={`flex items-center justify-center w-8 h-8 rounded-full transition-colors ${
-                    canSend
-                      ? "bg-cc-primary hover:bg-cc-primary-hover text-white cursor-pointer"
-                      : "bg-cc-hover text-cc-muted cursor-not-allowed"
-                  }`}
-                  title="Send message"
-                >
-                  <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
-                    <path d="M3 2l11 6-11 6V9.5l7-1.5-7-1.5V2z" />
-                  </svg>
-                </button>
               )}
+              <button
+                onClick={handleSend}
+                disabled={!canSend}
+                className={`flex items-center justify-center w-8 h-8 rounded-full transition-colors ${
+                  canSend
+                    ? "bg-cc-primary hover:bg-cc-primary-hover text-white cursor-pointer"
+                    : "bg-cc-hover text-cc-muted cursor-not-allowed"
+                }`}
+                title="Send message"
+              >
+                <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
+                  <path d="M3 2l11 6-11 6V9.5l7-1.5-7-1.5V2z" />
+                </svg>
+              </button>
             </div>
           </div>
         </div>

@@ -333,14 +333,13 @@ describe("Composer ask permission toggle", () => {
 // ─── Interrupt button ────────────────────────────────────────────────────────
 
 describe("Composer interrupt button", () => {
-  it("interrupt button appears when session is running", () => {
+  it("interrupt button appears when session is running alongside send button", () => {
     setupMockStore({ sessionStatus: "running" });
     render(<Composer sessionId="s1" />);
 
-    const stopBtn = screen.getByTitle("Stop generation");
-    expect(stopBtn).toBeTruthy();
-    // Send button should not be present
-    expect(screen.queryByTitle("Send message")).toBeNull();
+    expect(screen.getByTitle("Stop generation")).toBeTruthy();
+    // Send button is always present (users can send follow-up messages while agent is running)
+    expect(screen.getByTitle("Send message")).toBeTruthy();
   });
 
   it("interrupt button sends interrupt message", () => {
