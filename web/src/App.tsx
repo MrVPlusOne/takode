@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { useStore } from "./store.js";
 import { connectSession } from "./ws.js";
+import { checkHealth } from "./api.js";
 
 import { parseHash, navigateToSession } from "./utils/routing.js";
 import { Sidebar } from "./components/Sidebar.js";
@@ -48,6 +49,26 @@ export default function App() {
   useEffect(() => {
     document.documentElement.classList.toggle("dark", darkMode);
   }, [darkMode]);
+
+  // Poll server health every 10s. Require 2+ consecutive failures before marking unreachable.
+  useEffect(() => {
+    let failures = 0;
+    const poll = async () => {
+      const ok = await checkHealth();
+      if (ok) {
+        failures = 0;
+        useStore.getState().setServerReachable(true);
+      } else {
+        failures++;
+        if (failures >= 2) {
+          useStore.getState().setServerReachable(false);
+        }
+      }
+    };
+    poll();
+    const interval = setInterval(poll, 10_000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     // Size the parent chain (html → body → #root) to the viewport so the

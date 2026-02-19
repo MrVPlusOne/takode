@@ -94,6 +94,10 @@ interface AppState {
   serverName: string;
   setServerName: (name: string) => void;
 
+  // Server connectivity
+  serverReachable: boolean;
+  setServerReachable: (reachable: boolean) => void;
+
   // UI
   darkMode: boolean;
   zoomLevel: number;
@@ -135,6 +139,8 @@ interface AppState {
   updateLastAssistantMessage: (sessionId: string, updater: (msg: ChatMessage) => ChatMessage) => void;
   setStreaming: (sessionId: string, text: string | null) => void;
   setStreamingStats: (sessionId: string, stats: { startedAt?: number; outputTokens?: number } | null) => void;
+  /** Clear all streaming/generation transient state for a session in one batch */
+  clearStreamingState: (sessionId: string) => void;
 
   // Permission actions
   addPermission: (sessionId: string, perm: PermissionRequest) => void;
@@ -367,6 +373,8 @@ export const useStore = create<AppState>((set) => ({
   sessionCreatingBackend: null,
   serverName: "",
   setServerName: (name) => set({ serverName: name }),
+  serverReachable: true,
+  setServerReachable: (reachable) => set({ serverReachable: reachable }),
   darkMode: getInitialDarkMode(),
   zoomLevel: getInitialZoomLevel(),
   notificationSound: getInitialNotificationSound(),
@@ -665,6 +673,21 @@ export const useStore = create<AppState>((set) => ({
         if (stats.outputTokens !== undefined) streamingOutputTokens.set(sessionId, stats.outputTokens);
       }
       return { streamingStartedAt, streamingOutputTokens };
+    }),
+
+  clearStreamingState: (sessionId) =>
+    set((s) => {
+      const streaming = new Map(s.streaming);
+      streaming.delete(sessionId);
+      const streamingStartedAt = new Map(s.streamingStartedAt);
+      streamingStartedAt.delete(sessionId);
+      const streamingOutputTokens = new Map(s.streamingOutputTokens);
+      streamingOutputTokens.delete(sessionId);
+      const streamingPausedDuration = new Map(s.streamingPausedDuration);
+      streamingPausedDuration.delete(sessionId);
+      const streamingPauseStartedAt = new Map(s.streamingPauseStartedAt);
+      streamingPauseStartedAt.delete(sessionId);
+      return { streaming, streamingStartedAt, streamingOutputTokens, streamingPausedDuration, streamingPauseStartedAt };
     }),
 
   addPermission: (sessionId, perm) =>

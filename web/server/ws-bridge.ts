@@ -142,6 +142,8 @@ interface Session {
   awaitingCompactSummary?: boolean;
   /** Accumulates content blocks for assistant messages with the same ID (parallel tool calls) */
   assistantAccumulator: Map<string, { contentBlockIds: Set<string> }>;
+  /** Whether the CLI is actively generating a response (transient, not persisted) */
+  isGenerating: boolean;
 }
 
 type GitSessionKey = "git_branch" | "is_worktree" | "is_containerized" | "repo_root" | "git_ahead" | "git_behind";
@@ -400,6 +402,7 @@ export class WsBridge {
         ),
         toolResults: new Map(Array.isArray(p.toolResults) ? p.toolResults : []),
         assistantAccumulator: new Map(),
+        isGenerating: false,
       };
       session.state.backend_type = session.backendType;
       // Resolve git info for restored sessions (may have been persisted without it)
@@ -521,6 +524,7 @@ export class WsBridge {
         processedClientMessageIdSet: new Set(),
         toolResults: new Map(),
         assistantAccumulator: new Map(),
+        isGenerating: false,
       };
       this.sessions.set(sessionId, session);
     } else if (backendType) {
@@ -638,6 +642,7 @@ export class WsBridge {
         session.messageHistory.push({ ...msg, timestamp: msg.timestamp || Date.now() });
         this.persistSession(session);
       } else if (msg.type === "result") {
+        session.isGenerating = false;
         session.messageHistory.push(msg);
         this.persistSession(session);
       }
@@ -699,6 +704,7 @@ export class WsBridge {
       }
       session.pendingPermissions.clear();
       session.codexAdapter = null;
+      session.isGenerating = false;
       this.persistSession(session);
       console.log(`[ws-bridge] Codex adapter disconnected for session ${sessionId}`);
       this.broadcastToBrowsers(session, { type: "cli_disconnected" });
@@ -774,6 +780,7 @@ export class WsBridge {
     if (!session) return;
 
     session.cliSocket = null;
+    session.isGenerating = false;
     console.log(`[ws-bridge] CLI disconnected for session ${sessionId}`);
     this.broadcastToBrowsers(session, { type: "cli_disconnected" });
 
@@ -1016,6 +1023,10 @@ export class WsBridge {
       }
     } else if (msg.subtype === "status") {
       session.state.is_compacting = msg.status === "compacting";
+      // Compaction pauses generation; clear the flag so deriveSessionStatus is accurate
+      if (msg.status === "compacting") {
+        session.isGenerating = false;
+      }
 
       if (msg.permissionMode) {
         session.state.permissionMode = msg.permissionMode;
@@ -1183,6 +1194,7 @@ export class WsBridge {
       },
     });
 
+    session.isGenerating = false;
     const browserMsg: BrowserIncomingMessage = {
       type: "result",
       data: msg,
@@ -1379,6 +1391,7 @@ export class WsBridge {
         session.messageHistory.push(userHistoryEntry);
         // Broadcast user message to all browsers (server-authoritative)
         this.broadcastToBrowsers(session, userHistoryEntry);
+        session.isGenerating = true;
         this.broadcastToBrowsers(session, { type: "status_change", status: "running" });
         this.persistSession(session);
       }
@@ -1642,6 +1655,7 @@ export class WsBridge {
       session_id: msg.session_id || session.state.session_id || "",
     });
     this.sendToCLI(session, ndjson);
+    session.isGenerating = true;
     // Notify all browsers immediately so the UI shows "Thinking" without
     // waiting for the CLI's first assistant response.
     this.broadcastToBrowsers(session, { type: "status_change", status: "running" });
@@ -1711,6 +1725,7 @@ export class WsBridge {
         // Immediately tell browsers the session is running — the CLI will
         // start executing the plan right away but its own status update
         // takes a round-trip to arrive.
+        session.isGenerating = true;
         this.broadcastToBrowsers(session, { type: "status_change", status: "running" });
         console.log(`[ws-bridge] ExitPlanMode approved for session ${session.id}, switching to ${postPlanMode} (askPermission=${askPerm})`);
       }
@@ -1914,15 +1929,12 @@ export class WsBridge {
     this.broadcastToBrowsers(session, { type: "session_name_update", name });
   }
 
-  /** Derive current session status from existing state (no extra field needed). */
+  /** Derive current session status from explicit runtime state. */
   private deriveSessionStatus(session: Session): string | null {
     if (session.state.is_compacting) return "compacting";
     const hasBackend = !!(session.cliSocket || session.codexAdapter);
     if (!hasBackend) return null;
-    // If last history message is assistant or user_message (no result after it),
-    // the session is running — either the CLI is generating or processing the request.
-    const last = session.messageHistory[session.messageHistory.length - 1];
-    if (last?.type === "assistant" || last?.type === "user_message") return "running";
+    if (session.isGenerating) return "running";
     return "idle";
   }
 

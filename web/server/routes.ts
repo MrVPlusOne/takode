@@ -71,6 +71,10 @@ export function createRoutes(
 ) {
   const api = new Hono();
 
+  // ─── Health ─────────────────────────────────────────────────────────
+
+  api.get("/health", (c) => c.json({ ok: true, timestamp: Date.now() }));
+
   // ─── SDK Sessions (--sdk-url) ─────────────────────────────────────
 
   api.post("/sessions/create", async (c) => {

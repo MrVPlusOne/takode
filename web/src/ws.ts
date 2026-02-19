@@ -515,8 +515,7 @@ function handleParsedMessage(
         }
       }
       store.updateSession(sessionId, sessionUpdates);
-      store.setStreaming(sessionId, null);
-      store.setStreamingStats(sessionId, null);
+      store.clearStreamingState(sessionId);
       store.clearToolProgress(sessionId);
       store.setSessionStatus(sessionId, "idle");
       store.recordSessionActivity(sessionId, r.is_error ? "error" : "completed");
@@ -694,6 +693,13 @@ function handleParsedMessage(
       if (data.askPermission !== undefined) {
         store.setAskPermission(sessionId, data.askPermission);
       }
+      // Clear stale streaming state when session is not actively generating.
+      // This handles: server restart (event_replay sets stale timers),
+      // CLI crash mid-generation, and any other state desync.
+      if (data.sessionStatus !== "running") {
+        store.clearStreamingState(sessionId);
+        store.clearToolProgress(sessionId);
+      }
       break;
     }
 
@@ -724,6 +730,8 @@ function handleParsedMessage(
     case "cli_disconnected": {
       store.setCliConnected(sessionId, false);
       store.setSessionStatus(sessionId, null);
+      store.clearStreamingState(sessionId);
+      store.clearToolProgress(sessionId);
       store.recordSessionActivity(sessionId, "disconnect");
       break;
     }

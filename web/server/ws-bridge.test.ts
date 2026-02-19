@@ -3470,8 +3470,12 @@ describe("state_snapshot", () => {
     expect(calls[calls.length - 1].type).toBe("state_snapshot");
   });
 
-  it("reports sessionStatus as 'running' when last history entry is assistant", () => {
-    // Send an assistant message (no result after it)
+  it("reports sessionStatus as 'running' when session is actively generating", () => {
+    // Send a user message (sets isGenerating = true) followed by an assistant message (no result)
+    bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "user_message",
+      content: "Do something",
+    }));
     bridge.handleCLIMessage(cli, JSON.stringify({
       type: "assistant",
       message: { id: "msg-1", type: "message", role: "assistant", model: "claude", content: [{ type: "text", text: "working..." }], stop_reason: null, usage: { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } },
@@ -3644,8 +3648,8 @@ describe("status_change: running on user_message", () => {
     expect(b1UserMsg.id).toBe(b2UserMsg.id);
   });
 
-  it("deriveSessionStatus returns 'running' when last history is user_message", () => {
-    // Send a user message so it becomes the last history entry
+  it("deriveSessionStatus returns 'running' when user_message sets isGenerating", () => {
+    // Send a user message — this sets isGenerating = true
     bridge.handleBrowserMessage(browser, JSON.stringify({
       type: "user_message",
       content: "Hello",
@@ -3661,5 +3665,86 @@ describe("status_change: running on user_message", () => {
     const snapshot = calls.find((m: any) => m.type === "state_snapshot");
     expect(snapshot).toBeDefined();
     expect(snapshot.sessionStatus).toBe("running");
+  });
+
+  it("deriveSessionStatus returns 'idle' after result even if history ends with assistant", () => {
+    // Send a user message (isGenerating = true)
+    bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "user_message",
+      content: "Hello",
+    }));
+
+    // CLI sends an assistant message
+    bridge.handleCLIMessage(cli, JSON.stringify({
+      type: "assistant",
+      message: {
+        id: "msg-1",
+        role: "assistant",
+        content: [{ type: "text", text: "Hi there" }],
+        model: "claude-sonnet-4-5-20250929",
+        stop_reason: "end_turn",
+      },
+    }));
+
+    // CLI sends result (isGenerating = false)
+    bridge.handleCLIMessage(cli, JSON.stringify({
+      type: "result",
+      total_cost_usd: 0.01,
+      num_turns: 1,
+    }));
+    browser.send.mockClear();
+
+    // Reconnect a new browser — should see "idle" not "running"
+    const browser2 = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser2, "s1");
+    bridge.handleBrowserMessage(browser2, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+
+    const calls = browser2.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
+    const snapshot = calls.find((m: any) => m.type === "state_snapshot");
+    expect(snapshot).toBeDefined();
+    expect(snapshot.sessionStatus).toBe("idle");
+  });
+
+  it("deriveSessionStatus returns 'idle' after CLI reconnect (simulating server restart)", () => {
+    // Session was generating when CLI disconnected (interrupted generation)
+    bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "user_message",
+      content: "Do something",
+    }));
+
+    // CLI sends an assistant message mid-generation
+    bridge.handleCLIMessage(cli, JSON.stringify({
+      type: "assistant",
+      message: {
+        id: "msg-1",
+        role: "assistant",
+        content: [{ type: "text", text: "Working on it..." }],
+        model: "claude-sonnet-4-5-20250929",
+        stop_reason: null,
+      },
+    }));
+
+    // CLI disconnects (server restart scenario) — isGenerating is reset to false
+    bridge.handleCLIClose(cli);
+
+    // CLI reconnects (like --resume after server restart)
+    const cli2 = makeCliSocket("s1");
+    bridge.handleCLIOpen(cli2, "s1");
+    bridge.handleCLIMessage(cli2, makeInitMsg());
+    browser.send.mockClear();
+
+    // Reconnect a new browser — should see "idle" not "running"
+    // even though history ends with an assistant message
+    const browser2 = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser2, "s1");
+    bridge.handleBrowserMessage(browser2, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+
+    const calls = browser2.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
+    const snapshot = calls.find((m: any) => m.type === "state_snapshot");
+    expect(snapshot).toBeDefined();
+    // Key assertion: despite history ending with "assistant", isGenerating is false
+    // because CLI disconnect resets it
+    expect(snapshot.sessionStatus).toBe("idle");
+    expect(snapshot.cliConnected).toBe(true);
   });
 });

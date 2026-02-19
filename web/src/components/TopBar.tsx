@@ -77,6 +77,7 @@ export function TopBar() {
 
   const pendingPermissions = useStore((s) => s.pendingPermissions);
   const sessionAttention = useStore((s) => s.sessionAttention);
+  const serverReachable = useStore((s) => s.serverReachable);
 
   // Aggregate session status counts using the same priority logic as SessionStatusDot
   // so that each session contributes to exactly one category, matching the visible dots.
@@ -123,6 +124,14 @@ export function TopBar() {
             <path fillRule="evenodd" d="M3 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM3 10a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM3 15a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
           </svg>
         </button>
+
+        {/* Server unreachable banner */}
+        {!serverReachable && (
+          <span className="flex items-center gap-1 text-[11px] text-red-400 font-medium">
+            <span className="w-2 h-2 rounded-full bg-red-400 animate-pulse" />
+            Server unreachable
+          </span>
+        )}
 
         {/* Current session status + title */}
         {currentSessionId && (

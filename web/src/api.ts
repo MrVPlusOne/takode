@@ -62,6 +62,15 @@ async function del<T = unknown>(path: string, body?: object): Promise<T> {
   return res.json();
 }
 
+export async function checkHealth(): Promise<boolean> {
+  try {
+    const res = await fetch(`${BASE}/health`, { signal: AbortSignal.timeout(5000) });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export interface ContainerCreateOpts {
   image?: string;
   ports?: number[];

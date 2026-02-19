@@ -948,6 +948,22 @@ describe("DELETE /api/envs/:slug", () => {
   });
 });
 
+// ─── Health ──────────────────────────────────────────────────────────────────
+
+describe("GET /api/health", () => {
+  it("returns ok with timestamp", async () => {
+    const before = Date.now();
+    const res = await app.request("/api/health", { method: "GET" });
+    const after = Date.now();
+
+    expect(res.status).toBe(200);
+    const json = await res.json() as { ok: boolean; timestamp: number };
+    expect(json.ok).toBe(true);
+    expect(json.timestamp).toBeGreaterThanOrEqual(before);
+    expect(json.timestamp).toBeLessThanOrEqual(after);
+  });
+});
+
 // ─── Settings ────────────────────────────────────────────────────────────────
 
 describe("GET /api/settings", () => {
