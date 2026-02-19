@@ -89,7 +89,7 @@ export function MessageBubble({ message, sessionId }: { message: ChatMessage; se
   }
 
   if (message.role === "user") {
-    return <UserMessage message={message} />;
+    return <UserMessage message={message} sessionId={sessionId} />;
   }
 
   // Assistant message
@@ -100,23 +100,25 @@ export function MessageBubble({ message, sessionId }: { message: ChatMessage; se
   );
 }
 
-function UserMessage({ message }: { message: ChatMessage }) {
+function UserMessage({ message, sessionId }: { message: ChatMessage; sessionId?: string }) {
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
 
   return (
     <div className="flex justify-end animate-[fadeSlideIn_0.2s_ease-out]">
       <div className="max-w-[85%] sm:max-w-[80%] px-3 sm:px-4 py-2.5 rounded-[14px] rounded-br-[4px] bg-cc-user-bubble text-cc-fg">
-        {message.images && message.images.length > 0 && (
+        {message.images && message.images.length > 0 && sessionId && (
           <div className="flex gap-2 flex-wrap mb-2">
-            {message.images.map((img, i) => {
-              const src = `data:${img.media_type};base64,${img.data}`;
+            {message.images.map((img) => {
+              const thumbSrc = `/api/images/${sessionId}/${img.imageId}/thumb`;
+              const fullSrc = `/api/images/${sessionId}/${img.imageId}/full`;
               return (
                 <img
-                  key={i}
-                  src={src}
+                  key={img.imageId}
+                  src={thumbSrc}
                   alt="attachment"
                   className="max-w-[150px] sm:max-w-[200px] max-h-[120px] sm:max-h-[150px] rounded-lg object-cover cursor-zoom-in hover:opacity-80 transition-opacity"
-                  onClick={() => setLightboxSrc(src)}
+                  onClick={() => setLightboxSrc(fullSrc)}
+                  loading="lazy"
                   data-testid="image-thumbnail"
                 />
               );

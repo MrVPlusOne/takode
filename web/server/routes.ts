@@ -67,6 +67,7 @@ export function createRoutes(
   prPoller?: import("./pr-poller.js").PRPoller,
   recorder?: import("./recorder.js").RecorderManager,
   cronScheduler?: import("./cron-scheduler.js").CronScheduler,
+  imageStore?: import("./image-store.js").ImageStore,
 ) {
   const api = new Hono();
 
@@ -887,6 +888,7 @@ export function createRoutes(
     prPoller?.unwatch(id);
     launcher.removeSession(id);
     wsBridge.closeSession(id);
+    imageStore?.removeSession(id);
     return c.json({ ok: true, worktree: worktreeResult });
   });
 
@@ -957,6 +959,37 @@ export function createRoutes(
     }
 
     return c.json(result);
+  });
+
+  // ─── Image serving ─────────────────────────────────────────
+
+  api.get("/images/:sessionId/:imageId/thumb", (c) => {
+    if (!imageStore) return c.json({ error: "Image store not configured" }, 503);
+    const { sessionId, imageId } = c.req.param();
+    // Try thumbnail first, fall back to original
+    const thumbPath = imageStore.getThumbnailPath(sessionId, imageId);
+    const path = thumbPath || imageStore.getOriginalPath(sessionId, imageId);
+    if (!path) return c.json({ error: "Image not found" }, 404);
+    return new Response(Bun.file(path), {
+      headers: {
+        "Content-Type": thumbPath ? "image/jpeg" : "application/octet-stream",
+        "Cache-Control": "public, max-age=31536000, immutable",
+      },
+    });
+  });
+
+  api.get("/images/:sessionId/:imageId/full", (c) => {
+    if (!imageStore) return c.json({ error: "Image store not configured" }, 503);
+    const { sessionId, imageId } = c.req.param();
+    const path = imageStore.getOriginalPath(sessionId, imageId);
+    if (!path) return c.json({ error: "Image not found" }, 404);
+    const file = Bun.file(path);
+    return new Response(file, {
+      headers: {
+        "Content-Type": file.type || "application/octet-stream",
+        "Cache-Control": "public, max-age=31536000, immutable",
+      },
+    });
   });
 
   // ─── Available backends ─────────────────────────────────────

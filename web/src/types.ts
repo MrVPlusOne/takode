@@ -10,15 +10,16 @@ import type {
   CreationProgressEvent,
   ToolResultPreview,
 } from "../server/session-types.js";
+import type { ImageRef } from "../server/image-store.js";
 
-export type { SessionState, PermissionRequest, ContentBlock, BrowserIncomingMessage, BrowserOutgoingMessage, BackendType, McpServerDetail, McpServerConfig, CreationProgressEvent, ToolResultPreview };
+export type { SessionState, PermissionRequest, ContentBlock, BrowserIncomingMessage, BrowserOutgoingMessage, BackendType, McpServerDetail, McpServerConfig, CreationProgressEvent, ToolResultPreview, ImageRef };
 
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant" | "system";
   content: string;
   contentBlocks?: ContentBlock[];
-  images?: { media_type: string; data: string }[];
+  images?: ImageRef[];
   timestamp: number;
   parentToolUseId?: string | null;
   isStreaming?: boolean;

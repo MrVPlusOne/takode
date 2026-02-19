@@ -110,21 +110,21 @@ describe("MessageBubble - user messages", () => {
     expect(screen.getByText("Hello Claude")).toBeTruthy();
   });
 
-  it("renders user messages with image thumbnails", () => {
+  it("renders user messages with image thumbnails from REST URLs", () => {
     const msg = makeMessage({
       role: "user",
       content: "See this image",
       images: [
-        { media_type: "image/png", data: "abc123base64" },
-        { media_type: "image/jpeg", data: "def456base64" },
+        { imageId: "img-1", media_type: "image/png" },
+        { imageId: "img-2", media_type: "image/jpeg" },
       ],
     });
-    const { container } = render(<MessageBubble message={msg} />);
+    const { container } = render(<MessageBubble message={msg} sessionId="test-session" />);
 
     const images = container.querySelectorAll("img");
     expect(images.length).toBe(2);
-    expect(images[0].getAttribute("src")).toBe("data:image/png;base64,abc123base64");
-    expect(images[1].getAttribute("src")).toBe("data:image/jpeg;base64,def456base64");
+    expect(images[0].getAttribute("src")).toBe("/api/images/test-session/img-1/thumb");
+    expect(images[1].getAttribute("src")).toBe("/api/images/test-session/img-2/thumb");
     expect(images[0].getAttribute("alt")).toBe("attachment");
   });
 
@@ -140,9 +140,9 @@ describe("MessageBubble - user messages", () => {
     const msg = makeMessage({
       role: "user",
       content: "Check this",
-      images: [{ media_type: "image/png", data: "abc123base64" }],
+      images: [{ imageId: "img-1", media_type: "image/png" }],
     });
-    render(<MessageBubble message={msg} />);
+    render(<MessageBubble message={msg} sessionId="test-session" />);
 
     // Click the thumbnail image
     const thumbnail = screen.getByTestId("image-thumbnail");
@@ -151,16 +151,16 @@ describe("MessageBubble - user messages", () => {
     // The lightbox should now be open with the full-size image
     const lightboxImage = screen.getByTestId("lightbox-image");
     expect(lightboxImage).toBeTruthy();
-    expect(lightboxImage.getAttribute("src")).toBe("data:image/png;base64,abc123base64");
+    expect(lightboxImage.getAttribute("src")).toBe("/api/images/test-session/img-1/full");
   });
 
   it("closes lightbox when clicking the backdrop", () => {
     const msg = makeMessage({
       role: "user",
       content: "Check this",
-      images: [{ media_type: "image/png", data: "abc123base64" }],
+      images: [{ imageId: "img-1", media_type: "image/png" }],
     });
-    render(<MessageBubble message={msg} />);
+    render(<MessageBubble message={msg} sessionId="test-session" />);
 
     // Open the lightbox
     const thumbnail = screen.getByTestId("image-thumbnail");
@@ -176,9 +176,9 @@ describe("MessageBubble - user messages", () => {
     const msg = makeMessage({
       role: "user",
       content: "Check this",
-      images: [{ media_type: "image/png", data: "abc123base64" }],
+      images: [{ imageId: "img-1", media_type: "image/png" }],
     });
-    render(<MessageBubble message={msg} />);
+    render(<MessageBubble message={msg} sessionId="test-session" />);
 
     // Open the lightbox
     fireEvent.click(screen.getByTestId("image-thumbnail"));

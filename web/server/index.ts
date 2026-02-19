@@ -26,6 +26,7 @@ import { getSettings } from "./settings-manager.js";
 import { PRPoller } from "./pr-poller.js";
 import { RecorderManager } from "./recorder.js";
 import { CronScheduler } from "./cron-scheduler.js";
+import { ImageStore } from "./image-store.js";
 import type { SocketData } from "./ws-bridge.js";
 import type { ServerWebSocket } from "bun";
 
@@ -44,11 +45,13 @@ const CONTAINER_STATE_PATH = join(homedir(), ".companion", "containers.json");
 const terminalManager = new TerminalManager();
 const prPoller = new PRPoller(wsBridge);
 const recorder = new RecorderManager();
+const imageStore = new ImageStore();
 const cronScheduler = new CronScheduler(launcher, wsBridge);
 
 // ── Restore persisted sessions from disk ────────────────────────────────────
 wsBridge.setStore(sessionStore);
 wsBridge.setRecorder(recorder);
+wsBridge.setImageStore(imageStore);
 launcher.setStore(sessionStore);
 launcher.setRecorder(recorder);
 launcher.restoreFromDisk();
@@ -115,7 +118,7 @@ if (recorder.isGloballyEnabled()) {
 const app = new Hono();
 
 app.use("/api/*", cors());
-app.route("/api", createRoutes(launcher, wsBridge, sessionStore, worktreeTracker, terminalManager, prPoller, recorder, cronScheduler));
+app.route("/api", createRoutes(launcher, wsBridge, sessionStore, worktreeTracker, terminalManager, prPoller, recorder, cronScheduler, imageStore));
 
 // In production, serve built frontend using absolute path (works when installed as npm package)
 if (process.env.NODE_ENV === "production") {

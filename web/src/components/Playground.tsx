@@ -189,8 +189,8 @@ const MSG_USER_IMAGE: ChatMessage = {
   content: "Here's a screenshot of the error I'm seeing",
   images: [
     {
+      imageId: "playground-img-1",
       media_type: "image/png",
-      data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPj/HwADBwIAMCbHYQAAAABJRU5ErkJggg==",
     },
   ],
   timestamp: Date.now() - 55000,
@@ -747,7 +747,7 @@ export function Playground() {
               <MessageBubble message={MSG_USER} />
             </Card>
             <Card label="User message with image">
-              <MessageBubble message={MSG_USER_IMAGE} />
+              <MessageBubble message={MSG_USER_IMAGE} sessionId="playground" />
             </Card>
             <Card label="Assistant message (markdown)">
               <MessageBubble message={MSG_ASSISTANT} />
@@ -816,7 +816,7 @@ export function Playground() {
         <Section title="Image Lightbox" description="Click any image thumbnail to open a full-size lightbox overlay (Escape or click backdrop to close)">
           <div className="space-y-4 max-w-3xl">
             <Card label="User message with clickable image">
-              <MessageBubble message={MSG_USER_IMAGE} />
+              <MessageBubble message={MSG_USER_IMAGE} sessionId="playground" />
             </Card>
             <Card label="Standalone lightbox trigger">
               <PlaygroundLightboxDemo />

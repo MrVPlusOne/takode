@@ -1,0 +1,116 @@
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { mkdtempSync, existsSync, readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { rmSync } from "node:fs";
+import { ImageStore } from "./image-store.js";
+
+let store: ImageStore;
+let tempDir: string;
+
+// 1x1 red PNG as base64 (smallest valid PNG)
+const TINY_PNG_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==";
+
+beforeEach(() => {
+  tempDir = mkdtempSync(join(tmpdir(), "image-store-test-"));
+  store = new ImageStore(tempDir);
+});
+
+afterEach(() => {
+  rmSync(tempDir, { recursive: true, force: true });
+});
+
+describe("ImageStore", () => {
+  // Tests that store() saves original and thumbnail files to disk,
+  // returning a valid ImageRef with a unique imageId.
+  it("store() writes original and thumbnail files", async () => {
+    const ref = await store.store("sess-1", TINY_PNG_BASE64, "image/png");
+
+    expect(ref.imageId).toBeTruthy();
+    expect(ref.media_type).toBe("image/png");
+
+    // Original file should exist
+    const origPath = store.getOriginalPath("sess-1", ref.imageId);
+    expect(origPath).toBeTruthy();
+    expect(origPath!.endsWith(".orig.png")).toBe(true);
+    expect(existsSync(origPath!)).toBe(true);
+
+    // Thumbnail should exist
+    const thumbPath = store.getThumbnailPath("sess-1", ref.imageId);
+    expect(thumbPath).toBeTruthy();
+    expect(thumbPath!.endsWith(".thumb.jpeg")).toBe(true);
+    expect(existsSync(thumbPath!)).toBe(true);
+
+    // Original should be the decoded base64 content
+    const origContent = readFileSync(origPath!);
+    const expected = Buffer.from(TINY_PNG_BASE64, "base64");
+    expect(origContent.equals(expected)).toBe(true);
+  });
+
+  // Tests that sequential calls produce unique imageIds
+  it("store() generates unique imageIds", async () => {
+    const ref1 = await store.store("sess-1", TINY_PNG_BASE64, "image/png");
+    const ref2 = await store.store("sess-1", TINY_PNG_BASE64, "image/png");
+
+    expect(ref1.imageId).not.toBe(ref2.imageId);
+  });
+
+  // Tests that images are stored in session-specific directories
+  it("store() organizes files by session", async () => {
+    await store.store("sess-a", TINY_PNG_BASE64, "image/png");
+    await store.store("sess-b", TINY_PNG_BASE64, "image/jpeg");
+
+    expect(existsSync(join(tempDir, "sess-a"))).toBe(true);
+    expect(existsSync(join(tempDir, "sess-b"))).toBe(true);
+
+    // Each session dir should have 2 files (orig + thumb)
+    expect(readdirSync(join(tempDir, "sess-a")).length).toBe(2);
+    expect(readdirSync(join(tempDir, "sess-b")).length).toBe(2);
+  });
+
+  // Tests that getOriginalPath returns null for nonexistent images
+  it("getOriginalPath() returns null for unknown image", () => {
+    expect(store.getOriginalPath("no-session", "no-image")).toBeNull();
+  });
+
+  // Tests that getThumbnailPath returns null for nonexistent images
+  it("getThumbnailPath() returns null for unknown image", () => {
+    expect(store.getThumbnailPath("no-session", "no-image")).toBeNull();
+  });
+
+  // Tests that removeSession cleans up the entire session directory
+  it("removeSession() deletes all images for a session", async () => {
+    const ref = await store.store("sess-1", TINY_PNG_BASE64, "image/png");
+    expect(existsSync(join(tempDir, "sess-1"))).toBe(true);
+
+    store.removeSession("sess-1");
+    expect(existsSync(join(tempDir, "sess-1"))).toBe(false);
+    expect(store.getOriginalPath("sess-1", ref.imageId)).toBeNull();
+  });
+
+  // Tests that removeSession is safe to call on nonexistent sessions
+  it("removeSession() is safe for nonexistent session", () => {
+    expect(() => store.removeSession("nonexistent")).not.toThrow();
+  });
+
+  // Tests that corrupt base64 data still saves the original but handles
+  // thumbnail generation failure gracefully
+  it("store() handles sharp failure gracefully (original still saved)", async () => {
+    // Not a valid image, but valid base64 — sharp will fail but original should be saved
+    const junkBase64 = Buffer.from("this is not an image").toString("base64");
+    const ref = await store.store("sess-1", junkBase64, "image/png");
+
+    expect(ref.imageId).toBeTruthy();
+
+    // Original should still be saved
+    const origPath = store.getOriginalPath("sess-1", ref.imageId);
+    expect(origPath).toBeTruthy();
+    expect(existsSync(origPath!)).toBe(true);
+
+    // Thumbnail may not exist (sharp fails on non-image data)
+    const thumbPath = store.getThumbnailPath("sess-1", ref.imageId);
+    // Depending on sharp's behavior with non-image data, thumbnail may or may not exist
+    // The important thing is no exception was thrown
+  });
+});

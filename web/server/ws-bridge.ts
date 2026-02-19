@@ -31,6 +31,7 @@ import { TOOL_RESULT_PREVIEW_LIMIT } from "./session-types.js";
 import type { SessionStore } from "./session-store.js";
 import type { CodexAdapter } from "./codex-adapter.js";
 import type { RecorderManager } from "./recorder.js";
+import type { ImageStore } from "./image-store.js";
 
 // ─── Denial summary helper ───────────────────────────────────────────────────
 
@@ -253,6 +254,7 @@ export class WsBridge {
   private sessions = new Map<string, Session>();
   private store: SessionStore | null = null;
   private recorder: RecorderManager | null = null;
+  private imageStore: ImageStore | null = null;
   private onCLISessionId: ((sessionId: string, cliSessionId: string) => void) | null = null;
   private onCLIRelaunchNeeded: ((sessionId: string) => void) | null = null;
   private onFirstTurnCompleted: ((sessionId: string, firstUserMessage: string) => void) | null = null;
@@ -331,6 +333,11 @@ export class WsBridge {
   /** Attach a recorder for raw message capture. */
   setRecorder(recorder: RecorderManager): void {
     this.recorder = recorder;
+  }
+
+  /** Attach an image store for persisting user-uploaded images to disk. */
+  setImageStore(imageStore: ImageStore): void {
+    this.imageStore = imageStore;
   }
 
   /** Restore sessions from disk (call once at startup). */
@@ -513,6 +520,7 @@ export class WsBridge {
     this.sessions.delete(sessionId);
     this.autoNamingAttempted.delete(sessionId);
     this.store?.remove(sessionId);
+    this.imageStore?.removeSession(sessionId);
   }
 
   /**
@@ -543,6 +551,7 @@ export class WsBridge {
     this.sessions.delete(sessionId);
     this.autoNamingAttempted.delete(sessionId);
     this.store?.remove(sessionId);
+    this.imageStore?.removeSession(sessionId);
   }
 
   // ── Codex adapter attachment ────────────────────────────────────────────
@@ -1237,7 +1246,7 @@ export class WsBridge {
 
   // ── Browser message routing ─────────────────────────────────────────────
 
-  private routeBrowserMessage(
+  private async routeBrowserMessage(
     session: Session,
     msg: BrowserOutgoingMessage,
     ws?: ServerWebSocket<SocketData>,
@@ -1271,11 +1280,20 @@ export class WsBridge {
       // Store user messages in history for replay with stable ID for dedup on reconnect
       if (msg.type === "user_message") {
         const ts = Date.now();
+        let imageRefs: import("./image-store.js").ImageRef[] | undefined;
+        if (msg.images?.length && this.imageStore) {
+          imageRefs = [];
+          for (const img of msg.images) {
+            const ref = await this.imageStore.store(session.id, img.data, img.media_type);
+            imageRefs.push(ref);
+          }
+        }
         const userHistoryEntry: BrowserIncomingMessage = {
           type: "user_message",
           content: msg.content,
           timestamp: ts,
           id: `user-${ts}-${this.userMsgCounter++}`,
+          ...(imageRefs?.length ? { images: imageRefs } : {}),
         };
         session.messageHistory.push(userHistoryEntry);
         // Broadcast user message to all browsers (server-authoritative)
@@ -1335,7 +1353,7 @@ export class WsBridge {
     // Claude Code path (existing logic)
     switch (msg.type) {
       case "user_message":
-        this.handleUserMessage(session, msg);
+        await this.handleUserMessage(session, msg);
         break;
 
       case "permission_response":
@@ -1482,18 +1500,29 @@ export class WsBridge {
     }
   }
 
-  private handleUserMessage(
+  private async handleUserMessage(
     session: Session,
     msg: { type: "user_message"; content: string; session_id?: string; images?: { media_type: string; data: string }[] }
   ) {
-    // Store user message in history for replay with stable ID for dedup on reconnect
     const ts = Date.now();
+
+    // Store images to disk and get refs (if imageStore is available)
+    let imageRefs: import("./image-store.js").ImageRef[] | undefined;
+    if (msg.images?.length && this.imageStore) {
+      imageRefs = [];
+      for (const img of msg.images) {
+        const ref = await this.imageStore.store(session.id, img.data, img.media_type);
+        imageRefs.push(ref);
+      }
+    }
+
+    // Store user message in history for replay with stable ID for dedup on reconnect
     const userHistoryEntry: BrowserIncomingMessage = {
       type: "user_message",
       content: msg.content,
       timestamp: ts,
       id: `user-${ts}-${this.userMsgCounter++}`,
-      ...(msg.images?.length ? { images: msg.images } : {}),
+      ...(imageRefs?.length ? { images: imageRefs } : {}),
     };
     session.messageHistory.push(userHistoryEntry);
     // Broadcast user message to all browsers (server-authoritative: browsers
@@ -1501,6 +1530,7 @@ export class WsBridge {
     this.broadcastToBrowsers(session, userHistoryEntry);
 
     // Build content: if images are present, use content block array; otherwise plain string
+    // CLI NDJSON still uses the original base64 images (unchanged)
     let content: string | unknown[];
     if (msg.images?.length) {
       const blocks: unknown[] = [];
