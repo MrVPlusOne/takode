@@ -1657,27 +1657,16 @@ export class WsBridge {
         }
       }
 
-      // Auto-switch mode after ExitPlanMode approval.
-      // When a plan is approved, transition to the appropriate execution mode
-      // based on the session's askPermission setting:
-      //   askPermission=true  → acceptEdits (user wants to review tool use)
-      //   askPermission=false → bypassPermissions (user wants no prompts)
-      // We only update server state and broadcast to browsers — we do NOT send
-      // set_permission_mode to the CLI. The CLI handles its own mode transition
-      // after plan approval internally. Sending set_permission_mode back-to-back
-      // with the control_response can cause the CLI to silently drop the plan.
-      // If the CLI reports a different mode via system.status, we'll sync to it.
+      // After ExitPlanMode approval, switch the CLI to the appropriate execution
+      // mode. The CLI does NOT auto-transition out of plan mode — it needs an
+      // explicit set_permission_mode control_request.
+      //   askPermission=true  → acceptEdits (edits auto-approved, Bash prompted)
+      //   askPermission=false → bypassPermissions (everything auto-approved)
       if (pending?.tool_name === "ExitPlanMode") {
         const askPerm = session.state.askPermission !== false; // default true
         const postPlanMode = askPerm ? "acceptEdits" : "bypassPermissions";
-        const uiMode = "agent";
-        session.state.permissionMode = postPlanMode;
-        session.state.uiMode = uiMode;
-        this.broadcastToBrowsers(session, {
-          type: "session_update",
-          session: { permissionMode: postPlanMode, uiMode },
-        });
-        console.log(`[ws-bridge] ExitPlanMode approved for session ${session.id}, UI switched to ${postPlanMode} (askPermission=${askPerm})`);
+        this.handleSetPermissionMode(session, postPlanMode);
+        console.log(`[ws-bridge] ExitPlanMode approved for session ${session.id}, switching to ${postPlanMode} (askPermission=${askPerm})`);
       }
     } else {
       const ndjson = JSON.stringify({

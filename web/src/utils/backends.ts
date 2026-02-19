@@ -89,6 +89,37 @@ export function getNextMode(currentMode: string, modes: ModeOption[]): string {
 }
 
 // ─── Claude Code mode mapping ─────────────────────────────────────────────────
+//
+// The Companion simplifies Claude Code's 6 CLI permission modes into a 2-mode
+// toggle (Plan / Agent) plus an "Ask" switch. The mapping:
+//
+//   ┌──────────────────────────────────────────────────────────────────────┐
+//   │ UI              │ CLI Mode           │ Behavior                      │
+//   │─────────────────│────────────────────│───────────────────────────────│
+//   │ Plan            │ plan               │ Read-only. All writes prompt. │
+//   │ Agent + Ask ON  │ acceptEdits        │ Edits auto-approved locally,  │
+//   │                 │                    │ Bash & other tools prompted.  │
+//   │ Agent + Ask OFF │ bypassPermissions  │ Everything auto-approved,     │
+//   │                 │                    │ nothing sent over the wire.   │
+//   └──────────────────────────────────────────────────────────────────────┘
+//
+// Key behaviors:
+//   - In `bypassPermissions`, the CLI never sends `can_use_tool` — tools are
+//     approved locally and the Companion never sees permission requests.
+//   - In `acceptEdits`, file edits (Edit/Write) are approved locally; only
+//     non-edit tools (Bash, etc.) send `can_use_tool` over the wire.
+//   - In `plan`, ALL write operations send `can_use_tool` over the wire.
+//
+// Plan mode lifecycle:
+//   1. User or agent enters plan mode → CLI set to "plan"
+//   2. Agent explores, then calls ExitPlanMode
+//   3. User approves/denies via the plan overlay UI
+//   4. On approval, the SERVER must send `set_permission_mode` to the CLI
+//      to switch it to `acceptEdits` or `bypassPermissions`. The CLI does
+//      NOT auto-transition — without an explicit mode switch it stays in
+//      `plan` and keeps prompting for every write.
+//
+// The other CLI modes (default, delegate, dontAsk) are not exposed in the UI.
 
 /**
  * Maps the UI mode ("plan" or "agent") + askPermission toggle to the actual
