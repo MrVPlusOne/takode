@@ -722,22 +722,21 @@ function SubagentResult({ preview, parsedText, sessionId, toolUseId }: {
   const [fullContent, setFullContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  // Auto-fetch full content when truncated — subagent results are usually short
+  // and truncated previews render poorly (broken JSON/markdown)
+  useEffect(() => {
+    if (preview.is_truncated && !fullContent && !loading) {
+      setLoading(true);
+      api.getToolResult(sessionId, toolUseId)
+        .then((result) => setFullContent(result.content))
+        .catch(() => setFullContent("[Failed to load full result]"))
+        .finally(() => setLoading(false));
+    }
+  }, [preview.is_truncated, fullContent, loading, sessionId, toolUseId]);
+
   const displayText = fullContent
     ? parseSubagentResultText(fullContent)
     : (parsedText ?? preview.content);
-  const needsExpand = preview.is_truncated && !fullContent;
-
-  const fetchFull = async () => {
-    setLoading(true);
-    try {
-      const result = await api.getToolResult(sessionId, toolUseId);
-      setFullContent(result.content);
-    } catch {
-      setFullContent("[Failed to load full result]");
-    } finally {
-      setLoading(false);
-    }
-  };
 
   return (
     <div className="border-t border-cc-border/50 pt-2 mt-1">
@@ -746,19 +745,16 @@ function SubagentResult({ preview, parsedText, sessionId, toolUseId }: {
           <path d="M8 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM7.25 5a.75.75 0 011.5 0v.5a.75.75 0 01-1.5 0V5zM6.5 7.75A.75.75 0 017.25 7h1a.75.75 0 01.75.75v2.5h.25a.75.75 0 010 1.5h-2a.75.75 0 010-1.5h.25v-1.75H7.25a.75.75 0 01-.75-.75z" />
         </svg>
         <span className="text-[11px] font-medium text-cc-muted">Result</span>
+        {loading && (
+          <svg className="w-3 h-3 animate-spin text-cc-muted" viewBox="0 0 24 24" fill="none">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+        )}
       </div>
-      <div className={`text-sm ${fullContent ? "max-h-96" : "max-h-48"} overflow-y-auto`}>
+      <div className="text-sm max-h-96 overflow-y-auto">
         <MarkdownContent text={displayText} />
       </div>
-      {needsExpand && (
-        <button
-          onClick={fetchFull}
-          disabled={loading}
-          className="text-[11px] text-cc-primary hover:text-cc-primary/80 mt-1 cursor-pointer disabled:opacity-50"
-        >
-          {loading ? "Loading..." : "Show full result"}
-        </button>
-      )}
     </div>
   );
 }
