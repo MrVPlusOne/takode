@@ -159,8 +159,50 @@ export function ClaudeMdEditor({ cwd, open, onClose }: ClaudeMdEditorProps) {
             </div>
           ) : (
             <>
-              {/* File tabs sidebar */}
-              <div className="shrink-0 w-[180px] sm:w-[200px] border-r border-cc-border bg-cc-sidebar flex flex-col">
+              {/* Mobile: horizontal tab strip */}
+              <div className="flex sm:hidden border-b border-cc-border bg-cc-sidebar overflow-x-auto">
+                {files.map((f, i) => (
+                  <button
+                    key={f.path}
+                    onClick={() => handleSelect(i)}
+                    className={`shrink-0 px-3 py-2 text-xs font-mono-code border-b-2 transition-colors cursor-pointer ${
+                      !createMode && selectedIdx === i
+                        ? "border-cc-primary text-cc-fg bg-cc-active"
+                        : "border-transparent text-cc-fg/70"
+                    }`}
+                  >
+                    {relPath(f.path)}
+                  </button>
+                ))}
+                {createMode && (
+                  <div className="shrink-0 px-3 py-2 text-xs font-mono-code border-b-2 border-cc-success text-cc-fg bg-cc-active">
+                    {relPath(createMode)}
+                  </div>
+                )}
+                {(!hasRoot || !hasDotClaude) && !createMode && (
+                  <>
+                    {!hasRoot && (
+                      <button
+                        onClick={() => handleCreate("root")}
+                        className="shrink-0 px-3 py-2 text-xs font-mono-code border-b-2 border-transparent text-cc-success/70 hover:text-cc-success transition-colors cursor-pointer"
+                      >
+                        + CLAUDE.md
+                      </button>
+                    )}
+                    {!hasDotClaude && (
+                      <button
+                        onClick={() => handleCreate("dotclaude")}
+                        className="shrink-0 px-3 py-2 text-xs font-mono-code border-b-2 border-transparent text-cc-success/70 hover:text-cc-success transition-colors cursor-pointer"
+                      >
+                        + .claude/CLAUDE.md
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {/* Desktop: file tabs sidebar */}
+              <div className="hidden sm:flex shrink-0 w-[200px] border-r border-cc-border bg-cc-sidebar flex-col">
                 <div className="px-3 py-2 text-[10px] font-semibold text-cc-muted uppercase tracking-wider border-b border-cc-border">
                   Files
                 </div>

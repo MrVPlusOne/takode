@@ -21,7 +21,7 @@ export function CodeCopyButton({ text, getText }: { text?: string; getText?: () 
   return (
     <button
       onClick={handleCopy}
-      className="opacity-0 group-hover/code:opacity-100 transition-opacity p-1 rounded hover:bg-white/10 cursor-pointer"
+      className="opacity-100 sm:opacity-0 sm:group-hover/code:opacity-100 transition-opacity p-1 rounded hover:bg-white/10 cursor-pointer"
       title={copied ? "Copied!" : "Copy code"}
     >
       {copied ? (

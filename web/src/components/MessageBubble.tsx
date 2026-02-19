@@ -280,7 +280,7 @@ function CopyMessageButton({ message, contentRef }: { message: ChatMessage; cont
         ref={btnRef}
         onClick={() => setOpen(!open)}
         className={`p-1 rounded hover:bg-cc-hover transition-all cursor-pointer ${
-          open || copied ? "opacity-100" : "opacity-0 group-hover/msg:opacity-100"
+          open || copied ? "opacity-100" : "opacity-100 sm:opacity-0 sm:group-hover/msg:opacity-100"
         }`}
         title="Copy message"
       >
