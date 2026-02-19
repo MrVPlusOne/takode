@@ -1,4 +1,4 @@
-import { useEffect, useRef, useMemo, useState, useCallback } from "react";
+import { useEffect, useLayoutEffect, useRef, useMemo, useState, useCallback } from "react";
 import { useStore } from "../store.js";
 import { MessageBubble } from "./MessageBubble.js";
 import { ToolBlock, getToolIcon, getToolLabel, ToolIcon } from "./ToolBlock.js";
@@ -479,10 +479,42 @@ export function MessageFeed({ sessionId }: { sessionId: string }) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
-  const isNearBottom = useRef(true);
+  // Initialize isNearBottom from saved scroll position — if the user was scrolled
+  // up when they left this session, don't auto-scroll to bottom on re-mount.
+  const savedScrollPos = useStore.getState().feedScrollPosition.get(sessionId);
+  const isNearBottom = useRef(savedScrollPos ? savedScrollPos.isAtBottom : true);
   const loadingMore = useRef(false);
   const [elapsed, setElapsed] = useState(0);
   const visibleCount = useStore((s) => s.feedVisibleCount.get(sessionId) ?? FEED_PAGE_SIZE);
+
+  // Save scroll position to store on unmount (so it can be restored on re-mount)
+  useEffect(() => {
+    return () => {
+      const el = containerRef.current;
+      if (el) {
+        useStore.getState().setFeedScrollPosition(sessionId, {
+          scrollTop: el.scrollTop,
+          scrollHeight: el.scrollHeight,
+          isAtBottom: isNearBottom.current,
+        });
+      }
+    };
+  }, [sessionId]);
+
+  // Restore saved scroll position on mount (runs before browser paint)
+  useLayoutEffect(() => {
+    const pos = useStore.getState().feedScrollPosition.get(sessionId);
+    if (!pos || pos.isAtBottom) return;
+
+    const el = containerRef.current;
+    if (!el) return;
+
+    if (el.scrollHeight === pos.scrollHeight) {
+      el.scrollTop = pos.scrollTop;
+    } else if (pos.scrollHeight > 0) {
+      el.scrollTop = pos.scrollTop * (el.scrollHeight / pos.scrollHeight);
+    }
+  }, [sessionId]);
 
   const grouped = useMemo(() => groupMessages(messages), [messages]);
 

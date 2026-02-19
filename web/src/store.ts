@@ -197,6 +197,10 @@ interface AppState {
   feedVisibleCount: Map<string, number>;
   setFeedVisibleCount: (sessionId: string, count: number) => void;
 
+  // Per-session scroll position (persists across session switches, in-memory only)
+  feedScrollPosition: Map<string, { scrollTop: number; scrollHeight: number; isAtBottom: boolean }>;
+  setFeedScrollPosition: (sessionId: string, pos: { scrollTop: number; scrollHeight: number; isAtBottom: boolean }) => void;
+
   // Per-session composer drafts (text + images persist across session switches)
   composerDrafts: Map<string, { text: string; images: Array<{ name: string; base64: string; mediaType: string }> }>;
   setComposerDraft: (sessionId: string, draft: { text: string; images: Array<{ name: string; base64: string; mediaType: string }> }) => void;
@@ -356,6 +360,7 @@ export const useStore = create<AppState>((set) => ({
   activeTab: "chat",
   diffPanelSelectedFile: new Map(),
   feedVisibleCount: new Map(),
+  feedScrollPosition: new Map(),
   composerDrafts: new Map(),
   terminalOpen: false,
   terminalCwd: null,
@@ -495,6 +500,8 @@ export const useStore = create<AppState>((set) => ({
       prStatus.delete(sessionId);
       const feedVisibleCount = new Map(s.feedVisibleCount);
       feedVisibleCount.delete(sessionId);
+      const feedScrollPosition = new Map(s.feedScrollPosition);
+      feedScrollPosition.delete(sessionId);
       const composerDrafts = new Map(s.composerDrafts);
       composerDrafts.delete(sessionId);
       const sessionLastViewed = new Map(s.sessionLastViewed);
@@ -535,6 +542,7 @@ export const useStore = create<AppState>((set) => ({
         toolResults,
         prStatus,
         feedVisibleCount,
+        feedScrollPosition,
         composerDrafts,
         sessionLastViewed,
         sessionUnreadCount,
@@ -962,6 +970,13 @@ export const useStore = create<AppState>((set) => ({
       return { feedVisibleCount };
     }),
 
+  setFeedScrollPosition: (sessionId, pos) =>
+    set((s) => {
+      const feedScrollPosition = new Map(s.feedScrollPosition);
+      feedScrollPosition.set(sessionId, pos);
+      return { feedScrollPosition };
+    }),
+
   setComposerDraft: (sessionId, draft) =>
     set((s) => {
       const composerDrafts = new Map(s.composerDrafts);
@@ -1016,6 +1031,7 @@ export const useStore = create<AppState>((set) => ({
       activeTab: "chat" as const,
       diffPanelSelectedFile: new Map(),
       feedVisibleCount: new Map(),
+      feedScrollPosition: new Map(),
       composerDrafts: new Map(),
       terminalOpen: false,
       terminalCwd: null,

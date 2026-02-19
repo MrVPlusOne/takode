@@ -33,12 +33,15 @@ vi.mock("../store.js", () => {
       toolProgress: mockStoreValues.toolProgress ?? new Map(),
       toolResults: mockStoreValues.toolResults ?? new Map(),
       feedVisibleCount: mockStoreValues.feedVisibleCount ?? new Map(),
+      feedScrollPosition: mockStoreValues.feedScrollPosition ?? new Map(),
     };
     return selector(state);
   };
   useStore.getState = () => ({
     feedVisibleCount: mockStoreValues.feedVisibleCount ?? new Map(),
     setFeedVisibleCount: vi.fn(),
+    feedScrollPosition: mockStoreValues.feedScrollPosition ?? new Map(),
+    setFeedScrollPosition: vi.fn(),
   });
   return { useStore };
 });
