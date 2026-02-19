@@ -1,9 +1,9 @@
-import { useState, useMemo, useRef, useCallback, useEffect } from "react";
-import { createPortal } from "react-dom";
+import { useState, useMemo, useRef, useCallback } from "react";
 import type { ChatMessage, ContentBlock } from "../types.js";
 import { ToolBlock, getToolIcon, getToolLabel, ToolIcon } from "./ToolBlock.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { Lightbox } from "./Lightbox.js";
+import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
 import { getMessageMarkdown, getMessagePlainText, copyRichText } from "../utils/copy-utils.js";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
@@ -148,79 +148,55 @@ function UserMessage({ message, sessionId }: { message: ChatMessage; sessionId?:
 }
 
 /** Inline menu button for user messages — copy, revert, etc.
- *  Dropdown is portaled to document.body to escape the overflow-hidden
- *  ancestors in the message feed, which block tap events on iOS Safari. */
+ *  Uses the ContextMenu component (proven to work on iOS Safari)
+ *  which portals to document.body to escape overflow-hidden ancestors. */
 function UserMessageMenu({ message, sessionId, canRevert }: { message: ChatMessage; sessionId?: string; canRevert: boolean }) {
-  const [open, setOpen] = useState(false);
-  const [confirming, setConfirming] = useState(false);
+  const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
   const [copied, setCopied] = useState(false);
-  const [pos, setPos] = useState<{ top: number; right: number }>({ top: 0, right: 0 });
-  const menuRef = useRef<HTMLDivElement>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
-
-  const close = useCallback(() => { setOpen(false); setConfirming(false); }, []);
-
-  // Dismiss on outside click/tap + keyboard
-  useEffect(() => {
-    if (!open) return;
-    function handleDismiss(e: Event) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node) &&
-          btnRef.current && !btnRef.current.contains(e.target as Node)) {
-        close();
-      }
-    }
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        if (confirming) setConfirming(false);
-        else close();
-      }
-    }
-    document.addEventListener("mousedown", handleDismiss);
-    document.addEventListener("touchstart", handleDismiss);
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", handleDismiss);
-      document.removeEventListener("touchstart", handleDismiss);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [open, confirming, close]);
-
-  // Viewport clamping
-  useEffect(() => {
-    if (!open || !menuRef.current) return;
-    const rect = menuRef.current.getBoundingClientRect();
-    const el = menuRef.current;
-    if (rect.bottom > window.innerHeight) {
-      el.style.top = `${window.innerHeight - rect.height - 8}px`;
-    }
-  }, [open, confirming]);
-
-  const toggle = useCallback(() => {
-    if (open) {
-      close();
-    } else {
-      const rect = btnRef.current?.getBoundingClientRect();
-      if (rect) setPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
-      setOpen(true);
-    }
-  }, [open, close]);
 
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(message.content);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
-    setOpen(false);
   }, [message.content]);
 
   const handleRevert = useCallback(async () => {
     if (!sessionId || !message.id) return;
-    close();
     try {
       await api.revertToMessage(sessionId, message.id);
     } catch (err) {
       console.error("Revert failed:", err);
     }
-  }, [sessionId, message.id, close]);
+  }, [sessionId, message.id]);
+
+  const toggle = useCallback(() => {
+    if (menuPos) {
+      setMenuPos(null);
+    } else {
+      const rect = btnRef.current?.getBoundingClientRect();
+      if (rect) setMenuPos({ x: rect.left, y: rect.bottom + 4 });
+    }
+  }, [menuPos]);
+
+  const items = useMemo(() => {
+    const list: ContextMenuItem[] = [
+      { label: "Copy message", onClick: handleCopy },
+    ];
+    if (canRevert) {
+      list.push({
+        label: "Revert to here",
+        onClick: handleRevert,
+        confirm: {
+          title: "Revert to here?",
+          description: "All messages after this point will be removed.",
+          confirmLabel: "Revert",
+          destructive: true,
+        },
+      });
+    }
+    return list;
+  }, [handleCopy, handleRevert, canRevert]);
 
   return (
     <div className="shrink-0 self-start mt-1">
@@ -228,7 +204,7 @@ function UserMessageMenu({ message, sessionId, canRevert }: { message: ChatMessa
         ref={btnRef}
         onClick={toggle}
         className={`p-1 rounded hover:bg-cc-hover transition-all cursor-pointer ${
-          open || copied ? "opacity-100" : "opacity-100 sm:opacity-0 sm:group-hover/msg:opacity-100"
+          menuPos || copied ? "opacity-100" : "opacity-100 sm:opacity-0 sm:group-hover/msg:opacity-100"
         }`}
         title="Message options"
       >
@@ -244,51 +220,13 @@ function UserMessageMenu({ message, sessionId, canRevert }: { message: ChatMessa
           </svg>
         )}
       </button>
-      {open && createPortal(
-        <div
-          ref={menuRef}
-          className="fixed z-50 min-w-[160px] bg-cc-card border border-cc-border rounded-lg shadow-lg overflow-hidden"
-          style={{ top: pos.top, right: pos.right }}
-        >
-          {confirming ? (
-            <div className="p-3 w-56">
-              <p className="text-xs font-medium text-cc-fg mb-1">Revert to here?</p>
-              <p className="text-[11px] text-cc-muted mb-3 leading-relaxed">All messages after this point will be removed.</p>
-              <div className="flex items-center justify-end gap-2">
-                <button
-                  onClick={() => setConfirming(false)}
-                  className="px-2.5 py-1 text-[11px] rounded-md text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleRevert}
-                  className="px-2.5 py-1 text-[11px] rounded-md bg-red-500/15 text-red-500 hover:bg-red-500/25 transition-colors cursor-pointer font-medium"
-                >
-                  Revert
-                </button>
-              </div>
-            </div>
-          ) : (
-            <>
-              <button
-                onClick={handleCopy}
-                className="w-full px-3 py-2 text-left text-[12px] text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
-              >
-                Copy message
-              </button>
-              {canRevert && (
-                <button
-                  onClick={() => setConfirming(true)}
-                  className="w-full px-3 py-2 text-left text-[12px] text-red-400 hover:bg-cc-hover transition-colors cursor-pointer"
-                >
-                  Revert to here
-                </button>
-              )}
-            </>
-          )}
-        </div>,
-        document.body,
+      {menuPos && (
+        <ContextMenu
+          x={menuPos.x}
+          y={menuPos.y}
+          items={items}
+          onClose={() => setMenuPos(null)}
+        />
       )}
     </div>
   );
@@ -382,60 +320,16 @@ function AssistantAvatar() {
 }
 
 /** Copy button for assistant messages.
- *  Dropdown is portaled to document.body to escape the overflow-hidden
- *  ancestors in the message feed, which block tap events on iOS Safari. */
+ *  Uses the ContextMenu component (proven to work on iOS Safari)
+ *  which portals to document.body to escape overflow-hidden ancestors. */
 function CopyMessageButton({ message, contentRef }: { message: ChatMessage; contentRef: React.RefObject<HTMLDivElement | null> }) {
-  const [open, setOpen] = useState(false);
+  const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
-  const [pos, setPos] = useState<{ top: number; right: number }>({ top: 0, right: 0 });
-  const menuRef = useRef<HTMLDivElement>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    function handleDismiss(e: Event) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node) &&
-          btnRef.current && !btnRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    }
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("mousedown", handleDismiss);
-    document.addEventListener("touchstart", handleDismiss);
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", handleDismiss);
-      document.removeEventListener("touchstart", handleDismiss);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [open]);
-
-  // Viewport clamping
-  useEffect(() => {
-    if (!open || !menuRef.current) return;
-    const rect = menuRef.current.getBoundingClientRect();
-    const el = menuRef.current;
-    if (rect.bottom > window.innerHeight) {
-      el.style.top = `${window.innerHeight - rect.height - 8}px`;
-    }
-  }, [open]);
-
-  const toggle = useCallback(() => {
-    if (open) {
-      setOpen(false);
-    } else {
-      const rect = btnRef.current?.getBoundingClientRect();
-      if (rect) setPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
-      setOpen(true);
-    }
-  }, [open]);
 
   const showFeedback = useCallback((label: string) => {
     setCopied(label);
     setTimeout(() => setCopied(null), 1500);
-    setOpen(false);
   }, []);
 
   const handleCopyMarkdown = useCallback(() => {
@@ -454,13 +348,28 @@ function CopyMessageButton({ message, contentRef }: { message: ChatMessage; cont
     copyRichText(html, plain).then(() => showFeedback("Rich text")).catch(console.error);
   }, [message, contentRef, showFeedback]);
 
+  const toggle = useCallback(() => {
+    if (menuPos) {
+      setMenuPos(null);
+    } else {
+      const rect = btnRef.current?.getBoundingClientRect();
+      if (rect) setMenuPos({ x: rect.left, y: rect.bottom + 4 });
+    }
+  }, [menuPos]);
+
+  const items = useMemo<ContextMenuItem[]>(() => [
+    { label: "Copy as Markdown", onClick: handleCopyMarkdown },
+    { label: "Copy as Rich Text", onClick: handleCopyRichText },
+    { label: "Copy as Plain Text", onClick: handleCopyPlainText },
+  ], [handleCopyMarkdown, handleCopyRichText, handleCopyPlainText]);
+
   return (
     <div className="absolute top-0 right-0 shrink-0">
       <button
         ref={btnRef}
         onClick={toggle}
         className={`p-1 rounded hover:bg-cc-hover transition-all cursor-pointer ${
-          open || copied ? "opacity-100" : "opacity-100 sm:opacity-0 sm:group-hover/msg:opacity-100"
+          menuPos || copied ? "opacity-100" : "opacity-100 sm:opacity-0 sm:group-hover/msg:opacity-100"
         }`}
         title="Copy message"
       >
@@ -475,32 +384,13 @@ function CopyMessageButton({ message, contentRef }: { message: ChatMessage; cont
           </svg>
         )}
       </button>
-      {open && createPortal(
-        <div
-          ref={menuRef}
-          className="fixed z-50 min-w-[160px] bg-cc-card border border-cc-border rounded-lg shadow-lg py-1 overflow-hidden"
-          style={{ top: pos.top, right: pos.right }}
-        >
-          <button
-            onClick={handleCopyMarkdown}
-            className="w-full px-3 py-1.5 text-left text-[12px] text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
-          >
-            Copy as Markdown
-          </button>
-          <button
-            onClick={handleCopyRichText}
-            className="w-full px-3 py-1.5 text-left text-[12px] text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
-          >
-            Copy as Rich Text
-          </button>
-          <button
-            onClick={handleCopyPlainText}
-            className="w-full px-3 py-1.5 text-left text-[12px] text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
-          >
-            Copy as Plain Text
-          </button>
-        </div>,
-        document.body,
+      {menuPos && (
+        <ContextMenu
+          x={menuPos.x}
+          y={menuPos.y}
+          items={items}
+          onClose={() => setMenuPos(null)}
+        />
       )}
     </div>
   );
