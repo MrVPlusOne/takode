@@ -121,11 +121,8 @@ export function ProjectGroup({
   isFirst,
   sessionAttention,
 }: ProjectGroupProps) {
-  // Build summary badges
-  const summaryParts: string[] = [];
-  if (group.runningCount > 0) summaryParts.push(`${group.runningCount} running`);
-  if (group.permCount > 0) summaryParts.push(`${group.permCount} waiting`);
-  if (group.unreadCount > 0) summaryParts.push(`${group.unreadCount} unread`);
+  // Build summary counts
+  const hasStatus = group.runningCount > 0 || group.permCount > 0 || group.unreadCount > 0;
 
   const reorderMode = useStore((s) => s.reorderMode);
 
@@ -168,20 +165,17 @@ export function ProjectGroup({
         <span className="text-[11px] font-semibold text-cc-fg/80 truncate">
           {group.label}
         </span>
-        {summaryParts.length > 0 && (
-          <span className="text-[10px] text-cc-muted ml-auto shrink-0">
-            {summaryParts.map((part, i) => (
-              <span key={i}>
-                {i > 0 && ", "}
-                <span className={
-                  part.includes("running") ? "text-cc-success"
-                  : part.includes("unread") ? "text-blue-500"
-                  : "text-cc-warning"
-                }>
-                  {part}
-                </span>
-              </span>
-            ))}
+        {hasStatus && (
+          <span className="flex items-center gap-1 ml-auto shrink-0 text-[10px] font-medium">
+            {group.runningCount > 0 && (
+              <span className="text-cc-success flex items-center gap-0.5">{group.runningCount}<span className="inline-block w-1.5 h-1.5 rounded-full bg-cc-success" /></span>
+            )}
+            {group.permCount > 0 && (
+              <span className="text-cc-warning flex items-center gap-0.5">{group.permCount}<span className="inline-block w-1.5 h-1.5 rounded-full bg-cc-warning" /></span>
+            )}
+            {group.unreadCount > 0 && (
+              <span className="text-blue-500 flex items-center gap-0.5">{group.unreadCount}<span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-500" /></span>
+            )}
           </span>
         )}
         <span className="text-[10px] text-cc-muted/60 shrink-0 ml-1">

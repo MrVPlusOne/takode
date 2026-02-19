@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback, useSyncExternalStore } from "react";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
 import { ClaudeMdEditor } from "./ClaudeMdEditor.js";
+import { SessionStatusDot } from "./SessionStatusDot.js";
 import { parseHash } from "../utils/routing.js";
 import { shortenHome } from "../utils/path-display.js";
 
@@ -77,7 +78,7 @@ export function TopBar() {
   const pendingPermissions = useStore((s) => s.pendingPermissions);
   const sessionAttention = useStore((s) => s.sessionAttention);
 
-  // Aggregate session status counts (shown when sidebar is hidden)
+  // Aggregate session status counts (shown in title bar)
   const statusSummary = useMemo(() => {
     let running = 0, waiting = 0, unread = 0;
     for (const st of sessionStatus.values()) {
@@ -94,6 +95,11 @@ export function TopBar() {
 
   const isConnected = currentSessionId ? (cliConnected.get(currentSessionId) ?? false) : false;
   const status = currentSessionId ? (sessionStatus.get(currentSessionId) ?? null) : null;
+  const currentPermCount = currentSessionId ? (pendingPermissions.get(currentSessionId)?.size ?? 0) : 0;
+  const currentSdkState = currentSessionId
+    ? (sdkSessions.find((s) => s.sessionId === currentSessionId)?.state ?? null)
+    : null;
+  const currentHasUnread = currentSessionId ? !!(sessionAttention.get(currentSessionId)) : false;
   const sessionName = currentSessionId
     ? (sessionNames?.get(currentSessionId) ||
       sdkSessions.find((s) => s.sessionId === currentSessionId)?.name ||
@@ -113,33 +119,18 @@ export function TopBar() {
           </svg>
         </button>
 
-        {/* Session status summary — visible when sidebar is hidden */}
-        {!sidebarOpen && (statusSummary.running > 0 || statusSummary.waiting > 0 || statusSummary.unread > 0) && (
-          <button
-            onClick={() => setSidebarOpen(true)}
-            className="flex items-center gap-1 text-[10px] font-medium cursor-pointer hover:opacity-80 transition-opacity"
-            title="Open sidebar"
-          >
-            {statusSummary.running > 0 && (
-              <span className="text-cc-success flex items-center gap-0.5">{statusSummary.running}<span className="inline-block w-1.5 h-1.5 rounded-full bg-cc-success" /></span>
-            )}
-            {statusSummary.waiting > 0 && (
-              <span className="text-cc-warning flex items-center gap-0.5">{statusSummary.waiting}<span className="inline-block w-1.5 h-1.5 rounded-full bg-cc-warning" /></span>
-            )}
-            {statusSummary.unread > 0 && (
-              <span className="text-blue-500 flex items-center gap-0.5">{statusSummary.unread}<span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-500" /></span>
-            )}
-          </button>
-        )}
-
-        {/* Connection status */}
+        {/* Current session status + title */}
         {currentSessionId && (
           <div className="flex items-center gap-1.5">
-            <span
-              className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                isConnected ? "bg-cc-success" : "bg-cc-muted opacity-40"
-              }`}
-            />
+            <div className="[&>div]:mt-0">
+              <SessionStatusDot
+                permCount={currentPermCount}
+                isConnected={isConnected}
+                sdkState={currentSdkState}
+                status={status}
+                hasUnread={currentHasUnread}
+              />
+            </div>
             <div className="min-w-0">
               {sessionName && (
                 <span className="text-[11px] font-medium text-cc-fg max-w-[9rem] sm:max-w-none truncate block" title={sessionName}>
@@ -180,6 +171,25 @@ export function TopBar() {
               </button>
             )}
           </div>
+        )}
+
+        {/* Global session status summary — after title for visual separation from session dot */}
+        {(statusSummary.running > 0 || statusSummary.waiting > 0 || statusSummary.unread > 0) && (
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="flex items-center gap-1 text-[10px] font-medium cursor-pointer hover:opacity-80 transition-opacity"
+            title="Open sidebar"
+          >
+            {statusSummary.running > 0 && (
+              <span className="text-cc-success flex items-center gap-0.5">{statusSummary.running}<span className="inline-block w-1.5 h-1.5 rounded-full bg-cc-success" /></span>
+            )}
+            {statusSummary.waiting > 0 && (
+              <span className="text-cc-warning flex items-center gap-0.5">{statusSummary.waiting}<span className="inline-block w-1.5 h-1.5 rounded-full bg-cc-warning" /></span>
+            )}
+            {statusSummary.unread > 0 && (
+              <span className="text-blue-500 flex items-center gap-0.5">{statusSummary.unread}<span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-500" /></span>
+            )}
+          </button>
         )}
       </div>
 
