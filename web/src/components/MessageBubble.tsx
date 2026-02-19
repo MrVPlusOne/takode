@@ -113,13 +113,12 @@ function UserMessage({ message, sessionId }: { message: ChatMessage; sessionId?:
   const canRevert = !isCodex && sessionStatus === "idle" && !!sessionId;
 
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    if (!canRevert) return;
     const { clientX, clientY } = e.touches[0];
     longPressTimer.current = setTimeout(() => {
       longPressTimer.current = null;
       setCtxMenu({ x: clientX, y: clientY });
     }, 500);
-  }, [canRevert]);
+  }, []);
 
   const cancelLongPress = useCallback(() => {
     if (longPressTimer.current) {
@@ -129,10 +128,13 @@ function UserMessage({ message, sessionId }: { message: ChatMessage; sessionId?:
   }, []);
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
-    if (!canRevert) return;
     e.preventDefault();
     setCtxMenu({ x: e.clientX, y: e.clientY });
-  }, [canRevert]);
+  }, []);
+
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(message.content);
+  }, [message.content]);
 
   const handleRevert = useCallback(async () => {
     if (!sessionId || !message.id) return;
@@ -146,7 +148,7 @@ function UserMessage({ message, sessionId }: { message: ChatMessage; sessionId?:
 
   return (
     <div
-      className="flex justify-end animate-[fadeSlideIn_0.2s_ease-out]"
+      className="flex justify-end animate-[fadeSlideIn_0.2s_ease-out] select-none sm:select-text"
       onContextMenu={handleContextMenu}
       onTouchStart={handleTouchStart}
       onTouchEnd={cancelLongPress}
@@ -187,7 +189,10 @@ function UserMessage({ message, sessionId }: { message: ChatMessage; sessionId?:
         <ContextMenu
           x={ctxMenu.x}
           y={ctxMenu.y}
-          items={[{ label: "Revert to here", onClick: handleRevert }]}
+          items={[
+            { label: "Copy message", onClick: handleCopy },
+            ...(canRevert ? [{ label: "Revert to here", onClick: handleRevert }] : []),
+          ]}
           onClose={() => setCtxMenu(null)}
         />
       )}
