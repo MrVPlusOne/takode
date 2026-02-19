@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from "react";
+import { createPortal } from "react-dom";
 import type { ChatMessage, ContentBlock } from "../types.js";
 import { ToolBlock, getToolIcon, getToolLabel, ToolIcon } from "./ToolBlock.js";
 import { MarkdownContent } from "./MarkdownContent.js";
@@ -146,39 +147,63 @@ function UserMessage({ message, sessionId }: { message: ChatMessage; sessionId?:
   );
 }
 
-/** Inline menu button for user messages — copy, revert, etc. */
+/** Inline menu button for user messages — copy, revert, etc.
+ *  Dropdown is portaled to document.body to escape the overflow-hidden
+ *  ancestors in the message feed, which block tap events on iOS Safari. */
 function UserMessageMenu({ message, sessionId, canRevert }: { message: ChatMessage; sessionId?: string; canRevert: boolean }) {
   const [open, setOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [pos, setPos] = useState<{ top: number; right: number }>({ top: 0, right: 0 });
   const menuRef = useRef<HTMLDivElement>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
 
-  // Dismiss on outside click — mirrors CopyMessageButton's pattern exactly
-  // (mousedown only, no touchstart — touchstart listeners can interfere with
-  // iOS Safari's click synthesis on menu items)
+  const close = useCallback(() => { setOpen(false); setConfirming(false); }, []);
+
+  // Dismiss on outside click/tap + keyboard
   useEffect(() => {
     if (!open) return;
-    function handleMouseDown(e: MouseEvent) {
+    function handleDismiss(e: Event) {
       if (menuRef.current && !menuRef.current.contains(e.target as Node) &&
           btnRef.current && !btnRef.current.contains(e.target as Node)) {
-        setOpen(false);
-        setConfirming(false);
+        close();
       }
     }
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") {
         if (confirming) setConfirming(false);
-        else { setOpen(false); setConfirming(false); }
+        else close();
       }
     }
-    document.addEventListener("mousedown", handleMouseDown);
+    document.addEventListener("mousedown", handleDismiss);
+    document.addEventListener("touchstart", handleDismiss);
     document.addEventListener("keydown", handleKeyDown);
     return () => {
-      document.removeEventListener("mousedown", handleMouseDown);
+      document.removeEventListener("mousedown", handleDismiss);
+      document.removeEventListener("touchstart", handleDismiss);
       document.removeEventListener("keydown", handleKeyDown);
     };
+  }, [open, confirming, close]);
+
+  // Viewport clamping
+  useEffect(() => {
+    if (!open || !menuRef.current) return;
+    const rect = menuRef.current.getBoundingClientRect();
+    const el = menuRef.current;
+    if (rect.bottom > window.innerHeight) {
+      el.style.top = `${window.innerHeight - rect.height - 8}px`;
+    }
   }, [open, confirming]);
+
+  const toggle = useCallback(() => {
+    if (open) {
+      close();
+    } else {
+      const rect = btnRef.current?.getBoundingClientRect();
+      if (rect) setPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+      setOpen(true);
+    }
+  }, [open, close]);
 
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(message.content);
@@ -189,20 +214,19 @@ function UserMessageMenu({ message, sessionId, canRevert }: { message: ChatMessa
 
   const handleRevert = useCallback(async () => {
     if (!sessionId || !message.id) return;
-    setOpen(false);
-    setConfirming(false);
+    close();
     try {
       await api.revertToMessage(sessionId, message.id);
     } catch (err) {
       console.error("Revert failed:", err);
     }
-  }, [sessionId, message.id]);
+  }, [sessionId, message.id, close]);
 
   return (
-    <div className="relative shrink-0 self-start mt-1">
+    <div className="shrink-0 self-start mt-1">
       <button
         ref={btnRef}
-        onClick={() => { setOpen(!open); setConfirming(false); }}
+        onClick={toggle}
         className={`p-1 rounded hover:bg-cc-hover transition-all cursor-pointer ${
           open || copied ? "opacity-100" : "opacity-100 sm:opacity-0 sm:group-hover/msg:opacity-100"
         }`}
@@ -220,10 +244,11 @@ function UserMessageMenu({ message, sessionId, canRevert }: { message: ChatMessa
           </svg>
         )}
       </button>
-      {open && (
+      {open && createPortal(
         <div
           ref={menuRef}
-          className="absolute right-0 top-full mt-1 z-50 min-w-[160px] bg-cc-card border border-cc-border rounded-lg shadow-lg overflow-hidden"
+          className="fixed z-50 min-w-[160px] bg-cc-card border border-cc-border rounded-lg shadow-lg overflow-hidden"
+          style={{ top: pos.top, right: pos.right }}
         >
           {confirming ? (
             <div className="p-3 w-56">
@@ -262,7 +287,8 @@ function UserMessageMenu({ message, sessionId, canRevert }: { message: ChatMessa
               )}
             </>
           )}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
@@ -315,7 +341,7 @@ function AssistantMessage({ message, sessionId }: { message: ChatMessage; sessio
     return (
       <div className="group/msg relative flex items-start gap-3">
         <AssistantAvatar />
-        <div ref={contentRef} className="flex-1 min-w-0">
+        <div ref={contentRef} className="flex-1 min-w-0 pr-6 sm:pr-0">
           <MarkdownContent text={message.content} />
         </div>
         <CopyMessageButton message={message} contentRef={contentRef} />
@@ -326,7 +352,7 @@ function AssistantMessage({ message, sessionId }: { message: ChatMessage; sessio
   return (
     <div className="group/msg relative flex items-start gap-3">
       <AssistantAvatar />
-      <div ref={contentRef} className="flex-1 min-w-0 space-y-3">
+      <div ref={contentRef} className="flex-1 min-w-0 space-y-3 pr-6 sm:pr-0">
         {grouped.map((group, i) => {
           if (group.kind === "content") {
             return <ContentBlockRenderer key={i} block={group.block} />;
@@ -355,15 +381,19 @@ function AssistantAvatar() {
   );
 }
 
+/** Copy button for assistant messages.
+ *  Dropdown is portaled to document.body to escape the overflow-hidden
+ *  ancestors in the message feed, which block tap events on iOS Safari. */
 function CopyMessageButton({ message, contentRef }: { message: ChatMessage; contentRef: React.RefObject<HTMLDivElement | null> }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
+  const [pos, setPos] = useState<{ top: number; right: number }>({ top: 0, right: 0 });
   const menuRef = useRef<HTMLDivElement>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!open) return;
-    function handleMouseDown(e: MouseEvent) {
+    function handleDismiss(e: Event) {
       if (menuRef.current && !menuRef.current.contains(e.target as Node) &&
           btnRef.current && !btnRef.current.contains(e.target as Node)) {
         setOpen(false);
@@ -372,12 +402,34 @@ function CopyMessageButton({ message, contentRef }: { message: ChatMessage; cont
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") setOpen(false);
     }
-    document.addEventListener("mousedown", handleMouseDown);
+    document.addEventListener("mousedown", handleDismiss);
+    document.addEventListener("touchstart", handleDismiss);
     document.addEventListener("keydown", handleKeyDown);
     return () => {
-      document.removeEventListener("mousedown", handleMouseDown);
+      document.removeEventListener("mousedown", handleDismiss);
+      document.removeEventListener("touchstart", handleDismiss);
       document.removeEventListener("keydown", handleKeyDown);
     };
+  }, [open]);
+
+  // Viewport clamping
+  useEffect(() => {
+    if (!open || !menuRef.current) return;
+    const rect = menuRef.current.getBoundingClientRect();
+    const el = menuRef.current;
+    if (rect.bottom > window.innerHeight) {
+      el.style.top = `${window.innerHeight - rect.height - 8}px`;
+    }
+  }, [open]);
+
+  const toggle = useCallback(() => {
+    if (open) {
+      setOpen(false);
+    } else {
+      const rect = btnRef.current?.getBoundingClientRect();
+      if (rect) setPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+      setOpen(true);
+    }
   }, [open]);
 
   const showFeedback = useCallback((label: string) => {
@@ -406,7 +458,7 @@ function CopyMessageButton({ message, contentRef }: { message: ChatMessage; cont
     <div className="absolute top-0 right-0 shrink-0">
       <button
         ref={btnRef}
-        onClick={() => setOpen(!open)}
+        onClick={toggle}
         className={`p-1 rounded hover:bg-cc-hover transition-all cursor-pointer ${
           open || copied ? "opacity-100" : "opacity-100 sm:opacity-0 sm:group-hover/msg:opacity-100"
         }`}
@@ -423,10 +475,11 @@ function CopyMessageButton({ message, contentRef }: { message: ChatMessage; cont
           </svg>
         )}
       </button>
-      {open && (
+      {open && createPortal(
         <div
           ref={menuRef}
-          className="absolute right-0 top-full mt-1 z-50 min-w-[160px] bg-cc-card border border-cc-border rounded-lg shadow-lg py-1 overflow-hidden"
+          className="fixed z-50 min-w-[160px] bg-cc-card border border-cc-border rounded-lg shadow-lg py-1 overflow-hidden"
+          style={{ top: pos.top, right: pos.right }}
         >
           <button
             onClick={handleCopyMarkdown}
@@ -446,7 +499,8 @@ function CopyMessageButton({ message, contentRef }: { message: ChatMessage; cont
           >
             Copy as Plain Text
           </button>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
