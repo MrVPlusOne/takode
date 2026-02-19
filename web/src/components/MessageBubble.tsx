@@ -137,7 +137,6 @@ function UserMessage({ message, sessionId }: { message: ChatMessage; sessionId?:
 
   const handleRevert = useCallback(async () => {
     if (!sessionId || !message.id) return;
-    if (!confirm("Revert to before this message? All messages after this point will be removed.")) return;
     try {
       await api.revertToMessage(sessionId, message.id);
     } catch (err) {
@@ -190,7 +189,16 @@ function UserMessage({ message, sessionId }: { message: ChatMessage; sessionId?:
           y={ctxMenu.y}
           items={[
             { label: "Copy message", onClick: handleCopy },
-            ...(canRevert ? [{ label: "Revert to here", onClick: handleRevert }] : []),
+            ...(canRevert ? [{
+              label: "Revert to here",
+              onClick: handleRevert,
+              confirm: {
+                title: "Revert to here?",
+                description: "All messages after this point will be removed.",
+                confirmLabel: "Revert",
+                destructive: true,
+              },
+            }] : []),
           ]}
           onClose={() => setCtxMenu(null)}
         />

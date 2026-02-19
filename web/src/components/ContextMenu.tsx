@@ -1,9 +1,15 @@
-import { useEffect, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 
-interface ContextMenuItem {
+export interface ContextMenuItem {
   label: string;
   onClick: () => void;
+  confirm?: {
+    title: string;
+    description: string;
+    confirmLabel: string;
+    destructive?: boolean;
+  };
 }
 
 interface ContextMenuProps {
@@ -15,6 +21,7 @@ interface ContextMenuProps {
 
 export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
+  const [confirmingItem, setConfirmingItem] = useState<ContextMenuItem | null>(null);
 
   useEffect(() => {
     function handleMouseDown(e: MouseEvent) {
@@ -23,7 +30,13 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
       }
     }
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        if (confirmingItem) {
+          setConfirmingItem(null);
+        } else {
+          onClose();
+        }
+      }
     }
     document.addEventListener("mousedown", handleMouseDown);
     document.addEventListener("keydown", handleKeyDown);
@@ -31,7 +44,7 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
       document.removeEventListener("mousedown", handleMouseDown);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [onClose]);
+  }, [onClose, confirmingItem]);
 
   // Clamp to viewport bounds
   useEffect(() => {
@@ -44,28 +57,62 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
     if (rect.bottom > window.innerHeight) {
       el.style.top = `${window.innerHeight - rect.height - 8}px`;
     }
-  }, [x, y]);
+  }, [x, y, confirmingItem]);
 
   // Portal to document.body so the menu escapes overflow-hidden ancestors
   // and the CSS transform containing block on the root layout div.
   return createPortal(
     <div
       ref={menuRef}
-      className="fixed z-50 min-w-[140px] bg-cc-card border border-cc-border rounded-lg shadow-lg py-1 overflow-hidden"
+      className="fixed z-50 min-w-[140px] bg-cc-card border border-cc-border rounded-lg shadow-lg overflow-hidden"
       style={{ left: x, top: y }}
     >
-      {items.map((item) => (
-        <button
-          key={item.label}
-          onClick={() => {
-            item.onClick();
-            onClose();
-          }}
-          className="w-full px-3 py-1.5 text-left text-[12px] text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
-        >
-          {item.label}
-        </button>
-      ))}
+      {confirmingItem ? (
+        <div className="p-3 w-56">
+          <p className="text-xs text-cc-fg mb-1 font-medium">{confirmingItem.confirm!.title}</p>
+          <p className="text-[11px] text-cc-muted mb-3 leading-relaxed">{confirmingItem.confirm!.description}</p>
+          <div className="flex items-center justify-end gap-2">
+            <button
+              onClick={() => setConfirmingItem(null)}
+              className="px-2.5 py-1 text-[11px] rounded-md text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => {
+                confirmingItem.onClick();
+                onClose();
+              }}
+              className={`px-2.5 py-1 text-[11px] rounded-md transition-colors cursor-pointer font-medium ${
+                confirmingItem.confirm!.destructive
+                  ? "bg-red-500/15 text-red-500 hover:bg-red-500/25"
+                  : "bg-cc-primary/15 text-cc-primary hover:bg-cc-primary/25"
+              }`}
+            >
+              {confirmingItem.confirm!.confirmLabel}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="py-1">
+          {items.map((item) => (
+            <button
+              key={item.label}
+              onClick={() => {
+                if (item.confirm) {
+                  setConfirmingItem(item);
+                } else {
+                  item.onClick();
+                  onClose();
+                }
+              }}
+              className="w-full px-3 py-1.5 text-left text-[12px] text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      )}
     </div>,
     document.body,
   );
