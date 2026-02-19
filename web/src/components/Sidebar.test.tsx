@@ -663,7 +663,7 @@ describe("Sidebar", () => {
     expect(screen.getAllByText("project-b").length).toBeGreaterThanOrEqual(1);
   });
 
-  it("project group header shows running count", () => {
+  it("project group header shows running count as colored dot", () => {
     const session1 = makeSession("s1", { cwd: "/home/user/myapp" });
     const session2 = makeSession("s2", { cwd: "/home/user/myapp" });
     const sdk1 = makeSdkSession("s1", { cwd: "/home/user/myapp" });
@@ -672,10 +672,13 @@ describe("Sidebar", () => {
       sessions: new Map([["s1", session1], ["s2", session2]]),
       sdkSessions: [sdk1, sdk2],
       sessionStatus: new Map([["s1", "running"], ["s2", "running"]]),
+      cliConnected: new Map([["s1", true], ["s2", true]]),
     });
 
-    render(<Sidebar />);
-    expect(screen.getByText("2 running")).toBeInTheDocument();
+    const { container } = render(<Sidebar />);
+    // Status is now shown as colored number + dot (e.g. "2●") not "2 running"
+    const greenDots = container.querySelectorAll(".bg-cc-success.rounded-full");
+    expect(greenDots.length).toBeGreaterThanOrEqual(1);
   });
 
   it("collapsing a project group hides its sessions", () => {

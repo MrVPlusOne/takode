@@ -126,15 +126,33 @@ describe("groupSessionsByProject", () => {
     expect(groups).toHaveLength(2);
   });
 
-  it("computes aggregate runningCount and permCount", () => {
+  it("counts are mutually exclusive using dot priority (permission > running > unread)", () => {
+    // s1: running + has permissions → permission takes priority (counted as waiting)
+    // s2: running + no permissions → counted as running
+    // s3: idle + no permissions → not counted
     const sessions = [
-      makeItem({ id: "s1", cwd: "/a/app", status: "running", permCount: 1 }),
-      makeItem({ id: "s2", cwd: "/a/app", status: "running", permCount: 2 }),
+      makeItem({ id: "s1", cwd: "/a/app", status: "running", permCount: 1, isConnected: true, sdkState: "running" }),
+      makeItem({ id: "s2", cwd: "/a/app", status: "running", permCount: 0, isConnected: true, sdkState: "running" }),
       makeItem({ id: "s3", cwd: "/a/app", status: null, permCount: 0 }),
     ];
     const groups = groupSessionsByProject(sessions);
-    expect(groups[0].runningCount).toBe(2);
-    expect(groups[0].permCount).toBe(3);
+    // s1 shows amber (permission), s2 shows green (running)
+    expect(groups[0].runningCount).toBe(1);
+    expect(groups[0].permCount).toBe(1);
+  });
+
+  it("counts unread only when no higher-priority state applies", () => {
+    const attention = new Map<string, "action" | "error" | "review" | null>([
+      ["s1", "review"],  // has permissions → counted as waiting, not unread
+      ["s2", "review"],  // idle + unread → counted as unread
+    ]);
+    const sessions = [
+      makeItem({ id: "s1", cwd: "/a/app", permCount: 1 }),
+      makeItem({ id: "s2", cwd: "/a/app", permCount: 0, isConnected: true }),
+    ];
+    const groups = groupSessionsByProject(sessions, attention);
+    expect(groups[0].permCount).toBe(1);
+    expect(groups[0].unreadCount).toBe(1);
   });
 
   it("creates separate groups for different directories", () => {

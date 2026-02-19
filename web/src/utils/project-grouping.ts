@@ -1,4 +1,5 @@
 import type { SdkSessionInfo } from "../types.js";
+import { deriveSessionStatus } from "../components/SessionStatusDot.js";
 
 export interface SessionItem {
   id: string;
@@ -81,10 +82,18 @@ export function groupSessionsByProject(
 
     const group = groups.get(key)!;
     group.sessions.push(session);
-    if (session.status === "running") group.runningCount++;
-    group.permCount += session.permCount;
-    const attention = sessionAttention?.get(session.id);
-    if (attention) group.unreadCount++;
+    // Use the same priority logic as SessionStatusDot so counts match visible dots
+    const visualStatus = deriveSessionStatus({
+      archived: session.archived,
+      permCount: session.permCount,
+      isConnected: session.isConnected,
+      sdkState: session.sdkState,
+      status: session.status,
+      hasUnread: !!sessionAttention?.get(session.id),
+    });
+    if (visualStatus === "running" || visualStatus === "compacting") group.runningCount++;
+    else if (visualStatus === "permission") group.permCount++;
+    else if (visualStatus === "completed_unread") group.unreadCount++;
     group.mostRecentActivity = Math.max(group.mostRecentActivity, session.createdAt);
   }
 

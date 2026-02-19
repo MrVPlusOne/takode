@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useSyncExternalStore } from "react";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
 import { ClaudeMdEditor } from "./ClaudeMdEditor.js";
-import { SessionStatusDot } from "./SessionStatusDot.js";
+import { SessionStatusDot, deriveSessionStatus } from "./SessionStatusDot.js";
 import { parseHash } from "../utils/routing.js";
 import { shortenHome } from "../utils/path-display.js";
 
@@ -78,20 +78,25 @@ export function TopBar() {
   const pendingPermissions = useStore((s) => s.pendingPermissions);
   const sessionAttention = useStore((s) => s.sessionAttention);
 
-  // Aggregate session status counts (shown in title bar)
+  // Aggregate session status counts using the same priority logic as SessionStatusDot
+  // so that each session contributes to exactly one category, matching the visible dots.
   const statusSummary = useMemo(() => {
     let running = 0, waiting = 0, unread = 0;
-    for (const st of sessionStatus.values()) {
-      if (st === "running") running++;
-    }
-    for (const perms of pendingPermissions.values()) {
-      waiting += perms.size;
-    }
-    for (const attn of sessionAttention.values()) {
-      if (attn) unread++;
+    for (const sdk of sdkSessions) {
+      if (sdk.archived) continue;
+      const vs = deriveSessionStatus({
+        permCount: pendingPermissions.get(sdk.sessionId)?.size ?? 0,
+        isConnected: cliConnected.get(sdk.sessionId) ?? sdk.cliConnected ?? false,
+        sdkState: sdk.state ?? null,
+        status: sessionStatus.get(sdk.sessionId) ?? null,
+        hasUnread: !!sessionAttention.get(sdk.sessionId),
+      });
+      if (vs === "running" || vs === "compacting") running++;
+      else if (vs === "permission") waiting++;
+      else if (vs === "completed_unread") unread++;
     }
     return { running, waiting, unread };
-  }, [sessionStatus, pendingPermissions, sessionAttention]);
+  }, [sdkSessions, sessionStatus, pendingPermissions, sessionAttention, cliConnected]);
 
   const isConnected = currentSessionId ? (cliConnected.get(currentSessionId) ?? false) : false;
   const status = currentSessionId ? (sessionStatus.get(currentSessionId) ?? null) : null;
