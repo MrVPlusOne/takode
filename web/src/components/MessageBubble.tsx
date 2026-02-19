@@ -110,7 +110,6 @@ function UserMessage({ message, sessionId }: { message: ChatMessage; sessionId?:
 
   return (
     <div className="flex justify-end items-start gap-1 group/msg animate-[fadeSlideIn_0.2s_ease-out] select-none sm:select-text">
-      <UserMessageMenu message={message} sessionId={sessionId} canRevert={canRevert} />
       <div className="max-w-[85%] sm:max-w-[80%] px-3 sm:px-4 py-2.5 rounded-[14px] rounded-br-[4px] bg-cc-user-bubble text-cc-fg">
         {message.images && message.images.length > 0 && sessionId && (
           <div className="flex gap-2 flex-wrap mb-2">
@@ -135,6 +134,7 @@ function UserMessage({ message, sessionId }: { message: ChatMessage; sessionId?:
           {message.content}
         </pre>
       </div>
+      <UserMessageMenu message={message} sessionId={sessionId} canRevert={canRevert} />
       {lightboxSrc && (
         <Lightbox
           src={lightboxSrc}
@@ -154,9 +154,12 @@ function UserMessageMenu({ message, sessionId, canRevert }: { message: ChatMessa
   const menuRef = useRef<HTMLDivElement>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
 
+  // Dismiss on outside click — mirrors CopyMessageButton's pattern exactly
+  // (mousedown only, no touchstart — touchstart listeners can interfere with
+  // iOS Safari's click synthesis on menu items)
   useEffect(() => {
     if (!open) return;
-    function handleDismiss(e: Event) {
+    function handleMouseDown(e: MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(e.target as Node) &&
           btnRef.current && !btnRef.current.contains(e.target as Node)) {
         setOpen(false);
@@ -169,12 +172,10 @@ function UserMessageMenu({ message, sessionId, canRevert }: { message: ChatMessa
         else { setOpen(false); setConfirming(false); }
       }
     }
-    document.addEventListener("mousedown", handleDismiss);
-    document.addEventListener("touchstart", handleDismiss);
+    document.addEventListener("mousedown", handleMouseDown);
     document.addEventListener("keydown", handleKeyDown);
     return () => {
-      document.removeEventListener("mousedown", handleDismiss);
-      document.removeEventListener("touchstart", handleDismiss);
+      document.removeEventListener("mousedown", handleMouseDown);
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [open, confirming]);
@@ -222,7 +223,7 @@ function UserMessageMenu({ message, sessionId, canRevert }: { message: ChatMessa
       {open && (
         <div
           ref={menuRef}
-          className="absolute left-0 top-full mt-1 z-50 min-w-[160px] bg-cc-card border border-cc-border rounded-lg shadow-lg overflow-hidden"
+          className="absolute right-0 top-full mt-1 z-50 min-w-[160px] bg-cc-card border border-cc-border rounded-lg shadow-lg overflow-hidden"
         >
           {confirming ? (
             <div className="p-3 w-56">
