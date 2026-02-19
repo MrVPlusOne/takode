@@ -118,7 +118,7 @@ export default function App() {
         className={`
           fixed md:relative z-40 md:z-auto
           h-full shrink-0 transition-all duration-200
-          ${sidebarOpen ? "w-[260px] translate-x-0" : "w-0 -translate-x-full md:w-0 md:-translate-x-full"}
+          ${sidebarOpen ? "w-[80vw] md:w-[260px] translate-x-0" : "w-0 -translate-x-full md:w-0 md:-translate-x-full"}
           overflow-hidden
         `}
       >

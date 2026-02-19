@@ -24,7 +24,7 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
   const [confirmingItem, setConfirmingItem] = useState<ContextMenuItem | null>(null);
 
   useEffect(() => {
-    function handleMouseDown(e: MouseEvent) {
+    function handleDismiss(e: Event) {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         onClose();
       }
@@ -38,10 +38,12 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
         }
       }
     }
-    document.addEventListener("mousedown", handleMouseDown);
+    document.addEventListener("mousedown", handleDismiss);
+    document.addEventListener("touchstart", handleDismiss);
     document.addEventListener("keydown", handleKeyDown);
     return () => {
-      document.removeEventListener("mousedown", handleMouseDown);
+      document.removeEventListener("mousedown", handleDismiss);
+      document.removeEventListener("touchstart", handleDismiss);
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [onClose, confirmingItem]);
@@ -64,6 +66,7 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
   return createPortal(
     <div
       ref={menuRef}
+      onTouchStart={(e) => e.stopPropagation()}
       className="fixed z-50 min-w-[140px] bg-cc-card border border-cc-border rounded-lg shadow-lg overflow-hidden"
       style={{ left: x, top: y }}
     >
