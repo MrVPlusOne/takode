@@ -3,7 +3,6 @@ import type { ChatMessage, ContentBlock } from "../types.js";
 import { ToolBlock, getToolIcon, getToolLabel, ToolIcon } from "./ToolBlock.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { Lightbox } from "./Lightbox.js";
-import { ContextMenu } from "./ContextMenu.js";
 import { getMessageMarkdown, getMessagePlainText, copyRichText } from "../utils/copy-utils.js";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
@@ -105,39 +104,92 @@ export function MessageBubble({ message, sessionId }: { message: ChatMessage; se
 
 function UserMessage({ message, sessionId }: { message: ChatMessage; sessionId?: string }) {
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
-  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
-  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isCodex = useStore((s) => s.sessions.get(sessionId ?? "")?.backend_type === "codex");
   const canRevert = !isCodex && !!sessionId;
 
-  const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    if (ctxMenu) return; // Menu already open — don't start a new long-press
-    const { clientX, clientY } = e.touches[0];
-    longPressTimer.current = setTimeout(() => {
-      longPressTimer.current = null;
-      setCtxMenu({ x: clientX, y: clientY });
-    }, 500);
-  }, [ctxMenu]);
+  return (
+    <div className="flex justify-end items-start gap-1 group/msg animate-[fadeSlideIn_0.2s_ease-out] select-none sm:select-text">
+      <UserMessageMenu message={message} sessionId={sessionId} canRevert={canRevert} />
+      <div className="max-w-[85%] sm:max-w-[80%] px-3 sm:px-4 py-2.5 rounded-[14px] rounded-br-[4px] bg-cc-user-bubble text-cc-fg">
+        {message.images && message.images.length > 0 && sessionId && (
+          <div className="flex gap-2 flex-wrap mb-2">
+            {message.images.map((img) => {
+              const thumbSrc = `/api/images/${sessionId}/${img.imageId}/thumb`;
+              const fullSrc = `/api/images/${sessionId}/${img.imageId}/full`;
+              return (
+                <img
+                  key={img.imageId}
+                  src={thumbSrc}
+                  alt="attachment"
+                  className="max-w-[150px] sm:max-w-[200px] max-h-[120px] sm:max-h-[150px] rounded-lg object-cover cursor-zoom-in hover:opacity-80 transition-opacity"
+                  onClick={() => setLightboxSrc(fullSrc)}
+                  loading="lazy"
+                  data-testid="image-thumbnail"
+                />
+              );
+            })}
+          </div>
+        )}
+        <pre className="text-[13px] sm:text-[14px] whitespace-pre-wrap break-words font-sans-ui leading-relaxed">
+          {message.content}
+        </pre>
+      </div>
+      {lightboxSrc && (
+        <Lightbox
+          src={lightboxSrc}
+          alt="attachment"
+          onClose={() => setLightboxSrc(null)}
+        />
+      )}
+    </div>
+  );
+}
 
-  const cancelLongPress = useCallback(() => {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
+/** Inline menu button for user messages — copy, revert, etc. */
+function UserMessageMenu({ message, sessionId, canRevert }: { message: ChatMessage; sessionId?: string; canRevert: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleDismiss(e: Event) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node) &&
+          btnRef.current && !btnRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        setConfirming(false);
+      }
     }
-  }, []);
-
-  const handleContextMenu = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    setCtxMenu({ x: e.clientX, y: e.clientY });
-  }, []);
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        if (confirming) setConfirming(false);
+        else { setOpen(false); setConfirming(false); }
+      }
+    }
+    document.addEventListener("mousedown", handleDismiss);
+    document.addEventListener("touchstart", handleDismiss);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleDismiss);
+      document.removeEventListener("touchstart", handleDismiss);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open, confirming]);
 
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(message.content);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+    setOpen(false);
   }, [message.content]);
 
   const handleRevert = useCallback(async () => {
     if (!sessionId || !message.id) return;
+    setOpen(false);
+    setConfirming(false);
     try {
       await api.revertToMessage(sessionId, message.id);
     } catch (err) {
@@ -146,70 +198,72 @@ function UserMessage({ message, sessionId }: { message: ChatMessage; sessionId?:
   }, [sessionId, message.id]);
 
   return (
-    <>
-      <div
-        className="flex justify-end animate-[fadeSlideIn_0.2s_ease-out] select-none sm:select-text"
-        onContextMenu={handleContextMenu}
-        onTouchStart={handleTouchStart}
-        onTouchEnd={cancelLongPress}
-        onTouchCancel={cancelLongPress}
+    <div className="relative shrink-0 self-start mt-1">
+      <button
+        ref={btnRef}
+        onClick={() => { setOpen(!open); setConfirming(false); }}
+        className={`p-1 rounded hover:bg-cc-hover transition-all cursor-pointer ${
+          open || copied ? "opacity-100" : "opacity-100 sm:opacity-0 sm:group-hover/msg:opacity-100"
+        }`}
+        title="Message options"
       >
-        <div className="max-w-[85%] sm:max-w-[80%] px-3 sm:px-4 py-2.5 rounded-[14px] rounded-br-[4px] bg-cc-user-bubble text-cc-fg">
-          {message.images && message.images.length > 0 && sessionId && (
-            <div className="flex gap-2 flex-wrap mb-2">
-              {message.images.map((img) => {
-                const thumbSrc = `/api/images/${sessionId}/${img.imageId}/thumb`;
-                const fullSrc = `/api/images/${sessionId}/${img.imageId}/full`;
-                return (
-                  <img
-                    key={img.imageId}
-                    src={thumbSrc}
-                    alt="attachment"
-                    className="max-w-[150px] sm:max-w-[200px] max-h-[120px] sm:max-h-[150px] rounded-lg object-cover cursor-zoom-in hover:opacity-80 transition-opacity"
-                    onClick={() => setLightboxSrc(fullSrc)}
-                    loading="lazy"
-                    data-testid="image-thumbnail"
-                  />
-                );
-              })}
-            </div>
-          )}
-          <pre className="text-[13px] sm:text-[14px] whitespace-pre-wrap break-words font-sans-ui leading-relaxed">
-            {message.content}
-          </pre>
-        </div>
-        {lightboxSrc && (
-          <Lightbox
-            src={lightboxSrc}
-            alt="attachment"
-            onClose={() => setLightboxSrc(null)}
-          />
+        {copied ? (
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5 text-cc-success">
+            <path d="M3 8.5l3.5 3.5 6.5-8" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        ) : (
+          <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5 text-cc-muted">
+            <circle cx="3" cy="8" r="1.5" />
+            <circle cx="8" cy="8" r="1.5" />
+            <circle cx="13" cy="8" r="1.5" />
+          </svg>
         )}
-      </div>
-      {/* Render ContextMenu as a Fragment sibling — NOT inside the touch-handled
-          div — so React portal event bubbling doesn't reach the touch handlers.
-          This mirrors how Sidebar renders its ContextMenu at the <aside> root. */}
-      {ctxMenu && (
-        <ContextMenu
-          x={ctxMenu.x}
-          y={ctxMenu.y}
-          items={[
-            { label: "Copy message", onClick: handleCopy },
-            ...(canRevert ? [{
-              label: "Revert to here",
-              onClick: handleRevert,
-              confirm: {
-                title: "Revert to here?",
-                description: "All messages after this point will be removed.",
-                confirmLabel: "Revert",
-                destructive: true,
-              },
-            }] : []),
-          ]}
-          onClose={() => setCtxMenu(null)}
-        />
+      </button>
+      {open && (
+        <div
+          ref={menuRef}
+          className="absolute left-0 top-full mt-1 z-50 min-w-[160px] bg-cc-card border border-cc-border rounded-lg shadow-lg overflow-hidden"
+        >
+          {confirming ? (
+            <div className="p-3 w-56">
+              <p className="text-xs font-medium text-cc-fg mb-1">Revert to here?</p>
+              <p className="text-[11px] text-cc-muted mb-3 leading-relaxed">All messages after this point will be removed.</p>
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  onClick={() => setConfirming(false)}
+                  className="px-2.5 py-1 text-[11px] rounded-md text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleRevert}
+                  className="px-2.5 py-1 text-[11px] rounded-md bg-red-500/15 text-red-500 hover:bg-red-500/25 transition-colors cursor-pointer font-medium"
+                >
+                  Revert
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <button
+                onClick={handleCopy}
+                className="w-full px-3 py-2 text-left text-[12px] text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
+              >
+                Copy message
+              </button>
+              {canRevert && (
+                <button
+                  onClick={() => setConfirming(true)}
+                  className="w-full px-3 py-2 text-left text-[12px] text-red-400 hover:bg-cc-hover transition-colors cursor-pointer"
+                >
+                  Revert to here
+                </button>
+              )}
+            </>
+          )}
+        </div>
       )}
-    </>
+    </div>
   );
 }
 
