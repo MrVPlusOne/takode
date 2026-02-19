@@ -301,7 +301,7 @@ function AddServerForm({
   );
 }
 
-export function McpSection({ sessionId }: { sessionId: string }) {
+export function McpSection({ sessionId, collapsed, onToggle }: { sessionId: string; collapsed?: boolean; onToggle?: () => void }) {
   const servers = useStore((s) => s.mcpServers.get(sessionId) || EMPTY_SERVERS);
   const cliConnected = useStore((s) => s.cliConnected.get(sessionId) ?? false);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -338,85 +338,101 @@ export function McpSection({ sessionId }: { sessionId: string }) {
     <>
       {/* MCP section header */}
       <div className="shrink-0 px-4 py-2.5 border-b border-cc-border flex items-center justify-between">
-        <span className="text-[12px] font-semibold text-cc-fg flex items-center gap-1.5">
+        <button
+          onClick={onToggle}
+          className="flex items-center gap-1.5 text-[12px] font-semibold text-cc-fg cursor-pointer select-none hover:text-cc-primary transition-colors"
+        >
+          <svg
+            viewBox="0 0 16 16"
+            fill="currentColor"
+            className={`w-3 h-3 text-cc-muted transition-transform duration-150 ${collapsed ? "-rotate-90" : ""}`}
+          >
+            <path d="M4 6l4 4 4-4" />
+          </svg>
           <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5 text-cc-muted">
             <path d="M1.5 3A1.5 1.5 0 013 1.5h10A1.5 1.5 0 0114.5 3v1A1.5 1.5 0 0113 5.5H3A1.5 1.5 0 011.5 4V3zm0 5A1.5 1.5 0 013 6.5h10A1.5 1.5 0 0114.5 8v1A1.5 1.5 0 0113 10.5H3A1.5 1.5 0 011.5 9V8zm0 5A1.5 1.5 0 013 11.5h10a1.5 1.5 0 011.5 1.5v1a1.5 1.5 0 01-1.5 1.5H3A1.5 1.5 0 011.5 14v-1z" />
           </svg>
           MCP Servers
-        </span>
-        <div className="flex items-center gap-1">
-          {/* Add server button */}
-          <button
-            onClick={() => setShowAddForm(!showAddForm)}
-            disabled={!cliConnected}
-            className={`text-[11px] font-medium transition-colors ${
-              cliConnected
-                ? "text-cc-muted hover:text-cc-fg cursor-pointer"
-                : "text-cc-muted/30 cursor-not-allowed"
-            }`}
-            title="Add MCP server"
-          >
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5">
-              <path d="M8 3v10M3 8h10" strokeLinecap="round" />
-            </svg>
-          </button>
-          {/* Refresh button */}
-          <button
-            onClick={() => sendMcpGetStatus(sessionId)}
-            disabled={!cliConnected}
-            className={`text-[11px] font-medium transition-colors ${
-              cliConnected
-                ? "text-cc-muted hover:text-cc-fg cursor-pointer"
-                : "text-cc-muted/30 cursor-not-allowed"
-            }`}
-            title="Refresh MCP server status"
-          >
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5">
-              <path d="M2.5 8a5.5 5.5 0 019.78-3.5M13.5 8a5.5 5.5 0 01-9.78 3.5" strokeLinecap="round" />
-              <path d="M12.5 2v3h-3M3.5 14v-3h3" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
-        </div>
+        </button>
+        {!collapsed && (
+          <div className="flex items-center gap-1">
+            {/* Add server button */}
+            <button
+              onClick={() => setShowAddForm(!showAddForm)}
+              disabled={!cliConnected}
+              className={`text-[11px] font-medium transition-colors ${
+                cliConnected
+                  ? "text-cc-muted hover:text-cc-fg cursor-pointer"
+                  : "text-cc-muted/30 cursor-not-allowed"
+              }`}
+              title="Add MCP server"
+            >
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5">
+                <path d="M8 3v10M3 8h10" strokeLinecap="round" />
+              </svg>
+            </button>
+            {/* Refresh button */}
+            <button
+              onClick={() => sendMcpGetStatus(sessionId)}
+              disabled={!cliConnected}
+              className={`text-[11px] font-medium transition-colors ${
+                cliConnected
+                  ? "text-cc-muted hover:text-cc-fg cursor-pointer"
+                  : "text-cc-muted/30 cursor-not-allowed"
+              }`}
+              title="Refresh MCP server status"
+            >
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5">
+                <path d="M2.5 8a5.5 5.5 0 019.78-3.5M13.5 8a5.5 5.5 0 01-9.78 3.5" strokeLinecap="round" />
+                <path d="M12.5 2v3h-3M3.5 14v-3h3" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* Add server form */}
-      {showAddForm && (
-        <div className="px-3 py-2 border-b border-cc-border">
-          <AddServerForm
-            sessionId={sessionId}
-            onDone={() => setShowAddForm(false)}
-          />
-        </div>
-      )}
+      {!collapsed && (
+        <>
+          {/* Add server form */}
+          {showAddForm && (
+            <div className="px-3 py-2 border-b border-cc-border">
+              <AddServerForm
+                sessionId={sessionId}
+                onDone={() => setShowAddForm(false)}
+              />
+            </div>
+          )}
 
-      {/* Server list */}
-      {displayServers.length > 0 && (
-        <div className="px-3 py-2 space-y-1.5 border-b border-cc-border">
-          {displayServers.map((server) => (
-            <McpServerRow
-              key={server.name}
-              server={server}
-              sessionId={sessionId}
-            />
-          ))}
-        </div>
-      )}
+          {/* Server list */}
+          {displayServers.length > 0 && (
+            <div className="px-3 py-2 space-y-1.5 border-b border-cc-border">
+              {displayServers.map((server) => (
+                <McpServerRow
+                  key={server.name}
+                  server={server}
+                  sessionId={sessionId}
+                />
+              ))}
+            </div>
+          )}
 
-      {/* Empty state */}
-      {!showAddForm && displayServers.length === 0 && (
-        <div className="px-3 py-3 border-b border-cc-border">
-          <p className="text-[11px] text-cc-muted text-center">
-            No MCP servers configured.{" "}
-            {cliConnected && (
-              <button
-                onClick={() => setShowAddForm(true)}
-                className="text-cc-accent hover:underline cursor-pointer"
-              >
-                Add one
-              </button>
-            )}
-          </p>
-        </div>
+          {/* Empty state */}
+          {!showAddForm && displayServers.length === 0 && (
+            <div className="px-3 py-3 border-b border-cc-border">
+              <p className="text-[11px] text-cc-muted text-center">
+                No MCP servers configured.{" "}
+                {cliConnected && (
+                  <button
+                    onClick={() => setShowAddForm(true)}
+                    className="text-cc-accent hover:underline cursor-pointer"
+                  >
+                    Add one
+                  </button>
+                )}
+              </p>
+            </div>
+          )}
+        </>
       )}
     </>
   );

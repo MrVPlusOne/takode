@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useSyncExternalStore } from "react";
 import { useStore } from "../store.js";
 import { api, type UsageLimits, type GitHubPRInfo } from "../api.js";
 import type { TaskItem } from "../types.js";
@@ -6,6 +6,48 @@ import { McpSection } from "./McpPanel.js";
 
 const EMPTY_TASKS: TaskItem[] = [];
 const POLL_INTERVAL = 60_000;
+
+// ─── Persistent collapsed state for panel sections ──────────────────────────
+
+const collapseListeners = new Set<() => void>();
+
+function usePersistedCollapse(key: string): [boolean, () => void] {
+  const value = useSyncExternalStore(
+    (cb) => { collapseListeners.add(cb); return () => collapseListeners.delete(cb); },
+    () => localStorage.getItem(key) === "1",
+  );
+  const toggle = useCallback(() => {
+    localStorage.setItem(key, value ? "0" : "1");
+    collapseListeners.forEach((l) => l());
+  }, [key, value]);
+  return [value, toggle];
+}
+
+function SectionHeader({ title, collapsed, onToggle, right }: {
+  title: string;
+  collapsed: boolean;
+  onToggle: () => void;
+  right?: React.ReactNode;
+}) {
+  return (
+    <div className="shrink-0 px-4 py-2.5 border-b border-cc-border flex items-center justify-between">
+      <button
+        onClick={onToggle}
+        className="flex items-center gap-1.5 text-[12px] font-semibold text-cc-fg cursor-pointer select-none hover:text-cc-primary transition-colors"
+      >
+        <svg
+          viewBox="0 0 16 16"
+          fill="currentColor"
+          className={`w-3 h-3 text-cc-muted transition-transform duration-150 ${collapsed ? "-rotate-90" : ""}`}
+        >
+          <path d="M4 6l4 4 4-4" />
+        </svg>
+        {title}
+      </button>
+      {!collapsed && right && <div className="flex items-center gap-1">{right}</div>}
+    </div>
+  );
+}
 
 // Module-level cache — survives session switches so limits don't flash empty
 const limitsCache = new Map<string, UsageLimits>();
@@ -446,6 +488,32 @@ function GitHubPRSection({ sessionId }: { sessionId: string }) {
   return <GitHubPRDisplay pr={prStatus.pr} />;
 }
 
+// ─── Collapsible wrappers ────────────────────────────────────────────────────
+
+function UsageCollapsible({ sessionId, isCodex }: { sessionId: string; isCodex: boolean }) {
+  const [collapsed, toggle] = usePersistedCollapse("cc-collapse-usage");
+  return (
+    <>
+      <SectionHeader title="Usage" collapsed={collapsed} onToggle={toggle} />
+      {!collapsed && (
+        isCodex ? (
+          <>
+            <CodexRateLimitsSection sessionId={sessionId} />
+            <CodexTokenDetailsSection sessionId={sessionId} />
+          </>
+        ) : (
+          <UsageLimitsSection sessionId={sessionId} />
+        )
+      )}
+    </>
+  );
+}
+
+function McpCollapsible({ sessionId }: { sessionId: string }) {
+  const [collapsed, toggle] = usePersistedCollapse("cc-collapse-mcp");
+  return <McpSection sessionId={sessionId} collapsed={collapsed} onToggle={toggle} />;
+}
+
 // ─── Task Panel ──────────────────────────────────────────────────────────────
 
 export { CodexRateLimitsSection, CodexTokenDetailsSection };
@@ -488,20 +556,13 @@ export function TaskPanel({ sessionId }: { sessionId: string }) {
 
       <div data-testid="task-panel-content" className="min-h-0 flex-1 overflow-y-auto">
         {/* Usage limits — Claude Code uses REST-polled limits, Codex uses streamed rate limits */}
-        {isCodex ? (
-          <>
-            <CodexRateLimitsSection sessionId={sessionId} />
-            <CodexTokenDetailsSection sessionId={sessionId} />
-          </>
-        ) : (
-          <UsageLimitsSection sessionId={sessionId} />
-        )}
+        <UsageCollapsible sessionId={sessionId} isCodex={isCodex} />
 
         {/* GitHub PR status */}
         <GitHubPRSection sessionId={sessionId} />
 
         {/* MCP servers */}
-        <McpSection sessionId={sessionId} />
+        <McpCollapsible sessionId={sessionId} />
 
         {showTasks && (
           <>

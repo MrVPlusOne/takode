@@ -19,6 +19,8 @@ const GLOBAL_KEYS = new Set([
   "cc-notification-sound",
   "cc-notification-desktop",
   "cc-telemetry-enabled",
+  "cc-collapse-usage",
+  "cc-collapse-mcp",
 ]);
 
 /** Server-scoped key names (without dynamic suffixes) for migration */
