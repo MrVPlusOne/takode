@@ -22,6 +22,266 @@ function suggestionLabel(s: PermissionUpdate): string {
   return `Allow ${scope}`;
 }
 
+/** Extract plan preview text from ExitPlanMode permission */
+function getPlanPreview(permission: PermissionRequest): string {
+  const planText = typeof permission.input?.plan === "string" ? permission.input.plan : "";
+  return planText
+    ? planText.split("\n").find((l: string) => l.trim())?.replace(/^#+\s*/, "").trim() || "Plan approval"
+    : "Plan approval requested";
+}
+
+// ── Plan icon SVG (reused in overlay + collapsed chip) ─────────────────────
+function PlanIcon({ className = "w-3.5 h-3.5" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className={`${className} text-cc-primary`}>
+      <rect x="3" y="2" width="10" height="12" rx="1" />
+      <path d="M6 5h4M6 8h4M6 11h2" />
+    </svg>
+  );
+}
+
+// ── PlanReviewOverlay — full-window plan display ───────────────────────────
+// Renders as a flex-1 child that fills the chat area when a plan is expanded.
+// Buttons are pinned at the bottom (shrink-0) and never scroll off-screen.
+
+export function PlanReviewOverlay({
+  permission,
+  sessionId,
+  onCollapse,
+}: {
+  permission: PermissionRequest;
+  sessionId: string;
+  onCollapse: () => void;
+}) {
+  const [loading, setLoading] = useState(false);
+  const removePermission = useStore((s) => s.removePermission);
+
+  const planText = typeof permission.input?.plan === "string" ? permission.input.plan : "";
+  const allowedPrompts = Array.isArray(permission.input?.allowedPrompts)
+    ? (permission.input.allowedPrompts as Record<string, unknown>[])
+    : [];
+  const suggestions = permission.permission_suggestions;
+
+  function handleAllow(updatedInput?: Record<string, unknown>, updatedPermissions?: PermissionUpdate[]) {
+    setLoading(true);
+    sendToSession(sessionId, {
+      type: "permission_response",
+      request_id: permission.request_id,
+      behavior: "allow",
+      updated_input: updatedInput,
+      ...(updatedPermissions?.length ? { updated_permissions: updatedPermissions } : {}),
+    });
+    removePermission(sessionId, permission.request_id);
+  }
+
+  function handleDeny() {
+    setLoading(true);
+    sendToSession(sessionId, {
+      type: "permission_response",
+      request_id: permission.request_id,
+      behavior: "deny",
+      message: "Denied by user",
+    });
+    // Also interrupt so CLI stops and waits for new input (vanilla behavior)
+    sendToSession(sessionId, { type: "interrupt" });
+    removePermission(sessionId, permission.request_id);
+  }
+
+  return (
+    <div className="flex-1 flex flex-col min-h-0 border-t border-cc-border bg-cc-card animate-[fadeSlideIn_0.2s_ease-out]">
+      {/* Header */}
+      <div className="shrink-0 px-4 py-2.5 border-b border-cc-border/50 flex items-center gap-2.5">
+        <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-cc-primary/10 border border-cc-primary/20">
+          <PlanIcon className="w-4 h-4" />
+        </div>
+        <span className="text-xs font-semibold text-cc-primary">Plan</span>
+        <button
+          onClick={onCollapse}
+          className="ml-auto p-1.5 rounded-md hover:bg-cc-hover transition-colors cursor-pointer text-cc-muted hover:text-cc-fg"
+          title="Minimize plan"
+        >
+          <svg className="w-3.5 h-3.5" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M9 7l-3-3-3 3" />
+          </svg>
+        </button>
+      </div>
+
+      {/* Scrollable plan body */}
+      <div className="flex-1 overflow-y-auto px-4 py-4">
+        <div className="max-w-3xl mx-auto">
+          {planText ? (
+            <MarkdownContent text={planText} size="sm" />
+          ) : (
+            <div className="text-xs text-cc-muted">Plan approval requested</div>
+          )}
+          {allowedPrompts.length > 0 && (
+            <div className="mt-4 space-y-1">
+              <div className="text-[10px] text-cc-muted uppercase tracking-wider">Requested permissions</div>
+              <div className="space-y-1">
+                {allowedPrompts.map((p, i) => (
+                  <div key={i} className="flex items-center gap-2 text-[11px] font-mono-code bg-cc-code-bg/30 rounded-lg px-2.5 py-1.5">
+                    <span className="text-cc-muted shrink-0">{String(p.tool || "")}</span>
+                    <span className="text-cc-fg">{String(p.prompt || "")}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Sticky action bar — always visible at bottom */}
+      <div className="shrink-0 border-t border-cc-border px-4 py-3 bg-cc-card">
+        <div className="max-w-3xl mx-auto flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => handleAllow()}
+            disabled={loading}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium rounded-lg bg-cc-success/90 hover:bg-cc-success text-white disabled:opacity-50 transition-colors cursor-pointer"
+          >
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-3 h-3">
+              <path d="M3 8.5l3.5 3.5 6.5-7" />
+            </svg>
+            Allow
+          </button>
+
+          {suggestions?.map((suggestion, i) => (
+            <button
+              key={i}
+              onClick={() => handleAllow(undefined, [suggestion])}
+              disabled={loading}
+              title={`${suggestion.type}: ${JSON.stringify(suggestion)}`}
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg bg-cc-primary/10 hover:bg-cc-primary/20 text-cc-primary border border-cc-primary/20 disabled:opacity-50 transition-colors cursor-pointer"
+            >
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" className="w-3 h-3">
+                <path d="M3 8.5l3.5 3.5 6.5-7" />
+              </svg>
+              {suggestionLabel(suggestion)}
+            </button>
+          ))}
+
+          <button
+            onClick={handleDeny}
+            disabled={loading}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium rounded-lg bg-cc-hover hover:bg-cc-active text-cc-fg border border-cc-border disabled:opacity-50 transition-colors cursor-pointer"
+          >
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-3 h-3">
+              <path d="M4 4l8 8M12 4l-8 8" />
+            </svg>
+            Deny
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── PlanCollapsedChip — compact plan bar with inline Accept/Deny ───────────
+
+export function PlanCollapsedChip({
+  permission,
+  sessionId,
+  onExpand,
+}: {
+  permission: PermissionRequest;
+  sessionId: string;
+  onExpand: () => void;
+}) {
+  const [loading, setLoading] = useState(false);
+  const removePermission = useStore((s) => s.removePermission);
+  const planPreview = getPlanPreview(permission);
+  const suggestions = permission.permission_suggestions;
+
+  function handleAllow(updatedPermissions?: PermissionUpdate[]) {
+    setLoading(true);
+    sendToSession(sessionId, {
+      type: "permission_response",
+      request_id: permission.request_id,
+      behavior: "allow",
+      ...(updatedPermissions?.length ? { updated_permissions: updatedPermissions } : {}),
+    });
+    removePermission(sessionId, permission.request_id);
+  }
+
+  function handleDeny() {
+    setLoading(true);
+    sendToSession(sessionId, {
+      type: "permission_response",
+      request_id: permission.request_id,
+      behavior: "deny",
+      message: "Denied by user",
+    });
+    sendToSession(sessionId, { type: "interrupt" });
+    removePermission(sessionId, permission.request_id);
+  }
+
+  return (
+    <div className="animate-[fadeSlideIn_0.2s_ease-out]">
+      <div className="max-w-3xl mx-auto flex items-center gap-2">
+        {/* Clickable plan preview — expands the overlay */}
+        <button
+          onClick={onExpand}
+          title="Expand plan"
+          className="flex-1 min-w-0 flex items-center gap-2.5 px-3 py-2 rounded-lg border border-cc-primary/20 bg-cc-primary/5 hover:bg-cc-primary/10 transition-colors cursor-pointer text-left"
+        >
+          <div className="w-6 h-6 rounded-md flex items-center justify-center shrink-0 bg-cc-primary/10 border border-cc-primary/20">
+            <PlanIcon />
+          </div>
+          <span className="inline-block text-[10px] font-medium px-1.5 py-0.5 rounded bg-cc-primary/10 text-cc-primary shrink-0">
+            Plan
+          </span>
+          <span className="text-xs text-cc-fg truncate flex-1">{planPreview}</span>
+          <svg className="w-3 h-3 text-cc-muted shrink-0" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 5l3 3 3-3" />
+          </svg>
+        </button>
+
+        {/* Inline action buttons */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {suggestions?.map((suggestion, i) => (
+            <button
+              key={i}
+              onClick={() => handleAllow([suggestion])}
+              disabled={loading}
+              title={suggestionLabel(suggestion)}
+              className="inline-flex items-center gap-1 px-2 py-1.5 text-[11px] font-medium rounded-md bg-cc-primary/10 hover:bg-cc-primary/20 text-cc-primary border border-cc-primary/20 disabled:opacity-50 transition-colors cursor-pointer"
+            >
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" className="w-2.5 h-2.5">
+                <path d="M3 8.5l3.5 3.5 6.5-7" />
+              </svg>
+              {suggestionLabel(suggestion)}
+            </button>
+          ))}
+          <button
+            onClick={() => handleAllow()}
+            disabled={loading}
+            className="inline-flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-medium rounded-md bg-cc-success/90 hover:bg-cc-success text-white disabled:opacity-50 transition-colors cursor-pointer"
+            title="Accept plan"
+          >
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-2.5 h-2.5">
+              <path d="M3 8.5l3.5 3.5 6.5-7" />
+            </svg>
+            Allow
+          </button>
+          <button
+            onClick={handleDeny}
+            disabled={loading}
+            className="inline-flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-medium rounded-md bg-cc-hover hover:bg-cc-active text-cc-fg border border-cc-border disabled:opacity-50 transition-colors cursor-pointer"
+            title="Reject plan"
+          >
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-2.5 h-2.5">
+              <path d="M4 4l8 8M12 4l-8 8" />
+            </svg>
+            Deny
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── PermissionBanner — handles all non-ExitPlanMode permissions ─────────────
+// ExitPlanMode is handled by PlanReviewOverlay/PlanCollapsedChip via ChatView.
+
 export function PermissionBanner({
   permission,
   sessionId,
@@ -57,7 +317,6 @@ export function PermissionBanner({
   }
 
   const isAskUser = permission.tool_name === "AskUserQuestion";
-  const isExitPlanMode = permission.tool_name === "ExitPlanMode";
   const suggestions = permission.permission_suggestions;
 
   // Extract first question info for collapsed preview
@@ -69,14 +328,6 @@ export function PermissionBanner({
   const previewText = firstQuestion && typeof firstQuestion.question === "string"
     ? firstQuestion.question
     : "Question from assistant";
-
-  // Extract plan preview for collapsed ExitPlanMode chip
-  const planText = isExitPlanMode && typeof permission.input?.plan === "string"
-    ? permission.input.plan
-    : "";
-  const planPreview = planText
-    ? planText.split("\n").find((l: string) => l.trim())?.replace(/^#+\s*/, "").trim() || "Plan approval"
-    : "Plan approval requested";
 
   // Collapsed AskUser chip — compact single-line view
   if (isAskUser && collapsed) {
@@ -122,60 +373,19 @@ export function PermissionBanner({
     );
   }
 
-  // Collapsed ExitPlanMode chip — compact single-line view
-  if (isExitPlanMode && collapsed) {
-    return (
-      <div className="px-2 sm:px-4 py-2 border-b border-cc-border animate-[fadeSlideIn_0.2s_ease-out]">
-        <div className="max-w-3xl mx-auto">
-          <button
-            onClick={() => setCollapsed(false)}
-            title="Expand plan"
-            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg border border-cc-primary/20 bg-cc-primary/5 hover:bg-cc-primary/10 transition-colors cursor-pointer text-left"
-          >
-            {/* Plan icon */}
-            <div className="w-6 h-6 rounded-md flex items-center justify-center shrink-0 bg-cc-primary/10 border border-cc-primary/20">
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5 text-cc-primary">
-                <rect x="3" y="2" width="10" height="12" rx="1" />
-                <path d="M6 5h4M6 8h4M6 11h2" />
-              </svg>
-            </div>
-
-            {/* "Plan" badge */}
-            <span className="inline-block text-[10px] font-medium px-1.5 py-0.5 rounded bg-cc-primary/10 text-cc-primary shrink-0">
-              Plan
-            </span>
-
-            {/* Plan preview text */}
-            <span className="text-xs text-cc-fg truncate flex-1">{planPreview}</span>
-
-            {/* Expand chevron */}
-            <svg className="w-3 h-3 text-cc-muted shrink-0" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 5l3 3 3-3" />
-            </svg>
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="px-2 sm:px-4 py-3 border-b border-cc-border animate-[fadeSlideIn_0.2s_ease-out]">
       <div className="max-w-3xl mx-auto">
         <div className="flex items-start gap-2 sm:gap-3">
           {/* Icon */}
           <div className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${
-            isAskUser || isExitPlanMode
+            isAskUser
               ? "bg-cc-primary/10 border border-cc-primary/20"
               : "bg-cc-warning/10 border border-cc-warning/20"
           }`}>
             {isAskUser ? (
               <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-cc-primary">
                 <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-5a.75.75 0 01.75.75v4.5a.75.75 0 01-1.5 0v-4.5A.75.75 0 0110 5zm0 10a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
-              </svg>
-            ) : isExitPlanMode ? (
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4 text-cc-primary">
-                <rect x="3" y="2" width="10" height="12" rx="1" />
-                <path d="M6 5h4M6 8h4M6 11h2" />
               </svg>
             ) : (
               <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-cc-warning">
@@ -187,17 +397,17 @@ export function PermissionBanner({
           {/* Content */}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1.5">
-              <span className={`text-xs font-semibold ${isAskUser || isExitPlanMode ? "text-cc-primary" : "text-cc-warning"}`}>
-                {isAskUser ? "Question" : isExitPlanMode ? "Plan" : "Permission Request"}
+              <span className={`text-xs font-semibold ${isAskUser ? "text-cc-primary" : "text-cc-warning"}`}>
+                {isAskUser ? "Question" : "Permission Request"}
               </span>
-              {!isAskUser && !isExitPlanMode && (
+              {!isAskUser && (
                 <span className="text-[11px] text-cc-muted font-mono-code">{permission.tool_name}</span>
               )}
-              {(isAskUser || isExitPlanMode) && (
+              {isAskUser && (
                 <button
                   onClick={() => setCollapsed(true)}
                   className="ml-auto p-1 rounded hover:bg-cc-hover transition-colors cursor-pointer text-cc-muted hover:text-cc-fg"
-                  title={isAskUser ? "Minimize question" : "Minimize plan"}
+                  title="Minimize question"
                 >
                   <svg className="w-3.5 h-3.5" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M9 7l-3-3-3 3" />

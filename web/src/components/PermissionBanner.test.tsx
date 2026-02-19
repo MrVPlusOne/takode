@@ -556,10 +556,12 @@ describe("Collapse and expand behavior", () => {
   });
 });
 
-// ─── ExitPlanModeDisplay ─────────────────────────────────────────────────────
+// ─── PlanReviewOverlay ──────────────────────────────────────────────────────
+// ExitPlanMode is now handled by PlanReviewOverlay (not PermissionBanner).
 
-describe("ExitPlanModeDisplay", () => {
-  it("renders plan markdown and allowed prompts", () => {
+describe("PlanReviewOverlay", () => {
+  it("renders plan markdown and allowed prompts", async () => {
+    const { PlanReviewOverlay } = await import("./PermissionBanner.js");
     const perm = makePermission({
       tool_name: "ExitPlanMode",
       input: {
@@ -570,7 +572,7 @@ describe("ExitPlanModeDisplay", () => {
         ],
       },
     });
-    render(<PermissionBanner permission={perm} sessionId="s1" />);
+    render(<PlanReviewOverlay permission={perm} sessionId="s1" onCollapse={() => {}} />);
 
     // Plan header label
     expect(screen.getAllByText("Plan").length).toBeGreaterThanOrEqual(1);
@@ -586,13 +588,32 @@ describe("ExitPlanModeDisplay", () => {
     expect(screen.getByText("Fix typo")).toBeTruthy();
   });
 
-  it("renders fallback when no plan or prompts", () => {
+  it("renders fallback when no plan or prompts", async () => {
+    const { PlanReviewOverlay } = await import("./PermissionBanner.js");
     const perm = makePermission({
       tool_name: "ExitPlanMode",
       input: {},
     });
-    render(<PermissionBanner permission={perm} sessionId="s1" />);
+    render(<PlanReviewOverlay permission={perm} sessionId="s1" onCollapse={() => {}} />);
 
     expect(screen.getByText("Plan approval requested")).toBeTruthy();
+  });
+
+  it("sends deny + interrupt when Deny is clicked", async () => {
+    const { PlanReviewOverlay } = await import("./PermissionBanner.js");
+    const perm = makePermission({
+      tool_name: "ExitPlanMode",
+      input: { plan: "Some plan" },
+    });
+    render(<PlanReviewOverlay permission={perm} sessionId="s1" onCollapse={() => {}} />);
+
+    fireEvent.click(screen.getByText("Deny"));
+
+    // Should send deny permission_response AND interrupt
+    expect(mockSendToSession).toHaveBeenCalledWith("s1", expect.objectContaining({
+      type: "permission_response",
+      behavior: "deny",
+    }));
+    expect(mockSendToSession).toHaveBeenCalledWith("s1", { type: "interrupt" });
   });
 });

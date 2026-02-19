@@ -182,6 +182,20 @@ export function Composer({ sessionId }: { sessionId: string }) {
     const msg = text.trim();
     if (!msg || !isConnected) return;
 
+    // Auto-reject pending plan if user sends a message while plan is pending.
+    // This matches Claude Code vanilla behavior: typing a new message rejects
+    // the plan and sends the new instructions as a fresh turn.
+    if (pendingPlanPerm) {
+      sendToSession(sessionId, {
+        type: "permission_response",
+        request_id: pendingPlanPerm.request_id,
+        behavior: "deny",
+        message: "Plan rejected — user sent a new message",
+      });
+      sendToSession(sessionId, { type: "interrupt" });
+      useStore.getState().removePermission(sessionId, pendingPlanPerm.request_id);
+    }
+
     const sent = sendToSession(sessionId, {
       type: "user_message",
       content: msg,
@@ -319,6 +333,16 @@ export function Composer({ sessionId }: { sessionId: string }) {
     }
   }
 
+  // Detect pending ExitPlanMode permission for auto-reject and ghost text
+  const pendingPlanPerm = useStore((s) => {
+    const permsMap = s.pendingPermissions.get(sessionId);
+    if (!permsMap) return null;
+    for (const perm of permsMap.values()) {
+      if (perm.tool_name === "ExitPlanMode") return perm;
+    }
+    return null;
+  });
+
   const sessionStatus = useStore((s) => s.sessionStatus);
   const isRunning = sessionStatus.get(sessionId) === "running";
   const canSend = text.trim().length > 0 && isConnected;
@@ -419,9 +443,13 @@ export function Composer({ sessionId }: { sessionId: string }) {
             onChange={handleInput}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
-            placeholder={isConnected
-              ? "Type a message... (/ for commands)"
-              : "Waiting for CLI connection..."}
+            placeholder={
+              !isConnected
+                ? "Waiting for CLI connection..."
+                : pendingPlanPerm
+                ? "Type to reject plan and send new instructions..."
+                : "Type a message... (/ for commands)"
+            }
             disabled={!isConnected}
             rows={1}
             className="w-full px-4 pt-3 pb-1 text-base sm:text-sm bg-transparent resize-none focus:outline-none text-cc-fg font-sans-ui placeholder:text-cc-muted disabled:opacity-50 overflow-y-auto"

@@ -947,6 +947,13 @@ export class WsBridge {
 
       if (msg.permissionMode) {
         session.state.permissionMode = msg.permissionMode;
+        // Broadcast CLI-authoritative mode change to all browsers so they stay in sync
+        const uiMode = msg.permissionMode === "plan" ? "plan" : "agent";
+        session.state.uiMode = uiMode;
+        this.broadcastToBrowsers(session, {
+          type: "session_update",
+          session: { permissionMode: msg.permissionMode, uiMode },
+        });
       }
 
       this.broadcastToBrowsers(session, {
@@ -1615,11 +1622,22 @@ export class WsBridge {
       // based on the session's askPermission setting:
       //   askPermission=true  → acceptEdits (user wants to review tool use)
       //   askPermission=false → bypassPermissions (user wants no prompts)
+      // We only update server state and broadcast to browsers — we do NOT send
+      // set_permission_mode to the CLI. The CLI handles its own mode transition
+      // after plan approval internally. Sending set_permission_mode back-to-back
+      // with the control_response can cause the CLI to silently drop the plan.
+      // If the CLI reports a different mode via system.status, we'll sync to it.
       if (pending?.tool_name === "ExitPlanMode") {
         const askPerm = session.state.askPermission !== false; // default true
         const postPlanMode = askPerm ? "acceptEdits" : "bypassPermissions";
-        this.handleSetPermissionMode(session, postPlanMode);
-        console.log(`[ws-bridge] ExitPlanMode approved for session ${session.id}, switching to ${postPlanMode} (askPermission=${askPerm})`);
+        const uiMode = "agent";
+        session.state.permissionMode = postPlanMode;
+        session.state.uiMode = uiMode;
+        this.broadcastToBrowsers(session, {
+          type: "session_update",
+          session: { permissionMode: postPlanMode, uiMode },
+        });
+        console.log(`[ws-bridge] ExitPlanMode approved for session ${session.id}, UI switched to ${postPlanMode} (askPermission=${askPerm})`);
       }
     } else {
       const ndjson = JSON.stringify({
@@ -1634,6 +1652,13 @@ export class WsBridge {
         },
       });
       this.sendToCLI(session, ndjson);
+
+      // When ExitPlanMode is denied, also interrupt the CLI so it stops
+      // and waits for new user input (matches Claude Code vanilla behavior)
+      if (pending?.tool_name === "ExitPlanMode") {
+        this.handleInterrupt(session);
+        console.log(`[ws-bridge] ExitPlanMode denied for session ${session.id}, sending interrupt`);
+      }
 
       // Broadcast denial record to all browsers and persist in history
       const deniedMsg: BrowserIncomingMessage = {

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { PermissionBanner } from "./PermissionBanner.js";
+import { PermissionBanner, PlanReviewOverlay, PlanCollapsedChip } from "./PermissionBanner.js";
 import { MessageBubble } from "./MessageBubble.js";
 import { Lightbox } from "./Lightbox.js";
 import { ToolBlock, getToolIcon, getToolLabel, getPreview, ToolIcon } from "./ToolBlock.js";
@@ -721,10 +721,17 @@ export function Playground() {
           </div>
         </Section>
 
-        {/* ─── ExitPlanMode (the fix) ──────────────────────────── */}
-        <Section title="ExitPlanMode" description="Plan approval request — previously rendered as raw JSON, now shows formatted markdown">
-          <div className="border border-cc-border rounded-xl overflow-hidden bg-cc-card">
-            <PermissionBanner permission={PERM_EXIT_PLAN} sessionId={MOCK_SESSION_ID} />
+        {/* ─── ExitPlanMode — Full-window overlay ──────────────── */}
+        <Section title="PlanReviewOverlay" description="Full-window plan display with sticky Accept/Deny buttons at the bottom. When expanded, this replaces the message feed.">
+          <div className="border border-cc-border rounded-xl overflow-hidden bg-cc-card h-[480px] flex flex-col">
+            <PlanReviewOverlay permission={PERM_EXIT_PLAN} sessionId={MOCK_SESSION_ID} onCollapse={() => {}} />
+          </div>
+        </Section>
+
+        {/* ─── ExitPlanMode — Collapsed chip ──────────────────── */}
+        <Section title="PlanCollapsedChip" description="Collapsed plan bar with inline Accept/Deny buttons. Shown when the plan overlay is minimized.">
+          <div className="border border-cc-border rounded-xl overflow-hidden bg-cc-card px-2 sm:px-4 py-2">
+            <PlanCollapsedChip permission={PERM_EXIT_PLAN} sessionId={MOCK_SESSION_ID} onExpand={() => {}} />
           </div>
         </Section>
 

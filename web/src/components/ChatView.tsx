@@ -1,9 +1,9 @@
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
 import { MessageFeed } from "./MessageFeed.js";
 import { Composer } from "./Composer.js";
-import { PermissionBanner } from "./PermissionBanner.js";
+import { PermissionBanner, PlanReviewOverlay, PlanCollapsedChip } from "./PermissionBanner.js";
 
 export function ChatView({ sessionId }: { sessionId: string }) {
   const sessionPerms = useStore((s) => s.pendingPermissions.get(sessionId));
@@ -17,6 +17,19 @@ export function ChatView({ sessionId }: { sessionId: string }) {
     () => (sessionPerms ? Array.from(sessionPerms.values()) : []),
     [sessionPerms]
   );
+
+  // Separate plan permission from other permissions
+  const planPerm = perms.find((p) => p.tool_name === "ExitPlanMode") || null;
+  const otherPerms = perms.filter((p) => p.tool_name !== "ExitPlanMode");
+
+  // Plan collapse state — auto-expand when a new plan arrives
+  const [planCollapsed, setPlanCollapsed] = useState(false);
+  const planPermId = planPerm?.request_id;
+  useEffect(() => {
+    if (planPermId) setPlanCollapsed(false);
+  }, [planPermId]);
+
+  const showPlanOverlay = planPerm && !planCollapsed;
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -57,13 +70,32 @@ export function ChatView({ sessionId }: { sessionId: string }) {
         </div>
       )}
 
-      {/* Message feed */}
-      <MessageFeed sessionId={sessionId} />
+      {/* Plan overlay fills the chat area, OR show the normal message feed */}
+      {showPlanOverlay ? (
+        <PlanReviewOverlay
+          permission={planPerm}
+          sessionId={sessionId}
+          onCollapse={() => setPlanCollapsed(true)}
+        />
+      ) : (
+        <MessageFeed sessionId={sessionId} />
+      )}
 
-      {/* Permission banners */}
-      {perms.length > 0 && (
+      {/* Collapsed plan chip (when plan exists but is collapsed) */}
+      {planPerm && planCollapsed && (
+        <div className="shrink-0 border-t border-cc-border bg-cc-card px-2 sm:px-4 py-2">
+          <PlanCollapsedChip
+            permission={planPerm}
+            sessionId={sessionId}
+            onExpand={() => setPlanCollapsed(false)}
+          />
+        </div>
+      )}
+
+      {/* Non-plan permission banners */}
+      {otherPerms.length > 0 && (
         <div className="shrink-0 max-h-[60dvh] overflow-y-auto border-t border-cc-border bg-cc-card">
-          {perms.map((p) => (
+          {otherPerms.map((p) => (
             <PermissionBanner key={p.request_id} permission={p} sessionId={sessionId} />
           ))}
         </div>
