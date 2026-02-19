@@ -6,6 +6,8 @@ interface MockStoreState {
   darkMode: boolean;
   notificationSound: boolean;
   notificationDesktop: boolean;
+  currentSessionId: string | null;
+  sdkSessions: Array<{ sessionId: string; createdAt: number; archived?: boolean; cronJobId?: string }>;
   toggleDarkMode: ReturnType<typeof vi.fn>;
   toggleNotificationSound: ReturnType<typeof vi.fn>;
   setNotificationDesktop: ReturnType<typeof vi.fn>;
@@ -18,6 +20,8 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
     darkMode: false,
     notificationSound: true,
     notificationDesktop: false,
+    currentSessionId: null,
+    sdkSessions: [],
     toggleDarkMode: vi.fn(),
     toggleNotificationSound: vi.fn(),
     setNotificationDesktop: vi.fn(),

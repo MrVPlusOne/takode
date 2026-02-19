@@ -489,14 +489,12 @@ describe("UI state", () => {
     expect(localStorage.getItem("cc-dark-mode")).toBe(String(initial));
   });
 
-  it("newSession: clears currentSessionId and increments homeResetKey", () => {
+  it("newSession: clears currentSessionId", () => {
     useStore.getState().setCurrentSession("s1");
-    const keyBefore = useStore.getState().homeResetKey;
 
     useStore.getState().newSession();
 
     expect(useStore.getState().currentSessionId).toBeNull();
-    expect(useStore.getState().homeResetKey).toBe(keyBefore + 1);
     expect(localStorage.getItem("test-server:cc-current-session")).toBeNull();
   });
 });

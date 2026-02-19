@@ -3,11 +3,11 @@ import { useStore } from "./store.js";
 import { connectSession } from "./ws.js";
 import { checkHealth } from "./api.js";
 
-import { parseHash, navigateToSession } from "./utils/routing.js";
+import { parseHash, navigateToSession, navigateToMostRecentSession } from "./utils/routing.js";
 import { Sidebar } from "./components/Sidebar.js";
 import { ChatView } from "./components/ChatView.js";
 import { TopBar } from "./components/TopBar.js";
-import { HomePage } from "./components/HomePage.js";
+import { EmptyState } from "./components/EmptyState.js";
 import { TaskPanel } from "./components/TaskPanel.js";
 import { DiffPanel } from "./components/DiffPanel.js";
 import { Playground } from "./components/Playground.js";
@@ -31,7 +31,6 @@ export default function App() {
   const currentSessionId = useStore((s) => s.currentSessionId);
   const sidebarOpen = useStore((s) => s.sidebarOpen);
   const taskPanelOpen = useStore((s) => s.taskPanelOpen);
-  const homeResetKey = useStore((s) => s.homeResetKey);
   const activeTab = useStore((s) => s.activeTab);
   const sessionCreating = useStore((s) => s.sessionCreating);
   const sessionCreatingBackend = useStore((s) => s.sessionCreatingBackend);
@@ -116,6 +115,8 @@ export default function App() {
       if (store.currentSessionId !== null) {
         store.setCurrentSession(null);
       }
+      // Auto-navigate to the most recent session if available
+      navigateToMostRecentSession({ replace: true });
     }
     // For other pages (settings, terminal, etc.), preserve currentSessionId
   }, [route]);
@@ -181,7 +182,7 @@ export default function App() {
                 {currentSessionId ? (
                   <ChatView key={currentSessionId} sessionId={currentSessionId} />
                 ) : (
-                  <HomePage key={homeResetKey} />
+                  <EmptyState />
                 )}
               </div>
 

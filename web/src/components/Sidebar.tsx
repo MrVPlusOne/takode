@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
 import { connectSession, connectAllSessions, disconnectSession } from "../ws.js";
-import { navigateToSession, navigateHome, parseHash } from "../utils/routing.js";
+import { navigateToSession, navigateToMostRecentSession, parseHash } from "../utils/routing.js";
 import { bootstrapServerId, scopedGetItem } from "../utils/scoped-storage.js";
 import { ProjectGroup } from "./ProjectGroup.js";
 import { SessionItem } from "./SessionItem.js";
@@ -238,7 +238,7 @@ export function Sidebar() {
       // best-effort
     }
     if (useStore.getState().currentSessionId === sessionId) {
-      navigateHome();
+      navigateToMostRecentSession({ excludeId: sessionId });
     }
     removeSession(sessionId);
   }, [removeSession]);
@@ -266,8 +266,7 @@ export function Sidebar() {
       // best-effort
     }
     if (useStore.getState().currentSessionId === sessionId) {
-      navigateHome();
-      useStore.getState().newSession();
+      navigateToMostRecentSession({ excludeId: sessionId });
     }
     try {
       const list = await api.listSessions();

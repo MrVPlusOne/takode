@@ -106,7 +106,6 @@ interface AppState {
   sidebarOpen: boolean;
   reorderMode: boolean;
   taskPanelOpen: boolean;
-  homeResetKey: number;
   showNewSessionModal: boolean;
   activeTab: "chat" | "diff";
   diffPanelSelectedFile: Map<string, string>;
@@ -382,7 +381,6 @@ export const useStore = create<AppState>((set) => ({
   sidebarOpen: typeof window !== "undefined" ? window.innerWidth >= 768 : true,
   reorderMode: false,
   taskPanelOpen: typeof window !== "undefined" ? window.innerWidth >= 1024 : false,
-  homeResetKey: 0,
   showNewSessionModal: false,
   activeTab: "chat",
   diffPanelSelectedFile: new Map(),
@@ -450,7 +448,7 @@ export const useStore = create<AppState>((set) => ({
   setShowNewSessionModal: (open) => set({ showNewSessionModal: open }),
   newSession: () => {
     scopedRemoveItem("cc-current-session");
-    set((s) => ({ currentSessionId: null, homeResetKey: s.homeResetKey + 1 }));
+    set({ currentSessionId: null });
   },
 
   setCurrentSession: (id) => {

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { parseHash, sessionHash, navigateToSession, navigateHome } from "./routing.js";
+import { parseHash, sessionHash, navigateToSession, navigateHome, navigateToMostRecentSession } from "./routing.js";
+import { useStore } from "../store.js";
 
 describe("parseHash", () => {
   it("returns home for empty string", () => {
@@ -108,5 +109,89 @@ describe("navigateHome", () => {
     expect(dispatchSpy).toHaveBeenCalledWith(expect.any(HashChangeEvent));
     spy.mockRestore();
     dispatchSpy.mockRestore();
+  });
+});
+
+describe("navigateToMostRecentSession", () => {
+  beforeEach(() => {
+    window.location.hash = "";
+    useStore.setState({ sdkSessions: [] });
+  });
+
+  it("navigates to the most recent non-archived session", () => {
+    useStore.setState({
+      sdkSessions: [
+        { sessionId: "old", createdAt: 1000, archived: false } as any,
+        { sessionId: "new", createdAt: 2000, archived: false } as any,
+      ],
+    });
+
+    const result = navigateToMostRecentSession();
+
+    expect(result).toBe(true);
+    expect(window.location.hash).toBe("#/session/new");
+  });
+
+  it("skips archived sessions", () => {
+    useStore.setState({
+      sdkSessions: [
+        { sessionId: "active", createdAt: 1000, archived: false } as any,
+        { sessionId: "archived", createdAt: 2000, archived: true } as any,
+      ],
+    });
+
+    const result = navigateToMostRecentSession();
+
+    expect(result).toBe(true);
+    expect(window.location.hash).toBe("#/session/active");
+  });
+
+  it("skips cron job sessions", () => {
+    useStore.setState({
+      sdkSessions: [
+        { sessionId: "regular", createdAt: 1000, archived: false } as any,
+        { sessionId: "cron", createdAt: 2000, archived: false, cronJobId: "cron-1" } as any,
+      ],
+    });
+
+    const result = navigateToMostRecentSession();
+
+    expect(result).toBe(true);
+    expect(window.location.hash).toBe("#/session/regular");
+  });
+
+  it("excludes the specified session ID", () => {
+    useStore.setState({
+      sdkSessions: [
+        { sessionId: "keep", createdAt: 1000, archived: false } as any,
+        { sessionId: "exclude", createdAt: 2000, archived: false } as any,
+      ],
+    });
+
+    const result = navigateToMostRecentSession({ excludeId: "exclude" });
+
+    expect(result).toBe(true);
+    expect(window.location.hash).toBe("#/session/keep");
+  });
+
+  it("falls back to home when no sessions exist", () => {
+    useStore.setState({ sdkSessions: [] });
+
+    const result = navigateToMostRecentSession();
+
+    expect(result).toBe(false);
+    expect(window.location.hash === "" || window.location.hash === "#").toBe(true);
+  });
+
+  it("falls back to home when all sessions are archived", () => {
+    useStore.setState({
+      sdkSessions: [
+        { sessionId: "a", createdAt: 1000, archived: true } as any,
+      ],
+    });
+
+    const result = navigateToMostRecentSession();
+
+    expect(result).toBe(false);
   });
 });

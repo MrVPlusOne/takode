@@ -6,7 +6,7 @@ import { ToolBlock, getToolIcon, getToolLabel, getPreview, ToolIcon } from "./To
 import { DiffViewer } from "./DiffViewer.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { useStore } from "../store.js";
-import { navigateToSession, navigateHome } from "../utils/routing.js";
+import { navigateToSession, navigateToMostRecentSession } from "../utils/routing.js";
 import { ClaudeMdEditor } from "./ClaudeMdEditor.js";
 import { ChatView } from "./ChatView.js";
 import { api } from "../api.js";
@@ -682,7 +682,7 @@ export function Playground() {
                 if (sessionId) {
                   navigateToSession(sessionId);
                 } else {
-                  navigateHome();
+                  navigateToMostRecentSession();
                 }
               }}
               className="px-3 py-1.5 text-xs font-medium rounded-lg bg-cc-hover hover:bg-cc-active text-cc-fg border border-cc-border transition-colors cursor-pointer"

@@ -1,3 +1,6 @@
+import { useStore } from "../store.js";
+import type { SdkSessionInfo } from "../types.js";
+
 export type Route =
   | { page: "home" }
   | { page: "session"; sessionId: string }
@@ -59,4 +62,26 @@ export function navigateHome(replace = false): void {
   } else {
     window.location.hash = "";
   }
+}
+
+/**
+ * Navigate to the most recent non-archived, non-cron session.
+ * If excludeId is provided, skip that session (used when deleting/archiving).
+ * Falls back to navigateHome() if no sessions are available.
+ * Returns true if navigated to a session, false if fell back to home.
+ */
+export function navigateToMostRecentSession(
+  options: { excludeId?: string; replace?: boolean } = {},
+): boolean {
+  const { excludeId, replace = false } = options;
+  const candidates = (useStore.getState().sdkSessions as SdkSessionInfo[])
+    .filter((s) => !s.archived && !s.cronJobId && s.sessionId !== excludeId)
+    .sort((a, b) => b.createdAt - a.createdAt);
+
+  if (candidates.length > 0) {
+    navigateToSession(candidates[0].sessionId, replace);
+    return true;
+  }
+  navigateHome(replace);
+  return false;
 }
