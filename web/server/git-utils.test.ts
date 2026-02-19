@@ -412,7 +412,7 @@ describe("ensureWorktree", () => {
     expect(addCalls).toHaveLength(0);
   });
 
-  it("creates worktree for an existing local branch", () => {
+  it("creates worktree with unique -wt- branch for an existing local branch", () => {
     mockExecSync.mockImplementation((cmd: string) => {
       // listWorktrees
       if (cmd.includes("worktree list --porcelain")) {
@@ -420,39 +420,46 @@ describe("ensureWorktree", () => {
       }
       if (cmd.includes("status --porcelain")) return "";
       // Branch exists locally
-      if (cmd.includes("rev-parse --verify refs/heads/feat/local")) return "abc123";
-      // worktree add
-      if (cmd.includes("worktree add")) return "";
+      if (cmd.includes("rev-parse --verify refs/heads/feat/local") && !cmd.includes("-wt-")) return "abc123";
+      // rev-parse for the commit hash
+      if (cmd.includes("rev-parse refs/heads/feat/local")) return "abc123";
+      // generateUniqueWorktreeBranch checks (random suffix)
+      if (/rev-parse --verify refs\/heads\/feat\/local-wt-\d{4}/.test(cmd)) throw new Error("not found");
+      // worktree add -b
+      if (cmd.includes("worktree add -b")) return "";
       throw new Error(`Unmocked: ${cmd}`);
     });
-    // Target path doesn't exist yet (no suffix needed)
+    // Target path doesn't exist yet
     mockExistsSync.mockReturnValue(false);
 
     const result = gitUtils.ensureWorktree("/repo", "feat/local");
-    expect(result.worktreePath).toBe("/fake/home/.companion/worktrees/repo/feat--local");
-    expect(result.actualBranch).toBe("feat/local");
+    // Directory derived from unique branch name
+    expect(result.worktreePath).toMatch(/^\/fake\/home\/\.companion\/worktrees\/repo\/feat--local-wt-\d{4}$/);
+    expect(result.branch).toBe("feat/local");
+    expect(result.actualBranch).toMatch(/^feat\/local-wt-\d{4}$/);
     expect(result.isNew).toBe(false);
 
     const addCall = mockExecSync.mock.calls.find((c: unknown[]) =>
-      (c[0] as string).includes("worktree add"),
+      (c[0] as string).includes("worktree add -b"),
     );
     expect(addCall).toBeDefined();
-    // Should NOT have -b flag for existing branch
-    expect((addCall![0] as string)).not.toContain("-b ");
+    expect((addCall![0] as string)).toMatch(/feat\/local-wt-\d{4}/);
   });
 
-  it("creates tracking branch from remote", () => {
+  it("creates unique -wt- branch from remote", () => {
     mockExecSync.mockImplementation((cmd: string) => {
       if (cmd.includes("worktree list --porcelain")) {
         return "worktree /repo\nHEAD abc\nbranch refs/heads/main\n";
       }
       if (cmd.includes("status --porcelain")) return "";
       // Local branch does NOT exist
-      if (cmd.includes("rev-parse --verify refs/heads/feat/remote"))
+      if (cmd.includes("rev-parse --verify refs/heads/feat/remote") && !cmd.includes("-wt-"))
         throw new Error("not found");
       // Remote branch exists
       if (cmd.includes("rev-parse --verify refs/remotes/origin/feat/remote"))
         return "def456";
+      // generateUniqueWorktreeBranch checks (random suffix)
+      if (/rev-parse --verify refs\/heads\/feat\/remote-wt-\d{4}/.test(cmd)) throw new Error("not found");
       // worktree add -b
       if (cmd.includes("worktree add -b")) return "";
       throw new Error(`Unmocked: ${cmd}`);
@@ -461,7 +468,8 @@ describe("ensureWorktree", () => {
     mockExistsSync.mockReturnValue(false);
 
     const result = gitUtils.ensureWorktree("/repo", "feat/remote");
-    expect(result.actualBranch).toBe("feat/remote");
+    expect(result.branch).toBe("feat/remote");
+    expect(result.actualBranch).toMatch(/^feat\/remote-wt-\d{4}$/);
     expect(result.isNew).toBe(false);
 
     const addCall = mockExecSync.mock.calls.find((c: unknown[]) =>
@@ -469,9 +477,10 @@ describe("ensureWorktree", () => {
     );
     expect(addCall).toBeDefined();
     expect((addCall![0] as string)).toContain("origin/feat/remote");
+    expect((addCall![0] as string)).toMatch(/feat\/remote-wt-\d{4}/);
   });
 
-  it("creates new branch from base when branch does not exist anywhere", () => {
+  it("creates unique -wt- branch from base when branch does not exist anywhere", () => {
     mockExecSync.mockImplementation((cmd: string) => {
       if (cmd.includes("worktree list --porcelain")) {
         return "worktree /repo\nHEAD abc\nbranch refs/heads/main\n";
@@ -479,7 +488,7 @@ describe("ensureWorktree", () => {
       if (cmd.includes("status --porcelain")) return "";
       // Neither local nor remote branch exists
       if (cmd.includes("rev-parse --verify")) throw new Error("not found");
-      // resolveDefaultBranch
+      // resolveDefaultBranch — not needed since baseBranch is explicit
       if (cmd.includes("symbolic-ref refs/remotes/origin/HEAD"))
         return "refs/remotes/origin/main";
       // worktree add -b
@@ -492,13 +501,14 @@ describe("ensureWorktree", () => {
     const result = gitUtils.ensureWorktree("/repo", "feat/new", { baseBranch: "develop" });
     expect(result.isNew).toBe(true);
     expect(result.branch).toBe("feat/new");
-    expect(result.actualBranch).toBe("feat/new");
+    expect(result.actualBranch).toMatch(/^feat\/new-wt-\d{4}$/);
 
     const addCall = mockExecSync.mock.calls.find((c: unknown[]) =>
       (c[0] as string).includes("worktree add -b"),
     );
     expect(addCall).toBeDefined();
     expect((addCall![0] as string)).toContain("develop");
+    expect((addCall![0] as string)).toMatch(/feat\/new-wt-\d{4}/);
   });
 
   it("throws when createBranch=false and branch does not exist", () => {
@@ -524,7 +534,10 @@ describe("ensureWorktree", () => {
         return "worktree /repo\nHEAD abc\nbranch refs/heads/main\n";
       }
       if (cmd.includes("status --porcelain")) return "";
-      if (cmd.includes("rev-parse --verify refs/heads/feat/new")) return "abc";
+      if (cmd.includes("rev-parse --verify refs/heads/feat/new") && !cmd.includes("-wt-")) return "abc";
+      if (cmd.includes("rev-parse refs/heads/feat/new")) return "abc";
+      // generateUniqueWorktreeBranch checks
+      if (/rev-parse --verify refs\/heads\/feat\/new-wt-\d{4}/.test(cmd)) throw new Error("not found");
       if (cmd.includes("worktree add")) return "";
       throw new Error(`Unmocked: ${cmd}`);
     });
@@ -576,25 +589,26 @@ describe("ensureWorktree", () => {
     expect((addCall![0] as string)).toContain("abc123");
   });
 
-  it("creates unique paths with random suffix when base path exists", () => {
+  it("always creates unique -wt- branch even for first worktree on a branch", () => {
     mockExecSync.mockImplementation((cmd: string) => {
       if (cmd.includes("worktree list --porcelain")) {
         return "worktree /repo\nHEAD abc\nbranch refs/heads/main\n";
       }
       if (cmd.includes("status --porcelain")) return "";
-      if (cmd.includes("rev-parse --verify refs/heads/feat/x")) return "abc123";
-      if (cmd.includes("worktree add")) return "";
+      if (cmd.includes("rev-parse --verify refs/heads/feat/x") && !cmd.includes("-wt-")) return "abc123";
+      if (cmd.includes("rev-parse refs/heads/feat/x")) return "abc123";
+      // generateUniqueWorktreeBranch checks
+      if (/rev-parse --verify refs\/heads\/feat\/x-wt-\d{4}/.test(cmd)) throw new Error("not found");
+      if (cmd.includes("worktree add -b")) return "";
       throw new Error(`Unmocked: ${cmd}`);
     });
-    // Base path exists, random suffix path does not
-    const basePath = "/fake/home/.companion/worktrees/repo/feat--x";
-    mockExistsSync.mockImplementation((path: string) => {
-      if (path === basePath) return true;
-      return false; // Any random-suffixed path is free
-    });
+    mockExistsSync.mockReturnValue(false);
 
     const result = gitUtils.ensureWorktree("/repo", "feat/x");
-    expect(result.worktreePath).toMatch(new RegExp(`^${basePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-\\d{4}$`));
+    // Directory and branch both use -wt-XXXX suffix
+    expect(result.worktreePath).toMatch(/^\/fake\/home\/\.companion\/worktrees\/repo\/feat--x-wt-\d{4}$/);
+    expect(result.branch).toBe("feat/x");
+    expect(result.actualBranch).toMatch(/^feat\/x-wt-\d{4}$/);
   });
 
   it("creates branch-tracking worktree when forceNew=true and worktree already exists", () => {
