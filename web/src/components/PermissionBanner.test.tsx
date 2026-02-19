@@ -616,4 +616,32 @@ describe("PlanReviewOverlay", () => {
     }));
     expect(mockSendToSession).toHaveBeenCalledWith("s1", { type: "interrupt" });
   });
+
+  it("calls onCollapse when header bar is clicked", async () => {
+    const { PlanReviewOverlay } = await import("./PermissionBanner.js");
+    const perm = makePermission({
+      tool_name: "ExitPlanMode",
+      input: { plan: "Some plan" },
+    });
+    const onCollapse = vi.fn();
+    render(<PlanReviewOverlay permission={perm} sessionId="s1" onCollapse={onCollapse} />);
+
+    // The entire header bar has title="Minimize plan" and is clickable
+    fireEvent.click(screen.getByTitle("Minimize plan"));
+    expect(onCollapse).toHaveBeenCalledTimes(1);
+  });
+
+  it("calls onCollapse when Minimize button in action bar is clicked", async () => {
+    const { PlanReviewOverlay } = await import("./PermissionBanner.js");
+    const perm = makePermission({
+      tool_name: "ExitPlanMode",
+      input: { plan: "Some plan" },
+    });
+    const onCollapse = vi.fn();
+    render(<PlanReviewOverlay permission={perm} sessionId="s1" onCollapse={onCollapse} />);
+
+    // Minimize button in the sticky action bar next to Accept/Deny
+    fireEvent.click(screen.getByText("Minimize"));
+    expect(onCollapse).toHaveBeenCalledTimes(1);
+  });
 });

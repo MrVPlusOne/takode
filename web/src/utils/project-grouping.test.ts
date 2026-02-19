@@ -155,6 +155,18 @@ describe("groupSessionsByProject", () => {
     expect(groups[0].unreadCount).toBe(1);
   });
 
+  it("disconnected session with running status does not count as running", () => {
+    // A session that lost connection while running should show as disconnected,
+    // not running. deriveSessionStatus prioritizes disconnected over running.
+    const sessions = [
+      makeItem({ id: "s1", cwd: "/a/app", status: "running", isConnected: false, sdkState: "running" }),
+      makeItem({ id: "s2", cwd: "/a/app", status: "running", isConnected: true, sdkState: "running" }),
+    ];
+    const groups = groupSessionsByProject(sessions);
+    // s1 is disconnected (not counted), s2 is running
+    expect(groups[0].runningCount).toBe(1);
+  });
+
   it("creates separate groups for different directories", () => {
     const sessions = [
       makeItem({ id: "s1", cwd: "/a/app1" }),
