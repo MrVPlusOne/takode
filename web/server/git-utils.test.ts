@@ -150,6 +150,56 @@ describe("getRepoInfo", () => {
     const result = gitUtils.getRepoInfo("/repo");
     expect(result!.defaultBranch).toBe("master");
   });
+
+  it("resolves closest parent branch for worktree sessions", () => {
+    // Worktree branch jiayi-wt-4719 was created from jiayi. The for-each-ref
+    // --contains=HEAD command returns jiayi as a branch containing HEAD.
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd.includes("rev-parse --show-toplevel")) return "/worktree/path";
+      if (cmd.includes("rev-parse --abbrev-ref HEAD")) return "jiayi-wt-4719";
+      if (cmd.includes("rev-parse --git-dir")) return "/repo/.git/worktrees/jiayi-wt-4719";
+      if (cmd.includes("for-each-ref") && cmd.includes("--contains=HEAD")) return "jiayi\njiayi-wt-4719";
+      if (cmd.includes("symbolic-ref refs/remotes/origin/HEAD")) throw new Error("no origin");
+      throw new Error(`Unmocked: ${cmd}`);
+    });
+
+    const result = gitUtils.getRepoInfo("/worktree/path");
+    expect(result!.defaultBranch).toBe("jiayi");
+    expect(result!.isWorktree).toBe(true);
+  });
+
+  it("picks closest parent when multiple branches contain HEAD", () => {
+    // Both jiayi and main contain HEAD, but jiayi is 1 commit ahead
+    // while main is 100 commits ahead — jiayi is the closer parent.
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd.includes("rev-parse --show-toplevel")) return "/repo";
+      if (cmd.includes("rev-parse --abbrev-ref HEAD")) return "feat-branch";
+      if (cmd.includes("rev-parse --git-dir")) return ".git";
+      if (cmd.includes("for-each-ref") && cmd.includes("--contains=HEAD")) return "feat-branch\njiayi\nmain";
+      if (cmd.includes("rev-list --count HEAD..jiayi")) return "1";
+      if (cmd.includes("rev-list --count HEAD..main")) return "100";
+      if (cmd.includes("symbolic-ref refs/remotes/origin/HEAD")) throw new Error("no origin");
+      throw new Error(`Unmocked: ${cmd}`);
+    });
+
+    const result = gitUtils.getRepoInfo("/repo");
+    expect(result!.defaultBranch).toBe("jiayi");
+  });
+
+  it("falls back to origin/HEAD when no parent branch found", () => {
+    // No other branches contain HEAD → falls back to existing logic
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd.includes("rev-parse --show-toplevel")) return "/repo";
+      if (cmd.includes("rev-parse --abbrev-ref HEAD")) return "orphan-branch";
+      if (cmd.includes("rev-parse --git-dir")) return ".git";
+      if (cmd.includes("for-each-ref") && cmd.includes("--contains=HEAD")) return "orphan-branch";
+      if (cmd.includes("symbolic-ref refs/remotes/origin/HEAD")) return "refs/remotes/origin/main";
+      throw new Error(`Unmocked: ${cmd}`);
+    });
+
+    const result = gitUtils.getRepoInfo("/repo");
+    expect(result!.defaultBranch).toBe("main");
+  });
 });
 
 // ─── listBranches ────────────────────────────────────────────────────────────

@@ -92,7 +92,7 @@ export function getRepoInfo(cwd: string): GitRepoInfo | null {
   // A linked worktree's .git dir is inside the main repo's .git/worktrees/
   const isWorktree = gitDir.includes("/worktrees/");
 
-  const defaultBranch = resolveDefaultBranch(repoRoot);
+  const defaultBranch = resolveDefaultBranch(repoRoot, currentBranch);
 
   return {
     repoRoot,
@@ -103,8 +103,16 @@ export function getRepoInfo(cwd: string): GitRepoInfo | null {
   };
 }
 
-export function resolveDefaultBranch(repoRoot: string): string {
-  // Try origin HEAD
+export function resolveDefaultBranch(repoRoot: string, currentBranch?: string): string {
+  // If we know the current branch, try to find the closest parent branch.
+  // This handles worktree branches (e.g. jiayi-wt-4719 → jiayi) and
+  // feature branches (e.g. feat/x → main) automatically.
+  if (currentBranch && currentBranch !== "HEAD") {
+    const closest = findClosestParentBranch(repoRoot, currentBranch);
+    if (closest) return closest;
+  }
+
+  // Fallback: try origin HEAD
   const originRef = gitSafe("symbolic-ref refs/remotes/origin/HEAD", repoRoot);
   if (originRef) {
     return originRef.replace("refs/remotes/origin/", "");
@@ -115,6 +123,37 @@ export function resolveDefaultBranch(repoRoot: string): string {
   if (branches.includes("master")) return "master";
   // Last resort
   return "main";
+}
+
+/**
+ * Find the closest local branch that contains HEAD (i.e. HEAD is an ancestor
+ * of the branch tip). This identifies the parent branch from which the current
+ * branch was created. Uses a single `git for-each-ref --contains=HEAD` call
+ * (~11ms) and only disambiguates with rev-list when multiple candidates exist.
+ */
+function findClosestParentBranch(repoRoot: string, currentBranch: string): string | null {
+  const output = gitSafe("for-each-ref --format=%(refname:short) --contains=HEAD refs/heads/", repoRoot);
+  if (!output) return null;
+
+  const candidates = output.split("\n")
+    .map(b => b.trim())
+    .filter(b => b && b !== currentBranch);
+  if (candidates.length === 0) return null;
+  if (candidates.length === 1) return candidates[0];
+
+  // Multiple candidates: pick the one closest to HEAD (fewest commits ahead)
+  let bestBranch = candidates[0];
+  let bestCount = Infinity;
+  for (const candidate of candidates) {
+    const countStr = gitSafe(`rev-list --count HEAD..${candidate}`, repoRoot);
+    const count = countStr ? parseInt(countStr, 10) : Infinity;
+    if (count < bestCount) {
+      bestCount = count;
+      bestBranch = candidate;
+      if (count === 0) break;
+    }
+  }
+  return bestBranch;
 }
 
 export function listBranches(repoRoot: string): GitBranchInfo[] {

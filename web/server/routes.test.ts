@@ -1403,11 +1403,18 @@ describe("GET /api/fs/diff", () => {
 -old line
 +new line
  line3`;
-    vi.mocked(execSync)
-      .mockReturnValueOnce("/repo\n") // rev-parse --show-toplevel
-      .mockReturnValueOnce("file.ts\n") // ls-files --full-name
-      .mockReturnValueOnce("abc123\n") // merge-base main HEAD
-      .mockReturnValueOnce(diffOutput); // git diff abc123
+    vi.mocked(execSync).mockImplementation((cmd: string) => {
+      if (typeof cmd !== "string") throw new Error("non-string cmd");
+      if (cmd.includes("rev-parse --show-toplevel")) return "/repo\n";
+      if (cmd.includes("ls-files --full-name")) return "file.ts\n";
+      if (cmd.includes("rev-parse --abbrev-ref HEAD")) return "feature\n";
+      if (cmd.includes("for-each-ref") && cmd.includes("--contains=HEAD")) return "feature\n"; // only current branch
+      if (cmd.includes("symbolic-ref refs/remotes/origin/HEAD")) throw new Error("no origin");
+      if (cmd.includes("branch --list main master")) return "  main";
+      if (cmd.includes("merge-base main HEAD")) return "abc123\n";
+      if (cmd.includes("git diff abc123")) return diffOutput;
+      throw new Error(`Unmocked: ${cmd}`);
+    });
 
     const res = await app.request("/api/fs/diff?path=/repo/file.ts", { method: "GET" });
 
@@ -1436,17 +1443,24 @@ index 0000000..e69de29
 @@ -0,0 +1 @@
 +hello`;
 
-    vi.mocked(execSync)
-      .mockReturnValueOnce("/repo\n") // rev-parse --show-toplevel
-      .mockReturnValueOnce("new.txt\n") // ls-files --full-name
-      .mockReturnValueOnce("abc123\n") // merge-base main HEAD
-      .mockReturnValueOnce("") // git diff abc123 -> empty for untracked
-      .mockReturnValueOnce("new.txt\n") // ls-files --others --exclude-standard
-      .mockImplementationOnce(() => {
+    vi.mocked(execSync).mockImplementation((cmd: string) => {
+      if (typeof cmd !== "string") throw new Error("non-string cmd");
+      if (cmd.includes("rev-parse --show-toplevel")) return "/repo\n";
+      if (cmd.includes("ls-files --full-name")) return "new.txt\n";
+      if (cmd.includes("rev-parse --abbrev-ref HEAD")) return "feature\n";
+      if (cmd.includes("for-each-ref") && cmd.includes("--contains=HEAD")) return "feature\n";
+      if (cmd.includes("symbolic-ref refs/remotes/origin/HEAD")) throw new Error("no origin");
+      if (cmd.includes("branch --list main master")) return "  main";
+      if (cmd.includes("merge-base main HEAD")) return "abc123\n";
+      if (cmd.includes("git diff abc123")) return "";
+      if (cmd.includes("ls-files --others --exclude-standard")) return "new.txt\n";
+      if (cmd.includes("diff --no-index")) {
         const err = new Error("diff exits with 1 for differences") as Error & { stdout: string };
         err.stdout = untrackedDiff;
         throw err;
-      }); // git diff --no-index
+      }
+      throw new Error(`Unmocked: ${cmd}`);
+    });
 
     const res = await app.request("/api/fs/diff?path=/repo/new.txt", { method: "GET" });
     const json = await res.json();
@@ -1467,13 +1481,18 @@ index 0000000..e69de29
 @@ -1,2 +1,3 @@
  line1
 +added`;
-    vi.mocked(execSync)
-      .mockReturnValueOnce("/repo\n") // rev-parse --show-toplevel
-      .mockReturnValueOnce("file.ts\n") // ls-files --full-name
-      .mockImplementationOnce(() => {
-        throw new Error("fatal: no merge base found");
-      }) // merge-base main HEAD fails
-      .mockReturnValueOnce(diffOutput); // git diff main (fallback to branch name)
+    vi.mocked(execSync).mockImplementation((cmd: string) => {
+      if (typeof cmd !== "string") throw new Error("non-string cmd");
+      if (cmd.includes("rev-parse --show-toplevel")) return "/repo\n";
+      if (cmd.includes("ls-files --full-name")) return "file.ts\n";
+      if (cmd.includes("rev-parse --abbrev-ref HEAD")) return "feature\n";
+      if (cmd.includes("for-each-ref") && cmd.includes("--contains=HEAD")) return "feature\n";
+      if (cmd.includes("symbolic-ref refs/remotes/origin/HEAD")) throw new Error("no origin");
+      if (cmd.includes("branch --list main master")) return "  main";
+      if (cmd.includes("merge-base main HEAD")) throw new Error("fatal: no merge base found");
+      if (cmd.includes("git diff main")) return diffOutput;
+      throw new Error(`Unmocked: ${cmd}`);
+    });
 
     const res = await app.request("/api/fs/diff?path=/repo/file.ts", { method: "GET" });
 
@@ -1485,17 +1504,26 @@ index 0000000..e69de29
 
   it("uses user-specified base branch when provided", async () => {
     // The ?base= query param overrides the default branch for diff comparison.
+    // When base is explicitly provided, resolveDefaultBranch is still called but
+    // its result is overridden by the user-selected base.
     const diffOutput = `diff --git a/file.ts b/file.ts
 --- a/file.ts
 +++ b/file.ts
 @@ -1 +1,2 @@
  line1
 +added from develop`;
-    vi.mocked(execSync)
-      .mockReturnValueOnce("/repo\n") // rev-parse --show-toplevel
-      .mockReturnValueOnce("file.ts\n") // ls-files --full-name
-      .mockReturnValueOnce("def456\n") // merge-base develop HEAD
-      .mockReturnValueOnce(diffOutput); // git diff def456
+    vi.mocked(execSync).mockImplementation((cmd: string) => {
+      if (typeof cmd !== "string") throw new Error("non-string cmd");
+      if (cmd.includes("rev-parse --show-toplevel")) return "/repo\n";
+      if (cmd.includes("ls-files --full-name")) return "file.ts\n";
+      if (cmd.includes("rev-parse --abbrev-ref HEAD")) return "feature\n";
+      if (cmd.includes("for-each-ref") && cmd.includes("--contains=HEAD")) return "feature\n";
+      if (cmd.includes("symbolic-ref refs/remotes/origin/HEAD")) throw new Error("no origin");
+      if (cmd.includes("branch --list main master")) return "  main";
+      if (cmd.includes("merge-base develop HEAD")) return "def456\n";
+      if (cmd.includes("git diff def456")) return diffOutput;
+      throw new Error(`Unmocked: ${cmd}`);
+    });
 
     const res = await app.request("/api/fs/diff?path=/repo/file.ts&base=develop", { method: "GET" });
 

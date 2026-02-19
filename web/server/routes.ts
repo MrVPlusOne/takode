@@ -1167,7 +1167,10 @@ export function createRoutes(
         timeout: 5000,
       }).trim() || absPath;
 
-      const defaultBranch = gitUtils.resolveDefaultBranch(repoRoot);
+      const currentBranch = execSync("git rev-parse --abbrev-ref HEAD", {
+        cwd: repoRoot, encoding: "utf-8", timeout: 5000,
+      }).trim();
+      const defaultBranch = gitUtils.resolveDefaultBranch(repoRoot, currentBranch);
       const effectiveBase = baseParam || defaultBranch;
       const diffBase = resolveDiffBase(repoRoot, effectiveBase);
 
