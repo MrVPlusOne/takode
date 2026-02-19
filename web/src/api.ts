@@ -521,13 +521,13 @@ export const api = {
     ),
   gitFetch: (repoRoot: string) =>
     post<{ success: boolean; output: string }>("/git/fetch", { repoRoot }),
-  gitPull: (cwd: string) =>
+  gitPull: (cwd: string, sessionId?: string) =>
     post<{
       success: boolean;
       output: string;
       git_ahead: number;
       git_behind: number;
-    }>("/git/pull", { cwd }),
+    }>("/git/pull", { cwd, sessionId }),
 
   // Git worktrees
   listWorktrees: (repoRoot: string) =>

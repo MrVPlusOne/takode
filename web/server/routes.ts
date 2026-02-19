@@ -787,6 +787,7 @@ export function createRoutes(
     const session = launcher.getSession(id);
     if (!session) return c.json({ error: "Session not found" }, 404);
     sessionNames.setName(id, body.name.trim());
+    wsBridge.broadcastSessionUpdate(id, { name: body.name.trim() });
     return c.json({ ok: true, name: body.name.trim() });
   });
 
@@ -1483,7 +1484,7 @@ export function createRoutes(
 
   api.post("/git/pull", async (c) => {
     const body = await c.req.json().catch(() => ({}));
-    const { cwd } = body;
+    const { cwd, sessionId } = body;
     if (!cwd) return c.json({ error: "cwd required" }, 400);
     const result = gitUtils.gitPull(cwd);
     // Return refreshed ahead/behind counts
@@ -1503,6 +1504,10 @@ export function createRoutes(
       git_behind = behind || 0;
     } catch {
       /* no upstream */
+    }
+    // Broadcast updated git counts to all browsers for this session
+    if (sessionId) {
+      wsBridge.broadcastSessionUpdate(sessionId, { git_ahead, git_behind });
     }
     return c.json({ ...result, git_ahead, git_behind });
   });

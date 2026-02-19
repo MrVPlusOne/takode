@@ -182,7 +182,7 @@ export function Sidebar() {
 
   function confirmRename() {
     if (editingSessionId && editingName.trim()) {
-      useStore.getState().setSessionName(editingSessionId, editingName.trim());
+      // Server will broadcast the name update to all browsers via session_update
       api.renameSession(editingSessionId, editingName.trim()).catch(() => {});
     }
     setEditingSessionId(null);

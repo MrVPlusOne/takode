@@ -397,11 +397,8 @@ export function HomePage() {
       // Save cwd to recent dirs
       if (cwd) addRecentDir(cwd);
 
-      // Store the permission mode and ask permission for this session
-      useStore.getState().setPreviousPermissionMode(sessionId, mode);
-      if (backend === "claude") {
-        useStore.getState().setAskPermission(sessionId, askPermission);
-      }
+      // Permission mode and askPermission will be set server-side when
+      // the set_permission_mode / set_ask_permission messages are processed
 
       // Switch to session — use replace to avoid a back-button entry for the creation state
       navigateToSession(sessionId, true);

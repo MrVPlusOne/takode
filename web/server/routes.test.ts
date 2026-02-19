@@ -113,6 +113,7 @@ function createMockBridge() {
     isCliConnected: vi.fn(() => false),
     getCodexRateLimits: vi.fn(() => null),
     markContainerized: vi.fn(),
+    broadcastSessionUpdate: vi.fn(),
   } as any;
 }
 

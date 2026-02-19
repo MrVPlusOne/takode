@@ -619,7 +619,13 @@ export class WsBridge {
       if (meta.cliSessionId && this.onCLISessionId) {
         this.onCLISessionId(session.id, meta.cliSessionId);
       }
-      if (meta.model) session.state.model = meta.model;
+      if (meta.model) {
+        session.state.model = meta.model;
+        this.broadcastToBrowsers(session, {
+          type: "session_update",
+          session: { model: meta.model },
+        });
+      }
       if (meta.cwd) session.state.cwd = meta.cwd;
       session.state.backend_type = "codex";
       this.refreshGitInfo(session, { broadcastUpdate: true, notifyPoller: true });
@@ -1075,6 +1081,18 @@ export class WsBridge {
     // Re-check git state after each turn in case branch moved during the session.
     this.refreshGitInfo(session, { broadcastUpdate: true, notifyPoller: true });
 
+    // Broadcast updated metrics to all browsers
+    this.broadcastToBrowsers(session, {
+      type: "session_update",
+      session: {
+        total_cost_usd: session.state.total_cost_usd,
+        num_turns: session.state.num_turns,
+        context_used_percent: session.state.context_used_percent,
+        total_lines_added: session.state.total_lines_added,
+        total_lines_removed: session.state.total_lines_removed,
+      },
+    });
+
     const browserMsg: BrowserIncomingMessage = {
       type: "result",
       data: msg,
@@ -1475,6 +1493,7 @@ export class WsBridge {
       content: msg.content,
       timestamp: ts,
       id: `user-${ts}-${this.userMsgCounter++}`,
+      ...(msg.images?.length ? { images: msg.images } : {}),
     };
     session.messageHistory.push(userHistoryEntry);
     // Broadcast user message to all browsers (server-authoritative: browsers
@@ -1618,6 +1637,13 @@ export class WsBridge {
       request: { subtype: "set_model", model },
     });
     this.sendToCLI(session, ndjson);
+    // Optimistically update server-side state and broadcast to all browsers
+    session.state.model = model;
+    this.broadcastToBrowsers(session, {
+      type: "session_update",
+      session: { model },
+    });
+    this.persistSession(session);
   }
 
   private handleSetPermissionMode(session: Session, mode: string) {
@@ -1628,10 +1654,12 @@ export class WsBridge {
     });
     this.sendToCLI(session, ndjson);
     // Optimistically update server-side state and broadcast to all browsers
+    const uiMode = mode === "plan" ? "plan" : "agent";
     session.state.permissionMode = mode;
+    session.state.uiMode = uiMode;
     this.broadcastToBrowsers(session, {
       type: "session_update",
-      session: { permissionMode: mode },
+      session: { permissionMode: mode, uiMode },
     });
     this.persistSession(session);
   }
@@ -1726,6 +1754,16 @@ export class WsBridge {
     } catch (err) {
       console.error(`[ws-bridge] Failed to send to CLI for session ${session.id}:`, err);
     }
+  }
+
+  /** Push a partial session state update to all connected browsers for a session. */
+  broadcastSessionUpdate(sessionId: string, update: Record<string, unknown>) {
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+    this.broadcastToBrowsers(session, {
+      type: "session_update",
+      session: update,
+    });
   }
 
   /** Push a session name update to all connected browsers for a session. */

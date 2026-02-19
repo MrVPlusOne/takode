@@ -259,27 +259,23 @@ export function Composer({ sessionId }: { sessionId: string }) {
   function selectMode(mode: string) {
     if (!isConnected) return;
     if (isCodex) {
-      // Codex: send mode directly as-is
+      // Server will broadcast the updated permissionMode to all browsers
       sendToSession(sessionId, { type: "set_permission_mode", mode });
-      useStore.getState().updateSession(sessionId, { permissionMode: mode });
       return;
     }
     // Claude Code: resolve the UI mode + askPermission to the actual CLI mode
     const cliMode = resolveClaudeCliMode(mode, askPermission);
+    // Server will broadcast the updated permissionMode and uiMode to all browsers
     sendToSession(sessionId, { type: "set_permission_mode", mode: cliMode });
-    useStore.getState().updateSession(sessionId, { permissionMode: cliMode, uiMode: mode as "plan" | "agent" });
   }
 
   function toggleAskPermission() {
     if (!isConnected || isCodex) return;
     const newValue = !askPermission;
-    useStore.getState().setAskPermission(sessionId, newValue);
-    // Propagate to server for plan approval auto-switch
+    // Server will broadcast the updated askPermission and permissionMode to all browsers
     sendToSession(sessionId, { type: "set_ask_permission", askPermission: newValue });
-    // Re-resolve the CLI mode with the new ask permission value
     const cliMode = resolveClaudeCliMode(uiMode, newValue);
     sendToSession(sessionId, { type: "set_permission_mode", mode: cliMode });
-    useStore.getState().updateSession(sessionId, { permissionMode: cliMode, askPermission: newValue });
   }
 
   function cycleMode() {
@@ -422,11 +418,8 @@ export function Composer({ sessionId }: { sessionId: string }) {
                       onClick={() => {
                         const cwd = sessionData.repo_root || sessionData.cwd;
                         if (!cwd) return;
-                        api.gitPull(cwd).then((r) => {
-                          useStore.getState().updateSession(sessionId, {
-                            git_ahead: r.git_ahead,
-                            git_behind: r.git_behind,
-                          });
+                        // Server will broadcast updated git_ahead/git_behind via session_update
+                        api.gitPull(cwd, sessionId).then((r) => {
                           if (!r.success) console.warn("[git pull]", r.output);
                         }).catch((e) => console.error("[git pull]", e));
                       }}

@@ -316,6 +316,10 @@ function handleParsedMessage(
       if (typeof data.session.askPermission === "boolean") {
         store.setAskPermission(sessionId, data.session.askPermission);
       }
+      // Sync session name if included (e.g. after a rename via REST API)
+      if (typeof (data.session as Record<string, unknown>).name === "string") {
+        store.setSessionName(sessionId, (data.session as Record<string, unknown>).name as string);
+      }
       break;
     }
 
@@ -579,6 +583,7 @@ function handleParsedMessage(
         role: "user",
         content: data.content,
         timestamp: data.timestamp || Date.now(),
+        ...(data.images?.length ? { images: data.images } : {}),
       };
       store.appendMessage(sessionId, userMsg);
       store.setSessionPreview(sessionId, data.content.slice(0, 80));
@@ -696,6 +701,7 @@ function handleParsedMessage(
             role: "user",
             content: histMsg.content,
             timestamp: histMsg.timestamp,
+            ...(histMsg.images?.length ? { images: histMsg.images } : {}),
           });
         } else if (histMsg.type === "assistant") {
           const msg = histMsg.message;
