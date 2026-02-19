@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useStore } from "../store.js";
 import { api, createSessionStream, type CompanionEnv, type GitRepoInfo, type GitBranchInfo, type BackendInfo } from "../api.js";
 import { connectSession, waitForConnection, sendToSession } from "../ws.js";
@@ -52,8 +52,28 @@ function saveBranch(repoRoot: string, branchName: string) {
   scopedSetItem("cc-branch", JSON.stringify(map));
 }
 
+// Sentinel key for the HomePage composer draft in the store
+const HOME_DRAFT_KEY = "__home__";
+
 export function HomePage() {
-  const [text, setText] = useState("");
+  // Persist text + images in the store so they survive session switches
+  const draft = useStore((s) => s.composerDrafts.get(HOME_DRAFT_KEY));
+  const text = draft?.text ?? "";
+  const images: ImageAttachment[] = (draft?.images ?? []) as ImageAttachment[];
+  const setText = useCallback((v: string | ((prev: string) => string)) => {
+    const store = useStore.getState();
+    const cur = store.composerDrafts.get(HOME_DRAFT_KEY);
+    const prev = cur?.text ?? "";
+    const next = typeof v === "function" ? v(prev) : v;
+    store.setComposerDraft(HOME_DRAFT_KEY, { text: next, images: cur?.images ?? [] });
+  }, []);
+  const setImages = useCallback((v: ImageAttachment[] | ((prev: ImageAttachment[]) => ImageAttachment[])) => {
+    const store = useStore.getState();
+    const cur = store.composerDrafts.get(HOME_DRAFT_KEY);
+    const prev = (cur?.images ?? []) as ImageAttachment[];
+    const next = typeof v === "function" ? v(prev) : v;
+    store.setComposerDraft(HOME_DRAFT_KEY, { text: cur?.text ?? "", images: next });
+  }, []);
   const [backend, setBackend] = useState<BackendType>(() =>
     (scopedGetItem("cc-backend") as BackendType) || "claude",
   );
@@ -76,7 +96,6 @@ export function HomePage() {
     return getDefaultMode(b);
   });
   const [cwd, setCwd] = useState(() => getRecentDirs()[0] || "");
-  const [images, setImages] = useState<ImageAttachment[]>([]);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
@@ -412,8 +431,9 @@ export function HomePage() {
       // User message will appear in the feed when the server broadcasts it back
       // (server-authoritative model — browsers never add user messages locally)
 
-      // Clear progress on success
+      // Clear progress and home draft on success
       useStore.getState().clearCreation();
+      useStore.getState().clearComposerDraft(HOME_DRAFT_KEY);
     } catch (e: unknown) {
       const errMsg = e instanceof Error ? e.message : String(e);
       setError(errMsg);

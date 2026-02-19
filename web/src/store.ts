@@ -419,7 +419,11 @@ export const useStore = create<AppState>((set) => ({
   setTaskPanelOpen: (open) => set({ taskPanelOpen: open }),
   newSession: () => {
     scopedRemoveItem("cc-current-session");
-    set((s) => ({ currentSessionId: null, homeResetKey: s.homeResetKey + 1 }));
+    set((s) => {
+      const composerDrafts = new Map(s.composerDrafts);
+      composerDrafts.delete("__home__");
+      return { currentSessionId: null, homeResetKey: s.homeResetKey + 1, composerDrafts };
+    });
   },
 
   setCurrentSession: (id) => {
