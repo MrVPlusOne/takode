@@ -138,6 +138,7 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
     clearRecentlyRenamed: vi.fn(),
     setSdkSessions: vi.fn(),
     closeTerminal: vi.fn(),
+    setShowNewSessionModal: vi.fn(),
     markSessionViewed: vi.fn(),
     markAllSessionsViewed: vi.fn(),
     markSessionUnread: vi.fn(),
@@ -323,11 +324,12 @@ describe("Sidebar", () => {
     expect(window.location.hash).toBe("#/session/s1");
   });
 
-  it("New Session button calls newSession", () => {
+  it("New Session button opens new session modal", () => {
     render(<Sidebar />);
     fireEvent.click(screen.getByText("New Session"));
 
-    expect(mockState.newSession).toHaveBeenCalled();
+    // handleNewSession now opens the modal instead of navigating home + calling newSession
+    expect(mockState.setShowNewSessionModal).toHaveBeenCalledWith(true);
   });
 
   it("double-clicking a session enters edit mode", () => {

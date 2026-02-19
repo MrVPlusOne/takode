@@ -15,6 +15,7 @@ import { EnvManager } from "./components/EnvManager.js";
 import { CronManager } from "./components/CronManager.js";
 import { TerminalPage } from "./components/TerminalPage.js";
 import { SessionLaunchOverlay } from "./components/SessionLaunchOverlay.js";
+import { NewSessionModal } from "./components/NewSessionModal.js";
 
 function useHash() {
   return useSyncExternalStore(
@@ -35,6 +36,7 @@ export default function App() {
   const sessionCreatingBackend = useStore((s) => s.sessionCreatingBackend);
   const creationProgress = useStore((s) => s.creationProgress);
   const creationError = useStore((s) => s.creationError);
+  const showNewSessionModal = useStore((s) => s.showNewSessionModal);
   const hash = useHash();
   const route = useMemo(() => parseHash(hash), [hash]);
   const isSettingsPage = route.page === "settings";
@@ -186,6 +188,12 @@ export default function App() {
           )}
         </div>
       </div>
+
+      {/* New session modal */}
+      <NewSessionModal
+        open={showNewSessionModal}
+        onClose={() => useStore.getState().setShowNewSessionModal(false)}
+      />
 
       {/* Task panel — overlay on mobile, inline on desktop */}
       {currentSessionId && isSessionView && (

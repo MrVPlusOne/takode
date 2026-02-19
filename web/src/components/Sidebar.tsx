@@ -166,8 +166,7 @@ export function Sidebar() {
 
   function handleNewSession() {
     useStore.getState().closeTerminal();
-    navigateHome();
-    useStore.getState().newSession();
+    useStore.getState().setShowNewSessionModal(true);
     if (window.innerWidth < 768) {
       useStore.getState().setSidebarOpen(false);
     }

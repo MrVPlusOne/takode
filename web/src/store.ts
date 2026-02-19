@@ -100,6 +100,7 @@ interface AppState {
   sidebarOpen: boolean;
   taskPanelOpen: boolean;
   homeResetKey: number;
+  showNewSessionModal: boolean;
   activeTab: "chat" | "diff";
   diffPanelSelectedFile: Map<string, string>;
 
@@ -113,6 +114,7 @@ interface AppState {
   toggleNotificationDesktop: () => void;
   setSidebarOpen: (v: boolean) => void;
   setTaskPanelOpen: (open: boolean) => void;
+  setShowNewSessionModal: (open: boolean) => void;
   newSession: () => void;
 
   // Session actions
@@ -365,6 +367,7 @@ export const useStore = create<AppState>((set) => ({
   sidebarOpen: typeof window !== "undefined" ? window.innerWidth >= 768 : true,
   taskPanelOpen: typeof window !== "undefined" ? window.innerWidth >= 1024 : false,
   homeResetKey: 0,
+  showNewSessionModal: false,
   activeTab: "chat",
   diffPanelSelectedFile: new Map(),
   feedVisibleCount: new Map(),
@@ -427,13 +430,10 @@ export const useStore = create<AppState>((set) => ({
     }),
   setSidebarOpen: (v) => set({ sidebarOpen: v }),
   setTaskPanelOpen: (open) => set({ taskPanelOpen: open }),
+  setShowNewSessionModal: (open) => set({ showNewSessionModal: open }),
   newSession: () => {
     scopedRemoveItem("cc-current-session");
-    set((s) => {
-      const composerDrafts = new Map(s.composerDrafts);
-      composerDrafts.delete("__home__");
-      return { currentSessionId: null, homeResetKey: s.homeResetKey + 1, composerDrafts };
-    });
+    set((s) => ({ currentSessionId: null, homeResetKey: s.homeResetKey + 1 }));
   },
 
   setCurrentSession: (id) => {
