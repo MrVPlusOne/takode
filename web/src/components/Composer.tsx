@@ -445,13 +445,10 @@ export function Composer({ sessionId }: { sessionId: string }) {
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             placeholder={
-              !isConnected
-                ? "Waiting for CLI connection..."
-                : pendingPlanPerm
+              pendingPlanPerm
                 ? "Type to reject plan and send new instructions..."
                 : "Type a message... (/ for commands)"
             }
-            disabled={!isConnected}
             rows={1}
             className="w-full px-4 pt-3 pb-1 text-base sm:text-sm bg-transparent resize-none focus:outline-none text-cc-fg font-sans-ui placeholder:text-cc-muted disabled:opacity-50 overflow-y-auto"
             style={{ minHeight: "36px", maxHeight: "200px" }}

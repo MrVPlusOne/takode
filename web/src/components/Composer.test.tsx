@@ -436,12 +436,12 @@ describe("Composer slash menu", () => {
 // ─── Disabled state ──────────────────────────────────────────────────────────
 
 describe("Composer disabled state", () => {
-  it("textarea is disabled when CLI is not connected", () => {
+  it("textarea is always enabled so users can draft while waiting for CLI", () => {
     setupMockStore({ isConnected: false });
     const { container } = render(<Composer sessionId="s1" />);
     const textarea = container.querySelector("textarea")! as HTMLTextAreaElement;
 
-    expect(textarea.disabled).toBe(true);
+    expect(textarea.disabled).toBe(false);
   });
 
   it("textarea shows correct placeholder when connected", () => {
@@ -452,11 +452,12 @@ describe("Composer disabled state", () => {
     expect(textarea.placeholder).toContain("Type a message");
   });
 
-  it("textarea shows waiting placeholder when not connected", () => {
+  it("textarea shows normal placeholder when not connected", () => {
     setupMockStore({ isConnected: false });
     const { container } = render(<Composer sessionId="s1" />);
     const textarea = container.querySelector("textarea")! as HTMLTextAreaElement;
 
-    expect(textarea.placeholder).toContain("Waiting for CLI connection");
+    // Textarea is enabled for drafting; placeholder is the same as connected state
+    expect(textarea.placeholder).toContain("Type a message");
   });
 });
