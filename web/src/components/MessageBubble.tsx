@@ -177,6 +177,10 @@ function AssistantMessage({ message, sessionId }: { message: ChatMessage; sessio
 
   const grouped = useMemo(() => groupContentBlocks(blocks), [blocks]);
 
+  // Only show copy-message button when there's actual text content to copy
+  const hasTextContent = message.content
+    || blocks.some((b) => b.type === "text" || b.type === "thinking");
+
   if (blocks.length === 0 && message.content) {
     return (
       <div className="group/msg relative flex items-start gap-3">
@@ -206,7 +210,7 @@ function AssistantMessage({ message, sessionId }: { message: ChatMessage; sessio
           return <ToolGroupBlock key={i} name={group.name} items={group.items} sessionId={sessionId} />;
         })}
       </div>
-      <CopyMessageButton message={message} contentRef={contentRef} />
+      {hasTextContent && <CopyMessageButton message={message} contentRef={contentRef} />}
     </div>
   );
 }
