@@ -218,6 +218,135 @@ function groupMessages(messages: ChatMessage[]): FeedEntry[] {
   return entries;
 }
 
+// ─── Turn grouping (collapsible agent activity) ─────────────────────────────
+
+interface TurnStats {
+  messageCount: number;
+  toolCount: number;
+  subagentCount: number;
+  lastAssistantText: string;
+}
+
+interface Turn {
+  id: string;                      // Stable ID for collapse state (user msg ID or synthetic)
+  userEntry: FeedEntry | null;
+  agentEntries: FeedEntry[];       // Non-system agent activity (collapsible)
+  systemEntries: FeedEntry[];      // System messages (always visible, never collapsed)
+  stats: TurnStats;
+}
+
+/** Count tool_use blocks and subagents recursively in a list of FeedEntries */
+function countEntryStats(entries: FeedEntry[]): { messages: number; tools: number; subagents: number; lastText: string } {
+  let messages = 0;
+  let tools = 0;
+  let subagents = 0;
+  let lastText = "";
+
+  for (const entry of entries) {
+    if (entry.kind === "message") {
+      messages++;
+      const msg = entry.msg;
+      if (msg.role === "assistant") {
+        // Count tool_use blocks
+        if (msg.contentBlocks) {
+          for (const b of msg.contentBlocks) {
+            if (b.type === "tool_use") tools++;
+          }
+        }
+        // Track last assistant text
+        const text = msg.content?.trim();
+        if (text) lastText = text;
+      }
+    } else if (entry.kind === "tool_msg_group") {
+      messages++;
+      tools += entry.items.length;
+    } else if (entry.kind === "subagent") {
+      subagents++;
+      const childStats = countEntryStats(entry.children);
+      messages += childStats.messages;
+      tools += childStats.tools;
+      subagents += childStats.subagents;
+      if (childStats.lastText) lastText = childStats.lastText;
+    }
+  }
+
+  return { messages, tools, subagents, lastText };
+}
+
+/** Check if a FeedEntry is a system message (compact markers, errors, info dividers) */
+function isSystemEntry(entry: FeedEntry): boolean {
+  return entry.kind === "message" && entry.msg.role === "system";
+}
+
+/** Get a stable ID for an entry (for use as turn ID fallback) */
+function getEntryId(entry: FeedEntry): string {
+  if (entry.kind === "message") return entry.msg.id;
+  if (entry.kind === "tool_msg_group") return entry.firstId;
+  return entry.taskToolUseId;
+}
+
+/** Build a Turn from accumulated entries */
+function makeTurn(userEntry: FeedEntry | null, entries: FeedEntry[], turnIndex: number): Turn {
+  // Separate system messages (always visible) from collapsible agent activity
+  const agentEntries: FeedEntry[] = [];
+  const systemEntries: FeedEntry[] = [];
+  for (const e of entries) {
+    if (isSystemEntry(e)) {
+      systemEntries.push(e);
+    } else {
+      agentEntries.push(e);
+    }
+  }
+
+  const s = countEntryStats(agentEntries);
+
+  // Stable ID: prefer user message ID, fall back to first agent entry ID, then synthetic
+  const id = userEntry
+    ? (userEntry.kind === "message" ? userEntry.msg.id : `turn-u-${turnIndex}`)
+    : (entries.length > 0 ? `turn-a-${getEntryId(entries[0])}` : `turn-${turnIndex}`);
+
+  return {
+    id,
+    userEntry,
+    agentEntries,
+    systemEntries,
+    stats: {
+      messageCount: s.messages,
+      toolCount: s.tools,
+      subagentCount: s.subagents,
+      lastAssistantText: s.lastText.length > 80 ? s.lastText.slice(0, 80) + "..." : s.lastText,
+    },
+  };
+}
+
+/** Group flat feed entries into turns, splitting on user messages */
+function groupIntoTurns(entries: FeedEntry[]): Turn[] {
+  const turns: Turn[] = [];
+  let currentUser: FeedEntry | null = null;
+  let currentEntries: FeedEntry[] = [];
+
+  for (const entry of entries) {
+    const isUser = entry.kind === "message" && entry.msg.role === "user";
+    if (isUser) {
+      // Flush previous turn
+      if (currentUser !== null || currentEntries.length > 0) {
+        turns.push(makeTurn(currentUser, currentEntries, turns.length));
+      }
+      currentUser = entry;
+      currentEntries = [];
+    } else {
+      currentEntries.push(entry);
+    }
+  }
+
+  // Flush final turn
+  if (currentUser !== null || currentEntries.length > 0) {
+    turns.push(makeTurn(currentUser, currentEntries, turns.length));
+  }
+
+  return turns;
+}
+
 // ─── Components ──────────────────────────────────────────────────────────────
 
 function ToolMessageGroup({ group, sessionId }: { group: ToolMsgGroup; sessionId: string }) {
@@ -287,6 +416,106 @@ function FeedEntries({ entries, sessionId }: { entries: FeedEntry[]; sessionId: 
           return <SubagentContainer key={entry.taskToolUseId} group={entry} sessionId={sessionId} />;
         }
         return <MessageBubble key={entry.msg.id} message={entry.msg} sessionId={sessionId} />;
+      })}
+    </>
+  );
+}
+
+function CollapsedTurnSummary({ stats, onClick }: { stats: TurnStats; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="w-full flex flex-col gap-0.5 py-2 px-3 rounded-lg border border-cc-border/30 bg-cc-card/30 hover:bg-cc-hover/50 transition-colors cursor-pointer"
+    >
+      <div className="flex items-center gap-1.5 text-[11px] text-cc-muted font-mono-code">
+        <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 shrink-0 text-cc-muted/60">
+          <path d="M6 4l4 4-4 4" />
+        </svg>
+        <span>{stats.messageCount} message{stats.messageCount !== 1 ? "s" : ""}</span>
+        {stats.toolCount > 0 && (
+          <>
+            <span className="text-cc-muted/40">·</span>
+            <span>{stats.toolCount} tool{stats.toolCount !== 1 ? "s" : ""}</span>
+          </>
+        )}
+        {stats.subagentCount > 0 && (
+          <>
+            <span className="text-cc-muted/40">·</span>
+            <span>{stats.subagentCount} agent{stats.subagentCount !== 1 ? "s" : ""}</span>
+          </>
+        )}
+      </div>
+      {stats.lastAssistantText && (
+        <div className="text-[11px] text-cc-muted/60 truncate pl-[18px] italic font-mono-code">
+          &ldquo;{stats.lastAssistantText}&rdquo;
+        </div>
+      )}
+    </button>
+  );
+}
+
+/** Thin clickable bar to collapse an expanded turn's agent activity */
+function TurnCollapseBar({ stats, onClick }: { stats: TurnStats; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="w-full flex items-center gap-1.5 py-1 px-2 -mb-1 rounded hover:bg-cc-hover/40 transition-colors cursor-pointer text-[11px] text-cc-muted/50 hover:text-cc-muted font-mono-code"
+      title="Collapse this turn"
+    >
+      <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 shrink-0 transition-transform rotate-90">
+        <path d="M6 4l4 4-4 4" />
+      </svg>
+      <span>{stats.messageCount} message{stats.messageCount !== 1 ? "s" : ""}</span>
+      {stats.toolCount > 0 && (
+        <>
+          <span className="text-cc-muted/30">·</span>
+          <span>{stats.toolCount} tool{stats.toolCount !== 1 ? "s" : ""}</span>
+        </>
+      )}
+    </button>
+  );
+}
+
+function TurnEntries({ turns, sessionId }: { turns: Turn[]; sessionId: string }) {
+  const collapsedSet = useStore((s) => s.collapsedTurns.get(sessionId));
+  const toggleTurn = useStore((s) => s.toggleTurnCollapsed);
+
+  return (
+    <>
+      {turns.map((turn) => {
+        const isCollapsed = collapsedSet?.has(turn.id) ?? false;
+        return (
+          <div key={turn.id} className="space-y-3 sm:space-y-5">
+            {/* Render user message */}
+            {turn.userEntry && (
+              <FeedEntries entries={[turn.userEntry]} sessionId={sessionId} />
+            )}
+            {/* System messages are always visible (compact markers, errors, etc.) */}
+            {turn.systemEntries.length > 0 && (
+              <FeedEntries entries={turn.systemEntries} sessionId={sessionId} />
+            )}
+            {/* Agent activity: collapsed summary or full entries with collapse bar */}
+            {turn.agentEntries.length > 0 && (
+              isCollapsed ? (
+                <CollapsedTurnSummary
+                  stats={turn.stats}
+                  onClick={() => toggleTurn(sessionId, turn.id)}
+                />
+              ) : (
+                <>
+                  {/* Per-turn collapse bar (only for non-last turns with enough content) */}
+                  {turn.stats.messageCount > 1 && (
+                    <TurnCollapseBar
+                      stats={turn.stats}
+                      onClick={() => toggleTurn(sessionId, turn.id)}
+                    />
+                  )}
+                  <FeedEntries entries={turn.agentEntries} sessionId={sessionId} />
+                </>
+              )
+            )}
+          </div>
+        );
       })}
     </>
   );
@@ -517,10 +746,23 @@ export function MessageFeed({ sessionId }: { sessionId: string }) {
   }, [sessionId]);
 
   const grouped = useMemo(() => groupMessages(messages), [messages]);
+  const turns = useMemo(() => groupIntoTurns(grouped), [grouped]);
 
-  const totalEntries = grouped.length;
-  const hasMore = totalEntries > visibleCount;
-  const visibleEntries = hasMore ? grouped.slice(totalEntries - visibleCount) : grouped;
+  const totalTurns = turns.length;
+  const hasMore = totalTurns > visibleCount;
+  const visibleTurns = hasMore ? turns.slice(totalTurns - visibleCount) : turns;
+
+  // Collapsible turn IDs: all except the last turn (active edge) that have agent content
+  const collapsibleTurnIds = useMemo(() =>
+    visibleTurns
+      .slice(0, -1)
+      .filter((t) => t.agentEntries.length > 0)
+      .map((t) => t.id),
+    [visibleTurns],
+  );
+  const collapsedSet = useStore((s) => s.collapsedTurns.get(sessionId));
+  // Derive allCollapsed from actual state (no separate boolean that can desync)
+  const allCollapsed = collapsibleTurnIds.length > 0 && collapsibleTurnIds.every((id) => collapsedSet?.has(id));
 
   const handleLoadMore = useCallback(() => {
     if (loadingMore.current) return;
@@ -613,6 +855,33 @@ export function MessageFeed({ sessionId }: { sessionId: string }) {
         className="h-full overflow-y-auto px-3 sm:px-4 py-4 sm:py-6"
       >
         <div className="max-w-3xl mx-auto space-y-3 sm:space-y-5">
+          {/* Global collapse toggle — only shown when there are 2+ collapsible turns */}
+          {collapsibleTurnIds.length >= 2 && (
+            <div className="flex justify-end -mb-2">
+              <button
+                onClick={() => useStore.getState().setAllTurnsCollapsed(sessionId, !allCollapsed, collapsibleTurnIds)}
+                className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
+                title={allCollapsed ? "Expand all turns" : "Collapse all turns"}
+              >
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5">
+                  {allCollapsed ? (
+                    /* expand icon: arrows pointing outward */
+                    <>
+                      <path d="M4 6l4-4 4 4" />
+                      <path d="M4 10l4 4 4-4" />
+                    </>
+                  ) : (
+                    /* collapse icon: arrows pointing inward */
+                    <>
+                      <path d="M4 2l4 4 4-4" />
+                      <path d="M4 14l4-4 4 4" />
+                    </>
+                  )}
+                </svg>
+                <span>{allCollapsed ? "Expand all" : "Collapse all"}</span>
+              </button>
+            </div>
+          )}
           {hasMore && (
             <div ref={sentinelRef} className="flex justify-center pb-2">
               <span className="flex items-center gap-1.5 text-xs text-cc-muted">
@@ -624,7 +893,7 @@ export function MessageFeed({ sessionId }: { sessionId: string }) {
               </span>
             </div>
           )}
-          <FeedEntries entries={visibleEntries} sessionId={sessionId} />
+          <TurnEntries turns={visibleTurns} sessionId={sessionId} />
 
           {/* Tool progress indicator */}
           {toolProgress && toolProgress.size > 0 && !streamingText && (

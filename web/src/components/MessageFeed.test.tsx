@@ -34,6 +34,8 @@ vi.mock("../store.js", () => {
       toolResults: mockStoreValues.toolResults ?? new Map(),
       feedVisibleCount: mockStoreValues.feedVisibleCount ?? new Map(),
       feedScrollPosition: mockStoreValues.feedScrollPosition ?? new Map(),
+      collapsedTurns: mockStoreValues.collapsedTurns ?? new Map(),
+      toggleTurnCollapsed: vi.fn(),
     };
     return selector(state);
   };
@@ -42,6 +44,7 @@ vi.mock("../store.js", () => {
     setFeedVisibleCount: vi.fn(),
     feedScrollPosition: mockStoreValues.feedScrollPosition ?? new Map(),
     setFeedScrollPosition: vi.fn(),
+    setAllTurnsCollapsed: vi.fn(),
   });
   return { useStore };
 });
@@ -95,6 +98,13 @@ function resetStore() {
   mockStoreValues.streamingPausedDuration = new Map();
   mockStoreValues.streamingPauseStartedAt = new Map();
   mockStoreValues.sessionStatus = new Map();
+  mockStoreValues.collapsedTurns = new Map();
+}
+
+function setStoreCollapsedTurns(sessionId: string, turnIds: string[]) {
+  const map = new Map();
+  map.set(sessionId, new Set(turnIds));
+  mockStoreValues.collapsedTurns = map;
 }
 
 beforeEach(() => {
@@ -453,5 +463,110 @@ describe("MessageFeed - subagent grouping", () => {
     // instead of appearing as top-level entries. The SubagentContainer renders
     // the description text as a label — our fallback is "Subagent".
     expect(screen.getByText("Subagent")).toBeTruthy();
+  });
+});
+
+// ─── Turn grouping and collapse ─────────────────────────────────────────────
+
+describe("MessageFeed - turn grouping", () => {
+  it("groups entries into turns split on user messages", () => {
+    // Two user messages with assistant responses between them — both should render
+    const sid = "test-turn-group";
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "First question" }),
+      makeMessage({ id: "a1", role: "assistant", content: "First answer" }),
+      makeMessage({ id: "u2", role: "user", content: "Second question" }),
+      makeMessage({ id: "a2", role: "assistant", content: "Second answer" }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByText("First question")).toBeTruthy();
+    expect(screen.getByText("First answer")).toBeTruthy();
+    expect(screen.getByText("Second question")).toBeTruthy();
+    expect(screen.getByText("Second answer")).toBeTruthy();
+  });
+
+  it("renders agent activity before first user message", () => {
+    // Session starts with assistant message (e.g., resumed session)
+    const sid = "test-turn-preamble";
+    setStoreMessages(sid, [
+      makeMessage({ id: "a0", role: "assistant", content: "Session restored" }),
+      makeMessage({ id: "u1", role: "user", content: "Continue" }),
+      makeMessage({ id: "a1", role: "assistant", content: "OK" }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByText("Continue")).toBeTruthy();
+    expect(screen.getByText("OK")).toBeTruthy();
+  });
+});
+
+describe("MessageFeed - collapsed turns", () => {
+  it("shows collapsed summary when turn is in collapsedTurns set", () => {
+    // Collapse the first turn (user message u1) — its agent entries should be hidden
+    const sid = "test-turn-collapse";
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "First question" }),
+      makeMessage({ id: "a1", role: "assistant", content: "Long assistant response here" }),
+      makeMessage({
+        id: "a2", role: "assistant", content: "",
+        contentBlocks: [
+          { type: "tool_use", id: "tu-1", name: "Read", input: { file_path: "/a.ts" } },
+        ],
+      }),
+      makeMessage({ id: "u2", role: "user", content: "Second question" }),
+      makeMessage({ id: "a3", role: "assistant", content: "Second answer" }),
+    ]);
+    // Collapse the first turn using its stable ID (user message ID "u1")
+    setStoreCollapsedTurns(sid, ["u1"]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    // User message should still be visible
+    expect(screen.getByText("First question")).toBeTruthy();
+    // Agent activity should be hidden — collapsed summary shows stats instead
+    expect(screen.queryByText("Long assistant response here")).toBeNull();
+    // Collapsed summary should show message count and tool count
+    expect(screen.getByText(/2 messages/)).toBeTruthy();
+    expect(screen.getByText(/1 tool/)).toBeTruthy();
+    // Second turn should be fully visible
+    expect(screen.getByText("Second question")).toBeTruthy();
+    expect(screen.getByText("Second answer")).toBeTruthy();
+  });
+
+  it("keeps system messages visible when turn is collapsed", () => {
+    // System messages (compact markers, errors) should not be hidden by collapse
+    const sid = "test-system-visible";
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Do something" }),
+      makeMessage({ id: "s1", role: "system", content: "Conversation compacted" }),
+      makeMessage({ id: "a1", role: "assistant", content: "Done" }),
+      makeMessage({ id: "u2", role: "user", content: "Next" }),
+    ]);
+    setStoreCollapsedTurns(sid, ["u1"]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    // System message should remain visible even though the turn is collapsed
+    expect(screen.getByText("Conversation compacted")).toBeTruthy();
+    // Agent message should be hidden
+    expect(screen.queryByText("Done")).toBeNull();
+  });
+
+  it("shows collapsed summary with correct text preview", () => {
+    const sid = "test-collapse-preview";
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Question" }),
+      makeMessage({ id: "a1", role: "assistant", content: "The fix has been applied" }),
+      makeMessage({ id: "u2", role: "user", content: "Thanks" }),
+    ]);
+    setStoreCollapsedTurns(sid, ["u1"]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    // The collapsed summary should include a text preview from the last assistant message
+    expect(screen.getByText(/The fix has been applied/)).toBeTruthy();
   });
 });

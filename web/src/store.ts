@@ -206,6 +206,12 @@ interface AppState {
   setComposerDraft: (sessionId: string, draft: { text: string; images: Array<{ name: string; base64: string; mediaType: string }> }) => void;
   clearComposerDraft: (sessionId: string) => void;
 
+  // Turn collapse state (collapsible agent activity sections)
+  // Uses stable turn IDs (user message IDs or synthetic keys) instead of positional indices
+  collapsedTurns: Map<string, Set<string>>;
+  toggleTurnCollapsed: (sessionId: string, turnId: string) => void;
+  setAllTurnsCollapsed: (sessionId: string, collapsed: boolean, turnIds: string[]) => void;
+
   // Diff panel actions
   setActiveTab: (tab: "chat" | "diff") => void;
   setDiffPanelSelectedFile: (sessionId: string, filePath: string | null) => void;
@@ -362,6 +368,7 @@ export const useStore = create<AppState>((set) => ({
   feedVisibleCount: new Map(),
   feedScrollPosition: new Map(),
   composerDrafts: new Map(),
+  collapsedTurns: new Map(),
   terminalOpen: false,
   terminalCwd: null,
   terminalId: null,
@@ -508,6 +515,8 @@ export const useStore = create<AppState>((set) => ({
       feedScrollPosition.delete(sessionId);
       const composerDrafts = new Map(s.composerDrafts);
       composerDrafts.delete(sessionId);
+      const collapsedTurns = new Map(s.collapsedTurns);
+      collapsedTurns.delete(sessionId);
       const sessionLastViewed = new Map(s.sessionLastViewed);
       sessionLastViewed.delete(sessionId);
       const sessionUnreadCount = new Map(s.sessionUnreadCount);
@@ -548,6 +557,7 @@ export const useStore = create<AppState>((set) => ({
         feedVisibleCount,
         feedScrollPosition,
         composerDrafts,
+        collapsedTurns,
         sessionLastViewed,
         sessionUnreadCount,
         sessionAttention,
@@ -995,6 +1005,30 @@ export const useStore = create<AppState>((set) => ({
       return { composerDrafts };
     }),
 
+  toggleTurnCollapsed: (sessionId, turnId) =>
+    set((s) => {
+      const collapsedTurns = new Map(s.collapsedTurns);
+      const ids = new Set(collapsedTurns.get(sessionId) || []);
+      if (ids.has(turnId)) {
+        ids.delete(turnId);
+      } else {
+        ids.add(turnId);
+      }
+      collapsedTurns.set(sessionId, ids);
+      return { collapsedTurns };
+    }),
+
+  setAllTurnsCollapsed: (sessionId, collapsed, turnIds) =>
+    set((s) => {
+      const collapsedTurns = new Map(s.collapsedTurns);
+      if (collapsed) {
+        collapsedTurns.set(sessionId, new Set(turnIds));
+      } else {
+        collapsedTurns.set(sessionId, new Set());
+      }
+      return { collapsedTurns };
+    }),
+
   setTerminalOpen: (open) => set({ terminalOpen: open }),
   setTerminalCwd: (cwd) => set({ terminalCwd: cwd }),
   setTerminalId: (id) => set({ terminalId: id }),
@@ -1037,6 +1071,7 @@ export const useStore = create<AppState>((set) => ({
       feedVisibleCount: new Map(),
       feedScrollPosition: new Map(),
       composerDrafts: new Map(),
+      collapsedTurns: new Map(),
       terminalOpen: false,
       terminalCwd: null,
       terminalId: null,
