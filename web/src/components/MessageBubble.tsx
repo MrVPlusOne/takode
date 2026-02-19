@@ -110,7 +110,7 @@ function UserMessage({ message, sessionId }: { message: ChatMessage; sessionId?:
   const canRevert = !isCodex && !!sessionId;
 
   return (
-    <div className="flex justify-end items-start gap-1 group/msg animate-[fadeSlideIn_0.2s_ease-out] select-none sm:select-text">
+    <div className="flex justify-end items-start gap-1 group/msg animate-[fadeSlideIn_0.2s_ease-out]">
       <div className="max-w-[85%] sm:max-w-[80%] px-3 sm:px-4 py-2.5 rounded-[14px] rounded-br-[4px] bg-cc-user-bubble text-cc-fg">
         {message.images && message.images.length > 0 && sessionId && (
           <div className="flex gap-2 flex-wrap mb-2">
