@@ -6,7 +6,7 @@
  *   2. permission         -> amber dot, breathing glow (needs user action)
  *   3. disconnected       -> red dot, no glow
  *   4. running            -> green dot, breathing glow (agent actively working)
- *   5. compacting         -> amber dot, breathing glow (context compaction)
+ *   5. compacting         -> green dot, breathing glow (context compaction)
  *   6. completed_unread   -> blue dot, no glow (agent finished, user hasn't checked)
  *   7. idle               -> gray dot, no glow
  */
@@ -59,7 +59,7 @@ const DOT_COLOR: Record<SessionVisualStatus, string> = {
   permission: "bg-cc-warning",
   disconnected: "bg-cc-error",
   running: "bg-cc-success",
-  compacting: "bg-cc-warning",
+  compacting: "bg-cc-success",
   completed_unread: "bg-blue-500",
   idle: "bg-cc-muted/40",
 };
@@ -84,7 +84,7 @@ const GLOW_RGB: Record<SessionVisualStatus, string> = {
   permission: "245, 158, 11",   // amber
   disconnected: "",
   running: "34, 197, 94",       // green
-  compacting: "245, 158, 11",   // amber
+  compacting: "34, 197, 94",    // green (same as running — not amber, which implies user action)
   completed_unread: "",
   idle: "",
 };

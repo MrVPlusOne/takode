@@ -1666,6 +1666,10 @@ export class WsBridge {
         const askPerm = session.state.askPermission !== false; // default true
         const postPlanMode = askPerm ? "acceptEdits" : "bypassPermissions";
         this.handleSetPermissionMode(session, postPlanMode);
+        // Immediately tell browsers the session is running — the CLI will
+        // start executing the plan right away but its own status update
+        // takes a round-trip to arrive.
+        this.broadcastToBrowsers(session, { type: "status_change", status: "running" });
         console.log(`[ws-bridge] ExitPlanMode approved for session ${session.id}, switching to ${postPlanMode} (askPermission=${askPerm})`);
       }
     } else {
@@ -1686,9 +1690,11 @@ export class WsBridge {
       // and waits for new user input (matches Claude Code vanilla behavior)
       if (pending?.tool_name === "ExitPlanMode") {
         this.handleInterrupt(session);
-        // Immediately tell browsers the session is idle — the CLI may take
-        // time to acknowledge the interrupt and send a result message.
-        this.broadcastToBrowsers(session, { type: "status_change", status: "idle" });
+        // Don't broadcast "idle" here — let the CLI's interrupt response set
+        // the status naturally. Broadcasting idle eagerly causes a flash when
+        // the browser auto-rejects a plan by sending a new message (deny →
+        // interrupt → user_message), because the CLI's interrupt response
+        // arrives after user_message's "running" broadcast and overwrites it.
         console.log(`[ws-bridge] ExitPlanMode denied for session ${session.id}, sending interrupt`);
       }
 

@@ -177,11 +177,12 @@ describe("SessionStatusDot component", () => {
   });
 
   it("applies breathing glow animation for compacting status", () => {
-    // Compacting status should have glow-breathe animation and amber --glow-color
+    // Compacting status should have glow-breathe animation and green --glow-color
+    // (same as running — amber is reserved for "needs user action")
     render(<SessionStatusDot {...makeProps({ status: "compacting" })} />);
     const dot = screen.getByTestId("session-status-dot");
     expect(dot.style.animation).toBe("glow-breathe 2s ease-in-out infinite");
-    expect(dot.style.getPropertyValue("--glow-color")).toBe("245, 158, 11");
+    expect(dot.style.getPropertyValue("--glow-color")).toBe("34, 197, 94");
   });
 
   it("does NOT apply glow animation for idle status", () => {
