@@ -1,6 +1,7 @@
-import { useRef, useCallback, type RefObject } from "react";
+import { useRef, useCallback, useMemo, type RefObject } from "react";
 import type { SessionItem as SessionItemType } from "../utils/project-grouping.js";
 import { SessionStatusDot } from "./SessionStatusDot.js";
+import { useStore } from "../store.js";
 
 interface SessionItemProps {
   session: SessionItemType;
@@ -215,12 +216,8 @@ export function SessionItem({
               )}
             </div>
 
-            {/* Row 2: Last user message preview */}
-            {sessionPreview && !isEditing && (
-              <div className="mt-0.5 text-[10.5px] text-cc-muted/60 leading-tight truncate">
-                {sessionPreview}
-              </div>
-            )}
+            {/* Row 2: Preview — active task (if newer) or last user message */}
+            {!isEditing && <SessionPreviewRow sessionId={s.id} userPreview={sessionPreview} />}
 
             {/* Row 3: Branch (directory already shown in group header) */}
             {s.gitBranch && (
@@ -344,4 +341,30 @@ export function SessionItem({
       )}
     </div>
   );
+}
+
+/** Show active task preview (accent+italic) if newer than user message, else user message */
+function SessionPreviewRow({ sessionId, userPreview }: { sessionId: string; userPreview?: string }) {
+  const taskPreview = useStore((s) => s.sessionTaskPreview.get(sessionId));
+  const userUpdatedAt = useStore((s) => s.sessionPreviewUpdatedAt.get(sessionId) ?? 0);
+
+  const showTask = taskPreview && taskPreview.updatedAt > userUpdatedAt;
+
+  if (showTask) {
+    return (
+      <div className="mt-0.5 text-[10.5px] text-cc-primary/60 leading-tight truncate italic">
+        {taskPreview.text}
+      </div>
+    );
+  }
+
+  if (userPreview) {
+    return (
+      <div className="mt-0.5 text-[10.5px] text-cc-muted/60 leading-tight truncate">
+        {userPreview}
+      </div>
+    );
+  }
+
+  return null;
 }

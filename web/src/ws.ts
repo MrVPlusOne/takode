@@ -136,6 +136,7 @@ function getProcessedSet(sessionId: string): Set<string> {
 function extractTasksFromBlocks(sessionId: string, blocks: ContentBlock[]) {
   const store = useStore.getState();
   const processed = getProcessedSet(sessionId);
+  let hadTaskUpdate = false;
 
   for (const block of blocks) {
     if (block.type !== "tool_use") continue;
@@ -160,6 +161,7 @@ function extractTasksFromBlocks(sessionId: string, blocks: ContentBlock[]) {
         }));
         store.setTasks(sessionId, tasks);
         taskCounters.set(sessionId, tasks.length);
+        hadTaskUpdate = true;
       }
       continue;
     }
@@ -176,6 +178,7 @@ function extractTasksFromBlocks(sessionId: string, blocks: ContentBlock[]) {
         status: "pending" as const,
       };
       store.addTask(sessionId, task);
+      hadTaskUpdate = true;
       continue;
     }
 
@@ -189,8 +192,16 @@ function extractTasksFromBlocks(sessionId: string, blocks: ContentBlock[]) {
         if (input.activeForm !== undefined) updates.activeForm = input.activeForm as string;
         if (input.addBlockedBy) updates.blockedBy = input.addBlockedBy as string[];
         store.updateTask(sessionId, taskId, updates);
+        hadTaskUpdate = true;
       }
     }
+  }
+
+  // Update sidebar task preview: show the first in_progress task's activeForm
+  if (hadTaskUpdate) {
+    const tasks = useStore.getState().sessionTasks.get(sessionId);
+    const active = tasks?.find((t) => t.status === "in_progress");
+    store.setSessionTaskPreview(sessionId, active ? (active.activeForm || active.subject) : null);
   }
 }
 

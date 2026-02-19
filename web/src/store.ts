@@ -56,6 +56,9 @@ interface AppState {
 
   // Last user message preview per session (truncated)
   sessionPreviews: Map<string, string>;
+  sessionPreviewUpdatedAt: Map<string, number>;
+  // Active task preview per session (from TodoWrite/TaskCreate/TaskUpdate in_progress items)
+  sessionTaskPreview: Map<string, { text: string; updatedAt: number }>;
 
   // PR status per session (pushed by server via WebSocket)
   prStatus: Map<string, PRStatusResponse>;
@@ -167,6 +170,7 @@ interface AppState {
 
   // Session preview actions
   setSessionPreview: (sessionId: string, preview: string) => void;
+  setSessionTaskPreview: (sessionId: string, text: string | null) => void;
 
   // PR status action
   setPRStatus: (sessionId: string, status: PRStatusResponse) => void;
@@ -357,6 +361,8 @@ export const useStore = create<AppState>((set) => ({
   sessionNames: getInitialSessionNames(),
   recentlyRenamed: new Set(),
   sessionPreviews: new Map(),
+  sessionPreviewUpdatedAt: new Map(),
+  sessionTaskPreview: new Map(),
   prStatus: new Map(),
   mcpServers: new Map(),
   toolProgress: new Map(),
@@ -835,7 +841,20 @@ export const useStore = create<AppState>((set) => ({
     set((s) => {
       const sessionPreviews = new Map(s.sessionPreviews);
       sessionPreviews.set(sessionId, preview.slice(0, 80));
-      return { sessionPreviews };
+      const sessionPreviewUpdatedAt = new Map(s.sessionPreviewUpdatedAt);
+      sessionPreviewUpdatedAt.set(sessionId, Date.now());
+      return { sessionPreviews, sessionPreviewUpdatedAt };
+    }),
+
+  setSessionTaskPreview: (sessionId, text) =>
+    set((s) => {
+      const sessionTaskPreview = new Map(s.sessionTaskPreview);
+      if (text) {
+        sessionTaskPreview.set(sessionId, { text: text.slice(0, 80), updatedAt: Date.now() });
+      } else {
+        sessionTaskPreview.delete(sessionId);
+      }
+      return { sessionTaskPreview };
     }),
 
   setPRStatus: (sessionId, status) =>
@@ -1129,6 +1148,8 @@ export const useStore = create<AppState>((set) => ({
       sessionNames: new Map(),
       recentlyRenamed: new Set(),
       sessionPreviews: new Map(),
+      sessionPreviewUpdatedAt: new Map(),
+      sessionTaskPreview: new Map(),
       mcpServers: new Map(),
       toolProgress: new Map(),
       toolResults: new Map(),

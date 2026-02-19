@@ -123,6 +123,8 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
     sessionStatus: new Map(),
     sessionNames: new Map(),
     sessionPreviews: new Map(),
+    sessionPreviewUpdatedAt: new Map(),
+    sessionTaskPreview: new Map(),
     recentlyRenamed: new Set(),
     pendingPermissions: new Map(),
     collapsedProjects: new Set(),
