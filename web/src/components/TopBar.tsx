@@ -199,6 +199,9 @@ export function TopBar() {
           {status === "compacting" && (
             <span className="text-cc-warning font-medium animate-pulse">Compacting...</span>
           )}
+          {status === "reverting" && (
+            <span className="text-cc-warning font-medium animate-pulse">Reverting...</span>
+          )}
 
           {status === "running" && (
             <div className="flex items-center gap-1.5">

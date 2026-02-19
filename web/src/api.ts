@@ -346,6 +346,9 @@ export const api = {
   forceCompact: (sessionId: string) =>
     post(`/sessions/${encodeURIComponent(sessionId)}/force-compact`),
 
+  revertToMessage: (sessionId: string, messageId: string) =>
+    post(`/sessions/${encodeURIComponent(sessionId)}/revert`, { messageId }),
+
   archiveSession: (sessionId: string, opts?: { force?: boolean }) =>
     post(`/sessions/${encodeURIComponent(sessionId)}/archive`, opts),
 

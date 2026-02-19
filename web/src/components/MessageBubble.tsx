@@ -3,7 +3,10 @@ import type { ChatMessage, ContentBlock } from "../types.js";
 import { ToolBlock, getToolIcon, getToolLabel, ToolIcon } from "./ToolBlock.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { Lightbox } from "./Lightbox.js";
+import { ContextMenu } from "./ContextMenu.js";
 import { getMessageMarkdown, getMessagePlainText, copyRichText } from "../utils/copy-utils.js";
+import { useStore } from "../store.js";
+import { api } from "../api.js";
 
 export function MessageBubble({ message, sessionId }: { message: ChatMessage; sessionId?: string }) {
   if (message.role === "system") {
@@ -102,9 +105,53 @@ export function MessageBubble({ message, sessionId }: { message: ChatMessage; se
 
 function UserMessage({ message, sessionId }: { message: ChatMessage; sessionId?: string }) {
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const isCodex = useStore((s) => s.sessions.get(sessionId ?? "")?.backend_type === "codex");
+  const sessionStatus = useStore((s) => s.sessionStatus.get(sessionId ?? ""));
+  const canRevert = !isCodex && sessionStatus === "idle" && !!sessionId;
+
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    if (!canRevert) return;
+    const { clientX, clientY } = e.touches[0];
+    longPressTimer.current = setTimeout(() => {
+      longPressTimer.current = null;
+      setCtxMenu({ x: clientX, y: clientY });
+    }, 500);
+  }, [canRevert]);
+
+  const cancelLongPress = useCallback(() => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  }, []);
+
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    if (!canRevert) return;
+    e.preventDefault();
+    setCtxMenu({ x: e.clientX, y: e.clientY });
+  }, [canRevert]);
+
+  const handleRevert = useCallback(async () => {
+    if (!sessionId || !message.id) return;
+    if (!confirm("Revert to before this message? All messages after this point will be removed.")) return;
+    try {
+      await api.revertToMessage(sessionId, message.id);
+    } catch (err) {
+      console.error("Revert failed:", err);
+    }
+  }, [sessionId, message.id]);
 
   return (
-    <div className="flex justify-end animate-[fadeSlideIn_0.2s_ease-out]">
+    <div
+      className="flex justify-end animate-[fadeSlideIn_0.2s_ease-out]"
+      onContextMenu={handleContextMenu}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={cancelLongPress}
+      onTouchCancel={cancelLongPress}
+    >
       <div className="max-w-[85%] sm:max-w-[80%] px-3 sm:px-4 py-2.5 rounded-[14px] rounded-br-[4px] bg-cc-user-bubble text-cc-fg">
         {message.images && message.images.length > 0 && sessionId && (
           <div className="flex gap-2 flex-wrap mb-2">
@@ -134,6 +181,14 @@ function UserMessage({ message, sessionId }: { message: ChatMessage; sessionId?:
           src={lightboxSrc}
           alt="attachment"
           onClose={() => setLightboxSrc(null)}
+        />
+      )}
+      {ctxMenu && (
+        <ContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          items={[{ label: "Revert to here", onClick: handleRevert }]}
+          onClose={() => setCtxMenu(null)}
         />
       )}
     </div>

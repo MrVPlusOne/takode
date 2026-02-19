@@ -413,6 +413,24 @@ export class WsBridge {
     });
   }
 
+  /** Persist a session to disk immediately (bypass debounce). */
+  persistSessionSync(sessionId: string): void {
+    const session = this.sessions.get(sessionId);
+    if (!session || !this.store) return;
+    this.store.saveSync({
+      id: session.id,
+      state: session.state,
+      messageHistory: session.messageHistory,
+      pendingMessages: session.pendingMessages,
+      pendingPermissions: Array.from(session.pendingPermissions.entries()),
+      eventBuffer: session.eventBuffer,
+      nextEventSeq: session.nextEventSeq,
+      lastAckSeq: session.lastAckSeq,
+      processedClientMessageIds: session.processedClientMessageIds,
+      toolResults: Array.from(session.toolResults.entries()),
+    });
+  }
+
   private refreshGitInfo(
     session: Session,
     options: { broadcastUpdate?: boolean; notifyPoller?: boolean } = {},
@@ -1007,6 +1025,7 @@ export class WsBridge {
         message: msg.message,
         parent_tool_use_id: msg.parent_tool_use_id,
         timestamp: Date.now(),
+        uuid: msg.uuid,
       };
       session.messageHistory.push(browserMsg);
       this.broadcastToBrowsers(session, browserMsg);
@@ -1032,6 +1051,7 @@ export class WsBridge {
         message: { ...msg.message, content: [...msg.message.content] },
         parent_tool_use_id: msg.parent_tool_use_id,
         timestamp: Date.now(),
+        uuid: msg.uuid,
       };
 
       // Track content block IDs to avoid duplicates
@@ -1548,15 +1568,23 @@ export class WsBridge {
     // never add user messages locally, they render only what the server sends)
     this.broadcastToBrowsers(session, userHistoryEntry);
 
-    // Build content: if images are present, use content block array; otherwise plain string
-    // CLI NDJSON still uses the original base64 images (unchanged)
+    // Build content: if images are present, convert unsupported formats and use
+    // content block array; otherwise plain string. Conversion operates on copies
+    // so that the original base64 data stored to disk is not affected.
     let content: string | unknown[];
     if (msg.images?.length) {
       const blocks: unknown[] = [];
       for (const img of msg.images) {
+        let mediaType = img.media_type;
+        let data = img.data;
+        if (this.imageStore) {
+          const converted = await this.imageStore.convertForApi(data, mediaType);
+          mediaType = converted.mediaType;
+          data = converted.base64;
+        }
         blocks.push({
           type: "image",
-          source: { type: "base64", media_type: img.media_type, data: img.data },
+          source: { type: "base64", media_type: mediaType, data },
         });
       }
       blocks.push({ type: "text", text: msg.content });

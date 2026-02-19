@@ -882,6 +882,68 @@ export function createRoutes(
     return c.json({ ok: true });
   });
 
+  api.post("/sessions/:id/revert", async (c) => {
+    const id = c.req.param("id");
+    const body = await c.req.json<{ messageId: string }>();
+    const info = launcher.getSession(id);
+    if (!info) return c.json({ error: "Session not found" }, 404);
+    if (!info.cliSessionId) return c.json({ error: "No CLI session to resume" }, 400);
+    if (info.backendType === "codex") return c.json({ error: "Revert not supported for Codex" }, 400);
+    if (info.state === "starting" || info.state === "connected") {
+      return c.json({ error: "Cannot revert while session is running" }, 409);
+    }
+
+    const session = wsBridge.getOrCreateSession(id);
+
+    // Find the target user message in history
+    const targetIdx = session.messageHistory.findIndex(
+      (m) => m.type === "user_message" && (m as { id?: string }).id === body.messageId,
+    );
+    if (targetIdx < 0) return c.json({ error: "Message not found in history" }, 404);
+
+    // Find the preceding assistant message with a UUID for --resume-session-at
+    let assistantUuid: string | undefined;
+    for (let i = targetIdx - 1; i >= 0; i--) {
+      const m = session.messageHistory[i];
+      if (m.type === "assistant" && (m as { uuid?: string }).uuid) {
+        assistantUuid = (m as { uuid?: string }).uuid;
+        break;
+      }
+    }
+
+    // Truncate server-side message history
+    session.messageHistory = session.messageHistory.slice(0, targetIdx);
+
+    // Clear orphaned permission dialogs
+    session.pendingPermissions.clear();
+    wsBridge.broadcastToSession(id, { type: "permissions_cleared" });
+
+    // Notify browsers that revert is in progress
+    wsBridge.broadcastToSession(id, { type: "status_change", status: "reverting" });
+
+    // Persist immediately (don't rely on debounce — crash would lose truncation)
+    wsBridge.persistSessionSync(id);
+
+    // Kill CLI and relaunch with --resume-session-at to truncate CLI's history
+    let result: { ok: boolean; error?: string };
+    if (assistantUuid) {
+      result = await launcher.relaunchWithResumeAt(id, assistantUuid);
+    } else {
+      // Reverting the first user message — start fresh
+      info.cliSessionId = undefined;
+      result = await launcher.relaunch(id);
+    }
+
+    if (!result.ok) {
+      return c.json({ error: result.error || "Relaunch failed" }, 503);
+    }
+
+    // Broadcast updated (truncated) history to all browsers
+    wsBridge.broadcastToSession(id, { type: "message_history", messages: session.messageHistory });
+
+    return c.json({ ok: true });
+  });
+
   api.delete("/sessions/:id", async (c) => {
     const id = c.req.param("id");
     await launcher.kill(id);

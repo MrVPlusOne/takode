@@ -25,6 +25,31 @@ function readFileAsBase64(file: File): Promise<{ base64: string; mediaType: stri
   });
 }
 
+const API_SUPPORTED_IMAGE_FORMATS = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
+
+/** Convert unsupported image formats to JPEG via Canvas (browser-native). */
+async function ensureSupportedFormat(base64: string, mediaType: string): Promise<{ base64: string; mediaType: string }> {
+  if (API_SUPPORTED_IMAGE_FORMATS.has(mediaType)) return { base64, mediaType };
+  try {
+    const blob = await fetch(`data:${mediaType};base64,${base64}`).then(r => r.blob());
+    const img = await createImageBitmap(blob);
+    const canvas = new OffscreenCanvas(img.width, img.height);
+    const ctx = canvas.getContext("2d")!;
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, img.width, img.height);
+    ctx.drawImage(img, 0, 0);
+    const converted = await canvas.convertToBlob({ type: "image/jpeg", quality: 0.92 });
+    const arrayBuf = await converted.arrayBuffer();
+    return {
+      base64: btoa(String.fromCharCode(...new Uint8Array(arrayBuf))),
+      mediaType: "image/jpeg",
+    };
+  } catch {
+    // Browser can't decode this format — pass through, server will try
+    return { base64, mediaType };
+  }
+}
+
 interface CommandItem {
   name: string;
   type: "command" | "skill";
@@ -275,7 +300,8 @@ export function Composer({ sessionId }: { sessionId: string }) {
     const newImages: ImageAttachment[] = [];
     for (const file of Array.from(files)) {
       if (!file.type.startsWith("image/")) continue;
-      const { base64, mediaType } = await readFileAsBase64(file);
+      const raw = await readFileAsBase64(file);
+      const { base64, mediaType } = await ensureSupportedFormat(raw.base64, raw.mediaType);
       newImages.push({ name: file.name, base64, mediaType });
     }
     setImages((prev) => [...prev, ...newImages]);
@@ -294,8 +320,9 @@ export function Composer({ sessionId }: { sessionId: string }) {
       if (!item.type.startsWith("image/")) continue;
       const file = item.getAsFile();
       if (!file) continue;
-      const { base64, mediaType } = await readFileAsBase64(file);
-      newImages.push({ name: `pasted-${Date.now()}.${file.type.split("/")[1]}`, base64, mediaType });
+      const raw = await readFileAsBase64(file);
+      const { base64, mediaType } = await ensureSupportedFormat(raw.base64, raw.mediaType);
+      newImages.push({ name: `pasted-${Date.now()}.${mediaType.split("/")[1] || "jpeg"}`, base64, mediaType });
     }
     if (newImages.length > 0) {
       e.preventDefault();
@@ -389,7 +416,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/*"
+          accept="image/jpeg,image/png,image/gif,image/webp"
           multiple
           onChange={handleFileSelect}
           className="hidden"

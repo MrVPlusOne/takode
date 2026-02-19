@@ -97,6 +97,7 @@ function createMockLauncher() {
     })),
     kill: vi.fn(async () => true),
     relaunch: vi.fn(async () => ({ ok: true })),
+    relaunchWithResumeAt: vi.fn(async () => ({ ok: true })),
     listSessions: vi.fn(() => []),
     getSession: vi.fn(),
     setArchived: vi.fn(),
@@ -108,6 +109,7 @@ function createMockBridge() {
   return {
     closeSession: vi.fn(),
     getSession: vi.fn(() => null),
+    getOrCreateSession: vi.fn(),
     getAllSessions: vi.fn(() => []),
     getLastUserMessage: vi.fn(() => undefined),
     isCliConnected: vi.fn(() => false),
@@ -115,6 +117,8 @@ function createMockBridge() {
     markContainerized: vi.fn(),
     markWorktree: vi.fn(),
     broadcastSessionUpdate: vi.fn(),
+    broadcastToSession: vi.fn(),
+    persistSessionSync: vi.fn(),
   } as any;
 }
 
@@ -2150,5 +2154,182 @@ describe("POST /api/sessions/create-stream", () => {
 
     // CLI should NOT be launched
     expect(launcher.launch).not.toHaveBeenCalled();
+  });
+});
+
+// ─── Revert ───────────────────────────────────────────────────────────────
+
+describe("POST /api/sessions/:id/revert", () => {
+  // Helper to create a mock session with message history for revert tests.
+  // Simulates a session with 2 turns: user→assistant→user→assistant.
+  function setupRevertSession(overrides?: Partial<{ state: string; backendType: string; cliSessionId: string }>) {
+    const sessionInfo = {
+      sessionId: "session-1",
+      state: "exited",
+      cwd: "/test",
+      createdAt: Date.now(),
+      cliSessionId: "cli-sess-1",
+      backendType: "claude",
+      ...overrides,
+    };
+    launcher.getSession.mockReturnValue(sessionInfo);
+
+    const mockSession = {
+      messageHistory: [
+        { type: "user_message", id: "user-msg-1", content: "Hello" },
+        { type: "assistant", message: { id: "asst-msg-1", content: [{ type: "text", text: "Hi" }], model: "claude" }, uuid: "cli-uuid-1", parent_tool_use_id: null },
+        { type: "user_message", id: "user-msg-2", content: "Do something" },
+        { type: "assistant", message: { id: "asst-msg-2", content: [{ type: "text", text: "Done" }], model: "claude" }, uuid: "cli-uuid-2", parent_tool_use_id: null },
+      ],
+      pendingPermissions: new Map(),
+    };
+    bridge.getOrCreateSession.mockReturnValue(mockSession);
+
+    return { sessionInfo, mockSession };
+  }
+
+  // Reverting to the second user message should truncate history to before
+  // that message and call relaunchWithResumeAt with the preceding assistant UUID.
+  it("reverts to a user message with preceding assistant UUID", async () => {
+    const { mockSession } = setupRevertSession();
+
+    const res = await app.request("/api/sessions/session-1/revert", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messageId: "user-msg-2" }),
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json).toEqual({ ok: true });
+
+    // History should be truncated to before user-msg-2 (first 2 messages)
+    expect(mockSession.messageHistory).toHaveLength(2);
+    expect(mockSession.messageHistory[0].type).toBe("user_message");
+    expect(mockSession.messageHistory[1].type).toBe("assistant");
+
+    // Should clear permissions and broadcast status
+    expect(bridge.broadcastToSession).toHaveBeenCalledWith("session-1", { type: "permissions_cleared" });
+    expect(bridge.broadcastToSession).toHaveBeenCalledWith("session-1", { type: "status_change", status: "reverting" });
+
+    // Should persist immediately
+    expect(bridge.persistSessionSync).toHaveBeenCalledWith("session-1");
+
+    // Should relaunch with the preceding assistant's UUID
+    expect(launcher.relaunchWithResumeAt).toHaveBeenCalledWith("session-1", "cli-uuid-1");
+    expect(launcher.relaunch).not.toHaveBeenCalled();
+
+    // Should broadcast truncated history
+    expect(bridge.broadcastToSession).toHaveBeenCalledWith("session-1", {
+      type: "message_history",
+      messages: mockSession.messageHistory,
+    });
+  });
+
+  // Reverting to the first user message (no preceding assistant) should
+  // clear cliSessionId and relaunch fresh.
+  it("reverts to first user message (fresh relaunch)", async () => {
+    const { sessionInfo, mockSession } = setupRevertSession();
+
+    const res = await app.request("/api/sessions/session-1/revert", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messageId: "user-msg-1" }),
+    });
+
+    expect(res.status).toBe(200);
+
+    // History should be empty (truncated to index 0)
+    expect(mockSession.messageHistory).toHaveLength(0);
+
+    // cliSessionId should be cleared for fresh start
+    expect(sessionInfo.cliSessionId).toBeUndefined();
+
+    // Should use regular relaunch (not relaunchWithResumeAt)
+    expect(launcher.relaunch).toHaveBeenCalledWith("session-1");
+    expect(launcher.relaunchWithResumeAt).not.toHaveBeenCalled();
+  });
+
+  // Returns 404 when the session doesn't exist in the launcher.
+  it("returns 404 for unknown session", async () => {
+    launcher.getSession.mockReturnValue(null);
+
+    const res = await app.request("/api/sessions/nonexistent/revert", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messageId: "msg-1" }),
+    });
+
+    expect(res.status).toBe(404);
+  });
+
+  // Returns 400 for Codex sessions since revert relies on Claude CLI --resume-session-at.
+  it("returns 400 for Codex sessions", async () => {
+    setupRevertSession({ backendType: "codex" });
+
+    const res = await app.request("/api/sessions/session-1/revert", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messageId: "user-msg-2" }),
+    });
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toContain("Codex");
+  });
+
+  // Returns 409 when the session CLI is actively running (would corrupt state).
+  it("returns 409 while session is running", async () => {
+    setupRevertSession({ state: "connected" });
+
+    const res = await app.request("/api/sessions/session-1/revert", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messageId: "user-msg-2" }),
+    });
+
+    expect(res.status).toBe(409);
+  });
+
+  // Returns 400 when the session has no CLI session ID to resume.
+  it("returns 400 when no cliSessionId", async () => {
+    setupRevertSession({ cliSessionId: undefined as any });
+
+    const res = await app.request("/api/sessions/session-1/revert", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messageId: "user-msg-2" }),
+    });
+
+    expect(res.status).toBe(400);
+  });
+
+  // Returns 404 when the target message ID doesn't exist in history.
+  it("returns 404 when messageId not found in history", async () => {
+    setupRevertSession();
+
+    const res = await app.request("/api/sessions/session-1/revert", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messageId: "nonexistent-msg" }),
+    });
+
+    expect(res.status).toBe(404);
+  });
+
+  // Returns 503 when relaunch fails (e.g. CLI binary not found).
+  it("returns 503 when relaunch fails", async () => {
+    setupRevertSession();
+    launcher.relaunchWithResumeAt.mockResolvedValue({ ok: false, error: "CLI not found" });
+
+    const res = await app.request("/api/sessions/session-1/revert", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messageId: "user-msg-2" }),
+    });
+
+    expect(res.status).toBe(503);
+    const json = await res.json();
+    expect(json.error).toBe("CLI not found");
   });
 });

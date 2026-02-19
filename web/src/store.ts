@@ -33,7 +33,7 @@ interface AppState {
   cliEverConnected: Map<string, boolean>;
 
   // Session status
-  sessionStatus: Map<string, "idle" | "running" | "compacting" | null>;
+  sessionStatus: Map<string, "idle" | "running" | "compacting" | "reverting" | null>;
 
   // Plan mode: stores previous permission mode per session so we can restore it
   previousPermissionMode: Map<string, string>;
@@ -139,6 +139,7 @@ interface AppState {
   // Permission actions
   addPermission: (sessionId: string, perm: PermissionRequest) => void;
   removePermission: (sessionId: string, requestId: string) => void;
+  clearPermissions: (sessionId: string) => void;
 
   // Streaming timer pause actions
   pauseStreamingTimer: (sessionId: string) => void;
@@ -198,7 +199,7 @@ interface AppState {
   setConnectionStatus: (sessionId: string, status: "connecting" | "connected" | "disconnected") => void;
   setCliConnected: (sessionId: string, connected: boolean) => void;
   setCliEverConnected: (sessionId: string) => void;
-  setSessionStatus: (sessionId: string, status: "idle" | "running" | "compacting" | null) => void;
+  setSessionStatus: (sessionId: string, status: "idle" | "running" | "compacting" | "reverting" | null) => void;
 
   // Per-session feed visible count (persists across session switches)
   feedVisibleCount: Map<string, number>;
@@ -694,6 +695,23 @@ export const useStore = create<AppState>((set) => ({
           streamingPausedDuration.set(sessionId, prev + (Date.now() - pauseStart));
           return { pendingPermissions, streamingPauseStartedAt, streamingPausedDuration };
         }
+      }
+      return { pendingPermissions };
+    }),
+
+  clearPermissions: (sessionId) =>
+    set((s) => {
+      const pendingPermissions = new Map(s.pendingPermissions);
+      pendingPermissions.delete(sessionId);
+      // Also resume streaming timer if paused
+      if (s.streamingPauseStartedAt.has(sessionId)) {
+        const pauseStart = s.streamingPauseStartedAt.get(sessionId)!;
+        const streamingPauseStartedAt = new Map(s.streamingPauseStartedAt);
+        const streamingPausedDuration = new Map(s.streamingPausedDuration);
+        streamingPauseStartedAt.delete(sessionId);
+        const prev = streamingPausedDuration.get(sessionId) || 0;
+        streamingPausedDuration.set(sessionId, prev + (Date.now() - pauseStart));
+        return { pendingPermissions, streamingPauseStartedAt, streamingPausedDuration };
       }
       return { pendingPermissions };
     }),

@@ -416,6 +416,7 @@ function handleParsedMessage(
         parentToolUseId: data.parent_tool_use_id,
         model: msg.model,
         stopReason: msg.stop_reason,
+        cliUuid: (data as Record<string, unknown>).uuid as string | undefined,
       };
       // Server accumulates content blocks for same-ID messages (parallel tool calls).
       // If this ID already exists, merge content blocks rather than replace — this
@@ -680,9 +681,14 @@ function handleParsedMessage(
       break;
     }
 
+    case "permissions_cleared": {
+      store.clearPermissions(sessionId);
+      break;
+    }
+
     case "state_snapshot": {
       // Authoritative state from server — overrides any stale transient state
-      store.setSessionStatus(sessionId, data.sessionStatus as "idle" | "running" | "compacting" | null);
+      store.setSessionStatus(sessionId, data.sessionStatus as "idle" | "running" | "compacting" | "reverting" | null);
       store.setCliConnected(sessionId, data.cliConnected);
       if (data.cliConnected) store.setCliEverConnected(sessionId);
       if (data.askPermission !== undefined) {
@@ -796,6 +802,7 @@ function handleParsedMessage(
             parentToolUseId: histMsg.parent_tool_use_id,
             model: msg.model,
             stopReason: msg.stop_reason,
+            cliUuid: (histMsg as Record<string, unknown>).uuid as string | undefined,
           });
           // Also extract tasks and changed files from history
           if (msg.content?.length) {

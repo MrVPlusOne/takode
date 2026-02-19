@@ -19,7 +19,14 @@ const MIME_TO_EXT: Record<string, string> = {
   "image/bmp": "bmp",
   "image/tiff": "tiff",
   "image/avif": "avif",
+  "image/heic": "heic",
+  "image/heif": "heif",
 };
+
+/** Formats supported by Claude/Codex vision APIs. */
+const API_SUPPORTED_FORMATS = new Set([
+  "image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp"
+]);
 
 const DEFAULT_BASE_DIR = join(homedir(), ".companion", "images");
 
@@ -78,6 +85,23 @@ export class ImageStore {
   getThumbnailPath(sessionId: string, imageId: string): string | null {
     const path = join(this.sessionDir(sessionId), `${imageId}.thumb.jpeg`);
     return existsSync(path) ? path : null;
+  }
+
+  /** Convert unsupported image formats to JPEG for the Claude/Codex API. */
+  async convertForApi(base64Data: string, mediaType: string): Promise<{ base64: string; mediaType: string }> {
+    if (API_SUPPORTED_FORMATS.has(mediaType)) return { base64: base64Data, mediaType };
+    try {
+      const buffer = Buffer.from(base64Data, "base64");
+      const converted = await sharp(buffer)
+        .rotate()
+        .flatten({ background: "#ffffff" })
+        .jpeg({ quality: 90 })
+        .toBuffer();
+      return { base64: converted.toString("base64"), mediaType: "image/jpeg" };
+    } catch (err) {
+      console.warn("[image-store] Failed to convert image:", err);
+      return { base64: base64Data, mediaType };
+    }
   }
 
   /** Delete all images for a session. */

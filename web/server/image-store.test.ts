@@ -113,4 +113,58 @@ describe("ImageStore", () => {
     // Depending on sharp's behavior with non-image data, thumbnail may or may not exist
     // The important thing is no exception was thrown
   });
+
+  // ── convertForApi tests ─────────────────────────────────────────────────
+
+  // Supported formats should pass through unchanged (no conversion overhead)
+  it("convertForApi() passes through supported formats unchanged", async () => {
+    const result = await store.convertForApi(TINY_PNG_BASE64, "image/png");
+    expect(result.base64).toBe(TINY_PNG_BASE64);
+    expect(result.mediaType).toBe("image/png");
+  });
+
+  it("convertForApi() passes through jpeg unchanged", async () => {
+    const result = await store.convertForApi(TINY_PNG_BASE64, "image/jpeg");
+    expect(result.base64).toBe(TINY_PNG_BASE64);
+    expect(result.mediaType).toBe("image/jpeg");
+  });
+
+  it("convertForApi() passes through webp unchanged", async () => {
+    const result = await store.convertForApi(TINY_PNG_BASE64, "image/webp");
+    expect(result.base64).toBe(TINY_PNG_BASE64);
+    expect(result.mediaType).toBe("image/webp");
+  });
+
+  it("convertForApi() passes through gif unchanged", async () => {
+    const result = await store.convertForApi(TINY_PNG_BASE64, "image/gif");
+    expect(result.base64).toBe(TINY_PNG_BASE64);
+    expect(result.mediaType).toBe("image/gif");
+  });
+
+  // TIFF is not in the supported set but is decodable by Sharp, so it should
+  // be converted to JPEG and the mediaType updated accordingly.
+  it("convertForApi() converts unsupported-but-decodable format to JPEG", async () => {
+    // Create a tiny 1x1 TIFF using Sharp from the known-good PNG
+    const sharp = (await import("sharp")).default;
+    const pngBuffer = Buffer.from(TINY_PNG_BASE64, "base64");
+    const tiffBuffer = await sharp(pngBuffer).tiff().toBuffer();
+    const tiffBase64 = tiffBuffer.toString("base64");
+
+    const result = await store.convertForApi(tiffBase64, "image/tiff");
+    expect(result.mediaType).toBe("image/jpeg");
+    // Converted base64 should be valid JPEG data (different from input)
+    expect(result.base64).not.toBe(tiffBase64);
+    // Verify the output is valid by decoding with Sharp
+    const metadata = await sharp(Buffer.from(result.base64, "base64")).metadata();
+    expect(metadata.format).toBe("jpeg");
+  });
+
+  // Unsupported format with invalid image data should fall back gracefully,
+  // returning the original data unchanged instead of throwing.
+  it("convertForApi() returns original data when conversion fails", async () => {
+    const junkBase64 = Buffer.from("not an image").toString("base64");
+    const result = await store.convertForApi(junkBase64, "image/heic");
+    expect(result.base64).toBe(junkBase64);
+    expect(result.mediaType).toBe("image/heic");
+  });
 });

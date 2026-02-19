@@ -228,14 +228,15 @@ export type BrowserOutgoingMessage =
 export type BrowserIncomingMessageBase =
   | { type: "session_init"; session: SessionState; nextEventSeq?: number }
   | { type: "session_update"; session: Partial<SessionState> }
-  | { type: "assistant"; message: CLIAssistantMessage["message"]; parent_tool_use_id: string | null; timestamp?: number }
+  | { type: "assistant"; message: CLIAssistantMessage["message"]; parent_tool_use_id: string | null; timestamp?: number; uuid?: string }
   | { type: "stream_event"; event: unknown; parent_tool_use_id: string | null }
   | { type: "result"; data: CLIResultMessage }
   | { type: "permission_request"; request: PermissionRequest }
   | { type: "permission_cancelled"; request_id: string }
   | { type: "tool_progress"; tool_use_id: string; tool_name: string; elapsed_time_seconds: number }
   | { type: "tool_use_summary"; summary: string; tool_use_ids: string[] }
-  | { type: "status_change"; status: "compacting" | "idle" | "running" | null }
+  | { type: "status_change"; status: "compacting" | "reverting" | "idle" | "running" | null }
+  | { type: "permissions_cleared" }
   | { type: "auth_status"; isAuthenticating: boolean; output: string[]; error?: string }
   | { type: "error"; message: string }
   | { type: "cli_disconnected" }

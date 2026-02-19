@@ -30,7 +30,7 @@ export interface SessionStatusDotProps {
   /** SDK process state */
   sdkState: "starting" | "connected" | "running" | "exited" | null;
   /** Session activity status */
-  status: "idle" | "running" | "compacting" | null;
+  status: "idle" | "running" | "compacting" | "reverting" | null;
   /** Whether the session has unread results the user hasn't seen */
   hasUnread?: boolean;
 }
@@ -48,7 +48,7 @@ export function deriveSessionStatus(props: SessionStatusDotProps): SessionVisual
   // isConnected is accurate for all sessions (active via WebSocket, non-active via REST fallback).
   if (!isConnected && sdkState !== "starting") return "disconnected";
   if (status === "running") return "running";
-  if (status === "compacting") return "compacting";
+  if (status === "compacting" || status === "reverting") return "compacting";
   if (hasUnread) return "completed_unread";
   return "idle";
 }

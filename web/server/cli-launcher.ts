@@ -86,6 +86,8 @@ export interface SdkSessionInfo {
 
   /** Whether this is an assistant-mode session */
   isAssistant?: boolean;
+  /** One-shot: resume-session-at UUID for revert (cleared after use) */
+  resumeAt?: string;
 
   // Container fields
   /** Docker container ID when session runs inside a container */
@@ -368,6 +370,19 @@ export class CliLauncher {
   }
 
   /**
+   * Relaunch a CLI process, truncating conversation history to a specific
+   * assistant message UUID via --resume-session-at.
+   */
+  async relaunchWithResumeAt(sessionId: string, resumeAt: string): Promise<{ ok: boolean; error?: string }> {
+    const info = this.sessions.get(sessionId);
+    if (!info) return { ok: false, error: "Session not found" };
+    info.resumeAt = resumeAt;
+    const result = await this.relaunch(sessionId);
+    delete info.resumeAt;
+    return result;
+  }
+
+  /**
    * Get all sessions in "starting" state (awaiting CLI WebSocket connection).
    */
   getStartingSessions(): SdkSessionInfo[] {
@@ -455,6 +470,9 @@ export class CliLauncher {
     // to restore the CLI's conversation context.
     if (options.resumeSessionId) {
       args.push("--resume", options.resumeSessionId);
+    }
+    if (info.resumeAt) {
+      args.push("--resume-session-at", info.resumeAt);
     }
     args.push("-p", "");
 

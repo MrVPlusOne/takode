@@ -29,6 +29,8 @@ export interface ChatMessage {
   variant?: "error" | "info" | "denied" | "approved";
   /** Extra structured data for rich rendering (e.g. AskUserQuestion answers) */
   metadata?: { answers?: { question: string; answer: string }[] };
+  /** Assistant message UUID from CLI, for revert support */
+  cliUuid?: string;
 }
 
 export interface TaskItem {
