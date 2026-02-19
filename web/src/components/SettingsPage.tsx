@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import { useStore } from "../store.js";
-import { getTelemetryPreferenceEnabled, setTelemetryPreferenceEnabled } from "../analytics.js";
+
 import { navigateToSession, navigateHome } from "../utils/routing.js";
 
 interface SettingsPageProps {
@@ -25,8 +25,6 @@ export function SettingsPage({ embedded = false }: SettingsPageProps) {
   const notificationDesktop = useStore((s) => s.notificationDesktop);
   const setNotificationDesktop = useStore((s) => s.setNotificationDesktop);
   const notificationApiAvailable = typeof Notification !== "undefined";
-  const [telemetryEnabled, setTelemetryEnabled] = useState(getTelemetryPreferenceEnabled());
-
   useEffect(() => {
     api
       .getSettings()
@@ -229,28 +227,6 @@ export function SettingsPage({ embedded = false }: SettingsPageProps) {
               </button>
             </div>
           </div>
-        </div>
-
-        <div className="mt-4 bg-cc-card border border-cc-border rounded-xl p-4 sm:p-5 space-y-3">
-          <h2 className="text-sm font-semibold text-cc-fg">Telemetry</h2>
-          <p className="text-xs text-cc-muted">
-            Anonymous product analytics and crash reports via PostHog to improve reliability.
-          </p>
-          <button
-            type="button"
-            onClick={() => {
-              const next = !telemetryEnabled;
-              setTelemetryPreferenceEnabled(next);
-              setTelemetryEnabled(next);
-            }}
-            className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm bg-cc-hover text-cc-fg hover:bg-cc-active transition-colors cursor-pointer"
-          >
-            <span>Usage analytics and errors</span>
-            <span className="text-xs text-cc-muted">{telemetryEnabled ? "On" : "Off"}</span>
-          </button>
-          <p className="text-xs text-cc-muted">
-            Browser Do Not Track is respected automatically.
-          </p>
         </div>
 
         <div className="mt-4 bg-cc-card border border-cc-border rounded-xl p-4 sm:p-5 space-y-3">

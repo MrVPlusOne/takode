@@ -62,7 +62,7 @@ describe("scopedKey", () => {
   });
 
   it("never prefixes global keys", () => {
-    // Global user preferences (dark mode, zoom, notifications, telemetry)
+    // Global user preferences (dark mode, zoom, notifications)
     // are shared across all servers and must never be prefixed,
     // even when a server ID is cached.
     localStorage.setItem("cc-server-id", "abc123");
@@ -73,7 +73,6 @@ describe("scopedKey", () => {
     expect(scopedKey("cc-notification-desktop")).toBe(
       "cc-notification-desktop",
     );
-    expect(scopedKey("cc-telemetry-enabled")).toBe("cc-telemetry-enabled");
   });
 });
 

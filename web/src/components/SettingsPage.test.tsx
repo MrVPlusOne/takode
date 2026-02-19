@@ -30,21 +30,11 @@ const mockApi = {
   updateSettings: vi.fn(),
 };
 
-const mockTelemetry = {
-  getTelemetryPreferenceEnabled: vi.fn(),
-  setTelemetryPreferenceEnabled: vi.fn(),
-};
-
 vi.mock("../api.js", () => ({
   api: {
     getSettings: (...args: unknown[]) => mockApi.getSettings(...args),
     updateSettings: (...args: unknown[]) => mockApi.updateSettings(...args),
   },
-}));
-
-vi.mock("../analytics.js", () => ({
-  getTelemetryPreferenceEnabled: (...args: unknown[]) => mockTelemetry.getTelemetryPreferenceEnabled(...args),
-  setTelemetryPreferenceEnabled: (...args: unknown[]) => mockTelemetry.setTelemetryPreferenceEnabled(...args),
 }));
 
 vi.mock("../store.js", () => {
@@ -69,7 +59,6 @@ beforeEach(() => {
     openrouterModel: "openrouter/free",
     serverName: "",
   });
-  mockTelemetry.getTelemetryPreferenceEnabled.mockReturnValue(true);
 });
 
 describe("SettingsPage", () => {
@@ -236,14 +225,6 @@ describe("SettingsPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Theme/i }));
     expect(mockState.toggleDarkMode).toHaveBeenCalledTimes(1);
-  });
-
-  it("toggles telemetry preference from settings", async () => {
-    render(<SettingsPage />);
-    await screen.findByText("OpenRouter key configured");
-
-    fireEvent.click(screen.getByRole("button", { name: /Usage analytics and errors/i }));
-    expect(mockTelemetry.setTelemetryPreferenceEnabled).toHaveBeenCalledWith(false);
   });
 
   it("navigates to environments page from settings", async () => {

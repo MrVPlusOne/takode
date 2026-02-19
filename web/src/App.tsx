@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { useStore } from "./store.js";
 import { connectSession } from "./ws.js";
-import { capturePageView } from "./analytics.js";
+
 import { parseHash, navigateToSession } from "./utils/routing.js";
 import { Sidebar } from "./components/Sidebar.js";
 import { ChatView } from "./components/ChatView.js";
@@ -44,10 +44,6 @@ export default function App() {
   const isEnvironmentsPage = route.page === "environments";
   const isScheduledPage = route.page === "scheduled";
   const isSessionView = route.page === "session" || route.page === "home";
-
-  useEffect(() => {
-    capturePageView(hash || "#/");
-  }, [hash]);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", darkMode);

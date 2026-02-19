@@ -1,14 +1,4 @@
 // @vitest-environment jsdom
-const { captureEventMock, captureExceptionMock } = vi.hoisted(() => ({
-  captureEventMock: vi.fn(),
-  captureExceptionMock: vi.fn(),
-}));
-
-vi.mock("./analytics.js", () => ({
-  captureEvent: captureEventMock,
-  captureException: captureExceptionMock,
-}));
-
 import { api } from "./api.js";
 
 const mockFetch = vi.fn();
@@ -25,8 +15,6 @@ function mockResponse(data: unknown, status = 200) {
 
 beforeEach(() => {
   mockFetch.mockReset();
-  captureEventMock.mockReset();
-  captureExceptionMock.mockReset();
 });
 
 // ===========================================================================
@@ -147,11 +135,6 @@ describe("post() error handling", () => {
     mockFetch.mockResolvedValueOnce(mockResponse({ error: "Session not found" }, 404));
 
     await expect(api.killSession("nonexistent")).rejects.toThrow("Session not found");
-    expect(captureEventMock).toHaveBeenCalledWith(
-      "api_request_failed",
-      expect.objectContaining({ method: "POST", path: "/sessions/nonexistent/kill", status: 404 }),
-    );
-    expect(captureExceptionMock).toHaveBeenCalled();
   });
 
   it("falls back to statusText when JSON body has no error field", async () => {
@@ -174,21 +157,12 @@ describe("get() error handling", () => {
     });
 
     await expect(api.listSessions()).rejects.toThrow("Forbidden");
-    expect(captureEventMock).toHaveBeenCalledWith(
-      "api_request_failed",
-      expect.objectContaining({ method: "GET", path: "/sessions", status: 403 }),
-    );
   });
 
-  it("captures network failures", async () => {
+  it("throws on network failures", async () => {
     mockFetch.mockRejectedValueOnce(new Error("Network down"));
 
     await expect(api.listSessions()).rejects.toThrow("Network down");
-    expect(captureEventMock).toHaveBeenCalledWith(
-      "api_request_failed",
-      expect.objectContaining({ method: "GET", path: "/sessions" }),
-    );
-    expect(captureExceptionMock).toHaveBeenCalled();
   });
 });
 
