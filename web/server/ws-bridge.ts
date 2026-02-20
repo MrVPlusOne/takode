@@ -1446,12 +1446,15 @@ export class WsBridge {
       // settings.json, hooks, etc.) still require explicit approval.
       const isFileEdit = toolName === "Edit" || toolName === "Write" || toolName === "MultiEdit" || toolName === "NotebookEdit";
       const filePath = isFileEdit ? String(msg.request.input.file_path ?? "") : "";
-      const autoApprove =
+      // AskUserQuestion and ExitPlanMode always require user interaction —
+      // they must never be auto-approved regardless of permission mode.
+      const requiresUserInteraction = toolName === "AskUserQuestion" || toolName === "ExitPlanMode";
+      const autoApprove = !requiresUserInteraction && (
         mode === "bypassPermissions" ||
         (mode === "acceptEdits"
           && toolName !== "Bash"
           && WsBridge.ACCEPT_EDITS_AUTO_APPROVE.has(toolName)
-          && !(isFileEdit && WsBridge.isSensitiveConfigPath(filePath)));
+          && !(isFileEdit && WsBridge.isSensitiveConfigPath(filePath))));
 
       if (autoApprove) {
         const ndjson = JSON.stringify({

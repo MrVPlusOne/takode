@@ -3611,6 +3611,91 @@ describe("permission broadcasts include request_id", () => {
   });
 });
 
+// ─── AskUserQuestion / ExitPlanMode never auto-approved ───────────────────────
+
+describe("AskUserQuestion is never auto-approved in bypassPermissions mode", () => {
+  let cli: ReturnType<typeof makeCliSocket>;
+  let browser: ReturnType<typeof makeBrowserSocket>;
+
+  beforeEach(() => {
+    cli = makeCliSocket("s1");
+    bridge.handleCLIOpen(cli, "s1");
+    // Start in bypassPermissions mode — all tools except interactive ones should auto-approve
+    bridge.handleCLIMessage(cli, makeInitMsg({ permissionMode: "bypassPermissions" }));
+
+    browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+    cli.send.mockClear();
+    browser.send.mockClear();
+  });
+
+  it("does not auto-approve AskUserQuestion — sends permission_request to browser instead", () => {
+    bridge.handleCLIMessage(cli, JSON.stringify({
+      type: "control_request",
+      request_id: "req-ask",
+      request: {
+        subtype: "can_use_tool",
+        tool_name: "AskUserQuestion",
+        input: { questions: [{ question: "Which approach?", options: ["A", "B"] }] },
+        tool_use_id: "tu-ask",
+      },
+    }));
+
+    // CLI should NOT receive an auto-approval control_response
+    const cliCalls = cli.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
+    const autoResponse = cliCalls.find((m: any) => m.type === "control_response");
+    expect(autoResponse).toBeUndefined();
+
+    // Browser SHOULD receive a permission_request so the user can answer
+    const browserCalls = browser.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
+    const permReq = browserCalls.find((m: any) => m.type === "permission_request");
+    expect(permReq).toBeDefined();
+    expect(permReq.request.tool_name).toBe("AskUserQuestion");
+  });
+
+  it("does not auto-approve ExitPlanMode — sends permission_request to browser instead", () => {
+    bridge.handleCLIMessage(cli, JSON.stringify({
+      type: "control_request",
+      request_id: "req-plan",
+      request: {
+        subtype: "can_use_tool",
+        tool_name: "ExitPlanMode",
+        input: {},
+        tool_use_id: "tu-plan",
+      },
+    }));
+
+    const cliCalls = cli.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
+    const autoResponse = cliCalls.find((m: any) => m.type === "control_response");
+    expect(autoResponse).toBeUndefined();
+
+    const browserCalls = browser.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
+    const permReq = browserCalls.find((m: any) => m.type === "permission_request");
+    expect(permReq).toBeDefined();
+    expect(permReq.request.tool_name).toBe("ExitPlanMode");
+  });
+
+  it("still auto-approves regular tools like Edit in bypassPermissions mode", () => {
+    bridge.handleCLIMessage(cli, JSON.stringify({
+      type: "control_request",
+      request_id: "req-edit",
+      request: {
+        subtype: "can_use_tool",
+        tool_name: "Edit",
+        input: { file_path: "/test/foo.ts", old_string: "a", new_string: "b" },
+        tool_use_id: "tu-edit",
+      },
+    }));
+
+    // CLI should receive an auto-approval
+    const cliCalls = cli.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
+    const autoResponse = cliCalls.find((m: any) => m.type === "control_response");
+    expect(autoResponse).toBeDefined();
+    expect(autoResponse.response.response.behavior).toBe("allow");
+  });
+});
+
 // ─── status_change broadcast on user_message ─────────────────────────────────
 
 describe("status_change: running on user_message", () => {
