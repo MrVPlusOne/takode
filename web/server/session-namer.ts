@@ -149,17 +149,20 @@ function buildConversationBlock(history: BrowserIncomingMessage[]): string {
   // Collect turns: each turn starts with a user_message
   const turns: Array<{
     userContent: string;
+    imageCount: number;
     toolCalls: string[];
   }> = [];
 
-  let currentTurn: { userContent: string; toolCalls: string[] } | null = null;
+  let currentTurn: { userContent: string; imageCount: number; toolCalls: string[] } | null = null;
 
   for (const msg of history) {
     if (msg.type === "user_message") {
       // Start a new turn
       if (currentTurn) turns.push(currentTurn);
+      const images = (msg as { images?: unknown[] }).images;
       currentTurn = {
         userContent: typeof msg.content === "string" ? msg.content : "",
+        imageCount: Array.isArray(images) ? images.length : 0,
         toolCalls: [],
       };
     } else if (msg.type === "assistant" && currentTurn) {
@@ -180,8 +183,10 @@ function buildConversationBlock(history: BrowserIncomingMessage[]): string {
   const lines: string[] = [];
   for (const turn of recentTurns) {
     const truncatedMsg = trunc(turn.userContent.trim(), MAX_USER_MSG_CHARS);
-    // Wrap user message lines
-    lines.push(`${INDENT}User: ${truncatedMsg}`);
+    const imageNote = turn.imageCount > 0
+      ? ` [${turn.imageCount} image${turn.imageCount > 1 ? "s" : ""} attached]`
+      : "";
+    lines.push(`${INDENT}User: ${truncatedMsg}${imageNote}`);
 
     // Add tool calls (no blank line between them — compact)
     if (turn.toolCalls.length > 0) {

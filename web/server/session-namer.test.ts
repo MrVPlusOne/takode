@@ -323,6 +323,23 @@ describe("buildConversationBlock", () => {
       expect(line).toMatch(/^ {4}\| /);
     }
   });
+
+  it("annotates user messages that have image attachments", () => {
+    const msgWithImages = {
+      type: "user_message" as const,
+      content: "Fix this CSS",
+      timestamp: Date.now(),
+      id: "u-img",
+      images: [{ imageId: "img1", media_type: "image/png" }, { imageId: "img2", media_type: "image/png" }],
+    };
+    const block = buildConversationBlock([msgWithImages]);
+    expect(block).toContain("Fix this CSS [2 images attached]");
+  });
+
+  it("does not annotate messages without images", () => {
+    const block = buildConversationBlock([userMsg("Hello")]);
+    expect(block).not.toContain("image");
+  });
 });
 
 // ─── buildFirstTurnPrompt ──────────────────────────────────────────────────
