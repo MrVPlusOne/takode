@@ -202,6 +202,7 @@ function buildConversationBlock(history: BrowserIncomingMessage[]): string {
 function buildFirstTurnPrompt(history: BrowserIncomingMessage[]): string {
   const conversation = buildConversationBlock(history);
   return `Generate a concise 3-5 word title for this coding session.
+Start with an imperative verb (e.g. "fix auth bug", "add dark mode", "refactor API routes").
 Output ONLY the title, nothing else.
 
 Conversation:
@@ -230,14 +231,15 @@ Based on the conversation below, choose one action:
   (e.g. fixing a typo, narrowing scope, better wording)
 - NEW: <title> — the user has moved to a fundamentally different task
 
-Output ONLY one of the above. Titles should be 3-5 words.
+Output ONLY one of the above. Titles should be 3-5 words starting with an imperative verb
+(e.g. "fix auth bug", "add dark mode", "refactor API routes").
 
 Conversation:
 
 ${conversation}`;
 }
 
-const SYSTEM_PROMPT = "You maintain titles for coding sessions.";
+const SYSTEM_PROMPT = "You maintain titles for coding sessions. Titles start with an imperative verb (e.g. fix, add, refactor, debug, update).";
 
 // ─── Claude invocation ───────────────────────────────────────────────────────
 
