@@ -1783,6 +1783,17 @@ export class WsBridge {
       });
       this.sendToCLI(session, ndjson);
 
+      // If the permission response includes a setMode update (e.g. user clicked
+      // "Set mode to acceptEdits"), send a separate set_permission_mode control
+      // request to the CLI so it actually changes its permission mode.
+      if (msg.updated_permissions?.length) {
+        const setMode = (msg.updated_permissions as Array<{ type: string; mode?: string }>)
+          .find(p => p.type === "setMode" && p.mode);
+        if (setMode) {
+          this.handleSetPermissionMode(session, setMode.mode!);
+        }
+      }
+
       // Broadcast approval record for notable approvals only.
       // Most tool approvals are redundant since the ToolBlock already shows
       // the command/file/question. ExitPlanMode and AskUserQuestion need
