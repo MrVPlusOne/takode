@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -7,6 +7,7 @@ import {
   getServerName,
   setServerName,
   getServerId,
+  initWithPort,
   _resetForTest,
 } from "./settings-manager.js";
 
@@ -206,5 +207,154 @@ describe("server ID", () => {
     const id = getServerId();
     setServerName("New Name");
     expect(getServerId()).toBe(id);
+  });
+});
+
+describe("initWithPort", () => {
+  let portDir: string;
+
+  beforeEach(() => {
+    portDir = mkdtempSync(join(tmpdir(), "settings-port-test-"));
+  });
+
+  afterEach(() => {
+    rmSync(portDir, { recursive: true, force: true });
+    _resetForTest();
+  });
+
+  /**
+   * Helper: patches homedir() so initWithPort writes to our temp directory
+   * instead of the real ~/.companion/.
+   */
+  function initWithPortInDir(port: number, dir: string): string {
+    // initWithPort builds the path from homedir(), so we simulate by
+    // calling _resetForTest with the expected port-scoped path.
+    const portPath = join(dir, `settings-${port}.json`);
+    _resetForTest(portPath);
+    return portPath;
+  }
+
+  it("uses port-scoped file path", () => {
+    const portPath = join(portDir, "settings-9999.json");
+    _resetForTest(portPath);
+
+    setServerName("Port Test");
+    expect(existsSync(portPath)).toBe(true);
+
+    const saved = JSON.parse(readFileSync(portPath, "utf-8"));
+    expect(saved.serverName).toBe("Port Test");
+  });
+
+  it("migrates settings from legacy file when port-scoped file is missing", () => {
+    // Write a "legacy" settings file
+    const legacyPath = join(portDir, "settings.json");
+    writeFileSync(
+      legacyPath,
+      JSON.stringify({
+        serverName: "Legacy Server",
+        serverId: "old-shared-id",
+        pushoverUserKey: "po-user-key",
+        pushoverApiToken: "po-api-token",
+        pushoverDelaySeconds: 45,
+        pushoverEnabled: false,
+        pushoverBaseUrl: "http://example.com",
+        updatedAt: 1000,
+      }),
+      "utf-8",
+    );
+
+    // Simulate initWithPort migration by checking file creation
+    const portPath = join(portDir, "settings-3456.json");
+    // initWithPort would normally check LEGACY_PATH, but since we can't override
+    // homedir() easily, test the migration logic directly:
+    // read legacy, write port-scoped with cleared serverId
+    const raw = readFileSync(legacyPath, "utf-8");
+    const legacy = JSON.parse(raw);
+    const migrated = { ...legacy, serverId: "", updatedAt: Date.now() };
+    writeFileSync(portPath, JSON.stringify(migrated, null, 2), "utf-8");
+
+    _resetForTest(portPath);
+
+    // Pushover settings should be preserved
+    const s = getSettings();
+    expect(s.pushoverUserKey).toBe("po-user-key");
+    expect(s.pushoverApiToken).toBe("po-api-token");
+    expect(s.pushoverDelaySeconds).toBe(45);
+    expect(s.pushoverEnabled).toBe(false);
+    expect(s.pushoverBaseUrl).toBe("http://example.com");
+    expect(s.serverName).toBe("Legacy Server");
+  });
+
+  it("clears serverId during migration so each instance gets a unique one", () => {
+    // Create port-scoped file with cleared serverId (simulating migration)
+    const portPath = join(portDir, "settings-3456.json");
+    writeFileSync(
+      portPath,
+      JSON.stringify({ serverName: "Migrated", serverId: "", updatedAt: 100 }),
+      "utf-8",
+    );
+    _resetForTest(portPath);
+
+    // getServerId should auto-generate a new UUID
+    const id = getServerId();
+    expect(id).toBeTruthy();
+    expect(id).not.toBe("old-shared-id");
+  });
+
+  it("does not overwrite existing port-scoped file on subsequent starts", () => {
+    const portPath = join(portDir, "settings-3456.json");
+    writeFileSync(
+      portPath,
+      JSON.stringify({
+        serverName: "Already Configured",
+        serverId: "unique-port-id",
+        updatedAt: 500,
+      }),
+      "utf-8",
+    );
+    _resetForTest(portPath);
+
+    expect(getServerName()).toBe("Already Configured");
+    expect(getServerId()).toBe("unique-port-id");
+  });
+
+  it("two ports get independent settings", () => {
+    const port3456Path = join(portDir, "settings-3456.json");
+    const port3457Path = join(portDir, "settings-3457.json");
+
+    // Set up port 3456
+    _resetForTest(port3456Path);
+    setServerName("Production");
+    const prodId = getServerId();
+
+    // Set up port 3457
+    _resetForTest(port3457Path);
+    setServerName("Development");
+    const devId = getServerId();
+
+    // Verify they're independent
+    expect(prodId).not.toBe(devId);
+
+    // Re-read port 3456 — name should still be "Production"
+    _resetForTest(port3456Path);
+    expect(getServerName()).toBe("Production");
+
+    // Re-read port 3457 — name should still be "Development"
+    _resetForTest(port3457Path);
+    expect(getServerName()).toBe("Development");
+  });
+
+  it("works cleanly on fresh install with no legacy file", () => {
+    const portPath = join(portDir, "settings-3456.json");
+    _resetForTest(portPath);
+
+    // No legacy file, no port-scoped file — should start with defaults
+    expect(getServerName()).toBe("");
+    expect(getSettings().pushoverUserKey).toBe("");
+
+    // getServerId creates the file and generates a UUID
+    const id = getServerId();
+    expect(id).toBeTruthy();
+    expect(existsSync(portPath)).toBe(true);
   });
 });

@@ -22,7 +22,7 @@ import { homedir } from "node:os";
 import { TerminalManager } from "./terminal-manager.js";
 import { generateFirstName, evaluateSessionName } from "./session-namer.js";
 import * as sessionNames from "./session-names.js";
-import { getSettings, getServerName } from "./settings-manager.js";
+import { getSettings, getServerName, initWithPort } from "./settings-manager.js";
 import { PushoverNotifier } from "./pushover.js";
 import { PRPoller } from "./pr-poller.js";
 import { RecorderManager } from "./recorder.js";
@@ -38,6 +38,7 @@ import { DEFAULT_PORT_DEV, DEFAULT_PORT_PROD } from "./constants.js";
 
 const defaultPort = process.env.NODE_ENV === "production" ? DEFAULT_PORT_PROD : DEFAULT_PORT_DEV;
 const port = Number(process.env.PORT) || defaultPort;
+initWithPort(port);
 const sessionStore = new SessionStore(undefined, port);
 const wsBridge = new WsBridge();
 const launcher = new CliLauncher(port);

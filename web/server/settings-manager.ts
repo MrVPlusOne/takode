@@ -27,6 +27,8 @@ export interface CompanionSettings {
 }
 
 const DEFAULT_PATH = join(homedir(), ".companion", "settings.json");
+/** Shared legacy path — exported for tests only */
+export const LEGACY_PATH = DEFAULT_PATH;
 
 let loaded = false;
 let filePath = DEFAULT_PATH;
@@ -114,6 +116,29 @@ export function getServerId(): string {
     persist();
   }
   return settings.serverId;
+}
+
+/**
+ * Scope settings to a port-specific file (`settings-{port}.json`).
+ * Must be called once at server startup, before any settings access.
+ * On first use, migrates from the legacy shared `settings.json` (if it exists)
+ * but clears `serverId` so each instance gets its own unique identity.
+ */
+export function initWithPort(port: number): void {
+  const portPath = join(homedir(), ".companion", `settings-${port}.json`);
+  if (!existsSync(portPath) && existsSync(LEGACY_PATH)) {
+    try {
+      const raw = readFileSync(LEGACY_PATH, "utf-8");
+      const legacy = normalize(JSON.parse(raw) as Partial<CompanionSettings>);
+      const migrated = { ...legacy, serverId: "", updatedAt: Date.now() };
+      mkdirSync(dirname(portPath), { recursive: true });
+      writeFileSync(portPath, JSON.stringify(migrated, null, 2), "utf-8");
+    } catch {
+      // Migration failed — start fresh from the new path
+    }
+  }
+  filePath = portPath;
+  loaded = false;
 }
 
 export function _resetForTest(customPath?: string): void {
