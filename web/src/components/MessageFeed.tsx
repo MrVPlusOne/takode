@@ -1040,21 +1040,25 @@ export function MessageFeed({ sessionId }: { sessionId: string }) {
   // Auto-scroll for streaming text (Footer height changes) and within-turn
   // message additions (turns.length unchanged but content grew). Throttled
   // to 200ms to avoid layout thrashing on iOS Safari.
+  // Uses the native scroller element for reliable bottom detection.
   const lastScrollTime = useRef(0);
   useEffect(() => {
-    if (!isNearBottom.current) return;
+    if (!isNearBottom.current || !scrollerEl) return;
     const now = Date.now();
     if (now - lastScrollTime.current >= 200) {
       lastScrollTime.current = now;
-      virtuosoRef.current?.scrollTo({ top: 999999999, behavior: 'smooth' });
+      scrollerEl.scrollTo({ top: scrollerEl.scrollHeight, behavior: 'smooth' });
     }
-  }, [streamingText, messages.length]);
+  }, [streamingText, messages.length, scrollerEl]);
 
   const scrollToBottom = useCallback(() => {
-    virtuosoRef.current?.scrollTo({ top: 999999999, behavior: 'smooth' });
-  }, []);
+    scrollerEl?.scrollTo({ top: scrollerEl.scrollHeight, behavior: 'smooth' });
+  }, [scrollerEl]);
 
   // ─── Context & item renderer ─────────────────────────────────────────────
+
+  // Stable key by turn ID so Virtuoso tracks items across prepends
+  const computeItemKey = useCallback((_index: number, turn: Turn) => turn.id, []);
 
   const feedContext: FeedContext = useMemo(() => ({
     hasMore, toolProgress, streamingText, sessionStatus, sessionId,
@@ -1121,11 +1125,12 @@ export function MessageFeed({ sessionId }: { sessionId: string }) {
           style={{ height: '100%' }}
           data={visibleTurns}
           context={feedContext}
+          computeItemKey={computeItemKey}
+          defaultItemHeight={150}
           firstItemIndex={firstItemIndex}
           initialTopMostItemIndex={firstItemIndex + visibleTurns.length - 1}
           alignToBottom
           atBottomThreshold={120}
-          increaseViewportBy={{ top: 200, bottom: 200 }}
           followOutput={handleFollowOutput}
           atBottomStateChange={handleAtBottomChange}
           startReached={handleStartReached}

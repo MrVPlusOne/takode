@@ -55,6 +55,10 @@ function VirtuosoInner<D, C>(
 
   useEffect(() => {
     if (scrollerRef && scrollerElRef.current) {
+      // JSDOM elements lack scrollTo — stub it so MessageFeed's scrollToBottom works
+      if (!scrollerElRef.current.scrollTo) {
+        scrollerElRef.current.scrollTo = () => {};
+      }
       scrollerRef(scrollerElRef.current);
     }
     return () => { scrollerRef?.(null); };
