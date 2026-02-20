@@ -24,6 +24,50 @@ function formatTokens(n: number): string {
 
 const EMPTY_MESSAGES: ChatMessage[] = [];
 
+// Self-contained timer component — its 1s tick only re-renders this element,
+// not the entire MessageFeed (which would force all images to re-layout).
+function ElapsedTimer({ sessionId }: { sessionId: string }) {
+  const streamingStartedAt = useStore((s) => s.streamingStartedAt.get(sessionId));
+  const streamingOutputTokens = useStore((s) => s.streamingOutputTokens.get(sessionId));
+  const streamingPausedDuration = useStore((s) => s.streamingPausedDuration.get(sessionId) ?? 0);
+  const streamingPauseStartedAt = useStore((s) => s.streamingPauseStartedAt.get(sessionId));
+  const sessionStatus = useStore((s) => s.sessionStatus.get(sessionId));
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    if (!streamingStartedAt && sessionStatus !== "running") {
+      setElapsed(0);
+      return;
+    }
+    const start = streamingStartedAt || Date.now();
+    const calcElapsed = () => {
+      const pauseOffset = streamingPausedDuration + (streamingPauseStartedAt ? Date.now() - streamingPauseStartedAt : 0);
+      return Math.max(0, Date.now() - start - pauseOffset);
+    };
+    setElapsed(calcElapsed());
+    const interval = setInterval(() => setElapsed(calcElapsed()), 1000);
+    return () => clearInterval(interval);
+  }, [streamingStartedAt, sessionStatus, streamingPausedDuration, streamingPauseStartedAt]);
+
+  if (sessionStatus !== "running" || elapsed <= 0) return null;
+
+  return (
+    <div className="flex items-center gap-1.5 text-[11px] text-cc-muted font-mono-code pl-9">
+      <YarnBallDot className={streamingPauseStartedAt ? 'text-amber-400' : 'text-cc-primary animate-pulse'} />
+      <span>{streamingPauseStartedAt ? 'Waiting...' : 'Generating...'}</span>
+      <span className="text-cc-muted/60">(</span>
+      <span>{formatElapsed(elapsed)}</span>
+      {(streamingOutputTokens ?? 0) > 0 && (
+        <>
+          <span className="text-cc-muted/40">·</span>
+          <span>↓ {formatTokens(streamingOutputTokens!)}</span>
+        </>
+      )}
+      <span className="text-cc-muted/60">)</span>
+    </div>
+  );
+}
+
 // ─── Message-level grouping ─────────────────────────────────────────────────
 
 interface ToolItem { id: string; name: string; input: Record<string, unknown> }
@@ -767,10 +811,6 @@ function SubagentResult({ preview, parsedText, sessionId, toolUseId }: {
 export function MessageFeed({ sessionId }: { sessionId: string }) {
   const messages = useStore((s) => s.messages.get(sessionId) ?? EMPTY_MESSAGES);
   const streamingText = useStore((s) => s.streaming.get(sessionId));
-  const streamingStartedAt = useStore((s) => s.streamingStartedAt.get(sessionId));
-  const streamingOutputTokens = useStore((s) => s.streamingOutputTokens.get(sessionId));
-  const streamingPausedDuration = useStore((s) => s.streamingPausedDuration.get(sessionId) ?? 0);
-  const streamingPauseStartedAt = useStore((s) => s.streamingPauseStartedAt.get(sessionId));
   const sessionStatus = useStore((s) => s.sessionStatus.get(sessionId));
   const toolProgress = useStore((s) => s.toolProgress.get(sessionId));
   const pawCounter = useRef<import("./PawTrail.js").PawCounterState>({ next: 0, cache: new Map() });
@@ -787,7 +827,6 @@ export function MessageFeed({ sessionId }: { sessionId: string }) {
   const isInitialRender = useRef(true);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const loadingMore = useRef(false);
-  const [elapsed, setElapsed] = useState(0);
   const visibleCount = useStore((s) => s.feedVisibleCount.get(sessionId) ?? FEED_PAGE_SIZE);
 
   // Save scroll position on unmount. Uses useLayoutEffect so the cleanup runs
@@ -862,22 +901,6 @@ export function MessageFeed({ sessionId }: { sessionId: string }) {
     return () => observer.disconnect();
   }, [hasMore, handleLoadMore]);
 
-  // Tick elapsed time every second while generating (subtracting any paused duration)
-  useEffect(() => {
-    if (!streamingStartedAt && sessionStatus !== "running") {
-      setElapsed(0);
-      return;
-    }
-    const start = streamingStartedAt || Date.now();
-    const calcElapsed = () => {
-      const pauseOffset = streamingPausedDuration + (streamingPauseStartedAt ? Date.now() - streamingPauseStartedAt : 0);
-      return Math.max(0, Date.now() - start - pauseOffset);
-    };
-    setElapsed(calcElapsed());
-    const interval = setInterval(() => setElapsed(calcElapsed()), 1000);
-    return () => clearInterval(interval);
-  }, [streamingStartedAt, sessionStatus, streamingPausedDuration, streamingPauseStartedAt]);
-
   function handleScroll() {
     const el = containerRef.current;
     if (!el) return;
@@ -888,6 +911,9 @@ export function MessageFeed({ sessionId }: { sessionId: string }) {
 
   // Auto-scroll: on initial render, restore saved scroll position or jump to
   // bottom. On subsequent renders (streaming), smooth-scroll if near bottom.
+  // Streaming scroll is throttled to avoid layout thrashing on iOS Safari
+  // when the DOM contains many image elements.
+  const lastScrollTime = useRef(0);
   useEffect(() => {
     if (isInitialRender.current) {
       isInitialRender.current = false;
@@ -909,7 +935,11 @@ export function MessageFeed({ sessionId }: { sessionId: string }) {
       return;
     }
     if (isNearBottom.current) {
-      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+      const now = Date.now();
+      if (now - lastScrollTime.current >= 200) {
+        lastScrollTime.current = now;
+        bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+      }
     }
   }, [messages.length, streamingText]);
 
@@ -979,22 +1009,8 @@ export function MessageFeed({ sessionId }: { sessionId: string }) {
             </div>
           )}
 
-          {/* Generation stats bar */}
-          {sessionStatus === "running" && elapsed > 0 && (
-            <div className="flex items-center gap-1.5 text-[11px] text-cc-muted font-mono-code pl-9">
-              <YarnBallDot className={streamingPauseStartedAt ? 'text-amber-400' : 'text-cc-primary animate-pulse'} />
-              <span>{streamingPauseStartedAt ? 'Waiting...' : 'Generating...'}</span>
-              <span className="text-cc-muted/60">(</span>
-              <span>{formatElapsed(elapsed)}</span>
-              {(streamingOutputTokens ?? 0) > 0 && (
-                <>
-                  <span className="text-cc-muted/40">·</span>
-                  <span>↓ {formatTokens(streamingOutputTokens!)}</span>
-                </>
-              )}
-              <span className="text-cc-muted/60">)</span>
-            </div>
-          )}
+          {/* Generation stats bar — extracted to avoid 1s timer re-rendering the full feed */}
+          <ElapsedTimer sessionId={sessionId} />
 
           {/* Compacting indicator */}
           {sessionStatus === "compacting" && (

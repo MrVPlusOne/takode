@@ -438,19 +438,23 @@ export function Composer({ sessionId }: { sessionId: string }) {
   const isRunning = sessionStatus.get(sessionId) === "running";
   const canSend = text.trim().length > 0 && isConnected;
 
+  const imageSrcs = useMemo(
+    () => images.map((img) => ({ src: `data:${img.mediaType};base64,${img.base64}`, name: img.name })),
+    [images],
+  );
+
   return (
     <div className="shrink-0 border-t border-cc-border bg-cc-card px-2 sm:px-4 py-2 sm:py-3">
       <div className="max-w-3xl mx-auto">
-        {/* Image thumbnails */}
-        {images.length > 0 && (
+        {/* Image thumbnails — data URLs are memoized to avoid reconstructing
+             multi-MB base64 strings on every render (expensive on iOS Safari) */}
+        {imageSrcs.length > 0 && (
           <div className="flex items-center gap-2 mb-2 flex-wrap">
-            {images.map((img, i) => {
-              const src = `data:${img.mediaType};base64,${img.base64}`;
-              return (
+            {imageSrcs.map(({ src, name }, i) => (
                 <div key={i} className="relative group">
                   <img
                     src={src}
-                    alt={img.name}
+                    alt={name}
                     className="w-24 h-24 rounded-lg object-cover border border-cc-border cursor-zoom-in hover:opacity-80 transition-opacity"
                     onClick={() => setLightboxSrc(src)}
                   />
@@ -463,8 +467,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
                     </svg>
                   </button>
                 </div>
-              );
-            })}
+              ))}
           </div>
         )}
         {lightboxSrc && (

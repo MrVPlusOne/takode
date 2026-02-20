@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useCallback } from "react";
+import { useState, useMemo, useRef, useCallback, memo } from "react";
 import type { ChatMessage, ContentBlock } from "../types.js";
 import { ToolBlock, getToolIcon, getToolLabel, ToolIcon } from "./ToolBlock.js";
 import { MarkdownContent } from "./MarkdownContent.js";
@@ -9,7 +9,7 @@ import { useStore } from "../store.js";
 import { api } from "../api.js";
 import { PawTrailAvatar } from "./PawTrail.js";
 
-export function MessageBubble({ message, sessionId }: { message: ChatMessage; sessionId?: string }) {
+export const MessageBubble = memo(function MessageBubble({ message, sessionId }: { message: ChatMessage; sessionId?: string }) {
   if (message.role === "system") {
     if (message.variant === "error") {
       const isContextLimit = message.content.toLowerCase().includes("prompt is too long");
@@ -102,7 +102,7 @@ export function MessageBubble({ message, sessionId }: { message: ChatMessage; se
       <AssistantMessage message={message} sessionId={sessionId} />
     </div>
   );
-}
+});
 
 function UserMessage({ message, sessionId }: { message: ChatMessage; sessionId?: string }) {
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
@@ -126,6 +126,7 @@ function UserMessage({ message, sessionId }: { message: ChatMessage; sessionId?:
                   className="max-w-[150px] sm:max-w-[200px] max-h-[120px] sm:max-h-[150px] rounded-lg object-cover cursor-zoom-in hover:opacity-80 transition-opacity"
                   onClick={() => setLightboxSrc(fullSrc)}
                   loading="lazy"
+                  decoding="async"
                   data-testid="image-thumbnail"
                 />
               );
