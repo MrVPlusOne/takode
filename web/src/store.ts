@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type { SessionState, PermissionRequest, ChatMessage, SdkSessionInfo, TaskItem, McpServerDetail, ToolResultPreview } from "./types.js";
-import type { PRStatusResponse, CreationProgressEvent } from "./api.js";
+import { api, type PRStatusResponse, type CreationProgressEvent } from "./api.js";
 import { scopedGetItem, scopedSetItem, scopedRemoveItem } from "./utils/scoped-storage.js";
 
 interface AppState {
@@ -75,9 +75,7 @@ interface AppState {
   // Tool start timestamps from server (session → tool_use_id → server Date.now())
   toolStartTimestamps: Map<string, Map<string, number>>;
 
-  // Attention tracking (inbox-style unread state)
-  sessionLastViewed: Map<string, number>;
-  sessionUnreadCount: Map<string, number>;
+  // Attention tracking (server-authoritative, synced via session_update/state_snapshot)
   sessionAttention: Map<string, "action" | "error" | "review" | null>;
 
   // Manual session ordering per project group
@@ -191,9 +189,8 @@ interface AppState {
   // Tool start timestamp actions
   setToolStartTimestamps: (sessionId: string, timestamps: Record<string, number>) => void;
 
-  // Attention tracking actions
+  // Attention tracking actions (server-authoritative; these send REST calls + optimistic local update)
   markSessionViewed: (sessionId: string) => void;
-  recordSessionActivity: (sessionId: string, reason: "completed" | "permission" | "error" | "disconnect") => void;
   markSessionUnread: (sessionId: string) => void;
   markAllSessionsViewed: () => void;
   clearSessionAttention: (sessionId: string) => void;
@@ -301,29 +298,6 @@ function getInitialZoomLevel(): number {
   return 0.9;
 }
 
-function getInitialSessionLastViewed(): Map<string, number> {
-  if (typeof window === "undefined") return new Map();
-  try {
-    return new Map(JSON.parse(scopedGetItem("cc-session-last-viewed") || "[]"));
-  } catch {
-    return new Map();
-  }
-}
-
-function persistSessionAttention(m: Map<string, "action" | "error" | "review" | null>) {
-  // Only persist non-null entries to keep storage compact
-  const entries = Array.from(m.entries()).filter(([, v]) => v !== null);
-  scopedSetItem("cc-session-attention", JSON.stringify(entries));
-}
-
-function getInitialSessionAttention(): Map<string, "action" | "error" | "review" | null> {
-  if (typeof window === "undefined") return new Map();
-  try {
-    return new Map(JSON.parse(scopedGetItem("cc-session-attention") || "[]"));
-  } catch {
-    return new Map();
-  }
-}
 
 function getInitialSessionOrder(): Map<string, string[]> {
   if (typeof window === "undefined") return new Map();
@@ -374,9 +348,7 @@ export const useStore = create<AppState>((set) => ({
   toolProgress: new Map(),
   toolResults: new Map(),
   toolStartTimestamps: new Map(),
-  sessionLastViewed: getInitialSessionLastViewed(),
-  sessionUnreadCount: new Map(),
-  sessionAttention: getInitialSessionAttention(),
+  sessionAttention: new Map(),
   sessionOrder: getInitialSessionOrder(),
   collapsedProjects: getInitialCollapsedProjects(),
   creationProgress: null,
@@ -554,15 +526,9 @@ export const useStore = create<AppState>((set) => ({
       collapsedTurns.delete(sessionId);
       const collapsibleTurnIds = new Map(s.collapsibleTurnIds);
       collapsibleTurnIds.delete(sessionId);
-      const sessionLastViewed = new Map(s.sessionLastViewed);
-      sessionLastViewed.delete(sessionId);
-      const sessionUnreadCount = new Map(s.sessionUnreadCount);
-      sessionUnreadCount.delete(sessionId);
       const sessionAttention = new Map(s.sessionAttention);
       sessionAttention.delete(sessionId);
       scopedSetItem("cc-session-names", JSON.stringify(Array.from(sessionNames.entries())));
-      scopedSetItem("cc-session-last-viewed", JSON.stringify(Array.from(sessionLastViewed.entries())));
-      persistSessionAttention(sessionAttention);
       if (s.currentSessionId === sessionId) {
         scopedRemoveItem("cc-current-session");
       }
@@ -598,8 +564,6 @@ export const useStore = create<AppState>((set) => ({
         composerDrafts,
         collapsedTurns,
         collapsibleTurnIds,
-        sessionLastViewed,
-        sessionUnreadCount,
         sessionAttention,
         sdkSessions: s.sdkSessions.filter((sdk) => sdk.sessionId !== sessionId),
         currentSessionId: s.currentSessionId === sessionId ? null : s.currentSessionId,
@@ -729,7 +693,6 @@ export const useStore = create<AppState>((set) => ({
           if (s.sessionAttention.get(sessionId) === "action") {
             const sessionAttention = new Map(s.sessionAttention);
             sessionAttention.set(sessionId, null);
-            persistSessionAttention(sessionAttention);
             result.sessionAttention = sessionAttention;
           }
 
@@ -760,7 +723,6 @@ export const useStore = create<AppState>((set) => ({
       if (s.sessionAttention.get(sessionId) === "action") {
         const sessionAttention = new Map(s.sessionAttention);
         sessionAttention.set(sessionId, null);
-        persistSessionAttention(sessionAttention);
         result.sessionAttention = sessionAttention;
       }
       // Also resume streaming timer if paused
@@ -952,76 +914,36 @@ export const useStore = create<AppState>((set) => ({
 
   markSessionViewed: (sessionId) =>
     set((s) => {
-      const sessionLastViewed = new Map(s.sessionLastViewed);
-      sessionLastViewed.set(sessionId, Date.now());
-      const sessionUnreadCount = new Map(s.sessionUnreadCount);
-      sessionUnreadCount.set(sessionId, 0);
       const sessionAttention = new Map(s.sessionAttention);
       sessionAttention.set(sessionId, null);
-      scopedSetItem("cc-session-last-viewed", JSON.stringify(Array.from(sessionLastViewed.entries())));
-      persistSessionAttention(sessionAttention);
-      return { sessionLastViewed, sessionUnreadCount, sessionAttention };
-    }),
-
-  recordSessionActivity: (sessionId, reason) =>
-    set((s) => {
-      // Don't flag attention if user is currently viewing this session
-      if (s.currentSessionId === sessionId) return s;
-
-      const sessionUnreadCount = new Map(s.sessionUnreadCount);
-      const current = sessionUnreadCount.get(sessionId) || 0;
-      sessionUnreadCount.set(sessionId, current + 1);
-
-      const sessionAttention = new Map(s.sessionAttention);
-      const currentAttention = sessionAttention.get(sessionId);
-      const newAttention = reason === "permission" ? "action" as const
-        : (reason === "error" || reason === "disconnect") ? "error" as const
-        : "review" as const;
-      // Only upgrade, never downgrade (action > error > review)
-      const priority: Record<string, number> = { action: 3, error: 2, review: 1 };
-      if (!currentAttention || priority[newAttention] > (priority[currentAttention] || 0)) {
-        sessionAttention.set(sessionId, newAttention);
-      }
-
-      persistSessionAttention(sessionAttention);
-      return { sessionUnreadCount, sessionAttention };
+      // Fire-and-forget REST call; server broadcasts authoritative state to all browsers
+      api.markSessionRead(sessionId).catch(() => {});
+      return { sessionAttention };
     }),
 
   markSessionUnread: (sessionId) =>
     set((s) => {
       const sessionAttention = new Map(s.sessionAttention);
       sessionAttention.set(sessionId, "review");
-      const sessionUnreadCount = new Map(s.sessionUnreadCount);
-      const current = sessionUnreadCount.get(sessionId) || 0;
-      sessionUnreadCount.set(sessionId, Math.max(1, current));
-      persistSessionAttention(sessionAttention);
-      return { sessionAttention, sessionUnreadCount };
+      api.markSessionUnread(sessionId).catch(() => {});
+      return { sessionAttention };
     }),
 
   markAllSessionsViewed: () =>
     set((s) => {
-      const now = Date.now();
-      const sessionLastViewed = new Map(s.sessionLastViewed);
-      const sessionUnreadCount = new Map(s.sessionUnreadCount);
       const sessionAttention = new Map(s.sessionAttention);
       for (const sdk of s.sdkSessions) {
-        sessionLastViewed.set(sdk.sessionId, now);
-        sessionUnreadCount.set(sdk.sessionId, 0);
         sessionAttention.set(sdk.sessionId, null);
       }
-      scopedSetItem("cc-session-last-viewed", JSON.stringify(Array.from(sessionLastViewed.entries())));
-      persistSessionAttention(sessionAttention);
-      return { sessionLastViewed, sessionUnreadCount, sessionAttention };
+      api.markAllSessionsRead().catch(() => {});
+      return { sessionAttention };
     }),
 
   clearSessionAttention: (sessionId) =>
     set((s) => {
       const sessionAttention = new Map(s.sessionAttention);
       sessionAttention.set(sessionId, null);
-      const sessionUnreadCount = new Map(s.sessionUnreadCount);
-      sessionUnreadCount.set(sessionId, 0);
-      persistSessionAttention(sessionAttention);
-      return { sessionAttention, sessionUnreadCount };
+      return { sessionAttention };
     }),
 
   setSessionOrder: (groupKey, orderedIds) =>
@@ -1200,8 +1122,6 @@ export const useStore = create<AppState>((set) => ({
       toolResults: new Map(),
   toolStartTimestamps: new Map(),
       prStatus: new Map(),
-      sessionLastViewed: new Map(),
-      sessionUnreadCount: new Map(),
       sessionAttention: new Map(),
       sessionOrder: new Map(),
       activeTab: "chat" as const,

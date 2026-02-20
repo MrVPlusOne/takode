@@ -21,6 +21,8 @@ export interface PushoverNotifierOpts {
   getServerName: () => string;
   getSessionName: (sessionId: string) => string | undefined;
   getSessionActivity: (sessionId: string) => string | undefined;
+  /** Returns the epoch ms when the user last read this session (0 = never). */
+  getLastReadAt: (sessionId: string) => number;
 }
 
 interface PendingNotification {
@@ -200,6 +202,11 @@ export class PushoverNotifier {
     this.pending.delete(key);
 
     if (!this.isConfigured()) return;
+
+    // Skip notification if the user has read the session since the event was created
+    const lastRead = this.opts.getLastReadAt(pending.sessionId);
+    if (lastRead >= pending.createdAt) return;
+
     if (!this.checkRateLimit(pending.sessionId)) return;
 
     const settings = this.opts.getSettings();

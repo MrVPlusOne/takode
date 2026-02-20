@@ -408,6 +408,12 @@ function handleParsedMessage(
       if (typeof (data.session as Record<string, unknown>).name === "string") {
         store.setSessionName(sessionId, (data.session as Record<string, unknown>).name as string);
       }
+      // Sync server-authoritative attention state
+      if (data.session.attentionReason !== undefined) {
+        const sessionAttention = new Map(useStore.getState().sessionAttention);
+        sessionAttention.set(sessionId, data.session.attentionReason ?? null);
+        useStore.setState({ sessionAttention });
+      }
       break;
     }
 
@@ -530,7 +536,6 @@ function handleParsedMessage(
       store.clearStreamingState(sessionId);
       store.clearToolProgress(sessionId);
       store.setSessionStatus(sessionId, "idle");
-      store.recordSessionActivity(sessionId, r.is_error ? "error" : "completed");
       // Play notification sound if enabled and tab is not focused
       if (!document.hasFocus() && store.notificationSound) {
         playNotificationSound();
@@ -585,7 +590,6 @@ function handleParsedMessage(
 
     case "permission_request": {
       store.addPermission(sessionId, data.request);
-      store.recordSessionActivity(sessionId, "permission");
       // Pause generation timer while waiting for user input
       store.pauseStreamingTimer(sessionId);
       if (!document.hasFocus() && store.notificationDesktop) {
@@ -712,6 +716,12 @@ function handleParsedMessage(
         store.clearStreamingState(sessionId);
         store.clearToolProgress(sessionId);
       }
+      // Sync server-authoritative attention state
+      if (data.attentionReason !== undefined) {
+        const sessionAttention = new Map(useStore.getState().sessionAttention);
+        sessionAttention.set(sessionId, data.attentionReason ?? null);
+        useStore.setState({ sessionAttention });
+      }
       break;
     }
 
@@ -744,7 +754,6 @@ function handleParsedMessage(
       store.setSessionStatus(sessionId, null);
       store.clearStreamingState(sessionId);
       store.clearToolProgress(sessionId);
-      store.recordSessionActivity(sessionId, "disconnect");
       break;
     }
 

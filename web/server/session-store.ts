@@ -23,6 +23,10 @@ export interface PersistedSession {
   archived?: boolean;
   /** Serialized Map entries for full tool results (tool_use_id → result) */
   toolResults?: [string, { content: string; is_error: boolean; timestamp: number }][];
+  /** Epoch ms when the user last viewed this session (server-authoritative) */
+  lastReadAt?: number;
+  /** Current attention reason: why this session needs the user's attention */
+  attentionReason?: "action" | "error" | "review" | null;
 }
 
 // ─── Store ──────────────────────────────────────────────────────────────────

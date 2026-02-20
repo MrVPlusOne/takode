@@ -27,6 +27,7 @@ function makeOpts(overrides?: Partial<PushoverNotifierOpts>): PushoverNotifierOp
     getServerName: () => "My Server",
     getSessionName: () => "Refactor auth",
     getSessionActivity: () => "Fixing authentication bug",
+    getLastReadAt: () => 0,
     ...overrides,
   };
 }

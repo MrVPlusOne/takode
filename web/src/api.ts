@@ -394,6 +394,19 @@ export const api = {
       { name },
     ),
 
+  markSessionRead: (sessionId: string) =>
+    patch<{ ok: boolean }>(
+      `/sessions/${encodeURIComponent(sessionId)}/read`,
+    ),
+
+  markSessionUnread: (sessionId: string) =>
+    patch<{ ok: boolean }>(
+      `/sessions/${encodeURIComponent(sessionId)}/unread`,
+    ),
+
+  markAllSessionsRead: () =>
+    post<{ ok: boolean }>("/sessions/mark-all-read"),
+
   setDiffBase: (sessionId: string, branch: string) =>
     patch<{ ok: boolean; diff_base_branch: string }>(
       `/sessions/${encodeURIComponent(sessionId)}/diff-base`,

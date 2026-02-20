@@ -63,6 +63,7 @@ const pushoverNotifier = new PushoverNotifier({
   getServerName: () => getServerName() || "Companion",
   getSessionName: (id) => sessionNames.getName(id),
   getSessionActivity: (id) => wsBridge.getSessionActivityPreview(id),
+  getLastReadAt: (id) => wsBridge.getSessionAttentionState(id)?.lastReadAt ?? 0,
 });
 
 // ── Restore persisted sessions from disk ────────────────────────────────────

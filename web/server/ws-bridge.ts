@@ -155,6 +155,10 @@ interface Session {
   isGenerating: boolean;
   /** Server-side activity preview (mirrors browser's sessionTaskPreview) */
   lastActivityPreview?: string;
+  /** Epoch ms when the user last viewed this session (server-authoritative) */
+  lastReadAt: number;
+  /** Current attention reason: why this session needs the user's attention */
+  attentionReason: "action" | "error" | "review" | null;
 }
 
 type GitSessionKey = "git_branch" | "is_worktree" | "is_containerized" | "repo_root" | "git_ahead" | "git_behind";
@@ -507,6 +511,8 @@ export class WsBridge {
         assistantAccumulator: new Map(),
         toolStartTimes: new Map(),
         isGenerating: false,
+        lastReadAt: typeof p.lastReadAt === "number" ? p.lastReadAt : 0,
+        attentionReason: p.attentionReason ?? null,
       };
       session.state.backend_type = session.backendType;
       // Resolve git info for restored sessions (may have been persisted without it)
@@ -534,6 +540,8 @@ export class WsBridge {
       lastAckSeq: session.lastAckSeq,
       processedClientMessageIds: session.processedClientMessageIds,
       toolResults: Array.from(session.toolResults.entries()),
+      lastReadAt: session.lastReadAt,
+      attentionReason: session.attentionReason,
     });
   }
 
@@ -552,6 +560,8 @@ export class WsBridge {
       lastAckSeq: session.lastAckSeq,
       processedClientMessageIds: session.processedClientMessageIds,
       toolResults: Array.from(session.toolResults.entries()),
+      lastReadAt: session.lastReadAt,
+      attentionReason: session.attentionReason,
     });
   }
 
@@ -626,6 +636,8 @@ export class WsBridge {
         assistantAccumulator: new Map(),
         toolStartTimes: new Map(),
         isGenerating: false,
+        lastReadAt: 0,
+        attentionReason: null,
       };
       this.sessions.set(sessionId, session);
     } else if (backendType) {
@@ -639,6 +651,79 @@ export class WsBridge {
 
   getSession(sessionId: string): Session | undefined {
     return this.sessions.get(sessionId);
+  }
+
+  // ─── Attention state (server-authoritative read/unread) ───────────────────
+
+  private static readonly ATTENTION_PRIORITY: Record<string, number> = { action: 3, error: 2, review: 1 };
+
+  /** Upgrade attention (never downgrade). Broadcasts + persists. */
+  private setAttention(session: Session, reason: "action" | "error" | "review"): void {
+    const current = session.attentionReason;
+    const pri = WsBridge.ATTENTION_PRIORITY;
+    if (current && pri[current] >= pri[reason]) return; // already equal or higher
+    session.attentionReason = reason;
+    this.broadcastToBrowsers(session, {
+      type: "session_update",
+      session: { attentionReason: session.attentionReason },
+    });
+    this.persistSession(session);
+  }
+
+  /** Clear attention, set lastReadAt, broadcast + persist. */
+  private clearAttentionAndMarkRead(session: Session): void {
+    if (session.attentionReason === null) return;
+    session.attentionReason = null;
+    session.lastReadAt = Date.now();
+    this.broadcastToBrowsers(session, {
+      type: "session_update",
+      session: { attentionReason: null, lastReadAt: session.lastReadAt },
+    });
+    this.persistSession(session);
+  }
+
+  /** Downgrade "action" attention to null when all pending permissions are resolved. */
+  private clearActionAttentionIfNoPermissions(session: Session): void {
+    if (session.pendingPermissions.size === 0 && session.attentionReason === "action") {
+      session.attentionReason = null;
+      this.broadcastToBrowsers(session, { type: "session_update", session: { attentionReason: null } });
+      this.persistSession(session);
+    }
+  }
+
+  /** Mark a session as read by the user. Returns false if session not found. */
+  markSessionRead(sessionId: string): boolean {
+    const session = this.sessions.get(sessionId);
+    if (!session) return false;
+    this.clearAttentionAndMarkRead(session);
+    return true;
+  }
+
+  /** Mark all sessions as read. */
+  markAllSessionsRead(): void {
+    for (const session of this.sessions.values()) {
+      this.clearAttentionAndMarkRead(session);
+    }
+  }
+
+  /** Mark a session as unread (user-initiated). Returns false if session not found. */
+  markSessionUnread(sessionId: string): boolean {
+    const session = this.sessions.get(sessionId);
+    if (!session) return false;
+    session.attentionReason = "review";
+    this.broadcastToBrowsers(session, {
+      type: "session_update",
+      session: { attentionReason: "review" },
+    });
+    this.persistSession(session);
+    return true;
+  }
+
+  /** Get attention state for a session (used by REST enrichment and Pushover). */
+  getSessionAttentionState(sessionId: string): { lastReadAt: number; attentionReason: "action" | "error" | "review" | null } | null {
+    const session = this.sessions.get(sessionId);
+    if (!session) return null;
+    return { lastReadAt: session.lastReadAt, attentionReason: session.attentionReason };
   }
 
   getAllSessions(): SessionState[] {
@@ -788,6 +873,7 @@ export class WsBridge {
 
     // Handle disconnect
     adapter.onDisconnect(() => {
+      const wasGenerating = session.isGenerating;
       for (const [reqId] of session.pendingPermissions) {
         this.broadcastToBrowsers(session, { type: "permission_cancelled", request_id: reqId });
       }
@@ -797,6 +883,9 @@ export class WsBridge {
       this.persistSession(session);
       console.log(`[ws-bridge] Codex adapter disconnected for session ${sessionId}`);
       this.broadcastToBrowsers(session, { type: "cli_disconnected" });
+      if (wasGenerating) {
+        this.setAttention(session, "error");
+      }
     });
 
     // Flush any messages queued while waiting for the adapter
@@ -868,10 +957,16 @@ export class WsBridge {
     const session = this.sessions.get(sessionId);
     if (!session) return;
 
+    const wasGenerating = session.isGenerating;
     session.cliSocket = null;
     session.isGenerating = false;
     console.log(`[ws-bridge] CLI disconnected for session ${sessionId}`);
     this.broadcastToBrowsers(session, { type: "cli_disconnected" });
+    // Only set error attention on unexpected disconnects (mid-generation crash),
+    // not on clean shutdown after a result message
+    if (wasGenerating) {
+      this.setAttention(session, "error");
+    }
 
     // Cancel any pending permission requests
     for (const [reqId] of session.pendingPermissions) {
@@ -1360,6 +1455,9 @@ export class WsBridge {
     this.broadcastToBrowsers(session, browserMsg);
     this.persistSession(session);
 
+    // Set attention state for the completed/errored session
+    this.setAttention(session, msg.is_error ? "error" : "review");
+
     // Schedule Pushover notification for session completion/error
     if (this.pushoverNotifier) {
       if (msg.is_error) {
@@ -1467,6 +1565,7 @@ export class WsBridge {
         type: "permission_request",
         request: perm,
       });
+      this.setAttention(session, "action");
       this.persistSession(session);
 
       // Schedule Pushover notification for attention-requiring events
@@ -1486,6 +1585,7 @@ export class WsBridge {
       session.pendingPermissions.delete(reqId);
       this.broadcastToBrowsers(session, { type: "permission_cancelled", request_id: reqId });
       this.pushoverNotifier?.cancelPermission(session.id, reqId);
+      this.clearActionAttentionIfNoPermissions(session);
       this.persistSession(session);
       console.log(`[ws-bridge] CLI cancelled pending permission ${reqId} (${pending.tool_name}) for session ${session.id}`);
     }
@@ -1957,6 +2057,8 @@ export class WsBridge {
     // Cancel any pending Pushover notification for this permission
     this.pushoverNotifier?.cancelPermission(session.id, msg.request_id);
 
+    this.clearActionAttentionIfNoPermissions(session);
+
     if (msg.behavior === "allow") {
       const response: Record<string, unknown> = {
         behavior: "allow",
@@ -2264,6 +2366,8 @@ export class WsBridge {
       cliConnected: !!(session.cliSocket || session.codexAdapter),
       uiMode: session.state.uiMode ?? null,
       askPermission: session.state.askPermission ?? true,
+      lastReadAt: session.lastReadAt,
+      attentionReason: session.attentionReason,
     });
   }
 

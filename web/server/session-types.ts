@@ -262,7 +262,7 @@ export type BrowserIncomingMessageBase =
   | { type: "tool_result_preview"; previews: ToolResultPreview[] }
   | { type: "permission_denied"; id: string; tool_name: string; tool_use_id: string; summary: string; timestamp: number; request_id?: string }
   | { type: "permission_approved"; id: string; tool_name: string; tool_use_id: string; summary: string; timestamp: number; request_id?: string; answers?: { question: string; answer: string }[] }
-  | { type: "state_snapshot"; sessionStatus: string | null; permissionMode: string; cliConnected: boolean; uiMode: string | null; askPermission: boolean };
+  | { type: "state_snapshot"; sessionStatus: string | null; permissionMode: string; cliConnected: boolean; uiMode: string | null; askPermission: boolean; lastReadAt?: number; attentionReason?: "action" | "error" | "review" | null };
 
 export type BrowserIncomingMessage = BrowserIncomingMessageBase & { seq?: number };
 
@@ -324,6 +324,10 @@ export interface SessionState {
   uiMode?: "plan" | "agent";
   /** Whether the session requires permission prompts for tool use (default: true) */
   askPermission?: boolean;
+  /** Epoch ms when the user last viewed this session (server-only, never from CLI) */
+  lastReadAt?: number;
+  /** Current attention reason (server-only, never from CLI) */
+  attentionReason?: "action" | "error" | "review" | null;
 }
 
 // ─── MCP Types ───────────────────────────────────────────────────────────────

@@ -796,6 +796,7 @@ export function createRoutes(
           totalLinesRemoved: bridge?.total_lines_removed || 0,
           lastMessagePreview: wsBridge.getLastUserMessage(s.sessionId) || "",
           cliConnected: wsBridge.isCliConnected(s.sessionId),
+          ...(wsBridge.getSessionAttentionState(s.sessionId) ?? {}),
         };
       } catch (e) {
         console.warn(`[routes] Failed to enrich session ${s.sessionId}:`, e);
@@ -834,6 +835,27 @@ export function createRoutes(
       return c.json({ error: "Session not found" }, 404);
     }
     return c.json({ ok: true, diff_base_branch: branch });
+  });
+
+  api.patch("/sessions/:id/read", (c) => {
+    const id = c.req.param("id");
+    if (!wsBridge.markSessionRead(id)) {
+      return c.json({ error: "Session not found" }, 404);
+    }
+    return c.json({ ok: true });
+  });
+
+  api.patch("/sessions/:id/unread", (c) => {
+    const id = c.req.param("id");
+    if (!wsBridge.markSessionUnread(id)) {
+      return c.json({ error: "Session not found" }, 404);
+    }
+    return c.json({ ok: true });
+  });
+
+  api.post("/sessions/mark-all-read", (c) => {
+    wsBridge.markAllSessionsRead();
+    return c.json({ ok: true });
   });
 
   api.post("/sessions/:id/kill", async (c) => {

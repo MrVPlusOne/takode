@@ -63,6 +63,7 @@ export function Sidebar() {
           connectAllSessions(list);
           // Hydrate session names from server (server is source of truth for auto-generated names)
           const store = useStore.getState();
+          let batchedAttention: Map<string, "action" | "error" | "review" | null> | null = null;
           for (const s of list) {
             if (s.name && (!store.sessionNames.has(s.sessionId) || /^[A-Z][a-z]+ [A-Z][a-z]+$/.test(store.sessionNames.get(s.sessionId)!))) {
               const currentStoreName = store.sessionNames.get(s.sessionId);
@@ -78,6 +79,17 @@ export function Sidebar() {
             if (s.lastMessagePreview && !store.sessionPreviews.has(s.sessionId)) {
               store.setSessionPreview(s.sessionId, s.lastMessagePreview);
             }
+            // Batch server-authoritative attention state changes
+            if (s.attentionReason !== undefined) {
+              const currentAttention = store.sessionAttention.get(s.sessionId);
+              if (currentAttention !== s.attentionReason) {
+                if (!batchedAttention) batchedAttention = new Map(store.sessionAttention);
+                batchedAttention.set(s.sessionId, s.attentionReason ?? null);
+              }
+            }
+          }
+          if (batchedAttention) {
+            useStore.setState({ sessionAttention: batchedAttention });
           }
         }
       } catch (e) {

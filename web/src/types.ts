@@ -77,4 +77,8 @@ export interface SdkSessionInfo {
   isWorktree?: boolean;
   /** Whether this is an assistant-mode session */
   isAssistant?: boolean;
+  /** Server-authoritative attention state */
+  attentionReason?: "action" | "error" | "review" | null;
+  /** Epoch ms when user last viewed this session */
+  lastReadAt?: number;
 }
