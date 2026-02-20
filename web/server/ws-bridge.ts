@@ -1,7 +1,8 @@
 import type { ServerWebSocket } from "bun";
 import { randomUUID } from "node:crypto";
 import { execSync } from "node:child_process";
-import { resolve } from "node:path";
+import { resolve, basename } from "node:path";
+import { homedir } from "node:os";
 import type {
   CLIMessage,
   CLISystemInitMessage,
@@ -1298,6 +1299,35 @@ export class WsBridge {
     });
   }
 
+  /**
+   * Check if a file path targets a Claude Code / Companion config location.
+   * Edits to these files should always require explicit user approval in
+   * acceptEdits mode since they control the agent's own behavior.
+   */
+  private static isSensitiveConfigPath(filePath: string): boolean {
+    if (!filePath) return false;
+    const name = basename(filePath);
+    // CLAUDE.md anywhere — project root, parent dirs, .claude/, ~/.claude/
+    if (name === "CLAUDE.md") return true;
+    // MCP server configs
+    if (name === ".mcp.json" || name === ".claude.json") return true;
+    // Settings / credentials inside .claude/
+    if (filePath.includes("/.claude/")) {
+      if (name === "settings.json" || name === "settings.local.json" || name === ".credentials.json") return true;
+      // commands/, agents/, skills/, hooks/ directories
+      if (/\/\.claude\/(commands|agents|skills|hooks)\//.test(filePath)) return true;
+    }
+    // Companion config
+    const home = homedir();
+    if (filePath.startsWith(`${home}/.companion/settings.json`) ||
+        filePath.startsWith(`${home}/.companion/envs/`)) {
+      return true;
+    }
+    // ~/.claude.json (user-level MCP config at home root)
+    if (filePath === `${home}/.claude.json`) return true;
+    return false;
+  }
+
   // Tools that are auto-approved in acceptEdits mode (everything except Bash).
   // In bypassPermissions mode ALL tools are auto-approved.
   private static readonly ACCEPT_EDITS_AUTO_APPROVE = new Set([
@@ -1314,9 +1344,16 @@ export class WsBridge {
       // Server-side auto-approval based on permission mode.
       // The CLI may not honor runtime set_permission_mode for out-of-project
       // files, so the server acts as the enforcement layer.
+      // In acceptEdits mode, edits to sensitive config files (CLAUDE.md,
+      // settings.json, hooks, etc.) still require explicit approval.
+      const isFileEdit = toolName === "Edit" || toolName === "Write" || toolName === "MultiEdit" || toolName === "NotebookEdit";
+      const filePath = isFileEdit ? String(msg.request.input.file_path ?? "") : "";
       const autoApprove =
         mode === "bypassPermissions" ||
-        (mode === "acceptEdits" && toolName !== "Bash" && WsBridge.ACCEPT_EDITS_AUTO_APPROVE.has(toolName));
+        (mode === "acceptEdits"
+          && toolName !== "Bash"
+          && WsBridge.ACCEPT_EDITS_AUTO_APPROVE.has(toolName)
+          && !(isFileEdit && WsBridge.isSensitiveConfigPath(filePath)));
 
       if (autoApprove) {
         const ndjson = JSON.stringify({
