@@ -1123,6 +1123,7 @@ export function MessageFeed({ sessionId }: { sessionId: string }) {
           context={feedContext}
           firstItemIndex={firstItemIndex}
           initialTopMostItemIndex={firstItemIndex + visibleTurns.length - 1}
+          alignToBottom
           atBottomThreshold={120}
           increaseViewportBy={{ top: 200, bottom: 200 }}
           followOutput={handleFollowOutput}
