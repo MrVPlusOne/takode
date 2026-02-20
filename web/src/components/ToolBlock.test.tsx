@@ -480,6 +480,44 @@ describe("ToolBlock duration display", () => {
     expect(durationBadge).toBeNull();
   });
 
+  it("does not show live timer when tool has completed but duration_seconds is missing", () => {
+    // This reproduces the bug: server restarted mid-tool, lost transient start time,
+    // so tool_result_preview has no duration_seconds. But the assistant message in
+    // history still has tool_start_times. Without the fix, the live timer would
+    // count forever from the original start timestamp.
+    const toolResults = new Map();
+    const sessionResults = new Map();
+    sessionResults.set("tu-restart", {
+      tool_use_id: "tu-restart",
+      content: "done",
+      is_error: false,
+      total_size: 4,
+      is_truncated: false,
+      // duration_seconds intentionally omitted — server lost start time on restart
+    });
+    toolResults.set("test-session", sessionResults);
+
+    const toolStartTimestamps = new Map();
+    const sessionTimestamps = new Map();
+    sessionTimestamps.set("tu-restart", Date.now() - 600_000); // 10 minutes ago
+    toolStartTimestamps.set("test-session", sessionTimestamps);
+
+    useStore.setState({ toolResults, toolStartTimestamps });
+
+    const { container } = render(
+      <ToolBlock
+        name="Bash"
+        input={{ command: "sleep 3" }}
+        toolUseId="tu-restart"
+        sessionId="test-session"
+      />
+    );
+
+    // Should NOT show a live timer (no tabular-nums badge at all)
+    const badge = container.querySelector(".tabular-nums");
+    expect(badge).toBeNull();
+  });
+
   it("does not show duration badge without sessionId", () => {
     const { container } = render(
       <ToolBlock

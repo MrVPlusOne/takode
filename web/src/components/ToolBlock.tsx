@@ -67,10 +67,11 @@ export function formatDuration(seconds: number): string {
 /** Live duration badge — shows a counting timer while the tool runs,
  *  then switches to the server-reported ground-truth duration on completion. */
 function ToolDurationBadge({ toolUseId, sessionId }: { toolUseId: string; sessionId: string }) {
-  // Final duration from server (tool_result_preview)
-  const finalDuration = useStore((s) =>
-    s.toolResults.get(sessionId)?.get(toolUseId)?.duration_seconds
+  // Tool result preview (present once the tool has completed)
+  const toolResult = useStore((s) =>
+    s.toolResults.get(sessionId)?.get(toolUseId)
   );
+  const finalDuration = toolResult?.duration_seconds;
   // Server start timestamp (from tool_start_times on the assistant message)
   const startTimestamp = useStore((s) =>
     s.toolStartTimestamps.get(sessionId)?.get(toolUseId)
@@ -80,8 +81,10 @@ function ToolDurationBadge({ toolUseId, sessionId }: { toolUseId: string; sessio
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    // If we have the final duration, no need for a live timer
-    if (finalDuration != null) {
+    // If we have the final duration or the tool has completed (result exists
+    // but duration_seconds is missing — e.g. server restarted mid-tool and
+    // lost the transient start time), no need for a live timer.
+    if (finalDuration != null || toolResult != null) {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
@@ -105,7 +108,7 @@ function ToolDurationBadge({ toolUseId, sessionId }: { toolUseId: string; sessio
         }
       };
     }
-  }, [finalDuration, startTimestamp]);
+  }, [finalDuration, startTimestamp, toolResult]);
 
   // Show final duration (static) or live timer
   const displaySeconds = finalDuration ?? liveSeconds;
