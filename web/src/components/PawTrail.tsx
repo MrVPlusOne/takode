@@ -34,10 +34,10 @@ export const PawScrollContext = createContext<{
  * all PawTrailAvatar animations via direct DOM writes.
  */
 export function PawScrollProvider({
-  scrollRef,
+  scrollEl,
   children,
 }: {
-  scrollRef: React.RefObject<HTMLElement | null>;
+  scrollEl: HTMLElement | null;
   children: React.ReactNode;
 }) {
   const callbacks = useRef(new Set<PawUpdateFn>());
@@ -47,22 +47,20 @@ export function PawScrollProvider({
   const register = useCallback((fn: PawUpdateFn) => {
     callbacks.current.add(fn);
     // Give the newly registered paw an immediate position update
-    const sp = scrollRef.current;
-    if (sp) {
-      requestAnimationFrame(() => fn(sp, dirDown.current));
+    if (scrollEl) {
+      requestAnimationFrame(() => fn(scrollEl, dirDown.current));
     }
     return () => { callbacks.current.delete(fn); };
-  }, [scrollRef]);
+  }, [scrollEl]);
 
   useEffect(() => {
-    const sp = scrollRef.current;
-    if (!sp) return;
+    if (!scrollEl) return;
 
     let rafId: number;
     const onScroll = () => {
       cancelAnimationFrame(rafId);
       rafId = requestAnimationFrame(() => {
-        const currentScrollTop = sp.scrollTop;
+        const currentScrollTop = scrollEl.scrollTop;
         // Dead zone of 2px to avoid jitter on sub-pixel scrolls
         if (currentScrollTop > lastScrollTop.current + 2) {
           dirDown.current = true;
@@ -72,25 +70,25 @@ export function PawScrollProvider({
         lastScrollTop.current = currentScrollTop;
 
         for (const cb of callbacks.current) {
-          cb(sp, dirDown.current);
+          cb(scrollEl, dirDown.current);
         }
       });
     };
 
-    sp.addEventListener("scroll", onScroll, { passive: true });
+    scrollEl.addEventListener("scroll", onScroll, { passive: true });
 
     // Initial position for all paws already registered
     requestAnimationFrame(() => {
       for (const cb of callbacks.current) {
-        cb(sp, dirDown.current);
+        cb(scrollEl, dirDown.current);
       }
     });
 
     return () => {
-      sp.removeEventListener("scroll", onScroll);
+      scrollEl.removeEventListener("scroll", onScroll);
       cancelAnimationFrame(rafId);
     };
-  }, [scrollRef]);
+  }, [scrollEl]);
 
   const value = useMemo(() => ({ register }), [register]);
   return <PawScrollContext.Provider value={value}>{children}</PawScrollContext.Provider>;

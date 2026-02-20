@@ -1,6 +1,11 @@
 // Setup file for jsdom-based tests
 // Polyfills that must be available before any module import
 
+// react-virtuoso requires real layout (scrolling, element measurement) which
+// JSDOM can't provide. Auto-mock it with the manual mock in __mocks__/ that
+// renders all items inline without virtualization.
+vi.mock("react-virtuoso");
+
 if (typeof window !== "undefined") {
   Object.defineProperty(window, "matchMedia", {
     writable: true,

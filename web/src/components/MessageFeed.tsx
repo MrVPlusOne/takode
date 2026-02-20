@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useMemo, useState, useCallback } from "react";
+import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { useStore } from "../store.js";
 import { MessageBubble } from "./MessageBubble.js";
 import { ToolBlock, getToolIcon, getToolLabel, ToolIcon } from "./ToolBlock.js";
@@ -639,47 +640,6 @@ function TurnEntriesExpanded({ turn, sessionId, onCollapse }: { turn: Turn; sess
   );
 }
 
-function TurnEntries({ turns, sessionId }: { turns: Turn[]; sessionId: string }) {
-  const collapsedSet = useStore((s) => s.collapsedTurns.get(sessionId));
-  const toggleTurn = useStore((s) => s.toggleTurnCollapsed);
-
-  return (
-    <>
-      {turns.map((turn) => {
-        const isCollapsed = collapsedSet?.has(turn.id) ?? false;
-        return (
-          <div key={turn.id} className="turn-container space-y-3 sm:space-y-5">
-            {/* Render user message */}
-            {turn.userEntry && (
-              <FeedEntries entries={[turn.userEntry]} sessionId={sessionId} />
-            )}
-            {isCollapsed ? (
-              <>
-                {/* System messages always visible in collapsed mode */}
-                {turn.systemEntries.length > 0 && (
-                  <FeedEntries entries={turn.systemEntries} sessionId={sessionId} />
-                )}
-                {/* Collapsed summary for agent activity */}
-                {turn.agentEntries.length > 0 && (
-                  <CollapsedTurnSummary
-                    stats={turn.stats}
-                    onClick={() => toggleTurn(sessionId, turn.id)}
-                  />
-                )}
-              </>
-            ) : turn.allEntries.length > 0 && (
-              <TurnEntriesExpanded
-                turn={turn}
-                sessionId={sessionId}
-                onCollapse={() => toggleTurn(sessionId, turn.id)}
-              />
-            )}
-          </div>
-        );
-      })}
-    </>
-  );
-}
 
 /** Extract readable text from a Task tool_result string.
  *  The CLI sends the result as JSON.stringify'd content blocks:
@@ -911,6 +871,87 @@ function SubagentResult({ preview, parsedText, sessionId, toolUseId }: {
 }
 
 
+// ─── Virtuoso context & stable Header/Footer ────────────────────────────────
+
+interface FeedContext {
+  hasMore: boolean;
+  toolProgress: Map<string, { toolName: string; elapsedSeconds: number }> | undefined;
+  streamingText: string | undefined;
+  sessionStatus: string | null | undefined;
+  sessionId: string;
+}
+
+function FeedHeader({ context }: { context?: FeedContext }) {
+  return (
+    <div className="px-3 sm:px-4 pt-4 sm:pt-6">
+      {context?.hasMore && (
+        <div className="max-w-3xl mx-auto flex justify-center pb-2">
+          <span className="flex items-center gap-1.5 text-xs text-cc-muted">
+            <YarnBallSpinner className="h-3 w-3 text-cc-muted" />
+            Loading older messages...
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FeedFooter({ context }: { context?: FeedContext }) {
+  if (!context) return <div className="pb-4 sm:pb-6" />;
+  const { toolProgress, streamingText, sessionStatus, sessionId } = context;
+
+  return (
+    <div className="max-w-3xl mx-auto px-3 sm:px-4 pb-4 sm:pb-6">
+      <div className="space-y-3 sm:space-y-5">
+        {/* Tool progress indicator */}
+        {toolProgress && toolProgress.size > 0 && !streamingText && (
+          <div className="flex items-center gap-1.5 text-[11px] text-cc-muted font-mono-code pl-9">
+            <YarnBallDot className="text-cc-primary animate-pulse" />
+            {Array.from(toolProgress.values()).map((p, i) => (
+              <span key={i} className="flex items-center gap-1">
+                {i > 0 && <span className="text-cc-muted/40">·</span>}
+                <span>{getToolLabel(p.toolName)}</span>
+                <span className="text-cc-muted/60">{p.elapsedSeconds}s</span>
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* Streaming indicator */}
+        {streamingText && (
+          <div className="animate-[fadeSlideIn_0.2s_ease-out]">
+            <div className="flex items-start gap-3">
+              <PawTrailAvatar isStreaming />
+              <div className="flex-1 min-w-0">
+                <pre className="font-serif-assistant text-[15px] text-cc-fg whitespace-pre-wrap break-words leading-relaxed">
+                  {streamingText}
+                  <span className="inline-block w-0.5 h-4 bg-cc-primary ml-0.5 align-middle animate-[pulse-dot_0.8s_ease-in-out_infinite]" />
+                </pre>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Generation stats bar */}
+        <ElapsedTimer sessionId={sessionId} />
+
+        {/* Compacting indicator */}
+        {sessionStatus === "compacting" && (
+          <div className="flex items-center gap-1.5 text-[11px] text-cc-muted font-mono-code pl-9">
+            <YarnBallDot className="text-cc-warning animate-pulse" />
+            <span>Compacting conversation...</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Stable reference so Virtuoso doesn't remount Header/Footer on every render.
+ *  Data is passed via context prop instead. */
+const FEED_COMPONENTS = { Header: FeedHeader, Footer: FeedFooter };
+
+
 // ─── Main Feed ───────────────────────────────────────────────────────────────
 
 export function MessageFeed({ sessionId }: { sessionId: string }) {
@@ -918,35 +959,24 @@ export function MessageFeed({ sessionId }: { sessionId: string }) {
   const streamingText = useStore((s) => s.streaming.get(sessionId));
   const sessionStatus = useStore((s) => s.sessionStatus.get(sessionId));
   const toolProgress = useStore((s) => s.toolProgress.get(sessionId));
+  const collapsedSet = useStore((s) => s.collapsedTurns.get(sessionId));
+  const toggleTurn = useStore((s) => s.toggleTurnCollapsed);
   const pawCounter = useRef<import("./PawTrail.js").PawCounterState>({ next: 0, cache: new Map() });
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const sentinelRef = useRef<HTMLDivElement>(null);
-  // Initialize isNearBottom from saved scroll position — if the user was scrolled
-  // up when they left this session, don't auto-scroll to bottom on re-mount.
-  const savedScrollPos = useStore.getState().feedScrollPosition.get(sessionId);
-  const isNearBottom = useRef(savedScrollPos ? savedScrollPos.isAtBottom : true);
-  // Tracks the first render — used to scroll instantly on session switch
-  // instead of smooth-scrolling. Cleared inside the auto-scroll effect itself
-  // (not a separate effect) to avoid React's same-render effect batching.
-  const isInitialRender = useRef(true);
+  const virtuosoRef = useRef<VirtuosoHandle>(null);
+  const [scrollerEl, setScrollerEl] = useState<HTMLElement | null>(null);
+  const isNearBottom = useRef(true);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const loadingMore = useRef(false);
   const visibleCount = useStore((s) => s.feedVisibleCount.get(sessionId) ?? FEED_PAGE_SIZE);
 
-  // Save scroll position on unmount. Uses useLayoutEffect so the cleanup runs
-  // in the layout phase — BEFORE the new component's effects try to restore,
-  // avoiding the race where useEffect cleanup runs too late.
+  // Save isAtBottom on unmount so we know whether to auto-scroll on re-mount
   useLayoutEffect(() => {
     return () => {
-      const el = containerRef.current;
-      if (el) {
-        useStore.getState().setFeedScrollPosition(sessionId, {
-          scrollTop: el.scrollTop,
-          scrollHeight: el.scrollHeight,
-          isAtBottom: isNearBottom.current,
-        });
-      }
+      useStore.getState().setFeedScrollPosition(sessionId, {
+        scrollTop: 0,
+        scrollHeight: 0,
+        isAtBottom: isNearBottom.current,
+      });
     };
   }, [sessionId]);
 
@@ -956,6 +986,9 @@ export function MessageFeed({ sessionId }: { sessionId: string }) {
   const totalTurns = turns.length;
   const hasMore = totalTurns > visibleCount;
   const visibleTurns = hasMore ? turns.slice(totalTurns - visibleCount) : turns;
+
+  // firstItemIndex for Virtuoso — enables prepend without scroll jump
+  const firstItemIndex = totalTurns - visibleTurns.length;
 
   // Collapsible turn IDs: all turns with agent content are collapsible (including the last).
   // Stats and text preview recompute as new messages stream in.
@@ -971,88 +1004,98 @@ export function MessageFeed({ sessionId }: { sessionId: string }) {
     useStore.getState().setCollapsibleTurnIds(sessionId, collapsibleTurnIds);
   }, [sessionId, collapsibleTurnIds]);
 
+  // ─── Virtuoso callbacks ──────────────────────────────────────────────────
+
   const handleLoadMore = useCallback(() => {
     if (loadingMore.current) return;
     loadingMore.current = true;
-    const el = containerRef.current;
-    const prevHeight = el?.scrollHeight ?? 0;
     const current = useStore.getState().feedVisibleCount.get(sessionId) ?? FEED_PAGE_SIZE;
     useStore.getState().setFeedVisibleCount(sessionId, current + FEED_PAGE_SIZE);
-    // Preserve scroll position after DOM updates
-    requestAnimationFrame(() => {
-      if (el) {
-        const newHeight = el.scrollHeight;
-        el.scrollTop += newHeight - prevHeight;
-      }
-      loadingMore.current = false;
-    });
+    // Virtuoso handles scroll position automatically via firstItemIndex
+    setTimeout(() => { loadingMore.current = false; }, 100);
   }, [sessionId]);
 
-  // Auto-load older messages when scrolling near the top
-  useEffect(() => {
-    const sentinel = sentinelRef.current;
-    const container = containerRef.current;
-    if (!sentinel || !container || !hasMore) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting) {
-          handleLoadMore();
-        }
-      },
-      { root: container, rootMargin: "200px 0px 0px 0px" },
-    );
-    observer.observe(sentinel);
-    return () => observer.disconnect();
+  const handleStartReached = useCallback(() => {
+    if (hasMore) handleLoadMore();
   }, [hasMore, handleLoadMore]);
 
-  function handleScroll() {
-    const el = containerRef.current;
-    if (!el) return;
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
-    isNearBottom.current = nearBottom;
-    // Only trigger a re-render when the button state actually changes
-    const shouldShow = !nearBottom;
-    setShowScrollButton((prev) => (prev === shouldShow ? prev : shouldShow));
-  }
+  /** When new turns are appended, auto-scroll if user is at the bottom. */
+  const handleFollowOutput = useCallback((isAtBottom: boolean) => {
+    return isAtBottom ? 'smooth' as const : false as const;
+  }, []);
 
-  // Auto-scroll: on initial render, restore saved scroll position or jump to
-  // bottom. On subsequent renders (streaming), smooth-scroll if near bottom.
-  // Streaming scroll is throttled to avoid layout thrashing on iOS Safari
-  // when the DOM contains many image elements.
+  const handleAtBottomChange = useCallback((atBottom: boolean) => {
+    isNearBottom.current = atBottom;
+    setShowScrollButton((prev) => {
+      const shouldShow = !atBottom;
+      return prev === shouldShow ? prev : shouldShow;
+    });
+  }, []);
+
+  // Stable callback for scrollerRef to avoid re-triggering on every render
+  const handleScrollerRef = useCallback((ref: HTMLElement | Window | null) => {
+    setScrollerEl(ref as HTMLElement | null);
+  }, []);
+
+  // Auto-scroll for streaming text (Footer height changes) and within-turn
+  // message additions (turns.length unchanged but content grew). Throttled
+  // to 200ms to avoid layout thrashing on iOS Safari.
   const lastScrollTime = useRef(0);
   useEffect(() => {
-    if (isInitialRender.current) {
-      isInitialRender.current = false;
-      const pos = useStore.getState().feedScrollPosition.get(sessionId);
-      if (pos && !pos.isAtBottom) {
-        const el = containerRef.current;
-        if (el) {
-          if (el.scrollHeight === pos.scrollHeight) {
-            el.scrollTop = pos.scrollTop;
-          } else if (pos.scrollHeight > 0) {
-            el.scrollTop = pos.scrollTop * (el.scrollHeight / pos.scrollHeight);
-          }
-          isNearBottom.current = false;
-          setShowScrollButton(true);
-        }
-      } else {
-        bottomRef.current?.scrollIntoView({ behavior: "instant" });
-      }
-      return;
+    if (!isNearBottom.current) return;
+    const now = Date.now();
+    if (now - lastScrollTime.current >= 200) {
+      lastScrollTime.current = now;
+      virtuosoRef.current?.scrollTo({ top: 999999999, behavior: 'smooth' });
     }
-    if (isNearBottom.current) {
-      const now = Date.now();
-      if (now - lastScrollTime.current >= 200) {
-        lastScrollTime.current = now;
-        bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-      }
-    }
-  }, [messages.length, streamingText]);
+  }, [streamingText, messages.length]);
 
   const scrollToBottom = useCallback(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    virtuosoRef.current?.scrollTo({ top: 999999999, behavior: 'smooth' });
   }, []);
+
+  // ─── Context & item renderer ─────────────────────────────────────────────
+
+  const feedContext: FeedContext = useMemo(() => ({
+    hasMore, toolProgress, streamingText, sessionStatus, sessionId,
+  }), [hasMore, toolProgress, streamingText, sessionStatus, sessionId]);
+
+  const renderTurn = useCallback((_index: number, turn: Turn) => {
+    const isCollapsed = collapsedSet?.has(turn.id) ?? false;
+    return (
+      <div className="max-w-3xl mx-auto px-3 sm:px-4 pb-3 sm:pb-5">
+        <div className="space-y-3 sm:space-y-5">
+          {/* User message */}
+          {turn.userEntry && (
+            <FeedEntries entries={[turn.userEntry]} sessionId={sessionId} />
+          )}
+          {isCollapsed ? (
+            <>
+              {/* System messages always visible in collapsed mode */}
+              {turn.systemEntries.length > 0 && (
+                <FeedEntries entries={turn.systemEntries} sessionId={sessionId} />
+              )}
+              {/* Collapsed summary for agent activity */}
+              {turn.agentEntries.length > 0 && (
+                <CollapsedTurnSummary
+                  stats={turn.stats}
+                  onClick={() => toggleTurn(sessionId, turn.id)}
+                />
+              )}
+            </>
+          ) : turn.allEntries.length > 0 && (
+            <TurnEntriesExpanded
+              turn={turn}
+              sessionId={sessionId}
+              onCollapse={() => toggleTurn(sessionId, turn.id)}
+            />
+          )}
+        </div>
+      </div>
+    );
+  }, [collapsedSet, toggleTurn, sessionId]);
+
+  // ─── Render ──────────────────────────────────────────────────────────────
 
   if (messages.length === 0 && !streamingText) {
     return (
@@ -1070,69 +1113,26 @@ export function MessageFeed({ sessionId }: { sessionId: string }) {
 
   return (
     <div className="flex-1 min-h-0 relative overflow-hidden">
-      <div
-        ref={containerRef}
-        onScroll={handleScroll}
-        className="h-full overflow-y-auto px-3 sm:px-4 py-4 sm:py-6"
-      >
-        <PawScrollProvider scrollRef={containerRef}>
-        <PawCounterContext.Provider value={pawCounter}>
-        <div className="max-w-3xl mx-auto space-y-3 sm:space-y-5">
-          {hasMore && (
-            <div ref={sentinelRef} className="flex justify-center pb-2">
-              <span className="flex items-center gap-1.5 text-xs text-cc-muted">
-                <YarnBallSpinner className="h-3 w-3 text-cc-muted" />
-                Loading older messages...
-              </span>
-            </div>
-          )}
-          <TurnEntries turns={visibleTurns} sessionId={sessionId} />
-
-          {/* Tool progress indicator */}
-          {toolProgress && toolProgress.size > 0 && !streamingText && (
-            <div className="flex items-center gap-1.5 text-[11px] text-cc-muted font-mono-code pl-9">
-              <YarnBallDot className="text-cc-primary animate-pulse" />
-              {Array.from(toolProgress.values()).map((p, i) => (
-                <span key={i} className="flex items-center gap-1">
-                  {i > 0 && <span className="text-cc-muted/40">·</span>}
-                  <span>{getToolLabel(p.toolName)}</span>
-                  <span className="text-cc-muted/60">{p.elapsedSeconds}s</span>
-                </span>
-              ))}
-            </div>
-          )}
-
-          {/* Streaming indicator */}
-          {streamingText && (
-            <div className="animate-[fadeSlideIn_0.2s_ease-out]">
-              <div className="flex items-start gap-3">
-                <PawTrailAvatar isStreaming />
-                <div className="flex-1 min-w-0">
-                  <pre className="font-serif-assistant text-[15px] text-cc-fg whitespace-pre-wrap break-words leading-relaxed">
-                    {streamingText}
-                    <span className="inline-block w-0.5 h-4 bg-cc-primary ml-0.5 align-middle animate-[pulse-dot_0.8s_ease-in-out_infinite]" />
-                  </pre>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Generation stats bar — extracted to avoid 1s timer re-rendering the full feed */}
-          <ElapsedTimer sessionId={sessionId} />
-
-          {/* Compacting indicator */}
-          {sessionStatus === "compacting" && (
-            <div className="flex items-center gap-1.5 text-[11px] text-cc-muted font-mono-code pl-9">
-              <YarnBallDot className="text-cc-warning animate-pulse" />
-              <span>Compacting conversation...</span>
-            </div>
-          )}
-
-          <div ref={bottomRef} />
-        </div>
-        </PawCounterContext.Provider>
-        </PawScrollProvider>
-      </div>
+      <PawScrollProvider scrollEl={scrollerEl}>
+      <PawCounterContext.Provider value={pawCounter}>
+        <Virtuoso<Turn, FeedContext>
+          ref={virtuosoRef}
+          scrollerRef={handleScrollerRef}
+          style={{ height: '100%' }}
+          data={visibleTurns}
+          context={feedContext}
+          firstItemIndex={firstItemIndex}
+          initialTopMostItemIndex={firstItemIndex + visibleTurns.length - 1}
+          atBottomThreshold={120}
+          increaseViewportBy={{ top: 200, bottom: 200 }}
+          followOutput={handleFollowOutput}
+          atBottomStateChange={handleAtBottomChange}
+          startReached={handleStartReached}
+          itemContent={renderTurn}
+          components={FEED_COMPONENTS}
+        />
+      </PawCounterContext.Provider>
+      </PawScrollProvider>
 
       {/* Scroll-to-bottom FAB */}
       {showScrollButton && (
