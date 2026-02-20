@@ -195,6 +195,8 @@ export interface ToolResultPreview {
   total_size: number;
   /** Whether the preview was truncated */
   is_truncated: boolean;
+  /** Wall-clock duration in seconds (tool_use → tool_result), rounded to 0.1s. Omitted if unknown. */
+  duration_seconds?: number;
 }
 
 export const TOOL_RESULT_PREVIEW_LIMIT = 300;

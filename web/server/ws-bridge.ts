@@ -144,6 +144,8 @@ interface Session {
   awaitingCompactSummary?: boolean;
   /** Accumulates content blocks for assistant messages with the same ID (parallel tool calls) */
   assistantAccumulator: Map<string, { contentBlockIds: Set<string> }>;
+  /** Wall-clock start times for tool calls (tool_use_id → Date.now()). Transient, not persisted. */
+  toolStartTimes: Map<string, number>;
   /** Whether the CLI is actively generating a response (transient, not persisted) */
   isGenerating: boolean;
   /** Server-side activity preview (mirrors browser's sessionTaskPreview) */
@@ -499,6 +501,7 @@ export class WsBridge {
         ),
         toolResults: new Map(Array.isArray(p.toolResults) ? p.toolResults : []),
         assistantAccumulator: new Map(),
+        toolStartTimes: new Map(),
         isGenerating: false,
       };
       session.state.backend_type = session.backendType;
@@ -621,6 +624,7 @@ export class WsBridge {
         processedClientMessageIdSet: new Set(),
         toolResults: new Map(),
         assistantAccumulator: new Map(),
+        toolStartTimes: new Map(),
         isGenerating: false,
       };
       this.sessions.set(sessionId, session);
@@ -1203,11 +1207,15 @@ export class WsBridge {
         uuid: msg.uuid,
       };
 
-      // Track content block IDs to avoid duplicates
+      // Track content block IDs to avoid duplicates, and record start times for tool calls
       const contentBlockIds = new Set<string>();
+      const now = Date.now();
       for (const block of msg.message.content) {
         if (block.type === "tool_use" && block.id) {
           contentBlockIds.add(block.id);
+          if (!session.toolStartTimes.has(block.id)) {
+            session.toolStartTimes.set(block.id, now);
+          }
         }
       }
 
@@ -1226,6 +1234,9 @@ export class WsBridge {
         if (block.type === "tool_use" && block.id) {
           if (acc.contentBlockIds.has(block.id)) continue;
           acc.contentBlockIds.add(block.id);
+          if (!session.toolStartTimes.has(block.id)) {
+            session.toolStartTimes.set(block.id, Date.now());
+          }
         }
         historyEntry.message.content.push(block);
       }
@@ -1498,6 +1509,13 @@ export class WsBridge {
       const totalSize = resultContent.length;
       const isTruncated = totalSize > TOOL_RESULT_PREVIEW_LIMIT;
 
+      // Compute wall-clock duration from tool_use start time
+      const startTime = session.toolStartTimes.get(block.tool_use_id);
+      const durationSeconds = startTime != null
+        ? Math.round((Date.now() - startTime) / 100) / 10
+        : undefined;
+      session.toolStartTimes.delete(block.tool_use_id);
+
       // Store full result for lazy fetch
       session.toolResults.set(block.tool_use_id, {
         content: resultContent,
@@ -1513,6 +1531,7 @@ export class WsBridge {
         is_error: !!block.is_error,
         total_size: totalSize,
         is_truncated: isTruncated,
+        duration_seconds: durationSeconds,
       });
     }
 

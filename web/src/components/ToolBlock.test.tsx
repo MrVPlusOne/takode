@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { render, screen, fireEvent } from "@testing-library/react";
-import { ToolBlock, ToolIcon, getToolIcon, getToolLabel, getPreview } from "./ToolBlock.js";
+import { ToolBlock, ToolIcon, getToolIcon, getToolLabel, getPreview, formatDuration } from "./ToolBlock.js";
+import { useStore } from "../store.js";
 
 // ─── getToolIcon ─────────────────────────────────────────────────────────────
 
@@ -355,5 +356,110 @@ describe("ToolBlock", () => {
     const preElement = document.querySelector("pre");
     expect(preElement?.textContent).toContain('"foo": "bar"');
     expect(preElement?.textContent).toContain('"count": 42');
+  });
+});
+
+// ─── formatDuration ─────────────────────────────────────────────────────────
+
+describe("formatDuration", () => {
+  it("returns '<0.1s' for sub-100ms durations", () => {
+    expect(formatDuration(0.0)).toBe("<0.1s");
+    expect(formatDuration(0.05)).toBe("<0.1s");
+  });
+
+  it("formats durations under 10s with one decimal", () => {
+    expect(formatDuration(0.1)).toBe("0.1s");
+    expect(formatDuration(0.3)).toBe("0.3s");
+    expect(formatDuration(2.5)).toBe("2.5s");
+    expect(formatDuration(9.9)).toBe("9.9s");
+  });
+
+  it("formats durations 10-59s as whole seconds", () => {
+    expect(formatDuration(10)).toBe("10s");
+    expect(formatDuration(45.3)).toBe("45s");
+    expect(formatDuration(59)).toBe("59s");
+  });
+
+  it("formats durations >= 60s as minutes and seconds", () => {
+    expect(formatDuration(60)).toBe("1m0s");
+    expect(formatDuration(125)).toBe("2m5s");
+    expect(formatDuration(3661)).toBe("61m1s");
+  });
+});
+
+// ─── ToolBlock duration display ─────────────────────────────────────────────
+
+describe("ToolBlock duration display", () => {
+  afterEach(() => {
+    // Clean up store state
+    useStore.setState({ toolResults: new Map() });
+  });
+
+  it("shows duration badge when tool result has duration_seconds", () => {
+    // Set up mock tool result with duration
+    const toolResults = new Map();
+    const sessionResults = new Map();
+    sessionResults.set("tu-dur-1", {
+      tool_use_id: "tu-dur-1",
+      content: "output",
+      is_error: false,
+      total_size: 6,
+      is_truncated: false,
+      duration_seconds: 5.2,
+    });
+    toolResults.set("test-session", sessionResults);
+    useStore.setState({ toolResults });
+
+    render(
+      <ToolBlock
+        name="Bash"
+        input={{ command: "npm test" }}
+        toolUseId="tu-dur-1"
+        sessionId="test-session"
+      />
+    );
+
+    expect(screen.getByText("5.2s")).toBeTruthy();
+  });
+
+  it("does not show duration badge when duration_seconds is absent", () => {
+    // Set up mock tool result WITHOUT duration
+    const toolResults = new Map();
+    const sessionResults = new Map();
+    sessionResults.set("tu-no-dur", {
+      tool_use_id: "tu-no-dur",
+      content: "output",
+      is_error: false,
+      total_size: 6,
+      is_truncated: false,
+    });
+    toolResults.set("test-session", sessionResults);
+    useStore.setState({ toolResults });
+
+    const { container } = render(
+      <ToolBlock
+        name="Bash"
+        input={{ command: "echo hi" }}
+        toolUseId="tu-no-dur"
+        sessionId="test-session"
+      />
+    );
+
+    // No tabular-nums span (duration badge) should exist
+    const durationBadge = container.querySelector(".tabular-nums");
+    expect(durationBadge).toBeNull();
+  });
+
+  it("does not show duration badge without sessionId", () => {
+    const { container } = render(
+      <ToolBlock
+        name="Bash"
+        input={{ command: "echo hi" }}
+        toolUseId="tu-no-session"
+      />
+    );
+
+    const durationBadge = container.querySelector(".tabular-nums");
+    expect(durationBadge).toBeNull();
   });
 });

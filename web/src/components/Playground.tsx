@@ -612,6 +612,7 @@ export function Playground() {
       is_error: false,
       total_size: 58,
       is_truncated: false,
+      duration_seconds: 0.3,
     });
     store.setToolResult(sessionId, "tu-2", {
       tool_use_id: "tu-2",
@@ -619,6 +620,7 @@ export function Playground() {
       is_error: false,
       total_size: 156,
       is_truncated: false,
+      duration_seconds: 0.1,
     });
     store.setToolResult(sessionId, "tu-3", {
       tool_use_id: "tu-3",
@@ -626,7 +628,25 @@ export function Playground() {
       is_error: true,
       total_size: 185,
       is_truncated: false,
+      duration_seconds: 12.4,
     });
+
+    // Mock tool results with durations for standalone ToolBlock demos
+    const toolDurations: Record<string, number> = {
+      "tb-1": 3.2, "tb-2": 0.1, "tb-3": 0.4, "tb-4": 0.2, "tb-5": 0.8,
+      "tb-6": 1.5, "tb-7": 2.1, "tb-8": 4.7, "tb-10": 0.0, "tb-11": 0.3,
+      "tb-12": 0.1, "tb-14": 0.0, "tb-15": 0.0,
+    };
+    for (const [id, dur] of Object.entries(toolDurations)) {
+      store.setToolResult(sessionId, id, {
+        tool_use_id: id,
+        content: "",
+        is_error: false,
+        total_size: 0,
+        is_truncated: false,
+        duration_seconds: dur,
+      });
+    }
 
     return () => {
       useStore.setState((s) => {
@@ -834,28 +854,28 @@ export function Playground() {
         </Section>
 
         {/* ─── Tool Blocks (standalone) ──────────────────────── */}
-        <Section title="Tool Blocks" description="Expandable tool call visualization">
+        <Section title="Tool Blocks" description="Expandable tool call visualization with duration badges">
           <div className="space-y-2 max-w-3xl">
-            <ToolBlock name="Bash" input={{ command: "git status && npm run lint", description: "Check git status and lint" }} toolUseId="tb-1" />
-            <ToolBlock name="Read" input={{ file_path: "/Users/stan/Dev/project/src/index.ts", offset: 10, limit: 50 }} toolUseId="tb-2" />
-            <ToolBlock name="Edit" input={{ file_path: "src/utils.ts", old_string: "const x = 1;", new_string: "const x = 2;", replace_all: true }} toolUseId="tb-3" />
-            <ToolBlock name="Write" input={{ file_path: "src/new-file.ts", content: 'export const hello = "world";\n' }} toolUseId="tb-4" />
-            <ToolBlock name="Glob" input={{ pattern: "**/*.tsx", path: "/Users/stan/Dev/project/src" }} toolUseId="tb-5" />
-            <ToolBlock name="Grep" input={{ pattern: "useEffect", path: "src/", glob: "*.tsx", output_mode: "content", context: 3, head_limit: 20 }} toolUseId="tb-6" />
-            <ToolBlock name="WebSearch" input={{ query: "React 19 new features", allowed_domains: ["react.dev", "github.com"] }} toolUseId="tb-7" />
-            <ToolBlock name="WebFetch" input={{ url: "https://react.dev/blog/2024/12/05/react-19", prompt: "Summarize the key changes in React 19" }} toolUseId="tb-8" />
-            <ToolBlock name="Task" input={{ description: "Search for auth patterns", subagent_type: "Explore", prompt: "Find all files related to authentication and authorization in the codebase. Look for middleware, guards, and token handling." }} toolUseId="tb-9" />
+            <ToolBlock name="Bash" input={{ command: "git status && npm run lint", description: "Check git status and lint" }} toolUseId="tb-1" sessionId={MOCK_SESSION_ID} />
+            <ToolBlock name="Read" input={{ file_path: "/Users/stan/Dev/project/src/index.ts", offset: 10, limit: 50 }} toolUseId="tb-2" sessionId={MOCK_SESSION_ID} />
+            <ToolBlock name="Edit" input={{ file_path: "src/utils.ts", old_string: "const x = 1;", new_string: "const x = 2;", replace_all: true }} toolUseId="tb-3" sessionId={MOCK_SESSION_ID} />
+            <ToolBlock name="Write" input={{ file_path: "src/new-file.ts", content: 'export const hello = "world";\n' }} toolUseId="tb-4" sessionId={MOCK_SESSION_ID} />
+            <ToolBlock name="Glob" input={{ pattern: "**/*.tsx", path: "/Users/stan/Dev/project/src" }} toolUseId="tb-5" sessionId={MOCK_SESSION_ID} />
+            <ToolBlock name="Grep" input={{ pattern: "useEffect", path: "src/", glob: "*.tsx", output_mode: "content", context: 3, head_limit: 20 }} toolUseId="tb-6" sessionId={MOCK_SESSION_ID} />
+            <ToolBlock name="WebSearch" input={{ query: "React 19 new features", allowed_domains: ["react.dev", "github.com"] }} toolUseId="tb-7" sessionId={MOCK_SESSION_ID} />
+            <ToolBlock name="WebFetch" input={{ url: "https://react.dev/blog/2024/12/05/react-19", prompt: "Summarize the key changes in React 19" }} toolUseId="tb-8" sessionId={MOCK_SESSION_ID} />
+            <ToolBlock name="Task" input={{ description: "Search for auth patterns", subagent_type: "Explore", prompt: "Find all files related to authentication and authorization in the codebase. Look for middleware, guards, and token handling." }} toolUseId="tb-9" sessionId={MOCK_SESSION_ID} />
             <ToolBlock name="TodoWrite" input={{ todos: [
               { content: "Create JWT utility module", status: "completed", activeForm: "Creating JWT module" },
               { content: "Update auth middleware", status: "in_progress", activeForm: "Updating middleware" },
               { content: "Migrate login endpoint", status: "pending", activeForm: "Migrating login" },
               { content: "Run full test suite", status: "pending", activeForm: "Running tests" },
-            ]}} toolUseId="tb-10" />
-            <ToolBlock name="NotebookEdit" input={{ notebook_path: "/Users/stan/Dev/project/analysis.ipynb", cell_type: "code", edit_mode: "replace", cell_number: 3, new_source: "import pandas as pd\ndf = pd.read_csv('data.csv')\ndf.describe()" }} toolUseId="tb-11" />
-            <ToolBlock name="SendMessage" input={{ type: "message", recipient: "researcher", content: "Please investigate the auth module structure and report back.", summary: "Requesting auth module investigation" }} toolUseId="tb-12" />
-            <ToolBlock name="ExitPlanMode" input={{ plan: "## Implementation Plan\n\n1. Add authentication middleware to Express routes\n2. Create JWT token generation and validation utilities\n3. Update database schema with user credentials table\n4. Write integration tests for the auth flow\n\n### Key Decisions\n- Use **bcrypt** for password hashing\n- JWT tokens expire after 24 hours", allowedPrompts: [{ tool: "Bash", prompt: "run tests" }, { tool: "Bash", prompt: "install dependencies" }] }} toolUseId="tb-13" />
-            <ToolBlock name="EnterPlanMode" input={{}} toolUseId="tb-14" />
-            <ToolBlock name="AskUserQuestion" input={{ questions: [{ header: "Auth method", question: "Which authentication method should we use for the API?", options: [{ label: "JWT (Recommended)", description: "Stateless tokens, good for distributed systems" }, { label: "Session cookies", description: "Traditional server-side sessions" }], multiSelect: false }] }} toolUseId="tb-15" />
+            ]}} toolUseId="tb-10" sessionId={MOCK_SESSION_ID} />
+            <ToolBlock name="NotebookEdit" input={{ notebook_path: "/Users/stan/Dev/project/analysis.ipynb", cell_type: "code", edit_mode: "replace", cell_number: 3, new_source: "import pandas as pd\ndf = pd.read_csv('data.csv')\ndf.describe()" }} toolUseId="tb-11" sessionId={MOCK_SESSION_ID} />
+            <ToolBlock name="SendMessage" input={{ type: "message", recipient: "researcher", content: "Please investigate the auth module structure and report back.", summary: "Requesting auth module investigation" }} toolUseId="tb-12" sessionId={MOCK_SESSION_ID} />
+            <ToolBlock name="ExitPlanMode" input={{ plan: "## Implementation Plan\n\n1. Add authentication middleware to Express routes\n2. Create JWT token generation and validation utilities\n3. Update database schema with user credentials table\n4. Write integration tests for the auth flow\n\n### Key Decisions\n- Use **bcrypt** for password hashing\n- JWT tokens expire after 24 hours", allowedPrompts: [{ tool: "Bash", prompt: "run tests" }, { tool: "Bash", prompt: "install dependencies" }] }} toolUseId="tb-13" sessionId={MOCK_SESSION_ID} />
+            <ToolBlock name="EnterPlanMode" input={{}} toolUseId="tb-14" sessionId={MOCK_SESSION_ID} />
+            <ToolBlock name="AskUserQuestion" input={{ questions: [{ header: "Auth method", question: "Which authentication method should we use for the API?", options: [{ label: "JWT (Recommended)", description: "Stateless tokens, good for distributed systems" }, { label: "Session cookies", description: "Traditional server-side sessions" }], multiSelect: false }] }} toolUseId="tb-15" sessionId={MOCK_SESSION_ID} />
           </div>
         </Section>
 

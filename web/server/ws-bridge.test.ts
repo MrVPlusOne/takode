@@ -3776,3 +3776,192 @@ describe("status_change: running on user_message", () => {
     expect(snapshot.cliConnected).toBe(true);
   });
 });
+
+// ─── Tool call duration tracking ────────────────────────────────────────────
+
+describe("Tool call duration tracking", () => {
+  it("includes duration_seconds in tool_result_preview when start time was tracked", () => {
+    const cli = makeCliSocket("s1");
+    bridge.handleCLIOpen(cli, "s1");
+    bridge.handleCLIMessage(cli, makeInitMsg());
+
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+    browser.send.mockClear();
+
+    // Send assistant message with tool_use block
+    bridge.handleCLIMessage(cli, JSON.stringify({
+      type: "assistant",
+      message: {
+        id: "msg-1", type: "message", role: "assistant", model: "claude",
+        content: [{ type: "tool_use", id: "tu-1", name: "Bash", input: { command: "ls" } }],
+        stop_reason: null,
+        usage: { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+      uuid: "u2",
+      session_id: "cli-123",
+    }));
+
+    // Send tool_result
+    bridge.handleCLIMessage(cli, JSON.stringify({
+      type: "user",
+      message: { role: "user", content: [{ type: "tool_result", tool_use_id: "tu-1", content: "file.txt" }] },
+      parent_tool_use_id: null,
+      uuid: "u3",
+      session_id: "cli-123",
+    }));
+
+    // Find the tool_result_preview broadcast
+    const calls = browser.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
+    const preview = calls.find((m: any) => m.type === "tool_result_preview");
+    expect(preview).toBeDefined();
+    expect(preview.previews[0].tool_use_id).toBe("tu-1");
+    // duration_seconds should be a number (>= 0) since start time was recorded
+    expect(typeof preview.previews[0].duration_seconds).toBe("number");
+    expect(preview.previews[0].duration_seconds).toBeGreaterThanOrEqual(0);
+  });
+
+  it("tracks independent durations for parallel tool calls", () => {
+    const cli = makeCliSocket("s1");
+    bridge.handleCLIOpen(cli, "s1");
+    bridge.handleCLIMessage(cli, makeInitMsg());
+
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+    browser.send.mockClear();
+
+    // Send assistant with two parallel tool_use blocks
+    bridge.handleCLIMessage(cli, JSON.stringify({
+      type: "assistant",
+      message: {
+        id: "msg-1", type: "message", role: "assistant", model: "claude",
+        content: [
+          { type: "tool_use", id: "tu-a", name: "Grep", input: { pattern: "foo" } },
+          { type: "tool_use", id: "tu-b", name: "Glob", input: { pattern: "*.ts" } },
+        ],
+        stop_reason: null,
+        usage: { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+      uuid: "u2",
+      session_id: "cli-123",
+    }));
+
+    // Send tool_result for both
+    bridge.handleCLIMessage(cli, JSON.stringify({
+      type: "user",
+      message: { role: "user", content: [
+        { type: "tool_result", tool_use_id: "tu-a", content: "match1" },
+        { type: "tool_result", tool_use_id: "tu-b", content: "match2" },
+      ] },
+      parent_tool_use_id: null,
+      uuid: "u3",
+      session_id: "cli-123",
+    }));
+
+    const calls = browser.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
+    const preview = calls.find((m: any) => m.type === "tool_result_preview");
+    expect(preview).toBeDefined();
+    expect(preview.previews).toHaveLength(2);
+    // Both should have durations
+    expect(typeof preview.previews[0].duration_seconds).toBe("number");
+    expect(typeof preview.previews[1].duration_seconds).toBe("number");
+  });
+
+  it("sets duration_seconds to undefined when no start time exists", () => {
+    const cli = makeCliSocket("s1");
+    bridge.handleCLIOpen(cli, "s1");
+    bridge.handleCLIMessage(cli, makeInitMsg());
+
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+    browser.send.mockClear();
+
+    // Send tool_result WITHOUT a preceding tool_use (simulates server restart)
+    bridge.handleCLIMessage(cli, JSON.stringify({
+      type: "user",
+      message: { role: "user", content: [{ type: "tool_result", tool_use_id: "tu-orphan", content: "data" }] },
+      parent_tool_use_id: null,
+      uuid: "u2",
+      session_id: "cli-123",
+    }));
+
+    const calls = browser.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
+    const preview = calls.find((m: any) => m.type === "tool_result_preview");
+    expect(preview).toBeDefined();
+    expect(preview.previews[0].duration_seconds).toBeUndefined();
+  });
+
+  it("cleans up toolStartTimes after tool_result is processed", () => {
+    const cli = makeCliSocket("s1");
+    bridge.handleCLIOpen(cli, "s1");
+    bridge.handleCLIMessage(cli, makeInitMsg());
+
+    // Send tool_use
+    bridge.handleCLIMessage(cli, JSON.stringify({
+      type: "assistant",
+      message: {
+        id: "msg-1", type: "message", role: "assistant", model: "claude",
+        content: [{ type: "tool_use", id: "tu-1", name: "Read", input: { file_path: "a.txt" } }],
+        stop_reason: null,
+        usage: { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+      uuid: "u2",
+      session_id: "cli-123",
+    }));
+
+    const session = bridge.getOrCreateSession("s1");
+    expect(session.toolStartTimes.has("tu-1")).toBe(true);
+
+    // Send tool_result
+    bridge.handleCLIMessage(cli, JSON.stringify({
+      type: "user",
+      message: { role: "user", content: [{ type: "tool_result", tool_use_id: "tu-1", content: "contents" }] },
+      parent_tool_use_id: null,
+      uuid: "u3",
+      session_id: "cli-123",
+    }));
+
+    // Start time should be cleaned up
+    expect(session.toolStartTimes.has("tu-1")).toBe(false);
+  });
+
+  it("persists duration_seconds in messageHistory for replay", () => {
+    const cli = makeCliSocket("s1");
+    bridge.handleCLIOpen(cli, "s1");
+    bridge.handleCLIMessage(cli, makeInitMsg());
+
+    // Send tool_use + tool_result
+    bridge.handleCLIMessage(cli, JSON.stringify({
+      type: "assistant",
+      message: {
+        id: "msg-1", type: "message", role: "assistant", model: "claude",
+        content: [{ type: "tool_use", id: "tu-1", name: "Bash", input: { command: "test" } }],
+        stop_reason: null,
+        usage: { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+      uuid: "u2",
+      session_id: "cli-123",
+    }));
+
+    bridge.handleCLIMessage(cli, JSON.stringify({
+      type: "user",
+      message: { role: "user", content: [{ type: "tool_result", tool_use_id: "tu-1", content: "ok" }] },
+      parent_tool_use_id: null,
+      uuid: "u3",
+      session_id: "cli-123",
+    }));
+
+    // Check messageHistory contains the preview with duration
+    const session = bridge.getOrCreateSession("s1");
+    const previewMsg = session.messageHistory.find((m) => m.type === "tool_result_preview") as any;
+    expect(previewMsg).toBeDefined();
+    expect(typeof previewMsg.previews[0].duration_seconds).toBe("number");
+  });
+});

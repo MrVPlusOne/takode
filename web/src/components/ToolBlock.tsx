@@ -55,6 +55,15 @@ export function getToolLabel(name: string): string {
   return name;
 }
 
+export function formatDuration(seconds: number): string {
+  if (seconds < 0.1) return "<0.1s";
+  if (seconds < 10) return `${seconds.toFixed(1)}s`;
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.round(seconds % 60);
+  return `${mins}m${secs}s`;
+}
+
 export function ToolBlock({
   name,
   input,
@@ -72,6 +81,11 @@ export function ToolBlock({
 
   // Extract the most useful preview
   const preview = getPreview(name, input);
+
+  // Look up duration from tool result preview
+  const duration = useStore((s) =>
+    sessionId ? s.toolResults.get(sessionId)?.get(toolUseId)?.duration_seconds : undefined
+  );
 
   return (
     <div className="border border-cc-border rounded-[10px] overflow-hidden bg-cc-card">
@@ -91,6 +105,11 @@ export function ToolBlock({
         {preview && (
           <span className="text-xs text-cc-muted truncate flex-1 font-mono-code">
             {preview}
+          </span>
+        )}
+        {duration != null && (
+          <span className="text-[10px] text-cc-muted tabular-nums shrink-0">
+            {formatDuration(duration)}
           </span>
         )}
       </button>
