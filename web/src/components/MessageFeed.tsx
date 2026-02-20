@@ -990,6 +990,13 @@ export function MessageFeed({ sessionId }: { sessionId: string }) {
   // firstItemIndex for Virtuoso — enables prepend without scroll jump
   const firstItemIndex = totalTurns - visibleTurns.length;
 
+  // Capture initial scroll target once per session — must not change on re-renders
+  // or startReached prepends, otherwise Virtuoso re-applies it and snaps to bottom
+  const initialTopRef = useRef<{ sid: string; index: number } | null>(null);
+  if (!initialTopRef.current || initialTopRef.current.sid !== sessionId) {
+    initialTopRef.current = { sid: sessionId, index: firstItemIndex + visibleTurns.length - 1 };
+  }
+
   // Collapsible turn IDs: all turns with agent content are collapsible (including the last).
   // Stats and text preview recompute as new messages stream in.
   const collapsibleTurnIds = useMemo(() =>
@@ -1132,7 +1139,7 @@ export function MessageFeed({ sessionId }: { sessionId: string }) {
           computeItemKey={computeItemKey}
           defaultItemHeight={150}
           firstItemIndex={firstItemIndex}
-          initialTopMostItemIndex={firstItemIndex + visibleTurns.length - 1}
+          initialTopMostItemIndex={initialTopRef.current!.index}
           atBottomThreshold={40}
           followOutput={handleFollowOutput}
           atBottomStateChange={handleAtBottomChange}
