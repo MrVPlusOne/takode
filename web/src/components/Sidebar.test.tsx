@@ -43,6 +43,7 @@ interface MockStoreState {
   sdkSessions: SdkSessionInfo[];
   currentSessionId: string | null;
   cliConnected: Map<string, boolean>;
+  cliDisconnectReason: Map<string, "idle_limit" | null>;
   sessionStatus: Map<string, "idle" | "running" | "compacting" | null>;
   sessionNames: Map<string, string>;
   sessionPreviews: Map<string, string>;
@@ -122,6 +123,7 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
     sdkSessions: [],
     currentSessionId: null,
     cliConnected: new Map(),
+    cliDisconnectReason: new Map(),
     sessionStatus: new Map(),
     sessionNames: new Map(),
     sessionPreviews: new Map(),

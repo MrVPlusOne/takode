@@ -898,9 +898,13 @@ export class WsBridge {
       session.codexAdapter = null;
       session.isGenerating = false;
       this.persistSession(session);
-      console.log(`[ws-bridge] Codex adapter disconnected for session ${sessionId}`);
-      this.broadcastToBrowsers(session, { type: "cli_disconnected" });
-      if (wasGenerating) {
+      const idleKilled = this.launcher?.getSession(sessionId)?.killedByIdleManager;
+      console.log(`[ws-bridge] Codex adapter disconnected for session ${sessionId}${idleKilled ? " (idle limit)" : ""}`);
+      this.broadcastToBrowsers(session, {
+        type: "cli_disconnected",
+        ...(idleKilled ? { reason: "idle_limit" as const } : {}),
+      });
+      if (wasGenerating && !idleKilled) {
         this.setAttention(session, "error");
       }
     });
@@ -980,11 +984,15 @@ export class WsBridge {
     const wasGenerating = session.isGenerating;
     session.cliSocket = null;
     session.isGenerating = false;
-    console.log(`[ws-bridge] CLI disconnected for session ${sessionId}`);
-    this.broadcastToBrowsers(session, { type: "cli_disconnected" });
+    const idleKilled = this.launcher?.getSession(sessionId)?.killedByIdleManager;
+    console.log(`[ws-bridge] CLI disconnected for session ${sessionId}${idleKilled ? " (idle limit)" : ""}`);
+    this.broadcastToBrowsers(session, {
+      type: "cli_disconnected",
+      ...(idleKilled ? { reason: "idle_limit" as const } : {}),
+    });
     // Only set error attention on unexpected disconnects (mid-generation crash),
-    // not on clean shutdown after a result message
-    if (wasGenerating) {
+    // not on clean shutdown after a result message or idle kill
+    if (wasGenerating && !idleKilled) {
       this.setAttention(session, "error");
     }
 
@@ -1036,7 +1044,11 @@ export class WsBridge {
       : !!session.cliSocket;
 
     if (!backendConnected) {
-      this.sendToBrowser(ws, { type: "cli_disconnected" });
+      const idleKilled = this.launcher?.getSession(sessionId)?.killedByIdleManager;
+      this.sendToBrowser(ws, {
+        type: "cli_disconnected",
+        ...(idleKilled ? { reason: "idle_limit" as const } : {}),
+      });
       if (this.onCLIRelaunchNeeded) {
         console.log(`[ws-bridge] Browser connected but backend is dead for session ${sessionId}, requesting relaunch`);
         this.onCLIRelaunchNeeded(sessionId);

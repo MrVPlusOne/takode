@@ -145,6 +145,7 @@ export function SessionItem({
             sdkState={s.sdkState}
             status={s.status}
             hasUnread={hasUnread}
+            idleKilled={s.idleKilled}
           />
 
           {/* Content */}

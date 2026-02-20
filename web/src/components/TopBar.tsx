@@ -79,6 +79,7 @@ export function TopBar() {
 
   const pendingPermissions = useStore((s) => s.pendingPermissions);
   const sessionAttention = useStore((s) => s.sessionAttention);
+  const cliDisconnectReason = useStore((s) => s.cliDisconnectReason);
   const serverReachable = useStore((s) => s.serverReachable);
 
   // Aggregate session status counts using the same priority logic as SessionStatusDot
@@ -93,13 +94,14 @@ export function TopBar() {
         sdkState: sdk.state ?? null,
         status: sessionStatus.get(sdk.sessionId) ?? null,
         hasUnread: !!sessionAttention.get(sdk.sessionId),
+        idleKilled: cliDisconnectReason.get(sdk.sessionId) === "idle_limit",
       });
       if (vs === "running" || vs === "compacting") running++;
       else if (vs === "permission") waiting++;
       else if (vs === "completed_unread") unread++;
     }
     return { running, waiting, unread };
-  }, [sdkSessions, sessionStatus, pendingPermissions, sessionAttention, cliConnected]);
+  }, [sdkSessions, sessionStatus, pendingPermissions, sessionAttention, cliConnected, cliDisconnectReason]);
 
   const isConnected = currentSessionId ? (cliConnected.get(currentSessionId) ?? false) : false;
   const status = currentSessionId ? (sessionStatus.get(currentSessionId) ?? null) : null;
@@ -145,6 +147,7 @@ export function TopBar() {
                 sdkState={currentSdkState}
                 status={status}
                 hasUnread={currentHasUnread}
+                idleKilled={currentSessionId ? cliDisconnectReason.get(currentSessionId) === "idle_limit" : false}
               />
             </div>
             <div className="min-w-0">

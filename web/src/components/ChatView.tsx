@@ -12,6 +12,7 @@ export function ChatView({ sessionId }: { sessionId: string }) {
   );
   const cliConnected = useStore((s) => s.cliConnected.get(sessionId) ?? false);
   const cliEverConnected = useStore((s) => s.cliEverConnected.get(sessionId) ?? false);
+  const cliDisconnectReason = useStore((s) => s.cliDisconnectReason.get(sessionId) ?? null);
 
   const perms = useMemo(
     () => (sessionPerms ? Array.from(sessionPerms.values()) : []),
@@ -58,15 +59,27 @@ export function ChatView({ sessionId }: { sessionId: string }) {
 
       {/* CLI disconnected banner (CLI was connected before but dropped) */}
       {connStatus === "connected" && !cliConnected && cliEverConnected && (
-        <div className="px-4 py-2 bg-cc-warning/10 border-b border-cc-warning/20 text-center flex items-center justify-center gap-3">
-          <span className="text-xs text-cc-warning font-medium">
-            CLI disconnected
+        <div className={`px-4 py-2 border-b text-center flex items-center justify-center gap-3 ${
+          cliDisconnectReason === "idle_limit"
+            ? "bg-cc-border/30 border-cc-border"
+            : "bg-cc-warning/10 border-cc-warning/20"
+        }`}>
+          <span className={`text-xs font-medium ${
+            cliDisconnectReason === "idle_limit" ? "text-cc-text-secondary" : "text-cc-warning"
+          }`}>
+            {cliDisconnectReason === "idle_limit"
+              ? "Session paused to stay within keep-alive limit"
+              : "CLI disconnected"}
           </span>
           <button
             onClick={() => api.relaunchSession(sessionId).catch(console.error)}
-            className="text-xs font-medium px-3 py-1 rounded-md bg-cc-warning/20 hover:bg-cc-warning/30 text-cc-warning transition-colors cursor-pointer"
+            className={`text-xs font-medium px-3 py-1 rounded-md transition-colors cursor-pointer ${
+              cliDisconnectReason === "idle_limit"
+                ? "bg-cc-hover hover:bg-cc-border text-cc-fg"
+                : "bg-cc-warning/20 hover:bg-cc-warning/30 text-cc-warning"
+            }`}
           >
-            Reconnect
+            Resume
           </button>
         </div>
       )}

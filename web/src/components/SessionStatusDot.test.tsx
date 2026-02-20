@@ -131,6 +131,38 @@ describe("deriveSessionStatus", () => {
     expect(deriveSessionStatus(makeProps())).toBe("idle");
   });
 
+  // Idle-killed sessions show as "idle" (gray) instead of "disconnected" (red)
+  it("returns 'idle' for disconnected sessions killed by idle manager", () => {
+    // Sessions killed by the idle manager should not show the alarming red dot.
+    const result = deriveSessionStatus(makeProps({
+      isConnected: false,
+      sdkState: "exited",
+      idleKilled: true,
+    }));
+    expect(result).toBe("idle");
+  });
+
+  it("returns 'disconnected' when not idle-killed (normal disconnect)", () => {
+    // Normal disconnects without idle kill should still show red.
+    const result = deriveSessionStatus(makeProps({
+      isConnected: false,
+      sdkState: "exited",
+      idleKilled: false,
+    }));
+    expect(result).toBe("disconnected");
+  });
+
+  it("returns 'permission' over idle-killed", () => {
+    // Permission always takes priority, even for idle-killed sessions.
+    const result = deriveSessionStatus(makeProps({
+      isConnected: false,
+      sdkState: "exited",
+      idleKilled: true,
+      permCount: 1,
+    }));
+    expect(result).toBe("permission");
+  });
+
   // Priority tests: permission > disconnected > running
   it("prioritizes 'permission' over 'running'", () => {
     // If agent is running but also has a pending permission, permission wins.
@@ -287,5 +319,16 @@ describe("SessionStatusDot component", () => {
     const dot = screen.getByTestId("session-status-dot");
     const svg = dot.querySelector("svg")!;
     expect(svg.className.baseVal).not.toContain("yarn-ball-roll");
+  });
+
+  it("shows idle-killed sessions as idle (gray) with 'Idle' title", () => {
+    // Sessions killed by the idle manager should look like normal idle sessions
+    // (gray dot, no glow), not like alarming disconnected sessions (red dot).
+    render(<SessionStatusDot {...makeProps({ isConnected: false, sdkState: "exited", idleKilled: true })} />);
+    const dot = screen.getByTestId("session-status-dot");
+    expect(dot).toHaveAttribute("data-status", "idle");
+    expect(screen.getByTitle("Idle")).toBeInTheDocument();
+    const yarnBall = dot.querySelector("svg")!;
+    expect(yarnBall.className.baseVal).not.toContain("text-cc-error");
   });
 });

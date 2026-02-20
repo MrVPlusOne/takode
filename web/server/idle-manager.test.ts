@@ -171,6 +171,26 @@ describe("IdleManager", () => {
     expect(launcher.kill).toHaveBeenCalledWith("s3");
   });
 
+  it("sets killedByIdleManager flag on sessions before killing", () => {
+    // The idle manager should mark sessions with killedByIdleManager=true before
+    // calling kill(), so ws-bridge can broadcast the reason to browsers.
+    const now = Date.now();
+    const sessions = [
+      makeSession("s1", { lastActivityAt: now - 3000 }),
+      makeSession("s2", { lastActivityAt: now - 2000 }),
+      makeSession("s3", { lastActivityAt: now - 1000 }),
+    ];
+    const { launcher, wsBridge, getSettings } = createMocks(sessions, new Set(), 2);
+    const mgr = new IdleManager(launcher, wsBridge, getSettings);
+
+    mgr.sweep();
+    // s1 is the oldest and should be killed — verify flag was set
+    expect(sessions[0].killedByIdleManager).toBe(true);
+    // s2 and s3 should NOT have the flag
+    expect(sessions[1].killedByIdleManager).toBeUndefined();
+    expect(sessions[2].killedByIdleManager).toBeUndefined();
+  });
+
   it("start/stop controls the interval timer", () => {
     vi.useFakeTimers();
     const sessions = [

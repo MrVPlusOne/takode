@@ -35,6 +35,8 @@ export interface SessionStatusDotProps {
   status: "idle" | "running" | "compacting" | "reverting" | null;
   /** Whether the session has unread results the user hasn't seen */
   hasUnread?: boolean;
+  /** Whether the session was killed by the idle manager (shows as idle instead of disconnected) */
+  idleKilled?: boolean;
 }
 
 /**
@@ -42,13 +44,17 @@ export interface SessionStatusDotProps {
  * Exported for testability.
  */
 export function deriveSessionStatus(props: SessionStatusDotProps): SessionVisualStatus {
-  const { archived, permCount, isConnected, sdkState, status, hasUnread } = props;
+  const { archived, permCount, isConnected, sdkState, status, hasUnread, idleKilled } = props;
 
   if (archived) return "archived";
   if (permCount > 0) return "permission";
   // Disconnected: CLI not connected and not still starting up.
   // isConnected is accurate for all sessions (active via WebSocket, non-active via REST fallback).
-  if (!isConnected && sdkState !== "starting") return "disconnected";
+  // Sessions killed by idle manager show as "idle" (gray) instead of "disconnected" (red)
+  // since they don't need user attention — they'll relaunch on demand.
+  if (!isConnected && sdkState !== "starting") {
+    return idleKilled ? "idle" : "disconnected";
+  }
   if (status === "running") return "running";
   if (status === "compacting" || status === "reverting") return "compacting";
   if (hasUnread) return "completed_unread";

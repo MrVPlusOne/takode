@@ -1087,6 +1087,10 @@ export function Playground() {
                   <span className="text-xs text-cc-muted">Disconnected</span>
                 </div>
                 <div className="flex items-center gap-2">
+                  <SessionStatusDot archived={false} permCount={0} isConnected={false} sdkState="exited" status={null} idleKilled />
+                  <span className="text-xs text-cc-muted">Idle Killed</span>
+                </div>
+                <div className="flex items-center gap-2">
                   <SessionStatusDot archived={false} permCount={0} isConnected={true} sdkState="connected" status="compacting" />
                   <span className="text-xs text-cc-muted">Compacting</span>
                 </div>

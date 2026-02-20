@@ -248,7 +248,7 @@ export type BrowserIncomingMessageBase =
   | { type: "permissions_cleared" }
   | { type: "auth_status"; isAuthenticating: boolean; output: string[]; error?: string }
   | { type: "error"; message: string }
-  | { type: "cli_disconnected" }
+  | { type: "cli_disconnected"; reason?: "idle_limit" }
   | { type: "cli_connected" }
   | { type: "user_message"; content: string; timestamp: number; id?: string; images?: import("./image-store.js").ImageRef[] }
   | { type: "message_history"; messages: BrowserIncomingMessage[] }

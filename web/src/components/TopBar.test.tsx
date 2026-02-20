@@ -11,6 +11,7 @@ vi.mock("../api.js", () => ({
 interface MockStoreState {
   currentSessionId: string | null;
   cliConnected: Map<string, boolean>;
+  cliDisconnectReason: Map<string, "idle_limit" | null>;
   sessionStatus: Map<string, "idle" | "running" | "compacting" | null>;
   sidebarOpen: boolean;
   setSidebarOpen: ReturnType<typeof vi.fn>;
@@ -33,6 +34,7 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
   storeState = {
     currentSessionId: "s1",
     cliConnected: new Map([["s1", true]]),
+    cliDisconnectReason: new Map(),
     sessionStatus: new Map([["s1", "idle"]]),
     sidebarOpen: true,
     setSidebarOpen: vi.fn(),

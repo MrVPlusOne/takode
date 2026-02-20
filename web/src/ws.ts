@@ -762,6 +762,7 @@ function handleParsedMessage(
 
     case "cli_disconnected": {
       store.setCliConnected(sessionId, false);
+      store.setCliDisconnectReason(sessionId, data.reason ?? null);
       store.setSessionStatus(sessionId, null);
       store.clearStreamingState(sessionId);
       store.clearToolProgress(sessionId);

@@ -31,6 +31,8 @@ interface AppState {
   cliConnected: Map<string, boolean>;
   // Whether the CLI has ever connected for this session (to distinguish "starting" from "disconnected")
   cliEverConnected: Map<string, boolean>;
+  // Reason the CLI disconnected (e.g. "idle_limit" when killed by idle manager)
+  cliDisconnectReason: Map<string, "idle_limit" | null>;
 
   // Session status
   sessionStatus: Map<string, "idle" | "running" | "compacting" | "reverting" | null>;
@@ -211,6 +213,7 @@ interface AppState {
   setConnectionStatus: (sessionId: string, status: "connecting" | "connected" | "disconnected") => void;
   setCliConnected: (sessionId: string, connected: boolean) => void;
   setCliEverConnected: (sessionId: string) => void;
+  setCliDisconnectReason: (sessionId: string, reason: "idle_limit" | null) => void;
   setSessionStatus: (sessionId: string, status: "idle" | "running" | "compacting" | "reverting" | null) => void;
 
   // Per-session feed visible count (persists across session switches)
@@ -332,6 +335,7 @@ export const useStore = create<AppState>((set) => ({
   connectionStatus: new Map(),
   cliConnected: new Map(),
   cliEverConnected: new Map(),
+  cliDisconnectReason: new Map(),
   sessionStatus: new Map(),
   previousPermissionMode: new Map(),
   askPermission: new Map(),
@@ -484,6 +488,8 @@ export const useStore = create<AppState>((set) => ({
       cliConnected.delete(sessionId);
       const cliEverConnected = new Map(s.cliEverConnected);
       cliEverConnected.delete(sessionId);
+      const cliDisconnectReason = new Map(s.cliDisconnectReason);
+      cliDisconnectReason.delete(sessionId);
       const sessionStatus = new Map(s.sessionStatus);
       sessionStatus.delete(sessionId);
       const previousPermissionMode = new Map(s.previousPermissionMode);
@@ -543,6 +549,7 @@ export const useStore = create<AppState>((set) => ({
         connectionStatus,
         cliConnected,
         cliEverConnected,
+        cliDisconnectReason,
         sessionStatus,
         previousPermissionMode,
         askPermission,
@@ -994,7 +1001,10 @@ export const useStore = create<AppState>((set) => ({
       if (connected) {
         const cliEverConnected = new Map(s.cliEverConnected);
         cliEverConnected.set(sessionId, true);
-        return { cliConnected, cliEverConnected };
+        // Clear disconnect reason when CLI reconnects
+        const cliDisconnectReason = new Map(s.cliDisconnectReason);
+        cliDisconnectReason.set(sessionId, null);
+        return { cliConnected, cliEverConnected, cliDisconnectReason };
       }
       return { cliConnected };
     }),
@@ -1004,6 +1014,13 @@ export const useStore = create<AppState>((set) => ({
       const cliEverConnected = new Map(s.cliEverConnected);
       cliEverConnected.set(sessionId, true);
       return { cliEverConnected };
+    }),
+
+  setCliDisconnectReason: (sessionId, reason) =>
+    set((s) => {
+      const cliDisconnectReason = new Map(s.cliDisconnectReason);
+      cliDisconnectReason.set(sessionId, reason);
+      return { cliDisconnectReason };
     }),
 
   setSessionStatus: (sessionId, status) =>
@@ -1106,6 +1123,7 @@ export const useStore = create<AppState>((set) => ({
       connectionStatus: new Map(),
       cliConnected: new Map(),
       cliEverConnected: new Map(),
+      cliDisconnectReason: new Map(),
       sessionStatus: new Map(),
       previousPermissionMode: new Map(),
       askPermission: new Map(),

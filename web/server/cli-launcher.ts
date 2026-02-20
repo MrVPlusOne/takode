@@ -75,6 +75,8 @@ export interface SdkSessionInfo {
   cronJobId?: string;
   /** Human-readable name of the cron job that spawned this session */
   cronJobName?: string;
+  /** Set by idle manager before killing — lets the UI show a less alarming indicator */
+  killedByIdleManager?: boolean;
 
   // Worktree fields
   /** Whether this session uses a git worktree */
@@ -348,6 +350,7 @@ export class CliLauncher {
     }
 
     info.state = "starting";
+    info.killedByIdleManager = false;
 
     const runtimeEnv = this.sessionEnvs.get(sessionId);
     const binSettings = this.settingsGetter?.() ?? { claudeBinary: "", codexBinary: "" };

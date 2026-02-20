@@ -23,6 +23,7 @@ export interface SessionItem {
   cronJobName?: string;
   isWorktree?: boolean;
   askPermission?: boolean;
+  idleKilled?: boolean;
 }
 
 export interface ProjectGroup {
@@ -91,6 +92,7 @@ export function groupSessionsByProject(
       sdkState: session.sdkState,
       status: session.status,
       hasUnread: !!sessionAttention?.get(session.id),
+      idleKilled: session.idleKilled,
     });
     if (visualStatus === "running" || visualStatus === "compacting") group.runningCount++;
     else if (visualStatus === "permission") group.permCount++;

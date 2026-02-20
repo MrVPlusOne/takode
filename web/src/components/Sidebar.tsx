@@ -29,6 +29,7 @@ export function Sidebar() {
   const currentSessionId = useStore((s) => s.currentSessionId);
   const setCurrentSession = useStore((s) => s.setCurrentSession);
   const cliConnected = useStore((s) => s.cliConnected);
+  const cliDisconnectReason = useStore((s) => s.cliDisconnectReason);
   const sessionStatus = useStore((s) => s.sessionStatus);
   const removeSession = useStore((s) => s.removeSession);
   const sessionNames = useStore((s) => s.sessionNames);
@@ -352,6 +353,7 @@ export function Sidebar() {
       cronJobName: bridgeState?.cronJobName || sdkInfo?.cronJobName,
       isWorktree: bridgeState?.is_worktree || sdkInfo?.isWorktree || false,
       askPermission: askPermissionMap?.get(id),
+      idleKilled: cliDisconnectReason.get(id) === "idle_limit",
     };
   }).sort((a, b) => b.createdAt - a.createdAt);
 

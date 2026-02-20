@@ -50,6 +50,8 @@ export class IdleManager {
     let killed = 0;
 
     for (let i = 0; i < Math.min(toKill, killable.length); i++) {
+      // Mark session so the UI can show a less alarming indicator for idle kills
+      killable[i].killedByIdleManager = true;
       this.launcher.kill(killable[i].sessionId);
       killed++;
     }
