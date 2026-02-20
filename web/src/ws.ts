@@ -410,9 +410,15 @@ function handleParsedMessage(
       }
       // Sync server-authoritative attention state
       if (data.session.attentionReason !== undefined) {
-        const sessionAttention = new Map(useStore.getState().sessionAttention);
-        sessionAttention.set(sessionId, data.session.attentionReason ?? null);
-        useStore.setState({ sessionAttention });
+        const isViewing = useStore.getState().currentSessionId === sessionId;
+        if (isViewing && data.session.attentionReason) {
+          // User is viewing this session — suppress badge, tell server we've read it
+          api.markSessionRead(sessionId).catch(() => {});
+        } else {
+          const sessionAttention = new Map(useStore.getState().sessionAttention);
+          sessionAttention.set(sessionId, data.session.attentionReason ?? null);
+          useStore.setState({ sessionAttention });
+        }
       }
       break;
     }
@@ -718,9 +724,14 @@ function handleParsedMessage(
       }
       // Sync server-authoritative attention state
       if (data.attentionReason !== undefined) {
-        const sessionAttention = new Map(useStore.getState().sessionAttention);
-        sessionAttention.set(sessionId, data.attentionReason ?? null);
-        useStore.setState({ sessionAttention });
+        const isViewing = useStore.getState().currentSessionId === sessionId;
+        if (isViewing && data.attentionReason) {
+          api.markSessionRead(sessionId).catch(() => {});
+        } else {
+          const sessionAttention = new Map(useStore.getState().sessionAttention);
+          sessionAttention.set(sessionId, data.attentionReason ?? null);
+          useStore.setState({ sessionAttention });
+        }
       }
       break;
     }

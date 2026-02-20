@@ -83,8 +83,13 @@ export function Sidebar() {
             if (s.attentionReason !== undefined) {
               const currentAttention = store.sessionAttention.get(s.sessionId);
               if (currentAttention !== s.attentionReason) {
-                if (!batchedAttention) batchedAttention = new Map(store.sessionAttention);
-                batchedAttention.set(s.sessionId, s.attentionReason ?? null);
+                // Suppress attention for the session the user is currently viewing
+                if (store.currentSessionId === s.sessionId && s.attentionReason) {
+                  api.markSessionRead(s.sessionId).catch(() => {});
+                } else {
+                  if (!batchedAttention) batchedAttention = new Map(store.sessionAttention);
+                  batchedAttention.set(s.sessionId, s.attentionReason ?? null);
+                }
               }
             }
           }
