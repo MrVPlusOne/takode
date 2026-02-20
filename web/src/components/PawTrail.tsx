@@ -1,4 +1,4 @@
-import { createContext, useContext, useRef, useEffect, useState, useId } from "react";
+import { createContext, useContext, useRef, useEffect, useState, useCallback, useMemo, useId } from "react";
 import { CatPawLeft } from "./CatIcons.js";
 
 /**
@@ -16,6 +16,88 @@ export const PawCounterContext = createContext<React.MutableRefObject<PawCounter
   { current: { next: 0, cache: new Map() } } as React.MutableRefObject<PawCounterState>,
 );
 
+// ─── Shared scroll manager ──────────────────────────────────────────────────
+//
+// Instead of N scroll listeners (one per PawTrailAvatar), a single listener
+// on the feed container calls all registered update callbacks in one rAF.
+// Each callback writes directly to its own DOM refs — no React re-renders.
+
+/** Callback signature: receives the scroll container and current direction. */
+type PawUpdateFn = (scrollParent: HTMLElement, dirDown: boolean) => void;
+
+export const PawScrollContext = createContext<{
+  register: (fn: PawUpdateFn) => () => void;
+} | null>(null);
+
+/**
+ * Wraps the message feed and attaches a single scroll listener that drives
+ * all PawTrailAvatar animations via direct DOM writes.
+ */
+export function PawScrollProvider({
+  scrollRef,
+  children,
+}: {
+  scrollRef: React.RefObject<HTMLElement | null>;
+  children: React.ReactNode;
+}) {
+  const callbacks = useRef(new Set<PawUpdateFn>());
+  const lastScrollTop = useRef(0);
+  const dirDown = useRef(true);
+
+  const register = useCallback((fn: PawUpdateFn) => {
+    callbacks.current.add(fn);
+    // Give the newly registered paw an immediate position update
+    const sp = scrollRef.current;
+    if (sp) {
+      requestAnimationFrame(() => fn(sp, dirDown.current));
+    }
+    return () => { callbacks.current.delete(fn); };
+  }, [scrollRef]);
+
+  useEffect(() => {
+    const sp = scrollRef.current;
+    if (!sp) return;
+
+    let rafId: number;
+    const onScroll = () => {
+      cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        const currentScrollTop = sp.scrollTop;
+        // Dead zone of 2px to avoid jitter on sub-pixel scrolls
+        if (currentScrollTop > lastScrollTop.current + 2) {
+          dirDown.current = true;
+        } else if (currentScrollTop < lastScrollTop.current - 2) {
+          dirDown.current = false;
+        }
+        lastScrollTop.current = currentScrollTop;
+
+        for (const cb of callbacks.current) {
+          cb(sp, dirDown.current);
+        }
+      });
+    };
+
+    sp.addEventListener("scroll", onScroll, { passive: true });
+
+    // Initial position for all paws already registered
+    requestAnimationFrame(() => {
+      for (const cb of callbacks.current) {
+        cb(sp, dirDown.current);
+      }
+    });
+
+    return () => {
+      sp.removeEventListener("scroll", onScroll);
+      cancelAnimationFrame(rafId);
+    };
+  }, [scrollRef]);
+
+  const value = useMemo(() => ({ register }), [register]);
+  return <PawScrollContext.Provider value={value}>{children}</PawScrollContext.Provider>;
+}
+
+// ─── PawTrailAvatar ─────────────────────────────────────────────────────────
+
 /**
  * PawTrailAvatar — scroll-driven paw-to-dot morph.
  *
@@ -26,6 +108,11 @@ export const PawCounterContext = createContext<React.MutableRefObject<PawCounter
  * toes point up when scrolling up (cat walking up).
  *
  * Animation speed is entirely driven by scroll position, not time.
+ *
+ * Performance: instead of each avatar attaching its own scroll listener
+ * (N listeners for N messages), all avatars register with a shared
+ * PawScrollProvider that drives updates via a single listener + rAF.
+ * Style updates are written directly to DOM refs — no React re-renders.
  */
 export function PawTrailAvatar({
   isStreaming,
@@ -43,52 +130,25 @@ export function PawTrailAvatar({
     return idx;
   });
 
-  const ref = useRef<HTMLDivElement>(null);
-  // progress: 0 = full paw (just entered from edge), 1 = full dot (moved away)
-  const [progress, setProgress] = useState(1);
-  // true = toes down (scrolling down), false = toes up (scrolling up)
-  const [facingDown, setFacingDown] = useState(true);
+  const outerRef = useRef<HTMLDivElement>(null);
+  const pawRef = useRef<SVGSVGElement>(null);
+  const dotRef = useRef<HTMLDivElement>(null);
+  const isLeft = index % 2 === 0;
+
+  const scrollCtx = useContext(PawScrollContext);
 
   useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
+    // If no scroll context (tests, playground), fall back to dot state
+    if (!scrollCtx) return;
 
-    // JSDOM fallback for tests
-    if (typeof getComputedStyle === "undefined") {
-      setProgress(1);
-      return;
-    }
-
-    // Find the nearest scrollable ancestor (the message feed container)
-    let scrollParent: HTMLElement | null = el.parentElement;
-    while (scrollParent) {
-      const { overflowY } = getComputedStyle(scrollParent);
-      if (overflowY === "auto" || overflowY === "scroll") break;
-      scrollParent = scrollParent.parentElement;
-    }
-    if (!scrollParent) {
-      setProgress(1);
-      return;
-    }
-
-    let rafId: number;
-    const sp = scrollParent;
-    let lastScrollTop = sp.scrollTop;
-    // Track scroll direction: true = scrolling down
-    let dirDown = true;
-
-    const update = () => {
-      const currentScrollTop = sp.scrollTop;
-      // Dead zone of 2px to avoid jitter on sub-pixel scrolls
-      if (currentScrollTop > lastScrollTop + 2) {
-        dirDown = true;
-      } else if (currentScrollTop < lastScrollTop - 2) {
-        dirDown = false;
-      }
-      lastScrollTop = currentScrollTop;
+    const updateFn: PawUpdateFn = (scrollParent, dirDown) => {
+      const el = outerRef.current;
+      const pawEl = pawRef.current;
+      const dotEl = dotRef.current;
+      if (!el || !pawEl || !dotEl) return;
 
       const elRect = el.getBoundingClientRect();
-      const parentRect = sp.getBoundingClientRect();
+      const parentRect = scrollParent.getBoundingClientRect();
       const elCenter = elRect.top + elRect.height / 2;
 
       const morphRange = 400;
@@ -104,69 +164,52 @@ export function PawTrailAvatar({
         raw = Math.min(1, Math.max(0, distFromTop / morphRange));
       }
 
-      // Quantize to ~5% steps to reduce React re-renders
-      const quantized = Math.round(raw * 20) / 20;
-      setProgress((prev) => (prev === quantized ? prev : quantized));
-      setFacingDown((prev) => (prev === dirDown ? prev : dirDown));
+      // Quantize to ~5% steps to reduce DOM writes
+      const progress = Math.round(raw * 20) / 20;
+
+      // Derive visual properties (same math as before)
+      const pawOpacity = 1 - progress;
+      const pawScale = 0.6 + 0.9 * (1 - progress);
+      const dotOpacity = progress;
+      const dotScale = 0.3 + 0.7 * progress;
+      const pawRotation = dirDown ? 180 : 0;
+
+      const splayAmount = 1 - progress;
+      const dir = dirDown ? -1 : 1;
+      const splayRotate = (isLeft ? -12 : 12) * splayAmount * dir;
+      const splayOffsetX = (isLeft ? -5 : 5) * splayAmount * dir;
+
+      // Write directly to DOM — no React state, no re-renders
+      el.style.transform = `translateX(${splayOffsetX}px) rotate(${splayRotate}deg)`;
+
+      pawEl.style.opacity = String(pawOpacity);
+      pawEl.style.transform = `scale(${pawScale}) ${isLeft ? "" : "scaleX(-1) "}rotate(${pawRotation}deg)`;
+      pawEl.style.display = pawOpacity > 0.02 ? "" : "none";
+
+      dotEl.style.opacity = String(dotOpacity);
+      dotEl.style.transform = `scale(${dotScale})`;
     };
 
-    const onScroll = () => {
-      cancelAnimationFrame(rafId);
-      rafId = requestAnimationFrame(update);
-    };
-
-    sp.addEventListener("scroll", onScroll, { passive: true });
-    // Initial position check
-    update();
-
-    return () => {
-      sp.removeEventListener("scroll", onScroll);
-      cancelAnimationFrame(rafId);
-    };
-  }, []);
-
-  // Derive visual properties from scroll progress
-  const pawOpacity = 1 - progress;
-  const pawScale = 0.6 + 0.9 * (1 - progress); // 1.5 at edge → 0.6 away
-  const dotOpacity = progress;
-  const dotScale = 0.3 + 0.7 * progress; // 0.3 at edge → 1.0 away
-  // CatPawLeft SVG has toes at top; rotate 180° when facing down
-  const pawRotation = facingDown ? 180 : 0;
-
-  // Left/right splay: slight rotation + horizontal offset, fades to 0 with morph
-  const isLeft = index % 2 === 0;
-  const splayAmount = 1 - progress; // 1 at edge (full splay) → 0 (aligned)
-  // Negate splay when facing down — the 180° paw flip reverses visual direction
-  const dir = facingDown ? -1 : 1;
-  const splayRotate = (isLeft ? -12 : 12) * splayAmount * dir;
-  const splayOffsetX = (isLeft ? -5 : 5) * splayAmount * dir;
+    return scrollCtx.register(updateFn);
+  }, [scrollCtx, isLeft]);
 
   return (
     <div
-      ref={ref}
+      ref={outerRef}
       className="relative w-3.5 h-3.5 rounded-full bg-cc-primary/10 flex items-center justify-center shrink-0 mt-1.5"
-      style={{
-        transform: `translateX(${splayOffsetX}px) rotate(${splayRotate}deg)`,
-        transition: "transform 0.1s ease-out",
-      }}
+      style={{ transition: "transform 0.1s ease-out" }}
     >
-      {/* Paw print — alternates left/right, visible near edge of feed */}
-      {pawOpacity > 0.02 && (
-        <CatPawLeft
-          className="absolute w-3 h-3 text-cc-primary pointer-events-none"
-          style={{
-            opacity: pawOpacity,
-            transform: `scale(${pawScale}) ${isLeft ? "" : "scaleX(-1) "}rotate(${pawRotation}deg)`,
-          }}
-        />
-      )}
+      {/* Paw print — alternates left/right, visible near edge of feed.
+          Always mounted (display toggled by scroll manager) to avoid
+          mount/unmount churn during scroll. */}
+      <CatPawLeft
+        ref={pawRef}
+        className="absolute w-3 h-3 text-cc-primary pointer-events-none"
+      />
       {/* Dot — grows in as paw fades out */}
       <div
+        ref={dotRef}
         className="w-1.5 h-1.5 rounded-full bg-cc-primary/50 pointer-events-none"
-        style={{
-          opacity: dotOpacity,
-          transform: `scale(${dotScale})`,
-        }}
       />
     </div>
   );

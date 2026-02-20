@@ -7,7 +7,7 @@ import { CollapseFooter, TurnCollapseFooter } from "./CollapseFooter.js";
 import { api } from "../api.js";
 import type { ChatMessage, ContentBlock } from "../types.js";
 import { YarnBallDot, YarnBallSpinner, SleepingCat } from "./CatIcons.js";
-import { PawTrailAvatar, PawCounterContext } from "./PawTrail.js";
+import { PawTrailAvatar, PawCounterContext, PawScrollProvider } from "./PawTrail.js";
 
 const FEED_PAGE_SIZE = 100;
 
@@ -1011,7 +1011,9 @@ export function MessageFeed({ sessionId }: { sessionId: string }) {
     if (!el) return;
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
     isNearBottom.current = nearBottom;
-    setShowScrollButton(!nearBottom);
+    // Only trigger a re-render when the button state actually changes
+    const shouldShow = !nearBottom;
+    setShowScrollButton((prev) => (prev === shouldShow ? prev : shouldShow));
   }
 
   // Auto-scroll: on initial render, restore saved scroll position or jump to
@@ -1073,6 +1075,7 @@ export function MessageFeed({ sessionId }: { sessionId: string }) {
         onScroll={handleScroll}
         className="h-full overflow-y-auto px-3 sm:px-4 py-4 sm:py-6"
       >
+        <PawScrollProvider scrollRef={containerRef}>
         <PawCounterContext.Provider value={pawCounter}>
         <div className="max-w-3xl mx-auto space-y-3 sm:space-y-5">
           {hasMore && (
@@ -1128,6 +1131,7 @@ export function MessageFeed({ sessionId }: { sessionId: string }) {
           <div ref={bottomRef} />
         </div>
         </PawCounterContext.Provider>
+        </PawScrollProvider>
       </div>
 
       {/* Scroll-to-bottom FAB */}
