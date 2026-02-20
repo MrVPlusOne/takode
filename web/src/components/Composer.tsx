@@ -223,6 +223,32 @@ export function Composer({ sessionId }: { sessionId: string }) {
     const msg = text.trim();
     if (!msg || !isConnected) return;
 
+    // Auto-answer pending AskUserQuestion if user types a response.
+    // The typed text becomes the "Other..." answer for each question.
+    // No separate user_message is sent — the answer IS the user's message.
+    if (pendingAskUserPerm) {
+      const questions = Array.isArray(pendingAskUserPerm.input?.questions)
+        ? pendingAskUserPerm.input.questions as Record<string, unknown>[]
+        : [];
+      const answers: Record<string, string> = {};
+      for (let i = 0; i < Math.max(1, questions.length); i++) {
+        answers[String(i)] = msg;
+      }
+      sendToSession(sessionId, {
+        type: "permission_response",
+        request_id: pendingAskUserPerm.request_id,
+        behavior: "allow",
+        updated_input: { ...pendingAskUserPerm.input, answers },
+      });
+      useStore.getState().removePermission(sessionId, pendingAskUserPerm.request_id);
+      useStore.getState().clearComposerDraft(sessionId);
+      setSlashMenuOpen(false);
+      if (textareaRef.current) textareaRef.current.style.height = "auto";
+      if (isTouchDevice()) textareaRef.current?.blur();
+      else textareaRef.current?.focus();
+      return;
+    }
+
     // Auto-reject pending plan if user sends a message while plan is pending.
     // This matches Claude Code vanilla behavior: typing a new message rejects
     // the plan and sends the new instructions as a fresh turn.
@@ -393,6 +419,16 @@ export function Composer({ sessionId }: { sessionId: string }) {
     return null;
   });
 
+  // Detect pending AskUserQuestion permission — typing a message answers it
+  const pendingAskUserPerm = useStore((s) => {
+    const permsMap = s.pendingPermissions.get(sessionId);
+    if (!permsMap) return null;
+    for (const perm of permsMap.values()) {
+      if (perm.tool_name === "AskUserQuestion") return perm;
+    }
+    return null;
+  });
+
   const sessionStatus = useStore((s) => s.sessionStatus);
   const isRunning = sessionStatus.get(sessionId) === "running";
   const canSend = text.trim().length > 0 && isConnected;
@@ -494,9 +530,11 @@ export function Composer({ sessionId }: { sessionId: string }) {
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             placeholder={
-              pendingPlanPerm
-                ? "Type to reject plan and send new instructions..."
-                : "Type a message... (/ for commands)"
+              pendingAskUserPerm
+                ? "Type your answer..."
+                : pendingPlanPerm
+                  ? "Type to reject plan and send new instructions..."
+                  : "Type a message... (/ for commands)"
             }
             rows={1}
             className="w-full px-4 pt-3 pb-1 text-base sm:text-sm bg-transparent resize-none focus:outline-none text-cc-fg font-sans-ui placeholder:text-cc-muted disabled:opacity-50 overflow-y-auto"
