@@ -63,8 +63,12 @@ function getApprovalSummary(toolName: string, input: Record<string, unknown>): s
   return `Approved: ${toolName}`;
 }
 
-/** Tools whose approvals should appear as chat messages. */
-const NOTABLE_APPROVALS = new Set(["ExitPlanMode", "AskUserQuestion"]);
+/** Tools that require user interaction — must NEVER be auto-approved regardless of permission mode.
+ *  These tools collect user input (answers, plan approval) that cannot be synthesized by the server. */
+const NEVER_AUTO_APPROVE: ReadonlySet<string> = new Set(["AskUserQuestion", "ExitPlanMode"]);
+
+/** Tools whose approvals appear as chat messages (same set — interactive tools need visible records). */
+const NOTABLE_APPROVALS = NEVER_AUTO_APPROVE;
 
 /** Extract structured Q&A pairs from an AskUserQuestion approval. */
 function extractAskUserAnswers(
@@ -1427,7 +1431,7 @@ export class WsBridge {
   }
 
   // Tools that are auto-approved in acceptEdits mode (everything except Bash).
-  // In bypassPermissions mode ALL tools are auto-approved.
+  // In bypassPermissions mode, all tools are auto-approved EXCEPT those in NEVER_AUTO_APPROVE.
   private static readonly ACCEPT_EDITS_AUTO_APPROVE = new Set([
     "Edit", "Write", "Read", "MultiEdit", "NotebookEdit",
     "Glob", "Grep", "WebFetch", "WebSearch",
@@ -1446,10 +1450,7 @@ export class WsBridge {
       // settings.json, hooks, etc.) still require explicit approval.
       const isFileEdit = toolName === "Edit" || toolName === "Write" || toolName === "MultiEdit" || toolName === "NotebookEdit";
       const filePath = isFileEdit ? String(msg.request.input.file_path ?? "") : "";
-      // AskUserQuestion and ExitPlanMode always require user interaction —
-      // they must never be auto-approved regardless of permission mode.
-      const requiresUserInteraction = toolName === "AskUserQuestion" || toolName === "ExitPlanMode";
-      const autoApprove = !requiresUserInteraction && (
+      const autoApprove = !NEVER_AUTO_APPROVE.has(toolName) && (
         mode === "bypassPermissions" ||
         (mode === "acceptEdits"
           && toolName !== "Bash"
