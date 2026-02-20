@@ -146,7 +146,7 @@ interface Session {
   isGenerating: boolean;
 }
 
-type GitSessionKey = "git_branch" | "is_worktree" | "is_containerized" | "repo_root" | "git_ahead" | "git_behind" | "git_dirty_count";
+type GitSessionKey = "git_branch" | "is_worktree" | "is_containerized" | "repo_root" | "git_ahead" | "git_behind";
 
 function makeDefaultState(sessionId: string, backendType: BackendType = "claude"): SessionState {
   return {
@@ -173,7 +173,6 @@ function makeDefaultState(sessionId: string, backendType: BackendType = "claude"
     repo_root: "",
     git_ahead: 0,
     git_behind: 0,
-    git_dirty_count: 0,
     total_lines_added: 0,
     total_lines_removed: 0,
   };
@@ -233,15 +232,6 @@ function resolveGitInfo(state: SessionState): void {
       state.git_ahead = 0;
       state.git_behind = 0;
     }
-
-    try {
-      const status = execSync("git status --porcelain 2>/dev/null", {
-        cwd: state.cwd, encoding: "utf-8", timeout: 3000,
-      }).trim();
-      state.git_dirty_count = status ? status.split("\n").length : 0;
-    } catch {
-      state.git_dirty_count = 0;
-    }
   } catch {
     // Not a git repo or git not available
     state.git_branch = "";
@@ -293,7 +283,6 @@ export class WsBridge {
     "repo_root",
     "git_ahead",
     "git_behind",
-    "git_dirty_count",
   ];
 
   /** Register a callback for when we learn the CLI's internal session ID. */
@@ -551,7 +540,6 @@ export class WsBridge {
       repo_root: session.state.repo_root,
       git_ahead: session.state.git_ahead,
       git_behind: session.state.git_behind,
-      git_dirty_count: session.state.git_dirty_count,
     };
 
     resolveGitInfo(session.state);
@@ -575,7 +563,6 @@ export class WsBridge {
             repo_root: session.state.repo_root,
             git_ahead: session.state.git_ahead,
             git_behind: session.state.git_behind,
-            git_dirty_count: session.state.git_dirty_count,
           },
         });
       }

@@ -239,16 +239,13 @@ export function SessionItem({
             )}
 
             {/* Row 3: Git stats (conditional) */}
-            {(s.gitAhead > 0 || s.gitBehind > 0 || (s.gitDirtyCount ?? 0) > 0 || s.linesAdded > 0 || s.linesRemoved > 0) && (
+            {(s.gitAhead > 0 || s.gitBehind > 0 || s.linesAdded > 0 || s.linesRemoved > 0) && (
               <div className="flex items-center gap-1.5 mt-px text-[10px] text-cc-muted">
                 {(s.gitAhead > 0 || s.gitBehind > 0) && (
                   <span className="flex items-center gap-0.5">
                     {s.gitAhead > 0 && <span className="text-green-500">{s.gitAhead}&#8593;</span>}
                     {s.gitBehind > 0 && <span className="text-cc-warning">{s.gitBehind}&#8595;</span>}
                   </span>
-                )}
-                {(s.gitDirtyCount ?? 0) > 0 && (
-                  <span className="text-cc-warning">{s.gitDirtyCount} dirty</span>
                 )}
                 {(s.linesAdded > 0 || s.linesRemoved > 0) && (
                   <span className="flex items-center gap-1 shrink-0">

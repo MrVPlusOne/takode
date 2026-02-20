@@ -9,7 +9,6 @@ export interface SessionItem {
   isContainerized: boolean;
   gitAhead: number;
   gitBehind: number;
-  gitDirtyCount?: number;
   linesAdded: number;
   linesRemoved: number;
   isConnected: boolean;
