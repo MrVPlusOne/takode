@@ -648,7 +648,7 @@ function TurnEntries({ turns, sessionId }: { turns: Turn[]; sessionId: string })
       {turns.map((turn) => {
         const isCollapsed = collapsedSet?.has(turn.id) ?? false;
         return (
-          <div key={turn.id} className="space-y-3 sm:space-y-5">
+          <div key={turn.id} className="turn-container space-y-3 sm:space-y-5">
             {/* Render user message */}
             {turn.userEntry && (
               <FeedEntries entries={[turn.userEntry]} sessionId={sessionId} />
