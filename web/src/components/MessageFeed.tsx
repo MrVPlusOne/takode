@@ -84,6 +84,7 @@ interface SubagentGroup {
   taskToolUseId: string;
   description: string;
   agentType: string;
+  taskInput: Record<string, unknown> | null;
   children: FeedEntry[];
 }
 
@@ -169,33 +170,62 @@ function groupToolMessages(messages: ChatMessage[]): FeedEntry[] {
   return entries;
 }
 
-/** Build feed entries with subagent nesting */
+/** Build feed entries with subagent nesting.
+ *  Task ToolMsgGroups are absorbed into SubagentGroups so the Task tool_use
+ *  and its children render as a single unified card. */
 function buildEntries(
   messages: ChatMessage[],
-  taskInfo: Map<string, { description: string; agentType: string }>,
+  taskInfo: Map<string, { description: string; agentType: string; input: Record<string, unknown> }>,
   childrenByParent: Map<string, ChatMessage[]>,
 ): FeedEntry[] {
   const grouped = groupToolMessages(messages);
 
   const result: FeedEntry[] = [];
   for (const entry of grouped) {
-    result.push(entry);
-
-    // After each entry containing Task tool_use(s), insert subagent groups
     const taskIds = getTaskIdsFromEntry(entry);
-    for (const taskId of taskIds) {
-      const children = childrenByParent.get(taskId);
-      if (children && children.length > 0) {
-        const info = taskInfo.get(taskId) || { description: "Subagent", agentType: "" };
-        const childEntries = buildEntries(children, taskInfo, childrenByParent);
+
+    if (taskIds.length === 0) {
+      // Non-Task entry — push as-is
+      result.push(entry);
+      continue;
+    }
+
+    // Case A: Pure Task ToolMsgGroup — absorb entirely into SubagentGroups
+    if (entry.kind === "tool_msg_group" && entry.toolName === "Task") {
+      for (const taskId of taskIds) {
+        const info = taskInfo.get(taskId) || { description: "Subagent", agentType: "", input: {} };
+        const children = childrenByParent.get(taskId);
+        const childEntries = children && children.length > 0
+          ? buildEntries(children, taskInfo, childrenByParent)
+          : [];
         result.push({
           kind: "subagent",
           taskToolUseId: taskId,
           description: info.description,
           agentType: info.agentType,
+          taskInput: info.input,
           children: childEntries,
         });
       }
+      continue;
+    }
+
+    // Case B: Mixed message (text + Task tool_use) — push message, then SubagentGroups
+    result.push(entry);
+    for (const taskId of taskIds) {
+      const info = taskInfo.get(taskId) || { description: "Subagent", agentType: "", input: {} };
+      const children = childrenByParent.get(taskId);
+      const childEntries = children && children.length > 0
+        ? buildEntries(children, taskInfo, childrenByParent)
+        : [];
+      result.push({
+        kind: "subagent",
+        taskToolUseId: taskId,
+        description: info.description,
+        agentType: info.agentType,
+        taskInput: info.input,
+        children: childEntries,
+      });
     }
   }
 
@@ -204,7 +234,7 @@ function buildEntries(
 
 function groupMessages(messages: ChatMessage[]): FeedEntry[] {
   // Phase 1: Find all Task tool_use IDs across all messages
-  const taskInfo = new Map<string, { description: string; agentType: string }>();
+  const taskInfo = new Map<string, { description: string; agentType: string; input: Record<string, unknown> }>();
   for (const msg of messages) {
     if (!msg.contentBlocks) continue;
     for (const b of msg.contentBlocks) {
@@ -213,6 +243,7 @@ function groupMessages(messages: ChatMessage[]): FeedEntry[] {
         taskInfo.set(id, {
           description: String(input?.description || "Subagent"),
           agentType: String(input?.subagent_type || ""),
+          input: (input || {}) as Record<string, unknown>,
         });
       }
     }
@@ -229,7 +260,7 @@ function groupMessages(messages: ChatMessage[]): FeedEntry[] {
     if (msg.parentToolUseId) {
       if (!taskInfo.has(msg.parentToolUseId)) {
         // Orphaned child — parent Task block was lost. Create synthetic entry.
-        taskInfo.set(msg.parentToolUseId, { description: "Subagent", agentType: "" });
+        taskInfo.set(msg.parentToolUseId, { description: "Subagent", agentType: "", input: {} });
       }
       let arr = childrenByParent.get(msg.parentToolUseId);
       if (!arr) { arr = []; childrenByParent.set(msg.parentToolUseId, arr); }
@@ -256,13 +287,14 @@ function groupMessages(messages: ChatMessage[]): FeedEntry[] {
   for (const [taskId, children] of childrenByParent) {
     if (emittedTaskIds.has(taskId)) continue;
     if (children.length === 0) continue;
-    const info = taskInfo.get(taskId) || { description: "Subagent", agentType: "" };
+    const info = taskInfo.get(taskId) || { description: "Subagent", agentType: "", input: {} };
     const childEntries = buildEntries(children, taskInfo, childrenByParent);
     entries.push({
       kind: "subagent",
       taskToolUseId: taskId,
       description: info.description,
       agentType: info.agentType,
+      taskInput: info.input || null,
       children: childEntries,
     });
   }
@@ -270,15 +302,12 @@ function groupMessages(messages: ChatMessage[]): FeedEntry[] {
   return batchSubagents(entries);
 }
 
-/** Group consecutive SubagentGroup entries into SubagentBatch wrappers.
- *  Also absorbs a preceding Task ToolMsgGroup when its items all correspond
- *  to the subagents in the batch (the info is redundant). */
+/** Group consecutive SubagentGroup entries into SubagentBatch wrappers. */
 function batchSubagents(entries: FeedEntry[]): FeedEntry[] {
   const result: FeedEntry[] = [];
   let i = 0;
 
   while (i < entries.length) {
-    // Collect a run of consecutive subagent entries
     if (entries[i].kind === "subagent") {
       const batch: SubagentGroup[] = [];
       while (i < entries.length && entries[i].kind === "subagent") {
@@ -287,17 +316,8 @@ function batchSubagents(entries: FeedEntry[]): FeedEntry[] {
       }
 
       if (batch.length >= 2) {
-        // Absorb a preceding Task ToolMsgGroup if it only contains items for these subagents
-        const prev = result[result.length - 1];
-        if (prev?.kind === "tool_msg_group" && prev.toolName === "Task") {
-          const batchIds = new Set(batch.map((sg) => sg.taskToolUseId));
-          if (prev.items.every((item) => batchIds.has(item.id))) {
-            result.pop();
-          }
-        }
         result.push({ kind: "subagent_batch", subagents: batch });
       } else {
-        // Single subagent — no batch wrapper needed
         result.push(batch[0]);
       }
     } else {
@@ -660,10 +680,13 @@ function parseSubagentResultText(raw: string): string {
 function SubagentBatchContainer({ batch, sessionId }: { batch: SubagentBatch; sessionId: string }) {
   return (
     <div className="animate-[fadeSlideIn_0.2s_ease-out]">
-      <div className="ml-9 border-l-2 border-cc-primary/20 pl-4 space-y-1">
-        {batch.subagents.map((sg) => (
-          <SubagentContainer key={sg.taskToolUseId} group={sg} sessionId={sessionId} inBatch />
-        ))}
+      <div className="flex items-start gap-3">
+        <PawTrailAvatar />
+        <div className="flex-1 min-w-0 space-y-2">
+          {batch.subagents.map((sg) => (
+            <SubagentContainer key={sg.taskToolUseId} group={sg} sessionId={sessionId} inBatch />
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -671,9 +694,11 @@ function SubagentBatchContainer({ batch, sessionId }: { batch: SubagentBatch; se
 
 function SubagentContainer({ group, sessionId, inBatch }: { group: SubagentGroup; sessionId: string; inBatch?: boolean }) {
   const [open, setOpen] = useState(true);
+  const [promptOpen, setPromptOpen] = useState(false);
   const label = group.description || "Subagent";
   const agentType = group.agentType;
   const childCount = group.children.length;
+  const hasPrompt = !!group.taskInput?.prompt;
 
   // Read the subagent's final result from the toolResults store
   const resultPreview = useStore((s) => s.toolResults.get(sessionId)?.get(group.taskToolUseId));
@@ -711,49 +736,98 @@ function SubagentContainer({ group, sessionId, inBatch }: { group: SubagentGroup
     return lastPreview;
   }, [parsedResultPreview, lastPreview]);
 
-  return (
-    <div className={inBatch ? "" : "animate-[fadeSlideIn_0.2s_ease-out]"}>
-      <div className={inBatch ? "" : "ml-9 border-l-2 border-cc-primary/20 pl-4"}>
-        <button
-          onClick={() => setOpen(!open)}
-          className="w-full flex items-center gap-2 py-1.5 text-left cursor-pointer mb-1"
-        >
-          <svg viewBox="0 0 16 16" fill="currentColor" className={`w-3 h-3 text-cc-muted transition-transform shrink-0 ${open ? "rotate-90" : ""}`}>
-            <path d="M6 4l4 4-4 4" />
-          </svg>
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5 text-cc-primary shrink-0">
-            <circle cx="8" cy="8" r="5" />
-            <path d="M8 5v3l2 1" strokeLinecap="round" />
-          </svg>
-          <span className="text-xs font-medium text-cc-fg truncate">{label}</span>
-          {agentType && (
-            <span className="text-[10px] text-cc-muted bg-cc-hover rounded-full px-1.5 py-0.5 shrink-0">
-              {agentType}
-            </span>
-          )}
-          {!open && collapsedPreview && (
-            <span className="text-[11px] text-cc-muted truncate ml-1 font-mono-code">
-              {collapsedPreview}
-            </span>
-          )}
-          <span className="text-[10px] text-cc-muted bg-cc-hover rounded-full px-1.5 py-0.5 tabular-nums shrink-0 ml-auto">
-            {childCount}
+  const card = (
+    <div className="border border-cc-border rounded-[10px] overflow-hidden bg-cc-card">
+      {/* Header */}
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-cc-hover transition-colors cursor-pointer"
+      >
+        <svg viewBox="0 0 16 16" fill="currentColor" className={`w-3 h-3 text-cc-muted transition-transform shrink-0 ${open ? "rotate-90" : ""}`}>
+          <path d="M6 4l4 4-4 4" />
+        </svg>
+        <ToolIcon type="agent" />
+        <span className="text-xs font-medium text-cc-fg truncate">{label}</span>
+        {agentType && (
+          <span className="text-[10px] text-cc-muted bg-cc-hover rounded-full px-1.5 py-0.5 shrink-0">
+            {agentType}
           </span>
-        </button>
-
-        {open && (
-          <div className="space-y-3 pb-2">
-            <FeedEntries entries={group.children} sessionId={sessionId} />
-            {resultPreview && (
-              <SubagentResult
-                preview={resultPreview}
-                parsedText={parsedResultPreview}
-                sessionId={sessionId}
-                toolUseId={group.taskToolUseId}
-              />
-            )}
-          </div>
         )}
+        {!open && collapsedPreview && (
+          <span className="text-[11px] text-cc-muted truncate ml-1 font-mono-code">
+            {collapsedPreview}
+          </span>
+        )}
+        <span className="text-[10px] text-cc-muted bg-cc-hover rounded-full px-1.5 py-0.5 tabular-nums shrink-0 ml-auto">
+          {childCount}
+        </span>
+      </button>
+
+      {/* Expanded content */}
+      {open && (
+        <div className="border-t border-cc-border">
+          {/* Collapsible prompt section */}
+          {hasPrompt && (
+            <div className="border-b border-cc-border/50">
+              <button
+                onClick={() => setPromptOpen(!promptOpen)}
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-cc-hover/50 transition-colors cursor-pointer"
+              >
+                <svg viewBox="0 0 16 16" fill="currentColor" className={`w-2.5 h-2.5 text-cc-muted transition-transform shrink-0 ${promptOpen ? "rotate-90" : ""}`}>
+                  <path d="M6 4l4 4-4 4" />
+                </svg>
+                <span className="text-[11px] font-medium text-cc-muted">Prompt</span>
+              </button>
+              {promptOpen && (
+                <div className="px-3 pb-2">
+                  <pre className="text-[11px] text-cc-muted font-mono-code whitespace-pre-wrap leading-relaxed max-h-40 overflow-y-auto">
+                    {String(group.taskInput!.prompt)}
+                  </pre>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Child activities */}
+          {childCount > 0 && (
+            <div className="px-3 py-2 space-y-3">
+              <FeedEntries entries={group.children} sessionId={sessionId} />
+            </div>
+          )}
+
+          {/* No children yet indicator */}
+          {childCount === 0 && !resultPreview && (
+            <div className="px-3 py-2 flex items-center gap-1.5 text-[11px] text-cc-muted">
+              <YarnBallSpinner className="w-3.5 h-3.5" />
+              <span>Agent starting...</span>
+            </div>
+          )}
+
+          {/* Result */}
+          {resultPreview && (
+            <SubagentResult
+              preview={resultPreview}
+              parsedText={parsedResultPreview}
+              sessionId={sessionId}
+              toolUseId={group.taskToolUseId}
+            />
+          )}
+        </div>
+      )}
+    </div>
+  );
+
+  if (inBatch) {
+    return card;
+  }
+
+  return (
+    <div className="animate-[fadeSlideIn_0.2s_ease-out]">
+      <div className="flex items-start gap-3">
+        <PawTrailAvatar />
+        <div className="flex-1 min-w-0">
+          {card}
+        </div>
       </div>
     </div>
   );
@@ -785,7 +859,7 @@ function SubagentResult({ preview, parsedText, sessionId, toolUseId }: {
     : (parsedText ?? preview.content);
 
   return (
-    <div className="border-t border-cc-border/50 pt-2 mt-1">
+    <div className="border-t border-cc-border/50 px-3 pt-2 pb-2">
       <div className="flex items-center gap-1.5 mb-1.5">
         <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 text-cc-primary/60 shrink-0">
           <path d="M8 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM7.25 5a.75.75 0 011.5 0v.5a.75.75 0 01-1.5 0V5zM6.5 7.75A.75.75 0 017.25 7h1a.75.75 0 01.75.75v2.5h.25a.75.75 0 010 1.5h-2a.75.75 0 010-1.5h.25v-1.75H7.25a.75.75 0 01-.75-.75z" />

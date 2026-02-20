@@ -19,6 +19,7 @@ import { SessionLaunchOverlay } from "./SessionLaunchOverlay.js";
 import { SessionStatusDot } from "./SessionStatusDot.js";
 import type { CreationProgressEvent } from "../types.js";
 import { CatPawAvatar, CatPawLeft, CatPawRight, YarnBallDot, YarnBallSpinner, SleepingCat } from "./CatIcons.js";
+import { PawTrailAvatar } from "./PawTrail.js";
 
 // ─── Mock Data ──────────────────────────────────────────────────────────────
 
@@ -1236,21 +1237,31 @@ export function Playground() {
         </Section>
 
         {/* ─── Subagent Groups ──────────────────────────────── */}
-        <Section title="Subagent Groups" description="Nested messages from Task tool subagents shown in a collapsible indent">
+        <Section title="Subagent Groups" description="Unified card for Task tool subagents — prompt, activities, and result in one collapsible container">
           <div className="space-y-4 max-w-3xl">
-            <Card label="Subagent with nested tool calls and result">
+            <Card label="Subagent with prompt, tool calls, and result">
               <PlaygroundSubagentGroup
                 description="Search codebase for auth patterns"
                 agentType="Explore"
+                prompt="Find all files related to authentication and authorization in the codebase. Look for middleware, guards, and token handling."
                 items={MOCK_SUBAGENT_TOOL_ITEMS}
                 resultText={"Found **3 authentication-related files**:\n\n- `src/auth/middleware.ts` — JWT validation middleware\n- `src/auth/session.ts` — Session management with Redis\n- `src/routes/login.ts` — Login endpoint with rate limiting\n\nThe codebase uses a standard JWT + refresh token pattern."}
               />
             </Card>
-            <Card label="Subagent with no result yet (still running)">
+            <Card label="Subagent still running (has children, no result)">
               <PlaygroundSubagentGroup
                 description="Run database migration tests"
                 agentType="general-purpose"
+                prompt="Execute all database migration tests and report any failures."
                 items={MOCK_SUBAGENT_TOOL_ITEMS.slice(0, 2)}
+              />
+            </Card>
+            <Card label="Subagent just spawned (no children yet)">
+              <PlaygroundSubagentGroup
+                description="Analyze performance bottlenecks"
+                agentType="Plan"
+                prompt="Profile the application startup and identify the top 3 performance bottlenecks."
+                items={[]}
               />
             </Card>
           </div>
@@ -1645,55 +1656,98 @@ function PlaygroundToolGroup({ toolName, items }: { toolName: string; items: Too
 
 // ─── Inline Subagent Group (mirrors MessageFeed's SubagentContainer) ────────
 
-function PlaygroundSubagentGroup({ description, agentType, items, resultText }: { description: string; agentType: string; items: ToolItem[]; resultText?: string }) {
+function PlaygroundSubagentGroup({ description, agentType, items, resultText, prompt }: { description: string; agentType: string; items: ToolItem[]; resultText?: string; prompt?: string }) {
   const [open, setOpen] = useState(true);
+  const [promptOpen, setPromptOpen] = useState(false);
 
   return (
-    <div className="ml-9 border-l-2 border-cc-primary/20 pl-4">
-      <button
-        onClick={() => setOpen(!open)}
-        className="w-full flex items-center gap-2 py-1.5 text-left cursor-pointer mb-1"
-      >
-        <svg viewBox="0 0 16 16" fill="currentColor" className={`w-3 h-3 text-cc-muted transition-transform shrink-0 ${open ? "rotate-90" : ""}`}>
-          <path d="M6 4l4 4-4 4" />
-        </svg>
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5 text-cc-primary shrink-0">
-          <circle cx="8" cy="8" r="5" />
-          <path d="M8 5v3l2 1" strokeLinecap="round" />
-        </svg>
-        <span className="text-xs font-medium text-cc-fg truncate">{description}</span>
-        {agentType && (
-          <span className="text-[10px] text-cc-muted bg-cc-hover rounded-full px-1.5 py-0.5 shrink-0">
-            {agentType}
-          </span>
-        )}
-        {!open && resultText && (
-          <span className="text-[11px] text-cc-muted truncate ml-1 font-mono-code">
-            {resultText.length > 120 ? resultText.slice(0, 120) + "..." : resultText}
-          </span>
-        )}
-        <span className="text-[10px] text-cc-muted bg-cc-hover rounded-full px-1.5 py-0.5 tabular-nums shrink-0 ml-auto">
-          {items.length}
-        </span>
-      </button>
-      {open && (
-        <div className="space-y-3 pb-2">
-          <PlaygroundToolGroup toolName={items[0]?.name || "Grep"} items={items} />
-          {resultText && (
-            <div className="border-t border-cc-border/50 pt-2 mt-1">
-              <div className="flex items-center gap-1.5 mb-1.5">
-                <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 text-cc-primary/60 shrink-0">
-                  <path d="M8 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM7.25 5a.75.75 0 011.5 0v.5a.75.75 0 01-1.5 0V5zM6.5 7.75A.75.75 0 017.25 7h1a.75.75 0 01.75.75v2.5h.25a.75.75 0 010 1.5h-2a.75.75 0 010-1.5h.25v-1.75H7.25a.75.75 0 01-.75-.75z" />
-                </svg>
-                <span className="text-[11px] font-medium text-cc-muted">Result</span>
-              </div>
-              <div className="text-sm max-h-96 overflow-y-auto">
-                <MarkdownContent text={resultText} />
-              </div>
+    <div className="flex items-start gap-3">
+      <PawTrailAvatar />
+      <div className="flex-1 min-w-0">
+        <div className="border border-cc-border rounded-[10px] overflow-hidden bg-cc-card">
+          {/* Header */}
+          <button
+            onClick={() => setOpen(!open)}
+            className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-cc-hover transition-colors cursor-pointer"
+          >
+            <svg viewBox="0 0 16 16" fill="currentColor" className={`w-3 h-3 text-cc-muted transition-transform shrink-0 ${open ? "rotate-90" : ""}`}>
+              <path d="M6 4l4 4-4 4" />
+            </svg>
+            <ToolIcon type="agent" />
+            <span className="text-xs font-medium text-cc-fg truncate">{description}</span>
+            {agentType && (
+              <span className="text-[10px] text-cc-muted bg-cc-hover rounded-full px-1.5 py-0.5 shrink-0">
+                {agentType}
+              </span>
+            )}
+            {!open && resultText && (
+              <span className="text-[11px] text-cc-muted truncate ml-1 font-mono-code">
+                {resultText.length > 120 ? resultText.slice(0, 120) + "..." : resultText}
+              </span>
+            )}
+            <span className="text-[10px] text-cc-muted bg-cc-hover rounded-full px-1.5 py-0.5 tabular-nums shrink-0 ml-auto">
+              {items.length}
+            </span>
+          </button>
+
+          {/* Expanded content */}
+          {open && (
+            <div className="border-t border-cc-border">
+              {/* Collapsible prompt section */}
+              {prompt && (
+                <div className="border-b border-cc-border/50">
+                  <button
+                    onClick={() => setPromptOpen(!promptOpen)}
+                    className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-cc-hover/50 transition-colors cursor-pointer"
+                  >
+                    <svg viewBox="0 0 16 16" fill="currentColor" className={`w-2.5 h-2.5 text-cc-muted transition-transform shrink-0 ${promptOpen ? "rotate-90" : ""}`}>
+                      <path d="M6 4l4 4-4 4" />
+                    </svg>
+                    <span className="text-[11px] font-medium text-cc-muted">Prompt</span>
+                  </button>
+                  {promptOpen && (
+                    <div className="px-3 pb-2">
+                      <pre className="text-[11px] text-cc-muted font-mono-code whitespace-pre-wrap leading-relaxed max-h-40 overflow-y-auto">
+                        {prompt}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Child activities */}
+              {items.length > 0 && (
+                <div className="px-3 py-2 space-y-3">
+                  <PlaygroundToolGroup toolName={items[0]?.name || "Grep"} items={items} />
+                </div>
+              )}
+
+              {/* No children yet indicator */}
+              {items.length === 0 && !resultText && (
+                <div className="px-3 py-2 flex items-center gap-1.5 text-[11px] text-cc-muted">
+                  <YarnBallSpinner className="w-3.5 h-3.5" />
+                  <span>Agent starting...</span>
+                </div>
+              )}
+
+              {/* Result */}
+              {resultText && (
+                <div className="border-t border-cc-border/50 px-3 pt-2 pb-2">
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 text-cc-primary/60 shrink-0">
+                      <path d="M8 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM7.25 5a.75.75 0 011.5 0v.5a.75.75 0 01-1.5 0V5zM6.5 7.75A.75.75 0 017.25 7h1a.75.75 0 01.75.75v2.5h.25a.75.75 0 010 1.5h-2a.75.75 0 010-1.5h.25v-1.75H7.25a.75.75 0 01-.75-.75z" />
+                    </svg>
+                    <span className="text-[11px] font-medium text-cc-muted">Result</span>
+                  </div>
+                  <div className="text-sm max-h-96 overflow-y-auto">
+                    <MarkdownContent text={resultText} />
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
-      )}
+      </div>
     </div>
   );
 }

@@ -389,7 +389,9 @@ describe("MessageFeed - tool-only message detection", () => {
 // ─── groupMessages with subagent nesting ─────────────────────────────────────
 
 describe("MessageFeed - subagent grouping", () => {
-  it("nests child messages under Task tool_use entries", () => {
+  it("nests child messages under Task tool_use entries in a unified card", () => {
+    // The Task tool_use should be absorbed into the SubagentContainer — not rendered
+    // as a separate ToolBlock. The unified card shows description, agent type, and children.
     const sid = "test-subagent";
     setStoreMessages(sid, [
       makeMessage({
@@ -415,10 +417,13 @@ describe("MessageFeed - subagent grouping", () => {
 
     render(<MessageFeed sessionId={sid} />);
 
-    // The description appears in both the tool preview and the subagent container label
+    // The description appears in the unified subagent card header
     expect(screen.getAllByText("Research the problem").length).toBeGreaterThanOrEqual(1);
     // The agent type badge should be shown
     expect(screen.getByText("researcher")).toBeTruthy();
+    // The Task tool_use should NOT produce a separate "Subagent" ToolBlock label
+    // (the old behavior showed both a ToolBlock and a SubagentContainer)
+    expect(screen.queryByText("Subagent")).toBeNull();
   });
 
   it("groups orphaned child messages when parent Task tool_use block is missing", () => {
@@ -465,6 +470,77 @@ describe("MessageFeed - subagent grouping", () => {
     // instead of appearing as top-level entries. The SubagentContainer renders
     // the description text as a label — our fallback is "Subagent".
     expect(screen.getByText("Subagent")).toBeTruthy();
+  });
+
+  it("renders 'Agent starting...' when Task has no children yet", () => {
+    // When a Task tool_use is dispatched but the subagent hasn't produced any
+    // child messages yet, the unified card should show a loading indicator.
+    const sid = "test-subagent-empty";
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "a1",
+        role: "assistant",
+        content: "",
+        contentBlocks: [
+          {
+            type: "tool_use",
+            id: "task-empty",
+            name: "Task",
+            input: { description: "Analyze logs", subagent_type: "Explore" },
+          },
+        ],
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    // Card header should show the description
+    expect(screen.getByText("Analyze logs")).toBeTruthy();
+    expect(screen.getByText("Explore")).toBeTruthy();
+    // Since there are no children and no result, the "Agent starting..." indicator
+    // should be visible
+    expect(screen.getByText("Agent starting...")).toBeTruthy();
+  });
+
+  it("shows the Prompt toggle when task has a prompt", () => {
+    // The unified card should include a collapsible "Prompt" section
+    // when the Task tool_use includes a prompt field.
+    const sid = "test-subagent-prompt";
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "a1",
+        role: "assistant",
+        content: "",
+        contentBlocks: [
+          {
+            type: "tool_use",
+            id: "task-prompt",
+            name: "Task",
+            input: {
+              description: "Search for patterns",
+              subagent_type: "Explore",
+              prompt: "Find all authentication middleware files",
+            },
+          },
+        ],
+      }),
+      makeMessage({
+        id: "child-1",
+        role: "assistant",
+        content: "",
+        parentToolUseId: "task-prompt",
+        contentBlocks: [
+          { type: "tool_use", id: "tu-grep-1", name: "Grep", input: { pattern: "auth" } },
+        ],
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    // The "Prompt" toggle should be visible (starts collapsed)
+    expect(screen.getByText("Prompt")).toBeTruthy();
+    // The prompt text itself should NOT be visible until the toggle is clicked
+    expect(screen.queryByText("Find all authentication middleware files")).toBeNull();
   });
 });
 
