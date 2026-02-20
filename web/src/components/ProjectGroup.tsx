@@ -126,10 +126,11 @@ export function ProjectGroup({
 
   const reorderMode = useStore((s) => s.reorderMode);
 
-  // Drag-and-drop: only enable when in reorder mode. Require a minimum distance
-  // before starting a drag to avoid interfering with clicks.
+  // Drag-and-drop: always register the sensor so the useMemo dependency array
+  // inside useSensors keeps a constant length across renders (React requirement).
+  // Drag is gated by only spreading listeners on items when reorderMode is true.
   const pointerSensor = useSensor(PointerSensor, { activationConstraint: { distance: 8 } });
-  const sensors = useSensors(...(reorderMode ? [pointerSensor] : []));
+  const sensors = useSensors(pointerSensor);
 
   const sessionIds = group.sessions.map((s) => s.id);
 
