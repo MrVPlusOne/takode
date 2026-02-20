@@ -18,6 +18,7 @@ beforeEach(() => {
     openrouterModel: "openrouter/free",
     serverName: "",
     serverId: "",
+    pushoverUserKey: "", pushoverApiToken: "", pushoverDelaySeconds: 30, pushoverEnabled: true, pushoverBaseUrl: "",
     updatedAt: 0,
   });
 });
@@ -42,6 +43,7 @@ describe("generateSessionTitle", () => {
       openrouterModel: "openrouter/free",
       serverName: "",
       serverId: "",
+      pushoverUserKey: "", pushoverApiToken: "", pushoverDelaySeconds: 30, pushoverEnabled: true, pushoverBaseUrl: "",
       updatedAt: 0,
     });
 
@@ -73,6 +75,7 @@ describe("generateSessionTitle", () => {
       openrouterModel: "openai/gpt-4o-mini",
       serverName: "",
       serverId: "",
+      pushoverUserKey: "", pushoverApiToken: "", pushoverDelaySeconds: 30, pushoverEnabled: true, pushoverBaseUrl: "",
       updatedAt: 0,
     });
     mockFetch.mockResolvedValueOnce({
@@ -145,6 +148,7 @@ describe("generateSessionTitle", () => {
       openrouterModel: "",
       serverName: "",
       serverId: "",
+      pushoverUserKey: "", pushoverApiToken: "", pushoverDelaySeconds: 30, pushoverEnabled: true, pushoverBaseUrl: "",
       updatedAt: 0,
     });
     mockFetch.mockResolvedValueOnce({

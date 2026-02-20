@@ -17,6 +17,16 @@ export interface CompanionSettings {
   serverName: string;
   /** Stable unique identifier for this server instance (auto-generated UUID) */
   serverId: string;
+  /** Pushover user key for push notifications */
+  pushoverUserKey: string;
+  /** Pushover API/app token */
+  pushoverApiToken: string;
+  /** Seconds to wait before sending a push notification (default: 30) */
+  pushoverDelaySeconds: number;
+  /** Whether Pushover notifications are enabled (default: true) */
+  pushoverEnabled: boolean;
+  /** External base URL for deep links in push notifications */
+  pushoverBaseUrl: string;
   updatedAt: number;
 }
 
@@ -29,6 +39,11 @@ let settings: CompanionSettings = {
   openrouterModel: DEFAULT_OPENROUTER_MODEL,
   serverName: "",
   serverId: "",
+  pushoverUserKey: "",
+  pushoverApiToken: "",
+  pushoverDelaySeconds: 30,
+  pushoverEnabled: true,
+  pushoverBaseUrl: "",
   updatedAt: 0,
 };
 
@@ -41,6 +56,11 @@ function normalize(raw: Partial<CompanionSettings> | null | undefined): Companio
         : DEFAULT_OPENROUTER_MODEL,
     serverName: typeof raw?.serverName === "string" ? raw.serverName : "",
     serverId: typeof raw?.serverId === "string" ? raw.serverId : "",
+    pushoverUserKey: typeof raw?.pushoverUserKey === "string" ? raw.pushoverUserKey : "",
+    pushoverApiToken: typeof raw?.pushoverApiToken === "string" ? raw.pushoverApiToken : "",
+    pushoverDelaySeconds: typeof raw?.pushoverDelaySeconds === "number" && raw.pushoverDelaySeconds >= 5 ? raw.pushoverDelaySeconds : 30,
+    pushoverEnabled: typeof raw?.pushoverEnabled === "boolean" ? raw.pushoverEnabled : true,
+    pushoverBaseUrl: typeof raw?.pushoverBaseUrl === "string" ? raw.pushoverBaseUrl : "",
     updatedAt: typeof raw?.updatedAt === "number" ? raw.updatedAt : 0,
   };
 }
@@ -69,7 +89,10 @@ export function getSettings(): CompanionSettings {
 }
 
 export function updateSettings(
-  patch: Partial<Pick<CompanionSettings, "openrouterApiKey" | "openrouterModel">>,
+  patch: Partial<Pick<CompanionSettings,
+    "openrouterApiKey" | "openrouterModel" |
+    "pushoverUserKey" | "pushoverApiToken" | "pushoverDelaySeconds" | "pushoverEnabled" | "pushoverBaseUrl"
+  >>,
 ): CompanionSettings {
   ensureLoaded();
   settings = {

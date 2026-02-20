@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { execSync } from "node:child_process";
 import { resolve, basename } from "node:path";
 import { homedir } from "node:os";
+import type { PushoverNotifier } from "./pushover.js";
 import type {
   CLIMessage,
   CLISystemInitMessage,
@@ -145,6 +146,8 @@ interface Session {
   assistantAccumulator: Map<string, { contentBlockIds: Set<string> }>;
   /** Whether the CLI is actively generating a response (transient, not persisted) */
   isGenerating: boolean;
+  /** Server-side activity preview (mirrors browser's sessionTaskPreview) */
+  lastActivityPreview?: string;
 }
 
 type GitSessionKey = "git_branch" | "is_worktree" | "is_containerized" | "repo_root" | "git_ahead" | "git_behind";
@@ -279,6 +282,7 @@ export class WsBridge {
   private store: SessionStore | null = null;
   private recorder: RecorderManager | null = null;
   private imageStore: ImageStore | null = null;
+  private pushoverNotifier: PushoverNotifier | null = null;
   private onCLISessionId: ((sessionId: string, cliSessionId: string) => void) | null = null;
   private onCLIRelaunchNeeded: ((sessionId: string) => void) | null = null;
   private onPermissionModeChanged: ((sessionId: string, newMode: string) => void) | null = null;
@@ -464,6 +468,10 @@ export class WsBridge {
     this.imageStore = imageStore;
   }
 
+  setPushoverNotifier(notifier: PushoverNotifier): void {
+    this.pushoverNotifier = notifier;
+  }
+
   /** Restore sessions from disk (call once at startup). */
   restoreFromDisk(): number {
     if (!this.store) return 0;
@@ -644,6 +652,10 @@ export class WsBridge {
       }
     }
     return undefined;
+  }
+
+  getSessionActivityPreview(sessionId: string): string | undefined {
+    return this.sessions.get(sessionId)?.lastActivityPreview;
   }
 
   getCodexRateLimits(sessionId: string) {
@@ -1235,7 +1247,40 @@ export class WsBridge {
       session.assistantAccumulator.delete(msgId);
     }
 
+    // Extract activity preview from TodoWrite/TaskUpdate tool calls
+    // (mirrors browser-side extractTaskItemsFromToolUse in ws.ts)
+    this.extractActivityPreview(session, msg.message.content);
+
     this.persistSession(session);
+  }
+
+  /**
+   * Extract the current activity preview from TodoWrite/TaskUpdate tool_use blocks.
+   * Mirrors browser-side logic in ws.ts extractTaskItemsFromToolUse — but only
+   * extracts the in_progress task's activeForm text for push notification context.
+   */
+  private extractActivityPreview(session: Session, content: unknown[]): void {
+    if (!Array.isArray(content)) return;
+    for (const block of content) {
+      const b = block as { type?: string; name?: string; input?: Record<string, unknown> };
+      if (b.type !== "tool_use") continue;
+
+      if (b.name === "TodoWrite") {
+        const todos = b.input?.todos as { status?: string; activeForm?: string; content?: string }[] | undefined;
+        if (Array.isArray(todos)) {
+          const active = todos.find((t) => t.status === "in_progress");
+          session.lastActivityPreview = active
+            ? (active.activeForm || active.content || "").slice(0, 80)
+            : undefined;
+        }
+      } else if (b.name === "TaskUpdate") {
+        const status = b.input?.status as string | undefined;
+        const activeForm = b.input?.activeForm as string | undefined;
+        if (status === "in_progress" && activeForm) {
+          session.lastActivityPreview = activeForm.slice(0, 80);
+        }
+      }
+    }
   }
 
   private handleResultMessage(session: Session, msg: CLIResultMessage) {
@@ -1286,6 +1331,15 @@ export class WsBridge {
     session.messageHistory.push(browserMsg);
     this.broadcastToBrowsers(session, browserMsg);
     this.persistSession(session);
+
+    // Schedule Pushover notification for session completion/error
+    if (this.pushoverNotifier) {
+      if (msg.is_error) {
+        this.pushoverNotifier.scheduleNotification(session.id, "error", typeof msg.result === "string" ? msg.result.slice(0, 100) : "Error");
+      } else {
+        this.pushoverNotifier.scheduleNotification(session.id, "completed");
+      }
+    }
 
     // Trigger auto-naming after the first successful result for this session.
     // Note: num_turns counts all internal tool-use turns, so it's typically > 1
@@ -1402,6 +1456,13 @@ export class WsBridge {
         request: perm,
       });
       this.persistSession(session);
+
+      // Schedule Pushover notification for attention-requiring events
+      if (this.pushoverNotifier) {
+        const eventType = toolName === "AskUserQuestion" ? "question" as const : "permission" as const;
+        const detail = toolName + (perm.description ? `: ${perm.description}` : "");
+        this.pushoverNotifier.scheduleNotification(session.id, eventType, detail, msg.request_id);
+      }
     }
   }
 
@@ -1849,6 +1910,9 @@ export class WsBridge {
     // Remove from pending
     const pending = session.pendingPermissions.get(msg.request_id);
     session.pendingPermissions.delete(msg.request_id);
+
+    // Cancel any pending Pushover notification for this permission
+    this.pushoverNotifier?.cancelPermission(session.id, msg.request_id);
 
     if (msg.behavior === "allow") {
       const response: Record<string, unknown> = {

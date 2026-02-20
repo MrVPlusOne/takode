@@ -22,7 +22,8 @@ import { homedir } from "node:os";
 import { TerminalManager } from "./terminal-manager.js";
 import { generateSessionTitle } from "./auto-namer.js";
 import * as sessionNames from "./session-names.js";
-import { getSettings } from "./settings-manager.js";
+import { getSettings, getServerName } from "./settings-manager.js";
+import { PushoverNotifier } from "./pushover.js";
 import { PRPoller } from "./pr-poller.js";
 import { RecorderManager } from "./recorder.js";
 import { CronScheduler } from "./cron-scheduler.js";
@@ -47,11 +48,27 @@ const prPoller = new PRPoller(wsBridge);
 const recorder = new RecorderManager();
 const imageStore = new ImageStore();
 const cronScheduler = new CronScheduler(launcher, wsBridge);
+const pushoverNotifier = new PushoverNotifier({
+  getSettings: () => {
+    const s = getSettings();
+    return {
+      pushoverUserKey: s.pushoverUserKey,
+      pushoverApiToken: s.pushoverApiToken,
+      pushoverDelaySeconds: s.pushoverDelaySeconds,
+      pushoverEnabled: s.pushoverEnabled,
+    };
+  },
+  getBaseUrl: () => getSettings().pushoverBaseUrl || `http://localhost:${port}`,
+  getServerName: () => getServerName() || "Companion",
+  getSessionName: (id) => sessionNames.getName(id),
+  getSessionActivity: (id) => wsBridge.getSessionActivityPreview(id),
+});
 
 // ── Restore persisted sessions from disk ────────────────────────────────────
 wsBridge.setStore(sessionStore);
 wsBridge.setRecorder(recorder);
 wsBridge.setImageStore(imageStore);
+wsBridge.setPushoverNotifier(pushoverNotifier);
 launcher.setStore(sessionStore);
 launcher.setRecorder(recorder);
 launcher.restoreFromDisk();
@@ -137,7 +154,7 @@ if (recorder.isGloballyEnabled()) {
 const app = new Hono();
 
 app.use("/api/*", cors());
-app.route("/api", createRoutes(launcher, wsBridge, sessionStore, worktreeTracker, terminalManager, prPoller, recorder, cronScheduler, imageStore));
+app.route("/api", createRoutes(launcher, wsBridge, sessionStore, worktreeTracker, terminalManager, prPoller, recorder, cronScheduler, imageStore, pushoverNotifier));
 
 // In production, serve built frontend using absolute path (works when installed as npm package)
 if (process.env.NODE_ENV === "production") {
@@ -242,6 +259,7 @@ cronScheduler.startAll();
 function gracefulShutdown() {
   console.log("[server] Persisting container state before shutdown...");
   containerManager.persistState(CONTAINER_STATE_PATH);
+  pushoverNotifier.destroy();
   process.exit(0);
 }
 process.on("SIGTERM", gracefulShutdown);

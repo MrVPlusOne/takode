@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 
 interface MockStoreState {
@@ -103,7 +103,8 @@ describe("SettingsPage", () => {
       target: { value: "  openai/gpt-4o-mini  " },
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    const orForm = screen.getByText("OpenRouter").closest("form")!;
+    fireEvent.click(within(orForm).getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
       expect(mockApi.updateSettings).toHaveBeenCalledWith({
@@ -122,7 +123,8 @@ describe("SettingsPage", () => {
       target: { value: "   " },
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    const orForm = screen.getByText("OpenRouter").closest("form")!;
+    fireEvent.click(within(orForm).getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
       expect(mockApi.updateSettings).toHaveBeenCalledWith({
@@ -138,7 +140,8 @@ describe("SettingsPage", () => {
     fireEvent.change(screen.getByLabelText("OpenRouter Model"), {
       target: { value: "openai/gpt-4o-mini" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    const orForm = screen.getByText("OpenRouter").closest("form")!;
+    fireEvent.click(within(orForm).getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
       expect(mockApi.updateSettings).toHaveBeenCalledWith({
@@ -164,7 +167,8 @@ describe("SettingsPage", () => {
     fireEvent.change(screen.getByLabelText("OpenRouter API Key"), {
       target: { value: "or-key" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    const orForm = screen.getByText("OpenRouter").closest("form")!;
+    fireEvent.click(within(orForm).getByRole("button", { name: "Save" }));
 
     expect(await screen.findByText("save failed")).toBeInTheDocument();
   });
@@ -201,9 +205,10 @@ describe("SettingsPage", () => {
     fireEvent.change(screen.getByLabelText("OpenRouter API Key"), {
       target: { value: "or-key" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    const orForm = screen.getByText("OpenRouter").closest("form")!;
+    fireEvent.click(within(orForm).getByRole("button", { name: "Save" }));
 
-    expect(screen.getByRole("button", { name: "Saving..." })).toBeDisabled();
+    expect(within(orForm).getByRole("button", { name: "Saving..." })).toBeDisabled();
 
     resolveSave?.({
       openrouterApiKeyConfigured: true,

@@ -56,6 +56,7 @@ vi.mock("./settings-manager.js", () => ({
     openrouterModel: "openrouter/free",
     serverName: "",
     serverId: "",
+    pushoverUserKey: "", pushoverApiToken: "", pushoverDelaySeconds: 30, pushoverEnabled: true, pushoverBaseUrl: "",
     updatedAt: 0,
   })),
   updateSettings: vi.fn((patch) => ({
@@ -63,6 +64,11 @@ vi.mock("./settings-manager.js", () => ({
     openrouterModel: patch.openrouterModel ?? "openrouter/free",
     serverName: "",
     serverId: "",
+    pushoverUserKey: patch.pushoverUserKey ?? "",
+    pushoverApiToken: patch.pushoverApiToken ?? "",
+    pushoverDelaySeconds: patch.pushoverDelaySeconds ?? 30,
+    pushoverEnabled: patch.pushoverEnabled ?? true,
+    pushoverBaseUrl: patch.pushoverBaseUrl ?? "",
     updatedAt: Date.now(),
   })),
   getServerName: vi.fn(() => ""),
@@ -975,6 +981,7 @@ describe("GET /api/settings", () => {
       openrouterModel: "openrouter/free",
       serverName: "",
       serverId: "",
+      pushoverUserKey: "", pushoverApiToken: "", pushoverDelaySeconds: 30, pushoverEnabled: true, pushoverBaseUrl: "",
       updatedAt: 123,
     });
 
@@ -987,6 +994,10 @@ describe("GET /api/settings", () => {
       openrouterModel: "openrouter/free",
       serverName: "",
       serverId: "test-server-id",
+      pushoverConfigured: false,
+      pushoverEnabled: true,
+      pushoverDelaySeconds: 30,
+      pushoverBaseUrl: "",
     });
   });
 
@@ -996,6 +1007,7 @@ describe("GET /api/settings", () => {
       openrouterModel: "openai/gpt-4o-mini",
       serverName: "",
       serverId: "",
+      pushoverUserKey: "", pushoverApiToken: "", pushoverDelaySeconds: 30, pushoverEnabled: true, pushoverBaseUrl: "",
       updatedAt: 123,
     });
 
@@ -1008,6 +1020,10 @@ describe("GET /api/settings", () => {
       openrouterModel: "openai/gpt-4o-mini",
       serverName: "",
       serverId: "test-server-id",
+      pushoverConfigured: false,
+      pushoverEnabled: true,
+      pushoverDelaySeconds: 30,
+      pushoverBaseUrl: "",
     });
   });
 
@@ -1018,6 +1034,7 @@ describe("GET /api/settings", () => {
       openrouterModel: "openrouter/free",
       serverName: "My Frontend",
       serverId: "",
+      pushoverUserKey: "", pushoverApiToken: "", pushoverDelaySeconds: 30, pushoverEnabled: true, pushoverBaseUrl: "",
       updatedAt: 0,
     });
 
@@ -1037,6 +1054,7 @@ describe("PUT /api/settings", () => {
       openrouterModel: "openrouter/free",
       serverName: "",
       serverId: "",
+      pushoverUserKey: "", pushoverApiToken: "", pushoverDelaySeconds: 30, pushoverEnabled: true, pushoverBaseUrl: "",
       updatedAt: 456,
     });
 
@@ -1050,6 +1068,11 @@ describe("PUT /api/settings", () => {
     expect(settingsManager.updateSettings).toHaveBeenCalledWith({
       openrouterApiKey: "new-key",
       openrouterModel: undefined,
+      pushoverUserKey: undefined,
+      pushoverApiToken: undefined,
+      pushoverDelaySeconds: undefined,
+      pushoverEnabled: undefined,
+      pushoverBaseUrl: undefined,
     });
     const json = await res.json();
     expect(json).toEqual({
@@ -1057,6 +1080,10 @@ describe("PUT /api/settings", () => {
       openrouterModel: "openrouter/free",
       serverName: "",
       serverId: "test-server-id",
+      pushoverConfigured: false,
+      pushoverEnabled: true,
+      pushoverDelaySeconds: 30,
+      pushoverBaseUrl: "",
     });
   });
 
@@ -1066,6 +1093,7 @@ describe("PUT /api/settings", () => {
       openrouterModel: "openrouter/free",
       serverName: "",
       serverId: "",
+      pushoverUserKey: "", pushoverApiToken: "", pushoverDelaySeconds: 30, pushoverEnabled: true, pushoverBaseUrl: "",
       updatedAt: 789,
     });
 
@@ -1079,6 +1107,11 @@ describe("PUT /api/settings", () => {
     expect(settingsManager.updateSettings).toHaveBeenCalledWith({
       openrouterApiKey: "trimmed-key",
       openrouterModel: "openrouter/free",
+      pushoverUserKey: undefined,
+      pushoverApiToken: undefined,
+      pushoverDelaySeconds: undefined,
+      pushoverEnabled: undefined,
+      pushoverBaseUrl: undefined,
     });
   });
 
@@ -1088,6 +1121,7 @@ describe("PUT /api/settings", () => {
       openrouterModel: "openai/gpt-4o-mini",
       serverName: "",
       serverId: "",
+      pushoverUserKey: "", pushoverApiToken: "", pushoverDelaySeconds: 30, pushoverEnabled: true, pushoverBaseUrl: "",
       updatedAt: 999,
     });
 
@@ -1101,6 +1135,11 @@ describe("PUT /api/settings", () => {
     expect(settingsManager.updateSettings).toHaveBeenCalledWith({
       openrouterApiKey: undefined,
       openrouterModel: "openai/gpt-4o-mini",
+      pushoverUserKey: undefined,
+      pushoverApiToken: undefined,
+      pushoverDelaySeconds: undefined,
+      pushoverEnabled: undefined,
+      pushoverBaseUrl: undefined,
     });
   });
 
@@ -1110,6 +1149,7 @@ describe("PUT /api/settings", () => {
       openrouterModel: "openrouter/free",
       serverName: "My Backend",
       serverId: "",
+      pushoverUserKey: "", pushoverApiToken: "", pushoverDelaySeconds: 30, pushoverEnabled: true, pushoverBaseUrl: "",
       updatedAt: Date.now(),
     });
     vi.mocked(settingsManager.getServerName).mockReturnValue("My Backend");

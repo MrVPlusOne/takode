@@ -205,6 +205,10 @@ export interface AppSettings {
   openrouterModel: string;
   serverName: string;
   serverId: string;
+  pushoverConfigured: boolean;
+  pushoverEnabled: boolean;
+  pushoverDelaySeconds: number;
+  pushoverBaseUrl: string;
 }
 
 export interface GitHubPRInfo {
@@ -429,8 +433,12 @@ export const api = {
 
   // Settings
   getSettings: () => get<AppSettings>("/settings"),
-  updateSettings: (data: { openrouterApiKey?: string; openrouterModel?: string; serverName?: string }) =>
-    put<AppSettings>("/settings", data),
+  updateSettings: (data: {
+    openrouterApiKey?: string; openrouterModel?: string; serverName?: string;
+    pushoverUserKey?: string; pushoverApiToken?: string; pushoverDelaySeconds?: number;
+    pushoverEnabled?: boolean; pushoverBaseUrl?: string;
+  }) => put<AppSettings>("/settings", data),
+  testPushover: () => post<{ ok: boolean }>("/pushover/test"),
 
   // Git operations
   getRepoInfo: (path: string) =>

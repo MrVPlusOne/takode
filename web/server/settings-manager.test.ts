@@ -32,6 +32,11 @@ describe("settings-manager", () => {
       openrouterModel: DEFAULT_OPENROUTER_MODEL,
       serverName: "",
       serverId: "",
+      pushoverUserKey: "",
+      pushoverApiToken: "",
+      pushoverDelaySeconds: 30,
+      pushoverEnabled: true,
+      pushoverBaseUrl: "",
       updatedAt: 0,
     });
   });
@@ -65,6 +70,11 @@ describe("settings-manager", () => {
       openrouterModel: "openai/gpt-4o-mini",
       serverName: "",
       serverId: "",
+      pushoverUserKey: "",
+      pushoverApiToken: "",
+      pushoverDelaySeconds: 30,
+      pushoverEnabled: true,
+      pushoverBaseUrl: "",
       updatedAt: 123,
     });
   });
@@ -106,6 +116,11 @@ describe("settings-manager", () => {
       openrouterModel: DEFAULT_OPENROUTER_MODEL,
       serverName: "",
       serverId: "",
+      pushoverUserKey: "",
+      pushoverApiToken: "",
+      pushoverDelaySeconds: 30,
+      pushoverEnabled: true,
+      pushoverBaseUrl: "",
       updatedAt: 0,
     });
   });

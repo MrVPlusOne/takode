@@ -68,6 +68,7 @@ export function createRoutes(
   recorder?: import("./recorder.js").RecorderManager,
   cronScheduler?: import("./cron-scheduler.js").CronScheduler,
   imageStore?: import("./image-store.js").ImageStore,
+  pushoverNotifier?: import("./pushover.js").PushoverNotifier,
 ) {
   const api = new Hono();
 
@@ -1573,6 +1574,10 @@ export function createRoutes(
       openrouterModel: settings.openrouterModel || DEFAULT_OPENROUTER_MODEL,
       serverName: getServerName(),
       serverId: getServerId(),
+      pushoverConfigured: !!(settings.pushoverUserKey.trim() && settings.pushoverApiToken.trim()),
+      pushoverEnabled: settings.pushoverEnabled,
+      pushoverDelaySeconds: settings.pushoverDelaySeconds,
+      pushoverBaseUrl: settings.pushoverBaseUrl,
     });
   });
 
@@ -1587,7 +1592,28 @@ export function createRoutes(
     if (body.serverName !== undefined && typeof body.serverName !== "string") {
       return c.json({ error: "serverName must be a string" }, 400);
     }
-    if (body.openrouterApiKey === undefined && body.openrouterModel === undefined && body.serverName === undefined) {
+    if (body.pushoverUserKey !== undefined && typeof body.pushoverUserKey !== "string") {
+      return c.json({ error: "pushoverUserKey must be a string" }, 400);
+    }
+    if (body.pushoverApiToken !== undefined && typeof body.pushoverApiToken !== "string") {
+      return c.json({ error: "pushoverApiToken must be a string" }, 400);
+    }
+    if (body.pushoverDelaySeconds !== undefined && (typeof body.pushoverDelaySeconds !== "number" || body.pushoverDelaySeconds < 5 || body.pushoverDelaySeconds > 300)) {
+      return c.json({ error: "pushoverDelaySeconds must be a number between 5 and 300" }, 400);
+    }
+    if (body.pushoverEnabled !== undefined && typeof body.pushoverEnabled !== "boolean") {
+      return c.json({ error: "pushoverEnabled must be a boolean" }, 400);
+    }
+    if (body.pushoverBaseUrl !== undefined && typeof body.pushoverBaseUrl !== "string") {
+      return c.json({ error: "pushoverBaseUrl must be a string" }, 400);
+    }
+
+    // Check that at least one known field is present
+    const knownFields = [
+      "openrouterApiKey", "openrouterModel", "serverName",
+      "pushoverUserKey", "pushoverApiToken", "pushoverDelaySeconds", "pushoverEnabled", "pushoverBaseUrl",
+    ];
+    if (!knownFields.some((f) => body[f] !== undefined)) {
       return c.json({ error: "At least one settings field is required" }, 400);
     }
 
@@ -1604,6 +1630,26 @@ export function createRoutes(
         typeof body.openrouterModel === "string"
           ? (body.openrouterModel.trim() || DEFAULT_OPENROUTER_MODEL)
           : undefined,
+      pushoverUserKey:
+        typeof body.pushoverUserKey === "string"
+          ? body.pushoverUserKey.trim()
+          : undefined,
+      pushoverApiToken:
+        typeof body.pushoverApiToken === "string"
+          ? body.pushoverApiToken.trim()
+          : undefined,
+      pushoverDelaySeconds:
+        typeof body.pushoverDelaySeconds === "number"
+          ? body.pushoverDelaySeconds
+          : undefined,
+      pushoverEnabled:
+        typeof body.pushoverEnabled === "boolean"
+          ? body.pushoverEnabled
+          : undefined,
+      pushoverBaseUrl:
+        typeof body.pushoverBaseUrl === "string"
+          ? body.pushoverBaseUrl.trim()
+          : undefined,
     });
 
     return c.json({
@@ -1611,7 +1657,24 @@ export function createRoutes(
       openrouterModel: settings.openrouterModel || DEFAULT_OPENROUTER_MODEL,
       serverName: getServerName(),
       serverId: getServerId(),
+      pushoverConfigured: !!(settings.pushoverUserKey.trim() && settings.pushoverApiToken.trim()),
+      pushoverEnabled: settings.pushoverEnabled,
+      pushoverDelaySeconds: settings.pushoverDelaySeconds,
+      pushoverBaseUrl: settings.pushoverBaseUrl,
     });
+  });
+
+  // ─── Pushover test ──────────────────────────────────────────────────
+
+  api.post("/pushover/test", async (c) => {
+    if (!pushoverNotifier) {
+      return c.json({ error: "Pushover notifier not available" }, 500);
+    }
+    const result = await pushoverNotifier.sendTest();
+    if (result.ok) {
+      return c.json({ ok: true });
+    }
+    return c.json({ error: result.error || "Test notification failed" }, 400);
   });
 
   // ─── Git operations ─────────────────────────────────────────────────

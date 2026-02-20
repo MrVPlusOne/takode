@@ -25,12 +25,30 @@ export function SettingsPage({ embedded = false }: SettingsPageProps) {
   const notificationDesktop = useStore((s) => s.notificationDesktop);
   const setNotificationDesktop = useStore((s) => s.setNotificationDesktop);
   const notificationApiAvailable = typeof Notification !== "undefined";
+
+  // Pushover state
+  const [poUserKey, setPoUserKey] = useState("");
+  const [poApiToken, setPoApiToken] = useState("");
+  const [poBaseUrl, setPoBaseUrl] = useState("");
+  const [poDelay, setPoDelay] = useState(30);
+  const [poEnabled, setPoEnabled] = useState(true);
+  const [poConfigured, setPoConfigured] = useState(false);
+  const [poSaving, setPoSaving] = useState(false);
+  const [poSaved, setPoSaved] = useState(false);
+  const [poError, setPoError] = useState("");
+  const [poTesting, setPoTesting] = useState(false);
+  const [poTestResult, setPoTestResult] = useState<{ ok: boolean; error?: string } | null>(null);
+
   useEffect(() => {
     api
       .getSettings()
       .then((s) => {
         setConfigured(s.openrouterApiKeyConfigured);
         setOpenrouterModel(s.openrouterModel || "openrouter/free");
+        setPoConfigured(s.pushoverConfigured);
+        setPoEnabled(s.pushoverEnabled);
+        setPoDelay(s.pushoverDelaySeconds);
+        setPoBaseUrl(s.pushoverBaseUrl || "");
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
@@ -59,6 +77,50 @@ export function SettingsPage({ embedded = false }: SettingsPageProps) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function onSavePushover(e: React.FormEvent) {
+    e.preventDefault();
+    setPoSaving(true);
+    setPoError("");
+    setPoSaved(false);
+    try {
+      const payload: Record<string, unknown> = {
+        pushoverDelaySeconds: poDelay,
+        pushoverEnabled: poEnabled,
+        pushoverBaseUrl: poBaseUrl.trim(),
+      };
+      if (poUserKey.trim()) payload.pushoverUserKey = poUserKey.trim();
+      if (poApiToken.trim()) payload.pushoverApiToken = poApiToken.trim();
+
+      const res = await api.updateSettings(payload as Parameters<typeof api.updateSettings>[0]);
+      setPoConfigured(res.pushoverConfigured);
+      setPoEnabled(res.pushoverEnabled);
+      setPoDelay(res.pushoverDelaySeconds);
+      setPoBaseUrl(res.pushoverBaseUrl || "");
+      setPoUserKey("");
+      setPoApiToken("");
+      setPoSaved(true);
+      setTimeout(() => setPoSaved(false), 1800);
+    } catch (err: unknown) {
+      setPoError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPoSaving(false);
+    }
+  }
+
+  async function onTestPushover() {
+    setPoTesting(true);
+    setPoTestResult(null);
+    try {
+      const res = await api.testPushover();
+      setPoTestResult({ ok: res.ok });
+    } catch (err: unknown) {
+      setPoTestResult({ ok: false, error: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setPoTesting(false);
+      setTimeout(() => setPoTestResult(null), 3000);
     }
   }
 
@@ -186,6 +248,146 @@ export function SettingsPage({ embedded = false }: SettingsPageProps) {
             </button>
           )}
         </div>
+
+        <form
+          onSubmit={onSavePushover}
+          className="mt-4 bg-cc-card border border-cc-border rounded-xl p-4 sm:p-5 space-y-4"
+        >
+          <div>
+            <h2 className="text-sm font-semibold text-cc-fg">Push Notifications (Pushover)</h2>
+            <p className="mt-1 text-xs text-cc-muted">
+              Get push notifications on your phone when sessions need attention.
+              Get credentials at pushover.net.
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1.5" htmlFor="po-user-key">
+              User Key
+            </label>
+            <input
+              id="po-user-key"
+              type="password"
+              value={poUserKey}
+              onChange={(e) => setPoUserKey(e.target.value)}
+              placeholder={poConfigured ? "Configured. Enter a new key to replace." : "Your Pushover user key"}
+              className="w-full px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg placeholder:text-cc-muted focus:outline-none focus:border-cc-primary/60"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1.5" htmlFor="po-api-token">
+              API Token
+            </label>
+            <input
+              id="po-api-token"
+              type="password"
+              value={poApiToken}
+              onChange={(e) => setPoApiToken(e.target.value)}
+              placeholder={poConfigured ? "Configured. Enter a new token to replace." : "Your Pushover API/app token"}
+              className="w-full px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg placeholder:text-cc-muted focus:outline-none focus:border-cc-primary/60"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1.5" htmlFor="po-base-url">
+              Base URL
+            </label>
+            <input
+              id="po-base-url"
+              type="text"
+              value={poBaseUrl}
+              onChange={(e) => setPoBaseUrl(e.target.value)}
+              placeholder="http://localhost:3456"
+              className="w-full px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg placeholder:text-cc-muted focus:outline-none focus:border-cc-primary/60"
+            />
+            <p className="mt-1.5 text-xs text-cc-muted">
+              The URL your phone uses to reach this server. Used for deep links in notifications.
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1.5" htmlFor="po-delay">
+              Delay (seconds)
+            </label>
+            <input
+              id="po-delay"
+              type="number"
+              min={5}
+              max={300}
+              value={poDelay}
+              onChange={(e) => setPoDelay(Number(e.target.value) || 30)}
+              className="w-24 px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/60"
+            />
+            <p className="mt-1.5 text-xs text-cc-muted">
+              Wait this long before sending a push notification (5-300s).
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setPoEnabled(!poEnabled)}
+            className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm bg-cc-hover text-cc-fg hover:bg-cc-active transition-colors cursor-pointer"
+          >
+            <span>Enabled</span>
+            <span className="text-xs text-cc-muted">{poEnabled ? "On" : "Off"}</span>
+          </button>
+
+          {poError && (
+            <div className="px-3 py-2 rounded-lg bg-cc-error/10 border border-cc-error/20 text-xs text-cc-error">
+              {poError}
+            </div>
+          )}
+
+          {poSaved && (
+            <div className="px-3 py-2 rounded-lg bg-cc-success/10 border border-cc-success/20 text-xs text-cc-success">
+              Pushover settings saved.
+            </div>
+          )}
+
+          {poTestResult && (
+            <div className={`px-3 py-2 rounded-lg text-xs ${
+              poTestResult.ok
+                ? "bg-cc-success/10 border border-cc-success/20 text-cc-success"
+                : "bg-cc-error/10 border border-cc-error/20 text-cc-error"
+            }`}>
+              {poTestResult.ok ? "Test notification sent!" : `Test failed: ${poTestResult.error}`}
+            </div>
+          )}
+
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-cc-muted">
+                {loading ? "Loading..." : poConfigured ? "Pushover configured" : "Not configured"}
+              </span>
+              {poConfigured && (
+                <button
+                  type="button"
+                  onClick={onTestPushover}
+                  disabled={poTesting || !poConfigured}
+                  className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                    poTesting || !poConfigured
+                      ? "bg-cc-hover text-cc-muted cursor-not-allowed"
+                      : "bg-cc-hover text-cc-fg hover:bg-cc-active cursor-pointer"
+                  }`}
+                >
+                  {poTesting ? "Sending..." : "Send Test"}
+                </button>
+              )}
+            </div>
+            <button
+              type="submit"
+              disabled={poSaving || loading}
+              className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                poSaving || loading
+                  ? "bg-cc-hover text-cc-muted cursor-not-allowed"
+                  : "bg-cc-primary hover:bg-cc-primary-hover text-white cursor-pointer"
+              }`}
+            >
+              {poSaving ? "Saving..." : "Save"}
+            </button>
+          </div>
+        </form>
 
         <div className="mt-4 bg-cc-card border border-cc-border rounded-xl p-4 sm:p-5 space-y-3">
           <h2 className="text-sm font-semibold text-cc-fg">Appearance</h2>
