@@ -31,6 +31,16 @@ function getPlanPreview(permission: PermissionRequest): string {
     : "Plan approval requested";
 }
 
+// ── Minimize icon SVG (square with horizontal line — reused in plan + permissions headers) ──
+function MinimizeIcon({ className = "w-3.5 h-3.5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="1.5" y="1.5" width="9" height="9" rx="1.5" />
+      <path d="M4 8h4" />
+    </svg>
+  );
+}
+
 // ── Plan icon SVG (reused in overlay + collapsed chip) ─────────────────────
 function PlanIcon({ className = "w-3.5 h-3.5" }: { className?: string }) {
   return (
@@ -106,9 +116,7 @@ export function PlanReviewOverlay({
         </div>
         <span className="text-xs font-semibold text-cc-primary">Plan</span>
         <span className="ml-auto p-1.5 rounded-md text-cc-muted">
-          <svg className="w-3.5 h-3.5" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M2 2l8 8M10 2l-8 8" />
-          </svg>
+          <MinimizeIcon className="w-3.5 h-3.5" />
         </span>
       </div>
 
