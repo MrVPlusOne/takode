@@ -977,7 +977,7 @@ const TurnEntries = memo(function TurnEntries({ turns, sessionId }: { turns: Tur
                 )}
                 {/* Collapsed: activity bar + response wrapped in a shared card */}
                 {(turn.agentEntries.length > 0 || turn.responseEntry) && (
-                  <div className="rounded-xl border border-cc-border/20 bg-cc-card/20 overflow-hidden">
+                  <div className="ml-[26px] rounded-xl border border-cc-border/20 bg-cc-card/20 overflow-hidden">
                     {turn.agentEntries.length > 0 && (
                       <CollapsedActivityBar
                         stats={turn.stats}
