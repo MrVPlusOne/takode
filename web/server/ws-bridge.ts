@@ -178,6 +178,8 @@ interface Session {
   lastDiffComputedAt: number;
   /** Pending debounce timer for diff refresh */
   diffDebounceTimer: ReturnType<typeof setTimeout> | null;
+  /** Whether this session was created by resuming an external CLI session (VS Code/terminal) */
+  resumedFromExternal?: boolean;
 }
 
 type GitSessionKey = "git_branch" | "is_worktree" | "is_containerized" | "repo_root" | "git_ahead" | "git_behind" | "total_lines_added" | "total_lines_removed";
@@ -383,6 +385,15 @@ export class WsBridge {
     session.state.askPermission = askPermission;
     session.state.uiMode = "plan"; // New sessions default to plan mode
     this.persistSession(session);
+  }
+
+  /**
+   * Mark a session as resumed from an external CLI session (VS Code/terminal).
+   * This enables extraction of user prompts from CLI replay messages.
+   */
+  markResumedFromExternal(sessionId: string): void {
+    const session = this.getOrCreateSession(sessionId);
+    session.resumedFromExternal = true;
   }
 
   /**
@@ -1355,10 +1366,12 @@ export class WsBridge {
           // No summary text found — clear the flag to avoid getting stuck
           session.awaitingCompactSummary = false;
         }
-        // Extract user prompt text/images from CLI messages (e.g. during --resume replay).
-        // User prompts have text/image blocks; tool responses have tool_result blocks.
-        // This makes resumed external sessions show the full conversation.
-        this.extractUserPromptFromCLI(session, msg as CLIUserMessage);
+        // Extract user prompt text/images from CLI messages during --resume replay
+        // of external sessions (VS Code/terminal). Only for external resume sessions —
+        // Companion-originated sessions already capture user messages from the browser.
+        if (session.resumedFromExternal) {
+          this.extractUserPromptFromCLI(session, msg as CLIUserMessage);
+        }
 
         this.handleToolResultMessage(session, msg as CLIUserMessage);
         break;
@@ -1876,10 +1889,18 @@ export class WsBridge {
    * messages that the browser already sent.
    */
   private extractUserPromptFromCLI(session: Session, msg: CLIUserMessage): void {
+    // Only extract top-level user prompts — skip subagent messages and tool results
+    if (msg.parent_tool_use_id !== null) return;
+
     const content = msg.message?.content;
     if (!Array.isArray(content)) return;
 
-    // Collect text and image blocks (skip tool_result blocks).
+    // Skip messages that contain tool_result blocks — these are tool confirmations
+    // (e.g. "[Request interrupted by user for tool use]"), not user-typed prompts.
+    const hasToolResult = content.some((b) => (b as Record<string, unknown>).type === "tool_result");
+    if (hasToolResult) return;
+
+    // Collect text and image blocks.
     // CLI user messages can contain "image" blocks not in our ContentBlock type,
     // so we cast each block to `any` for flexible property access.
     const textParts: string[] = [];

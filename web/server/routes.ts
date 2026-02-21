@@ -108,6 +108,7 @@ export function createRoutes(
           permissionMode: body.askPermission !== false ? "plan" : "bypassPermissions",
         });
         wsBridge.setInitialAskPermission(session.sessionId, body.askPermission !== false);
+        wsBridge.markResumedFromExternal(session.sessionId);
         const existingNames = new Set(Object.values(sessionNames.getAllNames()));
         sessionNames.setName(session.sessionId, generateUniqueSessionName(existingNames));
         return c.json(session);
@@ -469,6 +470,7 @@ export function createRoutes(
           });
           wsBridge.setInitialCwd(session.sessionId, body.cwd || process.cwd());
           wsBridge.setInitialAskPermission(session.sessionId, body.askPermission !== false);
+          wsBridge.markResumedFromExternal(session.sessionId);
           const existingNames = new Set(Object.values(sessionNames.getAllNames()));
           sessionNames.setName(session.sessionId, generateUniqueSessionName(existingNames));
           await emitProgress(stream, "launching_cli", "Session resumed", "done");

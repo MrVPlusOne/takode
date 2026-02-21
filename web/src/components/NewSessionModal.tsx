@@ -1110,7 +1110,7 @@ export function NewSessionModal({ open, onClose }: { open: boolean; onClose: () 
               onClick={() => { setResumeMode(true); setError(""); }}
               className="w-full py-1.5 text-xs text-cc-muted hover:text-cc-fg transition-colors cursor-pointer"
             >
-              Resume an existing session
+              Resume from a Claude Code session
             </button>
           </div>
           </>
