@@ -1548,42 +1548,89 @@ export class WsBridge {
     const acc = session.assistantAccumulator.get(msgId);
 
     if (!acc) {
-      // First occurrence of this message ID.
-      // Check if it's a CLI reconnect resending a completed message.
-      const alreadyInHistory = session.messageHistory.some(
+      // No accumulator for this message ID.
+      // Check if a previous occurrence already exists in history (e.g. from a
+      // prior CLI connection, or because the accumulator was cleaned up after
+      // stop_reason). If so, merge any new content blocks instead of skipping —
+      // the CLI may send additional blocks (e.g. tool_use) in a follow-up send
+      // after the text blocks.
+      const historyEntry = session.messageHistory.findLast(
         (m) => m.type === "assistant" && (m as { message?: { id?: string } }).message?.id === msgId,
-      );
-      if (alreadyInHistory) {
-        // Already fully accumulated from a previous connection — skip
-        return;
-      }
+      ) as { type: "assistant"; message: CLIAssistantMessage["message"] } | undefined;
 
-      // Track content block IDs to avoid duplicates, and record start times for tool calls
-      const contentBlockIds = new Set<string>();
-      const now = Date.now();
-      const toolStartTimesMap: Record<string, number> = {};
-      for (const block of msg.message.content) {
-        if (block.type === "tool_use" && block.id) {
-          contentBlockIds.add(block.id);
-          if (!session.toolStartTimes.has(block.id)) {
-            session.toolStartTimes.set(block.id, now);
+      if (historyEntry) {
+        // Rebuild accumulator from existing content, then merge new blocks
+        const contentBlockIds = new Set<string>();
+        for (const block of historyEntry.message.content) {
+          if (block.type === "tool_use" && block.id) {
+            contentBlockIds.add(block.id);
           }
-          toolStartTimesMap[block.id] = session.toolStartTimes.get(block.id)!;
         }
+
+        let hasNewBlocks = false;
+        for (const block of msg.message.content) {
+          if (block.type === "tool_use" && block.id) {
+            if (contentBlockIds.has(block.id)) continue;
+            contentBlockIds.add(block.id);
+            if (!session.toolStartTimes.has(block.id)) {
+              session.toolStartTimes.set(block.id, Date.now());
+            }
+          }
+          historyEntry.message.content.push(block);
+          hasNewBlocks = true;
+        }
+
+        if (msg.message.stop_reason) {
+          historyEntry.message.stop_reason = msg.message.stop_reason;
+        }
+        if (msg.message.usage) {
+          historyEntry.message.usage = msg.message.usage;
+        }
+
+        session.assistantAccumulator.set(msgId, { contentBlockIds });
+
+        // Only re-broadcast if we actually added new content
+        if (hasNewBlocks) {
+          const allToolStartTimes: Record<string, number> = {};
+          for (const block of historyEntry.message.content) {
+            if (block.type === "tool_use" && block.id && session.toolStartTimes.has(block.id)) {
+              allToolStartTimes[block.id] = session.toolStartTimes.get(block.id)!;
+            }
+          }
+          const rebroadcast: BrowserIncomingMessage = {
+            ...(historyEntry as BrowserIncomingMessage),
+            ...(Object.keys(allToolStartTimes).length > 0 ? { tool_start_times: allToolStartTimes } : {}),
+          };
+          this.broadcastToBrowsers(session, rebroadcast);
+        }
+      } else {
+        // Truly first occurrence — store and broadcast
+        const contentBlockIds = new Set<string>();
+        const now = Date.now();
+        const toolStartTimesMap: Record<string, number> = {};
+        for (const block of msg.message.content) {
+          if (block.type === "tool_use" && block.id) {
+            contentBlockIds.add(block.id);
+            if (!session.toolStartTimes.has(block.id)) {
+              session.toolStartTimes.set(block.id, now);
+            }
+            toolStartTimesMap[block.id] = session.toolStartTimes.get(block.id)!;
+          }
+        }
+
+        const browserMsg: BrowserIncomingMessage = {
+          type: "assistant",
+          message: { ...msg.message, content: [...msg.message.content] },
+          parent_tool_use_id: msg.parent_tool_use_id,
+          timestamp: Date.now(),
+          uuid: msg.uuid,
+          ...(Object.keys(toolStartTimesMap).length > 0 ? { tool_start_times: toolStartTimesMap } : {}),
+        };
+
+        session.assistantAccumulator.set(msgId, { contentBlockIds });
+        session.messageHistory.push(browserMsg);
+        this.broadcastToBrowsers(session, browserMsg);
       }
-
-      const browserMsg: BrowserIncomingMessage = {
-        type: "assistant",
-        message: { ...msg.message, content: [...msg.message.content] },
-        parent_tool_use_id: msg.parent_tool_use_id,
-        timestamp: Date.now(),
-        uuid: msg.uuid,
-        ...(Object.keys(toolStartTimesMap).length > 0 ? { tool_start_times: toolStartTimesMap } : {}),
-      };
-
-      session.assistantAccumulator.set(msgId, { contentBlockIds });
-      session.messageHistory.push(browserMsg);
-      this.broadcastToBrowsers(session, browserMsg);
     } else {
       // Subsequent occurrence — merge new content blocks into the history entry
       const historyEntry = session.messageHistory.findLast(
