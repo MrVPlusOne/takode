@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, memo } from "react";
 import { DiffViewer } from "./DiffViewer.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { CodeCopyButton } from "./CodeCopyButton.js";
@@ -97,11 +97,11 @@ function ToolDurationBadge({ toolUseId, sessionId }: { toolUseId: string; sessio
     // If we have a start timestamp but no final duration, run a live timer
     if (startTimestamp != null) {
       const tick = () => {
-        const elapsed = Math.round((Date.now() - startTimestamp) / 100) / 10;
+        const elapsed = Math.round((Date.now() - startTimestamp) / 1000);
         setLiveSeconds(elapsed);
       };
       tick();
-      intervalRef.current = setInterval(tick, 100);
+      intervalRef.current = setInterval(tick, 1000);
       return () => {
         if (intervalRef.current) {
           clearInterval(intervalRef.current);
@@ -123,7 +123,7 @@ function ToolDurationBadge({ toolUseId, sessionId }: { toolUseId: string; sessio
   );
 }
 
-export function ToolBlock({
+export const ToolBlock = memo(function ToolBlock({
   name,
   input,
   toolUseId,
@@ -177,7 +177,7 @@ export function ToolBlock({
       )}
     </div>
   );
-}
+});
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;

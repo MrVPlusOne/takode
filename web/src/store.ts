@@ -233,6 +233,8 @@ interface AppState {
   // Uses stable turn IDs (user message IDs or synthetic keys) instead of positional indices
   collapsedTurns: Map<string, Set<string>>;
   collapsibleTurnIds: Map<string, string[]>;
+  // Generation counter: incremented on "Expand All" so SubagentContainers can reset to default-collapsed
+  expandAllGeneration: Map<string, number>;
   toggleTurnCollapsed: (sessionId: string, turnId: string) => void;
   setAllTurnsCollapsed: (sessionId: string, collapsed: boolean, turnIds: string[]) => void;
   setCollapsibleTurnIds: (sessionId: string, turnIds: string[]) => void;
@@ -378,6 +380,7 @@ export const useStore = create<AppState>((set) => ({
   composerDrafts: new Map(),
   collapsedTurns: new Map(),
   collapsibleTurnIds: new Map(),
+  expandAllGeneration: new Map(),
   terminalOpen: false,
   terminalCwd: null,
   terminalId: null,
@@ -532,6 +535,8 @@ export const useStore = create<AppState>((set) => ({
       collapsedTurns.delete(sessionId);
       const collapsibleTurnIds = new Map(s.collapsibleTurnIds);
       collapsibleTurnIds.delete(sessionId);
+      const expandAllGeneration = new Map(s.expandAllGeneration);
+      expandAllGeneration.delete(sessionId);
       const sessionAttention = new Map(s.sessionAttention);
       sessionAttention.delete(sessionId);
       scopedSetItem("cc-session-names", JSON.stringify(Array.from(sessionNames.entries())));
@@ -571,6 +576,7 @@ export const useStore = create<AppState>((set) => ({
         composerDrafts,
         collapsedTurns,
         collapsibleTurnIds,
+        expandAllGeneration,
         sessionAttention,
         sdkSessions: s.sdkSessions.filter((sdk) => sdk.sessionId !== sessionId),
         currentSessionId: s.currentSessionId === sessionId ? null : s.currentSessionId,
@@ -1091,6 +1097,10 @@ export const useStore = create<AppState>((set) => ({
         collapsedTurns.set(sessionId, new Set(turnIds));
       } else {
         collapsedTurns.set(sessionId, new Set());
+        // Increment generation so SubagentContainers reset to default-collapsed
+        const expandAllGeneration = new Map(s.expandAllGeneration);
+        expandAllGeneration.set(sessionId, (expandAllGeneration.get(sessionId) ?? 0) + 1);
+        return { collapsedTurns, expandAllGeneration };
       }
       return { collapsedTurns };
     }),
@@ -1149,6 +1159,7 @@ export const useStore = create<AppState>((set) => ({
       composerDrafts: new Map(),
       collapsedTurns: new Map(),
       collapsibleTurnIds: new Map(),
+      expandAllGeneration: new Map(),
       terminalOpen: false,
       terminalCwd: null,
       terminalId: null,

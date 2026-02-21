@@ -34,10 +34,10 @@ export const PawScrollContext = createContext<{
  * all PawTrailAvatar animations via direct DOM writes.
  */
 export function PawScrollProvider({
-  scrollEl,
+  scrollRef,
   children,
 }: {
-  scrollEl: HTMLElement | null;
+  scrollRef: React.RefObject<HTMLElement | null>;
   children: React.ReactNode;
 }) {
   const callbacks = useRef(new Set<PawUpdateFn>());
@@ -47,13 +47,15 @@ export function PawScrollProvider({
   const register = useCallback((fn: PawUpdateFn) => {
     callbacks.current.add(fn);
     // Give the newly registered paw an immediate position update
-    if (scrollEl) {
-      requestAnimationFrame(() => fn(scrollEl, dirDown.current));
+    const el = scrollRef.current;
+    if (el) {
+      requestAnimationFrame(() => fn(el, dirDown.current));
     }
     return () => { callbacks.current.delete(fn); };
-  }, [scrollEl]);
+  }, [scrollRef]);
 
   useEffect(() => {
+    const scrollEl = scrollRef.current;
     if (!scrollEl) return;
 
     let rafId: number;
@@ -88,7 +90,7 @@ export function PawScrollProvider({
       scrollEl.removeEventListener("scroll", onScroll);
       cancelAnimationFrame(rafId);
     };
-  }, [scrollEl]);
+  }, [scrollRef]);
 
   const value = useMemo(() => ({ register }), [register]);
   return <PawScrollContext.Provider value={value}>{children}</PawScrollContext.Provider>;

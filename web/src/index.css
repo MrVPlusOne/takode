@@ -367,6 +367,12 @@ select {
   background: rgba(252, 129, 129, 0.2);
 }
 
+/* Skip layout/paint for offscreen turns — browser-native "virtualization" */
+.turn-container {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 120px;
+}
+
 /* Hide hover card on touch-only devices */
 @media (hover: none) {
   .hidden-on-touch {

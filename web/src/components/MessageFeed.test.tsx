@@ -5,7 +5,7 @@ beforeAll(() => {
   Element.prototype.scrollIntoView = vi.fn();
 });
 
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import type { ChatMessage } from "../types.js";
 
 // Mock react-markdown to avoid ESM issues in tests
@@ -37,6 +37,7 @@ vi.mock("../store.js", () => {
       feedVisibleCount: mockStoreValues.feedVisibleCount ?? new Map(),
       feedScrollPosition: mockStoreValues.feedScrollPosition ?? new Map(),
       collapsedTurns: mockStoreValues.collapsedTurns ?? new Map(),
+      expandAllGeneration: mockStoreValues.expandAllGeneration ?? new Map(),
       toggleTurnCollapsed: vi.fn(),
     };
     return selector(state);
@@ -495,11 +496,13 @@ describe("MessageFeed - subagent grouping", () => {
 
     render(<MessageFeed sessionId={sid} />);
 
-    // Card header should show the description
+    // Card header should show the description (visible when collapsed)
     expect(screen.getByText("Analyze logs")).toBeTruthy();
     expect(screen.getByText("Explore")).toBeTruthy();
+    // Subagents start collapsed — click to expand
+    fireEvent.click(screen.getByText("Analyze logs"));
     // Since there are no children and no result, the "Agent starting..." indicator
-    // should be visible
+    // should be visible when expanded
     expect(screen.getByText("Agent starting...")).toBeTruthy();
   });
 
@@ -538,7 +541,9 @@ describe("MessageFeed - subagent grouping", () => {
 
     render(<MessageFeed sessionId={sid} />);
 
-    // The "Prompt" toggle should be visible (starts collapsed)
+    // Subagents start collapsed — click to expand
+    fireEvent.click(screen.getByText("Search for patterns"));
+    // The "Prompt" toggle should be visible when expanded (prompt starts collapsed)
     expect(screen.getByText("Prompt")).toBeTruthy();
     // The prompt text itself should NOT be visible until the toggle is clicked
     expect(screen.queryByText("Find all authentication middleware files")).toBeNull();
