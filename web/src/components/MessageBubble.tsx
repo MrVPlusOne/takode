@@ -284,7 +284,7 @@ function AssistantMessage({ message, sessionId }: { message: ChatMessage; sessio
     return (
       <div className={`group/msg relative flex items-start ${hidePaw ? "" : "gap-3"}`}>
         {!hidePaw && <PawTrailAvatar />}
-        <div ref={contentRef} className="flex-1 min-w-0 pr-6 sm:pr-0">
+        <div ref={contentRef} className="flex-1 min-w-0 pr-6">
           <MarkdownContent text={message.content} />
         </div>
         <CopyMessageButton message={message} contentRef={contentRef} />
@@ -295,7 +295,7 @@ function AssistantMessage({ message, sessionId }: { message: ChatMessage; sessio
   return (
     <div className={`group/msg relative flex items-start ${hidePaw ? "" : "gap-3"}`}>
       {!hidePaw && <PawTrailAvatar />}
-      <div ref={contentRef} className="flex-1 min-w-0 space-y-3 pr-6 sm:pr-0">
+      <div ref={contentRef} className="flex-1 min-w-0 space-y-3 pr-6">
         {grouped.map((group, i) => {
           if (group.kind === "content") {
             return <ContentBlockRenderer key={i} block={group.block} />;
