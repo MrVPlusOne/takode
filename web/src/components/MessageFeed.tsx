@@ -1214,20 +1214,20 @@ export function MessageFeed({ sessionId }: { sessionId: string }) {
 
     if (targets.length === 0) return;
 
-    // Find the last task turn that has scrolled past the top of the viewport.
-    // This gives us the "current" task the user is reading.
+    // Find the last task turn whose top has entered the viewport.
+    // Uses the container bottom (= top of composer) as the threshold so
+    // the active task is the most recent one visible on screen.
     const observer = new IntersectionObserver(
       () => {
         let activeTurnId: string | null = null;
+        const containerRect = el.getBoundingClientRect();
         for (const target of targets) {
           const rect = target.getBoundingClientRect();
-          const containerRect = el.getBoundingClientRect();
-          // Task turn is "active" if its top is above the middle of the container
-          if (rect.top <= containerRect.top + containerRect.height / 2) {
+          if (rect.top <= containerRect.bottom) {
             activeTurnId = target.dataset.turnId!;
           }
         }
-        // If nothing is above midpoint, highlight the first task
+        // If nothing visible yet, highlight the first task
         if (!activeTurnId && targets.length > 0) {
           activeTurnId = targets[0].dataset.turnId!;
         }
