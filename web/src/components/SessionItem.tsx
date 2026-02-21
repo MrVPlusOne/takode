@@ -32,6 +32,8 @@ interface SessionItemProps {
   attention?: "action" | "error" | "review" | null;
   hasUnread?: boolean;
   reorderMode?: boolean;
+  /** When set, shows why this session matched a search query (e.g. "keyword: zustand") */
+  matchContext?: string | null;
 }
 
 export function SessionItem({
@@ -63,6 +65,7 @@ export function SessionItem({
   attention,
   hasUnread,
   reorderMode,
+  matchContext,
 }: SessionItemProps) {
   const buttonRef = useRef<HTMLButtonElement>(null);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -184,8 +187,11 @@ export function SessionItem({
               )}
             </div>
 
-            {/* Row 2: Preview — active task (if newer) or last user message */}
-            {!isEditing && <SessionPreviewRow sessionId={s.id} userPreview={sessionPreview} />}
+            {/* Row 2: Preview — match context during search, or active task / last message */}
+            {!isEditing && (matchContext
+              ? <div className="mt-0.5 text-[10.5px] text-cc-primary/60 leading-tight truncate italic">{matchContext}</div>
+              : <SessionPreviewRow sessionId={s.id} userPreview={sessionPreview} />
+            )}
 
             {/* Row 3: Metadata — backend, permissions, branch, badges */}
             {!isEditing && (

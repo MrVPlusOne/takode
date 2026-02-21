@@ -50,6 +50,8 @@ export function Sidebar() {
   const serverName = useStore((s) => s.serverName);
   const setServerName = useStore((s) => s.setServerName);
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchFocused, setSearchFocused] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const route = parseHash(hash);
   const isSettingsPage = route.page === "settings";
   const isTerminalPage = route.page === "terminal";
@@ -383,31 +385,55 @@ export function Sidebar() {
     [activeSessions, sessionAttention, sessionOrder],
   );
 
-  // Search filtering: when query is non-empty, filter all sessions (active + cron + archived)
+  // Search filtering: when query is non-empty, filter all sessions and track why each matched
   const filteredSessions = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return null;
 
-    return allSessionList.filter((s) => {
+    const results: Array<{ session: typeof allSessionList[number]; matchContext: string | null }> = [];
+    for (const s of allSessionList) {
       const name = (sessionNames.get(s.id) || "").toLowerCase();
-      if (name.includes(q)) return true;
-
-      if (s.cwd.toLowerCase().includes(q)) return true;
-      if (s.repoRoot.toLowerCase().includes(q)) return true;
-
-      const preview = (sessionPreviews.get(s.id) || "").toLowerCase();
-      if (preview.includes(q)) return true;
+      if (name.includes(q)) {
+        // Name match — visible in the title, no extra context needed
+        results.push({ session: s, matchContext: null });
+        continue;
+      }
 
       const tasks = sessionTaskHistory.get(s.id);
-      if (tasks?.some((t) => t.title.toLowerCase().includes(q))) return true;
+      const matchedTask = tasks?.find((t) => t.title.toLowerCase().includes(q));
+      if (matchedTask) {
+        results.push({ session: s, matchContext: `task: ${matchedTask.title}` });
+        continue;
+      }
 
       const kws = sessionKeywords.get(s.id);
-      if (kws?.some((kw) => kw.includes(q))) return true;
+      const matchedKw = kws?.find((kw) => kw.includes(q));
+      if (matchedKw) {
+        results.push({ session: s, matchContext: `keyword: ${matchedKw}` });
+        continue;
+      }
 
-      if (s.gitBranch.toLowerCase().includes(q)) return true;
+      if (s.gitBranch.toLowerCase().includes(q)) {
+        results.push({ session: s, matchContext: `branch: ${s.gitBranch}` });
+        continue;
+      }
 
-      return false;
-    });
+      const preview = (sessionPreviews.get(s.id) || "").toLowerCase();
+      if (preview.includes(q)) {
+        results.push({ session: s, matchContext: `message: ${sessionPreviews.get(s.id)}` });
+        continue;
+      }
+
+      if (s.cwd.toLowerCase().includes(q)) {
+        results.push({ session: s, matchContext: `path: ${s.cwd}` });
+        continue;
+      }
+      if (s.repoRoot.toLowerCase().includes(q)) {
+        results.push({ session: s, matchContext: `repo: ${s.repoRoot}` });
+        continue;
+      }
+    }
+    return results;
   }, [searchQuery, allSessionList, sessionNames, sessionPreviews, sessionTaskHistory, sessionKeywords]);
 
   // Shared props for SessionItem / ProjectGroup
@@ -480,49 +506,53 @@ export function Sidebar() {
           New Session
         </button>
 
-        {/* Search input */}
-        {allSessionList.length > 0 && (
-          <div className="relative mt-2">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-cc-muted pointer-events-none">
-              <circle cx="6.5" cy="6.5" r="4.5" />
-              <path d="M10 10l3.5 3.5" strokeLinecap="round" />
-            </svg>
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search sessions..."
-              className="w-full pl-8 pr-7 py-1.5 text-xs bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg placeholder-cc-muted outline-none focus:border-cc-primary/60 transition-colors"
-            />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery("")}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-cc-muted hover:text-cc-fg cursor-pointer"
-              >
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5">
-                  <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
-                </svg>
-              </button>
-            )}
-          </div>
-        )}
       </div>
 
       {/* Session list */}
       <div className="flex-1 overflow-y-auto px-2 pb-2">
-        {/* Reorder mode toggle */}
-        {!filteredSessions && activeSessions.length > 1 && (
-          <div className="px-2 pb-1.5 flex items-center justify-end">
-            <button
-              onClick={() => setReorderMode(!reorderMode)}
-              className={`text-[10px] font-medium px-2 py-1 rounded-md transition-colors cursor-pointer ${
-                reorderMode
-                  ? "bg-cc-primary/10 text-cc-primary"
-                  : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
-              }`}
-            >
-              {reorderMode ? "Done" : "Reorder"}
-            </button>
+        {/* Toolbar: search + reorder */}
+        {allSessionList.length > 0 && (
+          <div className="px-2 pb-1.5 flex items-center gap-1">
+            <div className={`relative transition-all duration-200 ease-in-out ${searchFocused || searchQuery ? "flex-1" : "w-[120px] shrink-0"}`}>
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-cc-muted pointer-events-none">
+                <circle cx="6.5" cy="6.5" r="4.5" />
+                <path d="M10 10l3.5 3.5" strokeLinecap="round" />
+              </svg>
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onFocus={() => setSearchFocused(true)}
+                onBlur={() => setSearchFocused(false)}
+                onKeyDown={(e) => { if (e.key === "Escape") { setSearchQuery(""); searchInputRef.current?.blur(); } }}
+                placeholder="Search..."
+                className="w-full pl-6 pr-6 py-1.5 text-[11px] bg-cc-input-bg border border-cc-border rounded-md text-cc-fg placeholder-cc-muted outline-none focus:border-cc-primary/60 transition-colors"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => { setSearchQuery(""); searchInputRef.current?.focus(); }}
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 text-cc-muted hover:text-cc-fg cursor-pointer"
+                >
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3 h-3">
+                    <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
+                  </svg>
+                </button>
+              )}
+            </div>
+            {/* Reorder button — hidden when search is focused or has query */}
+            {!searchFocused && !searchQuery && !filteredSessions && activeSessions.length > 1 && (
+              <button
+                onClick={() => setReorderMode(!reorderMode)}
+                className={`text-[10px] font-medium px-2 py-1 rounded-md transition-colors cursor-pointer shrink-0 ${
+                  reorderMode
+                    ? "bg-cc-primary/10 text-cc-primary"
+                    : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
+                }`}
+              >
+                {reorderMode ? "Done" : "Reorder"}
+              </button>
+            )}
           </div>
         )}
 
@@ -534,7 +564,7 @@ export function Sidebar() {
             </p>
           ) : (
             <div className="space-y-0.5">
-              {filteredSessions.map((s) => (
+              {filteredSessions.map(({ session: s, matchContext }) => (
                 <SessionItem
                   key={s.id}
                   session={s}
@@ -544,6 +574,7 @@ export function Sidebar() {
                   sessionPreview={sessionPreviews.get(s.id)}
                   permCount={pendingPermissions.get(s.id)?.size ?? 0}
                   isRecentlyRenamed={recentlyRenamed.has(s.id)}
+                  matchContext={matchContext}
                   {...sessionItemProps}
                 />
               ))}
