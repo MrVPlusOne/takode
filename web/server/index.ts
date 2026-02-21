@@ -142,6 +142,24 @@ const autoNamingEvaluated = new Set<string>();
 // evaluations only show the model events that happened *since* the name was set.
 const nameSetAtHistoryIndex = new Map<string, number>();
 
+// ─── Namer cancellation ─────────────────────────────────────────────────────
+// Each new namer invocation for a session cancels any in-flight one (kills the
+// `claude -p` subprocess) to avoid races and wasted work.
+const inFlightNamer = new Map<string, AbortController>();
+
+/** Cancel any in-flight namer for this session and return a fresh AbortController. */
+function beginNamerCall(sessionId: string): AbortController {
+  inFlightNamer.get(sessionId)?.abort();
+  const controller = new AbortController();
+  inFlightNamer.set(sessionId, controller);
+  return controller;
+}
+
+/** Clean up AbortController after a namer call completes (only if it's still the current one). */
+function endNamerCall(sessionId: string, controller: AbortController): void {
+  if (inFlightNamer.get(sessionId) === controller) inFlightNamer.delete(sessionId);
+}
+
 /** Find the ID of the last user_message in a history array (for task entry tracking). */
 function findLastUserMessageId(history: import("./session-types.js").BrowserIncomingMessage[]): string {
   for (let i = history.length - 1; i >= 0; i--) {
@@ -151,75 +169,120 @@ function findLastUserMessageId(history: import("./session-types.js").BrowserInco
   return `unknown-${Date.now()}`;
 }
 
+/** Apply a naming result: set name, broadcast, add task entry. Shared by both triggers. */
+function applyNamingResult(
+  sessionId: string,
+  previousName: string,
+  result: import("./session-namer.js").NamingResult,
+  history: import("./session-types.js").BrowserIncomingMessage[],
+): void {
+  switch (result.action) {
+    case "no_change":
+      break;
+    case "revise": {
+      const freshName = sessionNames.getName(sessionId);
+      if (freshName !== previousName) return; // name changed while we were evaluating
+      sessionNames.setName(sessionId, result.title);
+      nameSetAtHistoryIndex.set(sessionId, history.length);
+      wsBridge.broadcastNameUpdate(sessionId, result.title);
+      wsBridge.addTaskEntry(sessionId, {
+        title: result.title,
+        action: "revise",
+        timestamp: Date.now(),
+        triggerMessageId: findLastUserMessageId(history),
+      });
+      console.log(`[session-namer] Revised session ${sessionId}: "${previousName}" → "${result.title}"`);
+      break;
+    }
+    case "new": {
+      const freshName = sessionNames.getName(sessionId);
+      if (freshName !== previousName) return;
+      sessionNames.setName(sessionId, result.title);
+      nameSetAtHistoryIndex.set(sessionId, history.length);
+      wsBridge.broadcastNameUpdate(sessionId, result.title);
+      wsBridge.addTaskEntry(sessionId, {
+        title: result.title,
+        action: "new",
+        timestamp: Date.now(),
+        triggerMessageId: findLastUserMessageId(history),
+      });
+      console.log(`[session-namer] New task in session ${sessionId}: "${previousName}" → "${result.title}"`);
+      break;
+    }
+  }
+}
+
 // Continuous session auto-naming via Claude Haiku (triggered on each user message)
 wsBridge.onUserMessageCallback(async (sessionId, history, cwd) => {
   const currentName = sessionNames.getName(sessionId);
   const isRandomName = currentName && /^[A-Z][a-z]+ [A-Z][a-z]+$/.test(currentName);
   const isFirstEvaluation = !autoNamingEvaluated.has(sessionId);
+  const isGenerating = wsBridge.getSession(sessionId)?.isGenerating ?? false;
 
-  if (isFirstEvaluation) {
-    // First user message: generate initial name
-    autoNamingEvaluated.add(sessionId);
-    console.log(`[session-namer] Generating initial name for session ${sessionId}...`);
-    const result = await generateFirstName(sessionId, history, cwd);
-    if (!result || result.action !== "name") return;
-    // Don't overwrite if user renamed while we were generating
-    const freshName = sessionNames.getName(sessionId);
-    if (freshName && !isRandomName) return;
-    sessionNames.setName(sessionId, result.title);
-    nameSetAtHistoryIndex.set(sessionId, history.length);
-    wsBridge.broadcastNameUpdate(sessionId, result.title);
-    wsBridge.addTaskEntry(sessionId, {
-      title: result.title,
-      action: "name",
-      timestamp: Date.now(),
-      triggerMessageId: findLastUserMessageId(history),
-    });
-    console.log(`[session-namer] Named session ${sessionId}: "${result.title}"`);
-  } else {
-    // Subsequent messages: evaluate whether to rename.
-    // Only show events since the name was last set (the model already knows the title).
-    if (!currentName || isRandomName) return; // no real name yet, skip
+  // Cancel any in-flight namer for this session
+  const controller = beginNamerCall(sessionId);
+  const { signal } = controller;
+
+  try {
+    if (isFirstEvaluation) {
+      // First user message: generate initial name
+      autoNamingEvaluated.add(sessionId);
+      console.log(`[session-namer] Generating initial name for session ${sessionId}...`);
+      const result = await generateFirstName(sessionId, history, cwd, { signal, isGenerating });
+      if (signal.aborted) return;
+      if (!result || result.action !== "name") return;
+      // Don't overwrite if user renamed while we were generating
+      const freshName = sessionNames.getName(sessionId);
+      if (freshName && !isRandomName) return;
+      sessionNames.setName(sessionId, result.title);
+      nameSetAtHistoryIndex.set(sessionId, history.length);
+      wsBridge.broadcastNameUpdate(sessionId, result.title);
+      wsBridge.addTaskEntry(sessionId, {
+        title: result.title,
+        action: "name",
+        timestamp: Date.now(),
+        triggerMessageId: findLastUserMessageId(history),
+      });
+      console.log(`[session-namer] Named session ${sessionId}: "${result.title}"`);
+    } else {
+      // Subsequent messages: evaluate whether to rename.
+      // Only show events since the name was last set (the model already knows the title).
+      if (!currentName || isRandomName) return; // no real name yet, skip
+      const startIndex = nameSetAtHistoryIndex.get(sessionId) ?? 0;
+      const relevantHistory = history.slice(startIndex);
+      console.log(`[session-namer] Evaluating session ${sessionId} (current: "${currentName}", history: ${relevantHistory.length}/${history.length} msgs, generating: ${isGenerating})...`);
+      const result = await evaluateSessionName(sessionId, currentName, relevantHistory, cwd, { signal, isGenerating });
+      if (signal.aborted) return;
+      if (!result) return;
+      applyNamingResult(sessionId, currentName, result, history);
+    }
+  } finally {
+    endNamerCall(sessionId, controller);
+  }
+});
+
+// Re-evaluate session name after agent completes a turn.
+// This lets Haiku refine the title based on what the agent actually did,
+// and improves the initial name after the first turn.
+wsBridge.onTurnCompletedCallback(async (sessionId, history, cwd) => {
+  const currentName = sessionNames.getName(sessionId);
+  const isRandomName = currentName && /^[A-Z][a-z]+ [A-Z][a-z]+$/.test(currentName);
+  if (!currentName || isRandomName) return; // no real name yet, skip
+
+  // Cancel any in-flight namer (e.g. from a user message that triggered just before completion)
+  const controller = beginNamerCall(sessionId);
+  const { signal } = controller;
+
+  try {
     const startIndex = nameSetAtHistoryIndex.get(sessionId) ?? 0;
     const relevantHistory = history.slice(startIndex);
-    console.log(`[session-namer] Evaluating session ${sessionId} (current: "${currentName}", history: ${relevantHistory.length}/${history.length} msgs)...`);
-    const result = await evaluateSessionName(sessionId, currentName, relevantHistory, cwd);
+    console.log(`[session-namer] Turn completed — evaluating session ${sessionId} (current: "${currentName}", history: ${relevantHistory.length}/${history.length} msgs)...`);
+    const result = await evaluateSessionName(sessionId, currentName, relevantHistory, cwd, { signal, isGenerating: false });
+    if (signal.aborted) return;
     if (!result) return;
-
-    switch (result.action) {
-      case "no_change":
-        break;
-      case "revise": {
-        const freshName = sessionNames.getName(sessionId);
-        if (freshName !== currentName) return; // name changed while we were evaluating
-        sessionNames.setName(sessionId, result.title);
-        nameSetAtHistoryIndex.set(sessionId, history.length);
-        wsBridge.broadcastNameUpdate(sessionId, result.title);
-        wsBridge.addTaskEntry(sessionId, {
-          title: result.title,
-          action: "revise",
-          timestamp: Date.now(),
-          triggerMessageId: findLastUserMessageId(history),
-        });
-        console.log(`[session-namer] Revised session ${sessionId}: "${currentName}" → "${result.title}"`);
-        break;
-      }
-      case "new": {
-        const freshName = sessionNames.getName(sessionId);
-        if (freshName !== currentName) return;
-        sessionNames.setName(sessionId, result.title);
-        nameSetAtHistoryIndex.set(sessionId, history.length);
-        wsBridge.broadcastNameUpdate(sessionId, result.title);
-        wsBridge.addTaskEntry(sessionId, {
-          title: result.title,
-          action: "new",
-          timestamp: Date.now(),
-          triggerMessageId: findLastUserMessageId(history),
-        });
-        console.log(`[session-namer] New task in session ${sessionId}: "${currentName}" → "${result.title}"`);
-        break;
-      }
-    }
+    applyNamingResult(sessionId, currentName, result, history);
+  } finally {
+    endNamerCall(sessionId, controller);
   }
 });
 

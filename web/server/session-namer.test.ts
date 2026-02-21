@@ -65,6 +65,14 @@ describe("sanitizeTitle", () => {
   it("allows titles up to 99 chars", () => {
     expect(sanitizeTitle("A".repeat(99))).toBe("A".repeat(99));
   });
+
+  it("capitalizes first letter of lowercase titles", () => {
+    expect(sanitizeTitle("fix auth bug")).toBe("Fix auth bug");
+  });
+
+  it("preserves already-capitalized titles", () => {
+    expect(sanitizeTitle("Fix Auth Bug")).toBe("Fix Auth Bug");
+  });
 });
 
 // ─── parseResponse ─────────────────────────────────────────────────────────
@@ -525,6 +533,24 @@ describe("buildConversationBlock", () => {
       }
     }
   });
+
+  it("appends agent-working status when isGenerating is true", () => {
+    const history: BrowserIncomingMessage[] = [userMsg("Fix the auth bug")];
+    const block = buildConversationBlock(history, undefined, true);
+    expect(block).toContain("[Status: Agent is still working on the current request]");
+  });
+
+  it("does not append status when isGenerating is false", () => {
+    const history: BrowserIncomingMessage[] = [userMsg("Fix the auth bug")];
+    const block = buildConversationBlock(history, undefined, false);
+    expect(block).not.toContain("[Status:");
+  });
+
+  it("does not append status when isGenerating is undefined", () => {
+    const history: BrowserIncomingMessage[] = [userMsg("Fix the auth bug")];
+    const block = buildConversationBlock(history);
+    expect(block).not.toContain("[Status:");
+  });
 });
 
 // ─── categorizeToolCalls ────────────────────────────────────────────────────
@@ -618,6 +644,16 @@ describe("buildFirstTurnPrompt", () => {
     expect(prompt).not.toContain("NO_CHANGE");
     expect(prompt).not.toContain("REVISE");
   });
+
+  it("includes agent-working status when isGenerating is true", () => {
+    const prompt = buildFirstTurnPrompt([userMsg("Fix login bug")], undefined, true);
+    expect(prompt).toContain("[Status: Agent is still working");
+  });
+
+  it("requests capitalized titles", () => {
+    const prompt = buildFirstTurnPrompt([userMsg("Fix login bug")]);
+    expect(prompt).toContain("capitalized imperative verb");
+  });
 });
 
 // ─── buildUpdatePrompt ─────────────────────────────────────────────────────
@@ -655,5 +691,21 @@ describe("buildUpdatePrompt", () => {
   it("requires response to start with a valid marker", () => {
     const prompt = buildUpdatePrompt("Fix Auth Bug", [userMsg("Continue")]);
     expect(prompt).toContain("MUST start with one of: NO_CHANGE, REVISE:, or NEW:");
+  });
+
+  it("includes mid-task guidance note when isGenerating is true", () => {
+    const prompt = buildUpdatePrompt("Fix Auth Bug", [userMsg("Also check tokens")], undefined, true);
+    expect(prompt).toContain("mid-task guidance");
+    expect(prompt).toContain("[Status: Agent is still working");
+  });
+
+  it("does not include mid-task guidance when isGenerating is false", () => {
+    const prompt = buildUpdatePrompt("Fix Auth Bug", [userMsg("Also check tokens")], undefined, false);
+    expect(prompt).not.toContain("mid-task guidance");
+  });
+
+  it("requests capitalized titles", () => {
+    const prompt = buildUpdatePrompt("Fix Auth Bug", [userMsg("Continue")]);
+    expect(prompt).toContain("capitalized imperative verb");
   });
 });

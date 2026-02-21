@@ -303,6 +303,7 @@ export class WsBridge {
   private onCLIRelaunchNeeded: ((sessionId: string) => void) | null = null;
   private onPermissionModeChanged: ((sessionId: string, newMode: string) => void) | null = null;
   private onUserMessage: ((sessionId: string, history: import("./session-types.js").BrowserIncomingMessage[], cwd: string) => void) | null = null;
+  private onTurnCompleted: ((sessionId: string, history: import("./session-types.js").BrowserIncomingMessage[], cwd: string) => void) | null = null;
   private userMsgCounter = 0;
   /** Per-project cache of slash commands & skills so new sessions get them
    *  before the CLI sends system/init (which only arrives after the first
@@ -337,6 +338,11 @@ export class WsBridge {
   /** Register a callback for when a user message is received (for auto-naming). */
   onUserMessageCallback(cb: (sessionId: string, history: import("./session-types.js").BrowserIncomingMessage[], cwd: string) => void): void {
     this.onUserMessage = cb;
+  }
+
+  /** Register a callback for when the agent finishes a turn (result message received, for auto-naming). */
+  onTurnCompletedCallback(cb: (sessionId: string, history: import("./session-types.js").BrowserIncomingMessage[], cwd: string) => void): void {
+    this.onTurnCompleted = cb;
   }
 
   /** Register a callback for when git info is resolved and branch is known. */
@@ -857,6 +863,10 @@ export class WsBridge {
         session.isGenerating = false;
         session.messageHistory.push(msg);
         this.persistSession(session);
+        // Trigger auto-naming re-evaluation after Codex turn completion
+        if (this.onTurnCompleted) {
+          this.onTurnCompleted(session.id, [...session.messageHistory], session.state.cwd);
+        }
       }
 
       // Diagnostic: log tool_use assistant messages
@@ -1504,6 +1514,11 @@ export class WsBridge {
       } else {
         this.pushoverNotifier.scheduleNotification(session.id, "completed");
       }
+    }
+
+    // Trigger auto-naming re-evaluation after turn completion (async, fire-and-forget)
+    if (this.onTurnCompleted) {
+      this.onTurnCompleted(session.id, [...session.messageHistory], session.state.cwd);
     }
 
   }
