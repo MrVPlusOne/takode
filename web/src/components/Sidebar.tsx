@@ -55,7 +55,6 @@ export function Sidebar() {
   const route = parseHash(hash);
   const isSettingsPage = route.page === "settings";
   const isTerminalPage = route.page === "terminal";
-  const isEnvironmentsPage = route.page === "environments";
   const isScheduledPage = route.page === "scheduled";
   const isQuestmasterPage = route.page === "questmaster";
 
@@ -691,27 +690,6 @@ export function Sidebar() {
               <rect x="1.5" y="2.5" width="13" height="11" rx="2" />
               <path d="M4.5 7l2.5 2-2.5 2" strokeLinecap="round" strokeLinejoin="round" />
               <path d="M9 11h3" strokeLinecap="round" />
-            </svg>
-          </button>
-          <button
-            title="Environments"
-            onClick={() => {
-              useStore.getState().closeTerminal();
-              window.location.hash = "#/environments";
-              if (window.innerWidth < 768) {
-                useStore.getState().setSidebarOpen(false);
-              }
-            }}
-            className={`p-2 rounded-lg transition-colors cursor-pointer ${
-              isEnvironmentsPage
-                ? "bg-cc-active text-cc-fg"
-                : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
-            }`}
-          >
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" className="w-4 h-4">
-              <path d="M2 5.5l6 3 6-3" strokeLinejoin="round" />
-              <path d="M2 8l6 3 6-3" strokeLinejoin="round" />
-              <path d="M2 10.5l6 3 6-3" strokeLinejoin="round" />
             </svg>
           </button>
           <button

@@ -46,10 +46,10 @@ export function TodoStatusLine({ sessionId }: { sessionId: string }) {
   if (!activeTask) return null;
 
   return (
-    <div ref={containerRef} className="shrink-0 relative">
-      {/* Expanded popover — full task list, opens upward */}
+    <div ref={containerRef} className="shrink-0 flex flex-col min-h-0">
+      {/* Expanded task list — inline, pushes chat content up */}
       {popoverOpen && (
-        <div className="absolute bottom-full left-0 right-0 z-20 bg-cc-card border border-cc-border border-b-0 rounded-t-lg max-h-[40dvh] overflow-y-auto shadow-lg">
+        <div className="border-t border-cc-border bg-cc-card max-h-[40dvh] overflow-y-auto">
           <div className="px-3 py-2 border-b border-cc-border/50 flex items-center justify-between">
             <span className="text-[11px] font-semibold text-cc-fg">Current To-Dos</span>
             <span className="text-[10px] text-cc-muted tabular-nums">

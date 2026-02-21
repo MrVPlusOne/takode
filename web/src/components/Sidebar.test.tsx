@@ -451,12 +451,6 @@ describe("Sidebar", () => {
   });
 
   // Footer nav buttons are icon-only with title attributes for tooltips
-  it("navigates to environments page when Environments is clicked", () => {
-    render(<Sidebar />);
-    fireEvent.click(screen.getByTitle("Environments"));
-    expect(window.location.hash).toBe("#/environments");
-  });
-
   it("navigates to settings page when Settings is clicked", () => {
     render(<Sidebar />);
     fireEvent.click(screen.getByTitle("Settings"));
