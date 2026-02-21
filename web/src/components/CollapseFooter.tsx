@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
+import { flushSync } from "react-dom";
 
 /**
  * Hook that tracks whether an element is visible in the viewport.
@@ -19,6 +20,39 @@ export function useIsVisible(ref: RefObject<HTMLElement | null>) {
   }, []);
 
   return isVisible;
+}
+
+/** Walk up the DOM to find the nearest scrollable ancestor. */
+function findScrollParent(el: HTMLElement): HTMLElement | null {
+  let parent = el.parentElement;
+  while (parent) {
+    const { overflow, overflowY } = getComputedStyle(parent);
+    if (overflow === "auto" || overflow === "scroll" || overflowY === "auto" || overflowY === "scroll") {
+      return parent;
+    }
+    parent = parent.parentElement;
+  }
+  return null;
+}
+
+/**
+ * Collapse and adjust scroll so the header appears at the same viewport
+ * position the collapse button occupied — feels like "folding up" into place.
+ */
+function collapseAndSnap(
+  e: React.MouseEvent,
+  headerRef: RefObject<HTMLElement | null>,
+  onCollapse: () => void,
+) {
+  const buttonY = e.currentTarget.getBoundingClientRect().top;
+  flushSync(() => onCollapse());
+  const header = headerRef.current;
+  if (!header) return;
+  const headerY = header.getBoundingClientRect().top;
+  const scrollParent = findScrollParent(header);
+  if (scrollParent) {
+    scrollParent.scrollTop += headerY - buttonY;
+  }
 }
 
 /**
@@ -47,13 +81,7 @@ export function CollapseFooter({
 
   return (
     <button
-      onClick={() => {
-        onCollapse();
-        headerRef.current?.scrollIntoView({
-          block: "nearest",
-          behavior: "smooth",
-        });
-      }}
+      onClick={(e) => collapseAndSnap(e, headerRef, onCollapse)}
       className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-[11px] text-cc-muted/50 hover:text-cc-muted hover:bg-cc-hover/40 transition-colors cursor-pointer border-t border-cc-border/30"
     >
       <svg
@@ -85,13 +113,7 @@ export function TurnCollapseFooter({
 
   return (
     <button
-      onClick={() => {
-        onCollapse();
-        headerRef.current?.scrollIntoView({
-          block: "nearest",
-          behavior: "smooth",
-        });
-      }}
+      onClick={(e) => collapseAndSnap(e, headerRef, onCollapse)}
       className="w-full flex items-center justify-center gap-1.5 py-1 px-2 rounded hover:bg-cc-hover/40 transition-colors cursor-pointer text-[11px] text-cc-muted/50 hover:text-cc-muted font-mono-code"
       title="Collapse this turn"
     >
