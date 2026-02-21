@@ -404,8 +404,10 @@ describe("CLI handlers", () => {
       return "";
     });
 
-    // Create a session with a browser connected
+    // Create a session with a browser connected and a tracked changed file
     bridge.markWorktree("s1", "/home/user/companion", "/tmp/wt", "jiayi");
+    const session = bridge.getSession("s1")!;
+    session.changedFiles.add("file.ts"); // computeDiffStats only runs when changedFiles is non-empty
     const browserWs = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browserWs, "s1");
     browserWs.send.mockClear();
@@ -880,10 +882,11 @@ describe("CLI message routing", () => {
   });
 
   it("result: updates cost/turns/context% and computes diff stats from git", () => {
-    // Set up session with a diff_base_branch so computeDiffStats runs
+    // Set up session with a diff_base_branch and tracked files so computeDiffStats runs
     const session = bridge.getSession("s1")!;
     session.state.cwd = "/test";
     session.state.diff_base_branch = "main";
+    session.changedFiles.add("file.ts");
 
     mockExecSync.mockImplementation((cmd: string) => {
       if (cmd.includes("--abbrev-ref HEAD")) return "feat/branch\n";
@@ -3665,7 +3668,7 @@ describe("Tool call duration tracking", () => {
 
 describe("Diff stats computation", () => {
   it("computeDiffStats: parses git diff --numstat output correctly", () => {
-    // Set up a session with diff_base_branch
+    // Set up a session with diff_base_branch and tracked files
     mockExecSync.mockImplementation((cmd: string) => {
       if (cmd.includes("merge-base")) return "abc123\n";
       if (cmd.includes("diff --numstat")) return "10\t3\tfile1.ts\n5\t2\tfile2.ts\n-\t-\timage.png\n";
@@ -3676,8 +3679,10 @@ describe("Diff stats computation", () => {
     const session = bridge.getSession("s1")!;
 
     // Trigger diff computation via refreshGitInfo with computeDiff
-    // We need to set cwd for computeDiffStats to run
+    // We need to set cwd and tracked files for computeDiffStats to run
     session.state.cwd = "/tmp/wt";
+    session.changedFiles.add("file1.ts");
+    session.changedFiles.add("file2.ts");
 
     // Use setDiffBaseBranch which triggers computeDiff
     mockExecSync.mockImplementation((cmd: string) => {
@@ -3734,6 +3739,7 @@ describe("Diff stats computation", () => {
     bridge.markWorktree("s1", "/repo", "/tmp/wt", "main");
     const session = bridge.getSession("s1")!;
     session.state.cwd = "/tmp/wt";
+    session.changedFiles.add("file.ts"); // computeDiffStats only runs when changedFiles is non-empty
     const browserWs = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browserWs, "s1");
 

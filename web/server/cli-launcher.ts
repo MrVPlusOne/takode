@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { execSync } from "node:child_process";
 import {
   mkdirSync,
   existsSync,
@@ -888,6 +889,15 @@ ${MARKER_END}`;
       // show as untracked and is protected from `git clean -fd`.
       // Worktrees store their git metadata at the path inside .git (a file, not dir).
       this.addWorktreeGitExclude(worktreePath, ".claude/CLAUDE.md");
+
+      // Mark the file as skip-worktree so git ignores local modifications to this
+      // tracked file. Without this, `git status` always shows .claude/CLAUDE.md as
+      // modified, which prevents automatic worktree cleanup on archive.
+      try {
+        execSync("git update-index --skip-worktree .claude/CLAUDE.md", {
+          cwd: worktreePath, stdio: "pipe", timeout: 5000,
+        });
+      } catch { /* file may not be tracked in this repo — ignore */ }
     } catch (e) {
       console.warn(`[cli-launcher] Failed to inject worktree guardrails:`, e);
     }

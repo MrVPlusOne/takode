@@ -701,14 +701,20 @@ export class WsBridge {
   /**
    * Compute diff stats (total lines added/removed) by running `git diff --numstat`
    * against the session's diff_base_branch. Scoped to files changed during the session
-   * (tracked via changedFiles) so stats match what the DiffPanel shows.
-   * If no files are tracked yet, diffs the entire repo as a fallback.
+   * (tracked via changedFiles). If no files are tracked yet, stats remain 0/0.
    */
   private computeDiffStats(session: Session): void {
     const cwd = session.state.cwd;
     // Fall back to git_default_branch when diff_base_branch is "" (user selected "default")
     const ref = session.state.diff_base_branch || session.state.git_default_branch;
     if (!cwd || !ref) return;
+
+    // No files changed by tools yet — nothing to diff
+    if (session.changedFiles.size === 0) {
+      session.state.total_lines_added = 0;
+      session.state.total_lines_removed = 0;
+      return;
+    }
 
     try {
       // Compute merge-base to diff against
@@ -720,13 +726,9 @@ export class WsBridge {
         if (mergeBase) diffBase = mergeBase;
       } catch { /* no common ancestor — use branch name directly */ }
 
-      // Scope diff to session-changed files when available, otherwise diff entire repo
-      let cmd = `git diff --numstat ${diffBase}`;
-      if (session.changedFiles.size > 0) {
-        // Use -- to separate file paths from git options
-        const filePaths = Array.from(session.changedFiles).map(f => `"${f}"`).join(" ");
-        cmd = `git diff --numstat ${diffBase} -- ${filePaths}`;
-      }
+      // Scope diff to session-changed files only
+      const filePaths = Array.from(session.changedFiles).map(f => `"${f}"`).join(" ");
+      const cmd = `git diff --numstat ${diffBase} -- ${filePaths}`;
 
       const raw = execSync(cmd, {
         cwd, encoding: "utf-8", timeout: 10_000,
