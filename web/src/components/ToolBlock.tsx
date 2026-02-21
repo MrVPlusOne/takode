@@ -142,6 +142,11 @@ export const ToolBlock = memo(function ToolBlock({
   // Extract the most useful preview
   const preview = getPreview(name, input);
 
+  // TodoWrite: flat inline view with status icon + active task + count
+  if (name === "TodoWrite" && Array.isArray((input as Record<string, unknown>).todos)) {
+    return <TodoWriteInline input={input} />;
+  }
+
   return (
     <div className="border border-cc-border rounded-[10px] overflow-hidden bg-cc-card">
       <button
@@ -178,6 +183,44 @@ export const ToolBlock = memo(function ToolBlock({
     </div>
   );
 });
+
+/** Flat inline view for TodoWrite — shows the highlighted item with status icon and count */
+function TodoWriteInline({ input }: { input: Record<string, unknown> }) {
+  const todos = input.todos as Array<{ content?: string; activeForm?: string; status?: string }>;
+  const completed = todos.filter((t) => t.status === "completed").length;
+  const inProgress = todos.find((t) => t.status === "in_progress");
+
+  // Pick the item to highlight: in-progress first, else the last completed
+  const highlight = inProgress || [...todos].reverse().find((t) => t.status === "completed");
+  const highlightStatus = highlight?.status || "pending";
+  const highlightText = highlight?.activeForm || highlight?.content || "Task";
+
+  const icon = highlightStatus === "completed" ? (
+    <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5 text-cc-success shrink-0">
+      <path fillRule="evenodd" d="M8 15A7 7 0 108 1a7 7 0 000 14zm3.354-9.354a.5.5 0 00-.708-.708L7 8.586 5.354 6.94a.5.5 0 10-.708.708l2 2a.5.5 0 00.708 0l4-4z" clipRule="evenodd" />
+    </svg>
+  ) : highlightStatus === "in_progress" ? (
+    <svg className="w-3.5 h-3.5 text-cc-primary animate-spin shrink-0" viewBox="0 0 16 16" fill="none">
+      <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5" strokeDasharray="28" strokeDashoffset="8" strokeLinecap="round" />
+    </svg>
+  ) : (
+    <svg viewBox="0 0 16 16" fill="none" className="w-3.5 h-3.5 text-cc-muted shrink-0">
+      <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  );
+
+  return (
+    <div className="flex items-center gap-2 px-3 py-1.5">
+      {icon}
+      <span className={`text-xs leading-snug truncate ${highlightStatus === "completed" ? "text-cc-muted line-through" : "text-cc-fg"}`}>
+        {highlightText}
+      </span>
+      <span className="text-[11px] text-cc-muted shrink-0 tabular-nums">
+        ({completed}/{todos.length})
+      </span>
+    </div>
+  );
+}
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;

@@ -651,29 +651,22 @@ export function TaskPanel({ sessionId }: { sessionId: string }) {
         {/* Session-level tasks recognized by the auto-namer */}
         {showTasks && <SessionTasksSection sessionId={sessionId} />}
 
-        {showTasks && (
+        {/* Agent to-do items — hidden when empty or all completed */}
+        {showTasks && tasks.length > 0 && completedCount < tasks.length && (
           <>
-            {/* Agent to-do items header */}
             <div className="px-4 py-2.5 border-b border-cc-border flex items-center justify-between">
               <span className="text-[12px] font-semibold text-cc-fg">Current To-Dos</span>
-              {tasks.length > 0 && (
-                <span className="text-[11px] text-cc-muted tabular-nums">
-                  {completedCount}/{tasks.length}
-                </span>
-              )}
+              <span className="text-[11px] text-cc-muted tabular-nums">
+                {completedCount}/{tasks.length}
+              </span>
             </div>
 
-            {/* Task list */}
             <div className="px-3 py-2">
-              {tasks.length === 0 ? (
-                <p className="text-xs text-cc-muted text-center py-8">No tasks yet</p>
-              ) : (
-                <div className="space-y-0.5">
-                  {tasks.map((task) => (
-                    <TaskRow key={task.id} task={task} />
-                  ))}
-                </div>
-              )}
+              <div className="space-y-0.5">
+                {tasks.map((task) => (
+                  <TaskRow key={task.id} task={task} />
+                ))}
+              </div>
             </div>
           </>
         )}
