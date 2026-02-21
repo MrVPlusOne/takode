@@ -365,21 +365,28 @@ function countEntryStats(entries: FeedEntry[]): { messages: number; tools: numbe
 
   for (const entry of entries) {
     if (entry.kind === "message") {
-      messages++;
       const msg = entry.msg;
       if (msg.role === "assistant") {
         // Count tool_use blocks
+        let entryTools = 0;
         if (msg.contentBlocks) {
           for (const b of msg.contentBlocks) {
-            if (b.type === "tool_use") tools++;
+            if (b.type === "tool_use") entryTools++;
           }
         }
-        // Track last assistant text
+        tools += entryTools;
+        // Only count as a "message" if it has text content (not just tool invocations)
         const text = msg.content?.trim();
-        if (text) lastText = text;
+        if (text) {
+          messages++;
+          lastText = text;
+        }
+      } else {
+        // Non-assistant messages (e.g. user, system) count as messages
+        messages++;
       }
     } else if (entry.kind === "tool_msg_group") {
-      messages++;
+      // Tool results — only count as tools, not messages
       tools += entry.items.length;
     } else if (entry.kind === "subagent") {
       subagents++;
@@ -462,7 +469,8 @@ function makeTurn(userEntry: FeedEntry | null, entries: FeedEntry[], turnIndex: 
     systemEntries,
     responseEntry,
     stats: {
-      messageCount: s.messages,
+      // Subtract 1 for the responseEntry since it's shown separately below the bar
+      messageCount: responseEntry ? s.messages - 1 : s.messages,
       toolCount: s.tools,
       subagentCount: s.subagents,
     },
@@ -584,16 +592,18 @@ const CollapsedActivityBar = memo(function CollapsedActivityBar({ stats, onClick
       <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 shrink-0 text-cc-muted/60">
         <path d="M6 4l4 4-4 4" />
       </svg>
-      <span>{stats.messageCount} message{stats.messageCount !== 1 ? "s" : ""}</span>
+      {stats.messageCount > 0 && (
+        <span>{stats.messageCount} message{stats.messageCount !== 1 ? "s" : ""}</span>
+      )}
       {stats.toolCount > 0 && (
         <>
-          <span className="text-cc-muted/40">·</span>
+          {stats.messageCount > 0 && <span className="text-cc-muted/40">·</span>}
           <span>{stats.toolCount} tool{stats.toolCount !== 1 ? "s" : ""}</span>
         </>
       )}
       {stats.subagentCount > 0 && (
         <>
-          <span className="text-cc-muted/40">·</span>
+          {(stats.messageCount > 0 || stats.toolCount > 0) && <span className="text-cc-muted/40">·</span>}
           <span>{stats.subagentCount} agent{stats.subagentCount !== 1 ? "s" : ""}</span>
         </>
       )}
@@ -613,10 +623,12 @@ function TurnCollapseBar({ stats, onClick, ref }: { stats: TurnStats; onClick: (
       <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 shrink-0 transition-transform rotate-90">
         <path d="M6 4l4 4-4 4" />
       </svg>
-      <span>{stats.messageCount} message{stats.messageCount !== 1 ? "s" : ""}</span>
+      {stats.messageCount > 0 && (
+        <span>{stats.messageCount} message{stats.messageCount !== 1 ? "s" : ""}</span>
+      )}
       {stats.toolCount > 0 && (
         <>
-          <span className="text-cc-muted/30">·</span>
+          {stats.messageCount > 0 && <span className="text-cc-muted/30">·</span>}
           <span>{stats.toolCount} tool{stats.toolCount !== 1 ? "s" : ""}</span>
         </>
       )}
@@ -629,8 +641,8 @@ const TurnEntriesExpanded = memo(function TurnEntriesExpanded({ turn, sessionId,
 
   return (
     <>
-      {/* Per-turn collapse bar (only for turns with enough content) */}
-      {turn.stats.messageCount > 1 && (
+      {/* Per-turn collapse bar (only for turns with collapsible activity) */}
+      {turn.agentEntries.length > 0 && (
         <TurnCollapseBar
           ref={headerRef}
           stats={turn.stats}
@@ -640,7 +652,7 @@ const TurnEntriesExpanded = memo(function TurnEntriesExpanded({ turn, sessionId,
       {/* Render all entries interleaved in original chronological order */}
       <FeedEntries entries={turn.allEntries} sessionId={sessionId} />
       {/* Bottom collapse bar — appears when top bar scrolls out of view */}
-      {turn.stats.messageCount > 1 && (
+      {turn.agentEntries.length > 0 && (
         <TurnCollapseFooter headerRef={headerRef} onCollapse={onCollapse} />
       )}
     </>
