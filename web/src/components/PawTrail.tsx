@@ -25,6 +25,12 @@ export const PawCounterContext = createContext<React.MutableRefObject<PawCounter
 /** Callback signature: receives the cached parent rect and current direction. */
 type PawUpdateFn = (parentRect: DOMRect, dirDown: boolean) => void;
 
+/**
+ * When true, child components should not render their own PawTrailAvatar.
+ * Used in collapsed turns where a single paw is placed outside the card.
+ */
+export const HidePawContext = createContext(false);
+
 export const PawScrollContext = createContext<{
   register: (fn: PawUpdateFn) => () => void;
 } | null>(null);

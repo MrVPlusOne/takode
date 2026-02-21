@@ -7,7 +7,7 @@ import { CollapseFooter, TurnCollapseFooter } from "./CollapseFooter.js";
 import { api } from "../api.js";
 import type { ChatMessage, ContentBlock } from "../types.js";
 import { YarnBallDot, YarnBallSpinner, SleepingCat } from "./CatIcons.js";
-import { PawTrailAvatar, PawCounterContext, PawScrollProvider } from "./PawTrail.js";
+import { PawTrailAvatar, PawCounterContext, PawScrollProvider, HidePawContext } from "./PawTrail.js";
 import { isTouchDevice } from "../utils/mobile.js";
 
 const FEED_PAGE_SIZE = 100;
@@ -992,20 +992,25 @@ const TurnEntries = memo(function TurnEntries({ turns, sessionId }: { turns: Tur
                 {turn.systemEntries.length > 0 && (
                   <FeedEntries entries={turn.systemEntries} sessionId={sessionId} />
                 )}
-                {/* Collapsed: activity bar + response wrapped in a shared card */}
+                {/* Collapsed: single paw outside, activity bar + response in shared card */}
                 {(turn.agentEntries.length > 0 || turn.responseEntry) && (
-                  <div className="ml-[26px] rounded-xl border border-cc-border/20 bg-cc-card/20 overflow-hidden">
-                    {turn.agentEntries.length > 0 && (
-                      <CollapsedActivityBar
-                        stats={turn.stats}
-                        onClick={() => toggleTurn(sessionId, turn.id, isLastTurn)}
-                      />
-                    )}
-                    {turn.responseEntry && (
-                      <div className="px-3 py-2.5">
-                        <FeedEntries entries={[turn.responseEntry]} sessionId={sessionId} />
-                      </div>
-                    )}
+                  <div className="flex items-start gap-3">
+                    <PawTrailAvatar />
+                    <div className="flex-1 min-w-0 rounded-xl border border-cc-border/20 bg-cc-card/20 overflow-hidden">
+                      {turn.agentEntries.length > 0 && (
+                        <CollapsedActivityBar
+                          stats={turn.stats}
+                          onClick={() => toggleTurn(sessionId, turn.id, isLastTurn)}
+                        />
+                      )}
+                      {turn.responseEntry && (
+                        <div className="px-3 py-2.5">
+                          <HidePawContext.Provider value={true}>
+                            <FeedEntries entries={[turn.responseEntry]} sessionId={sessionId} />
+                          </HidePawContext.Provider>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </>

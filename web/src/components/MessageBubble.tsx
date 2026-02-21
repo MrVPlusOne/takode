@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useCallback, memo } from "react";
+import { useState, useMemo, useRef, useCallback, useContext, memo } from "react";
 import type { ChatMessage, ContentBlock } from "../types.js";
 import { ToolBlock, getToolIcon, getToolLabel, ToolIcon } from "./ToolBlock.js";
 import { MarkdownContent } from "./MarkdownContent.js";
@@ -8,7 +8,7 @@ import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
 import { getMessageMarkdown, getMessagePlainText, copyRichText, writeClipboardText } from "../utils/copy-utils.js";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
-import { PawTrailAvatar } from "./PawTrail.js";
+import { PawTrailAvatar, HidePawContext } from "./PawTrail.js";
 
 export const MessageBubble = memo(function MessageBubble({ message, sessionId }: { message: ChatMessage; sessionId?: string }) {
   if (message.role === "system") {
@@ -272,6 +272,7 @@ function groupContentBlocks(blocks: ContentBlock[]): GroupedBlock[] {
 function AssistantMessage({ message, sessionId }: { message: ChatMessage; sessionId?: string }) {
   const blocks = message.contentBlocks || [];
   const contentRef = useRef<HTMLDivElement>(null);
+  const hidePaw = useContext(HidePawContext);
 
   const grouped = useMemo(() => groupContentBlocks(blocks), [blocks]);
 
@@ -281,8 +282,8 @@ function AssistantMessage({ message, sessionId }: { message: ChatMessage; sessio
 
   if (blocks.length === 0 && message.content) {
     return (
-      <div className="group/msg relative flex items-start gap-3">
-        <PawTrailAvatar />
+      <div className={`group/msg relative flex items-start ${hidePaw ? "" : "gap-3"}`}>
+        {!hidePaw && <PawTrailAvatar />}
         <div ref={contentRef} className="flex-1 min-w-0 pr-6 sm:pr-0">
           <MarkdownContent text={message.content} />
         </div>
@@ -292,8 +293,8 @@ function AssistantMessage({ message, sessionId }: { message: ChatMessage; sessio
   }
 
   return (
-    <div className="group/msg relative flex items-start gap-3">
-      <PawTrailAvatar />
+    <div className={`group/msg relative flex items-start ${hidePaw ? "" : "gap-3"}`}>
+      {!hidePaw && <PawTrailAvatar />}
       <div ref={contentRef} className="flex-1 min-w-0 space-y-3 pr-6 sm:pr-0">
         {grouped.map((group, i) => {
           if (group.kind === "content") {
