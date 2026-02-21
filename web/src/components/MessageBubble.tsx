@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useCallback, useContext, memo } from "react";
+import { useState, useMemo, useRef, useCallback, useContext, useLayoutEffect, memo } from "react";
 import type { ChatMessage, ContentBlock } from "../types.js";
 import { ToolBlock, getToolIcon, getToolLabel, ToolIcon } from "./ToolBlock.js";
 import { MarkdownContent } from "./MarkdownContent.js";
@@ -105,6 +105,48 @@ export const MessageBubble = memo(function MessageBubble({ message, sessionId }:
   );
 });
 
+/** Auto-collapse content that exceeds a height threshold.
+ *  Shows a gradient fade and "Show more" pill when collapsed. */
+const COLLAPSE_THRESHOLD = 300;
+
+function CollapsibleContent({ children }: { children: React.ReactNode }) {
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [needsCollapse, setNeedsCollapse] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
+
+  useLayoutEffect(() => {
+    const el = contentRef.current;
+    if (!el) return;
+    setNeedsCollapse(el.scrollHeight > COLLAPSE_THRESHOLD);
+  }, [children]);
+
+  const isCollapsed = needsCollapse && collapsed;
+
+  return (
+    <div className="relative">
+      <div
+        ref={contentRef}
+        style={isCollapsed ? { maxHeight: COLLAPSE_THRESHOLD, overflow: "hidden" } : undefined}
+      >
+        {children}
+      </div>
+      {isCollapsed && (
+        <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-cc-user-bubble to-transparent pointer-events-none" />
+      )}
+      {needsCollapse && (
+        <div className={`flex justify-center ${isCollapsed ? "-mt-3 relative z-10" : "mt-1"}`}>
+          <button
+            onClick={() => setCollapsed(!collapsed)}
+            className="text-[11px] text-cc-muted hover:text-cc-fg bg-cc-user-bubble border border-cc-border/30 px-3 py-0.5 rounded-full cursor-pointer transition-colors"
+          >
+            {collapsed ? "Show more" : "Show less"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function UserMessage({ message, sessionId }: { message: ChatMessage; sessionId?: string }) {
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
 
@@ -134,9 +176,11 @@ function UserMessage({ message, sessionId }: { message: ChatMessage; sessionId?:
             })}
           </div>
         )}
-        <pre className="text-[13px] sm:text-[14px] whitespace-pre-wrap break-words font-sans-ui leading-relaxed">
-          {message.content}
-        </pre>
+        <CollapsibleContent>
+          <pre className="text-[13px] sm:text-[14px] whitespace-pre-wrap break-words font-sans-ui leading-relaxed">
+            {message.content}
+          </pre>
+        </CollapsibleContent>
       </div>
       <UserMessageMenu message={message} sessionId={sessionId} canRevert={canRevert} />
       {lightboxSrc && (
