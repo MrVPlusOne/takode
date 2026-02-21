@@ -8,6 +8,7 @@ import { api } from "../api.js";
 import type { ChatMessage, ContentBlock } from "../types.js";
 import { YarnBallDot, YarnBallSpinner, SleepingCat } from "./CatIcons.js";
 import { PawTrailAvatar, PawCounterContext, PawScrollProvider } from "./PawTrail.js";
+import { isTouchDevice } from "../utils/mobile.js";
 
 const FEED_PAGE_SIZE = 100;
 
@@ -1019,6 +1020,9 @@ export function MessageFeed({ sessionId }: { sessionId: string }) {
   // (not a separate effect) to avoid React's same-render effect batching.
   const isInitialRender = useRef(true);
   const [showScrollButton, setShowScrollButton] = useState(false);
+  const [isScrolling, setIsScrolling] = useState(false);
+  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const isTouch = useMemo(() => isTouchDevice(), []);
   const loadingMore = useRef(false);
   const visibleCount = useStore((s) => s.feedVisibleCount.get(sessionId) ?? FEED_PAGE_SIZE);
 
@@ -1104,6 +1108,10 @@ export function MessageFeed({ sessionId }: { sessionId: string }) {
     // Only trigger a re-render when the button state actually changes
     const shouldShow = !nearBottom;
     setShowScrollButton((prev) => (prev === shouldShow ? prev : shouldShow));
+    // Track active scrolling for mobile FAB auto-hide
+    setIsScrolling(true);
+    clearTimeout(scrollTimeoutRef.current);
+    scrollTimeoutRef.current = setTimeout(() => setIsScrolling(false), 1500);
   }
 
   // Auto-scroll: on initial render, restore saved scroll position or jump to
@@ -1214,9 +1222,13 @@ export function MessageFeed({ sessionId }: { sessionId: string }) {
         </PawScrollProvider>
       </div>
 
-      {/* Navigation FABs — top, prev/next user message, bottom */}
+      {/* Navigation FABs — desktop: top, prev/next, bottom; mobile: top/bottom only, auto-hide */}
       {showScrollButton && (
-        <div className="absolute bottom-3 right-3 z-10 flex flex-col gap-4">
+        <div className={`absolute bottom-3 right-3 z-10 flex flex-col transition-opacity duration-300 ${
+          isTouch
+            ? `gap-1.5 ${isScrolling ? "opacity-60" : "opacity-0 pointer-events-none"}`
+            : "gap-4"
+        }`}>
           {/* Go to top */}
           <button
             onClick={() => containerRef.current?.scrollTo({ top: 0, behavior: "smooth" })}
@@ -1229,58 +1241,60 @@ export function MessageFeed({ sessionId }: { sessionId: string }) {
               <path d="M4 12h8" strokeLinecap="round" />
             </svg>
           </button>
-          {/* Prev/next user message — grouped tightly */}
-          <div className="flex flex-col gap-1.5">
-            <button
-              onClick={() => {
-                const el = containerRef.current;
-                if (!el) return;
-                const containerRect = el.getBoundingClientRect();
-                const turns = el.querySelectorAll("[data-user-turn]");
-                for (let i = turns.length - 1; i >= 0; i--) {
-                  const t = turns[i] as HTMLElement;
-                  const tTop = t.getBoundingClientRect().top - containerRect.top;
-                  if (tTop < -5) {
-                    t.scrollIntoView({ block: "start", behavior: "smooth" });
-                    return;
+          {/* Prev/next user message — desktop only */}
+          {!isTouch && (
+            <div className="flex flex-col gap-1.5">
+              <button
+                onClick={() => {
+                  const el = containerRef.current;
+                  if (!el) return;
+                  const containerRect = el.getBoundingClientRect();
+                  const turns = el.querySelectorAll("[data-user-turn]");
+                  for (let i = turns.length - 1; i >= 0; i--) {
+                    const t = turns[i] as HTMLElement;
+                    const tTop = t.getBoundingClientRect().top - containerRect.top;
+                    if (tTop < -5) {
+                      t.scrollIntoView({ block: "start", behavior: "smooth" });
+                      return;
+                    }
                   }
-                }
-              }}
-              className="w-8 h-8 rounded-full bg-cc-card border border-cc-border shadow-lg flex items-center justify-center text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-all cursor-pointer"
-              title="Previous user message"
-              aria-label="Previous user message"
-            >
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
-                <path d="M4 7l4-4 4 4" strokeLinecap="round" strokeLinejoin="round" />
-                <path d="M8 3v10" strokeLinecap="round" />
-              </svg>
-            </button>
-            <button
-              onClick={() => {
-                const el = containerRef.current;
-                if (!el) return;
-                const containerRect = el.getBoundingClientRect();
-                const turns = el.querySelectorAll("[data-user-turn]");
-                for (let i = 0; i < turns.length; i++) {
-                  const t = turns[i] as HTMLElement;
-                  const tTop = t.getBoundingClientRect().top - containerRect.top;
-                  if (tTop > el.clientHeight * 0.3) {
-                    t.scrollIntoView({ block: "start", behavior: "smooth" });
-                    return;
+                }}
+                className="w-8 h-8 rounded-full bg-cc-card border border-cc-border shadow-lg flex items-center justify-center text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-all cursor-pointer"
+                title="Previous user message"
+                aria-label="Previous user message"
+              >
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
+                  <path d="M4 7l4-4 4 4" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M8 3v10" strokeLinecap="round" />
+                </svg>
+              </button>
+              <button
+                onClick={() => {
+                  const el = containerRef.current;
+                  if (!el) return;
+                  const containerRect = el.getBoundingClientRect();
+                  const turns = el.querySelectorAll("[data-user-turn]");
+                  for (let i = 0; i < turns.length; i++) {
+                    const t = turns[i] as HTMLElement;
+                    const tTop = t.getBoundingClientRect().top - containerRect.top;
+                    if (tTop > el.clientHeight * 0.3) {
+                      t.scrollIntoView({ block: "start", behavior: "smooth" });
+                      return;
+                    }
                   }
-                }
-                el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-              }}
-              className="w-8 h-8 rounded-full bg-cc-card border border-cc-border shadow-lg flex items-center justify-center text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-all cursor-pointer"
-              title="Next user message"
-              aria-label="Next user message"
-            >
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
-                <path d="M4 9l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
-                <path d="M8 3v10" strokeLinecap="round" />
-              </svg>
-            </button>
-          </div>
+                  el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+                }}
+                className="w-8 h-8 rounded-full bg-cc-card border border-cc-border shadow-lg flex items-center justify-center text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-all cursor-pointer"
+                title="Next user message"
+                aria-label="Next user message"
+              >
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
+                  <path d="M4 9l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M8 3v10" strokeLinecap="round" />
+                </svg>
+              </button>
+            </div>
+          )}
           {/* Go to bottom */}
           <button
             onClick={() => containerRef.current?.scrollTo({ top: containerRef.current.scrollHeight, behavior: "smooth" })}
