@@ -696,9 +696,9 @@ describe("buildFirstTurnPrompt", () => {
 // ─── buildUpdatePrompt ─────────────────────────────────────────────────────
 
 describe("buildUpdatePrompt", () => {
-  it("includes current title", () => {
+  it("includes current task title", () => {
     const prompt = buildUpdatePrompt("Fix Auth Bug", [userMsg("Continue fixing")]);
-    expect(prompt).toContain('"Fix Auth Bug"');
+    expect(prompt).toContain('The current session task is: "Fix Auth Bug"');
   });
 
   it("includes all three output format sections", () => {
@@ -754,7 +754,7 @@ describe("buildUpdatePrompt", () => {
     ];
     // Current task is "Refactor middleware" (last entry), previous tasks shown
     const prompt = buildUpdatePrompt("Refactor middleware", [userMsg("Continue")], undefined, false, tasks);
-    expect(prompt).toContain("Previous tasks in this session:");
+    expect(prompt).toContain("Previous tasks in this session (chronological):");
     expect(prompt).toContain('"Fix auth bug"');
     expect(prompt).toContain('"Add token refresh"');
     // Current task is NOT in the previous tasks list

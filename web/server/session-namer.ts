@@ -382,16 +382,16 @@ function buildUpdatePrompt(
     ? "\n- If the agent is still working (status shown above), user messages are likely mid-task guidance or clarifications — NOT topic changes."
     : "";
 
-  // Show previous tasks (excluding the current one) so the model has context
+  // Show task history chronologically, with the current task last
   let taskHistoryBlock = "";
   if (taskHistory && taskHistory.length > 1) {
     const previous = taskHistory.slice(0, -1);
     const lines = previous.map((t) => `- "${t.title}"`);
-    taskHistoryBlock = `\nPrevious tasks in this session:\n${lines.join("\n")}\n`;
+    taskHistoryBlock = `\nPrevious tasks in this session (chronological):\n${lines.join("\n")}\n`;
   }
 
-  return `The current session title is: "${currentName}"
-${taskHistoryBlock}
+  return `${taskHistoryBlock}The current session task is: "${currentName}"
+
 Evaluate whether this title should change based on the conversation below. The conversation shows only the activity since the current title was set.
 
 Rules:
