@@ -41,6 +41,9 @@ vi.mock("../store.js", () => {
       toggleTurnActivity: vi.fn(),
       scrollToTurnId: mockStoreValues.scrollToTurnId ?? new Map(),
       clearScrollToTurn: vi.fn(),
+      sessionTaskHistory: mockStoreValues.sessionTaskHistory ?? new Map(),
+      activeTaskTurnId: mockStoreValues.activeTaskTurnId ?? new Map(),
+      setActiveTaskTurnId: vi.fn(),
     };
     return selector(state);
   };

@@ -1195,6 +1195,46 @@ export function MessageFeed({ sessionId }: { sessionId: string }) {
     });
   }, [scrollToTurnId, sessionId, clearScrollToTurn]);
 
+  // Track which task outline chip should be highlighted based on scroll position.
+  // Observes turn elements matching sessionTaskHistory triggerMessageIds.
+  const taskHistory = useStore((s) => s.sessionTaskHistory.get(sessionId));
+  const setActiveTaskTurnId = useStore((s) => s.setActiveTaskTurnId);
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || !taskHistory || taskHistory.length === 0) return;
+
+    const triggerIds = new Set(taskHistory.map((t) => t.triggerMessageId));
+    const targets = Array.from(el.querySelectorAll<HTMLElement>("[data-turn-id]"))
+      .filter((node) => triggerIds.has(node.dataset.turnId!));
+
+    if (targets.length === 0) return;
+
+    // Find the last task turn that has scrolled past the top of the viewport.
+    // This gives us the "current" task the user is reading.
+    const observer = new IntersectionObserver(
+      () => {
+        let activeTurnId: string | null = null;
+        for (const target of targets) {
+          const rect = target.getBoundingClientRect();
+          const containerRect = el.getBoundingClientRect();
+          // Task turn is "active" if its top is above the middle of the container
+          if (rect.top <= containerRect.top + containerRect.height / 2) {
+            activeTurnId = target.dataset.turnId!;
+          }
+        }
+        // If nothing is above midpoint, highlight the first task
+        if (!activeTurnId && targets.length > 0) {
+          activeTurnId = targets[0].dataset.turnId!;
+        }
+        setActiveTaskTurnId(sessionId, activeTurnId);
+      },
+      { root: el, threshold: [0, 0.1, 0.5, 1] },
+    );
+
+    for (const target of targets) observer.observe(target);
+    return () => observer.disconnect();
+  }, [taskHistory, sessionId, setActiveTaskTurnId, visibleTurns]);
+
   // ─── Render ──────────────────────────────────────────────────────────────
 
   if (messages.length === 0 && !streamingText) {

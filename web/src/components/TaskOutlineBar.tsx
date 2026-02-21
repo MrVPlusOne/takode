@@ -4,7 +4,9 @@ import { useStore } from "../store.js";
 export function TaskOutlineBar({ sessionId }: { sessionId: string }) {
   const taskHistory = useStore((s) => s.sessionTaskHistory.get(sessionId));
   const requestScrollToTurn = useStore((s) => s.requestScrollToTurn);
+  const activeTaskTurnId = useStore((s) => s.activeTaskTurnId.get(sessionId));
   const scrollRef = useRef<HTMLDivElement>(null);
+  const activeChipRef = useRef<HTMLButtonElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
 
@@ -23,6 +25,18 @@ export function TaskOutlineBar({ sessionId }: { sessionId: string }) {
     return () => { el.removeEventListener("scroll", check); ro.disconnect(); };
   }, [taskHistory]);
 
+  // Auto-scroll the active chip into view within the horizontal scroll container
+  useEffect(() => {
+    const chip = activeChipRef.current;
+    const container = scrollRef.current;
+    if (!chip || !container) return;
+    const chipRect = chip.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+    if (chipRect.left < containerRect.left || chipRect.right > containerRect.right) {
+      chip.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+    }
+  }, [activeTaskTurnId]);
+
   if (!taskHistory || taskHistory.length === 0) return null;
 
   return (
@@ -40,17 +54,25 @@ export function TaskOutlineBar({ sessionId }: { sessionId: string }) {
         ref={scrollRef}
         className="flex gap-1.5 px-3 py-1.5 overflow-x-auto scrollbar-hide"
       >
-        {taskHistory.map((task, i) => (
-          <button
-            key={`${task.triggerMessageId}-${i}`}
-            type="button"
-            onClick={() => requestScrollToTurn(sessionId, task.triggerMessageId)}
-            className="shrink-0 text-[11px] px-2.5 py-1 rounded-full bg-cc-hover/60 hover:bg-cc-border text-cc-fg/70 hover:text-cc-fg transition-colors cursor-pointer truncate max-w-[200px]"
-            title={task.title}
-          >
-            {task.title}
-          </button>
-        ))}
+        {taskHistory.map((task, i) => {
+          const isActive = task.triggerMessageId === activeTaskTurnId;
+          return (
+            <button
+              key={`${task.triggerMessageId}-${i}`}
+              ref={isActive ? activeChipRef : undefined}
+              type="button"
+              onClick={() => requestScrollToTurn(sessionId, task.triggerMessageId)}
+              className={`shrink-0 text-[11px] px-2.5 py-1 rounded-full transition-colors cursor-pointer truncate max-w-[200px] ${
+                isActive
+                  ? "bg-cc-primary/15 text-cc-primary font-medium"
+                  : "bg-cc-hover/60 hover:bg-cc-border text-cc-fg/70 hover:text-cc-fg"
+              }`}
+              title={task.title}
+            >
+              {task.title}
+            </button>
+          );
+        })}
       </div>
     </div>
   );

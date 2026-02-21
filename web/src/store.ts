@@ -68,6 +68,8 @@ interface AppState {
   sessionKeywords: Map<string, string[]>;
   // Scroll-to-turn request per session (session → turn ID to scroll to)
   scrollToTurnId: Map<string, string | null>;
+  // Currently visible task turn ID per session (set by MessageFeed IntersectionObserver)
+  activeTaskTurnId: Map<string, string | null>;
   // Active task preview per session (from TodoWrite/TaskCreate/TaskUpdate in_progress items)
   sessionTaskPreview: Map<string, { text: string; updatedAt: number }>;
 
@@ -193,6 +195,7 @@ interface AppState {
   setSessionKeywords: (sessionId: string, keywords: string[]) => void;
   requestScrollToTurn: (sessionId: string, turnId: string) => void;
   clearScrollToTurn: (sessionId: string) => void;
+  setActiveTaskTurnId: (sessionId: string, turnId: string | null) => void;
 
   // PR status action
   setPRStatus: (sessionId: string, status: PRStatusResponse) => void;
@@ -371,6 +374,7 @@ export const useStore = create<AppState>((set) => ({
   sessionTaskHistory: new Map(),
   sessionKeywords: new Map(),
   scrollToTurnId: new Map(),
+  activeTaskTurnId: new Map(),
   sessionTaskPreview: new Map(),
   prStatus: new Map(),
   mcpServers: new Map(),
@@ -927,6 +931,16 @@ export const useStore = create<AppState>((set) => ({
       return { scrollToTurnId };
     }),
 
+  setActiveTaskTurnId: (sessionId, turnId) =>
+    set((s) => {
+      const prev = s.activeTaskTurnId.get(sessionId);
+      if (prev === turnId) return s;
+      const activeTaskTurnId = new Map(s.activeTaskTurnId);
+      if (turnId === null) activeTaskTurnId.delete(sessionId);
+      else activeTaskTurnId.set(sessionId, turnId);
+      return { activeTaskTurnId };
+    }),
+
   setPRStatus: (sessionId, status) =>
     set((s) => {
       const prStatus = new Map(s.prStatus);
@@ -1215,6 +1229,7 @@ export const useStore = create<AppState>((set) => ({
       sessionTaskHistory: new Map(),
       sessionKeywords: new Map(),
       scrollToTurnId: new Map(),
+      activeTaskTurnId: new Map(),
       sessionTaskPreview: new Map(),
       mcpServers: new Map(),
       toolProgress: new Map(),
