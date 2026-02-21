@@ -8,6 +8,14 @@ import type { ModeOption } from "../utils/backends.js";
 import { Lightbox } from "./Lightbox.js";
 import { CatPawAvatar } from "./CatIcons.js";
 
+function PaperPlaneIcon({ className = "w-4 h-4" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M14.5 1.5L1.5 7.5l4 1.5M14.5 1.5L6.5 14.5l-1-5.5M14.5 1.5L5.5 9" />
+    </svg>
+  );
+}
+
 interface ImageAttachment {
   name: string;
   base64: string;
@@ -119,6 +127,8 @@ export function Composer({ sessionId }: { sessionId: string }) {
   const menuRef = useRef<HTMLDivElement>(null);
   const modeDropdownRef = useRef<HTMLDivElement>(null);
   const askConfirmRef = useRef<HTMLDivElement>(null);
+  const enterHoldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const enterHeldRef = useRef(false);
   const cliConnected = useStore((s) => s.cliConnected);
   const sessionData = useStore((s) => s.sessions.get(sessionId));
 
@@ -215,6 +225,12 @@ export function Composer({ sessionId }: { sessionId: string }) {
     return () => document.removeEventListener("pointerdown", handlePointerDown);
   }, [showAskConfirm]);
 
+  useEffect(() => {
+    return () => {
+      if (enterHoldTimerRef.current) clearTimeout(enterHoldTimerRef.current);
+    };
+  }, []);
+
   const selectCommand = useCallback((cmd: CommandItem) => {
     setText(`/${cmd.name} `);
     setSlashMenuOpen(false);
@@ -289,7 +305,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
     }
 
     setSendPressing(true);
-    setTimeout(() => setSendPressing(false), 400);
+    setTimeout(() => setSendPressing(false), 500);
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
@@ -328,9 +344,44 @@ export function Composer({ sessionId }: { sessionId: string }) {
       return;
     }
     if (e.key === "Enter" && !e.shiftKey) {
-      if (isTouchDevice()) return; // mobile: let Enter insert newline
+      if (isTouchDevice()) {
+        if (e.repeat) return;
+        e.preventDefault();
+        enterHeldRef.current = false;
+        enterHoldTimerRef.current = setTimeout(() => {
+          enterHeldRef.current = true;
+          // Hold threshold passed — insert newline at cursor
+          if (textareaRef.current) {
+            const ta = textareaRef.current;
+            const start = ta.selectionStart;
+            const end = ta.selectionEnd;
+            const val = ta.value;
+            const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+              window.HTMLTextAreaElement.prototype, "value"
+            )?.set;
+            nativeInputValueSetter?.call(ta, val.substring(0, start) + "\n" + val.substring(end));
+            ta.dispatchEvent(new Event("input", { bubbles: true }));
+            requestAnimationFrame(() => {
+              ta.selectionStart = ta.selectionEnd = start + 1;
+            });
+          }
+        }, 300);
+        return;
+      }
       e.preventDefault();
       handleSend();
+    }
+  }
+
+  function handleKeyUp(e: React.KeyboardEvent) {
+    if (e.key === "Enter" && !e.shiftKey && isTouchDevice()) {
+      if (enterHoldTimerRef.current) {
+        clearTimeout(enterHoldTimerRef.current);
+        enterHoldTimerRef.current = null;
+      }
+      if (!enterHeldRef.current) {
+        handleSend();
+      }
     }
   }
 
@@ -536,6 +587,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
             value={text}
             onChange={handleInput}
             onKeyDown={handleKeyDown}
+            onKeyUp={handleKeyUp}
             onPaste={handlePaste}
             placeholder={
               pendingAskUserPerm
@@ -724,18 +776,18 @@ export function Composer({ sessionId }: { sessionId: string }) {
             <CollapseAllToggle sessionId={sessionId} />
 
             {/* Right: image + send/stop */}
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-3 sm:gap-1">
               <button
                 onClick={() => fileInputRef.current?.click()}
                 disabled={!isConnected}
-                className={`flex items-center justify-center w-8 h-8 rounded-lg transition-colors ${
+                className={`flex items-center justify-center w-11 h-11 sm:w-8 sm:h-8 rounded-lg transition-colors ${
                   isConnected
                     ? "text-cc-muted hover:text-cc-fg hover:bg-cc-hover cursor-pointer"
                     : "text-cc-muted opacity-30 cursor-not-allowed"
                 }`}
                 title="Upload image"
               >
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-5 h-5 sm:w-4 sm:h-4">
                   <rect x="2" y="2" width="12" height="12" rx="2" />
                   <circle cx="5.5" cy="5.5" r="1" fill="currentColor" stroke="none" />
                   <path d="M2 11l3-3 2 2 3-4 4 5" strokeLinecap="round" strokeLinejoin="round" />
@@ -745,10 +797,10 @@ export function Composer({ sessionId }: { sessionId: string }) {
               {isRunning && (
                 <button
                   onClick={handleInterrupt}
-                  className="flex items-center justify-center w-8 h-8 rounded-lg bg-cc-error/10 hover:bg-cc-error/20 text-cc-error transition-colors cursor-pointer"
+                  className="flex items-center justify-center w-11 h-11 sm:w-8 sm:h-8 rounded-lg bg-cc-error/10 hover:bg-cc-error/20 text-cc-error transition-colors cursor-pointer"
                   title="Stop generation"
                 >
-                  <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
+                  <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4 sm:w-3.5 sm:h-3.5">
                     <rect x="3" y="3" width="10" height="10" rx="1" />
                   </svg>
                 </button>
@@ -756,14 +808,18 @@ export function Composer({ sessionId }: { sessionId: string }) {
               <button
                 onClick={handleSend}
                 disabled={!canSend}
-                className={`flex items-center justify-center w-8 h-8 rounded-full transition-colors ${
+                className={`flex items-center justify-center w-11 h-11 sm:w-8 sm:h-8 rounded-full transition-colors ${
                   canSend
                     ? "bg-cc-primary hover:bg-cc-primary-hover text-white cursor-pointer"
                     : "bg-cc-hover text-cc-muted cursor-not-allowed"
-                } ${sendPressing ? "animate-[paw-press_400ms_ease-out]" : ""}`}
+                } ${sendPressing ? "animate-[send-morph_500ms_ease-out]" : ""}`}
                 title="Send message"
               >
-                <CatPawAvatar className="w-4 h-4" />
+                {sendPressing ? (
+                  <CatPawAvatar className="w-5 h-5 sm:w-4 sm:h-4" />
+                ) : (
+                  <PaperPlaneIcon className="w-5 h-5 sm:w-4 sm:h-4" />
+                )}
               </button>
             </div>
           </div>
