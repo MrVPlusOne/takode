@@ -26,6 +26,7 @@ const GLOBAL_KEYS = new Set([
 
 /** Server-scoped key names (without dynamic suffixes) for migration */
 const SCOPED_KEYS = [
+  "cc-show-usage",
   "cc-current-session",
   "cc-session-names",
   "cc-collapsed-projects",

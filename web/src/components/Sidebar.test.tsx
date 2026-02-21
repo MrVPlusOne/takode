@@ -450,21 +450,22 @@ describe("Sidebar", () => {
     expect(screen.queryByText("Dark mode")).not.toBeInTheDocument();
   });
 
+  // Footer nav buttons are icon-only with title attributes for tooltips
   it("navigates to environments page when Environments is clicked", () => {
     render(<Sidebar />);
-    fireEvent.click(screen.getByText("Environments").closest("button")!);
+    fireEvent.click(screen.getByTitle("Environments"));
     expect(window.location.hash).toBe("#/environments");
   });
 
   it("navigates to settings page when Settings is clicked", () => {
     render(<Sidebar />);
-    fireEvent.click(screen.getByText("Settings").closest("button")!);
+    fireEvent.click(screen.getByTitle("Settings"));
     expect(window.location.hash).toBe("#/settings");
   });
 
   it("navigates to terminal page when Terminal is clicked", () => {
     render(<Sidebar />);
-    fireEvent.click(screen.getByText("Terminal").closest("button")!);
+    fireEvent.click(screen.getByTitle("Terminal"));
     expect(window.location.hash).toBe("#/terminal");
   });
 

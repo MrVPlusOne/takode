@@ -20,64 +20,64 @@ function formatResetTime(resetsAt: string): string {
   }
 }
 
-export function SidebarUsageBar() {
-  const currentSessionId = useStore((s) => s.currentSessionId);
-  const limits = useUsageLimits(currentSessionId);
-
-  if (!limits) return null;
-
-  // Pick the highest-urgency limit to display
-  const fiveHour = limits.five_hour;
-  const sevenDay = limits.seven_day;
-
-  // Determine which limit to show (highest utilization first)
-  let label = "";
-  let pct = 0;
-  let resetStr = "";
-
-  if (fiveHour && sevenDay) {
-    // Show whichever is higher
-    if (fiveHour.utilization >= sevenDay.utilization) {
-      label = "5H";
-      pct = fiveHour.utilization;
-      resetStr = fiveHour.resets_at ? formatResetTime(fiveHour.resets_at) : "";
-    } else {
-      label = "7D";
-      pct = sevenDay.utilization;
-      resetStr = sevenDay.resets_at ? formatResetTime(sevenDay.resets_at) : "";
-    }
-  } else if (fiveHour) {
-    label = "5H";
-    pct = fiveHour.utilization;
-    resetStr = fiveHour.resets_at ? formatResetTime(fiveHour.resets_at) : "";
-  } else if (sevenDay) {
-    label = "7D";
-    pct = sevenDay.utilization;
-    resetStr = sevenDay.resets_at ? formatResetTime(sevenDay.resets_at) : "";
-  } else if (limits.extra_usage?.is_enabled && limits.extra_usage.utilization !== null) {
-    label = "Extra";
-    pct = limits.extra_usage.utilization;
-  } else {
-    return null;
-  }
-
+function UsageRow({ label, pct, resetStr }: { label: string; pct: number; resetStr: string }) {
   return (
     <div
-      className="px-3 pb-2"
+      className="flex items-center gap-1.5"
       title={`${label} Limit: ${pct}%${resetStr ? ` (resets in ${resetStr})` : ""}`}
     >
-      <div className="flex items-center gap-1.5">
-        <span className="text-[9px] text-cc-muted uppercase tracking-wider font-medium">
-          {label}
-        </span>
-        <div className="flex-1 h-1 rounded-full bg-cc-hover overflow-hidden">
-          <div
-            className={`h-full rounded-full transition-all duration-500 ${barColor(pct)}`}
-            style={{ width: `${Math.min(pct, 100)}%` }}
-          />
-        </div>
-        <span className="text-[9px] text-cc-muted tabular-nums">{pct}%</span>
+      <span className="text-[9px] text-cc-muted uppercase tracking-wider font-medium w-4 text-right">
+        {label}
+      </span>
+      <div className="flex-1 h-1 rounded-full bg-cc-hover overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all duration-500 ${barColor(pct)}`}
+          style={{ width: `${Math.min(pct, 100)}%` }}
+        />
       </div>
+      <span className="text-[9px] text-cc-muted tabular-nums">{pct}%</span>
+    </div>
+  );
+}
+
+export function SidebarUsageBar() {
+  const currentSessionId = useStore((s) => s.currentSessionId);
+  const showUsageBars = useStore((s) => s.showUsageBars);
+  const limits = useUsageLimits(currentSessionId);
+
+  if (!showUsageBars || !limits) return null;
+
+  const fiveHour = limits.five_hour;
+  const sevenDay = limits.seven_day;
+  const extra = limits.extra_usage;
+
+  const rows: { label: string; pct: number; resetStr: string }[] = [];
+
+  if (fiveHour) {
+    rows.push({
+      label: "5H",
+      pct: fiveHour.utilization,
+      resetStr: fiveHour.resets_at ? formatResetTime(fiveHour.resets_at) : "",
+    });
+  }
+  if (sevenDay) {
+    rows.push({
+      label: "7D",
+      pct: sevenDay.utilization,
+      resetStr: sevenDay.resets_at ? formatResetTime(sevenDay.resets_at) : "",
+    });
+  }
+  if (rows.length === 0 && extra?.is_enabled && extra.utilization !== null) {
+    rows.push({ label: "Extra", pct: extra.utilization, resetStr: "" });
+  }
+
+  if (rows.length === 0) return null;
+
+  return (
+    <div className="px-3 pb-1.5 space-y-1">
+      {rows.map((r) => (
+        <UsageRow key={r.label} label={r.label} pct={r.pct} resetStr={r.resetStr} />
+      ))}
     </div>
   );
 }

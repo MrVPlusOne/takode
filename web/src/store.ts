@@ -124,6 +124,7 @@ interface AppState {
   zoomLevel: number;
   notificationSound: boolean;
   notificationDesktop: boolean;
+  showUsageBars: boolean;
   sidebarOpen: boolean;
   reorderMode: boolean;
   taskPanelOpen: boolean;
@@ -139,6 +140,8 @@ interface AppState {
   toggleNotificationSound: () => void;
   setNotificationDesktop: (v: boolean) => void;
   toggleNotificationDesktop: () => void;
+  setShowUsageBars: (v: boolean) => void;
+  toggleShowUsageBars: () => void;
   setSidebarOpen: (v: boolean) => void;
   setReorderMode: (v: boolean) => void;
   setTaskPanelOpen: (open: boolean) => void;
@@ -398,6 +401,7 @@ export const useStore = create<AppState>((set) => ({
   zoomLevel: getInitialZoomLevel(),
   notificationSound: getInitialNotificationSound(),
   notificationDesktop: getInitialNotificationDesktop(),
+  showUsageBars: typeof window !== "undefined" ? scopedGetItem("cc-show-usage") !== "false" : true,
   sidebarOpen: typeof window !== "undefined" ? window.innerWidth >= 768 : true,
   reorderMode: false,
   taskPanelOpen: false,
@@ -461,6 +465,16 @@ export const useStore = create<AppState>((set) => ({
       const next = !s.notificationDesktop;
       localStorage.setItem("cc-notification-desktop", String(next));
       return { notificationDesktop: next };
+    }),
+  setShowUsageBars: (v) => {
+    scopedSetItem("cc-show-usage", String(v));
+    set({ showUsageBars: v });
+  },
+  toggleShowUsageBars: () =>
+    set((s) => {
+      const next = !s.showUsageBars;
+      scopedSetItem("cc-show-usage", String(next));
+      return { showUsageBars: next };
     }),
   setSidebarOpen: (v) => set({ sidebarOpen: v }),
   setReorderMode: (v) => set({ reorderMode: v }),

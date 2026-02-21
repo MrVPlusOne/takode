@@ -669,84 +669,86 @@ export function Sidebar() {
       </div>
 
       {/* Footer */}
-      <div className="p-3 border-t border-cc-border space-y-0.5">
+      <div className="px-3 py-2 border-t border-cc-border space-y-1.5">
         <SidebarUsageBar />
-        <button
-          onClick={() => {
-            window.location.hash = "#/terminal";
-            if (window.innerWidth < 768) {
-              useStore.getState().setSidebarOpen(false);
-            }
-          }}
-          className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-[10px] text-sm transition-colors cursor-pointer ${
-            isTerminalPage
-              ? "bg-cc-active text-cc-fg"
-              : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
-          }`}
-        >
-          <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
-            <path d="M2 3a1 1 0 011-1h10a1 1 0 011 1v10a1 1 0 01-1 1H3a1 1 0 01-1-1V3zm2 1.5l3 2.5-3 2.5V4.5zM8.5 10h3v1h-3v-1z" />
-          </svg>
-          <span>Terminal</span>
-        </button>
-        <button
-          onClick={() => {
-            useStore.getState().closeTerminal();
-            window.location.hash = "#/environments";
-            if (window.innerWidth < 768) {
-              useStore.getState().setSidebarOpen(false);
-            }
-          }}
-          className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-[10px] text-sm transition-colors cursor-pointer ${
-            isEnvironmentsPage
-              ? "bg-cc-active text-cc-fg"
-              : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
-          }`}
-        >
-          <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
-            <path d="M8 1a2 2 0 012 2v1h2a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6a2 2 0 012-2h2V3a2 2 0 012-2zm0 1.5a.5.5 0 00-.5.5v1h1V3a.5.5 0 00-.5-.5zM4 5.5a.5.5 0 00-.5.5v6a.5.5 0 00.5.5h8a.5.5 0 00.5-.5V6a.5.5 0 00-.5-.5H4z" />
-          </svg>
-          <span>Environments</span>
-        </button>
-        <button
-          onClick={() => {
-            useStore.getState().closeTerminal();
-            window.location.hash = "#/scheduled";
-            if (window.innerWidth < 768) {
-              useStore.getState().setSidebarOpen(false);
-            }
-          }}
-          className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-[10px] text-sm transition-colors cursor-pointer ${
-            isScheduledPage
-              ? "bg-cc-active text-cc-fg"
-              : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
-          }`}
-        >
-          <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
-            <path d="M8 2a6 6 0 100 12A6 6 0 008 2zM0 8a8 8 0 1116 0A8 8 0 010 8zm9-3a1 1 0 10-2 0v3a1 1 0 00.293.707l2 2a1 1 0 001.414-1.414L9 7.586V5z" />
-          </svg>
-          <span>Scheduled</span>
-        </button>
-        <button
-          onClick={() => {
-            useStore.getState().closeTerminal();
-            window.location.hash = "#/settings";
-            if (window.innerWidth < 768) {
-              useStore.getState().setSidebarOpen(false);
-            }
-          }}
-          className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-[10px] text-sm transition-colors cursor-pointer ${
-            isSettingsPage
-              ? "bg-cc-active text-cc-fg"
-              : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
-          }`}
-        >
-          <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-            <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.53 1.53 0 01-2.29.95c-1.35-.8-2.92.77-2.12 2.12.54.9.07 2.04-.95 2.29-1.56.38-1.56 2.6 0 2.98 1.02.25 1.49 1.39.95 2.29-.8 1.35.77 2.92 2.12 2.12.9-.54 2.04-.07 2.29.95.38 1.56 2.6 1.56 2.98 0 .25-1.02 1.39-1.49 2.29-.95 1.35.8 2.92-.77 2.12-2.12-.54-.9-.07-2.04.95-2.29 1.56-.38 1.56-2.6 0-2.98-1.02-.25-1.49-1.39-.95-2.29.8-1.35-.77-2.92-2.12-2.12-.9.54-2.04.07-2.29-.95zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
-          </svg>
-          <span>Settings</span>
-        </button>
-        <div className="text-[10px] text-cc-muted text-center pt-1 select-none" title={__BUILD_TIME__}>
+        <div className="flex items-center justify-around">
+          <button
+            title="Terminal"
+            onClick={() => {
+              window.location.hash = "#/terminal";
+              if (window.innerWidth < 768) {
+                useStore.getState().setSidebarOpen(false);
+              }
+            }}
+            className={`p-2 rounded-lg transition-colors cursor-pointer ${
+              isTerminalPage
+                ? "bg-cc-active text-cc-fg"
+                : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
+            }`}
+          >
+            <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
+              <path d="M2 3a1 1 0 011-1h10a1 1 0 011 1v10a1 1 0 01-1 1H3a1 1 0 01-1-1V3zm2 1.5l3 2.5-3 2.5V4.5zM8.5 10h3v1h-3v-1z" />
+            </svg>
+          </button>
+          <button
+            title="Environments"
+            onClick={() => {
+              useStore.getState().closeTerminal();
+              window.location.hash = "#/environments";
+              if (window.innerWidth < 768) {
+                useStore.getState().setSidebarOpen(false);
+              }
+            }}
+            className={`p-2 rounded-lg transition-colors cursor-pointer ${
+              isEnvironmentsPage
+                ? "bg-cc-active text-cc-fg"
+                : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
+            }`}
+          >
+            <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
+              <path d="M8 1a2 2 0 012 2v1h2a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6a2 2 0 012-2h2V3a2 2 0 012-2zm0 1.5a.5.5 0 00-.5.5v1h1V3a.5.5 0 00-.5-.5zM4 5.5a.5.5 0 00-.5.5v6a.5.5 0 00.5.5h8a.5.5 0 00.5-.5V6a.5.5 0 00-.5-.5H4z" />
+            </svg>
+          </button>
+          <button
+            title="Scheduled"
+            onClick={() => {
+              useStore.getState().closeTerminal();
+              window.location.hash = "#/scheduled";
+              if (window.innerWidth < 768) {
+                useStore.getState().setSidebarOpen(false);
+              }
+            }}
+            className={`p-2 rounded-lg transition-colors cursor-pointer ${
+              isScheduledPage
+                ? "bg-cc-active text-cc-fg"
+                : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
+            }`}
+          >
+            <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
+              <path d="M8 2a6 6 0 100 12A6 6 0 008 2zM0 8a8 8 0 1116 0A8 8 0 010 8zm9-3a1 1 0 10-2 0v3a1 1 0 00.293.707l2 2a1 1 0 001.414-1.414L9 7.586V5z" />
+            </svg>
+          </button>
+          <button
+            title="Settings"
+            onClick={() => {
+              useStore.getState().closeTerminal();
+              window.location.hash = "#/settings";
+              if (window.innerWidth < 768) {
+                useStore.getState().setSidebarOpen(false);
+              }
+            }}
+            className={`p-2 rounded-lg transition-colors cursor-pointer ${
+              isSettingsPage
+                ? "bg-cc-active text-cc-fg"
+                : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
+            }`}
+          >
+            <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+              <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.53 1.53 0 01-2.29.95c-1.35-.8-2.92.77-2.12 2.12.54.9.07 2.04-.95 2.29-1.56.38-1.56 2.6 0 2.98 1.02.25 1.49 1.39.95 2.29-.8 1.35.77 2.92 2.12 2.12.9-.54 2.04-.07 2.29.95.38 1.56 2.6 1.56 2.98 0 .25-1.02 1.39-1.49 2.29-.95 1.35.8 2.92-.77 2.12-2.12-.54-.9-.07-2.04.95-2.29 1.56-.38 1.56-2.6 0-2.98-1.02-.25-1.49-1.39-.95-2.29.8-1.35-.77-2.92-2.12-2.12-.9.54-2.04.07-2.29-.95zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
+            </svg>
+          </button>
+        </div>
+        <div className="text-[10px] text-cc-muted text-center select-none" title={__BUILD_TIME__}>
           {`Built ${new Date(__BUILD_TIME__).toLocaleString("en-US", {
             month: "short",
             day: "numeric",

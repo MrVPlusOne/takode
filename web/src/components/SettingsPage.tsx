@@ -20,6 +20,8 @@ export function SettingsPage({ embedded = false }: SettingsPageProps) {
   const toggleNotificationSound = useStore((s) => s.toggleNotificationSound);
   const notificationDesktop = useStore((s) => s.notificationDesktop);
   const setNotificationDesktop = useStore((s) => s.setNotificationDesktop);
+  const showUsageBars = useStore((s) => s.showUsageBars);
+  const toggleShowUsageBars = useStore((s) => s.toggleShowUsageBars);
   const notificationApiAvailable = typeof Notification !== "undefined";
 
   // CLI binary state
@@ -284,6 +286,18 @@ export function SettingsPage({ embedded = false }: SettingsPageProps) {
               <span className="text-xs text-cc-muted">{notificationDesktop ? "On" : "Off"}</span>
             </button>
           )}
+        </div>
+
+        <div className="mt-4 bg-cc-card border border-cc-border rounded-xl p-4 sm:p-5 space-y-3">
+          <h2 className="text-sm font-semibold text-cc-fg">Display</h2>
+          <button
+            type="button"
+            onClick={toggleShowUsageBars}
+            className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm bg-cc-hover text-cc-fg hover:bg-cc-active transition-colors cursor-pointer"
+          >
+            <span>Usage Bars in Sidebar</span>
+            <span className="text-xs text-cc-muted">{showUsageBars ? "On" : "Off"}</span>
+          </button>
         </div>
 
         <div className="mt-4 bg-cc-card border border-cc-border rounded-xl p-4 sm:p-5 space-y-3">
