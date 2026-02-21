@@ -259,7 +259,7 @@ export type BrowserIncomingMessageBase =
   | { type: "error"; message: string }
   | { type: "cli_disconnected"; reason?: "idle_limit" }
   | { type: "cli_connected" }
-  | { type: "user_message"; content: string; timestamp: number; id?: string; images?: import("./image-store.js").ImageRef[] }
+  | { type: "user_message"; content: string; timestamp: number; id?: string; cliUuid?: string; images?: import("./image-store.js").ImageRef[] }
   | { type: "message_history"; messages: BrowserIncomingMessage[] }
   | { type: "event_replay"; events: BufferedBrowserEvent[] }
   | { type: "session_name_update"; name: string }

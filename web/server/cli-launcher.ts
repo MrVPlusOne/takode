@@ -134,6 +134,8 @@ export interface LaunchOptions {
     actualBranch: string;
     worktreePath: string;
   };
+  /** CLI session ID to resume (from an external CLI session, e.g. VS Code or terminal) */
+  resumeCliSessionId?: string;
 }
 
 /**
@@ -269,6 +271,11 @@ export class CliLauncher {
       info.actualBranch = options.worktreeInfo.actualBranch;
     }
 
+    // Pre-set cliSessionId for resume so subsequent relaunches also use --resume
+    if (options.resumeCliSessionId) {
+      info.cliSessionId = options.resumeCliSessionId;
+    }
+
     this.sessions.set(sessionId, info);
     if (options.env) {
       this.sessionEnvs.set(sessionId, { ...options.env });
@@ -277,7 +284,10 @@ export class CliLauncher {
     if (backendType === "codex") {
       this.spawnCodex(sessionId, info, options);
     } else {
-      this.spawnCLI(sessionId, info, options);
+      this.spawnCLI(sessionId, info, {
+        ...options,
+        ...(options.resumeCliSessionId ? { resumeSessionId: options.resumeCliSessionId } : {}),
+      });
     }
     return info;
   }

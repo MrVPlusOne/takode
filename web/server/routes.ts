@@ -88,6 +88,31 @@ export function createRoutes(
         return c.json({ error: `Invalid backend: ${String(backend)}` }, 400);
       }
 
+      // ── Resume fast-path: skip git/worktree/container logic ──
+      if (body.resumeCliSessionId) {
+        if (backend !== "claude") {
+          return c.json({ error: "Resuming CLI sessions is only supported for Claude backend" }, 400);
+        }
+        let envVars: Record<string, string> | undefined = body.env;
+        if (body.envSlug) {
+          const companionEnv = envManager.getEnv(body.envSlug);
+          if (companionEnv) envVars = { ...companionEnv.variables, ...body.env };
+        }
+        const binarySettings = getSettings();
+        const session = launcher.launch({
+          cwd: body.cwd || process.cwd(),
+          claudeBinary: body.claudeBinary || binarySettings.claudeBinary || undefined,
+          env: envVars,
+          backendType: "claude",
+          resumeCliSessionId: body.resumeCliSessionId,
+          permissionMode: body.askPermission !== false ? "plan" : "bypassPermissions",
+        });
+        wsBridge.setInitialAskPermission(session.sessionId, body.askPermission !== false);
+        const existingNames = new Set(Object.values(sessionNames.getAllNames()));
+        sessionNames.setName(session.sessionId, generateUniqueSessionName(existingNames));
+        return c.json(session);
+      }
+
       // Resolve environment variables from envSlug
       let envVars: Record<string, string> | undefined = body.env;
       if (body.envSlug) {
@@ -411,6 +436,50 @@ export function createRoutes(
           await stream.writeSSE({
             event: "error",
             data: JSON.stringify({ error: `Invalid backend: ${String(backend)}` }),
+          });
+          return;
+        }
+
+        // ── Resume fast-path: skip git/worktree/container logic ──
+        if (body.resumeCliSessionId) {
+          if (backend !== "claude") {
+            await stream.writeSSE({
+              event: "error",
+              data: JSON.stringify({ error: "Resuming CLI sessions is only supported for Claude backend" }),
+            });
+            return;
+          }
+          await emitProgress(stream, "resolving_env", "Resolving environment...", "in_progress");
+          let envVars: Record<string, string> | undefined = body.env;
+          if (body.envSlug) {
+            const companionEnv = envManager.getEnv(body.envSlug);
+            if (companionEnv) envVars = { ...companionEnv.variables, ...body.env };
+          }
+          await emitProgress(stream, "resolving_env", "Environment resolved", "done");
+
+          await emitProgress(stream, "launching_cli", "Resuming CLI session...", "in_progress");
+          const binarySettings = getSettings();
+          const session = launcher.launch({
+            cwd: body.cwd || process.cwd(),
+            claudeBinary: body.claudeBinary || binarySettings.claudeBinary || undefined,
+            env: envVars,
+            backendType: "claude",
+            resumeCliSessionId: body.resumeCliSessionId,
+            permissionMode: body.askPermission !== false ? "plan" : "bypassPermissions",
+          });
+          wsBridge.setInitialCwd(session.sessionId, body.cwd || process.cwd());
+          wsBridge.setInitialAskPermission(session.sessionId, body.askPermission !== false);
+          const existingNames = new Set(Object.values(sessionNames.getAllNames()));
+          sessionNames.setName(session.sessionId, generateUniqueSessionName(existingNames));
+          await emitProgress(stream, "launching_cli", "Session resumed", "done");
+
+          await stream.writeSSE({
+            event: "done",
+            data: JSON.stringify({
+              sessionId: session.sessionId,
+              state: session.state,
+              cwd: session.cwd,
+            }),
           });
           return;
         }
@@ -779,6 +848,121 @@ export function createRoutes(
         });
       }
     });
+  });
+
+  // ─── CLI Session Discovery (for resume) ──────────────────────────────────
+
+  api.get("/cli-sessions", async (c) => {
+    try {
+      const claudeProjectsDir = join(homedir(), ".claude", "projects");
+      if (!existsSync(claudeProjectsDir)) {
+        return c.json({ sessions: [] });
+      }
+
+      // Collect active CLI session IDs so we can filter them out
+      const activeCliSessionIds = new Set<string>();
+      for (const s of launcher.listSessions()) {
+        if (s.cliSessionId) activeCliSessionIds.add(s.cliSessionId);
+      }
+
+      // Scan all project directories for .jsonl files
+      interface CliSessionFile {
+        id: string;
+        projectDir: string;
+        path: string;
+        lastModified: number;
+        sizeBytes: number;
+      }
+      const allFiles: CliSessionFile[] = [];
+
+      let projectDirs: string[];
+      try {
+        projectDirs = await readdir(claudeProjectsDir);
+      } catch {
+        return c.json({ sessions: [] });
+      }
+
+      for (const projectDir of projectDirs) {
+        const projectPath = join(claudeProjectsDir, projectDir);
+        let entries: string[];
+        try {
+          entries = await readdir(projectPath);
+        } catch {
+          continue;
+        }
+        for (const entry of entries) {
+          if (!entry.endsWith(".jsonl")) continue;
+          const sessionId = entry.slice(0, -6); // strip .jsonl
+          // Skip subagent sessions
+          if (sessionId.startsWith("agent-")) continue;
+          // Skip sessions already active in the Companion
+          if (activeCliSessionIds.has(sessionId)) continue;
+
+          const filePath = join(projectPath, entry);
+          try {
+            const st = await stat(filePath);
+            allFiles.push({
+              id: sessionId,
+              projectDir,
+              path: filePath,
+              lastModified: st.mtimeMs,
+              sizeBytes: st.size,
+            });
+          } catch {
+            continue;
+          }
+        }
+      }
+
+      // Sort by mtime desc and take top 50
+      allFiles.sort((a, b) => b.lastModified - a.lastModified);
+      const top = allFiles.slice(0, 50);
+
+      // Read first few lines of each to extract metadata
+      const results = await Promise.all(
+        top.map(async (f) => {
+          let cwd: string | undefined;
+          let slug: string | undefined;
+          let gitBranch: string | undefined;
+
+          try {
+            // Read first 4KB which should contain enough lines for metadata
+            const fd = Bun.file(f.path);
+            const chunk = await fd.slice(0, 4096).text();
+            const lines = chunk.split("\n").slice(0, 10);
+            for (const line of lines) {
+              if (!line.trim()) continue;
+              try {
+                const obj = JSON.parse(line);
+                if (obj.cwd && !cwd) cwd = obj.cwd;
+                if (obj.slug && !slug) slug = obj.slug;
+                if (obj.gitBranch && !gitBranch) gitBranch = obj.gitBranch;
+                if (cwd && slug && gitBranch) break;
+              } catch {
+                continue;
+              }
+            }
+          } catch {
+            // Metadata extraction failed — still return the session with basic info
+          }
+
+          return {
+            id: f.id,
+            cwd: cwd || null,
+            slug: slug || null,
+            gitBranch: gitBranch || null,
+            lastModified: f.lastModified,
+            sizeBytes: f.sizeBytes,
+          };
+        }),
+      );
+
+      return c.json({ sessions: results });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[routes] Failed to list CLI sessions:", msg);
+      return c.json({ sessions: [] });
+    }
   });
 
   api.get("/sessions", (c) => {

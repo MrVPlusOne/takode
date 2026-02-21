@@ -1355,6 +1355,11 @@ export class WsBridge {
           // No summary text found — clear the flag to avoid getting stuck
           session.awaitingCompactSummary = false;
         }
+        // Extract user prompt text/images from CLI messages (e.g. during --resume replay).
+        // User prompts have text/image blocks; tool responses have tool_result blocks.
+        // This makes resumed external sessions show the full conversation.
+        this.extractUserPromptFromCLI(session, msg as CLIUserMessage);
+
         this.handleToolResultMessage(session, msg as CLIUserMessage);
         break;
       }
@@ -1862,6 +1867,69 @@ export class WsBridge {
       summary: msg.summary,
       tool_use_ids: msg.preceding_tool_use_ids,
     });
+  }
+
+  /**
+   * Extract user prompt text/images from a CLI user message and store in
+   * messageHistory. This makes CLI-replayed user prompts (from --resume)
+   * visible in the browser. Deduplicates by CLI uuid to avoid duplicating
+   * messages that the browser already sent.
+   */
+  private extractUserPromptFromCLI(session: Session, msg: CLIUserMessage): void {
+    const content = msg.message?.content;
+    if (!Array.isArray(content)) return;
+
+    // Collect text and image blocks (skip tool_result blocks).
+    // CLI user messages can contain "image" blocks not in our ContentBlock type,
+    // so we cast each block to `any` for flexible property access.
+    const textParts: string[] = [];
+    const imageBlocks: { media_type: string; data: string }[] = [];
+    for (const block of content) {
+      const b = block as Record<string, unknown>;
+      if (b.type === "text" && typeof b.text === "string") {
+        textParts.push(b.text);
+      } else if (b.type === "image" && (b.source as Record<string, unknown>)?.type === "base64") {
+        const src = b.source as Record<string, string>;
+        imageBlocks.push({ media_type: src.media_type, data: src.data });
+      }
+    }
+
+    // Only process if there's actual user prompt content (not pure tool results)
+    if (textParts.length === 0 && imageBlocks.length === 0) return;
+
+    // Dedup: skip if a user_message with this CLI uuid already exists
+    const cliUuid = msg.uuid;
+    if (cliUuid) {
+      const alreadyInHistory = session.messageHistory.some(
+        (m) => m.type === "user_message" && (m as { cliUuid?: string }).cliUuid === cliUuid,
+      );
+      if (alreadyInHistory) return;
+    }
+
+    const ts = Date.now();
+    const text = textParts.join("\n");
+
+    const storeEntry = (refs?: import("./image-store.js").ImageRef[]) => {
+      const entry: BrowserIncomingMessage = {
+        type: "user_message",
+        content: text,
+        timestamp: ts,
+        id: `cli-user-${ts}-${this.userMsgCounter++}`,
+        cliUuid,
+        ...(refs?.length ? { images: refs } : {}),
+      };
+      session.messageHistory.push(entry);
+      this.broadcastToBrowsers(session, entry);
+      this.persistSession(session);
+    };
+
+    if (imageBlocks.length > 0 && this.imageStore) {
+      Promise.all(
+        imageBlocks.map((img) => this.imageStore!.store(session.id, img.data, img.media_type)),
+      ).then(storeEntry).catch(() => storeEntry());
+    } else {
+      storeEntry();
+    }
   }
 
   private handleToolResultMessage(session: Session, msg: CLIUserMessage) {

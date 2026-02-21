@@ -108,6 +108,17 @@ export interface CreateSessionOpts {
   container?: ContainerCreateOpts;
   assistantMode?: boolean;
   askPermission?: boolean;
+  /** CLI session ID to resume (from an external CLI session, e.g. VS Code or terminal) */
+  resumeCliSessionId?: string;
+}
+
+export interface CliSession {
+  id: string;
+  cwd: string | null;
+  slug: string | null;
+  gitBranch: string | null;
+  lastModified: number;
+  sizeBytes: number;
 }
 
 export interface BackendInfo {
@@ -602,4 +613,8 @@ export const api = {
     get<NamerLogIndexEntry[]>("/namer-logs"),
   getNamerLogEntry: (id: number) =>
     get<NamerLogEntry>(`/namer-logs/${id}`),
+
+  // CLI session discovery (for resume)
+  listCliSessions: () =>
+    get<{ sessions: CliSession[] }>("/cli-sessions"),
 };

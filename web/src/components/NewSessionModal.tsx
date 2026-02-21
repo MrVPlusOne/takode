@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useStore } from "../store.js";
-import { api, createSessionStream, type CompanionEnv, type GitRepoInfo, type GitBranchInfo, type BackendInfo } from "../api.js";
+import { api, createSessionStream, type CompanionEnv, type GitRepoInfo, type GitBranchInfo, type BackendInfo, type CliSession } from "../api.js";
 import { connectSession, sendToSession } from "../ws.js";
 import { disconnectSession } from "../ws.js";
 import { getRecentDirs, addRecentDir } from "../utils/recent-dirs.js";
@@ -64,6 +64,13 @@ export function NewSessionModal({ open, onClose }: { open: boolean; onClose: () 
     const stored = scopedGetItem("cc-ask-permission");
     return stored !== null ? stored === "true" : true;
   });
+
+  // Resume mode state
+  const [resumeMode, setResumeMode] = useState(false);
+  const [cliSessions, setCliSessions] = useState<CliSession[]>([]);
+  const [loadingCliSessions, setLoadingCliSessions] = useState(false);
+  const [selectedCliSession, setSelectedCliSession] = useState<string>("");
+  const [manualSessionId, setManualSessionId] = useState("");
 
   const MODELS = dynamicModels || getModelsForBackend(backend);
   const MODES = getModesForBackend(backend);
@@ -201,6 +208,16 @@ export function NewSessionModal({ open, onClose }: { open: boolean; onClose: () 
     });
   }, [open, cwd]);
 
+  // Load CLI sessions when entering resume mode
+  useEffect(() => {
+    if (!open || !resumeMode) return;
+    setLoadingCliSessions(true);
+    api.listCliSessions()
+      .then(({ sessions }) => setCliSessions(sessions))
+      .catch(() => setCliSessions([]))
+      .finally(() => setLoadingCliSessions(false));
+  }, [open, resumeMode]);
+
   // Close on Escape
   useEffect(() => {
     if (!open) return;
@@ -316,6 +333,48 @@ export function NewSessionModal({ open, onClose }: { open: boolean; onClose: () 
     setSending(false);
   }
 
+  const resumeSessionId = selectedCliSession || manualSessionId.trim();
+
+  async function handleResume() {
+    if (sending || !resumeSessionId) return;
+    setSending(true);
+    setError("");
+
+    const store = useStore.getState();
+    store.clearCreation();
+    store.setSessionCreating(true, "claude");
+
+    if (currentSessionId) {
+      disconnectSession(currentSessionId);
+    }
+
+    onClose();
+    setSending(false);
+
+    try {
+      const result = await createSessionStream(
+        {
+          backend: "claude",
+          cwd: cwd || undefined,
+          envSlug: selectedEnv || undefined,
+          resumeCliSessionId: resumeSessionId,
+          askPermission,
+        },
+        (progress) => {
+          useStore.getState().addCreationProgress(progress);
+        },
+      );
+      const sessionId = result.sessionId;
+      if (cwd) addRecentDir(cwd);
+      navigateToSession(sessionId, true);
+      connectSession(sessionId);
+      useStore.getState().clearCreation();
+    } catch (e: unknown) {
+      const errMsg = e instanceof Error ? e.message : String(e);
+      useStore.getState().setCreationError(errMsg);
+    }
+  }
+
   if (!open) return null;
 
   return (
@@ -332,7 +391,7 @@ export function NewSessionModal({ open, onClose }: { open: boolean; onClose: () 
         >
           {/* Header */}
           <div className="flex items-center justify-between px-5 py-4 border-b border-cc-border">
-            <h2 className="text-sm font-semibold text-cc-fg">New Session</h2>
+            <h2 className="text-sm font-semibold text-cc-fg">{resumeMode ? "Resume Session" : "New Session"}</h2>
             <button
               onClick={onClose}
               className="w-6 h-6 flex items-center justify-center rounded-md text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
@@ -343,6 +402,179 @@ export function NewSessionModal({ open, onClose }: { open: boolean; onClose: () 
             </button>
           </div>
 
+          {resumeMode ? (
+            /* ── Resume Mode UI ─────────────────────────────────── */
+            <>
+              <div className="px-5 py-4 space-y-3">
+                {/* Manual session ID input */}
+                <div>
+                  <label className="text-[11px] text-cc-muted uppercase tracking-wider mb-1 block">Session ID</label>
+                  <input
+                    type="text"
+                    value={manualSessionId}
+                    onChange={(e) => {
+                      setManualSessionId(e.target.value);
+                      if (e.target.value.trim()) setSelectedCliSession("");
+                    }}
+                    placeholder="Paste a CLI session ID..."
+                    className="w-full px-3 py-2 text-xs bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg font-mono-code placeholder:text-cc-muted focus:outline-none focus:border-cc-primary/50"
+                  />
+                </div>
+
+                {/* Recent CLI sessions list */}
+                <div>
+                  <label className="text-[11px] text-cc-muted uppercase tracking-wider mb-1 block">Recent Sessions</label>
+                  <div className="max-h-[240px] overflow-y-auto border border-cc-border rounded-lg">
+                    {loadingCliSessions ? (
+                      <div className="flex items-center justify-center py-6 gap-2">
+                        <YarnBallSpinner className="w-4 h-4 text-cc-muted" />
+                        <span className="text-xs text-cc-muted">Loading sessions...</span>
+                      </div>
+                    ) : cliSessions.length === 0 ? (
+                      <div className="py-6 text-center text-xs text-cc-muted">
+                        No CLI sessions found
+                      </div>
+                    ) : (
+                      cliSessions.map((s) => (
+                        <button
+                          key={s.id}
+                          onClick={() => {
+                            setSelectedCliSession(s.id);
+                            setManualSessionId("");
+                            if (s.cwd) setCwd(s.cwd);
+                          }}
+                          className={`w-full px-3 py-2 text-left hover:bg-cc-hover transition-colors cursor-pointer border-b border-cc-border last:border-b-0 ${
+                            selectedCliSession === s.id ? "bg-cc-primary/10" : ""
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-medium text-cc-fg truncate">
+                              {s.slug || s.id.slice(0, 8)}
+                            </span>
+                            {s.gitBranch && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-cc-hover text-cc-muted font-mono-code shrink-0">
+                                {s.gitBranch}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            {s.cwd && (
+                              <span className="text-[10px] text-cc-muted font-mono-code truncate">
+                                {s.cwd}
+                              </span>
+                            )}
+                            <span className="text-[10px] text-cc-muted ml-auto shrink-0">
+                              {new Date(s.lastModified).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                            </span>
+                          </div>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                {/* Optional folder + env overrides */}
+                <div className="flex items-center gap-1 flex-wrap">
+                  <div>
+                    <button
+                      onClick={() => setShowFolderPicker(true)}
+                      className="flex items-center gap-1.5 px-2 py-1 text-xs text-cc-muted hover:text-cc-fg rounded-md hover:bg-cc-hover transition-colors cursor-pointer"
+                    >
+                      <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5 opacity-60">
+                        <path d="M1 3.5A1.5 1.5 0 012.5 2h3.379a1.5 1.5 0 011.06.44l.622.621a.5.5 0 00.353.146H13.5A1.5 1.5 0 0115 4.707V12.5a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 011 12.5v-9z" />
+                      </svg>
+                      <span className="max-w-[120px] truncate font-mono-code">{dirLabel}</span>
+                    </button>
+                    {showFolderPicker && (
+                      <FolderPicker
+                        initialPath={cwd || ""}
+                        onSelect={(path) => { setCwd(path); }}
+                        onClose={() => setShowFolderPicker(false)}
+                      />
+                    )}
+                  </div>
+                  <div className="relative" ref={envDropdownRef}>
+                    <button
+                      onClick={() => {
+                        if (!showEnvDropdown) {
+                          api.listEnvs().then(setEnvs).catch(() => {});
+                        }
+                        setShowEnvDropdown(!showEnvDropdown);
+                      }}
+                      className="flex items-center gap-1.5 px-2 py-1 text-xs text-cc-muted hover:text-cc-fg rounded-md hover:bg-cc-hover transition-colors cursor-pointer"
+                    >
+                      <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5 opacity-60">
+                        <path d="M8 1a2 2 0 012 2v1h2a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6a2 2 0 012-2h2V3a2 2 0 012-2zm0 1.5a.5.5 0 00-.5.5v1h1V3a.5.5 0 00-.5-.5zM4 5.5a.5.5 0 00-.5.5v6a.5.5 0 00.5.5h8a.5.5 0 00.5-.5V6a.5.5 0 00-.5-.5H4z" />
+                      </svg>
+                      <span className="max-w-[120px] truncate">
+                        {selectedEnv ? envs.find((e) => e.slug === selectedEnv)?.name || "Env" : "No env"}
+                      </span>
+                    </button>
+                    {showEnvDropdown && (
+                      <div className="absolute left-0 top-full mt-1 w-56 bg-cc-card border border-cc-border rounded-[10px] shadow-lg z-10 py-1 overflow-hidden">
+                        <button
+                          onClick={() => { setSelectedEnv(""); scopedSetItem("cc-selected-env", ""); setShowEnvDropdown(false); }}
+                          className={`w-full px-3 py-2 text-xs text-left hover:bg-cc-hover transition-colors cursor-pointer ${!selectedEnv ? "text-cc-primary font-medium" : "text-cc-fg"}`}
+                        >
+                          No environment
+                        </button>
+                        {envs.map((env) => (
+                          <button
+                            key={env.slug}
+                            onClick={() => { setSelectedEnv(env.slug); scopedSetItem("cc-selected-env", env.slug); setShowEnvDropdown(false); }}
+                            className={`w-full px-3 py-2 text-xs text-left hover:bg-cc-hover transition-colors cursor-pointer ${env.slug === selectedEnv ? "text-cc-primary font-medium" : "text-cc-fg"}`}
+                          >
+                            {env.name}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Error message */}
+                {error && (
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-cc-error/5 border border-cc-error/20">
+                    <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5 text-cc-error shrink-0">
+                      <path fillRule="evenodd" d="M8 15A7 7 0 108 1a7 7 0 000 14zm1-3a1 1 0 11-2 0 1 1 0 012 0zM7.5 5.5a.5.5 0 011 0v3a.5.5 0 01-1 0v-3z" clipRule="evenodd" />
+                    </svg>
+                    <p className="text-xs text-cc-error">{error}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="px-5 py-4 border-t border-cc-border space-y-2">
+                <button
+                  onClick={handleResume}
+                  disabled={sending || !resumeSessionId}
+                  className="w-full py-2.5 px-4 text-sm font-medium rounded-xl bg-cc-primary hover:bg-cc-primary-hover text-white transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {sending ? (
+                    <>
+                      <YarnBallSpinner className="w-4 h-4 text-white" />
+                      Resuming...
+                    </>
+                  ) : (
+                    <>
+                      <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
+                        <path d="M4 2l10 6-10 6z" />
+                      </svg>
+                      Resume Session
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={() => { setResumeMode(false); setError(""); }}
+                  className="w-full py-1.5 text-xs text-cc-muted hover:text-cc-fg transition-colors cursor-pointer"
+                >
+                  Back to new session
+                </button>
+              </div>
+            </>
+          ) : (
+          /* ── Normal Mode UI ───────────────────────────────────── */
+          <>
           {/* Config selectors */}
           <div className="px-5 py-4 space-y-3">
             {/* Row 1: Backend toggle + Mode selector */}
@@ -854,7 +1086,7 @@ export function NewSessionModal({ open, onClose }: { open: boolean; onClose: () 
           </div>
 
           {/* Footer with Create button */}
-          <div className="px-5 py-4 border-t border-cc-border">
+          <div className="px-5 py-4 border-t border-cc-border space-y-2">
             <button
               onClick={handleCreate}
               disabled={sending}
@@ -874,7 +1106,15 @@ export function NewSessionModal({ open, onClose }: { open: boolean; onClose: () 
                 </>
               )}
             </button>
+            <button
+              onClick={() => { setResumeMode(true); setError(""); }}
+              className="w-full py-1.5 text-xs text-cc-muted hover:text-cc-fg transition-colors cursor-pointer"
+            >
+              Resume an existing session
+            </button>
           </div>
+          </>
+          )}
         </div>
       </div>
 
