@@ -25,6 +25,7 @@ const restrictToVerticalAxis: Modifier = ({ transform }) => ({
 });
 import { SessionItem } from "./SessionItem.js";
 import { useStore } from "../store.js";
+import { isTouchDevice } from "../utils/mobile.js";
 
 interface ProjectGroupProps {
   group: ProjectGroupType;
@@ -203,7 +204,7 @@ export function ProjectGroup({
                       <div
                         ref={setNodeRef}
                         style={style}
-                        {...(reorderMode ? { ...listeners, ...attributes } : {})}
+                        {...((reorderMode || !isTouchDevice()) ? { ...listeners, ...attributes } : {})}
                       >
                         <SessionItem
                           session={s}

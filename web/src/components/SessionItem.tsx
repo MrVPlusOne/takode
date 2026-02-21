@@ -123,13 +123,23 @@ export function SessionItem({
         onTouchEnd={cancelLongPress}
         onTouchMove={cancelLongPress}
         className={`w-full pl-3.5 pr-8 sm:pr-3 py-2 ${archived ? "pr-14 sm:pr-14" : ""} text-left rounded-lg transition-all duration-100 select-none ${
-          reorderMode ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"
+          reorderMode ? "cursor-grab active:cursor-grabbing" : "cursor-pointer sm:cursor-grab sm:active:cursor-grabbing"
         } ${
           isActive
             ? "bg-cc-active"
-            : "hover:bg-cc-hover"
+            : reorderMode ? "bg-cc-hover/50" : "hover:bg-cc-hover"
         }`}
       >
+        {/* Drag handle — visible on mobile in reorder mode */}
+        {reorderMode && (
+          <span className="absolute right-2 top-1/2 -translate-y-1/2 text-cc-muted/40 sm:hidden">
+            <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
+              <circle cx="6" cy="4" r="1.2" /><circle cx="10" cy="4" r="1.2" />
+              <circle cx="6" cy="8" r="1.2" /><circle cx="10" cy="8" r="1.2" />
+              <circle cx="6" cy="12" r="1.2" /><circle cx="10" cy="12" r="1.2" />
+            </svg>
+          </span>
+        )}
         {/* Left accent border */}
         <span
           className={`absolute left-0 top-2 bottom-2 w-[2px] rounded-full ${

@@ -540,11 +540,11 @@ export function Sidebar() {
                 </button>
               )}
             </div>
-            {/* Reorder button — hidden when search is focused or has query */}
+            {/* Reorder button — mobile only (desktop sessions are always draggable) */}
             {!searchFocused && !searchQuery && !filteredSessions && activeSessions.length > 1 && (
               <button
                 onClick={() => setReorderMode(!reorderMode)}
-                className={`text-[10px] font-medium px-2 py-1 rounded-md transition-colors cursor-pointer shrink-0 ${
+                className={`sm:hidden text-[10px] font-medium px-2 py-1 rounded-md transition-colors cursor-pointer shrink-0 ${
                   reorderMode
                     ? "bg-cc-primary/10 text-cc-primary"
                     : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
