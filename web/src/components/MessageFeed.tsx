@@ -344,15 +344,15 @@ interface TurnStats {
   messageCount: number;
   toolCount: number;
   subagentCount: number;
-  lastAssistantText: string;
 }
 
 interface Turn {
   id: string;                      // Stable ID for collapse state (user msg ID or synthetic)
   userEntry: FeedEntry | null;
   allEntries: FeedEntry[];         // All entries in original order (for expanded rendering)
-  agentEntries: FeedEntry[];       // Non-system agent activity (collapsible)
+  agentEntries: FeedEntry[];       // Non-system agent activity (collapsible), excludes responseEntry
   systemEntries: FeedEntry[];      // System messages (always visible, never collapsed)
+  responseEntry: FeedEntry | null; // Last assistant text message (always visible even when collapsed)
   stats: TurnStats;
 }
 
@@ -433,7 +433,21 @@ function makeTurn(userEntry: FeedEntry | null, entries: FeedEntry[], turnIndex: 
     }
   }
 
+  // Count stats on ALL agent entries before extracting the response
   const s = countEntryStats(agentEntries);
+
+  // Extract the final assistant text message as the response entry.
+  // This is always visible (even when activity is collapsed) so the user
+  // can see the agent's answer without expanding intermediate tool calls.
+  let responseEntry: FeedEntry | null = null;
+  for (let i = agentEntries.length - 1; i >= 0; i--) {
+    const e = agentEntries[i];
+    if (e.kind === "message" && e.msg.role === "assistant" && e.msg.content?.trim()) {
+      responseEntry = e;
+      agentEntries.splice(i, 1);
+      break;
+    }
+  }
 
   // Stable ID: prefer user message ID, fall back to first agent entry ID, then synthetic
   const id = userEntry
@@ -446,11 +460,11 @@ function makeTurn(userEntry: FeedEntry | null, entries: FeedEntry[], turnIndex: 
     allEntries: entries,
     agentEntries,
     systemEntries,
+    responseEntry,
     stats: {
       messageCount: s.messages,
       toolCount: s.tools,
       subagentCount: s.subagents,
-      lastAssistantText: s.lastText.length > 80 ? s.lastText.slice(0, 80) + "..." : s.lastText,
     },
   };
 }
@@ -560,34 +574,28 @@ const FeedEntries = memo(function FeedEntries({ entries, sessionId }: { entries:
   );
 });
 
-const CollapsedTurnSummary = memo(function CollapsedTurnSummary({ stats, onClick }: { stats: TurnStats; onClick: () => void }) {
+/** Compact bar showing agent activity stats. Click to expand the full activity. */
+const CollapsedActivityBar = memo(function CollapsedActivityBar({ stats, onClick }: { stats: TurnStats; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
-      className="w-full flex flex-col gap-0.5 py-2 px-3 rounded-lg border border-cc-border/30 bg-cc-card/30 hover:bg-cc-hover/50 transition-colors cursor-pointer"
+      className="w-full flex items-center gap-1.5 py-1.5 px-3 rounded-lg border border-cc-border/30 bg-cc-card/30 hover:bg-cc-hover/50 transition-colors cursor-pointer text-[11px] text-cc-muted font-mono-code"
     >
-      <div className="flex items-center gap-1.5 text-[11px] text-cc-muted font-mono-code">
-        <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 shrink-0 text-cc-muted/60">
-          <path d="M6 4l4 4-4 4" />
-        </svg>
-        <span>{stats.messageCount} message{stats.messageCount !== 1 ? "s" : ""}</span>
-        {stats.toolCount > 0 && (
-          <>
-            <span className="text-cc-muted/40">·</span>
-            <span>{stats.toolCount} tool{stats.toolCount !== 1 ? "s" : ""}</span>
-          </>
-        )}
-        {stats.subagentCount > 0 && (
-          <>
-            <span className="text-cc-muted/40">·</span>
-            <span>{stats.subagentCount} agent{stats.subagentCount !== 1 ? "s" : ""}</span>
-          </>
-        )}
-      </div>
-      {stats.lastAssistantText && (
-        <div className="text-[11px] text-cc-muted/60 truncate pl-[18px] italic font-mono-code">
-          &ldquo;{stats.lastAssistantText}&rdquo;
-        </div>
+      <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 shrink-0 text-cc-muted/60">
+        <path d="M6 4l4 4-4 4" />
+      </svg>
+      <span>{stats.messageCount} message{stats.messageCount !== 1 ? "s" : ""}</span>
+      {stats.toolCount > 0 && (
+        <>
+          <span className="text-cc-muted/40">·</span>
+          <span>{stats.toolCount} tool{stats.toolCount !== 1 ? "s" : ""}</span>
+        </>
+      )}
+      {stats.subagentCount > 0 && (
+        <>
+          <span className="text-cc-muted/40">·</span>
+          <span>{stats.subagentCount} agent{stats.subagentCount !== 1 ? "s" : ""}</span>
+        </>
       )}
     </button>
   );
@@ -681,9 +689,6 @@ const SubagentBatchContainer = memo(function SubagentBatchContainer({ batch, ses
 const SubagentContainer = memo(function SubagentContainer({ group, sessionId, inBatch }: { group: SubagentGroup; sessionId: string; inBatch?: boolean }) {
   const [open, setOpen] = useState(false);
   const [promptOpen, setPromptOpen] = useState(false);
-  // Reset to collapsed when "Expand All" is clicked (generation increments)
-  const expandGen = useStore((s) => s.expandAllGeneration.get(sessionId));
-  useEffect(() => { setOpen(false); }, [expandGen]);
   const headerRef = useRef<HTMLButtonElement>(null);
   const label = group.description || "Subagent";
   const agentType = group.agentType;
@@ -925,39 +930,51 @@ const FeedFooter = memo(function FeedFooter({ sessionId }: { sessionId: string }
 // ─── Turn list (owns collapse state so MessageFeed doesn't re-render on toggle) ─
 
 const TurnEntries = memo(function TurnEntries({ turns, sessionId }: { turns: Turn[]; sessionId: string }) {
-  const collapsedSet = useStore((s) => s.collapsedTurns.get(sessionId));
-  const toggleTurn = useStore((s) => s.toggleTurnCollapsed);
+  const overrides = useStore((s) => s.turnActivityOverrides.get(sessionId));
+  const toggleTurn = useStore((s) => s.toggleTurnActivity);
 
   return (
     <>
-      {turns.map((turn) => {
-        const isCollapsed = collapsedSet?.has(turn.id) ?? false;
+      {turns.map((turn, index) => {
+        const isLastTurn = index === turns.length - 1;
+        const override = overrides?.get(turn.id);
+        // Default: last turn expanded, all others collapsed
+        const isActivityExpanded = override !== undefined ? override : isLastTurn;
+
         return (
-          <div key={turn.id} className="turn-container space-y-3 sm:space-y-5">
-            {/* Render user message */}
+          <div key={turn.id} className="turn-container space-y-3 sm:space-y-5" data-user-turn={turn.userEntry ? "true" : undefined}>
+            {/* User message — always visible */}
             {turn.userEntry && (
               <FeedEntries entries={[turn.userEntry]} sessionId={sessionId} />
             )}
-            {isCollapsed ? (
+
+            {isActivityExpanded ? (
+              /* Expanded: show all entries with collapse affordance */
+              turn.allEntries.length > 0 && (
+                <TurnEntriesExpanded
+                  turn={turn}
+                  sessionId={sessionId}
+                  onCollapse={() => toggleTurn(sessionId, turn.id, isLastTurn)}
+                />
+              )
+            ) : (
               <>
-                {/* System messages always visible in collapsed mode */}
+                {/* System messages — always visible */}
                 {turn.systemEntries.length > 0 && (
                   <FeedEntries entries={turn.systemEntries} sessionId={sessionId} />
                 )}
-                {/* Collapsed summary for agent activity */}
+                {/* Collapsed activity summary bar */}
                 {turn.agentEntries.length > 0 && (
-                  <CollapsedTurnSummary
+                  <CollapsedActivityBar
                     stats={turn.stats}
-                    onClick={() => toggleTurn(sessionId, turn.id)}
+                    onClick={() => toggleTurn(sessionId, turn.id, isLastTurn)}
                   />
                 )}
+                {/* Final agent response — always visible */}
+                {turn.responseEntry && (
+                  <FeedEntries entries={[turn.responseEntry]} sessionId={sessionId} />
+                )}
               </>
-            ) : turn.allEntries.length > 0 && (
-              <TurnEntriesExpanded
-                turn={turn}
-                sessionId={sessionId}
-                onCollapse={() => toggleTurn(sessionId, turn.id)}
-              />
             )}
           </div>
         );
@@ -1156,18 +1173,58 @@ export function MessageFeed({ sessionId }: { sessionId: string }) {
         </PawScrollProvider>
       </div>
 
-      {/* Scroll-to-bottom FAB */}
+      {/* Navigation FABs — prev/next user message + scroll to bottom */}
       {showScrollButton && (
-        <button
-          onClick={scrollToBottom}
-          className="absolute bottom-3 right-3 z-10 w-8 h-8 rounded-full bg-cc-card border border-cc-border shadow-lg flex items-center justify-center text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-all cursor-pointer"
-          title="Scroll to bottom"
-          aria-label="Scroll to bottom"
-        >
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
-            <path d="M8 3v10M4 9l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </button>
+        <div className="absolute bottom-3 right-3 z-10 flex flex-col gap-1.5">
+          <button
+            onClick={() => {
+              const el = containerRef.current;
+              if (!el) return;
+              const turns = el.querySelectorAll("[data-user-turn]");
+              const viewTop = el.scrollTop + 10;
+              for (let i = turns.length - 1; i >= 0; i--) {
+                const t = turns[i] as HTMLElement;
+                if (t.offsetTop < viewTop) {
+                  t.scrollIntoView({ block: "start", behavior: "smooth" });
+                  return;
+                }
+              }
+            }}
+            className="w-8 h-8 rounded-full bg-cc-card border border-cc-border shadow-lg flex items-center justify-center text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-all cursor-pointer"
+            title="Previous user message"
+            aria-label="Previous user message"
+          >
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
+              <path d="M4 7l4-4 4 4" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M8 3v10" strokeLinecap="round" />
+            </svg>
+          </button>
+          <button
+            onClick={() => {
+              const el = containerRef.current;
+              if (!el) return;
+              const turns = el.querySelectorAll("[data-user-turn]");
+              const viewTop = el.scrollTop + 10;
+              for (let i = 0; i < turns.length; i++) {
+                const t = turns[i] as HTMLElement;
+                if (t.offsetTop > viewTop + el.clientHeight * 0.3) {
+                  t.scrollIntoView({ block: "start", behavior: "smooth" });
+                  return;
+                }
+              }
+              // No next user message — scroll to bottom
+              el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+            }}
+            className="w-8 h-8 rounded-full bg-cc-card border border-cc-border shadow-lg flex items-center justify-center text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-all cursor-pointer"
+            title="Next user message"
+            aria-label="Next user message"
+          >
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
+              <path d="M4 9l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M8 3v10" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
       )}
     </div>
   );

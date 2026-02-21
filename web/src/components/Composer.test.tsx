@@ -126,8 +126,8 @@ function setupMockStore(overrides: {
       notifyMockStore();
     }),
     collapsibleTurnIds: new Map(),
-    collapsedTurns: new Map(),
-    setAllTurnsCollapsed: vi.fn(),
+    turnActivityOverrides: new Map(),
+    collapseAllTurnActivity: vi.fn(),
     pendingPermissions: new Map(),
     removePermission: vi.fn(),
   };

@@ -65,35 +65,23 @@ interface CommandItem {
   type: "command" | "skill";
 }
 
-function CollapseAllToggle({ sessionId }: { sessionId: string }) {
+function CollapseAllButton({ sessionId }: { sessionId: string }) {
   const collapsibleTurnIds = useStore((s) => s.collapsibleTurnIds.get(sessionId));
-  const collapsedSet = useStore((s) => s.collapsedTurns.get(sessionId));
-
   const hasTurns = collapsibleTurnIds && collapsibleTurnIds.length > 0;
-  const allCollapsed = hasTurns && collapsibleTurnIds.every((id) => collapsedSet?.has(id));
 
   return (
     <button
-      onClick={() => hasTurns && useStore.getState().setAllTurnsCollapsed(sessionId, !allCollapsed, collapsibleTurnIds)}
+      onClick={() => hasTurns && useStore.getState().collapseAllTurnActivity(sessionId, collapsibleTurnIds)}
       className={`flex items-center gap-1 px-1.5 py-1 rounded-md text-[11px] transition-colors select-none ${
         hasTurns ? "text-cc-muted hover:text-cc-fg hover:bg-cc-hover cursor-pointer" : "text-cc-muted/40 cursor-default"
       }`}
-      title={allCollapsed ? "Expand all turns" : "Collapse all turns"}
+      title="Collapse all turns"
     >
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5">
-        {allCollapsed ? (
-          <>
-            <path d="M4 6l4-4 4 4" />
-            <path d="M4 10l4 4 4-4" />
-          </>
-        ) : (
-          <>
-            <path d="M4 2l4 4 4-4" />
-            <path d="M4 14l4-4 4 4" />
-          </>
-        )}
+        <path d="M4 2l4 4 4-4" />
+        <path d="M4 14l4-4 4 4" />
       </svg>
-      <span>{allCollapsed ? "Expand" : "Collapse"}</span>
+      <span>Collapse</span>
     </button>
   );
 }
@@ -729,7 +717,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
             )}
 
             {/* Center: collapse toggle */}
-            <CollapseAllToggle sessionId={sessionId} />
+            <CollapseAllButton sessionId={sessionId} />
 
             {/* Right: image + send/stop */}
             <div className="flex items-center gap-3 sm:gap-1">

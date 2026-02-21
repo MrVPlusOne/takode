@@ -36,9 +36,8 @@ vi.mock("../store.js", () => {
       toolStartTimestamps: mockStoreValues.toolStartTimestamps ?? new Map(),
       feedVisibleCount: mockStoreValues.feedVisibleCount ?? new Map(),
       feedScrollPosition: mockStoreValues.feedScrollPosition ?? new Map(),
-      collapsedTurns: mockStoreValues.collapsedTurns ?? new Map(),
-      expandAllGeneration: mockStoreValues.expandAllGeneration ?? new Map(),
-      toggleTurnCollapsed: vi.fn(),
+      turnActivityOverrides: mockStoreValues.turnActivityOverrides ?? new Map(),
+      toggleTurnActivity: vi.fn(),
     };
     return selector(state);
   };
@@ -47,7 +46,7 @@ vi.mock("../store.js", () => {
     setFeedVisibleCount: vi.fn(),
     feedScrollPosition: mockStoreValues.feedScrollPosition ?? new Map(),
     setFeedScrollPosition: vi.fn(),
-    setAllTurnsCollapsed: vi.fn(),
+    collapseAllTurnActivity: vi.fn(),
     setCollapsibleTurnIds: vi.fn(),
   });
   return { useStore };
@@ -102,13 +101,15 @@ function resetStore() {
   mockStoreValues.streamingPausedDuration = new Map();
   mockStoreValues.streamingPauseStartedAt = new Map();
   mockStoreValues.sessionStatus = new Map();
-  mockStoreValues.collapsedTurns = new Map();
+  mockStoreValues.turnActivityOverrides = new Map();
 }
 
-function setStoreCollapsedTurns(sessionId: string, turnIds: string[]) {
+/** Set explicit overrides for turn activity expansion per session.
+ *  Each entry: [turnId, expanded: boolean]. */
+function setStoreTurnOverrides(sessionId: string, overrides: [string, boolean][]) {
   const map = new Map();
-  map.set(sessionId, new Set(turnIds));
-  mockStoreValues.collapsedTurns = map;
+  map.set(sessionId, new Map(overrides));
+  mockStoreValues.turnActivityOverrides = map;
 }
 
 beforeEach(() => {
@@ -620,34 +621,32 @@ describe("MessageFeed - turn grouping", () => {
 });
 
 describe("MessageFeed - collapsed turns", () => {
-  it("shows collapsed summary when turn is in collapsedTurns set", () => {
-    // Collapse the first turn (user message u1) — its agent entries should be hidden
+  it("non-last turns default to collapsed, showing activity bar + response", () => {
+    // First turn auto-collapses since it's not the last turn.
+    // The collapsed view shows: user msg + activity bar + final response entry.
     const sid = "test-turn-collapse";
     setStoreMessages(sid, [
       makeMessage({ id: "u1", role: "user", content: "First question" }),
-      makeMessage({ id: "a1", role: "assistant", content: "Long assistant response here" }),
       makeMessage({
-        id: "a2", role: "assistant", content: "",
+        id: "a1", role: "assistant", content: "",
         contentBlocks: [
           { type: "tool_use", id: "tu-1", name: "Read", input: { file_path: "/a.ts" } },
         ],
       }),
+      makeMessage({ id: "a2", role: "assistant", content: "Here is the answer" }),
       makeMessage({ id: "u2", role: "user", content: "Second question" }),
       makeMessage({ id: "a3", role: "assistant", content: "Second answer" }),
     ]);
-    // Collapse the first turn using its stable ID (user message ID "u1")
-    setStoreCollapsedTurns(sid, ["u1"]);
 
     render(<MessageFeed sessionId={sid} />);
 
-    // User message should still be visible
+    // User message always visible
     expect(screen.getByText("First question")).toBeTruthy();
-    // Agent activity should be hidden — collapsed summary shows stats instead
-    expect(screen.queryByText("Long assistant response here")).toBeNull();
-    // Collapsed summary should show message count and tool count
-    expect(screen.getByText(/2 messages/)).toBeTruthy();
+    // Activity bar shows stats (tool calls are intermediate activity)
     expect(screen.getByText(/1 tool/)).toBeTruthy();
-    // Second turn should be fully visible
+    // Final agent response is always visible even when activity is collapsed
+    expect(screen.getByText("Here is the answer")).toBeTruthy();
+    // Second turn (last) is expanded by default
     expect(screen.getByText("Second question")).toBeTruthy();
     expect(screen.getByText("Second answer")).toBeTruthy();
   });
@@ -661,19 +660,18 @@ describe("MessageFeed - collapsed turns", () => {
       makeMessage({ id: "a1", role: "assistant", content: "Done" }),
       makeMessage({ id: "u2", role: "user", content: "Next" }),
     ]);
-    setStoreCollapsedTurns(sid, ["u1"]);
 
     render(<MessageFeed sessionId={sid} />);
 
     // Compact marker should remain visible even though the turn is collapsed
     expect(screen.getByText("Conversation compacted")).toBeTruthy();
-    // Agent message should be hidden
-    expect(screen.queryByText("Done")).toBeNull();
+    // Agent response should be visible as the responseEntry
+    expect(screen.getByText("Done")).toBeTruthy();
   });
 
   it("renders compact markers in chronological position when turn is expanded", () => {
-    // Compact markers should appear at their original position in the message flow,
-    // not grouped before or after agent entries
+    // Compact markers should appear at their original position in the message flow.
+    // Force-expand a non-last turn via override to test expanded rendering.
     const sid = "test-compact-position";
     setStoreMessages(sid, [
       makeMessage({ id: "u1", role: "user", content: "Start" }),
@@ -682,6 +680,8 @@ describe("MessageFeed - collapsed turns", () => {
       makeMessage({ id: "a2", role: "assistant", content: "Done after compaction" }),
       makeMessage({ id: "u2", role: "user", content: "Next" }),
     ]);
+    // Force-expand the first turn (not last, so defaults to collapsed)
+    setStoreTurnOverrides(sid, [["u1", true]]);
 
     const { container } = render(<MessageFeed sessionId={sid} />);
 
@@ -700,18 +700,21 @@ describe("MessageFeed - collapsed turns", () => {
     expect(posCompact).toBeLessThan(posDone);
   });
 
-  it("shows collapsed summary with correct text preview", () => {
-    const sid = "test-collapse-preview";
+  it("collapsed turn shows final response even when no activity bar", () => {
+    // When a turn has only a text response (no tools), no activity bar is shown —
+    // just the user message and the response.
+    const sid = "test-collapse-no-activity";
     setStoreMessages(sid, [
       makeMessage({ id: "u1", role: "user", content: "Question" }),
       makeMessage({ id: "a1", role: "assistant", content: "The fix has been applied" }),
       makeMessage({ id: "u2", role: "user", content: "Thanks" }),
     ]);
-    setStoreCollapsedTurns(sid, ["u1"]);
 
     render(<MessageFeed sessionId={sid} />);
 
-    // The collapsed summary should include a text preview from the last assistant message
+    // Response is visible as a full MessageBubble
     expect(screen.getByText(/The fix has been applied/)).toBeTruthy();
+    // No activity bar since there are no remaining agent entries after extracting response
+    expect(screen.queryByText(/message/)).toBeNull();
   });
 });

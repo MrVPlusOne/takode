@@ -229,14 +229,13 @@ interface AppState {
   setComposerDraft: (sessionId: string, draft: { text: string; images: Array<{ name: string; base64: string; mediaType: string }> }) => void;
   clearComposerDraft: (sessionId: string) => void;
 
-  // Turn collapse state (collapsible agent activity sections)
-  // Uses stable turn IDs (user message IDs or synthetic keys) instead of positional indices
-  collapsedTurns: Map<string, Set<string>>;
+  // Turn activity collapse state.
+  // Default: last turn expanded, all others collapsed. Overrides let the user
+  // toggle individual turns away from the default (true = expanded, false = collapsed).
+  turnActivityOverrides: Map<string, Map<string, boolean>>;
   collapsibleTurnIds: Map<string, string[]>;
-  // Generation counter: incremented on "Expand All" so SubagentContainers can reset to default-collapsed
-  expandAllGeneration: Map<string, number>;
-  toggleTurnCollapsed: (sessionId: string, turnId: string) => void;
-  setAllTurnsCollapsed: (sessionId: string, collapsed: boolean, turnIds: string[]) => void;
+  toggleTurnActivity: (sessionId: string, turnId: string, isLastTurn: boolean) => void;
+  collapseAllTurnActivity: (sessionId: string, turnIds: string[]) => void;
   setCollapsibleTurnIds: (sessionId: string, turnIds: string[]) => void;
 
   // Diff panel actions
@@ -378,9 +377,8 @@ export const useStore = create<AppState>((set) => ({
   feedVisibleCount: new Map(),
   feedScrollPosition: new Map(),
   composerDrafts: new Map(),
-  collapsedTurns: new Map(),
+  turnActivityOverrides: new Map(),
   collapsibleTurnIds: new Map(),
-  expandAllGeneration: new Map(),
   terminalOpen: false,
   terminalCwd: null,
   terminalId: null,
@@ -531,12 +529,10 @@ export const useStore = create<AppState>((set) => ({
       feedScrollPosition.delete(sessionId);
       const composerDrafts = new Map(s.composerDrafts);
       composerDrafts.delete(sessionId);
-      const collapsedTurns = new Map(s.collapsedTurns);
-      collapsedTurns.delete(sessionId);
+      const turnActivityOverrides = new Map(s.turnActivityOverrides);
+      turnActivityOverrides.delete(sessionId);
       const collapsibleTurnIds = new Map(s.collapsibleTurnIds);
       collapsibleTurnIds.delete(sessionId);
-      const expandAllGeneration = new Map(s.expandAllGeneration);
-      expandAllGeneration.delete(sessionId);
       const sessionAttention = new Map(s.sessionAttention);
       sessionAttention.delete(sessionId);
       scopedSetItem("cc-session-names", JSON.stringify(Array.from(sessionNames.entries())));
@@ -574,9 +570,8 @@ export const useStore = create<AppState>((set) => ({
         feedVisibleCount,
         feedScrollPosition,
         composerDrafts,
-        collapsedTurns,
+        turnActivityOverrides,
         collapsibleTurnIds,
-        expandAllGeneration,
         sessionAttention,
         sdkSessions: s.sdkSessions.filter((sdk) => sdk.sessionId !== sessionId),
         currentSessionId: s.currentSessionId === sessionId ? null : s.currentSessionId,
@@ -1077,32 +1072,28 @@ export const useStore = create<AppState>((set) => ({
       return { composerDrafts };
     }),
 
-  toggleTurnCollapsed: (sessionId, turnId) =>
+  toggleTurnActivity: (sessionId, turnId, isLastTurn) =>
     set((s) => {
-      const collapsedTurns = new Map(s.collapsedTurns);
-      const ids = new Set(collapsedTurns.get(sessionId) || []);
-      if (ids.has(turnId)) {
-        ids.delete(turnId);
+      const overrides = new Map(s.turnActivityOverrides);
+      const session = new Map(overrides.get(sessionId) || []);
+      if (session.has(turnId)) {
+        // Has override → remove it (revert to default)
+        session.delete(turnId);
       } else {
-        ids.add(turnId);
+        // No override → set opposite of default (last=expanded→false, others=collapsed→true)
+        session.set(turnId, !isLastTurn);
       }
-      collapsedTurns.set(sessionId, ids);
-      return { collapsedTurns };
+      overrides.set(sessionId, session);
+      return { turnActivityOverrides: overrides };
     }),
 
-  setAllTurnsCollapsed: (sessionId, collapsed, turnIds) =>
+  collapseAllTurnActivity: (sessionId, turnIds) =>
     set((s) => {
-      const collapsedTurns = new Map(s.collapsedTurns);
-      if (collapsed) {
-        collapsedTurns.set(sessionId, new Set(turnIds));
-      } else {
-        collapsedTurns.set(sessionId, new Set());
-        // Increment generation so SubagentContainers reset to default-collapsed
-        const expandAllGeneration = new Map(s.expandAllGeneration);
-        expandAllGeneration.set(sessionId, (expandAllGeneration.get(sessionId) ?? 0) + 1);
-        return { collapsedTurns, expandAllGeneration };
-      }
-      return { collapsedTurns };
+      const overrides = new Map(s.turnActivityOverrides);
+      const session = new Map<string, boolean>();
+      for (const id of turnIds) session.set(id, false);
+      overrides.set(sessionId, session);
+      return { turnActivityOverrides: overrides };
     }),
 
   setCollapsibleTurnIds: (sessionId, turnIds) =>
@@ -1157,9 +1148,8 @@ export const useStore = create<AppState>((set) => ({
       feedVisibleCount: new Map(),
       feedScrollPosition: new Map(),
       composerDrafts: new Map(),
-      collapsedTurns: new Map(),
+      turnActivityOverrides: new Map(),
       collapsibleTurnIds: new Map(),
-      expandAllGeneration: new Map(),
       terminalOpen: false,
       terminalCwd: null,
       terminalId: null,
