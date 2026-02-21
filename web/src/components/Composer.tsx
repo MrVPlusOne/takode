@@ -757,7 +757,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
                   });
                   ta.focus();
                 }}
-                className="flex sm:hidden items-center justify-center w-11 h-11 rounded-lg text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
+                className={`${isRunning ? "hidden" : "flex"} sm:hidden items-center justify-center w-11 h-11 rounded-lg text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer`}
                 title="Insert newline"
               >
                 <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
