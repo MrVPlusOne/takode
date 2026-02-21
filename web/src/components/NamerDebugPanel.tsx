@@ -1,4 +1,5 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { api } from "../api.js";
 import type { NamerLogIndexEntry, NamerLogEntry } from "../api.js";
 
@@ -82,6 +83,21 @@ export function NamerDebugPanel() {
     }
   };
 
+  const selectedIndexEntry = expandedId !== null ? entries.find((e) => e.id === expandedId) : null;
+
+  // Close modal on Escape key
+  useEffect(() => {
+    if (expandedId === null) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setExpandedId(null);
+        setExpandedEntry(null);
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [expandedId]);
+
   return (
     <div>
       <button
@@ -122,7 +138,7 @@ export function NamerDebugPanel() {
                   <button
                     type="button"
                     onClick={() => handleToggle(entry.id)}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs hover:bg-cc-hover transition-colors cursor-pointer"
+                    className={`w-full flex items-center gap-2 px-3 py-2 text-left text-xs hover:bg-cc-hover transition-colors cursor-pointer ${expandedId === entry.id ? "bg-cc-hover" : ""}`}
                   >
                     <span className="text-cc-muted shrink-0 w-16">{timeAgo(entry.timestamp)}</span>
                     <span className={`flex-1 truncate ${actionColor(entry.parsed)}`}>
@@ -136,47 +152,85 @@ export function NamerDebugPanel() {
                       {entry.sessionId.slice(0, 8)}
                     </span>
                   </button>
-
-                  {expandedId === entry.id && (
-                    <div className="border-t border-cc-border px-3 py-2 space-y-2 bg-cc-bg">
-                      {detailLoading ? (
-                        <p className="text-xs text-cc-muted">Loading...</p>
-                      ) : expandedEntry ? (
-                        <>
-                          <div>
-                            <span className="text-[10px] uppercase tracking-wider text-cc-muted font-medium">System Prompt</span>
-                            <pre className="mt-1 text-[11px] text-cc-fg bg-cc-hover rounded p-2 overflow-x-auto whitespace-pre max-h-[200px] overflow-y-auto font-mono">
-                              {expandedEntry.systemPrompt}
-                            </pre>
-                          </div>
-                          <div>
-                            <span className="text-[10px] uppercase tracking-wider text-cc-muted font-medium">Prompt</span>
-                            <pre className="mt-1 text-[11px] text-cc-fg bg-cc-hover rounded p-2 overflow-x-auto whitespace-pre max-h-[300px] overflow-y-auto font-mono">
-                              {expandedEntry.prompt}
-                            </pre>
-                          </div>
-                          <div>
-                            <span className="text-[10px] uppercase tracking-wider text-cc-muted font-medium">Response</span>
-                            <pre className="mt-1 text-[11px] text-cc-fg bg-cc-hover rounded p-2 overflow-x-auto whitespace-pre font-mono">
-                              {expandedEntry.rawResponse ?? "(null — timeout or error)"}
-                            </pre>
-                          </div>
-                          {entry.currentName && (
-                            <div className="text-[11px] text-cc-muted">
-                              Current name at time of call: <span className="text-cc-fg">{entry.currentName}</span>
-                            </div>
-                          )}
-                        </>
-                      ) : (
-                        <p className="text-xs text-cc-error">Failed to load details</p>
-                      )}
-                    </div>
-                  )}
                 </div>
               ))}
             </div>
           )}
         </div>
+      )}
+
+      {/* Full-screen modal for entry detail */}
+      {expandedId !== null && createPortal(
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={() => { setExpandedId(null); setExpandedEntry(null); }}
+        >
+          <div
+            className="bg-cc-bg border border-cc-border rounded-xl shadow-2xl flex flex-col"
+            style={{ width: "calc(100vw - 48px)", height: "calc(100vh - 48px)", maxWidth: "1400px" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-3 border-b border-cc-border shrink-0">
+              <div className="flex items-center gap-3">
+                <h3 className="text-sm font-semibold text-cc-fg">Namer Call Detail</h3>
+                {selectedIndexEntry && (
+                  <>
+                    <span className={`text-xs ${actionColor(selectedIndexEntry.parsed)}`}>
+                      {actionLabel(selectedIndexEntry.parsed)}
+                    </span>
+                    <span className="text-xs text-cc-muted">
+                      {timeAgo(selectedIndexEntry.timestamp)} &middot; {formatDuration(selectedIndexEntry.durationMs)} &middot; {selectedIndexEntry.sessionId.slice(0, 8)}
+                    </span>
+                  </>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => { setExpandedId(null); setExpandedEntry(null); }}
+                className="px-2 py-1 rounded text-xs text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
+              >
+                Close (Esc)
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto p-5 space-y-4">
+              {detailLoading ? (
+                <p className="text-sm text-cc-muted">Loading...</p>
+              ) : expandedEntry ? (
+                <>
+                  {selectedIndexEntry?.currentName && (
+                    <div className="text-xs text-cc-muted">
+                      Current name at time of call: <span className="text-cc-fg font-medium">{selectedIndexEntry.currentName}</span>
+                    </div>
+                  )}
+                  <div>
+                    <span className="text-[11px] uppercase tracking-wider text-cc-muted font-medium">System Prompt</span>
+                    <pre className="mt-1 text-[12px] leading-relaxed text-cc-fg bg-cc-hover rounded-lg p-4 overflow-x-auto whitespace-pre-wrap break-words font-mono">
+                      {expandedEntry.systemPrompt}
+                    </pre>
+                  </div>
+                  <div>
+                    <span className="text-[11px] uppercase tracking-wider text-cc-muted font-medium">Prompt</span>
+                    <pre className="mt-1 text-[12px] leading-relaxed text-cc-fg bg-cc-hover rounded-lg p-4 overflow-x-auto whitespace-pre-wrap break-words font-mono">
+                      {expandedEntry.prompt}
+                    </pre>
+                  </div>
+                  <div>
+                    <span className="text-[11px] uppercase tracking-wider text-cc-muted font-medium">Response</span>
+                    <pre className="mt-1 text-[12px] leading-relaxed text-cc-fg bg-cc-hover rounded-lg p-4 overflow-x-auto whitespace-pre-wrap break-words font-mono">
+                      {expandedEntry.rawResponse ?? "(null — timeout or error)"}
+                    </pre>
+                  </div>
+                </>
+              ) : (
+                <p className="text-sm text-cc-error">Failed to load details</p>
+              )}
+            </div>
+          </div>
+        </div>,
+        document.body
       )}
     </div>
   );
