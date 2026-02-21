@@ -1657,8 +1657,17 @@ describe("GET /api/fs/diff", () => {
     expect(json).toEqual({ error: "path required" });
   });
 
+  it("returns 400 when base branch is missing", async () => {
+    // base param is now required (always provided by frontend from session.diff_base_branch)
+    const res = await app.request("/api/fs/diff?path=/repo/file.ts", { method: "GET" });
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json).toEqual({ error: "base branch required" });
+  });
+
   it("returns unified diff for a file using merge-base", async () => {
-    // Validates that /api/fs/diff uses merge-base of the default branch and HEAD as the diff base.
+    // Validates that /api/fs/diff uses merge-base of the provided base branch and HEAD.
     const diffOutput = `diff --git a/file.ts b/file.ts
 --- a/file.ts
 +++ b/file.ts
@@ -1671,16 +1680,12 @@ describe("GET /api/fs/diff", () => {
       if (typeof cmd !== "string") throw new Error("non-string cmd");
       if (cmd.includes("rev-parse --show-toplevel")) return "/repo\n";
       if (cmd.includes("ls-files --full-name")) return "file.ts\n";
-      if (cmd.includes("rev-parse --abbrev-ref HEAD")) return "feature\n";
-      if (cmd.includes("for-each-ref") && cmd.includes("--contains=HEAD")) return "feature\n"; // only current branch
-      if (cmd.includes("symbolic-ref refs/remotes/origin/HEAD")) throw new Error("no origin");
-      if (cmd.includes("branch --list main master")) return "  main";
       if (cmd.includes("merge-base main HEAD")) return "abc123\n";
       if (cmd.includes("git diff abc123")) return diffOutput;
       throw new Error(`Unmocked: ${cmd}`);
     });
 
-    const res = await app.request("/api/fs/diff?path=/repo/file.ts", { method: "GET" });
+    const res = await app.request("/api/fs/diff?path=/repo/file.ts&base=main", { method: "GET" });
 
     expect(res.status).toBe(200);
     const json = await res.json();
@@ -1711,10 +1716,6 @@ index 0000000..e69de29
       if (typeof cmd !== "string") throw new Error("non-string cmd");
       if (cmd.includes("rev-parse --show-toplevel")) return "/repo\n";
       if (cmd.includes("ls-files --full-name")) return "new.txt\n";
-      if (cmd.includes("rev-parse --abbrev-ref HEAD")) return "feature\n";
-      if (cmd.includes("for-each-ref") && cmd.includes("--contains=HEAD")) return "feature\n";
-      if (cmd.includes("symbolic-ref refs/remotes/origin/HEAD")) throw new Error("no origin");
-      if (cmd.includes("branch --list main master")) return "  main";
       if (cmd.includes("merge-base main HEAD")) return "abc123\n";
       if (cmd.includes("git diff abc123")) return "";
       if (cmd.includes("ls-files --others --exclude-standard")) return "new.txt\n";
@@ -1726,7 +1727,7 @@ index 0000000..e69de29
       throw new Error(`Unmocked: ${cmd}`);
     });
 
-    const res = await app.request("/api/fs/diff?path=/repo/new.txt", { method: "GET" });
+    const res = await app.request("/api/fs/diff?path=/repo/new.txt&base=main", { method: "GET" });
     const json = await res.json();
 
     expect(res.status).toBe(200);
@@ -1749,16 +1750,12 @@ index 0000000..e69de29
       if (typeof cmd !== "string") throw new Error("non-string cmd");
       if (cmd.includes("rev-parse --show-toplevel")) return "/repo\n";
       if (cmd.includes("ls-files --full-name")) return "file.ts\n";
-      if (cmd.includes("rev-parse --abbrev-ref HEAD")) return "feature\n";
-      if (cmd.includes("for-each-ref") && cmd.includes("--contains=HEAD")) return "feature\n";
-      if (cmd.includes("symbolic-ref refs/remotes/origin/HEAD")) throw new Error("no origin");
-      if (cmd.includes("branch --list main master")) return "  main";
       if (cmd.includes("merge-base main HEAD")) throw new Error("fatal: no merge base found");
       if (cmd.includes("git diff main")) return diffOutput;
       throw new Error(`Unmocked: ${cmd}`);
     });
 
-    const res = await app.request("/api/fs/diff?path=/repo/file.ts", { method: "GET" });
+    const res = await app.request("/api/fs/diff?path=/repo/file.ts&base=main", { method: "GET" });
 
     expect(res.status).toBe(200);
     const json = await res.json();
@@ -1766,10 +1763,8 @@ index 0000000..e69de29
     expect(json.baseBranch).toBe("main");
   });
 
-  it("uses user-specified base branch when provided", async () => {
-    // The ?base= query param overrides the default branch for diff comparison.
-    // When base is explicitly provided, resolveDefaultBranch is still called but
-    // its result is overridden by the user-selected base.
+  it("uses user-specified base branch for diff comparison", async () => {
+    // The ?base= query param specifies the base branch for diff comparison.
     const diffOutput = `diff --git a/file.ts b/file.ts
 --- a/file.ts
 +++ b/file.ts
@@ -1780,10 +1775,6 @@ index 0000000..e69de29
       if (typeof cmd !== "string") throw new Error("non-string cmd");
       if (cmd.includes("rev-parse --show-toplevel")) return "/repo\n";
       if (cmd.includes("ls-files --full-name")) return "file.ts\n";
-      if (cmd.includes("rev-parse --abbrev-ref HEAD")) return "feature\n";
-      if (cmd.includes("for-each-ref") && cmd.includes("--contains=HEAD")) return "feature\n";
-      if (cmd.includes("symbolic-ref refs/remotes/origin/HEAD")) throw new Error("no origin");
-      if (cmd.includes("branch --list main master")) return "  main";
       if (cmd.includes("merge-base develop HEAD")) return "def456\n";
       if (cmd.includes("git diff def456")) return diffOutput;
       throw new Error(`Unmocked: ${cmd}`);
@@ -1806,7 +1797,7 @@ index 0000000..e69de29
       throw new Error("not a git repository");
     });
 
-    const res = await app.request("/api/fs/diff?path=/not-a-repo/file.ts", { method: "GET" });
+    const res = await app.request("/api/fs/diff?path=/not-a-repo/file.ts&base=main", { method: "GET" });
 
     expect(res.status).toBe(200);
     const json = await res.json();

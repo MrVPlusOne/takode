@@ -37,6 +37,7 @@ import type { CodexAdapter } from "./codex-adapter.js";
 import type { RecorderManager } from "./recorder.js";
 import type { ImageStore } from "./image-store.js";
 import type { CliLauncher } from "./cli-launcher.js";
+import * as gitUtils from "./git-utils.js";
 
 // ─── Denial summary helper ───────────────────────────────────────────────────
 
@@ -169,9 +170,13 @@ interface Session {
   attentionReason: "action" | "error" | "review" | null;
   /** High-level task history recognized by the session auto-namer */
   taskHistory: SessionTaskEntry[];
+  /** Epoch ms of last diff stats computation (for debouncing) */
+  lastDiffComputedAt: number;
+  /** Pending debounce timer for diff refresh */
+  diffDebounceTimer: ReturnType<typeof setTimeout> | null;
 }
 
-type GitSessionKey = "git_branch" | "is_worktree" | "is_containerized" | "repo_root" | "git_ahead" | "git_behind";
+type GitSessionKey = "git_branch" | "is_worktree" | "is_containerized" | "repo_root" | "git_ahead" | "git_behind" | "total_lines_added" | "total_lines_removed";
 
 function makeDefaultState(sessionId: string, backendType: BackendType = "claude"): SessionState {
   return {
@@ -240,34 +245,28 @@ function resolveGitInfo(state: SessionState): void {
       }
     } catch { /* ignore */ }
 
-    // Backfill git_default_branch for worktrees created before this field existed.
-    // Derive from branch name pattern: "jiayi-wt-7680" → "jiayi".
-    if (state.is_worktree && !state.git_default_branch && state.git_branch) {
-      const wtMatch = state.git_branch.match(/^(.+)-wt-\d+$/);
-      if (wtMatch) {
-        try {
-          execSync(`git rev-parse --verify refs/heads/${wtMatch[1]} 2>/dev/null`, {
-            cwd: state.cwd, encoding: "utf-8", timeout: 3000,
-          });
-          state.git_default_branch = wtMatch[1];
-        } catch { /* parent branch doesn't exist locally */ }
-      }
+    // Set diff_base_branch if not already set (first time or restored session).
+    // This is the single source of truth for all ahead/behind and diff computations.
+    if (!state.diff_base_branch && state.git_branch) {
+      state.diff_base_branch = gitUtils.resolveDefaultBranch(state.repo_root || state.cwd, state.git_branch);
     }
 
-    try {
-      // For worktrees, compare against the parent branch (e.g. "jiayi" for "jiayi-wt-7680")
-      // instead of @{upstream} (remote tracking branch) which is less meaningful.
-      const ref = state.is_worktree && state.git_default_branch
-        ? state.git_default_branch
-        : "@{upstream}";
-      const counts = execSync(
-        `git rev-list --left-right --count ${ref}...HEAD 2>/dev/null`,
-        { cwd: state.cwd, encoding: "utf-8", timeout: 3000 },
-      ).trim();
-      const [behind, ahead] = counts.split(/\s+/).map(Number);
-      state.git_ahead = ahead || 0;
-      state.git_behind = behind || 0;
-    } catch {
+    // Compute ahead/behind using diff_base_branch as the reference point
+    const ref = state.diff_base_branch;
+    if (ref) {
+      try {
+        const counts = execSync(
+          `git rev-list --left-right --count ${ref}...HEAD 2>/dev/null`,
+          { cwd: state.cwd, encoding: "utf-8", timeout: 3000 },
+        ).trim();
+        const [behind, ahead] = counts.split(/\s+/).map(Number);
+        state.git_ahead = ahead || 0;
+        state.git_behind = behind || 0;
+      } catch {
+        state.git_ahead = 0;
+        state.git_behind = 0;
+      }
+    } else {
       state.git_ahead = 0;
       state.git_behind = 0;
     }
@@ -324,6 +323,8 @@ export class WsBridge {
     "repo_root",
     "git_ahead",
     "git_behind",
+    "total_lines_added",
+    "total_lines_removed",
   ];
 
   /** Register a callback for when we learn the CLI's internal session ID. */
@@ -388,7 +389,13 @@ export class WsBridge {
     session.state.is_worktree = true;
     session.state.repo_root = repoRoot;
     session.state.cwd = worktreeCwd;
-    if (defaultBranch) session.state.git_default_branch = defaultBranch;
+    if (defaultBranch) {
+      session.state.git_default_branch = defaultBranch;
+      // Set diff_base_branch at creation if not already overridden by user
+      if (!session.state.diff_base_branch) {
+        session.state.diff_base_branch = defaultBranch;
+      }
+    }
   }
 
   setDiffBaseBranch(sessionId: string, branch: string): boolean {
@@ -399,6 +406,8 @@ export class WsBridge {
       type: "session_update",
       session: { diff_base_branch: branch },
     });
+    // Immediately recompute ahead/behind and diff stats with the new base
+    this.refreshGitInfo(session, { broadcastUpdate: true, computeDiff: true });
     this.persistSession(session);
     return true;
   }
@@ -571,6 +580,8 @@ export class WsBridge {
         lastReadAt: typeof p.lastReadAt === "number" ? p.lastReadAt : 0,
         attentionReason: p.attentionReason ?? null,
         taskHistory: Array.isArray(p.taskHistory) ? p.taskHistory : [],
+        lastDiffComputedAt: 0,
+        diffDebounceTimer: null,
       };
       session.state.backend_type = session.backendType;
       // Resolve git info for restored sessions (may have been persisted without it)
@@ -627,18 +638,20 @@ export class WsBridge {
 
   private refreshGitInfo(
     session: Session,
-    options: { broadcastUpdate?: boolean; notifyPoller?: boolean } = {},
+    options: { broadcastUpdate?: boolean; notifyPoller?: boolean; computeDiff?: boolean } = {},
   ): void {
-    const before = {
-      git_branch: session.state.git_branch,
-      is_worktree: session.state.is_worktree,
-      is_containerized: session.state.is_containerized,
-      repo_root: session.state.repo_root,
-      git_ahead: session.state.git_ahead,
-      git_behind: session.state.git_behind,
-    };
+    const before: Record<string, unknown> = {};
+    for (const key of WsBridge.GIT_SESSION_KEYS) {
+      before[key] = session.state[key];
+    }
 
     resolveGitInfo(session.state);
+
+    // Compute diff stats from git if requested
+    if (options.computeDiff) {
+      this.computeDiffStats(session);
+      session.lastDiffComputedAt = Date.now();
+    }
 
     let changed = false;
     for (const key of WsBridge.GIT_SESSION_KEYS) {
@@ -659,6 +672,8 @@ export class WsBridge {
             repo_root: session.state.repo_root,
             git_ahead: session.state.git_ahead,
             git_behind: session.state.git_behind,
+            total_lines_added: session.state.total_lines_added,
+            total_lines_removed: session.state.total_lines_removed,
           },
         });
       }
@@ -668,6 +683,79 @@ export class WsBridge {
     if (options.notifyPoller && session.state.git_branch && session.state.cwd && this.onGitInfoReady) {
       this.onGitInfoReady(session.id, session.state.cwd, session.state.git_branch);
     }
+  }
+
+  private static readonly DIFF_DEBOUNCE_MS = 60_000;
+
+  /**
+   * Compute diff stats (total lines added/removed) by running `git diff --numstat`
+   * against the session's diff_base_branch. Includes both committed and uncommitted changes.
+   */
+  private computeDiffStats(session: Session): void {
+    const cwd = session.state.cwd;
+    const ref = session.state.diff_base_branch;
+    if (!cwd || !ref) return;
+
+    try {
+      // Compute merge-base to diff against
+      let diffBase = ref;
+      try {
+        const mergeBase = execSync(`git merge-base ${ref} HEAD`, {
+          cwd, encoding: "utf-8", timeout: 5000,
+        }).trim();
+        if (mergeBase) diffBase = mergeBase;
+      } catch { /* no common ancestor — use branch name directly */ }
+
+      const raw = execSync(`git diff --numstat ${diffBase}`, {
+        cwd, encoding: "utf-8", timeout: 10_000,
+      }).trim();
+
+      let added = 0;
+      let removed = 0;
+      if (raw) {
+        for (const line of raw.split("\n")) {
+          if (!line.trim()) continue;
+          const [addStr, delStr] = line.split("\t");
+          // Binary files show "-" for both fields
+          if (addStr !== "-") added += parseInt(addStr, 10) || 0;
+          if (delStr !== "-") removed += parseInt(delStr, 10) || 0;
+        }
+      }
+
+      session.state.total_lines_added = added;
+      session.state.total_lines_removed = removed;
+    } catch {
+      // git not available or not a git repo — leave values unchanged
+    }
+  }
+
+  /**
+   * Schedule a debounced diff refresh. At most one computation per DIFF_DEBOUNCE_MS.
+   * If `immediate` is true, compute now regardless of debounce window.
+   */
+  scheduleDiffRefresh(session: Session, immediate = false): void {
+    const now = Date.now();
+    const elapsed = now - session.lastDiffComputedAt;
+
+    if (immediate || elapsed >= WsBridge.DIFF_DEBOUNCE_MS) {
+      // Enough time elapsed (or forced) — compute now
+      if (session.diffDebounceTimer) {
+        clearTimeout(session.diffDebounceTimer);
+        session.diffDebounceTimer = null;
+      }
+      this.refreshGitInfo(session, { broadcastUpdate: true, computeDiff: true });
+      return;
+    }
+
+    // Timer already pending — don't schedule another
+    if (session.diffDebounceTimer) return;
+
+    // Schedule for remaining time
+    const remaining = WsBridge.DIFF_DEBOUNCE_MS - elapsed;
+    session.diffDebounceTimer = setTimeout(() => {
+      session.diffDebounceTimer = null;
+      this.refreshGitInfo(session, { broadcastUpdate: true, computeDiff: true });
+    }, remaining);
   }
 
   // ── Session management ──────────────────────────────────────────────────
@@ -702,6 +790,8 @@ export class WsBridge {
         lastReadAt: 0,
         attentionReason: null,
         taskHistory: [],
+        lastDiffComputedAt: 0,
+        diffDebounceTimer: null,
       };
       this.sessions.set(sessionId, session);
     } else if (backendType) {
@@ -826,6 +916,11 @@ export class WsBridge {
   }
 
   removeSession(sessionId: string) {
+    const session = this.sessions.get(sessionId);
+    if (session?.diffDebounceTimer) {
+      clearTimeout(session.diffDebounceTimer);
+      session.diffDebounceTimer = null;
+    }
     this.sessions.delete(sessionId);
     this.store?.remove(sessionId);
     this.imageStore?.removeSession(sessionId);
@@ -837,6 +932,12 @@ export class WsBridge {
   closeSession(sessionId: string) {
     const session = this.sessions.get(sessionId);
     if (!session) return;
+
+    // Clear debounce timer
+    if (session.diffDebounceTimer) {
+      clearTimeout(session.diffDebounceTimer);
+      session.diffDebounceTimer = null;
+    }
 
     // Close CLI socket (Claude)
     if (session.cliSocket) {
@@ -1450,6 +1551,17 @@ export class WsBridge {
     // (mirrors browser-side extractTaskItemsFromToolUse in ws.ts)
     this.extractActivityPreview(session, msg.message.content);
 
+    // Detect file-editing tool calls and schedule debounced diff refresh
+    if (Array.isArray(msg.message.content)) {
+      const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit", "Bash"]);
+      const hasEditTool = msg.message.content.some(
+        (block: { type?: string; name?: string }) => block.type === "tool_use" && EDIT_TOOLS.has(block.name ?? ""),
+      );
+      if (hasEditTool) {
+        this.scheduleDiffRefresh(session);
+      }
+    }
+
     this.persistSession(session);
   }
 
@@ -1487,14 +1599,6 @@ export class WsBridge {
     session.state.total_cost_usd = msg.total_cost_usd;
     session.state.num_turns = msg.num_turns;
 
-    // Update lines changed (CLI may send these in result)
-    if (typeof msg.total_lines_added === "number") {
-      session.state.total_lines_added = msg.total_lines_added;
-    }
-    if (typeof msg.total_lines_removed === "number") {
-      session.state.total_lines_removed = msg.total_lines_removed;
-    }
-
     // Compute context usage from modelUsage
     if (msg.modelUsage) {
       for (const usage of Object.values(msg.modelUsage)) {
@@ -1507,18 +1611,18 @@ export class WsBridge {
       }
     }
 
-    // Re-check git state after each turn in case branch moved during the session.
-    this.refreshGitInfo(session, { broadcastUpdate: true, notifyPoller: true });
+    // Re-check git state + compute diff stats after each turn (session idle).
+    // This replaces CLI-reported line counts with server-computed git diff stats.
+    this.refreshGitInfo(session, { broadcastUpdate: true, notifyPoller: true, computeDiff: true });
 
     // Broadcast updated metrics to all browsers
+    // (total_lines_added/removed are now included in the refreshGitInfo broadcast)
     this.broadcastToBrowsers(session, {
       type: "session_update",
       session: {
         total_cost_usd: session.state.total_cost_usd,
         num_turns: session.state.num_turns,
         context_used_percent: session.state.context_used_percent,
-        total_lines_added: session.state.total_lines_added,
-        total_lines_removed: session.state.total_lines_removed,
       },
     });
 

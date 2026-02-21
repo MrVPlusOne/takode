@@ -343,7 +343,8 @@ describe("CLI handlers", () => {
       if (cmd.includes("--git-dir")) return ".git\n";
       if (cmd.includes("--show-toplevel")) return "/Users/stan/Dev/myproject\n";
       if (cmd.includes("--left-right --count")) return "0\t0\n";
-      throw new Error("unknown git cmd");
+      if (cmd.includes("branch --list")) return "  main\n";
+      throw new Error(`unknown git cmd: ${cmd}`);
     });
 
     const cli = makeCliSocket("s1");
@@ -359,8 +360,8 @@ describe("CLI handlers", () => {
     expect(state.repo_root).toBe("/Users/stan/Dev/myproject");
   });
 
-  it("handleCLIMessage: markWorktree pre-populates repo_root and git_default_branch", () => {
-    // markWorktree sets is_worktree, repo_root, cwd, and git_default_branch before CLI connects
+  it("handleCLIMessage: markWorktree pre-populates repo_root, git_default_branch, and diff_base_branch", () => {
+    // markWorktree sets is_worktree, repo_root, cwd, git_default_branch, and diff_base_branch before CLI connects
     bridge.markWorktree("s1", "/home/user/companion", "/home/user/.companion/worktrees/companion/jiayi-wt-1234", "jiayi");
 
     const state = bridge.getSession("s1")!.state;
@@ -368,6 +369,8 @@ describe("CLI handlers", () => {
     expect(state.repo_root).toBe("/home/user/companion");
     expect(state.cwd).toBe("/home/user/.companion/worktrees/companion/jiayi-wt-1234");
     expect(state.git_default_branch).toBe("jiayi");
+    // diff_base_branch should be set from defaultBranch at creation
+    expect(state.diff_base_branch).toBe("jiayi");
 
     // After CLI connects, resolveGitInfo runs and should preserve the worktree info
     mockExecSync.mockImplementation((cmd: string) => {
@@ -389,39 +392,60 @@ describe("CLI handlers", () => {
     expect(stateAfter.git_branch).toBe("jiayi-wt-1234");
   });
 
-  it("setDiffBaseBranch updates session state and broadcasts to browsers", () => {
+  it("setDiffBaseBranch updates session state, triggers recomputation, and broadcasts", () => {
+    // Mock git commands for the refreshGitInfo + computeDiffStats calls
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd.includes("--abbrev-ref HEAD")) return "jiayi-wt-1234\n";
+      if (cmd.includes("--git-dir")) return "/home/user/companion/.git/worktrees/jiayi-wt-1234\n";
+      if (cmd.includes("--git-common-dir")) return "/home/user/companion/.git\n";
+      if (cmd.includes("--left-right --count")) return "1\t3\n";
+      if (cmd.includes("merge-base")) return "abc123\n";
+      if (cmd.includes("diff --numstat")) return "10\t5\tfile.ts\n";
+      return "";
+    });
+
     // Create a session with a browser connected
     bridge.markWorktree("s1", "/home/user/companion", "/tmp/wt", "jiayi");
     const browserWs = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browserWs, "s1");
+    browserWs.send.mockClear();
 
-    // Set diff base branch
+    // Set diff base branch — triggers immediate recomputation
     const result = bridge.setDiffBaseBranch("s1", "feature-branch");
     expect(result).toBe(true);
 
     const state = bridge.getSession("s1")!.state;
     expect(state.diff_base_branch).toBe("feature-branch");
+    // Should have recomputed diff stats
+    expect(state.total_lines_added).toBe(10);
+    expect(state.total_lines_removed).toBe(5);
+    // Should have recomputed ahead/behind
+    expect(state.git_ahead).toBe(3);
+    expect(state.git_behind).toBe(1);
 
-    // Verify broadcast was sent to the browser
+    // Verify broadcasts were sent to the browser
     const calls = (browserWs.send as ReturnType<typeof vi.fn>).mock.calls;
-    const lastMsg = JSON.parse(calls[calls.length - 1][0]);
-    expect(lastMsg.type).toBe("session_update");
-    expect(lastMsg.session.diff_base_branch).toBe("feature-branch");
-
-    // Clearing the override (empty string)
-    bridge.setDiffBaseBranch("s1", "");
-    expect(bridge.getSession("s1")!.state.diff_base_branch).toBe("");
+    const messages = calls.map((c: unknown[]) => JSON.parse(c[0] as string));
+    // Should have a session_update with diff_base_branch
+    expect(messages).toContainEqual(expect.objectContaining({
+      type: "session_update",
+      session: expect.objectContaining({ diff_base_branch: "feature-branch" }),
+    }));
 
     // Non-existent session returns false
     expect(bridge.setDiffBaseBranch("nonexistent", "main")).toBe(false);
   });
 
-  it("handleCLIMessage: system.init resolves git info via execSync", () => {
+  it("handleCLIMessage: system.init resolves git info and sets diff_base_branch via execSync", () => {
     mockExecSync.mockImplementation((cmd: string) => {
       if (cmd.includes("--abbrev-ref HEAD")) return "feat/test-branch\n";
       if (cmd.includes("--show-toplevel")) return "/repo\n";
       if (cmd.includes("--left-right --count")) return "2\t5\n";
-      throw new Error("unknown git cmd");
+      // gitUtils.resolveDefaultBranch fallback commands
+      if (cmd.includes("for-each-ref")) return "";
+      if (cmd.includes("symbolic-ref")) return "";
+      if (cmd.includes("branch --list")) return "  main\n";
+      throw new Error(`unknown git cmd: ${cmd}`);
     });
 
     const cli = makeCliSocket("s1");
@@ -433,6 +457,8 @@ describe("CLI handlers", () => {
     expect(state.repo_root).toBe("/repo");
     expect(state.git_ahead).toBe(5);
     expect(state.git_behind).toBe(2);
+    // diff_base_branch should be auto-resolved since not pre-set
+    expect(state.diff_base_branch).toBe("main");
   });
 
   it("handleCLIMessage: system.init resolves repo_root via --show-toplevel for standard repo", () => {
@@ -441,7 +467,11 @@ describe("CLI handlers", () => {
       if (cmd.includes("--git-dir")) return ".git\n";
       if (cmd.includes("--show-toplevel")) return "/home/user/myproject\n";
       if (cmd.includes("--left-right --count")) return "0\t0\n";
-      throw new Error("unknown git cmd");
+      // gitUtils.resolveDefaultBranch fallback commands
+      if (cmd.includes("for-each-ref")) return "";
+      if (cmd.includes("symbolic-ref")) return "";
+      if (cmd.includes("branch --list")) return "  main\n";
+      throw new Error(`unknown git cmd: ${cmd}`);
     });
 
     const cli = makeCliSocket("s1");
@@ -551,7 +581,11 @@ describe("Browser handlers", () => {
       if (cmd.includes("--git-dir")) return ".git\n";
       if (cmd.includes("--show-toplevel")) return "/repo\n";
       if (cmd.includes("--left-right --count")) return "0\t0\n";
-      throw new Error("unknown git cmd");
+      // gitUtils.resolveDefaultBranch fallback commands
+      if (cmd.includes("for-each-ref")) return "";
+      if (cmd.includes("symbolic-ref")) return "";
+      if (cmd.includes("branch --list")) return "  main\n";
+      throw new Error(`unknown git cmd: ${cmd}`);
     });
 
     const session = bridge.getOrCreateSession("s1");
@@ -845,7 +879,22 @@ describe("CLI message routing", () => {
     expect(assistantBroadcast.parent_tool_use_id).toBeNull();
   });
 
-  it("result: updates cost/turns/context% and stores + broadcasts", () => {
+  it("result: updates cost/turns/context% and computes diff stats from git", () => {
+    // Set up session with a diff_base_branch so computeDiffStats runs
+    const session = bridge.getSession("s1")!;
+    session.state.cwd = "/test";
+    session.state.diff_base_branch = "main";
+
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd.includes("--abbrev-ref HEAD")) return "feat/branch\n";
+      if (cmd.includes("--git-dir")) return ".git\n";
+      if (cmd.includes("--show-toplevel")) return "/test\n";
+      if (cmd.includes("--left-right --count")) return "0\t0\n";
+      if (cmd.includes("merge-base")) return "abc123\n";
+      if (cmd.includes("diff --numstat")) return "42\t10\tfile.ts\n";
+      return "";
+    });
+
     const msg = JSON.stringify({
       type: "result",
       subtype: "success",
@@ -857,8 +906,9 @@ describe("CLI message routing", () => {
       total_cost_usd: 0.05,
       stop_reason: "end_turn",
       usage: { input_tokens: 500, output_tokens: 200, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
-      total_lines_added: 42,
-      total_lines_removed: 10,
+      // CLI-reported line counts should be ignored — server computes from git
+      total_lines_added: 999,
+      total_lines_removed: 888,
       uuid: "uuid-4",
       session_id: "s1",
     });
@@ -868,10 +918,10 @@ describe("CLI message routing", () => {
     const state = bridge.getSession("s1")!.state;
     expect(state.total_cost_usd).toBe(0.05);
     expect(state.num_turns).toBe(3);
+    // Should use git diff stats, NOT CLI-reported values
     expect(state.total_lines_added).toBe(42);
     expect(state.total_lines_removed).toBe(10);
 
-    const session = bridge.getSession("s1")!;
     expect(session.messageHistory).toHaveLength(1);
     expect(session.messageHistory[0].type).toBe("result");
 
@@ -887,7 +937,13 @@ describe("CLI message routing", () => {
       if (cmd.includes("--git-dir")) return ".git\n";
       if (cmd.includes("--show-toplevel")) return "/test\n";
       if (cmd.includes("--left-right --count")) return "0\t1\n";
-      throw new Error("unknown git cmd");
+      if (cmd.includes("merge-base")) return "abc123\n";
+      if (cmd.includes("diff --numstat")) return "";
+      // gitUtils.resolveDefaultBranch fallback commands
+      if (cmd.includes("for-each-ref")) return "";
+      if (cmd.includes("symbolic-ref")) return "";
+      if (cmd.includes("branch --list")) return "  main\n";
+      throw new Error(`unknown git cmd: ${cmd}`);
     });
 
     const session = bridge.getSession("s1")!;
@@ -3602,5 +3658,193 @@ describe("Tool call duration tracking", () => {
     expect(assistantMsg).toBeDefined();
     // tool_start_times should NOT be present
     expect(assistantMsg.tool_start_times).toBeUndefined();
+  });
+});
+
+// ─── Diff stats computation and debounce ─────────────────────────────────────
+
+describe("Diff stats computation", () => {
+  it("computeDiffStats: parses git diff --numstat output correctly", () => {
+    // Set up a session with diff_base_branch
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd.includes("merge-base")) return "abc123\n";
+      if (cmd.includes("diff --numstat")) return "10\t3\tfile1.ts\n5\t2\tfile2.ts\n-\t-\timage.png\n";
+      return "";
+    });
+
+    bridge.markWorktree("s1", "/repo", "/tmp/wt", "main");
+    const session = bridge.getSession("s1")!;
+
+    // Trigger diff computation via refreshGitInfo with computeDiff
+    // We need to set cwd for computeDiffStats to run
+    session.state.cwd = "/tmp/wt";
+
+    // Use setDiffBaseBranch which triggers computeDiff
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd.includes("--abbrev-ref HEAD")) return "feat-wt-1234\n";
+      if (cmd.includes("--git-dir")) return "/repo/.git/worktrees/feat-wt-1234\n";
+      if (cmd.includes("--git-common-dir")) return "/repo/.git\n";
+      if (cmd.includes("--left-right --count")) return "0\t0\n";
+      if (cmd.includes("merge-base")) return "abc123\n";
+      if (cmd.includes("diff --numstat")) return "10\t3\tfile1.ts\n5\t2\tfile2.ts\n-\t-\timage.png\n";
+      return "";
+    });
+
+    bridge.setDiffBaseBranch("s1", "develop");
+
+    // Binary files ("-") should be skipped, totals: 15 added, 5 removed
+    expect(session.state.total_lines_added).toBe(15);
+    expect(session.state.total_lines_removed).toBe(5);
+  });
+
+  it("computeDiffStats: handles empty diff gracefully", () => {
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd.includes("--abbrev-ref HEAD")) return "main\n";
+      if (cmd.includes("--git-dir")) return ".git\n";
+      if (cmd.includes("--show-toplevel")) return "/repo\n";
+      if (cmd.includes("--left-right --count")) return "0\t0\n";
+      if (cmd.includes("merge-base")) return "abc123\n";
+      if (cmd.includes("diff --numstat")) return "\n";
+      return "";
+    });
+
+    bridge.markWorktree("s1", "/repo", "/tmp/wt", "main");
+    const session = bridge.getSession("s1")!;
+    session.state.cwd = "/tmp/wt";
+
+    bridge.setDiffBaseBranch("s1", "main");
+
+    expect(session.state.total_lines_added).toBe(0);
+    expect(session.state.total_lines_removed).toBe(0);
+  });
+
+  it("scheduleDiffRefresh: debounces rapid calls to at most one per minute", () => {
+    vi.useFakeTimers();
+
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd.includes("--abbrev-ref HEAD")) return "main\n";
+      if (cmd.includes("--git-dir")) return ".git\n";
+      if (cmd.includes("--show-toplevel")) return "/repo\n";
+      if (cmd.includes("--left-right --count")) return "0\t0\n";
+      if (cmd.includes("merge-base")) return "abc123\n";
+      if (cmd.includes("diff --numstat")) return "1\t0\tfile.ts\n";
+      return "";
+    });
+
+    bridge.markWorktree("s1", "/repo", "/tmp/wt", "main");
+    const session = bridge.getSession("s1")!;
+    session.state.cwd = "/tmp/wt";
+    const browserWs = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browserWs, "s1");
+
+    // First call — should compute immediately (no previous computation)
+    bridge.scheduleDiffRefresh(session);
+    expect(session.state.total_lines_added).toBe(1);
+    expect(session.lastDiffComputedAt).toBeGreaterThan(0);
+
+    // Change the mock to return different values
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd.includes("--abbrev-ref HEAD")) return "main\n";
+      if (cmd.includes("--git-dir")) return ".git\n";
+      if (cmd.includes("--show-toplevel")) return "/repo\n";
+      if (cmd.includes("--left-right --count")) return "0\t0\n";
+      if (cmd.includes("merge-base")) return "abc123\n";
+      if (cmd.includes("diff --numstat")) return "99\t88\tfile.ts\n";
+      return "";
+    });
+
+    // Second call — should be debounced (within 60s)
+    bridge.scheduleDiffRefresh(session);
+    // Value should NOT have changed yet
+    expect(session.state.total_lines_added).toBe(1);
+
+    // Third call — also debounced, no additional timer created
+    bridge.scheduleDiffRefresh(session);
+    expect(session.state.total_lines_added).toBe(1);
+
+    // Advance past debounce window
+    vi.advanceTimersByTime(61_000);
+    // Now the debounced computation should have fired
+    expect(session.state.total_lines_added).toBe(99);
+    expect(session.state.total_lines_removed).toBe(88);
+
+    vi.useRealTimers();
+  });
+
+  it("edit tool detection: assistant message with Edit tool triggers debounced diff refresh", () => {
+    vi.useFakeTimers();
+
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd.includes("--abbrev-ref HEAD")) return "main\n";
+      if (cmd.includes("--git-dir")) return ".git\n";
+      if (cmd.includes("--show-toplevel")) return "/repo\n";
+      if (cmd.includes("--left-right --count")) return "0\t0\n";
+      if (cmd.includes("merge-base")) return "abc123\n";
+      if (cmd.includes("diff --numstat")) return "5\t2\tfile.ts\n";
+      if (cmd.includes("for-each-ref")) return "";
+      if (cmd.includes("symbolic-ref")) return "";
+      if (cmd.includes("branch --list")) return "  main\n";
+      return "";
+    });
+
+    // Set up a session with CLI connected
+    const cli = makeCliSocket("s1");
+    bridge.handleCLIOpen(cli, "s1");
+    bridge.handleCLIMessage(cli, makeInitMsg({ cwd: "/repo" }));
+
+    const session = bridge.getSession("s1")!;
+
+    // Send an assistant message with an Edit tool_use block
+    bridge.handleCLIMessage(cli, JSON.stringify({
+      type: "assistant",
+      message: {
+        id: "msg-edit",
+        type: "message",
+        role: "assistant",
+        model: "claude",
+        content: [{
+          type: "tool_use",
+          id: "tool-1",
+          name: "Edit",
+          input: { file_path: "/repo/file.ts", old_string: "a", new_string: "b" },
+        }],
+        stop_reason: "tool_use",
+        usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+      uuid: "u-edit",
+      session_id: "s1",
+    }));
+
+    // The diff refresh should be scheduled (first call computes immediately)
+    expect(session.state.total_lines_added).toBe(5);
+    expect(session.state.total_lines_removed).toBe(2);
+
+    vi.useRealTimers();
+  });
+
+  it("resolveGitInfo: uses diff_base_branch directly for ahead/behind (no @{upstream} fallback)", () => {
+    // Session with diff_base_branch pre-set — resolveGitInfo should use it directly
+    bridge.markWorktree("s1", "/repo", "/tmp/wt", "jiayi");
+    const session = bridge.getSession("s1")!;
+    session.state.cwd = "/tmp/wt";
+
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd.includes("--abbrev-ref HEAD")) return "jiayi-wt-1234\n";
+      if (cmd.includes("--git-dir")) return "/repo/.git/worktrees/jiayi-wt-1234\n";
+      if (cmd.includes("--git-common-dir")) return "/repo/.git\n";
+      // Verify the ref used is "jiayi" (from diff_base_branch), not "@{upstream}"
+      if (cmd.includes("--left-right --count") && cmd.includes("jiayi...HEAD")) return "2\t3\n";
+      if (cmd.includes("--left-right --count")) throw new Error("wrong ref used");
+      return "";
+    });
+
+    const cli = makeCliSocket("s1");
+    bridge.handleCLIOpen(cli, "s1");
+    bridge.handleCLIMessage(cli, makeInitMsg({ cwd: "/tmp/wt" }));
+
+    expect(session.state.git_ahead).toBe(3);
+    expect(session.state.git_behind).toBe(2);
+    expect(session.state.diff_base_branch).toBe("jiayi");
   });
 });

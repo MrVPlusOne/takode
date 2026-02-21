@@ -47,17 +47,16 @@ function execCaptureStdout(
 }
 
 /** Resolve the commit to diff against (merge-base of baseBranch and HEAD). */
-function resolveDiffBase(repoRoot: string, baseBranch?: string): string {
-  const branch = baseBranch || gitUtils.resolveDefaultBranch(repoRoot);
+function resolveDiffBase(repoRoot: string, baseBranch: string): string {
   try {
-    const mergeBase = execSync(`git merge-base ${branch} HEAD`, {
+    const mergeBase = execSync(`git merge-base ${baseBranch} HEAD`, {
       cwd: repoRoot, encoding: "utf-8", timeout: 5000,
     }).trim();
     if (mergeBase) return mergeBase;
   } catch {
     // No common ancestor — fall back to branch name directly
   }
-  return branch;
+  return baseBranch;
 }
 
 export function createRoutes(
@@ -1387,7 +1386,8 @@ export function createRoutes(
   api.get("/fs/diff", (c) => {
     const filePath = c.req.query("path");
     if (!filePath) return c.json({ error: "path required" }, 400);
-    const baseParam = c.req.query("base"); // optional user-selected base branch
+    const base = c.req.query("base");
+    if (!base) return c.json({ error: "base branch required" }, 400);
     const absPath = resolve(filePath);
     try {
       const repoRoot = execSync("git rev-parse --show-toplevel", {
@@ -1400,12 +1400,7 @@ export function createRoutes(
         timeout: 5000,
       }).trim() || absPath;
 
-      const currentBranch = execSync("git rev-parse --abbrev-ref HEAD", {
-        cwd: repoRoot, encoding: "utf-8", timeout: 5000,
-      }).trim();
-      const defaultBranch = gitUtils.resolveDefaultBranch(repoRoot, currentBranch);
-      const effectiveBase = baseParam || defaultBranch;
-      const diffBase = resolveDiffBase(repoRoot, effectiveBase);
+      const diffBase = resolveDiffBase(repoRoot, base);
 
       let diff = "";
       try {
@@ -1434,7 +1429,7 @@ export function createRoutes(
         }
       }
 
-      return c.json({ path: absPath, diff, baseBranch: effectiveBase });
+      return c.json({ path: absPath, diff, baseBranch: base });
     } catch {
       return c.json({ path: absPath, diff: "" });
     }
@@ -1449,14 +1444,12 @@ export function createRoutes(
     if (!body?.files?.length || !body.repoRoot) {
       return c.json({ error: "files[] and repoRoot required" }, 400);
     }
+    if (!body.base) {
+      return c.json({ error: "base branch required" }, 400);
+    }
     const repoRoot = resolve(body.repoRoot);
     try {
-      const currentBranch = execSync("git rev-parse --abbrev-ref HEAD", {
-        cwd: repoRoot, encoding: "utf-8", timeout: 5000,
-      }).trim();
-      const defaultBranch = gitUtils.resolveDefaultBranch(repoRoot, currentBranch);
-      const effectiveBase = body.base || defaultBranch;
-      const diffBase = resolveDiffBase(repoRoot, effectiveBase);
+      const diffBase = resolveDiffBase(repoRoot, body.base);
 
       // git diff --numstat returns: "additions\tdeletions\tfilepath" per line
       const rootPrefix = `${repoRoot}/`;
@@ -1481,7 +1474,7 @@ export function createRoutes(
           };
         }
       }
-      return c.json({ stats, baseBranch: effectiveBase });
+      return c.json({ stats, baseBranch: body.base });
     } catch {
       return c.json({ stats: {} });
     }
