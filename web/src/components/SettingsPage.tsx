@@ -196,8 +196,8 @@ export function SettingsPage({ embedded = false }: SettingsPageProps) {
         if (healthTimeoutRef.current) clearTimeout(healthTimeoutRef.current);
         healthPollRef.current = null;
         healthTimeoutRef.current = null;
-        useStore.getState().setServerRestarting(false);
-        setRestarting(false);
+        // Reload to pick up new frontend assets (especially in prod mode)
+        window.location.reload();
       }
     }, 2000);
 

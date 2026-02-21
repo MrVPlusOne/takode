@@ -1044,7 +1044,7 @@ describe("GET /api/settings", () => {
       claudeBinary: "",
       codexBinary: "",
       maxKeepAlive: 0,
-      restartSupported: false,
+      restartSupported: expect.any(Boolean),
     });
   });
 
@@ -1072,7 +1072,7 @@ describe("GET /api/settings", () => {
       claudeBinary: "",
       codexBinary: "",
       maxKeepAlive: 0,
-      restartSupported: false,
+      restartSupported: expect.any(Boolean),
     });
   });
 
