@@ -264,8 +264,9 @@ wsBridge.onUserMessageCallback(async (sessionId, history, cwd) => {
       // Subsequent messages or server restart with existing name: evaluate whether to rename
       const startIndex = nameSetAtHistoryIndex.get(sessionId) ?? 0;
       const relevantHistory = history.slice(startIndex);
+      const taskHistory = wsBridge.getSessionTaskHistory(sessionId);
       console.log(`[session-namer] Evaluating session ${sessionId} (current: "${currentName}", history: ${relevantHistory.length}/${history.length} msgs, generating: ${isGenerating})...`);
-      const result = await evaluateSessionName(sessionId, currentName, relevantHistory, cwd, { signal, isGenerating });
+      const result = await evaluateSessionName(sessionId, currentName, relevantHistory, cwd, { signal, isGenerating }, taskHistory);
       if (signal.aborted) return;
       if (!result) return;
       applyNamingResult(sessionId, currentName, result, history);
@@ -290,8 +291,9 @@ wsBridge.onTurnCompletedCallback(async (sessionId, history, cwd) => {
   try {
     const startIndex = nameSetAtHistoryIndex.get(sessionId) ?? 0;
     const relevantHistory = history.slice(startIndex);
+    const taskHistory = wsBridge.getSessionTaskHistory(sessionId);
     console.log(`[session-namer] Turn completed — evaluating session ${sessionId} (current: "${currentName}", history: ${relevantHistory.length}/${history.length} msgs)...`);
-    const result = await evaluateSessionName(sessionId, currentName, relevantHistory, cwd, { signal, isGenerating: false });
+    const result = await evaluateSessionName(sessionId, currentName, relevantHistory, cwd, { signal, isGenerating: false }, taskHistory);
     if (signal.aborted) return;
     if (!result) return;
     applyNamingResult(sessionId, currentName, result, history);
