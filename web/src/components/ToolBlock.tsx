@@ -188,12 +188,16 @@ export const ToolBlock = memo(function ToolBlock({
 function TodoWriteInline({ input }: { input: Record<string, unknown> }) {
   const todos = input.todos as Array<{ content?: string; activeForm?: string; status?: string }>;
   const completed = todos.filter((t) => t.status === "completed").length;
+  const lastCompleted = [...todos].reverse().find((t) => t.status === "completed");
   const inProgress = todos.find((t) => t.status === "in_progress");
 
-  // Pick the item to highlight: in-progress first, else the last completed
-  const highlight = inProgress || [...todos].reverse().find((t) => t.status === "completed");
+  // Pick the item to highlight: completed first (so each call shows the just-finished task),
+  // else in-progress (first call when nothing is done yet)
+  const highlight = lastCompleted || inProgress;
   const highlightStatus = highlight?.status || "pending";
-  const highlightText = highlight?.activeForm || highlight?.content || "Task";
+  const highlightText = highlightStatus === "in_progress"
+    ? (highlight?.activeForm || highlight?.content || "Task")
+    : (highlight?.content || highlight?.activeForm || "Task");
 
   const icon = highlightStatus === "completed" ? (
     <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5 text-cc-success shrink-0">
