@@ -3820,6 +3820,9 @@ describe("Diff stats computation", () => {
     expect(session.state.total_lines_added).toBe(5);
     expect(session.state.total_lines_removed).toBe(2);
 
+    // File path from Edit tool should be tracked in session.changedFiles
+    expect(session.changedFiles.has("/repo/file.ts")).toBe(true);
+
     vi.useRealTimers();
   });
 

@@ -172,6 +172,8 @@ interface Session {
   taskHistory: SessionTaskEntry[];
   /** Accumulated search keywords from the session auto-namer */
   keywords: string[];
+  /** File paths changed by edit tool calls during this session (for scoping diff stats) */
+  changedFiles: Set<string>;
   /** Epoch ms of last diff stats computation (for debouncing) */
   lastDiffComputedAt: number;
   /** Pending debounce timer for diff refresh */
@@ -253,8 +255,9 @@ function resolveGitInfo(state: SessionState): void {
       state.diff_base_branch = gitUtils.resolveDefaultBranch(state.repo_root || state.cwd, state.git_branch);
     }
 
-    // Compute ahead/behind using diff_base_branch as the reference point
-    const ref = state.diff_base_branch;
+    // Compute ahead/behind using diff_base_branch as the reference point.
+    // Fall back to git_default_branch when diff_base_branch is "" (user selected "default").
+    const ref = state.diff_base_branch || state.git_default_branch;
     if (ref) {
       try {
         const counts = execSync(
@@ -583,6 +586,7 @@ export class WsBridge {
         attentionReason: p.attentionReason ?? null,
         taskHistory: Array.isArray(p.taskHistory) ? p.taskHistory : [],
         keywords: Array.isArray(p.keywords) ? p.keywords : [],
+        changedFiles: new Set(Array.isArray(p.changedFiles) ? p.changedFiles : []),
         lastDiffComputedAt: 0,
         diffDebounceTimer: null,
       };
@@ -616,6 +620,7 @@ export class WsBridge {
       attentionReason: session.attentionReason,
       taskHistory: session.taskHistory,
       keywords: session.keywords,
+      changedFiles: Array.from(session.changedFiles),
     });
   }
 
@@ -638,6 +643,7 @@ export class WsBridge {
       attentionReason: session.attentionReason,
       taskHistory: session.taskHistory,
       keywords: session.keywords,
+      changedFiles: Array.from(session.changedFiles),
     });
   }
 
@@ -694,11 +700,14 @@ export class WsBridge {
 
   /**
    * Compute diff stats (total lines added/removed) by running `git diff --numstat`
-   * against the session's diff_base_branch. Includes both committed and uncommitted changes.
+   * against the session's diff_base_branch. Scoped to files changed during the session
+   * (tracked via changedFiles) so stats match what the DiffPanel shows.
+   * If no files are tracked yet, diffs the entire repo as a fallback.
    */
   private computeDiffStats(session: Session): void {
     const cwd = session.state.cwd;
-    const ref = session.state.diff_base_branch;
+    // Fall back to git_default_branch when diff_base_branch is "" (user selected "default")
+    const ref = session.state.diff_base_branch || session.state.git_default_branch;
     if (!cwd || !ref) return;
 
     try {
@@ -711,7 +720,15 @@ export class WsBridge {
         if (mergeBase) diffBase = mergeBase;
       } catch { /* no common ancestor — use branch name directly */ }
 
-      const raw = execSync(`git diff --numstat ${diffBase}`, {
+      // Scope diff to session-changed files when available, otherwise diff entire repo
+      let cmd = `git diff --numstat ${diffBase}`;
+      if (session.changedFiles.size > 0) {
+        // Use -- to separate file paths from git options
+        const filePaths = Array.from(session.changedFiles).map(f => `"${f}"`).join(" ");
+        cmd = `git diff --numstat ${diffBase} -- ${filePaths}`;
+      }
+
+      const raw = execSync(cmd, {
         cwd, encoding: "utf-8", timeout: 10_000,
       }).trim();
 
@@ -796,6 +813,7 @@ export class WsBridge {
         attentionReason: null,
         taskHistory: [],
         keywords: [],
+        changedFiles: new Set(),
         lastDiffComputedAt: 0,
         diffDebounceTimer: null,
       };
@@ -1557,12 +1575,22 @@ export class WsBridge {
     // (mirrors browser-side extractTaskItemsFromToolUse in ws.ts)
     this.extractActivityPreview(session, msg.message.content);
 
-    // Detect file-editing tool calls and schedule debounced diff refresh
+    // Detect file-editing tool calls: track changed files and schedule debounced diff refresh
     if (Array.isArray(msg.message.content)) {
-      const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit", "Bash"]);
-      const hasEditTool = msg.message.content.some(
-        (block: { type?: string; name?: string }) => block.type === "tool_use" && EDIT_TOOLS.has(block.name ?? ""),
-      );
+      const FILE_EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
+      let hasEditTool = false;
+      for (const block of msg.message.content) {
+        if (block.type !== "tool_use") continue;
+        const name = (block as { name?: string }).name ?? "";
+        const input = (block as { input?: Record<string, unknown> }).input;
+        const filePath = name === "NotebookEdit" ? input?.notebook_path : input?.file_path;
+        if (FILE_EDIT_TOOLS.has(name) && typeof filePath === "string") {
+          session.changedFiles.add(filePath);
+          hasEditTool = true;
+        } else if (name === "Bash") {
+          hasEditTool = true; // Bash may edit files but we can't reliably extract paths
+        }
+      }
       if (hasEditTool) {
         this.scheduleDiffRefresh(session);
       }

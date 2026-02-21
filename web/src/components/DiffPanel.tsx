@@ -51,15 +51,23 @@ export function DiffPanel({ sessionId }: { sessionId: string }) {
   const serverBaseBranch = session?.diff_base_branch || null;
   const [baseBranch, setBaseBranch] = useState<string | null>(serverBaseBranch);
 
-  // Sync from server state (handles cross-browser updates)
+  // Sync from server state (handles cross-browser updates and initial WebSocket delivery)
   useEffect(() => {
-    setBaseBranch(serverBaseBranch);
-  }, [serverBaseBranch]);
+    if (serverBaseBranch !== baseBranch) {
+      setBaseBranch(serverBaseBranch);
+      // Clear cached file stats so they re-fetch with the new base
+      fetchedFilesRef.current.clear();
+      setFileStats(new Map());
+    }
+  }, [serverBaseBranch]); // eslint-disable-line react-hooks/exhaustive-deps -- intentionally only react to server changes
 
   // The resolved default branch: prefer server session state, fall back to API for old sessions
   const serverDefaultBranch = session?.git_default_branch || null;
   const [fallbackDefault, setFallbackDefault] = useState<string | null>(null);
   const resolvedDefault = serverDefaultBranch || fallbackDefault;
+
+  // Effective branch for API calls: resolve "default" selection to actual branch name
+  const effectiveBranch = baseBranch || resolvedDefault || null;
   // Available branches for the dropdown
   const [availableBranches, setAvailableBranches] = useState<string[]>([]);
   const branchesFetched = useRef(false);
@@ -113,15 +121,14 @@ export function DiffPanel({ sessionId }: { sessionId: string }) {
 
   // Fetch diff stats for all changed files (in parallel)
   useEffect(() => {
-    if (relativeChangedFiles.length === 0) return;
+    if (!effectiveBranch || relativeChangedFiles.length === 0) return;
     // Only fetch stats for files we haven't fetched yet
     const newFiles = relativeChangedFiles.filter((f) => !fetchedFilesRef.current.has(f.abs));
     if (newFiles.length === 0) return;
 
     let cancelled = false;
-    const base = baseBranch || undefined;
     const promises = newFiles.map(({ abs }) =>
-      api.getFileDiff(abs, base).then((res) => {
+      api.getFileDiff(abs, effectiveBranch).then((res) => {
         return { abs, stats: countDiffStats(res.diff) };
       }).catch(() => ({ abs, stats: { additions: 0, deletions: 0 } })),
     );
@@ -137,7 +144,7 @@ export function DiffPanel({ sessionId }: { sessionId: string }) {
       });
     });
     return () => { cancelled = true; };
-  }, [relativeChangedFiles, baseBranch]);
+  }, [relativeChangedFiles, effectiveBranch]);
 
   // Aggregate totals across all files
   const totalStats = useMemo(() => {
@@ -175,11 +182,15 @@ export function DiffPanel({ sessionId }: { sessionId: string }) {
       setDiffContent("");
       return;
     }
+    if (!effectiveBranch) {
+      // Don't fetch until we have a resolved base branch
+      setDiffContent("");
+      return;
+    }
     let cancelled = false;
     setDiffLoading(true);
-    const base = baseBranch || undefined;
     api
-      .getFileDiff(selectedFile, base)
+      .getFileDiff(selectedFile, effectiveBranch)
       .then((res) => {
         if (!cancelled) {
           setDiffContent(res.diff);
@@ -199,7 +210,7 @@ export function DiffPanel({ sessionId }: { sessionId: string }) {
         }
       });
     return () => { cancelled = true; };
-  }, [selectedFile, baseBranch]);
+  }, [selectedFile, effectiveBranch]);
 
   const handleFileSelect = useCallback(
     (path: string) => {

@@ -32,6 +32,8 @@ export interface PersistedSession {
   taskHistory?: SessionTaskEntry[];
   /** Accumulated search keywords from the session auto-namer */
   keywords?: string[];
+  /** File paths changed by edit tool calls during this session (serialized from Set) */
+  changedFiles?: string[];
 }
 
 // ─── Store ──────────────────────────────────────────────────────────────────

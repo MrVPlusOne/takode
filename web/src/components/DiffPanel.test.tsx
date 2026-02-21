@@ -109,6 +109,7 @@ describe("DiffPanel", () => {
     mockApi.getFileDiff.mockResolvedValue({ path: "/repo/src/app.ts", diff: diffOutput, baseBranch: "main" });
 
     resetStore({
+      sessions: new Map([["s1", { cwd: "/repo", git_default_branch: "main" }]]),
       changedFiles: new Map([["s1", new Set(["/repo/src/app.ts"])]]),
       diffPanelSelectedFile: new Map([["s1", "/repo/src/app.ts"]]),
     });
@@ -116,8 +117,8 @@ describe("DiffPanel", () => {
     const { container } = render(<DiffPanel sessionId="s1" />);
 
     await waitFor(() => {
-      // getFileDiff is called with optional baseBranch param (undefined when using default)
-      expect(mockApi.getFileDiff).toHaveBeenCalledWith("/repo/src/app.ts", undefined);
+      // getFileDiff is called with the resolved base branch (from git_default_branch)
+      expect(mockApi.getFileDiff).toHaveBeenCalledWith("/repo/src/app.ts", "main");
     });
 
     // DiffViewer should render the diff content (may appear in top bar + DiffViewer header)
@@ -135,6 +136,7 @@ describe("DiffPanel", () => {
     mockApi.getFileDiff.mockResolvedValue({ path: "/repo/file.ts", diff: "", baseBranch: "main" });
 
     resetStore({
+      sessions: new Map([["s1", { cwd: "/repo", git_default_branch: "main" }]]),
       changedFiles: new Map([["s1", new Set(["/repo/file.ts"])]]),
       diffPanelSelectedFile: new Map([["s1", "/repo/file.ts"]]),
     });

@@ -217,8 +217,9 @@ function extractChangedFilesFromBlocks(sessionId: string, blocks: ContentBlock[]
   for (const block of blocks) {
     if (block.type !== "tool_use") continue;
     const { name, input } = block;
-    if ((name === "Edit" || name === "Write") && typeof input.file_path === "string") {
-      const resolvedPath = resolveSessionFilePath(input.file_path, sessionCwd);
+    const filePath = name === "NotebookEdit" ? input.notebook_path : input.file_path;
+    if ((name === "Edit" || name === "Write" || name === "MultiEdit" || name === "NotebookEdit") && typeof filePath === "string") {
+      const resolvedPath = resolveSessionFilePath(filePath, sessionCwd);
       if (isPathInSessionScope(resolvedPath, scope)) {
         store.addChangedFile(sessionId, resolvedPath);
         addedAny = true;
