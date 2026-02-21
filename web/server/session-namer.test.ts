@@ -759,6 +759,8 @@ describe("buildUpdatePrompt", () => {
     expect(prompt).toContain('"Add token refresh"');
     // Current task is NOT in the previous tasks list
     expect(prompt).not.toContain('- "Refactor middleware"');
+    // Empty line separates previous tasks from current task
+    expect(prompt).toContain('"Add token refresh"\n\n');
   });
 
   it("omits task history section when only one task exists", () => {
@@ -769,9 +771,9 @@ describe("buildUpdatePrompt", () => {
     expect(prompt).not.toContain("Previous tasks");
   });
 
-  it("labels conversation as since current title was set", () => {
+  it("labels conversation with inline current task name", () => {
     const prompt = buildUpdatePrompt("Fix Auth Bug", [userMsg("Continue")]);
-    expect(prompt).toContain("since current title was set");
+    expect(prompt).toContain('since "Fix Auth Bug" was set');
   });
 });
 

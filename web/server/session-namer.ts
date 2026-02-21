@@ -387,7 +387,7 @@ function buildUpdatePrompt(
   if (taskHistory && taskHistory.length > 1) {
     const previous = taskHistory.slice(0, -1);
     const lines = previous.map((t) => `- "${t.title}"`);
-    taskHistoryBlock = `\nPrevious tasks in this session (chronological):\n${lines.join("\n")}\n`;
+    taskHistoryBlock = `\nPrevious tasks in this session (chronological):\n${lines.join("\n")}\n\n`;
   }
 
   return `${taskHistoryBlock}The current session task is: "${currentName}"
@@ -400,7 +400,7 @@ Rules:
 - Do not explain your reasoning.
 - Follow-up activities (testing, committing, syncing, PR review, git operations) are part of the current task, not new tasks.${midTaskNote}
 
-Conversation (since current title was set):
+Conversation (since "${currentName}" was set):
 
 ${conversation}
 
