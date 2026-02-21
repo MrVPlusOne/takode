@@ -2141,7 +2141,7 @@ export class WsBridge {
     }
     if (cleanedStale) this.persistSession(session);
 
-    // Fresh connection (no prior state) — send full history + pending permissions.
+    // Fresh connection (no prior state) — send full history.
     // This is the single source of truth for initial state delivery (previously
     // also done in handleBrowserOpen, causing double delivery).
     if (lastAckSeq === 0) {
@@ -2150,9 +2150,6 @@ export class WsBridge {
           type: "message_history",
           messages: session.messageHistory,
         });
-      }
-      for (const perm of session.pendingPermissions.values()) {
-        this.sendToBrowser(ws, { type: "permission_request", request: perm });
       }
       // Also replay any buffered events so transient messages (stream_event,
       // tool_progress, status_change, etc.) are caught up
@@ -2174,9 +2171,6 @@ export class WsBridge {
           type: "message_history",
           messages: session.messageHistory,
         });
-        for (const perm of session.pendingPermissions.values()) {
-          this.sendToBrowser(ws, { type: "permission_request", request: perm });
-        }
         const transientMissed = session.eventBuffer
           .filter((evt) => evt.seq > lastAckSeq && !this.isHistoryBackedEvent(evt.message));
         if (transientMissed.length > 0) {
@@ -2198,6 +2192,17 @@ export class WsBridge {
             events: missed,
           });
         }
+      }
+    }
+
+    // Always replay pending permissions regardless of which path above was
+    // taken. Previously, permissions were only replayed in the fresh (lastAckSeq=0)
+    // and gap paths, but the no-gap and empty-buffer paths skipped them — causing
+    // plan approval and tool permission prompts to be invisible after server
+    // restarts. Permission requests are idempotent (browser stores by request_id).
+    if (session.pendingPermissions.size > 0) {
+      for (const perm of session.pendingPermissions.values()) {
+        this.sendToBrowser(ws, { type: "permission_request", request: perm });
       }
     }
 

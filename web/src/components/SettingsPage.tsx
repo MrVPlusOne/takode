@@ -184,8 +184,17 @@ export function SettingsPage({ embedded = false }: SettingsPageProps) {
 
     try {
       await api.restartServer();
-    } catch {
-      // Network error is expected — the server is shutting down
+    } catch (e: unknown) {
+      // Distinguish server-returned errors (e.g. busy sessions) from network
+      // errors (expected when the server shuts down mid-request).
+      const msg = e instanceof Error ? e.message : String(e);
+      const isNetworkError = !msg || msg.includes("fetch") || msg.includes("Failed") || msg.includes("ECONNREFUSED");
+      if (!isNetworkError) {
+        setRestartError(msg);
+        setRestarting(false);
+        useStore.getState().setServerRestarting(false);
+        return;
+      }
     }
 
     // Poll for server to come back

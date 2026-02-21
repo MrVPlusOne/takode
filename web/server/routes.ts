@@ -1663,6 +1663,16 @@ export function createRoutes(
     if (!options?.requestRestart) {
       return c.json({ error: "Restart not supported in this mode" }, 503);
     }
+    // Block restart while sessions are actively running to prevent stuck sessions
+    const busySessions = launcher.listSessions().filter(
+      (s) => s.state !== "exited" && wsBridge.isSessionBusy(s.sessionId),
+    );
+    if (busySessions.length > 0) {
+      const names = busySessions.map((s) => s.name || s.sessionId.slice(0, 8));
+      return c.json({
+        error: `Cannot restart while ${busySessions.length} session(s) are running. Please stop them first: ${names.join(", ")}`,
+      }, 409);
+    }
     options.requestRestart();
     return c.json({ ok: true });
   });
