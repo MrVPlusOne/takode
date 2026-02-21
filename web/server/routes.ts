@@ -349,7 +349,7 @@ export function createRoutes(
       // Track the worktree mapping and pre-populate session state
       // so the browser gets correct sidebar grouping immediately
       if (worktreeInfo) {
-        wsBridge.markWorktree(session.sessionId, worktreeInfo.repoRoot, cwd, worktreeInfo.defaultBranch);
+        wsBridge.markWorktree(session.sessionId, worktreeInfo.repoRoot, cwd, worktreeInfo.defaultBranch, worktreeInfo.branch);
         worktreeTracker.addMapping({
           sessionId: session.sessionId,
           repoRoot: worktreeInfo.repoRoot,
@@ -724,7 +724,7 @@ export function createRoutes(
         // Track worktree mapping and pre-populate session state
         // so the browser gets correct sidebar grouping immediately
         if (worktreeInfo) {
-          wsBridge.markWorktree(session.sessionId, worktreeInfo.repoRoot, cwd, worktreeInfo.defaultBranch);
+          wsBridge.markWorktree(session.sessionId, worktreeInfo.repoRoot, cwd, worktreeInfo.defaultBranch, worktreeInfo.branch);
           worktreeTracker.addMapping({
             sessionId: session.sessionId,
             repoRoot: worktreeInfo.repoRoot,
@@ -894,7 +894,7 @@ export function createRoutes(
         const wt = gitUtils.ensureWorktree(info.repoRoot, info.branch, { forceNew: true });
         info.cwd = wt.worktreePath;
         info.actualBranch = wt.actualBranch;
-        wsBridge.markWorktree(id, info.repoRoot, wt.worktreePath);
+        wsBridge.markWorktree(id, info.repoRoot, wt.worktreePath, undefined, info.branch);
         worktreeTracker.addMapping({
           sessionId: id,
           repoRoot: info.repoRoot,
@@ -1083,7 +1083,7 @@ export function createRoutes(
             });
 
             // Update bridge state so browsers get correct grouping and cwd
-            wsBridge.markWorktree(id, info.repoRoot, result.worktreePath, repoInfo.defaultBranch);
+            wsBridge.markWorktree(id, info.repoRoot, result.worktreePath, repoInfo.defaultBranch, info.branch);
 
             worktreeRecreated = true;
             console.log(`[routes] Recreated worktree for unarchived session ${id}: ${result.worktreePath} (branch: ${result.actualBranch})`);
@@ -1105,7 +1105,7 @@ export function createRoutes(
           worktreePath: info.cwd,
           createdAt: Date.now(),
         });
-        wsBridge.markWorktree(id, info.repoRoot, info.cwd);
+        wsBridge.markWorktree(id, info.repoRoot, info.cwd, undefined, info.branch);
       }
     }
 

@@ -392,6 +392,16 @@ describe("CLI handlers", () => {
     expect(stateAfter.git_branch).toBe("jiayi-wt-1234");
   });
 
+  it("markWorktree: diffBaseBranch overrides defaultBranch for diff_base_branch", () => {
+    // When both defaultBranch and diffBaseBranch are provided,
+    // git_default_branch should use defaultBranch while diff_base_branch uses diffBaseBranch
+    bridge.markWorktree("s1", "/repo", "/tmp/wt", "main", "jiayi");
+
+    const state = bridge.getSession("s1")!.state;
+    expect(state.git_default_branch).toBe("main");
+    expect(state.diff_base_branch).toBe("jiayi");
+  });
+
   it("setDiffBaseBranch updates session state, triggers recomputation, and broadcasts", () => {
     // Mock git commands for the refreshGitInfo + computeDiffStats calls
     mockExecSync.mockImplementation((cmd: string) => {

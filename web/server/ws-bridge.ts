@@ -389,17 +389,18 @@ export class WsBridge {
    * repo_root for sidebar grouping immediately, before the CLI connects.
    * Call this right after launcher.launch() for worktree sessions.
    */
-  markWorktree(sessionId: string, repoRoot: string, worktreeCwd: string, defaultBranch?: string): void {
+  markWorktree(sessionId: string, repoRoot: string, worktreeCwd: string, defaultBranch?: string, diffBaseBranch?: string): void {
     const session = this.getOrCreateSession(sessionId);
     session.state.is_worktree = true;
     session.state.repo_root = repoRoot;
     session.state.cwd = worktreeCwd;
     if (defaultBranch) {
       session.state.git_default_branch = defaultBranch;
-      // Set diff_base_branch at creation if not already overridden by user
-      if (!session.state.diff_base_branch) {
-        session.state.diff_base_branch = defaultBranch;
-      }
+    }
+    // Set diff_base_branch: prefer explicit parent branch, fall back to defaultBranch
+    const diffBase = diffBaseBranch || defaultBranch;
+    if (diffBase && !session.state.diff_base_branch) {
+      session.state.diff_base_branch = diffBase;
     }
   }
 
