@@ -223,11 +223,14 @@ function applyNamingResult(
 }
 
 // Continuous session auto-naming via Claude Haiku (triggered on each user message)
-wsBridge.onUserMessageCallback(async (sessionId, history, cwd) => {
+wsBridge.onUserMessageCallback(async (sessionId, history, cwd, wasGenerating) => {
   const currentName = sessionNames.getName(sessionId);
   const isRandomName = currentName && /^[A-Z][a-z]+ [A-Z][a-z]+$/.test(currentName);
   const isFirstEvaluation = !autoNamingEvaluated.has(sessionId);
-  const isGenerating = wsBridge.getSession(sessionId)?.isGenerating ?? false;
+  // wasGenerating reflects whether the agent was already generating BEFORE
+  // this user message was sent (the callback fires after setGenerating(true),
+  // so reading session.isGenerating here would always be true).
+  const isGenerating = wasGenerating;
 
   // Cancel any in-flight namer for this session
   const controller = beginNamerCall(sessionId);

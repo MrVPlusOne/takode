@@ -522,8 +522,14 @@ function parseKeywords(raw: string): string[] {
   return [];
 }
 
+/** Strip markdown code fences (```...```) that the model may echo from prompt examples. */
+function stripCodeFences(raw: string): string {
+  // Remove opening ``` (with optional language tag) and closing ```
+  return raw.replace(/^```[^\n]*\n?/gm, "").replace(/\n?```$/gm, "").trim();
+}
+
 function parseResponse(raw: string, isFirstTurn: boolean): NamingResult | null {
-  const trimmed = raw.trim();
+  const trimmed = stripCodeFences(raw.trim());
   const keywords = parseKeywords(trimmed);
 
   if (isFirstTurn) {
@@ -675,5 +681,6 @@ export const _testHelpers = {
   parseResponse,
   parseKeywords,
   sanitizeTitle,
+  stripCodeFences,
   SYSTEM_PROMPT,
 };

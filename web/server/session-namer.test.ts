@@ -12,6 +12,7 @@ const {
   parseResponse,
   parseKeywords,
   sanitizeTitle,
+  stripCodeFences,
   SYSTEM_PROMPT,
 } = _testHelpers;
 
@@ -821,5 +822,63 @@ describe("parseResponse with keywords", () => {
 
   it("returns empty keywords when no keywords line", () => {
     expect(parseResponse("Fix auth bug", true)?.keywords).toEqual([]);
+  });
+});
+
+// ─── stripCodeFences ──────────────────────────────────────────────────────
+
+describe("stripCodeFences", () => {
+  it("removes opening and closing triple backticks", () => {
+    expect(stripCodeFences("```\nNO_CHANGE\n```")).toBe("NO_CHANGE");
+  });
+
+  it("removes backticks with language tag", () => {
+    expect(stripCodeFences("```text\nNO_CHANGE\n```")).toBe("NO_CHANGE");
+  });
+
+  it("preserves content without backticks", () => {
+    expect(stripCodeFences("NO_CHANGE")).toBe("NO_CHANGE");
+  });
+
+  it("handles multi-line content inside fences", () => {
+    expect(stripCodeFences("```\nREVISE: Better Title\nKeywords: a, b\n```")).toBe(
+      "REVISE: Better Title\nKeywords: a, b",
+    );
+  });
+});
+
+// ─── parseResponse with backtick-wrapped output ───────────────────────────
+
+describe("parseResponse with backtick-wrapped output", () => {
+  it("parses NO_CHANGE wrapped in backticks", () => {
+    // Model may echo the backtick format from the prompt examples
+    expect(parseResponse("```\nNO_CHANGE\n```", false)).toEqual({
+      action: "no_change",
+      keywords: [],
+    });
+  });
+
+  it("parses REVISE wrapped in backticks with keywords", () => {
+    expect(parseResponse("```\nREVISE: Fix auth flow\nKeywords: jwt, middleware\n```", false)).toEqual({
+      action: "revise",
+      title: "Fix auth flow",
+      keywords: ["jwt", "middleware"],
+    });
+  });
+
+  it("parses NEW wrapped in backticks", () => {
+    expect(parseResponse("```\nNEW: Add dark mode\nKeywords: ui, theme\n```", false)).toEqual({
+      action: "new",
+      title: "Add dark mode",
+      keywords: ["ui", "theme"],
+    });
+  });
+
+  it("parses first-turn title wrapped in backticks", () => {
+    expect(parseResponse("```\nFix auth bug\nKeywords: login, jwt\n```", true)).toEqual({
+      action: "name",
+      title: "Fix auth bug",
+      keywords: ["login", "jwt"],
+    });
   });
 });

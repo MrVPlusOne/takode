@@ -312,7 +312,7 @@ export class WsBridge {
   private onCLISessionId: ((sessionId: string, cliSessionId: string) => void) | null = null;
   private onCLIRelaunchNeeded: ((sessionId: string) => void) | null = null;
   private onPermissionModeChanged: ((sessionId: string, newMode: string) => void) | null = null;
-  private onUserMessage: ((sessionId: string, history: import("./session-types.js").BrowserIncomingMessage[], cwd: string) => void) | null = null;
+  private onUserMessage: ((sessionId: string, history: import("./session-types.js").BrowserIncomingMessage[], cwd: string, wasGenerating: boolean) => void) | null = null;
   private onTurnCompleted: ((sessionId: string, history: import("./session-types.js").BrowserIncomingMessage[], cwd: string) => void) | null = null;
   private userMsgCounter = 0;
   /** Per-project cache of slash commands & skills so new sessions get them
@@ -347,8 +347,9 @@ export class WsBridge {
     this.onPermissionModeChanged = cb;
   }
 
-  /** Register a callback for when a user message is received (for auto-naming). */
-  onUserMessageCallback(cb: (sessionId: string, history: import("./session-types.js").BrowserIncomingMessage[], cwd: string) => void): void {
+  /** Register a callback for when a user message is received (for auto-naming).
+   *  wasGenerating indicates whether the agent was already generating before this user message. */
+  onUserMessageCallback(cb: (sessionId: string, history: import("./session-types.js").BrowserIncomingMessage[], cwd: string, wasGenerating: boolean) => void): void {
     this.onUserMessage = cb;
   }
 
@@ -1996,13 +1997,14 @@ export class WsBridge {
         session.messageHistory.push(userHistoryEntry);
         // Broadcast user message to all browsers (server-authoritative)
         this.broadcastToBrowsers(session, userHistoryEntry);
+        const wasGenerating = session.isGenerating;
         this.setGenerating(session, true, "user_message");
         this.broadcastToBrowsers(session, { type: "status_change", status: "running" });
         this.persistSession(session);
 
         // Trigger auto-naming evaluation (async, fire-and-forget)
         if (this.onUserMessage) {
-          this.onUserMessage(session.id, [...session.messageHistory], session.state.cwd);
+          this.onUserMessage(session.id, [...session.messageHistory], session.state.cwd, wasGenerating);
         }
       }
       if (msg.type === "permission_response") {
@@ -2309,6 +2311,7 @@ export class WsBridge {
       session_id: msg.session_id || session.state.session_id || "",
     });
     this.sendToCLI(session, ndjson);
+    const wasGenerating = session.isGenerating;
     this.setGenerating(session, true, "user_message");
     // Notify all browsers immediately so the UI shows "Thinking" without
     // waiting for the CLI's first assistant response.
@@ -2317,7 +2320,7 @@ export class WsBridge {
 
     // Trigger auto-naming evaluation (async, fire-and-forget)
     if (this.onUserMessage) {
-      this.onUserMessage(session.id, [...session.messageHistory], session.state.cwd);
+      this.onUserMessage(session.id, [...session.messageHistory], session.state.cwd, wasGenerating);
     }
   }
 
