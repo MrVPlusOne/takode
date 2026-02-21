@@ -273,7 +273,9 @@ export type BrowserIncomingMessageBase =
   | { type: "permission_denied"; id: string; tool_name: string; tool_use_id: string; summary: string; timestamp: number; request_id?: string }
   | { type: "permission_approved"; id: string; tool_name: string; tool_use_id: string; summary: string; timestamp: number; request_id?: string; answers?: { question: string; answer: string }[] }
   | { type: "state_snapshot"; sessionStatus: string | null; permissionMode: string; cliConnected: boolean; uiMode: string | null; askPermission: boolean; lastReadAt?: number; attentionReason?: "action" | "error" | "review" | null; generationStartedAt?: number | null }
-  | { type: "session_stuck" };
+  | { type: "session_stuck" }
+  | { type: "quest_list_updated" }
+  | { type: "session_quest_claimed"; quest: { id: string; title: string } | null };
 
 export type BrowserIncomingMessage = BrowserIncomingMessageBase & { seq?: number };
 
@@ -339,6 +341,10 @@ export interface SessionState {
   lastReadAt?: number;
   /** Current attention reason (server-only, never from CLI) */
   attentionReason?: "action" | "error" | "review" | null;
+  /** Questmaster: ID of the quest claimed by this session */
+  claimedQuestId?: string;
+  /** Questmaster: title of the claimed quest (for display without fetching) */
+  claimedQuestTitle?: string;
 }
 
 // ─── MCP Types ───────────────────────────────────────────────────────────────

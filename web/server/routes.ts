@@ -13,6 +13,7 @@ import type { SessionStore } from "./session-store.js";
 import type { WorktreeTracker } from "./worktree-tracker.js";
 import type { TerminalManager } from "./terminal-manager.js";
 import * as envManager from "./env-manager.js";
+import * as questStore from "./quest-store.js";
 import * as cronStore from "./cron-store.js";
 import * as gitUtils from "./git-utils.js";
 import * as sessionNames from "./session-names.js";
@@ -135,11 +136,13 @@ export function createRoutes(
       const isAssistantMode = body.assistantMode === true;
       let worktreeInfo: { isWorktree: boolean; repoRoot: string; branch: string; actualBranch: string; worktreePath: string; defaultBranch: string } | undefined;
 
+      // Inject COMPANION_PORT so agents in any session can call the REST API
+      envVars = { ...envVars, COMPANION_PORT: String(launcher.getPort()) };
+
       // Assistant mode: override cwd and ensure workspace exists
       if (isAssistantMode) {
         ensureAssistantWorkspace();
         cwd = ASSISTANT_DIR;
-        envVars = { ...envVars, COMPANION_PORT: String(launcher.getPort()) };
       }
 
       // Validate branch name to prevent command injection via shell metacharacters
@@ -501,11 +504,13 @@ export function createRoutes(
         const isAssistantMode = body.assistantMode === true;
         let worktreeInfo: { isWorktree: boolean; repoRoot: string; branch: string; actualBranch: string; worktreePath: string; defaultBranch: string } | undefined;
 
+        // Inject COMPANION_PORT so agents in any session can call the REST API
+        envVars = { ...envVars, COMPANION_PORT: String(launcher.getPort()) };
+
         // Assistant mode: override cwd and ensure workspace exists
         if (isAssistantMode) {
           ensureAssistantWorkspace();
           cwd = ASSISTANT_DIR;
-          envVars = { ...envVars, COMPANION_PORT: String(launcher.getPort()) };
         }
 
         // Validate branch name
@@ -2417,6 +2422,143 @@ export function createRoutes(
     }
     return { cleaned: result.removed, path: mapping.worktreePath };
   }
+
+  // ─── Questmaster (~/.companion/questmaster/) ──────────────────────
+
+  // Notification endpoint for the quest CLI tool — triggers browser refresh.
+  // Must be registered before parameterized /:questId routes.
+  api.post("/quests/_notify", (c) => {
+    wsBridge.broadcastGlobal({ type: "quest_list_updated" } as import("./session-types.js").BrowserIncomingMessage);
+    return c.json({ ok: true });
+  });
+
+  api.get("/quests", (c) => {
+    const statusFilter = c.req.query("status")?.split(",") as import("./quest-types.js").QuestStatus[] | undefined;
+    const parentId = c.req.query("parentId");
+    const sessionId = c.req.query("sessionId");
+    let quests = questStore.listQuests();
+    if (statusFilter?.length) quests = quests.filter((q) => statusFilter.includes(q.status));
+    if (parentId) quests = quests.filter((q) => q.parentId === parentId);
+    if (sessionId) quests = quests.filter((q) => "sessionId" in q && (q as { sessionId: string }).sessionId === sessionId);
+    return c.json(quests);
+  });
+
+  api.get("/quests/:questId", (c) => {
+    const quest = questStore.getQuest(c.req.param("questId"));
+    if (!quest) return c.json({ error: "Quest not found" }, 404);
+    return c.json(quest);
+  });
+
+  api.get("/quests/:questId/history", (c) => {
+    const history = questStore.getQuestHistory(c.req.param("questId"));
+    return c.json(history);
+  });
+
+  api.get("/quests/:questId/version/:versionId", (c) => {
+    const version = questStore.getQuestVersion(c.req.param("versionId"));
+    if (!version) return c.json({ error: "Version not found" }, 404);
+    return c.json(version);
+  });
+
+  api.post("/quests", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    try {
+      const quest = questStore.createQuest(body);
+      wsBridge.broadcastGlobal({ type: "quest_list_updated" } as import("./session-types.js").BrowserIncomingMessage);
+      return c.json(quest, 201);
+    } catch (e: unknown) {
+      return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);
+    }
+  });
+
+  api.patch("/quests/:questId", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    try {
+      const quest = questStore.patchQuest(c.req.param("questId"), body);
+      if (!quest) return c.json({ error: "Quest not found" }, 404);
+      wsBridge.broadcastGlobal({ type: "quest_list_updated" } as import("./session-types.js").BrowserIncomingMessage);
+      return c.json(quest);
+    } catch (e: unknown) {
+      return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);
+    }
+  });
+
+  api.post("/quests/:questId/transition", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    try {
+      const quest = questStore.transitionQuest(c.req.param("questId"), body);
+      if (!quest) return c.json({ error: "Quest not found" }, 404);
+      wsBridge.broadcastGlobal({ type: "quest_list_updated" } as import("./session-types.js").BrowserIncomingMessage);
+      return c.json(quest);
+    } catch (e: unknown) {
+      return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);
+    }
+  });
+
+  api.delete("/quests/:questId", (c) => {
+    const deleted = questStore.deleteQuest(c.req.param("questId"));
+    if (!deleted) return c.json({ error: "Quest not found" }, 404);
+    wsBridge.broadcastGlobal({ type: "quest_list_updated" } as import("./session-types.js").BrowserIncomingMessage);
+    return c.json({ ok: true });
+  });
+
+  api.post("/quests/:questId/claim", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const sessionId = body.sessionId as string | undefined;
+    if (!sessionId) return c.json({ error: "sessionId is required" }, 400);
+    try {
+      const quest = questStore.claimQuest(c.req.param("questId"), sessionId);
+      if (!quest) return c.json({ error: "Quest not found" }, 404);
+      wsBridge.broadcastGlobal({ type: "quest_list_updated" } as import("./session-types.js").BrowserIncomingMessage);
+      wsBridge.setSessionClaimedQuest(sessionId, { id: quest.questId, title: quest.title });
+      return c.json(quest);
+    } catch (e: unknown) {
+      return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);
+    }
+  });
+
+  api.post("/quests/:questId/complete", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const items = body.verificationItems as import("./quest-types.js").QuestVerificationItem[] | undefined;
+    if (!items || !Array.isArray(items)) return c.json({ error: "verificationItems array is required" }, 400);
+    try {
+      const quest = questStore.completeQuest(c.req.param("questId"), items);
+      if (!quest) return c.json({ error: "Quest not found" }, 404);
+      wsBridge.broadcastGlobal({ type: "quest_list_updated" } as import("./session-types.js").BrowserIncomingMessage);
+      return c.json(quest);
+    } catch (e: unknown) {
+      return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);
+    }
+  });
+
+  api.post("/quests/:questId/done", (c) => {
+    try {
+      const quest = questStore.markDone(c.req.param("questId"));
+      if (!quest) return c.json({ error: "Quest not found" }, 404);
+      wsBridge.broadcastGlobal({ type: "quest_list_updated" } as import("./session-types.js").BrowserIncomingMessage);
+      // Clear the claimed quest from the session since it's now done
+      if ("sessionId" in quest) {
+        wsBridge.setSessionClaimedQuest((quest as { sessionId: string }).sessionId, null);
+      }
+      return c.json(quest);
+    } catch (e: unknown) {
+      return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);
+    }
+  });
+
+  api.patch("/quests/:questId/verification/:index", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const index = parseInt(c.req.param("index"), 10);
+    if (Number.isNaN(index)) return c.json({ error: "Invalid index" }, 400);
+    try {
+      const quest = questStore.checkVerificationItem(c.req.param("questId"), index, body.checked ?? false);
+      if (!quest) return c.json({ error: "Quest not found" }, 404);
+      wsBridge.broadcastGlobal({ type: "quest_list_updated" } as import("./session-types.js").BrowserIncomingMessage);
+      return c.json(quest);
+    } catch (e: unknown) {
+      return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);
+    }
+  });
 
   // ─── Session Namer Debug Logs ─────────────────────────────────────
 

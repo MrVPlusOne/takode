@@ -29,6 +29,7 @@ import { RecorderManager } from "./recorder.js";
 import { CronScheduler } from "./cron-scheduler.js";
 import { ImageStore } from "./image-store.js";
 import { IdleManager } from "./idle-manager.js";
+import { ensureQuestmasterIntegration } from "./quest-integration.js";
 import type { SocketData } from "./ws-bridge.js";
 import type { ServerWebSocket } from "bun";
 
@@ -446,6 +447,9 @@ if (!process.env.COMPANION_SUPERVISED) {
 
 // ── Cron scheduler ──────────────────────────────────────────────────────────
 cronScheduler.startAll();
+
+// ── Questmaster CLI integration ─────────────────────────────────────────────
+ensureQuestmasterIntegration(port, packageRoot);
 
 // ── Idle session manager — enforce maxKeepAlive ─────────────────────────────
 const idleManager = new IdleManager(launcher, wsBridge, getSettings);

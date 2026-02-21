@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { SessionState, PermissionRequest, ChatMessage, SdkSessionInfo, TaskItem, McpServerDetail, ToolResultPreview, SessionTaskEntry } from "./types.js";
+import type { SessionState, PermissionRequest, ChatMessage, SdkSessionInfo, TaskItem, McpServerDetail, ToolResultPreview, SessionTaskEntry, QuestmasterTask } from "./types.js";
 import { api, type PRStatusResponse, type CreationProgressEvent } from "./api.js";
 import { scopedGetItem, scopedSetItem, scopedRemoveItem } from "./utils/scoped-storage.js";
 
@@ -96,6 +96,12 @@ interface AppState {
 
   // Sidebar project grouping
   collapsedProjects: Set<string>;
+
+  // Questmaster
+  quests: QuestmasterTask[];
+  questsLoading: boolean;
+  setQuests: (quests: QuestmasterTask[]) => void;
+  refreshQuests: () => Promise<void>;
 
   // Session creation progress (SSE streaming)
   creationProgress: CreationProgressEvent[] | null;
@@ -387,6 +393,18 @@ export const useStore = create<AppState>((set) => ({
   sessionAttention: new Map(),
   sessionOrder: getInitialSessionOrder(),
   collapsedProjects: getInitialCollapsedProjects(),
+  quests: [],
+  questsLoading: false,
+  setQuests: (quests) => set({ quests }),
+  refreshQuests: async () => {
+    set({ questsLoading: true });
+    try {
+      const quests = await api.listQuests();
+      set({ quests, questsLoading: false });
+    } catch {
+      set({ questsLoading: false });
+    }
+  },
   creationProgress: null,
   creationError: null,
   sessionCreating: false,
@@ -1259,6 +1277,7 @@ export const useStore = create<AppState>((set) => ({
       composerDrafts: new Map(),
       turnActivityOverrides: new Map(),
       collapsibleTurnIds: new Map(),
+      quests: [],
       terminalOpen: false,
       terminalCwd: null,
       terminalId: null,

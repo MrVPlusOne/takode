@@ -277,9 +277,11 @@ export class CliLauncher {
     }
 
     this.sessions.set(sessionId, info);
-    if (options.env) {
-      this.sessionEnvs.set(sessionId, { ...options.env });
-    }
+
+    // Always inject COMPANION_SESSION_ID so agents can identify themselves
+    const envWithSessionId = { ...options.env, COMPANION_SESSION_ID: sessionId };
+    this.sessionEnvs.set(sessionId, envWithSessionId);
+    options = { ...options, env: envWithSessionId };
 
     if (backendType === "codex") {
       this.spawnCodex(sessionId, info, options);

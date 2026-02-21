@@ -109,6 +109,7 @@ function createMockLauncher() {
     setArchived: vi.fn(),
     updateWorktree: vi.fn(),
     removeSession: vi.fn(),
+    getPort: vi.fn(() => 3456),
   } as any;
 }
 
@@ -128,6 +129,7 @@ function createMockBridge() {
     setInitialAskPermission: vi.fn(),
     broadcastSessionUpdate: vi.fn(),
     broadcastToSession: vi.fn(),
+    broadcastGlobal: vi.fn(),
     persistSessionSync: vi.fn(),
     getSessionAttentionState: vi.fn(() => null),
     getSessionTaskHistory: vi.fn(() => []),
@@ -213,7 +215,7 @@ describe("POST /api/sessions/create", () => {
     expect(envManager.getEnv).toHaveBeenCalledWith("production");
     expect(launcher.launch).toHaveBeenCalledWith(
       expect.objectContaining({
-        env: { API_KEY: "secret123", DB_HOST: "db.example.com" },
+        env: expect.objectContaining({ API_KEY: "secret123", DB_HOST: "db.example.com" }),
       }),
     );
   });
@@ -2646,5 +2648,21 @@ describe("POST /api/sessions/:id/revert", () => {
     expect(res.status).toBe(503);
     const json = await res.json();
     expect(json.error).toBe("CLI not found");
+  });
+});
+
+// ─── Questmaster Notify ─────────────────────────────────────────────────────
+
+describe("POST /api/quests/_notify", () => {
+  it("broadcasts quest_list_updated and returns ok", async () => {
+    const res = await app.request("/api/quests/_notify", { method: "POST" });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json).toEqual({ ok: true });
+    // Verify it called broadcastGlobal to notify browsers
+    expect(bridge.broadcastGlobal).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "quest_list_updated" }),
+    );
   });
 });

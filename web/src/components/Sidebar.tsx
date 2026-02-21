@@ -57,6 +57,7 @@ export function Sidebar() {
   const isTerminalPage = route.page === "terminal";
   const isEnvironmentsPage = route.page === "environments";
   const isScheduledPage = route.page === "scheduled";
+  const isQuestmasterPage = route.page === "questmaster";
 
   // Poll for SDK sessions on mount
   useEffect(() => {
@@ -730,6 +731,25 @@ export function Sidebar() {
           >
             <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
               <path d="M8 2a6 6 0 100 12A6 6 0 008 2zM0 8a8 8 0 1116 0A8 8 0 010 8zm9-3a1 1 0 10-2 0v3a1 1 0 00.293.707l2 2a1 1 0 001.414-1.414L9 7.586V5z" />
+            </svg>
+          </button>
+          <button
+            title="Quests"
+            onClick={() => {
+              useStore.getState().closeTerminal();
+              window.location.hash = "#/questmaster";
+              if (window.innerWidth < 768) {
+                useStore.getState().setSidebarOpen(false);
+              }
+            }}
+            className={`p-2 rounded-lg transition-colors cursor-pointer ${
+              isQuestmasterPage
+                ? "bg-cc-active text-cc-fg"
+                : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
+            }`}
+          >
+            <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
+              <path d="M2.5 2a.5.5 0 00-.5.5v11a.5.5 0 00.5.5h11a.5.5 0 00.5-.5v-11a.5.5 0 00-.5-.5h-11zM1 2.5A1.5 1.5 0 012.5 1h11A1.5 1.5 0 0115 2.5v11a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 011 13.5v-11zM4 5.75a.75.75 0 01.75-.75h6.5a.75.75 0 010 1.5h-6.5A.75.75 0 014 5.75zM4.75 8a.75.75 0 000 1.5h4.5a.75.75 0 000-1.5h-4.5zM4 11.25a.75.75 0 01.75-.75h2.5a.75.75 0 010 1.5h-2.5a.75.75 0 01-.75-.75z" />
             </svg>
           </button>
           <button

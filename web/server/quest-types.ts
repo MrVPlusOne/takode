@@ -1,0 +1,101 @@
+// ─── Questmaster Types ───────────────────────────────────────────────────────
+//
+// Progressive types: each stage extends the previous, strictly adding fields.
+// Linked-list versioning: every status transition creates a new version object
+// linked to the previous. No data is ever lost.
+
+export type QuestStatus = "idea" | "refined" | "in_progress" | "needs_verification" | "done";
+
+export interface QuestVerificationItem {
+  text: string;
+  checked: boolean;
+}
+
+// ─── Base fields shared by all stages ────────────────────────────────────────
+
+interface QuestBase {
+  /** Unique per version: "q-1-v3" */
+  id: string;
+  /** Stable across versions: "q-1" */
+  questId: string;
+  /** Monotonically increasing: 1, 2, 3... */
+  version: number;
+  /** Links to previous version: "q-1-v2" */
+  prevId?: string;
+  title: string;
+  /** When this version was created (also updated on in-place patches) */
+  createdAt: number;
+  tags?: string[];
+  /** Stable questId of parent task (for subtasks) */
+  parentId?: string;
+}
+
+// ─── Progressive stage types (each extends the previous) ─────────────────────
+
+/** Idea: raw thought, description optional */
+export type QuestIdea = QuestBase & {
+  status: "idea";
+  description?: string;
+};
+
+/** Refined: fleshed out, description required */
+export type QuestRefined = QuestBase & {
+  status: "refined";
+  description: string;
+};
+
+/** In Progress: claimed by a session */
+export type QuestInProgress = Omit<QuestRefined, "status"> & {
+  status: "in_progress";
+  sessionId: string;
+  claimedAt: number;
+};
+
+/** Needs Verification: agent done, human checks required */
+export type QuestNeedsVerification = Omit<QuestInProgress, "status"> & {
+  status: "needs_verification";
+  verificationItems: QuestVerificationItem[];
+};
+
+/** Done: all verification complete */
+export type QuestDone = Omit<QuestNeedsVerification, "status"> & {
+  status: "done";
+  completedAt: number;
+};
+
+// ─── Union type ──────────────────────────────────────────────────────────────
+
+export type QuestmasterTask =
+  | QuestIdea
+  | QuestRefined
+  | QuestInProgress
+  | QuestNeedsVerification
+  | QuestDone;
+
+// ─── Input types (for APIs) ──────────────────────────────────────────────────
+
+export interface QuestCreateInput {
+  title: string;
+  description?: string;
+  status?: QuestStatus;
+  tags?: string[];
+  parentId?: string;
+}
+
+/** Same-stage edits (e.g., fixing a typo). Does NOT create a new version. */
+export interface QuestPatchInput {
+  title?: string;
+  description?: string;
+  tags?: string[];
+}
+
+/** Status transitions. Always creates a new version linked to the previous. */
+export interface QuestTransitionInput {
+  status: QuestStatus;
+  /** Required for refined+ */
+  description?: string;
+  /** Required for in_progress+ */
+  sessionId?: string;
+  /** Required for needs_verification+ */
+  verificationItems?: QuestVerificationItem[];
+}

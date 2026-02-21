@@ -617,4 +617,34 @@ export const api = {
   // CLI session discovery (for resume)
   listCliSessions: () =>
     get<{ sessions: CliSession[] }>("/cli-sessions"),
+
+  // Questmaster
+  listQuests: (filters?: { status?: string; parentId?: string; sessionId?: string }) => {
+    const params = new URLSearchParams();
+    if (filters?.status) params.set("status", filters.status);
+    if (filters?.parentId) params.set("parentId", filters.parentId);
+    if (filters?.sessionId) params.set("sessionId", filters.sessionId);
+    const qs = params.toString();
+    return get<import("./types.js").QuestmasterTask[]>(`/quests${qs ? `?${qs}` : ""}`);
+  },
+  getQuest: (id: string) =>
+    get<import("./types.js").QuestmasterTask>(`/quests/${encodeURIComponent(id)}`),
+  getQuestHistory: (id: string) =>
+    get<import("./types.js").QuestmasterTask[]>(`/quests/${encodeURIComponent(id)}/history`),
+  createQuest: (input: import("./types.js").QuestCreateInput) =>
+    post<import("./types.js").QuestmasterTask>("/quests", input),
+  patchQuest: (id: string, body: import("./types.js").QuestPatchInput) =>
+    patch<import("./types.js").QuestmasterTask>(`/quests/${encodeURIComponent(id)}`, body),
+  transitionQuest: (id: string, input: import("./types.js").QuestTransitionInput) =>
+    post<import("./types.js").QuestmasterTask>(`/quests/${encodeURIComponent(id)}/transition`, input),
+  deleteQuest: (id: string) =>
+    del(`/quests/${encodeURIComponent(id)}`),
+  claimQuest: (id: string, sessionId: string) =>
+    post<import("./types.js").QuestmasterTask>(`/quests/${encodeURIComponent(id)}/claim`, { sessionId }),
+  completeQuest: (id: string, verificationItems: import("./types.js").QuestVerificationItem[]) =>
+    post<import("./types.js").QuestmasterTask>(`/quests/${encodeURIComponent(id)}/complete`, { verificationItems }),
+  markQuestDone: (id: string) =>
+    post<import("./types.js").QuestmasterTask>(`/quests/${encodeURIComponent(id)}/done`),
+  checkQuestVerification: (id: string, index: number, checked: boolean) =>
+    patch<import("./types.js").QuestmasterTask>(`/quests/${encodeURIComponent(id)}/verification/${index}`, { checked }),
 };

@@ -17,6 +17,7 @@ import { CronManager } from "./components/CronManager.js";
 import { TerminalPage } from "./components/TerminalPage.js";
 import { SessionLaunchOverlay } from "./components/SessionLaunchOverlay.js";
 import { NewSessionModal } from "./components/NewSessionModal.js";
+import { QuestmasterPage } from "./components/QuestmasterPage.js";
 
 function useHash() {
   return useSyncExternalStore(
@@ -44,6 +45,7 @@ export default function App() {
   const isTerminalPage = route.page === "terminal";
   const isEnvironmentsPage = route.page === "environments";
   const isScheduledPage = route.page === "scheduled";
+  const isQuestmasterPage = route.page === "questmaster";
   const isSessionView = route.page === "session" || route.page === "home";
 
   useEffect(() => {
@@ -230,6 +232,12 @@ export default function App() {
           {isScheduledPage && (
             <div className="absolute inset-0">
               <CronManager embedded />
+            </div>
+          )}
+
+          {isQuestmasterPage && (
+            <div className="absolute inset-0">
+              <QuestmasterPage />
             </div>
           )}
 

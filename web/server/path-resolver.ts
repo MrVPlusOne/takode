@@ -55,6 +55,8 @@ export function buildFallbackPath(): string {
     "/bin",
     "/usr/sbin",
     "/sbin",
+    // Companion CLI tools
+    join(home, ".companion", "bin"),
     // Bun
     join(home, ".bun", "bin"),
     // Claude CLI / user-local installs
@@ -114,8 +116,11 @@ export function getEnrichedPath(): string {
   const currentPath = process.env.PATH || "";
   const userPath = captureUserShellPath();
 
-  // Merge: user shell PATH first (takes precedence), then current process PATH
-  const allDirs = [...userPath.split(":"), ...currentPath.split(":")];
+  // Companion bin is always first so quest CLI is always discoverable
+  const companionBin = join(homedir(), ".companion", "bin");
+
+  // Merge: companion bin first, then user shell PATH, then current process PATH
+  const allDirs = [companionBin, ...userPath.split(":"), ...currentPath.split(":")];
   const seen = new Set<string>();
   const deduped: string[] = [];
   for (const dir of allDirs) {

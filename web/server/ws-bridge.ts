@@ -538,6 +538,29 @@ export class WsBridge {
     this.broadcastToBrowsers(session, msg);
   }
 
+  /** Push a message to all connected browsers across ALL sessions. */
+  broadcastGlobal(msg: BrowserIncomingMessage): void {
+    for (const session of this.sessions.values()) {
+      this.broadcastToBrowsers(session, msg);
+    }
+  }
+
+  /** Update the claimed quest for a session and broadcast to its browsers. */
+  setSessionClaimedQuest(
+    sessionId: string,
+    quest: { id: string; title: string } | null,
+  ): void {
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+    session.state.claimedQuestId = quest?.id;
+    session.state.claimedQuestTitle = quest?.title;
+    this.broadcastToBrowsers(session, {
+      type: "session_quest_claimed",
+      quest,
+    } as BrowserIncomingMessage);
+    this.persistSession(session);
+  }
+
   /** Attach a persistent store. Call restoreFromDisk() after. */
   setStore(store: SessionStore): void {
     this.store = store;

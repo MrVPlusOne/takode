@@ -837,6 +837,19 @@ function handleParsedMessage(
       break;
     }
 
+    case "quest_list_updated": {
+      store.refreshQuests();
+      break;
+    }
+
+    case "session_quest_claimed": {
+      store.updateSession(sessionId, {
+        claimedQuestId: data.quest?.id ?? undefined,
+        claimedQuestTitle: data.quest?.title ?? undefined,
+      });
+      break;
+    }
+
     case "message_history": {
       // Clear stale pending permissions — the server will re-send any that
       // are actually still pending as permission_request messages immediately
