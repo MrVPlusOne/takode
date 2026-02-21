@@ -188,35 +188,36 @@ export const ToolBlock = memo(function ToolBlock({
 function TodoWriteInline({ input }: { input: Record<string, unknown> }) {
   const todos = input.todos as Array<{ content?: string; activeForm?: string; status?: string }>;
   const completed = todos.filter((t) => t.status === "completed").length;
+
+  // Initial creation (0 completed): show neutral "Starting: <first task>" label
+  if (completed === 0) {
+    const first = todos.find((t) => t.status === "in_progress") || todos[0];
+    const label = first?.activeForm || first?.content || "Tasks";
+    return (
+      <div className="flex items-center gap-2 px-3 py-1.5">
+        <svg viewBox="0 0 16 16" fill="none" className="w-3.5 h-3.5 text-cc-muted shrink-0">
+          <path d="M4 4.5h8M4 8h8M4 11.5h5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+        <span className="text-xs leading-snug truncate text-cc-fg">
+          {label}
+        </span>
+        <span className="text-[11px] text-cc-muted shrink-0 tabular-nums">
+          ({todos.length} tasks)
+        </span>
+      </div>
+    );
+  }
+
+  // Subsequent calls: show the last completed item with a checkmark
   const lastCompleted = [...todos].reverse().find((t) => t.status === "completed");
-  const inProgress = todos.find((t) => t.status === "in_progress");
-
-  // Pick the item to highlight: completed first (so each call shows the just-finished task),
-  // else in-progress (first call when nothing is done yet)
-  const highlight = lastCompleted || inProgress;
-  const highlightStatus = highlight?.status || "pending";
-  const highlightText = highlightStatus === "in_progress"
-    ? (highlight?.activeForm || highlight?.content || "Task")
-    : (highlight?.content || highlight?.activeForm || "Task");
-
-  const icon = highlightStatus === "completed" ? (
-    <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5 text-cc-success shrink-0">
-      <path fillRule="evenodd" d="M8 15A7 7 0 108 1a7 7 0 000 14zm3.354-9.354a.5.5 0 00-.708-.708L7 8.586 5.354 6.94a.5.5 0 10-.708.708l2 2a.5.5 0 00.708 0l4-4z" clipRule="evenodd" />
-    </svg>
-  ) : highlightStatus === "in_progress" ? (
-    <svg className="w-3.5 h-3.5 text-cc-primary animate-spin shrink-0" viewBox="0 0 16 16" fill="none">
-      <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5" strokeDasharray="28" strokeDashoffset="8" strokeLinecap="round" />
-    </svg>
-  ) : (
-    <svg viewBox="0 0 16 16" fill="none" className="w-3.5 h-3.5 text-cc-muted shrink-0">
-      <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5" />
-    </svg>
-  );
+  const highlightText = lastCompleted?.content || lastCompleted?.activeForm || "Task";
 
   return (
     <div className="flex items-center gap-2 px-3 py-1.5">
-      {icon}
-      <span className={`text-xs leading-snug truncate ${highlightStatus === "completed" ? "text-cc-muted line-through" : "text-cc-fg"}`}>
+      <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5 text-cc-success shrink-0">
+        <path fillRule="evenodd" d="M8 15A7 7 0 108 1a7 7 0 000 14zm3.354-9.354a.5.5 0 00-.708-.708L7 8.586 5.354 6.94a.5.5 0 10-.708.708l2 2a.5.5 0 00.708 0l4-4z" clipRule="evenodd" />
+      </svg>
+      <span className="text-xs leading-snug truncate text-cc-muted line-through">
         {highlightText}
       </span>
       <span className="text-[11px] text-cc-muted shrink-0 tabular-nums">
