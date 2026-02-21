@@ -3,6 +3,7 @@ import { useStore } from "../store.js";
 import { api, type UsageLimits, type GitHubPRInfo } from "../api.js";
 import type { TaskItem } from "../types.js";
 import { McpSection } from "./McpPanel.js";
+import { ClaudeMdEditor } from "./ClaudeMdEditor.js";
 
 const EMPTY_TASKS: TaskItem[] = [];
 const POLL_INTERVAL = 60_000;
@@ -514,6 +515,51 @@ function McpCollapsible({ sessionId }: { sessionId: string }) {
   return <McpSection sessionId={sessionId} collapsed={collapsed} onToggle={toggle} />;
 }
 
+function ClaudeMdCollapsible({ cwd }: { cwd: string }) {
+  const [collapsed, toggle] = usePersistedCollapse("cc-collapse-claudemd");
+  const [files, setFiles] = useState<{ path: string; content: string }[]>([]);
+  const [editorOpen, setEditorOpen] = useState(false);
+
+  useEffect(() => {
+    if (collapsed) return;
+    api.getClaudeMdFiles(cwd).then((res) => setFiles(res.files)).catch(() => {});
+  }, [cwd, collapsed]);
+
+  const relPath = (p: string) => p.startsWith(cwd + "/") ? p.slice(cwd.length + 1) : p;
+
+  return (
+    <>
+      <SectionHeader title="CLAUDE.md" collapsed={collapsed} onToggle={toggle} />
+      {!collapsed && (
+        <div className="px-3 py-2 space-y-1">
+          {files.length === 0 ? (
+            <button
+              onClick={() => setEditorOpen(true)}
+              className="w-full text-left px-2 py-1.5 text-[11px] text-cc-muted hover:text-cc-fg hover:bg-cc-hover rounded-md transition-colors cursor-pointer"
+            >
+              + Create CLAUDE.md
+            </button>
+          ) : (
+            files.map((f) => (
+              <button
+                key={f.path}
+                onClick={() => setEditorOpen(true)}
+                className="flex items-center gap-2 w-full px-2 py-1.5 text-[11px] text-cc-fg/80 hover:bg-cc-hover rounded-md transition-colors cursor-pointer"
+              >
+                <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 text-cc-primary shrink-0">
+                  <path d="M4 1.5a.5.5 0 01.5-.5h7a.5.5 0 01.354.146l2 2A.5.5 0 0114 3.5v11a.5.5 0 01-.5.5h-11a.5.5 0 01-.5-.5v-13z" />
+                </svg>
+                <span className="truncate font-mono-code">{relPath(f.path)}</span>
+              </button>
+            ))
+          )}
+        </div>
+      )}
+      <ClaudeMdEditor cwd={cwd} open={editorOpen} onClose={() => setEditorOpen(false)} />
+    </>
+  );
+}
+
 // ─── Task Panel ──────────────────────────────────────────────────────────────
 
 export { CodexRateLimitsSection, CodexTokenDetailsSection };
@@ -521,7 +567,8 @@ export { CodexRateLimitsSection, CodexTokenDetailsSection };
 export function TaskPanel({ sessionId }: { sessionId: string }) {
   const tasks = useStore((s) => s.sessionTasks.get(sessionId) || EMPTY_TASKS);
   const session = useStore((s) => s.sessions.get(sessionId));
-  const sdkBackendType = useStore((s) => s.sdkSessions.find((x) => x.sessionId === sessionId)?.backendType);
+  const sdkSession = useStore((s) => s.sdkSessions.find((x) => x.sessionId === sessionId));
+  const sdkBackendType = sdkSession?.backendType;
   const taskPanelOpen = useStore((s) => s.taskPanelOpen);
   const setTaskPanelOpen = useStore((s) => s.setTaskPanelOpen);
 
@@ -530,6 +577,7 @@ export function TaskPanel({ sessionId }: { sessionId: string }) {
   const completedCount = tasks.filter((t) => t.status === "completed").length;
   const isCodex = (session?.backend_type || sdkBackendType) === "codex";
   const showTasks = !!session && !isCodex;
+  const cwd = session?.cwd || sdkSession?.cwd || null;
 
   return (
     <aside className="w-[280px] h-full flex flex-col overflow-hidden bg-cc-card border-l border-cc-border">
@@ -563,6 +611,9 @@ export function TaskPanel({ sessionId }: { sessionId: string }) {
 
         {/* MCP servers */}
         <McpCollapsible sessionId={sessionId} />
+
+        {/* CLAUDE.md files */}
+        {cwd && <ClaudeMdCollapsible cwd={cwd} />}
 
         {showTasks && (
           <>

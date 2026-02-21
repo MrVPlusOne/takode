@@ -2,7 +2,6 @@ import { useState, useMemo, useCallback, useSyncExternalStore } from "react";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
 import { writeClipboardText } from "../utils/copy-utils.js";
-import { ClaudeMdEditor } from "./ClaudeMdEditor.js";
 import { SessionStatusDot, deriveSessionStatus } from "./SessionStatusDot.js";
 import { YarnBallDot } from "./CatIcons.js";
 import { parseHash } from "../utils/routing.js";
@@ -29,7 +28,6 @@ export function TopBar() {
   const setTaskPanelOpen = useStore((s) => s.setTaskPanelOpen);
   const activeTab = useStore((s) => s.activeTab);
   const setActiveTab = useStore((s) => s.setActiveTab);
-  const [claudeMdOpen, setClaudeMdOpen] = useState(false);
   const [copiedCliId, setCopiedCliId] = useState(false);
 
   const cliSessionId = useStore((s) => {
@@ -222,52 +220,27 @@ export function TopBar() {
             <span className="text-cc-warning font-medium animate-pulse">Reverting...</span>
           )}
 
-          {/* Chat / Editor tab toggle */}
-          <div className="flex items-center bg-cc-hover rounded-lg p-0.5">
-            <button
-              onClick={() => setActiveTab("chat")}
-              className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors cursor-pointer ${
-                activeTab === "chat"
-                  ? "bg-cc-card text-cc-fg shadow-sm"
-                  : "text-cc-muted hover:text-cc-fg"
-              }`}
-            >
-              Chat
-            </button>
-            <button
-              onClick={() => setActiveTab("diff")}
-              className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors cursor-pointer flex items-center gap-1.5 ${
-                activeTab === "diff"
-                  ? "bg-cc-card text-cc-fg shadow-sm"
-                  : "text-cc-muted hover:text-cc-fg"
-              }`}
-            >
-              Diffs
-              {changedFilesCount > 0 && (
-                <span className="text-[9px] bg-cc-muted/20 text-cc-fg rounded-full min-w-[16px] h-4 flex items-center justify-center font-semibold leading-none px-1">
-                  {changedFilesCount}
-                </span>
-              )}
-            </button>
-          </div>
+          {/* Diffs toggle */}
+          <button
+            onClick={() => setActiveTab(activeTab === "diff" ? "chat" : "diff")}
+            className={`relative flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer ${
+              activeTab === "diff"
+                ? "text-cc-primary bg-cc-active"
+                : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
+            }`}
+            title={activeTab === "diff" ? "Back to chat" : "Show diffs"}
+          >
+            <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
+              <path d="M2.5 1A1.5 1.5 0 001 2.5v11A1.5 1.5 0 002.5 15h3a.5.5 0 000-1h-3a.5.5 0 01-.5-.5v-11a.5.5 0 01.5-.5h3a.5.5 0 000-1h-3zM10.5 1a.5.5 0 000 1h3a.5.5 0 01.5.5v11a.5.5 0 01-.5.5h-3a.5.5 0 000 1h3A1.5 1.5 0 0015 13.5v-11A1.5 1.5 0 0013.5 1h-3zM8 3.5a.5.5 0 01.5.5v8a.5.5 0 01-1 0V4a.5.5 0 01.5-.5zM5.5 6a.5.5 0 000 1h1a.5.5 0 000-1h-1zm4 0a.5.5 0 000 1h1a.5.5 0 000-1h-1zM5.5 9a.5.5 0 000 1h1a.5.5 0 000-1h-1zm4 0a.5.5 0 000 1h1a.5.5 0 000-1h-1z" />
+            </svg>
+            {changedFilesCount > 0 && (
+              <span className="absolute -top-1 -right-1 text-[8px] bg-cc-primary text-white rounded-full min-w-[14px] h-[14px] flex items-center justify-center font-semibold leading-none px-0.5">
+                {changedFilesCount}
+              </span>
+            )}
+          </button>
 
-          {/* CLAUDE.md editor */}
-          {cwd && (
-            <button
-              onClick={() => setClaudeMdOpen(true)}
-              className={`flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer ${
-                claudeMdOpen
-                  ? "text-cc-primary bg-cc-active"
-                  : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
-              }`}
-              title="Edit CLAUDE.md"
-            >
-              <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
-                <path d="M4 1.5a.5.5 0 01.5-.5h7a.5.5 0 01.354.146l2 2A.5.5 0 0114 3.5v11a.5.5 0 01-.5.5h-11a.5.5 0 01-.5-.5v-13zm1 .5v12h8V4h-1.5a.5.5 0 01-.5-.5V2H5zm6 0v1h1l-1-1zM6.5 7a.5.5 0 000 1h5a.5.5 0 000-1h-5zm0 2a.5.5 0 000 1h5a.5.5 0 000-1h-5zm0 2a.5.5 0 000 1h3a.5.5 0 000-1h-3z" />
-              </svg>
-            </button>
-          )}
-
+          {/* Toggle session panel (VS Code-style right panel icon) */}
           <button
             onClick={() => setTaskPanelOpen(!taskPanelOpen)}
             className={`flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer ${
@@ -277,20 +250,12 @@ export function TopBar() {
             }`}
             title="Toggle session panel"
           >
-            <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-              <path fillRule="evenodd" d="M6 2a2 2 0 00-2 2v12a2 2 0 002 2h8a2 2 0 002-2V4a2 2 0 00-2-2H6zm1 3a1 1 0 000 2h6a1 1 0 100-2H7zm0 4a1 1 0 000 2h6a1 1 0 100-2H7zm0 4a1 1 0 000 2h4a1 1 0 100-2H7z" clipRule="evenodd" />
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" className="w-4 h-4">
+              <rect x="1.5" y="2.5" width="13" height="11" rx="1.5" />
+              <line x1="10" y1="2.5" x2="10" y2="13.5" />
             </svg>
           </button>
         </div>
-      )}
-
-      {/* CLAUDE.md editor modal */}
-      {cwd && (
-        <ClaudeMdEditor
-          cwd={cwd}
-          open={claudeMdOpen}
-          onClose={() => setClaudeMdOpen(false)}
-        />
       )}
     </header>
   );
