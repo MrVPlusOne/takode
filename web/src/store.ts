@@ -396,7 +396,7 @@ export const useStore = create<AppState>((set) => ({
   notificationDesktop: getInitialNotificationDesktop(),
   sidebarOpen: typeof window !== "undefined" ? window.innerWidth >= 768 : true,
   reorderMode: false,
-  taskPanelOpen: typeof window !== "undefined" ? window.innerWidth >= 1024 : false,
+  taskPanelOpen: false,
   showNewSessionModal: false,
   activeTab: "chat",
   diffPanelSelectedFile: new Map(),

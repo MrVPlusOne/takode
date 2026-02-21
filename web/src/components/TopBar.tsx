@@ -6,6 +6,7 @@ import { SessionStatusDot, deriveSessionStatus } from "./SessionStatusDot.js";
 import { YarnBallDot } from "./CatIcons.js";
 import { parseHash } from "../utils/routing.js";
 import { shortenHome } from "../utils/path-display.js";
+import { SessionInfoPopover } from "./SessionInfoPopover.js";
 
 export function TopBar() {
   const hash = useSyncExternalStore(
@@ -24,11 +25,10 @@ export function TopBar() {
   const sdkSessions = useStore((s) => s.sdkSessions);
   const sidebarOpen = useStore((s) => s.sidebarOpen);
   const setSidebarOpen = useStore((s) => s.setSidebarOpen);
-  const taskPanelOpen = useStore((s) => s.taskPanelOpen);
-  const setTaskPanelOpen = useStore((s) => s.setTaskPanelOpen);
   const activeTab = useStore((s) => s.activeTab);
   const setActiveTab = useStore((s) => s.setActiveTab);
   const [copiedCliId, setCopiedCliId] = useState(false);
+  const [infoOpen, setInfoOpen] = useState(false);
 
   const cliSessionId = useStore((s) => {
     if (!currentSessionId) return null;
@@ -240,21 +240,26 @@ export function TopBar() {
             )}
           </button>
 
-          {/* Toggle session panel (VS Code-style right panel icon) */}
+          {/* Session info popover toggle */}
           <button
-            onClick={() => setTaskPanelOpen(!taskPanelOpen)}
+            onClick={() => setInfoOpen(!infoOpen)}
             className={`flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer ${
-              taskPanelOpen
+              infoOpen
                 ? "text-cc-primary bg-cc-active"
                 : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
             }`}
-            title="Toggle session panel"
+            title="Session info"
           >
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" className="w-4 h-4">
-              <rect x="1.5" y="2.5" width="13" height="11" rx="1.5" />
-              <line x1="10" y1="2.5" x2="10" y2="13.5" />
+            <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
+              <path fillRule="evenodd" d="M8 1a7 7 0 100 14A7 7 0 008 1zM6.5 8a.5.5 0 01.5-.5h1a.5.5 0 01.5.5v3.5a.5.5 0 01-.5.5H7a.5.5 0 01-.5-.5V8zM8 4.5a1 1 0 100 2 1 1 0 000-2z" clipRule="evenodd" />
             </svg>
           </button>
+          {infoOpen && currentSessionId && (
+            <SessionInfoPopover
+              sessionId={currentSessionId}
+              onClose={() => setInfoOpen(false)}
+            />
+          )}
         </div>
       )}
     </header>

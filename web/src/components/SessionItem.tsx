@@ -119,7 +119,7 @@ export function SessionItem({
         onTouchStart={handleTouchStart}
         onTouchEnd={cancelLongPress}
         onTouchMove={cancelLongPress}
-        className={`w-full pl-3.5 pr-8 py-2 ${archived ? "pr-14" : ""} text-left rounded-lg transition-all duration-100 select-none ${
+        className={`w-full pl-3.5 pr-8 sm:pr-3 py-2 ${archived ? "pr-14 sm:pr-14" : ""} text-left rounded-lg transition-all duration-100 select-none ${
           reorderMode ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"
         } ${
           isActive

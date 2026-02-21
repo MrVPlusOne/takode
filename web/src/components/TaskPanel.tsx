@@ -1,18 +1,17 @@
 import { useEffect, useState, useCallback, useSyncExternalStore } from "react";
 import { useStore } from "../store.js";
-import { api, type UsageLimits, type GitHubPRInfo } from "../api.js";
+import { api, type GitHubPRInfo } from "../api.js";
 import type { TaskItem, SessionTaskEntry } from "../types.js";
 import { McpSection } from "./McpPanel.js";
 import { ClaudeMdEditor } from "./ClaudeMdEditor.js";
 
 const EMPTY_TASKS: TaskItem[] = [];
-const POLL_INTERVAL = 60_000;
 
 // ─── Persistent collapsed state for panel sections ──────────────────────────
 
 const collapseListeners = new Set<() => void>();
 
-function usePersistedCollapse(key: string): [boolean, () => void] {
+export function usePersistedCollapse(key: string): [boolean, () => void] {
   const value = useSyncExternalStore(
     (cb) => { collapseListeners.add(cb); return () => collapseListeners.delete(cb); },
     () => localStorage.getItem(key) === "1",
@@ -50,8 +49,7 @@ function SectionHeader({ title, collapsed, onToggle, right }: {
   );
 }
 
-// Module-level cache — survives session switches so limits don't flash empty
-const limitsCache = new Map<string, UsageLimits>();
+import { useUsageLimits } from "../hooks/useUsageLimits.js";
 
 function formatResetTime(resetsAt: string): string {
   try {
@@ -75,37 +73,7 @@ function barColor(pct: number): string {
 }
 
 function UsageLimitsSection({ sessionId }: { sessionId: string }) {
-  const [limits, setLimits] = useState<UsageLimits | null>(
-    limitsCache.get(sessionId) ?? null,
-  );
-
-  const fetchLimits = useCallback(async () => {
-    try {
-      const data = await api.getSessionUsageLimits(sessionId);
-      limitsCache.set(sessionId, data);
-      setLimits(data);
-    } catch {
-      // silent
-    }
-  }, [sessionId]);
-
-  // When sessionId changes, show cached value immediately
-  useEffect(() => {
-    setLimits(limitsCache.get(sessionId) ?? null);
-  }, [sessionId]);
-
-  useEffect(() => {
-    fetchLimits();
-    const id = setInterval(fetchLimits, POLL_INTERVAL);
-    return () => clearInterval(id);
-  }, [fetchLimits]);
-
-  // Also tick every 30s to refresh the "resets in" countdown
-  const [, setTick] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => setTick((t) => t + 1), 30_000);
-    return () => clearInterval(id);
-  }, []);
+  const limits = useUsageLimits(sessionId);
 
   if (!limits) return null;
 
@@ -468,7 +436,7 @@ export function GitHubPRDisplay({ pr }: { pr: GitHubPRInfo }) {
   );
 }
 
-function GitHubPRSection({ sessionId }: { sessionId: string }) {
+export function GitHubPRSection({ sessionId }: { sessionId: string }) {
   const session = useStore((s) => s.sessions.get(sessionId));
   const sdk = useStore((s) => s.sdkSessions.find((x) => x.sessionId === sessionId));
   const prStatus = useStore((s) => s.prStatus.get(sessionId));
@@ -510,12 +478,12 @@ function UsageCollapsible({ sessionId, isCodex }: { sessionId: string; isCodex: 
   );
 }
 
-function McpCollapsible({ sessionId }: { sessionId: string }) {
+export function McpCollapsible({ sessionId }: { sessionId: string }) {
   const [collapsed, toggle] = usePersistedCollapse("cc-collapse-mcp");
   return <McpSection sessionId={sessionId} collapsed={collapsed} onToggle={toggle} />;
 }
 
-function ClaudeMdCollapsible({ cwd }: { cwd: string }) {
+export function ClaudeMdCollapsible({ cwd }: { cwd: string }) {
   const [collapsed, toggle] = usePersistedCollapse("cc-collapse-claudemd");
   const [files, setFiles] = useState<{ path: string; content: string }[]>([]);
   const [editorOpen, setEditorOpen] = useState(false);
@@ -675,8 +643,8 @@ export function TaskPanel({ sessionId }: { sessionId: string }) {
   );
 }
 
-function TaskRow({ task, sessionId }: { task: TaskItem; sessionId: string }) {
-  const isRunning = useStore((s) => s.sessionStatus.get(sessionId)) === "running";
+export function TaskRow({ task, sessionId }: { task: TaskItem; sessionId?: string }) {
+  const isRunning = useStore((s) => sessionId ? s.sessionStatus.get(sessionId) === "running" : false);
   const isCompleted = task.status === "completed";
   const isInProgress = task.status === "in_progress";
 

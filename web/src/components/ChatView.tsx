@@ -4,6 +4,8 @@ import { api } from "../api.js";
 import { MessageFeed, ElapsedTimer } from "./MessageFeed.js";
 import { Composer } from "./Composer.js";
 import { PermissionBanner, PlanReviewOverlay, PlanCollapsedChip, PermissionsCollapsedChip } from "./PermissionBanner.js";
+import { TaskOutlineBar } from "./TaskOutlineBar.js";
+import { TodoStatusLine } from "./TodoStatusLine.js";
 
 export function ChatView({ sessionId }: { sessionId: string }) {
   const sessionPerms = useStore((s) => s.pendingPermissions.get(sessionId));
@@ -93,6 +95,9 @@ export function ChatView({ sessionId }: { sessionId: string }) {
         </div>
       )}
 
+      {/* Session task outline — horizontal milestone chips */}
+      <TaskOutlineBar sessionId={sessionId} />
+
       {/* Plan overlay fills the chat area, OR show the normal message feed */}
       {showPlanOverlay ? (
         <PlanReviewOverlay
@@ -152,6 +157,9 @@ export function ChatView({ sessionId }: { sessionId: string }) {
 
       {/* Streaming status — fixed above composer */}
       <ElapsedTimer sessionId={sessionId} />
+
+      {/* Active todo status — shows current in-progress task */}
+      <TodoStatusLine sessionId={sessionId} />
 
       {/* Composer */}
       <Composer sessionId={sessionId} />

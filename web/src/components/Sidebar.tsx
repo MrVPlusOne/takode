@@ -9,6 +9,7 @@ import { ProjectGroup } from "./ProjectGroup.js";
 import { SessionItem } from "./SessionItem.js";
 import { ContextMenu } from "./ContextMenu.js";
 import { SessionHoverCard } from "./SessionHoverCard.js";
+import { SidebarUsageBar } from "./SidebarUsageBar.js";
 
 import { groupSessionsByProject, type SessionItem as SessionItemType } from "../utils/project-grouping.js";
 
@@ -638,6 +639,7 @@ export function Sidebar() {
 
       {/* Footer */}
       <div className="p-3 border-t border-cc-border space-y-0.5">
+        <SidebarUsageBar />
         <button
           onClick={() => {
             window.location.hash = "#/terminal";
