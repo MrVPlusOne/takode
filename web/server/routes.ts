@@ -799,6 +799,8 @@ export function createRoutes(
           totalLinesRemoved: bridge?.total_lines_removed || 0,
           lastMessagePreview: wsBridge.getLastUserMessage(s.sessionId) || "",
           cliConnected: wsBridge.isCliConnected(s.sessionId),
+          taskHistory: wsBridge.getSessionTaskHistory(s.sessionId),
+          keywords: wsBridge.getSessionKeywords(s.sessionId),
           ...(wsBridge.getSessionAttentionState(s.sessionId) ?? {}),
           // Worktree liveness status for archived worktree sessions
           ...(s.isWorktree && s.archived ? {

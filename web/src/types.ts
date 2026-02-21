@@ -88,4 +88,8 @@ export interface SdkSessionInfo {
   attentionReason?: "action" | "error" | "review" | null;
   /** Epoch ms when user last viewed this session */
   lastReadAt?: number;
+  /** Task history from the session auto-namer */
+  taskHistory?: SessionTaskEntry[];
+  /** Accumulated search keywords from the session auto-namer */
+  keywords?: string[];
 }

@@ -181,6 +181,11 @@ function applyNamingResult(
   result: import("./session-namer.js").NamingResult,
   history: import("./session-types.js").BrowserIncomingMessage[],
 ): void {
+  // Merge keywords regardless of naming action
+  if (result.keywords?.length) {
+    wsBridge.mergeKeywords(sessionId, result.keywords);
+  }
+
   switch (result.action) {
     case "no_change":
       break;
@@ -248,6 +253,9 @@ wsBridge.onUserMessageCallback(async (sessionId, history, cwd) => {
         timestamp: Date.now(),
         triggerMessageId: findLastUserMessageId(history),
       });
+      if (result.keywords?.length) {
+        wsBridge.mergeKeywords(sessionId, result.keywords);
+      }
       console.log(`[session-namer] Named session ${sessionId}: "${result.title}"`);
     } else {
       // Subsequent messages: evaluate whether to rename.

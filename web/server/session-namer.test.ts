@@ -10,6 +10,7 @@ const {
   categorizeToolCalls,
   buildFileOpSummaries,
   parseResponse,
+  parseKeywords,
   sanitizeTitle,
   SYSTEM_PROMPT,
 } = _testHelpers;
@@ -83,6 +84,7 @@ describe("parseResponse", () => {
       expect(parseResponse("Fix Auth Bug", true)).toEqual({
         action: "name",
         title: "Fix Auth Bug",
+        keywords: [],
       });
     });
 
@@ -90,6 +92,7 @@ describe("parseResponse", () => {
       expect(parseResponse('"Fix Auth Bug"', true)).toEqual({
         action: "name",
         title: "Fix Auth Bug",
+        keywords: [],
       });
     });
 
@@ -100,21 +103,22 @@ describe("parseResponse", () => {
 
   describe("subsequent turns", () => {
     it("parses NO_CHANGE", () => {
-      expect(parseResponse("NO_CHANGE", false)).toEqual({ action: "no_change" });
+      expect(parseResponse("NO_CHANGE", false)).toEqual({ action: "no_change", keywords: [] });
     });
 
     it("parses NO_CHANGE case-insensitive", () => {
-      expect(parseResponse("no_change", false)).toEqual({ action: "no_change" });
+      expect(parseResponse("no_change", false)).toEqual({ action: "no_change", keywords: [] });
     });
 
     it("parses No Change with space", () => {
-      expect(parseResponse("No Change", false)).toEqual({ action: "no_change" });
+      expect(parseResponse("No Change", false)).toEqual({ action: "no_change", keywords: [] });
     });
 
     it("parses REVISE: title", () => {
       expect(parseResponse("REVISE: Better Title", false)).toEqual({
         action: "revise",
         title: "Better Title",
+        keywords: [],
       });
     });
 
@@ -122,6 +126,7 @@ describe("parseResponse", () => {
       expect(parseResponse("revise: Better Title", false)).toEqual({
         action: "revise",
         title: "Better Title",
+        keywords: [],
       });
     });
 
@@ -129,6 +134,7 @@ describe("parseResponse", () => {
       expect(parseResponse("NEW: Add Dark Mode", false)).toEqual({
         action: "new",
         title: "Add Dark Mode",
+        keywords: [],
       });
     });
 
@@ -136,6 +142,7 @@ describe("parseResponse", () => {
       expect(parseResponse("new: Add Dark Mode", false)).toEqual({
         action: "new",
         title: "Add Dark Mode",
+        keywords: [],
       });
     });
 
@@ -151,21 +158,21 @@ describe("parseResponse", () => {
       expect(parseResponse(
         "NO_CHANGE\n\nThe current title accurately describes what's happening.",
         false,
-      )).toEqual({ action: "no_change" });
+      )).toEqual({ action: "no_change", keywords: [] });
     });
 
     it("parses REVISE with trailing explanation lines", () => {
       expect(parseResponse(
         "REVISE: Fix token refresh\n\nThe task narrowed to just the refresh flow.",
         false,
-      )).toEqual({ action: "revise", title: "Fix token refresh" });
+      )).toEqual({ action: "revise", title: "Fix token refresh", keywords: [] });
     });
 
     it("parses first-turn title even with trailing explanation", () => {
       expect(parseResponse(
         "Debug auth pipeline\n\nThis session focuses on authentication.",
         true,
-      )).toEqual({ action: "name", title: "Debug auth pipeline" });
+      )).toEqual({ action: "name", title: "Debug auth pipeline", keywords: [] });
     });
 
     it("rejects unstructured multi-line output without a valid marker", () => {
@@ -654,6 +661,11 @@ describe("buildFirstTurnPrompt", () => {
     const prompt = buildFirstTurnPrompt([userMsg("Fix login bug")]);
     expect(prompt).toContain("capitalized imperative verb");
   });
+
+  it("requests keywords", () => {
+    const prompt = buildFirstTurnPrompt([userMsg("Fix login bug")]);
+    expect(prompt).toContain("Keywords:");
+  });
 });
 
 // ─── buildUpdatePrompt ─────────────────────────────────────────────────────
@@ -707,5 +719,85 @@ describe("buildUpdatePrompt", () => {
   it("requests capitalized titles", () => {
     const prompt = buildUpdatePrompt("Fix Auth Bug", [userMsg("Continue")]);
     expect(prompt).toContain("capitalized imperative verb");
+  });
+
+  it("requests keywords", () => {
+    const prompt = buildUpdatePrompt("Fix Auth Bug", [userMsg("Continue")]);
+    expect(prompt).toContain("Keywords:");
+  });
+});
+
+describe("parseKeywords", () => {
+  it("parses comma-separated keywords", () => {
+    expect(parseKeywords("Keywords: auth, JWT, token")).toEqual(["auth", "jwt", "token"]);
+  });
+
+  it("is case-insensitive for the prefix", () => {
+    expect(parseKeywords("keywords: auth, login")).toEqual(["auth", "login"]);
+    expect(parseKeywords("KEYWORDS: auth, login")).toEqual(["auth", "login"]);
+  });
+
+  it("returns empty array when no keywords line present", () => {
+    expect(parseKeywords("Fix Auth Bug")).toEqual([]);
+    expect(parseKeywords("NO_CHANGE\nSome explanation")).toEqual([]);
+  });
+
+  it("lowercases all keywords", () => {
+    expect(parseKeywords("Keywords: React, TypeScript, API")).toEqual(["react", "typescript", "api"]);
+  });
+
+  it("strips whitespace and filters empties", () => {
+    expect(parseKeywords("Keywords:  auth ,  , login , ")).toEqual(["auth", "login"]);
+  });
+
+  it("caps at 10 keywords", () => {
+    const many = "Keywords: " + Array.from({ length: 15 }, (_, i) => `kw${i}`).join(", ");
+    expect(parseKeywords(many)).toHaveLength(10);
+  });
+
+  it("rejects keywords >= 50 chars", () => {
+    const longKw = "a".repeat(50);
+    expect(parseKeywords(`Keywords: valid, ${longKw}`)).toEqual(["valid"]);
+  });
+
+  it("finds keywords line among other lines", () => {
+    expect(parseKeywords("Fix Auth Bug\nKeywords: auth, login\nSome explanation")).toEqual(["auth", "login"]);
+  });
+});
+
+describe("parseResponse with keywords", () => {
+  it("extracts keywords from first-turn response", () => {
+    expect(parseResponse("Fix auth bug\nKeywords: auth, login, jwt", true)).toEqual({
+      action: "name",
+      title: "Fix auth bug",
+      keywords: ["auth", "login", "jwt"],
+    });
+  });
+
+  it("extracts keywords from NO_CHANGE response", () => {
+    expect(parseResponse("NO_CHANGE\nKeywords: auth, security", false)).toEqual({
+      action: "no_change",
+      keywords: ["auth", "security"],
+    });
+  });
+
+  it("extracts keywords from REVISE response", () => {
+    expect(parseResponse("REVISE: Better Title\nKeywords: refactor, api", false)).toEqual({
+      action: "revise",
+      title: "Better Title",
+      keywords: ["refactor", "api"],
+    });
+  });
+
+  it("extracts keywords from NEW response", () => {
+    expect(parseResponse("NEW: Add dark mode\nKeywords: ui, dark-mode, theme", false)).toEqual({
+      action: "new",
+      title: "Add dark mode",
+      keywords: ["ui", "dark-mode", "theme"],
+    });
+  });
+
+  it("returns empty keywords when no keywords line", () => {
+    expect(parseResponse("Fix auth bug", true)?.keywords).toEqual([]);
   });
 });

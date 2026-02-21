@@ -30,6 +30,8 @@ export interface PersistedSession {
   attentionReason?: "action" | "error" | "review" | null;
   /** High-level task history recognized by the session auto-namer */
   taskHistory?: SessionTaskEntry[];
+  /** Accumulated search keywords from the session auto-namer */
+  keywords?: string[];
 }
 
 // ─── Store ──────────────────────────────────────────────────────────────────

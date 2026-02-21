@@ -170,6 +170,8 @@ interface Session {
   attentionReason: "action" | "error" | "review" | null;
   /** High-level task history recognized by the session auto-namer */
   taskHistory: SessionTaskEntry[];
+  /** Accumulated search keywords from the session auto-namer */
+  keywords: string[];
   /** Epoch ms of last diff stats computation (for debouncing) */
   lastDiffComputedAt: number;
   /** Pending debounce timer for diff refresh */
@@ -580,6 +582,7 @@ export class WsBridge {
         lastReadAt: typeof p.lastReadAt === "number" ? p.lastReadAt : 0,
         attentionReason: p.attentionReason ?? null,
         taskHistory: Array.isArray(p.taskHistory) ? p.taskHistory : [],
+        keywords: Array.isArray(p.keywords) ? p.keywords : [],
         lastDiffComputedAt: 0,
         diffDebounceTimer: null,
       };
@@ -612,6 +615,7 @@ export class WsBridge {
       lastReadAt: session.lastReadAt,
       attentionReason: session.attentionReason,
       taskHistory: session.taskHistory,
+      keywords: session.keywords,
     });
   }
 
@@ -633,6 +637,7 @@ export class WsBridge {
       lastReadAt: session.lastReadAt,
       attentionReason: session.attentionReason,
       taskHistory: session.taskHistory,
+      keywords: session.keywords,
     });
   }
 
@@ -790,6 +795,7 @@ export class WsBridge {
         lastReadAt: 0,
         attentionReason: null,
         taskHistory: [],
+        keywords: [],
         lastDiffComputedAt: 0,
         diffDebounceTimer: null,
       };
@@ -2570,6 +2576,28 @@ export class WsBridge {
       type: "session_task_history",
       tasks: session.taskHistory,
     });
+  }
+
+  /** Merge new keywords into a session's accumulated keyword set. */
+  mergeKeywords(sessionId: string, newKeywords: string[]): void {
+    const session = this.sessions.get(sessionId);
+    if (!session || newKeywords.length === 0) return;
+    const existing = new Set(session.keywords);
+    for (const kw of newKeywords) {
+      existing.add(kw);
+    }
+    session.keywords = [...existing].slice(0, 30);
+    this.persistSession(session);
+  }
+
+  /** Get accumulated keywords for a session (for REST API). */
+  getSessionKeywords(sessionId: string): string[] {
+    return this.sessions.get(sessionId)?.keywords ?? [];
+  }
+
+  /** Get task history for a session (for REST API). */
+  getSessionTaskHistory(sessionId: string): SessionTaskEntry[] {
+    return this.sessions.get(sessionId)?.taskHistory ?? [];
   }
 
   /** Centralized generation state setter with logging and recording. */

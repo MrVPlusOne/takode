@@ -64,6 +64,8 @@ interface AppState {
   sessionPreviewUpdatedAt: Map<string, number>;
   // High-level task history recognized by the session auto-namer
   sessionTaskHistory: Map<string, SessionTaskEntry[]>;
+  // Accumulated search keywords from the session auto-namer
+  sessionKeywords: Map<string, string[]>;
   // Scroll-to-turn request per session (session → turn ID to scroll to)
   scrollToTurnId: Map<string, string | null>;
   // Active task preview per session (from TodoWrite/TaskCreate/TaskUpdate in_progress items)
@@ -188,6 +190,7 @@ interface AppState {
 
   // Session task history actions
   setSessionTaskHistory: (sessionId: string, tasks: SessionTaskEntry[]) => void;
+  setSessionKeywords: (sessionId: string, keywords: string[]) => void;
   requestScrollToTurn: (sessionId: string, turnId: string) => void;
   clearScrollToTurn: (sessionId: string) => void;
 
@@ -366,6 +369,7 @@ export const useStore = create<AppState>((set) => ({
   sessionPreviews: new Map(),
   sessionPreviewUpdatedAt: new Map(),
   sessionTaskHistory: new Map(),
+  sessionKeywords: new Map(),
   scrollToTurnId: new Map(),
   sessionTaskPreview: new Map(),
   prStatus: new Map(),
@@ -537,6 +541,8 @@ export const useStore = create<AppState>((set) => ({
       sessionPreviews.delete(sessionId);
       const sessionTaskHistory = new Map(s.sessionTaskHistory);
       sessionTaskHistory.delete(sessionId);
+      const sessionKeywords = new Map(s.sessionKeywords);
+      sessionKeywords.delete(sessionId);
       const scrollToTurnId = new Map(s.scrollToTurnId);
       scrollToTurnId.delete(sessionId);
       const diffPanelSelectedFile = new Map(s.diffPanelSelectedFile);
@@ -591,6 +597,7 @@ export const useStore = create<AppState>((set) => ({
         recentlyRenamed,
         sessionPreviews,
         sessionTaskHistory,
+        sessionKeywords,
         scrollToTurnId,
         diffPanelSelectedFile,
         mcpServers,
@@ -899,6 +906,13 @@ export const useStore = create<AppState>((set) => ({
       return { sessionTaskHistory };
     }),
 
+  setSessionKeywords: (sessionId, keywords) =>
+    set((s) => {
+      const sessionKeywords = new Map(s.sessionKeywords);
+      sessionKeywords.set(sessionId, keywords);
+      return { sessionKeywords };
+    }),
+
   requestScrollToTurn: (sessionId, turnId) =>
     set((s) => {
       const scrollToTurnId = new Map(s.scrollToTurnId);
@@ -1199,6 +1213,7 @@ export const useStore = create<AppState>((set) => ({
       sessionPreviews: new Map(),
       sessionPreviewUpdatedAt: new Map(),
       sessionTaskHistory: new Map(),
+      sessionKeywords: new Map(),
       scrollToTurnId: new Map(),
       sessionTaskPreview: new Map(),
       mcpServers: new Map(),

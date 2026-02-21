@@ -130,6 +130,8 @@ function createMockBridge() {
     broadcastToSession: vi.fn(),
     persistSessionSync: vi.fn(),
     getSessionAttentionState: vi.fn(() => null),
+    getSessionTaskHistory: vi.fn(() => []),
+    getSessionKeywords: vi.fn(() => []),
     markSessionRead: vi.fn(() => true),
     markSessionUnread: vi.fn(() => true),
     markAllSessionsRead: vi.fn(),
@@ -616,12 +618,12 @@ describe("GET /api/sessions", () => {
       {
         sessionId: "s1", state: "running", cwd: "/a", name: "Fix auth bug",
         gitBranch: "", gitAhead: 0, gitBehind: 0, totalLinesAdded: 0, totalLinesRemoved: 0,
-        lastMessagePreview: "", cliConnected: false,
+        lastMessagePreview: "", cliConnected: false, taskHistory: [], keywords: [],
       },
       {
         sessionId: "s2", state: "stopped", cwd: "/b",
         gitBranch: "", gitAhead: 0, gitBehind: 0, totalLinesAdded: 0, totalLinesRemoved: 0,
-        lastMessagePreview: "", cliConnected: false,
+        lastMessagePreview: "", cliConnected: false, taskHistory: [], keywords: [],
       },
     ]);
   });

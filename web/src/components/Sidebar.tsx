@@ -42,11 +42,13 @@ export function Sidebar() {
   const toggleProjectCollapse = useStore((s) => s.toggleProjectCollapse);
   const sessionAttention = useStore((s) => s.sessionAttention);
   const askPermissionMap = useStore((s) => s.askPermission);
+  const sessionKeywords = useStore((s) => s.sessionKeywords);
   const sessionOrder = useStore((s) => s.sessionOrder);
   const reorderMode = useStore((s) => s.reorderMode);
   const setReorderMode = useStore((s) => s.setReorderMode);
   const serverName = useStore((s) => s.serverName);
   const setServerName = useStore((s) => s.setServerName);
+  const [searchQuery, setSearchQuery] = useState("");
   const route = parseHash(hash);
   const isSettingsPage = route.page === "settings";
   const isTerminalPage = route.page === "terminal";
@@ -80,6 +82,13 @@ export function Sidebar() {
             // Hydrate last message preview from server (only if client doesn't have one yet)
             if (s.lastMessagePreview && !store.sessionPreviews.has(s.sessionId)) {
               store.setSessionPreview(s.sessionId, s.lastMessagePreview);
+            }
+            // Hydrate task history and keywords from server for search
+            if (s.taskHistory?.length) {
+              store.setSessionTaskHistory(s.sessionId, s.taskHistory);
+            }
+            if (s.keywords?.length) {
+              store.setSessionKeywords(s.sessionId, s.keywords);
             }
             // Batch server-authoritative attention state changes
             if (s.attentionReason !== undefined) {
@@ -373,6 +382,33 @@ export function Sidebar() {
     [activeSessions, sessionAttention, sessionOrder],
   );
 
+  // Search filtering: when query is non-empty, filter all sessions (active + cron + archived)
+  const filteredSessions = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return null;
+
+    return allSessionList.filter((s) => {
+      const name = (sessionNames.get(s.id) || "").toLowerCase();
+      if (name.includes(q)) return true;
+
+      if (s.cwd.toLowerCase().includes(q)) return true;
+      if (s.repoRoot.toLowerCase().includes(q)) return true;
+
+      const preview = (sessionPreviews.get(s.id) || "").toLowerCase();
+      if (preview.includes(q)) return true;
+
+      const tasks = sessionTaskHistory.get(s.id);
+      if (tasks?.some((t) => t.title.toLowerCase().includes(q))) return true;
+
+      const kws = sessionKeywords.get(s.id);
+      if (kws?.some((kw) => kw.includes(q))) return true;
+
+      if (s.gitBranch.toLowerCase().includes(q)) return true;
+
+      return false;
+    });
+  }, [searchQuery, allSessionList, sessionNames, sessionPreviews, sessionTaskHistory, sessionKeywords]);
+
   // Shared props for SessionItem / ProjectGroup
   const sessionItemProps = {
     onSelect: handleSelectSession,
@@ -443,12 +479,38 @@ export function Sidebar() {
           New Session
         </button>
 
+        {/* Search input */}
+        {allSessionList.length > 0 && (
+          <div className="relative mt-2">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-cc-muted pointer-events-none">
+              <circle cx="6.5" cy="6.5" r="4.5" />
+              <path d="M10 10l3.5 3.5" strokeLinecap="round" />
+            </svg>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search sessions..."
+              className="w-full pl-8 pr-7 py-1.5 text-xs bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg placeholder-cc-muted outline-none focus:border-cc-primary/60 transition-colors"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-cc-muted hover:text-cc-fg cursor-pointer"
+              >
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5">
+                  <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
+                </svg>
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Session list */}
       <div className="flex-1 overflow-y-auto px-2 pb-2">
         {/* Reorder mode toggle */}
-        {activeSessions.length > 1 && (
+        {!filteredSessions && activeSessions.length > 1 && (
           <div className="px-2 pb-1.5 flex items-center justify-end">
             <button
               onClick={() => setReorderMode(!reorderMode)}
@@ -463,7 +525,30 @@ export function Sidebar() {
           </div>
         )}
 
-        {activeSessions.length === 0 && cronSessions.length === 0 && archivedSessions.length === 0 ? (
+        {filteredSessions !== null ? (
+          /* Search results: flat list across all sessions */
+          filteredSessions.length === 0 ? (
+            <p className="px-3 py-8 text-xs text-cc-muted text-center leading-relaxed">
+              No matching sessions.
+            </p>
+          ) : (
+            <div className="space-y-0.5">
+              {filteredSessions.map((s) => (
+                <SessionItem
+                  key={s.id}
+                  session={s}
+                  isActive={currentSessionId === s.id}
+                  isArchived={s.archived}
+                  sessionName={sessionNames.get(s.id)}
+                  sessionPreview={sessionPreviews.get(s.id)}
+                  permCount={pendingPermissions.get(s.id)?.size ?? 0}
+                  isRecentlyRenamed={recentlyRenamed.has(s.id)}
+                  {...sessionItemProps}
+                />
+              ))}
+            </div>
+          )
+        ) : activeSessions.length === 0 && cronSessions.length === 0 && archivedSessions.length === 0 ? (
           <p className="px-3 py-8 text-xs text-cc-muted text-center leading-relaxed">
             No sessions yet.
           </p>
