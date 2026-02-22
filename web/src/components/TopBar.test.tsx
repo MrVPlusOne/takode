@@ -26,6 +26,8 @@ interface MockStoreState {
   sessionAttention: Map<string, "action" | "error" | "review" | null>;
   sessionNames: Map<string, string>;
   diffFileStats: Map<string, Map<string, { additions: number; deletions: number }>>;
+  quests: { status: string }[];
+  refreshQuests: ReturnType<typeof vi.fn>;
 }
 
 let storeState: MockStoreState;
@@ -49,6 +51,8 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     sessionAttention: new Map(),
     sessionNames: new Map(),
     diffFileStats: new Map(),
+    quests: [],
+    refreshQuests: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
 }
