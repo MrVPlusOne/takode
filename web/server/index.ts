@@ -186,7 +186,12 @@ function findLastUserMessageIndex(history: import("./session-types.js").BrowserI
   return 0;
 }
 
-/** Apply a naming result: set name, broadcast, add task entry. Shared by both triggers. */
+/** Check if a session name is a random two-word placeholder (e.g. "Deep Reef"). */
+function isRandomSessionName(name: string | null | undefined): boolean {
+  return !!name && /^[A-Z][a-z]+ [A-Z][a-z]+$/.test(name);
+}
+
+/** Apply a naming result: set name, broadcast, add task entry. Shared by all triggers. */
 function applyNamingResult(
   sessionId: string,
   previousName: string,
@@ -234,10 +239,42 @@ function applyNamingResult(
   }
 }
 
+// ─── Shared helper: evaluate and apply naming for a session ─────────────────
+// Used by all three callbacks. Handles both named and unnamed sessions.
+async function evaluateAndApply(
+  sessionId: string,
+  history: import("./session-types.js").BrowserIncomingMessage[],
+  cwd: string,
+  signal: AbortSignal,
+  isGenerating: boolean,
+  trigger: string,
+): Promise<void> {
+  const currentName = sessionNames.getName(sessionId);
+  const isRandomName = isRandomSessionName(currentName);
+  const claimedQuest = wsBridge.getSessionClaimedQuest(sessionId);
+  const startIndex = nameSetAtHistoryIndex.get(sessionId) ?? 0;
+  const relevantHistory = isRandomName ? history : history.slice(startIndex);
+  const taskHistory = wsBridge.getSessionTaskHistory(sessionId);
+
+  console.log(`[session-namer] ${trigger} — evaluating session ${sessionId} (current: ${isRandomName ? "(unnamed)" : `"${currentName}"`}, history: ${relevantHistory.length}/${history.length} msgs, generating: ${isGenerating})...`);
+
+  const result = await evaluateSessionName(
+    sessionId,
+    currentName ?? "",
+    relevantHistory,
+    cwd,
+    { signal, isGenerating, claimedQuest, isUnnamed: isRandomName || !currentName },
+    taskHistory,
+  );
+  if (signal.aborted) return;
+  if (!result) return;
+  applyNamingResult(sessionId, currentName ?? "", result, history);
+}
+
 // Continuous session auto-naming via Claude Haiku (triggered on each user message)
 wsBridge.onUserMessageCallback(async (sessionId, history, cwd, wasGenerating) => {
   const currentName = sessionNames.getName(sessionId);
-  const isRandomName = currentName && /^[A-Z][a-z]+ [A-Z][a-z]+$/.test(currentName);
+  const isRandomName = isRandomSessionName(currentName);
   const isFirstEvaluation = !autoNamingEvaluated.has(sessionId);
   // wasGenerating reflects whether the agent was already generating BEFORE
   // this user message was sent (the callback fires after setGenerating(true),
@@ -254,14 +291,18 @@ wsBridge.onUserMessageCallback(async (sessionId, history, cwd, wasGenerating) =>
     }
 
     if (isFirstEvaluation && (!currentName || isRandomName)) {
-      // First user message with no real name: generate initial name
+      // First user message with no real name: generate initial name (one attempt only).
+      // If this fails (e.g. Haiku can't generate from a brief prompt), we give up.
+      // Subsequent triggers (turn completed, agent paused, next user message) will
+      // use the evaluate flow with isUnnamed=true to try again with richer context.
+      const claimedQuest = wsBridge.getSessionClaimedQuest(sessionId);
       console.log(`[session-namer] Generating initial name for session ${sessionId}...`);
-      const result = await generateFirstName(sessionId, history, cwd, { signal, isGenerating });
+      const result = await generateFirstName(sessionId, history, cwd, { signal, isGenerating, claimedQuest });
       if (signal.aborted) return;
       if (!result || result.action !== "name") return;
       // Don't overwrite if user renamed while we were generating
       const freshName = sessionNames.getName(sessionId);
-      if (freshName && !isRandomName) return;
+      if (freshName && !isRandomSessionName(freshName)) return;
       sessionNames.setName(sessionId, result.title);
       nameSetAtHistoryIndex.set(sessionId, findLastUserMessageIndex(history));
       wsBridge.broadcastNameUpdate(sessionId, result.title);
@@ -275,16 +316,11 @@ wsBridge.onUserMessageCallback(async (sessionId, history, cwd, wasGenerating) =>
         wsBridge.mergeKeywords(sessionId, result.keywords);
       }
       console.log(`[session-namer] Named session ${sessionId}: "${result.title}"`);
-    } else if (currentName && !isRandomName) {
-      // Subsequent messages or server restart with existing name: evaluate whether to rename
-      const startIndex = nameSetAtHistoryIndex.get(sessionId) ?? 0;
-      const relevantHistory = history.slice(startIndex);
-      const taskHistory = wsBridge.getSessionTaskHistory(sessionId);
-      console.log(`[session-namer] Evaluating session ${sessionId} (current: "${currentName}", history: ${relevantHistory.length}/${history.length} msgs, generating: ${isGenerating})...`);
-      const result = await evaluateSessionName(sessionId, currentName, relevantHistory, cwd, { signal, isGenerating }, taskHistory);
-      if (signal.aborted) return;
-      if (!result) return;
-      applyNamingResult(sessionId, currentName, result, history);
+    } else if (currentName) {
+      // Subsequent user messages: evaluate whether to rename.
+      // If name is still random (initial attempt failed), the evaluate prompt
+      // tells the model the name is unknown so it generates one from context.
+      await evaluateAndApply(sessionId, history, cwd, signal, isGenerating, "User message");
     }
   } finally {
     endNamerCall(sessionId, controller);
@@ -296,21 +332,13 @@ wsBridge.onUserMessageCallback(async (sessionId, history, cwd, wasGenerating) =>
 // rich context for naming — and it's a natural breakpoint before execution.
 wsBridge.onAgentPausedCallback(async (sessionId, history, cwd) => {
   const currentName = sessionNames.getName(sessionId);
-  const isRandomName = currentName && /^[A-Z][a-z]+ [A-Z][a-z]+$/.test(currentName);
-  if (!currentName || isRandomName) return;
+  if (!currentName) return;
 
   const controller = beginNamerCall(sessionId);
   const { signal } = controller;
 
   try {
-    const startIndex = nameSetAtHistoryIndex.get(sessionId) ?? 0;
-    const relevantHistory = history.slice(startIndex);
-    const taskHistory = wsBridge.getSessionTaskHistory(sessionId);
-    console.log(`[session-namer] Agent paused — evaluating session ${sessionId} (current: "${currentName}", history: ${relevantHistory.length}/${history.length} msgs)...`);
-    const result = await evaluateSessionName(sessionId, currentName, relevantHistory, cwd, { signal, isGenerating: true }, taskHistory);
-    if (signal.aborted) return;
-    if (!result) return;
-    applyNamingResult(sessionId, currentName, result, history);
+    await evaluateAndApply(sessionId, history, cwd, signal, true, "Agent paused");
   } finally {
     endNamerCall(sessionId, controller);
   }
@@ -321,22 +349,14 @@ wsBridge.onAgentPausedCallback(async (sessionId, history, cwd) => {
 // and improves the initial name after the first turn.
 wsBridge.onTurnCompletedCallback(async (sessionId, history, cwd) => {
   const currentName = sessionNames.getName(sessionId);
-  const isRandomName = currentName && /^[A-Z][a-z]+ [A-Z][a-z]+$/.test(currentName);
-  if (!currentName || isRandomName) return; // no real name yet, skip
+  if (!currentName) return;
 
   // Cancel any in-flight namer (e.g. from a user message that triggered just before completion)
   const controller = beginNamerCall(sessionId);
   const { signal } = controller;
 
   try {
-    const startIndex = nameSetAtHistoryIndex.get(sessionId) ?? 0;
-    const relevantHistory = history.slice(startIndex);
-    const taskHistory = wsBridge.getSessionTaskHistory(sessionId);
-    console.log(`[session-namer] Turn completed — evaluating session ${sessionId} (current: "${currentName}", history: ${relevantHistory.length}/${history.length} msgs)...`);
-    const result = await evaluateSessionName(sessionId, currentName, relevantHistory, cwd, { signal, isGenerating: false }, taskHistory);
-    if (signal.aborted) return;
-    if (!result) return;
-    applyNamingResult(sessionId, currentName, result, history);
+    await evaluateAndApply(sessionId, history, cwd, signal, false, "Turn completed");
   } finally {
     endNamerCall(sessionId, controller);
   }

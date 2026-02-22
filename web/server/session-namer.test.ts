@@ -909,3 +909,112 @@ describe("parseResponse with backtick-wrapped output", () => {
     });
   });
 });
+
+// ─── Quest context in prompts ─────────────────────────────────────────────
+
+describe("quest context in buildFirstTurnPrompt", () => {
+  it("includes quest context when claimedQuest is provided", () => {
+    const prompt = buildFirstTurnPrompt(
+      [userMsg("/quest claim q-20")],
+      undefined,
+      true,
+      { id: "q-20", title: "Fix auto-namer not triggering on agent stop" },
+    );
+    expect(prompt).toContain("Active quest: q-20");
+    expect(prompt).toContain("Fix auto-namer not triggering on agent stop");
+    expect(prompt).toContain("Use it as context for the title");
+  });
+
+  it("omits quest context when claimedQuest is null", () => {
+    const prompt = buildFirstTurnPrompt([userMsg("Fix the auth bug")], undefined, false, null);
+    expect(prompt).not.toContain("Active quest");
+  });
+
+  it("omits quest context when claimedQuest is undefined", () => {
+    const prompt = buildFirstTurnPrompt([userMsg("Fix the auth bug")]);
+    expect(prompt).not.toContain("Active quest");
+  });
+});
+
+describe("quest context in buildUpdatePrompt", () => {
+  it("includes quest context when claimedQuest is provided", () => {
+    const prompt = buildUpdatePrompt(
+      "Fix Auth Bug",
+      [userMsg("Continue fixing")],
+      undefined,
+      false,
+      undefined,
+      { id: "q-5", title: "Add dark mode toggle" },
+    );
+    expect(prompt).toContain("Active quest: q-5");
+    expect(prompt).toContain("Add dark mode toggle");
+  });
+
+  it("omits quest context when claimedQuest is null", () => {
+    const prompt = buildUpdatePrompt(
+      "Fix Auth Bug",
+      [userMsg("Continue fixing")],
+      undefined,
+      false,
+      undefined,
+      null,
+    );
+    expect(prompt).not.toContain("Active quest");
+  });
+
+  it("omits quest context when claimedQuest is undefined", () => {
+    const prompt = buildUpdatePrompt("Fix Auth Bug", [userMsg("Continue fixing")]);
+    expect(prompt).not.toContain("Active quest");
+  });
+});
+
+// ─── Unnamed session prompt (isUnnamed) ───────────────────────────────────
+
+describe("buildUpdatePrompt with isUnnamed", () => {
+  it("generates an unnamed prompt that asks the model to create a title", () => {
+    // When the initial naming failed, subsequent evaluations use isUnnamed
+    // to tell the model the session has no title yet
+    const history: BrowserIncomingMessage[] = [
+      userMsg("/quest claim q-20"),
+      assistantMsg([
+        { type: "text", text: "I'll claim the quest and start working on it." },
+        { type: "tool_use", id: "tu-1", name: "Bash", input: { command: "quest claim q-20" } },
+      ]),
+    ];
+    const prompt = buildUpdatePrompt("Deep Reef", history, undefined, false, undefined, null, true);
+
+    // Should NOT show the random name to the model
+    expect(prompt).not.toContain("Deep Reef");
+    // Should indicate no title yet
+    expect(prompt).toContain("does not have a title yet");
+    // Should ask to generate, not evaluate
+    expect(prompt).toContain("Generate a title");
+    // Should only offer NEW: format (not NO_CHANGE or REVISE)
+    expect(prompt).toContain("NEW:");
+    expect(prompt).not.toContain("NO_CHANGE");
+    expect(prompt).not.toContain("REVISE");
+    // Should still include conversation context
+    expect(prompt).toContain("quest claim q-20");
+  });
+
+  it("includes quest context in unnamed prompt when claimedQuest is provided", () => {
+    const prompt = buildUpdatePrompt(
+      "Deep Reef",
+      [userMsg("/quest claim q-20")],
+      undefined,
+      false,
+      undefined,
+      { id: "q-20", title: "Fix auto-namer triggers" },
+      true,
+    );
+    expect(prompt).toContain("Active quest: q-20");
+    expect(prompt).toContain("Fix auto-namer triggers");
+    expect(prompt).toContain("does not have a title yet");
+  });
+
+  it("uses normal prompt when isUnnamed is false", () => {
+    const prompt = buildUpdatePrompt("Fix Auth Bug", [userMsg("Continue fixing")], undefined, false, undefined, null, false);
+    expect(prompt).toContain('The current session task is: "Fix Auth Bug"');
+    expect(prompt).toContain("NO_CHANGE");
+  });
+});
