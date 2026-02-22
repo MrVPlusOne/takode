@@ -163,15 +163,19 @@ export function Composer({ sessionId }: { sessionId: string }) {
   const cliConnected = useStore((s) => s.cliConnected);
   const sessionData = useStore((s) => s.sessions.get(sessionId));
   // Total diff lines from per-file stats (same source as the diff view)
-  const diffLineTotals = useStore((s) => {
+  const diffLinesAdded = useStore((s) => {
     const stats = s.diffFileStats.get(sessionId);
-    if (!stats || stats.size === 0) return null;
-    let added = 0, removed = 0;
-    for (const st of stats.values()) {
-      added += st.additions;
-      removed += st.deletions;
-    }
-    return (added > 0 || removed > 0) ? { added, removed } : null;
+    if (!stats || stats.size === 0) return 0;
+    let t = 0;
+    for (const st of stats.values()) t += st.additions;
+    return t;
+  });
+  const diffLinesRemoved = useStore((s) => {
+    const stats = s.diffFileStats.get(sessionId);
+    if (!stats || stats.size === 0) return 0;
+    let t = 0;
+    for (const st of stats.values()) t += st.deletions;
+    return t;
   });
 
   const isConnected = cliConnected.get(sessionId) ?? false;
@@ -622,10 +626,10 @@ export function Composer({ sessionId }: { sessionId: string }) {
                   )}
                 </span>
               )}
-              {diffLineTotals && (
+              {(diffLinesAdded > 0 || diffLinesRemoved > 0) && (
                 <span className="flex items-center gap-1 shrink-0">
-                  <span className="text-green-500">+{diffLineTotals.added}</span>
-                  <span className="text-red-400">-{diffLineTotals.removed}</span>
+                  <span className="text-green-500">+{diffLinesAdded}</span>
+                  <span className="text-red-400">-{diffLinesRemoved}</span>
                 </span>
               )}
             </div>

@@ -38,12 +38,19 @@ export function SessionInfoPopover({
   const isWorktree = session?.is_worktree ?? false;
   const gitAhead = session?.git_ahead ?? 0;
   const gitBehind = session?.git_behind ?? 0;
-  const { linesAdded, linesRemoved } = useStore((s) => {
+  const linesAdded = useStore((s) => {
     const stats = s.diffFileStats.get(sessionId);
-    if (!stats || stats.size === 0) return { linesAdded: 0, linesRemoved: 0 };
-    let added = 0, removed = 0;
-    for (const st of stats.values()) { added += st.additions; removed += st.deletions; }
-    return { linesAdded: added, linesRemoved: removed };
+    if (!stats || stats.size === 0) return 0;
+    let t = 0;
+    for (const st of stats.values()) t += st.additions;
+    return t;
+  });
+  const linesRemoved = useStore((s) => {
+    const stats = s.diffFileStats.get(sessionId);
+    if (!stats || stats.size === 0) return 0;
+    let t = 0;
+    for (const st of stats.values()) t += st.deletions;
+    return t;
   });
 
   // Close on click outside

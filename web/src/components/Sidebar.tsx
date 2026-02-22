@@ -13,6 +13,17 @@ import { SidebarUsageBar } from "./SidebarUsageBar.js";
 
 import { groupSessionsByProject, type SessionItem as SessionItemType } from "../utils/project-grouping.js";
 
+/** Sum additions or deletions from a per-file diff stats Map. */
+function sumDiffStat(
+  stats: Map<string, { additions: number; deletions: number }> | undefined,
+  key: "additions" | "deletions",
+): number {
+  if (!stats || stats.size === 0) return 0;
+  let total = 0;
+  for (const v of stats.values()) total += v[key] ?? 0;
+  return total;
+}
+
 export function Sidebar() {
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
@@ -351,8 +362,8 @@ export function Sidebar() {
       isContainerized: bridgeState?.is_containerized || !!sdkInfo?.containerId || false,
       gitAhead: bridgeState?.git_ahead || sdkInfo?.gitAhead || 0,
       gitBehind: bridgeState?.git_behind || sdkInfo?.gitBehind || 0,
-      linesAdded: (() => { const s = diffFileStats.get(id); if (!s) return 0; let t = 0; for (const v of s.values()) t += v.additions; return t; })(),
-      linesRemoved: (() => { const s = diffFileStats.get(id); if (!s) return 0; let t = 0; for (const v of s.values()) t += v.deletions; return t; })(),
+      linesAdded: sumDiffStat(diffFileStats.get(id), "additions"),
+      linesRemoved: sumDiffStat(diffFileStats.get(id), "deletions"),
       isConnected: cliConnected.get(id) ?? sdkInfo?.cliConnected ?? false,
       status: sessionStatus.get(id) ?? null,
       sdkState: sdkInfo?.state ?? null,
