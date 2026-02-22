@@ -833,6 +833,143 @@ describe("Browser handlers", () => {
     expect(replayMsg.events.some((e: any) => e.message.type === "stream_event")).toBe(true);
   });
 
+  it("session_subscribe no-gap: sends message_history when history-backed events were missed", () => {
+    // Simulates a mobile browser that disconnected while the session was generating,
+    // then reconnects. The event buffer covers the gap (no gap), but the browser
+    // missed assistant messages that need to be delivered via message_history.
+    const cli = makeCliSocket("s1");
+    bridge.handleCLIOpen(cli, "s1");
+
+    // Generate a stream_event (transient, seq=2) then an assistant message (history-backed, seq=3)
+    bridge.handleCLIMessage(cli, JSON.stringify({
+      type: "stream_event",
+      event: { type: "content_block_delta", delta: { type: "text_delta", text: "streaming" } },
+      parent_tool_use_id: null,
+      uuid: "se-1",
+      session_id: "s1",
+    }));
+    bridge.handleCLIMessage(cli, JSON.stringify({
+      type: "assistant",
+      message: {
+        id: "asst-missed",
+        type: "message",
+        role: "assistant",
+        model: "claude-sonnet-4-5-20250929",
+        content: [{ type: "text", text: "missed message" }],
+        stop_reason: "end_turn",
+        usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+      uuid: "asst-u1",
+      session_id: "s1",
+    }));
+
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+    browser.send.mockClear();
+
+    // Browser reconnects claiming it last saw seq=1 (cli_connected event).
+    // Event buffer covers seqs 2-3 (no gap), but seq=3 is history-backed.
+    bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "session_subscribe",
+      last_seq: 1,
+    }));
+
+    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    // Should send message_history because history-backed events were missed
+    const historyMsg = calls.find((c: any) => c.type === "message_history");
+    expect(historyMsg).toBeDefined();
+    expect(historyMsg.messages.some((m: any) => m.type === "assistant")).toBe(true);
+    // Should also replay transient events (stream_event) that were missed
+    const replayMsg = calls.find((c: any) => c.type === "event_replay");
+    expect(replayMsg).toBeDefined();
+    expect(replayMsg.events.every((e: any) => e.message.type === "stream_event")).toBe(true);
+  });
+
+  it("session_subscribe no-gap: skips message_history when only transient events were missed", () => {
+    // When the browser only missed transient events (stream_event, tool_progress),
+    // no message_history should be sent — just event_replay.
+    const cli = makeCliSocket("s1");
+    bridge.handleCLIOpen(cli, "s1");
+
+    // Generate only transient events
+    bridge.handleCLIMessage(cli, JSON.stringify({
+      type: "stream_event",
+      event: { type: "content_block_delta", delta: { type: "text_delta", text: "a" } },
+      parent_tool_use_id: null,
+      uuid: "se-t1",
+      session_id: "s1",
+    }));
+    bridge.handleCLIMessage(cli, JSON.stringify({
+      type: "stream_event",
+      event: { type: "content_block_delta", delta: { type: "text_delta", text: "b" } },
+      parent_tool_use_id: null,
+      uuid: "se-t2",
+      session_id: "s1",
+    }));
+
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+    browser.send.mockClear();
+
+    bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "session_subscribe",
+      last_seq: 1,
+    }));
+
+    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    // Should NOT send message_history since only transient events were missed
+    const historyMsg = calls.find((c: any) => c.type === "message_history");
+    expect(historyMsg).toBeUndefined();
+    // Should replay the missed transient events
+    const replayMsg = calls.find((c: any) => c.type === "event_replay");
+    expect(replayMsg).toBeDefined();
+    expect(replayMsg.events).toHaveLength(2);
+  });
+
+  it("session_subscribe: sends message_history when event buffer is empty but browser is behind", () => {
+    // Edge case: the event buffer was pruned or cleared, but the browser is behind.
+    // Previously this path was skipped entirely; now it should send message_history.
+    const cli = makeCliSocket("s1");
+    bridge.handleCLIOpen(cli, "s1");
+
+    // Generate an assistant message to populate messageHistory
+    bridge.handleCLIMessage(cli, JSON.stringify({
+      type: "assistant",
+      message: {
+        id: "asst-empty-buf",
+        type: "message",
+        role: "assistant",
+        model: "claude-sonnet-4-5-20250929",
+        content: [{ type: "text", text: "should be delivered" }],
+        stop_reason: "end_turn",
+        usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+      uuid: "asst-eb",
+      session_id: "s1",
+    }));
+
+    const session = bridge.getSession("s1")!;
+    // Clear the event buffer to simulate pruning, but keep nextEventSeq advanced
+    session.eventBuffer.length = 0;
+
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+    browser.send.mockClear();
+
+    // Browser is behind (last_seq=1 but nextEventSeq > 2)
+    bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "session_subscribe",
+      last_seq: 1,
+    }));
+
+    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    const historyMsg = calls.find((c: any) => c.type === "message_history");
+    expect(historyMsg).toBeDefined();
+    expect(historyMsg.messages.some((m: any) => m.type === "assistant")).toBe(true);
+  });
+
   it("session_ack: updates lastAckSeq for the session", () => {
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");

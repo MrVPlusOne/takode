@@ -2311,16 +2311,29 @@ export class WsBridge {
           });
         }
       }
-    } else if (session.eventBuffer.length > 0 && lastAckSeq < session.nextEventSeq - 1) {
+    } else if (lastAckSeq < session.nextEventSeq - 1) {
+      // Browser is behind — determine what was missed.
       const earliest = session.eventBuffer[0]?.seq ?? session.nextEventSeq;
-      const hasGap = lastAckSeq < earliest - 1;
-      if (hasGap) {
-        this.sendToBrowser(ws, {
-          type: "message_history",
-          messages: session.messageHistory,
-        });
-        const transientMissed = session.eventBuffer
-          .filter((evt) => evt.seq > lastAckSeq && !this.isHistoryBackedEvent(evt.message));
+      const hasGap = session.eventBuffer.length === 0 || lastAckSeq < earliest - 1;
+
+      const missedEvents = session.eventBuffer.filter((evt) => evt.seq > lastAckSeq);
+      const hasMissedHistoryBacked = missedEvents.some((evt) =>
+        this.isHistoryBackedEvent(evt.message),
+      );
+
+      if (hasGap || hasMissedHistoryBacked) {
+        // Gap in buffer coverage OR missed history-backed events: send
+        // authoritative message_history (full replacement) so the browser
+        // has all chat messages. Then replay only transient events from the
+        // buffer for in-flight streaming/progress state.
+        if (session.messageHistory.length > 0) {
+          this.sendToBrowser(ws, {
+            type: "message_history",
+            messages: session.messageHistory,
+          });
+        }
+        const transientMissed = missedEvents
+          .filter((evt) => !this.isHistoryBackedEvent(evt.message));
         if (transientMissed.length > 0) {
           this.sendToBrowser(ws, {
             type: "event_replay",
@@ -2328,16 +2341,12 @@ export class WsBridge {
           });
         }
       } else {
-        // No gap — browser has local state. Only replay transient events
-        // (status_change, stream_event, tool_progress, etc.). History-backed
-        // events (assistant, result, compact_boundary, etc.) are already in
-        // the browser's local message store from before the disconnect.
-        const missed = session.eventBuffer
-          .filter((evt) => evt.seq > lastAckSeq && !this.isHistoryBackedEvent(evt.message));
-        if (missed.length > 0) {
+        // No gap and only transient events missed — browser already has all
+        // chat messages. Replay the missed transient events directly.
+        if (missedEvents.length > 0) {
           this.sendToBrowser(ws, {
             type: "event_replay",
-            events: missed,
+            events: missedEvents,
           });
         }
       }
