@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
 import { navigateToSession } from "../utils/routing.js";
 import { Lightbox } from "./Lightbox.js";
 import { SessionStatusDot } from "./SessionStatusDot.js";
+import type { SessionItem as SessionItemType } from "../utils/project-grouping.js";
 import type {
   QuestmasterTask,
   QuestStatus,
@@ -115,6 +116,8 @@ export function QuestmasterPage() {
   const sessionStatus = useStore((s) => s.sessionStatus);
   const cliDisconnectReason = useStore((s) => s.cliDisconnectReason);
   const pendingPermissions = useStore((s) => s.pendingPermissions);
+  const sessionPreviews = useStore((s) => s.sessionPreviews);
+  const askPermissionMap = useStore((s) => s.askPermission);
 
   const [filter, setFilter] = useState<QuestStatus | "all">("all");
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -321,10 +324,41 @@ export function QuestmasterPage() {
     }
   }
 
-  // Active sessions for the assign picker — same order as sidebar (newest first)
-  const activeSessions = sdkSessions
-    .filter((s) => s.state !== "exited" && !s.archived)
-    .sort((a, b) => b.createdAt - a.createdAt);
+  // Active sessions for the assign picker — built same as sidebar (newest first)
+  const pickerSessions = useMemo(() => {
+    return sdkSessions
+      .filter((s) => s.state !== "exited" && !s.archived)
+      .map((sdkInfo): SessionItemType => {
+        const bridgeState = sessions.get(sdkInfo.sessionId);
+        return {
+          id: sdkInfo.sessionId,
+          model: bridgeState?.model || sdkInfo.model || "",
+          cwd: bridgeState?.cwd || sdkInfo.cwd || "",
+          gitBranch: bridgeState?.git_branch || sdkInfo.gitBranch || "",
+          isContainerized: bridgeState?.is_containerized || !!sdkInfo.containerId || false,
+          gitAhead: bridgeState?.git_ahead || sdkInfo.gitAhead || 0,
+          gitBehind: bridgeState?.git_behind || sdkInfo.gitBehind || 0,
+          linesAdded: bridgeState?.total_lines_added || sdkInfo.totalLinesAdded || 0,
+          linesRemoved: bridgeState?.total_lines_removed || sdkInfo.totalLinesRemoved || 0,
+          isConnected: cliConnected.get(sdkInfo.sessionId) ?? sdkInfo.cliConnected ?? false,
+          status: sessionStatus.get(sdkInfo.sessionId) ?? null,
+          sdkState: sdkInfo.state ?? null,
+          createdAt: sdkInfo.createdAt ?? 0,
+          archived: sdkInfo.archived ?? false,
+          backendType: bridgeState?.backend_type || sdkInfo.backendType || "claude",
+          repoRoot: bridgeState?.repo_root || sdkInfo.repoRoot || "",
+          permCount: pendingPermissions.get(sdkInfo.sessionId)?.size ?? 0,
+          cronJobId: bridgeState?.cronJobId || sdkInfo.cronJobId,
+          cronJobName: bridgeState?.cronJobName || sdkInfo.cronJobName,
+          isWorktree: bridgeState?.is_worktree || sdkInfo.isWorktree || false,
+          worktreeExists: sdkInfo.worktreeExists,
+          worktreeDirty: sdkInfo.worktreeDirty,
+          askPermission: askPermissionMap?.get(sdkInfo.sessionId),
+          idleKilled: cliDisconnectReason.get(sdkInfo.sessionId) === "idle_limit",
+        };
+      })
+      .sort((a, b) => b.createdAt - a.createdAt);
+  }, [sdkSessions, sessions, cliConnected, sessionStatus, pendingPermissions, cliDisconnectReason, askPermissionMap]);
 
   async function handleAssignToSession(
     quest: QuestmasterTask,
@@ -938,59 +972,24 @@ export function QuestmasterPage() {
                                   Assign
                                 </button>
 
-                                {/* Session picker — sidebar-style chips */}
+                                {/* Session picker — identical to sidebar chips */}
                                 {assignPickerForId === quest.questId && (
-                                  <div className="absolute z-10 top-full left-0 mt-1 w-64 bg-cc-card border border-cc-border rounded-lg shadow-lg">
-                                    {activeSessions.length === 0 ? (
+                                  <div className="absolute z-10 top-full left-0 mt-1 w-72 bg-cc-card border border-cc-border rounded-lg shadow-lg">
+                                    {pickerSessions.length === 0 ? (
                                       <div className="px-3 py-2 text-xs text-cc-muted">
                                         No active sessions
                                       </div>
                                     ) : (
-                                      <div className="max-h-60 overflow-y-auto p-1.5 space-y-0.5">
-                                        {activeSessions.map((session) => {
-                                          const name =
-                                            sessionNames.get(session.sessionId) ||
-                                            session.sessionId.slice(0, 8);
-                                          const bridgeState = sessions.get(session.sessionId);
-                                          const backendType = bridgeState?.backend_type || session.backendType || "claude";
-                                          const isConnected = cliConnected.get(session.sessionId) ?? session.cliConnected ?? false;
-                                          const status = sessionStatus.get(session.sessionId) ?? null;
-                                          const permCount = pendingPermissions.get(session.sessionId)?.size ?? 0;
-                                          const idleKilled = cliDisconnectReason.get(session.sessionId) === "idle_limit";
-                                          return (
-                                            <button
-                                              key={session.sessionId}
-                                              onClick={() =>
-                                                handleAssignToSession(quest, session.sessionId)
-                                              }
-                                              className="relative w-full pl-3.5 pr-3 py-2 text-left rounded-lg hover:bg-cc-hover transition-colors cursor-pointer"
-                                            >
-                                              {/* Left accent border */}
-                                              <span
-                                                className={`absolute left-0 top-2 bottom-2 w-[2px] rounded-full ${
-                                                  backendType === "codex" ? "bg-blue-500" : "bg-[#D97757]"
-                                                } opacity-40`}
-                                              />
-                                              <div className="flex items-center gap-2">
-                                                <SessionStatusDot
-                                                  permCount={permCount}
-                                                  isConnected={isConnected}
-                                                  sdkState={session.state}
-                                                  status={status}
-                                                  idleKilled={idleKilled}
-                                                />
-                                                <span className="text-[13px] font-medium text-cc-fg truncate flex-1">
-                                                  {name}
-                                                </span>
-                                                <img
-                                                  src={backendType === "codex" ? "/logo-codex.svg" : "/logo.svg"}
-                                                  alt={backendType === "codex" ? "Codex" : "Claude"}
-                                                  className="w-3 h-3 shrink-0 object-contain opacity-60"
-                                                />
-                                              </div>
-                                            </button>
-                                          );
-                                        })}
+                                      <div className="max-h-72 overflow-y-auto p-1">
+                                        {pickerSessions.map((s) => (
+                                          <PickerSessionChip
+                                            key={s.id}
+                                            session={s}
+                                            sessionName={sessionNames.get(s.id)}
+                                            sessionPreview={sessionPreviews.get(s.id)}
+                                            onClick={() => handleAssignToSession(quest, s.id)}
+                                          />
+                                        ))}
                                       </div>
                                     )}
                                   </div>
@@ -1064,5 +1063,141 @@ export function QuestmasterPage() {
         <Lightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
       )}
     </div>
+  );
+}
+
+// ─── Picker session chip (read-only mirror of SessionItem) ───────────────────
+
+/** Read-only session chip for the assign picker, matching the sidebar's visual layout. */
+function PickerSessionChip({
+  session: s,
+  sessionName,
+  sessionPreview,
+  onClick,
+}: {
+  session: SessionItemType;
+  sessionName: string | undefined;
+  sessionPreview: string | undefined;
+  onClick: () => void;
+}) {
+  const taskPreview = useStore((st) => st.sessionTaskPreview.get(s.id));
+  const userUpdatedAt = useStore((st) => st.sessionPreviewUpdatedAt.get(s.id) ?? 0);
+
+  const label = sessionName || s.model || s.id.slice(0, 8);
+  const backendLogo = s.backendType === "codex" ? "/logo-codex.svg" : "/logo.svg";
+  const backendAlt = s.backendType === "codex" ? "Codex" : "Claude";
+  const showTask = taskPreview && taskPreview.updatedAt > userUpdatedAt;
+
+  return (
+    <button
+      onClick={onClick}
+      className="relative w-full pl-3.5 pr-3 py-2 text-left rounded-lg hover:bg-cc-hover transition-colors cursor-pointer"
+    >
+      {/* Left accent border */}
+      <span
+        className={`absolute left-0 top-2 bottom-2 w-[2px] rounded-full ${
+          s.backendType === "codex" ? "bg-blue-500" : "bg-[#D97757]"
+        } opacity-40`}
+      />
+
+      <div className="flex items-start gap-2">
+        {/* Status dot */}
+        <SessionStatusDot
+          permCount={s.permCount}
+          isConnected={s.isConnected}
+          sdkState={s.sdkState}
+          status={s.status}
+          idleKilled={s.idleKilled}
+        />
+
+        {/* Content */}
+        <div className="flex-1 min-w-0">
+          {/* Row 1: Name */}
+          <span className="text-[13px] font-medium truncate text-cc-fg leading-snug block">
+            {label}
+          </span>
+
+          {/* Row 2: Preview — active task or last user message */}
+          {showTask ? (
+            <div className="mt-0.5 text-[10.5px] text-cc-primary/60 leading-tight truncate italic">
+              {taskPreview.text}
+            </div>
+          ) : sessionPreview ? (
+            <div className="mt-0.5 text-[10.5px] text-cc-muted/60 leading-tight truncate">
+              {sessionPreview}
+            </div>
+          ) : null}
+
+          {/* Row 3: Metadata — backend, permissions, branch, badges */}
+          <div className="flex items-center gap-1 mt-0.5 text-[10.5px] text-cc-muted leading-tight">
+            <img
+              src={backendLogo}
+              alt={backendAlt}
+              className="w-3 h-3 shrink-0 object-contain opacity-60"
+            />
+            {s.backendType !== "codex" && s.askPermission === true && (
+              <span title="Permissions: asking before tool use">
+                <svg viewBox="0 0 16 16" fill="currentColor" className="w-2.5 h-2.5 shrink-0 text-cc-primary">
+                  <path d="M8 1L2 4v4c0 3.5 2.6 6.4 6 7 3.4-.6 6-3.5 6-7V4L8 1z" />
+                  <path d="M6.5 8.5L7.5 9.5L10 7" stroke="white" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </span>
+            )}
+            {s.backendType !== "codex" && s.askPermission === false && (
+              <span title="Permissions: auto-approving tool use">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" className="w-2.5 h-2.5 shrink-0 text-cc-muted/50">
+                  <path d="M8 1L2 4v4c0 3.5 2.6 6.4 6 7 3.4-.6 6-3.5 6-7V4L8 1z" />
+                </svg>
+              </span>
+            )}
+            {s.isContainerized && (
+              <span className="text-[9px] font-medium px-1.5 rounded-full leading-[16px] shrink-0 text-blue-400 bg-blue-500/10">
+                Docker
+              </span>
+            )}
+            {s.cronJobId && (
+              <span className="text-[9px] font-medium px-1.5 rounded-full leading-[16px] shrink-0 text-violet-500 bg-violet-500/10">
+                Cron
+              </span>
+            )}
+            {s.gitBranch && (
+              <>
+                {s.isWorktree ? (
+                  <svg viewBox="0 0 16 16" fill="currentColor" className="w-2.5 h-2.5 shrink-0 opacity-50">
+                    <path d="M5 3.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm0 2.122a2.25 2.25 0 10-1.5 0v5.256a2.25 2.25 0 101.5 0V5.372zM4.25 12a.75.75 0 100 1.5.75.75 0 000-1.5zm7.5-9.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122V7A2.5 2.5 0 0110 9.5H6a1 1 0 000 2h4a2.5 2.5 0 012.5 2.5v.628a2.25 2.25 0 11-1.5 0V14a1 1 0 00-1-1H6a2.5 2.5 0 01-2.5-2.5V10a2.5 2.5 0 012.5-2.5h4a1 1 0 001-1V5.372a2.25 2.25 0 01-1.5-2.122z" />
+                  </svg>
+                ) : (
+                  <svg viewBox="0 0 16 16" fill="currentColor" className="w-2.5 h-2.5 shrink-0 opacity-50">
+                    <path d="M11.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.116.862a2.25 2.25 0 10-.862.862A4.48 4.48 0 007.25 7.5h-1.5A2.25 2.25 0 003.5 9.75v.318a2.25 2.25 0 101.5 0V9.75a.75.75 0 01.75-.75h1.5a5.98 5.98 0 003.884-1.435A2.25 2.25 0 109.634 3.362zM4.25 12a.75.75 0 100 1.5.75.75 0 000-1.5z" />
+                  </svg>
+                )}
+                <span className="truncate">{s.gitBranch}</span>
+                {s.isWorktree && (
+                  <span className="text-[9px] px-1 rounded shrink-0 bg-cc-primary/10 text-cc-primary">wt</span>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Row 4: Git stats */}
+          {(s.gitAhead > 0 || s.gitBehind > 0 || s.linesAdded > 0 || s.linesRemoved > 0) && (
+            <div className="flex items-center gap-1.5 mt-px text-[10px] text-cc-muted">
+              {(s.gitAhead > 0 || s.gitBehind > 0) && (
+                <span className="flex items-center gap-0.5">
+                  {s.gitAhead > 0 && <span className="text-green-500">{s.gitAhead}&#8593;</span>}
+                  {s.gitBehind > 0 && <span className="text-cc-warning">{s.gitBehind}&#8595;</span>}
+                </span>
+              )}
+              {(s.linesAdded > 0 || s.linesRemoved > 0) && (
+                <span className="flex items-center gap-1 shrink-0">
+                  <span className="text-green-500">+{s.linesAdded}</span>
+                  <span className="text-red-400">-{s.linesRemoved}</span>
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </button>
   );
 }
