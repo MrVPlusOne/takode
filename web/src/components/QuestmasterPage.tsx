@@ -60,6 +60,15 @@ const ALL_STATUSES: QuestStatus[] = [
   "done",
 ];
 
+// Display order: most-needs-attention → least
+const DISPLAY_ORDER: QuestStatus[] = [
+  "needs_verification",
+  "in_progress",
+  "refined",
+  "idea",
+  "done",
+];
+
 const FILTER_TABS: Array<{ value: QuestStatus | "all"; label: string }> = [
   { value: "all", label: "All" },
   { value: "idea", label: "Idea" },
@@ -127,6 +136,9 @@ export function QuestmasterPage() {
 
   // Assign-to-session picker (questId → show picker)
   const [assignPickerForId, setAssignPickerForId] = useState<string | null>(null);
+
+  // Collapsed phase groups
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<QuestStatus>>(new Set());
 
   // Load quests on mount
   useEffect(() => {
@@ -527,7 +539,41 @@ export function QuestmasterPage() {
                 : "No quests match this filter."}
             </div>
           ) : (
-            filtered.map((quest) => {
+            (filter === "all" ? DISPLAY_ORDER : ALL_STATUSES)
+              .filter((status) => filtered.some((q) => q.status === status))
+              .map((status) => {
+                const groupQuests = filtered.filter((q) => q.status === status);
+                const gcfg = STATUS_CONFIG[status];
+                const isCollapsed = filter === "all" && collapsedGroups.has(status);
+                return (
+                  <div key={status}>
+                    {/* Group header (only when showing all) */}
+                    {filter === "all" && (
+                      <button
+                        onClick={() => setCollapsedGroups((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(status)) next.delete(status);
+                          else next.add(status);
+                          return next;
+                        })}
+                        className="flex items-center gap-2 mb-1.5 mt-3 first:mt-0 cursor-pointer group/gh w-full text-left"
+                      >
+                        <svg
+                          viewBox="0 0 16 16"
+                          fill="currentColor"
+                          className={`w-3 h-3 text-cc-muted/40 group-hover/gh:text-cc-muted transition-transform ${isCollapsed ? "" : "rotate-90"}`}
+                        >
+                          <path d="M6 3l5 5-5 5V3z" />
+                        </svg>
+                        <span className={`w-1.5 h-1.5 rounded-full ${gcfg.dot}`} />
+                        <span className={`text-xs font-medium ${gcfg.text}`}>
+                          {gcfg.label}
+                        </span>
+                        <span className="text-[10px] text-cc-muted/50">{groupQuests.length}</span>
+                      </button>
+                    )}
+                    {!isCollapsed && <div className="space-y-2">
+                    {groupQuests.map((quest) => {
               const isCancelled = "cancelled" in quest && !!(quest as { cancelled?: boolean }).cancelled;
               const cfg = STATUS_CONFIG[quest.status];
               const isExpanded = expandedId === quest.questId;
@@ -573,26 +619,13 @@ export function QuestmasterPage() {
                         )}
                       </div>
                       <div className="flex items-center gap-2 mt-0.5">
-                        <span
-                          className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${isCancelled ? "bg-red-500/10 text-red-400" : `${cfg.bg} ${cfg.text}`}`}
-                        >
-                          {isCancelled ? "Cancelled" : cfg.label}
-                        </span>
-                        {quest.tags?.map((tag) => (
-                          <span
-                            key={tag}
-                            className="text-[10px] px-1.5 py-0.5 rounded-full bg-cc-hover text-cc-muted"
-                          >
-                            {tag}
-                          </span>
-                        ))}
                         {"sessionId" in quest && quest.sessionId && (
                           <span
                             onClick={(e) => {
                               e.stopPropagation();
                               window.location.hash = `#/session/${quest.sessionId}`;
                             }}
-                            className="text-[10px] text-cc-primary hover:underline cursor-pointer"
+                            className="text-[11px] px-1.5 py-0.5 rounded bg-cc-primary/10 text-cc-primary hover:bg-cc-primary/20 cursor-pointer transition-colors"
                           >
                             session
                           </span>
@@ -613,6 +646,18 @@ export function QuestmasterPage() {
                           {timeAgo(quest.createdAt)}
                         </span>
                       </div>
+                      {quest.tags && quest.tags.length > 0 && (
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          {quest.tags.map((tag) => (
+                            <span
+                              key={tag}
+                              className="text-[10px] px-1.5 py-0.5 rounded-full bg-cc-hover text-cc-muted"
+                            >
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
 
                     {/* Expand chevron */}
@@ -910,19 +955,19 @@ export function QuestmasterPage() {
                             <span className="w-px h-4 bg-cc-border mx-0.5" />
 
                             {/* Status transitions */}
-                            {ALL_STATUSES.filter((s) => s !== quest.status).map((targetStatus) => {
-                              const tcfg = STATUS_CONFIG[targetStatus];
-                              return (
-                                <button
-                                  key={targetStatus}
-                                  onClick={() => handleTransition(quest.questId, targetStatus)}
-                                  className={`flex items-center gap-1 px-2 py-1.5 text-[11px] font-medium rounded-lg transition-colors cursor-pointer ${tcfg.bg} ${tcfg.text} border ${tcfg.border} hover:opacity-80`}
-                                >
-                                  <span className={`w-1.5 h-1.5 rounded-full ${tcfg.dot}`} />
-                                  {tcfg.label}
-                                </button>
-                              );
-                            })}
+                            <select
+                              value={quest.status}
+                              onChange={(e) =>
+                                handleTransition(quest.questId, e.target.value as QuestStatus)
+                              }
+                              className={`px-2 py-1.5 text-[11px] font-medium rounded-lg cursor-pointer outline-none transition-colors ${cfg.bg} ${cfg.text} border ${cfg.border}`}
+                            >
+                              {ALL_STATUSES.map((s) => (
+                                <option key={s} value={s}>
+                                  {STATUS_CONFIG[s].label}
+                                </option>
+                              ))}
+                            </select>
 
                             {/* Separator */}
                             <span className="w-px h-4 bg-cc-border mx-0.5" />
@@ -958,7 +1003,11 @@ export function QuestmasterPage() {
                   )}
                 </div>
               );
-            })
+            })}
+                    </div>}
+                  </div>
+                );
+              })
           )}
         </div>
       </div>
