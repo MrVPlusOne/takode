@@ -24,6 +24,7 @@ import type {
   QuestNeedsVerification,
   QuestDone,
 } from "./quest-types.js";
+import { getName } from "./session-names.js";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -464,14 +465,28 @@ export function claimQuest(
   const current = getQuest(questId);
   if (!current) return null;
 
-  // Check if already claimed by a different session
+  // Already claimed by the same session — idempotent, return as-is
+  if (
+    current.status === "in_progress" &&
+    "sessionId" in current &&
+    (current as QuestInProgress).sessionId === sessionId
+  ) {
+    return current;
+  }
+
+  // Claimed by a different session — error
   if (
     current.status === "in_progress" &&
     "sessionId" in current &&
     (current as QuestInProgress).sessionId !== sessionId
   ) {
+    const existingSessionId = (current as QuestInProgress).sessionId;
+    const ownerName = getName(existingSessionId);
+    const ownerLabel = ownerName
+      ? `"${ownerName}" (${existingSessionId.slice(0, 8)})`
+      : existingSessionId;
     throw new Error(
-      `Quest ${questId} is already claimed by session ${(current as QuestInProgress).sessionId}`,
+      `Quest ${questId} is already claimed by session ${ownerLabel}`,
     );
   }
 

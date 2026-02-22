@@ -35,6 +35,7 @@ import {
   deleteQuest,
 } from "../server/quest-store.js";
 import type { QuestmasterTask } from "../server/quest-types.js";
+import { getName } from "../server/session-names.js";
 
 // ─── Arg parsing helpers ────────────────────────────────────────────────────
 
@@ -118,12 +119,24 @@ const STATUS_LABELS: Record<string, string> = {
   done: "done",
 };
 
+const currentSessionId = process.env.COMPANION_SESSION_ID;
+
+function formatSessionLabel(sid: string): string {
+  const name = getName(sid);
+  const isYou = currentSessionId === sid;
+  const suffix = isYou ? " (you)" : "";
+  return name ? `"${name}" (${sid.slice(0, 8)})${suffix}` : `${sid.slice(0, 8)}${suffix}`;
+}
+
 function formatQuestLine(q: QuestmasterTask): string {
   const cancelled = "cancelled" in q && (q as { cancelled?: boolean }).cancelled;
   const icon = cancelled ? "✗" : STATUS_ICONS[q.status] || "?";
   const tags = q.tags?.length ? `  [${q.tags.join(", ")}]` : "";
-  const session =
-    "sessionId" in q ? `  → session ${(q as { sessionId: string }).sessionId.slice(0, 8)}` : "";
+  const session = (() => {
+    if (!("sessionId" in q)) return "";
+    const sid = (q as { sessionId: string }).sessionId;
+    return `  → ${formatSessionLabel(sid)}`;
+  })();
   const statusLabel = cancelled ? "cancelled" : (STATUS_LABELS[q.status] ?? q.status);
   const pad = (s: string, len: number) => s.padEnd(len);
   return `${icon} ${pad(q.questId, 6)} ${pad(q.title, 36)}${tags}  (${statusLabel}${session})`;
@@ -140,7 +153,8 @@ function formatQuestDetail(q: QuestmasterTask): string {
     lines.push(`Tags:        ${q.tags.join(", ")}`);
   }
   if ("sessionId" in q) {
-    lines.push(`Session:     ${(q as { sessionId: string }).sessionId}`);
+    const sid = (q as { sessionId: string }).sessionId;
+    lines.push(`Session:     ${formatSessionLabel(sid)}`);
   }
   if ("claimedAt" in q) {
     lines.push(`Claimed:     ${timeAgo((q as { claimedAt: number }).claimedAt)}`);
@@ -269,7 +283,7 @@ async function cmdClaim(): Promise<void> {
     if (jsonOutput) {
       out(quest);
     } else {
-      console.log(`Claimed ${quest.questId} "${quest.title}" for session ${sessionId.slice(0, 8)}`);
+      console.log(`Claimed ${quest.questId} "${quest.title}" for session ${formatSessionLabel(sessionId)}`);
     }
   } catch (e) {
     die((e as Error).message);

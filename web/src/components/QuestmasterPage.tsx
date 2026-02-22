@@ -370,19 +370,20 @@ export function QuestmasterPage() {
   ) {
     setAssignPickerForId(null);
 
-    // Build composer draft
+    // Build composer draft — structured to trigger quest skill and guide the agent workflow
     const lines: string[] = [];
-    lines.push("I have a quest for you:\n");
-    lines.push(`**${quest.title}** (${quest.questId})\n`);
+    lines.push(`Use the quest skill to claim and work on quest ${quest.questId}.\n`);
+    lines.push(`Title: ${quest.title}`);
     if ("description" in quest && quest.description) {
-      lines.push(quest.description);
-      lines.push("");
+      lines.push("---");
+      lines.push(`Body:\n${quest.description}`);
     }
     if (quest.tags?.length) {
+      lines.push("---");
       lines.push(`Tags: ${quest.tags.join(", ")}`);
     }
     if (quest.images?.length) {
-      lines.push("");
+      lines.push("---");
       lines.push(
         `Reference images (${quest.images.length}): ${quest.images.map((img: QuestImage) => img.path).join(", ")}`,
       );

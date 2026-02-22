@@ -84,25 +84,32 @@ quest check  <id> <index> [--json]                            Toggle verificatio
 quest delete <id> [--json]                                    Delete quest
 \`\`\`
 
-## Typical workflow
+## When assigned a quest
 
-1. See what's available: \`quest list --status refined\`
-2. Claim a quest: \`quest claim q-N\` (uses your session ID automatically)
-3. Do the work (use TodoWrite to track your own sub-steps if needed)
-4. Submit for verification: \`quest complete q-N --items "Tests pass,Typecheck passes,Docs updated"\`
-5. The human reviews in the Companion UI and marks done
+When the user asks you to work on a quest — whether via the Companion "Assign" button or free-form text like "work on q-5" — follow this order:
+
+1. **Read**: \`quest show q-N\` — understand the full scope
+2. **Claim immediately**: \`quest claim q-N\` — always claim first, regardless of the quest's current status. This links it to your session. If this fails because another session already claimed it, **STOP and tell the user** — do not proceed.
+3. **Polish** (if title/description/tags need cleanup):
+   - Ask the user clarifying questions if the quest is ambiguous or underspecified
+   - Run \`quest tags\` to see existing tags
+   - \`quest edit q-N --title "..." --desc "..." --tags "t1,t2"\`
+   - Title: concise, under 10 words. Move detail to description.
+   - Reuse existing tags. Only create new ones when no existing tag fits.
+4. **Work**: Implement the changes. Use TodoWrite for sub-step tracking if needed.
+5. **Self-check**: Before submitting, verify everything you can yourself (tests, typecheck, code review). Do not include self-verifiable items in the verification checklist.
+6. **Submit**: \`quest complete q-N --items "..."\` — only list items that truly require human verification (UI appearance, UX feel, edge cases needing judgment). Keep items concise — one short sentence each, scannable at a glance.
 
 ## Tags
 
-**Always reuse existing tags.** Before creating or editing a quest, run \`quest tags\` to see what tags already exist. Only introduce a new tag when no existing tag fits. This keeps the tag space consistent and filterable.
+**Always reuse existing tags.** Before creating or editing a quest, run \`quest tags\` to see what tags already exist. Only introduce a new tag when no existing tag fits.
 
 Every quest should have at least one tag. Common patterns: component/area (e.g. "questmaster", "ws-bridge", "ui"), type (e.g. "bugfix", "feature", "refactor"), or concern (e.g. "mobile", "performance").
 
 ## Images
 
-Quests can have attached images stored at \`~/.companion/questmaster/images/\`.
-When a quest has images, \`quest show\` displays the file paths.
-Use the Read tool to view images — they are standard image files on disk.
+Quests can have attached images at \`~/.companion/questmaster/images/\`.
+\`quest show\` displays file paths. Use the Read tool to view them.
 
 ## Environment
 
@@ -110,6 +117,10 @@ Use the Read tool to view images — they are standard image files on disk.
 - \`COMPANION_PORT\` is set automatically — the CLI uses it for browser notifications
 - Pass \`--json\` to any command for machine-parseable output
 - If \`quest\` is not found on PATH, use the full path: \`~/.companion/bin/quest\`
+
+## Writing style
+
+Be concise. Quest titles, descriptions, verification items, and closure notes should be short and scannable. Avoid verbose text — write for someone skimming quickly.
 
 ## Status flow and transition guidelines
 
@@ -119,43 +130,31 @@ idea → refined → in_progress → needs_verification → done
                       └────────────────┘  (rework)
 \`\`\`
 
-**Never skip states or jump directly to \`done\`.** Before proposing any transition, consider:
+**Never skip states or jump directly to \`done\`.**
 
-### idea → refined (MUST polish the quest)
-When transitioning from idea to refined, you **must** also clean up the quest:
+### idea → refined
+**Must polish the quest.** Ask the user clarifying questions if ambiguous, then:
+- Title: concise, under 10 words. Move detail to description.
+- Description: clear, actionable. Define what "done" looks like.
+- Tags: run \`quest tags\`, reuse existing tags. Every quest needs at least one tag.
+- Apply via \`quest edit <id> --title "..." --desc "..." --tags "t1,t2"\`
 
-1. **Title**: Make it concise and to the point — aim for under 10 words. If the original title is a sentence or contains implementation details, shorten it to a clear summary.
-2. **Description**: Move any detail from the title into the description. Flesh out the description so it is clear and actionable. Define what "done" looks like.
-3. **Tags**: Run \`quest tags\` to see existing tags. Reuse existing tags when they fit. Only create a new tag when no existing tag is appropriate. Every quest should have at least one tag.
-4. Use \`quest edit <id> --title "..." --desc "..." --tags "t1,t2"\` to apply these changes.
-
-Example: If an idea has title "The quest tool should show existing tags so agents reuse them consistently" with no tags, you would:
-- Title → "Show existing tags in quest tool"
-- Description → the original long title + any additional context about why and how
-- Tags → check \`quest tags\`, reuse e.g. "questmaster" if it exists, or "tooling"
-
-Also check:
-- Are there open questions that need the human's input first?
-
-### refined → in_progress (also polish if needed)
-- Has the quest been claimed by a session (\`quest claim\`)?
-- If the title/description/tags still need cleanup (e.g. quest was created as refined directly), apply the same polishing rules as idea → refined.
-- Do you understand the full scope of work?
-- Are there dependencies or blockers to flag?
+### refined → in_progress
+- The quest should already be claimed (claiming is always the first step when assigned).
+- Polish title/description/tags if still needed (same rules as above).
 
 ### in_progress → needs_verification
-- Is the implementation actually complete (not partially done)?
-- Have you run tests, typecheck, and linting?
-- What manual verification does the human need to do? Always propose specific verification items via \`quest complete --items "..."\`. Think about what you CANNOT verify yourself — UI appearance, UX feel, cross-browser behavior, edge cases that need human judgment, deployment concerns, etc.
-- Did you consider side effects or regressions in related features?
+- Is the implementation actually complete?
+- Run tests, typecheck, linting yourself first.
+- \`quest complete --items "..."\` — only include items requiring **human** verification. Keep each item to one short sentence.
 
 ### needs_verification → done
-- **Only the human should mark quests as done**, after reviewing verification items. Never transition to \`done\` yourself unless the human explicitly asks you to.
-- When marking done (by human request), always include \`--notes\` with high-info-density closure notes: which commits contain the changes (exact hashes), why it's done, any caveats or follow-ups. Example: \`quest done q-3 --notes "Implemented in commits abc1234, def5678. Added image upload UI, CLI display, and REST endpoints. Follow-up: consider image compression."\`
-- Use \`--cancelled\` if the quest is being abandoned/aborted rather than completed. Always include \`--notes\` explaining why cancelled. Example: \`quest done q-5 --cancelled --notes "Superseded by q-7 which takes a different approach."\`
+- **Only the human marks quests as done.** Never transition to \`done\` yourself unless explicitly asked.
+- Include \`--notes\` with closure info: commit hashes, caveats, follow-ups.
+- Use \`--cancelled\` with \`--notes\` if abandoning rather than completing.
 
 ### needs_verification → in_progress (rework)
-- The human found issues during verification. Re-read their feedback before resuming work.
+- Human found issues. Re-read their feedback before resuming.
 `;
 
   writeFileSync(skillPath, content, "utf-8");
