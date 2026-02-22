@@ -155,8 +155,14 @@ export function ChatView({ sessionId }: { sessionId: string }) {
         )
       )}
 
-      {/* Streaming status — fixed above composer */}
-      <ElapsedTimer sessionId={sessionId} />
+      {/* Streaming status — hidden on mobile when plan is active to save space */}
+      {planPerm ? (
+        <div className="hidden sm:block">
+          <ElapsedTimer sessionId={sessionId} />
+        </div>
+      ) : (
+        <ElapsedTimer sessionId={sessionId} />
+      )}
 
       {/* Active todo status — shows current in-progress task */}
       <TodoStatusLine sessionId={sessionId} />
