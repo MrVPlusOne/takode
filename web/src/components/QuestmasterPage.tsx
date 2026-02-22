@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
 import { navigateToSession } from "../utils/routing.js";
@@ -153,17 +154,14 @@ export function QuestmasterPage() {
   // Lightbox for image preview
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
 
-  // Close assign picker on outside click
-  const assignPickerRef = useRef<HTMLDivElement>(null);
+  // Close assign modal on Escape
   useEffect(() => {
     if (!assignPickerForId) return;
-    function handleClick(e: MouseEvent) {
-      if (assignPickerRef.current && !assignPickerRef.current.contains(e.target as Node)) {
-        setAssignPickerForId(null);
-      }
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setAssignPickerForId(null);
     }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
   }, [assignPickerForId]);
 
   // Load quests on mount
@@ -960,41 +958,12 @@ export function QuestmasterPage() {
 
                             {/* Assign to Session */}
                             {quest.status !== "done" && (
-                              <div className="relative" ref={assignPickerForId === quest.questId ? assignPickerRef : undefined}>
-                                <button
-                                  onClick={() =>
-                                    setAssignPickerForId(
-                                      assignPickerForId === quest.questId ? null : quest.questId,
-                                    )
-                                  }
-                                  className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 transition-colors cursor-pointer"
-                                >
-                                  Assign
-                                </button>
-
-                                {/* Session picker — identical to sidebar chips */}
-                                {assignPickerForId === quest.questId && (
-                                  <div className="absolute z-10 top-full left-0 mt-1 w-72 bg-cc-card border border-cc-border rounded-lg shadow-lg">
-                                    {pickerSessions.length === 0 ? (
-                                      <div className="px-3 py-2 text-xs text-cc-muted">
-                                        No active sessions
-                                      </div>
-                                    ) : (
-                                      <div className="max-h-72 overflow-y-auto p-1">
-                                        {pickerSessions.map((s) => (
-                                          <PickerSessionChip
-                                            key={s.id}
-                                            session={s}
-                                            sessionName={sessionNames.get(s.id)}
-                                            sessionPreview={sessionPreviews.get(s.id)}
-                                            onClick={() => handleAssignToSession(quest, s.id)}
-                                          />
-                                        ))}
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
-                              </div>
+                              <button
+                                onClick={() => setAssignPickerForId(quest.questId)}
+                                className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 transition-colors cursor-pointer"
+                              >
+                                Assign
+                              </button>
                             )}
 
                             {/* Separator */}
@@ -1062,6 +1031,59 @@ export function QuestmasterPage() {
       {lightboxSrc && (
         <Lightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
       )}
+
+      {/* Assign-to-session modal */}
+      {assignPickerForId && (() => {
+        const assignQuest = quests.find((q) => q.questId === assignPickerForId);
+        if (!assignQuest) return null;
+        return createPortal(
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+            onClick={() => setAssignPickerForId(null)}
+          >
+            <div
+              className="w-[min(360px,90vw)] max-h-[70vh] bg-cc-card border border-cc-border rounded-xl shadow-2xl flex flex-col overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between px-4 py-3 border-b border-cc-border shrink-0">
+                <div>
+                  <h3 className="text-sm font-semibold text-cc-fg">Assign to Session</h3>
+                  <p className="text-[11px] text-cc-muted truncate mt-0.5">{assignQuest.title}</p>
+                </div>
+                <button
+                  onClick={() => setAssignPickerForId(null)}
+                  className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-cc-hover text-cc-muted hover:text-cc-fg transition-colors cursor-pointer"
+                >
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5">
+                    <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Session list */}
+              {pickerSessions.length === 0 ? (
+                <div className="px-4 py-8 text-xs text-cc-muted text-center">
+                  No active sessions
+                </div>
+              ) : (
+                <div className="overflow-y-auto p-1.5">
+                  {pickerSessions.map((s) => (
+                    <PickerSessionChip
+                      key={s.id}
+                      session={s}
+                      sessionName={sessionNames.get(s.id)}
+                      sessionPreview={sessionPreviews.get(s.id)}
+                      onClick={() => handleAssignToSession(assignQuest, s.id)}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>,
+          document.body,
+        );
+      })()}
     </div>
   );
 }
