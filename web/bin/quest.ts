@@ -110,20 +110,28 @@ const STATUS_ICONS: Record<string, string> = {
   done: "✓",
 };
 
+const STATUS_LABELS: Record<string, string> = {
+  idea: "idea",
+  refined: "refined",
+  in_progress: "in_progress",
+  needs_verification: "verification",
+  done: "done",
+};
+
 function formatQuestLine(q: QuestmasterTask): string {
   const cancelled = "cancelled" in q && (q as { cancelled?: boolean }).cancelled;
   const icon = cancelled ? "✗" : STATUS_ICONS[q.status] || "?";
   const tags = q.tags?.length ? `  [${q.tags.join(", ")}]` : "";
   const session =
     "sessionId" in q ? `  → session ${(q as { sessionId: string }).sessionId.slice(0, 8)}` : "";
-  const statusLabel = cancelled ? "cancelled" : q.status;
+  const statusLabel = cancelled ? "cancelled" : (STATUS_LABELS[q.status] ?? q.status);
   const pad = (s: string, len: number) => s.padEnd(len);
   return `${icon} ${pad(q.questId, 6)} ${pad(q.title, 36)}${tags}  (${statusLabel}${session})`;
 }
 
 function formatQuestDetail(q: QuestmasterTask): string {
   const lines: string[] = [];
-  lines.push(`Quest ${q.questId} (v${q.version}, ${q.status})`);
+  lines.push(`Quest ${q.questId} (v${q.version}, ${STATUS_LABELS[q.status] ?? q.status})`);
   lines.push(`Title:       ${q.title}`);
   if ("description" in q && q.description) {
     lines.push(`Description: ${q.description}`);
@@ -222,7 +230,7 @@ async function cmdHistory(): Promise<void> {
     return;
   }
   for (const v of versions) {
-    console.log(`v${v.version} (${v.status}) — ${timeAgo(v.createdAt)}  [${v.id}]`);
+    console.log(`v${v.version} (${STATUS_LABELS[v.status] ?? v.status}) — ${timeAgo(v.createdAt)}  [${v.id}]`);
   }
 }
 
