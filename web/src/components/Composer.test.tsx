@@ -130,6 +130,7 @@ function setupMockStore(overrides: {
     collapseAllTurnActivity: vi.fn(),
     pendingPermissions: new Map(),
     removePermission: vi.fn(),
+    diffFileStats: new Map(),
   };
 }
 

@@ -217,7 +217,11 @@ export function TopBar() {
           </div>
         )}
 
-        {/* Global session status summary — after title for visual separation from session dot */}
+      </div>
+
+      {/* Right side */}
+      <div className="flex items-center gap-2 sm:gap-3 shrink-0 text-[12px] text-cc-muted">
+        {/* Global session status summary — right-aligned so it stays in a fixed position */}
         {(statusSummary.running > 0 || statusSummary.waiting > 0 || statusSummary.unread > 0) && (
           <button
             onClick={handleAttentionCycle}
@@ -235,11 +239,8 @@ export function TopBar() {
             )}
           </button>
         )}
-      </div>
+        {currentSessionId && isSessionView && (<>
 
-      {/* Right side */}
-      {currentSessionId && isSessionView && (
-        <div className="flex items-center gap-2 sm:gap-3 shrink-0 text-[12px] text-cc-muted">
           {status === "compacting" && (
             <span className="text-cc-warning font-medium animate-pulse">Compacting...</span>
           )}
@@ -287,8 +288,8 @@ export function TopBar() {
               onClose={() => setInfoOpen(false)}
             />
           )}
-        </div>
-      )}
+        </>)}
+      </div>
     </header>
   );
 }
