@@ -540,8 +540,8 @@ export function Composer({ sessionId }: { sessionId: string }) {
   }, [isMobile, isCollapsed, text, images.length]);
 
   const expandComposer = useCallback(() => {
+    textareaRef.current?.focus(); // synchronous focus triggers mobile virtual keyboard
     setComposerExpanded(true);
-    requestAnimationFrame(() => textareaRef.current?.focus());
   }, []);
 
   const imageSrcs = useMemo(
@@ -549,49 +549,49 @@ export function Composer({ sessionId }: { sessionId: string }) {
     [images],
   );
 
-  if (isCollapsed) {
-    return (
-      <div className="shrink-0 border-t border-cc-border bg-cc-card px-2 py-2">
-        <div className="max-w-3xl mx-auto flex items-center gap-2">
-          <button
-            onClick={expandComposer}
-            className="flex-1 min-w-0 flex items-center gap-2 px-3 py-2.5 bg-cc-input-bg border border-cc-border rounded-[14px] cursor-text"
-          >
-            {/* Mode badge */}
-            <span className="flex items-center gap-1 text-[11px] font-medium text-cc-muted shrink-0">
-              {isPlan ? (
-                <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
-                  <path d="M2 3.5h12v1H2zm0 4h8v1H2zm0 4h10v1H2z" />
-                </svg>
-              ) : (
-                <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
-                  <path d="M2.5 4l4 4-4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-                  <path d="M8.5 4l4 4-4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-                </svg>
-              )}
-              {isCodex ? modeLabel : isPlan ? "Plan" : "Agent"}
-            </span>
-            <span className="flex-1 text-sm text-cc-muted text-left truncate">Type a message...</span>
-          </button>
-          {/* Stop button — visible in compact bar while streaming */}
-          {isRunning && (
-            <button
-              onClick={handleInterrupt}
-              className="flex items-center justify-center w-10 h-10 rounded-lg bg-cc-error/10 hover:bg-cc-error/20 text-cc-error transition-colors cursor-pointer shrink-0"
-              title="Stop generation"
-            >
-              <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
-                <rect x="3" y="3" width="10" height="10" rx="1" />
-              </svg>
-            </button>
-          )}
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div ref={composerRootRef} className="shrink-0 border-t border-cc-border bg-cc-card px-2 sm:px-4 py-2 sm:py-3">
+    <div ref={composerRootRef} className={`shrink-0 border-t border-cc-border bg-cc-card ${isCollapsed ? "" : "px-2 sm:px-4 py-2 sm:py-3"}`}>
+      {/* Collapsed bar — shown on mobile when idle */}
+      {isCollapsed && (
+        <div className="px-2 py-2">
+          <div className="max-w-3xl mx-auto flex items-center gap-2">
+            <button
+              onClick={expandComposer}
+              className="flex-1 min-w-0 flex items-center gap-2 px-3 py-2.5 bg-cc-input-bg border border-cc-border rounded-[14px] cursor-text"
+            >
+              {/* Mode badge */}
+              <span className="flex items-center gap-1 text-[11px] font-medium text-cc-muted shrink-0">
+                {isPlan ? (
+                  <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
+                    <path d="M2 3.5h12v1H2zm0 4h8v1H2zm0 4h10v1H2z" />
+                  </svg>
+                ) : (
+                  <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
+                    <path d="M2.5 4l4 4-4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                    <path d="M8.5 4l4 4-4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                  </svg>
+                )}
+                {isCodex ? modeLabel : isPlan ? "Plan" : "Agent"}
+              </span>
+              <span className="flex-1 text-sm text-cc-muted text-left truncate">Type a message...</span>
+            </button>
+            {/* Stop button — visible in compact bar while streaming */}
+            {isRunning && (
+              <button
+                onClick={handleInterrupt}
+                className="flex items-center justify-center w-10 h-10 rounded-lg bg-cc-error/10 hover:bg-cc-error/20 text-cc-error transition-colors cursor-pointer shrink-0"
+                title="Stop generation"
+              >
+                <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
+                  <rect x="3" y="3" width="10" height="10" rx="1" />
+                </svg>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+      {/* Full composer — always rendered so textarea stays in DOM for mobile keyboard focus */}
+      <div className={isCollapsed ? "h-0 overflow-hidden" : ""}>
       <div className="max-w-3xl mx-auto">
         {/* Image thumbnails — data URLs are memoized to avoid reconstructing
              multi-MB base64 strings on every render (expensive on iOS Safari) */}
@@ -931,6 +931,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
             </div>
           </div>
         </div>
+      </div>
       </div>
     </div>
   );
