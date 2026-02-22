@@ -510,17 +510,34 @@ export function Composer({ sessionId }: { sessionId: string }) {
   const isRunning = sessionStatus.get(sessionId) === "running";
   const canSend = text.trim().length > 0 && isConnected;
 
-  // Mobile collapsible composer
-  const isCollapsed = isMobile && !composerExpanded && !isRunning && !text.trim() && images.length === 0;
+  // Mobile collapsible composer — collapse when empty (no text, no images), regardless of streaming
+  const isCollapsed = isMobile && !composerExpanded && !text.trim() && images.length === 0;
 
-  // Auto-collapse when conditions are met (after send completes, streaming stops)
+  // Auto-collapse when composer becomes empty (after send clears text)
   useEffect(() => {
     if (!isMobile) return;
-    if (!isRunning && !text.trim() && images.length === 0) {
+    if (!text.trim() && images.length === 0) {
       const timer = setTimeout(() => setComposerExpanded(false), 300);
       return () => clearTimeout(timer);
     }
-  }, [isMobile, isRunning, text, images.length]);
+  }, [isMobile, text, images.length]);
+
+  // Collapse on tap outside the composer when empty
+  const composerRootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!isMobile || isCollapsed) return;
+    const handler = (e: MouseEvent | TouchEvent) => {
+      if (!text.trim() && images.length === 0 && composerRootRef.current && !composerRootRef.current.contains(e.target as Node)) {
+        setComposerExpanded(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    document.addEventListener("touchstart", handler);
+    return () => {
+      document.removeEventListener("mousedown", handler);
+      document.removeEventListener("touchstart", handler);
+    };
+  }, [isMobile, isCollapsed, text, images.length]);
 
   const expandComposer = useCallback(() => {
     setComposerExpanded(true);
@@ -535,10 +552,10 @@ export function Composer({ sessionId }: { sessionId: string }) {
   if (isCollapsed) {
     return (
       <div className="shrink-0 border-t border-cc-border bg-cc-card px-2 py-2">
-        <div className="max-w-3xl mx-auto">
+        <div className="max-w-3xl mx-auto flex items-center gap-2">
           <button
             onClick={expandComposer}
-            className="w-full flex items-center gap-2 px-3 py-2.5 bg-cc-input-bg border border-cc-border rounded-[14px] cursor-text"
+            className="flex-1 min-w-0 flex items-center gap-2 px-3 py-2.5 bg-cc-input-bg border border-cc-border rounded-[14px] cursor-text"
           >
             {/* Mode badge */}
             <span className="flex items-center gap-1 text-[11px] font-medium text-cc-muted shrink-0">
@@ -555,17 +572,26 @@ export function Composer({ sessionId }: { sessionId: string }) {
               {isCodex ? modeLabel : isPlan ? "Plan" : "Agent"}
             </span>
             <span className="flex-1 text-sm text-cc-muted text-left truncate">Type a message...</span>
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5 text-cc-muted shrink-0">
-              <path d="M11 1l-1 3.5L13.5 6 10 7l1 3.5L8 8.5 5 10.5 6 7 2.5 6l3.5-1.5L5 1l3 2.5z" strokeLinejoin="round" />
-            </svg>
           </button>
+          {/* Stop button — visible in compact bar while streaming */}
+          {isRunning && (
+            <button
+              onClick={handleInterrupt}
+              className="flex items-center justify-center w-10 h-10 rounded-lg bg-cc-error/10 hover:bg-cc-error/20 text-cc-error transition-colors cursor-pointer shrink-0"
+              title="Stop generation"
+            >
+              <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
+                <rect x="3" y="3" width="10" height="10" rx="1" />
+              </svg>
+            </button>
+          )}
         </div>
       </div>
     );
   }
 
   return (
-    <div className="shrink-0 border-t border-cc-border bg-cc-card px-2 sm:px-4 py-2 sm:py-3">
+    <div ref={composerRootRef} className="shrink-0 border-t border-cc-border bg-cc-card px-2 sm:px-4 py-2 sm:py-3">
       <div className="max-w-3xl mx-auto">
         {/* Image thumbnails — data URLs are memoized to avoid reconstructing
              multi-MB base64 strings on every render (expensive on iOS Safari) */}
