@@ -660,7 +660,7 @@ export function QuestmasterPage() {
                     {/* Title + meta */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className={`text-sm font-medium truncate ${isCancelled ? "text-cc-muted line-through" : "text-cc-fg"}`}>
+                        <span className={`text-sm font-medium ${isExpanded ? "" : "truncate"} ${isCancelled ? "text-cc-muted line-through" : "text-cc-fg"}`}>
                           {quest.title}
                         </span>
                         {quest.parentId && (
