@@ -519,6 +519,58 @@ export function markDone(
   });
 }
 
+/**
+ * Cancel a quest from any status. Transitions directly to done+cancelled
+ * without requiring sessionId or verificationItems.
+ */
+export function cancelQuest(
+  questId: string,
+  notes?: string,
+): QuestmasterTask | null {
+  const current = getQuest(questId);
+  if (!current) return null;
+
+  const now = Date.now();
+  const newVersion = current.version + 1;
+  const newId = nextVersionId(questId, current.version);
+
+  const description =
+    "description" in current ? current.description : undefined;
+
+  const quest: QuestDone = {
+    id: newId,
+    questId,
+    version: newVersion,
+    prevId: current.id,
+    title: current.title,
+    createdAt: now,
+    ...(current.tags?.length ? { tags: current.tags } : {}),
+    ...(current.parentId ? { parentId: current.parentId } : {}),
+    ...(current.images?.length ? { images: current.images } : {}),
+    status: "done",
+    ...(description ? { description } : {}),
+    // Carry forward sessionId if present, otherwise omit
+    ...("sessionId" in current
+      ? { sessionId: (current as QuestInProgress).sessionId }
+      : {}),
+    claimedAt:
+      "claimedAt" in current
+        ? (current as QuestInProgress).claimedAt
+        : now,
+    // Carry forward verificationItems if present, use empty array otherwise
+    verificationItems:
+      "verificationItems" in current
+        ? (current as QuestNeedsVerification).verificationItems
+        : [],
+    completedAt: now,
+    cancelled: true,
+    ...(notes ? { notes } : {}),
+  } as QuestDone;
+
+  writeQuest(quest);
+  return quest;
+}
+
 /** Toggle a verification item checkbox (in-place, no new version). */
 export function checkVerificationItem(
   questId: string,

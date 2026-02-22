@@ -437,6 +437,101 @@ describe("markDone", () => {
 });
 
 // ===========================================================================
+// cancelQuest
+// ===========================================================================
+describe("cancelQuest", () => {
+  it("cancels an idea quest directly to done+cancelled", () => {
+    // cancelQuest should work from any status, including idea (no sessionId, no verificationItems)
+    questStore.createQuest({ title: "Cancel from idea" });
+
+    const cancelled = questStore.cancelQuest("q-1");
+    expect(cancelled).not.toBeNull();
+    expect(cancelled!.status).toBe("done");
+    expect(cancelled!.version).toBe(2);
+    expect(cancelled!.prevId).toBe("q-1-v1");
+    if (cancelled!.status === "done") {
+      expect(cancelled!.cancelled).toBe(true);
+      expect(cancelled!.completedAt).toBeGreaterThan(0);
+    }
+  });
+
+  it("cancels a refined quest with notes", () => {
+    questStore.createQuest({ title: "Cancel refined" });
+    questStore.transitionQuest("q-1", {
+      status: "refined",
+      description: "Some details",
+    });
+
+    const cancelled = questStore.cancelQuest("q-1", "No longer needed");
+    expect(cancelled).not.toBeNull();
+    expect(cancelled!.status).toBe("done");
+    if (cancelled!.status === "done") {
+      expect(cancelled!.cancelled).toBe(true);
+      expect(cancelled!.notes).toBe("No longer needed");
+    }
+    // Description should be carried forward
+    if ("description" in cancelled!) {
+      expect((cancelled as { description: string }).description).toBe("Some details");
+    }
+  });
+
+  it("cancels an in_progress quest, carrying forward sessionId", () => {
+    // Build up to in_progress
+    questStore.createQuest({ title: "Cancel in progress" });
+    questStore.transitionQuest("q-1", {
+      status: "refined",
+      description: "Working on it",
+    });
+    questStore.claimQuest("q-1", "sess-1");
+
+    const cancelled = questStore.cancelQuest("q-1");
+    expect(cancelled).not.toBeNull();
+    expect(cancelled!.status).toBe("done");
+    if (cancelled!.status === "done") {
+      expect(cancelled!.cancelled).toBe(true);
+      expect(cancelled!.sessionId).toBe("sess-1");
+    }
+  });
+
+  it("cancels a needs_verification quest, carrying forward verificationItems", () => {
+    // Build up to needs_verification
+    questStore.createQuest({ title: "Cancel needs verification" });
+    questStore.transitionQuest("q-1", {
+      status: "refined",
+      description: "Verify this",
+    });
+    questStore.claimQuest("q-1", "sess-1");
+    questStore.completeQuest("q-1", [
+      { text: "Check UI", checked: false },
+    ]);
+
+    const cancelled = questStore.cancelQuest("q-1");
+    expect(cancelled).not.toBeNull();
+    expect(cancelled!.status).toBe("done");
+    if (cancelled!.status === "done") {
+      expect(cancelled!.cancelled).toBe(true);
+      expect(cancelled!.verificationItems).toHaveLength(1);
+    }
+  });
+
+  it("carries forward tags and parentId", () => {
+    questStore.createQuest({
+      title: "Tagged cancel",
+      tags: ["ui", "feature"],
+      parentId: "q-0",
+    });
+
+    const cancelled = questStore.cancelQuest("q-1");
+    expect(cancelled!.tags).toEqual(["ui", "feature"]);
+    expect(cancelled!.parentId).toBe("q-0");
+  });
+
+  it("returns null for non-existent quest", () => {
+    expect(questStore.cancelQuest("q-999")).toBeNull();
+  });
+});
+
+// ===========================================================================
 // patchQuest (same-stage edit)
 // ===========================================================================
 describe("patchQuest", () => {

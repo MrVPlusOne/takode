@@ -15,6 +15,7 @@
  *   claim      Claim a quest for a session
  *   complete   Transition to needs_verification with checklist
  *   done       Mark quest as done
+ *   cancel     Cancel a quest from any status
  *   transition Generic status transition
  *   edit       In-place edit (no new version)
  *   check      Toggle a verification checkbox
@@ -29,6 +30,7 @@ import {
   claimQuest,
   completeQuest,
   markDone,
+  cancelQuest,
   transitionQuest,
   patchQuest,
   checkVerificationItem,
@@ -340,6 +342,26 @@ async function cmdDone(): Promise<void> {
   }
 }
 
+async function cmdCancel(): Promise<void> {
+  const id = positional(0);
+  if (!id) die("Usage: quest cancel <id> [--notes \"reason\"] [--json]");
+
+  const notes = option("notes");
+
+  try {
+    const quest = cancelQuest(id, notes);
+    if (!quest) die(`Quest ${id} not found`);
+    await notifyServer();
+    if (jsonOutput) {
+      out(quest);
+    } else {
+      console.log(`Cancelled ${quest.questId} "${quest.title}"`);
+    }
+  } catch (e) {
+    die((e as Error).message);
+  }
+}
+
 async function cmdTransition(): Promise<void> {
   const id = positional(0);
   if (!id) die("Usage: quest transition <questId> --status <s> [--desc \"...\"]");
@@ -488,6 +510,7 @@ Commands:
   claim  <id> [--session <sid>] [--json]                 Claim for session
   complete <id> --items "c1,c2" [--json]                 Submit for verification
   done   <id> [--notes "..."] [--cancelled] [--json]      Mark as done/cancelled
+  cancel <id> [--notes "reason"] [--json]                Cancel from any status
   transition <id> --status <s> [--desc "..."] [--json]   Change status
   edit   <id> [--title "..."] [--desc "..."] [--json]    Edit in place
   check  <id> <index> [--json]                           Toggle verification item
@@ -518,6 +541,8 @@ async function main(): Promise<void> {
       return cmdComplete();
     case "done":
       return cmdDone();
+    case "cancel":
+      return cmdCancel();
     case "transition":
       return cmdTransition();
     case "edit":

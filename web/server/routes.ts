@@ -2594,6 +2594,22 @@ export function createRoutes(
     }
   });
 
+  api.post("/quests/:questId/cancel", async (c) => {
+    try {
+      const body = await c.req.json().catch(() => ({})) as { notes?: string };
+      const quest = questStore.cancelQuest(c.req.param("questId"), body.notes);
+      if (!quest) return c.json({ error: "Quest not found" }, 404);
+      wsBridge.broadcastGlobal({ type: "quest_list_updated" } as import("./session-types.js").BrowserIncomingMessage);
+      // Clear the claimed quest from the session since it's now cancelled
+      if ("sessionId" in quest) {
+        wsBridge.setSessionClaimedQuest((quest as { sessionId: string }).sessionId, null);
+      }
+      return c.json(quest);
+    } catch (e: unknown) {
+      return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);
+    }
+  });
+
   api.patch("/quests/:questId/verification/:index", async (c) => {
     const body = await c.req.json().catch(() => ({}));
     const index = parseInt(c.req.param("index"), 10);
