@@ -1,10 +1,10 @@
-import { useState, useMemo, useCallback, useSyncExternalStore } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect, useSyncExternalStore } from "react";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
 import { writeClipboardText } from "../utils/copy-utils.js";
 import { SessionStatusDot, deriveSessionStatus } from "./SessionStatusDot.js";
 import { YarnBallDot } from "./CatIcons.js";
-import { parseHash } from "../utils/routing.js";
+import { parseHash, navigateToSession } from "../utils/routing.js";
 import { SessionInfoPopover } from "./SessionInfoPopover.js";
 
 export function TopBar() {
@@ -90,6 +90,45 @@ export function TopBar() {
     }
     return { running, waiting, unread };
   }, [sdkSessions, sessionStatus, pendingPermissions, sessionAttention, cliConnected, cliDisconnectReason]);
+
+  // Sessions needing attention (permission or unread), sorted newest-first
+  const attentionSessionIds = useMemo(() => {
+    return sdkSessions
+      .filter((sdk) => {
+        if (sdk.archived) return false;
+        const vs = deriveSessionStatus({
+          permCount: pendingPermissions.get(sdk.sessionId)?.size ?? 0,
+          isConnected: cliConnected.get(sdk.sessionId) ?? sdk.cliConnected ?? false,
+          sdkState: sdk.state ?? null,
+          status: sessionStatus.get(sdk.sessionId) ?? null,
+          hasUnread: !!sessionAttention.get(sdk.sessionId),
+          idleKilled: cliDisconnectReason.get(sdk.sessionId) === "idle_limit",
+        });
+        return vs === "permission" || vs === "completed_unread";
+      })
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .map((sdk) => sdk.sessionId);
+  }, [sdkSessions, sessionStatus, pendingPermissions, sessionAttention, cliConnected, cliDisconnectReason]);
+
+  // Cycle through attention sessions on yarn ball click
+  const cycleIndexRef = useRef(-1);
+  const attentionKey = attentionSessionIds.join(",");
+  useEffect(() => {
+    cycleIndexRef.current = -1;
+  }, [attentionKey]);
+
+  const handleAttentionCycle = useCallback(() => {
+    setSidebarOpen(true);
+    if (attentionSessionIds.length === 0) return;
+    // Find current session's position in the attention list to cycle from there
+    const currentIdx = currentSessionId
+      ? attentionSessionIds.indexOf(currentSessionId)
+      : -1;
+    const startFrom = currentIdx >= 0 ? currentIdx : cycleIndexRef.current;
+    const nextIdx = (startFrom + 1) % attentionSessionIds.length;
+    cycleIndexRef.current = nextIdx;
+    navigateToSession(attentionSessionIds[nextIdx]);
+  }, [attentionSessionIds, currentSessionId, setSidebarOpen]);
 
   const isConnected = currentSessionId ? (cliConnected.get(currentSessionId) ?? false) : false;
   const status = currentSessionId ? (sessionStatus.get(currentSessionId) ?? null) : null;
@@ -181,9 +220,9 @@ export function TopBar() {
         {/* Global session status summary — after title for visual separation from session dot */}
         {(statusSummary.running > 0 || statusSummary.waiting > 0 || statusSummary.unread > 0) && (
           <button
-            onClick={() => setSidebarOpen(true)}
+            onClick={handleAttentionCycle}
             className="flex items-center gap-1 text-[10px] font-medium cursor-pointer hover:opacity-80 transition-opacity"
-            title="Open sidebar"
+            title="Cycle through sessions needing attention"
           >
             {statusSummary.running > 0 && (
               <span className="text-cc-success flex items-center gap-0.5">{statusSummary.running}<YarnBallDot className="text-cc-success" /></span>
