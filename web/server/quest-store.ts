@@ -25,6 +25,40 @@ import type {
   QuestDone,
 } from "./quest-types.js";
 
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/** Normalize verification items: accept strings or {text,checked} objects.
+ *  Rejects items with empty text. */
+function normalizeVerificationItems(
+  items: unknown[],
+): QuestVerificationItem[] {
+  const result: QuestVerificationItem[] = [];
+  for (const item of items) {
+    if (typeof item === "string") {
+      const text = item.trim();
+      if (!text) throw new Error("Verification item text must not be empty");
+      result.push({ text, checked: false });
+    } else if (
+      typeof item === "object" &&
+      item !== null &&
+      "text" in item &&
+      typeof (item as { text: unknown }).text === "string"
+    ) {
+      const text = ((item as { text: string }).text).trim();
+      if (!text) throw new Error("Verification item text must not be empty");
+      result.push({
+        text,
+        checked: !!(item as { checked?: boolean }).checked,
+      });
+    } else {
+      throw new Error(
+        "Each verification item must be a string or { text: string, checked?: boolean }",
+      );
+    }
+  }
+  return result;
+}
+
 // ─── Paths ───────────────────────────────────────────────────────────────────
 
 const QUESTMASTER_DIR = join(homedir(), ".companion", "questmaster");
@@ -353,14 +387,15 @@ export function transitionQuest(
       if (!sessionId) {
         throw new Error("sessionId is required for needs_verification status");
       }
-      const verificationItems =
+      const rawItems =
         input.verificationItems ??
         ("verificationItems" in current
           ? (current as QuestNeedsVerification).verificationItems
           : undefined);
-      if (!verificationItems || verificationItems.length === 0) {
+      if (!rawItems || rawItems.length === 0) {
         throw new Error("verificationItems are required for needs_verification status");
       }
+      const verificationItems = normalizeVerificationItems(rawItems);
       quest = {
         ...base,
         status: "needs_verification",

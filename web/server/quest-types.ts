@@ -116,8 +116,8 @@ export interface QuestTransitionInput {
   description?: string;
   /** Required for in_progress+ */
   sessionId?: string;
-  /** Required for needs_verification+ */
-  verificationItems?: QuestVerificationItem[];
+  /** Required for needs_verification+. Accepts strings (normalized to {text, checked:false}) or full objects. */
+  verificationItems?: (QuestVerificationItem | string)[];
   /** Closure notes for done status (commit hashes, reasoning, etc.) */
   notes?: string;
   /** If true, marks this as cancelled/aborted rather than completed */
