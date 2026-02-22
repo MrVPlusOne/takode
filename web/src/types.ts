@@ -36,10 +36,21 @@ export interface ChatMessage {
   isStreaming?: boolean;
   model?: string;
   stopReason?: string | null;
-  /** For system messages: "error" renders prominently, "denied" shows a compact denial chip, "approved" shows a green approval chip, default renders as subtle divider */
-  variant?: "error" | "info" | "denied" | "approved";
-  /** Extra structured data for rich rendering (e.g. AskUserQuestion answers) */
-  metadata?: { answers?: { question: string; answer: string }[] };
+  /** For system messages: "error" renders prominently, "denied" shows a compact denial chip, "approved" shows a green approval chip, "quest_claimed" shows collapsible quest details, default renders as subtle divider */
+  variant?: "error" | "info" | "denied" | "approved" | "quest_claimed";
+  /** Extra structured data for rich rendering (e.g. AskUserQuestion answers, quest claim details) */
+  metadata?: {
+    answers?: { question: string; answer: string }[];
+    quest?: {
+      questId: string;
+      title: string;
+      description?: string;
+      status: string;
+      tags?: string[];
+      images?: QuestImage[];
+      verificationItems?: QuestVerificationItem[];
+    };
+  };
   /** Assistant message UUID from CLI, for revert support */
   cliUuid?: string;
 }

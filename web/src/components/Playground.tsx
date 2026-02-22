@@ -367,6 +367,44 @@ const MSG_APPROVED_ASK_LONG: ChatMessage = {
   },
 };
 
+// Quest claimed — shown when a session claims a quest
+const MSG_QUEST_CLAIMED: ChatMessage = {
+  id: "quest-claimed-q-7-1",
+  role: "system",
+  content: "Quest claimed: Add dark mode toggle to settings",
+  timestamp: Date.now() - 5000,
+  variant: "quest_claimed",
+  metadata: {
+    quest: {
+      questId: "q-7",
+      title: "Add dark mode toggle to settings",
+      description: "Add a toggle switch in the settings page that lets users switch between light and dark mode. The preference should persist in localStorage and apply immediately without a page reload.",
+      status: "in_progress",
+      tags: ["ui", "settings", "theme"],
+      verificationItems: [
+        { text: "Toggle is visible in Settings page", checked: false },
+        { text: "Mode persists across page reloads", checked: false },
+        { text: "No flash of wrong theme on load", checked: false },
+      ],
+    },
+  },
+};
+
+const MSG_QUEST_CLAIMED_MINIMAL: ChatMessage = {
+  id: "quest-claimed-q-3-1",
+  role: "system",
+  content: "Quest claimed: Fix login redirect bug",
+  timestamp: Date.now() - 8000,
+  variant: "quest_claimed",
+  metadata: {
+    quest: {
+      questId: "q-3",
+      title: "Fix login redirect bug",
+      status: "in_progress",
+    },
+  },
+};
+
 // Tool result with error
 const MSG_TOOL_ERROR: ChatMessage = {
   id: "msg-7",
@@ -835,6 +873,12 @@ export function Playground() {
             </Card>
             <Card label="Approved — AskUserQuestion with long text">
               <MessageBubble message={MSG_APPROVED_ASK_LONG} />
+            </Card>
+            <Card label="Quest Claimed — with details, tags, and verification">
+              <MessageBubble message={MSG_QUEST_CLAIMED} />
+            </Card>
+            <Card label="Quest Claimed — minimal (no description)">
+              <MessageBubble message={MSG_QUEST_CLAIMED_MINIMAL} />
             </Card>
           </div>
         </Section>

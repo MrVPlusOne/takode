@@ -847,6 +847,48 @@ function handleParsedMessage(
         claimedQuestId: data.quest?.id ?? undefined,
         claimedQuestTitle: data.quest?.title ?? undefined,
       });
+      // Insert a quest-claimed message into the chat feed with full details
+      if (data.quest?.id) {
+        const questId = data.quest.id;
+        // Fetch full quest details asynchronously and insert the message
+        api.getQuest(questId).then((quest) => {
+          const questMeta: ChatMessage["metadata"] = {
+            quest: {
+              questId: quest.questId,
+              title: quest.title,
+              description: "description" in quest ? quest.description : undefined,
+              status: quest.status,
+              tags: quest.tags,
+              images: quest.images,
+              verificationItems: "verificationItems" in quest ? quest.verificationItems : undefined,
+            },
+          };
+          useStore.getState().appendMessage(sessionId, {
+            id: `quest-claimed-${questId}-${Date.now()}`,
+            role: "system",
+            content: `Quest claimed: ${quest.title}`,
+            timestamp: Date.now(),
+            variant: "quest_claimed",
+            metadata: questMeta,
+          });
+        }).catch(() => {
+          // Fallback: insert a basic message if quest fetch fails
+          useStore.getState().appendMessage(sessionId, {
+            id: `quest-claimed-${questId}-${Date.now()}`,
+            role: "system",
+            content: `Quest claimed: ${data.quest!.title}`,
+            timestamp: Date.now(),
+            variant: "quest_claimed",
+            metadata: {
+              quest: {
+                questId: questId,
+                title: data.quest!.title,
+                status: "in_progress",
+              },
+            },
+          });
+        });
+      }
       break;
     }
 

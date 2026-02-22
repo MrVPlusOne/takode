@@ -428,11 +428,11 @@ function countEntryStats(entries: FeedEntry[]): { messages: number; tools: numbe
 }
 
 /** Check if a FeedEntry is a system message (compact markers, errors, info dividers).
- *  Permission denied/approved badges are NOT system entries — they flow with agent
- *  activity so they appear at the correct chronological position in the turn. */
+ *  Permission denied/approved badges and quest_claimed blocks are NOT system entries
+ *  — they flow with agent activity so they appear at the correct chronological position in the turn. */
 function isSystemEntry(entry: FeedEntry): boolean {
   if (entry.kind !== "message" || entry.msg.role !== "system") return false;
-  if (entry.msg.variant === "denied" || entry.msg.variant === "approved") return false;
+  if (entry.msg.variant === "denied" || entry.msg.variant === "approved" || entry.msg.variant === "quest_claimed") return false;
   return true;
 }
 

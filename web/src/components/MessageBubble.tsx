@@ -9,6 +9,7 @@ import { getMessageMarkdown, getMessagePlainText, copyRichText, writeClipboardTe
 import { useStore } from "../store.js";
 import { api } from "../api.js";
 import { PawTrailAvatar, HidePawContext } from "./PawTrail.js";
+import { QuestClaimBlock } from "./QuestClaimBlock.js";
 
 export const MessageBubble = memo(function MessageBubble({ message, sessionId }: { message: ChatMessage; sessionId?: string }) {
   if (message.role === "system") {
@@ -75,6 +76,14 @@ export const MessageBubble = memo(function MessageBubble({ message, sessionId }:
             </svg>
             <span>{message.content}</span>
           </div>
+        </div>
+      );
+    }
+    // Quest claimed block — rendered as a collapsible card in the feed
+    if (message.variant === "quest_claimed" && message.metadata?.quest) {
+      return (
+        <div className="animate-[fadeSlideIn_0.2s_ease-out]">
+          <QuestClaimBlock quest={message.metadata.quest} />
         </div>
       );
     }
