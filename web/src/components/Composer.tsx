@@ -162,8 +162,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
 
   const cliConnected = useStore((s) => s.cliConnected);
   const sessionData = useStore((s) => s.sessions.get(sessionId));
-  // Compute diff line totals from client-side per-file stats (used by diff view)
-  // as fallback when server-side total_lines_added/removed are not populated
+  // Total diff lines from per-file stats (same source as the diff view)
   const diffLineTotals = useStore((s) => {
     const stats = s.diffFileStats.get(sessionId);
     if (!stats || stats.size === 0) return null;
@@ -623,16 +622,12 @@ export function Composer({ sessionId }: { sessionId: string }) {
                   )}
                 </span>
               )}
-              {(() => {
-                const added = sessionData.total_lines_added || diffLineTotals?.added || 0;
-                const removed = sessionData.total_lines_removed || diffLineTotals?.removed || 0;
-                return (added > 0 || removed > 0) ? (
-                  <span className="flex items-center gap-1 shrink-0">
-                    <span className="text-green-500">+{added}</span>
-                    <span className="text-red-400">-{removed}</span>
-                  </span>
-                ) : null;
-              })()}
+              {diffLineTotals && (
+                <span className="flex items-center gap-1 shrink-0">
+                  <span className="text-green-500">+{diffLineTotals.added}</span>
+                  <span className="text-red-400">-{diffLineTotals.removed}</span>
+                </span>
+              )}
             </div>
           )}
 

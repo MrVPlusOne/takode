@@ -38,8 +38,13 @@ export function SessionInfoPopover({
   const isWorktree = session?.is_worktree ?? false;
   const gitAhead = session?.git_ahead ?? 0;
   const gitBehind = session?.git_behind ?? 0;
-  const linesAdded = session?.total_lines_added ?? 0;
-  const linesRemoved = session?.total_lines_removed ?? 0;
+  const { linesAdded, linesRemoved } = useStore((s) => {
+    const stats = s.diffFileStats.get(sessionId);
+    if (!stats || stats.size === 0) return { linesAdded: 0, linesRemoved: 0 };
+    let added = 0, removed = 0;
+    for (const st of stats.values()) { added += st.additions; removed += st.deletions; }
+    return { linesAdded: added, linesRemoved: removed };
+  });
 
   // Close on click outside
   useEffect(() => {

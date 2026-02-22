@@ -44,6 +44,7 @@ export function Sidebar() {
   const sessionAttention = useStore((s) => s.sessionAttention);
   const askPermissionMap = useStore((s) => s.askPermission);
   const sessionKeywords = useStore((s) => s.sessionKeywords);
+  const diffFileStats = useStore((s) => s.diffFileStats);
   const sessionOrder = useStore((s) => s.sessionOrder);
   const reorderMode = useStore((s) => s.reorderMode);
   const setReorderMode = useStore((s) => s.setReorderMode);
@@ -350,8 +351,8 @@ export function Sidebar() {
       isContainerized: bridgeState?.is_containerized || !!sdkInfo?.containerId || false,
       gitAhead: bridgeState?.git_ahead || sdkInfo?.gitAhead || 0,
       gitBehind: bridgeState?.git_behind || sdkInfo?.gitBehind || 0,
-      linesAdded: bridgeState?.total_lines_added || sdkInfo?.totalLinesAdded || 0,
-      linesRemoved: bridgeState?.total_lines_removed || sdkInfo?.totalLinesRemoved || 0,
+      linesAdded: (() => { const s = diffFileStats.get(id); if (!s) return 0; let t = 0; for (const v of s.values()) t += v.additions; return t; })(),
+      linesRemoved: (() => { const s = diffFileStats.get(id); if (!s) return 0; let t = 0; for (const v of s.values()) t += v.deletions; return t; })(),
       isConnected: cliConnected.get(id) ?? sdkInfo?.cliConnected ?? false,
       status: sessionStatus.get(id) ?? null,
       sdkState: sdkInfo?.state ?? null,
