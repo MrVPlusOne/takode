@@ -912,7 +912,6 @@ function SubagentResult({ preview, parsedText, sessionId, toolUseId }: {
 const FeedFooter = memo(function FeedFooter({ sessionId }: { sessionId: string }) {
   const toolProgress = useStore((s) => s.toolProgress.get(sessionId));
   const streamingText = useStore((s) => s.streaming.get(sessionId));
-  const sessionStatus = useStore((s) => s.sessionStatus.get(sessionId));
 
   return (
     <>
@@ -945,13 +944,6 @@ const FeedFooter = memo(function FeedFooter({ sessionId }: { sessionId: string }
         </div>
       )}
 
-      {/* Compacting indicator */}
-      {sessionStatus === "compacting" && (
-        <div className="flex items-center gap-1.5 text-[11px] text-cc-muted font-mono-code pl-9">
-          <YarnBallDot className="text-cc-warning animate-pulse" />
-          <span>Compacting conversation...</span>
-        </div>
-      )}
     </>
   );
 });

@@ -6,6 +6,18 @@ import { Composer } from "./Composer.js";
 import { PermissionBanner, PlanReviewOverlay, PlanCollapsedChip, PermissionsCollapsedChip } from "./PermissionBanner.js";
 import { TaskOutlineBar } from "./TaskOutlineBar.js";
 import { TodoStatusLine } from "./TodoStatusLine.js";
+import { YarnBallDot } from "./CatIcons.js";
+
+function CompactingIndicator({ sessionId }: { sessionId: string }) {
+  const sessionStatus = useStore((s) => s.sessionStatus.get(sessionId));
+  if (sessionStatus !== "compacting") return null;
+  return (
+    <div className="shrink-0 flex items-center gap-1.5 text-[11px] text-cc-muted font-mono-code px-4 py-1">
+      <YarnBallDot className="text-cc-primary animate-pulse" />
+      <span>Compacting conversation...</span>
+    </div>
+  );
+}
 
 export function ChatView({ sessionId }: { sessionId: string }) {
   const sessionPerms = useStore((s) => s.pendingPermissions.get(sessionId));
@@ -163,6 +175,9 @@ export function ChatView({ sessionId }: { sessionId: string }) {
       ) : (
         <ElapsedTimer sessionId={sessionId} />
       )}
+
+      {/* Compacting indicator — fixed above composer, green like running state */}
+      <CompactingIndicator sessionId={sessionId} />
 
       {/* Active todo status — shows current in-progress task */}
       <TodoStatusLine sessionId={sessionId} />
