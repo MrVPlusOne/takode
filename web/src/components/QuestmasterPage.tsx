@@ -1147,6 +1147,9 @@ export function QuestmasterPage() {
                         )}
                       </div>
                       <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-[10px] text-cc-muted/50 shrink-0">
+                          {quest.questId}
+                        </span>
                         {questSessionId && (
                           isKnownSession ? (
                             <span
