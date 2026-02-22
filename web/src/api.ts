@@ -649,6 +649,23 @@ export const api = {
     patch<import("./types.js").QuestmasterTask>(`/quests/${encodeURIComponent(id)}/verification/${index}`, { checked }),
 
   // Quest images
+
+  /** Upload an image without attaching to any quest (for use during quest creation). */
+  uploadStandaloneQuestImage: async (file: File): Promise<import("./types.js").QuestImage> => {
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch(`${BASE}/quests/_images`, {
+      method: "POST",
+      body: form,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error || res.statusText);
+    }
+    return res.json();
+  },
+
+  /** Upload an image and attach it to an existing quest. */
   uploadQuestImage: async (questId: string, file: File): Promise<import("./types.js").QuestmasterTask> => {
     const form = new FormData();
     form.append("file", file);
