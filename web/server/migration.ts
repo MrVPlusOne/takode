@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, rmSync, statSync, copyFileSync, utimesSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, rmSync, statSync, copyFileSync, utimesSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { homedir, hostname } from "node:os";
 import { spawn } from "node:child_process";
@@ -439,11 +439,18 @@ export function recreateWorktreeIfMissing(
     return { recreated: false, error: `Repository not found at ${info.repoRoot}. Please clone it first, then try again.` };
   }
 
+  const oldCwd = info.cwd;
   const result = gitUtils.ensureWorktree(repoInfo.repoRoot, info.branch, {
     baseBranch: repoInfo.defaultBranch,
     createBranch: false,
     forceNew: true,
   });
+
+  // Move Claude Code JSONL files so --resume can find them at the new project dir.
+  // Claude Code derives the project directory from the cwd, so when the worktree
+  // is recreated with a different -wt-XXXX suffix, the JSONL would otherwise be
+  // stranded at the old project dir path.
+  migrateClaudeProjectDir(oldCwd, result.worktreePath);
 
   deps.launcher.updateWorktree(sessionId, { cwd: result.worktreePath, actualBranch: result.actualBranch });
   deps.worktreeTracker.addMapping({
@@ -505,6 +512,34 @@ function mergeJsonArray(importedPath: string, targetPath: string, key: string): 
  */
 export function cwdToProjectDir(cwd: string): string {
   return cwd.replace(/[/.]/g, "-");
+}
+
+/**
+ * Move Claude Code session files from one project directory to another.
+ * Called when a worktree is recreated at a different path — the JSONL
+ * conversation files need to follow the cwd change so `--resume` can find them.
+ */
+export function migrateClaudeProjectDir(oldCwd: string, newCwd: string): void {
+  const oldProjectDir = cwdToProjectDir(oldCwd);
+  const newProjectDir = cwdToProjectDir(newCwd);
+  if (oldProjectDir === newProjectDir) return;
+
+  const claudeProjectsDir = join(homedir(), ".claude", "projects");
+  const oldDir = join(claudeProjectsDir, oldProjectDir);
+  const newDir = join(claudeProjectsDir, newProjectDir);
+
+  if (!existsSync(oldDir)) return;
+
+  try {
+    mkdirSync(newDir, { recursive: true });
+    for (const entry of readdirSync(oldDir)) {
+      renameSync(join(oldDir, entry), join(newDir, entry));
+    }
+    rmSync(oldDir, { recursive: true, force: true });
+    console.log(`[migration] Moved Claude project dir: ${oldProjectDir} → ${newProjectDir}`);
+  } catch (e) {
+    console.warn(`[migration] Failed to migrate Claude project dir: ${e instanceof Error ? e.message : String(e)}`);
+  }
 }
 
 // ─── Utilities ──────────────────────────────────────────────────────────────

@@ -7,6 +7,7 @@ import {
   rewritePathsInDir,
   recreateWorktreeIfMissing,
   cwdToProjectDir,
+  migrateClaudeProjectDir,
 } from "./migration.js";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -285,5 +286,69 @@ describe("recreateWorktreeIfMissing", () => {
     expect(result.recreated).toBe(false);
     expect(result.error).toContain("Repository not found");
     expect(result.error).toContain("Please clone it first");
+  });
+});
+
+// ─── migrateClaudeProjectDir ───────────────────────────────────────────────
+
+describe("migrateClaudeProjectDir", () => {
+  let tempClaudeHome: string;
+  let origHome: string;
+
+  beforeEach(() => {
+    // Create a fake ~/.claude/projects structure in a temp dir.
+    // We override HOME so migrateClaudeProjectDir resolves homedir() to our temp.
+    tempClaudeHome = makeTempDir();
+    origHome = process.env.HOME!;
+    process.env.HOME = tempClaudeHome;
+  });
+
+  afterEach(() => {
+    process.env.HOME = origHome;
+    rmSync(tempClaudeHome, { recursive: true });
+  });
+
+  it("moves JSONL files from old project dir to new project dir", () => {
+    // Simulate: worktree was at jiayi-wt-1234, JSONL lives in that project dir.
+    // Worktree is recreated at jiayi-wt-5678 — JSONL must follow.
+    const oldCwd = "/mnt/home/user/.companion/worktrees/repo/branch-wt-1234";
+    const newCwd = "/mnt/home/user/.companion/worktrees/repo/branch-wt-5678";
+
+    const oldProjectDir = cwdToProjectDir(oldCwd);
+    const newProjectDir = cwdToProjectDir(newCwd);
+    const projectsBase = join(tempClaudeHome, ".claude", "projects");
+    const oldDir = join(projectsBase, oldProjectDir);
+
+    // Create JSONL file and subagent dir at the old project dir
+    mkdirSync(oldDir, { recursive: true });
+    writeFileSync(join(oldDir, "abc-123.jsonl"), '{"type":"system"}', "utf-8");
+    mkdirSync(join(oldDir, "abc-123", "subagents"), { recursive: true });
+    writeFileSync(join(oldDir, "abc-123", "subagents", "agent.jsonl"), '{"type":"agent"}', "utf-8");
+
+    migrateClaudeProjectDir(oldCwd, newCwd);
+
+    // JSONL should now be in the new project dir
+    const newDir = join(projectsBase, newProjectDir);
+    expect(existsSync(join(newDir, "abc-123.jsonl"))).toBe(true);
+    expect(readFileSync(join(newDir, "abc-123.jsonl"), "utf-8")).toBe('{"type":"system"}');
+    expect(existsSync(join(newDir, "abc-123", "subagents", "agent.jsonl"))).toBe(true);
+
+    // Old dir should be removed
+    expect(existsSync(oldDir)).toBe(false);
+  });
+
+  it("is a no-op when old and new cwds produce the same project dir", () => {
+    const cwd = "/mnt/home/user/project";
+    migrateClaudeProjectDir(cwd, cwd);
+    // No crash, no dirs created
+    expect(existsSync(join(tempClaudeHome, ".claude", "projects"))).toBe(false);
+  });
+
+  it("is a no-op when the old project dir doesn't exist", () => {
+    const oldCwd = "/mnt/home/user/old-wt-1111";
+    const newCwd = "/mnt/home/user/new-wt-2222";
+    migrateClaudeProjectDir(oldCwd, newCwd);
+    // No crash, new dir not created either (nothing to move)
+    expect(existsSync(join(tempClaudeHome, ".claude", "projects", cwdToProjectDir(newCwd)))).toBe(false);
   });
 });
