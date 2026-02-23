@@ -1,122 +1,94 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 
-// Browser SpeechRecognition types (not in lib.dom by default)
-interface SpeechRecognitionEvent extends Event {
-  results: SpeechRecognitionResultList;
-  resultIndex: number;
-}
-
-interface SpeechRecognitionErrorEvent extends Event {
-  error: string;
-  message?: string;
-}
-
-interface SpeechRecognitionInstance extends EventTarget {
-  continuous: boolean;
-  interimResults: boolean;
-  lang: string;
-  start(): void;
-  stop(): void;
-  abort(): void;
-  onresult: ((event: SpeechRecognitionEvent) => void) | null;
-  onerror: ((event: SpeechRecognitionErrorEvent) => void) | null;
-  onend: (() => void) | null;
-}
-
-type SpeechRecognitionConstructor = new () => SpeechRecognitionInstance;
-
-function getSpeechRecognition(): SpeechRecognitionConstructor | null {
-  const w = window as unknown as Record<string, unknown>;
-  return (w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null) as SpeechRecognitionConstructor | null;
-}
-
 export interface UseVoiceInputOptions {
-  /** Called with accumulated final + interim text while recording */
-  onTranscript?: (text: string) => void;
-  /** Called with the final accumulated transcript when recording stops */
-  onFinalTranscript?: (text: string) => void;
+  /** Called with the recorded audio blob when recording stops */
+  onAudioReady?: (blob: Blob) => void;
 }
 
 export interface UseVoiceInputReturn {
   isRecording: boolean;
   isSupported: boolean;
+  isTranscribing: boolean;
   error: string | null;
+  setIsTranscribing: (v: boolean) => void;
+  setError: (e: string | null) => void;
   startRecording: () => void;
   stopRecording: () => void;
   toggleRecording: () => void;
 }
 
+const isMediaRecorderSupported =
+  typeof window !== "undefined" &&
+  typeof navigator !== "undefined" &&
+  !!navigator.mediaDevices?.getUserMedia &&
+  typeof MediaRecorder !== "undefined";
+
 export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInputReturn {
   const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
-  const finalTranscriptRef = useRef("");
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
   const optionsRef = useRef(options);
   optionsRef.current = options;
 
-  const isSupported = typeof window !== "undefined" && getSpeechRecognition() !== null;
-
   const stopRecording = useCallback(() => {
-    if (recognitionRef.current) {
-      recognitionRef.current.stop();
+    if (recorderRef.current && recorderRef.current.state !== "inactive") {
+      recorderRef.current.stop();
     }
   }, []);
 
-  const startRecording = useCallback(() => {
-    const Ctor = getSpeechRecognition();
-    if (!Ctor) return;
+  const startRecording = useCallback(async () => {
+    if (!isMediaRecorderSupported) return;
 
     setError(null);
-    finalTranscriptRef.current = "";
+    chunksRef.current = [];
 
-    const recognition = new Ctor();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = navigator.language || "en-US";
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
 
-    recognition.onresult = (event: SpeechRecognitionEvent) => {
-      let finalText = "";
-      let interimText = "";
+      const recorder = new MediaRecorder(stream);
+      recorderRef.current = recorder;
 
-      for (let i = 0; i < event.results.length; i++) {
-        const result = event.results[i];
-        if (result.isFinal) {
-          finalText += result[0].transcript;
-        } else {
-          interimText += result[0].transcript;
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          chunksRef.current.push(e.data);
         }
-      }
+      };
 
-      finalTranscriptRef.current = finalText;
-      const combined = (finalText + interimText).trim();
-      optionsRef.current.onTranscript?.(combined);
-    };
+      recorder.onstop = () => {
+        // Release mic
+        streamRef.current?.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+        recorderRef.current = null;
+        setIsRecording(false);
 
-    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-      if (event.error === "not-allowed") {
+        if (chunksRef.current.length > 0) {
+          const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+          chunksRef.current = [];
+          optionsRef.current.onAudioReady?.(blob);
+        }
+      };
+
+      recorder.onerror = () => {
+        setError("Recording failed");
+        setIsRecording(false);
+        streamRef.current?.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+        recorderRef.current = null;
+      };
+
+      recorder.start();
+      setIsRecording(true);
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "NotAllowedError") {
         setError("Microphone access denied");
-      } else if (event.error === "no-speech" || event.error === "aborted") {
-        // no-speech: silence detected, recognition continues
-        // aborted: recognition was stopped programmatically or no mic available — not actionable
-        return;
       } else {
-        setError(`Speech recognition error: ${event.error}`);
+        setError("Could not access microphone");
       }
-      setIsRecording(false);
-    };
-
-    recognition.onend = () => {
-      setIsRecording(false);
-      const final = finalTranscriptRef.current.trim();
-      if (final) {
-        optionsRef.current.onFinalTranscript?.(final);
-      }
-      recognitionRef.current = null;
-    };
-
-    recognitionRef.current = recognition;
-    recognition.start();
-    setIsRecording(true);
+    }
   }, []);
 
   const toggleRecording = useCallback(() => {
@@ -137,12 +109,22 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (recognitionRef.current) {
-        recognitionRef.current.abort();
-        recognitionRef.current = null;
+      if (recorderRef.current && recorderRef.current.state !== "inactive") {
+        recorderRef.current.stop();
       }
+      streamRef.current?.getTracks().forEach((t) => t.stop());
     };
   }, []);
 
-  return { isRecording, isSupported, error, startRecording, stopRecording, toggleRecording };
+  return {
+    isRecording,
+    isSupported: isMediaRecorderSupported,
+    isTranscribing,
+    error,
+    setIsTranscribing,
+    setError,
+    startRecording,
+    stopRecording,
+    toggleRecording,
+  };
 }

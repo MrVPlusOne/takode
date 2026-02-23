@@ -31,6 +31,7 @@ import { getLogPath } from "./server-logger.js";
 import { getUsageLimits } from "./usage-limits.js";
 import { ensureAssistantWorkspace, ASSISTANT_DIR } from "./assistant-workspace.js";
 import { generateUniqueSessionName } from "../src/utils/names.js";
+import { transcribeWithGemini, transcribeWithOpenai, getAvailableBackends } from "./transcription.js";
 
 const ROUTES_DIR = dirname(fileURLToPath(import.meta.url));
 const WEB_DIR = dirname(ROUTES_DIR);
@@ -2055,6 +2056,60 @@ export function createRoutes(
       return c.json({ ok: true });
     }
     return c.json({ error: result.error || "Test notification failed" }, 400);
+  });
+
+  // ─── Audio transcription ─────────────────────────────────────────────
+
+  api.get("/transcribe/status", (c) => {
+    return c.json(getAvailableBackends());
+  });
+
+  api.post("/transcribe", async (c) => {
+
+    const body = await c.req.parseBody();
+    const audioFile = body["audio"];
+    if (!audioFile || typeof audioFile === "string") {
+      return c.json({ error: "audio field is required (multipart)" }, 400);
+    }
+
+    const requestedBackend = typeof body["backend"] === "string" ? body["backend"] : undefined;
+    const { default: defaultBackend } = getAvailableBackends();
+    const backend = requestedBackend || defaultBackend;
+
+    if (!backend) {
+      return c.json(
+        { error: "No transcription backend available. Set GOOGLE_API_KEY (Gemini) or OPENAI_API_KEY (Whisper) in your environment." },
+        400,
+      );
+    }
+
+    const buf = Buffer.from(await audioFile.arrayBuffer());
+    const mimeType = audioFile.type || "audio/webm";
+
+    try {
+      let text: string;
+      if (backend === "gemini") {
+        const apiKey = process.env.GOOGLE_API_KEY;
+        if (!apiKey) {
+          return c.json({ error: "GOOGLE_API_KEY not set in environment" }, 400);
+        }
+        text = await transcribeWithGemini(buf, mimeType, apiKey);
+      } else if (backend === "openai") {
+        const apiKey = process.env.OPENAI_API_KEY;
+        if (!apiKey) {
+          return c.json({ error: "OPENAI_API_KEY not set in environment" }, 400);
+        }
+        text = await transcribeWithOpenai(buf, mimeType, apiKey);
+      } else {
+        return c.json({ error: `Unknown backend: ${backend}` }, 400);
+      }
+
+      return c.json({ text, backend });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error(`[transcription] ${backend} failed:`, msg);
+      return c.json({ error: `Transcription failed: ${msg}` }, 500);
+    }
   });
 
   // ─── Git operations ─────────────────────────────────────────────────

@@ -615,6 +615,22 @@ export const api = {
   saveClaudeMd: (path: string, content: string) =>
     put<{ ok: boolean; path: string }>("/fs/claude-md", { path, content }),
 
+  // Audio transcription
+  transcribe: async (audio: Blob, backend?: "gemini" | "openai"): Promise<{ text: string; backend: string }> => {
+    const form = new FormData();
+    form.append("audio", audio, "recording.webm");
+    if (backend) form.append("backend", backend);
+    const res = await fetch(`${BASE}/transcribe`, { method: "POST", body: form });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error((err as { error?: string }).error || res.statusText);
+    }
+    return res.json();
+  },
+
+  getTranscriptionStatus: () =>
+    get<{ backends: string[]; default: string | null }>("/transcribe/status"),
+
   // Usage limits
   getUsageLimits: () => get<UsageLimits>("/usage-limits"),
   getSessionUsageLimits: (sessionId: string) =>

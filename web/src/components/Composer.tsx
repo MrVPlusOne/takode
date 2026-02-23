@@ -7,6 +7,7 @@ import type { ModeOption } from "../utils/backends.js";
 import { Lightbox } from "./Lightbox.js";
 import { CatPawAvatar } from "./CatIcons.js";
 import { useVoiceInput } from "../hooks/useVoiceInput.js";
+import { api } from "../api.js";
 
 function PaperPlaneIcon({ className = "w-4 h-4" }: { className?: string }) {
   return (
@@ -147,25 +148,30 @@ export function Composer({ sessionId }: { sessionId: string }) {
   const modelDropdownRef = useRef<HTMLDivElement>(null);
   const askConfirmRef = useRef<HTMLDivElement>(null);
 
-  // Voice input — transcribes speech to text via Web Speech API
+  // Voice input — records audio via MediaRecorder, transcribes server-side
   const preRecordingTextRef = useRef("");
-  const { isRecording, isSupported: voiceSupported, error: voiceError, toggleRecording } = useVoiceInput({
-    onTranscript: (transcript) => {
-      // Live update: show pre-existing text + new transcript
-      const prefix = preRecordingTextRef.current;
-      const separator = prefix && !prefix.endsWith(" ") && !prefix.endsWith("\n") ? " " : "";
-      setText(prefix + separator + transcript);
-    },
-    onFinalTranscript: (transcript) => {
-      const prefix = preRecordingTextRef.current;
-      const separator = prefix && !prefix.endsWith(" ") && !prefix.endsWith("\n") ? " " : "";
-      setText(prefix + separator + transcript);
+  const {
+    isRecording, isSupported: voiceSupported, isTranscribing,
+    error: voiceError, setIsTranscribing, setError: setVoiceError,
+    toggleRecording,
+  } = useVoiceInput({
+    onAudioReady: async (blob) => {
+      setIsTranscribing(true);
+      try {
+        const { text: transcript } = await api.transcribe(blob);
+        const prefix = preRecordingTextRef.current;
+        const separator = prefix && !prefix.endsWith(" ") && !prefix.endsWith("\n") ? " " : "";
+        setText(prefix + separator + transcript);
+      } catch (err) {
+        setVoiceError(err instanceof Error ? err.message : "Transcription failed");
+      } finally {
+        setIsTranscribing(false);
+      }
     },
   });
 
   const handleMicClick = useCallback(() => {
     if (!isRecording) {
-      // Save current text so we can prepend it to transcript
       preRecordingTextRef.current = text;
     }
     toggleRecording();
@@ -696,14 +702,20 @@ export function Composer({ sessionId }: { sessionId: string }) {
             </div>
           )}
 
-          {/* Voice recording indicator */}
+          {/* Voice recording / transcribing indicator */}
           {isRecording && (
             <div className="flex items-center gap-2 px-4 pt-2 text-[11px] text-red-500">
               <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-              <span>Listening...</span>
+              <span>Recording...</span>
             </div>
           )}
-          {voiceError && !isRecording && (
+          {isTranscribing && !isRecording && (
+            <div className="flex items-center gap-2 px-4 pt-2 text-[11px] text-cc-primary">
+              <span className="w-2 h-2 rounded-full bg-cc-primary animate-pulse" />
+              <span>Transcribing...</span>
+            </div>
+          )}
+          {voiceError && !isRecording && !isTranscribing && (
             <div className="px-4 pt-2 text-[11px] text-cc-warning">{voiceError}</div>
           )}
 
@@ -953,15 +965,15 @@ export function Composer({ sessionId }: { sessionId: string }) {
               {voiceSupported && (
                 <button
                   onClick={handleMicClick}
-                  disabled={!isConnected}
+                  disabled={!isConnected || isTranscribing}
                   className={`flex items-center justify-center w-11 h-11 sm:w-8 sm:h-8 rounded-lg transition-colors ${
-                    !isConnected
+                    !isConnected || isTranscribing
                       ? "text-cc-muted opacity-30 cursor-not-allowed"
                       : isRecording
                       ? "text-red-500 bg-red-500/10 hover:bg-red-500/20 cursor-pointer"
                       : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover cursor-pointer"
                   }`}
-                  title={voiceError || (isRecording ? "Stop recording" : "Voice input")}
+                  title={voiceError || (isTranscribing ? "Transcribing..." : isRecording ? "Stop recording" : "Voice input")}
                 >
                   <svg viewBox="0 0 16 16" fill="currentColor" className={`w-5 h-5 sm:w-4 sm:h-4 ${isRecording ? "animate-pulse" : ""}`}>
                     <path d="M8 1a2.5 2.5 0 0 0-2.5 2.5v4a2.5 2.5 0 0 0 5 0v-4A2.5 2.5 0 0 0 8 1z" />
