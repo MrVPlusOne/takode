@@ -236,6 +236,14 @@ function getClaimedQuestForNamer(sessionId: string): { id: string; title: string
   return { id: quest.questId, title: quest.title };
 }
 
+/** Check whether a quest owns the session name (suppresses auto-namer).
+ *  Checks both the quest store (in_progress quests) AND the session's claimedQuestId
+ *  (which persists through needs_verification until done/cancelled). */
+function isQuestOwningSessionName(sessionId: string): boolean {
+  if (getActiveQuestForSession(sessionId)) return true;
+  return !!wsBridge.getSession(sessionId)?.state?.claimedQuestId;
+}
+
 /** Apply a naming result: set name, broadcast, add task entry. Shared by all triggers. */
 function applyNamingResult(
   sessionId: string,
@@ -244,8 +252,8 @@ function applyNamingResult(
   history: import("./session-types.js").BrowserIncomingMessage[],
 ): void {
   // Re-check: quest may have been claimed while the namer was in-flight
-  if (getActiveQuestForSession(sessionId)) {
-    console.log(`[session-namer] Discarding namer result for ${sessionId} (quest claimed during evaluation)`);
+  if (isQuestOwningSessionName(sessionId)) {
+    console.log(`[session-namer] Discarding namer result for ${sessionId} (quest owns session name)`);
     return;
   }
   // Merge keywords regardless of naming action
@@ -325,9 +333,9 @@ async function evaluateAndApply(
 
 // Continuous session auto-naming via Claude Haiku (triggered on each user message)
 wsBridge.onUserMessageCallback(async (sessionId, history, cwd, wasGenerating) => {
-  // Suppress auto-namer while a quest is active — quest title IS the session name
-  if (getActiveQuestForSession(sessionId)) {
-    console.log(`[session-namer] Skipping user-message namer for ${sessionId} (active quest)`);
+  // Suppress auto-namer while a quest owns the session name
+  if (isQuestOwningSessionName(sessionId)) {
+    console.log(`[session-namer] Skipping user-message namer for ${sessionId} (quest owns session name)`);
     return;
   }
   const currentName = sessionNames.getName(sessionId);
@@ -358,8 +366,8 @@ wsBridge.onUserMessageCallback(async (sessionId, history, cwd, wasGenerating) =>
       if (signal.aborted) return;
       if (!result || result.action !== "name") return;
       // Re-check: quest may have been claimed while we were generating
-      if (getActiveQuestForSession(sessionId)) {
-        console.log(`[session-namer] Discarding first-name result for ${sessionId} (quest claimed during generation)`);
+      if (isQuestOwningSessionName(sessionId)) {
+        console.log(`[session-namer] Discarding first-name result for ${sessionId} (quest owns session name)`);
         return;
       }
       // Don't overwrite if user renamed while we were generating
@@ -394,8 +402,8 @@ wsBridge.onUserMessageCallback(async (sessionId, history, cwd, wasGenerating) =>
 // The agent has done meaningful research/work to produce the plan, providing
 // rich context for naming — and it's a natural breakpoint before execution.
 wsBridge.onAgentPausedCallback(async (sessionId, history, cwd) => {
-  if (getActiveQuestForSession(sessionId)) {
-    console.log(`[session-namer] Skipping agent-paused namer for ${sessionId} (active quest)`);
+  if (isQuestOwningSessionName(sessionId)) {
+    console.log(`[session-namer] Skipping agent-paused namer for ${sessionId} (quest owns session name)`);
     return;
   }
   const currentName = sessionNames.getName(sessionId);
@@ -420,8 +428,8 @@ wsBridge.onAgentPausedCallback(async (sessionId, history, cwd) => {
 const NAMER_COOLDOWN_MS = 30_000;
 
 wsBridge.onTurnCompletedCallback(async (sessionId, history, cwd) => {
-  if (getActiveQuestForSession(sessionId)) {
-    console.log(`[session-namer] Skipping turn-completed namer for ${sessionId} (active quest)`);
+  if (isQuestOwningSessionName(sessionId)) {
+    console.log(`[session-namer] Skipping turn-completed namer for ${sessionId} (quest owns session name)`);
     return;
   }
   const currentName = sessionNames.getName(sessionId);

@@ -798,6 +798,12 @@ function handleParsedMessage(
       // Server is authoritative for all name updates (auto-naming, manual rename, etc.)
       const prevName = store.sessionNames.get(sessionId);
       console.log(`[ws] session_name_update for ${sessionId}: "${prevName}" → "${data.name}" source=${(data as Record<string, unknown>).source ?? "none"}`);
+      // When a quest is actively claiming the session name, ignore non-quest name updates
+      // (prevents auto-namer race conditions from overwriting the quest title)
+      if (store.questNamedSessions.has(sessionId) && data.source !== "quest") {
+        console.log(`[ws] Ignoring non-quest name update for quest-named session ${sessionId}`);
+        break;
+      }
       if (prevName !== data.name) {
         store.setSessionName(sessionId, data.name);
         store.markRecentlyRenamed(sessionId);
@@ -861,9 +867,12 @@ function handleParsedMessage(
         claimedQuestId: data.quest?.id ?? undefined,
         claimedQuestTitle: data.quest?.title ?? undefined,
       });
-      // Also sync quest-named styling (redundant with session_name_update source,
-      // but ensures consistency when quest is unclaimed/done)
-      if (data.quest?.id) {
+      if (data.quest?.id && data.quest?.title) {
+        // Override session name with quest title and mark as quest-named.
+        // This is the primary path for setting quest names — we set it directly
+        // from the claim message rather than relying solely on session_name_update.
+        store.setSessionName(sessionId, data.quest.title);
+        store.markRecentlyRenamed(sessionId);
         store.markQuestNamed(sessionId);
       } else {
         store.clearQuestNamed(sessionId);
