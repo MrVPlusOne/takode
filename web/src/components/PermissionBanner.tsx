@@ -342,16 +342,27 @@ const SCOPE_OPTIONS: { value: ScopeOption; label: string; desc: string }[] = [
 function CustomRuleEditor({
   toolName,
   input,
+  suggestions,
   onApply,
   disabled,
 }: {
   toolName: string;
   input: Record<string, unknown>;
+  suggestions?: PermissionUpdate[];
   onApply: (update: PermissionUpdate) => void;
   disabled: boolean;
 }) {
-  const [pattern, setPattern] = useState(() => deriveDefaultPattern(toolName, input));
-  const [scope, setScope] = useState<ScopeOption>("session");
+  // Prefer Claude's suggested rule pattern over the raw tool input
+  const suggestion = suggestions?.find(
+    (s): s is Extract<PermissionUpdate, { type: "addRules" }> =>
+      (s.type === "addRules" || s.type === "replaceRules") && !!s.rules[0]?.ruleContent,
+  );
+  const [pattern, setPattern] = useState(
+    () => suggestion?.rules[0]?.ruleContent || deriveDefaultPattern(toolName, input),
+  );
+  const [scope, setScope] = useState<ScopeOption>(
+    () => (suggestion?.destination as ScopeOption) || "session",
+  );
 
   function handleSubmit() {
     const update: PermissionUpdate = {
@@ -646,6 +657,7 @@ export function PermissionBanner({
                 <CustomRuleEditor
                   toolName={permission.tool_name}
                   input={permission.input}
+                  suggestions={permission.permission_suggestions}
                   onApply={(update) => handleAllow(undefined, [update])}
                   disabled={loading}
                 />

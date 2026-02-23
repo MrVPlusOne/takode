@@ -43,13 +43,13 @@ const PERM_BASH = mockPermission({
   permission_suggestions: [
     {
       type: "addRules" as const,
-      rules: [{ toolName: "Bash", ruleContent: "git log --oneline -20 && npm run build" }],
+      rules: [{ toolName: "Bash", ruleContent: "git log*" }],
       behavior: "allow" as const,
       destination: "session" as const,
     },
     {
       type: "addRules" as const,
-      rules: [{ toolName: "Bash", ruleContent: "git log --oneline -20 && npm run build" }],
+      rules: [{ toolName: "Bash", ruleContent: "npm run build" }],
       behavior: "allow" as const,
       destination: "projectSettings" as const,
     },
