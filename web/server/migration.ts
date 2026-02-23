@@ -46,6 +46,9 @@ export interface ImportStats {
   warnings: string[];
 }
 
+/** Callback for streaming import progress to the client. */
+export type ImportProgressFn = (step: string, message: string, pct?: number) => void;
+
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 const COMPANION_HOME = join(homedir(), ".companion");
@@ -175,7 +178,8 @@ export async function runExport(options: {
  * Import from a .tar.zst archive. Idempotent: files in the archive overwrite
  * existing ones only if the archive version is newer (by mtime).
  */
-export async function runImport(archivePath: string, targetPort: number): Promise<ImportStats> {
+export async function runImport(archivePath: string, targetPort: number, onProgress?: ImportProgressFn): Promise<ImportStats> {
+  const progress = onProgress ?? (() => {});
   const stagingDir = join(COMPANION_HOME, STAGING_DIR);
   const stats: ImportStats = {
     sessionsNew: 0, sessionsUpdated: 0, sessionsSkipped: 0,
@@ -189,6 +193,7 @@ export async function runImport(archivePath: string, targetPort: number): Promis
   mkdirSync(stagingDir, { recursive: true });
 
   try {
+    progress("extract", "Extracting archive...");
     console.log(`Extracting archive...`);
     await runShell(`zstd -d -c ${shellEscape(archivePath)} | tar -xf -`, { cwd: stagingDir });
 
@@ -206,6 +211,7 @@ export async function runImport(archivePath: string, targetPort: number): Promis
     const oldHome = manifest.homeDir;
     const newHome = homedir();
     if (oldHome !== newHome) {
+      progress("rewrite", `Rewriting paths: ${oldHome} → ${newHome}`);
       console.log(`Rewriting paths: ${oldHome} → ${newHome}`);
       rewritePathsInDir(stagingDir, oldHome, newHome);
       stats.pathsRewritten = true;
@@ -217,11 +223,16 @@ export async function runImport(archivePath: string, targetPort: number): Promis
     const restoredCliSessionIds = new Set<string>();
     const stagedClaudeDir = join(stagingDir, EXPORT_CLAUDE_DIR);
     if (manifest.claudeSessions?.length && existsSync(stagedClaudeDir)) {
-      console.log(`Restoring ${manifest.claudeSessions.length} Claude Code session(s)...`);
+      const total = manifest.claudeSessions.length;
+      progress("claude", `Restoring ${total} Claude Code session(s)...`);
+      console.log(`Restoring ${total} Claude Code session(s)...`);
       const claudeProjectsDir = join(CLAUDE_HOME, "projects");
       mkdirSync(claudeProjectsDir, { recursive: true });
 
+      let claudeIdx = 0;
       for (const mapping of manifest.claudeSessions) {
+        claudeIdx++;
+        progress("claude", `Restoring Claude session ${claudeIdx}/${total}`, Math.round((claudeIdx / total) * 100));
         try {
           // Compute the new project dir based on the rewritten cwd
           const rewrittenCwd = oldHome !== newHome
@@ -286,6 +297,19 @@ export async function runImport(archivePath: string, targetPort: number): Promis
     mkdirSync(targetDir, { recursive: true });
 
     if (existsSync(stagedSessions)) {
+      // Count total session files for progress
+      let totalSessionFiles = 0;
+      for (const portEntry of readdirSync(stagedSessions)) {
+        const pd = join(stagedSessions, portEntry);
+        if (statSync(pd).isDirectory()) {
+          for (const f of readdirSync(pd)) {
+            if (f.endsWith(".json") && f !== "launcher.json") totalSessionFiles++;
+          }
+        }
+      }
+
+      let sessionIdx = 0;
+      progress("sessions", `Importing ${totalSessionFiles} sessions...`);
       for (const portEntry of readdirSync(stagedSessions)) {
         const portDir = join(stagedSessions, portEntry);
         if (!statSync(portDir).isDirectory()) continue;
@@ -296,6 +320,10 @@ export async function runImport(archivePath: string, targetPort: number): Promis
             continue;
           }
           if (!file.endsWith(".json")) continue;
+          sessionIdx++;
+          if (sessionIdx % 10 === 0 || sessionIdx === totalSessionFiles) {
+            progress("sessions", `Importing sessions (${sessionIdx}/${totalSessionFiles})`, Math.round((sessionIdx / totalSessionFiles) * 100));
+          }
 
           const srcPath = join(portDir, file);
           const targetPath = join(targetDir, file);
@@ -322,6 +350,7 @@ export async function runImport(archivePath: string, targetPort: number): Promis
     }
 
     // ── Metadata files (merge, don't overwrite) ──────────────────
+    progress("metadata", "Merging metadata files...");
     mergeJsonArray(join(stagingDir, "worktrees.json"), join(COMPANION_HOME, "worktrees.json"), "sessionId");
     mergeJsonByKey(join(stagingDir, "session-names.json"), join(COMPANION_HOME, "session-names.json"));
     const stagedContainers = join(stagingDir, "containers.json");
@@ -330,6 +359,7 @@ export async function runImport(archivePath: string, targetPort: number): Promis
     }
 
     // ── Asset directories (newer wins) ───────────────────────────
+    progress("assets", "Copying assets...");
     for (const dir of ["images", "questmaster", "codex-home", "envs", "cron", "assistant", "recordings"]) {
       const stagedDir = join(stagingDir, dir);
       if (existsSync(stagedDir)) copyDirNewerWins(stagedDir, join(COMPANION_HOME, dir), stats);

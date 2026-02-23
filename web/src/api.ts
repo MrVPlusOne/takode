@@ -694,29 +694,58 @@ export const api = {
   /** Trigger a .tar.zst download of all session data. */
   exportSessionsUrl: () => `${BASE}/migration/export`,
 
-  /** Upload a .tar.zst archive to import sessions. Reports upload progress via callback. */
-  importSessions: (file: File, onProgress?: (phase: "uploading" | "processing", pct: number) => void): Promise<ImportStats> => {
-    return new Promise((resolve, reject) => {
-      const form = new FormData();
-      form.append("archive", file);
-      const xhr = new XMLHttpRequest();
-      xhr.open("POST", `${BASE}/migration/import`);
-      xhr.upload.onprogress = (e) => {
-        if (e.lengthComputable && onProgress) {
-          onProgress("uploading", Math.round((e.loaded / e.total) * 100));
-        }
-      };
-      xhr.upload.onload = () => { onProgress?.("processing", 100); };
-      xhr.onload = () => {
+  /** Upload a .tar.zst archive to import sessions. Streams progress via callback. */
+  importSessions: async (
+    file: File,
+    onProgress?: (step: string, message: string, pct?: number) => void,
+  ): Promise<ImportStats> => {
+    const form = new FormData();
+    form.append("archive", file);
+
+    onProgress?.("uploading", `Uploading archive (${(file.size / 1024 / 1024).toFixed(0)} MB)...`);
+    const resp = await fetch(`${BASE}/migration/import`, { method: "POST", body: form });
+
+    if (!resp.body) {
+      // Fallback: non-streaming response (shouldn't happen)
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+      return data as ImportStats;
+    }
+
+    // Read streaming NDJSON progress lines
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let result: ImportStats | null = null;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const lines = buffer.split("\n");
+      buffer = lines.pop()!; // keep incomplete last line in buffer
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
         try {
-          const data = JSON.parse(xhr.responseText);
-          if (xhr.status >= 200 && xhr.status < 300) resolve(data as ImportStats);
-          else reject(new Error(data.error || `HTTP ${xhr.status}`));
-        } catch { reject(new Error(`HTTP ${xhr.status}: ${xhr.statusText}`)); }
-      };
-      xhr.onerror = () => reject(new Error("Network error"));
-      xhr.send(form);
-    });
+          const event = JSON.parse(line);
+          if (event.step === "done") {
+            result = event.result as ImportStats;
+          } else if (event.step === "error") {
+            throw new Error(event.error);
+          } else {
+            onProgress?.(event.step, event.message, event.pct);
+          }
+        } catch (e) {
+          if (e instanceof Error && e.message !== line) throw e;
+          // Skip malformed lines
+        }
+      }
+    }
+
+    if (!result) throw new Error("Import stream ended without a result");
+    return result;
   },
 };
 

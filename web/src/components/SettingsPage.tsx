@@ -65,8 +65,8 @@ export function SettingsPage({ embedded = false }: SettingsPageProps) {
   const importInputRef = useRef<HTMLInputElement>(null);
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [importPhase, setImportPhase] = useState<"uploading" | "processing">("uploading");
-  const [importPct, setImportPct] = useState(0);
+  const [importStep, setImportStep] = useState("");
+  const [importPct, setImportPct] = useState<number | undefined>(undefined);
   const [importResult, setImportResult] = useState<ImportStats | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
 
@@ -252,11 +252,11 @@ export function SettingsPage({ embedded = false }: SettingsPageProps) {
     setImporting(true);
     setImportResult(null);
     setImportError(null);
-    setImportPhase("uploading");
-    setImportPct(0);
+    setImportStep("");
+    setImportPct(undefined);
     try {
-      const stats = await api.importSessions(file, (phase, pct) => {
-        setImportPhase(phase);
+      const stats = await api.importSessions(file, (_step, message, pct) => {
+        setImportStep(message);
         setImportPct(pct);
       });
       setImportResult(stats);
@@ -793,11 +793,11 @@ export function SettingsPage({ embedded = false }: SettingsPageProps) {
           {importing && (
             <div className="space-y-1">
               <div className="flex justify-between text-xs text-cc-muted">
-                <span>{importPhase === "uploading" ? "Uploading archive..." : "Processing import..."}</span>
-                <span>{importPhase === "uploading" ? `${importPct}%` : ""}</span>
+                <span>{importStep || "Starting import..."}</span>
+                <span>{importPct != null ? `${importPct}%` : ""}</span>
               </div>
               <div className="h-1.5 rounded-full bg-cc-hover overflow-hidden">
-                {importPhase === "uploading" ? (
+                {importPct != null ? (
                   <div
                     className="h-full bg-cc-accent rounded-full transition-[width] duration-200"
                     style={{ width: `${importPct}%` }}

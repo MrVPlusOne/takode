@@ -2734,26 +2734,47 @@ export function createRoutes(
   });
 
   api.post("/migration/import", async (c) => {
-    try {
-      const body = await c.req.parseBody();
-      const file = body["archive"];
-      if (!file || typeof file === "string") {
-        return c.json({ error: "archive field is required (multipart)" }, 400);
-      }
-      const buf = Buffer.from(await file.arrayBuffer());
-      const tempPath = join(tmpdir(), `companion-import-${Date.now()}.tar.zst`);
+    // Parse the upload first (blocking), then stream progress as NDJSON
+    const body = await c.req.parseBody();
+    const file = body["archive"];
+    if (!file || typeof file === "string") {
+      return c.json({ error: "archive field is required (multipart)" }, 400);
+    }
+    const buf = Buffer.from(await file.arrayBuffer());
+    const tempPath = join(tmpdir(), `companion-import-${Date.now()}.tar.zst`);
+    writeFileSync(tempPath, buf);
+
+    const { readable, writable } = new TransformStream();
+    const writer = writable.getWriter();
+    const encoder = new TextEncoder();
+
+    const sendLine = (data: Record<string, unknown>) => {
+      writer.write(encoder.encode(JSON.stringify(data) + "\n"));
+    };
+
+    // Run import asynchronously, streaming progress lines
+    (async () => {
       try {
-        writeFileSync(tempPath, buf);
-        const stats = await runImport(tempPath, launcher.getPort());
-        // Reload imported sessions into the running server's memory
+        const stats = await runImport(tempPath, launcher.getPort(), (step, message, pct) => {
+          sendLine({ step, message, pct });
+        });
+        // Load brand-new sessions into memory, merge updated fields
+        // (cliSessionId, rewritten paths) into existing sessions
         launcher.restoreFromDisk();
-        return c.json(stats);
+        launcher.mergeFromDisk();
+        wsBridge.restoreFromDisk();
+        sendLine({ step: "done", result: stats });
+      } catch (e) {
+        sendLine({ step: "error", error: e instanceof Error ? e.message : String(e) });
       } finally {
         try { unlinkSync(tempPath); } catch { /* ignore */ }
+        writer.close();
       }
-    } catch (e) {
-      return c.json({ error: e instanceof Error ? e.message : String(e) }, 500);
-    }
+    })();
+
+    return new Response(readable, {
+      headers: { "Content-Type": "application/x-ndjson" },
+    });
   });
 
   return api;

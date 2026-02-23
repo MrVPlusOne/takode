@@ -233,6 +233,46 @@ export class CliLauncher {
   }
 
   /**
+   * Merge launcher data from disk into existing in-memory sessions.
+   * Used after import to pick up cliSessionId and rewritten paths
+   * without clobbering active session state (connected sockets, PIDs, etc.).
+   */
+  mergeFromDisk(): number {
+    if (!this.store) return 0;
+    const data = this.store.loadLauncher<SdkSessionInfo[]>();
+    if (!data || !Array.isArray(data)) return 0;
+
+    let merged = 0;
+    for (const info of data) {
+      const existing = this.sessions.get(info.sessionId);
+      if (!existing) continue; // handled by restoreFromDisk
+
+      let changed = false;
+      // Merge cliSessionId (critical for --resume after import)
+      if (info.cliSessionId && !existing.cliSessionId) {
+        existing.cliSessionId = info.cliSessionId;
+        changed = true;
+      }
+      // Merge rewritten cwd (import rewrites paths for new machine)
+      if (info.cwd && info.cwd !== existing.cwd) {
+        existing.cwd = info.cwd;
+        changed = true;
+      }
+      // Merge rewritten repoRoot
+      if (info.repoRoot && info.repoRoot !== existing.repoRoot) {
+        existing.repoRoot = info.repoRoot;
+        changed = true;
+      }
+      if (changed) merged++;
+    }
+    if (merged > 0) {
+      this.persistState();
+      console.log(`[cli-launcher] Merged ${merged} session(s) from import`);
+    }
+    return merged;
+  }
+
+  /**
    * Launch a new CLI session (Claude Code or Codex).
    */
   launch(options: LaunchOptions = {}): SdkSessionInfo {
