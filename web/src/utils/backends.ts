@@ -40,6 +40,7 @@ export function toModelOptions(models: BackendModelInfo[]): ModelOption[] {
 // ─── Static fallbacks ────────────────────────────────────────────────────────
 
 export const CLAUDE_MODELS: ModelOption[] = [
+  { value: "", label: "Default", icon: "\u25C6" },
   { value: "claude-opus-4-6", label: "Opus", icon: "\u2733" },
   { value: "claude-sonnet-4-5-20250929", label: "Sonnet", icon: "\u25D5" },
   { value: "claude-haiku-4-5-20251001", label: "Haiku", icon: "\u26A1" },
@@ -86,6 +87,11 @@ export function getDefaultMode(backend: BackendType): string {
 export function getNextMode(currentMode: string, modes: ModeOption[]): string {
   const idx = modes.findIndex((m) => m.value === currentMode);
   return modes[(idx + 1) % modes.length].value;
+}
+
+/** Format model ID for display (strip trailing date suffix like -20250929). */
+export function formatModel(model: string): string {
+  return model.replace(/-\d{8}$/, "");
 }
 
 // ─── Claude Code mode mapping ─────────────────────────────────────────────────

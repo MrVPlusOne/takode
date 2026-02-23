@@ -120,8 +120,9 @@ describe("static model/mode lists", () => {
     }
   });
 
-  it("has claude models with claude- prefix", () => {
+  it("has claude models with claude- prefix (except Default which is empty)", () => {
     for (const m of CLAUDE_MODELS) {
+      if (m.value === "") continue; // "Default" uses CLI's own setting
       expect(m.value).toMatch(/^claude-/);
     }
   });

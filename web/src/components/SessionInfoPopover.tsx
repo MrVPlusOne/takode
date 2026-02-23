@@ -2,11 +2,7 @@ import { useEffect, useRef, useCallback } from "react";
 import { useStore } from "../store.js";
 import { GitHubPRSection, McpCollapsible, ClaudeMdCollapsible } from "./TaskPanel.js";
 import { shortenHome } from "../utils/path-display.js";
-
-/** Format model name for display (e.g. "claude-sonnet-4-5-20250929" -> "claude-sonnet-4-5") */
-function formatModel(model: string): string {
-  return model.replace(/-\d{8}$/, "");
-}
+import { formatModel } from "../utils/backends.js";
 
 export function SessionInfoPopover({
   sessionId,

@@ -40,7 +40,7 @@ export function NewSessionModal({ open, onClose }: { open: boolean; onClose: () 
   const [model, setModel] = useState(() => {
     const b = (scopedGetItem("cc-backend") as BackendType) || "claude";
     const saved = scopedGetItem(`cc-model-${b}`);
-    if (saved) {
+    if (saved !== null) {
       const statics = getModelsForBackend(b);
       if (statics.some((m) => m.value === saved) || b === "codex") return saved;
     }
