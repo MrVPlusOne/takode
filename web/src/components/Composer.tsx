@@ -6,6 +6,7 @@ import { isTouchDevice } from "../utils/mobile.js";
 import type { ModeOption } from "../utils/backends.js";
 import { Lightbox } from "./Lightbox.js";
 import { CatPawAvatar } from "./CatIcons.js";
+import { resolveLineStats } from "../utils/diff-stats.js";
 
 function PaperPlaneIcon({ className = "w-4 h-4" }: { className?: string }) {
   return (
@@ -180,21 +181,13 @@ export function Composer({ sessionId }: { sessionId: string }) {
 
   const cliConnected = useStore((s) => s.cliConnected);
   const sessionData = useStore((s) => s.sessions.get(sessionId));
-  // Total diff lines from per-file stats (same source as the diff view)
-  const diffLinesAdded = useStore((s) => {
-    const stats = s.diffFileStats.get(sessionId);
-    if (!stats || stats.size === 0) return 0;
-    let t = 0;
-    for (const st of stats.values()) t += st.additions;
-    return t;
-  });
-  const diffLinesRemoved = useStore((s) => {
-    const stats = s.diffFileStats.get(sessionId);
-    if (!stats || stats.size === 0) return 0;
-    let t = 0;
-    for (const st of stats.values()) t += st.deletions;
-    return t;
-  });
+  const diffFileStats = useStore((s) => s.diffFileStats.get(sessionId));
+  const sdkSession = useStore((s) => s.sdkSessions?.find((x) => x.sessionId === sessionId));
+  const { linesAdded: diffLinesAdded, linesRemoved: diffLinesRemoved } = resolveLineStats(
+    sessionData?.total_lines_added, sessionData?.total_lines_removed,
+    sdkSession?.totalLinesAdded, sdkSession?.totalLinesRemoved,
+    diffFileStats,
+  );
 
   const isConnected = cliConnected.get(sessionId) ?? false;
   const currentMode = sessionData?.permissionMode || "acceptEdits";
