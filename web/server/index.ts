@@ -442,6 +442,7 @@ if (process.env.NODE_ENV === "production") {
 const server = Bun.serve<SocketData>({
   hostname: process.env.COMPANION_HOST || "0.0.0.0",
   port,
+  maxRequestBodySize: 1024 * 1024 * 1024, // 1 GB — needed for migration import
   async fetch(req, server) {
     const url = new URL(req.url);
 
