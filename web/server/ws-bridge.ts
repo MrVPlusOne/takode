@@ -178,10 +178,8 @@ interface Session {
   keywords: string[];
   /** File paths changed by edit tool calls during this session (for scoping diff stats) */
   changedFiles: Set<string>;
-  /** Epoch ms of last diff stats computation (for debouncing) */
-  lastDiffComputedAt: number;
-  /** Pending debounce timer for diff refresh */
-  diffDebounceTimer: ReturnType<typeof setTimeout> | null;
+  /** Whether agent activity has occurred since the last diff computation */
+  diffStatsDirty: boolean;
   /** Whether this session was created by resuming an external CLI session (VS Code/terminal) */
   resumedFromExternal?: boolean;
 }
@@ -437,7 +435,10 @@ export class WsBridge {
       session: { diff_base_branch: branch },
     });
     // Immediately recompute ahead/behind and diff stats with the new base
-    void this.refreshGitInfo(session, { broadcastUpdate: true, computeDiff: true });
+    void this.refreshGitInfo(session, { broadcastUpdate: true });
+    // Force recompute regardless of dirty flag — base changed
+    session.diffStatsDirty = true;
+    this.recomputeDiffIfDirty(session);
     this.persistSession(session);
     return true;
   }
@@ -639,8 +640,7 @@ export class WsBridge {
         taskHistory: Array.isArray(p.taskHistory) ? p.taskHistory : [],
         keywords: Array.isArray(p.keywords) ? p.keywords : [],
         changedFiles: new Set(Array.isArray(p.changedFiles) ? p.changedFiles : []),
-        lastDiffComputedAt: 0,
-        diffDebounceTimer: null,
+        diffStatsDirty: true,
       };
       session.state.backend_type = session.backendType;
       // Git info resolves lazily on first CLI/browser connect — skipping here
@@ -701,7 +701,7 @@ export class WsBridge {
 
   private async refreshGitInfo(
     session: Session,
-    options: { broadcastUpdate?: boolean; notifyPoller?: boolean; computeDiff?: boolean } = {},
+    options: { broadcastUpdate?: boolean; notifyPoller?: boolean } = {},
   ): Promise<void> {
     const before: Record<string, unknown> = {};
     for (const key of WsBridge.GIT_SESSION_KEYS) {
@@ -709,31 +709,6 @@ export class WsBridge {
     }
 
     await resolveGitInfo(session.state);
-
-    // Compute diff stats asynchronously to avoid blocking the event loop on NFS.
-    // When done, broadcast the updated stats if they changed.
-    if (options.computeDiff) {
-      session.lastDiffComputedAt = Date.now();
-      this.computeDiffStatsAsync(session).then(() => {
-        // Broadcast after async diff finishes (stats may have changed)
-        if (options.broadcastUpdate) {
-          this.broadcastToBrowsers(session, {
-            type: "session_update",
-            session: {
-              git_branch: session.state.git_branch,
-              is_worktree: session.state.is_worktree,
-              is_containerized: session.state.is_containerized,
-              repo_root: session.state.repo_root,
-              git_ahead: session.state.git_ahead,
-              git_behind: session.state.git_behind,
-              total_lines_added: session.state.total_lines_added,
-              total_lines_removed: session.state.total_lines_removed,
-            },
-          });
-        }
-        this.persistSession(session);
-      }).catch(() => { /* ignore — git not available */ });
-    }
 
     let changed = false;
     for (const key of WsBridge.GIT_SESSION_KEYS) {
@@ -767,7 +742,38 @@ export class WsBridge {
     }
   }
 
-  private static readonly DIFF_DEBOUNCE_MS = 5_000;
+  /** Tools that cannot modify the filesystem — any other tool marks diff stats dirty. */
+  private static readonly READ_ONLY_TOOLS = new Set([
+    "Read", "Grep", "Glob", "WebFetch", "WebSearch",
+    "TodoWrite", "AskUserQuestion", "EnterPlanMode", "ExitPlanMode",
+    "TaskOutput", "TaskStop",
+  ]);
+
+  /**
+   * Recompute diff stats only if agent activity has occurred since the last computation.
+   * Broadcasts updated stats to all browsers if recomputed.
+   */
+  recomputeDiffIfDirty(session: Session): void {
+    if (!session.diffStatsDirty) return;
+    this.computeDiffStatsAsync(session).then((didRun) => {
+      if (!didRun) return;
+      session.diffStatsDirty = false;
+      this.broadcastToBrowsers(session, {
+        type: "session_update",
+        session: {
+          git_branch: session.state.git_branch,
+          is_worktree: session.state.is_worktree,
+          is_containerized: session.state.is_containerized,
+          repo_root: session.state.repo_root,
+          git_ahead: session.state.git_ahead,
+          git_behind: session.state.git_behind,
+          total_lines_added: session.state.total_lines_added,
+          total_lines_removed: session.state.total_lines_removed,
+        },
+      });
+      this.persistSession(session);
+    }).catch(() => { /* git not available */ });
+  }
 
   /**
    * Compute diff stats (total lines added/removed) by running `git diff --numstat`
@@ -775,17 +781,17 @@ export class WsBridge {
    * (tracked via changedFiles). If no files are tracked yet, stats remain 0/0.
    * Runs asynchronously via child_process.exec to avoid blocking the event loop on NFS.
    */
-  private async computeDiffStatsAsync(session: Session): Promise<void> {
+  private async computeDiffStatsAsync(session: Session): Promise<boolean> {
     const cwd = session.state.cwd;
     // Fall back to git_default_branch when diff_base_branch is "" (user selected "default")
     const ref = session.state.diff_base_branch || session.state.git_default_branch;
-    if (!cwd || !ref) return;
+    if (!cwd || !ref) return false;
 
     // No files changed by tools yet — nothing to diff
     if (session.changedFiles.size === 0) {
       session.state.total_lines_added = 0;
       session.state.total_lines_removed = 0;
-      return;
+      return true;
     }
 
     try {
@@ -818,39 +824,13 @@ export class WsBridge {
 
       session.state.total_lines_added = added;
       session.state.total_lines_removed = removed;
+      return true;
     } catch {
       // git not available or not a git repo — leave values unchanged
+      return false;
     }
   }
 
-  /**
-   * Schedule a debounced diff refresh. At most one computation per DIFF_DEBOUNCE_MS.
-   * If `immediate` is true, compute now regardless of debounce window.
-   */
-  scheduleDiffRefresh(session: Session, immediate = false): void {
-    const now = Date.now();
-    const elapsed = now - session.lastDiffComputedAt;
-
-    if (immediate || elapsed >= WsBridge.DIFF_DEBOUNCE_MS) {
-      // Enough time elapsed (or forced) — compute now
-      if (session.diffDebounceTimer) {
-        clearTimeout(session.diffDebounceTimer);
-        session.diffDebounceTimer = null;
-      }
-      void this.refreshGitInfo(session, { broadcastUpdate: true, computeDiff: true });
-      return;
-    }
-
-    // Timer already pending — don't schedule another
-    if (session.diffDebounceTimer) return;
-
-    // Schedule for remaining time
-    const remaining = WsBridge.DIFF_DEBOUNCE_MS - elapsed;
-    session.diffDebounceTimer = setTimeout(() => {
-      session.diffDebounceTimer = null;
-      void this.refreshGitInfo(session, { broadcastUpdate: true, computeDiff: true });
-    }, remaining);
-  }
 
   // ── Session management ──────────────────────────────────────────────────
 
@@ -886,8 +866,7 @@ export class WsBridge {
         taskHistory: [],
         keywords: [],
         changedFiles: new Set(),
-        lastDiffComputedAt: 0,
-        diffDebounceTimer: null,
+        diffStatsDirty: true,
       };
       this.sessions.set(sessionId, session);
     } else if (backendType) {
@@ -1012,11 +991,6 @@ export class WsBridge {
   }
 
   removeSession(sessionId: string) {
-    const session = this.sessions.get(sessionId);
-    if (session?.diffDebounceTimer) {
-      clearTimeout(session.diffDebounceTimer);
-      session.diffDebounceTimer = null;
-    }
     this.sessions.delete(sessionId);
     this.store?.remove(sessionId);
     this.imageStore?.removeSession(sessionId);
@@ -1028,12 +1002,6 @@ export class WsBridge {
   closeSession(sessionId: string) {
     const session = this.sessions.get(sessionId);
     if (!session) return;
-
-    // Clear debounce timer
-    if (session.diffDebounceTimer) {
-      clearTimeout(session.diffDebounceTimer);
-      session.diffDebounceTimer = null;
-    }
 
     // Close CLI socket (Claude)
     if (session.cliSocket) {
@@ -1273,6 +1241,8 @@ export class WsBridge {
 
     // Refresh git state on browser connect so branch changes made mid-session are reflected.
     void this.refreshGitInfo(session, { notifyPoller: true });
+    // Recompute diff stats if agent activity occurred since last computation.
+    this.recomputeDiffIfDirty(session);
 
     // Send current session state as snapshot (includes nextEventSeq for stale seq detection).
     // If slash_commands/skills haven't arrived yet (CLI sends them only after the first
@@ -1666,29 +1636,25 @@ export class WsBridge {
     // (mirrors browser-side extractTaskItemsFromToolUse in ws.ts)
     this.extractActivityPreview(session, msg.message.content);
 
-    // Detect file-editing tool calls: track changed files and schedule debounced diff refresh
+    // Detect tool calls: track changed files and mark diff stats dirty
     if (Array.isArray(msg.message.content)) {
       const FILE_EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
-      let hasEditTool = false;
       for (const block of msg.message.content) {
         if (block.type !== "tool_use") continue;
         const name = (block as { name?: string }).name ?? "";
         const input = (block as { input?: Record<string, unknown> }).input;
+        // Track file paths from known file-editing tools
         const filePath = name === "NotebookEdit" ? input?.notebook_path : input?.file_path;
         if (FILE_EDIT_TOOLS.has(name) && typeof filePath === "string") {
-          // Only track files inside the session's repo/cwd to avoid git errors
-          // on external files (e.g. ~/.claude/plans/*.md)
           const scope = session.state.repo_root || session.state.cwd;
           if (scope && filePath.startsWith(scope + "/")) {
             session.changedFiles.add(filePath);
           }
-          hasEditTool = true;
-        } else if (name === "Bash") {
-          hasEditTool = true; // Bash may edit files but we can't reliably extract paths
         }
-      }
-      if (hasEditTool) {
-        this.scheduleDiffRefresh(session);
+        // Mark dirty for any non-read-only tool (Bash, MCP tools, etc.)
+        if (!WsBridge.READ_ONLY_TOOLS.has(name)) {
+          session.diffStatsDirty = true;
+        }
       }
     }
 
@@ -1750,9 +1716,12 @@ export class WsBridge {
       }
     }
 
-    // Re-check git state + compute diff stats after each turn (session idle).
-    // This replaces CLI-reported line counts with server-computed git diff stats.
-    void this.refreshGitInfo(session, { broadcastUpdate: true, notifyPoller: true, computeDiff: true });
+    // Re-check git state after each turn (session idle).
+    void this.refreshGitInfo(session, { broadcastUpdate: true, notifyPoller: true });
+    // Always recompute diff stats after a turn completes — any turn involves
+    // tool calls that would have set the dirty flag, and we want fresh stats.
+    session.diffStatsDirty = true;
+    this.recomputeDiffIfDirty(session);
 
     // Broadcast updated metrics to all browsers
     // (total_lines_added/removed are now included in the refreshGitInfo broadcast)

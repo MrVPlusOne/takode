@@ -290,17 +290,16 @@ describe("Sidebar", () => {
   });
 
   it("session items show lines added/removed", () => {
+    // Line stats come from server (single source of truth via bridgeState)
     const session = makeSession("s1", {
       git_branch: "main",
+      total_lines_added: 42,
+      total_lines_removed: 7,
     });
     const sdk = makeSdkSession("s1");
-    // diffFileStats is the source of truth for line stats
-    const fileStats = new Map<string, { additions: number; deletions: number }>();
-    fileStats.set("/home/user/projects/myapp/src/index.ts", { additions: 42, deletions: 7 });
     mockState = createMockState({
       sessions: new Map([["s1", session]]),
       sdkSessions: [sdk],
-      diffFileStats: new Map([["s1", fileStats]]),
     });
 
     render(<Sidebar />);
@@ -579,19 +578,18 @@ describe("Sidebar", () => {
   });
 
   it("session shows git branch from sdkInfo when bridgeState is unavailable", () => {
-    // No bridgeState — only sdkInfo (REST API) data available
+    // No bridgeState — only sdkInfo (REST API) data available.
+    // Line stats come from server via sdkInfo (single source of truth).
     const sdk = makeSdkSession("s1", {
       gitBranch: "feature/from-rest",
       gitAhead: 5,
       gitBehind: 2,
+      totalLinesAdded: 100,
+      totalLinesRemoved: 20,
     });
-    // Line stats come from diffFileStats (same source as the diff view)
-    const fileStats = new Map<string, { additions: number; deletions: number }>();
-    fileStats.set("/src/app.ts", { additions: 100, deletions: 20 });
     mockState = createMockState({
       sessions: new Map(), // no bridge state
       sdkSessions: [sdk],
-      diffFileStats: new Map([["s1", fileStats]]),
     });
 
     render(<Sidebar />);

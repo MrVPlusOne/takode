@@ -3,7 +3,6 @@ import { useStore } from "../store.js";
 import { GitHubPRSection, McpCollapsible, ClaudeMdCollapsible } from "./TaskPanel.js";
 import { shortenHome } from "../utils/path-display.js";
 import { formatModel } from "../utils/backends.js";
-import { resolveLineStats } from "../utils/diff-stats.js";
 
 export function SessionInfoPopover({
   sessionId,
@@ -35,12 +34,8 @@ export function SessionInfoPopover({
   const isWorktree = session?.is_worktree ?? false;
   const gitAhead = session?.git_ahead ?? 0;
   const gitBehind = session?.git_behind ?? 0;
-  const diffFileStats = useStore((s) => s.diffFileStats.get(sessionId));
-  const { linesAdded, linesRemoved } = resolveLineStats(
-    session?.total_lines_added, session?.total_lines_removed,
-    sdkSession?.totalLinesAdded, sdkSession?.totalLinesRemoved,
-    diffFileStats,
-  );
+  const linesAdded = session?.total_lines_added || sdkSession?.totalLinesAdded || 0;
+  const linesRemoved = session?.total_lines_removed || sdkSession?.totalLinesRemoved || 0;
 
   // Close on click outside
   useEffect(() => {

@@ -14,78 +14,6 @@ const taskCounters = new Map<string, number>();
 /** Track processed tool_use IDs to prevent duplicate task creation */
 const processedToolUseIds = new Map<string, Set<string>>();
 
-// ─── Eager diff stats fetcher ─────────────────────────────────────────────
-// Debounced per-session: after changedFiles are added, fetch bulk diff stats
-// so the TopBar badge shows the accurate count without opening the diff tab.
-const diffStatsTimers = new Map<string, ReturnType<typeof setTimeout>>();
-const diffStatsFetchedFiles = new Map<string, Set<string>>();
-
-/** Clear the diff stats cache and re-fetch (e.g. when base branch changes). */
-export function invalidateDiffStatsCache(sessionId: string) {
-  diffStatsFetchedFiles.delete(sessionId);
-  // Schedule an immediate re-fetch so the badge updates with the new base
-  scheduleDiffStatsFetch(sessionId);
-}
-
-function scheduleDiffStatsFetch(sessionId: string) {
-  // Debounce: wait 1.5s after last file change before fetching
-  const existing = diffStatsTimers.get(sessionId);
-  if (existing) clearTimeout(existing);
-  diffStatsTimers.set(sessionId, setTimeout(() => {
-    diffStatsTimers.delete(sessionId);
-    fetchDiffStatsForSession(sessionId);
-  }, 1500));
-}
-
-async function fetchDiffStatsForSession(sessionId: string) {
-  const store = useStore.getState();
-  const files = store.changedFiles.get(sessionId);
-  if (!files || files.size === 0) return;
-
-  const session = store.sessions.get(sessionId);
-  const sessionCwd = session?.cwd || store.sdkSessions.find((s) => s.sessionId === sessionId)?.cwd;
-  if (!sessionCwd) return;
-
-  const repoRoot = (session?.repo_root && sessionCwd.startsWith(session.repo_root + "/"))
-    ? session.repo_root
-    : sessionCwd;
-
-  // Read base branch from server session state (authoritative, synced across devices)
-  const baseBranch = session?.diff_base_branch || session?.git_default_branch || undefined;
-
-  // Only fetch stats for files we haven't fetched yet
-  const alreadyFetched = diffStatsFetchedFiles.get(sessionId) || new Set();
-  const newFiles = [...files].filter((f) => !alreadyFetched.has(f));
-  if (newFiles.length === 0) return;
-
-  try {
-    const result = await api.getDiffStats(newFiles, repoRoot, baseBranch);
-    if (!result?.stats) return;
-
-    // Merge with existing stats in the store
-    const existingStats = useStore.getState().diffFileStats.get(sessionId) || new Map();
-    const merged = new Map(existingStats);
-    for (const [absPath, stat] of Object.entries(result.stats)) {
-      merged.set(absPath, stat);
-    }
-    // Mark files with no entry in stats as +0/-0 (file exists in changedFiles but has no diff)
-    for (const f of newFiles) {
-      if (!merged.has(f)) {
-        merged.set(f, { additions: 0, deletions: 0 });
-      }
-    }
-    useStore.getState().setDiffFileStats(sessionId, merged);
-
-    // Track which files we've already fetched
-    const updated = new Set(alreadyFetched);
-    for (const f of newFiles) updated.add(f);
-    diffStatsFetchedFiles.set(sessionId, updated);
-  } catch (err) {
-    // Best-effort — badge will show raw count until diff tab is opened
-    console.warn("[diff-stats] fetch failed for session", sessionId, err);
-  }
-}
-
 /** Heartbeat interval — send a ping every 30s to keep the connection alive */
 const HEARTBEAT_INTERVAL_MS = 30_000;
 /** Max reconnect delay — exponential backoff caps at 30s */
@@ -226,8 +154,6 @@ function extractChangedFilesFromBlocks(sessionId: string, blocks: ContentBlock[]
       }
     }
   }
-  // Eagerly fetch diff stats so the TopBar badge is accurate
-  if (addedAny) scheduleDiffStatsFetch(sessionId);
 }
 
 function sendBrowserNotification(title: string, body: string, tag: string) {
@@ -1147,11 +1073,6 @@ export function disconnectSession(sessionId: string) {
   }
   processedToolUseIds.delete(sessionId);
   taskCounters.delete(sessionId);
-  // Clean up diff stats fetcher state
-  const diffTimer = diffStatsTimers.get(sessionId);
-  if (diffTimer) clearTimeout(diffTimer);
-  diffStatsTimers.delete(sessionId);
-  diffStatsFetchedFiles.delete(sessionId);
 }
 
 export function disconnectAll() {

@@ -3856,7 +3856,7 @@ describe("Tool call duration tracking", () => {
   });
 });
 
-// ─── Diff stats computation and debounce ─────────────────────────────────────
+// ─── Diff stats computation and dirty flag ──────────────────────────────────
 
 describe("Diff stats computation", () => {
   it("computeDiffStats: parses git diff --numstat output correctly", async () => {
@@ -3917,89 +3917,97 @@ describe("Diff stats computation", () => {
     expect(session.state.total_lines_removed).toBe(0);
   });
 
-  it("scheduleDiffRefresh: debounces rapid calls to at most one per minute", async () => {
-    vi.useFakeTimers();
-
+  it("recomputeDiffIfDirty: skips when flag is clean, recomputes when dirty", async () => {
+    // Session with diff base set up so computeDiffStatsAsync can run
     mockExecSync.mockImplementation((cmd: string) => {
       if (cmd.includes("--abbrev-ref HEAD")) return "main\n";
       if (cmd.includes("--git-dir")) return ".git\n";
       if (cmd.includes("--show-toplevel")) return "/repo\n";
       if (cmd.includes("--left-right --count")) return "0\t0\n";
       if (cmd.includes("merge-base")) return "abc123\n";
-      if (cmd.includes("diff --numstat")) return "1\t0\tfile.ts\n";
+      if (cmd.includes("diff --numstat")) return "10\t3\tfile.ts\n";
       return "";
     });
 
     bridge.markWorktree("s1", "/repo", "/tmp/wt", "main");
     const session = bridge.getSession("s1")!;
     session.state.cwd = "/tmp/wt";
-    session.changedFiles.add("file.ts"); // computeDiffStats only runs when changedFiles is non-empty
+    session.changedFiles.add("file.ts");
     const browserWs = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browserWs, "s1");
 
-    // First call — should compute immediately (no previous computation)
-    bridge.scheduleDiffRefresh(session);
-    // Flush async diff computation
-    await vi.advanceTimersByTimeAsync(0);
+    // Dirty by default — recompute should run
+    expect(session.diffStatsDirty).toBe(true);
+    bridge.recomputeDiffIfDirty(session);
+    await vi.waitFor(() => {
+      expect(session.state.total_lines_added).toBe(10);
+      expect(session.state.total_lines_removed).toBe(3);
+    });
+    // Flag cleared after successful computation
+    expect(session.diffStatsDirty).toBe(false);
 
-    expect(session.state.total_lines_added).toBe(1);
-    expect(session.lastDiffComputedAt).toBeGreaterThan(0);
-
-    // Change the mock to return different values
+    // Change mock — but flag is clean, so recompute should be skipped
     mockExecSync.mockImplementation((cmd: string) => {
-      if (cmd.includes("--abbrev-ref HEAD")) return "main\n";
-      if (cmd.includes("--git-dir")) return ".git\n";
-      if (cmd.includes("--show-toplevel")) return "/repo\n";
-      if (cmd.includes("--left-right --count")) return "0\t0\n";
       if (cmd.includes("merge-base")) return "abc123\n";
       if (cmd.includes("diff --numstat")) return "99\t88\tfile.ts\n";
       return "";
     });
 
-    // Second call — should be debounced (within 60s)
-    bridge.scheduleDiffRefresh(session);
-    await vi.advanceTimersByTimeAsync(0);
-    // Value should NOT have changed yet
-    expect(session.state.total_lines_added).toBe(1);
+    bridge.recomputeDiffIfDirty(session);
+    // Give it a tick — values should NOT change since flag is clean
+    await new Promise((r) => setTimeout(r, 50));
+    expect(session.state.total_lines_added).toBe(10); // unchanged
 
-    // Third call — also debounced, no additional timer created
-    bridge.scheduleDiffRefresh(session);
-    await vi.advanceTimersByTimeAsync(0);
-    expect(session.state.total_lines_added).toBe(1);
-
-    // Advance past debounce window
-    await vi.advanceTimersByTimeAsync(61_000);
-    // Now the debounced computation should have fired
-    expect(session.state.total_lines_added).toBe(99);
-    expect(session.state.total_lines_removed).toBe(88);
-
-    vi.useRealTimers();
+    // Mark dirty again — recompute should pick up new values
+    session.diffStatsDirty = true;
+    bridge.recomputeDiffIfDirty(session);
+    await vi.waitFor(() => {
+      expect(session.state.total_lines_added).toBe(99);
+      expect(session.state.total_lines_removed).toBe(88);
+    });
+    expect(session.diffStatsDirty).toBe(false);
   });
 
-  it("edit tool detection: assistant message with Edit tool triggers debounced diff refresh", async () => {
-    vi.useFakeTimers();
-
+  it("non-read-only tool marks diffStatsDirty; read-only tool does not", () => {
     mockExecSync.mockImplementation((cmd: string) => {
-      if (cmd.includes("--abbrev-ref HEAD")) return "main\n";
-      if (cmd.includes("--git-dir")) return ".git\n";
-      if (cmd.includes("--show-toplevel")) return "/repo\n";
-      if (cmd.includes("--left-right --count")) return "0\t0\n";
-      if (cmd.includes("merge-base")) return "abc123\n";
-      if (cmd.includes("diff --numstat")) return "5\t2\tfile.ts\n";
       if (cmd.includes("for-each-ref")) return "";
       if (cmd.includes("symbolic-ref")) return "";
       if (cmd.includes("branch --list")) return "  main\n";
       return "";
     });
 
-    // Set up a session with CLI connected
     const cli = makeCliSocket("s1");
     bridge.handleCLIOpen(cli, "s1");
     bridge.handleCLIMessage(cli, makeInitMsg({ cwd: "/repo" }));
 
     const session = bridge.getSession("s1")!;
+    // Clear dirty flag from initialization
+    session.diffStatsDirty = false;
 
-    // Send an assistant message with an Edit tool_use block
+    // Read-only tool (e.g. Read) should NOT mark dirty
+    bridge.handleCLIMessage(cli, JSON.stringify({
+      type: "assistant",
+      message: {
+        id: "msg-read",
+        type: "message",
+        role: "assistant",
+        model: "claude",
+        content: [{
+          type: "tool_use",
+          id: "tool-read",
+          name: "Read",
+          input: { file_path: "/repo/file.ts" },
+        }],
+        stop_reason: "tool_use",
+        usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+      uuid: "u-read",
+      session_id: "s1",
+    }));
+    expect(session.diffStatsDirty).toBe(false);
+
+    // Non-read-only tool (Edit) should mark dirty and track the file
     bridge.handleCLIMessage(cli, JSON.stringify({
       type: "assistant",
       message: {
@@ -4009,7 +4017,7 @@ describe("Diff stats computation", () => {
         model: "claude",
         content: [{
           type: "tool_use",
-          id: "tool-1",
+          id: "tool-edit",
           name: "Edit",
           input: { file_path: "/repo/file.ts", old_string: "a", new_string: "b" },
         }],
@@ -4020,18 +4028,32 @@ describe("Diff stats computation", () => {
       uuid: "u-edit",
       session_id: "s1",
     }));
-
-    // Flush async diff computation
-    await vi.advanceTimersByTimeAsync(0);
-
-    // The diff refresh should be scheduled (first call computes immediately)
-    expect(session.state.total_lines_added).toBe(5);
-    expect(session.state.total_lines_removed).toBe(2);
-
-    // File path from Edit tool should be tracked in session.changedFiles
+    expect(session.diffStatsDirty).toBe(true);
     expect(session.changedFiles.has("/repo/file.ts")).toBe(true);
 
-    vi.useRealTimers();
+    // Bash tool (not in READ_ONLY_TOOLS) should also mark dirty
+    session.diffStatsDirty = false;
+    bridge.handleCLIMessage(cli, JSON.stringify({
+      type: "assistant",
+      message: {
+        id: "msg-bash",
+        type: "message",
+        role: "assistant",
+        model: "claude",
+        content: [{
+          type: "tool_use",
+          id: "tool-bash",
+          name: "Bash",
+          input: { command: "echo hello" },
+        }],
+        stop_reason: "tool_use",
+        usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+      uuid: "u-bash",
+      session_id: "s1",
+    }));
+    expect(session.diffStatsDirty).toBe(true);
   });
 
   it("resolveGitInfo: uses diff_base_branch directly for ahead/behind (no @{upstream} fallback)", async () => {

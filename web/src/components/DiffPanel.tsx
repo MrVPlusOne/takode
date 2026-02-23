@@ -1,7 +1,6 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
-import { invalidateDiffStatsCache } from "../ws.js";
 import { DiffViewer } from "./DiffViewer.js";
 import { YarnBallSpinner } from "./CatIcons.js";
 
@@ -136,7 +135,6 @@ export function DiffPanel({ sessionId }: { sessionId: string }) {
     fetchedFilesRef.current.clear();
     setFileStats(new Map());
     setAllDiffs(new Map());
-    invalidateDiffStatsCache(sessionId);
     useStore.getState().setDiffFileStats(sessionId, new Map());
   }, [sessionId]);
 
@@ -175,16 +173,11 @@ export function DiffPanel({ sessionId }: { sessionId: string }) {
     return () => { cancelled = true; };
   }, [relativeChangedFiles, effectiveBranch]);
 
-  // Aggregate totals
-  const totalStats = useMemo(() => {
-    let additions = 0;
-    let deletions = 0;
-    for (const stats of fileStats.values()) {
-      additions += stats.additions;
-      deletions += stats.deletions;
-    }
-    return { additions, deletions };
-  }, [fileStats]);
+  // Total line stats from server (single source of truth)
+  const totalStats = useMemo(() => ({
+    additions: session?.total_lines_added || sdkSession?.totalLinesAdded || 0,
+    deletions: session?.total_lines_removed || sdkSession?.totalLinesRemoved || 0,
+  }), [session?.total_lines_added, session?.total_lines_removed, sdkSession?.totalLinesAdded, sdkSession?.totalLinesRemoved]);
 
   // Sync fileStats to store for TopBar badge
   useEffect(() => {
