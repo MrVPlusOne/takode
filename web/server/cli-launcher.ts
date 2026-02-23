@@ -903,11 +903,11 @@ This is a git worktree. The main repository is at: \`${repoRoot}\`
 
 When asked to port/sync commits from this worktree to the main repository at \`${repoRoot}\`, follow this workflow **exactly**:
 
-1. **Check the main repo first.** Run \`git -C ${repoRoot} status\` and \`git -C ${repoRoot} log --oneline -5\`. If there are uncommitted changes, **stop and tell the user** — another agent may have work in progress. Never run \`git reset --hard\`, \`git checkout .\`, or \`git clean\` on the main repo without explicit user approval. Read any new commits briefly to understand what changed since your branch diverged.
+1. **Check the main repo first.** Pull remote changes first: \`git -C ${repoRoot} fetch origin <branch> && git -C ${repoRoot} pull --rebase origin <branch>\` (development may happen on multiple machines). Then run \`git -C ${repoRoot} status\` — if there are uncommitted changes, **stop and tell the user** — another agent may have work in progress. Never run \`git reset --hard\`, \`git checkout .\`, or \`git clean\` on the main repo without explicit user approval. Read any new commits briefly to understand what changed since your branch diverged.
 2. **Rebase in the worktree.** Rebase your worktree branch onto the main repo's local branch. Since all worktrees share the same git object store, the main repo's local branch is directly visible as a ref — no fetch needed. Use \`git rebase <main-repo-branch>\` (the local branch name, not \`origin/...\`). Resolve all merge conflicts here in the worktree — this is the safe place to do it without affecting other agents.
 3. **Cherry-pick clean commits to main.** Once the worktree branch is cleanly rebased with your new commits on top, cherry-pick only your new commits into the main repo using \`git -C ${repoRoot} cherry-pick <commit-hash>\`. Cherry-pick one at a time in chronological order.
 4. **Handle unexpected conflicts.** If cherry-pick still conflicts (it shouldn't after a clean rebase), tell the user the conflicting files and ask how to proceed. Do not force-resolve or abort without asking.
-5. **Verify after porting.** Run \`git -C ${repoRoot} log --oneline -5\` to confirm the commits landed correctly.
+5. **Verify and push.** Run \`git -C ${repoRoot} log --oneline -5\` to confirm the commits landed correctly, then \`git -C ${repoRoot} push origin <branch>\` to push to the remote.
 6. **Reset worktree to stay in sync.** After porting is complete, reset this worktree branch to match the main repo's branch: \`git reset --hard <main-repo-branch>\`. This keeps the worktree in sync and avoids divergence for future work.
 7. **Run tests post-merge.** After resetting, run the project's unit tests in the worktree to verify nothing broke from merging with main. If tests fail: (a) if the fix is straightforward, fix it in the worktree, commit, and re-sync following steps 1–6 above; (b) otherwise, explain the failures to the user and ask how to proceed.
 
@@ -917,6 +917,7 @@ Do NOT report the sync as complete until ALL of the following are true:
 - [ ] Main repo log shows the cherry-picked commits
 - [ ] Worktree has been reset to match the main repo branch
 - [ ] Tests have been run **after the reset** AND passed (or failures reported to user)
+- [ ] Changes have been pushed to the remote
 ${MARKER_END}`;
 
     const claudeDir = join(worktreePath, ".claude");
