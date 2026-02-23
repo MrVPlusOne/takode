@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useStore } from "../store.js";
 import { sendToSession } from "../ws.js";
-import { CLAUDE_MODES, CODEX_MODES, getNextMode, resolveClaudeCliMode, deriveUiMode, formatModel } from "../utils/backends.js";
+import { CLAUDE_MODES, CODEX_MODES, getNextMode, resolveClaudeCliMode, deriveUiMode, formatModel, getModelsForBackend } from "../utils/backends.js";
 import { isTouchDevice } from "../utils/mobile.js";
 import type { ModeOption } from "../utils/backends.js";
 import { Lightbox } from "./Lightbox.js";
@@ -135,6 +135,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
   const [slashMenuOpen, setSlashMenuOpen] = useState(false);
   const [slashMenuIndex, setSlashMenuIndex] = useState(0);
   const [showModeDropdown, setShowModeDropdown] = useState(false);
+  const [showModelDropdown, setShowModelDropdown] = useState(false);
   const [showAskConfirm, setShowAskConfirm] = useState(false);
   const [sendPressing, setSendPressing] = useState(false);
   const [composerExpanded, setComposerExpanded] = useState(false);
@@ -142,6 +143,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const modeDropdownRef = useRef<HTMLDivElement>(null);
+  const modelDropdownRef = useRef<HTMLDivElement>(null);
   const askConfirmRef = useRef<HTMLDivElement>(null);
 
   // Mobile detection via media query (matches Tailwind's sm: breakpoint)
@@ -269,6 +271,9 @@ export function Composer({ sessionId }: { sessionId: string }) {
     function handleClick(e: MouseEvent) {
       if (modeDropdownRef.current && !modeDropdownRef.current.contains(e.target as Node)) {
         setShowModeDropdown(false);
+      }
+      if (modelDropdownRef.current && !modelDropdownRef.current.contains(e.target as Node)) {
+        setShowModelDropdown(false);
       }
     }
     document.addEventListener("pointerdown", handleClick);
@@ -728,9 +733,47 @@ export function Composer({ sessionId }: { sessionId: string }) {
               {sessionData?.model && (
                 <>
                   {sessionData?.git_branch && <span className="text-cc-muted/40">&middot;</span>}
-                  <span className="truncate font-mono-code" title={sessionData.model}>
-                    {formatModel(sessionData.model)}
-                  </span>
+                  {!isCodex ? (
+                    <div className="relative" ref={modelDropdownRef}>
+                      <button
+                        onClick={() => setShowModelDropdown(!showModelDropdown)}
+                        disabled={!isConnected}
+                        className={`flex items-center gap-0.5 font-mono-code truncate transition-colors select-none ${
+                          !isConnected
+                            ? "opacity-30 cursor-not-allowed"
+                            : "hover:text-cc-fg cursor-pointer"
+                        }`}
+                        title={`Model: ${sessionData.model} (click to change)`}
+                      >
+                        <span className="truncate">{formatModel(sessionData.model)}</span>
+                        <svg viewBox="0 0 16 16" fill="currentColor" className="w-2.5 h-2.5 shrink-0 opacity-50">
+                          <path d="M4 6l4 4 4-4" />
+                        </svg>
+                      </button>
+                      {showModelDropdown && (
+                        <div className="absolute left-0 bottom-full mb-1 w-52 bg-cc-card border border-cc-border rounded-[10px] shadow-lg z-10 py-1 overflow-hidden">
+                          {getModelsForBackend("claude").filter((m) => m.value !== "").map((m) => (
+                            <button
+                              key={m.value}
+                              onClick={() => {
+                                sendToSession(sessionId, { type: "set_model", model: m.value });
+                                setShowModelDropdown(false);
+                              }}
+                              className={`w-full px-3 py-2 text-xs text-left hover:bg-cc-hover transition-colors cursor-pointer ${
+                                m.value === sessionData.model ? "text-cc-primary font-medium" : "text-cc-fg"
+                              }`}
+                            >
+                              <span className="mr-1.5">{m.icon}</span>{m.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="truncate font-mono-code" title={sessionData.model}>
+                      {formatModel(sessionData.model)}
+                    </span>
+                  )}
                 </>
               )}
             </div>
