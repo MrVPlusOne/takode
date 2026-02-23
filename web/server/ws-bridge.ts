@@ -1042,8 +1042,9 @@ export class WsBridge {
 
     // Forward translated messages to browsers
     adapter.onBrowserMessage((msg) => {
-      // Track Codex CLI activity for idle management
+      // Track Codex CLI activity for idle management and stuck detection
       this.launcher?.touchActivity(session.id);
+      session.lastCliMessageAt = Date.now();
 
       if (msg.type === "session_init") {
         session.state = { ...session.state, ...msg.session, backend_type: "codex" };
