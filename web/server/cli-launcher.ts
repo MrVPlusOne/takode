@@ -8,6 +8,8 @@ import {
   copyFileSync,
   cpSync,
   realpathSync,
+  symlinkSync,
+  lstatSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
 import type { Subprocess } from "bun";
@@ -950,6 +952,12 @@ ${MARKER_END}`;
           cwd: worktreePath, stdio: "pipe", timeout: 5000,
         });
       } catch { /* file may not be tracked in this repo — ignore */ }
+
+      // Symlink project settings files so all worktrees for the same repo share
+      // the same permission rules. Without this, rules written with
+      // destination:"projectSettings" go to the worktree's local copy and aren't
+      // visible to other sessions.
+      this.symlinkProjectSettings(worktreePath, repoRoot);
     } catch (e) {
       console.warn(`[cli-launcher] Failed to inject worktree guardrails:`, e);
     }
@@ -990,6 +998,54 @@ ${MARKER_END}`;
       console.log(`[cli-launcher] Added "${pattern}" to worktree git exclude`);
     } catch (e) {
       console.warn(`[cli-launcher] Failed to add git exclude entry:`, e);
+    }
+  }
+
+  /**
+   * Symlink .claude/settings.json and .claude/settings.local.json in a worktree
+   * to the main repo's copies. This ensures all worktrees for the same repo share
+   * the same project-level permission rules.
+   *
+   * Only creates symlinks for files that don't already exist in the worktree
+   * (i.e., not tracked by git or previously created).
+   */
+  private symlinkProjectSettings(worktreePath: string, repoRoot: string): void {
+    if (!repoRoot) return;
+
+    const SETTINGS_FILES = ["settings.json", "settings.local.json"];
+    const worktreeClaudeDir = join(worktreePath, ".claude");
+    const repoClaudeDir = join(repoRoot, ".claude");
+
+    // Ensure the main repo's .claude/ directory exists so the CLI can create
+    // the settings file at the symlink target.
+    try {
+      mkdirSync(repoClaudeDir, { recursive: true });
+    } catch {
+      return; // can't create target directory — skip
+    }
+
+    for (const filename of SETTINGS_FILES) {
+      const worktreeFile = join(worktreeClaudeDir, filename);
+      const repoFile = join(repoClaudeDir, filename);
+
+      try {
+        // Skip if a real file (not a symlink) already exists — it may be tracked by git
+        if (existsSync(worktreeFile)) {
+          try {
+            const stat = lstatSync(worktreeFile);
+            if (!stat.isSymbolicLink()) continue; // real file — don't replace
+          } catch { continue; }
+          continue; // already a symlink (from previous run) — leave it
+        }
+
+        symlinkSync(repoFile, worktreeFile);
+        console.log(`[cli-launcher] Symlinked ${worktreeFile} → ${repoFile}`);
+
+        // Add to git exclude so symlink doesn't show as untracked
+        this.addWorktreeGitExclude(worktreePath, `.claude/${filename}`);
+      } catch (e) {
+        console.warn(`[cli-launcher] Failed to symlink .claude/${filename}:`, e);
+      }
     }
   }
 

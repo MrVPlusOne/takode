@@ -30,6 +30,8 @@ const mockMkdirSync = vi.hoisted(() => vi.fn());
 const mockExistsSync = vi.hoisted(() => vi.fn((..._args: any[]) => false));
 const mockReadFileSync = vi.hoisted(() => vi.fn((..._args: any[]) => ""));
 const mockWriteFileSync = vi.hoisted(() => vi.fn());
+const mockSymlinkSync = vi.hoisted(() => vi.fn());
+const mockLstatSync = vi.hoisted(() => vi.fn());
 const isMockedPath = vi.hoisted(() => (path: string): boolean => {
   return path.includes(".claude") || path.startsWith("/tmp/worktrees/") || path.startsWith("/tmp/main-repo");
 });
@@ -61,6 +63,18 @@ vi.mock("node:fs", async (importOriginal) => {
         return mockWriteFileSync(...args);
       }
       return actual.writeFileSync(...args);
+    },
+    symlinkSync: (...args: any[]) => {
+      if (typeof args[0] === "string" && isMockedPath(args[0])) {
+        return mockSymlinkSync(...args);
+      }
+      return actual.symlinkSync(...args);
+    },
+    lstatSync: (...args: any[]) => {
+      if (typeof args[0] === "string" && isMockedPath(args[0])) {
+        return mockLstatSync(...args);
+      }
+      return actual.lstatSync(...args);
     },
   };
 });
@@ -926,5 +940,180 @@ describe("getStartingSessions", () => {
 
   it("returns empty array when no sessions exist", () => {
     expect(launcher.getStartingSessions()).toEqual([]);
+  });
+});
+
+// ─── symlinkProjectSettings (via worktree launch) ─────────────────────────
+
+describe("symlinkProjectSettings", () => {
+  // Helper to launch a worktree session that triggers injectWorktreeGuardrails
+  // → symlinkProjectSettings. The mock for existsSync must return true for the
+  // worktree path (guard at line 837) and handle settings file checks.
+  const WORKTREE = "/tmp/worktrees/my-project";
+  const REPO_ROOT = "/tmp/main-repo/my-project";
+
+  function launchWorktree(existsSyncImpl?: (path: string) => boolean) {
+    // Default: worktree dir exists, no settings files present yet
+    mockExistsSync.mockImplementation((path: string) => {
+      if (path === WORKTREE) return true; // worktree dir must exist
+      if (existsSyncImpl) return existsSyncImpl(path);
+      return false; // no CLAUDE.md, no settings files
+    });
+    launcher.launch({
+      cwd: WORKTREE,
+      worktreeInfo: {
+        isWorktree: true,
+        repoRoot: REPO_ROOT,
+        branch: "feature-x",
+        actualBranch: "feature-x",
+        worktreePath: WORKTREE,
+      },
+    });
+  }
+
+  it("creates symlinks for settings.json and settings.local.json when they don't exist", () => {
+    launchWorktree();
+
+    // Both settings files should be symlinked to the main repo
+    expect(mockSymlinkSync).toHaveBeenCalledTimes(2);
+    expect(mockSymlinkSync).toHaveBeenCalledWith(
+      join(REPO_ROOT, ".claude", "settings.json"),
+      join(WORKTREE, ".claude", "settings.json"),
+    );
+    expect(mockSymlinkSync).toHaveBeenCalledWith(
+      join(REPO_ROOT, ".claude", "settings.local.json"),
+      join(WORKTREE, ".claude", "settings.local.json"),
+    );
+  });
+
+  it("ensures the main repo .claude directory exists", () => {
+    launchWorktree();
+
+    // mkdirSync should be called for the repo's .claude dir (recursive)
+    expect(mockMkdirSync).toHaveBeenCalledWith(
+      join(REPO_ROOT, ".claude"),
+      { recursive: true },
+    );
+  });
+
+  it("does NOT replace a real (non-symlink) file with a symlink", () => {
+    // Simulate settings.json being a real file in the worktree
+    launchWorktree((path: string) => {
+      if (path.endsWith("settings.json") && path.startsWith(WORKTREE)) return true;
+      return false;
+    });
+    // lstatSync should be called to check if it's a symlink
+    mockLstatSync.mockReturnValue({ isSymbolicLink: () => false });
+
+    // Re-launch with the lstat mock properly configured
+    vi.clearAllMocks();
+    mockExistsSync.mockImplementation((path: string) => {
+      if (path === WORKTREE) return true;
+      // settings.json exists in worktree, settings.local.json does not
+      if (path === join(WORKTREE, ".claude", "settings.json")) return true;
+      return false;
+    });
+    mockLstatSync.mockReturnValue({ isSymbolicLink: () => false });
+
+    launcher.launch({
+      cwd: WORKTREE,
+      worktreeInfo: {
+        isWorktree: true,
+        repoRoot: REPO_ROOT,
+        branch: "feature-x",
+        actualBranch: "feature-x",
+        worktreePath: WORKTREE,
+      },
+    });
+
+    // Only settings.local.json should be symlinked (settings.json is a real file)
+    expect(mockSymlinkSync).toHaveBeenCalledTimes(1);
+    expect(mockSymlinkSync).toHaveBeenCalledWith(
+      join(REPO_ROOT, ".claude", "settings.local.json"),
+      join(WORKTREE, ".claude", "settings.local.json"),
+    );
+  });
+
+  it("leaves an existing symlink alone (idempotent)", () => {
+    // Both files exist and are already symlinks
+    mockExistsSync.mockImplementation((path: string) => {
+      if (path === WORKTREE) return true;
+      if (path === join(WORKTREE, ".claude", "settings.json")) return true;
+      if (path === join(WORKTREE, ".claude", "settings.local.json")) return true;
+      return false;
+    });
+    mockLstatSync.mockReturnValue({ isSymbolicLink: () => true });
+
+    launcher.launch({
+      cwd: WORKTREE,
+      worktreeInfo: {
+        isWorktree: true,
+        repoRoot: REPO_ROOT,
+        branch: "feature-x",
+        actualBranch: "feature-x",
+        worktreePath: WORKTREE,
+      },
+    });
+
+    // Already symlinks — should not create new ones
+    expect(mockSymlinkSync).not.toHaveBeenCalled();
+  });
+
+  it("skips symlink creation when repoRoot is empty", () => {
+    mockExistsSync.mockImplementation((path: string) => {
+      if (path === WORKTREE) return true;
+      return false;
+    });
+
+    launcher.launch({
+      cwd: WORKTREE,
+      worktreeInfo: {
+        isWorktree: true,
+        repoRoot: "", // empty repoRoot
+        branch: "feature-x",
+        actualBranch: "feature-x",
+        worktreePath: WORKTREE,
+      },
+    });
+
+    expect(mockSymlinkSync).not.toHaveBeenCalled();
+  });
+
+  it("adds git exclude entries when .git file is present", () => {
+    // Simulate the worktree having a .git file (standard for worktrees) that
+    // points to a gitdir. addWorktreeGitExclude reads it to find info/exclude.
+    const gitDir = "/tmp/worktrees/.git-worktree-dir";
+    mockExistsSync.mockImplementation((path: string) => {
+      if (path === WORKTREE) return true;
+      // .git file exists (a file, not dir, as in worktrees)
+      if (path === join(WORKTREE, ".git")) return true;
+      return false;
+    });
+    mockReadFileSync.mockImplementation((path: string) => {
+      if (path === join(WORKTREE, ".git")) return `gitdir: ${gitDir}`;
+      return "";
+    });
+
+    launcher.launch({
+      cwd: WORKTREE,
+      worktreeInfo: {
+        isWorktree: true,
+        repoRoot: REPO_ROOT,
+        branch: "feature-x",
+        actualBranch: "feature-x",
+        worktreePath: WORKTREE,
+      },
+    });
+
+    // Verify symlinks were created
+    expect(mockSymlinkSync).toHaveBeenCalledTimes(2);
+
+    // Verify git exclude was written for the settings symlinks
+    const writeFileCalls = mockWriteFileSync.mock.calls.map((c: any[]) => c[0]);
+    const excludeCalls = writeFileCalls.filter(
+      (p: string) => typeof p === "string" && p.includes("info/exclude"),
+    );
+    // CLAUDE.md + settings.json + settings.local.json = 3 exclude entries
+    expect(excludeCalls.length).toBeGreaterThanOrEqual(2);
   });
 });
