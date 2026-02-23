@@ -2751,11 +2751,10 @@ export function createRoutes(
     let streamClosed = false;
     const sendLine = (data: Record<string, unknown>) => {
       if (streamClosed) return;
-      try {
-        writer.write(encoder.encode(JSON.stringify(data) + "\n"));
-      } catch {
+      // writer.write() returns a Promise — swallow rejections (client disconnected)
+      writer.write(encoder.encode(JSON.stringify(data) + "\n")).catch(() => {
         streamClosed = true;
-      }
+      });
     };
 
     // Run import asynchronously, streaming progress lines
@@ -2774,7 +2773,8 @@ export function createRoutes(
         sendLine({ step: "error", error: e instanceof Error ? e.message : String(e) });
       } finally {
         try { unlinkSync(tempPath); } catch { /* ignore */ }
-        try { writer.close(); } catch { /* stream may already be closed */ }
+        // writer.close() returns a Promise — swallow if stream already closed
+        writer.close().catch(() => {});
       }
     })();
 
