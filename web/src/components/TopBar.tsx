@@ -34,9 +34,23 @@ export function TopBar() {
   const activeQuestCount = useStore((s) => s.quests.filter((q) => q.status !== "done").length);
   const refreshQuests = useStore((s) => s.refreshQuests);
 
-  // Load quests on mount so the badge count is available before the user visits the quests page
+  // Load quests on mount and keep the badge count fresh. The quest_list_updated
+  // WebSocket broadcast only reaches browsers with an active session WS connection,
+  // so we also poll and refresh on tab visibility/focus as a fallback.
   useEffect(() => {
     refreshQuests();
+    const interval = setInterval(refreshQuests, 15_000);
+    function handleVisibility() {
+      if (document.visibilityState === "visible") refreshQuests();
+    }
+    function handleFocus() { refreshQuests(); }
+    document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("focus", handleFocus);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("focus", handleFocus);
+    };
   }, []);
 
   const cliSessionId = useStore((s) => {
