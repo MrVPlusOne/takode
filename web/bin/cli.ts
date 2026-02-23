@@ -29,6 +29,10 @@ Server commands:
   logs        Tail service log files
   help        Show this help message
 
+Data commands (no server required):
+  export      Export all data to a .tar.zst archive for migration
+  import      Import data from a .tar.zst archive
+
 Management commands (requires running server):
   sessions    Manage sessions (list, create, kill, relaunch, archive, rename, send-message)
   envs        Manage environment profiles (list, get, create, update, delete)
@@ -127,6 +131,52 @@ switch (command) {
   case "restart": {
     const { restart } = await import("../server/service.js");
     await restart();
+    break;
+  }
+
+  case "export": {
+    const args = process.argv.slice(3);
+    const includeRecordings = args.includes("--include-recordings");
+    // Determine output path: first non-flag arg, or default
+    const outputArg = args.find((a) => !a.startsWith("--"));
+    const timestamp = new Date().toISOString().replace(/:/g, "-").slice(0, 19);
+    const outputPath = outputArg || `companion-export-${timestamp}.tar.zst`;
+    // Resolve to absolute path
+    const { resolve: resolvePath } = await import("node:path");
+    const absOutput = resolvePath(outputPath);
+
+    const { runExport } = await import("../server/migration.js");
+    try {
+      await runExport({ outputPath: absOutput, includeRecordings });
+    } catch (e) {
+      console.error(`Export failed: ${e instanceof Error ? e.message : String(e)}`);
+      process.exit(1);
+    }
+    break;
+  }
+
+  case "import": {
+    const importArg = process.argv[3];
+    if (!importArg || importArg.startsWith("--")) {
+      console.error("Usage: companion import <archive.tar.zst>");
+      process.exit(1);
+    }
+    const { resolve: resolvePath } = await import("node:path");
+    const { existsSync } = await import("node:fs");
+    const absArchive = resolvePath(importArg);
+    if (!existsSync(absArchive)) {
+      console.error(`File not found: ${absArchive}`);
+      process.exit(1);
+    }
+
+    const { runImport, printImportStats } = await import("../server/migration.js");
+    try {
+      const stats = await runImport(absArchive);
+      printImportStats(stats);
+    } catch (e) {
+      console.error(`Import failed: ${e instanceof Error ? e.message : String(e)}`);
+      process.exit(1);
+    }
     break;
   }
 

@@ -31,6 +31,8 @@ import { CronScheduler } from "./cron-scheduler.js";
 import { ImageStore } from "./image-store.js";
 import { IdleManager } from "./idle-manager.js";
 import { ensureQuestmasterIntegration } from "./quest-integration.js";
+import { recreateWorktreeIfMissing } from "./migration.js";
+import { existsSync } from "node:fs";
 import type { SocketData } from "./ws-bridge.js";
 import type { ServerWebSocket } from "bun";
 
@@ -112,6 +114,38 @@ wsBridge.onCLIRelaunchNeededCallback(async (sessionId) => {
   if (info?.archived) return;
   if (info && info.state !== "starting") {
     relaunchingSet.add(sessionId);
+
+    // If cwd doesn't exist, try to recreate worktree (e.g. after migration)
+    if (!existsSync(info.cwd)) {
+      if (info.isWorktree && info.repoRoot && info.branch) {
+        try {
+          const wtResult = recreateWorktreeIfMissing(sessionId, info, { launcher, worktreeTracker, wsBridge });
+          if (wtResult.error) {
+            wsBridge.broadcastToSession(sessionId, { type: "error", message: wtResult.error });
+            relaunchingSet.delete(sessionId);
+            return;
+          }
+          if (wtResult.recreated) {
+            console.log(`[server] Recreated worktree for session ${sessionId} before relaunch`);
+          }
+        } catch (e) {
+          wsBridge.broadcastToSession(sessionId, {
+            type: "error",
+            message: `Failed to recreate worktree: ${e instanceof Error ? e.message : String(e)}`,
+          });
+          relaunchingSet.delete(sessionId);
+          return;
+        }
+      } else {
+        wsBridge.broadcastToSession(sessionId, {
+          type: "error",
+          message: `Working directory not found: ${info.cwd}`,
+        });
+        relaunchingSet.delete(sessionId);
+        return;
+      }
+    }
+
     console.log(`[server] Auto-relaunching CLI for session ${sessionId}`);
     try {
       const result = await launcher.relaunch(sessionId);

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, checkHealth } from "../api.js";
+import { api, checkHealth, type ImportStats } from "../api.js";
 import { useStore } from "../store.js";
 import { NamerDebugPanel } from "./NamerDebugPanel.js";
 
@@ -60,6 +60,13 @@ export function SettingsPage({ embedded = false }: SettingsPageProps) {
   const [restartSupported, setRestartSupported] = useState(true);
   const healthPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const healthTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Session export/import state
+  const importInputRef = useRef<HTMLInputElement>(null);
+  const [exporting, setExporting] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<ImportStats | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
 
   useEffect(() => {
     api
@@ -221,6 +228,37 @@ export function SettingsPage({ embedded = false }: SettingsPageProps) {
       setRestarting(false);
       setRestartError("Server did not come back within 120 seconds. Check your terminal.");
     }, 120_000);
+  }
+
+  async function handleExport() {
+    setExporting(true);
+    try {
+      const link = document.createElement("a");
+      link.href = api.exportSessionsUrl();
+      link.download = "";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } finally {
+      setTimeout(() => setExporting(false), 2000);
+    }
+  }
+
+  async function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImporting(true);
+    setImportResult(null);
+    setImportError(null);
+    try {
+      const stats = await api.importSessions(file);
+      setImportResult(stats);
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setImporting(false);
+      if (importInputRef.current) importInputRef.current.value = "";
+    }
   }
 
   return (
@@ -698,6 +736,71 @@ export function SettingsPage({ embedded = false }: SettingsPageProps) {
           >
             Open Environments Page
           </button>
+        </div>
+
+        <div className="mt-4 bg-cc-card border border-cc-border rounded-xl p-4 sm:p-5 space-y-3">
+          <div>
+            <h2 className="text-sm font-semibold text-cc-fg">Session Data</h2>
+            <p className="mt-1 text-xs text-cc-muted">
+              Export all sessions to a portable archive, or import sessions from another machine.
+              Paths are automatically rewritten to match this machine. Existing sessions are only
+              overwritten if the archive version is newer.
+            </p>
+          </div>
+
+          <input
+            ref={importInputRef}
+            type="file"
+            accept=".tar.zst,.zst"
+            onChange={handleImportFile}
+            className="hidden"
+          />
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleExport}
+              disabled={exporting}
+              className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                exporting
+                  ? "bg-cc-hover text-cc-muted cursor-not-allowed"
+                  : "bg-cc-hover text-cc-fg hover:bg-cc-active cursor-pointer"
+              }`}
+            >
+              {exporting ? "Exporting..." : "Export All Sessions"}
+            </button>
+            <button
+              type="button"
+              onClick={() => importInputRef.current?.click()}
+              disabled={importing}
+              className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                importing
+                  ? "bg-cc-hover text-cc-muted cursor-not-allowed"
+                  : "bg-cc-hover text-cc-fg hover:bg-cc-active cursor-pointer"
+              }`}
+            >
+              {importing ? "Importing..." : "Import Sessions"}
+            </button>
+          </div>
+
+          {importError && (
+            <div className="px-3 py-2 rounded-lg bg-cc-error/10 border border-cc-error/20 text-xs text-cc-error">
+              Import failed: {importError}
+            </div>
+          )}
+
+          {importResult && (
+            <div className="px-3 py-2 rounded-lg bg-cc-success/10 border border-cc-success/20 text-xs text-cc-success space-y-0.5">
+              <div className="font-medium">Import complete</div>
+              {importResult.sessionsNew > 0 && <div>{importResult.sessionsNew} new sessions imported</div>}
+              {importResult.sessionsUpdated > 0 && <div>{importResult.sessionsUpdated} updated (archive was newer)</div>}
+              {importResult.sessionsSkipped > 0 && <div>{importResult.sessionsSkipped} skipped (local was newer)</div>}
+              {importResult.worktreeSessionsNeedingRecreation > 0 && (
+                <div>{importResult.worktreeSessionsNeedingRecreation} worktree sessions will recreate on open</div>
+              )}
+              {importResult.pathsRewritten && <div>Paths rewritten for this machine</div>}
+            </div>
+          )}
         </div>
 
         <div className="mt-4 bg-cc-card border border-cc-border rounded-xl p-4 sm:p-5">

@@ -5,8 +5,8 @@ import { resolveBinary } from "./path-resolver.js";
 import { readdir, readFile, writeFile, stat } from "node:fs/promises";
 import { resolve, join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { homedir } from "node:os";
-import { existsSync, readFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { existsSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
 import type { CliLauncher } from "./cli-launcher.js";
 import type { WsBridge } from "./ws-bridge.js";
 import type { SessionStore } from "./session-store.js";
@@ -18,6 +18,7 @@ import * as cronStore from "./cron-store.js";
 import * as gitUtils from "./git-utils.js";
 import * as sessionNames from "./session-names.js";
 import { getNamerLogIndex, getNamerLogEntry } from "./session-namer.js";
+import { recreateWorktreeIfMissing, runExport, runImport, type ImportStats } from "./migration.js";
 import { containerManager, ContainerManager, type ContainerConfig, type ContainerInfo } from "./container-manager.js";
 import type { CreationStepId } from "./session-types.js";
 import { hasContainerClaudeAuth } from "./claude-container-auth.js";
@@ -1261,39 +1262,13 @@ export function createRoutes(
     // For worktree sessions: recreate the worktree if it was deleted during archiving
     let worktreeRecreated = false;
     if (info.isWorktree && info.repoRoot && info.branch) {
-      const cwdExists = existsSync(info.cwd);
-      if (!cwdExists) {
+      if (!existsSync(info.cwd)) {
         try {
-          const repoInfo = gitUtils.getRepoInfo(info.repoRoot);
-          if (repoInfo) {
-            const result = gitUtils.ensureWorktree(repoInfo.repoRoot, info.branch, {
-              baseBranch: repoInfo.defaultBranch,
-              createBranch: false,
-              forceNew: true,
-            });
-
-            // Update session metadata with the new worktree path
-            launcher.updateWorktree(id, {
-              cwd: result.worktreePath,
-              actualBranch: result.actualBranch,
-            });
-
-            // Re-register in worktree tracker
-            worktreeTracker.addMapping({
-              sessionId: id,
-              repoRoot: info.repoRoot,
-              branch: info.branch,
-              actualBranch: result.actualBranch,
-              worktreePath: result.worktreePath,
-              createdAt: Date.now(),
-            });
-
-            // Update bridge state so browsers get correct grouping and cwd
-            wsBridge.markWorktree(id, info.repoRoot, result.worktreePath, repoInfo.defaultBranch, info.branch);
-
-            worktreeRecreated = true;
-            console.log(`[routes] Recreated worktree for unarchived session ${id}: ${result.worktreePath} (branch: ${result.actualBranch})`);
+          const result = recreateWorktreeIfMissing(id, info, { launcher, worktreeTracker, wsBridge });
+          if (result.error) {
+            return c.json({ ok: false, error: `Failed to recreate worktree: ${result.error}` }, 500);
           }
+          worktreeRecreated = result.recreated;
         } catch (e) {
           console.error(`[routes] Failed to recreate worktree for session ${id}:`, e);
           return c.json({
@@ -2688,6 +2663,46 @@ export function createRoutes(
     const entry = getNamerLogEntry(id);
     if (!entry) return c.json({ error: "Not found" }, 404);
     return c.json(entry);
+  });
+
+  // ─── Session Export/Import ───────────────────────────────────────
+
+  api.get("/migration/export", async (c) => {
+    const tempPath = join(tmpdir(), `companion-export-${Date.now()}.tar.zst`);
+    try {
+      await runExport({ outputPath: tempPath });
+      const file = Bun.file(tempPath);
+      const timestamp = new Date().toISOString().replace(/:/g, "-").slice(0, 19);
+      c.header("Content-Type", "application/zstd");
+      c.header("Content-Disposition", `attachment; filename="companion-export-${timestamp}.tar.zst"`);
+      c.header("Content-Length", String(file.size));
+      return c.body(file.stream());
+    } catch (e) {
+      return c.json({ error: e instanceof Error ? e.message : String(e) }, 500);
+    } finally {
+      try { unlinkSync(tempPath); } catch { /* ignore */ }
+    }
+  });
+
+  api.post("/migration/import", async (c) => {
+    try {
+      const body = await c.req.parseBody();
+      const file = body["archive"];
+      if (!file || typeof file === "string") {
+        return c.json({ error: "archive field is required (multipart)" }, 400);
+      }
+      const buf = Buffer.from(await file.arrayBuffer());
+      const tempPath = join(tmpdir(), `companion-import-${Date.now()}.tar.zst`);
+      try {
+        writeFileSync(tempPath, buf);
+        const stats = await runImport(tempPath);
+        return c.json(stats);
+      } finally {
+        try { unlinkSync(tempPath); } catch { /* ignore */ }
+      }
+    } catch (e) {
+      return c.json({ error: e instanceof Error ? e.message : String(e) }, 500);
+    }
   });
 
   return api;

@@ -685,4 +685,34 @@ export const api = {
     del<import("./types.js").QuestmasterTask>(`/quests/${encodeURIComponent(questId)}/images/${encodeURIComponent(imageId)}`),
   /** URL for displaying a quest image in the browser */
   questImageUrl: (imageId: string) => `${BASE}/quests/_images/${encodeURIComponent(imageId)}`,
+
+  // Session export/import
+  /** Trigger a .tar.zst download of all session data. */
+  exportSessionsUrl: () => `${BASE}/migration/export`,
+
+  /** Upload a .tar.zst archive to import sessions. Returns import stats. */
+  importSessions: async (file: File): Promise<ImportStats> => {
+    const form = new FormData();
+    form.append("archive", file);
+    const res = await fetch(`${BASE}/migration/import`, {
+      method: "POST",
+      body: form,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error((err as { error?: string }).error || res.statusText);
+    }
+    return res.json();
+  },
 };
+
+export interface ImportStats {
+  sessionsNew: number;
+  sessionsUpdated: number;
+  sessionsSkipped: number;
+  worktreeSessionsNeedingRecreation: number;
+  pathsRewritten: boolean;
+  filesImported: number;
+  filesSkipped: number;
+  warnings: string[];
+}

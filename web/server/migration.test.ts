@@ -1,0 +1,235 @@
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, utimesSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import {
+  rewritePathsInFile,
+  rewritePathsInDir,
+  recreateWorktreeIfMissing,
+} from "./migration.js";
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+function makeTempDir(): string {
+  const dir = join(tmpdir(), `companion-migration-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+// ─── rewritePathsInFile ────────────────────────────────────────────────────
+
+describe("rewritePathsInFile", () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = makeTempDir();
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true });
+  });
+
+  it("is a no-op when oldHome === newHome", () => {
+    const filePath = join(tempDir, "test.json");
+    const content = JSON.stringify({ cwd: "/home/alice/.companion/worktrees/repo/branch" });
+    writeFileSync(filePath, content, "utf-8");
+
+    rewritePathsInFile(filePath, "/home/alice", "/home/alice");
+
+    expect(readFileSync(filePath, "utf-8")).toBe(content);
+  });
+
+  it("rewrites paths from old home to new home", () => {
+    const filePath = join(tempDir, "test.json");
+    const original = JSON.stringify({
+      cwd: "/home/olduser/.companion/worktrees/repo/branch-wt-1234",
+      repo_root: "/home/olduser/myrepo",
+    });
+    writeFileSync(filePath, original, "utf-8");
+
+    rewritePathsInFile(filePath, "/home/olduser", "/home/newuser");
+
+    const result = JSON.parse(readFileSync(filePath, "utf-8"));
+    expect(result.cwd).toBe("/home/newuser/.companion/worktrees/repo/branch-wt-1234");
+    expect(result.repo_root).toBe("/home/newuser/myrepo");
+  });
+
+  it("does not false-match prefix-sharing paths", () => {
+    // /home/jiayi should NOT match /home/jiayiwei because we use trailing-slash matching
+    const filePath = join(tempDir, "test.json");
+    const original = JSON.stringify({
+      cwd: "/home/jiayiwei/.companion/worktrees/repo/branch",
+      other: "/home/jiayi/.companion/worktrees/repo/branch",
+    });
+    writeFileSync(filePath, original, "utf-8");
+
+    rewritePathsInFile(filePath, "/home/jiayi", "/home/bob");
+
+    const result = JSON.parse(readFileSync(filePath, "utf-8"));
+    expect(result.cwd).toBe("/home/jiayiwei/.companion/worktrees/repo/branch");
+    expect(result.other).toBe("/home/bob/.companion/worktrees/repo/branch");
+  });
+
+  it("handles paths at end of JSON string values (no trailing slash)", () => {
+    const filePath = join(tempDir, "test.json");
+    const original = JSON.stringify({ repoRoot: "/home/olduser" });
+    writeFileSync(filePath, original, "utf-8");
+
+    rewritePathsInFile(filePath, "/home/olduser", "/home/newuser");
+
+    const result = JSON.parse(readFileSync(filePath, "utf-8"));
+    expect(result.repoRoot).toBe("/home/newuser");
+  });
+
+  it("handles paths in arrays (e.g. changedFiles)", () => {
+    const filePath = join(tempDir, "test.json");
+    const original = JSON.stringify({
+      changedFiles: [
+        "/home/olduser/repo/src/foo.ts",
+        "/home/olduser/repo/src/bar.ts",
+      ],
+    });
+    writeFileSync(filePath, original, "utf-8");
+
+    rewritePathsInFile(filePath, "/home/olduser", "/Users/newuser");
+
+    const result = JSON.parse(readFileSync(filePath, "utf-8"));
+    expect(result.changedFiles).toEqual([
+      "/Users/newuser/repo/src/foo.ts",
+      "/Users/newuser/repo/src/bar.ts",
+    ]);
+  });
+
+  it("handles macOS to Linux migration", () => {
+    const filePath = join(tempDir, "test.json");
+    const original = JSON.stringify({
+      cwd: "/Users/alice/.companion/worktrees/repo/branch",
+    });
+    writeFileSync(filePath, original, "utf-8");
+
+    rewritePathsInFile(filePath, "/Users/alice", "/home/alice");
+
+    const result = JSON.parse(readFileSync(filePath, "utf-8"));
+    expect(result.cwd).toBe("/home/alice/.companion/worktrees/repo/branch");
+  });
+});
+
+// ─── rewritePathsInDir ─────────────────────────────────────────────────────
+
+describe("rewritePathsInDir", () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = makeTempDir();
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true });
+  });
+
+  it("recursively rewrites JSON files in subdirectories", () => {
+    mkdirSync(join(tempDir, "sessions", "3456"), { recursive: true });
+    writeFileSync(
+      join(tempDir, "sessions", "3456", "abc.json"),
+      JSON.stringify({ state: { cwd: "/home/old/repo" } }),
+      "utf-8",
+    );
+    writeFileSync(
+      join(tempDir, "worktrees.json"),
+      JSON.stringify([{ repoRoot: "/home/old/repo", worktreePath: "/home/old/.companion/worktrees/r/b" }]),
+      "utf-8",
+    );
+
+    rewritePathsInDir(tempDir, "/home/old", "/home/new");
+
+    const session = JSON.parse(readFileSync(join(tempDir, "sessions", "3456", "abc.json"), "utf-8"));
+    expect(session.state.cwd).toBe("/home/new/repo");
+
+    const worktrees = JSON.parse(readFileSync(join(tempDir, "worktrees.json"), "utf-8"));
+    expect(worktrees[0].repoRoot).toBe("/home/new/repo");
+    expect(worktrees[0].worktreePath).toBe("/home/new/.companion/worktrees/r/b");
+  });
+
+  it("skips non-JSON files", () => {
+    const imgPath = join(tempDir, "thumb.jpeg");
+    writeFileSync(imgPath, "binary content /home/old/path here", "utf-8");
+
+    rewritePathsInDir(tempDir, "/home/old", "/home/new");
+
+    expect(readFileSync(imgPath, "utf-8")).toBe("binary content /home/old/path here");
+  });
+});
+
+// ─── recreateWorktreeIfMissing ──────────────────────────────────────────────
+
+describe("recreateWorktreeIfMissing", () => {
+  it("returns recreated: false if cwd exists", () => {
+    const tempDir = makeTempDir();
+    try {
+      const info = {
+        sessionId: "test-session",
+        cwd: tempDir,
+        state: "exited" as const,
+        createdAt: Date.now(),
+        isWorktree: true,
+        repoRoot: "/some/repo",
+        branch: "main",
+      };
+
+      const mockDeps = {
+        launcher: { updateWorktree: () => {} } as any,
+        worktreeTracker: { addMapping: () => {} } as any,
+        wsBridge: { markWorktree: () => {} } as any,
+      };
+
+      const result = recreateWorktreeIfMissing("test-session", info, mockDeps);
+      expect(result.recreated).toBe(false);
+      expect(result.error).toBeUndefined();
+    } finally {
+      rmSync(tempDir, { recursive: true });
+    }
+  });
+
+  it("returns error for non-worktree session with missing cwd", () => {
+    const info = {
+      sessionId: "test-session",
+      cwd: "/nonexistent/path/that/does/not/exist",
+      state: "exited" as const,
+      createdAt: Date.now(),
+      isWorktree: false,
+    };
+
+    const mockDeps = {
+      launcher: { updateWorktree: () => {} } as any,
+      worktreeTracker: { addMapping: () => {} } as any,
+      wsBridge: { markWorktree: () => {} } as any,
+    };
+
+    const result = recreateWorktreeIfMissing("test-session", info, mockDeps);
+    expect(result.recreated).toBe(false);
+    expect(result.error).toContain("Working directory not found");
+  });
+
+  it("returns error when repo root doesn't exist", () => {
+    const info = {
+      sessionId: "test-session",
+      cwd: "/nonexistent/worktree/path",
+      state: "exited" as const,
+      createdAt: Date.now(),
+      isWorktree: true,
+      repoRoot: "/nonexistent/repo/root",
+      branch: "main",
+    };
+
+    const mockDeps = {
+      launcher: { updateWorktree: () => {} } as any,
+      worktreeTracker: { addMapping: () => {} } as any,
+      wsBridge: { markWorktree: () => {} } as any,
+    };
+
+    const result = recreateWorktreeIfMissing("test-session", info, mockDeps);
+    expect(result.recreated).toBe(false);
+    expect(result.error).toContain("Repository not found");
+    expect(result.error).toContain("Please clone it first");
+  });
+});
