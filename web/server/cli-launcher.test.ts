@@ -31,7 +31,7 @@ const mockExistsSync = vi.hoisted(() => vi.fn((..._args: any[]) => false));
 const mockReadFileSync = vi.hoisted(() => vi.fn((..._args: any[]) => ""));
 const mockWriteFileSync = vi.hoisted(() => vi.fn());
 const mockSymlinkSync = vi.hoisted(() => vi.fn());
-const mockLstatSync = vi.hoisted(() => vi.fn());
+const mockLstatSync = vi.hoisted(() => vi.fn((_path?: string): any => { throw Object.assign(new Error("ENOENT"), { code: "ENOENT" }); }));
 const isMockedPath = vi.hoisted(() => (path: string): boolean => {
   return path.includes(".claude") || path.startsWith("/tmp/worktrees/") || path.startsWith("/tmp/main-repo");
 });
@@ -130,6 +130,8 @@ let launcher: CliLauncher;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Re-apply default: lstatSync throws ENOENT (file doesn't exist), matching real behavior
+  mockLstatSync.mockImplementation(() => { throw Object.assign(new Error("ENOENT"), { code: "ENOENT" }); });
   delete process.env.COMPANION_CONTAINER_SDK_HOST;
   delete process.env.COMPANION_FORCE_BYPASS_IN_CONTAINER;
   tempDir = mkdtempSync(join(tmpdir(), "launcher-test-"));
@@ -997,23 +999,18 @@ describe("symlinkProjectSettings", () => {
   });
 
   it("does NOT replace a real (non-symlink) file with a symlink", () => {
-    // Simulate settings.json being a real file in the worktree
-    launchWorktree((path: string) => {
-      if (path.endsWith("settings.json") && path.startsWith(WORKTREE)) return true;
-      return false;
+    // Simulate settings.json being a real file in the worktree.
+    // lstatSync returns a stat object (file exists); isSymbolicLink returns false.
+    mockLstatSync.mockImplementation((path: any) => {
+      if (path === join(WORKTREE, ".claude", "settings.json")) {
+        return { isSymbolicLink: () => false };
+      }
+      throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
     });
-    // lstatSync should be called to check if it's a symlink
-    mockLstatSync.mockReturnValue({ isSymbolicLink: () => false });
-
-    // Re-launch with the lstat mock properly configured
-    vi.clearAllMocks();
     mockExistsSync.mockImplementation((path: string) => {
       if (path === WORKTREE) return true;
-      // settings.json exists in worktree, settings.local.json does not
-      if (path === join(WORKTREE, ".claude", "settings.json")) return true;
       return false;
     });
-    mockLstatSync.mockReturnValue({ isSymbolicLink: () => false });
 
     launcher.launch({
       cwd: WORKTREE,

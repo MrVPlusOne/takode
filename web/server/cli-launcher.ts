@@ -1032,13 +1032,15 @@ ${MARKER_END}`;
       const repoFile = join(repoClaudeDir, filename);
 
       try {
-        // Skip if a real file (not a symlink) already exists — it may be tracked by git
-        if (existsSync(worktreeFile)) {
-          try {
-            const stat = lstatSync(worktreeFile);
-            if (!stat.isSymbolicLink()) continue; // real file — don't replace
-          } catch { continue; }
+        // Use lstatSync (doesn't follow symlinks) to detect dangling symlinks.
+        // existsSync follows symlinks — returns false for dangling ones, causing
+        // symlinkSync to fail with EEXIST on relaunch.
+        try {
+          const stat = lstatSync(worktreeFile);
+          if (!stat.isSymbolicLink()) continue; // real file — don't replace
           continue; // already a symlink (from previous run) — leave it
+        } catch {
+          // file doesn't exist at all — create symlink below
         }
 
         symlinkSync(repoFile, worktreeFile);

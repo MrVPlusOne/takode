@@ -1,7 +1,8 @@
 import { vi } from "vitest";
 
 const mockExecSync = vi.hoisted(() => vi.fn());
-vi.mock("node:child_process", () => ({ execSync: mockExecSync }));
+const mockExec = vi.hoisted(() => vi.fn());
+vi.mock("node:child_process", () => ({ execSync: mockExecSync, exec: mockExec }));
 vi.mock("node:crypto", () => ({ randomUUID: () => "test-uuid" }));
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
@@ -37,6 +38,18 @@ beforeEach(() => {
   bridge = new WsBridge();
   bridge.setStore(store);
   mockExecSync.mockReset();
+  mockExec.mockReset();
+  // Default: mockExec delegates to mockExecSync so tests that set up
+  // mockExecSync automatically work for async computeDiffStatsAsync too.
+  mockExec.mockImplementation((cmd: string, opts: any, cb?: Function) => {
+    const callback = typeof opts === "function" ? opts : cb;
+    try {
+      const result = mockExecSync(cmd);
+      if (callback) callback(null, { stdout: result ?? "", stderr: "" });
+    } catch (err) {
+      if (callback) callback(err, { stdout: "", stderr: "" });
+    }
+  });
 });
 
 afterEach(() => {
@@ -402,7 +415,7 @@ describe("CLI handlers", () => {
     expect(state.diff_base_branch).toBe("jiayi");
   });
 
-  it("setDiffBaseBranch updates session state, triggers recomputation, and broadcasts", () => {
+  it("setDiffBaseBranch updates session state, triggers recomputation, and broadcasts", async () => {
     // Mock git commands for the refreshGitInfo + computeDiffStats calls
     mockExecSync.mockImplementation((cmd: string) => {
       if (cmd.includes("--abbrev-ref HEAD")) return "jiayi-wt-1234\n";
@@ -425,6 +438,11 @@ describe("CLI handlers", () => {
     // Set diff base branch — triggers immediate recomputation
     const result = bridge.setDiffBaseBranch("s1", "feature-branch");
     expect(result).toBe(true);
+
+    // Wait for async diff computation
+    await vi.waitFor(() => {
+      expect(session.state.total_lines_added).toBe(10);
+    });
 
     const state = bridge.getSession("s1")!.state;
     expect(state.diff_base_branch).toBe("feature-branch");
@@ -1028,7 +1046,7 @@ describe("CLI message routing", () => {
     expect(assistantBroadcast.parent_tool_use_id).toBeNull();
   });
 
-  it("result: updates cost/turns/context% and computes diff stats from git", () => {
+  it("result: updates cost/turns/context% and computes diff stats from git", async () => {
     // Set up session with a diff_base_branch and tracked files so computeDiffStats runs
     const session = bridge.getSession("s1")!;
     session.state.cwd = "/test";
@@ -1068,9 +1086,12 @@ describe("CLI message routing", () => {
     const state = bridge.getSession("s1")!.state;
     expect(state.total_cost_usd).toBe(0.05);
     expect(state.num_turns).toBe(3);
-    // Should use git diff stats, NOT CLI-reported values
-    expect(state.total_lines_added).toBe(42);
-    expect(state.total_lines_removed).toBe(10);
+
+    // Async diff computation needs a tick to resolve
+    await vi.waitFor(() => {
+      expect(state.total_lines_added).toBe(42);
+      expect(state.total_lines_removed).toBe(10);
+    });
 
     expect(session.messageHistory).toHaveLength(1);
     expect(session.messageHistory[0].type).toBe("result");
@@ -3814,7 +3835,7 @@ describe("Tool call duration tracking", () => {
 // ─── Diff stats computation and debounce ─────────────────────────────────────
 
 describe("Diff stats computation", () => {
-  it("computeDiffStats: parses git diff --numstat output correctly", () => {
+  it("computeDiffStats: parses git diff --numstat output correctly", async () => {
     // Set up a session with diff_base_branch and tracked files
     mockExecSync.mockImplementation((cmd: string) => {
       if (cmd.includes("merge-base")) return "abc123\n";
@@ -3844,9 +3865,11 @@ describe("Diff stats computation", () => {
 
     bridge.setDiffBaseBranch("s1", "develop");
 
-    // Binary files ("-") should be skipped, totals: 15 added, 5 removed
-    expect(session.state.total_lines_added).toBe(15);
-    expect(session.state.total_lines_removed).toBe(5);
+    // Async diff computation needs a tick to resolve
+    await vi.waitFor(() => {
+      expect(session.state.total_lines_added).toBe(15);
+      expect(session.state.total_lines_removed).toBe(5);
+    });
   });
 
   it("computeDiffStats: handles empty diff gracefully", () => {
@@ -3870,7 +3893,7 @@ describe("Diff stats computation", () => {
     expect(session.state.total_lines_removed).toBe(0);
   });
 
-  it("scheduleDiffRefresh: debounces rapid calls to at most one per minute", () => {
+  it("scheduleDiffRefresh: debounces rapid calls to at most one per minute", async () => {
     vi.useFakeTimers();
 
     mockExecSync.mockImplementation((cmd: string) => {
@@ -3892,6 +3915,9 @@ describe("Diff stats computation", () => {
 
     // First call — should compute immediately (no previous computation)
     bridge.scheduleDiffRefresh(session);
+    // Flush async diff computation
+    await vi.advanceTimersByTimeAsync(0);
+
     expect(session.state.total_lines_added).toBe(1);
     expect(session.lastDiffComputedAt).toBeGreaterThan(0);
 
@@ -3908,15 +3934,17 @@ describe("Diff stats computation", () => {
 
     // Second call — should be debounced (within 60s)
     bridge.scheduleDiffRefresh(session);
+    await vi.advanceTimersByTimeAsync(0);
     // Value should NOT have changed yet
     expect(session.state.total_lines_added).toBe(1);
 
     // Third call — also debounced, no additional timer created
     bridge.scheduleDiffRefresh(session);
+    await vi.advanceTimersByTimeAsync(0);
     expect(session.state.total_lines_added).toBe(1);
 
     // Advance past debounce window
-    vi.advanceTimersByTime(61_000);
+    await vi.advanceTimersByTimeAsync(61_000);
     // Now the debounced computation should have fired
     expect(session.state.total_lines_added).toBe(99);
     expect(session.state.total_lines_removed).toBe(88);
@@ -3924,7 +3952,7 @@ describe("Diff stats computation", () => {
     vi.useRealTimers();
   });
 
-  it("edit tool detection: assistant message with Edit tool triggers debounced diff refresh", () => {
+  it("edit tool detection: assistant message with Edit tool triggers debounced diff refresh", async () => {
     vi.useFakeTimers();
 
     mockExecSync.mockImplementation((cmd: string) => {
@@ -3968,6 +3996,9 @@ describe("Diff stats computation", () => {
       uuid: "u-edit",
       session_id: "s1",
     }));
+
+    // Flush async diff computation
+    await vi.advanceTimersByTimeAsync(0);
 
     // The diff refresh should be scheduled (first call computes immediately)
     expect(session.state.total_lines_added).toBe(5);

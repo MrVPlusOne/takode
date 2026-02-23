@@ -1,6 +1,9 @@
 import type { ServerWebSocket } from "bun";
 import { randomUUID } from "node:crypto";
-import { execSync } from "node:child_process";
+import { execSync, exec as execCb } from "node:child_process";
+import { promisify } from "node:util";
+
+const execPromise = promisify(execCb);
 import { resolve, basename } from "node:path";
 import { homedir } from "node:os";
 import type { PushoverNotifier } from "./pushover.js";
@@ -700,10 +703,29 @@ export class WsBridge {
 
     resolveGitInfo(session.state);
 
-    // Compute diff stats from git if requested
+    // Compute diff stats asynchronously to avoid blocking the event loop on NFS.
+    // When done, broadcast the updated stats if they changed.
     if (options.computeDiff) {
-      this.computeDiffStats(session);
       session.lastDiffComputedAt = Date.now();
+      this.computeDiffStatsAsync(session).then(() => {
+        // Broadcast after async diff finishes (stats may have changed)
+        if (options.broadcastUpdate) {
+          this.broadcastToBrowsers(session, {
+            type: "session_update",
+            session: {
+              git_branch: session.state.git_branch,
+              is_worktree: session.state.is_worktree,
+              is_containerized: session.state.is_containerized,
+              repo_root: session.state.repo_root,
+              git_ahead: session.state.git_ahead,
+              git_behind: session.state.git_behind,
+              total_lines_added: session.state.total_lines_added,
+              total_lines_removed: session.state.total_lines_removed,
+            },
+          });
+        }
+        this.persistSession(session);
+      }).catch(() => { /* ignore — git not available */ });
     }
 
     let changed = false;
@@ -744,8 +766,9 @@ export class WsBridge {
    * Compute diff stats (total lines added/removed) by running `git diff --numstat`
    * against the session's diff_base_branch. Scoped to files changed during the session
    * (tracked via changedFiles). If no files are tracked yet, stats remain 0/0.
+   * Runs asynchronously via child_process.exec to avoid blocking the event loop on NFS.
    */
-  private computeDiffStats(session: Session): void {
+  private async computeDiffStatsAsync(session: Session): Promise<void> {
     const cwd = session.state.cwd;
     // Fall back to git_default_branch when diff_base_branch is "" (user selected "default")
     const ref = session.state.diff_base_branch || session.state.git_default_branch;
@@ -759,12 +782,11 @@ export class WsBridge {
     }
 
     try {
-      // Compute merge-base to diff against
+      // Compute merge-base to diff against (async)
       let diffBase = ref;
       try {
-        const mergeBase = execSync(`git merge-base ${ref} HEAD`, {
-          cwd, encoding: "utf-8", timeout: 5000,
-        }).trim();
+        const { stdout } = await execPromise(`git merge-base ${ref} HEAD`, { cwd, timeout: 5000 });
+        const mergeBase = stdout.trim();
         if (mergeBase) diffBase = mergeBase;
       } catch { /* no common ancestor — use branch name directly */ }
 
@@ -772,9 +794,8 @@ export class WsBridge {
       const filePaths = Array.from(session.changedFiles).map(f => `"${f}"`).join(" ");
       const cmd = `git diff --numstat ${diffBase} -- ${filePaths}`;
 
-      const raw = execSync(cmd, {
-        cwd, encoding: "utf-8", timeout: 10_000,
-      }).trim();
+      const { stdout } = await execPromise(cmd, { cwd, timeout: 10_000 });
+      const raw = stdout.trim();
 
       let added = 0;
       let removed = 0;
@@ -1648,7 +1669,12 @@ export class WsBridge {
         const input = (block as { input?: Record<string, unknown> }).input;
         const filePath = name === "NotebookEdit" ? input?.notebook_path : input?.file_path;
         if (FILE_EDIT_TOOLS.has(name) && typeof filePath === "string") {
-          session.changedFiles.add(filePath);
+          // Only track files inside the session's repo/cwd to avoid git errors
+          // on external files (e.g. ~/.claude/plans/*.md)
+          const scope = session.state.repo_root || session.state.cwd;
+          if (scope && filePath.startsWith(scope + "/")) {
+            session.changedFiles.add(filePath);
+          }
           hasEditTool = true;
         } else if (name === "Bash") {
           hasEditTool = true; // Bash may edit files but we can't reliably extract paths

@@ -10,9 +10,21 @@ vi.mock("./env-manager.js", () => ({
   deleteEnv: vi.fn(),
 }));
 
-vi.mock("node:child_process", () => ({
-  execSync: vi.fn(() => ""),
-}));
+vi.mock("node:child_process", () => {
+  const execSyncMock = vi.fn((_cmd?: string) => "" as any);
+  // exec mock: callback-based, delegates to execSync for consistent test behavior
+  const execMock = vi.fn((...args: any[]) => {
+    const cmd = args[0] as string;
+    const callback = typeof args[1] === "function" ? args[1] : args[2];
+    try {
+      const result = execSyncMock(cmd);
+      if (callback) callback(null, { stdout: result ?? "", stderr: "" });
+    } catch (err) {
+      if (callback) callback(err, { stdout: "", stderr: "" });
+    }
+  });
+  return { execSync: execSyncMock, exec: execMock };
+});
 
 const mockResolveBinary = vi.hoisted(() => vi.fn((_name: string) => null as string | null));
 vi.mock("./path-resolver.js", () => ({
@@ -1698,11 +1710,9 @@ describe("GET /api/fs/diff", () => {
     expect(json.baseBranch).toBe("main");
     expect(vi.mocked(execSync)).toHaveBeenCalledWith(
       expect.stringContaining("git merge-base main HEAD"),
-      expect.objectContaining({ encoding: "utf-8", timeout: 5000 }),
     );
     expect(vi.mocked(execSync)).toHaveBeenCalledWith(
       expect.stringContaining("git diff abc123"),
-      expect.objectContaining({ encoding: "utf-8", timeout: 5000 }),
     );
   });
 
@@ -1738,7 +1748,6 @@ index 0000000..e69de29
     expect(json.diff).toContain("new file mode");
     expect(vi.mocked(execSync)).toHaveBeenCalledWith(
       expect.stringContaining("git diff --no-index -- /dev/null"),
-      expect.objectContaining({ encoding: "utf-8", timeout: 5000 }),
     );
   });
 
@@ -1792,7 +1801,6 @@ index 0000000..e69de29
     expect(json.baseBranch).toBe("develop");
     expect(vi.mocked(execSync)).toHaveBeenCalledWith(
       expect.stringContaining("git merge-base develop HEAD"),
-      expect.objectContaining({ encoding: "utf-8", timeout: 5000 }),
     );
   });
 

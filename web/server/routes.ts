@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { streamSSE, type SSEStreamingApi } from "hono/streaming";
-import { execSync } from "node:child_process";
+import { execSync, exec as execCb } from "node:child_process";
+import { promisify } from "node:util";
 import { resolveBinary } from "./path-resolver.js";
 import { readdir, readFile, writeFile, stat } from "node:fs/promises";
 import { resolve, join, dirname } from "node:path";
@@ -54,6 +55,37 @@ function resolveDiffBase(repoRoot: string, baseBranch: string): string {
     const mergeBase = execSync(`git merge-base ${baseBranch} HEAD`, {
       cwd: repoRoot, encoding: "utf-8", timeout: 5000,
     }).trim();
+    if (mergeBase) return mergeBase;
+  } catch {
+    // No common ancestor — fall back to branch name directly
+  }
+  return baseBranch;
+}
+
+const execPromise = promisify(execCb);
+
+/** Non-blocking exec — runs a shell command without stalling the event loop. */
+async function execAsync(command: string, cwd: string): Promise<string> {
+  const { stdout } = await execPromise(command, { cwd, timeout: 5000 });
+  return stdout.trim();
+}
+
+/** Non-blocking version of execCaptureStdout — always returns stdout even on non-zero exit. */
+async function execCaptureStdoutAsync(command: string, cwd: string): Promise<string> {
+  try {
+    const { stdout } = await execPromise(command, { cwd, timeout: 10000 });
+    return stdout.trim();
+  } catch (err: unknown) {
+    const maybe = err as { stdout?: string };
+    if (typeof maybe.stdout === "string") return maybe.stdout.trim();
+    throw err;
+  }
+}
+
+/** Async version of resolveDiffBase. */
+async function resolveDiffBaseAsync(repoRoot: string, baseBranch: string): Promise<string> {
+  try {
+    const mergeBase = await execAsync(`git merge-base ${baseBranch} HEAD`, repoRoot);
     if (mergeBase) return mergeBase;
   } catch {
     // No common ancestor — fall back to branch name directly
@@ -1566,49 +1598,30 @@ export function createRoutes(
   });
 
   /** Git diff for a single file (unified diff) */
-  api.get("/fs/diff", (c) => {
+  api.get("/fs/diff", async (c) => {
     const filePath = c.req.query("path");
     if (!filePath) return c.json({ error: "path required" }, 400);
     const base = c.req.query("base");
     if (!base) return c.json({ error: "base branch required" }, 400);
     const absPath = resolve(filePath);
     try {
-      const repoRoot = execSync("git rev-parse --show-toplevel", {
-        cwd: dirname(absPath),
-        encoding: "utf-8",
-        timeout: 5000,
-      }).trim();
-      const relPath = execSync(`git -C "${repoRoot}" ls-files --full-name -- "${absPath}"`, {
-        encoding: "utf-8",
-        timeout: 5000,
-      }).trim() || absPath;
+      const repoRoot = await execAsync("git rev-parse --show-toplevel", dirname(absPath));
+      const relPath = (await execAsync(`git -C "${repoRoot}" ls-files --full-name -- "${absPath}"`, repoRoot)) || absPath;
 
-      const diffBase = resolveDiffBase(repoRoot, base);
+      const diffBase = await resolveDiffBaseAsync(repoRoot, base);
 
       let diff = "";
       try {
-        diff = execCaptureStdout(`git diff ${diffBase} -- "${relPath}"`, {
-          cwd: repoRoot,
-          encoding: "utf-8",
-          timeout: 5000,
-        });
+        diff = await execCaptureStdoutAsync(`git diff ${diffBase} -- "${relPath}"`, repoRoot);
       } catch {
         // Base ref unavailable — leave diff empty
       }
 
       // For untracked files, base-branch diff is empty. Show full file as added.
       if (!diff.trim()) {
-        const untracked = execSync(`git ls-files --others --exclude-standard -- "${relPath}"`, {
-          cwd: repoRoot,
-          encoding: "utf-8",
-          timeout: 5000,
-        }).trim();
+        const untracked = await execAsync(`git ls-files --others --exclude-standard -- "${relPath}"`, repoRoot);
         if (untracked) {
-          diff = execCaptureStdout(`git diff --no-index -- /dev/null "${absPath}"`, {
-            cwd: repoRoot,
-            encoding: "utf-8",
-            timeout: 5000,
-          });
+          diff = await execCaptureStdoutAsync(`git diff --no-index -- /dev/null "${absPath}"`, repoRoot);
         }
       }
 
@@ -1632,7 +1645,7 @@ export function createRoutes(
     }
     const repoRoot = resolve(body.repoRoot);
     try {
-      const diffBase = resolveDiffBase(repoRoot, body.base);
+      const diffBase = await resolveDiffBaseAsync(repoRoot, body.base);
 
       // git diff --numstat returns: "additions\tdeletions\tfilepath" per line
       const rootPrefix = `${repoRoot}/`;
@@ -1640,9 +1653,9 @@ export function createRoutes(
         f.startsWith(rootPrefix) ? f.slice(rootPrefix.length) : f,
       );
       const fileArgs = relFiles.map((f) => `"${f}"`).join(" ");
-      const raw = execCaptureStdout(
+      const raw = await execCaptureStdoutAsync(
         `git diff --numstat ${diffBase} -- ${fileArgs}`,
-        { cwd: repoRoot, encoding: "utf-8", timeout: 10000 },
+        repoRoot,
       );
 
       const stats: Record<string, { additions: number; deletions: number }> = {};
