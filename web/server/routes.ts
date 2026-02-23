@@ -2715,7 +2715,7 @@ export function createRoutes(
   api.get("/migration/export", async (c) => {
     const tempPath = join(tmpdir(), `companion-export-${Date.now()}.tar.zst`);
     try {
-      await runExport({ outputPath: tempPath });
+      await runExport({ port: launcher.getPort(), outputPath: tempPath });
       // Read into memory before responding — unlinkSync in finally would race
       // with a lazy stream and produce a 0-byte download.
       const buf = readFileSync(tempPath);
@@ -2742,7 +2742,7 @@ export function createRoutes(
       const tempPath = join(tmpdir(), `companion-import-${Date.now()}.tar.zst`);
       try {
         writeFileSync(tempPath, buf);
-        const stats = await runImport(tempPath);
+        const stats = await runImport(tempPath, launcher.getPort());
         // Reload imported sessions into the running server's memory
         launcher.restoreFromDisk();
         return c.json(stats);

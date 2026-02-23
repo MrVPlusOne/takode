@@ -30,8 +30,8 @@ Server commands:
   help        Show this help message
 
 Data commands (no server required):
-  export      Export all data to a .tar.zst archive for migration
-  import      Import data from a .tar.zst archive
+  export      Export session data to a .tar.zst archive [--port PORT]
+  import      Import session data from a .tar.zst archive [--port PORT]
 
 Management commands (requires running server):
   sessions    Manage sessions (list, create, kill, relaunch, archive, rename, send-message)
@@ -137,17 +137,18 @@ switch (command) {
   case "export": {
     const args = process.argv.slice(3);
     const includeRecordings = args.includes("--include-recordings");
-    // Determine output path: first non-flag arg, or default
-    const outputArg = args.find((a) => !a.startsWith("--"));
+    const exportPortIdx = args.indexOf("--port");
+    const exportPort = exportPortIdx !== -1 ? Number(args[exportPortIdx + 1]) : 3456;
+    // Determine output path: first non-flag arg (skip --port's value)
+    const outputArg = args.find((a, i) => !a.startsWith("--") && i !== exportPortIdx + 1);
     const timestamp = new Date().toISOString().replace(/:/g, "-").slice(0, 19);
     const outputPath = outputArg || `companion-export-${timestamp}.tar.zst`;
-    // Resolve to absolute path
     const { resolve: resolvePath } = await import("node:path");
     const absOutput = resolvePath(outputPath);
 
     const { runExport } = await import("../server/migration.js");
     try {
-      await runExport({ outputPath: absOutput, includeRecordings });
+      await runExport({ port: exportPort, outputPath: absOutput, includeRecordings });
     } catch (e) {
       console.error(`Export failed: ${e instanceof Error ? e.message : String(e)}`);
       process.exit(1);
@@ -156,9 +157,12 @@ switch (command) {
   }
 
   case "import": {
-    const importArg = process.argv[3];
-    if (!importArg || importArg.startsWith("--")) {
-      console.error("Usage: companion import <archive.tar.zst>");
+    const importArgs = process.argv.slice(3);
+    const importPortIdx = importArgs.indexOf("--port");
+    const importPort = importPortIdx !== -1 ? Number(importArgs[importPortIdx + 1]) : 3456;
+    const importArg = importArgs.find((a, i) => !a.startsWith("--") && i !== importPortIdx + 1);
+    if (!importArg) {
+      console.error("Usage: companion import <archive.tar.zst> [--port PORT]");
       process.exit(1);
     }
     const { resolve: resolvePath } = await import("node:path");
@@ -171,7 +175,7 @@ switch (command) {
 
     const { runImport, printImportStats } = await import("../server/migration.js");
     try {
-      const stats = await runImport(absArchive);
+      const stats = await runImport(absArchive, importPort);
       printImportStats(stats);
     } catch (e) {
       console.error(`Import failed: ${e instanceof Error ? e.message : String(e)}`);

@@ -15,7 +15,7 @@ export interface MigrationManifest {
   exportedAt: number;
   hostname: string;
   homeDir: string;
-  includedPorts: number[];
+  port: number;
   includeRecordings: boolean;
   stats: { sessionCount: number };
 }
@@ -37,19 +37,24 @@ const COMPANION_HOME = join(homedir(), ".companion");
 const MANIFEST_NAME = ".export-manifest.json";
 const STAGING_DIR = ".import-staging";
 
-const EXPORT_DIRS = ["sessions", "images", "questmaster", "codex-home", "envs", "cron", "assistant"];
+const ASSET_DIRS = ["images", "questmaster", "codex-home", "envs", "cron", "assistant"];
 const EXPORT_FILES = ["worktrees.json", "containers.json", "session-names.json"];
 
 // ─── Export ─────────────────────────────────────────────────────────────────
 
 export async function runExport(options: {
+  port: number;
   outputPath: string;
   includeRecordings?: boolean;
 }): Promise<void> {
-  const { outputPath, includeRecordings } = options;
+  const { port, outputPath, includeRecordings } = options;
   const paths: string[] = [];
 
-  for (const dir of EXPORT_DIRS) {
+  // Only export sessions for the current port
+  const portSessionDir = join("sessions", String(port));
+  if (existsSync(join(COMPANION_HOME, portSessionDir))) paths.push(portSessionDir);
+
+  for (const dir of ASSET_DIRS) {
     if (existsSync(join(COMPANION_HOME, dir))) paths.push(dir);
   }
   for (const file of EXPORT_FILES) {
@@ -59,19 +64,12 @@ export async function runExport(options: {
     paths.push("recordings");
   }
 
-  // Count sessions and ports
+  // Count sessions
   let sessionCount = 0;
-  const ports: number[] = [];
-  const sessionsDir = join(COMPANION_HOME, "sessions");
-  if (existsSync(sessionsDir)) {
-    for (const entry of readdirSync(sessionsDir)) {
-      const portDir = join(sessionsDir, entry);
-      const portNum = Number(entry);
-      if (Number.isNaN(portNum) || !statSync(portDir).isDirectory()) continue;
-      ports.push(portNum);
-      for (const f of readdirSync(portDir)) {
-        if (f.endsWith(".json") && f !== "launcher.json") sessionCount++;
-      }
+  const portDir = join(COMPANION_HOME, portSessionDir);
+  if (existsSync(portDir)) {
+    for (const f of readdirSync(portDir)) {
+      if (f.endsWith(".json") && f !== "launcher.json") sessionCount++;
     }
   }
 
@@ -81,7 +79,7 @@ export async function runExport(options: {
     exportedAt: Date.now(),
     hostname: hostname(),
     homeDir: homedir(),
-    includedPorts: ports,
+    port,
     includeRecordings: !!includeRecordings,
     stats: { sessionCount },
   };
@@ -89,7 +87,7 @@ export async function runExport(options: {
   writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), "utf-8");
   paths.push(MANIFEST_NAME);
 
-  console.log(`Exporting ${sessionCount} sessions from ${COMPANION_HOME}`);
+  console.log(`Exporting ${sessionCount} sessions (port ${port}) from ${COMPANION_HOME}`);
   if (includeRecordings) console.log(`  Including recordings`);
 
   try {
@@ -111,7 +109,7 @@ export async function runExport(options: {
  * Import from a .tar.zst archive. Idempotent: files in the archive overwrite
  * existing ones only if the archive version is newer (by mtime).
  */
-export async function runImport(archivePath: string): Promise<ImportStats> {
+export async function runImport(archivePath: string, targetPort: number): Promise<ImportStats> {
   const stagingDir = join(COMPANION_HOME, STAGING_DIR);
   const stats: ImportStats = {
     sessionsNew: 0, sessionsUpdated: 0, sessionsSkipped: 0,
@@ -146,19 +144,19 @@ export async function runImport(archivePath: string): Promise<ImportStats> {
       stats.pathsRewritten = true;
     }
 
-    // ── Sessions ──────────────────────────────────────────────────
+    // ── Sessions: merge all archived port dirs into the target port ──
     const stagedSessions = join(stagingDir, "sessions");
+    const targetDir = join(COMPANION_HOME, "sessions", String(targetPort));
+    mkdirSync(targetDir, { recursive: true });
+
     if (existsSync(stagedSessions)) {
       for (const portEntry of readdirSync(stagedSessions)) {
         const portDir = join(stagedSessions, portEntry);
         if (!statSync(portDir).isDirectory()) continue;
 
-        const targetDir = join(COMPANION_HOME, "sessions", portEntry);
-        mkdirSync(targetDir, { recursive: true });
-
         for (const file of readdirSync(portDir)) {
           if (file === "launcher.json") {
-            mergeJsonByKey(join(portDir, file), join(targetDir, file));
+            mergeLauncherArray(join(portDir, file), join(targetDir, file));
             continue;
           }
           if (!file.endsWith(".json")) continue;
@@ -290,6 +288,11 @@ export function recreateWorktreeIfMissing(
 }
 
 // ─── Merge Helpers ──────────────────────────────────────────────────────────
+
+/** Merge launcher.json arrays by sessionId. */
+function mergeLauncherArray(importedPath: string, targetPath: string): void {
+  mergeJsonArray(importedPath, targetPath, "sessionId");
+}
 
 /** Merge a JSON object: imported keys fill gaps or overwrite existing. */
 function mergeJsonByKey(importedPath: string, targetPath: string): void {
