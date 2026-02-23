@@ -6,6 +6,7 @@ import { navigateToSession } from "../utils/routing.js";
 import { Lightbox } from "./Lightbox.js";
 import { SessionStatusDot } from "./SessionStatusDot.js";
 import type { SessionItem as SessionItemType } from "../utils/project-grouping.js";
+import { resolveLineStats } from "../utils/diff-stats.js";
 import type {
   QuestmasterTask,
   QuestStatus,
@@ -577,8 +578,7 @@ export function QuestmasterPage() {
           isContainerized: bridgeState?.is_containerized || !!sdkInfo.containerId || false,
           gitAhead: bridgeState?.git_ahead || sdkInfo.gitAhead || 0,
           gitBehind: bridgeState?.git_behind || sdkInfo.gitBehind || 0,
-          linesAdded: bridgeState?.total_lines_added || sdkInfo.totalLinesAdded || 0,
-          linesRemoved: bridgeState?.total_lines_removed || sdkInfo.totalLinesRemoved || 0,
+          ...resolveLineStats(bridgeState?.total_lines_added, bridgeState?.total_lines_removed, sdkInfo.totalLinesAdded, sdkInfo.totalLinesRemoved),
           isConnected: cliConnected.get(sdkInfo.sessionId) ?? sdkInfo.cliConnected ?? false,
           status: sessionStatus.get(sdkInfo.sessionId) ?? null,
           sdkState: sdkInfo.state ?? null,
