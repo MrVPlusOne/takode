@@ -55,8 +55,7 @@ describe("saveSync / load", () => {
   it("writes a session to disk and reads it back", async () => {
     const session = makeSession("s1");
     store.saveSync(session);
-    // Wait for the async write to complete
-    await new Promise(r => setTimeout(r, 50));
+    await store.flushAll();
 
     const filePath = join(tempDir, "s1.json");
     expect(existsSync(filePath)).toBe(true);
@@ -102,6 +101,7 @@ describe("saveSync / load", () => {
     });
 
     store.saveSync(session);
+    await store.flushAll();
     const loaded = await store.load("s2");
     expect(loaded).toEqual(session);
     expect(loaded!.archived).toBe(true);
@@ -138,6 +138,8 @@ describe("save (debounced)", () => {
     store.save(session);
 
     vi.advanceTimersByTime(150);
+    // Await the async writeFile triggered by the timer
+    await store.flushAll();
 
     const filePath = join(tempDir, "debounce-2.json");
     expect(existsSync(filePath)).toBe(true);
@@ -167,6 +169,8 @@ describe("save (debounced)", () => {
     expect(existsSync(join(tempDir, "debounce-3.json"))).toBe(false);
 
     vi.advanceTimersByTime(150);
+    // Await the async writeFile triggered by the timer
+    await store.flushAll();
 
     const loaded = await store.load("debounce-3");
     expect(loaded!.pendingMessages).toEqual(["third"]);
@@ -180,6 +184,7 @@ describe("loadAll", () => {
     store.saveSync(makeSession("a"));
     store.saveSync(makeSession("b"));
     store.saveSync(makeSession("c"));
+    await store.flushAll();
 
     const all = await store.loadAll();
     const ids = all.map((s) => s.id).sort();
@@ -188,6 +193,7 @@ describe("loadAll", () => {
 
   it("skips corrupt JSON files", async () => {
     store.saveSync(makeSession("good"));
+    await store.flushAll();
     writeFileSync(join(tempDir, "bad.json"), "not-json!", "utf-8");
 
     const all = await store.loadAll();
@@ -197,6 +203,7 @@ describe("loadAll", () => {
 
   it("excludes launcher.json from results", async () => {
     store.saveSync(makeSession("session-1"));
+    await store.flushAll();
     store.saveLauncher({ some: "launcher data" });
 
     const all = await store.loadAll();
@@ -215,7 +222,9 @@ describe("loadAll", () => {
 describe("setArchived", () => {
   it("sets archived flag to true and persists it", async () => {
     store.saveSync(makeSession("arch-1"));
+    await store.flushAll();
     const result = await store.setArchived("arch-1", true);
+    await store.flushAll();
 
     expect(result).toBe(true);
 
@@ -225,7 +234,9 @@ describe("setArchived", () => {
 
   it("sets archived flag to false and persists it", async () => {
     store.saveSync(makeSession("arch-2", { archived: true }));
+    await store.flushAll();
     const result = await store.setArchived("arch-2", false);
+    await store.flushAll();
 
     expect(result).toBe(true);
 
@@ -244,13 +255,12 @@ describe("setArchived", () => {
 describe("remove", () => {
   it("deletes the session file from disk", async () => {
     store.saveSync(makeSession("rm-1"));
-    // Wait for the async write to complete
-    await new Promise(r => setTimeout(r, 50));
+    await store.flushAll();
     expect(existsSync(join(tempDir, "rm-1.json"))).toBe(true);
 
     store.remove("rm-1");
-    // Wait for the async unlink to complete
-    await new Promise(r => setTimeout(r, 50));
+    // remove() uses async unlink internally — flush to await it
+    await store.flushAll();
     expect(existsSync(join(tempDir, "rm-1.json"))).toBe(false);
     expect(await store.load("rm-1")).toBeNull();
   });
@@ -284,6 +294,7 @@ describe("saveLauncher / loadLauncher", () => {
   it("writes and reads launcher data", async () => {
     const data = { pids: [123, 456], lastBoot: "2025-01-01T00:00:00Z" };
     store.saveLauncher(data);
+    await store.flushAll();
 
     const loaded = await store.loadLauncher<{ pids: number[]; lastBoot: string }>();
     expect(loaded).toEqual(data);

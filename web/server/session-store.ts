@@ -156,16 +156,18 @@ export class SessionStore {
       this.debounceTimers.delete(sessionId);
     }
     this.pendingSaves.delete(sessionId);
-    unlink(this.filePath(sessionId)).catch(() => {
-      // File may not exist
-    });
+    const p = unlink(this.filePath(sessionId))
+      .catch(() => { /* File may not exist */ })
+      .finally(() => { this.inflightWrites.delete(p); });
+    this.inflightWrites.add(p);
   }
 
   /** Persist launcher state (separate file). */
   saveLauncher(data: unknown): void {
-    writeFile(join(this.dir, "launcher.json"), JSON.stringify(data), "utf-8").catch((err) => {
-      console.error("[session-store] Failed to save launcher state:", err);
-    });
+    const p = writeFile(join(this.dir, "launcher.json"), JSON.stringify(data), "utf-8")
+      .catch((err) => { console.error("[session-store] Failed to save launcher state:", err); })
+      .finally(() => { this.inflightWrites.delete(p); });
+    this.inflightWrites.add(p);
   }
 
   /** Load launcher state. */
