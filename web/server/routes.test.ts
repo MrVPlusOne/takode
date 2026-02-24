@@ -27,15 +27,17 @@ vi.mock("node:child_process", () => {
 });
 
 const mockResolveBinary = vi.hoisted(() => vi.fn((_name: string) => null as string | null));
+const mockExpandTilde = vi.hoisted(() => vi.fn((p: string) => p)); // pass-through by default
 vi.mock("./path-resolver.js", () => ({
   resolveBinary: mockResolveBinary,
+  expandTilde: mockExpandTilde,
 }));
 
 vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>();
   return {
     ...actual,
-    existsSync: vi.fn(() => false),
+    existsSync: vi.fn(() => true),
     readFileSync: vi.fn(() => ""),
   };
 });
@@ -438,7 +440,8 @@ describe("POST /api/sessions/create", () => {
 
   it("returns 400 when containerized Codex session lacks auth", async () => {
     // Codex in containers needs OPENAI_API_KEY or ~/.codex/auth.json.
-    // Auth check runs before image resolution so no need to mock imageExists.
+    // existsSync must return true for the cwd check but false for auth file checks
+    vi.mocked(existsSync).mockImplementation((p) => !String(p).includes(".codex"));
     vi.mocked(envManager.getEnv).mockReturnValue({
       name: "Codex Docker",
       slug: "codex-docker",
