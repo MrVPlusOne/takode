@@ -68,7 +68,7 @@ function findUniquePath(basePath: string): string {
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function git(cmd: string, cwd: string): string {
-  return execSync(`git ${cmd}`, {
+  return execSync(`git --no-optional-locks ${cmd}`, {
     cwd,
     encoding: "utf-8",
     timeout: 10_000,
@@ -87,7 +87,7 @@ function gitSafe(cmd: string, cwd: string): string | null {
 // ─── Async helpers (non-blocking — for hot paths) ────────────────────────────
 
 async function gitAsync(cmd: string, cwd: string): Promise<string> {
-  const { stdout } = await execPromise(`git ${cmd}`, {
+  const { stdout } = await execPromise(`git --no-optional-locks ${cmd}`, {
     cwd,
     encoding: "utf-8",
     timeout: 10_000,

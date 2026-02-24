@@ -52,29 +52,31 @@ afterEach(() => {
 // ─── saveSync / load ──────────────────────────────────────────────────────────
 
 describe("saveSync / load", () => {
-  it("writes a session to disk and reads it back", () => {
+  it("writes a session to disk and reads it back", async () => {
     const session = makeSession("s1");
     store.saveSync(session);
+    // Wait for the async write to complete
+    await new Promise(r => setTimeout(r, 50));
 
     const filePath = join(tempDir, "s1.json");
     expect(existsSync(filePath)).toBe(true);
 
-    const loaded = store.load("s1");
+    const loaded = await store.load("s1");
     expect(loaded).toEqual(session);
   });
 
-  it("returns null for a non-existent session", () => {
-    const loaded = store.load("does-not-exist");
+  it("returns null for a non-existent session", async () => {
+    const loaded = await store.load("does-not-exist");
     expect(loaded).toBeNull();
   });
 
-  it("returns null for a corrupt JSON file", () => {
+  it("returns null for a corrupt JSON file", async () => {
     writeFileSync(join(tempDir, "corrupt.json"), "{{not valid json!!", "utf-8");
-    const loaded = store.load("corrupt");
+    const loaded = await store.load("corrupt");
     expect(loaded).toBeNull();
   });
 
-  it("preserves all session fields through round-trip", () => {
+  it("preserves all session fields through round-trip", async () => {
     const session = makeSession("s2", {
       messageHistory: [{ type: "error", message: "test error" }],
       pendingMessages: ["msg1", "msg2"],
@@ -100,7 +102,7 @@ describe("saveSync / load", () => {
     });
 
     store.saveSync(session);
-    const loaded = store.load("s2");
+    const loaded = await store.load("s2");
     expect(loaded).toEqual(session);
     expect(loaded!.archived).toBe(true);
     expect(loaded!.pendingPermissions).toHaveLength(1);
@@ -131,7 +133,7 @@ describe("save (debounced)", () => {
     expect(existsSync(filePath)).toBe(false);
   });
 
-  it("writes after the 150ms debounce period", () => {
+  it("writes after the 150ms debounce period", async () => {
     const session = makeSession("debounce-2");
     store.save(session);
 
@@ -140,11 +142,11 @@ describe("save (debounced)", () => {
     const filePath = join(tempDir, "debounce-2.json");
     expect(existsSync(filePath)).toBe(true);
 
-    const loaded = store.load("debounce-2");
+    const loaded = await store.load("debounce-2");
     expect(loaded).toEqual(session);
   });
 
-  it("coalesces rapid calls and only writes the last version", () => {
+  it("coalesces rapid calls and only writes the last version", async () => {
     const session1 = makeSession("debounce-3", {
       pendingMessages: ["first"],
     });
@@ -166,7 +168,7 @@ describe("save (debounced)", () => {
 
     vi.advanceTimersByTime(150);
 
-    const loaded = store.load("debounce-3");
+    const loaded = await store.load("debounce-3");
     expect(loaded!.pendingMessages).toEqual(["third"]);
   });
 });
@@ -174,36 +176,36 @@ describe("save (debounced)", () => {
 // ─── loadAll ──────────────────────────────────────────────────────────────────
 
 describe("loadAll", () => {
-  it("returns all saved sessions", () => {
+  it("returns all saved sessions", async () => {
     store.saveSync(makeSession("a"));
     store.saveSync(makeSession("b"));
     store.saveSync(makeSession("c"));
 
-    const all = store.loadAll();
+    const all = await store.loadAll();
     const ids = all.map((s) => s.id).sort();
     expect(ids).toEqual(["a", "b", "c"]);
   });
 
-  it("skips corrupt JSON files", () => {
+  it("skips corrupt JSON files", async () => {
     store.saveSync(makeSession("good"));
     writeFileSync(join(tempDir, "bad.json"), "not-json!", "utf-8");
 
-    const all = store.loadAll();
+    const all = await store.loadAll();
     expect(all).toHaveLength(1);
     expect(all[0].id).toBe("good");
   });
 
-  it("excludes launcher.json from results", () => {
+  it("excludes launcher.json from results", async () => {
     store.saveSync(makeSession("session-1"));
     store.saveLauncher({ some: "launcher data" });
 
-    const all = store.loadAll();
+    const all = await store.loadAll();
     expect(all).toHaveLength(1);
     expect(all[0].id).toBe("session-1");
   });
 
-  it("returns an empty array for an empty directory", () => {
-    const all = store.loadAll();
+  it("returns an empty array for an empty directory", async () => {
+    const all = await store.loadAll();
     expect(all).toEqual([]);
   });
 });
@@ -211,28 +213,28 @@ describe("loadAll", () => {
 // ─── setArchived ──────────────────────────────────────────────────────────────
 
 describe("setArchived", () => {
-  it("sets archived flag to true and persists it", () => {
+  it("sets archived flag to true and persists it", async () => {
     store.saveSync(makeSession("arch-1"));
-    const result = store.setArchived("arch-1", true);
+    const result = await store.setArchived("arch-1", true);
 
     expect(result).toBe(true);
 
-    const loaded = store.load("arch-1");
+    const loaded = await store.load("arch-1");
     expect(loaded!.archived).toBe(true);
   });
 
-  it("sets archived flag to false and persists it", () => {
+  it("sets archived flag to false and persists it", async () => {
     store.saveSync(makeSession("arch-2", { archived: true }));
-    const result = store.setArchived("arch-2", false);
+    const result = await store.setArchived("arch-2", false);
 
     expect(result).toBe(true);
 
-    const loaded = store.load("arch-2");
+    const loaded = await store.load("arch-2");
     expect(loaded!.archived).toBe(false);
   });
 
-  it("returns false for a non-existent session", () => {
-    const result = store.setArchived("no-such-session", true);
+  it("returns false for a non-existent session", async () => {
+    const result = await store.setArchived("no-such-session", true);
     expect(result).toBe(false);
   });
 });
@@ -240,13 +242,17 @@ describe("setArchived", () => {
 // ─── remove ───────────────────────────────────────────────────────────────────
 
 describe("remove", () => {
-  it("deletes the session file from disk", () => {
+  it("deletes the session file from disk", async () => {
     store.saveSync(makeSession("rm-1"));
+    // Wait for the async write to complete
+    await new Promise(r => setTimeout(r, 50));
     expect(existsSync(join(tempDir, "rm-1.json"))).toBe(true);
 
     store.remove("rm-1");
+    // Wait for the async unlink to complete
+    await new Promise(r => setTimeout(r, 50));
     expect(existsSync(join(tempDir, "rm-1.json"))).toBe(false);
-    expect(store.load("rm-1")).toBeNull();
+    expect(await store.load("rm-1")).toBeNull();
   });
 
   it("cancels a pending debounced save so it never writes", () => {
@@ -275,16 +281,16 @@ describe("remove", () => {
 // ─── saveLauncher / loadLauncher ──────────────────────────────────────────────
 
 describe("saveLauncher / loadLauncher", () => {
-  it("writes and reads launcher data", () => {
+  it("writes and reads launcher data", async () => {
     const data = { pids: [123, 456], lastBoot: "2025-01-01T00:00:00Z" };
     store.saveLauncher(data);
 
-    const loaded = store.loadLauncher<{ pids: number[]; lastBoot: string }>();
+    const loaded = await store.loadLauncher<{ pids: number[]; lastBoot: string }>();
     expect(loaded).toEqual(data);
   });
 
-  it("returns null when no launcher file exists", () => {
-    const loaded = store.loadLauncher();
+  it("returns null when no launcher file exists", async () => {
+    const loaded = await store.loadLauncher();
     expect(loaded).toBeNull();
   });
 });

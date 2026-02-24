@@ -807,7 +807,7 @@ describe("relaunch", () => {
 
 describe("persistence", () => {
   describe("restoreFromDisk", () => {
-    it("recovers sessions from the store", () => {
+    it("recovers sessions from the store", async () => {
       // Manually write launcher data to disk to simulate a previous run
       const savedSessions = [
         {
@@ -833,7 +833,7 @@ describe("persistence", () => {
 
       const newLauncher = new CliLauncher(3456);
       newLauncher.setStore(store);
-      const recovered = newLauncher.restoreFromDisk();
+      const recovered = await newLauncher.restoreFromDisk();
 
       expect(recovered).toBe(1);
 
@@ -846,7 +846,7 @@ describe("persistence", () => {
       killSpy.mockRestore();
     });
 
-    it("marks dead PIDs as exited", () => {
+    it("marks dead PIDs as exited", async () => {
       const savedSessions = [
         {
           sessionId: "dead-1",
@@ -869,7 +869,7 @@ describe("persistence", () => {
 
       const newLauncher = new CliLauncher(3456);
       newLauncher.setStore(store);
-      const recovered = newLauncher.restoreFromDisk();
+      const recovered = await newLauncher.restoreFromDisk();
 
       // Dead sessions don't count as recovered
       expect(recovered).toBe(0);
@@ -882,20 +882,20 @@ describe("persistence", () => {
       killSpy.mockRestore();
     });
 
-    it("returns 0 when no store is set", () => {
+    it("returns 0 when no store is set", async () => {
       const newLauncher = new CliLauncher(3456);
       // No setStore call
-      expect(newLauncher.restoreFromDisk()).toBe(0);
+      expect(await newLauncher.restoreFromDisk()).toBe(0);
     });
 
-    it("returns 0 when store has no launcher data", () => {
+    it("returns 0 when store has no launcher data", async () => {
       const newLauncher = new CliLauncher(3456);
       newLauncher.setStore(store);
       // Store is empty, no launcher.json file
-      expect(newLauncher.restoreFromDisk()).toBe(0);
+      expect(await newLauncher.restoreFromDisk()).toBe(0);
     });
 
-    it("preserves already-exited sessions from disk", () => {
+    it("preserves already-exited sessions from disk", async () => {
       const savedSessions = [
         {
           sessionId: "already-exited",
@@ -910,7 +910,7 @@ describe("persistence", () => {
 
       const newLauncher = new CliLauncher(3456);
       newLauncher.setStore(store);
-      const recovered = newLauncher.restoreFromDisk();
+      const recovered = await newLauncher.restoreFromDisk();
 
       // Already-exited sessions are loaded but not "recovered"
       expect(recovered).toBe(0);

@@ -80,7 +80,7 @@ async function execCaptureStdoutAsync(command: string, cwd: string): Promise<str
 async function resolveDiffBaseAsync(repoRoot: string, baseBranch: string): Promise<string> {
   if (looksLikeSha(baseBranch)) return baseBranch;
   try {
-    const mergeBase = await execAsync(`git merge-base ${baseBranch} HEAD`, repoRoot);
+    const mergeBase = await execAsync(`git --no-optional-locks merge-base ${baseBranch} HEAD`, repoRoot);
     if (mergeBase) return mergeBase;
   } catch {
     // No common ancestor — fall back to branch name directly
@@ -124,7 +124,7 @@ export function createRoutes(
         }
         let envVars: Record<string, string> | undefined = body.env;
         if (body.envSlug) {
-          const companionEnv = envManager.getEnv(body.envSlug);
+          const companionEnv = await envManager.getEnv(body.envSlug);
           if (companionEnv) envVars = { ...companionEnv.variables, ...body.env };
         }
         const binarySettings = getSettings();
@@ -146,7 +146,7 @@ export function createRoutes(
       // Resolve environment variables from envSlug
       let envVars: Record<string, string> | undefined = body.env;
       if (body.envSlug) {
-        const companionEnv = envManager.getEnv(body.envSlug);
+        const companionEnv = await envManager.getEnv(body.envSlug);
         if (companionEnv) {
           console.log(
             `[routes] Injecting env "${companionEnv.name}" (${Object.keys(companionEnv.variables).length} vars):`,
@@ -226,9 +226,9 @@ export function createRoutes(
       }
 
       // Resolve Docker image from environment or explicit container config
-      const companionEnv = body.envSlug ? envManager.getEnv(body.envSlug) : null;
+      const companionEnv = body.envSlug ? await envManager.getEnv(body.envSlug) : null;
       let effectiveImage = companionEnv
-        ? (body.envSlug ? envManager.getEffectiveImage(body.envSlug) : null)
+        ? (body.envSlug ? await envManager.getEffectiveImage(body.envSlug) : null)
         : (body.container?.image || null);
 
       let containerInfo: ContainerInfo | undefined;
@@ -492,7 +492,7 @@ export function createRoutes(
           await emitProgress(stream, "resolving_env", "Resolving environment...", "in_progress");
           let envVars: Record<string, string> | undefined = body.env;
           if (body.envSlug) {
-            const companionEnv = envManager.getEnv(body.envSlug);
+            const companionEnv = await envManager.getEnv(body.envSlug);
             if (companionEnv) envVars = { ...companionEnv.variables, ...body.env };
           }
           await emitProgress(stream, "resolving_env", "Environment resolved", "done");
@@ -529,7 +529,7 @@ export function createRoutes(
         await emitProgress(stream, "resolving_env", "Resolving environment...", "in_progress");
 
         let envVars: Record<string, string> | undefined = body.env;
-        const companionEnv = body.envSlug ? envManager.getEnv(body.envSlug) : null;
+        const companionEnv = body.envSlug ? await envManager.getEnv(body.envSlug) : null;
         if (body.envSlug && companionEnv) {
           envVars = { ...companionEnv.variables, ...body.env };
         }
@@ -622,7 +622,7 @@ export function createRoutes(
 
         // --- Step: Docker image resolution ---
         let effectiveImage = companionEnv
-          ? (body.envSlug ? envManager.getEffectiveImage(body.envSlug) : null)
+          ? (body.envSlug ? await envManager.getEffectiveImage(body.envSlug) : null)
           : (body.container?.image || null);
 
         let containerInfo: ContainerInfo | undefined;
@@ -1294,7 +1294,7 @@ export function createRoutes(
 
     const worktreeResult = cleanupWorktree(id, body.force);
     launcher.setArchived(id, true);
-    sessionStore.setArchived(id, true);
+    await sessionStore.setArchived(id, true);
     return c.json({ ok: true, worktree: worktreeResult });
   });
 
@@ -1304,7 +1304,7 @@ export function createRoutes(
     if (!info) return c.json({ error: "Session not found" }, 404);
 
     launcher.setArchived(id, false);
-    sessionStore.setArchived(id, false);
+    await sessionStore.setArchived(id, false);
 
     // For worktree sessions: recreate the worktree if it was deleted during archiving
     let worktreeRecreated = false;
@@ -1369,9 +1369,9 @@ export function createRoutes(
     });
   });
 
-  api.get("/recordings", (c) => {
+  api.get("/recordings", async (c) => {
     if (!recorder) return c.json({ recordings: [] });
-    return c.json({ recordings: recorder.listRecordings() });
+    return c.json({ recordings: await recorder.listRecordings() });
   });
 
   // ─── Tool result lazy fetch ────────────────────────────────
@@ -1750,16 +1750,16 @@ export function createRoutes(
 
   // ─── Environments (~/.companion/envs/) ────────────────────────────
 
-  api.get("/envs", (c) => {
+  api.get("/envs", async (c) => {
     try {
-      return c.json(envManager.listEnvs());
+      return c.json(await envManager.listEnvs());
     } catch (e: unknown) {
       return c.json({ error: e instanceof Error ? e.message : String(e) }, 500);
     }
   });
 
-  api.get("/envs/:slug", (c) => {
-    const env = envManager.getEnv(c.req.param("slug"));
+  api.get("/envs/:slug", async (c) => {
+    const env = await envManager.getEnv(c.req.param("slug"));
     if (!env) return c.json({ error: "Environment not found" }, 404);
     return c.json(env);
   });
@@ -1767,7 +1767,7 @@ export function createRoutes(
   api.post("/envs", async (c) => {
     const body = await c.req.json().catch(() => ({}));
     try {
-      const env = envManager.createEnv(body.name, body.variables || {}, {
+      const env = await envManager.createEnv(body.name, body.variables || {}, {
         dockerfile: body.dockerfile,
         baseImage: body.baseImage,
         ports: body.ports,
@@ -1784,7 +1784,7 @@ export function createRoutes(
     const slug = c.req.param("slug");
     const body = await c.req.json().catch(() => ({}));
     try {
-      const env = envManager.updateEnv(slug, {
+      const env = await envManager.updateEnv(slug, {
         name: body.name,
         variables: body.variables,
         dockerfile: body.dockerfile,
@@ -1801,8 +1801,8 @@ export function createRoutes(
     }
   });
 
-  api.delete("/envs/:slug", (c) => {
-    const deleted = envManager.deleteEnv(c.req.param("slug"));
+  api.delete("/envs/:slug", async (c) => {
+    const deleted = await envManager.deleteEnv(c.req.param("slug"));
     if (!deleted) return c.json({ error: "Environment not found" }, 404);
     return c.json({ ok: true });
   });
@@ -1811,32 +1811,32 @@ export function createRoutes(
 
   api.post("/envs/:slug/build", async (c) => {
     const slug = c.req.param("slug");
-    const env = envManager.getEnv(slug);
+    const env = await envManager.getEnv(slug);
     if (!env) return c.json({ error: "Environment not found" }, 404);
     if (!env.dockerfile) return c.json({ error: "No Dockerfile configured for this environment" }, 400);
     if (!containerManager.checkDocker()) return c.json({ error: "Docker is not available" }, 503);
 
     const tag = `companion-env-${slug}:latest`;
-    envManager.updateBuildStatus(slug, "building");
+    await envManager.updateBuildStatus(slug, "building");
 
     try {
       const result = await containerManager.buildImageStreaming(env.dockerfile, tag);
       if (result.success) {
-        envManager.updateBuildStatus(slug, "success", { imageTag: tag });
+        await envManager.updateBuildStatus(slug, "success", { imageTag: tag });
         return c.json({ success: true, imageTag: tag, log: result.log });
       } else {
-        envManager.updateBuildStatus(slug, "error", { error: result.log.slice(-500) });
+        await envManager.updateBuildStatus(slug, "error", { error: result.log.slice(-500) });
         return c.json({ success: false, log: result.log }, 500);
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      envManager.updateBuildStatus(slug, "error", { error: msg });
+      await envManager.updateBuildStatus(slug, "error", { error: msg });
       return c.json({ success: false, error: msg }, 500);
     }
   });
 
-  api.get("/envs/:slug/build-status", (c) => {
-    const env = envManager.getEnv(c.req.param("slug"));
+  api.get("/envs/:slug/build-status", async (c) => {
+    const env = await envManager.getEnv(c.req.param("slug"));
     if (!env) return c.json({ error: "Environment not found" }, 404);
     return c.json({
       buildStatus: env.buildStatus || "idle",
@@ -2887,7 +2887,7 @@ export function createRoutes(
     const tempPath = join(tmpdir(), `companion-export-${Date.now()}.tar.zst`);
     try {
       // Flush debounced session writes so the archive includes latest messages
-      sessionStore.flushAll();
+      await sessionStore.flushAll();
       await runExport({ port: launcher.getPort(), outputPath: tempPath });
       // Read into memory before responding — unlinkSync in finally would race
       // with a lazy stream and produce a 0-byte download.
@@ -2936,9 +2936,9 @@ export function createRoutes(
         });
         // Load brand-new sessions into memory, merge updated fields
         // (cliSessionId, rewritten paths) into existing sessions
-        launcher.restoreFromDisk();
-        launcher.mergeFromDisk();
-        wsBridge.restoreFromDisk();
+        await launcher.restoreFromDisk();
+        await launcher.mergeFromDisk();
+        await wsBridge.restoreFromDisk();
         sendLine({ step: "done", result: stats });
       } catch (e) {
         sendLine({ step: "error", error: e instanceof Error ? e.message : String(e) });

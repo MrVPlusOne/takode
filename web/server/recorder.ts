@@ -1,11 +1,16 @@
-import { mkdirSync, readdirSync, appendFileSync, statSync, unlinkSync, readFileSync } from "node:fs";
+import { mkdirSync, appendFileSync } from "node:fs";
+import { readdir, stat, unlink, appendFile, readFile } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
-import { homedir } from "node:os";
+import { tmpdir } from "node:os";
 import type { BackendType } from "./session-types.js";
 
 const DEFAULT_MAX_LINES = 100_000;
 const CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+/** Flush buffered entries after this many milliseconds of inactivity. */
+const FLUSH_INTERVAL_MS = 200;
+/** Flush when the buffer reaches this many entries. */
+const FLUSH_THRESHOLD = 50;
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -43,12 +48,21 @@ export interface RecordingFileMeta {
  * Writes raw messages for a single session to a JSONL file.
  * First line is a header with session metadata; subsequent lines are entries.
  * Tracks its own line count so the manager can enforce the global limit.
+ *
+ * Uses buffered async writes: entries are queued in memory and flushed to disk
+ * periodically (every FLUSH_INTERVAL_MS) or when the buffer reaches
+ * FLUSH_THRESHOLD entries. This prevents blocking the event loop on slow
+ * filesystems (e.g. NFS).
  */
 export class SessionRecorder {
   readonly filePath: string;
   private closed = false;
   /** Number of lines written (1 for the header at construction). */
   lineCount = 1;
+  /** In-memory buffer of serialized JSONL lines waiting to be flushed. */
+  private buffer: string[] = [];
+  private flushTimer: ReturnType<typeof setTimeout> | null = null;
+  private flushing = false;
 
   constructor(
     sessionId: string,
@@ -69,6 +83,8 @@ export class SessionRecorder {
       started_at: Date.now(),
       cwd,
     };
+    // Header write is sync (cold path, once per session) to ensure file exists
+    // before any async appends.
     appendFileSync(this.filePath, JSON.stringify(header) + "\n");
   }
 
@@ -80,16 +96,58 @@ export class SessionRecorder {
       raw,
       ch: channel,
     };
-    try {
-      appendFileSync(this.filePath, JSON.stringify(entry) + "\n");
-      this.lineCount++;
-    } catch {
-      // Never throw — recording must not disrupt normal operation
+    this.buffer.push(JSON.stringify(entry) + "\n");
+    this.lineCount++;
+
+    if (this.buffer.length >= FLUSH_THRESHOLD) {
+      this.flush();
+    } else {
+      this.scheduleFlush();
     }
+  }
+
+  /** Flush buffered entries to disk (async, non-blocking). */
+  flush(): void {
+    if (this.buffer.length === 0 || this.flushing) return;
+    this.cancelFlushTimer();
+
+    const chunk = this.buffer.join("");
+    this.buffer = [];
+    this.flushing = true;
+
+    appendFile(this.filePath, chunk)
+      .catch(() => {
+        // Never throw — recording must not disrupt normal operation
+      })
+      .finally(() => {
+        this.flushing = false;
+        // If more entries accumulated while we were flushing, schedule another
+        if (this.buffer.length > 0 && !this.closed) {
+          this.scheduleFlush();
+        }
+      });
   }
 
   close(): void {
     this.closed = true;
+    this.flush(); // Final flush of any remaining entries
+    this.cancelFlushTimer();
+  }
+
+  private scheduleFlush(): void {
+    if (this.flushTimer) return;
+    this.flushTimer = setTimeout(() => {
+      this.flushTimer = null;
+      this.flush();
+    }, FLUSH_INTERVAL_MS);
+    if (this.flushTimer.unref) this.flushTimer.unref();
+  }
+
+  private cancelFlushTimer(): void {
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
   }
 }
 
@@ -99,6 +157,10 @@ export class SessionRecorder {
  * Manages recording for all sessions.
  *
  * Always enabled by default. Disable explicitly with COMPANION_RECORD=0.
+ *
+ * Default recordings directory is `$TMPDIR/companion-recordings/` — recordings
+ * are ephemeral debugging data and benefit from fast local storage. Override
+ * with COMPANION_RECORDINGS_DIR for persistent storage.
  *
  * Automatic rotation: when total lines across all recording files exceed
  * maxLines (default 100 000, override with COMPANION_RECORDINGS_MAX_LINES),
@@ -123,7 +185,7 @@ export class RecorderManager {
     this.recordingsDir =
       options?.recordingsDir ??
       process.env.COMPANION_RECORDINGS_DIR ??
-      join(homedir(), ".companion", "recordings");
+      join(tmpdir(), "companion-recordings");
     this.maxLines =
       options?.maxLines ??
       (Number(process.env.COMPANION_RECORDINGS_MAX_LINES) || DEFAULT_MAX_LINES);
@@ -232,29 +294,31 @@ export class RecorderManager {
     return recorder ? { filePath: recorder.filePath } : {};
   }
 
-  listRecordings(): RecordingFileMeta[] {
+  /** List all recording files with metadata. Async to avoid blocking on slow FS. */
+  async listRecordings(): Promise<RecordingFileMeta[]> {
     try {
-      const files = readdirSync(this.recordingsDir);
-      return files
-        .filter((f) => f.endsWith(".jsonl"))
-        .map((filename) => {
-          // Format: {sessionId}_{backendType}_{ISO-timestamp}_{suffix}.jsonl
-          const withoutExt = filename.replace(/\.jsonl$/, "");
-          const firstUnderscore = withoutExt.indexOf("_");
-          const secondUnderscore = withoutExt.indexOf("_", firstUnderscore + 1);
-          if (firstUnderscore === -1 || secondUnderscore === -1) {
-            return { filename, sessionId: "", backendType: "", startedAt: "", lines: 0 };
-          }
-          // Count lines — fast: just count newlines
-          const lines = countFileLines(join(this.recordingsDir, filename));
-          return {
-            filename,
-            sessionId: withoutExt.substring(0, firstUnderscore),
-            backendType: withoutExt.substring(firstUnderscore + 1, secondUnderscore),
-            startedAt: withoutExt.substring(secondUnderscore + 1),
-            lines,
-          };
+      const files = await readdir(this.recordingsDir);
+      const results: RecordingFileMeta[] = [];
+      for (const filename of files) {
+        if (!filename.endsWith(".jsonl")) continue;
+        // Format: {sessionId}_{backendType}_{ISO-timestamp}_{suffix}.jsonl
+        const withoutExt = filename.replace(/\.jsonl$/, "");
+        const firstUnderscore = withoutExt.indexOf("_");
+        const secondUnderscore = withoutExt.indexOf("_", firstUnderscore + 1);
+        if (firstUnderscore === -1 || secondUnderscore === -1) {
+          results.push({ filename, sessionId: "", backendType: "", startedAt: "", lines: 0 });
+          continue;
+        }
+        const lines = await countFileLines(join(this.recordingsDir, filename));
+        results.push({
+          filename,
+          sessionId: withoutExt.substring(0, firstUnderscore),
+          backendType: withoutExt.substring(firstUnderscore + 1, secondUnderscore),
+          startedAt: withoutExt.substring(secondUnderscore + 1),
+          lines,
         });
+      }
+      return results;
     } catch {
       return [];
     }
@@ -274,11 +338,12 @@ export class RecorderManager {
   /**
    * Delete oldest recording files until total lines are under maxLines.
    * Skips files that belong to active (currently recording) sessions.
+   * Fully async to avoid blocking on slow filesystems.
    */
-  cleanup(): number {
+  async cleanup(): Promise<number> {
     try {
       this.ensureDir();
-      const files = readdirSync(this.recordingsDir).filter((f) => f.endsWith(".jsonl"));
+      const files = (await readdir(this.recordingsDir)).filter((f) => f.endsWith(".jsonl"));
       if (files.length === 0) return 0;
 
       // Build list with line counts and mtime, sorted oldest-first
@@ -292,10 +357,10 @@ export class RecorderManager {
 
       for (const filename of files) {
         const fullPath = join(this.recordingsDir, filename);
-        const lines = countFileLines(fullPath);
+        const lines = await countFileLines(fullPath);
         let mtimeMs = 0;
         try {
-          mtimeMs = statSync(fullPath).mtimeMs;
+          mtimeMs = (await stat(fullPath)).mtimeMs;
         } catch {
           continue;
         }
@@ -314,7 +379,7 @@ export class RecorderManager {
         // Don't delete files that are actively being written to
         if (activeFiles.has(entry.path)) continue;
         try {
-          unlinkSync(entry.path);
+          await unlink(entry.path);
           totalLines -= entry.lines;
           deleted++;
         } catch {
@@ -340,10 +405,10 @@ export class RecorderManager {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-/** Count newlines in a file. Fast: reads raw buffer, counts 0x0A bytes. */
-function countFileLines(path: string): number {
+/** Count newlines in a file. Async to avoid blocking on slow filesystems. */
+async function countFileLines(path: string): Promise<number> {
   try {
-    const buf = readFileSync(path);
+    const buf = await readFile(path);
     let count = 0;
     for (let i = 0; i < buf.length; i++) {
       if (buf[i] === 0x0a) count++;

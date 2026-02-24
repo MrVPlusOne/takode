@@ -78,13 +78,15 @@ describe("SessionRecorder", () => {
     expect(typeof header.started_at).toBe("number");
   });
 
-  it("preserves raw strings exactly without re-serialization", () => {
+  it("preserves raw strings exactly without re-serialization", async () => {
     // The raw string has intentional formatting (extra spaces, specific order)
     // that must be preserved verbatim — not re-parsed and re-serialized.
     const rawMsg = '{"type":"system",  "subtype":"init", "extra_field": true}';
     const rec = new SessionRecorder("sess-2", "claude", "/project", tempDir);
     rec.record("in", rawMsg, "cli");
     rec.close();
+    // flush() is async (uses fs.promises.appendFile) — wait for the write to complete
+    await new Promise((r) => setTimeout(r, 50));
 
     const lines = readFileSync(rec.filePath, "utf-8").trim().split("\n");
     expect(lines.length).toBe(2);
@@ -93,12 +95,13 @@ describe("SessionRecorder", () => {
     expect(entry.raw).toBe(rawMsg);
   });
 
-  it("records entries with monotonically increasing timestamps", () => {
+  it("records entries with monotonically increasing timestamps", async () => {
     const rec = new SessionRecorder("sess-3", "codex", "/project", tempDir);
     rec.record("in", "msg1", "cli");
     rec.record("out", "msg2", "cli");
     rec.record("in", "msg3", "browser");
     rec.close();
+    await new Promise((r) => setTimeout(r, 50));
 
     const lines = readFileSync(rec.filePath, "utf-8").trim().split("\n");
     expect(lines.length).toBe(4);
@@ -109,11 +112,12 @@ describe("SessionRecorder", () => {
     }
   });
 
-  it("records direction and channel correctly", () => {
+  it("records direction and channel correctly", async () => {
     const rec = new SessionRecorder("sess-4", "claude", "/cwd", tempDir);
     rec.record("in", "hello", "cli");
     rec.record("out", "world", "browser");
     rec.close();
+    await new Promise((r) => setTimeout(r, 50));
 
     const lines = readFileSync(rec.filePath, "utf-8").trim().split("\n");
     const e1 = JSON.parse(lines[1]);
@@ -125,10 +129,12 @@ describe("SessionRecorder", () => {
     expect(e2.ch).toBe("browser");
   });
 
-  it("does not record after close()", () => {
+  it("does not record after close()", async () => {
     const rec = new SessionRecorder("sess-5", "claude", "/cwd", tempDir);
     rec.record("in", "before-close", "cli");
     rec.close();
+    // Wait for the async flush triggered by close() to complete
+    await new Promise((r) => setTimeout(r, 50));
     rec.record("in", "after-close", "cli");
 
     const lines = readFileSync(rec.filePath, "utf-8").trim().split("\n");
@@ -259,14 +265,17 @@ describe("RecorderManager", () => {
     expect(status.filePath).toBeUndefined();
   });
 
-  it("listRecordings returns correct metadata and line counts", () => {
+  it("listRecordings returns correct metadata and line counts", async () => {
     const mgr = new RecorderManager({ globalEnabled: true, recordingsDir: tempDir });
     // sess-1: header + 1 entry = 2 lines
     mgr.record("sess-1", "in", "msg", "cli", "claude", "/cwd");
     // sess-2: header + 1 entry = 2 lines
     mgr.record("sess-2", "in", "msg", "cli", "codex", "/cwd");
+    // Flush buffered entries to disk before reading
+    mgr.closeAll();
+    await new Promise((r) => setTimeout(r, 50));
 
-    const recordings = mgr.listRecordings();
+    const recordings = await mgr.listRecordings();
     expect(recordings.length).toBe(2);
 
     const r1 = recordings.find((r) => r.sessionId === "sess-1");
@@ -278,15 +287,14 @@ describe("RecorderManager", () => {
     expect(r2).toBeDefined();
     expect(r2!.backendType).toBe("codex");
     expect(r2!.lines).toBe(2);
-    mgr.closeAll();
   });
 
-  it("listRecordings returns empty array when directory does not exist", () => {
+  it("listRecordings returns empty array when directory does not exist", async () => {
     const mgr = new RecorderManager({
       globalEnabled: false,
       recordingsDir: join(tempDir, "nonexistent"),
     });
-    expect(mgr.listRecordings()).toEqual([]);
+    expect(await mgr.listRecordings()).toEqual([]);
   });
 
   it("closeAll closes all active recorders and stops cleanup timer", () => {
@@ -350,7 +358,7 @@ describe("RecorderManager", () => {
 // ─── Cleanup / Rotation ─────────────────────────────────────────────────────
 
 describe("cleanup / rotation", () => {
-  it("deletes oldest files when total lines exceed maxLines", () => {
+  it("deletes oldest files when total lines exceed maxLines", async () => {
     // Create 3 files with 10 entries each (= 11 lines each including header, 33 total)
     // Use different mtimes so we control which is "oldest"
     const now = Date.now();
@@ -365,7 +373,7 @@ describe("cleanup / rotation", () => {
       maxLines: 20,
     });
 
-    const deleted = mgr.cleanup();
+    const deleted = await mgr.cleanup();
 
     // Should have deleted at least the oldest file (11 lines), bringing total to 22,
     // still > 20, so the mid file (11 lines) gets deleted too → total 11 lines
@@ -376,7 +384,7 @@ describe("cleanup / rotation", () => {
     expect(remaining[0]).toContain("new_claude");
   });
 
-  it("does not delete files from active recording sessions", () => {
+  it("does not delete files from active recording sessions", async () => {
     // Create an old file that would normally be deleted
     const now = Date.now();
     createFakeRecording(tempDir, "stale_claude_2025-01-01.jsonl", 10, new Date(now - 3000));
@@ -390,7 +398,7 @@ describe("cleanup / rotation", () => {
     mgr.record("active-sess", "in", "msg", "cli", "claude", "/cwd");
 
     // Now cleanup should delete the stale file but NOT the active recording's file
-    const deleted = mgr.cleanup();
+    const deleted = await mgr.cleanup();
 
     // stale file deleted
     expect(existsSync(join(tempDir, "stale_claude_2025-01-01.jsonl"))).toBe(false);
@@ -403,7 +411,7 @@ describe("cleanup / rotation", () => {
     mgr.closeAll();
   });
 
-  it("is a no-op when total lines are under the limit", () => {
+  it("is a no-op when total lines are under the limit", async () => {
     // 2 files × 3 entries = 2 × 4 lines = 8 total, well under 100
     createFakeRecording(tempDir, "a_claude_2025-01-01.jsonl", 3);
     createFakeRecording(tempDir, "b_claude_2025-01-02.jsonl", 3);
@@ -414,36 +422,37 @@ describe("cleanup / rotation", () => {
       maxLines: 100,
     });
 
-    const deleted = mgr.cleanup();
+    const deleted = await mgr.cleanup();
     expect(deleted).toBe(0);
 
     expect(readDirSafe(tempDir).length).toBe(2);
   });
 
-  it("handles empty recordings directory gracefully", () => {
+  it("handles empty recordings directory gracefully", async () => {
     const mgr = new RecorderManager({
       globalEnabled: false,
       recordingsDir: tempDir,
       maxLines: 10,
     });
 
-    const deleted = mgr.cleanup();
+    const deleted = await mgr.cleanup();
     expect(deleted).toBe(0);
   });
 
-  it("runs cleanup at construction when globally enabled", () => {
+  it("runs cleanup at construction when globally enabled", async () => {
     // Pre-fill the directory over the limit
     const now = Date.now();
     createFakeRecording(tempDir, "old_claude_2025-01-01.jsonl", 20, new Date(now - 2000));
     createFakeRecording(tempDir, "new_claude_2025-01-02.jsonl", 5, new Date(now - 1000));
 
     // Total = 21 + 6 = 27 lines, maxLines = 10
-    // Constructor should run cleanup immediately, deleting the old file
+    // Constructor runs cleanup asynchronously — wait for it to complete
     const mgr = new RecorderManager({
       globalEnabled: true,
       recordingsDir: tempDir,
       maxLines: 10,
     });
+    await new Promise((r) => setTimeout(r, 50));
 
     const remaining = readDirSafe(tempDir);
     expect(remaining.length).toBe(1);

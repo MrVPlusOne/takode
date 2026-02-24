@@ -698,7 +698,7 @@ describe("ensureWorktree", () => {
       // "main" exists as a local branch
       if (cmd.includes("rev-parse --verify refs/heads/main") && !cmd.includes("-wt-")) return "aaa111";
       // rev-parse for the commit hash (git() uses cwd, not -C)
-      if (cmd === "git rev-parse refs/heads/main") return "aaa111";
+      if (cmd.includes("rev-parse refs/heads/main") && !cmd.includes("--verify")) return "aaa111";
       // generateUniqueWorktreeBranch checks (random suffix)
       if (/rev-parse --verify refs\/heads\/main-wt-\d{4}/.test(cmd)) throw new Error("not found");
       if (cmd.includes("worktree add -b")) return "";

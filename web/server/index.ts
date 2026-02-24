@@ -87,8 +87,8 @@ wsBridge.setPushoverNotifier(pushoverNotifier);
 wsBridge.setLauncher(launcher);
 launcher.setStore(sessionStore);
 launcher.setRecorder(recorder);
-launcher.restoreFromDisk();
-wsBridge.restoreFromDisk();
+await launcher.restoreFromDisk();
+await wsBridge.restoreFromDisk();
 containerManager.restoreState(CONTAINER_STATE_PATH);
 
 // When the CLI reports its internal session_id, store it for --resume on relaunch
@@ -568,25 +568,23 @@ const idleManager = new IdleManager(launcher, wsBridge, getSettings);
 idleManager.start();
 
 // ── Shutdown helpers ─────────────────────────────────────────────────────────
-function performShutdown() {
+async function performShutdown() {
   console.log("[server] Persisting state before shutdown...");
   idleManager.stop();
-  sessionStore.flushAll();
+  await sessionStore.flushAll();
   containerManager.persistState(CONTAINER_STATE_PATH);
   pushoverNotifier.destroy();
 }
 
 function gracefulShutdown() {
-  performShutdown();
-  process.exit(0);
+  performShutdown().finally(() => process.exit(0));
 }
 
 function requestRestart() {
   // Delay exit so the HTTP response can flush to the browser
   setTimeout(() => {
     console.log("[server] Restart requested, exiting with code 42...");
-    performShutdown();
-    process.exit(RESTART_EXIT_CODE);
+    performShutdown().finally(() => process.exit(RESTART_EXIT_CODE));
   }, 500);
 }
 

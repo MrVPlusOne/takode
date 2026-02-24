@@ -611,9 +611,9 @@ export class WsBridge {
   }
 
   /** Restore sessions from disk (call once at startup). */
-  restoreFromDisk(): number {
+  async restoreFromDisk(): Promise<number> {
     if (!this.store) return 0;
-    const persisted = this.store.loadAll();
+    const persisted = await this.store.loadAll();
     let count = 0;
     for (const p of persisted) {
       if (this.sessions.has(p.id)) continue; // don't overwrite live sessions

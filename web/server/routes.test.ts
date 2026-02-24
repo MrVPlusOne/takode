@@ -2,12 +2,12 @@ import { vi, describe, it, expect, beforeEach } from "vitest";
 
 // Mock env-manager and git-utils modules before any imports
 vi.mock("./env-manager.js", () => ({
-  listEnvs: vi.fn(() => []),
-  getEnv: vi.fn(() => null),
-  getEffectiveImage: vi.fn(() => null),
-  createEnv: vi.fn(),
-  updateEnv: vi.fn(),
-  deleteEnv: vi.fn(),
+  listEnvs: vi.fn(() => Promise.resolve([])),
+  getEnv: vi.fn(() => Promise.resolve(null)),
+  getEffectiveImage: vi.fn(() => Promise.resolve(null)),
+  createEnv: vi.fn(() => Promise.resolve(undefined)),
+  updateEnv: vi.fn(() => Promise.resolve(undefined)),
+  deleteEnv: vi.fn(() => Promise.resolve(undefined)),
 }));
 
 vi.mock("node:child_process", () => {
@@ -159,7 +159,8 @@ function createMockBridge() {
 
 function createMockStore() {
   return {
-    setArchived: vi.fn(() => true),
+    setArchived: vi.fn(async () => true),
+    flushAll: vi.fn(async () => {}),
   } as any;
 }
 
@@ -214,7 +215,7 @@ describe("POST /api/sessions/create", () => {
   });
 
   it("injects environment variables when envSlug is provided", async () => {
-    vi.mocked(envManager.getEnv).mockReturnValue({
+    vi.mocked(envManager.getEnv).mockResolvedValue({
       name: "Production",
       slug: "production",
       variables: { API_KEY: "secret123", DB_HOST: "db.example.com" },
@@ -411,7 +412,7 @@ describe("POST /api/sessions/create", () => {
   });
 
   it("returns 503 when env has Docker image but container startup fails", async () => {
-    vi.mocked(envManager.getEnv).mockReturnValue({
+    vi.mocked(envManager.getEnv).mockResolvedValue({
       name: "Companion",
       slug: "companion",
       variables: { CLAUDE_CODE_OAUTH_TOKEN: "token" },
@@ -419,7 +420,7 @@ describe("POST /api/sessions/create", () => {
       createdAt: 1000,
       updatedAt: 1000,
     } as any);
-    vi.mocked(envManager.getEffectiveImage).mockReturnValue("companion-dev:latest");
+    vi.mocked(envManager.getEffectiveImage).mockResolvedValue("companion-dev:latest");
     vi.spyOn(containerManager, "imageExists").mockReturnValueOnce(true);
     vi.spyOn(containerManager, "createContainer").mockImplementationOnce(() => {
       throw new Error("docker daemon timeout");
@@ -442,7 +443,7 @@ describe("POST /api/sessions/create", () => {
     // Codex in containers needs OPENAI_API_KEY or ~/.codex/auth.json.
     // existsSync must return true for the cwd check but false for auth file checks
     vi.mocked(existsSync).mockImplementation((p) => !String(p).includes(".codex"));
-    vi.mocked(envManager.getEnv).mockReturnValue({
+    vi.mocked(envManager.getEnv).mockResolvedValue({
       name: "Codex Docker",
       slug: "codex-docker",
       variables: {},
@@ -450,7 +451,7 @@ describe("POST /api/sessions/create", () => {
       createdAt: 1000,
       updatedAt: 1000,
     } as any);
-    vi.mocked(envManager.getEffectiveImage).mockReturnValue("the-companion:latest");
+    vi.mocked(envManager.getEffectiveImage).mockResolvedValue("the-companion:latest");
 
     const res = await app.request("/api/sessions/create", {
       method: "POST",
@@ -466,7 +467,7 @@ describe("POST /api/sessions/create", () => {
   });
 
   it("allows containerized Codex when OPENAI_API_KEY is provided", async () => {
-    vi.mocked(envManager.getEnv).mockReturnValue({
+    vi.mocked(envManager.getEnv).mockResolvedValue({
       name: "Codex Docker",
       slug: "codex-docker",
       variables: { OPENAI_API_KEY: "sk-test" },
@@ -474,7 +475,7 @@ describe("POST /api/sessions/create", () => {
       createdAt: 1000,
       updatedAt: 1000,
     } as any);
-    vi.mocked(envManager.getEffectiveImage).mockReturnValue("the-companion:latest");
+    vi.mocked(envManager.getEffectiveImage).mockResolvedValue("the-companion:latest");
     vi.spyOn(containerManager, "imageExists").mockReturnValueOnce(true);
     vi.spyOn(containerManager, "createContainer").mockReturnValueOnce({
       containerId: "cid-codex",
@@ -500,7 +501,7 @@ describe("POST /api/sessions/create", () => {
   });
 
   it("auto-builds companion base image when missing locally", async () => {
-    vi.mocked(envManager.getEnv).mockReturnValue({
+    vi.mocked(envManager.getEnv).mockResolvedValue({
       name: "Companion",
       slug: "companion",
       variables: { CLAUDE_CODE_OAUTH_TOKEN: "token" },
@@ -508,7 +509,7 @@ describe("POST /api/sessions/create", () => {
       createdAt: 1000,
       updatedAt: 1000,
     } as any);
-    vi.mocked(envManager.getEffectiveImage).mockReturnValue("companion-dev:latest");
+    vi.mocked(envManager.getEffectiveImage).mockResolvedValue("companion-dev:latest");
     vi.mocked(existsSync).mockReturnValueOnce(true);
     vi.spyOn(containerManager, "imageExists").mockReturnValueOnce(false);
     const buildSpy = vi.spyOn(containerManager, "buildImage").mockReturnValue("ok");
@@ -539,7 +540,7 @@ describe("POST /api/sessions/create", () => {
 
   it("runs init script before launching CLI when env has initScript", async () => {
     // Environment with initScript and Docker image
-    vi.mocked(envManager.getEnv).mockReturnValue({
+    vi.mocked(envManager.getEnv).mockResolvedValue({
       name: "WithInit",
       slug: "with-init",
       variables: { CLAUDE_CODE_OAUTH_TOKEN: "token" },
@@ -548,7 +549,7 @@ describe("POST /api/sessions/create", () => {
       createdAt: 1000,
       updatedAt: 1000,
     } as any);
-    vi.mocked(envManager.getEffectiveImage).mockReturnValue("the-companion:latest");
+    vi.mocked(envManager.getEffectiveImage).mockResolvedValue("the-companion:latest");
     vi.spyOn(containerManager, "imageExists").mockReturnValueOnce(true);
     vi.spyOn(containerManager, "createContainer").mockReturnValueOnce({
       containerId: "cid-init",
@@ -581,7 +582,7 @@ describe("POST /api/sessions/create", () => {
   });
 
   it("returns 503 and cleans up container when init script fails", async () => {
-    vi.mocked(envManager.getEnv).mockReturnValue({
+    vi.mocked(envManager.getEnv).mockResolvedValue({
       name: "FailInit",
       slug: "fail-init",
       variables: { CLAUDE_CODE_OAUTH_TOKEN: "token" },
@@ -590,7 +591,7 @@ describe("POST /api/sessions/create", () => {
       createdAt: 1000,
       updatedAt: 1000,
     } as any);
-    vi.mocked(envManager.getEffectiveImage).mockReturnValue("the-companion:latest");
+    vi.mocked(envManager.getEffectiveImage).mockResolvedValue("the-companion:latest");
     vi.spyOn(containerManager, "imageExists").mockReturnValueOnce(true);
     vi.spyOn(containerManager, "createContainer").mockReturnValueOnce({
       containerId: "cid-fail",
@@ -914,7 +915,7 @@ describe("GET /api/envs", () => {
     const envs = [
       { name: "Dev", slug: "dev", variables: { A: "1" }, createdAt: 1, updatedAt: 1 },
     ];
-    vi.mocked(envManager.listEnvs).mockReturnValue(envs);
+    vi.mocked(envManager.listEnvs).mockResolvedValue(envs);
 
     const res = await app.request("/api/envs", { method: "GET" });
 
@@ -933,7 +934,7 @@ describe("POST /api/envs", () => {
       createdAt: 1000,
       updatedAt: 1000,
     };
-    vi.mocked(envManager.createEnv).mockReturnValue(created);
+    vi.mocked(envManager.createEnv).mockResolvedValue(created);
 
     const res = await app.request("/api/envs", {
       method: "POST",
@@ -957,9 +958,7 @@ describe("POST /api/envs", () => {
   });
 
   it("returns 400 when createEnv throws", async () => {
-    vi.mocked(envManager.createEnv).mockImplementation(() => {
-      throw new Error("Environment name is required");
-    });
+    vi.mocked(envManager.createEnv).mockRejectedValue(new Error("Environment name is required"));
 
     const res = await app.request("/api/envs", {
       method: "POST",
@@ -982,7 +981,7 @@ describe("PUT /api/envs/:slug", () => {
       createdAt: 1000,
       updatedAt: 2000,
     };
-    vi.mocked(envManager.updateEnv).mockReturnValue(updated);
+    vi.mocked(envManager.updateEnv).mockResolvedValue(updated);
 
     const res = await app.request("/api/envs/production", {
       method: "PUT",
@@ -1002,7 +1001,7 @@ describe("PUT /api/envs/:slug", () => {
 
 describe("DELETE /api/envs/:slug", () => {
   it("deletes an existing environment", async () => {
-    vi.mocked(envManager.deleteEnv).mockReturnValue(true);
+    vi.mocked(envManager.deleteEnv).mockResolvedValue(true);
 
     const res = await app.request("/api/envs/staging", { method: "DELETE" });
 
@@ -1013,7 +1012,7 @@ describe("DELETE /api/envs/:slug", () => {
   });
 
   it("returns 404 when environment not found", async () => {
-    vi.mocked(envManager.deleteEnv).mockReturnValue(false);
+    vi.mocked(envManager.deleteEnv).mockResolvedValue(false);
 
     const res = await app.request("/api/envs/nonexistent", { method: "DELETE" });
 
@@ -1729,7 +1728,7 @@ describe("GET /api/fs/diff", () => {
     expect(json.path).toContain("file.ts");
     expect(json.baseBranch).toBe("main");
     expect(vi.mocked(execSync)).toHaveBeenCalledWith(
-      expect.stringContaining("git merge-base main HEAD"),
+      expect.stringContaining("git --no-optional-locks merge-base main HEAD"),
     );
     expect(vi.mocked(execSync)).toHaveBeenCalledWith(
       expect.stringContaining("git diff abc123"),
@@ -1820,7 +1819,7 @@ index 0000000..e69de29
     expect(json.diff).toBe(diffOutput);
     expect(json.baseBranch).toBe("develop");
     expect(vi.mocked(execSync)).toHaveBeenCalledWith(
-      expect.stringContaining("git merge-base develop HEAD"),
+      expect.stringContaining("git --no-optional-locks merge-base develop HEAD"),
     );
   });
 
@@ -2281,7 +2280,7 @@ describe("POST /api/sessions/create-stream", () => {
 
   it("emits container progress events for containerized session", async () => {
     // Env with Docker image — image already exists
-    vi.mocked(envManager.getEnv).mockReturnValue({
+    vi.mocked(envManager.getEnv).mockResolvedValue({
       name: "Docker",
       slug: "docker",
       variables: { CLAUDE_CODE_OAUTH_TOKEN: "token" },
@@ -2289,7 +2288,7 @@ describe("POST /api/sessions/create-stream", () => {
       createdAt: 1000,
       updatedAt: 1000,
     } as any);
-    vi.mocked(envManager.getEffectiveImage).mockReturnValue("the-companion:latest");
+    vi.mocked(envManager.getEffectiveImage).mockResolvedValue("the-companion:latest");
     vi.spyOn(containerManager, "imageExists").mockReturnValueOnce(true);
     vi.spyOn(containerManager, "createContainer").mockReturnValueOnce({
       containerId: "cid-stream",
@@ -2325,7 +2324,7 @@ describe("POST /api/sessions/create-stream", () => {
 
   it("tries pull then falls back to build when image is missing", async () => {
     // Env with missing default Docker image — pull succeeds
-    vi.mocked(envManager.getEnv).mockReturnValue({
+    vi.mocked(envManager.getEnv).mockResolvedValue({
       name: "Docker",
       slug: "docker",
       variables: { ANTHROPIC_API_KEY: "key" },
@@ -2333,7 +2332,7 @@ describe("POST /api/sessions/create-stream", () => {
       createdAt: 1000,
       updatedAt: 1000,
     } as any);
-    vi.mocked(envManager.getEffectiveImage).mockReturnValue("the-companion:latest");
+    vi.mocked(envManager.getEffectiveImage).mockResolvedValue("the-companion:latest");
     // First call: the-companion:latest not found; second call: companion-dev:latest not found either
     vi.spyOn(containerManager, "imageExists").mockReturnValueOnce(false).mockReturnValueOnce(false);
     const pullSpy = vi.spyOn(containerManager, "pullImage").mockResolvedValueOnce(true);
@@ -2372,7 +2371,7 @@ describe("POST /api/sessions/create-stream", () => {
   });
 
   it("falls back to build when pull fails", async () => {
-    vi.mocked(envManager.getEnv).mockReturnValue({
+    vi.mocked(envManager.getEnv).mockResolvedValue({
       name: "Docker",
       slug: "docker",
       variables: { ANTHROPIC_API_KEY: "key" },
@@ -2380,7 +2379,7 @@ describe("POST /api/sessions/create-stream", () => {
       createdAt: 1000,
       updatedAt: 1000,
     } as any);
-    vi.mocked(envManager.getEffectiveImage).mockReturnValue("the-companion:latest");
+    vi.mocked(envManager.getEffectiveImage).mockResolvedValue("the-companion:latest");
     // First call: the-companion:latest not found; second call: companion-dev:latest not found either
     vi.spyOn(containerManager, "imageExists").mockReturnValueOnce(false).mockReturnValueOnce(false);
     vi.spyOn(containerManager, "pullImage").mockResolvedValueOnce(false);
@@ -2419,7 +2418,7 @@ describe("POST /api/sessions/create-stream", () => {
   });
 
   it("emits init script progress events when env has initScript", async () => {
-    vi.mocked(envManager.getEnv).mockReturnValue({
+    vi.mocked(envManager.getEnv).mockResolvedValue({
       name: "WithInit",
       slug: "with-init",
       variables: { CLAUDE_CODE_OAUTH_TOKEN: "token" },
@@ -2428,7 +2427,7 @@ describe("POST /api/sessions/create-stream", () => {
       createdAt: 1000,
       updatedAt: 1000,
     } as any);
-    vi.mocked(envManager.getEffectiveImage).mockReturnValue("the-companion:latest");
+    vi.mocked(envManager.getEffectiveImage).mockResolvedValue("the-companion:latest");
     vi.spyOn(containerManager, "imageExists").mockReturnValueOnce(true);
     vi.spyOn(containerManager, "createContainer").mockReturnValueOnce({
       containerId: "cid-init-stream",
@@ -2464,7 +2463,7 @@ describe("POST /api/sessions/create-stream", () => {
   });
 
   it("emits error and cleans up when init script fails", async () => {
-    vi.mocked(envManager.getEnv).mockReturnValue({
+    vi.mocked(envManager.getEnv).mockResolvedValue({
       name: "FailInit",
       slug: "fail-init",
       variables: { CLAUDE_CODE_OAUTH_TOKEN: "token" },
@@ -2473,7 +2472,7 @@ describe("POST /api/sessions/create-stream", () => {
       createdAt: 1000,
       updatedAt: 1000,
     } as any);
-    vi.mocked(envManager.getEffectiveImage).mockReturnValue("the-companion:latest");
+    vi.mocked(envManager.getEffectiveImage).mockResolvedValue("the-companion:latest");
     vi.spyOn(containerManager, "imageExists").mockReturnValueOnce(true);
     vi.spyOn(containerManager, "createContainer").mockReturnValueOnce({
       containerId: "cid-fail-stream",

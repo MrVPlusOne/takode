@@ -1663,7 +1663,7 @@ describe("Browser message routing", () => {
 // ─── Persistence ─────────────────────────────────────────────────────────────
 
 describe("Persistence", () => {
-  it("restoreFromDisk: loads sessions from store", () => {
+  it("restoreFromDisk: loads sessions from store", async () => {
     // Save a session directly to the store
     store.saveSync({
       id: "persisted-1",
@@ -1699,7 +1699,7 @@ describe("Persistence", () => {
       processedClientMessageIds: ["restored-client-1"],
     });
 
-    const count = bridge.restoreFromDisk();
+    const count = await bridge.restoreFromDisk();
     expect(count).toBe(1);
 
     const session = bridge.getSession("persisted-1");
@@ -1713,7 +1713,7 @@ describe("Persistence", () => {
     expect(session!.processedClientMessageIdSet.has("restored-client-1")).toBe(true);
   });
 
-  it("restoreFromDisk: does not overwrite live sessions", () => {
+  it("restoreFromDisk: does not overwrite live sessions", async () => {
     // Create a live session first
     const liveSession = bridge.getOrCreateSession("live-1");
     liveSession.state.model = "live-model";
@@ -1750,7 +1750,7 @@ describe("Persistence", () => {
       pendingPermissions: [],
     });
 
-    const count = bridge.restoreFromDisk();
+    const count = await bridge.restoreFromDisk();
     expect(count).toBe(0);
 
     // Should still have the live model
@@ -2374,7 +2374,7 @@ describe("Session not found scenarios", () => {
 // ─── Restore from disk with pendingPermissions ───────────────────────────────
 
 describe("Restore from disk with pendingPermissions", () => {
-  it("restores sessions with pending permissions as a Map", () => {
+  it("restores sessions with pending permissions as a Map", async () => {
     const pendingPerms: [string, any][] = [
       ["req-restored-1", {
         request_id: "req-restored-1",
@@ -2425,7 +2425,7 @@ describe("Restore from disk with pendingPermissions", () => {
       pendingPermissions: pendingPerms,
     });
 
-    const count = bridge.restoreFromDisk();
+    const count = await bridge.restoreFromDisk();
     expect(count).toBe(1);
 
     const session = bridge.getSession("perm-session")!;
@@ -2444,7 +2444,7 @@ describe("Restore from disk with pendingPermissions", () => {
     expect(perm2.agent_id).toBe("agent-1");
   });
 
-  it("restored pending permissions are sent to newly connected browsers", () => {
+  it("restored pending permissions are sent to newly connected browsers", async () => {
     store.saveSync({
       id: "perm-replay",
       state: {
@@ -2484,7 +2484,7 @@ describe("Restore from disk with pendingPermissions", () => {
       ],
     });
 
-    bridge.restoreFromDisk();
+    await bridge.restoreFromDisk();
 
     // Connect a CLI so we don't trigger relaunch
     const cli = makeCliSocket("perm-replay");
@@ -2504,7 +2504,7 @@ describe("Restore from disk with pendingPermissions", () => {
     expect(permMsg.request.input).toEqual({ command: "echo test" });
   });
 
-  it("restores sessions with empty pendingPermissions array", () => {
+  it("restores sessions with empty pendingPermissions array", async () => {
     store.saveSync({
       id: "empty-perms",
       state: {
@@ -2536,7 +2536,7 @@ describe("Restore from disk with pendingPermissions", () => {
       pendingPermissions: [],
     });
 
-    const count = bridge.restoreFromDisk();
+    const count = await bridge.restoreFromDisk();
     expect(count).toBe(1);
 
     const session = bridge.getSession("empty-perms")!;
@@ -2544,7 +2544,7 @@ describe("Restore from disk with pendingPermissions", () => {
     expect(session.pendingPermissions.size).toBe(0);
   });
 
-  it("restores sessions with undefined pendingPermissions", () => {
+  it("restores sessions with undefined pendingPermissions", async () => {
     // Simulate a persisted session from an older version that lacks pendingPermissions
     store.saveSync({
       id: "no-perms-field",
@@ -2578,7 +2578,7 @@ describe("Restore from disk with pendingPermissions", () => {
       pendingPermissions: undefined as any,
     });
 
-    const count = bridge.restoreFromDisk();
+    const count = await bridge.restoreFromDisk();
     expect(count).toBe(1);
 
     const session = bridge.getSession("no-perms-field")!;

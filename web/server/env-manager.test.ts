@@ -46,35 +46,35 @@ function envsDir(): string {
 // ===========================================================================
 describe("slugification via createEnv", () => {
   it("converts spaces to hyphens and lowercases", async () => {
-    const env = envManager.createEnv("My App");
+    const env = await envManager.createEnv("My App");
     expect(env.slug).toBe("my-app");
   });
 
   it("strips special characters", async () => {
-    const env = envManager.createEnv("Hello World! @#$%");
+    const env = await envManager.createEnv("Hello World! @#$%");
     expect(env.slug).toBe("hello-world");
   });
 
   it("collapses consecutive hyphens", async () => {
-    const env = envManager.createEnv("a   ---  b");
+    const env = await envManager.createEnv("a   ---  b");
     expect(env.slug).toBe("a-b");
   });
 
   it("trims leading and trailing hyphens", async () => {
-    const env = envManager.createEnv(" -cool env- ");
+    const env = await envManager.createEnv(" -cool env- ");
     expect(env.slug).toBe("cool-env");
   });
 
-  it("throws when name is empty string", () => {
-    expect(() => envManager.createEnv("")).toThrow("Environment name is required");
+  it("throws when name is empty string", async () => {
+    await expect(envManager.createEnv("")).rejects.toThrow("Environment name is required");
   });
 
-  it("throws when name is only whitespace", () => {
-    expect(() => envManager.createEnv("   ")).toThrow("Environment name is required");
+  it("throws when name is only whitespace", async () => {
+    await expect(envManager.createEnv("   ")).rejects.toThrow("Environment name is required");
   });
 
-  it("throws when name contains no alphanumeric characters", () => {
-    expect(() => envManager.createEnv("@#$%^&")).toThrow(
+  it("throws when name contains no alphanumeric characters", async () => {
+    await expect(envManager.createEnv("@#$%^&")).rejects.toThrow(
       "Environment name must contain alphanumeric characters",
     );
   });
@@ -84,28 +84,28 @@ describe("slugification via createEnv", () => {
 // listEnvs
 // ===========================================================================
 describe("listEnvs", () => {
-  it("returns empty array when no envs exist", () => {
-    const result = envManager.listEnvs();
+  it("returns empty array when no envs exist", async () => {
+    const result = await envManager.listEnvs();
     expect(result).toEqual([]);
   });
 
-  it("returns envs sorted alphabetically by name", () => {
-    envManager.createEnv("Zebra");
-    envManager.createEnv("Alpha");
-    envManager.createEnv("Mango");
+  it("returns envs sorted alphabetically by name", async () => {
+    await envManager.createEnv("Zebra");
+    await envManager.createEnv("Alpha");
+    await envManager.createEnv("Mango");
 
-    const result = envManager.listEnvs();
+    const result = await envManager.listEnvs();
     expect(result.map((e) => e.name)).toEqual(["Alpha", "Mango", "Zebra"]);
   });
 
-  it("skips corrupt JSON files", () => {
+  it("skips corrupt JSON files", async () => {
     // Create a valid env first
-    envManager.createEnv("Valid");
+    await envManager.createEnv("Valid");
 
     // Write a corrupt file directly into the envs directory
     writeFileSync(join(envsDir(), "corrupt.json"), "NOT VALID JSON{{{", "utf-8");
 
-    const result = envManager.listEnvs();
+    const result = await envManager.listEnvs();
     expect(result).toHaveLength(1);
     expect(result[0].name).toBe("Valid");
   });
@@ -115,18 +115,18 @@ describe("listEnvs", () => {
 // getEnv
 // ===========================================================================
 describe("getEnv", () => {
-  it("returns the env when it exists", () => {
-    envManager.createEnv("My Service", { PORT: "3000" });
+  it("returns the env when it exists", async () => {
+    await envManager.createEnv("My Service", { PORT: "3000" });
 
-    const result = envManager.getEnv("my-service");
+    const result = await envManager.getEnv("my-service");
     expect(result).not.toBeNull();
     expect(result!.name).toBe("My Service");
     expect(result!.slug).toBe("my-service");
     expect(result!.variables).toEqual({ PORT: "3000" });
   });
 
-  it("returns null when the env does not exist", () => {
-    const result = envManager.getEnv("nonexistent");
+  it("returns null when the env does not exist", async () => {
+    const result = await envManager.getEnv("nonexistent");
     expect(result).toBeNull();
   });
 });
@@ -135,9 +135,9 @@ describe("getEnv", () => {
 // createEnv
 // ===========================================================================
 describe("createEnv", () => {
-  it("returns an env with correct structure and timestamps", () => {
+  it("returns an env with correct structure and timestamps", async () => {
     const before = Date.now();
-    const env = envManager.createEnv("Production", { NODE_ENV: "production" });
+    const env = await envManager.createEnv("Production", { NODE_ENV: "production" });
     const after = Date.now();
 
     expect(env.name).toBe("Production");
@@ -148,8 +148,8 @@ describe("createEnv", () => {
     expect(env.updatedAt).toBe(env.createdAt);
   });
 
-  it("persists the env to disk as JSON", () => {
-    envManager.createEnv("Disk Check");
+  it("persists the env to disk as JSON", async () => {
+    await envManager.createEnv("Disk Check");
 
     const raw = readFileSync(join(envsDir(), "disk-check.json"), "utf-8");
     const parsed = JSON.parse(raw);
@@ -157,20 +157,20 @@ describe("createEnv", () => {
     expect(parsed.slug).toBe("disk-check");
   });
 
-  it("defaults variables to empty object", () => {
-    const env = envManager.createEnv("No Vars");
+  it("defaults variables to empty object", async () => {
+    const env = await envManager.createEnv("No Vars");
     expect(env.variables).toEqual({});
   });
 
-  it("throws when creating a duplicate slug", () => {
-    envManager.createEnv("My App");
-    expect(() => envManager.createEnv("My App")).toThrow(
+  it("throws when creating a duplicate slug", async () => {
+    await envManager.createEnv("My App");
+    await expect(envManager.createEnv("My App")).rejects.toThrow(
       'An environment with a similar name already exists ("my-app")',
     );
   });
 
-  it("trims the name before saving", () => {
-    const env = envManager.createEnv("  Spaced Out  ");
+  it("trims the name before saving", async () => {
+    const env = await envManager.createEnv("  Spaced Out  ");
     expect(env.name).toBe("Spaced Out");
     expect(env.slug).toBe("spaced-out");
   });
@@ -180,10 +180,10 @@ describe("createEnv", () => {
 // updateEnv
 // ===========================================================================
 describe("updateEnv", () => {
-  it("updates name and variables", () => {
-    envManager.createEnv("Original", { KEY: "old" });
+  it("updates name and variables", async () => {
+    await envManager.createEnv("Original", { KEY: "old" });
 
-    const updated = envManager.updateEnv("original", {
+    const updated = await envManager.updateEnv("original", {
       name: "Renamed",
       variables: { KEY: "new" },
     });
@@ -194,10 +194,10 @@ describe("updateEnv", () => {
     expect(updated!.variables).toEqual({ KEY: "new" });
   });
 
-  it("renames the file on disk when slug changes", () => {
-    envManager.createEnv("Old Name");
+  it("renames the file on disk when slug changes", async () => {
+    await envManager.createEnv("Old Name");
 
-    envManager.updateEnv("old-name", { name: "New Name" });
+    await envManager.updateEnv("old-name", { name: "New Name" });
 
     // Old file should be gone, new file should exist
     const oldPath = join(envsDir(), "old-name.json");
@@ -209,38 +209,38 @@ describe("updateEnv", () => {
     expect(parsed.slug).toBe("new-name");
   });
 
-  it("throws on slug collision during rename", () => {
-    envManager.createEnv("Alpha");
-    envManager.createEnv("Beta");
+  it("throws on slug collision during rename", async () => {
+    await envManager.createEnv("Alpha");
+    await envManager.createEnv("Beta");
 
-    expect(() => envManager.updateEnv("alpha", { name: "Beta" })).toThrow(
+    await expect(envManager.updateEnv("alpha", { name: "Beta" })).rejects.toThrow(
       'An environment with a similar name already exists ("beta")',
     );
   });
 
-  it("returns null for a non-existent slug", () => {
-    const result = envManager.updateEnv("ghost", { name: "New" });
+  it("returns null for a non-existent slug", async () => {
+    const result = await envManager.updateEnv("ghost", { name: "New" });
     expect(result).toBeNull();
   });
 
   it("preserves createdAt and advances updatedAt", async () => {
-    const env = envManager.createEnv("Timestamps");
+    const env = await envManager.createEnv("Timestamps");
     const originalCreatedAt = env.createdAt;
 
     // Small delay to ensure Date.now() advances
     await new Promise((r) => setTimeout(r, 10));
 
-    const updated = envManager.updateEnv("timestamps", { variables: { A: "1" } });
+    const updated = await envManager.updateEnv("timestamps", { variables: { A: "1" } });
 
     expect(updated).not.toBeNull();
     expect(updated!.createdAt).toBe(originalCreatedAt);
     expect(updated!.updatedAt).toBeGreaterThan(originalCreatedAt);
   });
 
-  it("keeps existing variables when only name is updated", () => {
-    envManager.createEnv("Keep Vars", { SECRET: "abc" });
+  it("keeps existing variables when only name is updated", async () => {
+    await envManager.createEnv("Keep Vars", { SECRET: "abc" });
 
-    const updated = envManager.updateEnv("keep-vars", { name: "Kept Vars" });
+    const updated = await envManager.updateEnv("keep-vars", { name: "Kept Vars" });
     expect(updated!.variables).toEqual({ SECRET: "abc" });
   });
 });
@@ -249,17 +249,17 @@ describe("updateEnv", () => {
 // deleteEnv
 // ===========================================================================
 describe("deleteEnv", () => {
-  it("deletes an existing env and returns true", () => {
-    envManager.createEnv("To Delete");
-    const result = envManager.deleteEnv("to-delete");
+  it("deletes an existing env and returns true", async () => {
+    await envManager.createEnv("To Delete");
+    const result = await envManager.deleteEnv("to-delete");
     expect(result).toBe(true);
 
     // Confirm it is gone
-    expect(envManager.getEnv("to-delete")).toBeNull();
+    expect(await envManager.getEnv("to-delete")).toBeNull();
   });
 
-  it("returns false when the env does not exist", () => {
-    const result = envManager.deleteEnv("missing");
+  it("returns false when the env does not exist", async () => {
+    const result = await envManager.deleteEnv("missing");
     expect(result).toBe(false);
   });
 });

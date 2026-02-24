@@ -115,7 +115,7 @@ export class CronScheduler {
       // Resolve environment variables
       let envVars: Record<string, string> | undefined;
       if (job.envSlug) {
-        const env = envManager.getEnv(job.envSlug);
+        const env = await envManager.getEnv(job.envSlug);
         if (env) envVars = env.variables;
       }
 

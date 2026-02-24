@@ -204,9 +204,9 @@ export class CliLauncher {
    * Restore sessions from disk and check which PIDs are still alive.
    * Returns the number of recovered sessions.
    */
-  restoreFromDisk(): number {
+  async restoreFromDisk(): Promise<number> {
     if (!this.store) return 0;
-    const data = this.store.loadLauncher<SdkSessionInfo[]>();
+    const data = await this.store.loadLauncher<SdkSessionInfo[]>();
     if (!data || !Array.isArray(data)) return 0;
 
     let recovered = 0;
@@ -242,9 +242,9 @@ export class CliLauncher {
    * Used after import to pick up cliSessionId and rewritten paths
    * without clobbering active session state (connected sockets, PIDs, etc.).
    */
-  mergeFromDisk(): number {
+  async mergeFromDisk(): Promise<number> {
     if (!this.store) return 0;
-    const data = this.store.loadLauncher<SdkSessionInfo[]>();
+    const data = await this.store.loadLauncher<SdkSessionInfo[]>();
     if (!data || !Array.isArray(data)) return 0;
 
     let merged = 0;
