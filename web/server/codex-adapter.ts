@@ -447,7 +447,6 @@ export class CodexAdapter {
         || msg.type === "mcp_reconnect"
         || msg.type === "mcp_set_servers"
       ) {
-        console.log(`[codex-adapter] Queuing ${msg.type} — adapter not yet initialized`);
         this.pendingOutgoing.push(msg);
         return true; // accepted, will be sent after init
       }
@@ -614,7 +613,6 @@ export class CodexAdapter {
 
       // Flush any messages that were queued during initialization
       if (this.pendingOutgoing.length > 0) {
-        console.log(`[codex-adapter] Flushing ${this.pendingOutgoing.length} queued message(s)`);
         const queued = this.pendingOutgoing.splice(0);
         for (const msg of queued) {
           this.dispatchOutgoing(msg);
@@ -851,11 +849,7 @@ export class CodexAdapter {
   // ── Incoming notification handlers ──────────────────────────────────────
 
   private handleNotification(method: string, params: Record<string, unknown>): void {
-    // Debug: log all significant notifications to understand Codex event flow
-    if (method.startsWith("item/") || method.startsWith("turn/") || method.startsWith("thread/")) {
-      const item = params.item as { type?: string; id?: string } | undefined;
-      console.log(`[codex-adapter] ← ${method}${item ? ` type=${item.type} id=${item.id}` : ""}${!item && Object.keys(params).length > 0 ? ` keys=[${Object.keys(params).join(",")}]` : ""}`);
-    }
+    // Verbose per-notification logging removed — use protocol recordings for debugging.
 
     try {
     switch (method) {
@@ -946,9 +940,7 @@ export class CodexAdapter {
       }
       default:
         // Unknown notification, log for debugging
-        if (!method.startsWith("account/") && !method.startsWith("codex/event/")) {
-          console.log(`[codex-adapter] Unhandled notification: ${method}`);
-        }
+        // Silently ignore — protocol recordings capture all messages for debugging.
         break;
     }
     } catch (err) {
@@ -987,7 +979,6 @@ export class CodexAdapter {
           this.transport.respond(id, { error: "not supported" });
           break;
         default:
-          console.log(`[codex-adapter] Unhandled request: ${method}`);
           // Auto-accept unknown requests
           this.transport.respond(id, { decision: "accept" });
           break;
@@ -1070,7 +1061,6 @@ export class CodexAdapter {
     const toolArgs = params.arguments as Record<string, unknown> || {};
     const requestId = `codex-dynamic-${randomUUID()}`;
 
-    console.log(`[codex-adapter] Dynamic tool call received: ${toolName} (callId=${callId})`);
 
     // Emit tool_use so the browser sees this custom tool invocation.
     this.emitToolUseTracked(callId, `dynamic:${toolName}`, toolArgs);
@@ -1335,9 +1325,7 @@ export class CodexAdapter {
 
       default:
         // userMessage is an echo of browser input and not needed in UI.
-        if (item.type !== "userMessage") {
-          console.log(`[codex-adapter] Unhandled item/started type: ${item.type}`, JSON.stringify(item).substring(0, 300));
-        }
+        // Silently ignore unknown item types — recordings capture everything.
         break;
     }
   }
@@ -1547,9 +1535,7 @@ export class CodexAdapter {
         break;
 
       default:
-        if (item.type !== "userMessage") {
-          console.log(`[codex-adapter] Unhandled item/completed type: ${item.type}`, JSON.stringify(item).substring(0, 300));
-        }
+        // Silently ignore unknown item types — recordings capture everything.
         break;
     }
   }
@@ -1697,7 +1683,6 @@ export class CodexAdapter {
 
   /** Emit an assistant message with a tool_use content block (no tracking). */
   private emitToolUse(toolUseId: string, toolName: string, input: Record<string, unknown>): void {
-    console.log(`[codex-adapter] Emitting tool_use: ${toolName} id=${toolUseId}`);
     this.emit({
       type: "assistant",
       message: {
@@ -1749,7 +1734,6 @@ export class CodexAdapter {
   /** Emit tool_use only if item/started was never received for this ID. */
   private ensureToolUseEmitted(toolUseId: string, toolName: string, input: Record<string, unknown>): void {
     if (!this.emittedToolUseIds.has(toolUseId)) {
-      console.log(`[codex-adapter] Backfilling tool_use for ${toolName} (id=${toolUseId}) — item/started was missing`);
       this.emitToolUseTracked(toolUseId, toolName, input);
     }
   }
