@@ -65,6 +65,13 @@ export const CODEX_MODES: ModeOption[] = [
   { value: "plan", label: "Suggest" },
 ];
 
+export const CODEX_REASONING_EFFORTS: ModeOption[] = [
+  { value: "", label: "Default" },
+  { value: "low", label: "Low" },
+  { value: "medium", label: "Medium" },
+  { value: "high", label: "High" },
+];
+
 // ─── Getters ─────────────────────────────────────────────────────────────────
 
 export function getModelsForBackend(backend: BackendType): ModelOption[] {

@@ -309,6 +309,7 @@ export class WsBridge {
     "permission_response",
     "interrupt",
     "set_model",
+    "set_codex_reasoning_effort",
     "set_permission_mode",
     "mcp_get_status",
     "mcp_toggle",
@@ -326,6 +327,7 @@ export class WsBridge {
   private onCLISessionId: ((sessionId: string, cliSessionId: string) => void) | null = null;
   private onCLIRelaunchNeeded: ((sessionId: string) => void) | null = null;
   private onPermissionModeChanged: ((sessionId: string, newMode: string) => void) | null = null;
+  private onSessionRelaunchRequested: ((sessionId: string) => void) | null = null;
   private onUserMessage: ((sessionId: string, history: import("./session-types.js").BrowserIncomingMessage[], cwd: string, wasGenerating: boolean) => void) | null = null;
   private onTurnCompleted: ((sessionId: string, history: import("./session-types.js").BrowserIncomingMessage[], cwd: string) => void) | null = null;
   private onAgentPaused: ((sessionId: string, history: import("./session-types.js").BrowserIncomingMessage[], cwd: string) => void) | null = null;
@@ -360,6 +362,11 @@ export class WsBridge {
   /** Register a callback for when askPermission changes and CLI needs restart with new mode. */
   onPermissionModeChangedCallback(cb: (sessionId: string, newMode: string) => void): void {
     this.onPermissionModeChanged = cb;
+  }
+
+  /** Register a callback for when session settings changed and backend relaunch is required. */
+  onSessionRelaunchRequestedCallback(cb: (sessionId: string) => void): void {
+    this.onSessionRelaunchRequested = cb;
   }
 
   /** Register a callback for when a user message is received (for auto-naming).
@@ -2361,7 +2368,7 @@ export class WsBridge {
     if (this.launcher) {
       const activityTypes: ReadonlySet<string> = new Set([
         "user_message", "permission_response", "interrupt",
-        "set_model", "set_permission_mode",
+        "set_model", "set_permission_mode", "set_codex_reasoning_effort",
       ]);
       if (activityTypes.has(msg.type)) {
         this.launcher.touchActivity(session.id);
@@ -2449,6 +2456,19 @@ export class WsBridge {
         this.persistSession(session);
       }
 
+      if (msg.type === "set_model") {
+        this.handleCodexSetModel(session, msg.model);
+        return;
+      }
+      if (msg.type === "set_permission_mode") {
+        this.handleCodexSetPermissionMode(session, msg.mode);
+        return;
+      }
+      if (msg.type === "set_codex_reasoning_effort") {
+        this.handleCodexSetReasoningEffort(session, msg.effort);
+        return;
+      }
+
       if (session.codexAdapter) {
         session.codexAdapter.sendBrowserMessage(msg);
       } else {
@@ -2477,6 +2497,10 @@ export class WsBridge {
 
       case "set_model":
         this.handleSetModel(session, msg.model);
+        break;
+
+      case "set_codex_reasoning_effort":
+        // Claude sessions ignore this Codex-only message type.
         break;
 
       case "set_permission_mode":
@@ -2891,6 +2915,20 @@ export class WsBridge {
     this.persistSession(session);
   }
 
+  private handleCodexSetModel(session: Session, model: string) {
+    const nextModel = model.trim();
+    if (!nextModel || session.state.model === nextModel) return;
+    session.state.model = nextModel;
+    const launchInfo = this.launcher?.getSession(session.id);
+    if (launchInfo) launchInfo.model = nextModel;
+    this.broadcastToBrowsers(session, {
+      type: "session_update",
+      session: { model: nextModel },
+    });
+    this.persistSession(session);
+    this.onSessionRelaunchRequested?.(session.id);
+  }
+
   private handleSetPermissionMode(session: Session, mode: string) {
     const ndjson = JSON.stringify({
       type: "control_request",
@@ -2907,6 +2945,34 @@ export class WsBridge {
       session: { permissionMode: mode, uiMode },
     });
     this.persistSession(session);
+  }
+
+  private handleCodexSetPermissionMode(session: Session, mode: string) {
+    if (!mode || session.state.permissionMode === mode) return;
+    session.state.permissionMode = mode;
+    const launchInfo = this.launcher?.getSession(session.id);
+    if (launchInfo) launchInfo.permissionMode = mode;
+    this.broadcastToBrowsers(session, {
+      type: "session_update",
+      session: { permissionMode: mode },
+    });
+    this.persistSession(session);
+    this.onSessionRelaunchRequested?.(session.id);
+  }
+
+  private handleCodexSetReasoningEffort(session: Session, effort: string) {
+    const normalized = effort.trim();
+    const next = normalized || undefined;
+    if (session.state.codex_reasoning_effort === next) return;
+    session.state.codex_reasoning_effort = next;
+    const launchInfo = this.launcher?.getSession(session.id);
+    if (launchInfo) launchInfo.codexReasoningEffort = next;
+    this.broadcastToBrowsers(session, {
+      type: "session_update",
+      session: { codex_reasoning_effort: next },
+    });
+    this.persistSession(session);
+    this.onSessionRelaunchRequested?.(session.id);
   }
 
   private handleSetAskPermission(session: Session, askPermission: boolean) {

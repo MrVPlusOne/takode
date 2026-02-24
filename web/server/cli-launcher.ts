@@ -78,6 +78,8 @@ export interface SdkSessionInfo {
   codexInternetAccess?: boolean;
   /** Sandbox mode selected for Codex sessions */
   codexSandbox?: "workspace-write" | "danger-full-access";
+  /** Reasoning effort selected for Codex sessions (e.g. low/medium/high). */
+  codexReasoningEffort?: string;
   /** If this session was spawned by a cron job */
   cronJobId?: string;
   /** Human-readable name of the cron job that spawned this session */
@@ -124,6 +126,8 @@ export interface LaunchOptions {
   codexSandbox?: "workspace-write" | "danger-full-access";
   /** Whether Codex internet/web search should be enabled for this session. */
   codexInternetAccess?: boolean;
+  /** Codex reasoning effort (e.g. low/medium/high). */
+  codexReasoningEffort?: string;
   /** Optional override for CODEX_HOME used by Codex sessions. */
   codexHome?: string;
   /** Docker container ID — when set, CLI runs inside container via docker exec */
@@ -300,6 +304,7 @@ export class CliLauncher {
     if (backendType === "codex") {
       info.codexInternetAccess = options.codexInternetAccess === true;
       info.codexSandbox = options.codexSandbox;
+      info.codexReasoningEffort = options.codexReasoningEffort;
     }
 
     // Store container metadata if provided
@@ -447,6 +452,7 @@ export class CliLauncher {
         codexBinary: binSettings.codexBinary || undefined,
         codexSandbox: info.codexSandbox,
         codexInternetAccess: info.codexInternetAccess,
+        codexReasoningEffort: info.codexReasoningEffort,
         containerId: info.containerId,
         containerName: info.containerName,
         containerImage: info.containerImage,
@@ -733,6 +739,9 @@ export class CliLauncher {
     const args: string[] = ["app-server"];
     const internetEnabled = options.codexInternetAccess === true;
     args.push("-c", `tools.webSearch=${internetEnabled ? "true" : "false"}`);
+    if (options.codexReasoningEffort) {
+      args.push("-c", `model_reasoning_effort=${options.codexReasoningEffort}`);
+    }
     const codexHome = resolveCompanionCodexSessionHome(
       sessionId,
       options.codexHome,
@@ -830,6 +839,7 @@ export class CliLauncher {
       approvalMode: options.permissionMode,
       threadId: info.cliSessionId,
       sandbox: options.codexSandbox,
+      reasoningEffort: options.codexReasoningEffort,
       recorder: this.recorder ?? undefined,
     });
 

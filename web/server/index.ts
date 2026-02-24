@@ -197,6 +197,23 @@ wsBridge.onPermissionModeChangedCallback(async (sessionId, newMode) => {
   }
 });
 
+// Relaunch backend when runtime setting changes require process restart (Codex).
+wsBridge.onSessionRelaunchRequestedCallback(async (sessionId) => {
+  if (relaunchingSet.has(sessionId)) return;
+  const info = launcher.getSession(sessionId);
+  if (!info || info.archived) return;
+  relaunchingSet.add(sessionId);
+  console.log(`[server] Relaunching session ${sessionId} after settings update`);
+  try {
+    const result = await launcher.relaunch(sessionId);
+    if (!result.ok && result.error) {
+      wsBridge.broadcastToSession(sessionId, { type: "error", message: result.error });
+    }
+  } finally {
+    setTimeout(() => relaunchingSet.delete(sessionId), 5000);
+  }
+});
+
 // Track which sessions have had at least one auto-naming evaluation
 const autoNamingEvaluated = new Set<string>();
 // Track the history index at which the current name was derived, so subsequent

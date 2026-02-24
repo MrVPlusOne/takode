@@ -4333,6 +4333,71 @@ describe("Codex turn-start failure re-queue", () => {
   });
 });
 
+describe("Codex runtime settings updates", () => {
+  it("set_model updates launcher/session state and requests relaunch", async () => {
+    const sid = "s1";
+    const browser = makeBrowserSocket(sid);
+    const adapter = makeCodexAdapterMock();
+    const relaunchCb = vi.fn();
+    const launcherInfo = { model: "gpt-5.2-codex", permissionMode: "plan" };
+    const launcherMock = {
+      touchActivity: vi.fn(),
+      getSession: vi.fn(() => launcherInfo),
+    };
+    bridge.setLauncher(launcherMock as any);
+    bridge.onSessionRelaunchRequestedCallback(relaunchCb);
+    bridge.attachCodexAdapter(sid, adapter as any);
+    bridge.handleBrowserOpen(browser, sid);
+    browser.send.mockClear();
+
+    await bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "set_model",
+      model: "gpt-5.3-codex",
+    }));
+
+    const session = bridge.getSession(sid)!;
+    expect(session.state.model).toBe("gpt-5.3-codex");
+    expect(launcherInfo.model).toBe("gpt-5.3-codex");
+    expect(adapter.sendBrowserMessage).not.toHaveBeenCalled();
+    expect(relaunchCb).toHaveBeenCalledWith(sid);
+
+    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    const update = calls.find((c: any) => c.type === "session_update");
+    expect(update).toEqual(expect.objectContaining({
+      type: "session_update",
+      session: expect.objectContaining({ model: "gpt-5.3-codex" }),
+    }));
+  });
+
+  it("set_codex_reasoning_effort updates session state and requests relaunch", async () => {
+    const sid = "s2";
+    const browser = makeBrowserSocket(sid);
+    const adapter = makeCodexAdapterMock();
+    const relaunchCb = vi.fn();
+    const launcherInfo = { model: "gpt-5.2-codex", codexReasoningEffort: undefined };
+    const launcherMock = {
+      touchActivity: vi.fn(),
+      getSession: vi.fn(() => launcherInfo),
+    };
+    bridge.setLauncher(launcherMock as any);
+    bridge.onSessionRelaunchRequestedCallback(relaunchCb);
+    bridge.attachCodexAdapter(sid, adapter as any);
+    bridge.handleBrowserOpen(browser, sid);
+    browser.send.mockClear();
+
+    await bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "set_codex_reasoning_effort",
+      effort: "high",
+    }));
+
+    const session = bridge.getSession(sid)!;
+    expect(session.state.codex_reasoning_effort).toBe("high");
+    expect(launcherInfo.codexReasoningEffort).toBe("high");
+    expect(adapter.sendBrowserMessage).not.toHaveBeenCalled();
+    expect(relaunchCb).toHaveBeenCalledWith(sid);
+  });
+});
+
 describe("Codex /compact interception", () => {
   // Codex has no manual /compact command — compaction is automatic.
   // Sending "/compact" as a user message would be interpreted as a regular

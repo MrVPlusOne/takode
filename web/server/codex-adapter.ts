@@ -142,6 +142,7 @@ export interface CodexAdapterOptions {
   cwd?: string;
   approvalMode?: string;
   sandbox?: "workspace-write" | "danger-full-access";
+  reasoningEffort?: string;
   /** If provided, resume an existing thread instead of starting a new one. */
   threadId?: string;
   /** Optional recorder for raw message capture. */
@@ -660,6 +661,7 @@ export class CodexAdapter {
         git_behind: 0,
         total_lines_added: 0,
         total_lines_removed: 0,
+        ...(this.options.reasoningEffort ? { codex_reasoning_effort: this.options.reasoningEffort } : {}),
       };
 
       this.emit({ type: "session_init", session: state });

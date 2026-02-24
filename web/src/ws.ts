@@ -177,6 +177,7 @@ const IDEMPOTENT_OUTGOING_TYPES = new Set<BrowserOutgoingMessage["type"]>([
   "permission_response",
   "interrupt",
   "set_model",
+  "set_codex_reasoning_effort",
   "set_permission_mode",
   "mcp_get_status",
   "mcp_toggle",
@@ -1174,6 +1175,7 @@ export function sendToSession(sessionId: string, msg: BrowserOutgoingMessage): b
       case "permission_response":
       case "interrupt":
       case "set_model":
+      case "set_codex_reasoning_effort":
       case "set_permission_mode":
       case "mcp_get_status":
       case "mcp_toggle":

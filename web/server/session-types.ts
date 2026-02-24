@@ -226,6 +226,7 @@ export type BrowserOutgoingMessage =
   | { type: "session_ack"; last_seq: number }
   | { type: "interrupt"; client_msg_id?: string }
   | { type: "set_model"; model: string; client_msg_id?: string }
+  | { type: "set_codex_reasoning_effort"; effort: string; client_msg_id?: string }
   | { type: "set_permission_mode"; mode: string; client_msg_id?: string }
   | { type: "mcp_get_status"; client_msg_id?: string }
   | { type: "mcp_toggle"; serverName: string; enabled: boolean; client_msg_id?: string }
@@ -334,6 +335,8 @@ export interface SessionState {
     primary: { usedPercent: number; windowDurationMins: number; resetsAt: number } | null;
     secondary: { usedPercent: number; windowDurationMins: number; resetsAt: number } | null;
   };
+  /** Codex reasoning effort (e.g. low/medium/high). */
+  codex_reasoning_effort?: string;
   /** If this session was spawned by a cron job */
   cronJobId?: string;
   /** Human-readable name of the cron job that spawned this session */

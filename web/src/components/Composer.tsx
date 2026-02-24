@@ -1,7 +1,18 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useStore } from "../store.js";
 import { sendToSession } from "../ws.js";
-import { CLAUDE_MODES, CODEX_MODES, getNextMode, resolveClaudeCliMode, deriveUiMode, formatModel, getModelsForBackend } from "../utils/backends.js";
+import {
+  CLAUDE_MODES,
+  CODEX_MODES,
+  CODEX_REASONING_EFFORTS,
+  getNextMode,
+  resolveClaudeCliMode,
+  deriveUiMode,
+  formatModel,
+  getModelsForBackend,
+  toModelOptions,
+  type ModelOption,
+} from "../utils/backends.js";
 import { isTouchDevice } from "../utils/mobile.js";
 import type { ModeOption } from "../utils/backends.js";
 import { Lightbox } from "./Lightbox.js";
@@ -138,7 +149,9 @@ export function Composer({ sessionId }: { sessionId: string }) {
   const [slashMenuIndex, setSlashMenuIndex] = useState(0);
   const [showModeDropdown, setShowModeDropdown] = useState(false);
   const [showModelDropdown, setShowModelDropdown] = useState(false);
+  const [showCodexReasoningDropdown, setShowCodexReasoningDropdown] = useState(false);
   const [showAskConfirm, setShowAskConfirm] = useState(false);
+  const [dynamicCodexModels, setDynamicCodexModels] = useState<ModelOption[] | null>(null);
   const [sendPressing, setSendPressing] = useState(false);
   const [composerExpanded, setComposerExpanded] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -146,6 +159,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
   const menuRef = useRef<HTMLDivElement>(null);
   const modeDropdownRef = useRef<HTMLDivElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
+  const codexReasoningDropdownRef = useRef<HTMLDivElement>(null);
   const askConfirmRef = useRef<HTMLDivElement>(null);
 
   // Voice input — records audio via MediaRecorder, transcribes server-side
@@ -229,6 +243,20 @@ export function Composer({ sessionId }: { sessionId: string }) {
   const modeLabel = isCodex
     ? (modes.find((m) => m.value === currentMode)?.label?.toLowerCase() || currentMode)
     : uiMode;
+  const codexReasoningEffort = sessionData?.codex_reasoning_effort || "";
+  const codexModelOptions = dynamicCodexModels || getModelsForBackend("codex");
+
+  useEffect(() => {
+    if (!isCodex) return;
+    let cancelled = false;
+    api.getBackendModels("codex").then((models) => {
+      if (cancelled || models.length === 0) return;
+      setDynamicCodexModels(toModelOptions(models));
+    }).catch(() => {
+      // Fall back to static model list silently.
+    });
+    return () => { cancelled = true; };
+  }, [isCodex]);
 
   // Build command list from session data
   const allCommands = useMemo<CommandItem[]>(() => {
@@ -293,6 +321,9 @@ export function Composer({ sessionId }: { sessionId: string }) {
       }
       if (modelDropdownRef.current && !modelDropdownRef.current.contains(e.target as Node)) {
         setShowModelDropdown(false);
+      }
+      if (codexReasoningDropdownRef.current && !codexReasoningDropdownRef.current.contains(e.target as Node)) {
+        setShowCodexReasoningDropdown(false);
       }
     }
     document.addEventListener("pointerdown", handleClick);
@@ -806,9 +837,79 @@ export function Composer({ sessionId }: { sessionId: string }) {
                       )}
                     </div>
                   ) : (
-                    <span className="truncate font-mono-code" title={sessionData.model}>
-                      {formatModel(sessionData.model)}
-                    </span>
+                    <>
+                      <div className="relative" ref={modelDropdownRef}>
+                        <button
+                          onClick={() => setShowModelDropdown(!showModelDropdown)}
+                          disabled={!isConnected}
+                          className={`flex items-center gap-0.5 font-mono-code truncate transition-colors select-none ${
+                            !isConnected
+                              ? "opacity-30 cursor-not-allowed"
+                              : "hover:text-cc-fg cursor-pointer"
+                          }`}
+                          title={`Model: ${sessionData.model} (relaunch required)`}
+                        >
+                          <span className="truncate">{formatModel(sessionData.model)}</span>
+                          <svg viewBox="0 0 16 16" fill="currentColor" className="w-2.5 h-2.5 shrink-0 opacity-50">
+                            <path d="M4 6l4 4 4-4" />
+                          </svg>
+                        </button>
+                        {showModelDropdown && (
+                          <div className="absolute left-0 bottom-full mb-1 w-52 bg-cc-card border border-cc-border rounded-[10px] shadow-lg z-10 py-1 overflow-hidden">
+                            {codexModelOptions.map((m) => (
+                              <button
+                                key={m.value}
+                                onClick={() => {
+                                  sendToSession(sessionId, { type: "set_model", model: m.value });
+                                  setShowModelDropdown(false);
+                                }}
+                                className={`w-full px-3 py-2 text-xs text-left hover:bg-cc-hover transition-colors cursor-pointer ${
+                                  m.value === sessionData.model ? "text-cc-primary font-medium" : "text-cc-fg"
+                                }`}
+                              >
+                                <span className="mr-1.5">{m.icon}</span>{m.label}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <span className="text-cc-muted/40">&middot;</span>
+                      <div className="relative" ref={codexReasoningDropdownRef}>
+                        <button
+                          onClick={() => setShowCodexReasoningDropdown(!showCodexReasoningDropdown)}
+                          disabled={!isConnected}
+                          className={`flex items-center gap-1 truncate transition-colors select-none ${
+                            !isConnected
+                              ? "opacity-30 cursor-not-allowed"
+                              : "hover:text-cc-fg cursor-pointer"
+                          }`}
+                          title="Reasoning effort (relaunch required)"
+                        >
+                          <span>reasoning:{CODEX_REASONING_EFFORTS.find((x) => x.value === codexReasoningEffort)?.label.toLowerCase() || "default"}</span>
+                          <svg viewBox="0 0 16 16" fill="currentColor" className="w-2.5 h-2.5 shrink-0 opacity-50">
+                            <path d="M4 6l4 4 4-4" />
+                          </svg>
+                        </button>
+                        {showCodexReasoningDropdown && (
+                          <div className="absolute left-0 bottom-full mb-1 w-40 bg-cc-card border border-cc-border rounded-[10px] shadow-lg z-10 py-1 overflow-hidden">
+                            {CODEX_REASONING_EFFORTS.map((effort) => (
+                              <button
+                                key={effort.value || "default"}
+                                onClick={() => {
+                                  sendToSession(sessionId, { type: "set_codex_reasoning_effort", effort: effort.value });
+                                  setShowCodexReasoningDropdown(false);
+                                }}
+                                className={`w-full px-3 py-2 text-xs text-left hover:bg-cc-hover transition-colors cursor-pointer ${
+                                  effort.value === codexReasoningEffort ? "text-cc-primary font-medium" : "text-cc-fg"
+                                }`}
+                              >
+                                {effort.label}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </>
                   )}
                 </>
               )}

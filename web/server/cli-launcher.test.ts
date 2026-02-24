@@ -392,6 +392,23 @@ describe("launch", () => {
     expect(cmdAndArgs).toContain("tools.webSearch=false");
   });
 
+  it("passes Codex reasoning effort via config flag when provided", () => {
+    mockResolveBinary.mockReturnValue("/opt/fake/codex");
+    mockSpawn.mockReturnValueOnce(createMockCodexProc());
+
+    launcher.launch({
+      backendType: "codex",
+      cwd: "/tmp/project",
+      codexReasoningEffort: "high",
+      codexSandbox: "workspace-write",
+    });
+
+    const [cmdAndArgs] = mockSpawn.mock.calls[0];
+    expect(cmdAndArgs).toContain("app-server");
+    expect(cmdAndArgs).toContain("-c");
+    expect(cmdAndArgs).toContain("model_reasoning_effort=high");
+  });
+
   it("adds companion and bun bin directories to PATH for host Codex sessions", () => {
     mockResolveBinary.mockReturnValue("/opt/fake/codex");
     mockSpawn.mockReturnValueOnce(createMockCodexProc());

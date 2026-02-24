@@ -35,6 +35,7 @@ vi.mock("../ws.js", () => ({
 vi.mock("../api.js", () => ({
   api: {
     gitPull: vi.fn().mockResolvedValue({ success: true, output: "", git_ahead: 0, git_behind: 0 }),
+    getBackendModels: vi.fn().mockResolvedValue([]),
   },
 }));
 
@@ -345,6 +346,26 @@ describe("Composer mode toggle", () => {
 
     const toggleBtn = screen.getByTitle("Agent mode: Claude executes tools directly (Shift+Tab to toggle)");
     expect(toggleBtn.hasAttribute("disabled")).toBe(true);
+  });
+
+  it("codex reasoning dropdown sends set_codex_reasoning_effort", async () => {
+    setupMockStore({
+      session: {
+        backend_type: "codex",
+        model: "gpt-5.3-codex",
+        permissionMode: "plan",
+      },
+    });
+    render(<Composer sessionId="s1" />);
+
+    const trigger = screen.getByTitle("Reasoning effort (relaunch required)");
+    await userEvent.click(trigger);
+    await userEvent.click(screen.getByText("High"));
+
+    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
+      type: "set_codex_reasoning_effort",
+      effort: "high",
+    });
   });
 });
 
