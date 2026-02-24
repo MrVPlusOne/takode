@@ -1715,6 +1715,13 @@ export class CodexAdapter {
   private handleTurnCompleted(params: Record<string, unknown>): void {
     const turn = params.turn as { id: string; status: string; error?: { message: string } } | undefined;
 
+    this.currentTurnId = null;
+
+    // Interrupted turns are an internal mechanism (e.g. user sent a new
+    // message while a turn was active). Don't emit a result — the next
+    // turn/start will produce its own result when it finishes.
+    if (turn?.status === "interrupted") return;
+
     // Synthesize a CLIResultMessage-like structure
     const result: CLIResultMessage = {
       type: "result",
@@ -1732,7 +1739,6 @@ export class CodexAdapter {
     };
 
     this.emit({ type: "result", data: result });
-    this.currentTurnId = null;
   }
 
   private updateRateLimits(data: Record<string, unknown>): void {

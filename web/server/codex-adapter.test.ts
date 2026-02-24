@@ -547,6 +547,31 @@ describe("CodexAdapter", () => {
     expect(result.data.result).toBe("Rate limit exceeded");
   });
 
+  it("suppresses result for interrupted turn/completed", async () => {
+    // Interrupted turns (e.g. user sent new message mid-turn) should not
+    // emit a result message — the new turn will produce its own result.
+    const messages: BrowserIncomingMessage[] = [];
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
+    adapter.onBrowserMessage((msg) => messages.push(msg));
+
+    await new Promise((r) => setTimeout(r, 50));
+    stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
+    await new Promise((r) => setTimeout(r, 20));
+    stdout.push(JSON.stringify({ id: 2, result: { thread: { id: "thr_123" } } }) + "\n");
+    await new Promise((r) => setTimeout(r, 50));
+
+    stdout.push(JSON.stringify({
+      method: "turn/completed",
+      params: {
+        turn: { id: "turn_1", status: "interrupted", items: [], error: null },
+      },
+    }) + "\n");
+    await new Promise((r) => setTimeout(r, 50));
+
+    const results = messages.filter((m) => m.type === "result");
+    expect(results).toHaveLength(0);
+  });
+
   it("returns false for unsupported outgoing message types", async () => {
     const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
 
