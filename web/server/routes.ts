@@ -2583,11 +2583,21 @@ export function createRoutes(
       console.log(`[quest-claim] Setting session name for ${sessionId} to "${quest.title}" (quest ${quest.questId})`);
       sessionNames.setName(sessionId, quest.title);
       wsBridge.broadcastNameUpdate(sessionId, quest.title, "quest");
+      // Use the last user message as trigger so clicking the quest chip scrolls
+      // to the user message that initiated the claim (matches auto-namer behavior).
+      const session = wsBridge.getSession(sessionId);
+      let triggerMsgId = "quest-" + quest.questId;
+      if (session) {
+        for (let i = session.messageHistory.length - 1; i >= 0; i--) {
+          const m = session.messageHistory[i];
+          if (m.type === "user_message" && m.id) { triggerMsgId = m.id; break; }
+        }
+      }
       wsBridge.addTaskEntry(sessionId, {
         title: quest.title,
         action: "new",
         timestamp: Date.now(),
-        triggerMessageId: "quest-" + quest.questId,
+        triggerMessageId: triggerMsgId,
         source: "quest",
       });
       return c.json(quest);

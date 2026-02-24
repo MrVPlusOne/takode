@@ -64,11 +64,11 @@ export function TaskOutlineBar({ sessionId }: { sessionId: string }) {
               type="button"
               onClick={() => requestScrollToTurn(sessionId, task.triggerMessageId)}
               className={`shrink-0 text-[11px] px-2.5 py-1 rounded-full transition-colors cursor-pointer truncate max-w-[200px] ${
-                isQuest
-                  ? "bg-amber-500/15 text-amber-400 font-medium"
-                  : isActive
-                    ? "bg-cc-primary/15 text-cc-primary font-medium"
-                    : "bg-cc-hover/60 hover:bg-cc-border text-cc-fg/70 hover:text-cc-fg"
+                isActive
+                  ? isQuest
+                    ? "bg-amber-500/15 text-amber-400 font-medium"
+                    : "bg-cc-primary/15 text-cc-primary font-medium"
+                  : "bg-cc-hover/60 hover:bg-cc-border text-cc-fg/70 hover:text-cc-fg"
               }`}
               title={task.title}
             >
