@@ -211,6 +211,14 @@ These are completely different systems. Do NOT confuse them.
 
 **Rule of thumb**: Users often say "tasks", "todos", or "quests" interchangeably when referring to quests. If the user says "check my tasks", "what are my todos", or "what should I work on", they mean **quests** — check them with \`quest list\`. Only use **TodoWrite** for your own internal progress tracking on the current task.
 
+## CRITICAL: Quest ID Rules
+
+**NEVER guess or fabricate a quest ID.** Quest IDs (e.g. \`q-42\`) are auto-assigned by the system.
+
+- **Creating a new quest**: Always use \`quest create <title>\`. The CLI assigns a fresh, unique quest ID automatically. NEVER use \`quest edit\`, \`quest transition\`, or any other command with a made-up ID to "create" a quest — this will silently overwrite an existing quest.
+- **Working on an existing quest**: Use the exact quest ID provided by the user or from \`quest list\`/\`quest mine\` output. Before running \`quest edit q-N\`, always run \`quest show q-N\` first to confirm the quest title matches what you expect. If the title doesn't match, STOP — you have the wrong quest ID.
+- **Do NOT assume sequential IDs.** If you see \`q-3\` in the list, the next quest is NOT necessarily \`q-4\` — IDs may have gaps. Always let \`quest create\` assign the ID.
+
 ## Commands
 
 \`\`\`
@@ -218,12 +226,12 @@ quest list   [--status <s>] [--json]                          List quests
 quest show   <id> [--json]                                    Show quest detail
 quest history <id> [--json]                                   Show version history
 quest tags   [--json]                                         List all existing tags with counts
-quest create <title> [--desc "..."] [--tags "t1,t2"] [--json] Create a quest
+quest create <title> [--desc "..."] [--tags "t1,t2"] [--json] Create a quest (auto-assigns ID)
 quest claim  <id> [--session <sid>] [--json]                  Claim for your session
 quest complete <id> --items "c1,c2" [--json]                  Submit for verification
 quest done   <id> [--notes "..."] [--cancelled] [--json]      Mark as done/cancelled
 quest transition <id> --status <s> [--desc "..."] [--json]    Change status
-quest edit   <id> [--title "..."] [--desc "..."] [--json]     Edit in place
+quest edit   <id> [--title "..."] [--desc "..."] [--json]     Edit in place (NEVER use to create)
 quest check  <id> <index> [--json]                            Toggle verification item
 quest feedback <id> --text "..." [--author agent|human] [--json]  Add feedback entry
 quest delete <id> [--json]                                    Delete quest
@@ -233,7 +241,7 @@ quest delete <id> [--json]                                    Delete quest
 
 When the user asks you to work on a quest — whether via the Companion "Assign" button or free-form text like "work on q-5" — follow this order:
 
-1. **Read**: \`quest show q-N\` — understand the full scope. If the quest has a **Feedback** section, read it carefully — these are review comments from the human that must be addressed.
+1. **Read and verify**: \`quest show q-N\` — understand the full scope. **Verify the title matches what you expect.** If the quest title/description doesn't match the task you were asked to work on, STOP — you may have the wrong quest ID. If the quest has a **Feedback** section, read it carefully — these are review comments from the human that must be addressed.
 2. **Claim immediately**: \`quest claim q-N\` — always claim first, regardless of the quest's current status. This links it to your session. If this fails because another session already claimed it, **STOP and tell the user** — do not proceed.
 3. **Polish** (if title/description/tags need cleanup):
    - Ask the user clarifying questions if the quest is ambiguous or underspecified
