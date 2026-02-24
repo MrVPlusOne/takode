@@ -171,7 +171,17 @@ vi.mock("../store.js", () => {
   // Also support useStore.getState() which Sidebar uses directly
   useStoreFn.getState = () => mockState;
 
-  return { useStore: useStoreFn };
+  /** countUserPermissions: count permissions excluding evaluating ones */
+  const countUserPermissions = (perms: Map<string, unknown> | undefined): number => {
+    if (!perms) return 0;
+    let count = 0;
+    for (const p of perms.values()) {
+      if (!(p as { evaluating?: boolean })?.evaluating) count++;
+    }
+    return count;
+  };
+
+  return { useStore: useStoreFn, countUserPermissions };
 });
 
 // ─── Import component after mocks ───────────────────────────────────────────

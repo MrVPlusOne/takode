@@ -221,7 +221,38 @@ export interface AppSettings {
   claudeBinary: string;
   codexBinary: string;
   maxKeepAlive: number;
+  autoApprovalEnabled: boolean;
+  autoApprovalModel: string;
   restartSupported: boolean;
+}
+
+// ─── Auto-Approval Types ─────────────────────────────────────────────────────
+
+export interface AutoApprovalConfig {
+  projectPath: string;
+  label: string;
+  slug: string;
+  criteria: string;
+  enabled: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface AutoApprovalLogIndexEntry {
+  id: number;
+  sessionId: string;
+  timestamp: number;
+  toolName: string;
+  parsed: { decision: string; reason: string } | null;
+  projectPath: string;
+  durationMs: number;
+  promptLength: number;
+}
+
+export interface AutoApprovalLogEntry extends AutoApprovalLogIndexEntry {
+  systemPrompt: string;
+  prompt: string;
+  rawResponse: string | null;
 }
 
 export interface GitHubPRInfo {
@@ -486,6 +517,7 @@ export const api = {
     pushoverEnabled?: boolean; pushoverBaseUrl?: string;
     claudeBinary?: string; codexBinary?: string;
     maxKeepAlive?: number;
+    autoApprovalEnabled?: boolean; autoApprovalModel?: string;
   }) => put<AppSettings>("/settings", data),
   testBinary: (binary: string) =>
     post<{ ok: boolean; resolvedPath?: string; version?: string }>("/settings/test-binary", { binary }),
@@ -617,6 +649,24 @@ export const api = {
     get<NamerLogIndexEntry[]>("/namer-logs"),
   getNamerLogEntry: (id: number) =>
     get<NamerLogEntry>(`/namer-logs/${id}`),
+
+  // Auto-Approval configs
+  getAutoApprovalConfigs: () =>
+    get<AutoApprovalConfig[]>("/auto-approval/configs"),
+  getAutoApprovalConfig: (slug: string) =>
+    get<AutoApprovalConfig>(`/auto-approval/configs/${encodeURIComponent(slug)}`),
+  createAutoApprovalConfig: (data: { projectPath: string; label: string; criteria: string; enabled?: boolean }) =>
+    post<AutoApprovalConfig>("/auto-approval/configs", data),
+  updateAutoApprovalConfig: (slug: string, data: { label?: string; criteria?: string; enabled?: boolean }) =>
+    put<AutoApprovalConfig>(`/auto-approval/configs/${encodeURIComponent(slug)}`, data),
+  deleteAutoApprovalConfig: (slug: string) =>
+    del(`/auto-approval/configs/${encodeURIComponent(slug)}`),
+
+  // Auto-Approval debug logs
+  getAutoApprovalLogs: () =>
+    get<AutoApprovalLogIndexEntry[]>("/auto-approval/logs"),
+  getAutoApprovalLogEntry: (id: number) =>
+    get<AutoApprovalLogEntry>(`/auto-approval/logs/${id}`),
 
   // CLI session discovery (for resume)
   listCliSessions: () =>

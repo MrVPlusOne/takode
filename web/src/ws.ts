@@ -534,15 +534,18 @@ function handleParsedMessage(
 
     case "permission_request": {
       store.addPermission(sessionId, data.request);
-      // Pause generation timer while waiting for user input
-      store.pauseStreamingTimer(sessionId);
-      if (!document.hasFocus() && store.notificationDesktop) {
-        const req = data.request;
-        sendBrowserNotification(
-          "Permission needed",
-          `${req.tool_name}: approve or deny`,
-          req.request_id,
-        );
+      // If evaluating via LLM auto-approver, don't pause timer or notify —
+      // the agent isn't waiting on the user yet.
+      if (!data.request.evaluating) {
+        store.pauseStreamingTimer(sessionId);
+        if (!document.hasFocus() && store.notificationDesktop) {
+          const req = data.request;
+          sendBrowserNotification(
+            "Permission needed",
+            `${req.tool_name}: approve or deny`,
+            req.request_id,
+          );
+        }
       }
       // Also extract tasks and changed files from permission requests
       const req = data.request;
@@ -588,6 +591,56 @@ function handleParsedMessage(
         ...(data.answers?.length ? { metadata: { answers: data.answers } } : {}),
       };
       store.appendMessage(sessionId, approvedMsg);
+      break;
+    }
+
+    case "permission_auto_approved": {
+      // LLM auto-approver approved this permission — remove it and show a brief indicator
+      store.removePermission(sessionId, data.request_id);
+      store.appendMessage(sessionId, {
+        id: nextId(),
+        role: "system",
+        content: `Auto-approved ${data.tool_name}: ${data.reason}`,
+        timestamp: data.timestamp,
+        variant: "approved",
+      });
+      break;
+    }
+
+    case "permission_auto_denied": {
+      // LLM auto-approver declined — transition from evaluating to normal pending state.
+      // The permission stays pending for the user (LLM deny = "not confident, ask human").
+      store.updatePermissionEvaluating(sessionId, data.request_id, false);
+      // NOW pause timer and send notification since this needs user attention
+      store.pauseStreamingTimer(sessionId);
+      if (!document.hasFocus() && store.notificationDesktop) {
+        sendBrowserNotification(
+          "Permission needed",
+          `${data.tool_name}: approve or deny`,
+          data.request_id,
+        );
+      }
+      store.appendMessage(sessionId, {
+        id: nextId(),
+        role: "system",
+        content: `Auto-approver declined ${data.tool_name}: ${data.reason}`,
+        timestamp: data.timestamp,
+        variant: "info",
+      });
+      break;
+    }
+
+    case "permission_needs_attention": {
+      // LLM evaluation failed or timed out — transition to normal pending state
+      store.updatePermissionEvaluating(sessionId, data.request_id, false);
+      store.pauseStreamingTimer(sessionId);
+      if (!document.hasFocus() && store.notificationDesktop) {
+        sendBrowserNotification(
+          "Permission needed",
+          "Auto-approval evaluation finished — needs your input",
+          data.request_id,
+        );
+      }
       break;
     }
 

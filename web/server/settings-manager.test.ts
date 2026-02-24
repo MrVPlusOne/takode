@@ -38,6 +38,8 @@ describe("settings-manager", () => {
       claudeBinary: "",
       codexBinary: "",
       maxKeepAlive: 0,
+      autoApprovalEnabled: false,
+      autoApprovalModel: "haiku",
       updatedAt: 0,
     });
   });
@@ -108,6 +110,8 @@ describe("settings-manager", () => {
       claudeBinary: "",
       codexBinary: "",
       maxKeepAlive: 0,
+      autoApprovalEnabled: false,
+      autoApprovalModel: "haiku",
       updatedAt: 0,
     });
   });

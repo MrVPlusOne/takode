@@ -274,6 +274,9 @@ export type BrowserIncomingMessageBase =
   | { type: "tool_result_preview"; previews: ToolResultPreview[] }
   | { type: "permission_denied"; id: string; tool_name: string; tool_use_id: string; summary: string; timestamp: number; request_id?: string }
   | { type: "permission_approved"; id: string; tool_name: string; tool_use_id: string; summary: string; timestamp: number; request_id?: string; answers?: { question: string; answer: string }[] }
+  | { type: "permission_auto_approved"; request_id: string; tool_name: string; tool_use_id: string; reason: string; timestamp: number }
+  | { type: "permission_auto_denied"; request_id: string; tool_name: string; tool_use_id: string; reason: string; timestamp: number }
+  | { type: "permission_needs_attention"; request_id: string; timestamp: number }
   | { type: "state_snapshot"; sessionStatus: string | null; permissionMode: string; cliConnected: boolean; uiMode: string | null; askPermission: boolean; lastReadAt?: number; attentionReason?: "action" | "error" | "review" | null; generationStartedAt?: number | null }
   | { type: "session_stuck" }
   | { type: "quest_list_updated" }
@@ -394,6 +397,9 @@ export interface PermissionRequest {
   tool_use_id: string;
   agent_id?: string;
   timestamp: number;
+  /** True while the LLM auto-approver is evaluating this request.
+   *  Browser shows a collapsed spinner during this state. */
+  evaluating?: boolean;
 }
 
 // ─── Session Creation Progress (SSE streaming) ──────────────────────────────

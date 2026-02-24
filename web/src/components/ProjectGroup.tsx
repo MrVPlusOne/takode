@@ -24,7 +24,7 @@ const restrictToVerticalAxis: Modifier = ({ transform }) => ({
   x: 0,
 });
 import { SessionItem } from "./SessionItem.js";
-import { useStore } from "../store.js";
+import { useStore, countUserPermissions } from "../store.js";
 import { isTouchDevice } from "../utils/mobile.js";
 
 interface ProjectGroupProps {
@@ -196,7 +196,7 @@ export function ProjectGroup({
           <SortableContext items={sessionIds} strategy={verticalListSortingStrategy}>
             <div className="space-y-0.5 mt-0.5">
               {group.sessions.map((s) => {
-                const permCount = pendingPermissions.get(s.id)?.size ?? 0;
+                const permCount = countUserPermissions(pendingPermissions.get(s.id));
                 const attention = sessionAttention?.get(s.id) ?? null;
                 return (
                   <SortableSessionItem key={s.id} id={s.id}>

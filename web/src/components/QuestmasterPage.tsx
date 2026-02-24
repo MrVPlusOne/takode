@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
-import { useStore } from "../store.js";
+import { useStore, countUserPermissions } from "../store.js";
 import { api } from "../api.js";
 import { navigateToSession } from "../utils/routing.js";
 import { Lightbox } from "./Lightbox.js";
@@ -586,7 +586,7 @@ export function QuestmasterPage() {
           archived: sdkInfo.archived ?? false,
           backendType: bridgeState?.backend_type || sdkInfo.backendType || "claude",
           repoRoot: bridgeState?.repo_root || sdkInfo.repoRoot || "",
-          permCount: pendingPermissions.get(sdkInfo.sessionId)?.size ?? 0,
+          permCount: countUserPermissions(pendingPermissions.get(sdkInfo.sessionId)),
           cronJobId: bridgeState?.cronJobId || sdkInfo.cronJobId,
           cronJobName: bridgeState?.cronJobName || sdkInfo.cronJobName,
           isWorktree: bridgeState?.is_worktree || sdkInfo.isWorktree || false,

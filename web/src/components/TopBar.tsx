@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useRef, useEffect, useSyncExternalStore } from "react";
-import { useStore } from "../store.js";
+import { useStore, countUserPermissions } from "../store.js";
 import { api } from "../api.js";
 import { writeClipboardText } from "../utils/copy-utils.js";
 import { SessionStatusDot, deriveSessionStatus } from "./SessionStatusDot.js";
@@ -101,7 +101,7 @@ export function TopBar() {
     for (const sdk of sdkSessions) {
       if (sdk.archived) continue;
       const vs = deriveSessionStatus({
-        permCount: pendingPermissions.get(sdk.sessionId)?.size ?? 0,
+        permCount: countUserPermissions(pendingPermissions.get(sdk.sessionId)),
         isConnected: cliConnected.get(sdk.sessionId) ?? sdk.cliConnected ?? false,
         sdkState: sdk.state ?? null,
         status: sessionStatus.get(sdk.sessionId) ?? null,
@@ -121,7 +121,7 @@ export function TopBar() {
       .filter((sdk) => {
         if (sdk.archived) return false;
         const vs = deriveSessionStatus({
-          permCount: pendingPermissions.get(sdk.sessionId)?.size ?? 0,
+          permCount: countUserPermissions(pendingPermissions.get(sdk.sessionId)),
           isConnected: cliConnected.get(sdk.sessionId) ?? sdk.cliConnected ?? false,
           sdkState: sdk.state ?? null,
           status: sessionStatus.get(sdk.sessionId) ?? null,
@@ -175,7 +175,7 @@ export function TopBar() {
 
   const isConnected = currentSessionId ? (cliConnected.get(currentSessionId) ?? false) : false;
   const status = currentSessionId ? (sessionStatus.get(currentSessionId) ?? null) : null;
-  const currentPermCount = currentSessionId ? (pendingPermissions.get(currentSessionId)?.size ?? 0) : 0;
+  const currentPermCount = currentSessionId ? countUserPermissions(pendingPermissions.get(currentSessionId)) : 0;
   const currentSdkState = currentSessionId
     ? (sdkSessions.find((s) => s.sessionId === currentSessionId)?.state ?? null)
     : null;

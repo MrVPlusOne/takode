@@ -45,6 +45,7 @@ import type { ImageStore } from "./image-store.js";
 import type { CliLauncher } from "./cli-launcher.js";
 import * as gitUtils from "./git-utils.js";
 import { sessionTag } from "./session-tag.js";
+import { shouldAttemptAutoApproval, evaluatePermission } from "./auto-approver.js";
 
 // ─── Denial summary helper ───────────────────────────────────────────────────
 
@@ -183,6 +184,9 @@ interface Session {
   diffStatsDirty: boolean;
   /** Whether this session was created by resuming an external CLI session (VS Code/terminal) */
   resumedFromExternal?: boolean;
+  /** AbortControllers for in-flight LLM auto-approval evaluations, keyed by request_id.
+   *  Used to cancel the LLM subprocess when the user responds manually. Transient — not persisted. */
+  evaluatingAborts: Map<string, AbortController>;
 }
 
 type GitSessionKey = "git_branch" | "is_worktree" | "is_containerized" | "repo_root" | "git_ahead" | "git_behind" | "total_lines_added" | "total_lines_removed";
@@ -643,8 +647,18 @@ export class WsBridge {
         taskHistory: Array.isArray(p.taskHistory) ? p.taskHistory : [],
         keywords: Array.isArray(p.keywords) ? p.keywords : [],
         diffStatsDirty: true,
+        evaluatingAborts: new Map(),
       };
       session.state.backend_type = session.backendType;
+
+      // Recover from server restart: any permissions left in "evaluating" state
+      // have no running LLM subprocess. Transition them to normal pending.
+      for (const perm of session.pendingPermissions.values()) {
+        if (perm.evaluating) {
+          perm.evaluating = false;
+        }
+      }
+
       // Git info resolves lazily on first CLI/browser connect — skipping here
       // eliminates hundreds of blocking git calls at startup on NFS.
       this.sessions.set(p.id, session);
@@ -853,6 +867,7 @@ export class WsBridge {
         taskHistory: [],
         keywords: [],
         diffStatsDirty: true,
+        evaluatingAborts: new Map(),
       };
       this.sessions.set(sessionId, session);
     } else if (backendType) {
@@ -1832,6 +1847,13 @@ export class WsBridge {
         return;
       }
 
+      // Check if LLM auto-approval is available for this session's project.
+      // Only for Claude Code sessions and non-NEVER_AUTO_APPROVE tools.
+      const autoApprovalConfig = (
+        session.backendType === "claude" &&
+        !NEVER_AUTO_APPROVE.has(toolName)
+      ) ? shouldAttemptAutoApproval(session.state.cwd) : null;
+
       const perm: PermissionRequest = {
         request_id: msg.request_id,
         tool_name: msg.request.tool_name,
@@ -1841,6 +1863,7 @@ export class WsBridge {
         tool_use_id: msg.request.tool_use_id,
         agent_id: msg.request.agent_id,
         timestamp: Date.now(),
+        ...(autoApprovalConfig ? { evaluating: true } : {}),
       };
       session.pendingPermissions.set(msg.request_id, perm);
 
@@ -1848,14 +1871,22 @@ export class WsBridge {
         type: "permission_request",
         request: perm,
       });
-      this.setAttention(session, "action");
-      this.persistSession(session);
 
-      // Schedule Pushover notification for attention-requiring events
-      if (this.pushoverNotifier) {
-        const eventType = toolName === "AskUserQuestion" ? "question" as const : "permission" as const;
-        const detail = toolName + (perm.description ? `: ${perm.description}` : "");
-        this.pushoverNotifier.scheduleNotification(session.id, eventType, detail, msg.request_id);
+      if (autoApprovalConfig) {
+        // Path A: LLM auto-approval available — show collapsed spinner in browser,
+        // defer attention/notifications until LLM evaluation completes.
+        this.persistSession(session);
+        this.tryLlmAutoApproval(session, msg.request_id, perm);
+      } else {
+        // Path B: Normal flow — immediate attention + notification.
+        this.setAttention(session, "action");
+        this.persistSession(session);
+
+        if (this.pushoverNotifier) {
+          const eventType = toolName === "AskUserQuestion" ? "question" as const : "permission" as const;
+          const detail = toolName + (perm.description ? `: ${perm.description}` : "");
+          this.pushoverNotifier.scheduleNotification(session.id, eventType, detail, msg.request_id);
+        }
       }
 
       // Trigger auto-naming when agent pauses for plan approval — the agent
@@ -1866,11 +1897,125 @@ export class WsBridge {
     }
   }
 
+  /**
+   * Asynchronously evaluate a permission request via LLM auto-approver.
+   * Fire-and-forget: the caller does not await this. Race conditions are
+   * handled by checking `session.pendingPermissions.has(requestId)` before
+   * acting on the LLM result.
+   */
+  private async tryLlmAutoApproval(
+    session: Session,
+    requestId: string,
+    perm: PermissionRequest,
+  ): Promise<void> {
+    const abort = new AbortController();
+    session.evaluatingAborts.set(requestId, abort);
+
+    try {
+      const result = await evaluatePermission(
+        session.id,
+        perm.tool_name,
+        perm.input,
+        perm.description,
+        session.state.cwd,
+        abort.signal,
+      );
+
+      // Clean up abort controller
+      session.evaluatingAborts.delete(requestId);
+
+      // Race condition guard: user/CLI may have already handled this permission
+      if (!session.pendingPermissions.has(requestId)) return;
+
+      if (result?.decision === "approve") {
+        // LLM approved — auto-approve the permission
+        session.pendingPermissions.delete(requestId);
+        this.pushoverNotifier?.cancelPermission(session.id, requestId);
+        this.clearActionAttentionIfNoPermissions(session);
+
+        const ndjson = JSON.stringify({
+          type: "control_response",
+          response: {
+            subtype: "success",
+            request_id: requestId,
+            response: {
+              behavior: "allow",
+              updatedInput: perm.input,
+            },
+          },
+        });
+        this.sendToCLI(session, ndjson);
+
+        this.broadcastToBrowsers(session, {
+          type: "permission_auto_approved",
+          request_id: requestId,
+          tool_name: perm.tool_name,
+          tool_use_id: perm.tool_use_id,
+          reason: result.reason,
+          timestamp: Date.now(),
+        });
+
+        console.log(`[auto-approver] Auto-approved ${perm.tool_name} for session ${sessionTag(session.id)}: ${result.reason}`);
+        this.persistSession(session);
+      } else {
+        // LLM denied or failed (null) — transition to normal pending state.
+        // Clear the evaluating flag so the browser shows full approval UI.
+        perm.evaluating = false;
+
+        this.broadcastToBrowsers(session, {
+          type: "permission_needs_attention",
+          request_id: requestId,
+          timestamp: Date.now(),
+        });
+
+        // NOW set attention and schedule notifications
+        this.setAttention(session, "action");
+        if (this.pushoverNotifier) {
+          const eventType = perm.tool_name === "AskUserQuestion" ? "question" as const : "permission" as const;
+          const detail = perm.tool_name + (perm.description ? `: ${perm.description}` : "");
+          this.pushoverNotifier.scheduleNotification(session.id, eventType, detail, requestId);
+        }
+
+        if (result?.decision === "deny") {
+          console.log(`[auto-approver] LLM denied ${perm.tool_name} for session ${sessionTag(session.id)}: ${result.reason}`);
+        } else {
+          console.log(`[auto-approver] LLM evaluation failed/timed out for ${perm.tool_name} in session ${sessionTag(session.id)}, falling through to user`);
+        }
+        this.persistSession(session);
+      }
+    } catch (err) {
+      session.evaluatingAborts.delete(requestId);
+
+      // Fail-safe: if anything goes wrong, transition to normal pending
+      if (session.pendingPermissions.has(requestId)) {
+        perm.evaluating = false;
+        this.broadcastToBrowsers(session, {
+          type: "permission_needs_attention",
+          request_id: requestId,
+          timestamp: Date.now(),
+        });
+        this.setAttention(session, "action");
+        this.persistSession(session);
+      }
+      console.warn(`[auto-approver] Error evaluating ${perm.tool_name} for session ${sessionTag(session.id)}:`, err);
+    }
+  }
+
+  /** Abort any in-flight LLM auto-approval evaluation for a given request. */
+  private abortAutoApproval(session: Session, requestId: string): void {
+    const abort = session.evaluatingAborts.get(requestId);
+    if (abort) {
+      abort.abort();
+      session.evaluatingAborts.delete(requestId);
+    }
+  }
+
   /** CLI cancels a pending can_use_tool it previously sent (e.g. after interrupt or hook auto-approval). */
   private handleControlCancelRequest(session: Session, msg: CLIControlCancelRequestMessage) {
     const reqId = msg.request_id;
     const pending = session.pendingPermissions.get(reqId);
     if (pending) {
+      this.abortAutoApproval(session, reqId);
       session.pendingPermissions.delete(reqId);
       this.broadcastToBrowsers(session, { type: "permission_cancelled", request_id: reqId });
       this.pushoverNotifier?.cancelPermission(session.id, reqId);
@@ -2453,6 +2598,9 @@ export class WsBridge {
     // Remove from pending
     const pending = session.pendingPermissions.get(msg.request_id);
     session.pendingPermissions.delete(msg.request_id);
+
+    // Abort any in-flight LLM auto-approval evaluation
+    this.abortAutoApproval(session, msg.request_id);
 
     // Cancel any pending Pushover notification for this permission
     this.pushoverNotifier?.cancelPermission(session.id, msg.request_id);

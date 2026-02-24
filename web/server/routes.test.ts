@@ -68,6 +68,7 @@ vi.mock("./settings-manager.js", () => ({
     pushoverUserKey: "", pushoverApiToken: "", pushoverDelaySeconds: 30, pushoverEnabled: true, pushoverBaseUrl: "",
     claudeBinary: "", codexBinary: "",
     maxKeepAlive: 0,
+    autoApprovalEnabled: false, autoApprovalModel: "haiku",
     updatedAt: 0,
   })),
   updateSettings: vi.fn((patch) => ({
@@ -81,6 +82,8 @@ vi.mock("./settings-manager.js", () => ({
     claudeBinary: patch.claudeBinary ?? "",
     codexBinary: patch.codexBinary ?? "",
     maxKeepAlive: patch.maxKeepAlive ?? 0,
+    autoApprovalEnabled: patch.autoApprovalEnabled ?? false,
+    autoApprovalModel: patch.autoApprovalModel ?? "haiku",
     updatedAt: Date.now(),
   })),
   getServerName: vi.fn(() => ""),
@@ -1043,6 +1046,7 @@ describe("GET /api/settings", () => {
       pushoverUserKey: "u123", pushoverApiToken: "t456", pushoverDelaySeconds: 60, pushoverEnabled: true, pushoverBaseUrl: "http://localhost:3456",
       claudeBinary: "", codexBinary: "",
       maxKeepAlive: 0,
+      autoApprovalEnabled: false, autoApprovalModel: "haiku",
       updatedAt: 123,
     });
 
@@ -1060,6 +1064,8 @@ describe("GET /api/settings", () => {
       claudeBinary: "",
       codexBinary: "",
       maxKeepAlive: 0,
+      autoApprovalEnabled: false,
+      autoApprovalModel: "haiku",
       restartSupported: expect.any(Boolean),
       logFile: expect.any(Object), // null or string depending on logger init
     });
@@ -1072,6 +1078,7 @@ describe("GET /api/settings", () => {
       pushoverUserKey: "", pushoverApiToken: "", pushoverDelaySeconds: 30, pushoverEnabled: true, pushoverBaseUrl: "",
       claudeBinary: "", codexBinary: "",
       maxKeepAlive: 0,
+      autoApprovalEnabled: false, autoApprovalModel: "haiku",
       updatedAt: 123,
     });
 
@@ -1089,6 +1096,8 @@ describe("GET /api/settings", () => {
       claudeBinary: "",
       codexBinary: "",
       maxKeepAlive: 0,
+      autoApprovalEnabled: false,
+      autoApprovalModel: "haiku",
       restartSupported: expect.any(Boolean),
       logFile: expect.any(Object), // null or string depending on logger init
     });
@@ -1102,6 +1111,7 @@ describe("GET /api/settings", () => {
       pushoverUserKey: "", pushoverApiToken: "", pushoverDelaySeconds: 30, pushoverEnabled: true, pushoverBaseUrl: "",
       claudeBinary: "", codexBinary: "",
       maxKeepAlive: 0,
+      autoApprovalEnabled: false, autoApprovalModel: "haiku",
       updatedAt: 0,
     });
 
@@ -1122,6 +1132,7 @@ describe("PUT /api/settings", () => {
       pushoverUserKey: "u123", pushoverApiToken: "t456", pushoverDelaySeconds: 60, pushoverEnabled: true, pushoverBaseUrl: "",
       claudeBinary: "", codexBinary: "",
       maxKeepAlive: 0,
+      autoApprovalEnabled: false, autoApprovalModel: "haiku",
       updatedAt: 456,
     });
 
@@ -1153,6 +1164,8 @@ describe("PUT /api/settings", () => {
       claudeBinary: "",
       codexBinary: "",
       maxKeepAlive: 0,
+      autoApprovalEnabled: false,
+      autoApprovalModel: "haiku",
     });
   });
 
@@ -1163,6 +1176,7 @@ describe("PUT /api/settings", () => {
       pushoverUserKey: "trimmed", pushoverApiToken: "", pushoverDelaySeconds: 30, pushoverEnabled: true, pushoverBaseUrl: "",
       claudeBinary: "", codexBinary: "",
       maxKeepAlive: 0,
+      autoApprovalEnabled: false, autoApprovalModel: "haiku",
       updatedAt: 789,
     });
 
@@ -1192,6 +1206,7 @@ describe("PUT /api/settings", () => {
       pushoverUserKey: "", pushoverApiToken: "", pushoverDelaySeconds: 30, pushoverEnabled: true, pushoverBaseUrl: "",
       claudeBinary: "", codexBinary: "",
       maxKeepAlive: 0,
+      autoApprovalEnabled: false, autoApprovalModel: "haiku",
       updatedAt: Date.now(),
     });
     vi.mocked(settingsManager.getServerName).mockReturnValue("My Backend");
@@ -1285,6 +1300,7 @@ describe("PUT /api/settings", () => {
       pushoverUserKey: "", pushoverApiToken: "", pushoverDelaySeconds: 30, pushoverEnabled: true, pushoverBaseUrl: "",
       claudeBinary: "/usr/local/bin/claude", codexBinary: "",
       maxKeepAlive: 0,
+      autoApprovalEnabled: false, autoApprovalModel: "haiku",
       updatedAt: Date.now(),
     });
 
@@ -1356,6 +1372,7 @@ describe("PUT /api/settings", () => {
       pushoverUserKey: "", pushoverApiToken: "", pushoverDelaySeconds: 30, pushoverEnabled: true, pushoverBaseUrl: "",
       claudeBinary: "", codexBinary: "",
       maxKeepAlive: 5,
+      autoApprovalEnabled: false, autoApprovalModel: "haiku",
       updatedAt: Date.now(),
     });
 

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { useStore } from "../store.js";
+import { useStore, countUserPermissions } from "../store.js";
 import { api } from "../api.js";
 import { writeClipboardText } from "../utils/copy-utils.js";
 import { connectSession, connectAllSessions, disconnectSession } from "../ws.js";
@@ -156,7 +156,7 @@ export function Sidebar() {
       if (a !== null && activeSessionIds.has(id)) attentionIds.add(id);
     }
     for (const [id, perms] of pendingPermissions) {
-      if (perms.size > 0 && activeSessionIds.has(id)) attentionIds.add(id);
+      if (countUserPermissions(perms) > 0 && activeSessionIds.has(id)) attentionIds.add(id);
     }
     const totalAttention = attentionIds.size;
     const suffix = import.meta.env.DEV ? "[DEV] Takode" : "Takode";
@@ -360,7 +360,7 @@ export function Sidebar() {
       archivedAt: sdkInfo?.archivedAt,
       backendType: bridgeState?.backend_type || sdkInfo?.backendType || "claude",
       repoRoot: bridgeState?.repo_root || sdkInfo?.repoRoot || "",
-      permCount: pendingPermissions.get(id)?.size ?? 0,
+      permCount: countUserPermissions(pendingPermissions.get(id)),
       cronJobId: bridgeState?.cronJobId || sdkInfo?.cronJobId,
       cronJobName: bridgeState?.cronJobName || sdkInfo?.cronJobName,
       isWorktree: bridgeState?.is_worktree || sdkInfo?.isWorktree || false,
@@ -573,7 +573,7 @@ export function Sidebar() {
                   isArchived={s.archived}
                   sessionName={sessionNames.get(s.id)}
                   sessionPreview={sessionPreviews.get(s.id)}
-                  permCount={pendingPermissions.get(s.id)?.size ?? 0}
+                  permCount={countUserPermissions(pendingPermissions.get(s.id))}
                   isRecentlyRenamed={recentlyRenamed.has(s.id)}
                   matchContext={matchContext}
                   {...sessionItemProps}
@@ -625,7 +625,7 @@ export function Sidebar() {
                         session={s}
                         isActive={currentSessionId === s.id}
                         sessionName={sessionNames.get(s.id)}
-                        permCount={pendingPermissions.get(s.id)?.size ?? 0}
+                        permCount={countUserPermissions(pendingPermissions.get(s.id))}
                         isRecentlyRenamed={recentlyRenamed.has(s.id)}
                         {...sessionItemProps}
                       />
@@ -656,7 +656,7 @@ export function Sidebar() {
                         isArchived
                         sessionName={sessionNames.get(s.id)}
                         sessionPreview={sessionPreviews.get(s.id)}
-                        permCount={pendingPermissions.get(s.id)?.size ?? 0}
+                        permCount={countUserPermissions(pendingPermissions.get(s.id))}
                         isRecentlyRenamed={recentlyRenamed.has(s.id)}
                         {...sessionItemProps}
                       />

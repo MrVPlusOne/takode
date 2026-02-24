@@ -61,6 +61,14 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
 
 vi.mock("../store.js", () => ({
   useStore: (selector: (s: MockStoreState) => unknown) => selector(storeState),
+  countUserPermissions: (perms: Map<string, unknown> | undefined): number => {
+    if (!perms) return 0;
+    let count = 0;
+    for (const p of perms.values()) {
+      if (!(p as { evaluating?: boolean })?.evaluating) count++;
+    }
+    return count;
+  },
 }));
 
 import { TopBar } from "./TopBar.js";

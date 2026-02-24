@@ -35,6 +35,13 @@ const mockApi = {
   getNamerLogs: vi.fn(),
   getNamerLogEntry: vi.fn(),
   testPushover: vi.fn(),
+  getAutoApprovalConfigs: vi.fn().mockResolvedValue([]),
+  getAutoApprovalConfig: vi.fn(),
+  createAutoApprovalConfig: vi.fn(),
+  updateAutoApprovalConfig: vi.fn(),
+  deleteAutoApprovalConfig: vi.fn(),
+  getAutoApprovalLogs: vi.fn().mockResolvedValue([]),
+  getAutoApprovalLogEntry: vi.fn(),
 };
 
 vi.mock("../api.js", () => ({
@@ -44,6 +51,13 @@ vi.mock("../api.js", () => ({
     getNamerLogs: (...args: unknown[]) => mockApi.getNamerLogs(...args),
     getNamerLogEntry: (...args: unknown[]) => mockApi.getNamerLogEntry(...args),
     testPushover: (...args: unknown[]) => mockApi.testPushover(...args),
+    getAutoApprovalConfigs: (...args: unknown[]) => mockApi.getAutoApprovalConfigs(...args),
+    getAutoApprovalConfig: (...args: unknown[]) => mockApi.getAutoApprovalConfig(...args),
+    createAutoApprovalConfig: (...args: unknown[]) => mockApi.createAutoApprovalConfig(...args),
+    updateAutoApprovalConfig: (...args: unknown[]) => mockApi.updateAutoApprovalConfig(...args),
+    deleteAutoApprovalConfig: (...args: unknown[]) => mockApi.deleteAutoApprovalConfig(...args),
+    getAutoApprovalLogs: (...args: unknown[]) => mockApi.getAutoApprovalLogs(...args),
+    getAutoApprovalLogEntry: (...args: unknown[]) => mockApi.getAutoApprovalLogEntry(...args),
   },
 }));
 

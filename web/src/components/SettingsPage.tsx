@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { api, checkHealth, type ImportStats } from "../api.js";
+import { api, checkHealth, type ImportStats, type AutoApprovalConfig } from "../api.js";
 import { useStore } from "../store.js";
 import { NamerDebugPanel } from "./NamerDebugPanel.js";
+import { AutoApprovalDebugPanel } from "./AutoApprovalDebugPanel.js";
 
 import { navigateToSession, navigateToMostRecentSession } from "../utils/routing.js";
 
@@ -61,6 +62,20 @@ export function SettingsPage({ embedded = false }: SettingsPageProps) {
   const healthPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const healthTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Auto-approval state
+  const [aaEnabled, setAaEnabled] = useState(false);
+  const [aaModel, setAaModel] = useState("haiku");
+  const [aaSaving, setAaSaving] = useState(false);
+  const [aaSaved, setAaSaved] = useState(false);
+  const [aaError, setAaError] = useState("");
+  const [aaConfigs, setAaConfigs] = useState<AutoApprovalConfig[]>([]);
+  const [aaConfigsLoading, setAaConfigsLoading] = useState(false);
+  const [aaNewProjectPath, setAaNewProjectPath] = useState("");
+  const [aaNewLabel, setAaNewLabel] = useState("");
+  const [aaNewCriteria, setAaNewCriteria] = useState("");
+  const [aaCreating, setAaCreating] = useState(false);
+  const [aaCreateError, setAaCreateError] = useState("");
+
   // Session export/import state
   const importInputRef = useRef<HTMLInputElement>(null);
   const [exporting, setExporting] = useState(false);
@@ -69,6 +84,14 @@ export function SettingsPage({ embedded = false }: SettingsPageProps) {
   const [importPct, setImportPct] = useState<number | undefined>(undefined);
   const [importResult, setImportResult] = useState<ImportStats | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
+
+  function loadAutoApprovalConfigs() {
+    setAaConfigsLoading(true);
+    api.getAutoApprovalConfigs()
+      .then(setAaConfigs)
+      .catch(() => {})
+      .finally(() => setAaConfigsLoading(false));
+  }
 
   useEffect(() => {
     api
@@ -82,9 +105,12 @@ export function SettingsPage({ embedded = false }: SettingsPageProps) {
         setPoDelay(s.pushoverDelaySeconds);
         setPoBaseUrl(s.pushoverBaseUrl || "");
         setRestartSupported(s.restartSupported);
+        setAaEnabled(s.autoApprovalEnabled);
+        setAaModel(s.autoApprovalModel || "haiku");
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
+    loadAutoApprovalConfigs();
   }, []);
 
   async function onSavePushover(e: React.FormEvent) {
@@ -832,10 +858,263 @@ export function SettingsPage({ embedded = false }: SettingsPageProps) {
           )}
         </div>
 
+        {/* ── Auto-Approval (LLM) ─────────────────────────── */}
+        <div className="mt-4 bg-cc-card border border-cc-border rounded-xl p-4 sm:p-5 space-y-4">
+          <h2 className="text-sm font-semibold text-cc-fg">Auto-Approval (LLM)</h2>
+          <p className="text-xs text-cc-muted">
+            When enabled, permission requests are first evaluated by a fast LLM against your project-specific criteria.
+            If the LLM approves, the permission is auto-approved. Otherwise, it falls through to you as usual.
+          </p>
+
+          {/* Master toggle + model selector */}
+          <div className="flex items-center gap-4 flex-wrap">
+            <label className="flex items-center gap-2 text-xs text-cc-fg cursor-pointer">
+              <input
+                type="checkbox"
+                checked={aaEnabled}
+                onChange={(e) => setAaEnabled(e.target.checked)}
+                className="accent-cc-primary"
+              />
+              Enabled
+            </label>
+            <label className="flex items-center gap-2 text-xs text-cc-fg">
+              <span className="text-cc-muted">Model:</span>
+              <select
+                value={aaModel}
+                onChange={(e) => setAaModel(e.target.value)}
+                className="px-2 py-1 text-xs bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/50"
+              >
+                <option value="haiku">Haiku (fast, cheap)</option>
+                <option value="sonnet">Sonnet (more capable)</option>
+              </select>
+            </label>
+            <button
+              type="button"
+              disabled={aaSaving}
+              onClick={async () => {
+                setAaSaving(true);
+                setAaError("");
+                setAaSaved(false);
+                try {
+                  const res = await api.updateSettings({ autoApprovalEnabled: aaEnabled, autoApprovalModel: aaModel });
+                  setAaEnabled(res.autoApprovalEnabled);
+                  setAaModel(res.autoApprovalModel);
+                  setAaSaved(true);
+                  setTimeout(() => setAaSaved(false), 1800);
+                } catch (err: unknown) {
+                  setAaError(err instanceof Error ? err.message : String(err));
+                } finally {
+                  setAaSaving(false);
+                }
+              }}
+              className="px-3 py-1.5 text-xs font-medium rounded-lg bg-cc-primary hover:bg-cc-primary-hover text-white disabled:opacity-50 transition-colors cursor-pointer"
+            >
+              {aaSaving ? "Saving..." : aaSaved ? "Saved" : "Save"}
+            </button>
+            {aaError && <span className="text-xs text-cc-error">{aaError}</span>}
+          </div>
+
+          {/* Project configs list */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-cc-fg">Project Rules</span>
+              <button
+                type="button"
+                onClick={loadAutoApprovalConfigs}
+                disabled={aaConfigsLoading}
+                className="text-[10px] text-cc-muted hover:text-cc-fg cursor-pointer"
+              >
+                {aaConfigsLoading ? "Loading..." : "Refresh"}
+              </button>
+            </div>
+
+            {aaConfigs.length === 0 && !aaConfigsLoading && (
+              <p className="text-xs text-cc-muted italic">No project rules configured yet.</p>
+            )}
+
+            {aaConfigs.map((config) => (
+              <AutoApprovalConfigCard
+                key={config.slug}
+                config={config}
+                onUpdate={loadAutoApprovalConfigs}
+              />
+            ))}
+
+            {/* Add new config form */}
+            <div className="border border-dashed border-cc-border rounded-lg p-3 space-y-2">
+              <span className="text-xs font-medium text-cc-muted">Add Project Rule</span>
+              <input
+                type="text"
+                value={aaNewProjectPath}
+                onChange={(e) => setAaNewProjectPath(e.target.value)}
+                placeholder="Project path (e.g. /home/user/my-project)"
+                className="w-full px-2.5 py-1.5 text-xs bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg placeholder:text-cc-muted/50 focus:outline-none focus:border-cc-primary/50"
+              />
+              <input
+                type="text"
+                value={aaNewLabel}
+                onChange={(e) => setAaNewLabel(e.target.value)}
+                placeholder="Label (e.g. My Project)"
+                className="w-full px-2.5 py-1.5 text-xs bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg placeholder:text-cc-muted/50 focus:outline-none focus:border-cc-primary/50"
+              />
+              <textarea
+                value={aaNewCriteria}
+                onChange={(e) => setAaNewCriteria(e.target.value)}
+                placeholder="Criteria (natural language rules, e.g. 'Allow all read operations. Allow git commands. Deny rm and chmod.')"
+                rows={3}
+                className="w-full px-2.5 py-1.5 text-xs bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg placeholder:text-cc-muted/50 focus:outline-none focus:border-cc-primary/50 resize-y"
+              />
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={aaCreating || !aaNewProjectPath.trim() || !aaNewLabel.trim() || !aaNewCriteria.trim()}
+                  onClick={async () => {
+                    setAaCreating(true);
+                    setAaCreateError("");
+                    try {
+                      await api.createAutoApprovalConfig({
+                        projectPath: aaNewProjectPath.trim(),
+                        label: aaNewLabel.trim(),
+                        criteria: aaNewCriteria.trim(),
+                      });
+                      setAaNewProjectPath("");
+                      setAaNewLabel("");
+                      setAaNewCriteria("");
+                      loadAutoApprovalConfigs();
+                    } catch (err: unknown) {
+                      setAaCreateError(err instanceof Error ? err.message : String(err));
+                    } finally {
+                      setAaCreating(false);
+                    }
+                  }}
+                  className="px-3 py-1.5 text-xs font-medium rounded-lg bg-cc-primary hover:bg-cc-primary-hover text-white disabled:opacity-50 transition-colors cursor-pointer"
+                >
+                  {aaCreating ? "Creating..." : "Add Rule"}
+                </button>
+                {aaCreateError && <span className="text-xs text-cc-error">{aaCreateError}</span>}
+              </div>
+            </div>
+          </div>
+
+          {/* Debug panel */}
+          <div className="border-t border-cc-border pt-4">
+            <AutoApprovalDebugPanel />
+          </div>
+        </div>
+
         <div className="mt-4 bg-cc-card border border-cc-border rounded-xl p-4 sm:p-5">
           <NamerDebugPanel />
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── AutoApprovalConfigCard — inline editable card for a single project config ──
+
+function AutoApprovalConfigCard({
+  config,
+  onUpdate,
+}: {
+  config: AutoApprovalConfig;
+  onUpdate: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [criteria, setCriteria] = useState(config.criteria);
+  const [label, setLabel] = useState(config.label);
+  const [enabled, setEnabled] = useState(config.enabled);
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleSave() {
+    setSaving(true);
+    setError("");
+    try {
+      await api.updateAutoApprovalConfig(config.slug, { label, criteria, enabled });
+      setEditing(false);
+      onUpdate();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (!confirm(`Delete auto-approval config for "${config.label}"?`)) return;
+    setDeleting(true);
+    try {
+      await api.deleteAutoApprovalConfig(config.slug);
+      onUpdate();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+      setDeleting(false);
+    }
+  }
+
+  return (
+    <div className="border border-cc-border rounded-lg p-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <label className="flex items-center gap-1.5 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={(e) => { setEnabled(e.target.checked); setEditing(true); }}
+            className="accent-cc-primary"
+          />
+          <span className="text-xs font-medium text-cc-fg">{config.label}</span>
+        </label>
+        <span className="text-[10px] text-cc-muted font-mono-code truncate flex-1" title={config.projectPath}>
+          {config.projectPath}
+        </span>
+        <button
+          type="button"
+          onClick={() => setEditing(!editing)}
+          className="text-[10px] text-cc-muted hover:text-cc-fg cursor-pointer"
+        >
+          {editing ? "Cancel" : "Edit"}
+        </button>
+        <button
+          type="button"
+          onClick={handleDelete}
+          disabled={deleting}
+          className="text-[10px] text-cc-error/70 hover:text-cc-error cursor-pointer disabled:opacity-50"
+        >
+          {deleting ? "..." : "Delete"}
+        </button>
+      </div>
+
+      {editing ? (
+        <div className="space-y-2">
+          <input
+            type="text"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder="Label"
+            className="w-full px-2.5 py-1.5 text-xs bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg placeholder:text-cc-muted/50 focus:outline-none focus:border-cc-primary/50"
+          />
+          <textarea
+            value={criteria}
+            onChange={(e) => setCriteria(e.target.value)}
+            rows={3}
+            className="w-full px-2.5 py-1.5 text-xs bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg placeholder:text-cc-muted/50 focus:outline-none focus:border-cc-primary/50 resize-y"
+          />
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={saving}
+              onClick={handleSave}
+              className="px-3 py-1.5 text-xs font-medium rounded-lg bg-cc-primary hover:bg-cc-primary-hover text-white disabled:opacity-50 transition-colors cursor-pointer"
+            >
+              {saving ? "Saving..." : "Save"}
+            </button>
+            {error && <span className="text-xs text-cc-error">{error}</span>}
+          </div>
+        </div>
+      ) : (
+        <p className="text-xs text-cc-muted whitespace-pre-wrap">{config.criteria}</p>
+      )}
     </div>
   );
 }

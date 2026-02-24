@@ -19,6 +19,8 @@ import * as cronStore from "./cron-store.js";
 import * as gitUtils from "./git-utils.js";
 import * as sessionNames from "./session-names.js";
 import { getNamerLogIndex, getNamerLogEntry } from "./session-namer.js";
+import * as autoApprovalStore from "./auto-approval-store.js";
+import { getApprovalLogIndex, getApprovalLogEntry } from "./auto-approver.js";
 import { recreateWorktreeIfMissing, runExport, runImport, type ImportStats } from "./migration.js";
 import { containerManager, ContainerManager, type ContainerConfig, type ContainerInfo } from "./container-manager.js";
 import type { CreationStepId } from "./session-types.js";
@@ -1898,6 +1900,8 @@ export function createRoutes(
       claudeBinary: settings.claudeBinary,
       codexBinary: settings.codexBinary,
       maxKeepAlive: settings.maxKeepAlive,
+      autoApprovalEnabled: settings.autoApprovalEnabled,
+      autoApprovalModel: settings.autoApprovalModel,
       restartSupported: !!process.env.COMPANION_SUPERVISED,
       logFile: getLogPath(),
     });
@@ -1932,6 +1936,12 @@ export function createRoutes(
     if (body.maxKeepAlive !== undefined && (typeof body.maxKeepAlive !== "number" || body.maxKeepAlive < 0 || !Number.isInteger(body.maxKeepAlive))) {
       return c.json({ error: "maxKeepAlive must be a non-negative integer" }, 400);
     }
+    if (body.autoApprovalEnabled !== undefined && typeof body.autoApprovalEnabled !== "boolean") {
+      return c.json({ error: "autoApprovalEnabled must be a boolean" }, 400);
+    }
+    if (body.autoApprovalModel !== undefined && typeof body.autoApprovalModel !== "string") {
+      return c.json({ error: "autoApprovalModel must be a string" }, 400);
+    }
 
     // Check that at least one known field is present
     const knownFields = [
@@ -1939,6 +1949,7 @@ export function createRoutes(
       "pushoverUserKey", "pushoverApiToken", "pushoverDelaySeconds", "pushoverEnabled", "pushoverBaseUrl",
       "claudeBinary", "codexBinary",
       "maxKeepAlive",
+      "autoApprovalEnabled", "autoApprovalModel",
     ];
     if (!knownFields.some((f) => body[f] !== undefined)) {
       return c.json({ error: "At least one settings field is required" }, 400);
@@ -1981,6 +1992,14 @@ export function createRoutes(
         typeof body.maxKeepAlive === "number"
           ? body.maxKeepAlive
           : undefined,
+      autoApprovalEnabled:
+        typeof body.autoApprovalEnabled === "boolean"
+          ? body.autoApprovalEnabled
+          : undefined,
+      autoApprovalModel:
+        typeof body.autoApprovalModel === "string"
+          ? body.autoApprovalModel.trim()
+          : undefined,
     });
 
     return c.json({
@@ -1993,6 +2012,8 @@ export function createRoutes(
       claudeBinary: settings.claudeBinary,
       codexBinary: settings.codexBinary,
       maxKeepAlive: settings.maxKeepAlive,
+      autoApprovalEnabled: settings.autoApprovalEnabled,
+      autoApprovalModel: settings.autoApprovalModel,
     });
   });
 
@@ -2781,6 +2802,73 @@ export function createRoutes(
     const id = Number(c.req.param("id"));
     if (Number.isNaN(id)) return c.json({ error: "Invalid ID" }, 400);
     const entry = getNamerLogEntry(id);
+    if (!entry) return c.json({ error: "Not found" }, 404);
+    return c.json(entry);
+  });
+
+  // ─── Auto-Approval Configs ──────────────────────────────────────
+
+  api.get("/auto-approval/configs", (c) => {
+    try {
+      return c.json(autoApprovalStore.listConfigs());
+    } catch (e: unknown) {
+      return c.json({ error: e instanceof Error ? e.message : String(e) }, 500);
+    }
+  });
+
+  api.get("/auto-approval/configs/:slug", (c) => {
+    const config = autoApprovalStore.getConfig(c.req.param("slug"));
+    if (!config) return c.json({ error: "Config not found" }, 404);
+    return c.json(config);
+  });
+
+  api.post("/auto-approval/configs", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    try {
+      const config = autoApprovalStore.createConfig(
+        body.projectPath,
+        body.label,
+        body.criteria,
+        body.enabled,
+      );
+      return c.json(config, 201);
+    } catch (e: unknown) {
+      return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);
+    }
+  });
+
+  api.put("/auto-approval/configs/:slug", async (c) => {
+    const slug = c.req.param("slug");
+    const body = await c.req.json().catch(() => ({}));
+    try {
+      const config = autoApprovalStore.updateConfig(slug, {
+        label: body.label,
+        criteria: body.criteria,
+        enabled: body.enabled,
+      });
+      if (!config) return c.json({ error: "Config not found" }, 404);
+      return c.json(config);
+    } catch (e: unknown) {
+      return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);
+    }
+  });
+
+  api.delete("/auto-approval/configs/:slug", (c) => {
+    const deleted = autoApprovalStore.deleteConfig(c.req.param("slug"));
+    if (!deleted) return c.json({ error: "Config not found" }, 404);
+    return c.json({ ok: true });
+  });
+
+  // ─── Auto-Approval Logs ───────────────────────────────────────
+
+  api.get("/auto-approval/logs", (c) => {
+    return c.json(getApprovalLogIndex());
+  });
+
+  api.get("/auto-approval/logs/:id", (c) => {
+    const id = Number(c.req.param("id"));
+    if (Number.isNaN(id)) return c.json({ error: "Invalid ID" }, 400);
+    const entry = getApprovalLogEntry(id);
     if (!entry) return c.json({ error: "Not found" }, 404);
     return c.json(entry);
   });

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { PermissionBanner, PlanReviewOverlay, PlanCollapsedChip, PermissionsCollapsedChip } from "./PermissionBanner.js";
+import { PermissionBanner, PlanReviewOverlay, PlanCollapsedChip, PermissionsCollapsedChip, EvaluatingCollapsedChip } from "./PermissionBanner.js";
 import { MessageBubble } from "./MessageBubble.js";
 import { Lightbox } from "./Lightbox.js";
 import { ToolBlock, getToolIcon, getToolLabel, getPreview, ToolIcon } from "./ToolBlock.js";
@@ -140,6 +140,19 @@ const PERM_BASH_NO_SUGGESTIONS = mockPermission({
     command: "rm -rf node_modules && npm install",
     description: "Clean reinstall dependencies",
   },
+});
+
+// Auto-approval evaluating state — collapsed with spinner while LLM evaluates
+const PERM_EVALUATING_BASH = mockPermission({
+  tool_name: "Bash",
+  input: { command: "git push origin main", description: "Push changes" },
+  evaluating: true,
+});
+
+const PERM_EVALUATING_EDIT = mockPermission({
+  tool_name: "Edit",
+  input: { file_path: "/src/components/App.tsx", old_string: "const x = 1;", new_string: "const x = 2;" },
+  evaluating: true,
 });
 
 const PERM_ASK_SINGLE = mockPermission({
@@ -797,6 +810,19 @@ export function Playground() {
               permissions={[PERM_BASH]}
               onExpand={() => {}}
             />
+          </Card>
+        </Section>
+
+        {/* ─── Auto-Approval Evaluating State ─────────────────── */}
+        <Section title="Auto-Approval Evaluating" description="Collapsed permission banners shown while the LLM auto-approver is evaluating. Click to expand for manual override.">
+          <Card label="Bash — evaluating">
+            <EvaluatingCollapsedChip permission={PERM_EVALUATING_BASH} sessionId={MOCK_SESSION_ID} onExpand={() => {}} />
+          </Card>
+          <Card label="Edit — evaluating">
+            <EvaluatingCollapsedChip permission={PERM_EVALUATING_EDIT} sessionId={MOCK_SESSION_ID} onExpand={() => {}} />
+          </Card>
+          <Card label="PermissionBanner with evaluating=true (starts collapsed, click expand)">
+            <PermissionBanner permission={PERM_EVALUATING_BASH} sessionId={MOCK_SESSION_ID} />
           </Card>
         </Section>
 
