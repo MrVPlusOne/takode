@@ -1180,10 +1180,6 @@ export class WsBridge {
     // Record raw incoming CLI message before any parsing
     this.recorder?.record(sessionId, "in", data, "cli", session.backendType, session.state.cwd);
 
-    // Track CLI activity for idle management and stuck detection
-    this.launcher?.touchActivity(sessionId);
-    session.lastCliMessageAt = Date.now();
-
     // NDJSON: split on newlines, parse each line
     const lines = data.split("\n").filter((l) => l.trim());
     for (const line of lines) {
@@ -1330,6 +1326,15 @@ export class WsBridge {
   // ── CLI message routing ─────────────────────────────────────────────────
 
   private routeCLIMessage(session: Session, msg: CLIMessage) {
+    // Track CLI activity for idle management and stuck detection.
+    // Exclude keep_alive pings — they fire periodically on idle sessions and
+    // would make them appear "recently active", preventing the idle manager
+    // from reclaiming them in favor of sessions with real user activity.
+    if (msg.type !== "keep_alive") {
+      this.launcher?.touchActivity(session.id);
+      session.lastCliMessageAt = Date.now();
+    }
+
     switch (msg.type) {
       case "system":
         this.handleSystemMessage(session, msg);

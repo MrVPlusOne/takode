@@ -1303,6 +1303,29 @@ describe("CLI message routing", () => {
     expect(browser.send).not.toHaveBeenCalled();
   });
 
+  it("keep_alive does not update lastActivityAt but real messages do", () => {
+    // Idle Claude sessions send periodic keep_alive pings. These must NOT
+    // refresh lastActivityAt, otherwise the idle manager treats them as
+    // recently active and kills sessions with real user activity instead.
+    const mockLauncher = { touchActivity: vi.fn() } as any;
+    bridge.setLauncher(mockLauncher);
+
+    bridge.handleCLIMessage(cli, JSON.stringify({ type: "keep_alive" }));
+    expect(mockLauncher.touchActivity).not.toHaveBeenCalled();
+
+    // A real message (e.g. tool_progress) should update activity
+    bridge.handleCLIMessage(cli, JSON.stringify({
+      type: "tool_progress",
+      tool_use_id: "tu-1",
+      tool_name: "Bash",
+      parent_tool_use_id: null,
+      elapsed_time_seconds: 1,
+      uuid: "uuid-1",
+      session_id: "s1",
+    }));
+    expect(mockLauncher.touchActivity).toHaveBeenCalledWith("s1");
+  });
+
   it("multi-line NDJSON: processes both lines", () => {
     const line1 = JSON.stringify({
       type: "tool_progress",

@@ -27,6 +27,7 @@ export interface SessionItem {
   worktreeDirty?: boolean;
   askPermission?: boolean;
   idleKilled?: boolean;
+  lastActivityAt?: number;
 }
 
 export interface ProjectGroup {

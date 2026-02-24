@@ -116,4 +116,6 @@ export interface SdkSessionInfo {
   taskHistory?: SessionTaskEntry[];
   /** Accumulated search keywords from the session auto-namer */
   keywords?: string[];
+  /** Epoch ms of last real activity (user/assistant message, not keep_alive) */
+  lastActivityAt?: number;
 }

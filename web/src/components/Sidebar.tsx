@@ -368,6 +368,7 @@ export function Sidebar() {
       worktreeDirty: sdkInfo?.worktreeDirty,
       askPermission: askPermissionMap?.get(id),
       idleKilled: cliDisconnectReason.get(id) === "idle_limit",
+      lastActivityAt: sdkInfo?.lastActivityAt,
     };
   }).sort((a, b) => b.createdAt - a.createdAt);
 

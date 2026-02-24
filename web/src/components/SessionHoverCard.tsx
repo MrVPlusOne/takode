@@ -23,6 +23,18 @@ function formatModel(model: string): string {
   return model.replace(/-\d{8}$/, "");
 }
 
+/** Format an epoch ms timestamp as a relative time string (e.g. "2m ago") */
+function formatRelativeTime(epochMs: number): string {
+  const diffSec = Math.max(0, Math.floor((Date.now() - epochMs) / 1000));
+  if (diffSec < 60) return `${diffSec}s ago`;
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  const diffDay = Math.floor(diffHr / 24);
+  return `${diffDay}d ago`;
+}
+
 export function SessionHoverCard({
   session: s,
   sessionName,
@@ -236,7 +248,7 @@ export function SessionHoverCard({
         )}
 
         {/* Stats row */}
-        {(turns > 0 || cost > 0 || contextPercent > 0) && (
+        {(turns > 0 || cost > 0 || contextPercent > 0 || s.lastActivityAt) && (
           <div className="px-4 py-2 border-t border-cc-border/50">
             <div className="flex items-center gap-2 text-[11px] text-cc-muted">
               {turns > 0 && <span>{turns} {turns === 1 ? "turn" : "turns"}</span>}
@@ -250,6 +262,12 @@ export function SessionHoverCard({
                 <>
                   {(turns > 0 || cost > 0) && <span className="text-cc-muted/40">&middot;</span>}
                   <span>{Math.round(contextPercent)}% context</span>
+                </>
+              )}
+              {s.lastActivityAt && (
+                <>
+                  {(turns > 0 || cost > 0 || contextPercent > 0) && <span className="text-cc-muted/40">&middot;</span>}
+                  <span title={new Date(s.lastActivityAt).toLocaleString()}>active {formatRelativeTime(s.lastActivityAt)}</span>
                 </>
               )}
             </div>
