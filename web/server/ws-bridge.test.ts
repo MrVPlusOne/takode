@@ -4119,6 +4119,38 @@ describe("Diff stats computation", () => {
 });
 
 describe("Codex adapter result handling", () => {
+  it("ignores codex session_update line counters and keeps server-computed diff stats authoritative", () => {
+    const browser = makeBrowserSocket("s1");
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter("s1", adapter as any);
+    bridge.handleBrowserOpen(browser, "s1");
+    browser.send.mockClear();
+
+    const session = bridge.getSession("s1")!;
+    session.state.total_lines_added = 12;
+    session.state.total_lines_removed = 4;
+
+    adapter.emitBrowserMessage({
+      type: "session_update",
+      session: {
+        total_lines_added: 34,
+        total_lines_removed: 9,
+        context_used_percent: 27,
+      },
+    });
+
+    expect(session.state.total_lines_added).toBe(12);
+    expect(session.state.total_lines_removed).toBe(4);
+    expect(session.state.context_used_percent).toBe(27);
+
+    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    const update = calls.find((c: any) => c.type === "session_update");
+    expect(update).toBeDefined();
+    expect(update.session.total_lines_added).toBeUndefined();
+    expect(update.session.total_lines_removed).toBeUndefined();
+    expect(update.session.context_used_percent).toBe(27);
+  });
+
   it("recomputes and broadcasts diff stats on codex result", async () => {
     const browser = makeBrowserSocket("s1");
     const adapter = makeCodexAdapterMock();

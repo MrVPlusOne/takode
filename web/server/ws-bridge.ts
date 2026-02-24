@@ -833,6 +833,19 @@ export class WsBridge {
     }
   }
 
+  /**
+   * Diff stats are server-computed from git and must not be overwritten by
+   * Codex adapter session updates.
+   */
+  private sanitizeCodexSessionPatch(patch: Partial<SessionState>): Partial<SessionState> {
+    const {
+      total_lines_added: _ignoredAdded,
+      total_lines_removed: _ignoredRemoved,
+      ...rest
+    } = patch;
+    return rest;
+  }
+
 
   // ── Session management ──────────────────────────────────────────────────
 
@@ -1049,11 +1062,14 @@ export class WsBridge {
       let outgoing: BrowserIncomingMessage | null = msg;
 
       if (msg.type === "session_init") {
-        session.state = { ...session.state, ...msg.session, backend_type: "codex" };
+        const sanitized = this.sanitizeCodexSessionPatch(msg.session);
+        session.state = { ...session.state, ...sanitized, backend_type: "codex" };
         void this.refreshGitInfo(session, { notifyPoller: true });
         this.persistSession(session);
       } else if (msg.type === "session_update") {
-        session.state = { ...session.state, ...msg.session, backend_type: "codex" };
+        const sanitized = this.sanitizeCodexSessionPatch(msg.session);
+        session.state = { ...session.state, ...sanitized, backend_type: "codex" };
+        outgoing = { ...msg, session: sanitized };
         void this.refreshGitInfo(session, { notifyPoller: true });
         this.persistSession(session);
       } else if (msg.type === "status_change") {

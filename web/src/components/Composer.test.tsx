@@ -99,11 +99,13 @@ function setupMockStore(overrides: {
   isConnected?: boolean;
   sessionStatus?: "idle" | "running" | "compacting" | null;
   session?: Partial<SessionState>;
+  sdkSessionTotals?: { added: number; removed: number };
 } = {}) {
   const {
     isConnected = true,
     sessionStatus = "idle",
     session = {},
+    sdkSessionTotals,
   } = overrides;
 
   const sessionsMap = new Map<string, SessionState>();
@@ -133,6 +135,11 @@ function setupMockStore(overrides: {
     setPreviousPermissionMode: mockSetPreviousPermissionMode,
     setSessionPreview: mockSetSessionPreview,
     setAskPermission: mockSetAskPermission,
+    sdkSessions: sdkSessionTotals ? [{
+      sessionId: "s1",
+      totalLinesAdded: sdkSessionTotals.added,
+      totalLinesRemoved: sdkSessionTotals.removed,
+    }] : [],
     setComposerDraft: vi.fn((sessionId: string, draft: { text: string; images: unknown[] }) => {
       (mockStoreState.composerDrafts as Map<string, unknown>).set(sessionId, draft);
       notifyMockStore();
@@ -165,6 +172,17 @@ describe("Composer basic rendering", () => {
     // Send button (the round one with the arrow SVG) - identified by title
     const sendBtn = screen.getByTitle("Send message");
     expect(sendBtn).toBeTruthy();
+  });
+
+  it("uses explicit zero diff stats from bridge state instead of stale sdk fallback", () => {
+    setupMockStore({
+      session: { total_lines_added: 0, total_lines_removed: 0 },
+      sdkSessionTotals: { added: 34, removed: 8 },
+    });
+    render(<Composer sessionId="s1" />);
+
+    expect(screen.queryByText("+34")).toBeNull();
+    expect(screen.queryByText("-8")).toBeNull();
   });
 });
 
