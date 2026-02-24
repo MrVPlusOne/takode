@@ -135,7 +135,7 @@ export function SessionItem({
         onTouchStart={handleTouchStart}
         onTouchEnd={cancelLongPress}
         onTouchMove={cancelLongPress}
-        className={`w-full pl-3.5 pr-8 sm:pr-3 py-2 ${archived ? "pr-14 sm:pr-14" : ""} text-left rounded-lg transition-all duration-100 select-none ${
+        className={`w-full py-2 ${archived ? "pl-3.5 pr-14 sm:pr-14" : "pl-8 pr-3 sm:pr-3"} text-left rounded-lg transition-all duration-100 select-none ${
           reorderMode ? "cursor-grab active:cursor-grabbing" : "cursor-pointer sm:cursor-grab sm:active:cursor-grabbing"
         } ${
           isActive
@@ -380,7 +380,7 @@ export function SessionItem({
       ) : (
         <button
           onClick={(e) => onArchive(e, s.id)}
-          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md opacity-100 sm:opacity-0 sm:group-hover:opacity-100 hover:bg-cc-border text-cc-muted hover:text-cc-fg transition-all cursor-pointer"
+          className="absolute left-2 top-1/2 -translate-y-1/2 p-1 rounded-md opacity-100 sm:opacity-0 sm:group-hover:opacity-100 hover:bg-cc-border text-cc-muted hover:text-cc-fg transition-all cursor-pointer"
           title="Archive session"
         >
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5">

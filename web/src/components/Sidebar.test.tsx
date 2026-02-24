@@ -404,6 +404,7 @@ describe("Sidebar", () => {
     expect(archiveButton).toHaveClass("opacity-100");
     expect(archiveButton).toHaveClass("sm:opacity-0");
     expect(archiveButton).toHaveClass("sm:group-hover:opacity-100");
+    expect(archiveButton).toHaveClass("left-2");
   });
 
   it("permission badge uses mobile-friendly positioning and hover behavior", () => {

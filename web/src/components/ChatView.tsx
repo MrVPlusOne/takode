@@ -27,6 +27,7 @@ export function ChatView({ sessionId }: { sessionId: string }) {
   const cliConnected = useStore((s) => s.cliConnected.get(sessionId) ?? false);
   const cliEverConnected = useStore((s) => s.cliEverConnected.get(sessionId) ?? false);
   const cliDisconnectReason = useStore((s) => s.cliDisconnectReason.get(sessionId) ?? null);
+  const isArchived = useStore((s) => s.sdkSessions.find((sdk) => sdk.sessionId === sessionId)?.archived ?? false);
 
   const perms = useMemo(
     () => (sessionPerms ? Array.from(sessionPerms.values()) : []),
@@ -104,6 +105,21 @@ export function ChatView({ sessionId }: { sessionId: string }) {
           <span className="text-xs text-cc-warning font-medium">
             Reconnecting to session...
           </span>
+        </div>
+      )}
+
+      {/* Archived session banner */}
+      {isArchived && (
+        <div className="px-4 py-2 bg-amber-500/10 border-b border-amber-500/25 flex items-center justify-center gap-3">
+          <span className="text-xs text-amber-300 font-medium">
+            This session is archived.
+          </span>
+          <button
+            onClick={() => api.unarchiveSession(sessionId).catch(console.error)}
+            className="text-xs font-medium px-3 py-1 rounded-md bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 transition-colors cursor-pointer"
+          >
+            Unarchive
+          </button>
         </div>
       )}
 
