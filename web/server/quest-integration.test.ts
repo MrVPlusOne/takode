@@ -38,4 +38,19 @@ describe("ensureQuestmasterIntegration", () => {
       "utf-8",
     );
   });
+
+  it("writes a quest wrapper that falls back to $HOME/.bun/bin/bun", () => {
+    ensureQuestmasterIntegration(3456, "/repo/web");
+
+    expect(fsMocks.writeFileSync).toHaveBeenCalledWith(
+      "/home/tester/.companion/bin/quest",
+      expect.stringContaining("if [ -x \"$HOME/.bun/bin/bun\" ]"),
+      "utf-8",
+    );
+    expect(fsMocks.writeFileSync).toHaveBeenCalledWith(
+      "/home/tester/.companion/bin/quest",
+      expect.stringContaining("exec \"$HOME/.bun/bin/bun\""),
+      "utf-8",
+    );
+  });
 });

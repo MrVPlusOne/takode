@@ -1,7 +1,7 @@
 import { vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 
 // ─── Hoisted mocks ──────────────────────────────────────────────────────────
 
@@ -374,6 +374,22 @@ describe("launch", () => {
     expect(cmdAndArgs).toContain("app-server");
     expect(cmdAndArgs).toContain("-c");
     expect(cmdAndArgs).toContain("tools.webSearch=false");
+  });
+
+  it("adds companion and bun bin directories to PATH for host Codex sessions", () => {
+    mockResolveBinary.mockReturnValue("/opt/fake/codex");
+    mockSpawn.mockReturnValueOnce(createMockCodexProc());
+
+    launcher.launch({
+      backendType: "codex",
+      cwd: "/tmp/project",
+      codexInternetAccess: true,
+      codexSandbox: "workspace-write",
+    });
+
+    const [, options] = mockSpawn.mock.calls[0];
+    expect(options.env.PATH).toContain(`${homedir()}/.companion/bin`);
+    expect(options.env.PATH).toContain(`${homedir()}/.bun/bin`);
   });
 
   it("spawns codex via sibling node binary to bypass shebang issues", () => {

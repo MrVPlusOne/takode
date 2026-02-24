@@ -12,6 +12,7 @@ import {
   lstatSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
+import { homedir } from "node:os";
 import type { Subprocess } from "bun";
 import type { SessionStore } from "./session-store.js";
 import type { BackendType } from "./session-types.js";
@@ -766,8 +767,10 @@ export class CliLauncher {
       // lives alongside `codex` and spawn `node <codex.js>` directly.
       const binaryDir = resolve(binary, "..");
       const siblingNode = join(binaryDir, "node");
+      const companionBinDir = join(homedir(), ".companion", "bin");
+      const bunBinDir = join(homedir(), ".bun", "bin");
       const enrichedPath = getEnrichedPath();
-      const spawnPath = [binaryDir, ...enrichedPath.split(":")].filter(Boolean).join(":");
+      const spawnPath = [binaryDir, companionBinDir, bunBinDir, ...enrichedPath.split(":")].filter(Boolean).join(":");
 
       if (existsSync(siblingNode)) {
         let codexScript: string;
