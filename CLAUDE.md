@@ -129,6 +129,11 @@ This is a fork of [The-Vibe-Company/companion](https://github.com/The-Vibe-Compa
 
 When syncing with upstream: fast-forward `main` to `upstream/main`, then rebase the `jiayi` branch on top. Do not remove upstream container code — just don't extend it.
 
+### Branch naming convention for "main repo" requests
+
+- In this fork, when the user says **"sync to main repo"**, it means **sync to `origin/jiayi`** (the primary working branch), **not** `origin/main`.
+- Only sync to `origin/main` when the user explicitly says `main branch` or `origin/main`.
+
 ## Key Architectural Principles
 (please keep these updated as you work on the codebase)
 
