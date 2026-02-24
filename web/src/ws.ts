@@ -793,61 +793,67 @@ function handleParsedMessage(
 
     case "session_quest_claimed": {
       console.log(`[ws] session_quest_claimed for ${sessionId}:`, data.quest);
+      const prevStatus = store.sessions.get(sessionId)?.claimedQuestStatus;
+      const prevQuestId = store.sessions.get(sessionId)?.claimedQuestId;
       store.updateSession(sessionId, {
         claimedQuestId: data.quest?.id ?? undefined,
         claimedQuestTitle: data.quest?.title ?? undefined,
+        claimedQuestStatus: data.quest?.status ?? undefined,
       });
       if (data.quest?.id && data.quest?.title) {
         // Override session name with quest title and mark as quest-named.
-        // This is the primary path for setting quest names — we set it directly
-        // from the claim message rather than relying solely on session_name_update.
         store.setSessionName(sessionId, data.quest.title);
         store.markRecentlyRenamed(sessionId);
         store.markQuestNamed(sessionId);
       } else {
         store.clearQuestNamed(sessionId);
       }
-      // Insert a quest-claimed message into the chat feed with full details
+      // Insert a chat feed message for quest lifecycle events
       if (data.quest?.id) {
         const questId = data.quest.id;
-        // Fetch full quest details asynchronously and insert the message
-        api.getQuest(questId).then((quest) => {
-          const questMeta: ChatMessage["metadata"] = {
-            quest: {
-              questId: quest.questId,
-              title: quest.title,
-              description: "description" in quest ? quest.description : undefined,
-              status: quest.status,
-              tags: quest.tags,
-              images: quest.images,
-              verificationItems: "verificationItems" in quest ? quest.verificationItems : undefined,
-            },
-          };
-          useStore.getState().appendMessage(sessionId, {
-            id: `quest-claimed-${questId}-${Date.now()}`,
-            role: "system",
-            content: `Quest claimed: ${quest.title}`,
-            timestamp: Date.now(),
-            variant: "quest_claimed",
-            metadata: questMeta,
-          });
-        }).catch(() => {
-          // Fallback: insert a basic message if quest fetch fails
-          useStore.getState().appendMessage(sessionId, {
-            id: `quest-claimed-${questId}-${Date.now()}`,
-            role: "system",
-            content: `Quest claimed: ${data.quest!.title}`,
-            timestamp: Date.now(),
-            variant: "quest_claimed",
-            metadata: {
+        const isStatusChange = prevQuestId === questId && prevStatus && prevStatus !== data.quest.status;
+        const isSubmitted = isStatusChange && data.quest.status === "needs_verification";
+        const variant = isSubmitted ? "quest_submitted" as const : "quest_claimed" as const;
+        const label = isSubmitted ? "Quest submitted" : "Quest claimed";
+        // Only insert chat message for new claims or submission — skip redundant status updates
+        if (!isStatusChange || isSubmitted) {
+          api.getQuest(questId).then((quest) => {
+            const questMeta: ChatMessage["metadata"] = {
               quest: {
-                questId: questId,
-                title: data.quest!.title,
-                status: "in_progress",
+                questId: quest.questId,
+                title: quest.title,
+                description: "description" in quest ? quest.description : undefined,
+                status: quest.status,
+                tags: quest.tags,
+                images: quest.images,
+                verificationItems: "verificationItems" in quest ? quest.verificationItems : undefined,
               },
-            },
+            };
+            useStore.getState().appendMessage(sessionId, {
+              id: `${variant}-${questId}-${Date.now()}`,
+              role: "system",
+              content: `${label}: ${quest.title}`,
+              timestamp: Date.now(),
+              variant,
+              metadata: questMeta,
+            });
+          }).catch(() => {
+            useStore.getState().appendMessage(sessionId, {
+              id: `${variant}-${questId}-${Date.now()}`,
+              role: "system",
+              content: `${label}: ${data.quest!.title}`,
+              timestamp: Date.now(),
+              variant,
+              metadata: {
+                quest: {
+                  questId: questId,
+                  title: data.quest!.title,
+                  status: data.quest!.status ?? (isSubmitted ? "needs_verification" : "in_progress"),
+                },
+              },
+            });
           });
-        });
+        }
       }
       break;
     }

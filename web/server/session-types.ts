@@ -277,7 +277,7 @@ export type BrowserIncomingMessageBase =
   | { type: "state_snapshot"; sessionStatus: string | null; permissionMode: string; cliConnected: boolean; uiMode: string | null; askPermission: boolean; lastReadAt?: number; attentionReason?: "action" | "error" | "review" | null; generationStartedAt?: number | null }
   | { type: "session_stuck" }
   | { type: "quest_list_updated" }
-  | { type: "session_quest_claimed"; quest: { id: string; title: string } | null };
+  | { type: "session_quest_claimed"; quest: { id: string; title: string; status?: string } | null };
 
 export type BrowserIncomingMessage = BrowserIncomingMessageBase & { seq?: number };
 
@@ -347,6 +347,8 @@ export interface SessionState {
   claimedQuestId?: string;
   /** Questmaster: title of the claimed quest (for display without fetching) */
   claimedQuestTitle?: string;
+  /** Questmaster: current status of the claimed quest */
+  claimedQuestStatus?: string;
 }
 
 // ─── MCP Types ───────────────────────────────────────────────────────────────

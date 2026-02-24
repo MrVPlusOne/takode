@@ -2558,7 +2558,7 @@ export function createRoutes(
       const quest = questStore.claimQuest(c.req.param("questId"), sessionId);
       if (!quest) return c.json({ error: "Quest not found" }, 404);
       wsBridge.broadcastGlobal({ type: "quest_list_updated" } as import("./session-types.js").BrowserIncomingMessage);
-      wsBridge.setSessionClaimedQuest(sessionId, { id: quest.questId, title: quest.title });
+      wsBridge.setSessionClaimedQuest(sessionId, { id: quest.questId, title: quest.title, status: quest.status });
       // Override session name with quest title (suppresses auto-namer while quest is active)
       console.log(`[quest-claim] Setting session name for ${sessionId} to "${quest.title}" (quest ${quest.questId})`);
       sessionNames.setName(sessionId, quest.title);
@@ -2584,6 +2584,11 @@ export function createRoutes(
       const quest = questStore.completeQuest(c.req.param("questId"), items);
       if (!quest) return c.json({ error: "Quest not found" }, 404);
       wsBridge.broadcastGlobal({ type: "quest_list_updated" } as import("./session-types.js").BrowserIncomingMessage);
+      // Update session's quest status so browsers can show "pending review" badge
+      if ("sessionId" in quest) {
+        const sid = (quest as { sessionId: string }).sessionId;
+        wsBridge.setSessionClaimedQuest(sid, { id: quest.questId, title: quest.title, status: quest.status });
+      }
       return c.json(quest);
     } catch (e: unknown) {
       return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);

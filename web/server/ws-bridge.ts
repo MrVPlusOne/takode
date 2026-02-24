@@ -557,16 +557,17 @@ export class WsBridge {
   /** Update the claimed quest for a session and broadcast to its browsers. */
   setSessionClaimedQuest(
     sessionId: string,
-    quest: { id: string; title: string } | null,
+    quest: { id: string; title: string; status?: string } | null,
   ): void {
     const session = this.sessions.get(sessionId);
     if (!session) {
       console.log(`[ws-bridge] setSessionClaimedQuest: session ${sessionId} not found`);
       return;
     }
-    console.log(`[ws-bridge] setSessionClaimedQuest: quest=${quest?.id ?? "null"} title="${quest?.title ?? ""}" browsers=${session.browserSockets.size} session=${sessionId}`);
+    console.log(`[ws-bridge] setSessionClaimedQuest: quest=${quest?.id ?? "null"} title="${quest?.title ?? ""}" status=${quest?.status ?? "null"} browsers=${session.browserSockets.size} session=${sessionId}`);
     session.state.claimedQuestId = quest?.id;
     session.state.claimedQuestTitle = quest?.title;
+    session.state.claimedQuestStatus = quest?.status;
     this.broadcastToBrowsers(session, {
       type: "session_quest_claimed",
       quest,

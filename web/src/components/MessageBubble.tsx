@@ -79,11 +79,11 @@ export const MessageBubble = memo(function MessageBubble({ message, sessionId }:
         </div>
       );
     }
-    // Quest claimed block — rendered as a collapsible card in the feed
-    if (message.variant === "quest_claimed" && message.metadata?.quest) {
+    // Quest lifecycle blocks — rendered as collapsible cards in the feed
+    if ((message.variant === "quest_claimed" || message.variant === "quest_submitted") && message.metadata?.quest) {
       return (
         <div className="animate-[fadeSlideIn_0.2s_ease-out]">
-          <QuestClaimBlock quest={message.metadata.quest} />
+          <QuestClaimBlock quest={message.metadata.quest} variant={message.variant === "quest_submitted" ? "submitted" : "claimed"} />
         </div>
       );
     }

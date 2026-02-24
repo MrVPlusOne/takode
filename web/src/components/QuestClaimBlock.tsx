@@ -26,13 +26,17 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
  * Follows the same visual pattern as ToolBlock — a bordered card with a clickable
  * header that toggles expanded content.
  */
-export function QuestClaimBlock({ quest }: { quest: QuestClaimData }) {
+export function QuestClaimBlock({ quest, variant = "claimed" }: { quest: QuestClaimData; variant?: "claimed" | "submitted" }) {
   const [open, setOpen] = useState(false);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const statusInfo = STATUS_LABELS[quest.status] || { label: quest.status, color: "text-cc-muted" };
+  const isSubmitted = variant === "submitted";
+  const headerLabel = isSubmitted ? "Quest Submitted" : "Quest Claimed";
+  const borderColor = isSubmitted ? "border-purple-500/30" : "border-amber-500/30";
+  const accentColor = isSubmitted ? "text-purple-400" : "text-amber-400";
 
   return (
-    <div className="border border-amber-500/30 rounded-[10px] overflow-hidden bg-cc-card">
+    <div className={`border ${borderColor} rounded-[10px] overflow-hidden bg-cc-card`}>
       {/* Header — always visible */}
       <button
         onClick={() => setOpen(!open)}
@@ -47,10 +51,10 @@ export function QuestClaimBlock({ quest }: { quest: QuestClaimData }) {
           <path d="M6 4l4 4-4 4" />
         </svg>
         {/* Quest icon */}
-        <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5 text-amber-400 shrink-0">
+        <svg viewBox="0 0 16 16" fill="currentColor" className={`w-3.5 h-3.5 ${accentColor} shrink-0`}>
           <path d="M2.5 2a.5.5 0 00-.5.5v11a.5.5 0 00.5.5h11a.5.5 0 00.5-.5v-11a.5.5 0 00-.5-.5h-11zM4 5.75a.75.75 0 01.75-.75h6.5a.75.75 0 010 1.5h-6.5A.75.75 0 014 5.75z" />
         </svg>
-        <span className="text-xs font-medium text-amber-400">Quest Claimed</span>
+        <span className={`text-xs font-medium ${accentColor}`}>{headerLabel}</span>
         <span className="text-xs text-cc-fg truncate flex-1">{quest.title}</span>
         <span className="text-[10px] text-cc-muted shrink-0">{quest.questId}</span>
       </button>
@@ -128,6 +132,17 @@ export function QuestClaimBlock({ quest }: { quest: QuestClaimData }) {
               ))}
             </div>
           )}
+
+          {/* View in Questmaster link */}
+          <a
+            href="#/questmaster"
+            className={`inline-flex items-center gap-1 text-[11px] ${accentColor} hover:underline`}
+          >
+            View in Questmaster
+            <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
+              <path d="M4.646 1.646a.5.5 0 01.708 0l6 6a.5.5 0 010 .708l-6 6a.5.5 0 01-.708-.708L10.293 8 4.646 2.354a.5.5 0 010-.708z" />
+            </svg>
+          </a>
         </div>
       )}
 

@@ -5,9 +5,6 @@ export function TaskOutlineBar({ sessionId }: { sessionId: string }) {
   const taskHistory = useStore((s) => s.sessionTaskHistory.get(sessionId));
   const requestScrollToTurn = useStore((s) => s.requestScrollToTurn);
   const activeTaskTurnId = useStore((s) => s.activeTaskTurnId.get(sessionId));
-  const session = useStore((s) => s.sessions.get(sessionId));
-  const claimedQuestId = session?.claimedQuestId;
-  const claimedQuestTitle = session?.claimedQuestTitle;
   const scrollRef = useRef<HTMLDivElement>(null);
   const activeChipRef = useRef<HTMLButtonElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
@@ -40,7 +37,7 @@ export function TaskOutlineBar({ sessionId }: { sessionId: string }) {
     }
   }, [activeTaskTurnId]);
 
-  if ((!taskHistory || taskHistory.length === 0) && !claimedQuestId) return null;
+  if (!taskHistory || taskHistory.length === 0) return null;
 
   return (
     <div className="shrink-0 relative border-b border-cc-border bg-cc-card">
@@ -57,18 +54,6 @@ export function TaskOutlineBar({ sessionId }: { sessionId: string }) {
         ref={scrollRef}
         className="flex gap-1.5 px-3 py-1.5 overflow-x-auto scrollbar-hide"
       >
-        {claimedQuestId && claimedQuestTitle && (
-          <a
-            href="#/questmaster"
-            className="shrink-0 text-[11px] px-2.5 py-1 rounded-full bg-amber-500/15 text-amber-400 font-medium truncate max-w-[220px] flex items-center gap-1 hover:bg-amber-500/25 transition-colors"
-            title={`Quest: ${claimedQuestTitle}`}
-          >
-            <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 shrink-0">
-              <path d="M2.5 2a.5.5 0 00-.5.5v11a.5.5 0 00.5.5h11a.5.5 0 00.5-.5v-11a.5.5 0 00-.5-.5h-11zM4 5.75a.75.75 0 01.75-.75h6.5a.75.75 0 010 1.5h-6.5A.75.75 0 014 5.75z" />
-            </svg>
-            {claimedQuestTitle}
-          </a>
-        )}
         {taskHistory?.map((task, i) => {
           const isActive = task.triggerMessageId === activeTaskTurnId;
           const isQuest = task.source === "quest";

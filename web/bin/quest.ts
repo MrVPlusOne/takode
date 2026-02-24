@@ -359,6 +359,38 @@ async function cmdComplete(): Promise<void> {
     .map((text) => ({ text, checked: false }));
   if (items.length === 0) die("--items must contain at least one non-empty item");
 
+  // Prefer HTTP endpoint when server is available — it broadcasts quest status
+  // change to browsers (triggers "Quest Submitted" chat message + review badge).
+  const port = process.env.COMPANION_PORT;
+  if (port) {
+    try {
+      const res = await fetch(`http://localhost:${port}/api/quests/${encodeURIComponent(id)}/complete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ verificationItems: items }),
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        die((err as { error: string }).error || res.statusText);
+      }
+      const quest = await res.json() as QuestmasterTask;
+      if (jsonOutput) {
+        out(quest);
+      } else {
+        console.log(`Completed ${quest.questId} "${quest.title}" with ${items.length} verification items`);
+      }
+      return;
+    } catch (e) {
+      if ((e as Error).name === "AbortError" || (e as Error).message?.includes("timeout")) {
+        // Server unreachable — fall through to direct filesystem
+      } else {
+        die((e as Error).message);
+      }
+    }
+  }
+
+  // Fallback: direct filesystem (no browser notification)
   try {
     const quest = completeQuest(id, items);
     if (!quest) die(`Quest ${id} not found`);
