@@ -57,31 +57,31 @@ function makeJobInput(overrides: Record<string, unknown> = {}) {
 // Slugification (tested indirectly via createJob)
 // ===========================================================================
 describe("slugification via createJob", () => {
-  it("converts spaces to hyphens and lowercases", () => {
-    const job = cronStore.createJob(makeJobInput({ name: "My Daily Task" }));
+  it("converts spaces to hyphens and lowercases", async () => {
+    const job = await cronStore.createJob(makeJobInput({ name: "My Daily Task" }));
     expect(job.id).toBe("my-daily-task");
   });
 
-  it("strips special characters", () => {
-    const job = cronStore.createJob(makeJobInput({ name: "Check PRs! @#$%" }));
+  it("strips special characters", async () => {
+    const job = await cronStore.createJob(makeJobInput({ name: "Check PRs! @#$%" }));
     expect(job.id).toBe("check-prs");
   });
 
-  it("collapses consecutive hyphens", () => {
-    const job = cronStore.createJob(makeJobInput({ name: "a   ---  b" }));
+  it("collapses consecutive hyphens", async () => {
+    const job = await cronStore.createJob(makeJobInput({ name: "a   ---  b" }));
     expect(job.id).toBe("a-b");
   });
 
-  it("throws when name is empty string", () => {
-    expect(() => cronStore.createJob(makeJobInput({ name: "" }))).toThrow("Job name is required");
+  it("throws when name is empty string", async () => {
+    await expect(cronStore.createJob(makeJobInput({ name: "" }))).rejects.toThrow("Job name is required");
   });
 
-  it("throws when name is only whitespace", () => {
-    expect(() => cronStore.createJob(makeJobInput({ name: "   " }))).toThrow("Job name is required");
+  it("throws when name is only whitespace", async () => {
+    await expect(cronStore.createJob(makeJobInput({ name: "   " }))).rejects.toThrow("Job name is required");
   });
 
-  it("throws when name contains no alphanumeric characters", () => {
-    expect(() => cronStore.createJob(makeJobInput({ name: "@#$%^&" }))).toThrow(
+  it("throws when name contains no alphanumeric characters", async () => {
+    await expect(cronStore.createJob(makeJobInput({ name: "@#$%^&" }))).rejects.toThrow(
       "Job name must contain alphanumeric characters",
     );
   });
@@ -91,24 +91,24 @@ describe("slugification via createJob", () => {
 // listJobs
 // ===========================================================================
 describe("listJobs", () => {
-  it("returns empty array when no jobs exist", () => {
-    expect(cronStore.listJobs()).toEqual([]);
+  it("returns empty array when no jobs exist", async () => {
+    expect(await cronStore.listJobs()).toEqual([]);
   });
 
-  it("returns jobs sorted alphabetically by name", () => {
-    cronStore.createJob(makeJobInput({ name: "Zebra Task" }));
-    cronStore.createJob(makeJobInput({ name: "Alpha Task" }));
-    cronStore.createJob(makeJobInput({ name: "Mango Task" }));
+  it("returns jobs sorted alphabetically by name", async () => {
+    await cronStore.createJob(makeJobInput({ name: "Zebra Task" }));
+    await cronStore.createJob(makeJobInput({ name: "Alpha Task" }));
+    await cronStore.createJob(makeJobInput({ name: "Mango Task" }));
 
-    const result = cronStore.listJobs();
+    const result = await cronStore.listJobs();
     expect(result.map((j) => j.name)).toEqual(["Alpha Task", "Mango Task", "Zebra Task"]);
   });
 
-  it("skips corrupt JSON files", () => {
-    cronStore.createJob(makeJobInput({ name: "Valid Job" }));
+  it("skips corrupt JSON files", async () => {
+    await cronStore.createJob(makeJobInput({ name: "Valid Job" }));
     writeFileSync(join(cronDir(), "corrupt.json"), "NOT VALID JSON{{{", "utf-8");
 
-    const result = cronStore.listJobs();
+    const result = await cronStore.listJobs();
     expect(result).toHaveLength(1);
     expect(result[0].name).toBe("Valid Job");
   });
@@ -118,18 +118,18 @@ describe("listJobs", () => {
 // getJob
 // ===========================================================================
 describe("getJob", () => {
-  it("returns the job when it exists", () => {
-    cronStore.createJob(makeJobInput({ name: "My Job" }));
+  it("returns the job when it exists", async () => {
+    await cronStore.createJob(makeJobInput({ name: "My Job" }));
 
-    const result = cronStore.getJob("my-job");
+    const result = await cronStore.getJob("my-job");
     expect(result).not.toBeNull();
     expect(result!.name).toBe("My Job");
     expect(result!.id).toBe("my-job");
     expect(result!.prompt).toBe("Do something useful");
   });
 
-  it("returns null when the job does not exist", () => {
-    expect(cronStore.getJob("nonexistent")).toBeNull();
+  it("returns null when the job does not exist", async () => {
+    expect(await cronStore.getJob("nonexistent")).toBeNull();
   });
 });
 
@@ -137,9 +137,9 @@ describe("getJob", () => {
 // createJob
 // ===========================================================================
 describe("createJob", () => {
-  it("returns a job with correct structure and timestamps", () => {
+  it("returns a job with correct structure and timestamps", async () => {
     const before = Date.now();
-    const job = cronStore.createJob(makeJobInput());
+    const job = await cronStore.createJob(makeJobInput());
     const after = Date.now();
 
     expect(job.name).toBe("Test Job");
@@ -156,8 +156,8 @@ describe("createJob", () => {
     expect(job.updatedAt).toBe(job.createdAt);
   });
 
-  it("persists the job to disk as JSON", () => {
-    cronStore.createJob(makeJobInput({ name: "Disk Check" }));
+  it("persists the job to disk as JSON", async () => {
+    await cronStore.createJob(makeJobInput({ name: "Disk Check" }));
 
     const raw = readFileSync(join(cronDir(), "disk-check.json"), "utf-8");
     const parsed = JSON.parse(raw);
@@ -165,29 +165,29 @@ describe("createJob", () => {
     expect(parsed.id).toBe("disk-check");
   });
 
-  it("throws when creating a duplicate slug", () => {
-    cronStore.createJob(makeJobInput({ name: "My Task" }));
-    expect(() => cronStore.createJob(makeJobInput({ name: "My Task" }))).toThrow(
+  it("throws when creating a duplicate slug", async () => {
+    await cronStore.createJob(makeJobInput({ name: "My Task" }));
+    await expect(cronStore.createJob(makeJobInput({ name: "My Task" }))).rejects.toThrow(
       'A job with a similar name already exists ("my-task")',
     );
   });
 
-  it("trims the name before saving", () => {
-    const job = cronStore.createJob(makeJobInput({ name: "  Spaced Out  " }));
+  it("trims the name before saving", async () => {
+    const job = await cronStore.createJob(makeJobInput({ name: "  Spaced Out  " }));
     expect(job.name).toBe("Spaced Out");
     expect(job.id).toBe("spaced-out");
   });
 
-  it("throws when prompt is empty", () => {
-    expect(() => cronStore.createJob(makeJobInput({ prompt: "" }))).toThrow("Job prompt is required");
+  it("throws when prompt is empty", async () => {
+    await expect(cronStore.createJob(makeJobInput({ prompt: "" }))).rejects.toThrow("Job prompt is required");
   });
 
-  it("throws when schedule is empty", () => {
-    expect(() => cronStore.createJob(makeJobInput({ schedule: "" }))).toThrow("Job schedule is required");
+  it("throws when schedule is empty", async () => {
+    await expect(cronStore.createJob(makeJobInput({ schedule: "" }))).rejects.toThrow("Job schedule is required");
   });
 
-  it("throws when cwd is empty", () => {
-    expect(() => cronStore.createJob(makeJobInput({ cwd: "" }))).toThrow("Job working directory is required");
+  it("throws when cwd is empty", async () => {
+    await expect(cronStore.createJob(makeJobInput({ cwd: "" }))).rejects.toThrow("Job working directory is required");
   });
 });
 
@@ -196,12 +196,12 @@ describe("createJob", () => {
 // ===========================================================================
 describe("updateJob", () => {
   it("updates fields and preserves createdAt", async () => {
-    const job = cronStore.createJob(makeJobInput({ name: "Original" }));
+    const job = await cronStore.createJob(makeJobInput({ name: "Original" }));
     const originalCreatedAt = job.createdAt;
 
     await new Promise((r) => setTimeout(r, 10));
 
-    const updated = cronStore.updateJob("original", {
+    const updated = await cronStore.updateJob("original", {
       prompt: "Updated prompt",
     });
 
@@ -211,10 +211,10 @@ describe("updateJob", () => {
     expect(updated!.updatedAt).toBeGreaterThan(originalCreatedAt);
   });
 
-  it("renames the file on disk when name/slug changes", () => {
-    cronStore.createJob(makeJobInput({ name: "Old Name" }));
+  it("renames the file on disk when name/slug changes", async () => {
+    await cronStore.createJob(makeJobInput({ name: "Old Name" }));
 
-    cronStore.updateJob("old-name", { name: "New Name" });
+    await cronStore.updateJob("old-name", { name: "New Name" });
 
     // Old file should be gone, new file should exist
     expect(() => readFileSync(join(cronDir(), "old-name.json"), "utf-8")).toThrow();
@@ -223,23 +223,23 @@ describe("updateJob", () => {
     expect(parsed.id).toBe("new-name");
   });
 
-  it("throws on slug collision during rename", () => {
-    cronStore.createJob(makeJobInput({ name: "Alpha" }));
-    cronStore.createJob(makeJobInput({ name: "Beta" }));
+  it("throws on slug collision during rename", async () => {
+    await cronStore.createJob(makeJobInput({ name: "Alpha" }));
+    await cronStore.createJob(makeJobInput({ name: "Beta" }));
 
-    expect(() => cronStore.updateJob("alpha", { name: "Beta" })).toThrow(
+    await expect(cronStore.updateJob("alpha", { name: "Beta" })).rejects.toThrow(
       'A job with a similar name already exists ("beta")',
     );
   });
 
-  it("returns null for a non-existent id", () => {
-    expect(cronStore.updateJob("ghost", { name: "New" })).toBeNull();
+  it("returns null for a non-existent id", async () => {
+    expect(await cronStore.updateJob("ghost", { name: "New" })).toBeNull();
   });
 
-  it("updates tracking fields like consecutiveFailures", () => {
-    cronStore.createJob(makeJobInput({ name: "Tracked" }));
+  it("updates tracking fields like consecutiveFailures", async () => {
+    await cronStore.createJob(makeJobInput({ name: "Tracked" }));
 
-    const updated = cronStore.updateJob("tracked", {
+    const updated = await cronStore.updateJob("tracked", {
       consecutiveFailures: 3,
       totalRuns: 10,
       lastRunAt: Date.now(),
@@ -256,32 +256,32 @@ describe("updateJob", () => {
 // deleteJob
 // ===========================================================================
 describe("deleteJob", () => {
-  it("deletes an existing job and returns true", () => {
-    cronStore.createJob(makeJobInput({ name: "To Delete" }));
-    expect(cronStore.deleteJob("to-delete")).toBe(true);
-    expect(cronStore.getJob("to-delete")).toBeNull();
+  it("deletes an existing job and returns true", async () => {
+    await cronStore.createJob(makeJobInput({ name: "To Delete" }));
+    expect(await cronStore.deleteJob("to-delete")).toBe(true);
+    expect(await cronStore.getJob("to-delete")).toBeNull();
   });
 
-  it("returns false when the job does not exist", () => {
-    expect(cronStore.deleteJob("missing")).toBe(false);
+  it("returns false when the job does not exist", async () => {
+    expect(await cronStore.deleteJob("missing")).toBe(false);
   });
 
-  it("removes the file from disk", () => {
-    cronStore.createJob(makeJobInput({ name: "Disk Gone" }));
+  it("removes the file from disk", async () => {
+    await cronStore.createJob(makeJobInput({ name: "Disk Gone" }));
     expect(() => readFileSync(join(cronDir(), "disk-gone.json"), "utf-8")).not.toThrow();
 
-    cronStore.deleteJob("disk-gone");
+    await cronStore.deleteJob("disk-gone");
     expect(() => readFileSync(join(cronDir(), "disk-gone.json"), "utf-8")).toThrow();
   });
 
-  it("does not affect other jobs when deleting one", () => {
-    cronStore.createJob(makeJobInput({ name: "Keep Me" }));
-    cronStore.createJob(makeJobInput({ name: "Delete Me" }));
+  it("does not affect other jobs when deleting one", async () => {
+    await cronStore.createJob(makeJobInput({ name: "Keep Me" }));
+    await cronStore.createJob(makeJobInput({ name: "Delete Me" }));
 
-    cronStore.deleteJob("delete-me");
+    await cronStore.deleteJob("delete-me");
 
-    expect(cronStore.getJob("keep-me")).not.toBeNull();
-    expect(cronStore.listJobs()).toHaveLength(1);
+    expect(await cronStore.getJob("keep-me")).not.toBeNull();
+    expect(await cronStore.listJobs()).toHaveLength(1);
   });
 });
 
@@ -289,19 +289,19 @@ describe("deleteJob", () => {
 // Edge cases & integration
 // ===========================================================================
 describe("edge cases", () => {
-  it("handles unicode in job names by stripping non-alphanumeric", () => {
+  it("handles unicode in job names by stripping non-alphanumeric", async () => {
     // Unicode characters get stripped, leaving only alphanumeric + hyphens
-    const job = cronStore.createJob(makeJobInput({ name: "café résumé" }));
+    const job = await cronStore.createJob(makeJobInput({ name: "café résumé" }));
     expect(job.id).toBe("caf-rsum");
   });
 
-  it("handles very long names by preserving full slug", () => {
+  it("handles very long names by preserving full slug", async () => {
     const longName = "a".repeat(200);
-    const job = cronStore.createJob(makeJobInput({ name: longName }));
+    const job = await cronStore.createJob(makeJobInput({ name: longName }));
     expect(job.id).toBe(longName.toLowerCase());
   });
 
-  it("preserves all CronJob fields through create → get round-trip", () => {
+  it("preserves all CronJob fields through create → get round-trip", async () => {
     // Every field in the CronJob interface should survive serialization
     const input = makeJobInput({
       name: "Full Round Trip",
@@ -317,8 +317,8 @@ describe("edge cases", () => {
       codexInternetAccess: true,
     });
 
-    const created = cronStore.createJob(input);
-    const retrieved = cronStore.getJob(created.id);
+    const created = await cronStore.createJob(input);
+    const retrieved = await cronStore.getJob(created.id);
 
     expect(retrieved).not.toBeNull();
     expect(retrieved!.name).toBe("Full Round Trip");
@@ -336,10 +336,10 @@ describe("edge cases", () => {
     expect(retrieved!.totalRuns).toBe(0);
   });
 
-  it("preserves all fields through create → update → get round-trip", () => {
-    cronStore.createJob(makeJobInput({ name: "Update Trip" }));
+  it("preserves all fields through create → update → get round-trip", async () => {
+    await cronStore.createJob(makeJobInput({ name: "Update Trip" }));
 
-    cronStore.updateJob("update-trip", {
+    await cronStore.updateJob("update-trip", {
       prompt: "New prompt",
       schedule: "0 12 * * *",
       recurring: false,
@@ -356,7 +356,7 @@ describe("edge cases", () => {
       lastSessionId: "sess-abc",
     });
 
-    const result = cronStore.getJob("update-trip");
+    const result = await cronStore.getJob("update-trip");
     expect(result!.prompt).toBe("New prompt");
     expect(result!.schedule).toBe("0 12 * * *");
     expect(result!.recurring).toBe(false);
@@ -373,33 +373,33 @@ describe("edge cases", () => {
     expect(result!.lastSessionId).toBe("sess-abc");
   });
 
-  it("can create multiple jobs and list them all", () => {
+  it("can create multiple jobs and list them all", async () => {
     for (let i = 0; i < 10; i++) {
-      cronStore.createJob(makeJobInput({ name: `Job ${i}` }));
+      await cronStore.createJob(makeJobInput({ name: `Job ${i}` }));
     }
-    expect(cronStore.listJobs()).toHaveLength(10);
+    expect(await cronStore.listJobs()).toHaveLength(10);
   });
 
-  it("handles delete then re-create of same name", () => {
-    cronStore.createJob(makeJobInput({ name: "Recycled" }));
-    cronStore.deleteJob("recycled");
+  it("handles delete then re-create of same name", async () => {
+    await cronStore.createJob(makeJobInput({ name: "Recycled" }));
+    await cronStore.deleteJob("recycled");
     // Should not throw — slot is now free
-    const job = cronStore.createJob(makeJobInput({ name: "Recycled" }));
+    const job = await cronStore.createJob(makeJobInput({ name: "Recycled" }));
     expect(job.id).toBe("recycled");
   });
 
-  it("updateJob does not allow overriding createdAt", () => {
-    const job = cronStore.createJob(makeJobInput({ name: "Immutable Dates" }));
+  it("updateJob does not allow overriding createdAt", async () => {
+    const job = await cronStore.createJob(makeJobInput({ name: "Immutable Dates" }));
     const originalCreatedAt = job.createdAt;
 
-    cronStore.updateJob("immutable-dates", { createdAt: 0 } as Partial<import("./cron-types.js").CronJob>);
+    await cronStore.updateJob("immutable-dates", { createdAt: 0 } as Partial<import("./cron-types.js").CronJob>);
 
-    const updated = cronStore.getJob("immutable-dates");
+    const updated = await cronStore.getJob("immutable-dates");
     expect(updated!.createdAt).toBe(originalCreatedAt);
   });
 
-  it("trims prompt and schedule whitespace on create", () => {
-    const job = cronStore.createJob(makeJobInput({
+  it("trims prompt and schedule whitespace on create", async () => {
+    const job = await cronStore.createJob(makeJobInput({
       name: "Trim Test",
       prompt: "  spaced prompt  ",
       schedule: "  0 8 * * *  ",
@@ -410,12 +410,12 @@ describe("edge cases", () => {
     expect(job.cwd).toBe("/tmp/test");
   });
 
-  it("skips non-JSON files in the cron directory", () => {
-    cronStore.createJob(makeJobInput({ name: "Valid" }));
+  it("skips non-JSON files in the cron directory", async () => {
+    await cronStore.createJob(makeJobInput({ name: "Valid" }));
     writeFileSync(join(cronDir(), "readme.txt"), "not a job", "utf-8");
     writeFileSync(join(cronDir(), "notes.md"), "# notes", "utf-8");
 
-    const jobs = cronStore.listJobs();
+    const jobs = await cronStore.listJobs();
     expect(jobs).toHaveLength(1);
     expect(jobs[0].name).toBe("Valid");
   });

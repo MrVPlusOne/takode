@@ -1,11 +1,11 @@
+import { mkdirSync } from "node:fs";
 import {
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  writeFileSync,
-  unlinkSync,
-  existsSync,
-} from "node:fs";
+  readdir,
+  readFile,
+  writeFile,
+  unlink,
+  mkdir,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { extname } from "node:path";
@@ -67,12 +67,15 @@ const QUESTMASTER_DIR = join(homedir(), ".companion", "questmaster");
 const IMAGES_DIR = join(QUESTMASTER_DIR, "images");
 const COUNTER_FILE = join(QUESTMASTER_DIR, "_quest_counter.json");
 
-function ensureDir(): void {
-  mkdirSync(QUESTMASTER_DIR, { recursive: true });
+// Cold-path: synchronous mkdir at module load is fine
+mkdirSync(QUESTMASTER_DIR, { recursive: true });
+
+async function ensureDir(): Promise<void> {
+  await mkdir(QUESTMASTER_DIR, { recursive: true });
 }
 
-function ensureImagesDir(): void {
-  mkdirSync(IMAGES_DIR, { recursive: true });
+async function ensureImagesDir(): Promise<void> {
+  await mkdir(IMAGES_DIR, { recursive: true });
 }
 
 function filePath(id: string): string {
@@ -81,10 +84,10 @@ function filePath(id: string): string {
 
 // ─── Counter ─────────────────────────────────────────────────────────────────
 
-function readCounter(): number {
-  ensureDir();
+async function readCounter(): Promise<number> {
+  await ensureDir();
   try {
-    const raw = readFileSync(COUNTER_FILE, "utf-8");
+    const raw = await readFile(COUNTER_FILE, "utf-8");
     const data = JSON.parse(raw) as { next: number };
     if (typeof data.next !== "number" || Number.isNaN(data.next) || data.next < 1) {
       return 1;
@@ -95,45 +98,45 @@ function readCounter(): number {
   }
 }
 
-function writeCounter(next: number): void {
-  ensureDir();
-  writeFileSync(COUNTER_FILE, JSON.stringify({ next }), "utf-8");
+async function writeCounter(next: number): Promise<void> {
+  await ensureDir();
+  await writeFile(COUNTER_FILE, JSON.stringify({ next }), "utf-8");
 }
 
-function nextQuestId(): string {
-  const n = readCounter();
-  writeCounter(n + 1);
+async function nextQuestId(): Promise<string> {
+  const n = await readCounter();
+  await writeCounter(n + 1);
   return `q-${n}`;
 }
 
 // ─── Internal helpers ────────────────────────────────────────────────────────
 
-function readQuest(id: string): QuestmasterTask | null {
-  ensureDir();
+async function readQuest(id: string): Promise<QuestmasterTask | null> {
+  await ensureDir();
   try {
-    const raw = readFileSync(filePath(id), "utf-8");
+    const raw = await readFile(filePath(id), "utf-8");
     return JSON.parse(raw) as QuestmasterTask;
   } catch {
     return null;
   }
 }
 
-function writeQuest(quest: QuestmasterTask): void {
-  ensureDir();
-  writeFileSync(filePath(quest.id), JSON.stringify(quest, null, 2), "utf-8");
+async function writeQuest(quest: QuestmasterTask): Promise<void> {
+  await ensureDir();
+  await writeFile(filePath(quest.id), JSON.stringify(quest, null, 2), "utf-8");
 }
 
 /** Read all version files, grouped by questId. */
-function readAllVersions(): Map<string, QuestmasterTask[]> {
-  ensureDir();
+async function readAllVersions(): Promise<Map<string, QuestmasterTask[]>> {
+  await ensureDir();
   const groups = new Map<string, QuestmasterTask[]>();
   try {
-    const files = readdirSync(QUESTMASTER_DIR).filter(
+    const files = (await readdir(QUESTMASTER_DIR)).filter(
       (f) => f.endsWith(".json") && !f.startsWith("_"),
     );
     for (const file of files) {
       try {
-        const raw = readFileSync(join(QUESTMASTER_DIR, file), "utf-8");
+        const raw = await readFile(join(QUESTMASTER_DIR, file), "utf-8");
         const quest = JSON.parse(raw) as QuestmasterTask;
         const arr = groups.get(quest.questId) || [];
         arr.push(quest);
@@ -171,8 +174,8 @@ const STATUS_ORDER: Record<QuestStatus, number> = {
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 /** List the latest version of every quest. */
-export function listQuests(): QuestmasterTask[] {
-  const groups = readAllVersions();
+export async function listQuests(): Promise<QuestmasterTask[]> {
+  const groups = await readAllVersions();
   const result: QuestmasterTask[] = [];
   for (const versions of groups.values()) {
     result.push(latestVersion(versions));
@@ -182,33 +185,33 @@ export function listQuests(): QuestmasterTask[] {
 }
 
 /** Get the latest version of a quest by questId. */
-export function getQuest(questId: string): QuestmasterTask | null {
-  const groups = readAllVersions();
+export async function getQuest(questId: string): Promise<QuestmasterTask | null> {
+  const groups = await readAllVersions();
   const versions = groups.get(questId);
   if (!versions || versions.length === 0) return null;
   return latestVersion(versions);
 }
 
 /** Get a specific version by full version id (e.g., "q-1-v3"). */
-export function getQuestVersion(id: string): QuestmasterTask | null {
+export async function getQuestVersion(id: string): Promise<QuestmasterTask | null> {
   return readQuest(id);
 }
 
 /** Get all versions of a quest, ordered oldest → newest. */
-export function getQuestHistory(questId: string): QuestmasterTask[] {
-  const groups = readAllVersions();
+export async function getQuestHistory(questId: string): Promise<QuestmasterTask[]> {
+  const groups = await readAllVersions();
   const versions = groups.get(questId);
   if (!versions) return [];
   return versions.sort((a, b) => a.version - b.version);
 }
 
 /** Create a new quest. Returns the initial version. */
-export function createQuest(input: QuestCreateInput): QuestmasterTask {
+export async function createQuest(input: QuestCreateInput): Promise<QuestmasterTask> {
   if (!input.title?.trim()) {
     throw new Error("Quest title is required");
   }
 
-  const questId = nextQuestId();
+  const questId = await nextQuestId();
   const id = `${questId}-v1`;
   const now = Date.now();
   const status = input.status || "idea";
@@ -249,16 +252,16 @@ export function createQuest(input: QuestCreateInput): QuestmasterTask {
       throw new Error(`Cannot create a quest directly in "${status}" status`);
   }
 
-  writeQuest(quest);
+  await writeQuest(quest);
   return quest;
 }
 
 /** Same-stage edit. Mutates the latest version in place, no new version. */
-export function patchQuest(
+export async function patchQuest(
   questId: string,
   patch: QuestPatchInput,
-): QuestmasterTask | null {
-  const current = getQuest(questId);
+): Promise<QuestmasterTask | null> {
+  const current = await getQuest(questId);
   if (!current) return null;
 
   const updated = { ...current, updatedAt: Date.now() } as QuestmasterTask;
@@ -273,17 +276,17 @@ export function patchQuest(
     (updated as { feedback?: QuestFeedbackEntry[] }).feedback = patch.feedback.length > 0 ? patch.feedback : undefined;
   }
 
-  writeQuest(updated);
+  await writeQuest(updated);
   return updated;
 }
 
 /** Delete a quest and all its versions. */
-export function deleteQuest(questId: string): boolean {
-  const versions = getQuestHistory(questId);
+export async function deleteQuest(questId: string): Promise<boolean> {
+  const versions = await getQuestHistory(questId);
   if (versions.length === 0) return false;
   for (const v of versions) {
     try {
-      unlinkSync(filePath(v.id));
+      await unlink(filePath(v.id));
     } catch {
       // ok
     }
@@ -295,11 +298,11 @@ export function deleteQuest(questId: string): boolean {
  * Generic status transition. Creates a new version linked to the previous.
  * Carries forward fields from the current version and adds new required fields.
  */
-export function transitionQuest(
+export async function transitionQuest(
   questId: string,
   input: QuestTransitionInput,
-): QuestmasterTask | null {
-  const current = getQuest(questId);
+): Promise<QuestmasterTask | null> {
+  const current = await getQuest(questId);
   if (!current) return null;
 
   const targetStatus = input.status;
@@ -463,7 +466,7 @@ export function transitionQuest(
       throw new Error(`Unknown status: ${targetStatus}`);
   }
 
-  writeQuest(quest);
+  await writeQuest(quest);
   return quest;
 }
 
@@ -471,19 +474,19 @@ export function transitionQuest(
  * Get the active (in_progress) quest for a session, if any.
  * Returns null if the session has no in_progress quest.
  */
-export function getActiveQuestForSession(sessionId: string): QuestmasterTask | null {
-  const all = listQuests();
+export async function getActiveQuestForSession(sessionId: string): Promise<QuestmasterTask | null> {
+  const all = await listQuests();
   return all.find(
     (q) => q.status === "in_progress" && "sessionId" in q && (q as QuestInProgress).sessionId === sessionId,
   ) ?? null;
 }
 
 /** Convenience: claim a quest (transition to in_progress). */
-export function claimQuest(
+export async function claimQuest(
   questId: string,
   sessionId: string,
-): QuestmasterTask | null {
-  const current = getQuest(questId);
+): Promise<QuestmasterTask | null> {
+  const current = await getQuest(questId);
   if (!current) return null;
 
   // Already claimed by the same session — idempotent, return as-is
@@ -513,7 +516,7 @@ export function claimQuest(
 
   // Enforce one in_progress quest per session: if this session already has
   // another quest in_progress, reject the claim.
-  const existing = getActiveQuestForSession(sessionId);
+  const existing = await getActiveQuestForSession(sessionId);
   if (existing && existing.questId !== questId) {
     throw new Error(
       `Session already has an active quest: ${existing.questId} "${existing.title}". ` +
@@ -528,10 +531,10 @@ export function claimQuest(
 }
 
 /** Convenience: complete a quest (transition to needs_verification). */
-export function completeQuest(
+export async function completeQuest(
   questId: string,
   items: QuestVerificationItem[],
-): QuestmasterTask | null {
+): Promise<QuestmasterTask | null> {
   return transitionQuest(questId, {
     status: "needs_verification",
     verificationItems: items,
@@ -539,10 +542,10 @@ export function completeQuest(
 }
 
 /** Convenience: mark a quest as done (or cancelled). */
-export function markDone(
+export async function markDone(
   questId: string,
   opts?: { notes?: string; cancelled?: boolean },
-): QuestmasterTask | null {
+): Promise<QuestmasterTask | null> {
   return transitionQuest(questId, {
     status: "done",
     ...(opts?.notes ? { notes: opts.notes } : {}),
@@ -554,11 +557,11 @@ export function markDone(
  * Cancel a quest from any status. Transitions directly to done+cancelled
  * without requiring sessionId or verificationItems.
  */
-export function cancelQuest(
+export async function cancelQuest(
   questId: string,
   notes?: string,
-): QuestmasterTask | null {
-  const current = getQuest(questId);
+): Promise<QuestmasterTask | null> {
+  const current = await getQuest(questId);
   if (!current) return null;
 
   const now = Date.now();
@@ -600,17 +603,17 @@ export function cancelQuest(
     ...(cancelFeedback?.length ? { feedback: cancelFeedback } : {}),
   } as QuestDone;
 
-  writeQuest(quest);
+  await writeQuest(quest);
   return quest;
 }
 
 /** Toggle a verification item checkbox (in-place, no new version). */
-export function checkVerificationItem(
+export async function checkVerificationItem(
   questId: string,
   index: number,
   checked: boolean,
-): QuestmasterTask | null {
-  const current = getQuest(questId);
+): Promise<QuestmasterTask | null> {
+  const current = await getQuest(questId);
   if (!current) return null;
 
   if (!("verificationItems" in current)) {
@@ -624,7 +627,7 @@ export function checkVerificationItem(
 
   items[index].checked = checked;
   (current as { updatedAt?: number }).updatedAt = Date.now();
-  writeQuest(current);
+  await writeQuest(current);
   return current;
 }
 
@@ -639,41 +642,41 @@ const MIME_TO_EXT: Record<string, string> = {
 };
 
 /** Save an image to disk and return image metadata. */
-export function saveQuestImage(
+export async function saveQuestImage(
   filename: string,
   data: Buffer,
   mimeType: string,
-): QuestImage {
-  ensureImagesDir();
+): Promise<QuestImage> {
+  await ensureImagesDir();
   const id = randomBytes(8).toString("hex");
   const ext = MIME_TO_EXT[mimeType] || extname(filename) || ".bin";
   const diskName = `${id}${ext}`;
   const diskPath = join(IMAGES_DIR, diskName);
-  writeFileSync(diskPath, data);
+  await writeFile(diskPath, data);
   return { id, filename, mimeType, path: diskPath };
 }
 
 /** Add images to a quest (in-place patch, no new version). */
-export function addQuestImages(
+export async function addQuestImages(
   questId: string,
   images: QuestImage[],
-): QuestmasterTask | null {
-  const current = getQuest(questId);
+): Promise<QuestmasterTask | null> {
+  const current = await getQuest(questId);
   if (!current) return null;
 
   const existing = current.images ?? [];
   (current as { images: QuestImage[] }).images = [...existing, ...images];
   (current as { updatedAt?: number }).updatedAt = Date.now();
-  writeQuest(current);
+  await writeQuest(current);
   return current;
 }
 
 /** Remove an image from a quest and delete the file. */
-export function removeQuestImage(
+export async function removeQuestImage(
   questId: string,
   imageId: string,
-): QuestmasterTask | null {
-  const current = getQuest(questId);
+): Promise<QuestmasterTask | null> {
+  const current = await getQuest(questId);
   if (!current) return null;
   if (!current.images?.length) return current;
 
@@ -682,12 +685,12 @@ export function removeQuestImage(
     (img) => img.id !== imageId,
   );
   (current as { updatedAt?: number }).updatedAt = Date.now();
-  writeQuest(current);
+  await writeQuest(current);
 
   // Delete the file
   if (image) {
     try {
-      unlinkSync(image.path);
+      await unlink(image.path);
     } catch {
       // File may already be deleted
     }
@@ -697,16 +700,16 @@ export function removeQuestImage(
 }
 
 /** Read an image file from disk. Returns null if not found. */
-export function readQuestImageFile(
+export async function readQuestImageFile(
   imageId: string,
-): { data: Buffer; mimeType: string } | null {
-  ensureImagesDir();
+): Promise<{ data: Buffer; mimeType: string } | null> {
+  await ensureImagesDir();
   try {
-    const files = readdirSync(IMAGES_DIR);
+    const files = await readdir(IMAGES_DIR);
     const file = files.find((f) => f.startsWith(imageId));
     if (!file) return null;
     const fullPath = join(IMAGES_DIR, file);
-    const data = readFileSync(fullPath) as Buffer;
+    const data = await readFile(fullPath) as Buffer;
     // Derive MIME from extension
     const ext = extname(file).toLowerCase();
     const mimeType =
@@ -721,13 +724,13 @@ export function readQuestImageFile(
 // ─── Test helpers ────────────────────────────────────────────────────────────
 
 /** Reset the store directory. Only for tests. */
-export function _resetForTests(): void {
-  ensureDir();
+export async function _resetForTests(): Promise<void> {
+  await ensureDir();
   try {
-    const files = readdirSync(QUESTMASTER_DIR);
+    const files = await readdir(QUESTMASTER_DIR);
     for (const file of files) {
       try {
-        unlinkSync(join(QUESTMASTER_DIR, file));
+        await unlink(join(QUESTMASTER_DIR, file));
       } catch {
         // ok
       }

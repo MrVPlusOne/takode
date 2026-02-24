@@ -48,7 +48,7 @@ const port = Number(process.env.PORT) || defaultPort;
 // Initialize file-based logging before anything else logs
 initServerLogger(port);
 
-initWithPort(port);
+await initWithPort(port);
 const sessionStore = new SessionStore(undefined, port);
 const wsBridge = new WsBridge();
 const launcher = new CliLauncher(port);
@@ -231,8 +231,8 @@ function isRandomSessionName(name: string | null | undefined): boolean {
 }
 
 /** Look up the active quest for a session and map to the namer's expected shape. */
-function getClaimedQuestForNamer(sessionId: string): { id: string; title: string } | null {
-  const quest = getActiveQuestForSession(sessionId);
+async function getClaimedQuestForNamer(sessionId: string): Promise<{ id: string; title: string } | null> {
+  const quest = await getActiveQuestForSession(sessionId);
   if (!quest) return null;
   return { id: quest.questId, title: quest.title };
 }
@@ -240,20 +240,20 @@ function getClaimedQuestForNamer(sessionId: string): { id: string; title: string
 /** Check whether a quest owns the session name (suppresses auto-namer).
  *  Checks both the quest store (in_progress quests) AND the session's claimedQuestId
  *  (which persists through needs_verification until done/cancelled). */
-function isQuestOwningSessionName(sessionId: string): boolean {
-  if (getActiveQuestForSession(sessionId)) return true;
+async function isQuestOwningSessionName(sessionId: string): Promise<boolean> {
+  if (await getActiveQuestForSession(sessionId)) return true;
   return !!wsBridge.getSession(sessionId)?.state?.claimedQuestId;
 }
 
 /** Apply a naming result: set name, broadcast, add task entry. Shared by all triggers. */
-function applyNamingResult(
+async function applyNamingResult(
   sessionId: string,
   previousName: string,
   result: import("./session-namer.js").NamingResult,
   history: import("./session-types.js").BrowserIncomingMessage[],
-): void {
+): Promise<void> {
   // Re-check: quest may have been claimed while the namer was in-flight
-  if (isQuestOwningSessionName(sessionId)) {
+  if (await isQuestOwningSessionName(sessionId)) {
     console.log(`[session-namer] Discarding namer result for ${sessionId} (quest owns session name)`);
     return;
   }
@@ -312,7 +312,7 @@ async function evaluateAndApply(
 ): Promise<void> {
   const currentName = sessionNames.getName(sessionId);
   const isRandomName = isRandomSessionName(currentName);
-  const claimedQuest = getClaimedQuestForNamer(sessionId);
+  const claimedQuest = await getClaimedQuestForNamer(sessionId);
   const startIndex = nameSetAtHistoryIndex.get(sessionId) ?? 0;
   const relevantHistory = isRandomName ? history : history.slice(startIndex);
   const taskHistory = wsBridge.getSessionTaskHistory(sessionId);
@@ -329,13 +329,13 @@ async function evaluateAndApply(
   );
   if (signal.aborted) return;
   if (!result) return;
-  applyNamingResult(sessionId, currentName ?? "", result, history);
+  await applyNamingResult(sessionId, currentName ?? "", result, history);
 }
 
 // Continuous session auto-naming via Claude Haiku (triggered on each user message)
 wsBridge.onUserMessageCallback(async (sessionId, history, cwd, wasGenerating) => {
   // Suppress auto-namer while a quest owns the session name
-  if (isQuestOwningSessionName(sessionId)) {
+  if (await isQuestOwningSessionName(sessionId)) {
     console.log(`[session-namer] Skipping user-message namer for ${sessionId} (quest owns session name)`);
     return;
   }
@@ -361,13 +361,13 @@ wsBridge.onUserMessageCallback(async (sessionId, history, cwd, wasGenerating) =>
       // If this fails (e.g. Haiku can't generate from a brief prompt), we give up.
       // Subsequent triggers (turn completed, agent paused, next user message) will
       // use the evaluate flow with isUnnamed=true to try again with richer context.
-      const claimedQuest = getClaimedQuestForNamer(sessionId);
+      const claimedQuest = await getClaimedQuestForNamer(sessionId);
       console.log(`[session-namer] Generating initial name for session ${sessionId}...`);
       const result = await generateFirstName(sessionId, history, cwd, { signal, isGenerating, claimedQuest });
       if (signal.aborted) return;
       if (!result || result.action !== "name") return;
       // Re-check: quest may have been claimed while we were generating
-      if (isQuestOwningSessionName(sessionId)) {
+      if (await isQuestOwningSessionName(sessionId)) {
         console.log(`[session-namer] Discarding first-name result for ${sessionId} (quest owns session name)`);
         return;
       }
@@ -403,7 +403,7 @@ wsBridge.onUserMessageCallback(async (sessionId, history, cwd, wasGenerating) =>
 // The agent has done meaningful research/work to produce the plan, providing
 // rich context for naming — and it's a natural breakpoint before execution.
 wsBridge.onAgentPausedCallback(async (sessionId, history, cwd) => {
-  if (isQuestOwningSessionName(sessionId)) {
+  if (await isQuestOwningSessionName(sessionId)) {
     console.log(`[session-namer] Skipping agent-paused namer for ${sessionId} (quest owns session name)`);
     return;
   }
@@ -428,7 +428,7 @@ wsBridge.onAgentPausedCallback(async (sessionId, history, cwd) => {
 // user-message namer first — it has richer context (full agent activity)
 // and should override any earlier naming attempt for the same turn.
 wsBridge.onTurnCompletedCallback(async (sessionId, history, cwd) => {
-  if (isQuestOwningSessionName(sessionId)) {
+  if (await isQuestOwningSessionName(sessionId)) {
     console.log(`[session-namer] Skipping turn-completed namer for ${sessionId} (quest owns session name)`);
     return;
   }
@@ -563,7 +563,7 @@ if (!process.env.COMPANION_SUPERVISED) {
 }
 
 // ── Cron scheduler ──────────────────────────────────────────────────────────
-cronScheduler.startAll();
+await cronScheduler.startAll();
 
 // ── Questmaster CLI integration ─────────────────────────────────────────────
 ensureQuestmasterIntegration(port, packageRoot);

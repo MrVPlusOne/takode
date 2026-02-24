@@ -42,9 +42,9 @@ function questDir(): string {
 // createQuest
 // ===========================================================================
 describe("createQuest", () => {
-  it("creates an idea quest with sequential IDs", () => {
-    const q1 = questStore.createQuest({ title: "First quest" });
-    const q2 = questStore.createQuest({ title: "Second quest" });
+  it("creates an idea quest with sequential IDs", async () => {
+    const q1 = await questStore.createQuest({ title: "First quest" });
+    const q2 = await questStore.createQuest({ title: "Second quest" });
 
     expect(q1.questId).toBe("q-1");
     expect(q1.id).toBe("q-1-v1");
@@ -57,8 +57,8 @@ describe("createQuest", () => {
     expect(q2.id).toBe("q-2-v1");
   });
 
-  it("creates a refined quest when status and description are provided", () => {
-    const q = questStore.createQuest({
+  it("creates a refined quest when status and description are provided", async () => {
+    const q = await questStore.createQuest({
       title: "Refined quest",
       description: "Full details here",
       status: "refined",
@@ -70,8 +70,8 @@ describe("createQuest", () => {
     }
   });
 
-  it("persists to disk as pretty-printed JSON", () => {
-    questStore.createQuest({ title: "Disk test" });
+  it("persists to disk as pretty-printed JSON", async () => {
+    await questStore.createQuest({ title: "Disk test" });
 
     const raw = readFileSync(join(questDir(), "q-1-v1.json"), "utf-8");
     const parsed = JSON.parse(raw);
@@ -81,29 +81,29 @@ describe("createQuest", () => {
     expect(raw).toContain("\n");
   });
 
-  it("throws on empty title", () => {
-    expect(() => questStore.createQuest({ title: "" })).toThrow(
+  it("throws on empty title", async () => {
+    await expect(questStore.createQuest({ title: "" })).rejects.toThrow(
       "Quest title is required",
     );
-    expect(() => questStore.createQuest({ title: "   " })).toThrow(
+    await expect(questStore.createQuest({ title: "   " })).rejects.toThrow(
       "Quest title is required",
     );
   });
 
-  it("throws when creating with in_progress status directly", () => {
-    expect(() =>
+  it("throws when creating with in_progress status directly", async () => {
+    await expect(
       questStore.createQuest({ title: "Bad", status: "in_progress" }),
-    ).toThrow('Cannot create a quest directly in "in_progress" status');
+    ).rejects.toThrow('Cannot create a quest directly in "in_progress" status');
   });
 
-  it("throws when refined status is missing description", () => {
-    expect(() =>
+  it("throws when refined status is missing description", async () => {
+    await expect(
       questStore.createQuest({ title: "No desc", status: "refined" }),
-    ).toThrow("Description is required for refined status");
+    ).rejects.toThrow("Description is required for refined status");
   });
 
-  it("saves tags and parentId", () => {
-    const q = questStore.createQuest({
+  it("saves tags and parentId", async () => {
+    const q = await questStore.createQuest({
       title: "Tagged",
       tags: ["ui", "feature"],
       parentId: "q-0",
@@ -118,22 +118,22 @@ describe("createQuest", () => {
 // listQuests
 // ===========================================================================
 describe("listQuests", () => {
-  it("returns empty array when no quests exist", () => {
-    expect(questStore.listQuests()).toEqual([]);
+  it("returns empty array when no quests exist", async () => {
+    expect(await questStore.listQuests()).toEqual([]);
   });
 
-  it("returns only the latest version of each quest", () => {
+  it("returns only the latest version of each quest", async () => {
     // Create two quests
-    questStore.createQuest({ title: "Quest A" });
-    questStore.createQuest({ title: "Quest B" });
+    await questStore.createQuest({ title: "Quest A" });
+    await questStore.createQuest({ title: "Quest B" });
 
     // Transition quest A to refined (creates v2)
-    questStore.transitionQuest("q-1", {
+    await questStore.transitionQuest("q-1", {
       status: "refined",
       description: "Detailed",
     });
 
-    const quests = questStore.listQuests();
+    const quests = await questStore.listQuests();
     expect(quests).toHaveLength(2);
 
     // Quest A should be at version 2 (refined)
@@ -148,12 +148,12 @@ describe("listQuests", () => {
   });
 
   it("sorts by createdAt descending (newest first)", async () => {
-    questStore.createQuest({ title: "Older" });
+    await questStore.createQuest({ title: "Older" });
     // Small delay to ensure different timestamps
     await new Promise((r) => setTimeout(r, 10));
-    questStore.createQuest({ title: "Newer" });
+    await questStore.createQuest({ title: "Newer" });
 
-    const quests = questStore.listQuests();
+    const quests = await questStore.listQuests();
     expect(quests[0].title).toBe("Newer");
     expect(quests[1].title).toBe("Older");
   });
@@ -163,55 +163,55 @@ describe("listQuests", () => {
 // getQuest / getQuestVersion / getQuestHistory
 // ===========================================================================
 describe("getQuest", () => {
-  it("returns latest version by questId", () => {
-    questStore.createQuest({ title: "Test" });
-    questStore.transitionQuest("q-1", {
+  it("returns latest version by questId", async () => {
+    await questStore.createQuest({ title: "Test" });
+    await questStore.transitionQuest("q-1", {
       status: "refined",
       description: "Details",
     });
 
-    const q = questStore.getQuest("q-1");
+    const q = await questStore.getQuest("q-1");
     expect(q?.version).toBe(2);
     expect(q?.status).toBe("refined");
   });
 
-  it("returns null for non-existent questId", () => {
-    expect(questStore.getQuest("q-999")).toBeNull();
+  it("returns null for non-existent questId", async () => {
+    expect(await questStore.getQuest("q-999")).toBeNull();
   });
 });
 
 describe("getQuestVersion", () => {
-  it("returns a specific version", () => {
-    questStore.createQuest({ title: "Test" });
-    questStore.transitionQuest("q-1", {
+  it("returns a specific version", async () => {
+    await questStore.createQuest({ title: "Test" });
+    await questStore.transitionQuest("q-1", {
       status: "refined",
       description: "Details",
     });
 
-    const v1 = questStore.getQuestVersion("q-1-v1");
+    const v1 = await questStore.getQuestVersion("q-1-v1");
     expect(v1?.version).toBe(1);
     expect(v1?.status).toBe("idea");
 
-    const v2 = questStore.getQuestVersion("q-1-v2");
+    const v2 = await questStore.getQuestVersion("q-1-v2");
     expect(v2?.version).toBe(2);
     expect(v2?.status).toBe("refined");
   });
 
-  it("returns null for non-existent version", () => {
-    expect(questStore.getQuestVersion("q-1-v99")).toBeNull();
+  it("returns null for non-existent version", async () => {
+    expect(await questStore.getQuestVersion("q-1-v99")).toBeNull();
   });
 });
 
 describe("getQuestHistory", () => {
-  it("returns all versions ordered oldest → newest", () => {
-    questStore.createQuest({ title: "Evolving" });
-    questStore.transitionQuest("q-1", {
+  it("returns all versions ordered oldest → newest", async () => {
+    await questStore.createQuest({ title: "Evolving" });
+    await questStore.transitionQuest("q-1", {
       status: "refined",
       description: "Step 1",
     });
-    questStore.claimQuest("q-1", "session-abc");
+    await questStore.claimQuest("q-1", "session-abc");
 
-    const history = questStore.getQuestHistory("q-1");
+    const history = await questStore.getQuestHistory("q-1");
     expect(history).toHaveLength(3);
     expect(history[0].version).toBe(1);
     expect(history[1].version).toBe(2);
@@ -223,8 +223,8 @@ describe("getQuestHistory", () => {
     expect(history[2].prevId).toBe("q-1-v2");
   });
 
-  it("returns empty array for non-existent questId", () => {
-    expect(questStore.getQuestHistory("q-999")).toEqual([]);
+  it("returns empty array for non-existent questId", async () => {
+    expect(await questStore.getQuestHistory("q-999")).toEqual([]);
   });
 });
 
@@ -232,13 +232,13 @@ describe("getQuestHistory", () => {
 // Forward transitions
 // ===========================================================================
 describe("forward transitions", () => {
-  it("idea → refined → in_progress → needs_verification → done", () => {
+  it("idea → refined → in_progress → needs_verification → done", async () => {
     // Create idea
-    const idea = questStore.createQuest({ title: "Full lifecycle" });
+    const idea = await questStore.createQuest({ title: "Full lifecycle" });
     expect(idea.status).toBe("idea");
 
     // → refined
-    const refined = questStore.transitionQuest("q-1", {
+    const refined = await questStore.transitionQuest("q-1", {
       status: "refined",
       description: "Full description",
     });
@@ -250,7 +250,7 @@ describe("forward transitions", () => {
     }
 
     // → in_progress
-    const inProgress = questStore.transitionQuest("q-1", {
+    const inProgress = await questStore.transitionQuest("q-1", {
       status: "in_progress",
       sessionId: "sess-1",
     });
@@ -263,7 +263,7 @@ describe("forward transitions", () => {
     }
 
     // → needs_verification
-    const needsVerification = questStore.transitionQuest("q-1", {
+    const needsVerification = await questStore.transitionQuest("q-1", {
       status: "needs_verification",
       verificationItems: [
         { text: "Check mobile", checked: false },
@@ -278,7 +278,7 @@ describe("forward transitions", () => {
     }
 
     // → done
-    const done = questStore.transitionQuest("q-1", { status: "done" });
+    const done = await questStore.transitionQuest("q-1", { status: "done" });
     expect(done?.status).toBe("done");
     expect(done?.version).toBe(5);
     if (done?.status === "done") {
@@ -287,13 +287,13 @@ describe("forward transitions", () => {
     }
   });
 
-  it("carries forward tags and parentId through transitions", () => {
-    questStore.createQuest({
+  it("carries forward tags and parentId through transitions", async () => {
+    await questStore.createQuest({
       title: "Tagged",
       tags: ["ui"],
       parentId: "q-0",
     });
-    const refined = questStore.transitionQuest("q-1", {
+    const refined = await questStore.transitionQuest("q-1", {
       status: "refined",
       description: "Details",
     });
@@ -307,20 +307,20 @@ describe("forward transitions", () => {
 // Backward transitions (the linked-list feature)
 // ===========================================================================
 describe("backward transitions", () => {
-  it("needs_verification → in_progress creates a new version preserving history", () => {
+  it("needs_verification → in_progress creates a new version preserving history", async () => {
     // Build up to needs_verification
-    questStore.createQuest({ title: "Rework test" });
-    questStore.transitionQuest("q-1", {
+    await questStore.createQuest({ title: "Rework test" });
+    await questStore.transitionQuest("q-1", {
       status: "refined",
       description: "Original plan",
     });
-    questStore.claimQuest("q-1", "sess-1");
-    questStore.completeQuest("q-1", [
+    await questStore.claimQuest("q-1", "sess-1");
+    await questStore.completeQuest("q-1", [
       { text: "Check UI", checked: false },
     ]);
 
     // Now go backwards to in_progress (rework)
-    const rework = questStore.transitionQuest("q-1", {
+    const rework = await questStore.transitionQuest("q-1", {
       status: "in_progress",
       sessionId: "sess-2", // different agent picks it up
     });
@@ -334,7 +334,7 @@ describe("backward transitions", () => {
     }
 
     // Full history is preserved
-    const history = questStore.getQuestHistory("q-1");
+    const history = await questStore.getQuestHistory("q-1");
     expect(history).toHaveLength(5);
     expect(history.map((h) => h.status)).toEqual([
       "idea",
@@ -350,61 +350,61 @@ describe("backward transitions", () => {
 // Convenience methods
 // ===========================================================================
 describe("claimQuest", () => {
-  it("transitions to in_progress with sessionId", () => {
-    questStore.createQuest({ title: "Claim me" });
-    questStore.transitionQuest("q-1", {
+  it("transitions to in_progress with sessionId", async () => {
+    await questStore.createQuest({ title: "Claim me" });
+    await questStore.transitionQuest("q-1", {
       status: "refined",
       description: "Ready",
     });
 
-    const claimed = questStore.claimQuest("q-1", "sess-abc");
+    const claimed = await questStore.claimQuest("q-1", "sess-abc");
     expect(claimed?.status).toBe("in_progress");
     if (claimed?.status === "in_progress") {
       expect(claimed.sessionId).toBe("sess-abc");
     }
   });
 
-  it("fails when already claimed by a different session", () => {
-    questStore.createQuest({ title: "Contested" });
-    questStore.transitionQuest("q-1", {
+  it("fails when already claimed by a different session", async () => {
+    await questStore.createQuest({ title: "Contested" });
+    await questStore.transitionQuest("q-1", {
       status: "refined",
       description: "Ready",
     });
-    questStore.claimQuest("q-1", "sess-1");
+    await questStore.claimQuest("q-1", "sess-1");
 
-    expect(() => questStore.claimQuest("q-1", "sess-2")).toThrow(
+    await expect(questStore.claimQuest("q-1", "sess-2")).rejects.toThrow(
       "already claimed by session sess-1",
     );
   });
 
-  it("allows re-claiming by the same session", () => {
-    questStore.createQuest({ title: "Re-claim" });
-    questStore.transitionQuest("q-1", {
+  it("allows re-claiming by the same session", async () => {
+    await questStore.createQuest({ title: "Re-claim" });
+    await questStore.transitionQuest("q-1", {
       status: "refined",
       description: "Ready",
     });
-    questStore.claimQuest("q-1", "sess-1");
+    await questStore.claimQuest("q-1", "sess-1");
 
     // Same session can re-claim (creates new version)
-    const reClaimed = questStore.claimQuest("q-1", "sess-1");
+    const reClaimed = await questStore.claimQuest("q-1", "sess-1");
     expect(reClaimed?.status).toBe("in_progress");
   });
 
-  it("returns null for non-existent quest", () => {
-    expect(questStore.claimQuest("q-999", "sess-1")).toBeNull();
+  it("returns null for non-existent quest", async () => {
+    expect(await questStore.claimQuest("q-999", "sess-1")).toBeNull();
   });
 });
 
 describe("completeQuest", () => {
-  it("transitions to needs_verification with items", () => {
-    questStore.createQuest({ title: "Complete me" });
-    questStore.transitionQuest("q-1", {
+  it("transitions to needs_verification with items", async () => {
+    await questStore.createQuest({ title: "Complete me" });
+    await questStore.transitionQuest("q-1", {
       status: "refined",
       description: "Ready",
     });
-    questStore.claimQuest("q-1", "sess-1");
+    await questStore.claimQuest("q-1", "sess-1");
 
-    const completed = questStore.completeQuest("q-1", [
+    const completed = await questStore.completeQuest("q-1", [
       { text: "Test on mobile", checked: false },
       { text: "Check dark mode", checked: false },
     ]);
@@ -417,18 +417,18 @@ describe("completeQuest", () => {
 });
 
 describe("markDone", () => {
-  it("transitions to done with completedAt", () => {
-    questStore.createQuest({ title: "Finish me" });
-    questStore.transitionQuest("q-1", {
+  it("transitions to done with completedAt", async () => {
+    await questStore.createQuest({ title: "Finish me" });
+    await questStore.transitionQuest("q-1", {
       status: "refined",
       description: "Ready",
     });
-    questStore.claimQuest("q-1", "sess-1");
-    questStore.completeQuest("q-1", [
+    await questStore.claimQuest("q-1", "sess-1");
+    await questStore.completeQuest("q-1", [
       { text: "Verify", checked: true },
     ]);
 
-    const done = questStore.markDone("q-1");
+    const done = await questStore.markDone("q-1");
     expect(done?.status).toBe("done");
     if (done?.status === "done") {
       expect(done.completedAt).toBeGreaterThan(0);
@@ -440,11 +440,11 @@ describe("markDone", () => {
 // cancelQuest
 // ===========================================================================
 describe("cancelQuest", () => {
-  it("cancels an idea quest directly to done+cancelled", () => {
+  it("cancels an idea quest directly to done+cancelled", async () => {
     // cancelQuest should work from any status, including idea (no sessionId, no verificationItems)
-    questStore.createQuest({ title: "Cancel from idea" });
+    await questStore.createQuest({ title: "Cancel from idea" });
 
-    const cancelled = questStore.cancelQuest("q-1");
+    const cancelled = await questStore.cancelQuest("q-1");
     expect(cancelled).not.toBeNull();
     expect(cancelled!.status).toBe("done");
     expect(cancelled!.version).toBe(2);
@@ -455,14 +455,14 @@ describe("cancelQuest", () => {
     }
   });
 
-  it("cancels a refined quest with notes", () => {
-    questStore.createQuest({ title: "Cancel refined" });
-    questStore.transitionQuest("q-1", {
+  it("cancels a refined quest with notes", async () => {
+    await questStore.createQuest({ title: "Cancel refined" });
+    await questStore.transitionQuest("q-1", {
       status: "refined",
       description: "Some details",
     });
 
-    const cancelled = questStore.cancelQuest("q-1", "No longer needed");
+    const cancelled = await questStore.cancelQuest("q-1", "No longer needed");
     expect(cancelled).not.toBeNull();
     expect(cancelled!.status).toBe("done");
     if (cancelled!.status === "done") {
@@ -475,16 +475,16 @@ describe("cancelQuest", () => {
     }
   });
 
-  it("cancels an in_progress quest, carrying forward sessionId", () => {
+  it("cancels an in_progress quest, carrying forward sessionId", async () => {
     // Build up to in_progress
-    questStore.createQuest({ title: "Cancel in progress" });
-    questStore.transitionQuest("q-1", {
+    await questStore.createQuest({ title: "Cancel in progress" });
+    await questStore.transitionQuest("q-1", {
       status: "refined",
       description: "Working on it",
     });
-    questStore.claimQuest("q-1", "sess-1");
+    await questStore.claimQuest("q-1", "sess-1");
 
-    const cancelled = questStore.cancelQuest("q-1");
+    const cancelled = await questStore.cancelQuest("q-1");
     expect(cancelled).not.toBeNull();
     expect(cancelled!.status).toBe("done");
     if (cancelled!.status === "done") {
@@ -493,19 +493,19 @@ describe("cancelQuest", () => {
     }
   });
 
-  it("cancels a needs_verification quest, carrying forward verificationItems", () => {
+  it("cancels a needs_verification quest, carrying forward verificationItems", async () => {
     // Build up to needs_verification
-    questStore.createQuest({ title: "Cancel needs verification" });
-    questStore.transitionQuest("q-1", {
+    await questStore.createQuest({ title: "Cancel needs verification" });
+    await questStore.transitionQuest("q-1", {
       status: "refined",
       description: "Verify this",
     });
-    questStore.claimQuest("q-1", "sess-1");
-    questStore.completeQuest("q-1", [
+    await questStore.claimQuest("q-1", "sess-1");
+    await questStore.completeQuest("q-1", [
       { text: "Check UI", checked: false },
     ]);
 
-    const cancelled = questStore.cancelQuest("q-1");
+    const cancelled = await questStore.cancelQuest("q-1");
     expect(cancelled).not.toBeNull();
     expect(cancelled!.status).toBe("done");
     if (cancelled!.status === "done") {
@@ -514,20 +514,20 @@ describe("cancelQuest", () => {
     }
   });
 
-  it("carries forward tags and parentId", () => {
-    questStore.createQuest({
+  it("carries forward tags and parentId", async () => {
+    await questStore.createQuest({
       title: "Tagged cancel",
       tags: ["ui", "feature"],
       parentId: "q-0",
     });
 
-    const cancelled = questStore.cancelQuest("q-1");
+    const cancelled = await questStore.cancelQuest("q-1");
     expect(cancelled!.tags).toEqual(["ui", "feature"]);
     expect(cancelled!.parentId).toBe("q-0");
   });
 
-  it("returns null for non-existent quest", () => {
-    expect(questStore.cancelQuest("q-999")).toBeNull();
+  it("returns null for non-existent quest", async () => {
+    expect(await questStore.cancelQuest("q-999")).toBeNull();
   });
 });
 
@@ -535,10 +535,10 @@ describe("cancelQuest", () => {
 // patchQuest (same-stage edit)
 // ===========================================================================
 describe("patchQuest", () => {
-  it("edits title without creating a new version", () => {
-    questStore.createQuest({ title: "Typo" });
+  it("edits title without creating a new version", async () => {
+    await questStore.createQuest({ title: "Typo" });
 
-    const patched = questStore.patchQuest("q-1", { title: "Fixed" });
+    const patched = await questStore.patchQuest("q-1", { title: "Fixed" });
     expect(patched?.title).toBe("Fixed");
     expect(patched?.version).toBe(1); // no new version
 
@@ -549,8 +549,8 @@ describe("patchQuest", () => {
     expect(files).toHaveLength(1);
   });
 
-  it("returns null for non-existent quest", () => {
-    expect(questStore.patchQuest("q-999", { title: "Nope" })).toBeNull();
+  it("returns null for non-existent quest", async () => {
+    expect(await questStore.patchQuest("q-999", { title: "Nope" })).toBeNull();
   });
 });
 
@@ -558,43 +558,43 @@ describe("patchQuest", () => {
 // checkVerificationItem
 // ===========================================================================
 describe("checkVerificationItem", () => {
-  it("toggles a verification checkbox", () => {
-    questStore.createQuest({ title: "Verify me" });
-    questStore.transitionQuest("q-1", {
+  it("toggles a verification checkbox", async () => {
+    await questStore.createQuest({ title: "Verify me" });
+    await questStore.transitionQuest("q-1", {
       status: "refined",
       description: "Ready",
     });
-    questStore.claimQuest("q-1", "sess-1");
-    questStore.completeQuest("q-1", [
+    await questStore.claimQuest("q-1", "sess-1");
+    await questStore.completeQuest("q-1", [
       { text: "Item A", checked: false },
       { text: "Item B", checked: false },
     ]);
 
-    const toggled = questStore.checkVerificationItem("q-1", 0, true);
+    const toggled = await questStore.checkVerificationItem("q-1", 0, true);
     if (toggled?.status === "needs_verification") {
       expect(toggled.verificationItems[0].checked).toBe(true);
       expect(toggled.verificationItems[1].checked).toBe(false);
     }
   });
 
-  it("throws on out-of-range index", () => {
-    questStore.createQuest({ title: "OOB test" });
-    questStore.transitionQuest("q-1", {
+  it("throws on out-of-range index", async () => {
+    await questStore.createQuest({ title: "OOB test" });
+    await questStore.transitionQuest("q-1", {
       status: "refined",
       description: "Ready",
     });
-    questStore.claimQuest("q-1", "sess-1");
-    questStore.completeQuest("q-1", [{ text: "Only one", checked: false }]);
+    await questStore.claimQuest("q-1", "sess-1");
+    await questStore.completeQuest("q-1", [{ text: "Only one", checked: false }]);
 
-    expect(() => questStore.checkVerificationItem("q-1", 5, true)).toThrow(
+    await expect(questStore.checkVerificationItem("q-1", 5, true)).rejects.toThrow(
       "out of range",
     );
   });
 
-  it("throws when quest has no verification items", () => {
-    questStore.createQuest({ title: "No items" });
+  it("throws when quest has no verification items", async () => {
+    await questStore.createQuest({ title: "No items" });
 
-    expect(() => questStore.checkVerificationItem("q-1", 0, true)).toThrow(
+    await expect(questStore.checkVerificationItem("q-1", 0, true)).rejects.toThrow(
       "does not have verification items",
     );
   });
@@ -604,9 +604,9 @@ describe("checkVerificationItem", () => {
 // deleteQuest
 // ===========================================================================
 describe("deleteQuest", () => {
-  it("deletes all versions of a quest", () => {
-    questStore.createQuest({ title: "Delete me" });
-    questStore.transitionQuest("q-1", {
+  it("deletes all versions of a quest", async () => {
+    await questStore.createQuest({ title: "Delete me" });
+    await questStore.transitionQuest("q-1", {
       status: "refined",
       description: "Details",
     });
@@ -617,7 +617,7 @@ describe("deleteQuest", () => {
     );
     expect(filesBefore).toHaveLength(2);
 
-    const result = questStore.deleteQuest("q-1");
+    const result = await questStore.deleteQuest("q-1");
     expect(result).toBe(true);
 
     // All version files gone
@@ -627,11 +627,11 @@ describe("deleteQuest", () => {
     expect(filesAfter).toHaveLength(0);
 
     // Quest no longer findable
-    expect(questStore.getQuest("q-1")).toBeNull();
+    expect(await questStore.getQuest("q-1")).toBeNull();
   });
 
-  it("returns false for non-existent quest", () => {
-    expect(questStore.deleteQuest("q-999")).toBe(false);
+  it("returns false for non-existent quest", async () => {
+    expect(await questStore.deleteQuest("q-999")).toBe(false);
   });
 });
 
@@ -639,39 +639,39 @@ describe("deleteQuest", () => {
 // Transition validation
 // ===========================================================================
 describe("transition validation", () => {
-  it("requires description for refined status", () => {
-    questStore.createQuest({ title: "No desc" });
-    expect(() =>
+  it("requires description for refined status", async () => {
+    await questStore.createQuest({ title: "No desc" });
+    await expect(
       questStore.transitionQuest("q-1", { status: "refined" }),
-    ).toThrow("Description is required");
+    ).rejects.toThrow("Description is required");
   });
 
-  it("requires sessionId for in_progress status", () => {
-    questStore.createQuest({ title: "No session" });
-    questStore.transitionQuest("q-1", {
+  it("requires sessionId for in_progress status", async () => {
+    await questStore.createQuest({ title: "No session" });
+    await questStore.transitionQuest("q-1", {
       status: "refined",
       description: "Ready",
     });
-    expect(() =>
+    await expect(
       questStore.transitionQuest("q-1", { status: "in_progress" }),
-    ).toThrow("sessionId is required");
+    ).rejects.toThrow("sessionId is required");
   });
 
-  it("requires verificationItems for needs_verification status", () => {
-    questStore.createQuest({ title: "No items" });
-    questStore.transitionQuest("q-1", {
+  it("requires verificationItems for needs_verification status", async () => {
+    await questStore.createQuest({ title: "No items" });
+    await questStore.transitionQuest("q-1", {
       status: "refined",
       description: "Ready",
     });
-    questStore.claimQuest("q-1", "sess-1");
-    expect(() =>
+    await questStore.claimQuest("q-1", "sess-1");
+    await expect(
       questStore.transitionQuest("q-1", { status: "needs_verification" }),
-    ).toThrow("verificationItems are required");
+    ).rejects.toThrow("verificationItems are required");
   });
 
-  it("returns null when transitioning non-existent quest", () => {
+  it("returns null when transitioning non-existent quest", async () => {
     expect(
-      questStore.transitionQuest("q-999", { status: "refined", description: "x" }),
+      await questStore.transitionQuest("q-999", { status: "refined", description: "x" }),
     ).toBeNull();
   });
 });
@@ -681,20 +681,20 @@ describe("transition validation", () => {
 // ===========================================================================
 describe("feedback", () => {
   /** Helper: create a quest in needs_verification state */
-  function setupVerificationQuest() {
-    questStore.createQuest({ title: "Feedback test" });
-    questStore.transitionQuest("q-1", { status: "refined", description: "Ready" });
-    questStore.claimQuest("q-1", "sess-1");
-    questStore.completeQuest("q-1", [
+  async function setupVerificationQuest() {
+    await questStore.createQuest({ title: "Feedback test" });
+    await questStore.transitionQuest("q-1", { status: "refined", description: "Ready" });
+    await questStore.claimQuest("q-1", "sess-1");
+    await questStore.completeQuest("q-1", [
       { text: "Check A", checked: false },
       { text: "Check B", checked: false },
     ]);
   }
 
-  it("sets feedback via patchQuest", () => {
-    setupVerificationQuest();
+  it("sets feedback via patchQuest", async () => {
+    await setupVerificationQuest();
     const entry = { author: "human" as const, text: "Layout off on mobile", ts: Date.now() };
-    const result = questStore.patchQuest("q-1", { feedback: [entry] });
+    const result = await questStore.patchQuest("q-1", { feedback: [entry] });
     expect(result).not.toBeNull();
     const fb = (result as { feedback?: { author: string; text: string }[] }).feedback;
     expect(fb).toHaveLength(1);
@@ -702,22 +702,22 @@ describe("feedback", () => {
     expect(fb![0].author).toBe("human");
   });
 
-  it("clears feedback when set to empty array", () => {
-    setupVerificationQuest();
+  it("clears feedback when set to empty array", async () => {
+    await setupVerificationQuest();
     const entry = { author: "human" as const, text: "Some feedback", ts: Date.now() };
-    questStore.patchQuest("q-1", { feedback: [entry] });
-    const result = questStore.patchQuest("q-1", { feedback: [] });
+    await questStore.patchQuest("q-1", { feedback: [entry] });
+    const result = await questStore.patchQuest("q-1", { feedback: [] });
     // Empty array clears the field entirely
     expect((result as { feedback?: unknown[] }).feedback).toBeUndefined();
   });
 
-  it("carries forward feedback on needs_verification → in_progress transition", () => {
-    setupVerificationQuest();
+  it("carries forward feedback on needs_verification → in_progress transition", async () => {
+    await setupVerificationQuest();
     const entry = { author: "human" as const, text: "Fix this", ts: Date.now() };
-    questStore.patchQuest("q-1", { feedback: [entry] });
+    await questStore.patchQuest("q-1", { feedback: [entry] });
 
     // Transition back to in_progress (rework)
-    const result = questStore.transitionQuest("q-1", { status: "in_progress", sessionId: "sess-1" });
+    const result = await questStore.transitionQuest("q-1", { status: "in_progress", sessionId: "sess-1" });
     expect(result).not.toBeNull();
     expect(result!.status).toBe("in_progress");
     const fb = (result as { feedback?: { text: string }[] }).feedback;
@@ -725,15 +725,15 @@ describe("feedback", () => {
     expect(fb![0].text).toBe("Fix this");
   });
 
-  it("carries forward feedback on in_progress → needs_verification transition", () => {
-    setupVerificationQuest();
+  it("carries forward feedback on in_progress → needs_verification transition", async () => {
+    await setupVerificationQuest();
     const entry = { author: "human" as const, text: "Fix this", ts: Date.now() };
-    questStore.patchQuest("q-1", { feedback: [entry] });
+    await questStore.patchQuest("q-1", { feedback: [entry] });
 
     // Rework cycle: back to in_progress
-    questStore.transitionQuest("q-1", { status: "in_progress", sessionId: "sess-1" });
+    await questStore.transitionQuest("q-1", { status: "in_progress", sessionId: "sess-1" });
     // Agent submits again with new verification items — feedback thread persists
-    const result = questStore.transitionQuest("q-1", {
+    const result = await questStore.transitionQuest("q-1", {
       status: "needs_verification",
       verificationItems: [{ text: "New check", checked: false }],
     });
@@ -743,15 +743,15 @@ describe("feedback", () => {
     expect(fb![0].text).toBe("Fix this");
   });
 
-  it("carries forward feedback to done", () => {
-    setupVerificationQuest();
+  it("carries forward feedback to done", async () => {
+    await setupVerificationQuest();
     const entries = [
       { author: "human" as const, text: "Fix this", ts: Date.now() },
       { author: "agent" as const, text: "Fixed with flex-wrap", ts: Date.now() },
     ];
-    questStore.patchQuest("q-1", { feedback: entries });
+    await questStore.patchQuest("q-1", { feedback: entries });
 
-    const result = questStore.transitionQuest("q-1", { status: "done", notes: "shipped" });
+    const result = await questStore.transitionQuest("q-1", { status: "done", notes: "shipped" });
     expect(result).not.toBeNull();
     expect(result!.status).toBe("done");
     const fb = (result as { feedback?: { author: string; text: string }[] }).feedback;
@@ -760,32 +760,32 @@ describe("feedback", () => {
     expect(fb![1].author).toBe("agent");
   });
 
-  it("accumulates multiple feedback entries", () => {
-    setupVerificationQuest();
+  it("accumulates multiple feedback entries", async () => {
+    await setupVerificationQuest();
     // First entry
-    questStore.patchQuest("q-1", {
+    await questStore.patchQuest("q-1", {
       feedback: [{ author: "human" as const, text: "Issue 1", ts: Date.now() }],
     });
     // Append second entry (caller manages the array)
-    const current = questStore.getQuest("q-1");
+    const current = await questStore.getQuest("q-1");
     const existing = (current as { feedback?: { author: "human" | "agent"; text: string; ts: number }[] }).feedback ?? [];
-    questStore.patchQuest("q-1", {
+    await questStore.patchQuest("q-1", {
       feedback: [...existing, { author: "agent" as const, text: "Fixed issue 1", ts: Date.now() }],
     });
 
-    const result = questStore.getQuest("q-1");
+    const result = await questStore.getQuest("q-1");
     const fb = (result as { feedback?: { text: string }[] }).feedback;
     expect(fb).toHaveLength(2);
     expect(fb![0].text).toBe("Issue 1");
     expect(fb![1].text).toBe("Fixed issue 1");
   });
 
-  it("carries forward feedback through cancelQuest", () => {
-    setupVerificationQuest();
-    questStore.patchQuest("q-1", {
+  it("carries forward feedback through cancelQuest", async () => {
+    await setupVerificationQuest();
+    await questStore.patchQuest("q-1", {
       feedback: [{ author: "human" as const, text: "Nevermind", ts: Date.now() }],
     });
-    const result = questStore.cancelQuest("q-1", "Not needed");
+    const result = await questStore.cancelQuest("q-1", "Not needed");
     expect(result).not.toBeNull();
     const fb = (result as { feedback?: { text: string }[] }).feedback;
     expect(fb).toHaveLength(1);

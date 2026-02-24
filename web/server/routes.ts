@@ -1279,7 +1279,7 @@ export function createRoutes(
     prPoller?.unwatch(id);
     launcher.removeSession(id);
     wsBridge.closeSession(id);
-    imageStore?.removeSession(id);
+    await imageStore?.removeSession(id);
     return c.json({ ok: true, worktree: worktreeResult });
   });
 
@@ -1392,12 +1392,12 @@ export function createRoutes(
 
   // ─── Image serving ─────────────────────────────────────────
 
-  api.get("/images/:sessionId/:imageId/thumb", (c) => {
+  api.get("/images/:sessionId/:imageId/thumb", async (c) => {
     if (!imageStore) return c.json({ error: "Image store not configured" }, 503);
     const { sessionId, imageId } = c.req.param();
     // Try thumbnail first, fall back to original
-    const thumbPath = imageStore.getThumbnailPath(sessionId, imageId);
-    const path = thumbPath || imageStore.getOriginalPath(sessionId, imageId);
+    const thumbPath = await imageStore.getThumbnailPath(sessionId, imageId);
+    const path = thumbPath || await imageStore.getOriginalPath(sessionId, imageId);
     if (!path) return c.json({ error: "Image not found" }, 404);
     return new Response(Bun.file(path), {
       headers: {
@@ -1407,10 +1407,10 @@ export function createRoutes(
     });
   });
 
-  api.get("/images/:sessionId/:imageId/full", (c) => {
+  api.get("/images/:sessionId/:imageId/full", async (c) => {
     if (!imageStore) return c.json({ error: "Image store not configured" }, 503);
     const { sessionId, imageId } = c.req.param();
-    const path = imageStore.getOriginalPath(sessionId, imageId);
+    const path = await imageStore.getOriginalPath(sessionId, imageId);
     if (!path) return c.json({ error: "Image not found" }, 404);
     const file = Bun.file(path);
     return new Response(file, {
@@ -2472,8 +2472,8 @@ export function createRoutes(
 
   // ─── Cron Jobs ──────────────────────────────────────────────────────
 
-  api.get("/cron/jobs", (c) => {
-    const jobs = cronStore.listJobs();
+  api.get("/cron/jobs", async (c) => {
+    const jobs = await cronStore.listJobs();
     const enriched = jobs.map((j) => ({
       ...j,
       nextRunAt: cronScheduler?.getNextRunTime(j.id)?.getTime() ?? null,
@@ -2481,8 +2481,8 @@ export function createRoutes(
     return c.json(enriched);
   });
 
-  api.get("/cron/jobs/:id", (c) => {
-    const job = cronStore.getJob(c.req.param("id"));
+  api.get("/cron/jobs/:id", async (c) => {
+    const job = await cronStore.getJob(c.req.param("id"));
     if (!job) return c.json({ error: "Job not found" }, 404);
     return c.json({
       ...job,
@@ -2493,7 +2493,7 @@ export function createRoutes(
   api.post("/cron/jobs", async (c) => {
     const body = await c.req.json().catch(() => ({}));
     try {
-      const job = cronStore.createJob({
+      const job = await cronStore.createJob({
         name: body.name || "",
         prompt: body.prompt || "",
         schedule: body.schedule || "",
@@ -2522,7 +2522,7 @@ export function createRoutes(
       for (const key of ["name", "prompt", "schedule", "recurring", "backendType", "model", "cwd", "envSlug", "enabled", "permissionMode", "codexInternetAccess"] as const) {
         if (key in body) allowed[key] = body[key];
       }
-      const job = cronStore.updateJob(id, allowed);
+      const job = await cronStore.updateJob(id, allowed);
       if (!job) return c.json({ error: "Job not found" }, 404);
       // Stop the old timer (id may differ from job.id after a rename)
       if (job.id !== id) cronScheduler?.stopJob(id);
@@ -2533,19 +2533,19 @@ export function createRoutes(
     }
   });
 
-  api.delete("/cron/jobs/:id", (c) => {
+  api.delete("/cron/jobs/:id", async (c) => {
     const id = c.req.param("id");
     cronScheduler?.stopJob(id);
-    const deleted = cronStore.deleteJob(id);
+    const deleted = await cronStore.deleteJob(id);
     if (!deleted) return c.json({ error: "Job not found" }, 404);
     return c.json({ ok: true });
   });
 
-  api.post("/cron/jobs/:id/toggle", (c) => {
+  api.post("/cron/jobs/:id/toggle", async (c) => {
     const id = c.req.param("id");
-    const job = cronStore.getJob(id);
+    const job = await cronStore.getJob(id);
     if (!job) return c.json({ error: "Job not found" }, 404);
-    const updated = cronStore.updateJob(id, { enabled: !job.enabled });
+    const updated = await cronStore.updateJob(id, { enabled: !job.enabled });
     if (updated?.enabled) {
       cronScheduler?.scheduleJob(updated);
     } else {
@@ -2554,9 +2554,9 @@ export function createRoutes(
     return c.json(updated);
   });
 
-  api.post("/cron/jobs/:id/run", (c) => {
+  api.post("/cron/jobs/:id/run", async (c) => {
     const id = c.req.param("id");
-    const job = cronStore.getJob(id);
+    const job = await cronStore.getJob(id);
     if (!job) return c.json({ error: "Job not found" }, 404);
     cronScheduler?.executeJobManually(id);
     return c.json({ ok: true, message: "Job triggered" });
@@ -2616,15 +2616,15 @@ export function createRoutes(
         return c.json({ error: "file field is required (multipart)" }, 400);
       }
       const buf = Buffer.from(await file.arrayBuffer());
-      const image = questStore.saveQuestImage(file.name, buf, file.type);
+      const image = await questStore.saveQuestImage(file.name, buf, file.type);
       return c.json(image, 201);
     } catch (e: unknown) {
       return c.json({ error: e instanceof Error ? e.message : String(e) }, 500);
     }
   });
 
-  api.get("/quests/_images/:imageId", (c) => {
-    const result = questStore.readQuestImageFile(c.req.param("imageId"));
+  api.get("/quests/_images/:imageId", async (c) => {
+    const result = await questStore.readQuestImageFile(c.req.param("imageId"));
     if (!result) return c.json({ error: "Image not found" }, 404);
     return new Response(new Uint8Array(result.data), {
       headers: {
@@ -2641,30 +2641,30 @@ export function createRoutes(
     return c.json({ ok: true });
   });
 
-  api.get("/quests", (c) => {
+  api.get("/quests", async (c) => {
     const statusFilter = c.req.query("status")?.split(",") as import("./quest-types.js").QuestStatus[] | undefined;
     const parentId = c.req.query("parentId");
     const sessionId = c.req.query("sessionId");
-    let quests = questStore.listQuests();
+    let quests = await questStore.listQuests();
     if (statusFilter?.length) quests = quests.filter((q) => statusFilter.includes(q.status));
     if (parentId) quests = quests.filter((q) => q.parentId === parentId);
     if (sessionId) quests = quests.filter((q) => "sessionId" in q && (q as { sessionId: string }).sessionId === sessionId);
     return c.json(quests);
   });
 
-  api.get("/quests/:questId", (c) => {
-    const quest = questStore.getQuest(c.req.param("questId"));
+  api.get("/quests/:questId", async (c) => {
+    const quest = await questStore.getQuest(c.req.param("questId"));
     if (!quest) return c.json({ error: "Quest not found" }, 404);
     return c.json(quest);
   });
 
-  api.get("/quests/:questId/history", (c) => {
-    const history = questStore.getQuestHistory(c.req.param("questId"));
+  api.get("/quests/:questId/history", async (c) => {
+    const history = await questStore.getQuestHistory(c.req.param("questId"));
     return c.json(history);
   });
 
-  api.get("/quests/:questId/version/:versionId", (c) => {
-    const version = questStore.getQuestVersion(c.req.param("versionId"));
+  api.get("/quests/:questId/version/:versionId", async (c) => {
+    const version = await questStore.getQuestVersion(c.req.param("versionId"));
     if (!version) return c.json({ error: "Version not found" }, 404);
     return c.json(version);
   });
@@ -2672,7 +2672,7 @@ export function createRoutes(
   api.post("/quests", async (c) => {
     const body = await c.req.json().catch(() => ({}));
     try {
-      const quest = questStore.createQuest(body);
+      const quest = await questStore.createQuest(body);
       wsBridge.broadcastGlobal({ type: "quest_list_updated" } as import("./session-types.js").BrowserIncomingMessage);
       return c.json(quest, 201);
     } catch (e: unknown) {
@@ -2683,7 +2683,7 @@ export function createRoutes(
   api.patch("/quests/:questId", async (c) => {
     const body = await c.req.json().catch(() => ({}));
     try {
-      const quest = questStore.patchQuest(c.req.param("questId"), body);
+      const quest = await questStore.patchQuest(c.req.param("questId"), body);
       if (!quest) return c.json({ error: "Quest not found" }, 404);
       wsBridge.broadcastGlobal({ type: "quest_list_updated" } as import("./session-types.js").BrowserIncomingMessage);
       return c.json(quest);
@@ -2695,7 +2695,7 @@ export function createRoutes(
   api.post("/quests/:questId/transition", async (c) => {
     const body = await c.req.json().catch(() => ({}));
     try {
-      const quest = questStore.transitionQuest(c.req.param("questId"), body);
+      const quest = await questStore.transitionQuest(c.req.param("questId"), body);
       if (!quest) return c.json({ error: "Quest not found" }, 404);
       wsBridge.broadcastGlobal({ type: "quest_list_updated" } as import("./session-types.js").BrowserIncomingMessage);
       return c.json(quest);
@@ -2704,8 +2704,8 @@ export function createRoutes(
     }
   });
 
-  api.delete("/quests/:questId", (c) => {
-    const deleted = questStore.deleteQuest(c.req.param("questId"));
+  api.delete("/quests/:questId", async (c) => {
+    const deleted = await questStore.deleteQuest(c.req.param("questId"));
     if (!deleted) return c.json({ error: "Quest not found" }, 404);
     wsBridge.broadcastGlobal({ type: "quest_list_updated" } as import("./session-types.js").BrowserIncomingMessage);
     return c.json({ ok: true });
@@ -2716,7 +2716,7 @@ export function createRoutes(
     const sessionId = body.sessionId as string | undefined;
     if (!sessionId) return c.json({ error: "sessionId is required" }, 400);
     try {
-      const quest = questStore.claimQuest(c.req.param("questId"), sessionId);
+      const quest = await questStore.claimQuest(c.req.param("questId"), sessionId);
       if (!quest) return c.json({ error: "Quest not found" }, 404);
       wsBridge.broadcastGlobal({ type: "quest_list_updated" } as import("./session-types.js").BrowserIncomingMessage);
       wsBridge.setSessionClaimedQuest(sessionId, { id: quest.questId, title: quest.title, status: quest.status });
@@ -2752,7 +2752,7 @@ export function createRoutes(
     const items = body.verificationItems as import("./quest-types.js").QuestVerificationItem[] | undefined;
     if (!items || !Array.isArray(items)) return c.json({ error: "verificationItems array is required" }, 400);
     try {
-      const quest = questStore.completeQuest(c.req.param("questId"), items);
+      const quest = await questStore.completeQuest(c.req.param("questId"), items);
       if (!quest) return c.json({ error: "Quest not found" }, 404);
       wsBridge.broadcastGlobal({ type: "quest_list_updated" } as import("./session-types.js").BrowserIncomingMessage);
       // Update session's quest status so browsers can show "pending review" badge
@@ -2769,7 +2769,7 @@ export function createRoutes(
   api.post("/quests/:questId/done", async (c) => {
     try {
       const body = await c.req.json().catch(() => ({})) as { notes?: string; cancelled?: boolean };
-      const quest = questStore.markDone(c.req.param("questId"), {
+      const quest = await questStore.markDone(c.req.param("questId"), {
         notes: body.notes,
         cancelled: body.cancelled,
       });
@@ -2788,7 +2788,7 @@ export function createRoutes(
   api.post("/quests/:questId/cancel", async (c) => {
     try {
       const body = await c.req.json().catch(() => ({})) as { notes?: string };
-      const quest = questStore.cancelQuest(c.req.param("questId"), body.notes);
+      const quest = await questStore.cancelQuest(c.req.param("questId"), body.notes);
       if (!quest) return c.json({ error: "Quest not found" }, 404);
       wsBridge.broadcastGlobal({ type: "quest_list_updated" } as import("./session-types.js").BrowserIncomingMessage);
       // Clear the claimed quest from the session since it's now cancelled
@@ -2806,7 +2806,7 @@ export function createRoutes(
     const index = parseInt(c.req.param("index"), 10);
     if (Number.isNaN(index)) return c.json({ error: "Invalid index" }, 400);
     try {
-      const quest = questStore.checkVerificationItem(c.req.param("questId"), index, body.checked ?? false);
+      const quest = await questStore.checkVerificationItem(c.req.param("questId"), index, body.checked ?? false);
       if (!quest) return c.json({ error: "Quest not found" }, 404);
       wsBridge.broadcastGlobal({ type: "quest_list_updated" } as import("./session-types.js").BrowserIncomingMessage);
       return c.json(quest);
@@ -2824,13 +2824,13 @@ export function createRoutes(
       return c.json({ error: "text is required" }, 400);
     }
     try {
-      const current = questStore.getQuest(c.req.param("questId"));
+      const current = await questStore.getQuest(c.req.param("questId"));
       if (!current) return c.json({ error: "Quest not found" }, 404);
       const existing: import("./quest-types.js").QuestFeedbackEntry[] =
         "feedback" in current ? (current as { feedback?: import("./quest-types.js").QuestFeedbackEntry[] }).feedback ?? [] : [];
       const entry: import("./quest-types.js").QuestFeedbackEntry = { author, text: text.trim(), ts: Date.now() };
       if (Array.isArray(body.images) && body.images.length > 0) entry.images = body.images;
-      const quest = questStore.patchQuest(c.req.param("questId"), { feedback: [...existing, entry] });
+      const quest = await questStore.patchQuest(c.req.param("questId"), { feedback: [...existing, entry] });
       if (!quest) return c.json({ error: "Quest not found" }, 404);
       wsBridge.broadcastGlobal({ type: "quest_list_updated" } as import("./session-types.js").BrowserIncomingMessage);
       return c.json(quest);
@@ -2845,7 +2845,7 @@ export function createRoutes(
       const body = await c.req.json().catch(() => ({}));
       const index = parseInt(c.req.param("index"), 10);
       if (isNaN(index) || index < 0) return c.json({ error: "Invalid index" }, 400);
-      const current = questStore.getQuest(c.req.param("questId"));
+      const current = await questStore.getQuest(c.req.param("questId"));
       if (!current) return c.json({ error: "Quest not found" }, 404);
       const existing: import("./quest-types.js").QuestFeedbackEntry[] =
         "feedback" in current ? (current as { feedback?: import("./quest-types.js").QuestFeedbackEntry[] }).feedback ?? [] : [];
@@ -2853,7 +2853,7 @@ export function createRoutes(
       const updated = [...existing];
       if (typeof body.text === "string" && body.text.trim()) updated[index] = { ...updated[index], text: body.text.trim() };
       if (body.images !== undefined) updated[index] = { ...updated[index], images: Array.isArray(body.images) && body.images.length > 0 ? body.images : undefined };
-      const quest = questStore.patchQuest(c.req.param("questId"), { feedback: updated });
+      const quest = await questStore.patchQuest(c.req.param("questId"), { feedback: updated });
       if (!quest) return c.json({ error: "Quest not found" }, 404);
       wsBridge.broadcastGlobal({ type: "quest_list_updated" } as import("./session-types.js").BrowserIncomingMessage);
       return c.json(quest);
@@ -2867,14 +2867,14 @@ export function createRoutes(
     try {
       const index = parseInt(c.req.param("index"), 10);
       if (isNaN(index) || index < 0) return c.json({ error: "Invalid index" }, 400);
-      const current = questStore.getQuest(c.req.param("questId"));
+      const current = await questStore.getQuest(c.req.param("questId"));
       if (!current) return c.json({ error: "Quest not found" }, 404);
       const existing: import("./quest-types.js").QuestFeedbackEntry[] =
         "feedback" in current ? (current as { feedback?: import("./quest-types.js").QuestFeedbackEntry[] }).feedback ?? [] : [];
       if (index >= existing.length) return c.json({ error: "Index out of range" }, 400);
       const updated = [...existing];
       updated[index] = { ...updated[index], addressed: !updated[index].addressed };
-      const quest = questStore.patchQuest(c.req.param("questId"), { feedback: updated });
+      const quest = await questStore.patchQuest(c.req.param("questId"), { feedback: updated });
       if (!quest) return c.json({ error: "Quest not found" }, 404);
       wsBridge.broadcastGlobal({ type: "quest_list_updated" } as import("./session-types.js").BrowserIncomingMessage);
       return c.json(quest);
@@ -2891,8 +2891,8 @@ export function createRoutes(
         return c.json({ error: "file field is required (multipart)" }, 400);
       }
       const buf = Buffer.from(await file.arrayBuffer());
-      const image = questStore.saveQuestImage(file.name, buf, file.type);
-      const quest = questStore.addQuestImages(c.req.param("questId"), [image]);
+      const image = await questStore.saveQuestImage(file.name, buf, file.type);
+      const quest = await questStore.addQuestImages(c.req.param("questId"), [image]);
       if (!quest) return c.json({ error: "Quest not found" }, 404);
       wsBridge.broadcastGlobal({ type: "quest_list_updated" } as import("./session-types.js").BrowserIncomingMessage);
       return c.json(quest);
@@ -2901,9 +2901,9 @@ export function createRoutes(
     }
   });
 
-  api.delete("/quests/:questId/images/:imageId", (c) => {
+  api.delete("/quests/:questId/images/:imageId", async (c) => {
     try {
-      const quest = questStore.removeQuestImage(c.req.param("questId"), c.req.param("imageId"));
+      const quest = await questStore.removeQuestImage(c.req.param("questId"), c.req.param("imageId"));
       if (!quest) return c.json({ error: "Quest not found" }, 404);
       wsBridge.broadcastGlobal({ type: "quest_list_updated" } as import("./session-types.js").BrowserIncomingMessage);
       return c.json(quest);
@@ -2928,9 +2928,9 @@ export function createRoutes(
 
   // ─── Auto-Approval Configs ──────────────────────────────────────
 
-  api.get("/auto-approval/configs", (c) => {
+  api.get("/auto-approval/configs", async (c) => {
     try {
-      return c.json(autoApprovalStore.listConfigs());
+      return c.json(await autoApprovalStore.listConfigs());
     } catch (e: unknown) {
       return c.json({ error: e instanceof Error ? e.message : String(e) }, 500);
     }
@@ -2938,17 +2938,17 @@ export function createRoutes(
 
   /** Find the matching auto-approval config for a given cwd (longest prefix match).
    *  Optional `repo_root` param for worktree sessions whose cwd differs from the main repo. */
-  api.get("/auto-approval/configs/match", (c) => {
+  api.get("/auto-approval/configs/match", async (c) => {
     const cwd = c.req.query("cwd");
     if (!cwd) return c.json({ error: "Missing cwd query parameter" }, 400);
     const repoRoot = c.req.query("repo_root");
     const extraPaths = repoRoot ? [repoRoot] : undefined;
-    const config = autoApprovalStore.getConfigForPath(cwd, extraPaths);
+    const config = await autoApprovalStore.getConfigForPath(cwd, extraPaths);
     return c.json({ config });
   });
 
-  api.get("/auto-approval/configs/:slug", (c) => {
-    const config = autoApprovalStore.getConfig(c.req.param("slug"));
+  api.get("/auto-approval/configs/:slug", async (c) => {
+    const config = await autoApprovalStore.getConfig(c.req.param("slug"));
     if (!config) return c.json({ error: "Config not found" }, 404);
     return c.json(config);
   });
@@ -2956,7 +2956,7 @@ export function createRoutes(
   api.post("/auto-approval/configs", async (c) => {
     const body = await c.req.json().catch(() => ({}));
     try {
-      const config = autoApprovalStore.createConfig(
+      const config = await autoApprovalStore.createConfig(
         body.projectPath,
         body.label,
         body.criteria,
@@ -2972,7 +2972,7 @@ export function createRoutes(
     const slug = c.req.param("slug");
     const body = await c.req.json().catch(() => ({}));
     try {
-      const config = autoApprovalStore.updateConfig(slug, {
+      const config = await autoApprovalStore.updateConfig(slug, {
         label: body.label,
         criteria: body.criteria,
         enabled: body.enabled,
@@ -2984,8 +2984,8 @@ export function createRoutes(
     }
   });
 
-  api.delete("/auto-approval/configs/:slug", (c) => {
-    const deleted = autoApprovalStore.deleteConfig(c.req.param("slug"));
+  api.delete("/auto-approval/configs/:slug", async (c) => {
+    const deleted = await autoApprovalStore.deleteConfig(c.req.param("slug"));
     if (!deleted) return c.json({ error: "Config not found" }, 404);
     return c.json({ ok: true });
   });

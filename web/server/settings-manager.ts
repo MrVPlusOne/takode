@@ -1,9 +1,9 @@
 import {
   mkdirSync,
   readFileSync,
-  writeFileSync,
   existsSync,
 } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -42,6 +42,7 @@ export const LEGACY_PATH = DEFAULT_PATH;
 
 let loaded = false;
 let filePath = DEFAULT_PATH;
+let _pendingWrite: Promise<void> = Promise.resolve();
 let settings: CompanionSettings = {
   serverName: "",
   serverId: "",
@@ -90,8 +91,11 @@ function ensureLoaded(): void {
 }
 
 function persist(): void {
+  const data = JSON.stringify(settings, null, 2);
   mkdirSync(dirname(filePath), { recursive: true });
-  writeFileSync(filePath, JSON.stringify(settings, null, 2), "utf-8");
+  // Fire-and-forget async write — callers don't need to wait.
+  // In-memory cache is already updated; disk is eventual.
+  _pendingWrite = writeFile(filePath, data, "utf-8").catch(() => {});
 }
 
 export function getSettings(): CompanionSettings {
@@ -144,7 +148,7 @@ export function getServerId(): string {
  * On first use, migrates from the legacy shared `settings.json` (if it exists)
  * but clears `serverId` so each instance gets its own unique identity.
  */
-export function initWithPort(port: number): void {
+export async function initWithPort(port: number): Promise<void> {
   const portPath = join(homedir(), ".companion", `settings-${port}.json`);
   if (!existsSync(portPath) && existsSync(LEGACY_PATH)) {
     try {
@@ -152,7 +156,7 @@ export function initWithPort(port: number): void {
       const legacy = normalize(JSON.parse(raw) as Partial<CompanionSettings>);
       const migrated = { ...legacy, serverId: "", updatedAt: Date.now() };
       mkdirSync(dirname(portPath), { recursive: true });
-      writeFileSync(portPath, JSON.stringify(migrated, null, 2), "utf-8");
+      await writeFile(portPath, JSON.stringify(migrated, null, 2), "utf-8");
     } catch {
       // Migration failed — start fresh from the new path
     }
@@ -161,8 +165,14 @@ export function initWithPort(port: number): void {
   loaded = false;
 }
 
+/** Wait for any pending async writes to complete. Test-only. */
+export function _flushForTest(): Promise<void> {
+  return _pendingWrite;
+}
+
 export function _resetForTest(customPath?: string): void {
   loaded = false;
   filePath = customPath || DEFAULT_PATH;
   settings = normalize(null);
+  _pendingWrite = Promise.resolve();
 }

@@ -218,7 +218,7 @@ function die(message: string): never {
 // ─── Commands ───────────────────────────────────────────────────────────────
 
 async function cmdList(): Promise<void> {
-  let quests = listQuests();
+  let quests = await listQuests();
   const statusFilter = option("status");
   if (statusFilter) {
     quests = quests.filter((q) => q.status === statusFilter);
@@ -242,7 +242,7 @@ async function cmdShow(): Promise<void> {
   const id = positional(0);
   if (!id) die("Usage: quest show <questId>");
 
-  const quest = getQuest(id);
+  const quest = await getQuest(id);
   if (!quest) die(`Quest ${id} not found`);
 
   if (jsonOutput) {
@@ -256,7 +256,7 @@ async function cmdHistory(): Promise<void> {
   const id = positional(0);
   if (!id) die("Usage: quest history <questId>");
 
-  const versions = getQuestHistory(id);
+  const versions = await getQuestHistory(id);
   if (versions.length === 0) die(`Quest ${id} not found`);
 
   if (jsonOutput) {
@@ -277,7 +277,7 @@ async function cmdCreate(): Promise<void> {
   const tags = tagsStr ? tagsStr.split(",").map((t) => t.trim()).filter(Boolean) : undefined;
 
   try {
-    const quest = createQuest({ title, description, tags });
+    const quest = await createQuest({ title, description, tags });
     await notifyServer();
     if (jsonOutput) {
       out(quest);
@@ -332,7 +332,7 @@ async function cmdClaim(): Promise<void> {
 
   // Fallback: direct filesystem claim (no session name integration)
   try {
-    const quest = claimQuest(id, sessionId);
+    const quest = await claimQuest(id, sessionId);
     if (!quest) die(`Quest ${id} not found`);
     await notifyServer();
     if (jsonOutput) {
@@ -392,7 +392,7 @@ async function cmdComplete(): Promise<void> {
 
   // Fallback: direct filesystem (no browser notification)
   try {
-    const quest = completeQuest(id, items);
+    const quest = await completeQuest(id, items);
     if (!quest) die(`Quest ${id} not found`);
     await notifyServer();
     if (jsonOutput) {
@@ -413,7 +413,7 @@ async function cmdDone(): Promise<void> {
   const cancelled = flag("cancelled");
 
   try {
-    const quest = markDone(id, { notes, cancelled });
+    const quest = await markDone(id, { notes, cancelled });
     if (!quest) die(`Quest ${id} not found`);
     await notifyServer();
     if (jsonOutput) {
@@ -434,7 +434,7 @@ async function cmdCancel(): Promise<void> {
   const notes = option("notes");
 
   try {
-    const quest = cancelQuest(id, notes);
+    const quest = await cancelQuest(id, notes);
     if (!quest) die(`Quest ${id} not found`);
     await notifyServer();
     if (jsonOutput) {
@@ -458,7 +458,7 @@ async function cmdTransition(): Promise<void> {
   const sessionId = option("session") || process.env.COMPANION_SESSION_ID;
 
   try {
-    const quest = transitionQuest(id, {
+    const quest = await transitionQuest(id, {
       status: status as import("../server/quest-types.js").QuestStatus,
       ...(description !== undefined ? { description } : {}),
       ...(sessionId ? { sessionId } : {}),
@@ -489,7 +489,7 @@ async function cmdEdit(): Promise<void> {
   }
 
   try {
-    const quest = patchQuest(id, {
+    const quest = await patchQuest(id, {
       ...(title !== undefined ? { title } : {}),
       ...(description !== undefined ? { description } : {}),
       ...(tags !== undefined ? { tags } : {}),
@@ -515,7 +515,7 @@ async function cmdCheck(): Promise<void> {
   if (Number.isNaN(index)) die("Index must be a number");
 
   // Toggle: read current state and flip it
-  const current = getQuest(id);
+  const current = await getQuest(id);
   if (!current) die(`Quest ${id} not found`);
   if (!("verificationItems" in current)) die("Quest has no verification items");
   const items = (current as { verificationItems: { checked: boolean }[] }).verificationItems;
@@ -523,7 +523,7 @@ async function cmdCheck(): Promise<void> {
   const newChecked = !items[index].checked;
 
   try {
-    const quest = checkVerificationItem(id, index, newChecked);
+    const quest = await checkVerificationItem(id, index, newChecked);
     if (!quest) die(`Quest ${id} not found`);
     await notifyServer();
     if (jsonOutput) {
@@ -614,7 +614,7 @@ async function cmdAddress(): Promise<void> {
 async function cmdMine(): Promise<void> {
   if (!currentSessionId) die("COMPANION_SESSION_ID not set.");
 
-  const quests = listQuests().filter(
+  const quests = (await listQuests()).filter(
     (q) => "sessionId" in q && (q as { sessionId?: string }).sessionId === currentSessionId,
   );
 
@@ -637,7 +637,7 @@ async function cmdDelete(): Promise<void> {
   const id = positional(0);
   if (!id) die("Usage: quest delete <questId>");
 
-  const deleted = deleteQuest(id);
+  const deleted = await deleteQuest(id);
   if (!deleted) die(`Quest ${id} not found`);
   await notifyServer();
   if (jsonOutput) {
@@ -648,7 +648,7 @@ async function cmdDelete(): Promise<void> {
 }
 
 async function cmdTags(): Promise<void> {
-  const quests = listQuests();
+  const quests = await listQuests();
   const tagCounts = new Map<string, number>();
   for (const q of quests) {
     if (q.tags) {

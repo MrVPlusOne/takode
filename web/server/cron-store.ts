@@ -1,11 +1,5 @@
-import {
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  writeFileSync,
-  unlinkSync,
-  existsSync,
-} from "node:fs";
+import { mkdirSync } from "node:fs";
+import { readdir, readFile, writeFile, unlink, access } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import type { CronJob, CronJobCreateInput } from "./cron-types.js";
@@ -15,9 +9,8 @@ import type { CronJob, CronJobCreateInput } from "./cron-types.js";
 const COMPANION_DIR = join(homedir(), ".companion");
 const CRON_DIR = join(COMPANION_DIR, "cron");
 
-function ensureDir(): void {
-  mkdirSync(CRON_DIR, { recursive: true });
-}
+// Cold-path initialization — sync is fine here (runs once at module load)
+mkdirSync(CRON_DIR, { recursive: true });
 
 function filePath(id: string): string {
   return join(CRON_DIR, `${id}.json`);
@@ -34,16 +27,24 @@ function slugify(name: string): string {
     .replace(/^-|-$/g, "");
 }
 
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // ─── CRUD ───────────────────────────────────────────────────────────────────
 
-export function listJobs(): CronJob[] {
-  ensureDir();
+export async function listJobs(): Promise<CronJob[]> {
   try {
-    const files = readdirSync(CRON_DIR).filter((f) => f.endsWith(".json"));
+    const files = (await readdir(CRON_DIR)).filter((f) => f.endsWith(".json"));
     const jobs: CronJob[] = [];
     for (const file of files) {
       try {
-        const raw = readFileSync(join(CRON_DIR, file), "utf-8");
+        const raw = await readFile(join(CRON_DIR, file), "utf-8");
         jobs.push(JSON.parse(raw));
       } catch {
         // Skip corrupt files
@@ -56,17 +57,16 @@ export function listJobs(): CronJob[] {
   }
 }
 
-export function getJob(id: string): CronJob | null {
-  ensureDir();
+export async function getJob(id: string): Promise<CronJob | null> {
   try {
-    const raw = readFileSync(filePath(id), "utf-8");
+    const raw = await readFile(filePath(id), "utf-8");
     return JSON.parse(raw) as CronJob;
   } catch {
     return null;
   }
 }
 
-export function createJob(data: CronJobCreateInput): CronJob {
+export async function createJob(data: CronJobCreateInput): Promise<CronJob> {
   if (!data.name || !data.name.trim()) throw new Error("Job name is required");
   if (!data.prompt || !data.prompt.trim()) throw new Error("Job prompt is required");
   if (!data.schedule || !data.schedule.trim()) throw new Error("Job schedule is required");
@@ -75,8 +75,7 @@ export function createJob(data: CronJobCreateInput): CronJob {
   const id = slugify(data.name.trim());
   if (!id) throw new Error("Job name must contain alphanumeric characters");
 
-  ensureDir();
-  if (existsSync(filePath(id))) {
+  if (await fileExists(filePath(id))) {
     throw new Error(`A job with a similar name already exists ("${id}")`);
   }
 
@@ -93,16 +92,15 @@ export function createJob(data: CronJobCreateInput): CronJob {
     consecutiveFailures: 0,
     totalRuns: 0,
   };
-  writeFileSync(filePath(id), JSON.stringify(job, null, 2), "utf-8");
+  await writeFile(filePath(id), JSON.stringify(job, null, 2), "utf-8");
   return job;
 }
 
-export function updateJob(
+export async function updateJob(
   id: string,
   updates: Partial<CronJob>,
-): CronJob | null {
-  ensureDir();
-  const existing = getJob(id);
+): Promise<CronJob | null> {
+  const existing = await getJob(id);
   if (!existing) return null;
 
   const newName = updates.name?.trim() || existing.name;
@@ -110,7 +108,7 @@ export function updateJob(
   if (!newId) throw new Error("Job name must contain alphanumeric characters");
 
   // If name changed, check for slug collision with a different job
-  if (newId !== id && existsSync(filePath(newId))) {
+  if (newId !== id && (await fileExists(filePath(newId)))) {
     throw new Error(`A job with a similar name already exists ("${newId}")`);
   }
 
@@ -127,21 +125,20 @@ export function updateJob(
   // If id changed, delete old file
   if (newId !== id) {
     try {
-      unlinkSync(filePath(id));
+      await unlink(filePath(id));
     } catch {
       /* ok */
     }
   }
 
-  writeFileSync(filePath(newId), JSON.stringify(job, null, 2), "utf-8");
+  await writeFile(filePath(newId), JSON.stringify(job, null, 2), "utf-8");
   return job;
 }
 
-export function deleteJob(id: string): boolean {
-  ensureDir();
-  if (!existsSync(filePath(id))) return false;
+export async function deleteJob(id: string): Promise<boolean> {
+  if (!(await fileExists(filePath(id)))) return false;
   try {
-    unlinkSync(filePath(id));
+    await unlink(filePath(id));
     return true;
   } catch {
     return false;

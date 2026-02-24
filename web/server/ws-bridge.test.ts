@@ -583,7 +583,7 @@ describe("CLI handlers", () => {
     expect(calls).toContainEqual(expect.objectContaining({ type: "cli_disconnected" }));
   });
 
-  it("handleCLIClose: cancels pending permissions", () => {
+  it("handleCLIClose: cancels pending permissions", async () => {
     const cli = makeCliSocket("s1");
     const browser = makeBrowserSocket("s1");
     bridge.handleCLIOpen(cli, "s1");
@@ -601,6 +601,7 @@ describe("CLI handlers", () => {
       },
     });
     bridge.handleCLIMessage(cli, controlReq);
+    await new Promise(r => setTimeout(r, 0)); // flush async handleControlRequest
     browser.send.mockClear();
 
     bridge.handleCLIClose(cli);
@@ -718,7 +719,7 @@ describe("Browser handlers", () => {
     expect(historyAfterSubscribe.messages[0].type).toBe("assistant");
   });
 
-  it("handleBrowserOpen: sends pending permissions via session_subscribe", () => {
+  it("handleBrowserOpen: sends pending permissions via session_subscribe", async () => {
     // Pending permissions are now delivered via handleSessionSubscribe instead of
     // handleBrowserOpen, to prevent double delivery on reconnect.
     const cli = makeCliSocket("s1");
@@ -736,6 +737,7 @@ describe("Browser handlers", () => {
       },
     });
     bridge.handleCLIMessage(cli, controlReq);
+    await new Promise(r => setTimeout(r, 0)); // flush async handleControlRequest
 
     // Now connect a browser and send session_subscribe
     const browser = makeBrowserSocket("s1");
@@ -1239,7 +1241,7 @@ describe("CLI message routing", () => {
     expect(streamEvent.parent_tool_use_id).toBeNull();
   });
 
-  it("control_request (can_use_tool): adds to pending and broadcasts", () => {
+  it("control_request (can_use_tool): adds to pending and broadcasts", async () => {
     const msg = JSON.stringify({
       type: "control_request",
       request_id: "req-42",
@@ -1255,6 +1257,7 @@ describe("CLI message routing", () => {
     });
 
     bridge.handleCLIMessage(cli, msg);
+    await new Promise(r => setTimeout(r, 0)); // flush async handleControlRequest
 
     const session = bridge.getSession("s1")!;
     expect(session.pendingPermissions.size).toBe(1);
@@ -1478,7 +1481,7 @@ describe("Browser message routing", () => {
     expect(sent.message.content[1].text).toBe("What's in this image?");
   });
 
-  it("permission_response allow: sends control_response to CLI", () => {
+  it("permission_response allow: sends control_response to CLI", async () => {
     // First create a pending permission
     bridge.handleCLIMessage(cli, JSON.stringify({
       type: "control_request",
@@ -1490,6 +1493,7 @@ describe("Browser message routing", () => {
         tool_use_id: "tu-allow",
       },
     }));
+    await new Promise(r => setTimeout(r, 0)); // flush async handleControlRequest
     cli.send.mockClear();
 
     bridge.handleBrowserMessage(browser, JSON.stringify({
@@ -1798,7 +1802,7 @@ describe("Persistence", () => {
     expect(session.state.model).toBe("live-model");
   });
 
-  it("persistSession: called after state changes (via store.save)", () => {
+  it("persistSession: called after state changes (via store.save)", async () => {
     mockExecSync.mockImplementation(() => {
       throw new Error("not a git repo");
     });
@@ -1867,6 +1871,7 @@ describe("Persistence", () => {
         tool_use_id: "tu-persist",
       },
     }));
+    await new Promise(r => setTimeout(r, 0)); // flush async handleControlRequest
     expect(saveSpy).toHaveBeenCalled();
 
     saveSpy.mockClear();
@@ -3358,7 +3363,7 @@ describe("permission broadcasts include request_id", () => {
     expect(approved.tool_name).toBe("ExitPlanMode");
   });
 
-  it("permission_denied broadcast includes request_id", () => {
+  it("permission_denied broadcast includes request_id", async () => {
     bridge.handleCLIMessage(cli, JSON.stringify({
       type: "control_request",
       request_id: "req-deny-test",
@@ -3369,6 +3374,7 @@ describe("permission broadcasts include request_id", () => {
         tool_use_id: "tu-deny-test",
       },
     }));
+    await new Promise(r => setTimeout(r, 0)); // flush async handleControlRequest
     browser.send.mockClear();
 
     bridge.handleBrowserMessage(browser, JSON.stringify({

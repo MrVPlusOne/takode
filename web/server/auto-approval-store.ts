@@ -4,15 +4,11 @@
  * Each project (identified by an absolute directory path) can have its own
  * natural-language auto-approval criteria. Configs live as individual JSON
  * files in `~/.companion/auto-approval/`, following the env-manager pattern.
+ *
+ * All file I/O is async to avoid blocking the event loop on NFS.
  */
-import {
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  writeFileSync,
-  unlinkSync,
-  existsSync,
-} from "node:fs";
+import { readdir, readFile, writeFile, unlink, mkdir, access } from "node:fs/promises";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { createHash } from "node:crypto";
@@ -39,8 +35,20 @@ export interface AutoApprovalConfig {
 const COMPANION_DIR = join(homedir(), ".companion");
 let storeDir = join(COMPANION_DIR, "auto-approval");
 
-function ensureDir(): void {
-  mkdirSync(storeDir, { recursive: true });
+// Cold-path: ensure dir exists at module load so first async call never races.
+mkdirSync(storeDir, { recursive: true });
+
+async function ensureDir(): Promise<void> {
+  await mkdir(storeDir, { recursive: true });
+}
+
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function filePath(slug: string): string {
@@ -62,14 +70,14 @@ function normalizePath(p: string): string {
 
 // ─── CRUD ───────────────────────────────────────────────────────────────────
 
-export function listConfigs(): AutoApprovalConfig[] {
-  ensureDir();
+export async function listConfigs(): Promise<AutoApprovalConfig[]> {
+  await ensureDir();
   try {
-    const files = readdirSync(storeDir).filter((f) => f.endsWith(".json"));
+    const files = (await readdir(storeDir)).filter((f) => f.endsWith(".json"));
     const configs: AutoApprovalConfig[] = [];
     for (const file of files) {
       try {
-        const raw = readFileSync(join(storeDir, file), "utf-8");
+        const raw = await readFile(join(storeDir, file), "utf-8");
         configs.push(JSON.parse(raw));
       } catch {
         // Skip corrupt files
@@ -82,10 +90,10 @@ export function listConfigs(): AutoApprovalConfig[] {
   }
 }
 
-export function getConfig(slug: string): AutoApprovalConfig | null {
-  ensureDir();
+export async function getConfig(slug: string): Promise<AutoApprovalConfig | null> {
+  await ensureDir();
   try {
-    const raw = readFileSync(filePath(slug), "utf-8");
+    const raw = await readFile(filePath(slug), "utf-8");
     return JSON.parse(raw) as AutoApprovalConfig;
   } catch {
     return null;
@@ -103,7 +111,7 @@ export function getConfig(slug: string): AutoApprovalConfig | null {
  *
  * Returns null if no config matches.
  */
-export function getConfigForPath(cwd: string, extraPaths?: string[]): AutoApprovalConfig | null {
+export async function getConfigForPath(cwd: string, extraPaths?: string[]): Promise<AutoApprovalConfig | null> {
   const candidates = [normalizePath(cwd)];
   if (extraPaths) {
     for (const p of extraPaths) {
@@ -112,7 +120,7 @@ export function getConfigForPath(cwd: string, extraPaths?: string[]): AutoApprov
     }
   }
 
-  const configs = listConfigs().filter((c) => c.enabled);
+  const configs = (await listConfigs()).filter((c) => c.enabled);
 
   let bestMatch: AutoApprovalConfig | null = null;
   let bestLen = 0;
@@ -135,12 +143,12 @@ export function getConfigForPath(cwd: string, extraPaths?: string[]): AutoApprov
   return bestMatch;
 }
 
-export function createConfig(
+export async function createConfig(
   projectPath: string,
   label: string,
   criteria: string,
   enabled: boolean = true,
-): AutoApprovalConfig {
+): Promise<AutoApprovalConfig> {
   if (!projectPath || !projectPath.trim()) {
     throw new Error("Project path is required");
   }
@@ -151,8 +159,8 @@ export function createConfig(
   const normalized = normalizePath(projectPath.trim());
   const slug = slugFromPath(normalized);
 
-  ensureDir();
-  if (existsSync(filePath(slug))) {
+  await ensureDir();
+  if (await fileExists(filePath(slug))) {
     throw new Error(`A config for this project path already exists`);
   }
 
@@ -167,16 +175,16 @@ export function createConfig(
     updatedAt: now,
   };
 
-  writeFileSync(filePath(slug), JSON.stringify(config, null, 2), "utf-8");
+  await writeFile(filePath(slug), JSON.stringify(config, null, 2), "utf-8");
   return config;
 }
 
-export function updateConfig(
+export async function updateConfig(
   slug: string,
   updates: { label?: string; criteria?: string; enabled?: boolean },
-): AutoApprovalConfig | null {
-  ensureDir();
-  const existing = getConfig(slug);
+): Promise<AutoApprovalConfig | null> {
+  await ensureDir();
+  const existing = await getConfig(slug);
   if (!existing) return null;
 
   const config: AutoApprovalConfig = {
@@ -187,15 +195,15 @@ export function updateConfig(
     updatedAt: Date.now(),
   };
 
-  writeFileSync(filePath(slug), JSON.stringify(config, null, 2), "utf-8");
+  await writeFile(filePath(slug), JSON.stringify(config, null, 2), "utf-8");
   return config;
 }
 
-export function deleteConfig(slug: string): boolean {
-  ensureDir();
-  if (!existsSync(filePath(slug))) return false;
+export async function deleteConfig(slug: string): Promise<boolean> {
+  await ensureDir();
+  if (!(await fileExists(filePath(slug)))) return false;
   try {
-    unlinkSync(filePath(slug));
+    await unlink(filePath(slug));
     return true;
   } catch {
     return false;

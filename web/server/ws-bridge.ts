@@ -1008,6 +1008,7 @@ export class WsBridge {
   removeSession(sessionId: string) {
     this.sessions.delete(sessionId);
     this.store?.remove(sessionId);
+    // Fire-and-forget: image cleanup is non-critical
     this.imageStore?.removeSession(sessionId);
   }
 
@@ -1038,6 +1039,7 @@ export class WsBridge {
 
     this.sessions.delete(sessionId);
     this.store?.remove(sessionId);
+    // Fire-and-forget: image cleanup is non-critical
     this.imageStore?.removeSession(sessionId);
   }
 
@@ -1396,7 +1398,7 @@ export class WsBridge {
         break;
 
       case "control_request":
-        this.handleControlRequest(session, msg);
+        void this.handleControlRequest(session, msg);
         break;
 
       case "tool_progress":
@@ -1861,7 +1863,7 @@ export class WsBridge {
     "TodoWrite", "Task", "Skill",
   ]);
 
-  private handleControlRequest(session: Session, msg: CLIControlRequestMessage) {
+  private async handleControlRequest(session: Session, msg: CLIControlRequestMessage) {
     if (msg.request.subtype === "can_use_tool") {
       const mode = session.state.permissionMode;
       const toolName = msg.request.tool_name;
@@ -1901,7 +1903,7 @@ export class WsBridge {
       const autoApprovalConfig = (
         session.backendType === "claude" &&
         !NEVER_AUTO_APPROVE.has(toolName)
-      ) ? shouldAttemptAutoApproval(
+      ) ? await shouldAttemptAutoApproval(
         session.state.cwd,
         session.state.repo_root ? [session.state.repo_root] : undefined,
       ) : null;

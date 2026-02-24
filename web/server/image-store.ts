@@ -1,4 +1,5 @@
-import { mkdirSync, writeFileSync, rmSync, existsSync, readdirSync } from "node:fs";
+import { mkdirSync } from "node:fs";
+import { mkdir, writeFile, readdir, rm, access } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { randomBytes } from "node:crypto";
@@ -49,7 +50,7 @@ export class ImageStore {
   /** Store a base64 image to disk and generate a JPEG thumbnail. */
   async store(sessionId: string, base64Data: string, mediaType: string): Promise<ImageRef> {
     const dir = this.sessionDir(sessionId);
-    mkdirSync(dir, { recursive: true });
+    await mkdir(dir, { recursive: true });
 
     const ext = MIME_TO_EXT[mediaType] || "bin";
     const imageId = `${Date.now()}-${this.counter++}-${randomBytes(3).toString("hex")}`;
@@ -57,7 +58,7 @@ export class ImageStore {
     const thumbPath = join(dir, `${imageId}.thumb.jpeg`);
 
     const buffer = Buffer.from(base64Data, "base64");
-    writeFileSync(originalPath, buffer);
+    await writeFile(originalPath, buffer);
 
     // Generate thumbnail — fall back gracefully if sharp can't process
     try {
@@ -74,17 +75,27 @@ export class ImageStore {
   }
 
   /** Get the disk path for an original image, or null if not found. */
-  getOriginalPath(sessionId: string, imageId: string): string | null {
+  async getOriginalPath(sessionId: string, imageId: string): Promise<string | null> {
     const dir = this.sessionDir(sessionId);
-    if (!existsSync(dir)) return null;
-    const match = readdirSync(dir).find((f) => f.startsWith(`${imageId}.orig.`));
+    try {
+      await access(dir);
+    } catch {
+      return null;
+    }
+    const files = await readdir(dir);
+    const match = files.find((f) => f.startsWith(`${imageId}.orig.`));
     return match ? join(dir, match) : null;
   }
 
   /** Get the disk path for a thumbnail, or null if not found. */
-  getThumbnailPath(sessionId: string, imageId: string): string | null {
+  async getThumbnailPath(sessionId: string, imageId: string): Promise<string | null> {
     const path = join(this.sessionDir(sessionId), `${imageId}.thumb.jpeg`);
-    return existsSync(path) ? path : null;
+    try {
+      await access(path);
+      return path;
+    } catch {
+      return null;
+    }
   }
 
   /** Convert unsupported image formats to JPEG for the Claude/Codex API. */
@@ -105,10 +116,10 @@ export class ImageStore {
   }
 
   /** Delete all images for a session. */
-  removeSession(sessionId: string): void {
+  async removeSession(sessionId: string): Promise<void> {
     const dir = this.sessionDir(sessionId);
     try {
-      rmSync(dir, { recursive: true, force: true });
+      await rm(dir, { recursive: true, force: true });
     } catch {
       // Directory may not exist
     }

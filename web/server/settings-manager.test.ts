@@ -9,6 +9,7 @@ import {
   getServerId,
   initWithPort,
   _resetForTest,
+  _flushForTest,
 } from "./settings-manager.js";
 
 let tempDir: string;
@@ -44,11 +45,12 @@ describe("settings-manager", () => {
     });
   });
 
-  it("updates and persists pushover settings", () => {
+  it("updates and persists pushover settings", async () => {
     const updated = updateSettings({ pushoverUserKey: "po-user" });
     expect(updated.pushoverUserKey).toBe("po-user");
     expect(updated.updatedAt).toBeGreaterThan(0);
 
+    await _flushForTest();
     const saved = JSON.parse(readFileSync(settingsPath, "utf-8"));
     expect(saved.pushoverUserKey).toBe("po-user");
   });
@@ -145,8 +147,9 @@ describe("server name", () => {
     expect(getServerName()).toBe("Frontend");
   });
 
-  it("persists server name to disk", () => {
+  it("persists server name to disk", async () => {
     setServerName("Backend");
+    await _flushForTest();
     const saved = JSON.parse(readFileSync(settingsPath, "utf-8"));
     expect(saved.serverName).toBe("Backend");
   });
@@ -192,8 +195,9 @@ describe("server ID", () => {
     expect(first).toBe(second);
   });
 
-  it("getServerId persists to disk", () => {
+  it("getServerId persists to disk", async () => {
     const id = getServerId();
+    await _flushForTest();
     const saved = JSON.parse(readFileSync(settingsPath, "utf-8"));
     expect(saved.serverId).toBe(id);
   });
@@ -227,18 +231,20 @@ describe("CLI binary settings", () => {
     expect(getSettings().maxKeepAlive).toBe(0);
   });
 
-  it("updates and persists claudeBinary", () => {
+  it("updates and persists claudeBinary", async () => {
     const updated = updateSettings({ claudeBinary: "/usr/local/bin/claude" });
     expect(updated.claudeBinary).toBe("/usr/local/bin/claude");
 
+    await _flushForTest();
     const saved = JSON.parse(readFileSync(settingsPath, "utf-8"));
     expect(saved.claudeBinary).toBe("/usr/local/bin/claude");
   });
 
-  it("updates and persists codexBinary", () => {
+  it("updates and persists codexBinary", async () => {
     const updated = updateSettings({ codexBinary: "/opt/codex/bin/codex" });
     expect(updated.codexBinary).toBe("/opt/codex/bin/codex");
 
+    await _flushForTest();
     const saved = JSON.parse(readFileSync(settingsPath, "utf-8"));
     expect(saved.codexBinary).toBe("/opt/codex/bin/codex");
   });
@@ -255,10 +261,11 @@ describe("CLI binary settings", () => {
 });
 
 describe("maxKeepAlive settings", () => {
-  it("updates and persists maxKeepAlive", () => {
+  it("updates and persists maxKeepAlive", async () => {
     const updated = updateSettings({ maxKeepAlive: 5 });
     expect(updated.maxKeepAlive).toBe(5);
 
+    await _flushForTest();
     const saved = JSON.parse(readFileSync(settingsPath, "utf-8"));
     expect(saved.maxKeepAlive).toBe(5);
   });
@@ -308,11 +315,12 @@ describe("initWithPort", () => {
     return portPath;
   }
 
-  it("uses port-scoped file path", () => {
+  it("uses port-scoped file path", async () => {
     const portPath = join(portDir, "settings-9999.json");
     _resetForTest(portPath);
 
     setServerName("Port Test");
+    await _flushForTest();
     expect(existsSync(portPath)).toBe(true);
 
     const saved = JSON.parse(readFileSync(portPath, "utf-8"));
@@ -392,7 +400,7 @@ describe("initWithPort", () => {
     expect(getServerId()).toBe("unique-port-id");
   });
 
-  it("two ports get independent settings", () => {
+  it("two ports get independent settings", async () => {
     const port3456Path = join(portDir, "settings-3456.json");
     const port3457Path = join(portDir, "settings-3457.json");
 
@@ -400,11 +408,13 @@ describe("initWithPort", () => {
     _resetForTest(port3456Path);
     setServerName("Production");
     const prodId = getServerId();
+    await _flushForTest();
 
     // Set up port 3457
     _resetForTest(port3457Path);
     setServerName("Development");
     const devId = getServerId();
+    await _flushForTest();
 
     // Verify they're independent
     expect(prodId).not.toBe(devId);
@@ -418,7 +428,7 @@ describe("initWithPort", () => {
     expect(getServerName()).toBe("Development");
   });
 
-  it("works cleanly on fresh install with no legacy file", () => {
+  it("works cleanly on fresh install with no legacy file", async () => {
     const portPath = join(portDir, "settings-3456.json");
     _resetForTest(portPath);
 
@@ -429,6 +439,7 @@ describe("initWithPort", () => {
     // getServerId creates the file and generates a UUID
     const id = getServerId();
     expect(id).toBeTruthy();
+    await _flushForTest();
     expect(existsSync(portPath)).toBe(true);
   });
 });

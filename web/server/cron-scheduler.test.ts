@@ -155,9 +155,9 @@ describe("scheduling", () => {
     scheduler.destroy();
   });
 
-  it("startAll loads and schedules enabled jobs from store", () => {
+  it("startAll loads and schedules enabled jobs from store", async () => {
     // Create jobs in store
-    cronStore.createJob({
+    await cronStore.createJob({
       name: "Enabled Job",
       prompt: "Do it",
       schedule: "0 9 * * *",
@@ -168,7 +168,7 @@ describe("scheduling", () => {
       enabled: true,
       permissionMode: "bypassPermissions",
     });
-    cronStore.createJob({
+    await cronStore.createJob({
       name: "Disabled Job",
       prompt: "Skip me",
       schedule: "0 10 * * *",
@@ -183,7 +183,7 @@ describe("scheduling", () => {
     const launcher = createMockLauncher();
     const bridge = createMockBridge();
     const scheduler = new CronSchedulerClass(launcher as any, bridge as any);
-    scheduler.startAll();
+    await scheduler.startAll();
 
     expect(scheduler.getNextRunTime("enabled-job")).not.toBeNull();
     expect(scheduler.getNextRunTime("disabled-job")).toBeNull();
@@ -202,7 +202,7 @@ describe("execution", () => {
     const scheduler = new CronSchedulerClass(launcher as any, bridge as any);
 
     // Create job in store so executeJob can read it
-    cronStore.createJob({
+    await cronStore.createJob({
       name: "Run Me",
       prompt: "Check PRs",
       schedule: "0 8 * * *",
@@ -237,7 +237,7 @@ describe("execution", () => {
     );
 
     // Verify job tracking was updated
-    const updated = cronStore.getJob("run-me");
+    const updated = await cronStore.getJob("run-me");
     expect(updated!.totalRuns).toBe(1);
     expect(updated!.consecutiveFailures).toBe(0);
     expect(updated!.lastRunAt).toBeGreaterThan(0);
@@ -257,7 +257,7 @@ describe("execution", () => {
     const scheduler = new CronSchedulerClass(launcher as any, bridge as any);
 
     // Create job and set lastSessionId to a still-alive session
-    cronStore.createJob({
+    await cronStore.createJob({
       name: "Overlap Test",
       prompt: "Do it",
       schedule: "* * * * *",
@@ -271,7 +271,7 @@ describe("execution", () => {
 
     // Run once to get a lastSessionId
     await scheduler.executeJob("overlap-test");
-    const firstSessionId = cronStore.getJob("overlap-test")!.lastSessionId!;
+    const firstSessionId = (await cronStore.getJob("overlap-test"))!.lastSessionId!;
     expect(launcher.isAlive(firstSessionId)).toBe(true);
 
     // Try to run again — should skip
@@ -303,7 +303,7 @@ describe("execution", () => {
       return info;
     });
 
-    cronStore.createJob({
+    await cronStore.createJob({
       name: "Failing Job",
       prompt: "Will fail",
       schedule: "0 8 * * *",
@@ -320,7 +320,7 @@ describe("execution", () => {
       await scheduler.executeJob("failing-job");
     }
 
-    const job = cronStore.getJob("failing-job");
+    const job = await cronStore.getJob("failing-job");
     expect(job!.enabled).toBe(false);
     expect(job!.consecutiveFailures).toBe(5);
 
@@ -332,7 +332,7 @@ describe("execution", () => {
     const bridge = createMockBridge();
     const scheduler = new CronSchedulerClass(launcher as any, bridge as any);
 
-    cronStore.createJob({
+    await cronStore.createJob({
       name: "Disabled",
       prompt: "Skip",
       schedule: "0 8 * * *",
@@ -357,7 +357,7 @@ describe("execution", () => {
     const bridge = createMockBridge();
     const scheduler = new CronSchedulerClass(launcher as any, bridge as any);
 
-    cronStore.createJob({
+    await cronStore.createJob({
       name: "Codex Auto",
       prompt: "Check PRs",
       schedule: "0 8 * * *",
@@ -390,7 +390,7 @@ describe("execution", () => {
     const bridge = createMockBridge();
     const scheduler = new CronSchedulerClass(launcher as any, bridge as any);
 
-    cronStore.createJob({
+    await cronStore.createJob({
       name: "Codex Default Internet",
       prompt: "Fetch latest",
       schedule: "0 9 * * *",
@@ -420,7 +420,7 @@ describe("execution", () => {
     const bridge = createMockBridge();
     const scheduler = new CronSchedulerClass(launcher as any, bridge as any);
 
-    cronStore.createJob({
+    await cronStore.createJob({
       name: "Claude Job",
       prompt: "Run tests",
       schedule: "0 8 * * *",
@@ -451,7 +451,7 @@ describe("execution history", () => {
     const bridge = createMockBridge();
     const scheduler = new CronSchedulerClass(launcher as any, bridge as any);
 
-    cronStore.createJob({
+    await cronStore.createJob({
       name: "Multi Run",
       prompt: "Go",
       schedule: "0 8 * * *",
@@ -465,11 +465,11 @@ describe("execution history", () => {
 
     // Run 3 times — need to mark previous sessions as exited to avoid overlap skip
     await scheduler.executeJob("multi-run");
-    const sess1 = cronStore.getJob("multi-run")!.lastSessionId!;
+    const sess1 = (await cronStore.getJob("multi-run"))!.lastSessionId!;
     launcher.sessions.get(sess1)!.state = "exited";
 
     await scheduler.executeJob("multi-run");
-    const sess2 = cronStore.getJob("multi-run")!.lastSessionId!;
+    const sess2 = (await cronStore.getJob("multi-run"))!.lastSessionId!;
     launcher.sessions.get(sess2)!.state = "exited";
 
     await scheduler.executeJob("multi-run");
@@ -516,7 +516,7 @@ describe("execution history", () => {
       return info;
     });
 
-    cronStore.createJob({
+    await cronStore.createJob({
       name: "Error Detail",
       prompt: "Will fail",
       schedule: "0 8 * * *",
@@ -548,7 +548,7 @@ describe("prompt formatting", () => {
     const bridge = createMockBridge();
     const scheduler = new CronSchedulerClass(launcher as any, bridge as any);
 
-    cronStore.createJob({
+    await cronStore.createJob({
       name: "Email Digest",
       prompt: "Read my emails and summarize them",
       schedule: "0 8 * * *",
@@ -575,7 +575,7 @@ describe("prompt formatting", () => {
 
     const { setName } = await import("./session-names.js");
 
-    cronStore.createJob({
+    await cronStore.createJob({
       name: "PR Check",
       prompt: "Check PRs",
       schedule: "0 8 * * *",
@@ -607,7 +607,7 @@ describe("session tagging", () => {
     const bridge = createMockBridge();
     const scheduler = new CronSchedulerClass(launcher as any, bridge as any);
 
-    cronStore.createJob({
+    await cronStore.createJob({
       name: "Tagged Session",
       prompt: "Do work",
       schedule: "0 8 * * *",
@@ -622,7 +622,7 @@ describe("session tagging", () => {
     await scheduler.executeJob("tagged-session");
 
     // The session should be tagged after launch
-    const sessionId = cronStore.getJob("tagged-session")!.lastSessionId!;
+    const sessionId = (await cronStore.getJob("tagged-session"))!.lastSessionId!;
     const session = launcher.sessions.get(sessionId);
     expect(session!.cronJobId).toBe("tagged-session");
     expect(session!.cronJobName).toBe("Tagged Session");
@@ -641,7 +641,7 @@ describe("failure recovery", () => {
     const scheduler = new CronSchedulerClass(launcher as any, bridge as any);
 
     // Create a job that has had previous failures
-    cronStore.createJob({
+    await cronStore.createJob({
       name: "Recovering",
       prompt: "Try again",
       schedule: "0 8 * * *",
@@ -653,12 +653,12 @@ describe("failure recovery", () => {
       permissionMode: "bypassPermissions",
     });
     // Manually set some failures
-    cronStore.updateJob("recovering", { consecutiveFailures: 3 });
+    await cronStore.updateJob("recovering", { consecutiveFailures: 3 });
 
     // Execute successfully
     await scheduler.executeJob("recovering");
 
-    const job = cronStore.getJob("recovering");
+    const job = await cronStore.getJob("recovering");
     expect(job!.consecutiveFailures).toBe(0);
     expect(job!.totalRuns).toBe(1);
 
@@ -670,7 +670,7 @@ describe("failure recovery", () => {
     const bridge = createMockBridge();
     const scheduler = new CronSchedulerClass(launcher as any, bridge as any);
 
-    cronStore.createJob({
+    await cronStore.createJob({
       name: "Counter",
       prompt: "Go",
       schedule: "0 8 * * *",
@@ -685,11 +685,11 @@ describe("failure recovery", () => {
     // Run 3 times, marking previous sessions as exited
     for (let i = 0; i < 3; i++) {
       await scheduler.executeJob("counter");
-      const sid = cronStore.getJob("counter")!.lastSessionId!;
+      const sid = (await cronStore.getJob("counter"))!.lastSessionId!;
       launcher.sessions.get(sid)!.state = "exited";
     }
 
-    const job = cronStore.getJob("counter");
+    const job = await cronStore.getJob("counter");
     expect(job!.totalRuns).toBe(3);
 
     scheduler.destroy();
@@ -716,7 +716,7 @@ describe("failure recovery", () => {
       return info;
     });
 
-    cronStore.createJob({
+    await cronStore.createJob({
       name: "Resilient",
       prompt: "Try hard",
       schedule: "0 8 * * *",
@@ -733,7 +733,7 @@ describe("failure recovery", () => {
       await scheduler.executeJob("resilient");
     }
 
-    const job = cronStore.getJob("resilient");
+    const job = await cronStore.getJob("resilient");
     expect(job!.enabled).toBe(true); // Still enabled
     expect(job!.consecutiveFailures).toBe(4);
 
@@ -838,7 +838,7 @@ describe("Codex sandbox modes", () => {
     const bridge = createMockBridge();
     const scheduler = new CronSchedulerClass(launcher as any, bridge as any);
 
-    cronStore.createJob({
+    await cronStore.createJob({
       name: "Codex Plan",
       prompt: "Suggest changes",
       schedule: "0 8 * * *",
@@ -868,7 +868,7 @@ describe("Codex sandbox modes", () => {
     const bridge = createMockBridge();
     const scheduler = new CronSchedulerClass(launcher as any, bridge as any);
 
-    cronStore.createJob({
+    await cronStore.createJob({
       name: "Codex No Internet",
       prompt: "Work offline",
       schedule: "0 8 * * *",
@@ -916,7 +916,7 @@ describe("destroy", () => {
     const bridge = createMockBridge();
     const scheduler = new CronSchedulerClass(launcher as any, bridge as any);
 
-    cronStore.createJob({
+    await cronStore.createJob({
       name: "History Clear",
       prompt: "Go",
       schedule: "0 8 * * *",

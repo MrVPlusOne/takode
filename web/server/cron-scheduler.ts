@@ -27,8 +27,8 @@ export class CronScheduler {
   }
 
   /** Start all enabled jobs from disk. Called once at server startup. */
-  startAll(): void {
-    const jobs = cronStore.listJobs();
+  async startAll(): Promise<void> {
+    const jobs = await cronStore.listJobs();
     let started = 0;
     for (const job of jobs) {
       if (job.enabled) {
@@ -62,9 +62,9 @@ export class CronScheduler {
         if (targetTime.getTime() > Date.now()) {
           const cronTask = new Cron(targetTime, () => {
             this.executeJob(job.id)
-              .then(() => {
+              .then(async () => {
                 // Auto-disable after one-shot execution
-                cronStore.updateJob(job.id, { enabled: false });
+                await cronStore.updateJob(job.id, { enabled: false });
                 this.timers.delete(job.id);
               })
               .catch((err) => {
@@ -93,7 +93,7 @@ export class CronScheduler {
 
   /** Execute a job: create a session, send the prompt, track the result. */
   async executeJob(jobId: string, opts?: { force?: boolean }): Promise<void> {
-    const job = cronStore.getJob(jobId);
+    const job = await cronStore.getJob(jobId);
     if (!job) return;
     if (!job.enabled && !opts?.force) return;
 
@@ -151,7 +151,7 @@ export class CronScheduler {
       this.wsBridge.injectUserMessage(sessionInfo.sessionId, fullPrompt);
 
       // Update job tracking
-      cronStore.updateJob(jobId, {
+      await cronStore.updateJob(jobId, {
         lastRunAt: Date.now(),
         lastSessionId: sessionInfo.sessionId,
         totalRuns: job.totalRuns + 1,
@@ -180,7 +180,7 @@ export class CronScheduler {
         console.warn(`[cron-scheduler] Job "${job.name}" disabled after ${failures} consecutive failures`);
       }
 
-      cronStore.updateJob(jobId, updates);
+      await cronStore.updateJob(jobId, updates);
     }
   }
 

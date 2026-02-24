@@ -31,13 +31,13 @@ describe("ImageStore", () => {
     expect(ref.media_type).toBe("image/png");
 
     // Original file should exist
-    const origPath = store.getOriginalPath("sess-1", ref.imageId);
+    const origPath = await store.getOriginalPath("sess-1", ref.imageId);
     expect(origPath).toBeTruthy();
     expect(origPath!.endsWith(".orig.png")).toBe(true);
     expect(existsSync(origPath!)).toBe(true);
 
     // Thumbnail should exist
-    const thumbPath = store.getThumbnailPath("sess-1", ref.imageId);
+    const thumbPath = await store.getThumbnailPath("sess-1", ref.imageId);
     expect(thumbPath).toBeTruthy();
     expect(thumbPath!.endsWith(".thumb.jpeg")).toBe(true);
     expect(existsSync(thumbPath!)).toBe(true);
@@ -70,13 +70,13 @@ describe("ImageStore", () => {
   });
 
   // Tests that getOriginalPath returns null for nonexistent images
-  it("getOriginalPath() returns null for unknown image", () => {
-    expect(store.getOriginalPath("no-session", "no-image")).toBeNull();
+  it("getOriginalPath() returns null for unknown image", async () => {
+    expect(await store.getOriginalPath("no-session", "no-image")).toBeNull();
   });
 
   // Tests that getThumbnailPath returns null for nonexistent images
-  it("getThumbnailPath() returns null for unknown image", () => {
-    expect(store.getThumbnailPath("no-session", "no-image")).toBeNull();
+  it("getThumbnailPath() returns null for unknown image", async () => {
+    expect(await store.getThumbnailPath("no-session", "no-image")).toBeNull();
   });
 
   // Tests that removeSession cleans up the entire session directory
@@ -84,14 +84,14 @@ describe("ImageStore", () => {
     const ref = await store.store("sess-1", TINY_PNG_BASE64, "image/png");
     expect(existsSync(join(tempDir, "sess-1"))).toBe(true);
 
-    store.removeSession("sess-1");
+    await store.removeSession("sess-1");
     expect(existsSync(join(tempDir, "sess-1"))).toBe(false);
-    expect(store.getOriginalPath("sess-1", ref.imageId)).toBeNull();
+    expect(await store.getOriginalPath("sess-1", ref.imageId)).toBeNull();
   });
 
   // Tests that removeSession is safe to call on nonexistent sessions
-  it("removeSession() is safe for nonexistent session", () => {
-    expect(() => store.removeSession("nonexistent")).not.toThrow();
+  it("removeSession() is safe for nonexistent session", async () => {
+    await expect(store.removeSession("nonexistent")).resolves.not.toThrow();
   });
 
   // Tests that corrupt base64 data still saves the original but handles
@@ -104,12 +104,12 @@ describe("ImageStore", () => {
     expect(ref.imageId).toBeTruthy();
 
     // Original should still be saved
-    const origPath = store.getOriginalPath("sess-1", ref.imageId);
+    const origPath = await store.getOriginalPath("sess-1", ref.imageId);
     expect(origPath).toBeTruthy();
     expect(existsSync(origPath!)).toBe(true);
 
     // Thumbnail may not exist (sharp fails on non-image data)
-    const thumbPath = store.getThumbnailPath("sess-1", ref.imageId);
+    const thumbPath = await store.getThumbnailPath("sess-1", ref.imageId);
     // Depending on sharp's behavior with non-image data, thumbnail may or may not exist
     // The important thing is no exception was thrown
   });
