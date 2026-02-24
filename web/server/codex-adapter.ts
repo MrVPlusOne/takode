@@ -61,6 +61,23 @@ function safeKind(kind: unknown): string {
   return "modify";
 }
 
+function toSafeText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) return value.map((v) => toSafeText(v)).filter(Boolean).join(" ").trim();
+  if (value && typeof value === "object") {
+    const rec = value as Record<string, unknown>;
+    const preferred = rec.text ?? rec.summary ?? rec.content;
+    if (preferred !== undefined) return toSafeText(preferred);
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return "";
+    }
+  }
+  return "";
+}
+
 interface CodexAgentMessageItem extends CodexItem {
   type: "agentMessage";
   text?: string;
@@ -220,7 +237,11 @@ class JsonRpcTransport {
     if ("id" in msg && msg.id !== undefined) {
       if ("method" in msg && msg.method) {
         // This is a request FROM the server (e.g., approval request)
-        this.requestHandler?.(msg.method, msg.id as number, (msg as JsonRpcRequest).params || {});
+        try {
+          this.requestHandler?.(msg.method, msg.id as number, (msg as JsonRpcRequest).params || {});
+        } catch (err) {
+          console.error(`[codex-adapter] Request handler failed for ${msg.method}:`, err);
+        }
       } else {
         // This is a response to one of our requests
         const pending = this.pending.get(msg.id as number);
@@ -236,7 +257,11 @@ class JsonRpcTransport {
       }
     } else if ("method" in msg) {
       // Notification (no id)
-      this.notificationHandler?.(msg.method, (msg as JsonRpcNotification).params || {});
+      try {
+        this.notificationHandler?.(msg.method, (msg as JsonRpcNotification).params || {});
+      } catch (err) {
+        console.error(`[codex-adapter] Notification handler failed for ${msg.method}:`, err);
+      }
     }
   }
 
@@ -1492,12 +1517,9 @@ export class CodexAdapter {
 
       case "reasoning": {
         const r = item as CodexReasoningItem;
-        const thinkingText = (
-          this.reasoningTextByItemId.get(item.id)
-          || r.summary
-          || r.content
-          || ""
-        ).trim();
+        const bufferedText = toSafeText(this.reasoningTextByItemId.get(item.id)).trim();
+        const fallbackText = toSafeText(r.summary ?? r.content ?? "").trim();
+        const thinkingText = bufferedText || fallbackText;
 
         if (thinkingText) {
           this.emit({

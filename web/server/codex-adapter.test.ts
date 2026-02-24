@@ -690,6 +690,47 @@ describe("CodexAdapter", () => {
     expect(blockStops.length).toBeGreaterThanOrEqual(1);
   });
 
+  it("does not disconnect when reasoning summary payload is non-string", async () => {
+    // Regression: Codex may send summary/content in structured object form.
+    // The adapter must coerce safely instead of throwing and dropping transport.
+    const messages: BrowserIncomingMessage[] = [];
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
+    const onDisconnect = vi.fn();
+    adapter.onBrowserMessage((msg) => messages.push(msg));
+    adapter.onDisconnect(onDisconnect);
+
+    await new Promise((r) => setTimeout(r, 50));
+    stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
+    await new Promise((r) => setTimeout(r, 20));
+    stdout.push(JSON.stringify({ id: 2, result: { thread: { id: "thr_123" } } }) + "\n");
+    await new Promise((r) => setTimeout(r, 50));
+
+    stdout.push(JSON.stringify({
+      method: "item/started",
+      params: { item: { type: "reasoning", id: "r_obj" } },
+    }) + "\n");
+    await new Promise((r) => setTimeout(r, 20));
+
+    stdout.push(JSON.stringify({
+      method: "item/completed",
+      params: {
+        item: {
+          type: "reasoning",
+          id: "r_obj",
+          summary: { text: "Structured reasoning summary" },
+        },
+      },
+    }) + "\n");
+    await new Promise((r) => setTimeout(r, 50));
+
+    const thinkingMsgs = messages.filter((m) =>
+      m.type === "assistant"
+      && (m as { message: { content: Array<{ type: string }> } }).message.content.some((b) => b.type === "thinking"),
+    );
+    expect(thinkingMsgs.length).toBeGreaterThanOrEqual(1);
+    expect(onDisconnect).not.toHaveBeenCalled();
+  });
+
   // ── Codex CLI enum values must be kebab-case (v0.99+) ─────────────────
   // Valid sandbox values: "read-only", "workspace-write", "danger-full-access"
   // Valid approvalPolicy values: "never", "untrusted", "on-failure", "on-request"
