@@ -264,12 +264,12 @@ describe("SessionStatusDot component", () => {
     expect(screen.getByTitle("Compacting context")).toBeInTheDocument();
   });
 
-  it("applies the correct CSS color class for disconnected state (red)", () => {
+  it("applies the correct CSS color class for disconnected state (gray power plug)", () => {
     render(<SessionStatusDot {...makeProps({ isConnected: false, sdkState: "exited" })} />);
     const dot = screen.getByTestId("session-status-dot");
-    // Color is on the child YarnBallDot SVG, not the wrapper div
-    const yarnBall = dot.querySelector("svg")!;
-    expect(yarnBall.className.baseVal).toContain("text-cc-error");
+    // Disconnected uses PowerPlugDot instead of YarnBallDot, still an SVG child
+    const plugSvg = dot.querySelector("svg")!;
+    expect(plugSvg.className.baseVal).toContain("text-cc-muted/50");
   });
 
   it("applies the correct CSS color class for running state (green)", () => {

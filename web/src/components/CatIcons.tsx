@@ -70,6 +70,21 @@ export function YarnBallDot({ className = "", style }: { className?: string; sty
   );
 }
 
+/** Power plug indicator — shown for disconnected sessions instead of the yarn ball. */
+export function PowerPlugDot({ className = "", style }: { className?: string; style?: React.CSSProperties }) {
+  return (
+    <svg viewBox="0 0 16 16" fill="currentColor" style={style} className={`inline-block ${className}`}>
+      {/* Two prongs */}
+      <rect x="5" y="1" width="1.5" height="4" rx="0.5" />
+      <rect x="9.5" y="1" width="1.5" height="4" rx="0.5" />
+      {/* Plug body */}
+      <rect x="4" y="4.5" width="8" height="4" rx="1.5" />
+      {/* Cord */}
+      <path d="M8 8.5 L8 11 Q8 12.5 9.5 13 Q11 13.5 11 15" stroke="currentColor" strokeWidth="1.3" fill="none" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 /** Yarn ball spinner — circle with crossed thread lines. Drop-in replacement for animate-spin spinners. */
 export function YarnBallSpinner({ className = "w-4 h-4" }: { className?: string }) {
   return (

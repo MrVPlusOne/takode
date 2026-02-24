@@ -1,17 +1,17 @@
 /**
- * SessionStatusDot — a small yarn-ball indicator showing the current state of a session.
+ * SessionStatusDot — a small indicator showing the current state of a session.
  *
  * Status priority (highest to lowest):
  *   1. archived          -> gray yarn ball, no glow
  *   2. permission         -> amber yarn ball, breathing glow (needs user action)
- *   3. disconnected       -> red yarn ball, no glow
+ *   3. disconnected       -> gray power plug, no glow
  *   4. running            -> green yarn ball, breathing glow (agent actively working)
  *   5. compacting         -> green yarn ball, breathing glow (context compaction)
  *   6. completed_unread   -> blue yarn ball, no glow (agent finished, user hasn't checked)
  *   7. idle               -> gray yarn ball, no glow
  */
 
-import { YarnBallDot } from "./CatIcons.js";
+import { YarnBallDot, PowerPlugDot } from "./CatIcons.js";
 
 export type SessionVisualStatus =
   | "archived"
@@ -65,7 +65,7 @@ export function deriveSessionStatus(props: SessionStatusDotProps): SessionVisual
 const DOT_COLOR: Record<SessionVisualStatus, string> = {
   archived: "text-cc-muted/40",
   permission: "text-cc-warning",
-  disconnected: "text-cc-error",
+  disconnected: "text-cc-muted/50",
   running: "text-cc-success",
   compacting: "text-cc-success",
   completed_unread: "text-blue-500",
@@ -124,12 +124,17 @@ export function SessionStatusDot(props: SessionStatusDotProps) {
     : undefined;
 
   const shouldRoll = visualStatus === "running" || visualStatus === "compacting";
+  const isDisconnected = visualStatus === "disconnected";
 
   return (
     <div className="relative shrink-0 mt-[7px]" title={label} aria-label={label} data-testid="session-status-dot" data-status={visualStatus} style={glowStyle}>
-      <YarnBallDot
-        className={`block w-2.5 h-2.5 ${dotColor} ${shouldRoll ? "yarn-ball-roll" : ""}`}
-      />
+      {isDisconnected ? (
+        <PowerPlugDot className={`block w-2.5 h-2.5 ${dotColor}`} />
+      ) : (
+        <YarnBallDot
+          className={`block w-2.5 h-2.5 ${dotColor} ${shouldRoll ? "yarn-ball-roll" : ""}`}
+        />
+      )}
     </div>
   );
 }
