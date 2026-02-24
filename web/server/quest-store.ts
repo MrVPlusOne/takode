@@ -104,7 +104,25 @@ async function writeCounter(next: number): Promise<void> {
 }
 
 async function nextQuestId(): Promise<string> {
-  const n = await readCounter();
+  let n = await readCounter();
+
+  // Reconcile: scan existing quest files to find the max numeric ID.
+  // The counter file can fall behind (e.g. corruption, manual edits, or
+  // quests created by a different process). Without this, create would
+  // silently overwrite existing quests.
+  try {
+    const files = await readdir(QUESTMASTER_DIR);
+    for (const f of files) {
+      const m = f.match(/^q-(\d+)-v\d+\.json$/);
+      if (m) {
+        const existing = Number(m[1]);
+        if (existing >= n) n = existing + 1;
+      }
+    }
+  } catch {
+    // Directory might not exist yet — fine, n stays as-is
+  }
+
   await writeCounter(n + 1);
   return `q-${n}`;
 }

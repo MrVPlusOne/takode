@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, readFileSync, readdirSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -790,5 +790,52 @@ describe("feedback", () => {
     const fb = (result as { feedback?: { text: string }[] }).feedback;
     expect(fb).toHaveLength(1);
     expect(fb![0].text).toBe("Nevermind");
+  });
+});
+
+// ===========================================================================
+// Counter reconciliation (prevents ID reuse)
+// ===========================================================================
+describe("counter reconciliation", () => {
+  it("skips IDs that already have quest files on disk", async () => {
+    // Simulate pre-existing quest files (e.g. from a previous session)
+    // with a counter that has fallen behind
+    const dir = questDir();
+    mkdirSync(dir, { recursive: true });
+
+    // Write fake quest files for q-1 through q-5
+    for (let i = 1; i <= 5; i++) {
+      writeFileSync(
+        join(dir, `q-${i}-v1.json`),
+        JSON.stringify({ id: `q-${i}-v1`, questId: `q-${i}`, version: 1, title: `Old quest ${i}`, status: "idea", createdAt: Date.now() }),
+      );
+    }
+
+    // Set counter behind (next=2, but q-1 through q-5 exist)
+    writeFileSync(join(dir, "_quest_counter.json"), JSON.stringify({ next: 2 }));
+
+    // Creating a new quest should skip existing IDs and get q-6
+    const q = await questStore.createQuest({ title: "New quest" });
+    expect(q.questId).toBe("q-6");
+
+    // Counter should now be at 7
+    const counter = JSON.parse(readFileSync(join(dir, "_quest_counter.json"), "utf-8"));
+    expect(counter.next).toBe(7);
+  });
+
+  it("handles missing counter file by scanning existing files", async () => {
+    // Pre-existing quests but no counter file at all
+    const dir = questDir();
+    mkdirSync(dir, { recursive: true });
+
+    writeFileSync(
+      join(dir, "q-10-v1.json"),
+      JSON.stringify({ id: "q-10-v1", questId: "q-10", version: 1, title: "Quest 10", status: "idea", createdAt: Date.now() }),
+    );
+
+    // No _quest_counter.json exists — readCounter returns 1, but scan
+    // should bump it past q-10
+    const q = await questStore.createQuest({ title: "After gap" });
+    expect(q.questId).toBe("q-11");
   });
 });
