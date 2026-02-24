@@ -4,6 +4,9 @@ import { exec as execCb } from "node:child_process";
 import { promisify } from "node:util";
 
 const execPromise = promisify(execCb);
+
+/** Timeout (ms) for git shell commands. Generous default for large repos on NFS. */
+export const GIT_CMD_TIMEOUT = Number(process.env.COMPANION_GIT_TIMEOUT) || 60_000;
 import { resolve, basename } from "node:path";
 import { homedir } from "node:os";
 import type { PushoverNotifier } from "./pushover.js";
@@ -222,14 +225,14 @@ async function resolveGitInfo(state: SessionState): Promise<void> {
   const wasContainerized = state.is_containerized;
   try {
     const { stdout: branchOut } = await execPromise("git rev-parse --abbrev-ref HEAD 2>/dev/null", {
-      cwd: state.cwd, encoding: "utf-8", timeout: 3000,
+      cwd: state.cwd, encoding: "utf-8", timeout: GIT_CMD_TIMEOUT,
     });
     state.git_branch = branchOut.trim();
 
     // Detect if this is a linked worktree
     try {
       const { stdout: gitDirOut } = await execPromise("git rev-parse --git-dir 2>/dev/null", {
-        cwd: state.cwd, encoding: "utf-8", timeout: 3000,
+        cwd: state.cwd, encoding: "utf-8", timeout: GIT_CMD_TIMEOUT,
       });
       state.is_worktree = gitDirOut.trim().includes("/worktrees/");
     } catch {
@@ -241,13 +244,13 @@ async function resolveGitInfo(state: SessionState): Promise<void> {
       // Use --git-common-dir to find the real repo root.
       if (state.is_worktree) {
         const { stdout: commonDirOut } = await execPromise("git rev-parse --git-common-dir 2>/dev/null", {
-          cwd: state.cwd, encoding: "utf-8", timeout: 3000,
+          cwd: state.cwd, encoding: "utf-8", timeout: GIT_CMD_TIMEOUT,
         });
         // commonDir is e.g. /path/to/repo/.git — parent is the repo root
         state.repo_root = resolve(state.cwd, commonDirOut.trim(), "..");
       } else {
         const { stdout: toplevelOut } = await execPromise("git rev-parse --show-toplevel 2>/dev/null", {
-          cwd: state.cwd, encoding: "utf-8", timeout: 3000,
+          cwd: state.cwd, encoding: "utf-8", timeout: GIT_CMD_TIMEOUT,
         });
         state.repo_root = toplevelOut.trim();
       }
@@ -266,7 +269,7 @@ async function resolveGitInfo(state: SessionState): Promise<void> {
       try {
         const { stdout: countsOut } = await execPromise(
           `git rev-list --left-right --count ${ref}...HEAD 2>/dev/null`,
-          { cwd: state.cwd, encoding: "utf-8", timeout: 3000 },
+          { cwd: state.cwd, encoding: "utf-8", timeout: GIT_CMD_TIMEOUT },
         );
         const [behind, ahead] = countsOut.trim().split(/\s+/).map(Number);
         state.git_ahead = ahead || 0;
@@ -782,14 +785,15 @@ export class WsBridge {
       let diffBase = ref;
       if (!/^[0-9a-f]{7,40}$/.test(ref)) {
         try {
-          const { stdout } = await execPromise(`git merge-base ${ref} HEAD`, { cwd, timeout: 5000 });
+          const { stdout } = await execPromise(`git merge-base ${ref} HEAD`, { cwd, timeout: GIT_CMD_TIMEOUT });
           const mergeBase = stdout.trim();
           if (mergeBase) diffBase = mergeBase;
         } catch { /* no common ancestor — use branch name directly */ }
       }
 
       const cmd = `git diff --numstat ${diffBase}`;
-      const { stdout } = await execPromise(cmd, { cwd, timeout: 10_000 });
+      // Generous timeout — large repos on NFS can be slow, and this runs in the background
+      const { stdout } = await execPromise(cmd, { cwd, timeout: GIT_CMD_TIMEOUT });
       const raw = stdout.trim();
 
       let added = 0;

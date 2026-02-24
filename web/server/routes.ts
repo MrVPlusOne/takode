@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { homedir, tmpdir } from "node:os";
 import { existsSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
 import type { CliLauncher } from "./cli-launcher.js";
-import type { WsBridge } from "./ws-bridge.js";
+import { type WsBridge, GIT_CMD_TIMEOUT } from "./ws-bridge.js";
 import type { SessionStore } from "./session-store.js";
 import type { WorktreeTracker } from "./worktree-tracker.js";
 import type { TerminalManager } from "./terminal-manager.js";
@@ -54,32 +54,18 @@ function looksLikeSha(ref: string): boolean {
   return /^[0-9a-f]{7,40}$/.test(ref);
 }
 
-/** Resolve the commit to diff against (merge-base of baseBranch and HEAD). */
-function resolveDiffBase(repoRoot: string, baseBranch: string): string {
-  if (looksLikeSha(baseBranch)) return baseBranch;
-  try {
-    const mergeBase = execSync(`git merge-base ${baseBranch} HEAD`, {
-      cwd: repoRoot, encoding: "utf-8", timeout: 5000,
-    }).trim();
-    if (mergeBase) return mergeBase;
-  } catch {
-    // No common ancestor — fall back to branch name directly
-  }
-  return baseBranch;
-}
-
 const execPromise = promisify(execCb);
 
 /** Non-blocking exec — runs a shell command without stalling the event loop. */
 async function execAsync(command: string, cwd: string): Promise<string> {
-  const { stdout } = await execPromise(command, { cwd, timeout: 5000 });
+  const { stdout } = await execPromise(command, { cwd, timeout: GIT_CMD_TIMEOUT });
   return stdout.trim();
 }
 
 /** Non-blocking version of execCaptureStdout — always returns stdout even on non-zero exit. */
 async function execCaptureStdoutAsync(command: string, cwd: string): Promise<string> {
   try {
-    const { stdout } = await execPromise(command, { cwd, timeout: 10000 });
+    const { stdout } = await execPromise(command, { cwd, timeout: GIT_CMD_TIMEOUT });
     return stdout.trim();
   } catch (err: unknown) {
     const maybe = err as { stdout?: string };
@@ -88,7 +74,7 @@ async function execCaptureStdoutAsync(command: string, cwd: string): Promise<str
   }
 }
 
-/** Async version of resolveDiffBase. */
+/** Resolve the commit to diff against (merge-base of baseBranch and HEAD). */
 async function resolveDiffBaseAsync(repoRoot: string, baseBranch: string): Promise<string> {
   if (looksLikeSha(baseBranch)) return baseBranch;
   try {
@@ -2116,7 +2102,7 @@ export function createRoutes(
         {
           cwd,
           encoding: "utf-8",
-          timeout: 3000,
+          timeout: GIT_CMD_TIMEOUT,
         },
       ).trim();
       const [behind, ahead] = counts.split(/\s+/).map(Number);
