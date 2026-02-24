@@ -47,6 +47,7 @@ import type { CliLauncher } from "./cli-launcher.js";
 import * as gitUtils from "./git-utils.js";
 import { sessionTag } from "./session-tag.js";
 import { shouldAttemptAutoApproval, evaluatePermission, type RecentToolCall } from "./auto-approver.js";
+import type { PerfTracer } from "./perf-tracer.js";
 
 // ─── Denial summary helper ───────────────────────────────────────────────────
 
@@ -321,6 +322,7 @@ export class WsBridge {
   private imageStore: ImageStore | null = null;
   private pushoverNotifier: PushoverNotifier | null = null;
   private launcher: CliLauncher | null = null;
+  private perfTracer: PerfTracer | null = null;
   private onCLISessionId: ((sessionId: string, cliSessionId: string) => void) | null = null;
   private onCLIRelaunchNeeded: ((sessionId: string) => void) | null = null;
   private onPermissionModeChanged: ((sessionId: string, newMode: string) => void) | null = null;
@@ -602,6 +604,10 @@ export class WsBridge {
   /** Attach the CLI launcher for activity tracking. */
   setLauncher(launcher: CliLauncher): void {
     this.launcher = launcher;
+  }
+
+  setPerfTracer(tracer: PerfTracer): void {
+    this.perfTracer = tracer;
   }
 
   /** Check if a session is actively generating or has pending permission requests. */
@@ -1223,6 +1229,7 @@ export class WsBridge {
   }
 
   handleCLIMessage(ws: ServerWebSocket<SocketData>, raw: string | Buffer) {
+    const perfStart = this.perfTracer ? performance.now() : 0;
     const data = typeof raw === "string" ? raw : raw.toString("utf-8");
     const sessionId = (ws.data as CLISocketData).sessionId;
     const session = this.sessions.get(sessionId);
@@ -1242,6 +1249,14 @@ export class WsBridge {
         continue;
       }
       this.routeCLIMessage(session, msg);
+    }
+
+    if (this.perfTracer) {
+      const perfMs = performance.now() - perfStart;
+      if (perfMs > this.perfTracer.wsSlowThresholdMs) {
+        const firstType = lines.length > 0 ? (JSON.parse(lines[0])?.type ?? "unknown") : "unknown";
+        this.perfTracer.recordSlowWsMessage(sessionId, "cli", firstType, perfMs);
+      }
     }
   }
 
@@ -1334,6 +1349,7 @@ export class WsBridge {
   }
 
   handleBrowserMessage(ws: ServerWebSocket<SocketData>, raw: string | Buffer) {
+    const perfStart = this.perfTracer ? performance.now() : 0;
     const data = typeof raw === "string" ? raw : raw.toString("utf-8");
     const sessionId = (ws.data as BrowserSocketData).sessionId;
     const session = this.sessions.get(sessionId);
@@ -1351,6 +1367,13 @@ export class WsBridge {
     }
 
     this.routeBrowserMessage(session, msg, ws);
+
+    if (this.perfTracer) {
+      const perfMs = performance.now() - perfStart;
+      if (perfMs > this.perfTracer.wsSlowThresholdMs) {
+        this.perfTracer.recordSlowWsMessage(sessionId, "browser", msg.type, perfMs);
+      }
+    }
   }
 
   /** Send a user message into a session programmatically (no browser required).

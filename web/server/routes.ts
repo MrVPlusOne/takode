@@ -33,6 +33,7 @@ import { ensureAssistantWorkspace, ASSISTANT_DIR } from "./assistant-workspace.j
 import { generateUniqueSessionName } from "../src/utils/names.js";
 import { transcribeWithGemini, transcribeWithOpenai, getAvailableBackends } from "./transcription.js";
 import { getLegacyCodexHome } from "./codex-home.js";
+import type { PerfTracer } from "./perf-tracer.js";
 
 const ROUTES_DIR = dirname(fileURLToPath(import.meta.url));
 const WEB_DIR = dirname(ROUTES_DIR);
@@ -102,12 +103,34 @@ export function createRoutes(
   imageStore?: import("./image-store.js").ImageStore,
   pushoverNotifier?: import("./pushover.js").PushoverNotifier,
   options?: { requestRestart?: () => void },
+  perfTracer?: PerfTracer,
 ) {
   const api = new Hono();
+
+  // Performance tracing middleware — records slow API requests
+  if (perfTracer) {
+    api.use("/api/*", async (c, next) => {
+      const start = performance.now();
+      await next();
+      const ms = performance.now() - start;
+      if (ms > perfTracer.httpSlowThresholdMs) {
+        perfTracer.recordSlowRequest(c.req.method, c.req.path, ms);
+      }
+    });
+  }
 
   // ─── Health ─────────────────────────────────────────────────────────
 
   api.get("/health", (c) => c.json({ ok: true, timestamp: Date.now() }));
+
+  // ─── Performance Tracing ─────────────────────────────────────────────
+  if (perfTracer) {
+    api.get("/perf/summary", (c) => c.json(perfTracer.getSummary()));
+    api.get("/perf/lag", (c) => c.json(perfTracer.getLagEvents(Number(c.req.query("limit")) || 50)));
+    api.get("/perf/slow", (c) => c.json(perfTracer.getSlowRequests(Number(c.req.query("limit")) || 50)));
+    api.get("/perf/ws", (c) => c.json(perfTracer.getSlowWsMessages(Number(c.req.query("limit")) || 50)));
+    api.post("/perf/reset", (c) => { perfTracer.reset(); return c.json({ ok: true }); });
+  }
 
   // ─── SDK Sessions (--sdk-url) ─────────────────────────────────────
 
