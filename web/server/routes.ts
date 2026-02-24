@@ -2816,11 +2816,14 @@ export function createRoutes(
     }
   });
 
-  /** Find the matching auto-approval config for a given cwd (longest prefix match). */
+  /** Find the matching auto-approval config for a given cwd (longest prefix match).
+   *  Optional `repo_root` param for worktree sessions whose cwd differs from the main repo. */
   api.get("/auto-approval/configs/match", (c) => {
     const cwd = c.req.query("cwd");
     if (!cwd) return c.json({ error: "Missing cwd query parameter" }, 400);
-    const config = autoApprovalStore.getConfigForPath(cwd);
+    const repoRoot = c.req.query("repo_root");
+    const extraPaths = repoRoot ? [repoRoot] : undefined;
+    const config = autoApprovalStore.getConfigForPath(cwd, extraPaths);
     return c.json({ config });
   });
 

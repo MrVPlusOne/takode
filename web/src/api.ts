@@ -655,9 +655,13 @@ export const api = {
     get<AutoApprovalConfig[]>("/auto-approval/configs"),
   getAutoApprovalConfig: (slug: string) =>
     get<AutoApprovalConfig>(`/auto-approval/configs/${encodeURIComponent(slug)}`),
-  /** Find the matching auto-approval config for a given cwd (longest prefix match). */
-  getAutoApprovalConfigForPath: (cwd: string) =>
-    get<{ config: AutoApprovalConfig | null }>(`/auto-approval/configs/match?cwd=${encodeURIComponent(cwd)}`),
+  /** Find the matching auto-approval config for a given cwd (longest prefix match).
+   *  Pass repoRoot for worktree sessions whose cwd differs from the main repo. */
+  getAutoApprovalConfigForPath: (cwd: string, repoRoot?: string) => {
+    let url = `/auto-approval/configs/match?cwd=${encodeURIComponent(cwd)}`;
+    if (repoRoot) url += `&repo_root=${encodeURIComponent(repoRoot)}`;
+    return get<{ config: AutoApprovalConfig | null }>(url);
+  },
   createAutoApprovalConfig: (data: { projectPath: string; label: string; criteria: string; enabled?: boolean }) =>
     post<AutoApprovalConfig>("/auto-approval/configs", data),
   updateAutoApprovalConfig: (slug: string, data: { label?: string; criteria?: string; enabled?: boolean }) =>

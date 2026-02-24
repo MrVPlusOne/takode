@@ -192,7 +192,7 @@ export function SessionInfoPopover({
         {/* GitHub PR, MCP, CLAUDE.md */}
         <GitHubPRSection sessionId={sessionId} />
         <McpCollapsible sessionId={sessionId} />
-        {cwd && <ClaudeMdCollapsible cwd={cwd} />}
+        {cwd && <ClaudeMdCollapsible cwd={cwd} repoRoot={session?.repo_root || undefined} />}
       </div>
     </div>
   );

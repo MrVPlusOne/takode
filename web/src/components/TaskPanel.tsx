@@ -510,7 +510,7 @@ export function McpCollapsible({ sessionId }: { sessionId: string }) {
   return <McpSection sessionId={sessionId} collapsed={collapsed} onToggle={toggle} />;
 }
 
-export function ClaudeMdCollapsible({ cwd }: { cwd: string }) {
+export function ClaudeMdCollapsible({ cwd, repoRoot }: { cwd: string; repoRoot?: string }) {
   const [collapsed, toggle] = usePersistedCollapse("cc-collapse-claudemd");
   const [files, setFiles] = useState<{ path: string; content: string }[]>([]);
   const [editorOpen, setEditorOpen] = useState(false);
@@ -550,7 +550,7 @@ export function ClaudeMdCollapsible({ cwd }: { cwd: string }) {
           )}
         </div>
       )}
-      <ClaudeMdEditor cwd={cwd} open={editorOpen} onClose={() => setEditorOpen(false)} />
+      <ClaudeMdEditor cwd={cwd} repoRoot={repoRoot} open={editorOpen} onClose={() => setEditorOpen(false)} />
     </>
   );
 }
@@ -641,7 +641,7 @@ export function TaskPanel({ sessionId }: { sessionId: string }) {
         <McpCollapsible sessionId={sessionId} />
 
         {/* CLAUDE.md files */}
-        {cwd && <ClaudeMdCollapsible cwd={cwd} />}
+        {cwd && <ClaudeMdCollapsible cwd={cwd} repoRoot={session?.repo_root || undefined} />}
 
         {/* Session-level tasks recognized by the auto-namer */}
         {showTasks && <SessionTasksSection sessionId={sessionId} />}

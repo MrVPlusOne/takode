@@ -96,10 +96,22 @@ export function getConfig(slug: string): AutoApprovalConfig | null {
  * Find the config that matches a session's working directory.
  * Uses longest-prefix matching: a session in `/home/user/project/sub`
  * matches `/home/user/project` rather than `/home/user`.
+ *
+ * `extraPaths` allows callers to supply additional paths to match against
+ * (e.g. the git repo root for worktree sessions whose cwd differs from
+ * the main repo path).
+ *
  * Returns null if no config matches.
  */
-export function getConfigForPath(cwd: string): AutoApprovalConfig | null {
-  const normalizedCwd = normalizePath(cwd);
+export function getConfigForPath(cwd: string, extraPaths?: string[]): AutoApprovalConfig | null {
+  const candidates = [normalizePath(cwd)];
+  if (extraPaths) {
+    for (const p of extraPaths) {
+      const n = normalizePath(p);
+      if (n && !candidates.includes(n)) candidates.push(n);
+    }
+  }
+
   const configs = listConfigs().filter((c) => c.enabled);
 
   let bestMatch: AutoApprovalConfig | null = null;
@@ -107,14 +119,15 @@ export function getConfigForPath(cwd: string): AutoApprovalConfig | null {
 
   for (const config of configs) {
     const normalizedProject = normalizePath(config.projectPath);
-    // cwd must equal or be a subdirectory of projectPath
-    if (
-      normalizedCwd === normalizedProject ||
-      normalizedCwd.startsWith(normalizedProject + "/")
-    ) {
-      if (normalizedProject.length > bestLen) {
-        bestLen = normalizedProject.length;
-        bestMatch = config;
+    for (const normalizedCwd of candidates) {
+      if (
+        normalizedCwd === normalizedProject ||
+        normalizedCwd.startsWith(normalizedProject + "/")
+      ) {
+        if (normalizedProject.length > bestLen) {
+          bestLen = normalizedProject.length;
+          bestMatch = config;
+        }
       }
     }
   }

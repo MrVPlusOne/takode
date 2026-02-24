@@ -17,11 +17,13 @@ interface AutoApprovalInfo {
 
 interface ClaudeMdEditorProps {
   cwd: string;
+  /** Git repo root — needed for worktree sessions to match auto-approval configs. */
+  repoRoot?: string;
   open: boolean;
   onClose: () => void;
 }
 
-export function ClaudeMdEditor({ cwd, open, onClose }: ClaudeMdEditorProps) {
+export function ClaudeMdEditor({ cwd, repoRoot, open, onClose }: ClaudeMdEditorProps) {
   const [files, setFiles] = useState<ClaudeMdFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedIdx, setSelectedIdx] = useState(0);
@@ -40,7 +42,7 @@ export function ClaudeMdEditor({ cwd, open, onClose }: ClaudeMdEditorProps) {
     setShowAutoApproval(false);
     Promise.all([
       api.getClaudeMdFiles(cwd),
-      api.getAutoApprovalConfigForPath(cwd).catch(() => ({ config: null })),
+      api.getAutoApprovalConfigForPath(cwd, repoRoot).catch(() => ({ config: null })),
     ])
       .then(([res, aaRes]) => {
         setFiles(res.files);
@@ -64,7 +66,7 @@ export function ClaudeMdEditor({ cwd, open, onClose }: ClaudeMdEditorProps) {
         setError(e.message);
         setLoading(false);
       });
-  }, [cwd]);
+  }, [cwd, repoRoot]);
 
   useEffect(() => {
     if (open) load();

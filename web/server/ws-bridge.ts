@@ -1852,7 +1852,10 @@ export class WsBridge {
       const autoApprovalConfig = (
         session.backendType === "claude" &&
         !NEVER_AUTO_APPROVE.has(toolName)
-      ) ? shouldAttemptAutoApproval(session.state.cwd) : null;
+      ) ? shouldAttemptAutoApproval(
+        session.state.cwd,
+        session.state.repo_root ? [session.state.repo_root] : undefined,
+      ) : null;
 
       const perm: PermissionRequest = {
         request_id: msg.request_id,

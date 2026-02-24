@@ -341,10 +341,10 @@ export function getApprovalLogEntry(id: number): AutoApprovalLogEntry | undefine
  * Used by ws-bridge to decide which flow path to take before creating the
  * permission request. Does NOT call the LLM — just checks config.
  */
-export function shouldAttemptAutoApproval(cwd: string): AutoApprovalConfig | null {
+export function shouldAttemptAutoApproval(cwd: string, extraPaths?: string[]): AutoApprovalConfig | null {
   const settings = getSettings();
   if (!settings.autoApprovalEnabled) return null;
-  const config = getConfigForPath(cwd);
+  const config = getConfigForPath(cwd, extraPaths);
   if (!config || !config.enabled || !config.criteria.trim()) return null;
   return config;
 }
