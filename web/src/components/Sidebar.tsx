@@ -377,7 +377,7 @@ export function Sidebar() {
     .filter((s) => s.archived)
     .sort((a, b) => (b.archivedAt ?? b.createdAt) - (a.archivedAt ?? a.createdAt));
   const currentSession = currentSessionId ? allSessionList.find((s) => s.id === currentSessionId) : null;
-  const logoSrc = currentSession?.backendType === "codex" ? "/logo-codex.svg" : "/logo.svg";
+  const logoSrc = currentSession?.backendType === "codex" ? "/logo-codex.svg" : "/logo.png";
   const [showCronSessions, setShowCronSessions] = useState(true);
 
   // Group active sessions by project

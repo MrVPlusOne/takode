@@ -106,7 +106,7 @@ export function SessionItem({
   }, []);
 
   // Backend icon source
-  const backendLogo = s.backendType === "codex" ? "/logo-codex.svg" : "/logo.svg";
+  const backendLogo = s.backendType === "codex" ? "/logo-codex.svg" : "/logo.png";
   const backendAlt = s.backendType === "codex" ? "Codex" : "Claude";
 
   return (

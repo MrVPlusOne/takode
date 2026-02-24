@@ -1925,7 +1925,7 @@ function PickerSessionChip({
   const userUpdatedAt = useStore((st) => st.sessionPreviewUpdatedAt.get(s.id) ?? 0);
 
   const label = sessionName || s.model || s.id.slice(0, 8);
-  const backendLogo = s.backendType === "codex" ? "/logo-codex.svg" : "/logo.svg";
+  const backendLogo = s.backendType === "codex" ? "/logo-codex.svg" : "/logo.png";
   const backendAlt = s.backendType === "codex" ? "Codex" : "Claude";
   const showTask = taskPreview && taskPreview.updatedAt > userUpdatedAt;
 
