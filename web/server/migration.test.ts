@@ -293,18 +293,16 @@ describe("recreateWorktreeIfMissing", () => {
 
 describe("migrateClaudeProjectDir", () => {
   let tempClaudeHome: string;
-  let origHome: string;
+  let projectsBase: string;
 
   beforeEach(() => {
-    // Create a fake ~/.claude/projects structure in a temp dir.
-    // We override HOME so migrateClaudeProjectDir resolves homedir() to our temp.
+    // Create a fake ~/.claude/projects structure in a temp dir and pass it
+    // explicitly to migrateClaudeProjectDir for deterministic behavior.
     tempClaudeHome = makeTempDir();
-    origHome = process.env.HOME!;
-    process.env.HOME = tempClaudeHome;
+    projectsBase = join(tempClaudeHome, ".claude", "projects");
   });
 
   afterEach(() => {
-    process.env.HOME = origHome;
     rmSync(tempClaudeHome, { recursive: true });
   });
 
@@ -316,7 +314,6 @@ describe("migrateClaudeProjectDir", () => {
 
     const oldProjectDir = cwdToProjectDir(oldCwd);
     const newProjectDir = cwdToProjectDir(newCwd);
-    const projectsBase = join(tempClaudeHome, ".claude", "projects");
     const oldDir = join(projectsBase, oldProjectDir);
 
     // Create JSONL file and subagent dir at the old project dir
@@ -325,7 +322,7 @@ describe("migrateClaudeProjectDir", () => {
     mkdirSync(join(oldDir, "abc-123", "subagents"), { recursive: true });
     writeFileSync(join(oldDir, "abc-123", "subagents", "agent.jsonl"), '{"type":"agent"}', "utf-8");
 
-    migrateClaudeProjectDir(oldCwd, newCwd);
+    migrateClaudeProjectDir(oldCwd, newCwd, projectsBase);
 
     // JSONL should now be in the new project dir
     const newDir = join(projectsBase, newProjectDir);
@@ -339,7 +336,7 @@ describe("migrateClaudeProjectDir", () => {
 
   it("is a no-op when old and new cwds produce the same project dir", () => {
     const cwd = "/mnt/home/user/project";
-    migrateClaudeProjectDir(cwd, cwd);
+    migrateClaudeProjectDir(cwd, cwd, projectsBase);
     // No crash, no dirs created
     expect(existsSync(join(tempClaudeHome, ".claude", "projects"))).toBe(false);
   });
@@ -347,7 +344,7 @@ describe("migrateClaudeProjectDir", () => {
   it("is a no-op when the old project dir doesn't exist", () => {
     const oldCwd = "/mnt/home/user/old-wt-1111";
     const newCwd = "/mnt/home/user/new-wt-2222";
-    migrateClaudeProjectDir(oldCwd, newCwd);
+    migrateClaudeProjectDir(oldCwd, newCwd, projectsBase);
     // No crash, new dir not created either (nothing to move)
     expect(existsSync(join(tempClaudeHome, ".claude", "projects", cwdToProjectDir(newCwd)))).toBe(false);
   });

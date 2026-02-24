@@ -120,7 +120,15 @@ function createMockCodexProc(pid = 12345) {
 }
 
 const mockSpawn = vi.fn();
-vi.stubGlobal("Bun", { spawn: mockSpawn });
+const bunGlobal = globalThis as typeof globalThis & { Bun?: { spawn?: unknown } };
+const hadBunGlobal = typeof bunGlobal.Bun !== "undefined";
+const originalBunSpawn = hadBunGlobal ? bunGlobal.Bun!.spawn : undefined;
+if (hadBunGlobal) {
+  // In Bun runtime, globalThis.Bun is non-configurable; patch spawn directly.
+  (bunGlobal.Bun as { spawn?: unknown }).spawn = mockSpawn;
+} else {
+  bunGlobal.Bun = { spawn: mockSpawn };
+}
 
 // ─── Test setup ──────────────────────────────────────────────────────────────
 
@@ -144,6 +152,14 @@ beforeEach(() => {
 
 afterEach(() => {
   rmSync(tempDir, { recursive: true, force: true });
+});
+
+afterAll(() => {
+  if (hadBunGlobal) {
+    (bunGlobal.Bun as { spawn?: unknown }).spawn = originalBunSpawn;
+  } else {
+    delete bunGlobal.Bun;
+  }
 });
 
 // ─── launch ──────────────────────────────────────────────────────────────────

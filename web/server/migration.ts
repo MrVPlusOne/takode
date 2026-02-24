@@ -519,12 +519,15 @@ export function cwdToProjectDir(cwd: string): string {
  * Called when a worktree is recreated at a different path — the JSONL
  * conversation files need to follow the cwd change so `--resume` can find them.
  */
-export function migrateClaudeProjectDir(oldCwd: string, newCwd: string): void {
+export function migrateClaudeProjectDir(
+  oldCwd: string,
+  newCwd: string,
+  claudeProjectsDir = join(homedir(), ".claude", "projects"),
+): void {
   const oldProjectDir = cwdToProjectDir(oldCwd);
   const newProjectDir = cwdToProjectDir(newCwd);
   if (oldProjectDir === newProjectDir) return;
 
-  const claudeProjectsDir = join(homedir(), ".claude", "projects");
   const oldDir = join(claudeProjectsDir, oldProjectDir);
   const newDir = join(claudeProjectsDir, newProjectDir);
 
