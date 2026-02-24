@@ -1175,6 +1175,12 @@ export class WsBridge {
       }
     });
 
+    // Re-queue user messages whose turn/start dispatch failed (e.g. transport closed mid-call)
+    adapter.onTurnStartFailed((msg) => {
+      console.log(`[ws-bridge] Turn start failed for session ${sessionTag(sessionId)}, re-queuing ${msg.type}`);
+      session.pendingMessages.push(JSON.stringify(msg));
+    });
+
     // Flush any messages queued while waiting for the adapter
     if (session.pendingMessages.length > 0) {
       console.log(`[ws-bridge] Flushing ${session.pendingMessages.length} queued message(s) to Codex adapter for session ${sessionTag(sessionId)}`);
@@ -2341,6 +2347,17 @@ export class WsBridge {
 
     // For Codex sessions, delegate entirely to the adapter
     if (session.backendType === "codex") {
+      // Intercept /compact — Codex compacts context automatically; no manual trigger exists
+      if (msg.type === "user_message" && msg.content.trim().toLowerCase() === "/compact") {
+        const infoMsg: BrowserIncomingMessage = {
+          type: "error",
+          message: "Codex compacts context automatically when needed. Manual /compact is not supported.",
+        };
+        session.messageHistory.push(infoMsg);
+        this.broadcastToBrowsers(session, infoMsg);
+        return;
+      }
+
       // Store user messages in history for replay with stable ID for dedup on reconnect
       if (msg.type === "user_message") {
         const ts = Date.now();

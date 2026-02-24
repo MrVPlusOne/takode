@@ -2346,3 +2346,208 @@ describe("CodexAdapter", () => {
     expect(lastUpdate.session.codex_token_details?.cachedInputTokens).toBe(930_000);
   });
 });
+
+describe("onTurnStartFailed callback", () => {
+  // When transport closes during turn/start, the adapter should fire the
+  // onTurnStartFailed callback with the original user message so the bridge
+  // can re-queue it for replay after relaunch.
+
+  let proc: ReturnType<typeof createMockProcess>["proc"];
+  let stdin: MockWritableStream;
+  let stdout: MockReadableStream;
+
+  beforeEach(() => {
+    const mock = createMockProcess();
+    proc = mock.proc;
+    stdin = mock.stdin;
+    stdout = mock.stdout;
+  });
+
+  async function initAdapter(): Promise<CodexAdapter> {
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini", cwd: "/tmp" });
+    await new Promise((r) => setTimeout(r, 50));
+    // Initialize response + thread/start response
+    stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
+    await new Promise((r) => setTimeout(r, 20));
+    stdout.push(JSON.stringify({ id: 2, result: { thread: { id: "thr_123" } } }) + "\n");
+    await new Promise((r) => setTimeout(r, 50));
+    return adapter;
+  }
+
+  it("fires onTurnStartFailed when transport closes during turn/start", async () => {
+    const adapter = await initAdapter();
+    const failedCb = vi.fn();
+    adapter.onTurnStartFailed(failedCb);
+
+    // Send a user message — this triggers turn/start RPC call
+    adapter.sendBrowserMessage({ type: "user_message", content: "test message" } as BrowserOutgoingMessage);
+
+    // Give a moment for the async handleOutgoingUserMessage to start the transport.call
+    await new Promise((r) => setTimeout(r, 20));
+
+    // Close stdout — this rejects all pending RPC promises with "Transport closed"
+    stdout.close();
+
+    // Wait for the catch block to execute (microtask + setTimeout)
+    await new Promise((r) => setTimeout(r, 150));
+
+    expect(failedCb).toHaveBeenCalledOnce();
+    expect(failedCb).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "user_message", content: "test message" }),
+    );
+  });
+
+  it("does NOT fire onTurnStartFailed when turn/start succeeds", async () => {
+    const adapter = await initAdapter();
+    const failedCb = vi.fn();
+    adapter.onTurnStartFailed(failedCb);
+
+    // Send a user message
+    adapter.sendBrowserMessage({ type: "user_message", content: "test message" } as BrowserOutgoingMessage);
+    await new Promise((r) => setTimeout(r, 20));
+
+    // Respond to rateLimits/read (id=3) and turn/start (id=4) successfully
+    // rateLimits is fire-and-forget from init, turn/start is from the user message
+    stdout.push(JSON.stringify({ id: 3, result: {} }) + "\n");
+    stdout.push(JSON.stringify({ id: 4, result: { turn: { id: "turn_1" } } }) + "\n");
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(failedCb).not.toHaveBeenCalled();
+  });
+});
+
+describe("interrupt before new turn/start", () => {
+  // Sending turn/start while a turn is already in progress causes Codex to
+  // error or crash. The adapter must interrupt the running turn first and
+  // wait for it to complete before issuing a new turn/start.
+
+  let proc: ReturnType<typeof createMockProcess>["proc"];
+  let stdin: MockWritableStream;
+  let stdout: MockReadableStream;
+
+  beforeEach(() => {
+    const mock = createMockProcess();
+    proc = mock.proc;
+    stdin = mock.stdin;
+    stdout = mock.stdout;
+  });
+
+  async function initAdapterWithTurn(): Promise<CodexAdapter> {
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini", cwd: "/tmp" });
+    await new Promise((r) => setTimeout(r, 50));
+    // Initialize response + thread/start response
+    stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
+    await new Promise((r) => setTimeout(r, 20));
+    stdout.push(JSON.stringify({ id: 2, result: { thread: { id: "thr_123" } } }) + "\n");
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Send first user message to start a turn
+    adapter.sendBrowserMessage({ type: "user_message", content: "first message" } as BrowserOutgoingMessage);
+    await new Promise((r) => setTimeout(r, 20));
+
+    // Respond to rateLimits/read (id=3) and turn/start (id=4)
+    stdout.push(JSON.stringify({ id: 3, result: {} }) + "\n");
+    stdout.push(JSON.stringify({ id: 4, result: { turn: { id: "turn_active" } } }) + "\n");
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Clear stdin for clean assertion later
+    stdin.chunks = [];
+    return adapter;
+  }
+
+  it("sends turn/interrupt before new turn/start when a turn is active", async () => {
+    // Verify that when a second user message arrives while a turn is in
+    // progress, the adapter interrupts the running turn before starting a
+    // new one.
+    const adapter = await initAdapterWithTurn();
+
+    // Send second message while turn_active is still running
+    adapter.sendBrowserMessage({ type: "user_message", content: "second message" } as BrowserOutgoingMessage);
+    await new Promise((r) => setTimeout(r, 20));
+
+    // Respond to turn/interrupt (id=5 — next RPC)
+    stdout.push(JSON.stringify({ id: 5, result: {} }) + "\n");
+    await new Promise((r) => setTimeout(r, 20));
+
+    // Simulate turn completing after interrupt
+    stdout.push(JSON.stringify({
+      method: "turn/completed",
+      params: { turn: { id: "turn_active", status: "interrupted", items: [], error: null } },
+    }) + "\n");
+    await new Promise((r) => setTimeout(r, 100));
+
+    // Respond to the new turn/start (id=6)
+    stdout.push(JSON.stringify({ id: 6, result: { turn: { id: "turn_new" } } }) + "\n");
+    await new Promise((r) => setTimeout(r, 50));
+
+    const allWritten = stdin.chunks.join("");
+    // Should see turn/interrupt before the second turn/start
+    const interruptIdx = allWritten.indexOf('"method":"turn/interrupt"');
+    const turnStartIdx = allWritten.lastIndexOf('"method":"turn/start"');
+    expect(interruptIdx).toBeGreaterThanOrEqual(0);
+    expect(turnStartIdx).toBeGreaterThan(interruptIdx);
+  });
+
+  it("does NOT send turn/interrupt when no turn is active", async () => {
+    // Verify that when no turn is in progress, the adapter sends turn/start
+    // directly without an interrupt.
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini", cwd: "/tmp" });
+    await new Promise((r) => setTimeout(r, 50));
+    stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
+    await new Promise((r) => setTimeout(r, 20));
+    stdout.push(JSON.stringify({ id: 2, result: { thread: { id: "thr_123" } } }) + "\n");
+    await new Promise((r) => setTimeout(r, 50));
+
+    stdin.chunks = [];
+    adapter.sendBrowserMessage({ type: "user_message", content: "only message" } as BrowserOutgoingMessage);
+    await new Promise((r) => setTimeout(r, 50));
+
+    const allWritten = stdin.chunks.join("");
+    expect(allWritten).not.toContain('"method":"turn/interrupt"');
+    expect(allWritten).toContain('"method":"turn/start"');
+  });
+
+  it("proceeds with turn/start after interrupt timeout (5s)", async () => {
+    // If Codex never sends turn/completed after interrupt, the adapter
+    // should time out and proceed with the new turn anyway.
+    vi.useFakeTimers();
+    try {
+      const mock = createMockProcess();
+      const adapter = new CodexAdapter(mock.proc as never, "test-session", { model: "o4-mini", cwd: "/tmp" });
+      await vi.advanceTimersByTimeAsync(50);
+      mock.stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
+      await vi.advanceTimersByTimeAsync(20);
+      mock.stdout.push(JSON.stringify({ id: 2, result: { thread: { id: "thr_123" } } }) + "\n");
+      await vi.advanceTimersByTimeAsync(50);
+
+      // Start a turn
+      adapter.sendBrowserMessage({ type: "user_message", content: "first" } as BrowserOutgoingMessage);
+      await vi.advanceTimersByTimeAsync(20);
+      // id=3 rateLimits, id=4 turn/start
+      mock.stdout.push(JSON.stringify({ id: 3, result: {} }) + "\n");
+      mock.stdout.push(JSON.stringify({ id: 4, result: { turn: { id: "turn_stuck" } } }) + "\n");
+      await vi.advanceTimersByTimeAsync(50);
+
+      mock.stdin.chunks = [];
+
+      // Send second message while turn is active
+      adapter.sendBrowserMessage({ type: "user_message", content: "second" } as BrowserOutgoingMessage);
+      await vi.advanceTimersByTimeAsync(20);
+
+      // Respond to turn/interrupt but never send turn/completed
+      mock.stdout.push(JSON.stringify({ id: 5, result: {} }) + "\n");
+      await vi.advanceTimersByTimeAsync(20);
+
+      // Advance past the 5s timeout
+      await vi.advanceTimersByTimeAsync(5100);
+
+      // New turn/start should have been sent after timeout
+      const allWritten = mock.stdin.chunks.join("");
+      expect(allWritten).toContain('"method":"turn/interrupt"');
+      expect(allWritten).toContain('"method":"turn/start"');
+      expect(allWritten).toContain('"text":"second"');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

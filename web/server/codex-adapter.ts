@@ -321,6 +321,11 @@ class JsonRpcTransport {
     this.closeCb = cb;
   }
 
+  /** IDs of in-flight RPC requests (for debugging unexpected disconnects). */
+  getPendingIds(): number[] {
+    return [...this.pending.keys()];
+  }
+
   private async writeRaw(data: string): Promise<void> {
     if (!this.connected) {
       throw new Error("Transport closed");
@@ -343,6 +348,7 @@ export class CodexAdapter {
   private sessionMetaCb: ((meta: { cliSessionId?: string; model?: string; cwd?: string }) => void) | null = null;
   private disconnectCb: (() => void) | null = null;
   private initErrorCb: ((error: string) => void) | null = null;
+  private turnStartFailedCb: ((msg: BrowserOutgoingMessage) => void) | null = null;
 
   // State
   private threadId: string | null = null;
@@ -350,6 +356,10 @@ export class CodexAdapter {
   private connected = false;
   private initialized = false;
   private initFailed = false;
+
+  // Last few raw JSON-RPC messages for debugging unexpected disconnects
+  private recentRawMessages: string[] = [];
+  private static readonly RAW_MESSAGE_RING_SIZE = 5;
 
   // Streaming accumulator for agent messages
   private streamingText = "";
@@ -410,13 +420,19 @@ export class CodexAdapter {
     this.transport.onNotification((method, params) => this.handleNotification(method, params));
     this.transport.onRequest((method, id, params) => this.handleRequest(method, id, params));
 
-    // Wire raw message recording if a recorder is provided
-    if (options.recorder) {
-      const recorder = options.recorder;
-      const cwd = options.cwd || "";
-      this.transport.onRawIncoming((line) => {
-        recorder.record(sessionId, "in", line, "cli", "codex", cwd);
-      });
+    // Wire raw message recording + ring buffer for post-mortem debugging
+    const recorder = options.recorder;
+    const cwd = options.cwd || "";
+    this.transport.onRawIncoming((line) => {
+      recorder?.record(sessionId, "in", line, "cli", "codex", cwd);
+      // Ring buffer: keep last N messages for debugging unexpected disconnects
+      const truncated = line.length > 200 ? line.substring(0, 200) + "..." : line;
+      this.recentRawMessages.push(truncated);
+      if (this.recentRawMessages.length > CodexAdapter.RAW_MESSAGE_RING_SIZE) {
+        this.recentRawMessages.shift();
+      }
+    });
+    if (recorder) {
       this.transport.onRawOutgoing((data) => {
         recorder.record(sessionId, "out", data.trimEnd(), "cli", "codex", cwd);
       });
@@ -428,7 +444,17 @@ export class CodexAdapter {
     // stale "connected" state that rejects messages with "Transport closed".
     this.transport.onClose(() => {
       if (!this.connected) return; // already handled by proc.exited
-      console.log(`[codex-adapter] Transport closed for session ${sessionId} (process may still be running)`);
+      const pendingIds = [...this.transport.getPendingIds()];
+      console.log(
+        `[codex-adapter] Transport closed for session ${sessionId} (process may still be running)` +
+        `${pendingIds.length ? `, pendingRpcIds=[${pendingIds.join(",")}]` : ""}`,
+      );
+      if (this.recentRawMessages.length > 0) {
+        console.log(`[codex-adapter] Last ${this.recentRawMessages.length} raw messages before close for ${sessionId}:`);
+        for (const msg of this.recentRawMessages) {
+          console.log(`  ${msg}`);
+        }
+      }
       this.connected = false;
       for (const pending of this.pendingDynamicToolCalls.values()) {
         clearTimeout(pending.timeout);
@@ -438,8 +464,9 @@ export class CodexAdapter {
     });
 
     // Monitor process exit
-    proc.exited.then(() => {
+    proc.exited.then((exitCode) => {
       if (!this.connected) return; // already handled by transport.onClose
+      console.log(`[codex-adapter] Process exited for session ${sessionId} (code=${exitCode}, connected was true — transport.onClose did not fire first)`);
       this.connected = false;
       for (const pending of this.pendingDynamicToolCalls.values()) {
         clearTimeout(pending.timeout);
@@ -532,6 +559,10 @@ export class CodexAdapter {
 
   onInitError(cb: (error: string) => void): void {
     this.initErrorCb = cb;
+  }
+
+  onTurnStartFailed(cb: (msg: BrowserOutgoingMessage) => void): void {
+    this.turnStartFailedCb = cb;
   }
 
   isConnected(): boolean {
@@ -667,6 +698,17 @@ export class CodexAdapter {
       return;
     }
 
+    // If a turn is already in progress, interrupt it first and wait for it to
+    // complete. Sending turn/start while a turn is active causes Codex to
+    // error or crash (observed as sudden disconnects, especially with image
+    // attachments whose large base64 payloads amplify the timing window).
+    if (this.currentTurnId) {
+      console.log(
+        `[codex-adapter] Turn ${this.currentTurnId} already in progress for session ${this.sessionId}, interrupting before new turn`,
+      );
+      await this.interruptAndWaitForTurnEnd();
+    }
+
     const input: Array<{ type: string; text?: string; url?: string }> = [];
 
     // Add images if present
@@ -691,6 +733,7 @@ export class CodexAdapter {
 
       this.currentTurnId = result.turn.id;
     } catch (err) {
+      this.turnStartFailedCb?.(msg);
       this.emit({ type: "error", message: `Failed to start turn: ${err}` });
     }
   }
@@ -766,6 +809,29 @@ export class CodexAdapter {
       });
     } catch (err) {
       console.warn("[codex-adapter] Interrupt failed:", err);
+    }
+  }
+
+  /**
+   * Interrupt the current turn and wait for it to end (turn/completed
+   * notification clears `currentTurnId`). Times out after 5s to avoid
+   * hanging indefinitely if Codex never sends turn/completed.
+   */
+  private async interruptAndWaitForTurnEnd(): Promise<void> {
+    await this.handleOutgoingInterrupt();
+
+    // Wait for currentTurnId to be cleared by handleTurnCompleted
+    const TIMEOUT_MS = 5_000;
+    const POLL_MS = 50;
+    const start = Date.now();
+    while (this.currentTurnId && Date.now() - start < TIMEOUT_MS) {
+      await new Promise((r) => setTimeout(r, POLL_MS));
+    }
+    if (this.currentTurnId) {
+      console.warn(
+        `[codex-adapter] Turn ${this.currentTurnId} did not complete within ${TIMEOUT_MS}ms after interrupt for session ${this.sessionId}, proceeding anyway`,
+      );
+      this.currentTurnId = null;
     }
   }
 

@@ -32,16 +32,19 @@ function makeCodexAdapterMock() {
   let onBrowserMessageCb: ((msg: any) => void) | undefined;
   let onSessionMetaCb: ((meta: any) => void) | undefined;
   let onDisconnectCb: (() => void) | undefined;
+  let onTurnStartFailedCb: ((msg: any) => void) | undefined;
 
   return {
     onBrowserMessage: vi.fn((cb: (msg: any) => void) => { onBrowserMessageCb = cb; }),
     onSessionMeta: vi.fn((cb: (meta: any) => void) => { onSessionMetaCb = cb; }),
     onDisconnect: vi.fn((cb: () => void) => { onDisconnectCb = cb; }),
+    onTurnStartFailed: vi.fn((cb: (msg: any) => void) => { onTurnStartFailedCb = cb; }),
     sendBrowserMessage: vi.fn(),
     isConnected: vi.fn(() => true),
     emitBrowserMessage: (msg: any) => onBrowserMessageCb?.(msg),
     emitSessionMeta: (meta: any) => onSessionMetaCb?.(meta),
     emitDisconnect: () => onDisconnectCb?.(),
+    emitTurnStartFailed: (msg: any) => onTurnStartFailedCb?.(msg),
   };
 }
 
@@ -4282,5 +4285,116 @@ describe("Codex adapter result handling", () => {
 
     const session = bridge.getSession("s1")!;
     expect(session.toolResults.get("tool-1")?.content).toContain("Exit code: 2");
+  });
+});
+
+describe("Codex turn-start failure re-queue", () => {
+  // When the Codex transport closes during turn/start, the adapter fires
+  // onTurnStartFailed. The bridge should re-queue the failed message so it
+  // gets flushed to the next adapter after relaunch.
+
+  it("registers onTurnStartFailed callback during adapter attachment", () => {
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter("s1", adapter as any);
+    expect(adapter.onTurnStartFailed).toHaveBeenCalledOnce();
+  });
+
+  it("re-queues the failed message to session.pendingMessages", () => {
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter("s1", adapter as any);
+
+    const failedMsg = { type: "user_message", content: "hello" };
+    adapter.emitTurnStartFailed(failedMsg);
+
+    const session = bridge.getSession("s1")!;
+    expect(session.pendingMessages).toHaveLength(1);
+    expect(JSON.parse(session.pendingMessages[0])).toEqual(failedMsg);
+  });
+
+  it("flushes re-queued message to a new adapter on reattach", () => {
+    // First adapter: simulate turn-start failure
+    const adapter1 = makeCodexAdapterMock();
+    bridge.attachCodexAdapter("s1", adapter1 as any);
+    const failedMsg = { type: "user_message", content: "hello" };
+    adapter1.emitTurnStartFailed(failedMsg);
+
+    // Simulate disconnect
+    adapter1.emitDisconnect();
+
+    // Second adapter: should receive the re-queued message
+    const adapter2 = makeCodexAdapterMock();
+    bridge.attachCodexAdapter("s1", adapter2 as any);
+
+    expect(adapter2.sendBrowserMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "user_message", content: "hello" }),
+    );
+    const session = bridge.getSession("s1")!;
+    expect(session.pendingMessages).toHaveLength(0);
+  });
+});
+
+describe("Codex /compact interception", () => {
+  // Codex has no manual /compact command — compaction is automatic.
+  // Sending "/compact" as a user message would be interpreted as a regular
+  // prompt, producing a misleading summary-like response.
+
+  it("intercepts /compact and broadcasts an error, does NOT forward to adapter", async () => {
+    const browser = makeBrowserSocket("s1");
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter("s1", adapter as any);
+    bridge.handleBrowserOpen(browser, "s1");
+
+    await bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "user_message",
+      content: "/compact",
+    }));
+
+    // Adapter should NOT have received the message
+    expect(adapter.sendBrowserMessage).not.toHaveBeenCalled();
+
+    // Browser should have received an error message
+    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    const errorMsg = calls.find((c: any) => c.type === "error");
+    expect(errorMsg).toBeDefined();
+    expect(errorMsg.message).toContain("not supported");
+
+    // No user_message in history, generating should be false
+    const session = bridge.getSession("s1")!;
+    const userMsgs = session.messageHistory.filter((m: any) => m.type === "user_message");
+    expect(userMsgs).toHaveLength(0);
+    expect(session.isGenerating).toBe(false);
+  });
+
+  it("intercepts /compact with case/whitespace variations", async () => {
+    const variations = [" /COMPACT ", "/Compact", "  /compact  "];
+    for (const content of variations) {
+      const sid = `s-${content.trim()}`;
+      const browser = makeBrowserSocket(sid);
+      const adapter = makeCodexAdapterMock();
+      bridge.attachCodexAdapter(sid, adapter as any);
+      bridge.handleBrowserOpen(browser, sid);
+
+      await bridge.handleBrowserMessage(browser, JSON.stringify({
+        type: "user_message",
+        content,
+      }));
+
+      expect(adapter.sendBrowserMessage).not.toHaveBeenCalled();
+    }
+  });
+
+  it("does NOT intercept messages that contain /compact as a substring", async () => {
+    const browser = makeBrowserSocket("s2");
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter("s2", adapter as any);
+    bridge.handleBrowserOpen(browser, "s2");
+
+    await bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "user_message",
+      content: "/compact the code and fix the bug",
+    }));
+
+    // This should go through to the adapter as a normal user message
+    expect(adapter.sendBrowserMessage).toHaveBeenCalled();
   });
 });
