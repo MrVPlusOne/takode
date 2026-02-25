@@ -775,14 +775,9 @@ export function Sidebar() {
         const cliId = sdk?.cliSessionId || "";
         const isArchived = sdk?.archived ?? sessionInfo?.archived ?? false;
         const isExited = sdk?.state === "exited";
-        const createdAt = sdk?.createdAt ?? sessionInfo?.createdAt ?? 0;
-        const createdAtLabel = createdAt > 0 ? new Date(createdAt).toLocaleString() : "Unknown";
         const attention = sessionAttention.get(contextMenu.sessionId);
 
         const items: ContextMenuItem[] = [
-          { label: `Session ID: ${contextMenu.sessionId}`, onClick: () => {}, disabled: true },
-          { label: `CLI Session ID: ${cliId || "Not available yet"}`, onClick: () => {}, disabled: true },
-          { label: `Created: ${createdAtLabel}`, onClick: () => {}, disabled: true },
           {
             label: "Copy Session ID",
             onClick: () => {

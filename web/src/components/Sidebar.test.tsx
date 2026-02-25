@@ -748,7 +748,7 @@ describe("Sidebar", () => {
     expect(screen.queryByText("hidden-model")).not.toBeInTheDocument();
   });
 
-  it("context menu shows ids + created time, supports copy, and confirms delete", async () => {
+  it("context menu supports copy actions and confirms delete", async () => {
     const createdAt = 1700000000000;
     const session = makeSession("s1");
     const sdk = makeSdkSession("s1", { cliSessionId: "cli-abc-123", createdAt });
@@ -762,9 +762,6 @@ describe("Sidebar", () => {
     const sessionButton = screen.getByText("claude-sonnet-4-5-20250929").closest("button")!;
     fireEvent.contextMenu(sessionButton, { clientX: 100, clientY: 120 });
 
-    expect(screen.getByText("Session ID: s1")).toBeInTheDocument();
-    expect(screen.getByText("CLI Session ID: cli-abc-123")).toBeInTheDocument();
-    expect(screen.getByText((text) => text.startsWith("Created: "))).toBeInTheDocument();
     expect(screen.getByText("Copy Session ID")).toBeInTheDocument();
     expect(screen.getByText("Copy CLI Session ID")).toBeInTheDocument();
     expect(screen.getByText("Delete Session")).toBeInTheDocument();
