@@ -539,9 +539,9 @@ export const api = {
   // Git operations
   getRepoInfo: (path: string) =>
     get<GitRepoInfo>(`/git/repo-info?path=${encodeURIComponent(path)}`),
-  listBranches: (repoRoot: string) =>
+  listBranches: (repoRoot: string, opts?: { localOnly?: boolean }) =>
     get<GitBranchInfo[]>(
-      `/git/branches?repoRoot=${encodeURIComponent(repoRoot)}`,
+      `/git/branches?repoRoot=${encodeURIComponent(repoRoot)}${opts?.localOnly ? "&localOnly=1" : ""}`,
     ),
   getRecentCommits: (repoRoot: string, limit = 20) =>
     get<{ commits: { sha: string; shortSha: string; message: string; timestamp: number }[] }>(

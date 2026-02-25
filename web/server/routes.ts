@@ -1331,7 +1331,11 @@ export function createRoutes(
     // Stop PR polling for this session
     prPoller?.unwatch(id);
 
-    const worktreeResult = cleanupWorktree(id, body.force);
+    // Always force-delete the worktree on archive. Worktrees contain only
+    // generated/derived content — the branch preserves any committed changes.
+    // Without force, dirty worktrees (any untracked file) accumulate forever,
+    // inflating git branch lists and slowing NFS operations.
+    const worktreeResult = cleanupWorktree(id, true);
     launcher.setArchived(id, true);
     await sessionStore.setArchived(id, true);
     return c.json({ ok: true, worktree: worktreeResult });
@@ -2203,8 +2207,9 @@ export function createRoutes(
   api.get("/git/branches", async (c) => {
     const repoRoot = c.req.query("repoRoot");
     if (!repoRoot) return c.json({ error: "repoRoot required" }, 400);
+    const localOnly = c.req.query("localOnly") === "1";
     try {
-      return c.json(await gitUtils.listBranchesAsync(repoRoot));
+      return c.json(await gitUtils.listBranchesAsync(repoRoot, { localOnly }));
     } catch (e: unknown) {
       return c.json({ error: e instanceof Error ? e.message : String(e) }, 500);
     }

@@ -222,7 +222,10 @@ async function listWorktreesAsync(repoRoot: string): Promise<GitWorktreeInfo[]> 
 }
 
 /** Async version of listBranches. Non-blocking for route handlers. */
-export async function listBranchesAsync(repoRoot: string): Promise<GitBranchInfo[]> {
+export async function listBranchesAsync(
+  repoRoot: string,
+  opts?: { localOnly?: boolean },
+): Promise<GitBranchInfo[]> {
   const worktrees = await listWorktreesAsync(repoRoot);
   const worktreeByBranch = new Map<string, string>();
   for (const wt of worktrees) {
@@ -231,7 +234,8 @@ export async function listBranchesAsync(repoRoot: string): Promise<GitBranchInfo
 
   const result: GitBranchInfo[] = [];
 
-  // Local branches
+  // Local branches — skip expensive per-branch ahead/behind counts.
+  // Per-session ahead/behind is already provided by refreshGitInfo in ws-bridge.ts.
   const localRaw = await gitSafeAsync(
     "for-each-ref '--format=%(refname:short)%09%(HEAD)' refs/heads/",
     repoRoot,
@@ -241,38 +245,40 @@ export async function listBranchesAsync(repoRoot: string): Promise<GitBranchInfo
       if (!line.trim()) continue;
       const [name, head] = line.split("\t");
       const isCurrent = head?.trim() === "*";
-      const { ahead, behind } = await getBranchStatusAsync(repoRoot, name);
       result.push({
         name,
         isCurrent,
         isRemote: false,
         worktreePath: worktreeByBranch.get(name) || null,
-        ahead,
-        behind,
+        ahead: 0,
+        behind: 0,
       });
     }
   }
 
-  // Remote branches (only those without a local counterpart)
-  const localNames = new Set(result.map((b) => b.name));
-  const remoteRaw = await gitSafeAsync(
-    "for-each-ref '--format=%(refname:short)' refs/remotes/origin/",
-    repoRoot,
-  );
-  if (remoteRaw) {
-    for (const line of remoteRaw.split("\n")) {
-      const full = line.trim();
-      if (!full || full === "origin/HEAD") continue;
-      const name = full.replace("origin/", "");
-      if (localNames.has(name)) continue;
-      result.push({
-        name,
-        isCurrent: false,
-        isRemote: true,
-        worktreePath: null,
-        ahead: 0,
-        behind: 0,
-      });
+  // Remote branches (only those without a local counterpart).
+  // Skip when localOnly is set — the caller doesn't need them.
+  if (!opts?.localOnly) {
+    const localNames = new Set(result.map((b) => b.name));
+    const remoteRaw = await gitSafeAsync(
+      "for-each-ref '--format=%(refname:short)' refs/remotes/origin/",
+      repoRoot,
+    );
+    if (remoteRaw) {
+      for (const line of remoteRaw.split("\n")) {
+        const full = line.trim();
+        if (!full || full === "origin/HEAD") continue;
+        const name = full.replace("origin/", "");
+        if (localNames.has(name)) continue;
+        result.push({
+          name,
+          isCurrent: false,
+          isRemote: true,
+          worktreePath: null,
+          ahead: 0,
+          behind: 0,
+        });
+      }
     }
   }
 

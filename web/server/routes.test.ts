@@ -1476,7 +1476,7 @@ describe("GET /api/git/branches", () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json).toEqual(branches);
-    expect(gitUtils.listBranchesAsync).toHaveBeenCalledWith("/repo");
+    expect(gitUtils.listBranchesAsync).toHaveBeenCalledWith("/repo", { localOnly: false });
   });
 });
 

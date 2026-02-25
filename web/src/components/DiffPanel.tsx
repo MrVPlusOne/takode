@@ -131,7 +131,7 @@ export function DiffPanel({ sessionId }: { sessionId: string }) {
         if (info?.defaultBranch) setFallbackDefault(info.defaultBranch);
       }).catch(() => {});
     }
-    api.listBranches(cwd).then((branches) => {
+    api.listBranches(cwd, { localOnly: true }).then((branches) => {
       setAvailableBranches(branches.map((b) => b.name));
     }).catch(() => {});
     api.getRecentCommits(cwd, 20).then((res) => {
