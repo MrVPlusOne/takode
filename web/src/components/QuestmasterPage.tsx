@@ -3,7 +3,12 @@ import { createPortal } from "react-dom";
 import { useStore, countUserPermissions } from "../store.js";
 import { api } from "../api.js";
 import { navigateToSession } from "../utils/routing.js";
-import { loadQuestmasterViewState, saveQuestmasterViewState } from "../utils/questmaster-view-state.js";
+import {
+  VERIFICATION_INBOX_COLLAPSE_KEY,
+  loadQuestmasterViewState,
+  saveQuestmasterViewState,
+} from "../utils/questmaster-view-state.js";
+import type { QuestmasterCollapsedGroup } from "../utils/questmaster-view-state.js";
 import { getHighlightParts } from "../utils/highlight.js";
 import { Lightbox } from "./Lightbox.js";
 import { SessionStatusDot } from "./SessionStatusDot.js";
@@ -252,7 +257,7 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
   const [assignPickerForId, setAssignPickerForId] = useState<string | null>(null);
 
   // Collapsed phase groups
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<QuestStatus>>(
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<QuestmasterCollapsedGroup>>(
     () => new Set(initialViewState?.collapsedGroups ?? []),
   );
 
@@ -400,9 +405,12 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
     setFilter("all");
     // Ensure deep-linked quests are visible in the list as well as the modal.
     setCollapsedGroups((prev) => {
-      if (!prev.has(targetQuest.status)) return prev;
+      const targetGroup = isVerificationInboxUnread(targetQuest)
+        ? VERIFICATION_INBOX_COLLAPSE_KEY
+        : targetQuest.status;
+      if (!prev.has(targetGroup)) return prev;
       const next = new Set(prev);
-      next.delete(targetQuest.status);
+      next.delete(targetGroup);
       return next;
     });
     setExpandedId(targetQuestId);
@@ -1028,7 +1036,7 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
     dotClass: string;
     textClass: string;
     quests: QuestmasterTask[];
-    collapseStatus?: QuestStatus;
+    collapseGroup?: QuestmasterCollapsedGroup;
   };
 
   const showVerificationSplit = filter === "all" || filter === "needs_verification";
@@ -1042,11 +1050,12 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
   const questSections: QuestSection[] = [];
   if (showVerificationSplit && verificationInboxQuests.length > 0) {
     questSections.push({
-      key: "verification_inbox",
+      key: VERIFICATION_INBOX_COLLAPSE_KEY,
       label: "Verification Inbox",
       dotClass: "bg-amber-400",
       textClass: "text-amber-400",
       quests: verificationInboxQuests,
+      ...(filter === "all" ? { collapseGroup: VERIFICATION_INBOX_COLLAPSE_KEY } : {}),
     });
   }
 
@@ -1062,7 +1071,7 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
       dotClass: cfg.dot,
       textClass: cfg.text,
       quests: sectionQuests,
-      ...(filter === "all" ? { collapseStatus: status } : {}),
+      ...(filter === "all" ? { collapseGroup: status } : {}),
     });
   }
 
@@ -1605,12 +1614,12 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
             </div>
           ) : (
             questSections.map((section) => {
-                const isCollapsible = !!section.collapseStatus;
-                const isCollapsed = !!section.collapseStatus && collapsedGroups.has(section.collapseStatus);
+                const isCollapsible = !!section.collapseGroup;
+                const isCollapsed = !!section.collapseGroup && collapsedGroups.has(section.collapseGroup);
                 const showSectionHeader =
                   filter === "all" ||
                   (filter === "needs_verification" &&
-                    (section.key === "verification_inbox" || section.key === "needs_verification"));
+                    (section.key === VERIFICATION_INBOX_COLLAPSE_KEY || section.key === "needs_verification"));
                 return (
                   <div key={section.key}>
                     {showSectionHeader && (
@@ -1618,8 +1627,8 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
                         <button
                           onClick={() => setCollapsedGroups((prev) => {
                             const next = new Set(prev);
-                            if (section.collapseStatus && next.has(section.collapseStatus)) next.delete(section.collapseStatus);
-                            else if (section.collapseStatus) next.add(section.collapseStatus);
+                            if (section.collapseGroup && next.has(section.collapseGroup)) next.delete(section.collapseGroup);
+                            else if (section.collapseGroup) next.add(section.collapseGroup);
                             return next;
                           })}
                           className="flex items-center gap-2 mb-1.5 mt-3 first:mt-0 cursor-pointer group/gh w-full text-left"

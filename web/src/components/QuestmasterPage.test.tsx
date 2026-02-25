@@ -21,6 +21,7 @@ vi.mock("../utils/routing.js", () => ({
 }));
 
 vi.mock("../utils/questmaster-view-state.js", () => ({
+  VERIFICATION_INBOX_COLLAPSE_KEY: "verification_inbox",
   loadQuestmasterViewState: () => null,
   saveQuestmasterViewState: vi.fn(),
 }));
@@ -152,6 +153,21 @@ describe("QuestmasterPage verification inbox", () => {
     expect(screen.getByText(/^Verification$/)).toBeInTheDocument();
     expect(screen.getByText("Inbox quest")).toBeInTheDocument();
     expect(screen.getByText("Regular verification quest")).toBeInTheDocument();
+  });
+
+  it("collapses and expands the verification inbox section", () => {
+    // Inbox should behave like other grouped sections and support collapse toggling.
+    render(<QuestmasterPage />);
+
+    const inboxHeader = screen.getByRole("button", { name: /Verification Inbox/ });
+    expect(screen.getByText("Inbox quest")).toBeInTheDocument();
+
+    fireEvent.click(inboxHeader);
+    expect(screen.queryByText("Inbox quest")).toBeNull();
+    expect(screen.getByText("Regular verification quest")).toBeInTheDocument();
+
+    fireEvent.click(inboxHeader);
+    expect(screen.getByText("Inbox quest")).toBeInTheDocument();
   });
 
   it("marks an inbox quest as read", async () => {

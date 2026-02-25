@@ -2,23 +2,28 @@ import type { QuestStatus } from "../types.js";
 import { scopedGetItem, scopedSetItem } from "./scoped-storage.js";
 
 const QUESTMASTER_VIEW_STATE_KEY = "cc-questmaster-view";
+export const VERIFICATION_INBOX_COLLAPSE_KEY = "verification_inbox";
 
-const QUEST_STATUSES: Set<QuestStatus> = new Set([
+export type QuestmasterCollapsedGroup = QuestStatus | typeof VERIFICATION_INBOX_COLLAPSE_KEY;
+
+const QUESTMASTER_COLLAPSE_GROUPS: Set<QuestmasterCollapsedGroup> = new Set([
   "idea",
   "refined",
   "in_progress",
   "needs_verification",
   "done",
+  VERIFICATION_INBOX_COLLAPSE_KEY,
 ]);
 
 export type QuestmasterViewState = {
   scrollTop: number;
-  collapsedGroups: QuestStatus[];
+  collapsedGroups: QuestmasterCollapsedGroup[];
 };
 
-function normalizeCollapsedGroups(value: unknown): QuestStatus[] {
+function normalizeCollapsedGroups(value: unknown): QuestmasterCollapsedGroup[] {
   if (!Array.isArray(value)) return [];
-  return value.filter((status): status is QuestStatus => QUEST_STATUSES.has(status as QuestStatus));
+  return value.filter((status): status is QuestmasterCollapsedGroup =>
+    QUESTMASTER_COLLAPSE_GROUPS.has(status as QuestmasterCollapsedGroup));
 }
 
 export function loadQuestmasterViewState(): QuestmasterViewState | null {

@@ -12,12 +12,12 @@ describe("questmaster-view-state", () => {
     // Valid state should round-trip through scoped localStorage.
     saveQuestmasterViewState({
       scrollTop: 240,
-      collapsedGroups: ["in_progress", "done"],
+      collapsedGroups: ["verification_inbox", "in_progress", "done"],
     });
 
     expect(loadQuestmasterViewState()).toEqual({
       scrollTop: 240,
-      collapsedGroups: ["in_progress", "done"],
+      collapsedGroups: ["verification_inbox", "in_progress", "done"],
     });
   });
 
@@ -27,13 +27,13 @@ describe("questmaster-view-state", () => {
       "test-server:cc-questmaster-view",
       JSON.stringify({
         scrollTop: -100,
-        collapsedGroups: ["idea", "invalid", "done"],
+        collapsedGroups: ["idea", "verification_inbox", "invalid", "done"],
       }),
     );
 
     expect(loadQuestmasterViewState()).toEqual({
       scrollTop: 0,
-      collapsedGroups: ["idea", "done"],
+      collapsedGroups: ["idea", "verification_inbox", "done"],
     });
   });
 
