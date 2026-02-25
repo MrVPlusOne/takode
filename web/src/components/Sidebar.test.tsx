@@ -326,6 +326,30 @@ describe("Sidebar", () => {
     expect(screen.getByText("-7")).toBeInTheDocument();
   });
 
+  it("worktree sessions show both behind/ahead counts and line diff stats", () => {
+    // Worktree chips should show base sync status (behind/ahead) and the
+    // stable agent diff totals at the same time.
+    const session = makeSession("s1", {
+      git_branch: "jiayi-wt-9954",
+      is_worktree: true,
+      git_ahead: 0,
+      git_behind: 0, // stale bridge value
+      total_lines_added: 167,
+      total_lines_removed: 858,
+    });
+    const sdk = makeSdkSession("s1", { gitBehind: 6 });
+    mockState = createMockState({
+      sessions: new Map([["s1", session]]),
+      sdkSessions: [sdk],
+    });
+
+    render(<Sidebar />);
+    const sessionButton = screen.getByText("jiayi-wt-9954").closest("button")!;
+    expect(sessionButton.textContent).toContain("6↓");
+    expect(sessionButton.textContent).toContain("+167");
+    expect(sessionButton.textContent).toContain("-858");
+  });
+
   it("active session has highlighted styling (bg-cc-active class)", () => {
     const session = makeSession("s1");
     const sdk = makeSdkSession("s1");

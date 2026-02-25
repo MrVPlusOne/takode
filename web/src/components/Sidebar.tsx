@@ -342,14 +342,22 @@ export function Sidebar() {
   const allSessionList: SessionItemType[] = Array.from(allSessionIds).map((id) => {
     const bridgeState = sessions.get(id);
     const sdkInfo = sdkSessions.find((s) => s.sessionId === id);
+    const sdkGitAhead = sdkInfo?.gitAhead ?? 0;
+    const sdkGitBehind = sdkInfo?.gitBehind ?? 0;
+    const gitAhead = bridgeState?.git_ahead === 0 && sdkGitAhead > 0
+      ? sdkGitAhead
+      : (bridgeState?.git_ahead ?? sdkGitAhead);
+    const gitBehind = bridgeState?.git_behind === 0 && sdkGitBehind > 0
+      ? sdkGitBehind
+      : (bridgeState?.git_behind ?? sdkGitBehind);
     return {
       id,
       model: bridgeState?.model || sdkInfo?.model || "",
       cwd: bridgeState?.cwd || sdkInfo?.cwd || "",
       gitBranch: bridgeState?.git_branch || sdkInfo?.gitBranch || "",
       isContainerized: bridgeState?.is_containerized || !!sdkInfo?.containerId || false,
-      gitAhead: bridgeState?.git_ahead ?? sdkInfo?.gitAhead ?? 0,
-      gitBehind: bridgeState?.git_behind ?? sdkInfo?.gitBehind ?? 0,
+      gitAhead,
+      gitBehind,
       linesAdded: bridgeState?.total_lines_added ?? sdkInfo?.totalLinesAdded ?? 0,
       linesRemoved: bridgeState?.total_lines_removed ?? sdkInfo?.totalLinesRemoved ?? 0,
       isConnected: cliConnected.get(id) ?? sdkInfo?.cliConnected ?? false,

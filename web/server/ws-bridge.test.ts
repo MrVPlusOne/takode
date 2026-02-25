@@ -386,6 +386,7 @@ describe("CLI handlers", () => {
 
     mockExecSync.mockImplementation((cmd: string) => {
       if (cmd.includes("--abbrev-ref HEAD")) return "main\n";
+      if (cmd.includes("rev-parse HEAD")) return "head-main\n";
       if (cmd.includes("--git-dir")) return ".git\n";
       if (cmd.includes("--show-toplevel")) return "/Users/stan/Dev/myproject\n";
       if (cmd.includes("--left-right --count")) return "0\t0\n";
@@ -424,6 +425,7 @@ describe("CLI handlers", () => {
     // After CLI connects, resolveGitInfo runs (fire-and-forget) and should preserve the worktree info
     mockExecSync.mockImplementation((cmd: string) => {
       if (cmd.includes("--abbrev-ref HEAD")) return "jiayi-wt-1234\n";
+      if (cmd.includes("rev-parse HEAD")) return "wt-head-1\n";
       if (cmd.includes("--git-dir")) return "/home/user/companion/.git/worktrees/jiayi-wt-1234\n";
       if (cmd.includes("--git-common-dir")) return "/home/user/companion/.git\n";
       if (cmd.includes("--left-right --count")) return "0\t0\n";
@@ -509,6 +511,7 @@ describe("CLI handlers", () => {
   it("handleCLIMessage: system.init resolves git info and sets diff_base_branch via async exec", async () => {
     mockExecSync.mockImplementation((cmd: string) => {
       if (cmd.includes("--abbrev-ref HEAD")) return "feat/test-branch\n";
+      if (cmd.includes("rev-parse HEAD")) return "head-feat-test\n";
       if (cmd.includes("--show-toplevel")) return "/repo\n";
       if (cmd.includes("--left-right --count")) return "2\t5\n";
       // gitUtils.resolveDefaultBranch fallback commands
@@ -592,6 +595,7 @@ describe("CLI handlers", () => {
   it("handleCLIMessage: system.init resolves repo_root via --show-toplevel for standard repo", async () => {
     mockExecSync.mockImplementation((cmd: string) => {
       if (cmd.includes("--abbrev-ref HEAD")) return "main\n";
+      if (cmd.includes("rev-parse HEAD")) return "head-main\n";
       if (cmd.includes("--git-dir")) return ".git\n";
       if (cmd.includes("--show-toplevel")) return "/home/user/myproject\n";
       if (cmd.includes("--left-right --count")) return "0\t0\n";
@@ -712,6 +716,7 @@ describe("Browser handlers", () => {
     // and the git branch is updated asynchronously after the initial snapshot.
     mockExecSync.mockImplementation((cmd: string) => {
       if (cmd.includes("--abbrev-ref HEAD")) return "feat/dynamic-branch\n";
+      if (cmd.includes("rev-parse HEAD")) return "head-dynamic\n";
       if (cmd.includes("--git-dir")) return ".git\n";
       if (cmd.includes("--show-toplevel")) return "/repo\n";
       if (cmd.includes("--left-right --count")) return "0\t0\n";
@@ -1217,6 +1222,7 @@ describe("CLI message routing", () => {
   it("result: refreshes git branch and broadcasts session_update when branch changes", async () => {
     mockExecSync.mockImplementation((cmd: string) => {
       if (cmd.includes("--abbrev-ref HEAD")) return "feat/new-branch\n";
+      if (cmd.includes("rev-parse HEAD")) return "head-new-branch\n";
       if (cmd.includes("--git-dir")) return ".git\n";
       if (cmd.includes("--show-toplevel")) return "/test\n";
       if (cmd.includes("--left-right --count")) return "0\t1\n";
@@ -4075,6 +4081,60 @@ describe("Diff stats computation", () => {
     await vi.waitFor(() => {
       expect(session.state.total_lines_added).toBe(7);
       expect(session.state.total_lines_removed).toBe(2);
+    });
+  });
+
+  it("computeDiffStats: uses diff_base_start_sha for worktree sessions", async () => {
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd.includes("diff --numstat base-start-sha")) return "4\t1\tsrc/app.ts\n2\t0\tsrc/util.ts\n";
+      if (cmd.includes("merge-base")) throw new Error("should not call merge-base for anchored worktree diff");
+      return "";
+    });
+
+    bridge.markWorktree("s1", "/repo", "/tmp/wt", "jiayi");
+    const session = bridge.getSession("s1")!;
+    session.state.cwd = "/tmp/wt";
+    session.state.diff_base_start_sha = "base-start-sha";
+    session.diffStatsDirty = true;
+    (session as any).cliSocket = { send: vi.fn() };
+
+    bridge.recomputeDiffIfDirty(session);
+
+    await vi.waitFor(() => {
+      expect(session.state.total_lines_added).toBe(6);
+      expect(session.state.total_lines_removed).toBe(1);
+    });
+  });
+
+  it("re-anchors worktree diff base after history rewrite", async () => {
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd.includes("--abbrev-ref HEAD")) return "feat/rebased\n";
+      if (cmd.includes("rev-parse HEAD")) return "new-head-sha\n";
+      if (cmd.includes("--git-dir")) return "/repo/.git/worktrees/feat-rebased\n";
+      if (cmd.includes("--git-common-dir")) return "/repo/.git\n";
+      if (cmd.includes("--left-right --count")) return "0\t0\n";
+      if (cmd.includes("merge-base --is-ancestor old-head-sha new-head-sha")) {
+        throw new Error("not ancestor");
+      }
+      if (cmd.includes("merge-base jiayi HEAD")) return "rebased-anchor-sha\n";
+      if (cmd.includes("diff --numstat rebased-anchor-sha")) return "3\t1\tsrc/rebased.ts\n";
+      return "";
+    });
+
+    bridge.markWorktree("s1", "/repo", "/tmp/wt", "jiayi");
+    const session = bridge.getSession("s1")!;
+    session.state.cwd = "/tmp/wt";
+    session.state.git_head_sha = "old-head-sha";
+    session.state.diff_base_start_sha = "old-anchor-sha";
+    session.diffStatsDirty = true;
+    (session as any).cliSocket = { send: vi.fn() };
+
+    bridge.setDiffBaseBranch("s1", "jiayi");
+
+    await vi.waitFor(() => {
+      expect(session.state.diff_base_start_sha).toBe("rebased-anchor-sha");
+      expect(session.state.total_lines_added).toBe(3);
+      expect(session.state.total_lines_removed).toBe(1);
     });
   });
 

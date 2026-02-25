@@ -1048,12 +1048,35 @@ export function createRoutes(
     const enriched = await Promise.all(sessions.map(async (s) => {
       try {
         const bridge = bridgeMap.get(s.sessionId);
+        let gitAhead = bridge?.git_ahead || 0;
+        let gitBehind = bridge?.git_behind || 0;
+        // Worktree sessions can become behind their base branch while a session
+        // is idle (e.g. base branch moved by another machine). Refresh counts
+        // on listSessions so sidebar chips show branch divergence, not only diff lines.
+        const worktreeRef =
+          (typeof bridge?.diff_base_branch === "string" && bridge.diff_base_branch.trim())
+          || (typeof bridge?.git_default_branch === "string" && bridge.git_default_branch.trim())
+          || (typeof s.branch === "string" && s.branch.trim())
+          || "";
+        if ((bridge?.is_worktree || s.isWorktree) && s.cwd && worktreeRef) {
+          try {
+            const { stdout } = await execPromise(
+              `git --no-optional-locks rev-list --left-right --count ${worktreeRef}...HEAD`,
+              { cwd: s.cwd, encoding: "utf-8", timeout: GIT_CMD_TIMEOUT },
+            );
+            const [behind, ahead] = stdout.trim().split(/\s+/).map((v) => parseInt(v, 10));
+            gitAhead = Number.isFinite(ahead) ? ahead : gitAhead;
+            gitBehind = Number.isFinite(behind) ? behind : gitBehind;
+          } catch {
+            // Keep existing bridge counts on git errors.
+          }
+        }
         return {
           ...s,
           name: names[s.sessionId] ?? s.name,
           gitBranch: bridge?.git_branch || "",
-          gitAhead: bridge?.git_ahead || 0,
-          gitBehind: bridge?.git_behind || 0,
+          gitAhead,
+          gitBehind,
           totalLinesAdded: bridge?.total_lines_added || 0,
           totalLinesRemoved: bridge?.total_lines_removed || 0,
           lastMessagePreview: wsBridge.getLastUserMessage(s.sessionId) || "",

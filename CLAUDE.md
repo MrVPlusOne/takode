@@ -32,6 +32,14 @@ cd web && bun run build && bun run start
 ./scripts/landing-start.sh --stop   # stop
 ```
 
+## Codex Shell PATH Note
+
+- In Codex tool calls, prefer a non-login shell (`login: false`) for command execution. In this environment, login shells can drop `~/.bun/bin` and `~/.nvm/.../bin` from `PATH`.
+- Before running tests/builds, verify runtime availability with `command -v bun && bun --version` (and optionally `command -v node && node -v`).
+- If PATH is still wrong, use absolute binaries as a fallback:
+  - `/home/jiayiwei/.bun/bin/bun`
+  - `/home/jiayiwei/.nvm/versions/node/v22.21.1/bin/node`
+
 ## Testing
 
 ```bash

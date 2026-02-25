@@ -326,8 +326,12 @@ export interface SessionState {
   context_used_percent: number;
   is_compacting: boolean;
   git_branch: string;
+  /** Current HEAD commit SHA (server-derived, used for history rewrite detection). */
+  git_head_sha?: string;
   git_default_branch?: string;
   diff_base_branch?: string;
+  /** Stable anchor commit for "agent-made diff" in worktree sessions. */
+  diff_base_start_sha?: string;
   is_worktree: boolean;
   is_containerized: boolean;
   repo_root: string;

@@ -108,6 +108,8 @@ export function SessionItem({
   // Backend icon source
   const backendLogo = s.backendType === "codex" ? "/logo-codex.svg" : "/logo.png";
   const backendAlt = s.backendType === "codex" ? "Codex" : "Claude";
+  const hasBranchDivergence = s.gitAhead > 0 || s.gitBehind > 0;
+  const hasLineDiff = s.linesAdded > 0 || s.linesRemoved > 0;
 
   return (
     <div className={`relative group ${archived ? "opacity-50" : ""}`}>
@@ -289,15 +291,15 @@ export function SessionItem({
             )}
 
             {/* Row 3: Git stats (conditional) */}
-            {(s.gitAhead > 0 || s.gitBehind > 0 || s.linesAdded > 0 || s.linesRemoved > 0) && (
+            {(hasBranchDivergence || hasLineDiff) && (
               <div className="flex items-center gap-1.5 mt-px text-[10px] text-cc-muted">
-                {(s.gitAhead > 0 || s.gitBehind > 0) && (
+                {hasBranchDivergence && (
                   <span className="flex items-center gap-0.5">
                     {s.gitAhead > 0 && <span className="text-green-500">{s.gitAhead}&#8593;</span>}
                     {s.gitBehind > 0 && <span className="text-cc-warning">{s.gitBehind}&#8595;</span>}
                   </span>
                 )}
-                {(s.linesAdded > 0 || s.linesRemoved > 0) && (
+                {hasLineDiff && (
                   <span className="flex items-center gap-1 shrink-0">
                     <span className="text-green-500">+{s.linesAdded}</span>
                     <span className="text-red-400">-{s.linesRemoved}</span>

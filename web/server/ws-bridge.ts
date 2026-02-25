@@ -291,6 +291,8 @@ type GitSessionKey =
   | "git_branch"
   | "git_default_branch"
   | "diff_base_branch"
+  | "git_head_sha"
+  | "diff_base_start_sha"
   | "is_worktree"
   | "is_containerized"
   | "repo_root"
@@ -331,8 +333,10 @@ function makeDefaultState(sessionId: string, backendType: BackendType = "claude"
     context_used_percent: 0,
     is_compacting: false,
     git_branch: "",
+    git_head_sha: "",
     git_default_branch: "",
     diff_base_branch: "",
+    diff_base_start_sha: "",
     is_worktree: false,
     is_containerized: false,
     repo_root: "",
@@ -350,14 +354,22 @@ async function resolveGitInfo(state: SessionState): Promise<void> {
   // Preserve is_containerized — it's set during session launch, not derived from git
   const wasContainerized = state.is_containerized;
   try {
-    const { stdout: branchOut } = await execPromise("git rev-parse --abbrev-ref HEAD 2>/dev/null", {
+    const { stdout: branchOut } = await execPromise("git --no-optional-locks rev-parse --abbrev-ref HEAD 2>/dev/null", {
       cwd: state.cwd, encoding: "utf-8", timeout: GIT_CMD_TIMEOUT,
     });
     state.git_branch = branchOut.trim();
+    try {
+      const { stdout: headOut } = await execPromise("git --no-optional-locks rev-parse HEAD 2>/dev/null", {
+        cwd: state.cwd, encoding: "utf-8", timeout: GIT_CMD_TIMEOUT,
+      });
+      state.git_head_sha = headOut.trim();
+    } catch {
+      state.git_head_sha = "";
+    }
 
     // Detect if this is a linked worktree
     try {
-      const { stdout: gitDirOut } = await execPromise("git rev-parse --git-dir 2>/dev/null", {
+      const { stdout: gitDirOut } = await execPromise("git --no-optional-locks rev-parse --git-dir 2>/dev/null", {
         cwd: state.cwd, encoding: "utf-8", timeout: GIT_CMD_TIMEOUT,
       });
       state.is_worktree = gitDirOut.trim().includes("/worktrees/");
@@ -369,13 +381,13 @@ async function resolveGitInfo(state: SessionState): Promise<void> {
       // For worktrees, --show-toplevel gives the worktree root, not the main repo.
       // Use --git-common-dir to find the real repo root.
       if (state.is_worktree) {
-        const { stdout: commonDirOut } = await execPromise("git rev-parse --git-common-dir 2>/dev/null", {
+        const { stdout: commonDirOut } = await execPromise("git --no-optional-locks rev-parse --git-common-dir 2>/dev/null", {
           cwd: state.cwd, encoding: "utf-8", timeout: GIT_CMD_TIMEOUT,
         });
         // commonDir is e.g. /path/to/repo/.git — parent is the repo root
         state.repo_root = resolve(state.cwd, commonDirOut.trim(), "..");
       } else {
-        const { stdout: toplevelOut } = await execPromise("git rev-parse --show-toplevel 2>/dev/null", {
+        const { stdout: toplevelOut } = await execPromise("git --no-optional-locks rev-parse --show-toplevel 2>/dev/null", {
           cwd: state.cwd, encoding: "utf-8", timeout: GIT_CMD_TIMEOUT,
         });
         state.repo_root = toplevelOut.trim();
@@ -418,7 +430,7 @@ async function resolveGitInfo(state: SessionState): Promise<void> {
     if (ref) {
       try {
         const { stdout: countsOut } = await execPromise(
-          `git rev-list --left-right --count ${ref}...HEAD 2>/dev/null`,
+          `git --no-optional-locks rev-list --left-right --count ${ref}...HEAD 2>/dev/null`,
           { cwd: state.cwd, encoding: "utf-8", timeout: GIT_CMD_TIMEOUT },
         );
         const [behind, ahead] = countsOut.trim().split(/\s+/).map(Number);
@@ -437,6 +449,8 @@ async function resolveGitInfo(state: SessionState): Promise<void> {
     state.git_branch = "";
     state.git_default_branch = "";
     state.diff_base_branch = "";
+    state.git_head_sha = "";
+    state.diff_base_start_sha = "";
     state.is_worktree = false;
     state.repo_root = "";
     state.git_ahead = 0;
@@ -488,6 +502,8 @@ export class WsBridge {
     "git_branch",
     "git_default_branch",
     "diff_base_branch",
+    "git_head_sha",
+    "diff_base_start_sha",
     "is_worktree",
     "is_containerized",
     "repo_root",
@@ -895,8 +911,14 @@ export class WsBridge {
     for (const key of WsBridge.GIT_SESSION_KEYS) {
       before[key] = session.state[key];
     }
+    const previousHeadSha = session.state.git_head_sha || "";
 
     await resolveGitInfo(session.state);
+    const anchorChanged = await this.updateDiffBaseStartSha(session, previousHeadSha);
+    if (anchorChanged) {
+      // Force recomputation so +/− totals reflect the rewritten branch baseline.
+      session.diffStatsDirty = true;
+    }
 
     let changed = false;
     for (const key of WsBridge.GIT_SESSION_KEYS) {
@@ -927,6 +949,57 @@ export class WsBridge {
 
     if (options.notifyPoller && session.state.git_branch && session.state.cwd && this.onGitInfoReady) {
       this.onGitInfoReady(session.id, session.state.cwd, session.state.git_branch);
+    }
+  }
+
+  /**
+   * Keep a stable per-worktree diff anchor for "agent-made changes" and
+   * re-anchor only when branch history is rewritten (rebase/reset/cherry-pick).
+   */
+  private async updateDiffBaseStartSha(session: Session, previousHeadSha: string): Promise<boolean> {
+    if (!session.state.is_worktree) return false;
+    const cwd = session.state.cwd;
+    const currentHeadSha = session.state.git_head_sha?.trim() || "";
+    if (!cwd || !currentHeadSha) return false;
+
+    const existingAnchor = session.state.diff_base_start_sha?.trim() || "";
+    if (!existingAnchor) {
+      // First observation for this session: anchor at current HEAD so diff totals
+      // represent changes made after session/worktree creation.
+      session.state.diff_base_start_sha = currentHeadSha;
+      return true;
+    }
+
+    if (!previousHeadSha || previousHeadSha === currentHeadSha) return false;
+
+    try {
+      await execPromise(
+        `git --no-optional-locks merge-base --is-ancestor ${previousHeadSha} ${currentHeadSha}`,
+        { cwd, timeout: GIT_CMD_TIMEOUT },
+      );
+      // Fast-forward/normal commit path — keep existing anchor stable.
+      return false;
+    } catch {
+      // History rewrite detected. Re-anchor to merge-base with base ref when possible.
+      let nextAnchor = currentHeadSha;
+      const ref = (session.state.diff_base_branch || session.state.git_default_branch || "").trim();
+      if (ref) {
+        try {
+          const { stdout } = await execPromise(
+            `git --no-optional-locks merge-base ${ref} HEAD`,
+            { cwd, timeout: GIT_CMD_TIMEOUT },
+          );
+          const mergeBase = stdout.trim();
+          if (mergeBase) nextAnchor = mergeBase;
+        } catch {
+          // Fall back to current HEAD when merge-base is unavailable.
+        }
+      }
+      if (nextAnchor !== existingAnchor) {
+        session.state.diff_base_start_sha = nextAnchor;
+        return true;
+      }
+      return false;
     }
   }
 
@@ -972,20 +1045,30 @@ export class WsBridge {
 
   /**
    * Compute diff stats (total lines added/removed) by running `git diff --numstat`
-   * against the session's diff_base_branch (or git_default_branch as fallback).
+   * against a stable worktree anchor (agent-made diff), or against the selected
+   * base ref for non-worktree sessions.
    * Diffs the entire repo — git tracks what changed, no need to scope by file list.
    * Runs asynchronously via child_process.exec to avoid blocking the event loop on NFS.
    */
   private async computeDiffStatsAsync(session: Session): Promise<boolean> {
     const cwd = session.state.cwd;
-    // Fall back to git_default_branch when diff_base_branch is "" (user selected "default")
-    const ref = session.state.diff_base_branch || session.state.git_default_branch;
-    if (!cwd || !ref) return false;
+    if (!cwd) return false;
 
     try {
-      // Compare directly against the selected base ref tip.
-      // Using merge-base inflates diff totals after cherry-picks.
-      const cmd = `git diff --numstat ${ref}`;
+      let diffBase = "";
+      if (session.state.is_worktree) {
+        // Stable metric: only count changes made on this worktree since anchor.
+        diffBase = session.state.diff_base_start_sha?.trim() || session.state.git_head_sha?.trim() || "";
+        if (!diffBase) {
+          // Fallback for older persisted sessions before git_head/anchor is available.
+          diffBase = (session.state.diff_base_branch || session.state.git_default_branch || "").trim();
+        }
+      } else {
+        // Non-worktree fallback: compare against selected base ref.
+        diffBase = (session.state.diff_base_branch || session.state.git_default_branch || "").trim();
+      }
+      if (!diffBase) return false;
+      const cmd = `git --no-optional-locks diff --numstat ${diffBase}`;
       // Generous timeout — large repos on NFS can be slow, and this runs in the background
       const { stdout } = await execPromise(cmd, { cwd, timeout: GIT_CMD_TIMEOUT });
       const raw = stdout.trim();

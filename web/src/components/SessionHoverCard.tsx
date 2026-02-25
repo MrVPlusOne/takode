@@ -83,6 +83,8 @@ export function SessionHoverCard({
   const turns = sessionState?.num_turns ?? 0;
   const cost = sessionState?.total_cost_usd ?? 0;
   const contextPercent = sessionState?.context_used_percent ?? 0;
+  const hasBranchDivergence = s.gitAhead > 0 || s.gitBehind > 0;
+  const hasLineDiff = s.linesAdded > 0 || s.linesRemoved > 0;
 
   // Position: right of sidebar, vertically aligned with the hovered item
   // The sidebar is 260px wide. Position card to the right of the anchor.
@@ -191,7 +193,7 @@ export function SessionHoverCard({
         ) : null}
 
         {/* Git section */}
-        {(s.gitBranch || s.gitAhead > 0 || s.gitBehind > 0 || s.linesAdded > 0 || s.linesRemoved > 0) && (
+        {(s.gitBranch || hasBranchDivergence || hasLineDiff) && (
           <div className="px-4 py-2 border-t border-cc-border/50">
             {s.gitBranch && (
               <div className="flex items-center gap-1.5 text-[12px] text-cc-muted leading-tight">
@@ -210,15 +212,15 @@ export function SessionHoverCard({
                 )}
               </div>
             )}
-            {(s.gitAhead > 0 || s.gitBehind > 0 || s.linesAdded > 0 || s.linesRemoved > 0) && (
+            {(hasBranchDivergence || hasLineDiff) && (
               <div className="flex items-center gap-2 mt-1 text-[11px] text-cc-muted">
-                {(s.gitAhead > 0 || s.gitBehind > 0) && (
+                {hasBranchDivergence && (
                   <span className="flex items-center gap-1">
                     {s.gitAhead > 0 && <span className="text-green-500">{s.gitAhead}&#8593;</span>}
                     {s.gitBehind > 0 && <span className="text-cc-warning">{s.gitBehind}&#8595;</span>}
                   </span>
                 )}
-                {(s.linesAdded > 0 || s.linesRemoved > 0) && (
+                {hasLineDiff && (
                   <span className="flex items-center gap-1">
                     <span className="text-green-500">+{s.linesAdded}</span>
                     <span className="text-red-400">-{s.linesRemoved}</span>

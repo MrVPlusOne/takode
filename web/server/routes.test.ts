@@ -733,6 +733,43 @@ describe("GET /api/sessions", () => {
     });
   });
 
+  it("refreshes worktree ahead/behind from diff base when bridge counts are stale", async () => {
+    const sessions = [
+      { sessionId: "s1", state: "running", cwd: "/wt/repo", isWorktree: true, branch: "jiayi" },
+    ];
+    launcher.listSessions.mockReturnValue(sessions);
+    vi.mocked(sessionNames.getAllNames).mockReturnValue({});
+    bridge.getAllSessions.mockReturnValue([
+      {
+        session_id: "s1",
+        is_worktree: true,
+        diff_base_branch: "jiayi",
+        git_ahead: 0,
+        git_behind: 0,
+        total_lines_added: 167,
+        total_lines_removed: 858,
+      },
+    ]);
+    (execSync as any).mockImplementation((cmd: string) => {
+      if (cmd.includes("git --no-optional-locks rev-list --left-right --count jiayi...HEAD")) {
+        return "6\t0\n";
+      }
+      return "";
+    });
+
+    const res = await app.request("/api/sessions", { method: "GET" });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json[0]).toMatchObject({
+      sessionId: "s1",
+      gitAhead: 0,
+      gitBehind: 6,
+      totalLinesAdded: 167,
+      totalLinesRemoved: 858,
+    });
+  });
+
   it("includes worktreeExists for archived worktree sessions", async () => {
     // Archived worktree session whose worktree still exists
     const sessions = [

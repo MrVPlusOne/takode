@@ -728,14 +728,22 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
       .filter((s) => s.state !== "exited" && !s.archived)
       .map((sdkInfo): SessionItemType => {
         const bridgeState = sessions.get(sdkInfo.sessionId);
+        const sdkGitAhead = sdkInfo.gitAhead ?? 0;
+        const sdkGitBehind = sdkInfo.gitBehind ?? 0;
+        const gitAhead = bridgeState?.git_ahead === 0 && sdkGitAhead > 0
+          ? sdkGitAhead
+          : (bridgeState?.git_ahead ?? sdkGitAhead);
+        const gitBehind = bridgeState?.git_behind === 0 && sdkGitBehind > 0
+          ? sdkGitBehind
+          : (bridgeState?.git_behind ?? sdkGitBehind);
         return {
           id: sdkInfo.sessionId,
           model: bridgeState?.model || sdkInfo.model || "",
           cwd: bridgeState?.cwd || sdkInfo.cwd || "",
           gitBranch: bridgeState?.git_branch || sdkInfo.gitBranch || "",
           isContainerized: bridgeState?.is_containerized || !!sdkInfo.containerId || false,
-          gitAhead: bridgeState?.git_ahead ?? sdkInfo.gitAhead ?? 0,
-          gitBehind: bridgeState?.git_behind ?? sdkInfo.gitBehind ?? 0,
+          gitAhead,
+          gitBehind,
           linesAdded: bridgeState?.total_lines_added ?? sdkInfo.totalLinesAdded ?? 0,
           linesRemoved: bridgeState?.total_lines_removed ?? sdkInfo.totalLinesRemoved ?? 0,
           isConnected: cliConnected.get(sdkInfo.sessionId) ?? sdkInfo.cliConnected ?? false,
@@ -2360,6 +2368,8 @@ function PickerSessionChip({
   const backendLogo = s.backendType === "codex" ? "/logo-codex.svg" : "/logo.png";
   const backendAlt = s.backendType === "codex" ? "Codex" : "Claude";
   const showTask = taskPreview && taskPreview.updatedAt > userUpdatedAt;
+  const hasBranchDivergence = s.gitAhead > 0 || s.gitBehind > 0;
+  const hasLineDiff = s.linesAdded > 0 || s.linesRemoved > 0;
 
   return (
     <button
@@ -2453,15 +2463,15 @@ function PickerSessionChip({
           </div>
 
           {/* Row 4: Git stats */}
-          {(s.gitAhead > 0 || s.gitBehind > 0 || s.linesAdded > 0 || s.linesRemoved > 0) && (
+          {(hasBranchDivergence || hasLineDiff) && (
             <div className="flex items-center gap-1.5 mt-px text-[10px] text-cc-muted">
-              {(s.gitAhead > 0 || s.gitBehind > 0) && (
+              {hasBranchDivergence && (
                 <span className="flex items-center gap-0.5">
                   {s.gitAhead > 0 && <span className="text-green-500">{s.gitAhead}&#8593;</span>}
                   {s.gitBehind > 0 && <span className="text-cc-warning">{s.gitBehind}&#8595;</span>}
                 </span>
               )}
-              {(s.linesAdded > 0 || s.linesRemoved > 0) && (
+              {hasLineDiff && (
                 <span className="flex items-center gap-1 shrink-0">
                   <span className="text-green-500">+{s.linesAdded}</span>
                   <span className="text-red-400">-{s.linesRemoved}</span>
