@@ -30,6 +30,7 @@ const mockMkdirSync = vi.hoisted(() => vi.fn());
 const mockExistsSync = vi.hoisted(() => vi.fn((..._args: any[]) => false));
 const mockReadFileSync = vi.hoisted(() => vi.fn((..._args: any[]) => ""));
 const mockWriteFileSync = vi.hoisted(() => vi.fn());
+const mockUnlinkSync = vi.hoisted(() => vi.fn());
 const mockSymlinkSync = vi.hoisted(() => vi.fn());
 const mockLstatSync = vi.hoisted(() => vi.fn((_path?: string): any => { throw Object.assign(new Error("ENOENT"), { code: "ENOENT" }); }));
 const isMockedPath = vi.hoisted(() => (path: string): boolean => {
@@ -63,6 +64,12 @@ vi.mock("node:fs", async (importOriginal) => {
         return mockWriteFileSync(...args);
       }
       return actual.writeFileSync(...args);
+    },
+    unlinkSync: (...args: any[]) => {
+      if (typeof args[0] === "string" && isMockedPath(args[0])) {
+        return mockUnlinkSync(...args);
+      }
+      return actual.unlinkSync(...args);
     },
     symlinkSync: (...args: any[]) => {
       if (typeof args[0] === "string" && isMockedPath(args[0])) {
@@ -1233,12 +1240,44 @@ describe("symlinkProjectSettings", () => {
     expect(mockSymlinkSync).not.toHaveBeenCalled();
   });
 
-  it("skips AGENTS.md write when AGENTS.md is a symlink in Codex worktree sessions", () => {
+  it("injects repo-agnostic sync context into Codex AGENTS.md guardrails", () => {
+    mockExistsSync.mockImplementation((path: string) => path === WORKTREE);
+    mockSpawn.mockReturnValueOnce(createMockCodexProc());
+
+    launcher.launch({
+      backendType: "codex",
+      cwd: WORKTREE,
+      worktreeInfo: {
+        isWorktree: true,
+        repoRoot: REPO_ROOT,
+        branch: "feature-x",
+        actualBranch: "feature-x",
+        worktreePath: WORKTREE,
+      },
+    });
+
+    const agentsWrite = mockWriteFileSync.mock.calls.find(
+      (c: any[]) => String(c[0]).endsWith("/AGENTS.md"),
+    );
+    expect(agentsWrite).toBeDefined();
+    const content = String(agentsWrite![1]);
+    expect(content).toContain("sync to main repo");
+    expect(content).toContain(`Base repo checkout: \`${REPO_ROOT}\``);
+    expect(content).toContain("Base branch: `feature-x`");
+    expect(content).toContain(`git -C ${REPO_ROOT} fetch origin feature-x`);
+    expect(content).toContain(`git -C ${REPO_ROOT} push origin feature-x`);
+  });
+
+  it("materializes AGENTS.md when AGENTS.md is a symlink in Codex worktree sessions", () => {
     const agentsPath = join(WORKTREE, "AGENTS.md");
     mockExistsSync.mockImplementation((path: string) => path === WORKTREE || path === agentsPath);
     mockLstatSync.mockImplementation((path?: string) => {
       if (path === agentsPath) return { isSymbolicLink: () => true };
       throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+    });
+    mockReadFileSync.mockImplementation((path?: string) => {
+      if (path === agentsPath) return "# Existing shared instructions";
+      return "";
     });
     mockSpawn.mockReturnValueOnce(createMockCodexProc());
 
@@ -1255,7 +1294,8 @@ describe("symlinkProjectSettings", () => {
     });
 
     const writeTargets = mockWriteFileSync.mock.calls.map((c: any[]) => String(c[0]));
-    expect(writeTargets.some((p) => p.endsWith("/AGENTS.md"))).toBe(false);
+    expect(mockUnlinkSync).toHaveBeenCalledWith(agentsPath);
+    expect(writeTargets.some((p) => p.endsWith("/AGENTS.md"))).toBe(true);
     expect(writeTargets.some((p) => p.endsWith("/.claude/CLAUDE.md"))).toBe(false);
   });
 });
