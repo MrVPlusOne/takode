@@ -4072,7 +4072,7 @@ describe("Diff stats computation", () => {
       if (cmd.includes("--git-common-dir")) return "/repo/.git\n";
       if (cmd.includes("--left-right --count")) return "0\t0\n";
       if (cmd.includes("merge-base")) throw new Error("should not call merge-base");
-      if (cmd.includes("git diff --numstat jiayi")) return "7\t2\tsrc/file.ts\n";
+      if (cmd.includes("diff --numstat jiayi")) return "7\t2\tsrc/file.ts\n";
       return "";
     });
 
