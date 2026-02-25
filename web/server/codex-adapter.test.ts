@@ -756,7 +756,7 @@ describe("CodexAdapter", () => {
     expect(onDisconnect).not.toHaveBeenCalled();
   });
 
-  it("attaches thinking_time_ms based on time since last user message", async () => {
+  it("measures thinking_time_ms per summary from the previous completed message", async () => {
     const messages: BrowserIncomingMessage[] = [];
     const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
     adapter.onBrowserMessage((msg) => messages.push(msg));
@@ -776,27 +776,46 @@ describe("CodexAdapter", () => {
     stdout.push(JSON.stringify({ id: 4, result: { turn: { id: "turn_1" } } }) + "\n");
     await new Promise((r) => setTimeout(r, 20));
 
+    // First reasoning summary arrives after a longer idle window from user send.
+    await new Promise((r) => setTimeout(r, 80));
     stdout.push(JSON.stringify({
       method: "item/started",
-      params: { item: { type: "reasoning", id: "r_t", summary: "Short summary" } },
+      params: { item: { type: "reasoning", id: "r_t1", summary: "First summary" } },
     }) + "\n");
-    await new Promise((r) => setTimeout(r, 15));
-
+    await new Promise((r) => setTimeout(r, 10));
     stdout.push(JSON.stringify({
       method: "item/completed",
-      params: { item: { type: "reasoning", id: "r_t", summary: "Short summary" } },
+      params: { item: { type: "reasoning", id: "r_t1", summary: "First summary" } },
+    }) + "\n");
+    await new Promise((r) => setTimeout(r, 30));
+
+    // Second reasoning summary arrives shortly after the first one completed.
+    await new Promise((r) => setTimeout(r, 20));
+    stdout.push(JSON.stringify({
+      method: "item/started",
+      params: { item: { type: "reasoning", id: "r_t2", summary: "Second summary" } },
+    }) + "\n");
+    await new Promise((r) => setTimeout(r, 10));
+    stdout.push(JSON.stringify({
+      method: "item/completed",
+      params: { item: { type: "reasoning", id: "r_t2", summary: "Second summary" } },
     }) + "\n");
     await new Promise((r) => setTimeout(r, 40));
 
-    const reasoningAssistant = messages.find((m) =>
+    const reasoningAssistants = messages.filter((m) =>
       m.type === "assistant"
       && (m as { message: { content: Array<{ type: string }> } }).message.content.some((b) => b.type === "thinking"),
-    ) as { message: { content: Array<{ type: string; thinking_time_ms?: number }> } } | undefined;
+    ) as Array<{ message: { content: Array<{ type: string; thinking_time_ms?: number }> } }>;
 
-    expect(reasoningAssistant).toBeDefined();
-    const thinkingBlock = reasoningAssistant!.message.content.find((b) => b.type === "thinking");
-    expect(typeof thinkingBlock?.thinking_time_ms).toBe("number");
-    expect((thinkingBlock?.thinking_time_ms ?? -1)).toBeGreaterThanOrEqual(0);
+    expect(reasoningAssistants.length).toBeGreaterThanOrEqual(2);
+    const firstThinking = reasoningAssistants[0].message.content.find((b) => b.type === "thinking");
+    const secondThinking = reasoningAssistants[1].message.content.find((b) => b.type === "thinking");
+    const firstMs = firstThinking?.thinking_time_ms ?? -1;
+    const secondMs = secondThinking?.thinking_time_ms ?? -1;
+
+    expect(firstMs).toBeGreaterThanOrEqual(60);
+    expect(secondMs).toBeGreaterThanOrEqual(10);
+    expect(secondMs).toBeLessThan(firstMs);
   });
 
   // ── Codex CLI enum values must be kebab-case (v0.99+) ─────────────────

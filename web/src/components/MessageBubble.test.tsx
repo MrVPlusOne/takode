@@ -274,7 +274,7 @@ describe("MessageBubble - assistant messages", () => {
     expect(screen.queryByText(thinkingText)).toBeNull();
   });
 
-  it("renders codex thinking summary inline and not collapsible", () => {
+  it("renders codex thinking summary as compact inline text and not collapsible", () => {
     const thinkingText = "This is a concise codex reasoning summary that should appear directly in the collapsed header.";
     const prevSessions = useStore.getState().sessions;
     const nextSessions = new Map(prevSessions);
@@ -290,7 +290,6 @@ describe("MessageBubble - assistant messages", () => {
       render(<MessageBubble message={msg} sessionId="codex-session" />);
 
       // Codex thinking summaries are rendered inline (not collapsed/toggleable).
-      expect(screen.getByText("Thinking summary")).toBeTruthy();
       expect(screen.getByText(/This is a concise codex reasoning summary/)).toBeTruthy();
       expect(screen.queryByText(`${thinkingText.length} chars`)).toBeNull();
       expect(screen.queryByRole("button", { name: /thinking/i })).toBeNull();
@@ -299,7 +298,7 @@ describe("MessageBubble - assistant messages", () => {
     }
   });
 
-  it("shows codex thinking time when provided", () => {
+  it("shows codex thinking time inline in compact mode", () => {
     const prevSessions = useStore.getState().sessions;
     const nextSessions = new Map(prevSessions);
     nextSessions.set("codex-session", { backend_type: "codex" } as any);
@@ -312,7 +311,28 @@ describe("MessageBubble - assistant messages", () => {
         contentBlocks: [{ type: "thinking", thinking: "Summary text", thinking_time_ms: 1200 }],
       });
       render(<MessageBubble message={msg} sessionId="codex-session" />);
-      expect(screen.getByText("• thinking time 1.2s")).toBeTruthy();
+      expect(screen.getByText("Summary text (1.2 s)")).toBeTruthy();
+      expect(screen.queryByText(/thinking time/i)).toBeNull();
+    } finally {
+      useStore.setState({ sessions: prevSessions });
+    }
+  });
+
+  it("strips outer markdown bold markers from codex thinking summary text", () => {
+    const prevSessions = useStore.getState().sessions;
+    const nextSessions = new Map(prevSessions);
+    nextSessions.set("codex-session", { backend_type: "codex" } as any);
+    useStore.setState({ sessions: nextSessions });
+
+    try {
+      const msg = makeMessage({
+        role: "assistant",
+        content: "",
+        contentBlocks: [{ type: "thinking", thinking: "**Checking route fields for reasoning effort**" }],
+      });
+      render(<MessageBubble message={msg} sessionId="codex-session" />);
+      expect(screen.getByText("Checking route fields for reasoning effort")).toBeTruthy();
+      expect(screen.queryByText("**Checking route fields for reasoning effort**")).toBeNull();
     } finally {
       useStore.setState({ sessions: prevSessions });
     }

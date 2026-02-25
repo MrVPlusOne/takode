@@ -389,8 +389,10 @@ export class CodexAdapter {
 
   // Accumulate reasoning text by item ID so we can emit final thinking blocks.
   private reasoningTextByItemId = new Map<string, string>();
-  private reasoningTimeFromLastUserByItemId = new Map<string, number>();
-  private lastUserMessageAt: number | null = null;
+  // Per reasoning item, capture elapsed time from previous completed message
+  // to the moment this reasoning summary first arrives.
+  private reasoningTimeFromLastMessageByItemId = new Map<string, number>();
+  private lastMessageFinishedAt: number | null = null;
 
   // Track which item IDs we have already emitted a tool_use block for.
   // When Codex auto-approves (approvalPolicy "never"), it may skip item/started
@@ -748,7 +750,8 @@ export class CodexAdapter {
   private async handleOutgoingUserMessage(
     msg: { type: "user_message"; content: string; images?: { media_type: string; data: string }[] },
   ): Promise<void> {
-    this.lastUserMessageAt = Date.now();
+    // User message is the latest completed message before Codex starts reasoning.
+    this.markMessageFinished(Date.now());
     if (!this.threadId) {
       this.emit({ type: "error", message: "No Codex thread started yet" });
       return;
@@ -1475,8 +1478,8 @@ export class CodexAdapter {
       case "reasoning": {
         const r = item as CodexReasoningItem;
         this.reasoningTextByItemId.set(item.id, r.summary || r.content || "");
-        if (typeof this.lastUserMessageAt === "number") {
-          this.reasoningTimeFromLastUserByItemId.set(item.id, Math.max(0, Date.now() - this.lastUserMessageAt));
+        if (typeof this.lastMessageFinishedAt === "number") {
+          this.reasoningTimeFromLastMessageByItemId.set(item.id, Math.max(0, Date.now() - this.lastMessageFinishedAt));
         }
         // Emit as thinking content block
         if (r.summary || r.content) {
@@ -1632,6 +1635,7 @@ export class CodexAdapter {
       case "agentMessage": {
         const agentMsg = item as CodexAgentMessageItem;
         const text = agentMsg.text || this.streamingText;
+        const completedAt = Date.now();
 
         // Emit message_stop for streaming
         this.emit({
@@ -1665,8 +1669,9 @@ export class CodexAdapter {
             usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
           },
           parent_tool_use_id: null,
-          timestamp: Date.now(),
+          timestamp: completedAt,
         });
+        this.markMessageFinished(completedAt);
 
         // Reset streaming state
         this.streamingText = "";
@@ -1751,9 +1756,11 @@ export class CodexAdapter {
         const bufferedText = toSafeText(this.reasoningTextByItemId.get(item.id)).trim();
         const fallbackText = toSafeText(r.summary ?? r.content ?? "").trim();
         const thinkingText = bufferedText || fallbackText;
-        let thinkingTimeMs = this.reasoningTimeFromLastUserByItemId.get(item.id);
-        if (thinkingTimeMs === undefined && typeof this.lastUserMessageAt === "number") {
-          thinkingTimeMs = Math.max(0, Date.now() - this.lastUserMessageAt);
+        const completedAt = Date.now();
+        let thinkingTimeMs = this.reasoningTimeFromLastMessageByItemId.get(item.id);
+        if (thinkingTimeMs === undefined && typeof this.lastMessageFinishedAt === "number") {
+          // Fallback when item/started was skipped: use completion arrival time.
+          thinkingTimeMs = Math.max(0, completedAt - this.lastMessageFinishedAt);
         }
 
         if (thinkingText) {
@@ -1769,12 +1776,13 @@ export class CodexAdapter {
               usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
             },
             parent_tool_use_id: null,
-            timestamp: Date.now(),
+            timestamp: completedAt,
           });
+          this.markMessageFinished(completedAt);
         }
 
         this.reasoningTextByItemId.delete(item.id);
-        this.reasoningTimeFromLastUserByItemId.delete(item.id);
+        this.reasoningTimeFromLastMessageByItemId.delete(item.id);
 
         // Close the thinking content block that was opened in handleItemStarted
         this.emit({
@@ -1986,6 +1994,10 @@ export class CodexAdapter {
 
   // ── Helpers ─────────────────────────────────────────────────────────────
 
+  private markMessageFinished(timestamp: number): void {
+    this.lastMessageFinishedAt = timestamp;
+  }
+
   private emit(msg: BrowserIncomingMessage): void {
     this.browserMessageCb?.(msg);
   }
@@ -2050,6 +2062,7 @@ export class CodexAdapter {
   /** Emit an assistant message with a tool_result content block. */
   private emitToolResult(toolUseId: string, content: unknown, isError: boolean): void {
     const safeContent = typeof content === "string" ? content : JSON.stringify(content);
+    const completedAt = Date.now();
     this.emit({
       type: "assistant",
       message: {
@@ -2069,8 +2082,9 @@ export class CodexAdapter {
         usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
       },
       parent_tool_use_id: null,
-      timestamp: Date.now(),
+      timestamp: completedAt,
     });
+    this.markMessageFinished(completedAt);
   }
 
   private makeMessageId(kind: string, sourceId?: string): string {
