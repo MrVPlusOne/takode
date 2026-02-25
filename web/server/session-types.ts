@@ -214,7 +214,7 @@ export type ContentBlock =
   | { type: "text"; text: string }
   | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
   | { type: "tool_result"; tool_use_id: string; content: string | ContentBlock[]; is_error?: boolean }
-  | { type: "thinking"; thinking: string; budget_tokens?: number };
+  | { type: "thinking"; thinking: string; budget_tokens?: number; thinking_time_ms?: number };
 
 // ─── Browser Message Types (browser <-> bridge) ──────────────────────────────
 

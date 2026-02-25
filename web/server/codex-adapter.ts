@@ -374,6 +374,8 @@ export class CodexAdapter {
 
   // Accumulate reasoning text by item ID so we can emit final thinking blocks.
   private reasoningTextByItemId = new Map<string, string>();
+  private reasoningTimeFromLastUserByItemId = new Map<string, number>();
+  private lastUserMessageAt: number | null = null;
 
   // Track which item IDs we have already emitted a tool_use block for.
   // When Codex auto-approves (approvalPolicy "never"), it may skip item/started
@@ -715,6 +717,7 @@ export class CodexAdapter {
   private async handleOutgoingUserMessage(
     msg: { type: "user_message"; content: string; images?: { media_type: string; data: string }[] },
   ): Promise<void> {
+    this.lastUserMessageAt = Date.now();
     if (!this.threadId) {
       this.emit({ type: "error", message: "No Codex thread started yet" });
       return;
@@ -1431,6 +1434,9 @@ export class CodexAdapter {
       case "reasoning": {
         const r = item as CodexReasoningItem;
         this.reasoningTextByItemId.set(item.id, r.summary || r.content || "");
+        if (typeof this.lastUserMessageAt === "number") {
+          this.reasoningTimeFromLastUserByItemId.set(item.id, Math.max(0, Date.now() - this.lastUserMessageAt));
+        }
         // Emit as thinking content block
         if (r.summary || r.content) {
           this.emit({
@@ -1704,6 +1710,10 @@ export class CodexAdapter {
         const bufferedText = toSafeText(this.reasoningTextByItemId.get(item.id)).trim();
         const fallbackText = toSafeText(r.summary ?? r.content ?? "").trim();
         const thinkingText = bufferedText || fallbackText;
+        let thinkingTimeMs = this.reasoningTimeFromLastUserByItemId.get(item.id);
+        if (thinkingTimeMs === undefined && typeof this.lastUserMessageAt === "number") {
+          thinkingTimeMs = Math.max(0, Date.now() - this.lastUserMessageAt);
+        }
 
         if (thinkingText) {
           this.emit({
@@ -1713,7 +1723,7 @@ export class CodexAdapter {
               type: "message",
               role: "assistant",
               model: this.options.model || "",
-              content: [{ type: "thinking", thinking: thinkingText }],
+              content: [{ type: "thinking", thinking: thinkingText, ...(thinkingTimeMs !== undefined ? { thinking_time_ms: thinkingTimeMs } : {}) }],
               stop_reason: null,
               usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
             },
@@ -1723,6 +1733,7 @@ export class CodexAdapter {
         }
 
         this.reasoningTextByItemId.delete(item.id);
+        this.reasoningTimeFromLastUserByItemId.delete(item.id);
 
         // Close the thinking content block that was opened in handleItemStarted
         this.emit({

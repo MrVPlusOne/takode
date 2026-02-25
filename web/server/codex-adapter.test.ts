@@ -756,6 +756,49 @@ describe("CodexAdapter", () => {
     expect(onDisconnect).not.toHaveBeenCalled();
   });
 
+  it("attaches thinking_time_ms based on time since last user message", async () => {
+    const messages: BrowserIncomingMessage[] = [];
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
+    adapter.onBrowserMessage((msg) => messages.push(msg));
+
+    await new Promise((r) => setTimeout(r, 50));
+    stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
+    await new Promise((r) => setTimeout(r, 20));
+    stdout.push(JSON.stringify({ id: 2, result: { thread: { id: "thr_123" } } }) + "\n");
+    await new Promise((r) => setTimeout(r, 50));
+
+    adapter.sendBrowserMessage({ type: "user_message", content: "Think about this" } as BrowserOutgoingMessage);
+    await new Promise((r) => setTimeout(r, 20));
+
+    // Resolve rateLimits/read + turn/start
+    stdout.push(JSON.stringify({ id: 3, result: {} }) + "\n");
+    await new Promise((r) => setTimeout(r, 10));
+    stdout.push(JSON.stringify({ id: 4, result: { turn: { id: "turn_1" } } }) + "\n");
+    await new Promise((r) => setTimeout(r, 20));
+
+    stdout.push(JSON.stringify({
+      method: "item/started",
+      params: { item: { type: "reasoning", id: "r_t", summary: "Short summary" } },
+    }) + "\n");
+    await new Promise((r) => setTimeout(r, 15));
+
+    stdout.push(JSON.stringify({
+      method: "item/completed",
+      params: { item: { type: "reasoning", id: "r_t", summary: "Short summary" } },
+    }) + "\n");
+    await new Promise((r) => setTimeout(r, 40));
+
+    const reasoningAssistant = messages.find((m) =>
+      m.type === "assistant"
+      && (m as { message: { content: Array<{ type: string }> } }).message.content.some((b) => b.type === "thinking"),
+    ) as { message: { content: Array<{ type: string; thinking_time_ms?: number }> } } | undefined;
+
+    expect(reasoningAssistant).toBeDefined();
+    const thinkingBlock = reasoningAssistant!.message.content.find((b) => b.type === "thinking");
+    expect(typeof thinkingBlock?.thinking_time_ms).toBe("number");
+    expect((thinkingBlock?.thinking_time_ms ?? -1)).toBeGreaterThanOrEqual(0);
+  });
+
   // ── Codex CLI enum values must be kebab-case (v0.99+) ─────────────────
   // Valid sandbox values: "read-only", "workspace-write", "danger-full-access"
   // Valid approvalPolicy values: "never", "untrusted", "on-failure", "on-request"

@@ -494,7 +494,7 @@ function ContentBlockRenderer({ block, sessionId }: { block: ContentBlock; sessi
   }
 
   if (block.type === "thinking") {
-    return <ThinkingBlock text={block.thinking} isCodex={isCodex} />;
+    return <ThinkingBlock text={block.thinking} thinkingTimeMs={block.thinking_time_ms} isCodex={isCodex} />;
   }
 
   if (block.type === "tool_use") {
@@ -557,14 +557,34 @@ function ToolGroupBlock({ name, items, sessionId }: { name: string; items: ToolG
   );
 }
 
-function ThinkingBlock({ text, isCodex }: { text: string; isCodex: boolean }) {
+function formatThinkingTime(thinkingTimeMs?: number): string | null {
+  if (typeof thinkingTimeMs !== "number" || thinkingTimeMs < 0) return null;
+  if (thinkingTimeMs < 1000) return `${thinkingTimeMs}ms`;
+  return `${(thinkingTimeMs / 1000).toFixed(1)}s`;
+}
+
+function ThinkingBlock({ text, thinkingTimeMs, isCodex }: { text: string; thinkingTimeMs?: number; isCodex: boolean }) {
   const [open, setOpen] = useState(false);
   const headerRef = useRef<HTMLButtonElement>(null);
-  const preview = useMemo(() => {
-    const oneLine = text.replace(/\s+/g, " ").trim();
-    if (oneLine.length <= 90) return oneLine;
-    return `${oneLine.slice(0, 87)}...`;
-  }, [text]);
+  const thinkingTimeLabel = formatThinkingTime(thinkingTimeMs);
+
+  if (isCodex) {
+    return (
+      <div className="rounded-[10px] border border-cc-border bg-cc-card/60 px-3 py-2">
+        <div className="flex items-center gap-1.5 mb-1">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5 text-cc-muted/80">
+            <path d="M8 2.5a4 4 0 014 4c0 1.4-.7 2.5-1.7 3.2-.5.3-.8.9-.8 1.5V12H6.5v-.8c0-.6-.3-1.2-.8-1.5A3.9 3.9 0 014 6.5a4 4 0 014-4z" />
+            <path d="M6.2 13.5h3.6M6.7 15h2.6" strokeLinecap="round" />
+          </svg>
+          <span className="text-[11px] text-cc-muted font-medium">Thinking summary</span>
+          {thinkingTimeLabel && <span className="text-[11px] text-cc-muted/70">• thinking time {thinkingTimeLabel}</span>}
+        </div>
+        <div className="text-[13px] sm:text-[14px]">
+          <MarkdownContent text={text} />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="border border-cc-border rounded-[10px] overflow-hidden">
@@ -580,14 +600,8 @@ function ThinkingBlock({ text, isCodex }: { text: string; isCodex: boolean }) {
         >
           <path d="M6 4l4 4-4 4" />
         </svg>
-        {isCodex && !open ? (
-          <span className="font-medium truncate min-w-0">{preview || "Thinking"}</span>
-        ) : (
-          <>
-            <span className="font-medium">Thinking</span>
-            <span className="text-cc-muted/60">{text.length} chars</span>
-          </>
-        )}
+        <span className="font-medium">Thinking</span>
+        <span className="text-cc-muted/60">{text.length} chars</span>
       </button>
       {open && (
         <div className="px-3 pb-3 pt-0">

@@ -274,7 +274,7 @@ describe("MessageBubble - assistant messages", () => {
     expect(screen.queryByText(thinkingText)).toBeNull();
   });
 
-  it("shows codex thinking summary preview when collapsed", () => {
+  it("renders codex thinking summary inline and not collapsible", () => {
     const thinkingText = "This is a concise codex reasoning summary that should appear directly in the collapsed header.";
     const prevSessions = useStore.getState().sessions;
     const nextSessions = new Map(prevSessions);
@@ -289,9 +289,30 @@ describe("MessageBubble - assistant messages", () => {
       });
       render(<MessageBubble message={msg} sessionId="codex-session" />);
 
-      // Collapsed codex thinking should show summary text, not generic char-count metadata.
+      // Codex thinking summaries are rendered inline (not collapsed/toggleable).
+      expect(screen.getByText("Thinking summary")).toBeTruthy();
       expect(screen.getByText(/This is a concise codex reasoning summary/)).toBeTruthy();
       expect(screen.queryByText(`${thinkingText.length} chars`)).toBeNull();
+      expect(screen.queryByRole("button", { name: /thinking/i })).toBeNull();
+    } finally {
+      useStore.setState({ sessions: prevSessions });
+    }
+  });
+
+  it("shows codex thinking time when provided", () => {
+    const prevSessions = useStore.getState().sessions;
+    const nextSessions = new Map(prevSessions);
+    nextSessions.set("codex-session", { backend_type: "codex" } as any);
+    useStore.setState({ sessions: nextSessions });
+
+    try {
+      const msg = makeMessage({
+        role: "assistant",
+        content: "",
+        contentBlocks: [{ type: "thinking", thinking: "Summary text", thinking_time_ms: 1200 }],
+      });
+      render(<MessageBubble message={msg} sessionId="codex-session" />);
+      expect(screen.getByText("• thinking time 1.2s")).toBeTruthy();
     } finally {
       useStore.setState({ sessions: prevSessions });
     }
