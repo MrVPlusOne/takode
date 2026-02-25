@@ -823,18 +823,9 @@ export class WsBridge {
     if (!cwd || !ref) return false;
 
     try {
-      // Compute merge-base to diff against (async).
-      // Skip merge-base for commit SHAs — diff directly against the exact commit.
-      let diffBase = ref;
-      if (!/^[0-9a-f]{7,40}$/.test(ref)) {
-        try {
-          const { stdout } = await execPromise(`git merge-base ${ref} HEAD`, { cwd, timeout: GIT_CMD_TIMEOUT });
-          const mergeBase = stdout.trim();
-          if (mergeBase) diffBase = mergeBase;
-        } catch { /* no common ancestor — use branch name directly */ }
-      }
-
-      const cmd = `git diff --numstat ${diffBase}`;
+      // Compare directly against the selected base ref tip.
+      // Using merge-base inflates diff totals after cherry-picks.
+      const cmd = `git diff --numstat ${ref}`;
       // Generous timeout — large repos on NFS can be slow, and this runs in the background
       const { stdout } = await execPromise(cmd, { cwd, timeout: GIT_CMD_TIMEOUT });
       const raw = stdout.trim();

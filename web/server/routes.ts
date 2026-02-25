@@ -54,11 +54,6 @@ function execCaptureStdout(
   }
 }
 
-/** Check if a ref looks like a commit SHA (7-40 hex chars). */
-function looksLikeSha(ref: string): boolean {
-  return /^[0-9a-f]{7,40}$/.test(ref);
-}
-
 const execPromise = promisify(execCb);
 
 /** Non-blocking exec — runs a shell command without stalling the event loop. */
@@ -77,18 +72,6 @@ async function execCaptureStdoutAsync(command: string, cwd: string): Promise<str
     if (typeof maybe.stdout === "string") return maybe.stdout.trim();
     throw err;
   }
-}
-
-/** Resolve the commit to diff against (merge-base of baseBranch and HEAD). */
-async function resolveDiffBaseAsync(repoRoot: string, baseBranch: string): Promise<string> {
-  if (looksLikeSha(baseBranch)) return baseBranch;
-  try {
-    const mergeBase = await execAsync(`git --no-optional-locks merge-base ${baseBranch} HEAD`, repoRoot);
-    if (mergeBase) return mergeBase;
-  } catch {
-    // No common ancestor — fall back to branch name directly
-  }
-  return baseBranch;
 }
 
 export function createRoutes(
@@ -1704,11 +1687,11 @@ export function createRoutes(
       const repoRoot = await execAsync("git rev-parse --show-toplevel", dirname(absPath));
       const relPath = (await execAsync(`git -C "${repoRoot}" ls-files --full-name -- "${absPath}"`, repoRoot)) || absPath;
 
-      const diffBase = await resolveDiffBaseAsync(repoRoot, base);
-
       let diff = "";
       try {
-        diff = await execCaptureStdoutAsync(`git diff ${diffBase} -- "${relPath}"`, repoRoot);
+        // Compare directly to the selected base ref tip. Using merge-base here
+        // makes cherry-picked commits appear as unsynced in the UI.
+        diff = await execCaptureStdoutAsync(`git diff ${base} -- "${relPath}"`, repoRoot);
       } catch {
         // Base ref unavailable — leave diff empty
       }
@@ -1741,8 +1724,6 @@ export function createRoutes(
     }
     const repoRoot = resolve(body.repoRoot);
     try {
-      const diffBase = await resolveDiffBaseAsync(repoRoot, body.base);
-
       // git diff --numstat returns: "additions\tdeletions\tfilepath" per line
       const rootPrefix = `${repoRoot}/`;
       const relFiles = body.files.map((f) =>
@@ -1750,7 +1731,7 @@ export function createRoutes(
       );
       const fileArgs = relFiles.map((f) => `"${f}"`).join(" ");
       const raw = await execCaptureStdoutAsync(
-        `git diff --numstat ${diffBase} -- ${fileArgs}`,
+        `git diff --numstat ${body.base} -- ${fileArgs}`,
         repoRoot,
       );
 

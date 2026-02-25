@@ -3986,6 +3986,30 @@ describe("Tool call duration tracking", () => {
 // ─── Diff stats computation and dirty flag ──────────────────────────────────
 
 describe("Diff stats computation", () => {
+  it("computeDiffStats: compares directly to the configured base ref", async () => {
+    bridge.markWorktree("s1", "/repo", "/tmp/wt", "main");
+    const session = bridge.getSession("s1")!;
+    session.state.cwd = "/tmp/wt";
+    (session as any).cliSocket = { send: vi.fn() };
+
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd.includes("--abbrev-ref HEAD")) return "feat-wt-1234\n";
+      if (cmd.includes("--git-dir")) return "/repo/.git/worktrees/feat-wt-1234\n";
+      if (cmd.includes("--git-common-dir")) return "/repo/.git\n";
+      if (cmd.includes("--left-right --count")) return "0\t0\n";
+      if (cmd.includes("merge-base")) throw new Error("should not call merge-base");
+      if (cmd.includes("git diff --numstat jiayi")) return "7\t2\tsrc/file.ts\n";
+      return "";
+    });
+
+    bridge.setDiffBaseBranch("s1", "jiayi");
+
+    await vi.waitFor(() => {
+      expect(session.state.total_lines_added).toBe(7);
+      expect(session.state.total_lines_removed).toBe(2);
+    });
+  });
+
   it("computeDiffStats: parses git diff --numstat output correctly", async () => {
     // Set up a session with diff_base_branch and tracked files
     mockExecSync.mockImplementation((cmd: string) => {

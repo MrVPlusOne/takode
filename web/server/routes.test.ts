@@ -1741,22 +1741,23 @@ describe("GET /api/fs/diff", () => {
     expect(json).toEqual({ error: "base branch required" });
   });
 
-  it("returns unified diff for a file using merge-base", async () => {
-    // Validates that /api/fs/diff uses merge-base of the provided base branch and HEAD.
+  it("returns unified diff for a file against base branch tip", async () => {
+    // Validate direct base-vs-HEAD comparison so cherry-picked commits do not
+    // appear as unsynced local changes.
     const diffOutput = `diff --git a/file.ts b/file.ts
 --- a/file.ts
 +++ b/file.ts
 @@ -1,3 +1,3 @@
- line1
+line1
 -old line
 +new line
- line3`;
+line3`;
     vi.mocked(execSync).mockImplementation((cmd: string) => {
       if (typeof cmd !== "string") throw new Error("non-string cmd");
       if (cmd.includes("rev-parse --show-toplevel")) return "/repo\n";
       if (cmd.includes("ls-files --full-name")) return "file.ts\n";
-      if (cmd.includes("merge-base main HEAD")) return "abc123\n";
-      if (cmd.includes("git diff abc123")) return diffOutput;
+      if (cmd.includes("merge-base")) throw new Error("should not call merge-base");
+      if (cmd.includes("git diff main")) return diffOutput;
       throw new Error(`Unmocked: ${cmd}`);
     });
 
@@ -1768,10 +1769,7 @@ describe("GET /api/fs/diff", () => {
     expect(json.path).toContain("file.ts");
     expect(json.baseBranch).toBe("main");
     expect(vi.mocked(execSync)).toHaveBeenCalledWith(
-      expect.stringContaining("git --no-optional-locks merge-base main HEAD"),
-    );
-    expect(vi.mocked(execSync)).toHaveBeenCalledWith(
-      expect.stringContaining("git diff abc123"),
+      expect.stringContaining("git diff main"),
     );
   });
 
@@ -1789,8 +1787,8 @@ index 0000000..e69de29
       if (typeof cmd !== "string") throw new Error("non-string cmd");
       if (cmd.includes("rev-parse --show-toplevel")) return "/repo\n";
       if (cmd.includes("ls-files --full-name")) return "new.txt\n";
-      if (cmd.includes("merge-base main HEAD")) return "abc123\n";
-      if (cmd.includes("git diff abc123")) return "";
+      if (cmd.includes("merge-base")) throw new Error("should not call merge-base");
+      if (cmd.includes("git diff main")) return "";
       if (cmd.includes("ls-files --others --exclude-standard")) return "new.txt\n";
       if (cmd.includes("diff --no-index")) {
         const err = new Error("diff exits with 1 for differences") as Error & { stdout: string };
@@ -1810,31 +1808,6 @@ index 0000000..e69de29
     );
   });
 
-  it("falls back to branch name when merge-base fails", async () => {
-    // When merge-base fails (no common ancestor), falls back to diffing against the branch name directly.
-    const diffOutput = `diff --git a/file.ts b/file.ts
---- a/file.ts
-+++ b/file.ts
-@@ -1,2 +1,3 @@
- line1
-+added`;
-    vi.mocked(execSync).mockImplementation((cmd: string) => {
-      if (typeof cmd !== "string") throw new Error("non-string cmd");
-      if (cmd.includes("rev-parse --show-toplevel")) return "/repo\n";
-      if (cmd.includes("ls-files --full-name")) return "file.ts\n";
-      if (cmd.includes("merge-base main HEAD")) throw new Error("fatal: no merge base found");
-      if (cmd.includes("git diff main")) return diffOutput;
-      throw new Error(`Unmocked: ${cmd}`);
-    });
-
-    const res = await app.request("/api/fs/diff?path=/repo/file.ts&base=main", { method: "GET" });
-
-    expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json.diff).toBe(diffOutput);
-    expect(json.baseBranch).toBe("main");
-  });
-
   it("uses user-specified base branch for diff comparison", async () => {
     // The ?base= query param specifies the base branch for diff comparison.
     const diffOutput = `diff --git a/file.ts b/file.ts
@@ -1847,8 +1820,8 @@ index 0000000..e69de29
       if (typeof cmd !== "string") throw new Error("non-string cmd");
       if (cmd.includes("rev-parse --show-toplevel")) return "/repo\n";
       if (cmd.includes("ls-files --full-name")) return "file.ts\n";
-      if (cmd.includes("merge-base develop HEAD")) return "def456\n";
-      if (cmd.includes("git diff def456")) return diffOutput;
+      if (cmd.includes("merge-base")) throw new Error("should not call merge-base");
+      if (cmd.includes("git diff develop")) return diffOutput;
       throw new Error(`Unmocked: ${cmd}`);
     });
 
@@ -1859,7 +1832,7 @@ index 0000000..e69de29
     expect(json.diff).toBe(diffOutput);
     expect(json.baseBranch).toBe("develop");
     expect(vi.mocked(execSync)).toHaveBeenCalledWith(
-      expect.stringContaining("git --no-optional-locks merge-base develop HEAD"),
+      expect.stringContaining("git diff develop"),
     );
   });
 
@@ -1874,6 +1847,37 @@ index 0000000..e69de29
     const json = await res.json();
     expect(json.diff).toBe("");
     expect(json.path).toContain("file.ts");
+  });
+});
+
+describe("POST /api/fs/diff-stats", () => {
+  it("computes stats against the selected base branch tip", async () => {
+    vi.mocked(execSync).mockImplementation((cmd: string) => {
+      if (typeof cmd !== "string") throw new Error("non-string cmd");
+      if (cmd.includes("merge-base")) throw new Error("should not call merge-base");
+      if (cmd.includes("git diff --numstat jiayi --")) {
+        return "10\t3\tsrc/a.ts\n1\t0\tsrc/b.ts\n";
+      }
+      throw new Error(`Unmocked: ${cmd}`);
+    });
+
+    const res = await app.request("/api/fs/diff-stats", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        repoRoot: "/repo",
+        base: "jiayi",
+        files: ["/repo/src/a.ts", "/repo/src/b.ts"],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.baseBranch).toBe("jiayi");
+    expect(json.stats).toEqual({
+      "/repo/src/a.ts": { additions: 10, deletions: 3 },
+      "/repo/src/b.ts": { additions: 1, deletions: 0 },
+    });
   });
 });
 
