@@ -231,9 +231,10 @@ quest claim  <id> [--session <sid>] [--json]                  Claim for your ses
 quest complete <id> --items "c1,c2" [--json]                  Submit for verification
 quest done   <id> [--notes "..."] [--cancelled] [--json]      Mark as done/cancelled
 quest transition <id> --status <s> [--desc "..."] [--json]    Change status
-quest edit   <id> [--title "..."] [--desc "..."] [--json]     Edit in place (NEVER use to create)
+quest edit   <id> [--title "..."] [--desc "..."] [--tags "t1,t2"] [--json]     Edit in place (NEVER use to create)
 quest check  <id> <index> [--json]                            Toggle verification item
 quest feedback <id> --text "..." [--author agent|human] [--json]  Add feedback entry
+quest address <id> <index> [--json]                          Toggle feedback addressed status
 quest delete <id> [--json]                                    Delete quest
 \`\`\`
 
@@ -243,12 +244,14 @@ When the user asks you to work on a quest — whether via the Companion "Assign"
 
 1. **Read and verify**: \`quest show q-N\` — understand the full scope. **Verify the title matches what you expect.** If the quest title/description doesn't match the task you were asked to work on, STOP — you may have the wrong quest ID. If the quest has a **Feedback** section, read it carefully — these are review comments from the human that must be addressed.
 2. **Claim immediately**: \`quest claim q-N\` — always claim first, regardless of the quest's current status. This links it to your session. If this fails because another session already claimed it, **STOP and tell the user** — do not proceed.
-3. **Polish** (if title/description/tags need cleanup):
-   - Ask the user clarifying questions if the quest is ambiguous or underspecified
-   - Run \`quest tags\` to see existing tags
-   - \`quest edit q-N --title "..." --desc "..." --tags "t1,t2"\`
-   - Title: concise, under 10 words. Move detail to description.
-   - Reuse existing tags. Only create new ones when no existing tag fits.
+3. **Polish metadata (required before coding)**:
+   - Always do a quick metadata pass, even if it already looks good.
+   - Ask the user clarifying questions if the quest is ambiguous or underspecified.
+   - Run \`quest tags\` to reuse existing tags.
+   - Apply updates with \`quest edit q-N --title "..." --desc "..." --tags "t1,t2"\`.
+   - Immediately re-run \`quest show q-N\` and verify the final title/description/tags are clean.
+   - Title rule: concise, under 10 words. Move details to description.
+   - Reuse existing tags. Only create new tags when no existing tag fits.
 4. **Work**: Implement the changes. Use TodoWrite for sub-step tracking if needed.
 5. **Self-check**: Before submitting, verify everything you can yourself (tests, typecheck, code review). Do not include self-verifiable items in the verification checklist.
 6. **Submit**: \`quest complete q-N --items "..."\` — only list items that truly require human verification (UI appearance, UX feel, edge cases needing judgment). Keep items concise — one short sentence each, scannable at a glance.
@@ -295,12 +298,14 @@ idea → refined → in_progress → needs_verification → done
 
 ### refined → in_progress
 - The quest should already be claimed (claiming is always the first step when assigned).
-- Polish title/description/tags if still needed (same rules as above).
+- Metadata polish is mandatory before implementation (same rules as above), then start coding.
 
 ### in_progress → needs_verification
 - Is the implementation actually complete?
 - Run tests, typecheck, linting yourself first.
 - **If reworking a quest with existing feedback**: before submitting, reply to the feedback thread explaining what you did. Use \`quest feedback q-N --text "Addressed: fixed mobile layout with flex-wrap, clarified error messages"\`. Be concise — summarize what changed, don't repeat the original feedback.
+- **Then mark each addressed human feedback entry** with \`quest address q-N <index>\`. This command toggles state, so run \`quest show q-N\` after each toggle and confirm the entry now shows \`addressed\` (do not toggle entries already addressed).
+- Do not claim feedback was addressed unless both happened: (1) you posted the agent reply with \`quest feedback\`, and (2) the corresponding human feedback entries are marked addressed.
 - \`quest complete --items "..."\` — only include items requiring **human** verification. Update the checklist to reflect the new state (e.g. items that were previously failing may need re-verification). Keep each item to one short sentence.
 
 ### needs_verification → done
@@ -310,6 +315,7 @@ idea → refined → in_progress → needs_verification → done
 
 ### needs_verification → in_progress (rework)
 - Human found issues and left feedback. Run \`quest show q-N\` and read the full feedback thread before resuming work. Address every point raised.
+- Before re-submitting, ensure resolved human feedback entries are marked addressed with \`quest address\`.
 `;
 
   writeFileSync(skillPath, content, "utf-8");

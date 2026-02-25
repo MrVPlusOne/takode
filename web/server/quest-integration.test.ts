@@ -39,6 +39,20 @@ describe("ensureQuestmasterIntegration", () => {
     );
   });
 
+  it("includes explicit feedback-addressing workflow in generated skill", () => {
+    ensureQuestmasterIntegration(3456, "/repo/web");
+
+    const codexSkillWrite = fsMocks.writeFileSync.mock.calls.find(
+      (call) => call[0] === "/home/tester/.codex/skills/quest/SKILL.md",
+    );
+    expect(codexSkillWrite).toBeDefined();
+
+    const skill = String(codexSkillWrite?.[1] ?? "");
+    expect(skill).toContain("quest address <id> <index> [--json]");
+    expect(skill).toContain("Then mark each addressed human feedback entry");
+    expect(skill).toContain("Do not claim feedback was addressed unless both happened");
+  });
+
   it("writes a quest wrapper that falls back to $HOME/.bun/bin/bun", () => {
     ensureQuestmasterIntegration(3456, "/repo/web");
 
