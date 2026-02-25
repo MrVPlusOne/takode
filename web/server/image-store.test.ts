@@ -22,9 +22,9 @@ afterEach(() => {
 });
 
 describe("ImageStore", () => {
-  // Tests that store() saves original and thumbnail files to disk,
+  // Tests that store() saves original, thumbnail, and transport files to disk,
   // returning a valid ImageRef with a unique imageId.
-  it("store() writes original and thumbnail files", async () => {
+  it("store() writes original, thumbnail, and transport files", async () => {
     const ref = await store.store("sess-1", TINY_PNG_BASE64, "image/png");
 
     expect(ref.imageId).toBeTruthy();
@@ -41,6 +41,12 @@ describe("ImageStore", () => {
     expect(thumbPath).toBeTruthy();
     expect(thumbPath!.endsWith(".thumb.jpeg")).toBe(true);
     expect(existsSync(thumbPath!)).toBe(true);
+
+    // Transport image should exist
+    const transportPath = await store.getTransportPath("sess-1", ref.imageId);
+    expect(transportPath).toBeTruthy();
+    expect(transportPath!.endsWith(".transport.jpeg")).toBe(true);
+    expect(existsSync(transportPath!)).toBe(true);
 
     // Original should be the decoded base64 content
     const origContent = readFileSync(origPath!);
@@ -64,9 +70,9 @@ describe("ImageStore", () => {
     expect(existsSync(join(tempDir, "sess-a"))).toBe(true);
     expect(existsSync(join(tempDir, "sess-b"))).toBe(true);
 
-    // Each session dir should have 2 files (orig + thumb)
-    expect(readdirSync(join(tempDir, "sess-a")).length).toBe(2);
-    expect(readdirSync(join(tempDir, "sess-b")).length).toBe(2);
+    // Each session dir should have 3 files (orig + thumb + transport)
+    expect(readdirSync(join(tempDir, "sess-a")).length).toBe(3);
+    expect(readdirSync(join(tempDir, "sess-b")).length).toBe(3);
   });
 
   // Tests that getOriginalPath returns null for nonexistent images
@@ -77,6 +83,11 @@ describe("ImageStore", () => {
   // Tests that getThumbnailPath returns null for nonexistent images
   it("getThumbnailPath() returns null for unknown image", async () => {
     expect(await store.getThumbnailPath("no-session", "no-image")).toBeNull();
+  });
+
+  // Tests that getTransportPath returns null for nonexistent images
+  it("getTransportPath() returns null for unknown image", async () => {
+    expect(await store.getTransportPath("no-session", "no-image")).toBeNull();
   });
 
   // Tests that removeSession cleans up the entire session directory

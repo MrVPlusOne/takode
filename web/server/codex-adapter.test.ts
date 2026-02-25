@@ -3227,4 +3227,51 @@ describe("interrupt before new turn/start", () => {
       vi.useRealTimers();
     }
   });
+
+  it("serializes rapid user_message sends so turn/start does not overlap", async () => {
+    // Two quick user messages must not race into concurrent turn/start RPCs.
+    // The second message should wait until the first turn has a turnId, then
+    // interrupt/complete that turn before starting the next one.
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini", cwd: "/tmp" });
+    await new Promise((r) => setTimeout(r, 50));
+    stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
+    await new Promise((r) => setTimeout(r, 20));
+    stdout.push(JSON.stringify({ id: 2, result: { thread: { id: "thr_123" } } }) + "\n");
+    await new Promise((r) => setTimeout(r, 50));
+
+    stdin.chunks = [];
+
+    adapter.sendBrowserMessage({ type: "user_message", content: "first rapid" } as BrowserOutgoingMessage);
+    adapter.sendBrowserMessage({ type: "user_message", content: "second rapid" } as BrowserOutgoingMessage);
+    await new Promise((r) => setTimeout(r, 40));
+
+    const earlyWrites = stdin.chunks.join("");
+    const earlyTurnStarts = (earlyWrites.match(/\"method\":\"turn\/start\"/g) || []).length;
+    expect(earlyTurnStarts).toBe(1);
+    expect(earlyWrites).toContain("\"text\":\"first rapid\"");
+    expect(earlyWrites).not.toContain("\"text\":\"second rapid\"");
+
+    // Complete rateLimits/read + first turn/start so the queued second message can continue.
+    stdout.push(JSON.stringify({ id: 3, result: {} }) + "\n");
+    stdout.push(JSON.stringify({ id: 4, result: { turn: { id: "turn_first" } } }) + "\n");
+    await new Promise((r) => setTimeout(r, 40));
+
+    const midWrites = stdin.chunks.join("");
+    expect(midWrites).toContain("\"method\":\"turn/interrupt\"");
+    expect(midWrites).toContain("\"turnId\":\"turn_first\"");
+
+    // Resolve interrupt, then complete the first turn to allow second turn/start.
+    stdout.push(JSON.stringify({ id: 5, result: {} }) + "\n");
+    await new Promise((r) => setTimeout(r, 20));
+    stdout.push(JSON.stringify({
+      method: "turn/completed",
+      params: { turn: { id: "turn_first", status: "interrupted", items: [], error: null } },
+    }) + "\n");
+    await new Promise((r) => setTimeout(r, 80));
+
+    const finalWrites = stdin.chunks.join("");
+    const finalTurnStarts = (finalWrites.match(/\"method\":\"turn\/start\"/g) || []).length;
+    expect(finalTurnStarts).toBe(2);
+    expect(finalWrites).toContain("\"text\":\"second rapid\"");
+  });
 });

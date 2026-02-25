@@ -540,6 +540,8 @@ export class CodexAdapter {
 
   // Queue messages received before initialization completes
   private pendingOutgoing: BrowserOutgoingMessage[] = [];
+  // Serialize async outgoing dispatch so permission/interrupt/user turns can't overlap.
+  private outgoingDispatchChain: Promise<void> = Promise.resolve();
 
   // Pending approval requests (Codex sends these as JSON-RPC requests with an id)
   private pendingApprovals = new Map<string, number>(); // request_id -> JSON-RPC id
@@ -691,13 +693,13 @@ export class CodexAdapter {
   private dispatchOutgoing(msg: BrowserOutgoingMessage): boolean {
     switch (msg.type) {
       case "user_message":
-        this.handleOutgoingUserMessage(msg);
+        this.enqueueOutgoingDispatch("user_message", () => this.handleOutgoingUserMessage(msg));
         return true;
       case "permission_response":
-        this.handleOutgoingPermissionResponse(msg);
+        this.enqueueOutgoingDispatch("permission_response", () => this.handleOutgoingPermissionResponse(msg));
         return true;
       case "interrupt":
-        this.handleOutgoingInterrupt();
+        this.enqueueOutgoingDispatch("interrupt", () => this.handleOutgoingInterrupt());
         return true;
       case "set_model":
         console.warn("[codex-adapter] Runtime model switching not supported by Codex");
@@ -706,20 +708,31 @@ export class CodexAdapter {
         console.warn("[codex-adapter] Runtime permission mode switching not supported by Codex");
         return false;
       case "mcp_get_status":
-        this.handleOutgoingMcpGetStatus();
+        this.enqueueOutgoingDispatch("mcp_get_status", () => this.handleOutgoingMcpGetStatus());
         return true;
       case "mcp_toggle":
-        this.handleOutgoingMcpToggle(msg.serverName, msg.enabled);
+        this.enqueueOutgoingDispatch("mcp_toggle", () => this.handleOutgoingMcpToggle(msg.serverName, msg.enabled));
         return true;
       case "mcp_reconnect":
-        this.handleOutgoingMcpReconnect();
+        this.enqueueOutgoingDispatch("mcp_reconnect", () => this.handleOutgoingMcpReconnect());
         return true;
       case "mcp_set_servers":
-        this.handleOutgoingMcpSetServers(msg.servers);
+        this.enqueueOutgoingDispatch("mcp_set_servers", () => this.handleOutgoingMcpSetServers(msg.servers));
         return true;
       default:
         return false;
     }
+  }
+
+  private enqueueOutgoingDispatch(
+    label: string,
+    run: () => Promise<void>,
+  ): void {
+    this.outgoingDispatchChain = this.outgoingDispatchChain
+      .then(run)
+      .catch((err) => {
+        console.warn(`[codex-adapter] Outgoing dispatch failed (${label}) for session ${this.sessionId}:`, err);
+      });
   }
 
   onBrowserMessage(cb: (msg: BrowserIncomingMessage) => void): void {

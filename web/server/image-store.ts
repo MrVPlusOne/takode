@@ -66,6 +66,7 @@ export class ImageStore {
     const imageId = `${Date.now()}-${this.counter++}-${randomBytes(3).toString("hex")}`;
     const originalPath = join(dir, `${imageId}.orig.${ext}`);
     const thumbPath = join(dir, `${imageId}.thumb.jpeg`);
+    const transportPath = join(dir, `${imageId}.transport.jpeg`);
 
     const buffer = Buffer.from(base64Data, "base64");
     await writeFile(originalPath, buffer);
@@ -79,6 +80,20 @@ export class ImageStore {
         .toFile(thumbPath);
     } catch (err) {
       console.warn(`[image-store] Failed to generate thumbnail for ${imageId}:`, err);
+    }
+
+    // Generate a normalized transport image for Codex localImage turns:
+    // JPEG + bounded dimensions to avoid decoder/runtime instability with
+    // high-resolution originals and varied source formats.
+    try {
+      await sharp(buffer)
+        .rotate()
+        .resize({ width: TRANSPORT_MAX_DIM, height: TRANSPORT_MAX_DIM, fit: "inside", withoutEnlargement: true })
+        .flatten({ background: "#ffffff" })
+        .jpeg({ quality: TRANSPORT_JPEG_QUALITY })
+        .toFile(transportPath);
+    } catch (err) {
+      console.warn(`[image-store] Failed to generate transport image for ${imageId}:`, err);
     }
 
     return { imageId, media_type: mediaType };
@@ -100,6 +115,17 @@ export class ImageStore {
   /** Get the disk path for a thumbnail, or null if not found. */
   async getThumbnailPath(sessionId: string, imageId: string): Promise<string | null> {
     const path = join(this.sessionDir(sessionId), `${imageId}.thumb.jpeg`);
+    try {
+      await access(path);
+      return path;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Get the normalized transport image path, or null if unavailable. */
+  async getTransportPath(sessionId: string, imageId: string): Promise<string | null> {
+    const path = join(this.sessionDir(sessionId), `${imageId}.transport.jpeg`);
     try {
       await access(path);
       return path;

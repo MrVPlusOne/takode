@@ -2772,13 +2772,18 @@ export class WsBridge {
 
         if (this.imageStore && userImageRefs?.length === msg.images.length) {
           const paths: string[] = [];
+          const imageStoreForCodex = this.imageStore as ImageStore & {
+            getTransportPath?: (sessionId: string, imageId: string) => Promise<string | null>;
+          };
           for (const ref of userImageRefs) {
-            const originalPath = await this.imageStore.getOriginalPath(session.id, ref.imageId);
-            if (!originalPath) {
+            const transportPath = imageStoreForCodex.getTransportPath
+              ? await imageStoreForCodex.getTransportPath(session.id, ref.imageId)
+              : null;
+            if (!transportPath) {
               paths.length = 0;
               break;
             }
-            paths.push(originalPath);
+            paths.push(transportPath);
           }
           if (paths.length === msg.images.length) localImagePaths = paths;
         }

@@ -4993,10 +4993,10 @@ describe("Codex image transport", () => {
   it("sends local image paths to Codex when stored originals are available", async () => {
     const adapter = makeCodexAdapterMock();
 
-    // Create a mock imageStore that can resolve local original paths.
+    // Create a mock imageStore that can resolve normalized transport paths.
     const mockImageStore = {
       store: vi.fn().mockResolvedValue({ imageId: "img-1", media_type: "image/png" }),
-      getOriginalPath: vi.fn().mockResolvedValue("/tmp/companion-images/img-1.orig.png"),
+      getTransportPath: vi.fn().mockResolvedValue("/tmp/companion-images/img-1.transport.jpeg"),
       compressForTransport: vi.fn().mockResolvedValue({
         base64: "compressed-base64-data",
         mediaType: "image/jpeg",
@@ -5018,7 +5018,7 @@ describe("Codex image transport", () => {
     // Adapter should receive local paths and skip inline payload compression.
     expect(adapter.sendBrowserMessage).toHaveBeenCalled();
     const sentMsg = adapter.sendBrowserMessage.mock.calls[0][0];
-    expect(sentMsg.local_images).toEqual(["/tmp/companion-images/img-1.orig.png"]);
+    expect(sentMsg.local_images).toEqual(["/tmp/companion-images/img-1.transport.jpeg"]);
     expect(sentMsg.images).toBeUndefined();
     expect(mockImageStore.compressForTransport).not.toHaveBeenCalled();
   });
@@ -5026,10 +5026,10 @@ describe("Codex image transport", () => {
   it("falls back to compressed inline images when local path lookup fails", async () => {
     const adapter = makeCodexAdapterMock();
 
-    // Mock imageStore where original path lookup fails.
+    // Mock imageStore where transport path lookup fails.
     const mockImageStore = {
       store: vi.fn().mockResolvedValue({ imageId: "img-1", media_type: "image/png" }),
-      getOriginalPath: vi.fn().mockResolvedValue(null),
+      getTransportPath: vi.fn().mockResolvedValue(null),
       compressForTransport: vi.fn().mockResolvedValue({
         base64: "compressed-fallback-data",
         mediaType: "image/jpeg",
