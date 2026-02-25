@@ -655,6 +655,117 @@ describe("CodexAdapter", () => {
     expect(toolUse?.input?.changes?.[0]?.diff).toContain("@@ -1 +1 @@");
   });
 
+  it("uses patch_apply_begin diffs when fileChange started payload is empty", async () => {
+    const messages: BrowserIncomingMessage[] = [];
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
+    adapter.onBrowserMessage((msg) => messages.push(msg));
+
+    await new Promise((r) => setTimeout(r, 50));
+    stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
+    await new Promise((r) => setTimeout(r, 20));
+    stdout.push(JSON.stringify({ id: 2, result: { thread: { id: "thr_123" } } }) + "\n");
+    await new Promise((r) => setTimeout(r, 50));
+
+    stdout.push(JSON.stringify({
+      method: "codex/event/patch_apply_begin",
+      params: {
+        msg: {
+          type: "patch_apply_begin",
+          call_id: "fc_patch_begin",
+          changes: {
+            "/tmp/from-patch.ts": {
+              type: "update",
+              unified_diff: "@@ -1 +1 @@\n-old\n+new\n",
+            },
+          },
+        },
+      },
+    }) + "\n");
+
+    stdout.push(JSON.stringify({
+      method: "item/started",
+      params: {
+        item: {
+          type: "fileChange",
+          id: "fc_patch_begin",
+          changes: [],
+          status: "inProgress",
+        },
+      },
+    }) + "\n");
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    const assistant = messages.find((m) => {
+      if (m.type !== "assistant") return false;
+      const content = (m as { message: { content: Array<{ type: string; id?: string; name?: string }> } }).message.content;
+      return content.some((b) => b.type === "tool_use" && b.id === "fc_patch_begin" && b.name === "Edit");
+    });
+    expect(assistant).toBeDefined();
+
+    const toolUse = (assistant as {
+      message: { content: Array<{ type: string; id?: string; name?: string; input?: { file_path?: string; changes?: Array<{ diff?: string }> } }> };
+    }).message.content.find((b) => b.type === "tool_use" && b.id === "fc_patch_begin");
+    expect(toolUse?.input?.file_path).toBe("/tmp/from-patch.ts");
+    expect(toolUse?.input?.changes?.[0]?.diff).toContain("@@ -1 +1 @@");
+  });
+
+  it("defers empty fileChange start until completed payload provides diff", async () => {
+    const messages: BrowserIncomingMessage[] = [];
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
+    adapter.onBrowserMessage((msg) => messages.push(msg));
+
+    await new Promise((r) => setTimeout(r, 50));
+    stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
+    await new Promise((r) => setTimeout(r, 20));
+    stdout.push(JSON.stringify({ id: 2, result: { thread: { id: "thr_123" } } }) + "\n");
+    await new Promise((r) => setTimeout(r, 50));
+
+    stdout.push(JSON.stringify({
+      method: "item/started",
+      params: {
+        item: {
+          type: "fileChange",
+          id: "fc_late_diff",
+          changes: [],
+          status: "inProgress",
+        },
+      },
+    }) + "\n");
+    await new Promise((r) => setTimeout(r, 30));
+
+    const earlyToolUse = messages.find((m) => {
+      if (m.type !== "assistant") return false;
+      const content = (m as { message: { content: Array<{ type: string; id?: string }> } }).message.content;
+      return content.some((b) => b.type === "tool_use" && b.id === "fc_late_diff");
+    });
+    expect(earlyToolUse).toBeUndefined();
+
+    stdout.push(JSON.stringify({
+      method: "item/completed",
+      params: {
+        item: {
+          type: "fileChange",
+          id: "fc_late_diff",
+          changes: [{
+            path: "/tmp/later.ts",
+            kind: "modify",
+            diff: "@@ -1 +1 @@\n-old\n+new\n",
+          }],
+          status: "completed",
+        },
+      },
+    }) + "\n");
+    await new Promise((r) => setTimeout(r, 50));
+
+    const toolUseAfterComplete = messages.find((m) => {
+      if (m.type !== "assistant") return false;
+      const content = (m as { message: { content: Array<{ type: string; id?: string; name?: string; input?: { changes?: Array<{ diff?: string }> } }> } }).message.content;
+      return content.some((b) => b.type === "tool_use" && b.id === "fc_late_diff" && b.name === "Edit" && !!b.input?.changes?.[0]?.diff);
+    });
+    expect(toolUseAfterComplete).toBeDefined();
+  });
+
   it("sends turn/interrupt on interrupt message", async () => {
     const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
 

@@ -141,6 +141,12 @@ function firstNonEmptyString(obj: Record<string, unknown>, keys: string[]): stri
   return "";
 }
 
+type ToolFileChange = {
+  path: string;
+  kind: string;
+  diff?: string;
+};
+
 function extractChangeDiff(change: Record<string, unknown>): string {
   const direct = firstNonEmptyString(change, [
     "diff",
@@ -164,7 +170,7 @@ function extractChangeDiff(change: Record<string, unknown>): string {
   return "";
 }
 
-function mapFileChangesForTool(changes: Array<Record<string, unknown>>) {
+function mapFileChangesForTool(changes: Array<Record<string, unknown>>): ToolFileChange[] {
   return changes.map((c) => {
     const path = typeof c.path === "string" ? c.path : "";
     const kind = safeKind(c.kind ?? c.type);
@@ -177,7 +183,7 @@ function mapFileChangesForTool(changes: Array<Record<string, unknown>>) {
   });
 }
 
-function mapFileChangesObjectForTool(fileChanges: Record<string, unknown>) {
+function mapFileChangesObjectForTool(fileChanges: Record<string, unknown>): ToolFileChange[] {
   return Object.entries(fileChanges).map(([path, raw]) => {
     const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
     const kind = safeKind(rec.kind ?? rec.type);
@@ -188,6 +194,21 @@ function mapFileChangesObjectForTool(fileChanges: Record<string, unknown>) {
       ...(diff ? { diff } : {}),
     };
   });
+}
+
+function mapUnknownFileChangesForTool(raw: unknown): ToolFileChange[] {
+  if (Array.isArray(raw)) {
+    const entries = raw.filter((entry): entry is Record<string, unknown> => !!entry && typeof entry === "object");
+    return mapFileChangesForTool(entries);
+  }
+  if (raw && typeof raw === "object") {
+    return mapFileChangesObjectForTool(raw as Record<string, unknown>);
+  }
+  return [];
+}
+
+function hasAnyPatchDiff(changes: ToolFileChange[]): boolean {
+  return changes.some((change) => typeof change.diff === "string" && change.diff.trim().length > 0);
 }
 
 interface CodexAgentMessageItem extends CodexItem {
@@ -207,7 +228,7 @@ interface CodexCommandExecutionItem extends CodexItem {
 
 interface CodexFileChangeItem extends CodexItem {
   type: "fileChange";
-  changes?: Array<{ path: string; kind: unknown; diff?: string }>;
+  changes?: Array<Record<string, unknown>> | Record<string, unknown>;
   status: "inProgress" | "completed" | "failed" | "declined";
 }
 
@@ -512,6 +533,7 @@ export class CodexAdapter {
   // When Codex auto-approves (approvalPolicy "never"), it may skip item/started
   // and only send item/completed — we need to emit tool_use before tool_result.
   private emittedToolUseIds = new Set<string>();
+  private patchChangesByCallId = new Map<string, ToolFileChange[]>();
 
   // Resolve when the current turn ends (used by interruptAndWaitForTurnEnd)
   private turnEndResolvers: Array<() => void> = [];
@@ -1213,6 +1235,10 @@ export class CodexAdapter {
       case "item/started":
         this.handleItemStarted(params);
         break;
+      case "codex/event/patch_apply_begin":
+      case "codex/event/patch_apply_end":
+        this.cachePatchApplyChanges(params);
+        break;
       case "item/agentMessage/delta":
         this.handleAgentMessageDelta(params);
         break;
@@ -1303,6 +1329,26 @@ export class CodexAdapter {
     } catch (err) {
       console.error(`[codex-adapter] Error handling notification ${method}:`, err);
     }
+  }
+
+  private cachePatchApplyChanges(params: Record<string, unknown>): void {
+    const msg = params.msg as Record<string, unknown> | undefined;
+    if (!msg || typeof msg !== "object") return;
+    const callId = toSafeText(msg.call_id ?? msg.callId).trim();
+    if (!callId) return;
+    const changes = mapUnknownFileChangesForTool(msg.changes);
+    if (changes.length > 0) {
+      this.patchChangesByCallId.set(callId, changes);
+    }
+  }
+
+  private resolveFileChangesForTool(toolUseId: string, rawChanges: unknown): ToolFileChange[] {
+    const direct = mapUnknownFileChangesForTool(rawChanges);
+    const cached = this.patchChangesByCallId.get(toolUseId) || [];
+    if (cached.length === 0) return direct;
+    if (direct.length === 0) return cached;
+    if (!hasAnyPatchDiff(direct) && hasAnyPatchDiff(cached)) return cached;
+    return direct;
   }
 
   // ── Incoming request handlers (approval requests) ───────────────────────
@@ -1643,12 +1689,16 @@ export class CodexAdapter {
 
       case "fileChange": {
         const fc = item as CodexFileChangeItem;
-        const changes = fc.changes || [];
+        const changes = this.resolveFileChangesForTool(item.id, fc.changes);
+        if (changes.length === 0) {
+          // item/started can be emitted without patch details; wait for item/completed.
+          break;
+        }
         const firstChange = changes[0];
         const toolName = safeKind(firstChange?.kind) === "create" ? "Write" : "Edit";
         const toolInput = {
           file_path: firstChange?.path || "",
-          changes: mapFileChangesForTool(changes),
+          changes,
         };
         this.emitToolUseStart(item.id, toolName, toolInput);
         break;
@@ -1926,16 +1976,17 @@ export class CodexAdapter {
 
       case "fileChange": {
         const fc = item as CodexFileChangeItem;
-        const changes = fc.changes || [];
+        const changes = this.resolveFileChangesForTool(item.id, fc.changes);
         const firstChange = changes[0];
         const toolName = safeKind(firstChange?.kind) === "create" ? "Write" : "Edit";
         // Ensure tool_use was emitted
         this.ensureToolUseEmitted(item.id, toolName, {
           file_path: firstChange?.path || "",
-          changes: mapFileChangesForTool(changes),
+          changes,
         });
         const summary = changes.map((c) => `${safeKind(c.kind)}: ${c.path}`).join("\n");
         this.emitToolResult(item.id, summary || "File changes applied", fc.status === "failed");
+        this.patchChangesByCallId.delete(item.id);
         break;
       }
 
