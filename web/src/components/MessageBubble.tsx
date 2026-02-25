@@ -37,7 +37,15 @@ function MessageTimestamp({ timestamp, align = "left" }: { timestamp: number; al
   );
 }
 
-export const MessageBubble = memo(function MessageBubble({ message, sessionId }: { message: ChatMessage; sessionId?: string }) {
+export const MessageBubble = memo(function MessageBubble({
+  message,
+  sessionId,
+  showTimestamp = true,
+}: {
+  message: ChatMessage;
+  sessionId?: string;
+  showTimestamp?: boolean;
+}) {
   if (message.role === "system") {
     if (message.variant === "error") {
       const isContextLimit = message.content.toLowerCase().includes("prompt is too long");
@@ -129,13 +137,13 @@ export const MessageBubble = memo(function MessageBubble({ message, sessionId }:
   }
 
   if (message.role === "user") {
-    return <UserMessage message={message} sessionId={sessionId} />;
+    return <UserMessage message={message} sessionId={sessionId} showTimestamp={showTimestamp} />;
   }
 
   // Assistant message
   return (
     <div className="animate-[fadeSlideIn_0.2s_ease-out]">
-      <AssistantMessage message={message} sessionId={sessionId} />
+      <AssistantMessage message={message} sessionId={sessionId} showTimestamp={showTimestamp} />
     </div>
   );
 });
@@ -182,7 +190,7 @@ function CollapsibleContent({ children }: { children: React.ReactNode }) {
   );
 }
 
-function UserMessage({ message, sessionId }: { message: ChatMessage; sessionId?: string }) {
+function UserMessage({ message, sessionId, showTimestamp }: { message: ChatMessage; sessionId?: string; showTimestamp: boolean }) {
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
 
   const isCodex = useStore((s) => s.sessions.get(sessionId ?? "")?.backend_type === "codex");
@@ -216,7 +224,7 @@ function UserMessage({ message, sessionId }: { message: ChatMessage; sessionId?:
             {message.content}
           </pre>
         </CollapsibleContent>
-        <MessageTimestamp timestamp={message.timestamp} align="right" />
+        {showTimestamp && <MessageTimestamp timestamp={message.timestamp} align="right" />}
       </div>
       <UserMessageMenu message={message} sessionId={sessionId} canRevert={canRevert} />
       {lightboxSrc && (
@@ -351,7 +359,7 @@ function groupContentBlocks(blocks: ContentBlock[]): GroupedBlock[] {
   return groups;
 }
 
-function AssistantMessage({ message, sessionId }: { message: ChatMessage; sessionId?: string }) {
+function AssistantMessage({ message, sessionId, showTimestamp }: { message: ChatMessage; sessionId?: string; showTimestamp: boolean }) {
   const blocks = message.contentBlocks || [];
   const contentRef = useRef<HTMLDivElement>(null);
   const hidePaw = useContext(HidePawContext);
@@ -368,7 +376,7 @@ function AssistantMessage({ message, sessionId }: { message: ChatMessage; sessio
         {!hidePaw && <PawTrailAvatar />}
         <div ref={contentRef} className="flex-1 min-w-0 pr-6">
           <MarkdownContent text={message.content} />
-          <MessageTimestamp timestamp={message.timestamp} />
+          {showTimestamp && <MessageTimestamp timestamp={message.timestamp} />}
         </div>
         <CopyMessageButton message={message} contentRef={contentRef} />
       </div>
@@ -391,7 +399,7 @@ function AssistantMessage({ message, sessionId }: { message: ChatMessage; sessio
           // Grouped tool_uses
           return <ToolGroupBlock key={i} name={group.name} items={group.items} sessionId={sessionId} />;
         })}
-        <MessageTimestamp timestamp={message.timestamp} />
+        {showTimestamp && <MessageTimestamp timestamp={message.timestamp} />}
       </div>
       {hasTextContent && <CopyMessageButton message={message} contentRef={contentRef} />}
     </div>

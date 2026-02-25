@@ -236,6 +236,36 @@ describe("MessageFeed - message rendering", () => {
     expect(screen.getByText("Session restored")).toBeTruthy();
     expect(screen.getByText("Continue")).toBeTruthy();
   });
+
+  it("shows a centered time marker once for consecutive same-minute messages", () => {
+    const sid = "test-smart-timestamps-same-minute";
+    const base = new Date("2026-02-25T10:00:00.000Z").getTime();
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "First", timestamp: base + 5_000 }),
+      makeMessage({ id: "a1", role: "assistant", content: "Second", timestamp: base + 25_000 }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getAllByTestId("minute-boundary-timestamp")).toHaveLength(1);
+    expect(screen.queryByTestId("message-timestamp")).toBeNull();
+  });
+
+  it("shows centered time markers again when message minute changes", () => {
+    const sid = "test-smart-timestamps-minute-boundary";
+    const base = new Date("2026-02-25T10:00:00.000Z").getTime();
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "M0", timestamp: base + 5_000 }),
+      makeMessage({ id: "a1", role: "assistant", content: "M0 response", timestamp: base + 25_000 }),
+      makeMessage({ id: "u2", role: "user", content: "M1", timestamp: base + 65_000 }),
+      makeMessage({ id: "a2", role: "assistant", content: "M1 response", timestamp: base + 85_000 }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getAllByTestId("minute-boundary-timestamp")).toHaveLength(2);
+    expect(screen.queryByTestId("message-timestamp")).toBeNull();
+  });
 });
 
 // ─── Streaming indicator ─────────────────────────────────────────────────────

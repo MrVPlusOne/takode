@@ -26,6 +26,71 @@ function formatTokens(n: number): string {
 
 const EMPTY_MESSAGES: ChatMessage[] = [];
 
+function minuteBucket(timestamp: number): string | null {
+  const d = new Date(timestamp);
+  if (Number.isNaN(d.getTime())) return null;
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}-${d.getHours()}-${d.getMinutes()}`;
+}
+
+function isTimedChatMessage(msg: ChatMessage): boolean {
+  return msg.role === "user" || msg.role === "assistant";
+}
+
+function appendTimedMessagesFromEntries(entries: FeedEntry[], out: ChatMessage[]) {
+  for (const entry of entries) {
+    if (entry.kind !== "message") continue;
+    if (!isTimedChatMessage(entry.msg)) continue;
+    out.push(entry.msg);
+  }
+}
+
+function formatMinuteBoundaryLabel(timestamp: number, previousTimestamp: number | null): string | null {
+  const current = new Date(timestamp);
+  if (Number.isNaN(current.getTime())) return null;
+
+  const prev = previousTimestamp === null ? null : new Date(previousTimestamp);
+  const includesDate = !prev
+    || current.getFullYear() !== prev.getFullYear()
+    || current.getMonth() !== prev.getMonth()
+    || current.getDate() !== prev.getDate();
+
+  if (includesDate) {
+    return current.toLocaleString([], {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  }
+
+  return current.toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function buildMinuteBoundaryLabelMap(messages: ChatMessage[]): Map<string, string> {
+  const labels = new Map<string, string>();
+  let prevMinute: string | null = null;
+  let prevTimestamp: number | null = null;
+
+  for (const msg of messages) {
+    const currentMinute = minuteBucket(msg.timestamp);
+    const startsNewMinute = currentMinute !== null && (prevMinute === null || currentMinute !== prevMinute);
+    if (startsNewMinute) {
+      const label = formatMinuteBoundaryLabel(msg.timestamp, prevTimestamp);
+      if (label) labels.set(msg.id, label);
+    }
+    if (currentMinute !== null) {
+      prevMinute = currentMinute;
+      prevTimestamp = msg.timestamp;
+    }
+  }
+
+  return labels;
+}
+
 // Self-contained timer component — its 1s tick only re-renders this element,
 // not the entire MessageFeed (which would force all images to re-layout).
 export function ElapsedTimer({ sessionId }: { sessionId: string }) {
@@ -580,7 +645,32 @@ const ToolMessageGroup = memo(function ToolMessageGroup({ group, sessionId }: { 
   );
 });
 
-const FeedEntries = memo(function FeedEntries({ entries, sessionId }: { entries: FeedEntry[]; sessionId: string }) {
+function MinuteBoundaryTimestamp({ timestamp, label }: { timestamp: number; label: string }) {
+  const d = new Date(timestamp);
+  if (Number.isNaN(d.getTime())) return null;
+  return (
+    <div className="flex items-center justify-center py-1">
+      <time
+        data-testid="minute-boundary-timestamp"
+        dateTime={d.toISOString()}
+        title={d.toLocaleString()}
+        className="text-[11px] text-cc-muted/70 font-mono-code"
+      >
+        {label}
+      </time>
+    </div>
+  );
+}
+
+const FeedEntries = memo(function FeedEntries({
+  entries,
+  sessionId,
+  minuteBoundaryLabels,
+}: {
+  entries: FeedEntry[];
+  sessionId: string;
+  minuteBoundaryLabels?: Map<string, string>;
+}) {
   return (
     <>
       {entries.map((entry, i) => {
@@ -588,10 +678,19 @@ const FeedEntries = memo(function FeedEntries({ entries, sessionId }: { entries:
           return <ToolMessageGroup key={entry.firstId || i} group={entry} sessionId={sessionId} />;
         }
         if (entry.kind === "subagent") {
-          return <SubagentContainer key={entry.taskToolUseId} group={entry} sessionId={sessionId} />;
+          return <SubagentContainer key={entry.taskToolUseId} group={entry} sessionId={sessionId} minuteBoundaryLabels={minuteBoundaryLabels} />;
         }
         if (entry.kind === "subagent_batch") {
-          return <SubagentBatchContainer key={entry.subagents[0]?.taskToolUseId || i} batch={entry} sessionId={sessionId} />;
+          return <SubagentBatchContainer key={entry.subagents[0]?.taskToolUseId || i} batch={entry} sessionId={sessionId} minuteBoundaryLabels={minuteBoundaryLabels} />;
+        }
+        if (isTimedChatMessage(entry.msg)) {
+          const markerLabel = minuteBoundaryLabels?.get(entry.msg.id);
+          return (
+            <div key={entry.msg.id}>
+              {markerLabel && <MinuteBoundaryTimestamp timestamp={entry.msg.timestamp} label={markerLabel} />}
+              <MessageBubble message={entry.msg} sessionId={sessionId} showTimestamp={false} />
+            </div>
+          );
         }
         return <MessageBubble key={entry.msg.id} message={entry.msg} sessionId={sessionId} />;
       })}
@@ -653,7 +752,17 @@ function TurnCollapseBar({ stats, onClick, ref }: { stats: TurnStats; onClick: (
   );
 }
 
-const TurnEntriesExpanded = memo(function TurnEntriesExpanded({ turn, sessionId, onCollapse }: { turn: Turn; sessionId: string; onCollapse: () => void }) {
+const TurnEntriesExpanded = memo(function TurnEntriesExpanded({
+  turn,
+  sessionId,
+  onCollapse,
+  minuteBoundaryLabels,
+}: {
+  turn: Turn;
+  sessionId: string;
+  onCollapse: () => void;
+  minuteBoundaryLabels: Map<string, string>;
+}) {
   const headerRef = useRef<HTMLButtonElement>(null);
 
   return (
@@ -667,7 +776,7 @@ const TurnEntriesExpanded = memo(function TurnEntriesExpanded({ turn, sessionId,
         />
       )}
       {/* Render all entries interleaved in original chronological order */}
-      <FeedEntries entries={turn.allEntries} sessionId={sessionId} />
+      <FeedEntries entries={turn.allEntries} sessionId={sessionId} minuteBoundaryLabels={minuteBoundaryLabels} />
       {/* Bottom collapse bar — appears when top bar scrolls out of view */}
       {turn.agentEntries.length > 0 && (
         <TurnCollapseFooter headerRef={headerRef} onCollapse={onCollapse} />
@@ -700,14 +809,22 @@ function parseSubagentResultText(raw: string): string {
   }
 }
 
-const SubagentBatchContainer = memo(function SubagentBatchContainer({ batch, sessionId }: { batch: SubagentBatch; sessionId: string }) {
+const SubagentBatchContainer = memo(function SubagentBatchContainer({
+  batch,
+  sessionId,
+  minuteBoundaryLabels,
+}: {
+  batch: SubagentBatch;
+  sessionId: string;
+  minuteBoundaryLabels?: Map<string, string>;
+}) {
   return (
     <div className="animate-[fadeSlideIn_0.2s_ease-out]">
       <div className="flex items-start gap-3">
         <PawTrailAvatar />
         <div className="flex-1 min-w-0 space-y-2">
           {batch.subagents.map((sg) => (
-            <SubagentContainer key={sg.taskToolUseId} group={sg} sessionId={sessionId} inBatch />
+            <SubagentContainer key={sg.taskToolUseId} group={sg} sessionId={sessionId} minuteBoundaryLabels={minuteBoundaryLabels} inBatch />
           ))}
         </div>
       </div>
@@ -715,7 +832,17 @@ const SubagentBatchContainer = memo(function SubagentBatchContainer({ batch, ses
   );
 });
 
-const SubagentContainer = memo(function SubagentContainer({ group, sessionId, inBatch }: { group: SubagentGroup; sessionId: string; inBatch?: boolean }) {
+const SubagentContainer = memo(function SubagentContainer({
+  group,
+  sessionId,
+  inBatch,
+  minuteBoundaryLabels,
+}: {
+  group: SubagentGroup;
+  sessionId: string;
+  inBatch?: boolean;
+  minuteBoundaryLabels?: Map<string, string>;
+}) {
   const [open, setOpen] = useState(false);
   const [promptOpen, setPromptOpen] = useState(false);
   const headerRef = useRef<HTMLButtonElement>(null);
@@ -816,7 +943,7 @@ const SubagentContainer = memo(function SubagentContainer({ group, sessionId, in
           {/* Child activities */}
           {childCount > 0 && (
             <div className="px-3 py-2 space-y-3">
-              <FeedEntries entries={group.children} sessionId={sessionId} />
+              <FeedEntries entries={group.children} sessionId={sessionId} minuteBoundaryLabels={minuteBoundaryLabels} />
             </div>
           )}
 
@@ -954,6 +1081,37 @@ const TurnEntries = memo(function TurnEntries({ turns, sessionId }: { turns: Tur
   const overrides = useStore((s) => s.turnActivityOverrides.get(sessionId));
   const toggleTurn = useStore((s) => s.toggleTurnActivity);
   const sessionStatus = useStore((s) => s.sessionStatus.get(sessionId));
+  const minuteBoundaryLabels = useMemo(() => {
+    const visibleTimedMessages: ChatMessage[] = [];
+
+    for (let index = 0; index < turns.length; index++) {
+      const turn = turns[index];
+      const isLastTurn = index === turns.length - 1;
+      const isPenultimateTurn = index === turns.length - 2;
+      const lastTurn = turns[turns.length - 1];
+      const lastTurnIsFreshUserOnly = !!lastTurn?.userEntry && lastTurn.allEntries.length === 0;
+      const keepExpandedDuringStreaming =
+        sessionStatus === "running" && isPenultimateTurn && lastTurnIsFreshUserOnly;
+      const override = overrides?.get(turn.id);
+      const defaultExpanded = isLastTurn || turn.responseEntry === null || keepExpandedDuringStreaming;
+      const isActivityExpanded = override !== undefined ? override : defaultExpanded;
+
+      if (turn.userEntry?.kind === "message" && isTimedChatMessage(turn.userEntry.msg)) {
+        visibleTimedMessages.push(turn.userEntry.msg);
+      }
+
+      if (isActivityExpanded) {
+        appendTimedMessagesFromEntries(turn.allEntries, visibleTimedMessages);
+      } else {
+        appendTimedMessagesFromEntries(turn.systemEntries, visibleTimedMessages);
+        if (turn.responseEntry?.kind === "message" && isTimedChatMessage(turn.responseEntry.msg)) {
+          visibleTimedMessages.push(turn.responseEntry.msg);
+        }
+      }
+    }
+
+    return buildMinuteBoundaryLabelMap(visibleTimedMessages);
+  }, [turns, overrides, sessionStatus]);
 
   return (
     <>
@@ -977,7 +1135,7 @@ const TurnEntries = memo(function TurnEntries({ turns, sessionId }: { turns: Tur
           <div key={turn.id} data-turn-id={turn.id} className="turn-container space-y-3 sm:space-y-5" data-user-turn={turn.userEntry ? "true" : undefined}>
             {/* User message — always visible */}
             {turn.userEntry && (
-              <FeedEntries entries={[turn.userEntry]} sessionId={sessionId} />
+              <FeedEntries entries={[turn.userEntry]} sessionId={sessionId} minuteBoundaryLabels={minuteBoundaryLabels} />
             )}
 
             {isActivityExpanded ? (
@@ -986,6 +1144,7 @@ const TurnEntries = memo(function TurnEntries({ turns, sessionId }: { turns: Tur
                 <TurnEntriesExpanded
                   turn={turn}
                   sessionId={sessionId}
+                  minuteBoundaryLabels={minuteBoundaryLabels}
                   onCollapse={() => toggleTurn(sessionId, turn.id, isLastTurn)}
                 />
               )
@@ -993,7 +1152,7 @@ const TurnEntries = memo(function TurnEntries({ turns, sessionId }: { turns: Tur
               <>
                 {/* System messages — always visible */}
                 {turn.systemEntries.length > 0 && (
-                  <FeedEntries entries={turn.systemEntries} sessionId={sessionId} />
+                  <FeedEntries entries={turn.systemEntries} sessionId={sessionId} minuteBoundaryLabels={minuteBoundaryLabels} />
                 )}
                 {/* Collapsed: single paw outside, activity bar + response in shared card */}
                 {(turn.agentEntries.length > 0 || turn.responseEntry) && (
@@ -1009,7 +1168,7 @@ const TurnEntries = memo(function TurnEntries({ turns, sessionId }: { turns: Tur
                       {turn.responseEntry && (
                         <div className="px-3 py-2.5">
                           <HidePawContext.Provider value={true}>
-                            <FeedEntries entries={[turn.responseEntry]} sessionId={sessionId} />
+                            <FeedEntries entries={[turn.responseEntry]} sessionId={sessionId} minuteBoundaryLabels={minuteBoundaryLabels} />
                           </HidePawContext.Provider>
                         </div>
                       )}
