@@ -1434,6 +1434,94 @@ describe("handleMessage: tool_progress", () => {
     const entry = useStore.getState().toolProgress.get("s1")!.get("tu-123");
     expect(entry!.elapsedSeconds).toBe(7);
   });
+
+  it("accumulates streamed output deltas for Codex Bash commands", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    fireMessage({
+      type: "tool_progress",
+      tool_use_id: "tu-live",
+      tool_name: "Bash",
+      elapsed_time_seconds: 1,
+      output_delta: "Merged 128/512 files\n",
+    });
+    fireMessage({
+      type: "tool_progress",
+      tool_use_id: "tu-live",
+      tool_name: "Bash",
+      elapsed_time_seconds: 2,
+      output_delta: "Merged 256/512 files\n",
+    });
+
+    const entry = useStore.getState().toolProgress.get("s1")!.get("tu-live");
+    expect(entry).toEqual({
+      toolName: "Bash",
+      elapsedSeconds: 2,
+      output: "Merged 128/512 files\nMerged 256/512 files\n",
+    });
+  });
+
+  it("keeps only the latest output tail when streamed output exceeds cap", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    const firstChunk = "a".repeat(7_000);
+    const secondChunk = "b".repeat(7_000);
+    fireMessage({
+      type: "tool_progress",
+      tool_use_id: "tu-long",
+      tool_name: "Bash",
+      elapsed_time_seconds: 1,
+      output_delta: firstChunk,
+    });
+    fireMessage({
+      type: "tool_progress",
+      tool_use_id: "tu-long",
+      tool_name: "Bash",
+      elapsed_time_seconds: 2,
+      output_delta: secondChunk,
+    });
+
+    const entry = useStore.getState().toolProgress.get("s1")!.get("tu-long")!;
+    expect(entry.output?.length).toBe(12_000);
+    expect(entry.output?.endsWith(secondChunk)).toBe(true);
+    expect(entry.outputTruncated).toBe(true);
+  });
+});
+
+// ===========================================================================
+// handleMessage: tool_result_preview
+// ===========================================================================
+describe("handleMessage: tool_result_preview", () => {
+  it("stores preview and clears in-progress tool output for completed tools", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    useStore.getState().setToolProgress("s1", "tu-live", {
+      toolName: "Bash",
+      elapsedSeconds: 9,
+      outputDelta: "still running\n",
+    });
+
+    fireMessage({
+      type: "tool_result_preview",
+      previews: [
+        {
+          tool_use_id: "tu-live",
+          content: "done",
+          is_error: false,
+          total_size: 4,
+          is_truncated: false,
+        },
+      ],
+    });
+
+    const preview = useStore.getState().toolResults.get("s1")?.get("tu-live");
+    expect(preview?.content).toBe("done");
+    const progress = useStore.getState().toolProgress.get("s1");
+    expect(progress?.has("tu-live")).toBe(false);
+  });
 });
 
 // ===========================================================================

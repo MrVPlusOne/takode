@@ -276,12 +276,39 @@ function ToolResultSection({
   input: Record<string, unknown>;
 }) {
   const preview = useStore((s) => s.toolResults.get(sessionId)?.get(toolUseId));
+  const progress = useStore((s) => s.toolProgress.get(sessionId)?.get(toolUseId));
   const imagePath = extractImagePathForPreview(toolName, input);
   const isReadImage = !!imagePath;
   const [fullContent, setFullContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const liveOutput = progress?.output || "";
 
-  if (!preview) return null;
+  if (!preview) {
+    if (!progress) return null;
+    return (
+      <div className="mt-2 pt-2 border-t border-cc-border/50">
+        <div className="flex items-center gap-2 mb-1.5">
+          <span className="text-[10px] font-medium text-cc-muted uppercase tracking-wider">Live output</span>
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-cc-primary/10 text-cc-primary font-medium">running</span>
+          {progress.outputTruncated && (
+            <span className="text-[10px] text-cc-muted">showing latest 12KB</span>
+          )}
+        </div>
+        {liveOutput ? (
+          <div className="group/code relative rounded-lg overflow-hidden">
+            <div className="absolute top-1.5 right-1.5 z-10">
+              <CodeCopyButton text={liveOutput} />
+            </div>
+            <pre className="text-[11px] font-mono-code whitespace-pre-wrap leading-relaxed rounded-lg px-2.5 py-2 max-h-64 overflow-y-auto bg-cc-code-bg text-cc-muted">
+              {liveOutput}
+            </pre>
+          </div>
+        ) : (
+          <div className="text-[11px] text-cc-muted italic">Waiting for command output...</div>
+        )}
+      </div>
+    );
+  }
 
   if (isReadImage && !preview.is_error) {
     return (

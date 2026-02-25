@@ -1244,7 +1244,7 @@ export class CodexAdapter {
         break;
       case "item/commandExecution/outputDelta":
         // Streaming command output — emit as tool_progress so the browser
-        // shows a live elapsed-time indicator while the command runs.
+        // can render live elapsed time and incremental terminal output.
         this.emitCommandProgress(params);
         break;
       case "item/fileChange/outputDelta":
@@ -2226,6 +2226,7 @@ export class CodexAdapter {
       tool_use_id: itemId,
       tool_name: "Bash",
       elapsed_time_seconds: elapsed,
+      ...(deltaText ? { output_delta: deltaText } : {}),
     });
   }
 

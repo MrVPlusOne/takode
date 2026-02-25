@@ -2116,6 +2116,42 @@ describe("CodexAdapter", () => {
     expect(resultBlock?.content).toContain("Exit code: 2");
   });
 
+  it("emits tool_progress with output_delta for streamed command output", async () => {
+    const messages: BrowserIncomingMessage[] = [];
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
+    adapter.onBrowserMessage((msg) => messages.push(msg));
+
+    await new Promise((r) => setTimeout(r, 50));
+    stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
+    await new Promise((r) => setTimeout(r, 20));
+    stdout.push(JSON.stringify({ id: 2, result: { thread: { id: "thr_123" } } }) + "\n");
+    await new Promise((r) => setTimeout(r, 50));
+
+    stdout.push(JSON.stringify({
+      method: "item/started",
+      params: {
+        item: { type: "commandExecution", id: "cmd_live", command: "long-running.sh", status: "inProgress" },
+      },
+    }) + "\n");
+    await new Promise((r) => setTimeout(r, 20));
+
+    stdout.push(JSON.stringify({
+      method: "item/commandExecution/outputDelta",
+      params: {
+        itemId: "cmd_live",
+        delta: "step 1/3 complete\n",
+      },
+    }) + "\n");
+    await new Promise((r) => setTimeout(r, 30));
+
+    const progressMsg = messages.find(
+      (m) => m.type === "tool_progress" && (m as { tool_use_id?: string }).tool_use_id === "cmd_live",
+    ) as { type: "tool_progress"; output_delta?: string; elapsed_time_seconds: number } | undefined;
+    expect(progressMsg).toBeDefined();
+    expect(progressMsg?.output_delta).toBe("step 1/3 complete\n");
+    expect(progressMsg?.elapsed_time_seconds).toBeGreaterThanOrEqual(0);
+  });
+
   it("maps turn/plan/updated into TodoWrite tool_use for checklist rendering", async () => {
     const messages: BrowserIncomingMessage[] = [];
     const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });

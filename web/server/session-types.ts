@@ -267,7 +267,14 @@ export type BrowserIncomingMessageBase =
   | { type: "result"; data: CLIResultMessage }
   | { type: "permission_request"; request: PermissionRequest }
   | { type: "permission_cancelled"; request_id: string }
-  | { type: "tool_progress"; tool_use_id: string; tool_name: string; elapsed_time_seconds: number }
+  | {
+    type: "tool_progress";
+    tool_use_id: string;
+    tool_name: string;
+    elapsed_time_seconds: number;
+    /** Codex-only: incremental terminal output chunk from commandExecution/outputDelta. */
+    output_delta?: string;
+  }
   | { type: "tool_use_summary"; summary: string; tool_use_ids: string[] }
   | { type: "status_change"; status: "compacting" | "reverting" | "idle" | "running" | null }
   | { type: "permissions_cleared" }

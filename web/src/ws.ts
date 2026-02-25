@@ -654,6 +654,7 @@ function handleParsedMessage(
       store.setToolProgress(sessionId, data.tool_use_id, {
         toolName: data.tool_name,
         elapsedSeconds: data.elapsed_time_seconds,
+        outputDelta: typeof data.output_delta === "string" ? data.output_delta : undefined,
       });
       break;
     }
@@ -671,6 +672,8 @@ function handleParsedMessage(
     case "tool_result_preview": {
       for (const preview of data.previews) {
         store.setToolResult(sessionId, preview.tool_use_id, preview);
+        // Tool completed — clear live progress/output for this tool call.
+        store.clearToolProgress(sessionId, preview.tool_use_id);
       }
       break;
     }

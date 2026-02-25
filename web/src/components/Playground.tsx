@@ -742,6 +742,24 @@ export function Playground() {
       });
     }
 
+    // Mock a running Codex Bash command with streamed output deltas.
+    store.setToolStartTimestamps(sessionId, { "tb-live": Date.now() - 47_000 });
+    store.setToolProgress(sessionId, "tb-live", {
+      toolName: "Bash",
+      elapsedSeconds: 47,
+      outputDelta: "Collecting source shards...\n",
+    });
+    store.setToolProgress(sessionId, "tb-live", {
+      toolName: "Bash",
+      elapsedSeconds: 48,
+      outputDelta: "Merged 128/512 files\n",
+    });
+    store.setToolProgress(sessionId, "tb-live", {
+      toolName: "Bash",
+      elapsedSeconds: 49,
+      outputDelta: "Merged 256/512 files\n",
+    });
+
     return () => {
       useStore.setState((s) => {
         const sessions = new Map(s.sessions);
@@ -991,6 +1009,7 @@ export function Playground() {
         <Section title="Tool Blocks" description="Expandable tool call visualization with duration badges">
           <div className="space-y-2 max-w-3xl">
             <ToolBlock name="Bash" input={{ command: "git status && npm run lint", description: "Check git status and lint" }} toolUseId="tb-1" sessionId={MOCK_SESSION_ID} />
+            <ToolBlock name="Bash" input={{ command: "python scripts/mix_dataset.py --chunks 512", description: "Run long data mixing command (live output demo)" }} toolUseId="tb-live" sessionId={MOCK_SESSION_ID} />
             <ToolBlock name="Read" input={{ file_path: "/Users/stan/Dev/project/src/index.ts", offset: 10, limit: 50 }} toolUseId="tb-2" sessionId={MOCK_SESSION_ID} />
             <ToolBlock name="Edit" input={{ file_path: "src/utils.ts", old_string: "const x = 1;", new_string: "const x = 2;", replace_all: true }} toolUseId="tb-3" sessionId={MOCK_SESSION_ID} />
             <ToolBlock name="Edit" input={{ file_path: "src/utils.ts", changes: [{ path: "src/utils.ts", kind: "modify", unified_diff: "@@ -1 +1 @@\n-const x = 1;\n+const x = 2;" }] }} toolUseId="tb-3b" sessionId={MOCK_SESSION_ID} />

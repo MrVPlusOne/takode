@@ -497,6 +497,59 @@ describe("ToolBlock", () => {
     expect(preElement?.textContent).toContain('"foo": "bar"');
     expect(preElement?.textContent).toContain('"count": 42');
   });
+
+  it("renders live command output while Bash tool is in progress", () => {
+    const toolProgress = new Map();
+    const sessionProgress = new Map();
+    sessionProgress.set("tu-live-output", {
+      toolName: "Bash",
+      elapsedSeconds: 12,
+      output: "Merged 128/512 files\nMerged 256/512 files\n",
+    });
+    toolProgress.set("live-session", sessionProgress);
+    useStore.setState({ toolProgress, toolResults: new Map() });
+
+    render(
+      <ToolBlock
+        name="Bash"
+        input={{ command: "python scripts/mix_dataset.py --chunks 512" }}
+        toolUseId="tu-live-output"
+        sessionId="live-session"
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button"));
+    expect(screen.getByText("Live output")).toBeTruthy();
+    expect(screen.getByText("running")).toBeTruthy();
+    expect(screen.getByText(/Merged 256\/512 files/)).toBeTruthy();
+
+    useStore.setState({ toolProgress: new Map(), toolResults: new Map() });
+  });
+
+  it("shows waiting message when tool is running but has no output yet", () => {
+    const toolProgress = new Map();
+    const sessionProgress = new Map();
+    sessionProgress.set("tu-live-empty", {
+      toolName: "Bash",
+      elapsedSeconds: 4,
+    });
+    toolProgress.set("live-session", sessionProgress);
+    useStore.setState({ toolProgress, toolResults: new Map() });
+
+    render(
+      <ToolBlock
+        name="Bash"
+        input={{ command: "sleep 30" }}
+        toolUseId="tu-live-empty"
+        sessionId="live-session"
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button"));
+    expect(screen.getByText("Waiting for command output...")).toBeTruthy();
+
+    useStore.setState({ toolProgress: new Map(), toolResults: new Map() });
+  });
 });
 
 // ─── formatDuration ─────────────────────────────────────────────────────────
@@ -532,7 +585,7 @@ describe("formatDuration", () => {
 describe("ToolBlock duration display", () => {
   afterEach(() => {
     // Clean up store state
-    useStore.setState({ toolResults: new Map(), toolStartTimestamps: new Map() });
+    useStore.setState({ toolResults: new Map(), toolStartTimestamps: new Map(), toolProgress: new Map() });
   });
 
   it("shows final duration badge when tool result has duration_seconds", () => {

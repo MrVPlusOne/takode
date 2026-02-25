@@ -60,6 +60,7 @@ Valid Codex enum values (kebab-case only):
 | `item/agentMessage/delta` | `stream_event` (content_block_delta) | Streaming text chunks |
 | `item/completed` (agentMessage) | `stream_event` (content_block_stop + message_delta) then `assistant` | Finalizes text message |
 | `item/started` (commandExecution) | `assistant` with `tool_use` block (name=`"Bash"`) | Shows command about to execute |
+| `item/commandExecution/outputDelta` | `tool_progress` (`tool_name="Bash"`, optional `output_delta`) | Streams incremental terminal output for live UI rendering |
 | `item/completed` (commandExecution) | `assistant` with `tool_result` block | Shows stdout/stderr output |
 | `item/started` (fileChange) | `assistant` with `tool_use` block (name=`"Write"` or `"Edit"`) | Create → Write, modify → Edit |
 | `item/completed` (fileChange) | `assistant` with `tool_result` block | Shows change summary |

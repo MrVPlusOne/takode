@@ -3,6 +3,8 @@ import type { SessionState, PermissionRequest, ChatMessage, SdkSessionInfo, Task
 import { api, type PRStatusResponse, type CreationProgressEvent } from "./api.js";
 import { scopedGetItem, scopedSetItem, scopedRemoveItem } from "./utils/scoped-storage.js";
 
+const TOOL_PROGRESS_OUTPUT_LIMIT = 12_000;
+
 interface AppState {
   // Sessions
   sessions: Map<string, SessionState>;
@@ -82,7 +84,7 @@ interface AppState {
   mcpServers: Map<string, McpServerDetail[]>;
 
   // Tool progress (session → tool_use_id → progress info)
-  toolProgress: Map<string, Map<string, { toolName: string; elapsedSeconds: number }>>;
+  toolProgress: Map<string, Map<string, { toolName: string; elapsedSeconds: number; output?: string; outputTruncated?: boolean }>>;
 
   // Tool results (session → tool_use_id → truncated preview)
   toolResults: Map<string, Map<string, ToolResultPreview>>;
@@ -218,7 +220,11 @@ interface AppState {
   setMcpServers: (sessionId: string, servers: McpServerDetail[]) => void;
 
   // Tool progress actions
-  setToolProgress: (sessionId: string, toolUseId: string, data: { toolName: string; elapsedSeconds: number }) => void;
+  setToolProgress: (
+    sessionId: string,
+    toolUseId: string,
+    data: { toolName: string; elapsedSeconds: number; outputDelta?: string },
+  ) => void;
   clearToolProgress: (sessionId: string, toolUseId?: string) => void;
 
   // Tool result actions
@@ -1028,7 +1034,24 @@ export const useStore = create<AppState>((set) => ({
     set((s) => {
       const toolProgress = new Map(s.toolProgress);
       const sessionProgress = new Map(toolProgress.get(sessionId) || []);
-      sessionProgress.set(toolUseId, data);
+      const existing = sessionProgress.get(toolUseId);
+      let output = existing?.output;
+      let outputTruncated = existing?.outputTruncated ?? false;
+      if (typeof data.outputDelta === "string" && data.outputDelta.length > 0) {
+        const merged = (output || "") + data.outputDelta;
+        if (merged.length > TOOL_PROGRESS_OUTPUT_LIMIT) {
+          output = merged.slice(-TOOL_PROGRESS_OUTPUT_LIMIT);
+          outputTruncated = true;
+        } else {
+          output = merged;
+        }
+      }
+      sessionProgress.set(toolUseId, {
+        toolName: data.toolName,
+        elapsedSeconds: data.elapsedSeconds,
+        ...(output ? { output } : {}),
+        ...(outputTruncated ? { outputTruncated: true } : {}),
+      });
       toolProgress.set(sessionId, sessionProgress);
       return { toolProgress };
     }),
