@@ -193,6 +193,19 @@ describe("Session management", () => {
     expect(removeSpy).toHaveBeenCalledWith("s1");
   });
 
+  it("setSessionClaimedQuest: does not rebroadcast unchanged quest state", () => {
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+    browser.send.mockClear();
+
+    bridge.setSessionClaimedQuest("s1", { id: "q-1", title: "Quest One", status: "in_progress" });
+    bridge.setSessionClaimedQuest("s1", { id: "q-1", title: "Quest One", status: "in_progress" });
+
+    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    const questEvents = calls.filter((c: any) => c.type === "session_quest_claimed");
+    expect(questEvents).toHaveLength(1);
+  });
+
   it("closeSession: closes all sockets and removes session", () => {
     const cli = makeCliSocket("s1");
     const browser1 = makeBrowserSocket("s1");
@@ -4500,6 +4513,155 @@ describe("Codex adapter result handling", () => {
 
     const session = bridge.getSession("s1")!;
     expect(session.toolResults.get("tool-1")?.content).toContain("Exit code: 2");
+  });
+
+  it("reconciles Codex quest claim command into quest chip state and task history", () => {
+    const browser = makeBrowserSocket("s1");
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter("s1", adapter as any);
+    bridge.handleBrowserOpen(browser, "s1");
+    browser.send.mockClear();
+
+    adapter.emitBrowserMessage({
+      type: "assistant",
+      message: {
+        id: "quest-claim-start",
+        type: "message",
+        role: "assistant",
+        model: "gpt-5-codex",
+        content: [
+          {
+            type: "tool_use",
+            id: "quest-tool-1",
+            name: "Bash",
+            input: { command: "quest claim q-74 --json" },
+          },
+        ],
+        stop_reason: null,
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+      timestamp: Date.now(),
+    });
+
+    adapter.emitBrowserMessage({
+      type: "assistant",
+      message: {
+        id: "quest-claim-end",
+        type: "message",
+        role: "assistant",
+        model: "gpt-5-codex",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "quest-tool-1",
+            content: JSON.stringify({
+              questId: "q-74",
+              title: "Fix Codex quest lifecycle chips",
+              status: "in_progress",
+            }),
+            is_error: false,
+          },
+        ],
+        stop_reason: null,
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+      timestamp: Date.now(),
+    });
+
+    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    const questEvent = calls.find((c: any) => c.type === "session_quest_claimed");
+    expect(questEvent).toBeDefined();
+    expect(questEvent.quest).toEqual({
+      id: "q-74",
+      title: "Fix Codex quest lifecycle chips",
+      status: "in_progress",
+    });
+
+    const taskHistoryMsg = calls.find((c: any) => c.type === "session_task_history");
+    expect(taskHistoryMsg).toBeDefined();
+    expect(taskHistoryMsg.tasks).toHaveLength(1);
+    expect(taskHistoryMsg.tasks[0]).toEqual(
+      expect.objectContaining({
+        source: "quest",
+        questId: "q-74",
+        title: "Fix Codex quest lifecycle chips",
+        action: "new",
+      }),
+    );
+  });
+
+  it("reconciles Codex quest complete command into needs_verification quest state", () => {
+    const browser = makeBrowserSocket("s1");
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter("s1", adapter as any);
+    bridge.handleBrowserOpen(browser, "s1");
+    browser.send.mockClear();
+
+    bridge.setSessionClaimedQuest("s1", {
+      id: "q-74",
+      title: "Fix Codex quest lifecycle chips",
+      status: "in_progress",
+    });
+    browser.send.mockClear();
+
+    adapter.emitBrowserMessage({
+      type: "assistant",
+      message: {
+        id: "quest-complete-start",
+        type: "message",
+        role: "assistant",
+        model: "gpt-5-codex",
+        content: [
+          {
+            type: "tool_use",
+            id: "quest-tool-2",
+            name: "Bash",
+            input: { command: "quest complete q-74 --items \"Verify\" --json" },
+          },
+        ],
+        stop_reason: null,
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+      timestamp: Date.now(),
+    });
+
+    adapter.emitBrowserMessage({
+      type: "assistant",
+      message: {
+        id: "quest-complete-end",
+        type: "message",
+        role: "assistant",
+        model: "gpt-5-codex",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "quest-tool-2",
+            content: JSON.stringify({
+              questId: "q-74",
+              title: "Fix Codex quest lifecycle chips",
+              status: "needs_verification",
+            }),
+            is_error: false,
+          },
+        ],
+        stop_reason: null,
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+      timestamp: Date.now(),
+    });
+
+    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    const questEvents = calls.filter((c: any) => c.type === "session_quest_claimed");
+    expect(questEvents).toHaveLength(1);
+    expect(questEvents[0].quest).toEqual({
+      id: "q-74",
+      title: "Fix Codex quest lifecycle chips",
+      status: "needs_verification",
+    });
   });
 });
 

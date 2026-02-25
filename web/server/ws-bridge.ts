@@ -105,6 +105,100 @@ function extractAskUserAnswers(
   return pairs.length ? pairs : undefined;
 }
 
+type QuestLifecycleStatus = "in_progress" | "needs_verification" | "done";
+
+interface ParsedQuestLifecycleCommand {
+  questId: string;
+  targetStatus?: QuestLifecycleStatus;
+}
+
+function normalizeQuestStatus(value: string | undefined): QuestLifecycleStatus | undefined {
+  if (!value) return undefined;
+  const s = value.toLowerCase();
+  if (s === "in_progress") return "in_progress";
+  if (s === "needs_verification" || s === "verification") return "needs_verification";
+  if (s === "done") return "done";
+  return undefined;
+}
+
+function parseQuestLifecycleCommand(command: string): ParsedQuestLifecycleCommand | null {
+  const match = command.match(/(?:^|[\s;|&])\/?quest\s+([a-z_]+)\s+(q-\d+)\b/i);
+  if (!match) return null;
+
+  const subcommand = match[1]?.toLowerCase();
+  const questId = match[2];
+  if (!subcommand || !questId) return null;
+
+  if (subcommand === "claim") return { questId, targetStatus: "in_progress" };
+  if (subcommand === "complete") return { questId, targetStatus: "needs_verification" };
+  if (subcommand === "done" || subcommand === "cancel") return { questId, targetStatus: "done" };
+  if (subcommand === "transition") {
+    const statusMatch = command.match(/--status\s+([a-z_]+)/i);
+    return { questId, targetStatus: normalizeQuestStatus(statusMatch?.[1]) };
+  }
+
+  return null;
+}
+
+function parseQuestLifecycleResult(resultText: string): {
+  questId?: string;
+  title?: string;
+  status?: QuestLifecycleStatus;
+} | null {
+  const trimmed = resultText.trim();
+  if (!trimmed) return null;
+
+  const parseCandidate = (candidate: string) => {
+    try {
+      const parsed = JSON.parse(candidate) as Record<string, unknown>;
+      const questId = typeof parsed.questId === "string" ? parsed.questId : undefined;
+      const title = typeof parsed.title === "string" ? parsed.title : undefined;
+      const status = normalizeQuestStatus(
+        typeof parsed.status === "string" ? parsed.status : undefined,
+      );
+      if (!questId && !title && !status) return null;
+      return { questId, title, status };
+    } catch {
+      return null;
+    }
+  };
+
+  const whole = parseCandidate(trimmed);
+  if (whole) return whole;
+
+  const firstBrace = trimmed.indexOf("{");
+  const lastBrace = trimmed.lastIndexOf("}");
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    const sliced = parseCandidate(trimmed.slice(firstBrace, lastBrace + 1));
+    if (sliced) return sliced;
+  }
+
+  const claimLine = trimmed.match(/Claimed\s+(q-\d+)\s+"([^"]+)"/i);
+  if (claimLine) {
+    return { questId: claimLine[1], title: claimLine[2], status: "in_progress" };
+  }
+
+  const completeLine = trimmed.match(/Completed\s+(q-\d+)\s+"([^"]+)"/i);
+  if (completeLine) {
+    return { questId: completeLine[1], title: completeLine[2], status: "needs_verification" };
+  }
+
+  const doneLine = trimmed.match(/(?:Marked done|Cancelled)\s+(q-\d+)\s+"([^"]+)"/i);
+  if (doneLine) {
+    return { questId: doneLine[1], title: doneLine[2], status: "done" };
+  }
+
+  const transitionLine = trimmed.match(/Transitioned\s+(q-\d+)\s+to\s+([a-z_]+)/i);
+  if (transitionLine) {
+    return {
+      questId: transitionLine[1],
+      status: normalizeQuestStatus(transitionLine[2]),
+    };
+  }
+
+  return null;
+}
+
 // ─── WebSocket data tags ──────────────────────────────────────────────────────
 
 interface CLISocketData {
@@ -158,6 +252,8 @@ interface Session {
   processedClientMessageIdSet: Set<string>;
   /** Full tool results indexed by tool_use_id for lazy fetch */
   toolResults: Map<string, { content: string; is_error: boolean; timestamp: number }>;
+  /** Parsed quest lifecycle commands pending completion, keyed by tool_use_id. */
+  pendingQuestCommands: Map<string, ParsedQuestLifecycleCommand>;
   /** Set after compact_boundary; the next user text message is the summary */
   awaitingCompactSummary?: boolean;
   /** Accumulates content blocks for assistant messages with the same ID (parallel tool calls) */
@@ -629,6 +725,15 @@ export class WsBridge {
       return;
     }
     console.log(`[ws-bridge] setSessionClaimedQuest: quest=${quest?.id ?? "null"} title="${quest?.title ?? ""}" status=${quest?.status ?? "null"} browsers=${session.browserSockets.size} session=${sessionId}`);
+    const prevId = session.state.claimedQuestId ?? null;
+    const prevTitle = session.state.claimedQuestTitle ?? null;
+    const prevStatus = session.state.claimedQuestStatus ?? null;
+    const nextId = quest?.id ?? null;
+    const nextTitle = quest?.title ?? null;
+    const nextStatus = quest?.status ?? null;
+    if (prevId === nextId && prevTitle === nextTitle && prevStatus === nextStatus) {
+      return;
+    }
     session.state.claimedQuestId = quest?.id;
     session.state.claimedQuestTitle = quest?.title;
     session.state.claimedQuestStatus = quest?.status;
@@ -700,6 +805,7 @@ export class WsBridge {
           Array.isArray(p.processedClientMessageIds) ? p.processedClientMessageIds : [],
         ),
         toolResults: new Map(Array.isArray(p.toolResults) ? p.toolResults : []),
+        pendingQuestCommands: new Map(),
         assistantAccumulator: new Map(),
         toolStartTimes: new Map(),
         isGenerating: false,
@@ -942,6 +1048,7 @@ export class WsBridge {
         processedClientMessageIds: [],
         processedClientMessageIdSet: new Set(),
         toolResults: new Map(),
+        pendingQuestCommands: new Map(),
         assistantAccumulator: new Map(),
         toolStartTimes: new Map(),
         isGenerating: false,
@@ -1151,8 +1258,12 @@ export class WsBridge {
         this.persistSession(session);
       } else if (msg.type === "assistant") {
         const content = msg.message.content || [];
+        this.trackCodexQuestCommands(session, content);
         const toolResults = content.filter((b): b is Extract<ContentBlock, { type: "tool_result" }> => b.type === "tool_result");
         if (toolResults.length > 0) {
+          for (const block of toolResults) {
+            this.reconcileCodexQuestToolResult(session, block);
+          }
           const previews = this.buildToolResultPreviews(session, toolResults);
           if (previews.length > 0) {
             const previewMsg: BrowserIncomingMessage = {
@@ -1233,6 +1344,7 @@ export class WsBridge {
         this.broadcastToBrowsers(session, { type: "permission_cancelled", request_id: reqId });
       }
       session.pendingPermissions.clear();
+      session.pendingQuestCommands.clear();
       session.codexAdapter = null;
       this.setGenerating(session, false, "codex_disconnect");
       this.persistSession(session);
@@ -3178,6 +3290,72 @@ export class WsBridge {
     }
     console.log(`[ws-bridge] broadcastNameUpdate: "${name}" source=${source ?? "none"} browsers=${session.browserSockets.size} session=${sessionTag(sessionId)}`);
     this.broadcastToBrowsers(session, { type: "session_name_update", name, ...(source && { source }) });
+  }
+
+  /** Track quest lifecycle commands from Codex Bash tool_use blocks. */
+  private trackCodexQuestCommands(session: Session, content: ContentBlock[]): void {
+    for (const block of content) {
+      if (block.type !== "tool_use" || block.name !== "Bash") continue;
+      const command = typeof block.input.command === "string" ? block.input.command : "";
+      if (!command) continue;
+      const parsed = parseQuestLifecycleCommand(command);
+      if (!parsed) continue;
+      session.pendingQuestCommands.set(block.id, parsed);
+    }
+  }
+
+  /** Apply quest lifecycle updates from successful Codex Bash tool_result blocks. */
+  private reconcileCodexQuestToolResult(
+    session: Session,
+    toolResult: Extract<ContentBlock, { type: "tool_result" }>,
+  ): void {
+    const pending = session.pendingQuestCommands.get(toolResult.tool_use_id);
+    if (!pending) return;
+    session.pendingQuestCommands.delete(toolResult.tool_use_id);
+    if (toolResult.is_error) return;
+
+    const raw = typeof toolResult.content === "string"
+      ? toolResult.content
+      : JSON.stringify(toolResult.content);
+    const parsedResult = parseQuestLifecycleResult(raw);
+
+    const questId = parsedResult?.questId || pending.questId;
+    const status = parsedResult?.status || pending.targetStatus;
+    const title = parsedResult?.title || session.state.claimedQuestTitle || questId;
+    if (!questId || !status) return;
+
+    if (status === "done") {
+      if (session.state.claimedQuestId === questId) {
+        this.setSessionClaimedQuest(session.id, null);
+      }
+      return;
+    }
+
+    this.setSessionClaimedQuest(session.id, { id: questId, title, status });
+    if (status !== "in_progress") return;
+
+    const alreadyTracked = session.taskHistory.some(
+      (entry) => entry.source === "quest" && entry.questId === questId,
+    );
+    if (alreadyTracked) return;
+
+    let triggerMsgId = `quest-${questId}`;
+    for (let i = session.messageHistory.length - 1; i >= 0; i--) {
+      const msg = session.messageHistory[i];
+      if (msg.type === "user_message" && msg.id) {
+        triggerMsgId = msg.id;
+        break;
+      }
+    }
+
+    this.addTaskEntry(session.id, {
+      title,
+      action: "new",
+      timestamp: Date.now(),
+      triggerMessageId: triggerMsgId,
+      source: "quest",
+      questId,
+    });
   }
 
   /** Add a task entry to the session's task history, persist, and broadcast. */
