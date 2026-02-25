@@ -89,6 +89,12 @@ function setStoreStatus(sessionId: string, status: string | null) {
   mockStoreValues.sessionStatus = statusMap;
 }
 
+function setStoreSessionBackend(sessionId: string, backend: "claude" | "codex") {
+  const map = new Map();
+  map.set(sessionId, { backend_type: backend });
+  mockStoreValues.sessions = map;
+}
+
 function setStoreStreamingStartedAt(sessionId: string, startedAt: number | undefined) {
   const map = new Map();
   if (startedAt !== undefined) map.set(sessionId, startedAt);
@@ -109,6 +115,7 @@ function resetStore() {
   mockStoreValues.streamingPausedDuration = new Map();
   mockStoreValues.streamingPauseStartedAt = new Map();
   mockStoreValues.sessionStatus = new Map();
+  mockStoreValues.sessions = new Map();
   mockStoreValues.turnActivityOverrides = new Map();
 }
 
@@ -284,6 +291,40 @@ describe("MessageFeed - streaming text", () => {
     // Check for the blinking cursor element (animate class with pulse-dot)
     const cursor = container.querySelector('[class*="animate-"]');
     expect(cursor).toBeTruthy();
+  });
+
+  it("uses monospace streaming typography for codex sessions", () => {
+    const sid = "test-streaming-codex";
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Hello" }),
+    ]);
+    setStoreStreaming(sid, "Codex is streaming");
+    setStoreSessionBackend(sid, "codex");
+
+    render(<MessageFeed sessionId={sid} />);
+
+    const text = screen.getByText("Codex is streaming");
+    const pre = text.closest("pre");
+    expect(pre).toBeTruthy();
+    expect(pre?.className).toContain("font-mono-code");
+    expect(pre?.className).not.toContain("font-serif-assistant");
+  });
+
+  it("keeps serif streaming typography for claude sessions", () => {
+    const sid = "test-streaming-claude";
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Hello" }),
+    ]);
+    setStoreStreaming(sid, "Claude is streaming");
+    setStoreSessionBackend(sid, "claude");
+
+    render(<MessageFeed sessionId={sid} />);
+
+    const text = screen.getByText("Claude is streaming");
+    const pre = text.closest("pre");
+    expect(pre).toBeTruthy();
+    expect(pre?.className).toContain("font-serif-assistant");
+    expect(pre?.className).not.toContain("font-mono-code");
   });
 
   it("does not render streaming indicator when no streaming text", () => {

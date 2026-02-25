@@ -1039,6 +1039,7 @@ function SubagentResult({ preview, parsedText, sessionId, toolUseId }: {
 const FeedFooter = memo(function FeedFooter({ sessionId }: { sessionId: string }) {
   const toolProgress = useStore((s) => s.toolProgress.get(sessionId));
   const streamingText = useStore((s) => s.streaming.get(sessionId));
+  const isCodexSession = useStore((s) => s.sessions.get(sessionId)?.backend_type === "codex");
 
   return (
     <>
@@ -1062,7 +1063,9 @@ const FeedFooter = memo(function FeedFooter({ sessionId }: { sessionId: string }
           <div className="flex items-start gap-3">
             <PawTrailAvatar isStreaming />
             <div className="flex-1 min-w-0">
-              <pre className="font-serif-assistant text-[15px] text-cc-fg whitespace-pre-wrap break-words leading-relaxed">
+              <pre
+                className={`${isCodexSession ? "font-mono-code text-[14px] sm:text-[15px]" : "font-serif-assistant text-[15px]"} text-cc-fg whitespace-pre-wrap break-words leading-relaxed`}
+              >
                 {streamingText}
                 <span className="inline-block w-0.5 h-4 bg-cc-primary ml-0.5 align-middle animate-[pulse-dot_0.8s_ease-in-out_infinite]" />
               </pre>
