@@ -2192,19 +2192,19 @@ export function createRoutes(
 
   // ─── Git operations ─────────────────────────────────────────────────
 
-  api.get("/git/repo-info", (c) => {
+  api.get("/git/repo-info", async (c) => {
     const path = c.req.query("path");
     if (!path) return c.json({ error: "path required" }, 400);
-    const info = gitUtils.getRepoInfo(path);
+    const info = await gitUtils.getRepoInfoAsync(path);
     if (!info) return c.json({ error: "Not a git repository" }, 400);
     return c.json(info);
   });
 
-  api.get("/git/branches", (c) => {
+  api.get("/git/branches", async (c) => {
     const repoRoot = c.req.query("repoRoot");
     if (!repoRoot) return c.json({ error: "repoRoot required" }, 400);
     try {
-      return c.json(gitUtils.listBranches(repoRoot));
+      return c.json(await gitUtils.listBranchesAsync(repoRoot));
     } catch (e: unknown) {
       return c.json({ error: e instanceof Error ? e.message : String(e) }, 500);
     }
@@ -2237,13 +2237,13 @@ export function createRoutes(
     const body = await c.req.json().catch(() => ({}));
     const { repoRoot } = body;
     if (!repoRoot) return c.json({ error: "repoRoot required" }, 400);
-    return c.json(gitUtils.gitFetch(repoRoot));
+    return c.json(await gitUtils.gitFetchAsync(repoRoot));
   });
 
-  api.get("/git/worktrees", (c) => {
+  api.get("/git/worktrees", async (c) => {
     const repoRoot = c.req.query("repoRoot");
     if (!repoRoot) return c.json({ error: "repoRoot required" }, 400);
-    return c.json(gitUtils.listWorktrees(repoRoot));
+    return c.json(await gitUtils.listWorktreesAsync(repoRoot));
   });
 
   api.post("/git/worktree", async (c) => {
@@ -2266,20 +2266,20 @@ export function createRoutes(
     const body = await c.req.json().catch(() => ({}));
     const { cwd, sessionId } = body;
     if (!cwd) return c.json({ error: "cwd required" }, 400);
-    const result = gitUtils.gitPull(cwd);
+    const result = await gitUtils.gitPullAsync(cwd);
     // Return refreshed ahead/behind counts
     let git_ahead = 0,
       git_behind = 0;
     try {
-      const counts = execSync( // sync-ok: route handler, not called during message handling
-        "git rev-list --left-right --count @{upstream}...HEAD",
+      const { stdout: counts } = await execPromise(
+        "git --no-optional-locks rev-list --left-right --count @{upstream}...HEAD",
         {
           cwd,
           encoding: "utf-8",
           timeout: GIT_CMD_TIMEOUT,
         },
-      ).trim();
-      const [behind, ahead] = counts.split(/\s+/).map(Number);
+      );
+      const [behind, ahead] = counts.trim().split(/\s+/).map(Number);
       git_ahead = ahead || 0;
       git_behind = behind || 0;
     } catch {

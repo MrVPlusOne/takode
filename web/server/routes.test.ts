@@ -52,16 +52,22 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 
 vi.mock("./git-utils.js", () => ({
   getRepoInfo: vi.fn(() => null),
+  getRepoInfoAsync: vi.fn(async () => null),
   listBranches: vi.fn(() => []),
+  listBranchesAsync: vi.fn(async () => []),
   listWorktrees: vi.fn(() => []),
+  listWorktreesAsync: vi.fn(async () => []),
   ensureWorktree: vi.fn(),
   gitFetch: vi.fn(() => ({ success: true, output: "" })),
+  gitFetchAsync: vi.fn(async () => ({ success: true, output: "" })),
   gitPull: vi.fn(() => ({ success: true, output: "" })),
+  gitPullAsync: vi.fn(async () => ({ success: true, output: "" })),
   checkoutBranch: vi.fn(),
   removeWorktree: vi.fn(),
   isWorktreeDirty: vi.fn(() => false),
   isWorktreeDirtyAsync: vi.fn(async () => false),
   resolveDefaultBranch: vi.fn(() => "main"),
+  getBranchStatus: vi.fn(() => ({ ahead: 0, behind: 0 })),
 }));
 
 vi.mock("./session-names.js", () => ({
@@ -1438,14 +1444,14 @@ describe("GET /api/git/repo-info", () => {
       defaultBranch: "main",
       isWorktree: false,
     };
-    vi.mocked(gitUtils.getRepoInfo).mockReturnValue(info);
+    vi.mocked(gitUtils.getRepoInfoAsync).mockResolvedValue(info);
 
     const res = await app.request("/api/git/repo-info?path=/repo", { method: "GET" });
 
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json).toEqual(info);
-    expect(gitUtils.getRepoInfo).toHaveBeenCalledWith("/repo");
+    expect(gitUtils.getRepoInfoAsync).toHaveBeenCalledWith("/repo");
   });
 
   it("returns 400 when path query parameter is missing", async () => {
@@ -1463,14 +1469,14 @@ describe("GET /api/git/branches", () => {
       { name: "main", isCurrent: true, isRemote: false, worktreePath: null, ahead: 0, behind: 0 },
       { name: "dev", isCurrent: false, isRemote: false, worktreePath: null, ahead: 2, behind: 0 },
     ];
-    vi.mocked(gitUtils.listBranches).mockReturnValue(branches);
+    vi.mocked(gitUtils.listBranchesAsync).mockResolvedValue(branches);
 
     const res = await app.request("/api/git/branches?repoRoot=/repo", { method: "GET" });
 
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json).toEqual(branches);
-    expect(gitUtils.listBranches).toHaveBeenCalledWith("/repo");
+    expect(gitUtils.listBranchesAsync).toHaveBeenCalledWith("/repo");
   });
 });
 

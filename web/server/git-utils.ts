@@ -158,7 +158,151 @@ export async function resolveDefaultBranchAsync(repoRoot: string, currentBranch?
   return "main";
 }
 
+/** Async version of getRepoInfo. Non-blocking for route handlers. */
+export async function getRepoInfoAsync(cwd: string): Promise<GitRepoInfo | null> {
+  const repoRoot = await gitSafeAsync("rev-parse --show-toplevel", cwd);
+  if (!repoRoot) return null;
+
+  const currentBranch = await gitSafeAsync("rev-parse --abbrev-ref HEAD", cwd) || "HEAD";
+  const gitDir = await gitSafeAsync("rev-parse --git-dir", cwd) || "";
+  const isWorktree = gitDir.includes("/worktrees/");
+  const defaultBranch = await resolveDefaultBranchAsync(repoRoot, currentBranch);
+
+  return {
+    repoRoot,
+    repoName: basename(repoRoot),
+    currentBranch,
+    defaultBranch,
+    isWorktree,
+  };
+}
+
+/** Async version of getBranchStatus. Non-blocking for route handlers. */
+async function getBranchStatusAsync(
+  repoRoot: string,
+  branchName: string,
+): Promise<{ ahead: number; behind: number }> {
+  const raw = await gitSafeAsync(
+    `rev-list --left-right --count origin/${branchName}...${branchName}`,
+    repoRoot,
+  );
+  if (!raw) return { ahead: 0, behind: 0 };
+  const [behind, ahead] = raw.split(/\s+/).map(Number);
+  return { ahead: ahead || 0, behind: behind || 0 };
+}
+
+/** Async version of listWorktrees. Non-blocking for route handlers. */
+async function listWorktreesAsync(repoRoot: string): Promise<GitWorktreeInfo[]> {
+  const raw = await gitSafeAsync("worktree list --porcelain", repoRoot);
+  if (!raw) return [];
+
+  const worktrees: GitWorktreeInfo[] = [];
+  let current: Partial<GitWorktreeInfo> = {};
+
+  for (const line of raw.split("\n")) {
+    if (line.startsWith("worktree ")) {
+      if (current.path) {
+        worktrees.push(current as GitWorktreeInfo);
+      }
+      current = { path: line.slice(9), isDirty: false, isMainWorktree: false };
+    } else if (line.startsWith("HEAD ")) {
+      current.head = line.slice(5);
+    } else if (line.startsWith("branch ")) {
+      current.branch = line.slice(7).replace("refs/heads/", "");
+    } else if (line === "bare") {
+      current.isMainWorktree = true;
+    } else if (line === "") {
+      if (worktrees.length === 0 && current.path) {
+        current.isMainWorktree = true;
+      }
+    }
+  }
+  if (current.path) worktrees.push(current as GitWorktreeInfo);
+  return worktrees;
+}
+
+/** Async version of listBranches. Non-blocking for route handlers. */
+export async function listBranchesAsync(repoRoot: string): Promise<GitBranchInfo[]> {
+  const worktrees = await listWorktreesAsync(repoRoot);
+  const worktreeByBranch = new Map<string, string>();
+  for (const wt of worktrees) {
+    if (wt.branch) worktreeByBranch.set(wt.branch, wt.path);
+  }
+
+  const result: GitBranchInfo[] = [];
+
+  // Local branches
+  const localRaw = await gitSafeAsync(
+    "for-each-ref '--format=%(refname:short)%09%(HEAD)' refs/heads/",
+    repoRoot,
+  );
+  if (localRaw) {
+    for (const line of localRaw.split("\n")) {
+      if (!line.trim()) continue;
+      const [name, head] = line.split("\t");
+      const isCurrent = head?.trim() === "*";
+      const { ahead, behind } = await getBranchStatusAsync(repoRoot, name);
+      result.push({
+        name,
+        isCurrent,
+        isRemote: false,
+        worktreePath: worktreeByBranch.get(name) || null,
+        ahead,
+        behind,
+      });
+    }
+  }
+
+  // Remote branches (only those without a local counterpart)
+  const localNames = new Set(result.map((b) => b.name));
+  const remoteRaw = await gitSafeAsync(
+    "for-each-ref '--format=%(refname:short)' refs/remotes/origin/",
+    repoRoot,
+  );
+  if (remoteRaw) {
+    for (const line of remoteRaw.split("\n")) {
+      const full = line.trim();
+      if (!full || full === "origin/HEAD") continue;
+      const name = full.replace("origin/", "");
+      if (localNames.has(name)) continue;
+      result.push({
+        name,
+        isCurrent: false,
+        isRemote: true,
+        worktreePath: null,
+        ahead: 0,
+        behind: 0,
+      });
+    }
+  }
+
+  return result;
+}
+
 // ─── Functions ──────────────────────────────────────────────────────────────
+
+/** Async version of gitFetch. Non-blocking for route handlers. */
+export async function gitFetchAsync(cwd: string): Promise<{ success: boolean; output: string }> {
+  try {
+    const output = await gitAsync("fetch --prune", cwd);
+    return { success: true, output };
+  } catch (e: unknown) {
+    return { success: false, output: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** Async version of gitPull. Non-blocking for route handlers. */
+export async function gitPullAsync(cwd: string): Promise<{ success: boolean; output: string }> {
+  try {
+    const output = await gitAsync("pull", cwd);
+    return { success: true, output };
+  } catch (e: unknown) {
+    return { success: false, output: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** Exported async version of listWorktrees for route handlers. */
+export { listWorktreesAsync };
 
 export function getRepoInfo(cwd: string): GitRepoInfo | null {
   const repoRoot = gitSafe("rev-parse --show-toplevel", cwd);
