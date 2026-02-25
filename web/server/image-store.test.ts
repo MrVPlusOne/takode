@@ -180,10 +180,11 @@ describe("ImageStore", () => {
   // Large images should be compressed to JPEG to keep the JSON-RPC payload
   // under transport limits. Verifies both size reduction and format change.
   it("compressForTransport() compresses large images to JPEG", async () => {
-    // Create a large PNG (200x200 noise) that exceeds TRANSPORT_MAX_BASE64_CHARS
+    // Create a large PNG (500x500 noise) that exceeds TRANSPORT_MAX_BASE64_CHARS (500K).
+    // 500x500 RGBA = 1MB raw, uncompressed PNG ≈ 1MB+ → base64 ≈ 1.3M+ chars.
     const sharp = (await import("sharp")).default;
-    const width = 200;
-    const height = 200;
+    const width = 500;
+    const height = 500;
     // Raw RGBA noise — compresses poorly as PNG but well as JPEG
     const rawPixels = Buffer.alloc(width * height * 4);
     for (let i = 0; i < rawPixels.length; i++) {
@@ -195,8 +196,7 @@ describe("ImageStore", () => {
     const largeBase64 = pngBuffer.toString("base64");
 
     // Only test if the generated image is large enough to trigger compression.
-    // With 200x200 uncompressed PNG this should be well over the threshold.
-    if (largeBase64.length <= 1_500_000) {
+    if (largeBase64.length <= 500_000) {
       // If the random image is somehow small, just verify passthrough
       const result = await store.compressForTransport(largeBase64, "image/png");
       expect(result.base64).toBe(largeBase64);

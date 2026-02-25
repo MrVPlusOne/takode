@@ -36,13 +36,13 @@ const THUMB_QUALITY = 80;
 
 /**
  * Maximum base64 characters before we compress for transport.
- * ~1.1MB of raw image data → ~1.5MB base64. Keeps the JSON-RPC
- * payload under 2MB to avoid blocking the event loop and crashing
- * the Codex process when written to stdin.
+ * ~375KB of raw image data → ~500KB base64. Keeps the JSON-RPC
+ * turn/start payload (including JSON wrapper and data: URL) well
+ * under 1MB to prevent event loop blocks and Codex process crashes.
  */
-const TRANSPORT_MAX_BASE64_CHARS = 1_500_000;
-const TRANSPORT_MAX_DIM = 2048;
-const TRANSPORT_JPEG_QUALITY = 85;
+const TRANSPORT_MAX_BASE64_CHARS = 500_000;
+const TRANSPORT_MAX_DIM = 1536;
+const TRANSPORT_JPEG_QUALITY = 80;
 
 export class ImageStore {
   private baseDir: string;

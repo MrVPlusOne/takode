@@ -1235,11 +1235,14 @@ describe("CodexAdapter", () => {
     });
     expect(accepted).toBe(true); // accepted into queue
 
-    // Now complete initialization
+    // Now complete initialization (initialize → thread/start → rateLimits)
     await new Promise((r) => setTimeout(r, 50));
     stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
     await new Promise((r) => setTimeout(r, 20));
     stdout.push(JSON.stringify({ id: 2, result: { thread: { id: "thr_123" } } }) + "\n");
+    await new Promise((r) => setTimeout(r, 20));
+    // Rate limits response is awaited before flushing queued messages
+    stdout.push(JSON.stringify({ id: 3, result: {} }) + "\n");
     await new Promise((r) => setTimeout(r, 100));
 
     // The queued message should have been flushed — check that turn/start was called

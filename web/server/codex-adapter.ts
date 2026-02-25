@@ -170,10 +170,25 @@ class JsonRpcTransport {
     // Handle both Bun subprocess stdin types
     let writable: WritableStream<Uint8Array>;
     if ("write" in stdin && typeof stdin.write === "function") {
-      // Bun's subprocess stdin has a .write() method directly
+      // Bun's subprocess stdin has a .write() method that returns bytes
+      // actually written. We must loop to handle partial writes — otherwise
+      // large payloads (images) can be silently truncated, corrupting the
+      // NDJSON protocol and crashing the Codex process.
+      const bunStdin = stdin as { write(data: Uint8Array): number };
       writable = new WritableStream({
-        write(chunk) {
-          (stdin as { write(data: Uint8Array): number }).write(chunk);
+        async write(chunk) {
+          let offset = 0;
+          while (offset < chunk.length) {
+            const written = bunStdin.write(
+              offset === 0 ? chunk : chunk.subarray(offset),
+            );
+            if (written <= 0) {
+              // Pipe buffer full — yield to the event loop and retry
+              await new Promise<void>((r) => setTimeout(r, 1));
+              continue;
+            }
+            offset += written;
+          }
         },
       });
     } else {
@@ -382,6 +397,9 @@ export class CodexAdapter {
   // and only send item/completed — we need to emit tool_use before tool_result.
   private emittedToolUseIds = new Set<string>();
 
+  // Resolve when the current turn ends (used by interruptAndWaitForTurnEnd)
+  private turnEndResolvers: Array<() => void> = [];
+
   // Queue messages received before initialization completes
   private pendingOutgoing: BrowserOutgoingMessage[] = [];
 
@@ -466,6 +484,8 @@ export class CodexAdapter {
         }
       }
       this.connected = false;
+      // Wake any turn-end waiters so they don't hang after disconnect
+      for (const resolve of this.turnEndResolvers.splice(0)) resolve();
       for (const pending of this.pendingDynamicToolCalls.values()) {
         clearTimeout(pending.timeout);
       }
@@ -478,6 +498,7 @@ export class CodexAdapter {
       if (!this.connected) return; // already handled by transport.onClose
       console.log(`[codex-adapter] Process exited for session ${sessionId} (code=${exitCode}, connected was true — transport.onClose did not fire first)`);
       this.connected = false;
+      for (const resolve of this.turnEndResolvers.splice(0)) resolve();
       for (const pending of this.pendingDynamicToolCalls.values()) {
         clearTimeout(pending.timeout);
       }
@@ -695,10 +716,13 @@ export class CodexAdapter {
 
       this.emit({ type: "session_init", session: state });
 
-      // Fetch initial rate limits (non-blocking — don't fail init if this errors)
-      this.transport.call("account/rateLimits/read", {}).then((result) => {
-        this.updateRateLimits(result as Record<string, unknown>);
-      }).catch(() => { /* best-effort */ });
+      // Fetch initial rate limits — await so the RPC completes before flushing
+      // queued messages. Without this, a concurrent rateLimits write and
+      // turn/start write can interleave on the shared stdin pipe.
+      try {
+        const rateLimitsResult = await this.transport.call("account/rateLimits/read", {});
+        this.updateRateLimits(rateLimitsResult as Record<string, unknown>);
+      } catch { /* best-effort — don't fail init if rate limits fetch errors */ }
 
       // Flush any messages that were queued during initialization
       if (this.pendingOutgoing.length > 0) {
@@ -864,19 +888,29 @@ export class CodexAdapter {
   private async interruptAndWaitForTurnEnd(): Promise<void> {
     await this.handleOutgoingInterrupt();
 
-    // Wait for currentTurnId to be cleared by handleTurnCompleted
+    if (!this.currentTurnId) return; // Already cleared
+
     const TIMEOUT_MS = 5_000;
-    const POLL_MS = 50;
-    const start = Date.now();
-    while (this.currentTurnId && Date.now() - start < TIMEOUT_MS) {
-      await new Promise((r) => setTimeout(r, POLL_MS));
-    }
-    if (this.currentTurnId) {
-      console.warn(
-        `[codex-adapter] Turn ${this.currentTurnId} did not complete within ${TIMEOUT_MS}ms after interrupt for session ${this.sessionId}, proceeding anyway`,
-      );
-      this.currentTurnId = null;
-    }
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        // Remove this resolver so handleTurnCompleted doesn't call stale fn
+        const idx = this.turnEndResolvers.indexOf(onEnd);
+        if (idx >= 0) this.turnEndResolvers.splice(idx, 1);
+        if (this.currentTurnId) {
+          console.warn(
+            `[codex-adapter] Turn ${this.currentTurnId} did not complete within ${TIMEOUT_MS}ms after interrupt for session ${this.sessionId}, proceeding anyway`,
+          );
+          this.currentTurnId = null;
+        }
+        resolve();
+      }, TIMEOUT_MS);
+
+      const onEnd = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      this.turnEndResolvers.push(onEnd);
+    });
   }
 
   private async handleOutgoingMcpGetStatus(): Promise<void> {
@@ -1768,6 +1802,8 @@ export class CodexAdapter {
     const turn = params.turn as { id: string; status: string; error?: { message: string } } | undefined;
 
     this.currentTurnId = null;
+    // Wake any callers waiting for the turn to end (e.g. interruptAndWaitForTurnEnd)
+    for (const resolve of this.turnEndResolvers.splice(0)) resolve();
 
     // Interrupted turns are an internal mechanism (e.g. user sent a new
     // message while a turn was active). Don't emit a result — the next

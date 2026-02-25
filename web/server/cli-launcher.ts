@@ -12,6 +12,12 @@ import {
   symlinkSync,
   lstatSync,
 } from "node:fs";
+import {
+  mkdir,
+  access,
+  copyFile,
+  cp,
+} from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 import type { Subprocess } from "bun";
@@ -347,7 +353,9 @@ export class CliLauncher {
     options = { ...options, env: envWithSessionId };
 
     if (backendType === "codex") {
-      this.spawnCodex(sessionId, info, options);
+      this.spawnCodex(sessionId, info, options).catch((err) => {
+        console.error(`[cli-launcher] Codex spawn failed for ${sessionTag(sessionId)}:`, err);
+      });
     } else {
       this.spawnCLI(sessionId, info, {
         ...options,
@@ -446,7 +454,7 @@ export class CliLauncher {
     const runtimeEnv = this.sessionEnvs.get(sessionId);
 
     if (info.backendType === "codex") {
-      this.spawnCodex(sessionId, info, {
+      await this.spawnCodex(sessionId, info, {
         model: info.model,
         permissionMode: info.permissionMode,
         cwd: info.cwd,
@@ -683,11 +691,20 @@ export class CliLauncher {
    * Spawn a Codex app-server subprocess for a session.
    * Unlike Claude Code (which connects back via WebSocket), Codex uses stdio.
    */
-  private prepareCodexHome(codexHome: string): void {
-    mkdirSync(codexHome, { recursive: true });
+  /** Check if a path exists (async). */
+  private async pathExists(p: string): Promise<boolean> {
+    try { await access(p); return true; } catch { return false; }
+  }
+
+  /**
+   * Prepare the Codex home directory with user-level artifacts.
+   * Uses async fs operations to avoid blocking the event loop on NFS.
+   */
+  private async prepareCodexHome(codexHome: string): Promise<void> {
+    await mkdir(codexHome, { recursive: true });
 
     const legacyHome = getLegacyCodexHome();
-    if (resolve(legacyHome) === resolve(codexHome) || !existsSync(legacyHome)) {
+    if (resolve(legacyHome) === resolve(codexHome) || !(await this.pathExists(legacyHome))) {
       return;
     }
 
@@ -698,8 +715,8 @@ export class CliLauncher {
       try {
         const src = join(legacyHome, name);
         const dest = join(codexHome, name);
-        if (!existsSync(dest) && existsSync(src)) {
-          copyFileSync(src, dest);
+        if (!(await this.pathExists(dest)) && await this.pathExists(src)) {
+          await copyFile(src, dest);
         }
       } catch (e) {
         console.warn(`[cli-launcher] Failed to bootstrap ${name} from legacy home:`, e);
@@ -711,8 +728,8 @@ export class CliLauncher {
       try {
         const src = join(legacyHome, name);
         const dest = join(codexHome, name);
-        if (!existsSync(dest) && existsSync(src)) {
-          cpSync(src, dest, { recursive: true });
+        if (!(await this.pathExists(dest)) && await this.pathExists(src)) {
+          await cp(src, dest, { recursive: true });
         }
       } catch (e) {
         console.warn(`[cli-launcher] Failed to bootstrap ${name}/ from legacy home:`, e);
@@ -720,7 +737,7 @@ export class CliLauncher {
     }
   }
 
-  private spawnCodex(sessionId: string, info: SdkSessionInfo, options: LaunchOptions): void {
+  private async spawnCodex(sessionId: string, info: SdkSessionInfo, options: LaunchOptions): Promise<void> {
     const isContainerized = !!options.containerId;
 
     let binary = options.codexBinary || "codex";
@@ -748,7 +765,7 @@ export class CliLauncher {
       options.codexHome,
     );
     if (!isContainerized) {
-      this.prepareCodexHome(codexHome);
+      await this.prepareCodexHome(codexHome);
     }
 
     let spawnCmd: string[];

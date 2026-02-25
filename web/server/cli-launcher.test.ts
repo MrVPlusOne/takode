@@ -361,7 +361,11 @@ describe("launch", () => {
     expect(options.env.CLAUDECODE).toBeUndefined();
   });
 
-  it("enables Codex web search when codexInternetAccess=true", () => {
+  // spawnCodex is async (prepareCodexHome uses async fs), so Codex tests
+  // need a microtask flush after launch() to let the spawn complete.
+  const flushAsync = () => new Promise<void>((r) => setTimeout(r, 20));
+
+  it("enables Codex web search when codexInternetAccess=true", async () => {
     // Use a fake path where no sibling `node` exists, so the spawn uses
     // the codex binary directly (the explicit-node path is tested separately).
     mockResolveBinary.mockReturnValue("/opt/fake/codex");
@@ -373,6 +377,7 @@ describe("launch", () => {
       codexInternetAccess: true,
       codexSandbox: "danger-full-access",
     });
+    await flushAsync();
 
     const [cmdAndArgs, options] = mockSpawn.mock.calls[0];
     expect(cmdAndArgs[0]).toBe("/opt/fake/codex");
@@ -382,7 +387,7 @@ describe("launch", () => {
     expect(options.cwd).toBe("/tmp/project");
   });
 
-  it("disables Codex web search when codexInternetAccess=false", () => {
+  it("disables Codex web search when codexInternetAccess=false", async () => {
     mockResolveBinary.mockReturnValue("/opt/fake/codex");
     mockSpawn.mockReturnValueOnce(createMockCodexProc());
 
@@ -392,6 +397,7 @@ describe("launch", () => {
       codexInternetAccess: false,
       codexSandbox: "workspace-write",
     });
+    await flushAsync();
 
     const [cmdAndArgs] = mockSpawn.mock.calls[0];
     expect(cmdAndArgs).toContain("app-server");
@@ -399,7 +405,7 @@ describe("launch", () => {
     expect(cmdAndArgs).toContain("tools.webSearch=false");
   });
 
-  it("passes Codex reasoning effort via config flag when provided", () => {
+  it("passes Codex reasoning effort via config flag when provided", async () => {
     mockResolveBinary.mockReturnValue("/opt/fake/codex");
     mockSpawn.mockReturnValueOnce(createMockCodexProc());
 
@@ -409,6 +415,7 @@ describe("launch", () => {
       codexReasoningEffort: "high",
       codexSandbox: "workspace-write",
     });
+    await flushAsync();
 
     const [cmdAndArgs] = mockSpawn.mock.calls[0];
     expect(cmdAndArgs).toContain("app-server");
@@ -416,7 +423,7 @@ describe("launch", () => {
     expect(cmdAndArgs).toContain("model_reasoning_effort=high");
   });
 
-  it("adds companion and bun bin directories to PATH for host Codex sessions", () => {
+  it("adds companion and bun bin directories to PATH for host Codex sessions", async () => {
     mockResolveBinary.mockReturnValue("/opt/fake/codex");
     mockSpawn.mockReturnValueOnce(createMockCodexProc());
 
@@ -426,13 +433,14 @@ describe("launch", () => {
       codexInternetAccess: true,
       codexSandbox: "workspace-write",
     });
+    await flushAsync();
 
     const [, options] = mockSpawn.mock.calls[0];
     expect(options.env.PATH).toContain(`${homedir()}/.companion/bin`);
     expect(options.env.PATH).toContain(`${homedir()}/.bun/bin`);
   });
 
-  it("spawns codex via sibling node binary to bypass shebang issues", () => {
+  it("spawns codex via sibling node binary to bypass shebang issues", async () => {
     // When a `node` binary exists next to the resolved `codex`, the launcher
     // should invoke `node <codex-script>` directly instead of relying on
     // the #!/usr/bin/env node shebang (which may resolve to system Node v12).
@@ -452,6 +460,7 @@ describe("launch", () => {
       cwd: "/tmp/project",
       codexSandbox: "workspace-write",
     });
+    await flushAsync();
 
     const [cmdAndArgs] = mockSpawn.mock.calls[0];
     // Sibling node exists, so it should use explicit node invocation
