@@ -361,9 +361,17 @@ describe("launch", () => {
     expect(options.env.CLAUDECODE).toBeUndefined();
   });
 
-  // spawnCodex is async (prepareCodexHome uses async fs), so Codex tests
-  // need a microtask flush after launch() to let the spawn complete.
-  const flushAsync = () => new Promise<void>((r) => setTimeout(r, 20));
+  // spawnCodex is async (prepareCodexHome uses async fs), so wait for the
+  // actual spawn call instead of a fixed delay to avoid timing flakes.
+  const waitForSpawnCalls = async (count: number) => {
+    const deadline = Date.now() + 2000;
+    while (mockSpawn.mock.calls.length < count) {
+      if (Date.now() > deadline) {
+        throw new Error(`Timed out waiting for ${count} spawn calls`);
+      }
+      await new Promise<void>((r) => setTimeout(r, 10));
+    }
+  };
 
   it("enables Codex web search when codexInternetAccess=true", async () => {
     // Use a fake path where no sibling `node` exists, so the spawn uses
@@ -377,7 +385,7 @@ describe("launch", () => {
       codexInternetAccess: true,
       codexSandbox: "danger-full-access",
     });
-    await flushAsync();
+    await waitForSpawnCalls(1);
 
     const [cmdAndArgs, options] = mockSpawn.mock.calls[0];
     expect(cmdAndArgs[0]).toBe("/opt/fake/codex");
@@ -397,7 +405,7 @@ describe("launch", () => {
       codexInternetAccess: false,
       codexSandbox: "workspace-write",
     });
-    await flushAsync();
+    await waitForSpawnCalls(1);
 
     const [cmdAndArgs] = mockSpawn.mock.calls[0];
     expect(cmdAndArgs).toContain("app-server");
@@ -415,7 +423,7 @@ describe("launch", () => {
       codexReasoningEffort: "high",
       codexSandbox: "workspace-write",
     });
-    await flushAsync();
+    await waitForSpawnCalls(1);
 
     const [cmdAndArgs] = mockSpawn.mock.calls[0];
     expect(cmdAndArgs).toContain("app-server");
@@ -433,7 +441,7 @@ describe("launch", () => {
       codexInternetAccess: true,
       codexSandbox: "workspace-write",
     });
-    await flushAsync();
+    await waitForSpawnCalls(1);
 
     const [, options] = mockSpawn.mock.calls[0];
     expect(options.env.PATH).toContain(`${homedir()}/.companion/bin`);
@@ -460,7 +468,7 @@ describe("launch", () => {
       cwd: "/tmp/project",
       codexSandbox: "workspace-write",
     });
-    await flushAsync();
+    await waitForSpawnCalls(1);
 
     const [cmdAndArgs] = mockSpawn.mock.calls[0];
     // Sibling node exists, so it should use explicit node invocation
