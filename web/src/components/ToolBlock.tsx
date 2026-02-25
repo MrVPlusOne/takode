@@ -427,6 +427,32 @@ function EditToolDetail({ input }: { input: Record<string, unknown> }) {
   const filePath = String(input.file_path || "");
   const oldStr = String(input.old_string || "");
   const newStr = String(input.new_string || "");
+  const changes = Array.isArray(input.changes)
+    ? input.changes as Array<{ path?: string; kind?: string; diff?: string }>
+    : [];
+  const unifiedDiff = changes
+    .map((c) => (typeof c.diff === "string" ? c.diff.trim() : ""))
+    .filter(Boolean)
+    .join("\n");
+
+  if (!oldStr && !newStr && unifiedDiff) {
+    return <DiffViewer unifiedDiff={unifiedDiff} fileName={filePath} mode="compact" />;
+  }
+
+  if (!oldStr && !newStr && changes.length > 0) {
+    return (
+      <div className="space-y-1.5">
+        <div className="text-[10px] text-cc-muted uppercase tracking-wider">Applied changes</div>
+        <div className="space-y-1">
+          {changes.map((change, i) => (
+            <div key={`${change.path || "file"}-${i}`} className="text-[11px] text-cc-muted font-mono-code">
+              {(change.kind || "modify")}: {change.path || filePath || "(unknown file)"}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-1.5">

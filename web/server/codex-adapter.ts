@@ -78,6 +78,69 @@ function toSafeText(value: unknown): string {
   return "";
 }
 
+function stripOuterShellQuotes(text: string): string {
+  const trimmed = text.trim();
+  if (trimmed.length < 2) return trimmed;
+  const first = trimmed[0];
+  const last = trimmed[trimmed.length - 1];
+  if ((first !== "'" && first !== "\"") || first !== last) return trimmed;
+
+  const inner = trimmed.slice(1, -1);
+  if (first === "'") {
+    // POSIX single-quote escaping pattern: 'foo'\''bar'
+    return inner.replace(/'\\''/g, "'");
+  }
+  return inner.replace(/\\"/g, "\"").replace(/\\\\/g, "\\");
+}
+
+function unwrapShellWrappedCommand(command: string): string {
+  const trimmed = command.trim();
+  if (!trimmed) return "";
+
+  // Common Codex shell wrapper: /bin/bash -lc "<actual command>"
+  const posix = trimmed.match(
+    /^(?:\/(?:usr\/)?bin\/env\s+)?(?:\/(?:usr\/)?bin\/)?(?:bash|zsh|sh)\s+-l?c\s+([\s\S]+)$/,
+  );
+  if (posix) {
+    return stripOuterShellQuotes(posix[1]);
+  }
+
+  // Windows wrapper: cmd /c "<actual command>"
+  const win = trimmed.match(/^cmd(?:\.exe)?\s+\/c\s+([\s\S]+)$/i);
+  if (win) {
+    return stripOuterShellQuotes(win[1]);
+  }
+
+  return trimmed;
+}
+
+function extractCommandAction(commandActions: unknown): string {
+  if (!Array.isArray(commandActions)) return "";
+  for (const action of commandActions) {
+    if (!action || typeof action !== "object") continue;
+    const cmd = (action as Record<string, unknown>).command;
+    if (typeof cmd === "string" && cmd.trim()) {
+      return cmd.trim();
+    }
+  }
+  return "";
+}
+
+function formatCommandForDisplay(command: string | string[] | undefined, commandActions?: unknown): string {
+  const actionCommand = extractCommandAction(commandActions);
+  if (actionCommand) return unwrapShellWrappedCommand(actionCommand);
+  const raw = Array.isArray(command) ? command.join(" ") : (command || "");
+  return unwrapShellWrappedCommand(raw);
+}
+
+function mapFileChangesForTool(changes: Array<{ path: string; kind: unknown; diff?: string }>) {
+  return changes.map((c) => ({
+    path: c.path,
+    kind: safeKind(c.kind),
+    ...(typeof c.diff === "string" && c.diff.trim() ? { diff: c.diff } : {}),
+  }));
+}
+
 interface CodexAgentMessageItem extends CodexItem {
   type: "agentMessage";
   text?: string;
@@ -86,6 +149,7 @@ interface CodexAgentMessageItem extends CodexItem {
 interface CodexCommandExecutionItem extends CodexItem {
   type: "commandExecution";
   command: string | string[];
+  commandActions?: Array<{ command?: string }>;
   cwd?: string;
   status: "inProgress" | "completed" | "failed" | "declined";
   exitCode?: number;
@@ -1167,7 +1231,10 @@ export class CodexAdapter {
     this.pendingApprovals.set(requestId, jsonRpcId);
 
     const command = params.command as string | string[] | undefined;
-    const commandStr = params.parsedCmd as string || (Array.isArray(command) ? command.join(" ") : command) || "";
+    const parsedCmd = params.parsedCmd as string | undefined;
+    const commandStr = (typeof parsedCmd === "string" && parsedCmd.trim())
+      ? parsedCmd
+      : formatCommandForDisplay(command, params.commandActions);
 
     const perm: PermissionRequest = {
       request_id: requestId,
@@ -1381,8 +1448,8 @@ export class CodexAdapter {
     this.pendingApprovals.set(requestId, jsonRpcId);
     this.pendingReviewDecisions.add(requestId);
 
-    const command = params.command as string[] || [];
-    const commandStr = command.join(" ");
+    const command = params.command as string | string[] | undefined;
+    const commandStr = formatCommandForDisplay(command, params.commandActions);
     const cwd = params.cwd as string || this.options.cwd || "";
     const reason = params.reason as string | null;
 
@@ -1443,7 +1510,7 @@ export class CodexAdapter {
 
       case "commandExecution": {
         const cmd = item as CodexCommandExecutionItem;
-        const commandStr = Array.isArray(cmd.command) ? cmd.command.join(" ") : (cmd.command || "");
+        const commandStr = formatCommandForDisplay(cmd.command, cmd.commandActions);
         this.commandStartTimes.set(item.id, Date.now());
         this.commandOutputByItemId.delete(item.id);
         this.emitToolUseStart(item.id, "Bash", { command: commandStr });
@@ -1457,7 +1524,7 @@ export class CodexAdapter {
         const toolName = safeKind(firstChange?.kind) === "create" ? "Write" : "Edit";
         const toolInput = {
           file_path: firstChange?.path || "",
-          changes: changes.map((c) => ({ path: c.path, kind: safeKind(c.kind) })),
+          changes: mapFileChangesForTool(changes),
         };
         this.emitToolUseStart(item.id, toolName, toolInput);
         break;
@@ -1681,7 +1748,7 @@ export class CodexAdapter {
 
       case "commandExecution": {
         const cmd = item as CodexCommandExecutionItem;
-        const commandStr = Array.isArray(cmd.command) ? cmd.command.join(" ") : (cmd.command || "");
+        const commandStr = formatCommandForDisplay(cmd.command, cmd.commandActions);
         // Ensure tool_use was emitted (may be skipped when auto-approved)
         this.ensureToolUseEmitted(item.id, "Bash", { command: commandStr });
         // Clean up progress tracking
@@ -1728,7 +1795,7 @@ export class CodexAdapter {
         // Ensure tool_use was emitted
         this.ensureToolUseEmitted(item.id, toolName, {
           file_path: firstChange?.path || "",
-          changes: changes.map((c) => ({ path: c.path, kind: safeKind(c.kind) })),
+          changes: mapFileChangesForTool(changes),
         });
         const summary = changes.map((c) => `${safeKind(c.kind)}: ${c.path}`).join("\n");
         this.emitToolResult(item.id, summary || "File changes applied", fc.status === "failed");

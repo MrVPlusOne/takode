@@ -21,7 +21,7 @@ export function parseHash(hash: string): Route {
   if (hash === "#/terminal") return { page: "terminal" };
   if (hash === "#/environments") return { page: "environments" };
   if (hash === "#/scheduled") return { page: "scheduled" };
-  if (hash === "#/questmaster") return { page: "questmaster" };
+  if (hash === "#/questmaster" || hash.startsWith("#/questmaster?")) return { page: "questmaster" };
   if (hash === "#/playground") return { page: "playground" };
 
   if (hash.startsWith(SESSION_PREFIX)) {

@@ -2827,6 +2827,40 @@ describe("POST /api/quests/:questId/claim", () => {
     expect(opts.isSessionArchived("session-1")).toBe(true);
     expect(opts.isSessionArchived("session-2")).toBe(false);
   });
+
+  it("adds a quest-sourced task history entry with questId for deep-linking", async () => {
+    vi.spyOn(questStore, "claimQuest").mockResolvedValueOnce({
+      id: "q-1-v3",
+      questId: "q-1",
+      title: "Quest",
+      status: "in_progress",
+      sessionId: "session-2",
+      createdAt: Date.now(),
+      claimedAt: Date.now(),
+      description: "Ready",
+    } as any);
+
+    bridge.getSession.mockReturnValue({
+      messageHistory: [{ type: "user_message", id: "u-1", content: "claim", timestamp: Date.now() }],
+    } as any);
+
+    const res = await app.request("/api/quests/q-1/claim", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId: "session-2" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(bridge.addTaskEntry).toHaveBeenCalledWith(
+      "session-2",
+      expect.objectContaining({
+        title: "Quest",
+        source: "quest",
+        questId: "q-1",
+        triggerMessageId: "u-1",
+      }),
+    );
+  });
 });
 
 describe("POST /api/quests/:questId/done", () => {

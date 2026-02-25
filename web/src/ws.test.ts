@@ -7,10 +7,12 @@ vi.mock("./utils/names.js", () => ({
   generateUniqueSessionName: vi.fn(() => "Test Session"),
 }));
 
+const getDiffStatsMock = vi.fn().mockResolvedValue({ stats: {} });
+
 // Mock the API module so PostHog doesn't break in jsdom
 vi.mock("./api.js", () => ({
   api: {
-    getDiffStats: vi.fn().mockResolvedValue({ stats: {} }),
+    getDiffStats: getDiffStatsMock,
   },
 }));
 
@@ -56,6 +58,8 @@ vi.stubGlobal("location", { protocol: "http:", host: "localhost:3456" });
 beforeEach(async () => {
   vi.resetModules();
   vi.useFakeTimers();
+  getDiffStatsMock.mockReset();
+  getDiffStatsMock.mockResolvedValue({ stats: {} });
 
   const storeModule = await import("./store.js");
   useStore = storeModule.useStore;
@@ -368,6 +372,45 @@ describe("handleMessage: assistant", () => {
     expect(msgs[0].id).toBe("msg-1");
     expect(state.streaming.has("s1")).toBe(false);
     expect(state.sessionStatus.get("s1")).toBe("running");
+  });
+
+  it("updates timestamp when an existing assistant message is re-broadcast with newer data", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    fireMessage({
+      type: "assistant",
+      timestamp: 1000,
+      message: {
+        id: "msg-1",
+        type: "message",
+        role: "assistant",
+        model: "claude-opus-4-20250514",
+        content: [{ type: "text", text: "part 1" }],
+        stop_reason: null,
+        usage: { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+    });
+
+    fireMessage({
+      type: "assistant",
+      timestamp: 2500,
+      message: {
+        id: "msg-1",
+        type: "message",
+        role: "assistant",
+        model: "claude-opus-4-20250514",
+        content: [{ type: "tool_use", id: "tu-1", name: "Bash", input: { command: "pwd" } }],
+        stop_reason: "tool_use",
+        usage: { input_tokens: 10, output_tokens: 8, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+    });
+
+    const msgs = useStore.getState().messages.get("s1")!;
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].timestamp).toBe(2500);
   });
 
   it("tracks changed files using session cwd for resolving relative tool paths", () => {

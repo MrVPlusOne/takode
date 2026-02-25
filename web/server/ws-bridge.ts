@@ -1693,7 +1693,7 @@ export class WsBridge {
       // Subsequent occurrence — merge new content blocks into the history entry
       const historyEntry = session.messageHistory.findLast(
         (m) => m.type === "assistant" && (m as { message?: { id?: string } }).message?.id === msgId,
-      ) as { type: "assistant"; message: CLIAssistantMessage["message"] } | undefined;
+      ) as { type: "assistant"; message: CLIAssistantMessage["message"]; timestamp?: number } | undefined;
 
       if (!historyEntry) return; // shouldn't happen
 
@@ -1723,6 +1723,9 @@ export class WsBridge {
           allToolStartTimes[block.id] = session.toolStartTimes.get(block.id)!;
         }
       }
+
+      // Treat the latest part as the completion timestamp for this assistant message.
+      historyEntry.timestamp = Date.now();
 
       // Re-broadcast the full accumulated message with tool start times
       const rebroadcast: BrowserIncomingMessage = {

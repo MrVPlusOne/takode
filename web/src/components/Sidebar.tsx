@@ -7,7 +7,7 @@ import { navigateToSession, navigateToMostRecentSession, parseHash } from "../ut
 import { bootstrapServerId, scopedGetItem } from "../utils/scoped-storage.js";
 import { ProjectGroup } from "./ProjectGroup.js";
 import { SessionItem } from "./SessionItem.js";
-import { ContextMenu } from "./ContextMenu.js";
+import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
 import { SessionHoverCard } from "./SessionHoverCard.js";
 import { SidebarUsageBar } from "./SidebarUsageBar.js";
 
@@ -761,66 +761,93 @@ export function Sidebar() {
         </div>
       </div>
       {/* Context menu */}
-      {contextMenu && (
-        <ContextMenu
-          x={contextMenu.x}
-          y={contextMenu.y}
-          items={[
-            {
-              label: "Rename",
-              onClick: () => {
-                const name = sessionNames.get(contextMenu.sessionId) || "";
-                handleStartRename(contextMenu.sessionId, name);
-              },
+      {contextMenu && (() => {
+        const sdk = sdkSessions.find((s) => s.sessionId === contextMenu.sessionId);
+        const sessionInfo = allSessionList.find((s) => s.id === contextMenu.sessionId);
+        const cliId = sdk?.cliSessionId || "";
+        const isArchived = sdk?.archived ?? sessionInfo?.archived ?? false;
+        const isExited = sdk?.state === "exited";
+        const createdAt = sdk?.createdAt ?? sessionInfo?.createdAt ?? 0;
+        const createdAtLabel = createdAt > 0 ? new Date(createdAt).toLocaleString() : "Unknown";
+        const attention = sessionAttention.get(contextMenu.sessionId);
+
+        const items: ContextMenuItem[] = [
+          { label: `Session ID: ${contextMenu.sessionId}`, onClick: () => {}, disabled: true },
+          { label: `CLI Session ID: ${cliId || "Not available yet"}`, onClick: () => {}, disabled: true },
+          { label: `Created: ${createdAtLabel}`, onClick: () => {}, disabled: true },
+          {
+            label: "Copy Session ID",
+            onClick: () => {
+              writeClipboardText(contextMenu.sessionId).catch(console.error);
             },
-            ...(() => {
-              const cliId = sdkSessions.find((s) => s.sessionId === contextMenu.sessionId)?.cliSessionId;
-              if (!cliId) return [];
-              return [{
-                label: "Copy CLI Session ID",
-                onClick: () => {
-                  writeClipboardText(cliId).catch(console.error);
-                },
-              }];
-            })(),
-            ...(() => {
-              const sdk = sdkSessions.find((s) => s.sessionId === contextMenu.sessionId);
-              if (!sdk || sdk.state === "exited") return [];
-              return [{
-                label: "Relaunch",
-                onClick: () => {
-                  api.relaunchSession(contextMenu.sessionId).catch(console.error);
-                },
-              }];
-            })(),
-            ...(() => {
-              const attention = sessionAttention.get(contextMenu.sessionId);
-              if (attention) {
-                return [{
-                  label: "Mark as read",
-                  onClick: () => {
-                    useStore.getState().markSessionViewed(contextMenu.sessionId);
-                  },
-                }];
-              }
-              return [{
-                label: "Mark as unread",
-                onClick: () => {
-                  useStore.getState().markSessionUnread(contextMenu.sessionId);
-                },
-              }];
-            })(),
-            {
-              label: "Archive",
-              onClick: () => {
-                const syntheticEvent = { stopPropagation: () => {} } as React.MouseEvent;
-                handleArchiveSession(syntheticEvent, contextMenu.sessionId);
-              },
+          },
+          ...(cliId ? [{
+            label: "Copy CLI Session ID",
+            onClick: () => {
+              writeClipboardText(cliId).catch(console.error);
             },
-          ]}
-          onClose={() => setContextMenu(null)}
-        />
-      )}
+          }] : []),
+          {
+            label: "Rename",
+            onClick: () => {
+              const name = sessionNames.get(contextMenu.sessionId) || "";
+              handleStartRename(contextMenu.sessionId, name);
+            },
+          },
+          ...(!isExited && !isArchived ? [{
+            label: "Relaunch",
+            onClick: () => {
+              api.relaunchSession(contextMenu.sessionId).catch(console.error);
+            },
+          }] : []),
+          attention ? {
+            label: "Mark as read",
+            onClick: () => {
+              useStore.getState().markSessionViewed(contextMenu.sessionId);
+            },
+          } : {
+            label: "Mark as unread",
+            onClick: () => {
+              useStore.getState().markSessionUnread(contextMenu.sessionId);
+            },
+          },
+          isArchived ? {
+            label: "Unarchive",
+            onClick: () => {
+              const syntheticEvent = { stopPropagation: () => {} } as React.MouseEvent;
+              void handleUnarchiveSession(syntheticEvent, contextMenu.sessionId);
+            },
+          } : {
+            label: "Archive",
+            onClick: () => {
+              const syntheticEvent = { stopPropagation: () => {} } as React.MouseEvent;
+              handleArchiveSession(syntheticEvent, contextMenu.sessionId);
+            },
+          },
+          {
+            label: "Delete Session",
+            onClick: () => {
+              const syntheticEvent = { stopPropagation: () => {} } as React.MouseEvent;
+              void handleDeleteSession(syntheticEvent, contextMenu.sessionId);
+            },
+            confirm: {
+              title: "Delete session permanently?",
+              description: "This cannot be undone. The session will be removed from history.",
+              confirmLabel: "Delete",
+              destructive: true,
+            },
+          },
+        ];
+
+        return (
+          <ContextMenu
+            x={contextMenu.x}
+            y={contextMenu.y}
+            items={items}
+            onClose={() => setContextMenu(null)}
+          />
+        );
+      })()}
       {/* Session hover card */}
       {hoveredSession && (() => {
         const s = allSessionList.find((item) => item.id === hoveredSession.sessionId);

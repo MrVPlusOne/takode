@@ -243,6 +243,8 @@ export interface SessionTaskEntry {
   triggerMessageId: string;
   /** When "quest", this entry was created by claiming a quest (not by the auto-namer). */
   source?: "quest";
+  /** Present for quest-sourced entries so UI can deep-link to Questmaster details. */
+  questId?: string;
 }
 
 /** Messages the bridge sends to the browser */

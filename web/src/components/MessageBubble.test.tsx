@@ -111,6 +111,16 @@ describe("MessageBubble - user messages", () => {
     expect(screen.getByText("Hello Claude")).toBeTruthy();
   });
 
+  it("renders a timestamp for user messages", () => {
+    const ts = 1700000000000;
+    const msg = makeMessage({ role: "user", content: "With timestamp", timestamp: ts });
+    render(<MessageBubble message={msg} />);
+
+    const time = screen.getByTestId("message-timestamp");
+    expect(time.getAttribute("dateTime")).toBe(new Date(ts).toISOString());
+    expect((time.textContent || "").length).toBeGreaterThan(0);
+  });
+
   it("renders user messages with image thumbnails from REST URLs", () => {
     const msg = makeMessage({
       role: "user",
@@ -201,6 +211,16 @@ describe("MessageBubble - assistant messages", () => {
     // Our mock renders content inside data-testid="markdown"
     const markdown = screen.getByTestId("markdown");
     expect(markdown.textContent).toBe("Hello world");
+  });
+
+  it("renders a timestamp for assistant messages", () => {
+    const ts = 1700000003000;
+    const msg = makeMessage({ role: "assistant", content: "Timed response", timestamp: ts });
+    render(<MessageBubble message={msg} />);
+
+    const time = screen.getByTestId("message-timestamp");
+    expect(time.getAttribute("dateTime")).toBe(new Date(ts).toISOString());
+    expect((time.textContent || "").length).toBeGreaterThan(0);
   });
 
   it("renders assistant message with text content blocks", () => {

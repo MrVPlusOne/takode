@@ -36,6 +36,10 @@ describe("parseHash", () => {
     expect(parseHash("#/playground")).toEqual({ page: "playground" });
   });
 
+  it("parses questmaster route with query params", () => {
+    expect(parseHash("#/questmaster?quest=q-67")).toEqual({ page: "questmaster" });
+  });
+
   it("parses session route with UUID", () => {
     expect(parseHash("#/session/a1b2c3d4-e5f6-7890-abcd-ef1234567890")).toEqual({
       page: "session",

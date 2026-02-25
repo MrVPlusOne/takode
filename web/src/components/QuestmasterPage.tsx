@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { useStore, countUserPermissions } from "../store.js";
 import { api } from "../api.js";
@@ -7,6 +7,7 @@ import { loadQuestmasterViewState, saveQuestmasterViewState } from "../utils/que
 import { getHighlightParts } from "../utils/highlight.js";
 import { Lightbox } from "./Lightbox.js";
 import { SessionStatusDot } from "./SessionStatusDot.js";
+import { buildQuestAssignDraft } from "./quest-assign.js";
 import type { SessionItem as SessionItemType } from "../utils/project-grouping.js";
 import type {
   QuestmasterTask,
@@ -145,6 +146,15 @@ function findHashtagTokenAtCursor(text: string, cursor: number): { start: number
   return { start: hashPos, end: clamped, query: token };
 }
 
+function questIdFromHash(hash: string): string | null {
+  if (!hash.startsWith("#/questmaster")) return null;
+  const queryStart = hash.indexOf("?");
+  if (queryStart < 0) return null;
+  const params = new URLSearchParams(hash.slice(queryStart + 1));
+  const questId = params.get("quest");
+  return questId && questId.trim() ? questId.trim() : null;
+}
+
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export function QuestmasterPage() {
@@ -156,7 +166,13 @@ export function QuestmasterPage() {
   const restoreScrollTopRef = useRef<number | null>(initialViewState?.scrollTop ?? null);
   const hasHydratedViewStateRef = useRef(restoreScrollTopRef.current === null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-
+  const hash = useSyncExternalStore(
+    (cb) => {
+      window.addEventListener("hashchange", cb);
+      return () => window.removeEventListener("hashchange", cb);
+    },
+    () => window.location.hash,
+  );
   const quests = useStore((s) => s.quests);
   const questsLoading = useStore((s) => s.questsLoading);
   const refreshQuests = useStore((s) => s.refreshQuests);
@@ -349,6 +365,23 @@ export function QuestmasterPage() {
       collapsedGroups: Array.from(collapsedGroups),
     });
   }, [collapsedGroups]);
+
+  // Deep-link support: #/questmaster?quest=q-123 should focus and expand that quest.
+  useEffect(() => {
+    const targetQuestId = questIdFromHash(hash);
+    if (!targetQuestId) return;
+    if (!quests.some((q) => q.questId === targetQuestId)) return;
+    setFilter("all");
+    setExpandedId(targetQuestId);
+    setShowCreateForm(false);
+    setEditingId(null);
+    requestAnimationFrame(() => {
+      const el = document.querySelector(`[data-quest-id="${targetQuestId}"]`);
+      if (el instanceof HTMLElement) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    });
+  }, [hash, quests]);
 
   // If the quest being edited was remotely updated (version changed), exit
   // edit mode and briefly show a stale-data notice so the user knows why.
@@ -700,10 +733,7 @@ export function QuestmasterPage() {
   ) {
     setAssignPickerForId(null);
 
-    // Simple claim command — the agent will get full quest details via `quest show`.
-    // Images are NOT attached as base64; they appear in the quest details block
-    // that the chat feed renders when the session_quest_claimed message arrives.
-    const draftText = `/quest claim ${quest.questId}`;
+    const draftText = buildQuestAssignDraft(quest.questId);
 
     useStore
       .getState()
@@ -1460,6 +1490,7 @@ export function QuestmasterPage() {
               return (
                 <div
                   key={quest.id}
+                  data-quest-id={quest.questId}
                   className={`border rounded-xl transition-colors ${
                     isExpanded
                       ? "bg-cc-card border-cc-primary/30"

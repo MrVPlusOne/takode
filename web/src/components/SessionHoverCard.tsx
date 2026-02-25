@@ -77,6 +77,7 @@ export function SessionHoverCard({
   const label = sessionName || s.model || shortId;
   const model = sessionState?.model || s.model || "";
   const backendLabel = s.backendType === "codex" ? "Codex" : "Claude";
+  const createdAtLabel = s.createdAt > 0 ? new Date(s.createdAt).toLocaleString() : "Unknown";
 
   // Stats from sessionState
   const turns = sessionState?.num_turns ?? 0;
@@ -274,17 +275,32 @@ export function SessionHoverCard({
           </div>
         )}
 
-        {/* CLI Session ID — for `claude --resume` */}
-        {cliSessionId && (
-          <div className="px-4 py-2 border-t border-cc-border/50">
-            <div className="flex items-center gap-1.5 text-[11px] text-cc-muted">
-              <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 shrink-0 opacity-50">
-                <path d="M2 3.5A1.5 1.5 0 013.5 2h9A1.5 1.5 0 0114 3.5v9a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 012 12.5v-9zM5.243 5.15a.5.5 0 00-.736.676l2.35 2.56-2.35 2.56a.5.5 0 00.736.676l2.5-2.722a.5.5 0 000-.676l-2.5-2.074zM8.5 11a.5.5 0 000 1h3a.5.5 0 000-1h-3z" />
-              </svg>
-              <span className="font-mono text-[10px] truncate" title={cliSessionId}>{cliSessionId}</span>
-            </div>
+        {/* Session metadata */}
+        <div className="px-4 py-2 border-t border-cc-border/50 space-y-1">
+          <div className="flex items-center gap-1.5 text-[11px] text-cc-muted">
+            <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 shrink-0 opacity-50">
+              <path d="M2 3.5A1.5 1.5 0 013.5 2h9A1.5 1.5 0 0114 3.5v9a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 012 12.5v-9zM5.243 5.15a.5.5 0 00-.736.676l2.35 2.56-2.35 2.56a.5.5 0 00.736.676l2.5-2.722a.5.5 0 000-.676l-2.5-2.074zM8.5 11a.5.5 0 000 1h3a.5.5 0 000-1h-3z" />
+            </svg>
+            <span className="text-[10px] text-cc-muted/80 shrink-0">session</span>
+            <span className="font-mono text-[10px] truncate" title={s.id}>{s.id}</span>
           </div>
-        )}
+          <div className="flex items-center gap-1.5 text-[11px] text-cc-muted">
+            <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 shrink-0 opacity-50">
+              <path d="M2 3.5A1.5 1.5 0 013.5 2h9A1.5 1.5 0 0114 3.5v9a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 012 12.5v-9zM5.243 5.15a.5.5 0 00-.736.676l2.35 2.56-2.35 2.56a.5.5 0 00.736.676l2.5-2.722a.5.5 0 000-.676l-2.5-2.074zM8.5 11a.5.5 0 000 1h3a.5.5 0 000-1h-3z" />
+            </svg>
+            <span className="text-[10px] text-cc-muted/80 shrink-0">cli</span>
+            <span className="font-mono text-[10px] truncate" title={cliSessionId || "Not available yet"}>
+              {cliSessionId || "Not available yet"}
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 text-[11px] text-cc-muted">
+            <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 shrink-0 opacity-50">
+              <path d="M3 2a1 1 0 00-1 1v10a1 1 0 001 1h10a1 1 0 001-1V3a1 1 0 00-1-1h-1V1h-1v1H5V1H4v1H3zm10 4H3v7h10V6z" />
+            </svg>
+            <span className="text-[10px] text-cc-muted/80 shrink-0">created</span>
+            <span className="text-[10px] truncate" title={createdAtLabel}>{createdAtLabel}</span>
+          </div>
+        </div>
       </div>
     </div>,
     document.body,

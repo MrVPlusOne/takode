@@ -1,0 +1,90 @@
+// @vitest-environment jsdom
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import "@testing-library/jest-dom";
+
+interface MockStoreState {
+  sessions: Map<string, {
+    cwd?: string;
+    model?: string;
+    backend_type?: "claude" | "codex";
+    num_turns?: number;
+    total_cost_usd?: number;
+    context_used_percent?: number;
+    git_branch?: string | null;
+    is_worktree?: boolean;
+    git_ahead?: number;
+    git_behind?: number;
+    total_lines_added?: number;
+    total_lines_removed?: number;
+    repo_root?: string;
+  }>;
+  sdkSessions: Array<{ sessionId: string; cwd?: string; backendType?: "claude" | "codex" }>;
+  sessionTaskHistory: Map<string, Array<{ title: string; source?: "quest"; questId?: string }>>;
+}
+
+let storeState: MockStoreState;
+
+function resetStore(taskHistory: Array<{ title: string; source?: "quest"; questId?: string }>) {
+  storeState = {
+    sessions: new Map([
+      ["s1", {
+        cwd: "/repo",
+        model: "gpt-5.3-codex",
+        backend_type: "codex",
+        num_turns: 2,
+        total_cost_usd: 0,
+        context_used_percent: 0,
+        git_branch: "jiayi",
+        is_worktree: true,
+        git_ahead: 0,
+        git_behind: 0,
+        total_lines_added: 0,
+        total_lines_removed: 0,
+        repo_root: "/repo",
+      }],
+    ]),
+    sdkSessions: [{ sessionId: "s1", cwd: "/repo", backendType: "codex" }],
+    sessionTaskHistory: new Map([["s1", taskHistory]]),
+  };
+}
+
+vi.mock("../store.js", () => ({
+  useStore: (selector: (s: MockStoreState) => unknown) => selector(storeState),
+}));
+
+vi.mock("./TaskPanel.js", () => ({
+  GitHubPRSection: () => null,
+  McpCollapsible: () => null,
+  ClaudeMdCollapsible: () => null,
+}));
+
+import { SessionInfoPopover } from "./SessionInfoPopover.js";
+
+describe("SessionInfoPopover", () => {
+  beforeEach(() => {
+    window.location.hash = "#/session/s1";
+  });
+
+  it("navigates to questmaster focused quest when clicking a quest history row", () => {
+    resetStore([
+      { title: "Install ripgrep in agent environment", source: "quest", questId: "q-67" },
+      { title: "Fix codex usage bars stuck at zero" },
+    ]);
+    const onClose = vi.fn();
+    render(<SessionInfoPopover sessionId="s1" onClose={onClose} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Install ripgrep in agent environment" }));
+
+    expect(window.location.hash).toBe("#/questmaster?quest=q-67");
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not render quest history row as a link when questId is missing", () => {
+    resetStore([{ title: "Quest without id", source: "quest" }]);
+    render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
+
+    expect(screen.queryByRole("button", { name: "Quest without id" })).toBeNull();
+    expect(screen.getByText("Quest without id")).toBeInTheDocument();
+  });
+});

@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 export interface ContextMenuItem {
   label: string;
   onClick: () => void;
+  disabled?: boolean;
   confirm?: {
     title: string;
     description: string;
@@ -97,21 +98,30 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
         </div>
       ) : (
         <div className="py-1">
-          {items.map((item) => (
-            <button
-              key={item.label}
-              onClick={() => {
-                if (item.confirm) {
-                  setConfirmingItem(item);
-                } else {
-                  try { item.onClick(); } catch (e) { console.error("Menu action error:", e); }
-                  onClose();
-                }
-              }}
-              className="w-full px-3 py-1.5 text-left text-[12px] text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
-            >
-              {item.label}
-            </button>
+          {items.map((item, idx) => (
+            item.disabled ? (
+              <div
+                key={`${item.label}-${idx}`}
+                className="w-full px-3 py-1.5 text-left text-[11px] text-cc-muted font-mono-code break-all leading-relaxed"
+              >
+                {item.label}
+              </div>
+            ) : (
+              <button
+                key={`${item.label}-${idx}`}
+                onClick={() => {
+                  if (item.confirm) {
+                    setConfirmingItem(item);
+                  } else {
+                    try { item.onClick(); } catch (e) { console.error("Menu action error:", e); }
+                    onClose();
+                  }
+                }}
+                className="w-full px-3 py-1.5 text-left text-[12px] text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
+              >
+                {item.label}
+              </button>
+            )
           ))}
         </div>
       )}

@@ -386,6 +386,7 @@ function handleParsedMessage(
         store.updateMessage(sessionId, msg.id!, {
           content: extractTextFromBlocks(mergedBlocks),
           contentBlocks: mergedBlocks,
+          timestamp: data.timestamp || existing.timestamp,
           stopReason: msg.stop_reason || existing.stopReason,
         });
       } else {

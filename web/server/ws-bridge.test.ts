@@ -3927,6 +3927,60 @@ describe("Tool call duration tracking", () => {
     // tool_start_times should NOT be present
     expect(assistantMsg.tool_start_times).toBeUndefined();
   });
+
+  it("refreshes assistant timestamp when re-broadcasting accumulated content", () => {
+    vi.useFakeTimers();
+    try {
+      const cli = makeCliSocket("s1");
+      bridge.handleCLIOpen(cli, "s1");
+      bridge.handleCLIMessage(cli, makeInitMsg());
+
+      const browser = makeBrowserSocket("s1");
+      bridge.handleBrowserOpen(browser, "s1");
+      bridge.handleBrowserMessage(browser, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+      browser.send.mockClear();
+
+      vi.setSystemTime(new Date(1700000000000));
+      bridge.handleCLIMessage(cli, JSON.stringify({
+        type: "assistant",
+        message: {
+          id: "msg-1", type: "message", role: "assistant", model: "claude",
+          content: [{ type: "text", text: "Part 1" }],
+          stop_reason: null,
+          usage: { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        },
+        parent_tool_use_id: null,
+        uuid: "u2",
+        session_id: "cli-123",
+      }));
+
+      vi.setSystemTime(new Date(1700000005000));
+      bridge.handleCLIMessage(cli, JSON.stringify({
+        type: "assistant",
+        message: {
+          id: "msg-1", type: "message", role: "assistant", model: "claude",
+          content: [{ type: "tool_use", id: "tu-1", name: "Bash", input: { command: "pwd" } }],
+          stop_reason: "tool_use",
+          usage: { input_tokens: 12, output_tokens: 9, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        },
+        parent_tool_use_id: null,
+        uuid: "u3",
+        session_id: "cli-123",
+      }));
+
+      const calls = browser.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
+      const assistantMsgs = calls.filter((m: any) => m.type === "assistant");
+      expect(assistantMsgs).toHaveLength(2);
+      expect(assistantMsgs[0].timestamp).toBe(1700000000000);
+      expect(assistantMsgs[1].timestamp).toBe(1700000005000);
+
+      const session = bridge.getOrCreateSession("s1");
+      const hist = session.messageHistory.find((m) => m.type === "assistant") as { type: "assistant"; timestamp?: number } | undefined;
+      expect(hist?.timestamp).toBe(1700000005000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 // ─── Diff stats computation and dirty flag ──────────────────────────────────

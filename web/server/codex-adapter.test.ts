@@ -485,6 +485,50 @@ describe("CodexAdapter", () => {
     expect(editMsg).toBeDefined();
   });
 
+  it("passes fileChange patch text through to Edit tool input when available", async () => {
+    const messages: BrowserIncomingMessage[] = [];
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
+    adapter.onBrowserMessage((msg) => messages.push(msg));
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
+    await new Promise((r) => setTimeout(r, 20));
+    stdout.push(JSON.stringify({ id: 2, result: { thread: { id: "thr_123" } } }) + "\n");
+    await new Promise((r) => setTimeout(r, 50));
+
+    stdout.push(JSON.stringify({
+      method: "item/started",
+      params: {
+        item: {
+          type: "fileChange",
+          id: "fc_patch",
+          changes: [{
+            path: "/tmp/existing.ts",
+            kind: "modify",
+            diff: "diff --git a/existing.ts b/existing.ts\n--- a/existing.ts\n+++ b/existing.ts\n@@ -1 +1 @@\n-old\n+new",
+          }],
+          status: "inProgress",
+        },
+      },
+    }) + "\n");
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    const assistant = messages.find((m) => {
+      if (m.type !== "assistant") return false;
+      const content = (m as { message: { content: Array<{ type: string; name?: string }> } }).message.content;
+      return content.some((b) => b.type === "tool_use" && b.name === "Edit");
+    });
+    expect(assistant).toBeDefined();
+
+    const toolUse = (assistant as {
+      message: { content: Array<{ type: string; name?: string; input?: { changes?: Array<{ diff?: string }> } }> };
+    }).message.content.find((b) => b.type === "tool_use" && b.name === "Edit");
+
+    expect(toolUse?.input?.changes?.[0]?.diff).toContain("@@ -1 +1 @@");
+  });
+
   it("sends turn/interrupt on interrupt message", async () => {
     const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
 
@@ -1119,7 +1163,8 @@ describe("CodexAdapter", () => {
 
   // ── Codex string command format (vs Claude Code array format) ─────────────
   // Codex sends `command` as a STRING (e.g., "/bin/zsh -lc 'cat README.md'"),
-  // while Claude Code uses arrays. The adapter must handle both.
+  // while Claude Code uses arrays. The adapter must handle both and normalize
+  // shell-wrapper commands to keep terminal blocks readable.
 
   it("handles string command (Codex format) in commandExecution item/started", async () => {
     const messages: BrowserIncomingMessage[] = [];
@@ -1155,8 +1200,8 @@ describe("CodexAdapter", () => {
 
     const content = (toolUseMsg as { message: { content: Array<{ type: string; input?: { command: string } }> } }).message.content;
     const toolBlock = content.find((b) => b.type === "tool_use");
-    // String command should be passed through as-is (not split)
-    expect((toolBlock as { input: { command: string } }).input.command).toBe("/bin/zsh -lc 'cat README.md'");
+    // Shell wrapper should be unwrapped for display parity with Claude.
+    expect((toolBlock as { input: { command: string } }).input.command).toBe("cat README.md");
   });
 
   it("backfills tool_use with string command when item/started is missing", async () => {
@@ -1196,7 +1241,7 @@ describe("CodexAdapter", () => {
 
     const content = (toolUseMsg as { message: { content: Array<{ type: string; input?: { command: string } }> } }).message.content;
     const toolBlock = content.find((b) => b.type === "tool_use");
-    expect((toolBlock as { input: { command: string } }).input.command).toBe("/bin/zsh -lc 'ls -la'");
+    expect((toolBlock as { input: { command: string } }).input.command).toBe("ls -la");
 
     const toolResultMsg = messages.find((m) => {
       if (m.type !== "assistant") return false;
@@ -1236,8 +1281,45 @@ describe("CodexAdapter", () => {
 
     const perm = permRequests[0] as unknown as { request: { tool_name: string; input: { command: string } } };
     expect(perm.request.tool_name).toBe("Bash");
-    // String command should be passed through as-is
-    expect(perm.request.input.command).toBe("/bin/zsh -lc 'rm -rf /tmp/test'");
+    // Shell wrapper should be unwrapped for cleaner permission text.
+    expect(perm.request.input.command).toBe("rm -rf /tmp/test");
+  });
+
+  it("prefers commandActions command for commandExecution display when present", async () => {
+    const messages: BrowserIncomingMessage[] = [];
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
+    adapter.onBrowserMessage((msg) => messages.push(msg));
+
+    await new Promise((r) => setTimeout(r, 50));
+    stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
+    await new Promise((r) => setTimeout(r, 20));
+    stdout.push(JSON.stringify({ id: 2, result: { thread: { id: "thr_123" } } }) + "\n");
+    await new Promise((r) => setTimeout(r, 50));
+
+    stdout.push(JSON.stringify({
+      method: "item/started",
+      params: {
+        item: {
+          type: "commandExecution",
+          id: "cmd_actions_1",
+          command: "/bin/bash -lc 'cat README.md'",
+          commandActions: [{ type: "read", command: "cat README.md" }],
+          status: "inProgress",
+        },
+      },
+    }) + "\n");
+    await new Promise((r) => setTimeout(r, 50));
+
+    const toolUseMsg = messages.find((m) => {
+      if (m.type !== "assistant") return false;
+      const content = (m as { message: { content: Array<{ type: string; id?: string }> } }).message.content;
+      return content.some((b) => b.type === "tool_use" && b.id === "cmd_actions_1");
+    });
+    expect(toolUseMsg).toBeDefined();
+
+    const content = (toolUseMsg as { message: { content: Array<{ type: string; input?: { command: string } }> } }).message.content;
+    const toolBlock = content.find((b) => b.type === "tool_use");
+    expect((toolBlock as { input: { command: string } }).input.command).toBe("cat README.md");
   });
 
   // ── Message queuing during initialization ────────────────────────────────

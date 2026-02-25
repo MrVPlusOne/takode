@@ -330,6 +330,54 @@ describe("ToolBlock", () => {
     expect(container.querySelector(".diff-line-add")).toBeTruthy();
   });
 
+  it("renders Edit diff from unified change patches when old/new strings are missing", () => {
+    const { container } = render(
+      <ToolBlock
+        name="Edit"
+        input={{
+          file_path: "/home/user/src/app.ts",
+          changes: [
+            {
+              path: "/home/user/src/app.ts",
+              kind: "modify",
+              diff: [
+                "diff --git a/src/app.ts b/src/app.ts",
+                "--- a/src/app.ts",
+                "+++ b/src/app.ts",
+                "@@ -1 +1 @@",
+                "-const x = 1;",
+                "+const x = 2;",
+              ].join("\n"),
+            },
+          ],
+        }}
+        toolUseId="tool-7b"
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button"));
+    expect(screen.getByText("app.ts")).toBeTruthy();
+    expect(container.querySelector(".diff-line-del")).toBeTruthy();
+    expect(container.querySelector(".diff-line-add")).toBeTruthy();
+  });
+
+  it("renders non-empty fallback summary for Edit changes without patch text", () => {
+    render(
+      <ToolBlock
+        name="Edit"
+        input={{
+          file_path: "/home/user/src/app.ts",
+          changes: [{ path: "/home/user/src/app.ts", kind: "modify" }],
+        }}
+        toolUseId="tool-7c"
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button"));
+    expect(screen.getByText("Applied changes")).toBeTruthy();
+    expect(screen.getByText("modify: /home/user/src/app.ts")).toBeTruthy();
+  });
+
   it("renders Read file path when expanded", () => {
     render(
       <ToolBlock

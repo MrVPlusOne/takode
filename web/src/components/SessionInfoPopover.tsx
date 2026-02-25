@@ -122,12 +122,29 @@ export function SessionInfoPopover({
         {taskHistory && taskHistory.length > 0 && (
           <div className="px-4 py-2 border-t border-cc-border/50 space-y-1">
             <span className="text-[10px] uppercase tracking-wider text-cc-muted/60">Tasks</span>
-            {taskHistory.map((task, i) => (
-              <div key={i} className="flex items-start gap-1.5">
-                <span className="text-[10px] text-cc-muted/60 shrink-0 mt-px">{i + 1}.</span>
-                <span className={`text-[11px] leading-snug line-clamp-1 ${task.source === "quest" ? "text-amber-400" : "text-cc-fg"}`}>{task.title}</span>
-              </div>
-            ))}
+            {taskHistory.map((task, i) => {
+              const questId = task.questId;
+              return (
+                <div key={i} className="flex items-start gap-1.5">
+                  <span className="text-[10px] text-cc-muted/60 shrink-0 mt-px">{i + 1}.</span>
+                  {task.source === "quest" && questId ? (
+                    <button
+                      type="button"
+                      className="text-[11px] leading-snug line-clamp-1 text-amber-400 hover:text-amber-300 underline decoration-dotted underline-offset-2 cursor-pointer"
+                      title={`Open ${questId} in Questmaster`}
+                      onClick={() => {
+                        window.location.hash = `#/questmaster?quest=${encodeURIComponent(questId)}`;
+                        onClose();
+                      }}
+                    >
+                      {task.title}
+                    </button>
+                  ) : (
+                    <span className={`text-[11px] leading-snug line-clamp-1 ${task.source === "quest" ? "text-amber-400" : "text-cc-fg"}`}>{task.title}</span>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
 

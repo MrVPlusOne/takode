@@ -2846,6 +2846,7 @@ export function createRoutes(
         timestamp: Date.now(),
         triggerMessageId: triggerMsgId,
         source: "quest",
+        questId: quest.questId,
       });
       return c.json(quest);
     } catch (e: unknown) {

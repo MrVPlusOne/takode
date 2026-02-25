@@ -11,6 +11,32 @@ import { api } from "../api.js";
 import { PawTrailAvatar, HidePawContext } from "./PawTrail.js";
 import { QuestClaimBlock } from "./QuestClaimBlock.js";
 
+function formatMessageTime(timestamp: number): string {
+  const d = new Date(timestamp);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function MessageTimestamp({ timestamp, align = "left" }: { timestamp: number; align?: "left" | "right" }) {
+  const d = new Date(timestamp);
+  if (Number.isNaN(d.getTime())) return null;
+  const timeText = formatMessageTime(timestamp);
+  if (!timeText) return null;
+  return (
+    <time
+      data-testid="message-timestamp"
+      dateTime={d.toISOString()}
+      title={d.toLocaleString()}
+      className={`block mt-1 text-[11px] text-cc-muted/70 ${align === "right" ? "text-right" : "text-left"}`}
+    >
+      {timeText}
+    </time>
+  );
+}
+
 export const MessageBubble = memo(function MessageBubble({ message, sessionId }: { message: ChatMessage; sessionId?: string }) {
   if (message.role === "system") {
     if (message.variant === "error") {
@@ -190,6 +216,7 @@ function UserMessage({ message, sessionId }: { message: ChatMessage; sessionId?:
             {message.content}
           </pre>
         </CollapsibleContent>
+        <MessageTimestamp timestamp={message.timestamp} align="right" />
       </div>
       <UserMessageMenu message={message} sessionId={sessionId} canRevert={canRevert} />
       {lightboxSrc && (
@@ -341,6 +368,7 @@ function AssistantMessage({ message, sessionId }: { message: ChatMessage; sessio
         {!hidePaw && <PawTrailAvatar />}
         <div ref={contentRef} className="flex-1 min-w-0 pr-6">
           <MarkdownContent text={message.content} />
+          <MessageTimestamp timestamp={message.timestamp} />
         </div>
         <CopyMessageButton message={message} contentRef={contentRef} />
       </div>
@@ -363,6 +391,7 @@ function AssistantMessage({ message, sessionId }: { message: ChatMessage; sessio
           // Grouped tool_uses
           return <ToolGroupBlock key={i} name={group.name} items={group.items} sessionId={sessionId} />;
         })}
+        <MessageTimestamp timestamp={message.timestamp} />
       </div>
       {hasTextContent && <CopyMessageButton message={message} contentRef={contentRef} />}
     </div>

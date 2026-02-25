@@ -81,6 +81,13 @@ describe("DiffPanel", () => {
     expect(screen.getByText("No changes yet")).toBeInTheDocument();
   });
 
+  it("uses a dedicated mobile break row in the header for stats and controls", () => {
+    render(<DiffPanel sessionId="s1" />);
+    const mobileBreak = screen.getByTestId("diff-header-mobile-break");
+    expect(mobileBreak).toBeInTheDocument();
+    expect(mobileBreak.className).toContain("basis-full");
+  });
+
   it("displays changed files in file picker dropdown", () => {
     // Changed files should appear in the file picker dropdown and as DiffViewer sections in the feed.
     resetStore({

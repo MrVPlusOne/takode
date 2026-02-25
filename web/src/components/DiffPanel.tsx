@@ -271,7 +271,8 @@ export function DiffPanel({ sessionId }: { sessionId: string }) {
   return (
     <div className="h-full flex flex-col bg-cc-bg">
       {/* Top bar: branch selector, total stats, file picker, line numbers toggle */}
-      <div className="shrink-0 flex items-center gap-2 px-3 py-2 bg-cc-card border-b border-cc-border">
+      <div className="shrink-0 px-3 py-2 bg-cc-card border-b border-cc-border">
+        <div className="flex flex-wrap items-center gap-2">
         {/* Branch selector */}
         <select
           value={selectedBranch ?? ""}
@@ -280,7 +281,7 @@ export function DiffPanel({ sessionId }: { sessionId: string }) {
             setSelectedBranch(next);
             handleBaseBranchChange(next);
           }}
-          className="text-cc-muted text-[11px] bg-transparent border border-cc-border rounded px-1.5 py-0.5 cursor-pointer hover:text-cc-fg hover:border-cc-fg/30 transition-colors max-w-[180px]"
+          className="w-full sm:w-auto max-w-full sm:max-w-[180px] text-cc-muted text-[11px] bg-transparent border border-cc-border rounded px-1.5 py-0.5 cursor-pointer hover:text-cc-fg hover:border-cc-fg/30 transition-colors"
           title="Base branch for diff comparison"
         >
           <option value="">
@@ -304,7 +305,7 @@ export function DiffPanel({ sessionId }: { sessionId: string }) {
                 handleBaseBranchChange(selectedBranch);
               }
             }}
-            className="text-cc-muted text-[11px] bg-transparent border border-cc-border rounded px-1.5 py-0.5 cursor-pointer hover:text-cc-fg hover:border-cc-fg/30 transition-colors max-w-[200px]"
+            className="w-full sm:w-auto max-w-full sm:max-w-[200px] text-cc-muted text-[11px] bg-transparent border border-cc-border rounded px-1.5 py-0.5 cursor-pointer hover:text-cc-fg hover:border-cc-fg/30 transition-colors"
             title="Compare against a specific commit"
           >
             <option value="">commit...</option>
@@ -316,6 +317,9 @@ export function DiffPanel({ sessionId }: { sessionId: string }) {
           </select>
         )}
 
+        {/* Move stats + file controls to a second row on mobile */}
+        <div data-testid="diff-header-mobile-break" className="basis-full h-0 sm:basis-auto" />
+
         {(totalStats.additions > 0 || totalStats.deletions > 0) && (
           <span className="text-[11px] font-mono-code shrink-0 flex items-center gap-1">
             <span className="text-green-500">+{totalStats.additions}</span>
@@ -323,7 +327,7 @@ export function DiffPanel({ sessionId }: { sessionId: string }) {
           </span>
         )}
 
-        <div className="flex-1" />
+        <div className="ml-auto flex items-center gap-2">
 
         {/* File picker dropdown */}
         {visibleChangedFiles.length > 0 && (
@@ -376,6 +380,8 @@ export function DiffPanel({ sessionId }: { sessionId: string }) {
             <path d="M3 3v10M7 3h6M7 8h6M7 13h4" strokeLinecap="round" />
           </svg>
         </button>
+        </div>
+        </div>
       </div>
 
       {/* Diff feed */}

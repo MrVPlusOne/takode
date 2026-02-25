@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { SessionState, SdkSessionInfo } from "../types.js";
 
@@ -33,6 +33,11 @@ vi.mock("../api.js", () => ({
   },
 }));
 
+const mockWriteClipboardText = vi.fn().mockResolvedValue(undefined);
+vi.mock("../utils/copy-utils.js", () => ({
+  writeClipboardText: (...args: unknown[]) => mockWriteClipboardText(...args),
+}));
+
 // ─── Store mock helpers ──────────────────────────────────────────────────────
 
 // We need to mock the store. The Sidebar uses `useStore((s) => s.xxx)` selector pattern.
@@ -49,6 +54,8 @@ interface MockStoreState {
   sessionPreviews: Map<string, string>;
   sessionPreviewUpdatedAt: Map<string, number>;
   sessionTaskPreview: Map<string, string>;
+  sessionTaskHistory: Map<string, Array<{ title: string; action: string; timestamp: number }>>;
+  sessionKeywords: Map<string, string[]>;
   recentlyRenamed: Set<string>;
   questNamedSessions: Set<string>;
   pendingPermissions: Map<string, Map<string, unknown>>;
@@ -131,6 +138,8 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
     sessionPreviews: new Map(),
     sessionPreviewUpdatedAt: new Map(),
     sessionTaskPreview: new Map(),
+    sessionTaskHistory: new Map(),
+    sessionKeywords: new Map(),
     recentlyRenamed: new Set(),
     questNamedSessions: new Set(),
     pendingPermissions: new Map(),
@@ -713,5 +722,60 @@ describe("Sidebar", () => {
     expect(screen.getByText("myapp")).toBeInTheDocument();
     // But the session inside it should be hidden
     expect(screen.queryByText("hidden-model")).not.toBeInTheDocument();
+  });
+
+  it("context menu shows ids + created time, supports copy, and confirms delete", async () => {
+    const createdAt = 1700000000000;
+    const session = makeSession("s1");
+    const sdk = makeSdkSession("s1", { cliSessionId: "cli-abc-123", createdAt });
+    mockState = createMockState({
+      sessions: new Map([["s1", session]]),
+      sdkSessions: [sdk],
+      currentSessionId: "s1",
+    });
+
+    render(<Sidebar />);
+    const sessionButton = screen.getByText("claude-sonnet-4-5-20250929").closest("button")!;
+    fireEvent.contextMenu(sessionButton, { clientX: 100, clientY: 120 });
+
+    expect(screen.getByText("Session ID: s1")).toBeInTheDocument();
+    expect(screen.getByText("CLI Session ID: cli-abc-123")).toBeInTheDocument();
+    expect(screen.getByText((text) => text.startsWith("Created: "))).toBeInTheDocument();
+    expect(screen.getByText("Copy Session ID")).toBeInTheDocument();
+    expect(screen.getByText("Copy CLI Session ID")).toBeInTheDocument();
+    expect(screen.getByText("Delete Session")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Copy Session ID"));
+    expect(mockWriteClipboardText).toHaveBeenCalledWith("s1");
+
+    fireEvent.contextMenu(sessionButton, { clientX: 110, clientY: 125 });
+    fireEvent.click(screen.getByText("Delete Session"));
+    expect(screen.getByText("Delete session permanently?")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => {
+      expect(mockApi.deleteSession).toHaveBeenCalledWith("s1");
+    });
+  });
+
+  it("hover card shows both session IDs and created time", async () => {
+    const createdAt = 1700000000000;
+    const session = makeSession("s1");
+    const sdk = makeSdkSession("s1", { cliSessionId: "cli-abc-123", createdAt });
+    mockState = createMockState({
+      sessions: new Map([["s1", session]]),
+      sdkSessions: [sdk],
+      currentSessionId: "s1",
+    });
+
+    render(<Sidebar />);
+    const sessionButton = screen.getByText("claude-sonnet-4-5-20250929").closest("button")!;
+    fireEvent.mouseEnter(sessionButton);
+
+    await waitFor(() => {
+      expect(screen.getByTitle("s1")).toBeInTheDocument();
+      expect(screen.getByTitle("cli-abc-123")).toBeInTheDocument();
+      expect(screen.getByTitle(new Date(createdAt).toLocaleString())).toBeInTheDocument();
+    });
   });
 });
