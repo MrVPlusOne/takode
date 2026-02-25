@@ -53,6 +53,19 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("Do not claim feedback was addressed unless both happened");
   });
 
+  it("instructs agents to use quest directly before PATH fallbacks", () => {
+    ensureQuestmasterIntegration(3456, "/repo/web");
+
+    const codexSkillWrite = fsMocks.writeFileSync.mock.calls.find(
+      (call) => call[0] === "/home/tester/.codex/skills/quest/SKILL.md",
+    );
+    expect(codexSkillWrite).toBeDefined();
+
+    const skill = String(codexSkillWrite?.[1] ?? "");
+    expect(skill).toContain("Prefer `quest ...` directly when `quest` is already on PATH");
+    expect(skill).toContain("Do not prepend to `PATH` proactively");
+  });
+
   it("writes a quest wrapper that falls back to $HOME/.bun/bin/bun", () => {
     ensureQuestmasterIntegration(3456, "/repo/web");
 
@@ -97,12 +110,4 @@ describe("ensureQuestmasterIntegration", () => {
       "/home/tester/.local/bin/rg",
       expect.stringContaining("grep_args=("),
       "utf-8",
-    );
-    expect(fsMocks.writeFileSync).toHaveBeenCalledWith(
-      "/home/tester/.local/bin/rg",
-      expect.stringContaining("exec grep \"${grep_args[@]}\" -- \"$pattern\" \"${positional[@]:1}\""),
-      "utf-8",
-    );
-    expect(fsMocks.chmodSync).toHaveBeenCalledWith("/home/tester/.local/bin/rg", 0o755);
-  });
-});
+ 

@@ -272,8 +272,9 @@ Quests can have attached images at \`~/.companion/questmaster/images/\`.
 - \`COMPANION_SESSION_ID\` is set automatically — \`quest claim\` uses it by default
 - \`COMPANION_PORT\` is set automatically — the CLI uses it for browser notifications
 - Pass \`--json\` to any command for machine-parseable output
-- If \`quest\` is not found on PATH, use the full path: \`~/.companion/bin/quest\`
-- If \`bun\` is not found on PATH, first check \`$HOME/.bun/bin/bun\` and prepend \`$HOME/.bun/bin\` to \`PATH\`
+- Prefer \`quest ...\` directly when \`quest\` is already on PATH (\`command -v quest\`).
+- Only if \`quest\` is missing, use the full path fallback: \`~/.companion/bin/quest\`
+- Do not prepend to \`PATH\` proactively; only if \`bun\` is missing, check \`$HOME/.bun/bin/bun\` and prepend \`$HOME/.bun/bin\` before retrying
 
 ## Writing style
 
