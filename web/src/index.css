@@ -323,6 +323,9 @@ select {
   display: flex;
   min-height: 20px;
   white-space: pre;
+  /* Keep add/del background extending to full scrollable line width. */
+  width: max-content;
+  min-width: 100%;
 }
 .diff-gutter {
   flex-shrink: 0;
