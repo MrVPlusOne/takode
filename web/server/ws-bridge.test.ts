@@ -4095,6 +4095,41 @@ describe("Diff stats computation", () => {
     expect(session.diffStatsDirty).toBe(false);
   });
 
+  it("recomputes dirty diff stats when CLI reconnects after browser-open skip", async () => {
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd.includes("--abbrev-ref HEAD")) return "feat/reconnect\n";
+      if (cmd.includes("--git-dir")) return ".git\n";
+      if (cmd.includes("--show-toplevel")) return "/repo\n";
+      if (cmd.includes("--left-right --count")) return "0\t0\n";
+      if (cmd.includes("merge-base")) return "abc123\n";
+      if (cmd.includes("diff --numstat")) return "6\t2\tsrc/app.ts\n";
+      return "";
+    });
+
+    const session = bridge.getOrCreateSession("s1");
+    session.state.cwd = "/repo";
+    session.state.diff_base_branch = "main";
+    session.state.total_lines_added = 0;
+    session.state.total_lines_removed = 0;
+    session.diffStatsDirty = true;
+
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    // No backend yet, so the browser-open recompute path is skipped.
+    expect(session.state.total_lines_added).toBe(0);
+    expect(session.diffStatsDirty).toBe(true);
+
+    const cli = makeCliSocket("s1");
+    bridge.handleCLIOpen(cli, "s1");
+
+    await vi.waitFor(() => {
+      expect(session.state.total_lines_added).toBe(6);
+      expect(session.state.total_lines_removed).toBe(2);
+    });
+    expect(session.diffStatsDirty).toBe(false);
+  });
+
   it("non-read-only tool marks diffStatsDirty; read-only tool does not", () => {
     mockExecSync.mockImplementation((cmd: string) => {
       if (cmd.includes("for-each-ref")) return "";
@@ -4242,6 +4277,45 @@ describe("Codex adapter result handling", () => {
     expect(update.session.total_lines_added).toBeUndefined();
     expect(update.session.total_lines_removed).toBeUndefined();
     expect(update.session.context_used_percent).toBe(27);
+  });
+
+  it("recomputes dirty diff stats on codex session_init", async () => {
+    const browser = makeBrowserSocket("s1");
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter("s1", adapter as any);
+    bridge.handleBrowserOpen(browser, "s1");
+
+    const session = bridge.getSession("s1")!;
+    session.diffStatsDirty = true;
+    session.state.total_lines_added = 0;
+    session.state.total_lines_removed = 0;
+
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd.includes("--abbrev-ref HEAD")) return "feat/codex\n";
+      if (cmd.includes("--git-dir")) return ".git\n";
+      if (cmd.includes("--show-toplevel")) return "/test\n";
+      if (cmd.includes("--left-right --count")) return "0\t0\n";
+      if (cmd.includes("merge-base")) return "abc123\n";
+      if (cmd.includes("diff --numstat")) return "9\t4\tsrc/main.ts\n";
+      if (cmd.includes("for-each-ref")) return "";
+      if (cmd.includes("symbolic-ref")) return "";
+      if (cmd.includes("branch --list")) return "  main\n";
+      return "";
+    });
+
+    adapter.emitBrowserMessage({
+      type: "session_init",
+      session: {
+        cwd: "/test",
+        model: "gpt-5-codex",
+      },
+    });
+
+    await vi.waitFor(() => {
+      expect(session.state.total_lines_added).toBe(9);
+      expect(session.state.total_lines_removed).toBe(4);
+    });
+    expect(session.diffStatsDirty).toBe(false);
   });
 
   it("recomputes and broadcasts diff stats on codex result", async () => {

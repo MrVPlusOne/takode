@@ -2796,6 +2796,19 @@ describe("PATCH /api/quests/:questId", () => {
 });
 
 describe("POST /api/quests/:questId/claim", () => {
+  it("returns 400 when sessionId does not belong to a known companion session", async () => {
+    const claimSpy = vi.spyOn(questStore, "claimQuest");
+
+    const res = await app.request("/api/quests/q-1/claim", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId: "cli-standalone" }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(claimSpy).not.toHaveBeenCalled();
+  });
+
   it("passes archived-owner takeover policy to questStore.claimQuest", async () => {
     vi.spyOn(questStore, "claimQuest").mockResolvedValueOnce({
       id: "q-1-v3",
@@ -2844,6 +2857,13 @@ describe("POST /api/quests/:questId/claim", () => {
       createdAt: Date.now(),
       claimedAt: Date.now(),
       description: "Ready",
+    } as any);
+
+    launcher.getSession.mockReturnValue({
+      sessionId: "session-2",
+      state: "running",
+      cwd: "/test",
+      archived: false,
     } as any);
 
     bridge.getSession.mockReturnValue({
@@ -2965,6 +2985,36 @@ describe("POST /api/quests/:questId/verification/read", () => {
 
     expect(res.status).toBe(200);
     expect(questStore.markQuestVerificationRead).toHaveBeenCalledWith("q-1");
+    expect(bridge.broadcastGlobal).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "quest_list_updated" }),
+    );
+  });
+});
+
+describe("POST /api/quests/:questId/verification/inbox", () => {
+  it("moves a verification quest back into inbox and broadcasts quest_list_updated", async () => {
+    // Endpoint contract: mark as inbox-unread and notify all browsers so inbox
+    // sections update in real time.
+    vi.spyOn(questStore, "markQuestVerificationInboxUnread").mockResolvedValueOnce({
+      id: "q-1-v4",
+      questId: "q-1",
+      title: "Quest",
+      status: "needs_verification",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      sessionId: "session-1",
+      claimedAt: Date.now(),
+      description: "Ready",
+      verificationItems: [{ text: "verify", checked: false }],
+      verificationInboxUnread: true,
+    } as any);
+
+    const res = await app.request("/api/quests/q-1/verification/inbox", {
+      method: "POST",
+    });
+
+    expect(res.status).toBe(200);
+    expect(questStore.markQuestVerificationInboxUnread).toHaveBeenCalledWith("q-1");
     expect(bridge.broadcastGlobal).toHaveBeenCalledWith(
       expect.objectContaining({ type: "quest_list_updated" }),
     );

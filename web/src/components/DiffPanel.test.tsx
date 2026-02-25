@@ -195,6 +195,34 @@ describe("DiffPanel", () => {
     expect(container.querySelector(".text-red-400")).toBeNull();
   });
 
+  it("falls back to rendered diff totals when server totals are zero", async () => {
+    // If server totals are temporarily stale at 0/0 but the panel has fetched
+    // diffs, the header should use local per-file totals for consistency.
+    mockApi.getFileDiff.mockResolvedValue({
+      path: "/repo/src/app.ts",
+      diff: `diff --git a/src/app.ts b/src/app.ts
+--- a/src/app.ts
++++ b/src/app.ts
+@@ -1 +1,2 @@
+ old
++new`,
+      baseBranch: "main",
+    });
+
+    resetStore({
+      sessions: new Map([["s1", { cwd: "/repo", git_default_branch: "main", total_lines_added: 0, total_lines_removed: 0 }]]),
+      changedFiles: new Map([["s1", new Set(["/repo/src/app.ts"])]]),
+      diffPanelSelectedFile: new Map([["s1", "/repo/src/app.ts"]]),
+    });
+
+    render(<DiffPanel sessionId="s1" />);
+
+    await waitFor(() => {
+      expect(screen.getByText("+1")).toBeInTheDocument();
+      expect(screen.getByText("-0")).toBeInTheDocument();
+    });
+  });
+
   it("reselects when selected file is outside cwd scope", async () => {
     resetStore({
       changedFiles: new Map([["s1", new Set(["/repo/src/inside.ts"])]]),

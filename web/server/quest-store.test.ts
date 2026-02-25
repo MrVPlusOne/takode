@@ -900,6 +900,28 @@ describe("verification inbox", () => {
       }
     }
   });
+
+  it("marks a verification quest as inbox-unread without creating a new version", async () => {
+    // Returning a quest to inbox is also a view-state mutation and should
+    // stay on the latest version.
+    await questStore.createQuest({ title: "Re-inbox me" });
+    await questStore.transitionQuest("q-1", { status: "refined", description: "Ready" });
+    await questStore.claimQuest("q-1", "sess-1");
+    await questStore.completeQuest("q-1", [{ text: "Verify", checked: false }]);
+    await questStore.markQuestVerificationRead("q-1");
+
+    const before = await questStore.getQuest("q-1");
+    expect(before?.status).toBe("needs_verification");
+    if (before?.status === "needs_verification") {
+      expect(before.verificationInboxUnread).toBe(false);
+      const inboxQuest = await questStore.markQuestVerificationInboxUnread("q-1");
+      expect(inboxQuest?.status).toBe("needs_verification");
+      if (inboxQuest?.status === "needs_verification") {
+        expect(inboxQuest.version).toBe(before.version);
+        expect(inboxQuest.verificationInboxUnread).toBe(true);
+      }
+    }
+  });
 });
 
 // ===========================================================================

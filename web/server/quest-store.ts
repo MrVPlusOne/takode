@@ -763,6 +763,24 @@ export async function markQuestVerificationRead(
   return updated;
 }
 
+/** Mark a verification quest as unread so it returns to the verification inbox. */
+export async function markQuestVerificationInboxUnread(
+  questId: string,
+): Promise<QuestmasterTask | null> {
+  const current = await getQuest(questId);
+  if (!current) return null;
+  if (current.status !== "needs_verification") return current;
+  if (current.verificationInboxUnread) return current;
+
+  const updated: QuestNeedsVerification = {
+    ...current,
+    verificationInboxUnread: true,
+    updatedAt: Date.now(),
+  };
+  await writeQuest(updated);
+  return updated;
+}
+
 // ─── Image management ────────────────────────────────────────────────────────
 
 const MIME_TO_EXT: Record<string, string> = {

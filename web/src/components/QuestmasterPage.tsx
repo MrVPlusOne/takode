@@ -563,6 +563,16 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
     }
   }
 
+  async function handleMarkVerificationInbox(questId: string) {
+    setError("");
+    try {
+      await api.markQuestVerificationInbox(questId);
+      await refreshQuests();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   async function handleAddFeedback(questId: string, text: string) {
     if (!text.trim() && feedbackImages.length === 0) return;
     setFeedbackSubmitting(true);
@@ -2164,79 +2174,92 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
                             <QuestVersionHistory questId={quest.questId} />
                           )}
 
-                          {/* Action bar: Edit, Assign, Transitions, Delete */}
-                          <div className="flex items-center gap-1.5 flex-wrap pt-1">
-                            {isInboxVerification && (
+                          {/* Action bar: Edit, Assign, Transitions, Delete + inbox controls */}
+                          <div className="flex items-start justify-between gap-2 flex-wrap pt-1">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              {/* Edit button */}
                               <button
-                                onClick={() => handleMarkVerificationRead(quest.questId)}
-                                className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg bg-amber-500/15 text-amber-400 border border-amber-500/25 hover:bg-amber-500/25 transition-colors cursor-pointer"
+                                onClick={() => enterEditMode(quest)}
+                                className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg bg-cc-hover text-cc-muted hover:text-cc-fg border border-cc-border transition-colors cursor-pointer"
                               >
-                                Read
+                                Edit
                               </button>
-                            )}
 
-                            {/* Edit button */}
-                            <button
-                              onClick={() => enterEditMode(quest)}
-                              className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg bg-cc-hover text-cc-muted hover:text-cc-fg border border-cc-border transition-colors cursor-pointer"
-                            >
-                              Edit
-                            </button>
-
-                            {/* Assign to Session */}
-                            {quest.status !== "done" && (
-                              <button
-                                onClick={() => setAssignPickerForId(quest.questId)}
-                                className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 transition-colors cursor-pointer"
-                              >
-                                Assign
-                              </button>
-                            )}
-
-                            {/* Separator */}
-                            <span className="w-px h-4 bg-cc-border mx-0.5" />
-
-                            {/* Status transitions */}
-                            <select
-                              value={quest.status}
-                              onChange={(e) =>
-                                handleTransition(quest.questId, e.target.value as QuestStatus)
-                              }
-                              className={`px-2 py-1.5 text-[11px] font-medium rounded-lg cursor-pointer outline-none transition-colors ${cfg.bg} ${cfg.text} border ${cfg.border}`}
-                            >
-                              {ALL_STATUSES.map((s) => (
-                                <option key={s} value={s}>
-                                  {STATUS_CONFIG[s].label}
-                                </option>
-                              ))}
-                            </select>
-
-                            {/* Separator */}
-                            <span className="w-px h-4 bg-cc-border mx-0.5" />
-
-                            {/* Delete */}
-                            {confirmDeleteId === quest.questId ? (
-                              <>
+                              {/* Assign to Session */}
+                              {quest.status !== "done" && (
                                 <button
-                                  onClick={() => handleDelete(quest.questId)}
-                                  className="px-2 py-1.5 text-[11px] font-medium rounded-lg bg-red-500/15 text-red-400 border border-red-500/20 hover:bg-red-500/25 transition-colors cursor-pointer"
+                                  onClick={() => setAssignPickerForId(quest.questId)}
+                                  className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 transition-colors cursor-pointer"
                                 >
-                                  Confirm Delete
+                                  Assign
                                 </button>
-                                <button
-                                  onClick={() => setConfirmDeleteId(null)}
-                                  className="px-2 py-1.5 text-[11px] font-medium text-cc-muted hover:text-cc-fg rounded-lg transition-colors cursor-pointer"
-                                >
-                                  Cancel
-                                </button>
-                              </>
-                            ) : (
-                              <button
-                                onClick={() => setConfirmDeleteId(quest.questId)}
-                                className="px-2 py-1.5 text-[11px] font-medium text-cc-muted hover:text-red-400 rounded-lg transition-colors cursor-pointer"
+                              )}
+
+                              {/* Separator */}
+                              <span className="w-px h-4 bg-cc-border mx-0.5" />
+
+                              {/* Status transitions */}
+                              <select
+                                value={quest.status}
+                                onChange={(e) =>
+                                  handleTransition(quest.questId, e.target.value as QuestStatus)
+                                }
+                                className={`px-2 py-1.5 text-[11px] font-medium rounded-lg cursor-pointer outline-none transition-colors ${cfg.bg} ${cfg.text} border ${cfg.border}`}
                               >
-                                Delete
-                              </button>
+                                {ALL_STATUSES.map((s) => (
+                                  <option key={s} value={s}>
+                                    {STATUS_CONFIG[s].label}
+                                  </option>
+                                ))}
+                              </select>
+
+                              {/* Separator */}
+                              <span className="w-px h-4 bg-cc-border mx-0.5" />
+
+                              {/* Delete */}
+                              {confirmDeleteId === quest.questId ? (
+                                <>
+                                  <button
+                                    onClick={() => handleDelete(quest.questId)}
+                                    className="px-2 py-1.5 text-[11px] font-medium rounded-lg bg-red-500/15 text-red-400 border border-red-500/20 hover:bg-red-500/25 transition-colors cursor-pointer"
+                                  >
+                                    Confirm Delete
+                                  </button>
+                                  <button
+                                    onClick={() => setConfirmDeleteId(null)}
+                                    className="px-2 py-1.5 text-[11px] font-medium text-cc-muted hover:text-cc-fg rounded-lg transition-colors cursor-pointer"
+                                  >
+                                    Cancel
+                                  </button>
+                                </>
+                              ) : (
+                                <button
+                                  onClick={() => setConfirmDeleteId(quest.questId)}
+                                  className="px-2 py-1.5 text-[11px] font-medium text-cc-muted hover:text-red-400 rounded-lg transition-colors cursor-pointer"
+                                >
+                                  Delete
+                                </button>
+                              )}
+                            </div>
+
+                            {quest.status === "needs_verification" && (
+                              isInboxVerification ? (
+                                <button
+                                  onClick={() => handleMarkVerificationRead(quest.questId)}
+                                  title="Remove from Verification Inbox and keep it in Verification for now."
+                                  className="ml-auto px-2.5 py-1.5 text-[11px] font-medium rounded-lg bg-amber-500/15 text-amber-400 border border-amber-500/25 hover:bg-amber-500/25 transition-colors cursor-pointer"
+                                >
+                                  Later
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => handleMarkVerificationInbox(quest.questId)}
+                                  title="Move this quest back to Verification Inbox to prioritize it again."
+                                  className="ml-auto px-2.5 py-1.5 text-[11px] font-medium rounded-lg bg-amber-500/15 text-amber-400 border border-amber-500/25 hover:bg-amber-500/25 transition-colors cursor-pointer"
+                                >
+                                  Inbox
+                                </button>
+                              )
                             )}
                           </div>
                         </>

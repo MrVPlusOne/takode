@@ -2816,8 +2816,20 @@ export function createRoutes(
 
   api.post("/quests/:questId/claim", async (c) => {
     const body = await c.req.json().catch(() => ({}));
-    const sessionId = body.sessionId as string | undefined;
+    const rawSessionId = body.sessionId as string | undefined;
+    const sessionId = typeof rawSessionId === "string" ? rawSessionId.trim() : "";
     if (!sessionId) return c.json({ error: "sessionId is required" }, 400);
+    const knownSession = launcher.getSession(sessionId);
+    if (!knownSession) {
+      return c.json(
+        {
+          error:
+            `Unknown sessionId: ${sessionId}. ` +
+            "Claim a quest from an active Companion session or choose a valid session in Questmaster.",
+        },
+        400,
+      );
+    }
     try {
       const quest = await questStore.claimQuest(c.req.param("questId"), sessionId, {
         allowArchivedOwnerTakeover: true,
@@ -2927,6 +2939,17 @@ export function createRoutes(
   api.post("/quests/:questId/verification/read", async (c) => {
     try {
       const quest = await questStore.markQuestVerificationRead(c.req.param("questId"));
+      if (!quest) return c.json({ error: "Quest not found" }, 404);
+      wsBridge.broadcastGlobal({ type: "quest_list_updated" } as import("./session-types.js").BrowserIncomingMessage);
+      return c.json(quest);
+    } catch (e: unknown) {
+      return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);
+    }
+  });
+
+  api.post("/quests/:questId/verification/inbox", async (c) => {
+    try {
+      const quest = await questStore.markQuestVerificationInboxUnread(c.req.param("questId"));
       if (!quest) return c.json({ error: "Quest not found" }, 404);
       wsBridge.broadcastGlobal({ type: "quest_list_updated" } as import("./session-types.js").BrowserIncomingMessage);
       return c.json(quest);

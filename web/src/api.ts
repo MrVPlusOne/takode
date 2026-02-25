@@ -741,6 +741,8 @@ export const api = {
     patch<import("./types.js").QuestmasterTask>(`/quests/${encodeURIComponent(id)}/verification/${index}`, { checked }),
   markQuestVerificationRead: (id: string) =>
     post<import("./types.js").QuestmasterTask>(`/quests/${encodeURIComponent(id)}/verification/read`, {}),
+  markQuestVerificationInbox: (id: string) =>
+    post<import("./types.js").QuestmasterTask>(`/quests/${encodeURIComponent(id)}/verification/inbox`, {}),
   addQuestFeedback: (id: string, text: string, author: "human" | "agent" = "human", images?: import("./types.js").QuestImage[]) =>
     post<import("./types.js").QuestmasterTask>(`/quests/${encodeURIComponent(id)}/feedback`, { text, author, images }),
   editQuestFeedback: (id: string, index: number, updates: { text?: string; images?: import("./types.js").QuestImage[] }) =>

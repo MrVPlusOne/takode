@@ -452,9 +452,7 @@ export class WsBridge {
     // Recompute ahead/behind with new base, then recompute diff stats.
     // Chained so git_default_branch is fresh when diff falls back to it (user selected "default").
     session.diffStatsDirty = true;
-    void this.refreshGitInfo(session, { broadcastUpdate: true }).then(() => {
-      this.recomputeDiffIfDirty(session);
-    });
+    this.refreshGitInfoThenRecomputeDiff(session, { broadcastUpdate: true });
     this.persistSession(session);
     return true;
   }
@@ -772,6 +770,16 @@ export class WsBridge {
     }
   }
 
+  /** Refresh git metadata and then recompute dirty diff stats. */
+  private refreshGitInfoThenRecomputeDiff(
+    session: Session,
+    options: { broadcastUpdate?: boolean; notifyPoller?: boolean } = {},
+  ): void {
+    void this.refreshGitInfo(session, options).then(() => {
+      this.recomputeDiffIfDirty(session);
+    });
+  }
+
   /** Tools that cannot modify the filesystem — any other tool marks diff stats dirty. */
   private static readonly READ_ONLY_TOOLS = new Set([
     "Read", "Grep", "Glob", "WebFetch", "WebSearch",
@@ -1085,13 +1093,13 @@ export class WsBridge {
       if (msg.type === "session_init") {
         const sanitized = this.sanitizeCodexSessionPatch(msg.session);
         session.state = { ...session.state, ...sanitized, backend_type: "codex" };
-        void this.refreshGitInfo(session, { notifyPoller: true });
+        this.refreshGitInfoThenRecomputeDiff(session, { notifyPoller: true });
         this.persistSession(session);
       } else if (msg.type === "session_update") {
         const sanitized = this.sanitizeCodexSessionPatch(msg.session);
         session.state = { ...session.state, ...sanitized, backend_type: "codex" };
         outgoing = { ...msg, session: sanitized };
-        void this.refreshGitInfo(session, { notifyPoller: true });
+        this.refreshGitInfoThenRecomputeDiff(session, { notifyPoller: true });
         this.persistSession(session);
       } else if (msg.type === "status_change") {
         session.state.is_compacting = msg.status === "compacting";
@@ -1169,7 +1177,7 @@ export class WsBridge {
       }
       if (meta.cwd) session.state.cwd = meta.cwd;
       session.state.backend_type = "codex";
-      void this.refreshGitInfo(session, { broadcastUpdate: true, notifyPoller: true });
+      this.refreshGitInfoThenRecomputeDiff(session, { broadcastUpdate: true, notifyPoller: true });
       this.persistSession(session);
     });
 
@@ -1226,6 +1234,8 @@ export class WsBridge {
     session.cliSocket = ws;
     console.log(`[ws-bridge] CLI connected for session ${sessionTag(sessionId)}`);
     this.broadcastToBrowsers(session, { type: "cli_connected" });
+    // Retry diff recomputation now that backend connectivity exists.
+    this.refreshGitInfoThenRecomputeDiff(session, { notifyPoller: true });
 
     // Flush any messages queued while waiting for the CLI WebSocket.
     // Per the SDK protocol, the first user message triggers system.init,
@@ -1318,9 +1328,7 @@ export class WsBridge {
 
     // Refresh git state on browser connect so branch changes made mid-session are reflected.
     // Chain diff recomputation after git info resolves — needs git_default_branch populated.
-    void this.refreshGitInfo(session, { notifyPoller: true }).then(() => {
-      this.recomputeDiffIfDirty(session);
-    });
+    this.refreshGitInfoThenRecomputeDiff(session, { notifyPoller: true });
 
     // Send current session state as snapshot (includes nextEventSeq for stale seq detection).
     // If slash_commands/skills haven't arrived yet (CLI sends them only after the first
@@ -1546,7 +1554,7 @@ export class WsBridge {
       }
 
       // Resolve and publish git info
-      void this.refreshGitInfo(session, { notifyPoller: true });
+      this.refreshGitInfoThenRecomputeDiff(session, { notifyPoller: true });
 
       this.broadcastToBrowsers(session, {
         type: "session_init",
@@ -1820,9 +1828,7 @@ export class WsBridge {
     // Re-check git state after each turn (session idle), then recompute diff stats.
     // Chained so git_default_branch is populated before diff computation.
     session.diffStatsDirty = true;
-    void this.refreshGitInfo(session, { broadcastUpdate: true, notifyPoller: true }).then(() => {
-      this.recomputeDiffIfDirty(session);
-    });
+    this.refreshGitInfoThenRecomputeDiff(session, { broadcastUpdate: true, notifyPoller: true });
 
     // Broadcast updated metrics to all browsers
     this.broadcastToBrowsers(session, {

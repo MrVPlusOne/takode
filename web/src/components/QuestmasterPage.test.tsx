@@ -4,11 +4,14 @@ import "@testing-library/jest-dom";
 import type { QuestmasterTask } from "../types.js";
 
 const mockMarkQuestVerificationRead = vi.fn().mockResolvedValue({});
+const mockMarkQuestVerificationInbox = vi.fn().mockResolvedValue({});
 
 vi.mock("../api.js", () => ({
   api: {
     markQuestVerificationRead: (...args: unknown[]) =>
       mockMarkQuestVerificationRead(...args),
+    markQuestVerificationInbox: (...args: unknown[]) =>
+      mockMarkQuestVerificationInbox(...args),
     questImageUrl: (id: string) => `/api/quests/_images/${id}`,
   },
 }));
@@ -141,14 +144,29 @@ describe("QuestmasterPage verification inbox", () => {
   });
 
   it("marks an inbox quest as read", async () => {
-    // Clicking Read should call the dedicated API and then refetch authoritative data.
+    // Clicking Later should remove an inbox item from the inbox split.
     render(<QuestmasterPage />);
 
     fireEvent.click(screen.getByText("Inbox quest"));
-    fireEvent.click(screen.getByRole("button", { name: "Read" }));
+    fireEvent.click(screen.getByRole("button", { name: "Later" }));
 
     await waitFor(() => {
       expect(mockMarkQuestVerificationRead).toHaveBeenCalledWith("q-1");
+    });
+    await waitFor(() => {
+      expect(mockState.refreshQuests).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("moves a regular verification quest into inbox", async () => {
+    // Clicking Inbox should move a regular verification quest back to inbox.
+    render(<QuestmasterPage />);
+
+    fireEvent.click(screen.getByText("Regular verification quest"));
+    fireEvent.click(screen.getByRole("button", { name: "Inbox" }));
+
+    await waitFor(() => {
+      expect(mockMarkQuestVerificationInbox).toHaveBeenCalledWith("q-2");
     });
     await waitFor(() => {
       expect(mockState.refreshQuests).toHaveBeenCalledTimes(2);

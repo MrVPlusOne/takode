@@ -183,11 +183,40 @@ export function DiffPanel({ sessionId }: { sessionId: string }) {
     return () => { cancelled = true; };
   }, [relativeChangedFiles, effectiveBranch]);
 
-  // Total line stats from server (single source of truth)
-  const totalStats = useMemo(() => ({
+  // Total line stats from server. When server totals are zero but the panel has
+  // already fetched full per-file diffs, fall back to locally computed totals
+  // so the header stays consistent with what's rendered below.
+  const serverTotals = useMemo(() => ({
     additions: session?.total_lines_added ?? sdkSession?.totalLinesAdded ?? 0,
     deletions: session?.total_lines_removed ?? sdkSession?.totalLinesRemoved ?? 0,
   }), [session?.total_lines_added, session?.total_lines_removed, sdkSession?.totalLinesAdded, sdkSession?.totalLinesRemoved]);
+
+  const localTotals = useMemo(() => {
+    if (visibleChangedFiles.length === 0) {
+      return { additions: 0, deletions: 0, complete: false };
+    }
+    let additions = 0;
+    let deletions = 0;
+    for (const { abs } of visibleChangedFiles) {
+      const stats = fileStats.get(abs);
+      if (!stats) {
+        return { additions: 0, deletions: 0, complete: false };
+      }
+      additions += stats.additions;
+      deletions += stats.deletions;
+    }
+    return { additions, deletions, complete: true };
+  }, [visibleChangedFiles, fileStats]);
+
+  const totalStats = useMemo(() => {
+    if (serverTotals.additions > 0 || serverTotals.deletions > 0) {
+      return serverTotals;
+    }
+    if (localTotals.complete && (localTotals.additions > 0 || localTotals.deletions > 0)) {
+      return { additions: localTotals.additions, deletions: localTotals.deletions };
+    }
+    return serverTotals;
+  }, [serverTotals, localTotals]);
 
   // Sync fileStats to store for TopBar badge
   useEffect(() => {
