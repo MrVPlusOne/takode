@@ -20,5 +20,5 @@ export function hasContainerCodexAuth(envVars?: Record<string, string>): boolean
     join(home, ".codex", "auth.json"),
   ];
 
-  return candidates.some((p) => existsSync(p));
+  return candidates.some((p) => existsSync(p)); // sync-ok: container auth check at session creation
 }

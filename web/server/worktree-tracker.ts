@@ -34,8 +34,8 @@ export class WorktreeTracker {
 
   load(): WorktreeMapping[] {
     try {
-      if (existsSync(TRACKER_PATH)) {
-        const raw = readFileSync(TRACKER_PATH, "utf-8");
+      if (existsSync(TRACKER_PATH)) { // sync-ok: session creation, not called during message handling
+        const raw = readFileSync(TRACKER_PATH, "utf-8"); // sync-ok: session creation, not called during message handling
         this.mappings = JSON.parse(raw) as WorktreeMapping[];
       }
     } catch {
@@ -45,8 +45,8 @@ export class WorktreeTracker {
   }
 
   private save(): void {
-    mkdirSync(dirname(TRACKER_PATH), { recursive: true });
-    writeFileSync(TRACKER_PATH, JSON.stringify(this.mappings, null, 2), "utf-8");
+    mkdirSync(dirname(TRACKER_PATH), { recursive: true }); // sync-ok: session creation, not called during message handling
+    writeFileSync(TRACKER_PATH, JSON.stringify(this.mappings, null, 2), "utf-8"); // sync-ok: session creation, not called during message handling
   }
 
   addMapping(mapping: WorktreeMapping): void {

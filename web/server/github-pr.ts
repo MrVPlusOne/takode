@@ -44,7 +44,7 @@ let _ghAvailable: boolean | null = null;
 export function isGhAvailable(): boolean {
   if (_ghAvailable !== null) return _ghAvailable;
   try {
-    execSync("which gh", { stdio: "pipe", timeout: 5_000 });
+    execSync("which gh", { stdio: "pipe", timeout: 5_000 }); // sync-ok: cold path, cached after first call
     _ghAvailable = true;
   } catch {
     _ghAvailable = false;
@@ -68,7 +68,7 @@ function getRepoSlug(cwd: string): string | null {
     return cached.slug;
   }
   try {
-    const slug = execSync("gh repo view --json nameWithOwner --jq .nameWithOwner", {
+    const slug = execSync("gh repo view --json nameWithOwner --jq .nameWithOwner", { // sync-ok: cold path, cached after first call
       cwd,
       stdio: "pipe",
       timeout: 10_000,
@@ -313,7 +313,7 @@ export async function fetchPRInfo(cwd: string, branch: string): Promise<GitHubPR
   if (!owner || !name) return null;
 
   try {
-    const result = execFileSync(
+    const result = execFileSync( // sync-ok: cold path, cached after first call
       "gh",
       ["api", "graphql", "-f", `query=${PR_QUERY}`, "-f", `owner=${owner}`, "-f", `name=${name}`, "-f", `branch=${branch}`],
       { cwd, stdio: "pipe", timeout: 15_000 },

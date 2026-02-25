@@ -23,7 +23,7 @@ export interface Recording {
  * Throws if the file is missing a valid header.
  */
 export function loadRecording(path: string): Recording {
-  const content = readFileSync(path, "utf-8");
+  const content = readFileSync(path, "utf-8"); // sync-ok: replay utility, called on explicit API request
   const lines = content.split("\n").filter((l) => l.trim());
 
   if (lines.length === 0) {

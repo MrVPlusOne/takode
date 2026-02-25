@@ -80,8 +80,8 @@ function normalize(raw: Partial<CompanionSettings> | null | undefined): Companio
 function ensureLoaded(): void {
   if (loaded) return;
   try {
-    if (existsSync(filePath)) {
-      const raw = readFileSync(filePath, "utf-8");
+    if (existsSync(filePath)) { // sync-ok: cold path, cached after first load
+      const raw = readFileSync(filePath, "utf-8"); // sync-ok: cold path, cached after first load
       settings = normalize(JSON.parse(raw) as Partial<CompanionSettings>);
     }
   } catch {
@@ -153,9 +153,9 @@ export function getServerId(): string {
  */
 export async function initWithPort(port: number): Promise<void> {
   const portPath = join(homedir(), ".companion", `settings-${port}.json`);
-  if (!existsSync(portPath) && existsSync(LEGACY_PATH)) {
+  if (!existsSync(portPath) && existsSync(LEGACY_PATH)) { // sync-ok: cold path, cached after first load
     try {
-      const raw = readFileSync(LEGACY_PATH, "utf-8");
+      const raw = readFileSync(LEGACY_PATH, "utf-8"); // sync-ok: cold path, cached after first load
       const legacy = normalize(JSON.parse(raw) as Partial<CompanionSettings>);
       const migrated = { ...legacy, serverId: "", updatedAt: Date.now() };
       mkdirSync(dirname(portPath), { recursive: true });

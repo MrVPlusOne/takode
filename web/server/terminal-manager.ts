@@ -22,8 +22,8 @@ interface TerminalInstance {
 }
 
 function resolveShell(): string {
-  if (process.env.SHELL && existsSync(process.env.SHELL)) return process.env.SHELL;
-  if (existsSync("/bin/bash")) return "/bin/bash";
+  if (process.env.SHELL && existsSync(process.env.SHELL)) return process.env.SHELL; // sync-ok: cold path, shell detection at startup
+  if (existsSync("/bin/bash")) return "/bin/bash"; // sync-ok: cold path, shell detection at startup
   return "/bin/sh";
 }
 

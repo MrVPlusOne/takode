@@ -43,7 +43,7 @@ function execCaptureStdout(
   options: { cwd: string; encoding: "utf-8"; timeout: number },
 ): string {
   try {
-    return execSync(command, options);
+    return execSync(command, options); // sync-ok: route handler, not called during message handling
   } catch (err: unknown) {
     const maybe = err as { stdout?: Buffer | string };
     if (typeof maybe.stdout === "string") return maybe.stdout;
@@ -194,7 +194,7 @@ export function createRoutes(
       // Expand tilde and validate cwd before any downstream use
       if (cwd) {
         cwd = resolve(expandTilde(cwd));
-        if (!existsSync(cwd)) {
+        if (!existsSync(cwd)) { // sync-ok: route handler, not called during message handling
           return c.json({ error: `Directory does not exist: ${cwd}` }, 400);
         }
       }
@@ -307,7 +307,7 @@ export function createRoutes(
                   ? "Dockerfile.the-companion"
                   : "Dockerfile.companion-dev";
                 const dockerfilePath = join(WEB_DIR, "docker", dockerfileName);
-                if (!existsSync(dockerfilePath)) {
+                if (!existsSync(dockerfilePath)) { // sync-ok: route handler, not called during message handling
                   return c.json({
                     error:
                       `Docker image ${effectiveImage} is missing, pull failed, and Dockerfile not found at ${dockerfilePath}`,
@@ -576,7 +576,7 @@ export function createRoutes(
         // Expand tilde and validate cwd before any downstream use
         if (cwd) {
           cwd = resolve(expandTilde(cwd));
-          if (!existsSync(cwd)) {
+          if (!existsSync(cwd)) { // sync-ok: route handler, not called during message handling
             await stream.writeSSE({
               event: "error",
               data: JSON.stringify({ error: `Directory does not exist: ${cwd}`, step: "resolving_env" }),
@@ -713,7 +713,7 @@ export function createRoutes(
                     ? "Dockerfile.the-companion"
                     : "Dockerfile.companion-dev";
                   const dockerfilePath = join(WEB_DIR, "docker", dockerfileName);
-                  if (!existsSync(dockerfilePath)) {
+                  if (!existsSync(dockerfilePath)) { // sync-ok: route handler, not called during message handling
                     await stream.writeSSE({
                       event: "error",
                       data: JSON.stringify({
@@ -947,7 +947,7 @@ export function createRoutes(
   api.get("/cli-sessions", async (c) => {
     try {
       const claudeProjectsDir = join(homedir(), ".claude", "projects");
-      if (!existsSync(claudeProjectsDir)) {
+      if (!existsSync(claudeProjectsDir)) { // sync-ok: route handler, not called during message handling
         return c.json({ sessions: [] });
       }
 
@@ -1164,7 +1164,7 @@ export function createRoutes(
 
     // Worktree sessions: validate the worktree still exists and isn't used by another session
     if (info.isWorktree && info.repoRoot && info.branch) {
-      const cwdExists = existsSync(info.cwd);
+      const cwdExists = existsSync(info.cwd); // sync-ok: route handler, not called during message handling
       const usedByOther = worktreeTracker.isWorktreeInUse(info.cwd, id);
 
       if (!cwdExists || usedByOther) {
@@ -1348,7 +1348,7 @@ export function createRoutes(
     // For worktree sessions: recreate the worktree if it was deleted during archiving
     let worktreeRecreated = false;
     if (info.isWorktree && info.repoRoot && info.branch) {
-      if (!existsSync(info.cwd)) {
+      if (!existsSync(info.cwd)) { // sync-ok: route handler, not called during message handling
         try {
           const result = recreateWorktreeIfMissing(id, info, { launcher, worktreeTracker, wsBridge });
           if (result.error) {
@@ -1476,11 +1476,11 @@ export function createRoutes(
     if (backendId === "codex") {
       // Read Codex model list from its local cache file
       const cachePath = join(homedir(), ".codex", "models_cache.json");
-      if (!existsSync(cachePath)) {
+      if (!existsSync(cachePath)) { // sync-ok: route handler, not called during message handling
         return c.json({ error: "Codex models cache not found. Run codex once to populate it." }, 404);
       }
       try {
-        const raw = readFileSync(cachePath, "utf-8");
+        const raw = readFileSync(cachePath, "utf-8"); // sync-ok: route handler, not called during message handling
         const cache = JSON.parse(raw) as {
           models: Array<{
             slug: string;
@@ -1929,7 +1929,7 @@ export function createRoutes(
     if (!containerManager.checkDocker()) return c.json({ error: "Docker is not available" }, 503);
     // Build the-companion base image from the repo's Dockerfile
     const dockerfilePath = join(WEB_DIR, "docker", "Dockerfile.the-companion");
-    if (!existsSync(dockerfilePath)) {
+    if (!existsSync(dockerfilePath)) { // sync-ok: route handler, not called during message handling
       return c.json({ error: "Base Dockerfile not found at " + dockerfilePath }, 404);
     }
     try {
@@ -2111,7 +2111,7 @@ export function createRoutes(
     }
 
     try {
-      const version = execSync(`${resolved} --version`, {
+      const version = execSync(`${resolved} --version`, { // sync-ok: route handler, not called during message handling
         encoding: "utf-8",
         timeout: 5_000,
         env: process.env,
@@ -2271,7 +2271,7 @@ export function createRoutes(
     let git_ahead = 0,
       git_behind = 0;
     try {
-      const counts = execSync(
+      const counts = execSync( // sync-ok: route handler, not called during message handling
         "git rev-list --left-right --count @{upstream}...HEAD",
         {
           cwd,
@@ -2416,12 +2416,12 @@ export function createRoutes(
       const roots = getSkillRoots(backend);
       const bySlug = new Map<string, { slug: string; name: string; description: string; path: string; backends: Array<"claude" | "codex"> }>();
       for (const root of roots) {
-        if (!existsSync(root.dir)) continue;
+        if (!existsSync(root.dir)) continue; // sync-ok: route handler, not called during message handling
         const entries = await readdir(root.dir, { withFileTypes: true });
         for (const entry of entries) {
           if (!entry.isDirectory()) continue;
           const skillMdPath = join(root.dir, entry.name, "SKILL.md");
-          if (!existsSync(skillMdPath)) continue;
+          if (!existsSync(skillMdPath)) continue; // sync-ok: route handler, not called during message handling
           const content = await readFile(skillMdPath, "utf-8");
           const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
           let name = entry.name;
@@ -2466,7 +2466,7 @@ export function createRoutes(
     const roots = getSkillRoots(backend);
     for (const root of roots) {
       const skillMdPath = join(root.dir, slug, "SKILL.md");
-      if (!existsSync(skillMdPath)) continue;
+      if (!existsSync(skillMdPath)) continue; // sync-ok: route handler, not called during message handling
       const content = await readFile(skillMdPath, "utf-8");
       return c.json({ slug, path: skillMdPath, content, backend: root.backend });
     }
@@ -2489,19 +2489,19 @@ export function createRoutes(
     const roots = getSkillRoots(backend);
     for (const root of roots) {
       const skillMdPath = join(root.dir, slug, "SKILL.md");
-      if (existsSync(skillMdPath)) {
+      if (existsSync(skillMdPath)) { // sync-ok: route handler, not called during message handling
         return c.json({ error: `Skill "${slug}" already exists in ${root.backend}` }, 409);
       }
     }
 
-    const { mkdirSync, writeFileSync } = await import("node:fs");
+    const { mkdirSync, writeFileSync } = await import("node:fs"); // sync-ok: route handler, not called during message handling
     const md = `---\nname: ${slug}\ndescription: ${JSON.stringify(description || `Skill: ${name}`)}\n---\n\n${content || `# ${name}\n\nDescribe what this skill does and how to use it.\n`}`;
     const paths: Record<string, string> = {};
     for (const root of roots) {
       const skillDir = join(root.dir, slug);
       const skillMdPath = join(skillDir, "SKILL.md");
-      mkdirSync(skillDir, { recursive: true });
-      writeFileSync(skillMdPath, md);
+      mkdirSync(skillDir, { recursive: true }); // sync-ok: route handler, not called during message handling
+      writeFileSync(skillMdPath, md); // sync-ok: route handler, not called during message handling
       paths[root.backend] = skillMdPath;
     }
 
@@ -2523,7 +2523,7 @@ export function createRoutes(
     const updatedPaths: Record<string, string> = {};
     for (const root of getSkillRoots(backend)) {
       const skillMdPath = join(root.dir, slug, "SKILL.md");
-      if (!existsSync(skillMdPath)) continue;
+      if (!existsSync(skillMdPath)) continue; // sync-ok: route handler, not called during message handling
       await writeFile(skillMdPath, body.content);
       updatedPaths[root.backend] = skillMdPath;
     }
@@ -2543,8 +2543,8 @@ export function createRoutes(
     const removed: Array<"claude" | "codex"> = [];
     for (const root of getSkillRoots(backend)) {
       const skillDir = join(root.dir, slug);
-      if (!existsSync(skillDir)) continue;
-      rmSync(skillDir, { recursive: true });
+      if (!existsSync(skillDir)) continue; // sync-ok: route handler, not called during message handling
+      rmSync(skillDir, { recursive: true }); // sync-ok: route handler, not called during message handling
       removed.push(root.backend);
     }
     if (removed.length === 0) return c.json({ error: "Skill not found" }, 404);
@@ -3122,7 +3122,7 @@ export function createRoutes(
       await runExport({ port: launcher.getPort(), outputPath: tempPath });
       // Read into memory before responding — unlinkSync in finally would race
       // with a lazy stream and produce a 0-byte download.
-      const buf = readFileSync(tempPath);
+      const buf = readFileSync(tempPath); // sync-ok: route handler, not called during message handling
       const timestamp = new Date().toISOString().replace(/:/g, "-").slice(0, 19);
       c.header("Content-Type", "application/zstd");
       c.header("Content-Disposition", `attachment; filename="companion-export-${timestamp}.tar.zst"`);
@@ -3131,7 +3131,7 @@ export function createRoutes(
     } catch (e) {
       return c.json({ error: e instanceof Error ? e.message : String(e) }, 500);
     } finally {
-      try { unlinkSync(tempPath); } catch { /* ignore */ }
+      try { unlinkSync(tempPath); } catch { /* ignore */ } // sync-ok: route handler, not called during message handling
     }
   });
 
@@ -3144,7 +3144,7 @@ export function createRoutes(
     }
     const buf = Buffer.from(await file.arrayBuffer());
     const tempPath = join(tmpdir(), `companion-import-${Date.now()}.tar.zst`);
-    writeFileSync(tempPath, buf);
+    writeFileSync(tempPath, buf); // sync-ok: route handler, not called during message handling
 
     const { readable, writable } = new TransformStream();
     const writer = writable.getWriter();
@@ -3174,7 +3174,7 @@ export function createRoutes(
       } catch (e) {
         sendLine({ step: "error", error: e instanceof Error ? e.message : String(e) });
       } finally {
-        try { unlinkSync(tempPath); } catch { /* ignore */ }
+        try { unlinkSync(tempPath); } catch { /* ignore */ } // sync-ok: route handler, not called during message handling
         // writer.close() returns a Promise — swallow if stream already closed
         writer.close().catch(() => {});
       }

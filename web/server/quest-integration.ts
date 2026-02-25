@@ -47,8 +47,8 @@ echo "quest: bun not found (looked in PATH and \$HOME/.bun/bin/bun)" >&2
 exit 127
 `;
 
-  writeFileSync(wrapperPath, wrapper, "utf-8");
-  chmodSync(wrapperPath, 0o755);
+  writeFileSync(wrapperPath, wrapper, "utf-8"); // sync-ok: quest setup, not called during message handling
+  chmodSync(wrapperPath, 0o755); // sync-ok: quest setup, not called during message handling
 }
 
 function writeLocalPathShim(): void {
@@ -59,8 +59,8 @@ function writeLocalPathShim(): void {
 exec "$HOME/.companion/bin/quest" "$@"
 `;
 
-  writeFileSync(shimPath, shim, "utf-8");
-  chmodSync(shimPath, 0o755);
+  writeFileSync(shimPath, shim, "utf-8"); // sync-ok: quest setup, not called during message handling
+  chmodSync(shimPath, 0o755); // sync-ok: quest setup, not called during message handling
 }
 
 function writeRipgrepShim(): void {
@@ -176,8 +176,8 @@ fi
 exec grep "$\{grep_args[@]}" -- "$pattern" "$\{positional[@]:1}"
 `;
 
-  writeFileSync(shimPath, shim, "utf-8");
-  chmodSync(shimPath, 0o755);
+  writeFileSync(shimPath, shim, "utf-8"); // sync-ok: quest setup, not called during message handling
+  chmodSync(shimPath, 0o755); // sync-ok: quest setup, not called during message handling
 }
 
 function writeAgentSkill(skillDir: string): void {
@@ -318,22 +318,22 @@ idea → refined → in_progress → needs_verification → done
 - Before re-submitting, ensure resolved human feedback entries are marked addressed with \`quest address\`.
 `;
 
-  writeFileSync(skillPath, content, "utf-8");
+  writeFileSync(skillPath, content, "utf-8"); // sync-ok: quest setup, not called during message handling
 }
 
 function cleanupOldFiles(): void {
   // Remove old slash command (superseded by agent skill)
-  if (existsSync(OLD_SLASH_COMMAND)) {
+  if (existsSync(OLD_SLASH_COMMAND)) { // sync-ok: quest setup, not called during message handling
     try {
-      unlinkSync(OLD_SLASH_COMMAND);
+      unlinkSync(OLD_SLASH_COMMAND); // sync-ok: quest setup, not called during message handling
     } catch {
       // Ignore
     }
   }
   // Remove old API.md (superseded by CLI)
-  if (existsSync(OLD_API_DOC)) {
+  if (existsSync(OLD_API_DOC)) { // sync-ok: quest setup, not called during message handling
     try {
-      unlinkSync(OLD_API_DOC);
+      unlinkSync(OLD_API_DOC); // sync-ok: quest setup, not called during message handling
     } catch {
       // Ignore
     }

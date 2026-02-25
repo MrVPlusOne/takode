@@ -25,6 +25,6 @@ export function hasContainerClaudeAuth(envVars?: Record<string, string>): boolea
     join(home, ".claude", "credentials.json"),
   ];
 
-  return candidates.some((p) => existsSync(p));
+  return candidates.some((p) => existsSync(p)); // sync-ok: container auth check at session creation
 }
 

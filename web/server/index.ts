@@ -130,7 +130,7 @@ wsBridge.onCLIRelaunchNeededCallback(async (sessionId) => {
     relaunchingSet.add(sessionId);
 
     // If cwd doesn't exist, try to recreate worktree (e.g. after migration)
-    if (!existsSync(info.cwd)) {
+    if (!existsSync(info.cwd)) { // sync-ok: session launch, not called during message handling
       if (info.isWorktree && info.repoRoot && info.branch) {
         try {
           const wtResult = recreateWorktreeIfMissing(sessionId, info, { launcher, worktreeTracker, wsBridge });

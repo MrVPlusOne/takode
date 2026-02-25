@@ -805,7 +805,7 @@ export class CliLauncher {
       const enrichedPath = getEnrichedPath();
       const spawnPath = [binaryDir, companionBinDir, bunBinDir, ...enrichedPath.split(":")].filter(Boolean).join(":");
 
-      if (existsSync(siblingNode)) {
+      if (existsSync(siblingNode)) { // sync-ok: session launch, not called during message handling
         let codexScript: string;
         try {
           codexScript = realpathSync(binary);
@@ -923,7 +923,7 @@ export class CliLauncher {
     }
 
     // Safety: only inject if the worktree directory actually exists (created by git worktree add)
-    if (!existsSync(worktreePath)) {
+    if (!existsSync(worktreePath)) { // sync-ok: session launch, not called during message handling
       console.warn(`[cli-launcher] Skipping guardrails injection: worktree path does not exist (${worktreePath})`);
       return;
     }
@@ -986,19 +986,19 @@ ${MARKER_END}`;
       try {
         mkdirSync(claudeDir, { recursive: true });
 
-        if (existsSync(claudeMdPath)) {
-          const existing = readFileSync(claudeMdPath, "utf-8");
+        if (existsSync(claudeMdPath)) { // sync-ok: session launch, not called during message handling
+          const existing = readFileSync(claudeMdPath, "utf-8"); // sync-ok: session launch, not called during message handling
           // Replace existing guardrails section or append
           if (existing.includes(MARKER_START)) {
             const before = existing.substring(0, existing.indexOf(MARKER_START));
             const afterIdx = existing.indexOf(MARKER_END);
             const after = afterIdx >= 0 ? existing.substring(afterIdx + MARKER_END.length) : "";
-            writeFileSync(claudeMdPath, before + guardrails + after, "utf-8");
+            writeFileSync(claudeMdPath, before + guardrails + after, "utf-8"); // sync-ok: session launch, not called during message handling
           } else {
-            writeFileSync(claudeMdPath, existing + "\n\n" + guardrails, "utf-8");
+            writeFileSync(claudeMdPath, existing + "\n\n" + guardrails, "utf-8"); // sync-ok: session launch, not called during message handling
           }
         } else {
-          writeFileSync(claudeMdPath, guardrails, "utf-8");
+          writeFileSync(claudeMdPath, guardrails, "utf-8"); // sync-ok: session launch, not called during message handling
         }
         console.log(`[cli-launcher] Injected worktree guardrails into .claude/CLAUDE.md for branch ${branch}`);
 
@@ -1011,7 +1011,7 @@ ${MARKER_END}`;
         // tracked file. Without this, `git status` always shows .claude/CLAUDE.md as
         // modified, which prevents automatic worktree cleanup on archive.
         try {
-          execSync("git update-index --skip-worktree .claude/CLAUDE.md", {
+          execSync("git update-index --skip-worktree .claude/CLAUDE.md", { // sync-ok: session launch, not called during message handling
             cwd: worktreePath, stdio: "pipe", timeout: 5000,
           });
         } catch { /* file may not be tracked in this repo — ignore */ }
@@ -1033,30 +1033,30 @@ ${MARKER_END}`;
       const agentsMdPath = join(worktreePath, "AGENTS.md");
       try {
         let existing = "";
-        if (existsSync(agentsMdPath)) {
-          const stat = lstatSync(agentsMdPath);
+        if (existsSync(agentsMdPath)) { // sync-ok: session launch, not called during message handling
+          const stat = lstatSync(agentsMdPath); // sync-ok: session launch, not called during message handling
           if (stat.isSymbolicLink()) {
             // Read through the symlink first, then replace it with a regular file.
-            existing = readFileSync(agentsMdPath, "utf-8");
-            unlinkSync(agentsMdPath);
+            existing = readFileSync(agentsMdPath, "utf-8"); // sync-ok: session launch, not called during message handling
+            unlinkSync(agentsMdPath); // sync-ok: session launch, not called during message handling
             console.log("[cli-launcher] Replaced symlinked AGENTS.md with worktree-local file");
           } else {
-            existing = readFileSync(agentsMdPath, "utf-8");
+            existing = readFileSync(agentsMdPath, "utf-8"); // sync-ok: session launch, not called during message handling
           }
         }
         if (existing.includes(MARKER_START)) {
           const before = existing.substring(0, existing.indexOf(MARKER_START));
           const afterIdx = existing.indexOf(MARKER_END);
           const after = afterIdx >= 0 ? existing.substring(afterIdx + MARKER_END.length) : "";
-          writeFileSync(agentsMdPath, before + guardrails + after, "utf-8");
+          writeFileSync(agentsMdPath, before + guardrails + after, "utf-8"); // sync-ok: session launch, not called during message handling
         } else {
-          writeFileSync(agentsMdPath, existing ? (existing + "\n\n" + guardrails) : guardrails, "utf-8");
+          writeFileSync(agentsMdPath, existing ? (existing + "\n\n" + guardrails) : guardrails, "utf-8"); // sync-ok: session launch, not called during message handling
         }
         console.log(`[cli-launcher] Injected worktree guardrails into AGENTS.md for branch ${branch}`);
 
         this.addWorktreeGitExclude(worktreePath, "AGENTS.md");
         try {
-          execSync("git update-index --skip-worktree AGENTS.md", {
+          execSync("git update-index --skip-worktree AGENTS.md", { // sync-ok: session launch, not called during message handling
             cwd: worktreePath, stdio: "pipe", timeout: 5000,
           });
         } catch { /* file may not be tracked in this repo — ignore */ }
@@ -1075,8 +1075,8 @@ ${MARKER_END}`;
       const dotGitPath = join(worktreePath, ".git");
       let gitDir: string;
 
-      if (existsSync(dotGitPath)) {
-        const stat = readFileSync(dotGitPath, "utf-8").trim();
+      if (existsSync(dotGitPath)) { // sync-ok: session launch, not called during message handling
+        const stat = readFileSync(dotGitPath, "utf-8").trim(); // sync-ok: session launch, not called during message handling
         // Worktrees have a .git file with "gitdir: <path>"
         if (stat.startsWith("gitdir: ")) {
           gitDir = stat.slice("gitdir: ".length);
@@ -1092,12 +1092,12 @@ ${MARKER_END}`;
 
       mkdirSync(excludeDir, { recursive: true });
 
-      if (existsSync(excludePath)) {
-        const existing = readFileSync(excludePath, "utf-8");
+      if (existsSync(excludePath)) { // sync-ok: session launch, not called during message handling
+        const existing = readFileSync(excludePath, "utf-8"); // sync-ok: session launch, not called during message handling
         if (existing.includes(pattern)) return; // already present
       }
 
-      writeFileSync(excludePath, (existsSync(excludePath) ? readFileSync(excludePath, "utf-8") : "") + `\n${pattern}\n`, "utf-8");
+      writeFileSync(excludePath, (existsSync(excludePath) ? readFileSync(excludePath, "utf-8") : "") + `\n${pattern}\n`, "utf-8"); // sync-ok: session launch, not called during message handling
       console.log(`[cli-launcher] Added "${pattern}" to worktree git exclude`);
     } catch (e) {
       console.warn(`[cli-launcher] Failed to add git exclude entry:`, e);
@@ -1136,7 +1136,7 @@ ${MARKER_END}`;
         // existsSync follows symlinks — returns false for dangling ones, causing
         // symlinkSync to fail with EEXIST on relaunch.
         try {
-          const stat = lstatSync(worktreeFile);
+          const stat = lstatSync(worktreeFile); // sync-ok: session launch, not called during message handling
           if (!stat.isSymbolicLink()) continue; // real file — don't replace
           continue; // already a symlink (from previous run) — leave it
         } catch {

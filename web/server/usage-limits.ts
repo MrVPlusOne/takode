@@ -35,15 +35,15 @@ function readRawCredentials(): { raw: string; parsed: Record<string, unknown>; o
       const home =
         process.env.USERPROFILE || process.env.HOME || homedir() || "";
       const credPath = join(home, ".claude", ".credentials.json");
-      if (!existsSync(credPath)) return null;
-      const raw = readFileSync(credPath, "utf-8");
+      if (!existsSync(credPath)) return null; // sync-ok: usage check, not called during message handling
+      const raw = readFileSync(credPath, "utf-8"); // sync-ok: usage check, not called during message handling
       const parsed = JSON.parse(raw);
       if (!parsed?.claudeAiOauth?.accessToken) return null;
       return { raw, parsed, oauth: parsed.claudeAiOauth };
     }
 
     // macOS: use Keychain
-    const raw = execSync(
+    const raw = execSync( // sync-ok: usage check, not called during message handling
       'security find-generic-password -s "Claude Code-credentials" -w',
       { encoding: "utf-8", timeout: 5000, stdio: ["pipe", "pipe", "pipe"] },
     ).trim();
@@ -68,10 +68,10 @@ function writeCredentials(creds: Record<string, unknown>): void {
       const home =
         process.env.USERPROFILE || process.env.HOME || homedir() || "";
       const credPath = join(home, ".claude", ".credentials.json");
-      require("node:fs").writeFileSync(credPath, json, "utf-8");
+      require("node:fs").writeFileSync(credPath, json, "utf-8"); // sync-ok: usage check, not called during message handling
     } else {
       // macOS: use Keychain
-      execFileSync(
+      execFileSync( // sync-ok: usage check, not called during message handling
         "security",
         ["add-generic-password", "-U", "-s", "Claude Code-credentials", "-a", "Claude Code", "-w", json],
         { timeout: 5000, stdio: ["pipe", "pipe", "pipe"] },

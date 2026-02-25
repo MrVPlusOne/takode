@@ -57,7 +57,7 @@ const IMAGE_PULL_TIMEOUT_MS = 300_000; // 5 min for pulling images
 const DOCKER_REGISTRY = "docker.io/stangirard";
 
 function exec(cmd: string, opts?: ExecSyncOptionsWithStringEncoding): string {
-  return execSync(cmd, { ...EXEC_OPTS, ...opts }).trim();
+  return execSync(cmd, { ...EXEC_OPTS, ...opts }).trim(); // sync-ok: container management, not called during message handling
 }
 
 // ---------------------------------------------------------------------------
@@ -163,7 +163,7 @@ export class ContainerManager {
       "-v", `${homedir}/.claude:/companion-host-claude:ro`,
       "--tmpfs", "/root/.claude",
       // Seed Codex auth/config from host (if present)
-      ...(existsSync(join(homedir, ".codex"))
+      ...(existsSync(join(homedir, ".codex")) // sync-ok: container management, not called during message handling
         ? ["-v", `${homedir}/.codex:/companion-host-codex:ro`, "--tmpfs", "/root/.codex"]
         : []),
       // Isolated workspace: named volume populated later via docker cp
@@ -173,7 +173,7 @@ export class ContainerManager {
 
     // Mount host .gitconfig so git user.name/email are available for commits
     const gitconfigPath = join(homedir, ".gitconfig");
-    if (existsSync(gitconfigPath)) {
+    if (existsSync(gitconfigPath)) { // sync-ok: container management, not called during message handling
       args.push("-v", `${gitconfigPath}:/root/.gitconfig:ro`);
     }
 
@@ -668,7 +668,7 @@ export class ContainerManager {
           entries.push({ sessionId, info });
         }
       }
-      writeFileSync(filePath, JSON.stringify(entries, null, 2), "utf-8");
+      writeFileSync(filePath, JSON.stringify(entries, null, 2), "utf-8"); // sync-ok: container management, not called during message handling
     } catch (e) {
       console.warn(
         "[container-manager] Failed to persist state:",
@@ -679,9 +679,9 @@ export class ContainerManager {
 
   /** Restore container tracking from disk, verifying each container still exists. */
   restoreState(filePath: string): number {
-    if (!existsSync(filePath)) return 0;
+    if (!existsSync(filePath)) return 0; // sync-ok: container management, not called during message handling
     try {
-      const raw = readFileSync(filePath, "utf-8");
+      const raw = readFileSync(filePath, "utf-8"); // sync-ok: container management, not called during message handling
       const entries: { sessionId: string; info: ContainerInfo }[] = JSON.parse(raw);
       let restored = 0;
       for (const { sessionId, info } of entries) {
@@ -737,9 +737,9 @@ export class ContainerManager {
   ): Promise<{ success: boolean; log: string }> {
     // Write Dockerfile to temp dir
     const buildDir = join(tmpdir(), `companion-build-${Date.now()}`);
-    mkdirSync(buildDir, { recursive: true });
+    mkdirSync(buildDir, { recursive: true }); // sync-ok: container management, not called during message handling
     const dockerfilePath = join(buildDir, "Dockerfile");
-    writeFileSync(dockerfilePath, dockerfileContent, "utf-8");
+    writeFileSync(dockerfilePath, dockerfileContent, "utf-8"); // sync-ok: container management, not called during message handling
 
     try {
       const args = [
@@ -811,7 +811,7 @@ export class ContainerManager {
       return { success: false, log };
     } finally {
       // Clean up temp build directory
-      try { rmSync(buildDir, { recursive: true, force: true }); } catch { /* ignore */ }
+      try { rmSync(buildDir, { recursive: true, force: true }); } catch { /* ignore */ } // sync-ok: container management, not called during message handling
     }
   }
 

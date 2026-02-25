@@ -85,7 +85,7 @@ export class SessionRecorder {
     };
     // Header write is sync (cold path, once per session) to ensure file exists
     // before any async appends.
-    appendFileSync(this.filePath, JSON.stringify(header) + "\n");
+    appendFileSync(this.filePath, JSON.stringify(header) + "\n"); // sync-ok: cold path, once per recording session
   }
 
   record(dir: RecordingDirection, raw: string, channel: RecordingChannel): void {

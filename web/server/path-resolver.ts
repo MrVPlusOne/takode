@@ -21,7 +21,7 @@ import { join } from "node:path";
 export function captureUserShellPath(): string {
   try {
     const shell = process.env.SHELL || "/bin/bash";
-    const captured = execSync(
+    const captured = execSync( // sync-ok: cold path, binary resolution at startup
       `${shell} -lic 'echo "___PATH_START___$PATH___PATH_END___"'`,
       {
         encoding: "utf-8",
@@ -80,9 +80,9 @@ export function buildFallbackPath(): string {
   // Probe nvm-managed node versions
   const nvmDir = process.env.NVM_DIR || join(home, ".nvm");
   const nvmVersionsDir = join(nvmDir, "versions", "node");
-  if (existsSync(nvmVersionsDir)) {
+  if (existsSync(nvmVersionsDir)) { // sync-ok: cold path, binary resolution at startup
     try {
-      for (const v of readdirSync(nvmVersionsDir)) {
+      for (const v of readdirSync(nvmVersionsDir)) { // sync-ok: cold path, binary resolution at startup
         candidates.push(join(nvmVersionsDir, v, "bin"));
       }
     } catch { /* ignore */ }
@@ -90,15 +90,15 @@ export function buildFallbackPath(): string {
 
   // fnm (Fast Node Manager) — versions stored in fnm multishell or XDG data
   const fnmDir = join(home, "Library", "Application Support", "fnm", "node-versions");
-  if (existsSync(fnmDir)) {
+  if (existsSync(fnmDir)) { // sync-ok: cold path, binary resolution at startup
     try {
-      for (const v of readdirSync(fnmDir)) {
+      for (const v of readdirSync(fnmDir)) { // sync-ok: cold path, binary resolution at startup
         candidates.push(join(fnmDir, v, "installation", "bin"));
       }
     } catch { /* ignore */ }
   }
 
-  return [...new Set(candidates.filter((dir) => existsSync(dir)))].join(":");
+  return [...new Set(candidates.filter((dir) => existsSync(dir)))].join(":"); // sync-ok: cold path, binary resolution at startup
 }
 
 // ─── Tilde expansion ─────────────────────────────────────────────────────────
@@ -160,12 +160,12 @@ export function _resetPathCache(): void {
  */
 export function resolveBinary(name: string): string | null {
   if (name.startsWith("/")) {
-    return existsSync(name) ? name : null;
+    return existsSync(name) ? name : null; // sync-ok: cold path, binary resolution at startup
   }
 
   const enrichedPath = getEnrichedPath();
   try {
-    const resolved = execSync(`which ${name.replace(/[^a-zA-Z0-9._@/-]/g, "")}`, {
+    const resolved = execSync(`which ${name.replace(/[^a-zA-Z0-9._@/-]/g, "")}`, { // sync-ok: cold path, binary resolution at startup
 
       encoding: "utf-8",
       timeout: 5_000,

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, rmSync, statSync, copyFileSync, utimesSync, renameSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, rmSync, statSync, copyFileSync, utimesSync, renameSync } from "node:fs"; // sync-ok: explicit migration operation, user-triggered
 import { join } from "node:path";
 import { homedir, hostname } from "node:os";
 import { spawn } from "node:child_process";
@@ -73,23 +73,23 @@ export async function runExport(options: {
 
   // Only export sessions for the current port
   const portSessionDir = join("sessions", String(port));
-  if (existsSync(join(COMPANION_HOME, portSessionDir))) paths.push(portSessionDir);
+  if (existsSync(join(COMPANION_HOME, portSessionDir))) paths.push(portSessionDir); // sync-ok: explicit migration operation, user-triggered
 
   for (const dir of ASSET_DIRS) {
-    if (existsSync(join(COMPANION_HOME, dir))) paths.push(dir);
+    if (existsSync(join(COMPANION_HOME, dir))) paths.push(dir); // sync-ok: explicit migration operation, user-triggered
   }
   for (const file of EXPORT_FILES) {
-    if (existsSync(join(COMPANION_HOME, file))) paths.push(file);
+    if (existsSync(join(COMPANION_HOME, file))) paths.push(file); // sync-ok: explicit migration operation, user-triggered
   }
-  if (includeRecordings && existsSync(join(COMPANION_HOME, "recordings"))) {
+  if (includeRecordings && existsSync(join(COMPANION_HOME, "recordings"))) { // sync-ok: explicit migration operation, user-triggered
     paths.push("recordings");
   }
 
   // Count sessions
   let sessionCount = 0;
   const portDir = join(COMPANION_HOME, portSessionDir);
-  if (existsSync(portDir)) {
-    for (const f of readdirSync(portDir)) {
+  if (existsSync(portDir)) { // sync-ok: explicit migration operation, user-triggered
+    for (const f of readdirSync(portDir)) { // sync-ok: explicit migration operation, user-triggered
       if (f.endsWith(".json") && f !== "launcher.json") sessionCount++;
     }
   }
@@ -99,9 +99,9 @@ export async function runExport(options: {
   const claudeExportDir = join(COMPANION_HOME, EXPORT_CLAUDE_DIR);
   if (includeClaudeSessions) {
     const launcherPath = join(COMPANION_HOME, portSessionDir, "launcher.json");
-    if (existsSync(launcherPath)) {
+    if (existsSync(launcherPath)) { // sync-ok: explicit migration operation, user-triggered
       try {
-        const entries = JSON.parse(readFileSync(launcherPath, "utf-8")) as Array<Record<string, unknown>>;
+        const entries = JSON.parse(readFileSync(launcherPath, "utf-8")) as Array<Record<string, unknown>>; // sync-ok: explicit migration operation, user-triggered
         if (Array.isArray(entries)) {
           for (const entry of entries) {
             const cliSessionId = entry.cliSessionId as string | undefined;
@@ -112,16 +112,16 @@ export async function runExport(options: {
             const projectDir = cwdToProjectDir(cwd);
             const claudeProjectPath = join(CLAUDE_HOME, "projects", projectDir);
             const jsonlPath = join(claudeProjectPath, `${cliSessionId}.jsonl`);
-            if (!existsSync(jsonlPath)) continue;
+            if (!existsSync(jsonlPath)) continue; // sync-ok: explicit migration operation, user-triggered
 
             // Copy Claude session files into a temp dir under ~/.companion/ for archiving
             const destDir = join(claudeExportDir, projectDir);
-            mkdirSync(destDir, { recursive: true });
-            copyFileSync(jsonlPath, join(destDir, `${cliSessionId}.jsonl`));
+            mkdirSync(destDir, { recursive: true }); // sync-ok: explicit migration operation, user-triggered
+            copyFileSync(jsonlPath, join(destDir, `${cliSessionId}.jsonl`)); // sync-ok: explicit migration operation, user-triggered
 
             // Also copy the session subdirectory (subagents, tool-results) if it exists
             const sessionDir = join(claudeProjectPath, cliSessionId);
-            if (existsSync(sessionDir) && statSync(sessionDir).isDirectory()) {
+            if (existsSync(sessionDir) && statSync(sessionDir).isDirectory()) { // sync-ok: explicit migration operation, user-triggered
               copyDirRecursive(sessionDir, join(destDir, cliSessionId));
             }
 
@@ -152,7 +152,7 @@ export async function runExport(options: {
     claudeSessions: claudeSessions.length > 0 ? claudeSessions : undefined,
   };
   const manifestPath = join(COMPANION_HOME, MANIFEST_NAME);
-  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), "utf-8");
+  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), "utf-8"); // sync-ok: explicit migration operation, user-triggered
   paths.push(MANIFEST_NAME);
 
   console.log(`Exporting ${sessionCount} sessions (port ${port}) from ${COMPANION_HOME}`);
@@ -164,11 +164,11 @@ export async function runExport(options: {
       { cwd: COMPANION_HOME },
     );
   } finally {
-    try { rmSync(manifestPath); } catch { /* ignore */ }
-    try { rmSync(claudeExportDir, { recursive: true }); } catch { /* ignore */ }
+    try { rmSync(manifestPath); } catch { /* ignore */ } // sync-ok: explicit migration operation, user-triggered
+    try { rmSync(claudeExportDir, { recursive: true }); } catch { /* ignore */ } // sync-ok: explicit migration operation, user-triggered
   }
 
-  const archiveSize = statSync(outputPath).size;
+  const archiveSize = statSync(outputPath).size; // sync-ok: explicit migration operation, user-triggered
   console.log(`Archive created: ${outputPath} (${(archiveSize / 1024 / 1024).toFixed(1)} MB)`);
 }
 
@@ -188,9 +188,9 @@ export async function runImport(archivePath: string, targetPort: number, onProgr
     filesImported: 0, filesSkipped: 0, warnings: [],
   };
 
-  mkdirSync(COMPANION_HOME, { recursive: true });
-  if (existsSync(stagingDir)) rmSync(stagingDir, { recursive: true });
-  mkdirSync(stagingDir, { recursive: true });
+  mkdirSync(COMPANION_HOME, { recursive: true }); // sync-ok: explicit migration operation, user-triggered
+  if (existsSync(stagingDir)) rmSync(stagingDir, { recursive: true }); // sync-ok: explicit migration operation, user-triggered
+  mkdirSync(stagingDir, { recursive: true }); // sync-ok: explicit migration operation, user-triggered
 
   try {
     progress("extract", "Extracting archive...");
@@ -198,10 +198,10 @@ export async function runImport(archivePath: string, targetPort: number, onProgr
     await runShell(`zstd -d -c ${shellEscape(archivePath)} | tar -xf -`, { cwd: stagingDir });
 
     const manifestPath = join(stagingDir, MANIFEST_NAME);
-    if (!existsSync(manifestPath)) {
+    if (!existsSync(manifestPath)) { // sync-ok: explicit migration operation, user-triggered
       throw new Error("Invalid archive: missing manifest. Was this created with `companion export`?");
     }
-    const manifest = JSON.parse(readFileSync(manifestPath, "utf-8")) as MigrationManifest;
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf-8")) as MigrationManifest; // sync-ok: explicit migration operation, user-triggered
 
     console.log(`Archive from: ${manifest.hostname} (${manifest.homeDir})`);
     console.log(`Sessions: ${manifest.stats.sessionCount}`);
@@ -222,12 +222,12 @@ export async function runImport(archivePath: string, targetPort: number, onProgr
     // know which ones to keep (vs strip) in launcher.json below.
     const restoredCliSessionIds = new Set<string>();
     const stagedClaudeDir = join(stagingDir, EXPORT_CLAUDE_DIR);
-    if (manifest.claudeSessions?.length && existsSync(stagedClaudeDir)) {
+    if (manifest.claudeSessions?.length && existsSync(stagedClaudeDir)) { // sync-ok: explicit migration operation, user-triggered
       const total = manifest.claudeSessions.length;
       progress("claude", `Restoring ${total} Claude Code session(s)...`);
       console.log(`Restoring ${total} Claude Code session(s)...`);
       const claudeProjectsDir = join(CLAUDE_HOME, "projects");
-      mkdirSync(claudeProjectsDir, { recursive: true });
+      mkdirSync(claudeProjectsDir, { recursive: true }); // sync-ok: explicit migration operation, user-triggered
 
       let claudeIdx = 0;
       for (const mapping of manifest.claudeSessions) {
@@ -240,21 +240,21 @@ export async function runImport(archivePath: string, targetPort: number, onProgr
             : mapping.cwd;
           const newProjectDir = cwdToProjectDir(rewrittenCwd);
           const destDir = join(claudeProjectsDir, newProjectDir);
-          mkdirSync(destDir, { recursive: true });
+          mkdirSync(destDir, { recursive: true }); // sync-ok: explicit migration operation, user-triggered
 
           // Copy the JSONL conversation file
           const srcJsonl = join(stagedClaudeDir, mapping.projectDir, `${mapping.cliSessionId}.jsonl`);
           const destJsonl = join(destDir, `${mapping.cliSessionId}.jsonl`);
-          if (existsSync(srcJsonl)) {
+          if (existsSync(srcJsonl)) { // sync-ok: explicit migration operation, user-triggered
             // Rewrite paths in the JSONL too (contains tool calls with absolute paths)
             if (oldHome !== newHome) {
               rewritePathsInFile(srcJsonl, oldHome, newHome);
             }
-            copyFileSync(srcJsonl, destJsonl);
+            copyFileSync(srcJsonl, destJsonl); // sync-ok: explicit migration operation, user-triggered
 
             // Also copy the session subdirectory if present
             const srcDir = join(stagedClaudeDir, mapping.projectDir, mapping.cliSessionId);
-            if (existsSync(srcDir) && statSync(srcDir).isDirectory()) {
+            if (existsSync(srcDir) && statSync(srcDir).isDirectory()) { // sync-ok: explicit migration operation, user-triggered
               copyDirRecursive(srcDir, join(destDir, mapping.cliSessionId));
             }
 
@@ -274,19 +274,19 @@ export async function runImport(archivePath: string, targetPort: number, onProgr
     // Strip cliSessionId only for sessions whose Claude data was NOT restored.
     // Sessions with restored data keep cliSessionId so --resume works.
     const stagedSessions = join(stagingDir, "sessions");
-    if (existsSync(stagedSessions)) {
-      for (const portEntry of readdirSync(stagedSessions)) {
+    if (existsSync(stagedSessions)) { // sync-ok: explicit migration operation, user-triggered
+      for (const portEntry of readdirSync(stagedSessions)) { // sync-ok: explicit migration operation, user-triggered
         const launcherPath = join(stagedSessions, portEntry, "launcher.json");
-        if (existsSync(launcherPath)) {
+        if (existsSync(launcherPath)) { // sync-ok: explicit migration operation, user-triggered
           try {
-            const entries = JSON.parse(readFileSync(launcherPath, "utf-8"));
+            const entries = JSON.parse(readFileSync(launcherPath, "utf-8")); // sync-ok: explicit migration operation, user-triggered
             if (Array.isArray(entries)) {
               for (const entry of entries) {
                 if (entry.cliSessionId && !restoredCliSessionIds.has(entry.cliSessionId)) {
                   delete entry.cliSessionId;
                 }
               }
-              writeFileSync(launcherPath, JSON.stringify(entries, null, 2), "utf-8");
+              writeFileSync(launcherPath, JSON.stringify(entries, null, 2), "utf-8"); // sync-ok: explicit migration operation, user-triggered
             }
           } catch { /* skip */ }
         }
@@ -294,15 +294,15 @@ export async function runImport(archivePath: string, targetPort: number, onProgr
     }
 
     const targetDir = join(COMPANION_HOME, "sessions", String(targetPort));
-    mkdirSync(targetDir, { recursive: true });
+    mkdirSync(targetDir, { recursive: true }); // sync-ok: explicit migration operation, user-triggered
 
-    if (existsSync(stagedSessions)) {
+    if (existsSync(stagedSessions)) { // sync-ok: explicit migration operation, user-triggered
       // Count total session files for progress
       let totalSessionFiles = 0;
-      for (const portEntry of readdirSync(stagedSessions)) {
+      for (const portEntry of readdirSync(stagedSessions)) { // sync-ok: explicit migration operation, user-triggered
         const pd = join(stagedSessions, portEntry);
-        if (statSync(pd).isDirectory()) {
-          for (const f of readdirSync(pd)) {
+        if (statSync(pd).isDirectory()) { // sync-ok: explicit migration operation, user-triggered
+          for (const f of readdirSync(pd)) { // sync-ok: explicit migration operation, user-triggered
             if (f.endsWith(".json") && f !== "launcher.json") totalSessionFiles++;
           }
         }
@@ -310,11 +310,11 @@ export async function runImport(archivePath: string, targetPort: number, onProgr
 
       let sessionIdx = 0;
       progress("sessions", `Importing ${totalSessionFiles} sessions...`);
-      for (const portEntry of readdirSync(stagedSessions)) {
+      for (const portEntry of readdirSync(stagedSessions)) { // sync-ok: explicit migration operation, user-triggered
         const portDir = join(stagedSessions, portEntry);
-        if (!statSync(portDir).isDirectory()) continue;
+        if (!statSync(portDir).isDirectory()) continue; // sync-ok: explicit migration operation, user-triggered
 
-        for (const file of readdirSync(portDir)) {
+        for (const file of readdirSync(portDir)) { // sync-ok: explicit migration operation, user-triggered
           if (file === "launcher.json") {
             mergeLauncherArray(join(portDir, file), join(targetDir, file));
             continue;
@@ -328,11 +328,11 @@ export async function runImport(archivePath: string, targetPort: number, onProgr
           const srcPath = join(portDir, file);
           const targetPath = join(targetDir, file);
 
-          if (!existsSync(targetPath)) {
-            copyFileSync(srcPath, targetPath);
+          if (!existsSync(targetPath)) { // sync-ok: explicit migration operation, user-triggered
+            copyFileSync(srcPath, targetPath); // sync-ok: explicit migration operation, user-triggered
             stats.sessionsNew++;
-          } else if (statSync(srcPath).mtimeMs > statSync(targetPath).mtimeMs) {
-            copyFileSync(srcPath, targetPath);
+          } else if (statSync(srcPath).mtimeMs > statSync(targetPath).mtimeMs) { // sync-ok: explicit migration operation, user-triggered
+            copyFileSync(srcPath, targetPath); // sync-ok: explicit migration operation, user-triggered
             stats.sessionsUpdated++;
           } else {
             stats.sessionsSkipped++;
@@ -340,8 +340,8 @@ export async function runImport(archivePath: string, targetPort: number, onProgr
           }
           // Count worktree sessions that need on-demand recreation
           try {
-            const data = JSON.parse(readFileSync(targetPath, "utf-8"));
-            if (data?.state?.is_worktree && !existsSync(data.state.cwd)) {
+            const data = JSON.parse(readFileSync(targetPath, "utf-8")); // sync-ok: explicit migration operation, user-triggered
+            if (data?.state?.is_worktree && !existsSync(data.state.cwd)) { // sync-ok: explicit migration operation, user-triggered
               stats.worktreeSessionsNeedingRecreation++;
             }
           } catch { /* skip */ }
@@ -354,20 +354,20 @@ export async function runImport(archivePath: string, targetPort: number, onProgr
     mergeJsonArray(join(stagingDir, "worktrees.json"), join(COMPANION_HOME, "worktrees.json"), "sessionId");
     mergeJsonByKey(join(stagingDir, "session-names.json"), join(COMPANION_HOME, "session-names.json"));
     const stagedContainers = join(stagingDir, "containers.json");
-    if (existsSync(stagedContainers) && !existsSync(join(COMPANION_HOME, "containers.json"))) {
-      copyFileSync(stagedContainers, join(COMPANION_HOME, "containers.json"));
+    if (existsSync(stagedContainers) && !existsSync(join(COMPANION_HOME, "containers.json"))) { // sync-ok: explicit migration operation, user-triggered
+      copyFileSync(stagedContainers, join(COMPANION_HOME, "containers.json")); // sync-ok: explicit migration operation, user-triggered
     }
 
     // ── Asset directories (newer wins) ───────────────────────────
     progress("assets", "Copying assets...");
     for (const dir of ["images", "questmaster", "codex-home", "envs", "cron", "assistant", "recordings"]) {
       const stagedDir = join(stagingDir, dir);
-      if (existsSync(stagedDir)) copyDirNewerWins(stagedDir, join(COMPANION_HOME, dir), stats);
+      if (existsSync(stagedDir)) copyDirNewerWins(stagedDir, join(COMPANION_HOME, dir), stats); // sync-ok: explicit migration operation, user-triggered
     }
 
     return stats;
   } finally {
-    try { rmSync(stagingDir, { recursive: true }); } catch { /* ignore */ }
+    try { rmSync(stagingDir, { recursive: true }); } catch { /* ignore */ } // sync-ok: explicit migration operation, user-triggered
   }
 }
 
@@ -393,9 +393,9 @@ export function printImportStats(stats: ImportStats): void {
 
 export function rewritePathsInDir(dir: string, oldHome: string, newHome: string): void {
   if (oldHome === newHome) return;
-  for (const entry of readdirSync(dir)) {
+  for (const entry of readdirSync(dir)) { // sync-ok: explicit migration operation, user-triggered
     const fullPath = join(dir, entry);
-    const st = statSync(fullPath);
+    const st = statSync(fullPath); // sync-ok: explicit migration operation, user-triggered
     if (st.isDirectory()) {
       rewritePathsInDir(fullPath, oldHome, newHome);
     } else if (entry.endsWith(".json") || entry.endsWith(".jsonl")) {
@@ -411,13 +411,13 @@ export function rewritePathsInDir(dir: string, oldHome: string, newHome: string)
  */
 export function rewritePathsInFile(filePath: string, oldHome: string, newHome: string): void {
   if (oldHome === newHome) return;
-  const st = statSync(filePath);
-  const content = readFileSync(filePath, "utf-8");
+  const st = statSync(filePath); // sync-ok: explicit migration operation, user-triggered
+  const content = readFileSync(filePath, "utf-8"); // sync-ok: explicit migration operation, user-triggered
   let rewritten = content.replaceAll(oldHome + "/", newHome + "/");
   rewritten = rewritten.replaceAll(oldHome + '"', newHome + '"');
   if (rewritten !== content) {
-    writeFileSync(filePath, rewritten, "utf-8");
-    utimesSync(filePath, st.atime, st.mtime); // preserve original mtime
+    writeFileSync(filePath, rewritten, "utf-8"); // sync-ok: explicit migration operation, user-triggered
+    utimesSync(filePath, st.atime, st.mtime); // sync-ok: explicit migration operation, user-triggered — preserve original mtime
   }
 }
 
@@ -428,7 +428,7 @@ export function recreateWorktreeIfMissing(
   info: SdkSessionInfo,
   deps: { launcher: CliLauncher; worktreeTracker: WorktreeTracker; wsBridge: WsBridge },
 ): { recreated: boolean; error?: string } {
-  if (existsSync(info.cwd)) return { recreated: false };
+  if (existsSync(info.cwd)) return { recreated: false }; // sync-ok: explicit migration operation, user-triggered
 
   if (!info.isWorktree || !info.repoRoot || !info.branch) {
     return { recreated: false, error: `Working directory not found: ${info.cwd}` };
@@ -472,34 +472,34 @@ function mergeLauncherArray(importedPath: string, targetPath: string): void {
 
 /** Merge a JSON object: imported keys fill gaps or overwrite existing. */
 function mergeJsonByKey(importedPath: string, targetPath: string): void {
-  if (!existsSync(importedPath)) return;
+  if (!existsSync(importedPath)) return; // sync-ok: explicit migration operation, user-triggered
   try {
-    const imported = JSON.parse(readFileSync(importedPath, "utf-8"));
-    if (!existsSync(targetPath)) {
-      mkdirSync(join(targetPath, ".."), { recursive: true });
-      writeFileSync(targetPath, JSON.stringify(imported, null, 2), "utf-8");
+    const imported = JSON.parse(readFileSync(importedPath, "utf-8")); // sync-ok: explicit migration operation, user-triggered
+    if (!existsSync(targetPath)) { // sync-ok: explicit migration operation, user-triggered
+      mkdirSync(join(targetPath, ".."), { recursive: true }); // sync-ok: explicit migration operation, user-triggered
+      writeFileSync(targetPath, JSON.stringify(imported, null, 2), "utf-8"); // sync-ok: explicit migration operation, user-triggered
       return;
     }
-    const existing = JSON.parse(readFileSync(targetPath, "utf-8"));
+    const existing = JSON.parse(readFileSync(targetPath, "utf-8")); // sync-ok: explicit migration operation, user-triggered
     Object.assign(existing, imported);
-    writeFileSync(targetPath, JSON.stringify(existing, null, 2), "utf-8");
+    writeFileSync(targetPath, JSON.stringify(existing, null, 2), "utf-8"); // sync-ok: explicit migration operation, user-triggered
   } catch { /* keep existing on failure */ }
 }
 
 /** Merge a JSON array by a unique key field. Imported entries replace existing. */
 function mergeJsonArray(importedPath: string, targetPath: string, key: string): void {
-  if (!existsSync(importedPath)) return;
+  if (!existsSync(importedPath)) return; // sync-ok: explicit migration operation, user-triggered
   try {
-    const imported = JSON.parse(readFileSync(importedPath, "utf-8")) as Array<Record<string, unknown>>;
-    if (!existsSync(targetPath)) {
-      mkdirSync(join(targetPath, ".."), { recursive: true });
-      writeFileSync(targetPath, JSON.stringify(imported, null, 2), "utf-8");
+    const imported = JSON.parse(readFileSync(importedPath, "utf-8")) as Array<Record<string, unknown>>; // sync-ok: explicit migration operation, user-triggered
+    if (!existsSync(targetPath)) { // sync-ok: explicit migration operation, user-triggered
+      mkdirSync(join(targetPath, ".."), { recursive: true }); // sync-ok: explicit migration operation, user-triggered
+      writeFileSync(targetPath, JSON.stringify(imported, null, 2), "utf-8"); // sync-ok: explicit migration operation, user-triggered
       return;
     }
-    const existing = JSON.parse(readFileSync(targetPath, "utf-8")) as Array<Record<string, unknown>>;
+    const existing = JSON.parse(readFileSync(targetPath, "utf-8")) as Array<Record<string, unknown>>; // sync-ok: explicit migration operation, user-triggered
     const map = new Map(existing.map((item) => [item[key] as string, item]));
     for (const item of imported) map.set(item[key] as string, item);
-    writeFileSync(targetPath, JSON.stringify([...map.values()], null, 2), "utf-8");
+    writeFileSync(targetPath, JSON.stringify([...map.values()], null, 2), "utf-8"); // sync-ok: explicit migration operation, user-triggered
   } catch { /* keep existing on failure */ }
 }
 
@@ -531,14 +531,14 @@ export function migrateClaudeProjectDir(
   const oldDir = join(claudeProjectsDir, oldProjectDir);
   const newDir = join(claudeProjectsDir, newProjectDir);
 
-  if (!existsSync(oldDir)) return;
+  if (!existsSync(oldDir)) return; // sync-ok: explicit migration operation, user-triggered
 
   try {
-    mkdirSync(newDir, { recursive: true });
-    for (const entry of readdirSync(oldDir)) {
-      renameSync(join(oldDir, entry), join(newDir, entry));
+    mkdirSync(newDir, { recursive: true }); // sync-ok: explicit migration operation, user-triggered
+    for (const entry of readdirSync(oldDir)) { // sync-ok: explicit migration operation, user-triggered
+      renameSync(join(oldDir, entry), join(newDir, entry)); // sync-ok: explicit migration operation, user-triggered
     }
-    rmSync(oldDir, { recursive: true, force: true });
+    rmSync(oldDir, { recursive: true, force: true }); // sync-ok: explicit migration operation, user-triggered
     console.log(`[migration] Moved Claude project dir: ${oldProjectDir} → ${newProjectDir}`);
   } catch (e) {
     console.warn(`[migration] Failed to migrate Claude project dir: ${e instanceof Error ? e.message : String(e)}`);
@@ -549,28 +549,28 @@ export function migrateClaudeProjectDir(
 
 /** Recursively copy a directory (unconditionally). */
 function copyDirRecursive(src: string, dest: string): void {
-  mkdirSync(dest, { recursive: true });
-  for (const entry of readdirSync(src)) {
+  mkdirSync(dest, { recursive: true }); // sync-ok: explicit migration operation, user-triggered
+  for (const entry of readdirSync(src)) { // sync-ok: explicit migration operation, user-triggered
     const srcPath = join(src, entry);
     const destPath = join(dest, entry);
-    if (statSync(srcPath).isDirectory()) {
+    if (statSync(srcPath).isDirectory()) { // sync-ok: explicit migration operation, user-triggered
       copyDirRecursive(srcPath, destPath);
     } else {
-      copyFileSync(srcPath, destPath);
+      copyFileSync(srcPath, destPath); // sync-ok: explicit migration operation, user-triggered
     }
   }
 }
 
 /** Recursively copy a directory. Existing files are only overwritten if src is newer. */
 function copyDirNewerWins(src: string, dest: string, stats: ImportStats): void {
-  mkdirSync(dest, { recursive: true });
-  for (const entry of readdirSync(src)) {
+  mkdirSync(dest, { recursive: true }); // sync-ok: explicit migration operation, user-triggered
+  for (const entry of readdirSync(src)) { // sync-ok: explicit migration operation, user-triggered
     const srcPath = join(src, entry);
     const destPath = join(dest, entry);
-    if (statSync(srcPath).isDirectory()) {
+    if (statSync(srcPath).isDirectory()) { // sync-ok: explicit migration operation, user-triggered
       copyDirNewerWins(srcPath, destPath, stats);
-    } else if (!existsSync(destPath) || statSync(srcPath).mtimeMs > statSync(destPath).mtimeMs) {
-      copyFileSync(srcPath, destPath);
+    } else if (!existsSync(destPath) || statSync(srcPath).mtimeMs > statSync(destPath).mtimeMs) { // sync-ok: explicit migration operation, user-triggered
+      copyFileSync(srcPath, destPath); // sync-ok: explicit migration operation, user-triggered
       stats.filesImported++;
     } else {
       stats.filesSkipped++;
