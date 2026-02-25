@@ -197,7 +197,10 @@ function UsageLimitsSection({ sessionId }: { sessionId: string }) {
 // ─── Codex Rate Limits ───────────────────────────────────────────────────────
 
 function formatCodexResetTime(resetsAtMs: number): string {
-  const diffMs = resetsAtMs - Date.now();
+  // Codex resetsAt values are usually epoch-seconds, but normalize defensively
+  // if a newer payload uses epoch-milliseconds.
+  const absoluteMs = resetsAtMs > 1_000_000_000_000 ? resetsAtMs : resetsAtMs * 1000;
+  const diffMs = absoluteMs - Date.now();
   if (diffMs <= 0) return "now";
   const days = Math.floor(diffMs / 86_400_000);
   const hours = Math.floor((diffMs % 86_400_000) / 3_600_000);

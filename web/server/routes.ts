@@ -2329,11 +2329,15 @@ export function createRoutes(
     if (session?.backendType === "codex") {
       const rl = wsBridge.getCodexRateLimits(sessionId);
       if (!rl) return c.json(empty);
+      const toEpochMs = (value: number): number => {
+        // Codex has historically sent seconds; guard for future millisecond payloads.
+        return value > 1_000_000_000_000 ? value : value * 1000;
+      };
       const mapLimit = (l: { usedPercent: number; windowDurationMins: number; resetsAt: number } | null) => {
         if (!l) return null;
         return {
           utilization: l.usedPercent,
-          resets_at: l.resetsAt ? new Date(l.resetsAt * 1000).toISOString() : null,
+          resets_at: l.resetsAt ? new Date(toEpochMs(l.resetsAt)).toISOString() : null,
         };
       };
       return c.json({

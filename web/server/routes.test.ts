@@ -2150,6 +2150,24 @@ describe("GET /api/sessions/:id/usage-limits", () => {
     expect(json.seven_day).toBeNull();
   });
 
+  it("accepts codex reset timestamps in milliseconds", async () => {
+    const resetMs = 1730947200 * 1000;
+    bridge.getSession.mockReturnValue({ backendType: "codex" });
+    bridge.getCodexRateLimits.mockReturnValue({
+      primary: { usedPercent: 25, windowDurationMins: 300, resetsAt: resetMs },
+      secondary: null,
+    });
+
+    const res = await app.request("/api/sessions/s1/usage-limits", { method: "GET" });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.five_hour).toEqual({
+      utilization: 25,
+      resets_at: new Date(resetMs).toISOString(),
+    });
+  });
+
   it("falls back to Claude limits when session is not found", async () => {
     bridge.getSession.mockReturnValue(null);
     mockGetUsageLimits.mockResolvedValue({

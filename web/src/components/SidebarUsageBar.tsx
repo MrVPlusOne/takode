@@ -65,6 +65,12 @@ function UsageRow({ label, pct, resetStr, timePct }: { label: string; pct: numbe
 export function SidebarUsageBar() {
   const currentSessionId = useStore((s) => s.currentSessionId);
   const showUsageBars = useStore((s) => s.showUsageBars);
+  const backendType = useStore((s) => {
+    if (!currentSessionId) return "claude";
+    const bridgeBackend = s.sessions.get(currentSessionId)?.backend_type;
+    const sdkBackend = s.sdkSessions.find((ss) => ss.sessionId === currentSessionId)?.backendType;
+    return (bridgeBackend || sdkBackend || "claude") as "claude" | "codex";
+  });
   const limits = useUsageLimits(currentSessionId);
 
   if (!showUsageBars || !limits) return null;
@@ -97,8 +103,22 @@ export function SidebarUsageBar() {
 
   if (rows.length === 0) return null;
 
+  const backendLabel = backendType === "codex" ? "Codex" : "Claude";
+  const backendLogo = backendType === "codex" ? "/logo-codex.svg" : "/logo.png";
+
   return (
     <div className="px-3 pb-1.5 space-y-1">
+      <div className="flex items-center gap-1.5 pb-0.5" title={`${backendLabel} usage`}>
+        <img
+          src={backendLogo}
+          alt={`${backendLabel} usage`}
+          className="w-3 h-3 rounded-[3px] object-contain opacity-90"
+          draggable={false}
+        />
+        <span className={`text-[9px] uppercase tracking-wider font-medium ${backendType === "codex" ? "text-blue-400/90" : "text-[#D97757]"}`}>
+          {backendLabel}
+        </span>
+      </div>
       {rows.map((r) => (
         <UsageRow key={r.label} label={r.label} pct={r.pct} resetStr={r.resetStr} timePct={r.timePct} />
       ))}

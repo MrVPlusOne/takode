@@ -403,6 +403,13 @@ export class CodexAdapter {
     primary: { usedPercent: number; windowDurationMins: number; resetsAt: number } | null;
     secondary: { usedPercent: number; windowDurationMins: number; resetsAt: number } | null;
   } | null = null;
+  // Codex can publish multiple limit buckets (for example, "codex" and model-specific IDs).
+  // Keep the latest values per limitId and prefer the canonical "codex" bucket for UI parity
+  // with the official usage page.
+  private rateLimitsByLimitId = new Map<string, {
+    primary: { usedPercent: number; windowDurationMins: number; resetsAt: number } | null;
+    secondary: { usedPercent: number; windowDurationMins: number; resetsAt: number } | null;
+  }>();
   private static readonly DYNAMIC_TOOL_CALL_TIMEOUT_MS = 120_000;
 
   constructor(proc: Subprocess, sessionId: string, options: CodexAdapterOptions = {}) {
@@ -1787,16 +1794,15 @@ export class CodexAdapter {
   }
 
   private updateRateLimits(data: Record<string, unknown>): void {
-    const rl = data?.rateLimits as Record<string, unknown> | undefined;
-    if (!rl) return;
     const normalizeLimit = (value: unknown) => {
       if (!value || typeof value !== "object") return null;
       const raw = value as Record<string, unknown>;
       const usedRaw = Number(raw.usedPercent ?? 0);
       // Codex has been observed to report this as either 0..100 or 0..1.
-      const usedPercent = Number.isFinite(usedRaw)
+      const normalizedPercent = Number.isFinite(usedRaw)
         ? (usedRaw > 0 && usedRaw <= 1 ? usedRaw * 100 : usedRaw)
         : 0;
+      const usedPercent = Math.max(0, Math.min(100, normalizedPercent));
       const windowDurationMins = Number(raw.windowDurationMins ?? 0);
       const resetsAt = Number(raw.resetsAt ?? 0);
       return {
@@ -1805,10 +1811,38 @@ export class CodexAdapter {
         resetsAt: Number.isFinite(resetsAt) ? resetsAt : 0,
       };
     };
-    this._rateLimits = {
-      primary: normalizeLimit(rl.primary),
-      secondary: normalizeLimit(rl.secondary),
+    const normalizeRateLimitSet = (value: unknown) => {
+      if (!value || typeof value !== "object") return null;
+      const raw = value as Record<string, unknown>;
+      return {
+        primary: normalizeLimit(raw.primary),
+        secondary: normalizeLimit(raw.secondary),
+      };
     };
+
+    const direct = data?.rateLimits as Record<string, unknown> | undefined;
+    const directNormalized = normalizeRateLimitSet(direct);
+    const directLimitId = typeof direct?.limitId === "string" ? direct.limitId : null;
+    if (directLimitId && directNormalized) {
+      this.rateLimitsByLimitId.set(directLimitId, directNormalized);
+    }
+
+    const byId = data?.rateLimitsByLimitId as Record<string, unknown> | undefined;
+    if (byId && typeof byId === "object") {
+      for (const [limitId, limitData] of Object.entries(byId)) {
+        const parsed = normalizeRateLimitSet(limitData);
+        if (parsed) this.rateLimitsByLimitId.set(limitId, parsed);
+      }
+    }
+
+    this._rateLimits =
+      this.rateLimitsByLimitId.get("codex")
+      ?? (directLimitId ? this.rateLimitsByLimitId.get(directLimitId) ?? null : null)
+      ?? directNormalized
+      ?? (this.rateLimitsByLimitId.size > 0 ? this.rateLimitsByLimitId.values().next().value ?? null : null);
+
+    if (!this._rateLimits) return;
+
     // Forward rate limits to browser for UI display
     this.emit({
       type: "session_update",

@@ -163,6 +163,27 @@ describe("CodexRateLimitsSection", () => {
     expect(screen.getByText("30%")).toBeInTheDocument();
     expect(screen.getByText("10%")).toBeInTheDocument();
   });
+
+  it("formats codex reset countdown correctly when resetsAt is epoch-seconds", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-02-25T00:00:00.000Z"));
+      const resetAtSec = Math.floor(Date.now() / 1000) + 7200;
+      resetStore({
+        sessions: new Map([["s1", {
+          backend_type: "codex",
+          codex_rate_limits: {
+            primary: { usedPercent: 62, windowDurationMins: 300, resetsAt: resetAtSec },
+            secondary: null,
+          },
+        }]]),
+      });
+      render(<CodexRateLimitsSection sessionId="s1" />);
+      expect(screen.getByText("(2h0m)")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("CodexTokenDetailsSection", () => {
