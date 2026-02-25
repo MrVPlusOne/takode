@@ -2,6 +2,10 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+// Increase libuv thread pool before any async I/O — prevents thread pool
+// exhaustion on NFS when many sessions do concurrent file operations.
+if (!process.env.UV_THREADPOOL_SIZE) process.env.UV_THREADPOOL_SIZE = "32";
+
 // Package root so the server can find dist/ regardless of CWD
 const __dirname = dirname(fileURLToPath(import.meta.url));
 process.env.__COMPANION_PACKAGE_ROOT = resolve(__dirname, "..");

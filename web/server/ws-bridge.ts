@@ -731,6 +731,10 @@ export class WsBridge {
     session: Session,
     options: { broadcastUpdate?: boolean; notifyPoller?: boolean } = {},
   ): Promise<void> {
+    // Skip expensive git operations for sessions without a CLI connection
+    // (archived/exited sessions). Each call triggers 5+ git subprocesses on NFS.
+    if (!session.cliSocket && !session.codexAdapter) return;
+
     const before: Record<string, unknown> = {};
     for (const key of WsBridge.GIT_SESSION_KEYS) {
       before[key] = session.state[key];
@@ -781,6 +785,8 @@ export class WsBridge {
    */
   recomputeDiffIfDirty(session: Session): void {
     if (!session.diffStatsDirty) return;
+    // Skip expensive git diff for sessions without a CLI connection (archived/exited)
+    if (!session.cliSocket && !session.codexAdapter) return;
     this.computeDiffStatsAsync(session).then((didRun) => {
       if (!didRun) return;
       session.diffStatsDirty = false;

@@ -1071,13 +1071,11 @@ export function createRoutes(
           keywords: wsBridge.getSessionKeywords(s.sessionId),
           ...(wsBridge.getSessionAttentionState(s.sessionId) ?? {}),
           // Worktree liveness status for archived worktree sessions
+          // Only check existence (one async access() call), skip expensive git status
           ...(s.isWorktree && s.archived ? await (async () => {
             let exists = false;
             try { await accessAsync(s.cwd); exists = true; } catch { /* not found */ }
-            return {
-              worktreeExists: exists,
-              worktreeDirty: exists ? await gitUtils.isWorktreeDirtyAsync(s.cwd) : undefined,
-            };
+            return { worktreeExists: exists };
           })() : {}),
         };
       } catch (e) {

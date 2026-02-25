@@ -456,6 +456,8 @@ describe("CLI handlers", () => {
     // Create a session with a browser connected and a tracked changed file
     bridge.markWorktree("s1", "/home/user/companion", "/tmp/wt", "jiayi");
     const session = bridge.getSession("s1")!;
+    // Ensure the session has a CLI socket so refreshGitInfo/recomputeDiffIfDirty don't skip
+    (session as any).cliSocket = { send: vi.fn() };
     const browserWs = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browserWs, "s1");
     browserWs.send.mockClear();
@@ -655,6 +657,8 @@ describe("Browser handlers", () => {
     const session = bridge.getOrCreateSession("s1");
     session.state.cwd = "/repo";
     session.state.git_branch = "main";
+    // Ensure the session has a CLI socket so refreshGitInfo doesn't skip
+    (session as any).cliSocket = { send: vi.fn() };
 
     const gitInfoCb = vi.fn();
     bridge.onSessionGitInfoReadyCallback(gitInfoCb);
@@ -3941,6 +3945,8 @@ describe("Diff stats computation", () => {
 
     // Set cwd so computeDiffStats can run
     session.state.cwd = "/tmp/wt";
+    // Ensure the session has a CLI socket so recomputeDiffIfDirty doesn't skip
+    (session as any).cliSocket = { send: vi.fn() };
 
     // Use setDiffBaseBranch which triggers computeDiff
     mockExecSync.mockImplementation((cmd: string) => {
@@ -3998,6 +4004,8 @@ describe("Diff stats computation", () => {
     bridge.markWorktree("s1", "/repo", "/tmp/wt", "main");
     const session = bridge.getSession("s1")!;
     session.state.cwd = "/tmp/wt";
+    // Ensure the session has a CLI socket so refreshGitInfo/recomputeDiffIfDirty don't skip
+    (session as any).cliSocket = { send: vi.fn() };
     const browserWs = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browserWs, "s1");
 

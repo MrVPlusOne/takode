@@ -47,7 +47,7 @@ async function run() {
       cwd: webDir,
       stdout: "inherit",
       stderr: "inherit",
-      env: { ...process.env, NODE_ENV: "production", COMPANION_SUPERVISED: "1" },
+      env: { ...process.env, NODE_ENV: "production", COMPANION_SUPERVISED: "1", UV_THREADPOOL_SIZE: process.env.UV_THREADPOOL_SIZE || "32" },
     });
 
     const code = await serverProc.exited;

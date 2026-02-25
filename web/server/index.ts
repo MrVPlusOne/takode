@@ -1,12 +1,5 @@
 process.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = "1";
 
-// Increase libuv thread pool to handle concurrent async NFS operations.
-// Default is 4 — insufficient when 6+ sessions do simultaneous file I/O.
-// Must be set before any async I/O imports.
-if (!process.env.UV_THREADPOOL_SIZE) {
-  process.env.UV_THREADPOOL_SIZE = "16";
-}
-
 // Enrich process PATH at startup so binary resolution and `which` calls can find
 // binaries installed via version managers (nvm, volta, fnm, etc.).
 // Critical when running as a launchd/systemd service with a restricted PATH.
@@ -73,6 +66,7 @@ const perfTracer = new PerfTracer();
 perfTracer.startLagMonitor();
 perfTracer.startSummaryLogging();
 wsBridge.setPerfTracer(perfTracer);
+console.log(`[server] UV_THREADPOOL_SIZE=${process.env.UV_THREADPOOL_SIZE || "4 (default)"}`);
 
 const pushoverNotifier = new PushoverNotifier({
   getSettings: () => {
