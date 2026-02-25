@@ -343,21 +343,6 @@ describe("ToolBlock", () => {
     expect(screen.getByText("/home/user/test.txt")).toBeTruthy();
   });
 
-  it("renders image thumbnail metadata for Read image input", () => {
-    render(
-      <ToolBlock
-        name="Read"
-        input={{ file_path: "/home/user/image.png" }}
-        toolUseId="tool-image-1"
-      />
-    );
-
-    fireEvent.click(screen.getByRole("button"));
-    expect(screen.getByText("Thumbnail preview")).toBeTruthy();
-    const img = screen.getByRole("img", { name: "/home/user/image.png" });
-    expect(img.getAttribute("src")).toContain("/api/fs/image?path=");
-  });
-
   it("hides binary result dumps for Read image tool results", () => {
     const toolResults = new Map();
     const sessionResults = new Map();
@@ -384,6 +369,38 @@ describe("ToolBlock", () => {
     fireEvent.click(screen.getByRole("button"));
     expect(screen.getByText("Binary image output hidden.")).toBeTruthy();
     expect(screen.queryByText("PNG binary bytes...")).toBeNull();
+    // Image preview appears only once (in Result section), avoiding duplicate thumbnails.
+    expect(screen.getAllByRole("img").length).toBe(1);
+    useStore.setState({ toolResults: new Map() });
+  });
+
+  it("shows image preview for Codex Bash reads that reference image file paths", () => {
+    const toolResults = new Map();
+    const sessionResults = new Map();
+    sessionResults.set("tool-image-bash", {
+      tool_use_id: "tool-image-bash",
+      content: "binary image bytes",
+      is_error: false,
+      total_size: 8192,
+      is_truncated: false,
+      duration_seconds: 0.4,
+    });
+    toolResults.set("s-image-bash", sessionResults);
+    useStore.setState({ toolResults });
+
+    render(
+      <ToolBlock
+        name="Bash"
+        input={{ command: "cat web/public/logo.png" }}
+        toolUseId="tool-image-bash"
+        sessionId="s-image-bash"
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button"));
+    const img = screen.getByRole("img", { name: "web/public/logo.png" });
+    expect(img).toBeTruthy();
+    expect(screen.getByText("Binary image output hidden.")).toBeTruthy();
     useStore.setState({ toolResults: new Map() });
   });
 

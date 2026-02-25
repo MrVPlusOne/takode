@@ -953,16 +953,24 @@ const FeedFooter = memo(function FeedFooter({ sessionId }: { sessionId: string }
 const TurnEntries = memo(function TurnEntries({ turns, sessionId }: { turns: Turn[]; sessionId: string }) {
   const overrides = useStore((s) => s.turnActivityOverrides.get(sessionId));
   const toggleTurn = useStore((s) => s.toggleTurnActivity);
+  const sessionStatus = useStore((s) => s.sessionStatus.get(sessionId));
 
   return (
     <>
       {turns.map((turn, index) => {
         const isLastTurn = index === turns.length - 1;
+        const isPenultimateTurn = index === turns.length - 2;
+        const lastTurn = turns[turns.length - 1];
+        const lastTurnIsFreshUserOnly = !!lastTurn?.userEntry && lastTurn.allEntries.length === 0;
+        const keepExpandedDuringStreaming =
+          sessionStatus === "running" && isPenultimateTurn && lastTurnIsFreshUserOnly;
         const override = overrides?.get(turn.id);
         // Default: last turn expanded, older finished turns collapsed.
-        // If a turn has no final assistant text yet, keep it expanded so
-        // user-inserted follow-up messages don't hide in-flight context.
-        const defaultExpanded = isLastTurn || turn.responseEntry === null;
+        // Keep in-flight turns expanded for both:
+        // 1) turns without a final assistant text
+        // 2) the previous turn while streaming a fresh user-only follow-up turn
+        //    (Codex can be mid-turn with partial text/tool activity already emitted).
+        const defaultExpanded = isLastTurn || turn.responseEntry === null || keepExpandedDuringStreaming;
         const isActivityExpanded = override !== undefined ? override : defaultExpanded;
 
         return (

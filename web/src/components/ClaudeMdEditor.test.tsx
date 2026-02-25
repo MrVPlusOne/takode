@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { ClaudeMdEditor } from "./ClaudeMdEditor.js";
 
 const mockApi = {
@@ -68,5 +68,40 @@ describe("ClaudeMdEditor", () => {
     });
     const saveButton = screen.getByRole("button", { name: "Save" }) as HTMLButtonElement;
     expect(saveButton.disabled).toBe(true);
+  });
+
+  it("does not close modal when switching files inside the selector", async () => {
+    mockApi.getClaudeMdFiles.mockResolvedValue({
+      cwd: "/repo",
+      files: [
+        { path: "/repo/CLAUDE.md", content: "root file", writable: true },
+        { path: "/repo/.claude/CLAUDE.md", content: "nested file", writable: true },
+      ],
+    });
+    const onClose = vi.fn();
+
+    render(
+      <ClaudeMdEditor
+        cwd="/repo"
+        open
+        initialPath="/repo/CLAUDE.md"
+        onClose={onClose}
+      />,
+    );
+
+    await waitFor(() => {
+      const textarea = screen.getByPlaceholderText("Write your project instructions here...") as HTMLTextAreaElement;
+      expect(textarea.value).toBe("root file");
+    });
+
+    // Desktop and mobile selectors can both exist in the DOM; click any matching entry.
+    const selectorButtons = screen.getAllByText(".claude/CLAUDE.md");
+    fireEvent.click(selectorButtons[0]);
+
+    await waitFor(() => {
+      const textarea = screen.getByPlaceholderText("Write your project instructions here...") as HTMLTextAreaElement;
+      expect(textarea.value).toBe("nested file");
+    });
+    expect(onClose).not.toHaveBeenCalled();
   });
 });

@@ -79,10 +79,16 @@ export function DiffPanel({ sessionId }: { sessionId: string }) {
   // Base branch — server-authoritative
   const serverBaseBranch = session?.diff_base_branch || null;
   const [baseBranch, setBaseBranch] = useState<string | null>(serverBaseBranch);
+  const [selectedBranch, setSelectedBranch] = useState<string | null>(
+    serverBaseBranch && !/^[0-9a-f]{7,40}$/.test(serverBaseBranch) ? serverBaseBranch : null,
+  );
 
   useEffect(() => {
     if (serverBaseBranch !== baseBranch) {
       setBaseBranch(serverBaseBranch);
+      if (serverBaseBranch && !/^[0-9a-f]{7,40}$/.test(serverBaseBranch)) {
+        setSelectedBranch(serverBaseBranch);
+      }
       fetchedFilesRef.current.clear();
       setFileStats(new Map());
       setAllDiffs(new Map());
@@ -268,8 +274,12 @@ export function DiffPanel({ sessionId }: { sessionId: string }) {
       <div className="shrink-0 flex items-center gap-2 px-3 py-2 bg-cc-card border-b border-cc-border">
         {/* Branch selector */}
         <select
-          value={baseBranch && !/^[0-9a-f]{7,40}$/.test(baseBranch) ? baseBranch : ""}
-          onChange={(e) => handleBaseBranchChange(e.target.value || null)}
+          value={selectedBranch ?? ""}
+          onChange={(e) => {
+            const next = e.target.value || null;
+            setSelectedBranch(next);
+            handleBaseBranchChange(next);
+          }}
           className="text-cc-muted text-[11px] bg-transparent border border-cc-border rounded px-1.5 py-0.5 cursor-pointer hover:text-cc-fg hover:border-cc-fg/30 transition-colors max-w-[180px]"
           title="Base branch for diff comparison"
         >
@@ -285,7 +295,15 @@ export function DiffPanel({ sessionId }: { sessionId: string }) {
         {recentCommits.length > 0 && (
           <select
             value={baseBranch && /^[0-9a-f]{7,40}$/.test(baseBranch) ? baseBranch : ""}
-            onChange={(e) => handleBaseBranchChange(e.target.value || null)}
+            onChange={(e) => {
+              const nextCommit = e.target.value || null;
+              if (nextCommit) {
+                handleBaseBranchChange(nextCommit);
+              } else {
+                // Clearing commit selection restores the user's branch selection.
+                handleBaseBranchChange(selectedBranch);
+              }
+            }}
             className="text-cc-muted text-[11px] bg-transparent border border-cc-border rounded px-1.5 py-0.5 cursor-pointer hover:text-cc-fg hover:border-cc-fg/30 transition-colors max-w-[200px]"
             title="Compare against a specific commit"
           >

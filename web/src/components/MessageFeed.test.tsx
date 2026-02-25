@@ -748,4 +748,28 @@ describe("MessageFeed - collapsed turns", () => {
     // not just a hidden/collapsed aggregate.
     expect(screen.getByText("Read File")).toBeTruthy();
   });
+
+  it("keeps penultimate turn expanded while streaming when last turn is user-only", () => {
+    const sid = "test-codex-streaming-penultimate-expanded";
+    setStoreStatus(sid, "running");
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Primary request" }),
+      makeMessage({
+        id: "a1",
+        role: "assistant",
+        content: "",
+        contentBlocks: [
+          { type: "tool_use", id: "tu-prev", name: "Read", input: { file_path: "/tmp/prev.ts" } },
+        ],
+      }),
+      makeMessage({ id: "a2", role: "assistant", content: "Partial in-flight response" }),
+      makeMessage({ id: "u2", role: "user", content: "Follow-up during stream" }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    // If penultimate turn were collapsed, only aggregate bar + final text would show.
+    // Expanded state should keep the concrete tool row visible.
+    expect(screen.getByText("Read File")).toBeTruthy();
+  });
 });

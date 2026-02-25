@@ -4,6 +4,7 @@ import { useStore, countUserPermissions } from "../store.js";
 import { api } from "../api.js";
 import { navigateToSession } from "../utils/routing.js";
 import { loadQuestmasterViewState, saveQuestmasterViewState } from "../utils/questmaster-view-state.js";
+import { getHighlightParts } from "../utils/highlight.js";
 import { Lightbox } from "./Lightbox.js";
 import { SessionStatusDot } from "./SessionStatusDot.js";
 import type { SessionItem as SessionItemType } from "../utils/project-grouping.js";
@@ -867,6 +868,28 @@ export function QuestmasterPage() {
   const filtered =
     filter === "all" ? afterTags : afterTags.filter((q) => q.status === filter);
 
+  function renderSearchHighlight(text: string): React.ReactNode {
+    if (!searchText) return text;
+    const parts = getHighlightParts(text, searchText);
+    if (!parts.some((part) => part.matched)) return text;
+    return (
+      <>
+        {parts.map((part, index) =>
+          part.matched ? (
+            <mark
+              key={`${part.text}-${index}`}
+              className="bg-amber-300/25 text-amber-100 rounded-[2px] px-0.5"
+            >
+              {part.text}
+            </mark>
+          ) : (
+            <span key={`${part.text}-${index}`}>{part.text}</span>
+          ),
+        )}
+      </>
+    );
+  }
+
   function handleEditorAutocompleteKeyDown(e: { key: string; preventDefault: () => void }): boolean {
     if (!editorHashtagQuery || editorAutocompleteOptions.length === 0) return false;
     if (e.key === "ArrowDown") {
@@ -1283,6 +1306,7 @@ export function QuestmasterPage() {
               className="w-full px-3 py-2 text-base sm:text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg placeholder:text-cc-muted focus:outline-none focus:border-cc-primary/50 resize-none overflow-y-auto"
               style={{ minHeight: "36px", maxHeight: "200px" }}
             />
+            <p className="text-[10px] text-cc-muted/60 -mt-1">Tip: use #tag in description to attach tags.</p>
             {renderEditorHashtagDropdown("newDescription")}
 
             {/* Images section */}
@@ -1456,7 +1480,7 @@ export function QuestmasterPage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <span className={`text-sm font-medium ${isExpanded ? "" : "truncate"} ${isCancelled ? "text-cc-muted line-through" : "text-cc-fg"}`}>
-                          {quest.title}
+                          {renderSearchHighlight(quest.title)}
                         </span>
                         {quest.parentId && (
                           <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-cc-hover text-cc-muted shrink-0">
@@ -1621,6 +1645,7 @@ export function QuestmasterPage() {
                               className="w-full px-3 py-2 text-base sm:text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg placeholder:text-cc-muted focus:outline-none focus:border-cc-primary/50 resize-none overflow-y-auto"
                               style={{ minHeight: "36px", maxHeight: "200px" }}
                             />
+                            <p className="text-[10px] text-cc-muted/60 mt-1">Tip: use #tag in description to attach tags.</p>
                             {renderEditorHashtagDropdown("editDescription")}
                           </div>
 
@@ -1715,7 +1740,7 @@ export function QuestmasterPage() {
                         <>
                           {/* Description */}
                           {description && (
-                            <p className="text-sm text-cc-fg whitespace-pre-wrap">{description}</p>
+                            <p className="text-sm text-cc-fg whitespace-pre-wrap">{renderSearchHighlight(description)}</p>
                           )}
 
                           {/* Images (read-only thumbnails, only if images exist) */}

@@ -1917,6 +1917,36 @@ describe("CodexAdapter", () => {
     expect(rl!.secondary).toEqual({ usedPercent: 9, windowDurationMins: 10080, resetsAt: 1731552000 });
   });
 
+  it("parses resetsAt when provided as numeric or ISO strings", async () => {
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
+
+    await new Promise((r) => setTimeout(r, 50));
+    stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
+    await new Promise((r) => setTimeout(r, 20));
+    stdout.push(JSON.stringify({ id: 2, result: { thread: { id: "thr_123" } } }) + "\n");
+    await new Promise((r) => setTimeout(r, 50));
+
+    stdout.push(JSON.stringify({
+      method: "account/rateLimits/updated",
+      params: {
+        rateLimits: {
+          primary: { usedPercent: 12, windowDurationMins: 300, resetsAt: "1730947200" },
+          secondary: { usedPercent: 34, windowDurationMins: 10080, resetsAt: "2026-02-26T12:00:00.000Z" },
+        },
+      },
+    }) + "\n");
+    await new Promise((r) => setTimeout(r, 50));
+
+    const rl = adapter.getRateLimits();
+    expect(rl).toBeDefined();
+    expect(rl!.primary).toEqual({ usedPercent: 12, windowDurationMins: 300, resetsAt: 1730947200 });
+    expect(rl!.secondary).toEqual({
+      usedPercent: 34,
+      windowDurationMins: 10080,
+      resetsAt: Date.parse("2026-02-26T12:00:00.000Z"),
+    });
+  });
+
   it("prefers canonical codex limits from rateLimitsByLimitId over model-specific zero buckets", async () => {
     const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
 

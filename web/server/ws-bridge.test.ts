@@ -4406,12 +4406,8 @@ describe("Codex runtime settings updates", () => {
   });
 });
 
-describe("Codex /compact interception", () => {
-  // Codex has no manual /compact command — compaction is automatic.
-  // Sending "/compact" as a user message would be interpreted as a regular
-  // prompt, producing a misleading summary-like response.
-
-  it("intercepts /compact and broadcasts an error, does NOT forward to adapter", async () => {
+describe("Codex /compact passthrough", () => {
+  it("forwards /compact to adapter as a normal user message", async () => {
     const browser = makeBrowserSocket("s1");
     const adapter = makeCodexAdapterMock();
     bridge.attachCodexAdapter("s1", adapter as any);
@@ -4422,23 +4418,19 @@ describe("Codex /compact interception", () => {
       content: "/compact",
     }));
 
-    // Adapter should NOT have received the message
-    expect(adapter.sendBrowserMessage).not.toHaveBeenCalled();
+    // Adapter should receive the message.
+    expect(adapter.sendBrowserMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "user_message", content: "/compact" }),
+    );
 
-    // Browser should have received an error message
-    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    const errorMsg = calls.find((c: any) => c.type === "error");
-    expect(errorMsg).toBeDefined();
-    expect(errorMsg.message).toContain("not supported");
-
-    // No user_message in history, generating should be false
+    // User message is recorded and generation begins.
     const session = bridge.getSession("s1")!;
     const userMsgs = session.messageHistory.filter((m: any) => m.type === "user_message");
-    expect(userMsgs).toHaveLength(0);
-    expect(session.isGenerating).toBe(false);
+    expect(userMsgs).toHaveLength(1);
+    expect(session.isGenerating).toBe(true);
   });
 
-  it("intercepts /compact with case/whitespace variations", async () => {
+  it("forwards /compact with case/whitespace variations", async () => {
     const variations = [" /COMPACT ", "/Compact", "  /compact  "];
     for (const content of variations) {
       const sid = `s-${content.trim()}`;
@@ -4452,23 +4444,10 @@ describe("Codex /compact interception", () => {
         content,
       }));
 
-      expect(adapter.sendBrowserMessage).not.toHaveBeenCalled();
+      expect(adapter.sendBrowserMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "user_message", content }),
+      );
     }
-  });
-
-  it("does NOT intercept messages that contain /compact as a substring", async () => {
-    const browser = makeBrowserSocket("s2");
-    const adapter = makeCodexAdapterMock();
-    bridge.attachCodexAdapter("s2", adapter as any);
-    bridge.handleBrowserOpen(browser, "s2");
-
-    await bridge.handleBrowserMessage(browser, JSON.stringify({
-      type: "user_message",
-      content: "/compact the code and fix the bug",
-    }));
-
-    // This should go through to the adapter as a normal user message
-    expect(adapter.sendBrowserMessage).toHaveBeenCalled();
   });
 });
 

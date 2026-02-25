@@ -244,6 +244,26 @@ function isLikelyImagePath(path: string): boolean {
   return /\.(png|jpe?g|gif|webp|bmp|svg|ico|avif|heic|heif|tiff?)$/i.test(path);
 }
 
+function extractImagePathForPreview(toolName: string, input: Record<string, unknown>): string | null {
+  const directCandidates = [
+    input.file_path,
+    input.path,
+    input.filePath,
+    input.filename,
+  ];
+  for (const candidate of directCandidates) {
+    if (typeof candidate === "string" && isLikelyImagePath(candidate)) return candidate;
+  }
+
+  // Codex often maps file reads to Bash commandExecution. If the command clearly
+  // targets an image path, use that for the preview thumbnail.
+  if (toolName === "Bash" && typeof input.command === "string") {
+    const match = input.command.match(/(?:^|[\s'"])([^\s'"]+\.(?:png|jpe?g|gif|webp|bmp|svg|ico|avif|heic|heif|tiff?))/i);
+    if (match?.[1]) return match[1];
+  }
+  return null;
+}
+
 function ToolResultSection({
   toolUseId,
   sessionId,
@@ -256,8 +276,8 @@ function ToolResultSection({
   input: Record<string, unknown>;
 }) {
   const preview = useStore((s) => s.toolResults.get(sessionId)?.get(toolUseId));
-  const filePath = String(input.file_path || input.path || "");
-  const isReadImage = toolName === "Read" && isLikelyImagePath(filePath);
+  const imagePath = extractImagePathForPreview(toolName, input);
+  const isReadImage = !!imagePath;
   const [fullContent, setFullContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -272,8 +292,8 @@ function ToolResultSection({
         </div>
         <div className="rounded-lg border border-cc-border bg-cc-code-bg/40 p-2">
           <img
-            src={api.getFsImageUrl(filePath)}
-            alt={filePath}
+            src={api.getFsImageUrl(imagePath)}
+            alt={imagePath}
             className="max-h-48 w-auto rounded border border-cc-border/70 bg-black/10"
           />
           <div className="mt-1 text-[10px] text-cc-muted">Binary image output hidden.</div>
@@ -431,7 +451,6 @@ function ReadToolDetail({ input }: { input: Record<string, unknown> }) {
   const filePath = String(input.file_path || input.path || "");
   const offset = input.offset as number | undefined;
   const limit = input.limit as number | undefined;
-  const isImage = isLikelyImagePath(filePath);
 
   return (
     <div className="space-y-1">
@@ -440,16 +459,6 @@ function ReadToolDetail({ input }: { input: Record<string, unknown> }) {
         <div className="flex gap-2 text-[10px] text-cc-muted">
           {offset != null && <span>offset: {offset}</span>}
           {limit != null && <span>limit: {limit}</span>}
-        </div>
-      )}
-      {isImage && (
-        <div className="rounded-lg border border-cc-border bg-cc-code-bg/40 p-2">
-          <img
-            src={api.getFsImageUrl(filePath)}
-            alt={filePath}
-            className="max-h-36 w-auto rounded border border-cc-border/70 bg-black/10"
-          />
-          <div className="mt-1 text-[10px] text-cc-muted">Thumbnail preview</div>
         </div>
       )}
     </div>

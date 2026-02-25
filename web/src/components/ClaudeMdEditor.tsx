@@ -158,7 +158,10 @@ export function ClaudeMdEditor({ cwd, repoRoot, open, initialPath, onClose }: Cl
       />
 
       {/* Modal */}
-      <div className="fixed inset-4 sm:inset-8 md:inset-x-[10%] md:inset-y-[5%] z-50 flex flex-col bg-cc-bg border border-cc-border rounded-2xl shadow-2xl overflow-hidden">
+      <div
+        className="fixed inset-4 sm:inset-8 md:inset-x-[10%] md:inset-y-[5%] z-50 flex flex-col bg-cc-bg border border-cc-border rounded-2xl shadow-2xl overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
         <div className="shrink-0 flex items-center justify-between px-4 sm:px-5 py-3 bg-cc-card border-b border-cc-border">
           <div className="flex items-center gap-2.5">

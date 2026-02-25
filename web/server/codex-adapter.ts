@@ -1848,11 +1848,23 @@ export class CodexAdapter {
         : 0;
       const usedPercent = Math.max(0, Math.min(100, normalizedPercent));
       const windowDurationMins = Number(raw.windowDurationMins ?? 0);
-      const resetsAt = Number(raw.resetsAt ?? 0);
+      let resetsAt = 0;
+      const rawResetsAt = raw.resetsAt;
+      if (typeof rawResetsAt === "number" && Number.isFinite(rawResetsAt)) {
+        resetsAt = rawResetsAt;
+      } else if (typeof rawResetsAt === "string") {
+        const asNumber = Number(rawResetsAt);
+        if (Number.isFinite(asNumber)) {
+          resetsAt = asNumber;
+        } else {
+          const asDateMs = Date.parse(rawResetsAt);
+          if (Number.isFinite(asDateMs)) resetsAt = asDateMs;
+        }
+      }
       return {
         usedPercent,
         windowDurationMins: Number.isFinite(windowDurationMins) ? windowDurationMins : 0,
-        resetsAt: Number.isFinite(resetsAt) ? resetsAt : 0,
+        resetsAt,
       };
     };
     const normalizeRateLimitSet = (value: unknown) => {
