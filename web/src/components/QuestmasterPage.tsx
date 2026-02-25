@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { useStore, countUserPermissions } from "../store.js";
 import { api } from "../api.js";
 import { navigateToSession } from "../utils/routing.js";
+import { loadQuestmasterViewState, saveQuestmasterViewState } from "../utils/questmaster-view-state.js";
 import { Lightbox } from "./Lightbox.js";
 import { SessionStatusDot } from "./SessionStatusDot.js";
 import type { SessionItem as SessionItemType } from "../utils/project-grouping.js";
@@ -146,6 +147,15 @@ function findHashtagTokenAtCursor(text: string, cursor: number): { start: number
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export function QuestmasterPage() {
+  const initialViewStateRef = useRef<ReturnType<typeof loadQuestmasterViewState> | undefined>(undefined);
+  if (initialViewStateRef.current === undefined) {
+    initialViewStateRef.current = loadQuestmasterViewState();
+  }
+  const initialViewState = initialViewStateRef.current;
+  const restoreScrollTopRef = useRef<number | null>(initialViewState?.scrollTop ?? null);
+  const hasHydratedViewStateRef = useRef(restoreScrollTopRef.current === null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
   const quests = useStore((s) => s.quests);
   const questsLoading = useStore((s) => s.questsLoading);
   const refreshQuests = useStore((s) => s.refreshQuests);
@@ -217,7 +227,9 @@ export function QuestmasterPage() {
   const [assignPickerForId, setAssignPickerForId] = useState<string | null>(null);
 
   // Collapsed phase groups
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<QuestStatus>>(new Set());
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<QuestStatus>>(
+    () => new Set(initialViewState?.collapsedGroups ?? []),
+  );
 
   // Lightbox for image preview
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
@@ -284,6 +296,58 @@ export function QuestmasterPage() {
       window.removeEventListener("focus", handleFocus);
     };
   }, []);
+
+  // Hydrate persisted scroll position once enough content has rendered.
+  useEffect(() => {
+    if (hasHydratedViewStateRef.current) return;
+    const el = scrollContainerRef.current;
+    const savedScrollTop = restoreScrollTopRef.current;
+    if (!el || savedScrollTop === null) return;
+    if (questsLoading && quests.length === 0) return;
+    const maxScrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
+    el.scrollTop = Math.min(savedScrollTop, maxScrollTop);
+    hasHydratedViewStateRef.current = true;
+    restoreScrollTopRef.current = null;
+  }, [questsLoading, quests.length]);
+
+  // Persist view state on scroll and before unmount so navigation preserves context.
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+
+    let rafId: number | null = null;
+    const persistNow = () => {
+      if (!hasHydratedViewStateRef.current) return;
+      saveQuestmasterViewState({
+        scrollTop: el.scrollTop,
+        collapsedGroups: Array.from(collapsedGroups),
+      });
+    };
+
+    const onScroll = () => {
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        persistNow();
+      });
+    };
+
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      persistNow();
+    };
+  }, [collapsedGroups]);
+
+  // Persist immediately when collapse state changes.
+  useEffect(() => {
+    if (!hasHydratedViewStateRef.current) return;
+    saveQuestmasterViewState({
+      scrollTop: scrollContainerRef.current?.scrollTop ?? 0,
+      collapsedGroups: Array.from(collapsedGroups),
+    });
+  }, [collapsedGroups]);
 
   // If the quest being edited was remotely updated (version changed), exit
   // edit mode and briefly show a stale-data notice so the user knows why.
@@ -862,7 +926,7 @@ export function QuestmasterPage() {
   // ─── Render ───────────────────────────────────────────────────────────
 
   return (
-    <div className="h-full bg-cc-bg overflow-y-auto">
+    <div ref={scrollContainerRef} className="h-full bg-cc-bg overflow-y-auto">
       {/* ─── Sticky header ─────────────────────────────────────────────── */}
       <div className="sticky top-0 z-20 bg-cc-bg">
         <div className="max-w-5xl mx-auto px-4 sm:px-8 pt-4 sm:pt-6">

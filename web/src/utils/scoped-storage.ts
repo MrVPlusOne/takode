@@ -41,6 +41,7 @@ const SCOPED_KEYS = [
   "cc-diff-base",
   "cc-recent-dirs",
   "cc-session-order",
+  "cc-questmaster-view",
 ];
 
 function getServerIdPrefix(): string {
