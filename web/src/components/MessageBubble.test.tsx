@@ -308,8 +308,8 @@ describe("MessageBubble - assistant messages", () => {
     expect(screen.queryByText(thinkingText)).toBeNull();
   });
 
-  it("renders codex thinking summary as compact inline text and not collapsible", () => {
-    const thinkingText = "This is a concise codex reasoning summary that should appear directly in the collapsed header.";
+  it("renders short codex thinking summary as compact inline text and not collapsible", () => {
+    const thinkingText = "Short codex reasoning summary.";
     const prevSessions = useStore.getState().sessions;
     const nextSessions = new Map(prevSessions);
     nextSessions.set("codex-session", { backend_type: "codex" } as any);
@@ -324,9 +324,39 @@ describe("MessageBubble - assistant messages", () => {
       render(<MessageBubble message={msg} sessionId="codex-session" />);
 
       // Codex thinking summaries are rendered inline (not collapsed/toggleable).
-      expect(screen.getByText(/This is a concise codex reasoning summary/)).toBeTruthy();
+      expect(screen.getByText(thinkingText)).toBeTruthy();
       expect(screen.queryByText(`${thinkingText.length} chars`)).toBeNull();
-      expect(screen.queryByRole("button", { name: /thinking/i })).toBeNull();
+      expect(screen.queryByRole("button", { name: /expand thinking summary/i })).toBeNull();
+    } finally {
+      useStore.setState({ sessions: prevSessions });
+    }
+  });
+
+  it("truncates long codex thinking summary with expandable ellipsis", () => {
+    const thinkingText = "This is a much longer codex reasoning summary that should be truncated in preview mode until the user expands it via the ellipsis control at the end.";
+    const prevSessions = useStore.getState().sessions;
+    const nextSessions = new Map(prevSessions);
+    nextSessions.set("codex-session", { backend_type: "codex" } as any);
+    useStore.setState({ sessions: nextSessions });
+
+    try {
+      const msg = makeMessage({
+        role: "assistant",
+        content: "",
+        contentBlocks: [{ type: "thinking", thinking: thinkingText }],
+      });
+      render(<MessageBubble message={msg} sessionId="codex-session" />);
+
+      const expand = screen.getByRole("button", { name: /expand thinking summary/i });
+      expect(expand).toBeTruthy();
+      expect(screen.queryByText(thinkingText)).toBeNull();
+
+      fireEvent.click(expand);
+      expect(screen.getByText(thinkingText)).toBeTruthy();
+
+      const collapse = screen.getByRole("button", { name: /collapse thinking summary/i });
+      fireEvent.click(collapse);
+      expect(screen.queryByText(thinkingText)).toBeNull();
     } finally {
       useStore.setState({ sessions: prevSessions });
     }

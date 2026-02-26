@@ -314,6 +314,19 @@ const MSG_ASSISTANT_THINKING_CODEX: ChatMessage = {
   timestamp: Date.now() - 39000,
 };
 
+const MSG_ASSISTANT_THINKING_CODEX_SHORT: ChatMessage = {
+  id: "msg-5c",
+  role: "assistant",
+  content: "",
+  contentBlocks: [
+    {
+      type: "thinking",
+      thinking: "Checking route fields for reasoning effort.",
+    },
+  ],
+  timestamp: Date.now() - 38500,
+};
+
 const MSG_SYSTEM: ChatMessage = {
   id: "msg-6",
   role: "system",
@@ -932,6 +945,9 @@ export function Playground() {
             </Card>
             <Card label="Assistant message (Codex thinking preview)">
               <MessageBubble message={MSG_ASSISTANT_THINKING_CODEX} sessionId={CODEX_DEMO_SESSION} />
+            </Card>
+            <Card label="Assistant message (Codex thinking preview, short)">
+              <MessageBubble message={MSG_ASSISTANT_THINKING_CODEX_SHORT} sessionId={CODEX_DEMO_SESSION} />
             </Card>
             <Card label="Tool result with error">
               <MessageBubble message={MSG_TOOL_ERROR} />
