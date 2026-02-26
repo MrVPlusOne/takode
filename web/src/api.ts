@@ -360,11 +360,13 @@ export interface CreateSessionStreamResult {
 export async function createSessionStream(
   opts: CreateSessionOpts | undefined,
   onProgress: (progress: CreationProgressEvent) => void,
+  signal?: AbortSignal,
 ): Promise<CreateSessionStreamResult> {
   const res = await fetch(`${BASE}/sessions/create-stream`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(opts ?? {}),
+    signal,
   });
 
   if (!res.ok || !res.body) {

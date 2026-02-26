@@ -1,10 +1,9 @@
 import { useState, useRef, useEffect } from "react";
 import { useStore } from "../store.js";
-import { api, createSessionStream, type CompanionEnv, type GitRepoInfo, type GitBranchInfo, type BackendInfo, type CliSession } from "../api.js";
-import { connectSession } from "../ws.js";
-import { disconnectSession } from "../ws.js";
-import { getRecentDirs, addRecentDir } from "../utils/recent-dirs.js";
+import { api, type CompanionEnv, type GitRepoInfo, type GitBranchInfo, type BackendInfo, type CliSession } from "../api.js";
+import { getRecentDirs } from "../utils/recent-dirs.js";
 import { navigateToSession } from "../utils/routing.js";
+import { createPendingId, startPendingCreation } from "../utils/pending-creation.js";
 import { CODEX_REASONING_EFFORTS, getModelsForBackend, getModesForBackend, getDefaultModel, getDefaultMode, toModelOptions, type ModelOption } from "../utils/backends.js";
 import type { BackendType } from "../types.js";
 import { scopedGetItem, scopedSetItem } from "../utils/scoped-storage.js";
@@ -270,55 +269,49 @@ export function NewSessionModal({ open, onClose }: { open: boolean; onClose: () 
 
   async function doCreateSession() {
     const store = useStore.getState();
-    store.clearCreation();
-    store.setSessionCreating(true, backend as "claude" | "codex");
-
-    if (currentSessionId) {
-      disconnectSession(currentSessionId);
-    }
-
-    // Close modal immediately — session creation continues in the background.
-    // The SessionLaunchOverlay (in App.tsx) shows progress from creationProgress,
-    // so the user still sees feedback for long operations (worktree, container).
-    onClose();
-    setSending(false);
 
     const branchName = selectedBranch.trim()
       || (useWorktree ? gitRepoInfo?.currentBranch : undefined)
       || undefined;
     const cwdSnapshot = cwd;
 
-    try {
-      const result = await createSessionStream(
-        {
-          model,
-          permissionMode: backend === "codex" ? mode : undefined,
-          cwd: cwdSnapshot || undefined,
-          envSlug: selectedEnv || undefined,
-          branch: branchName,
-          createBranch: branchName && isNewBranch ? true : undefined,
-          useWorktree: useWorktree || undefined,
-          backend,
-          codexInternetAccess: backend === "codex" ? codexInternetAccess : undefined,
-          codexReasoningEffort: backend === "codex" ? (codexReasoningEffort || undefined) : undefined,
-          assistantMode: assistantMode || undefined,
-          askPermission: backend !== "codex" ? askPermission : undefined,
-        },
-        (progress) => {
-          useStore.getState().addCreationProgress(progress);
-        },
-      );
-      const sessionId = result.sessionId;
+    // Build creation opts (stored in pending session for retry)
+    const createOpts = {
+      model,
+      permissionMode: backend === "codex" ? mode : undefined,
+      cwd: cwdSnapshot || undefined,
+      envSlug: selectedEnv || undefined,
+      branch: branchName,
+      createBranch: branchName && isNewBranch ? true : undefined,
+      useWorktree: useWorktree || undefined,
+      backend,
+      codexInternetAccess: backend === "codex" ? codexInternetAccess : undefined,
+      codexReasoningEffort: backend === "codex" ? (codexReasoningEffort || undefined) : undefined,
+      assistantMode: assistantMode || undefined,
+      askPermission: backend !== "codex" ? askPermission : undefined,
+    };
 
-      if (cwdSnapshot) addRecentDir(cwdSnapshot);
+    // Create a pending session and add it to the store
+    const pendingId = createPendingId();
+    store.addPendingSession({
+      id: pendingId,
+      backend: backend as "claude" | "codex",
+      createOpts,
+      progress: [],
+      error: null,
+      status: "creating",
+      realSessionId: null,
+      cwd: cwdSnapshot || null,
+      createdAt: Date.now(),
+    });
 
-      navigateToSession(sessionId, true);
-      connectSession(sessionId);
-      useStore.getState().clearCreation();
-    } catch (e: unknown) {
-      const errMsg = e instanceof Error ? e.message : String(e);
-      useStore.getState().setCreationError(errMsg);
-    }
+    // Close modal and navigate to the pending session
+    onClose();
+    setSending(false);
+    navigateToSession(pendingId);
+
+    // Start the SSE creation stream in the background (decoupled from this component)
+    startPendingCreation(pendingId);
   }
 
   async function handlePullAndContinue() {
@@ -358,38 +351,33 @@ export function NewSessionModal({ open, onClose }: { open: boolean; onClose: () 
     setError("");
 
     const store = useStore.getState();
-    store.clearCreation();
-    store.setSessionCreating(true, "claude");
 
-    if (currentSessionId) {
-      disconnectSession(currentSessionId);
-    }
+    const createOpts = {
+      backend: "claude" as const,
+      cwd: cwd || undefined,
+      envSlug: selectedEnv || undefined,
+      resumeCliSessionId: resumeSessionId,
+      askPermission,
+    };
+
+    const pendingId = createPendingId();
+    store.addPendingSession({
+      id: pendingId,
+      backend: "claude",
+      createOpts,
+      progress: [],
+      error: null,
+      status: "creating",
+      realSessionId: null,
+      cwd: cwd || null,
+      createdAt: Date.now(),
+    });
 
     onClose();
     setSending(false);
+    navigateToSession(pendingId);
 
-    try {
-      const result = await createSessionStream(
-        {
-          backend: "claude",
-          cwd: cwd || undefined,
-          envSlug: selectedEnv || undefined,
-          resumeCliSessionId: resumeSessionId,
-          askPermission,
-        },
-        (progress) => {
-          useStore.getState().addCreationProgress(progress);
-        },
-      );
-      const sessionId = result.sessionId;
-      if (cwd) addRecentDir(cwd);
-      navigateToSession(sessionId, true);
-      connectSession(sessionId);
-      useStore.getState().clearCreation();
-    } catch (e: unknown) {
-      const errMsg = e instanceof Error ? e.message : String(e);
-      useStore.getState().setCreationError(errMsg);
-    }
+    startPendingCreation(pendingId);
   }
 
   if (!open) return null;

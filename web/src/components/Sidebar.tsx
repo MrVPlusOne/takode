@@ -1,15 +1,17 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { useStore, countUserPermissions } from "../store.js";
+import { useStore, countUserPermissions, type PendingSession } from "../store.js";
 import { api } from "../api.js";
 import { writeClipboardText } from "../utils/copy-utils.js";
 import { connectSession, connectAllSessions, disconnectSession } from "../ws.js";
 import { navigateToSession, navigateToMostRecentSession, parseHash } from "../utils/routing.js";
+import { cancelPendingCreation } from "../utils/pending-creation.js";
 import { bootstrapServerId, scopedGetItem } from "../utils/scoped-storage.js";
 import { ProjectGroup } from "./ProjectGroup.js";
 import { SessionItem } from "./SessionItem.js";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
 import { SessionHoverCard } from "./SessionHoverCard.js";
 import { SidebarUsageBar } from "./SidebarUsageBar.js";
+import { YarnBallSpinner } from "./CatIcons.js";
 
 import { groupSessionsByProject, type SessionItem as SessionItemType } from "../utils/project-grouping.js";
 
@@ -47,6 +49,7 @@ export function Sidebar() {
   const sessionOrder = useStore((s) => s.sessionOrder);
   const reorderMode = useStore((s) => s.reorderMode);
   const setReorderMode = useStore((s) => s.setReorderMode);
+  const pendingSessions = useStore((s) => s.pendingSessions);
   const serverName = useStore((s) => s.serverName);
   const setServerName = useStore((s) => s.setServerName);
   const [searchQuery, setSearchQuery] = useState("");
@@ -596,6 +599,25 @@ export function Sidebar() {
           </p>
         ) : (
           <>
+            {/* Pending sessions — shown above project groups during creation */}
+            {pendingSessions.size > 0 && (
+              <div className="space-y-0.5 mb-1">
+                {Array.from(pendingSessions.values())
+                  .sort((a, b) => b.createdAt - a.createdAt)
+                  .map((ps) => (
+                    <PendingSessionItem
+                      key={ps.id}
+                      pending={ps}
+                      isActive={currentSessionId === ps.id}
+                      onSelect={() => {
+                        navigateToSession(ps.id);
+                      }}
+                      onCancel={() => cancelPendingCreation(ps.id)}
+                    />
+                  ))}
+              </div>
+            )}
+
             {projectGroups.map((group, i) => (
               <ProjectGroup
                 key={group.key}
@@ -870,5 +892,77 @@ export function Sidebar() {
         );
       })()}
     </aside>
+  );
+}
+
+// ─── Pending Session Chip ────────────────────────────────────────────────────
+
+function PendingSessionItem({
+  pending,
+  isActive,
+  onSelect,
+  onCancel,
+}: {
+  pending: PendingSession;
+  isActive: boolean;
+  onSelect: () => void;
+  onCancel: () => void;
+}) {
+  const folderName = pending.cwd?.split("/").pop() || "New session";
+  const logoSrc = pending.backend === "codex" ? "/logo-codex.svg" : "/logo.png";
+  const hasError = pending.status === "error";
+  const isCreating = pending.status === "creating";
+
+  // Accent color based on backend (matching SessionItem pattern)
+  const accentColor = pending.backend === "codex"
+    ? "border-blue-500"
+    : "border-[#c47a4e]";
+
+  return (
+    <div
+      onClick={onSelect}
+      className={`group relative flex items-center gap-2.5 px-3 py-2 mx-1 rounded-lg cursor-pointer transition-colors border-l-2 ${accentColor} ${
+        isActive ? "bg-cc-active" : "hover:bg-cc-hover"
+      }`}
+    >
+      {/* Status indicator */}
+      <div className="w-4 h-4 shrink-0 flex items-center justify-center">
+        {isCreating && (
+          <YarnBallSpinner className="w-3.5 h-3.5 text-cc-primary" />
+        )}
+        {hasError && (
+          <div className="w-3 h-3 rounded-full bg-cc-error/20 flex items-center justify-center">
+            <div className="w-1.5 h-1.5 rounded-full bg-cc-error" />
+          </div>
+        )}
+        {pending.status === "succeeded" && (
+          <svg viewBox="0 0 16 16" fill="none" className="w-3.5 h-3.5 text-cc-success">
+            <path d="M13.25 4.75L6 12 2.75 8.75" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        )}
+      </div>
+
+      {/* Name and subtitle */}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5">
+          <img src={logoSrc} alt="" className="w-3 h-3 opacity-60" />
+          <span className="text-xs font-medium text-cc-fg truncate">{folderName}</span>
+        </div>
+        <span className={`text-[10px] leading-tight truncate block ${hasError ? "text-cc-error" : "text-cc-muted"}`}>
+          {hasError ? "Creation failed" : isCreating ? "Creating session..." : "Ready"}
+        </span>
+      </div>
+
+      {/* Cancel/delete button (visible on hover) */}
+      <button
+        onClick={(e) => { e.stopPropagation(); onCancel(); }}
+        className="opacity-0 group-hover:opacity-100 p-0.5 text-cc-muted hover:text-cc-error transition-all cursor-pointer"
+        title={hasError ? "Dismiss" : "Cancel creation"}
+      >
+        <svg viewBox="0 0 16 16" fill="none" className="w-3.5 h-3.5">
+          <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        </svg>
+      </button>
+    </div>
   );
 }

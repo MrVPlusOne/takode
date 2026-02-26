@@ -1,6 +1,20 @@
 import { create } from "zustand";
 import type { SessionState, PermissionRequest, ChatMessage, SdkSessionInfo, TaskItem, McpServerDetail, ToolResultPreview, SessionTaskEntry, QuestmasterTask } from "./types.js";
-import { api, type PRStatusResponse, type CreationProgressEvent } from "./api.js";
+import { api, type PRStatusResponse, type CreationProgressEvent, type CreateSessionOpts } from "./api.js";
+
+// ─── Pending Session (client-only, pre-creation) ────────────────────────────
+
+export interface PendingSession {
+  id: string;                          // "pending-{uuid}"
+  backend: "claude" | "codex";
+  createOpts: CreateSessionOpts;       // stored for retry
+  progress: CreationProgressEvent[];
+  error: string | null;
+  status: "creating" | "error" | "succeeded";
+  realSessionId: string | null;        // set on success, before cleanup
+  cwd: string | null;                  // for sidebar display (folder name)
+  createdAt: number;
+}
 import { scopedGetItem, scopedSetItem, scopedRemoveItem } from "./utils/scoped-storage.js";
 
 const TOOL_PROGRESS_OUTPUT_LIMIT = 12_000;
@@ -107,15 +121,12 @@ interface AppState {
   setQuests: (quests: QuestmasterTask[]) => void;
   refreshQuests: () => Promise<void>;
 
-  // Session creation progress (SSE streaming)
-  creationProgress: CreationProgressEvent[] | null;
-  creationError: string | null;
-  sessionCreating: boolean;
-  sessionCreatingBackend: "claude" | "codex" | null;
-  addCreationProgress: (step: CreationProgressEvent) => void;
-  clearCreation: () => void;
-  setSessionCreating: (creating: boolean, backend?: "claude" | "codex") => void;
-  setCreationError: (error: string | null) => void;
+  // Pending sessions being created (client-only, keyed by "pending-{uuid}")
+  pendingSessions: Map<string, PendingSession>;
+  addPendingSession: (session: PendingSession) => void;
+  updatePendingSession: (id: string, updates: Partial<PendingSession>) => void;
+  addPendingProgress: (id: string, step: CreationProgressEvent) => void;
+  removePendingSession: (id: string) => void;
 
   // Server instance name
   serverName: string;
@@ -417,10 +428,7 @@ export const useStore = create<AppState>((set) => ({
       set({ questsLoading: false });
     }
   },
-  creationProgress: null,
-  creationError: null,
-  sessionCreating: false,
-  sessionCreatingBackend: null,
+  pendingSessions: new Map(),
   serverName: "",
   setServerName: (name) => set({ serverName: name }),
   serverReachable: true,
@@ -447,19 +455,37 @@ export const useStore = create<AppState>((set) => ({
   terminalCwd: null,
   terminalId: null,
 
-  addCreationProgress: (step) => set((state) => {
-    const existing = state.creationProgress || [];
-    const idx = existing.findIndex((s) => s.step === step.step);
-    if (idx >= 0) {
-      const updated = [...existing];
-      updated[idx] = step;
-      return { creationProgress: updated };
-    }
-    return { creationProgress: [...existing, step] };
+  addPendingSession: (session) => set((state) => {
+    const next = new Map(state.pendingSessions);
+    next.set(session.id, session);
+    return { pendingSessions: next };
   }),
-  clearCreation: () => set({ creationProgress: null, creationError: null, sessionCreating: false, sessionCreatingBackend: null }),
-  setSessionCreating: (creating, backend) => set({ sessionCreating: creating, sessionCreatingBackend: backend ?? null }),
-  setCreationError: (error) => set({ creationError: error }),
+  updatePendingSession: (id, updates) => set((state) => {
+    const existing = state.pendingSessions.get(id);
+    if (!existing) return {};
+    const next = new Map(state.pendingSessions);
+    next.set(id, { ...existing, ...updates });
+    return { pendingSessions: next };
+  }),
+  addPendingProgress: (id, step) => set((state) => {
+    const existing = state.pendingSessions.get(id);
+    if (!existing) return {};
+    const progress = [...existing.progress];
+    const idx = progress.findIndex((s) => s.step === step.step);
+    if (idx >= 0) {
+      progress[idx] = step;
+    } else {
+      progress.push(step);
+    }
+    const next = new Map(state.pendingSessions);
+    next.set(id, { ...existing, progress });
+    return { pendingSessions: next };
+  }),
+  removePendingSession: (id) => set((state) => {
+    const next = new Map(state.pendingSessions);
+    next.delete(id);
+    return { pendingSessions: next };
+  }),
 
   setDarkMode: (v) => {
     localStorage.setItem("cc-dark-mode", String(v));
@@ -516,9 +542,11 @@ export const useStore = create<AppState>((set) => ({
   },
 
   setCurrentSession: (id) => {
-    if (id) {
+    // Don't persist pending session IDs to localStorage — they're in-memory only
+    // and would cause "Session not found" on page refresh
+    if (id && !id.startsWith("pending-")) {
       scopedSetItem("cc-current-session", id);
-    } else {
+    } else if (!id) {
       scopedRemoveItem("cc-current-session");
     }
     set({ currentSessionId: id });

@@ -65,6 +65,7 @@ interface MockStoreState {
   sessionOrder: Map<string, string[]>;
   reorderMode: boolean;
   setReorderMode: ReturnType<typeof vi.fn>;
+  pendingSessions: Map<string, unknown>;
   serverName: string;
   setServerName: ReturnType<typeof vi.fn>;
   setCurrentSession: ReturnType<typeof vi.fn>;
@@ -149,6 +150,7 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
     sessionOrder: new Map(),
     reorderMode: false,
     setReorderMode: vi.fn(),
+    pendingSessions: new Map(),
     serverName: "",
     setServerName: vi.fn(),
     setCurrentSession: vi.fn(),

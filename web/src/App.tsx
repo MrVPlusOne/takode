@@ -15,9 +15,10 @@ import { SettingsPage } from "./components/SettingsPage.js";
 import { EnvManager } from "./components/EnvManager.js";
 import { CronManager } from "./components/CronManager.js";
 import { TerminalPage } from "./components/TerminalPage.js";
-import { SessionLaunchOverlay } from "./components/SessionLaunchOverlay.js";
+import { SessionCreationView } from "./components/SessionCreationView.js";
 import { NewSessionModal } from "./components/NewSessionModal.js";
 import { QuestmasterPage } from "./components/QuestmasterPage.js";
+import { isPendingId } from "./utils/pending-creation.js";
 
 function useHash() {
   return useSyncExternalStore(
@@ -33,10 +34,6 @@ export default function App() {
   const sidebarOpen = useStore((s) => s.sidebarOpen);
   const taskPanelOpen = useStore((s) => s.taskPanelOpen);
   const activeTab = useStore((s) => s.activeTab);
-  const sessionCreating = useStore((s) => s.sessionCreating);
-  const sessionCreatingBackend = useStore((s) => s.sessionCreatingBackend);
-  const creationProgress = useStore((s) => s.creationProgress);
-  const creationError = useStore((s) => s.creationError);
   const showNewSessionModal = useStore((s) => s.showNewSessionModal);
   const serverRestarting = useStore((s) => s.serverRestarting);
   const serverReachable = useStore((s) => s.serverReachable);
@@ -112,8 +109,12 @@ export default function App() {
       if (store.currentSessionId !== route.sessionId) {
         store.setCurrentSession(route.sessionId);
       }
-      store.markSessionViewed(route.sessionId);
-      connectSession(route.sessionId);
+      // Don't connect WebSocket or fire REST calls for pending sessions
+      // (they don't exist on the server yet)
+      if (!isPendingId(route.sessionId)) {
+        store.markSessionViewed(route.sessionId);
+        connectSession(route.sessionId);
+      }
     } else if (route.page === "home") {
       const store = useStore.getState();
       if (store.currentSessionId !== null) {
@@ -253,7 +254,9 @@ export default function App() {
             <>
               {/* Chat tab — visible when activeTab is "chat" or no session */}
               <div className={`absolute inset-0 ${activeTab === "chat" || !currentSessionId ? "" : "hidden"}`}>
-                {currentSessionId ? (
+                {currentSessionId && isPendingId(currentSessionId) ? (
+                  <SessionCreationView pendingId={currentSessionId} />
+                ) : currentSessionId ? (
                   <ChatView key={currentSessionId} sessionId={currentSessionId} />
                 ) : (
                   <EmptyState />
@@ -261,20 +264,10 @@ export default function App() {
               </div>
 
               {/* Diff tab */}
-              {currentSessionId && activeTab === "diff" && (
+              {currentSessionId && !isPendingId(currentSessionId) && activeTab === "diff" && (
                 <div className="absolute inset-0">
                   <DiffPanel sessionId={currentSessionId} />
                 </div>
-              )}
-
-              {/* Session launch overlay — shown during creation */}
-              {sessionCreating && creationProgress && creationProgress.length > 0 && (
-                <SessionLaunchOverlay
-                  steps={creationProgress}
-                  error={creationError}
-                  backend={sessionCreatingBackend ?? undefined}
-                  onCancel={() => useStore.getState().clearCreation()}
-                />
               )}
             </>
           )}
@@ -288,7 +281,7 @@ export default function App() {
       />
 
       {/* Task panel — overlay on mobile, inline on desktop */}
-      {currentSessionId && isSessionView && (
+      {currentSessionId && isSessionView && !isPendingId(currentSessionId) && (
         <>
           {/* Mobile overlay backdrop */}
           {taskPanelOpen && (

@@ -306,7 +306,9 @@ describe("POST /api/sessions/create", () => {
     );
   });
 
-  it("returns 500 and does not launch when fetch fails before create", async () => {
+  it("proceeds with session creation when fetch fails (non-fatal, same as pull)", async () => {
+    // git fetch failure should NOT block session creation — the branch may already exist locally.
+    // This matches the existing non-fatal behavior for git pull (see next test).
     vi.mocked(gitUtils.getRepoInfo).mockReturnValue({
       repoRoot: "/repo",
       repoName: "my-repo",
@@ -325,13 +327,11 @@ describe("POST /api/sessions/create", () => {
       body: JSON.stringify({ cwd: "/repo", branch: "main" }),
     });
 
-    expect(res.status).toBe(500);
-    const json = await res.json();
-    expect(json).toEqual({
-      error: "git fetch failed before session create: network error",
-    });
-    expect(gitUtils.gitPull).not.toHaveBeenCalled();
-    expect(launcher.launch).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    expect(gitUtils.gitFetch).toHaveBeenCalledWith("/repo");
+    // Pull is still called (fetch failure doesn't abort the pipeline)
+    expect(gitUtils.gitPull).toHaveBeenCalledWith("/repo");
+    expect(launcher.launch).toHaveBeenCalled();
   });
 
   it("proceeds with session creation when pull fails (non-fatal)", async () => {
