@@ -171,6 +171,7 @@ When syncing with upstream: fast-forward `main` to `upstream/main`, then rebase 
 
 Always use `agent-browser` CLI command to explore the browser. Never use playwright or other browser automation libraries.
 When running E2E tests, use the dark theme, as it is the primary theme of this app.
+When running E2E tests, use a viewport at least as large as a normal iPhone Pro/Max screen (for example `430x932`).
 
 ## Pull Requests
 

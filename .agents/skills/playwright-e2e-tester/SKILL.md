@@ -20,6 +20,20 @@ Use this skill to run browser-based E2E verification for UI changes, bug fixes, 
 - Read repository-level agent instructions (`AGENTS.md` or equivalent) for project-specific URLs, ports, and setup commands.
 - Ensure `node`/`npx` are available.
 
+## Run Learnings Log (Mandatory)
+
+- Before starting, read `LEARNINGS.md` in this same skill directory and reuse relevant tips.
+- After each E2E run, reflect on what could have been easier and update `LEARNINGS.md` with any useful takeaways.
+- Add practical notes when they improve future runs, for example:
+  - run context (URL/env/scope) when it matters
+  - what worked well
+  - blockers/flaky behavior and safe fallbacks
+  - quest-specific verification notes that can help future runs
+- Keep the file concise and practical:
+  - keep evergreen guidance near the top
+  - remove or update stale, inaccurate, or misleading guidance when the UI/workflow changes
+- Never add secrets or destructive instructions.
+
 ## Quick Start (Mandatory)
 
 Before any browser action:
@@ -46,11 +60,12 @@ This workflow uses Playwright MCP through shell commands, not direct Playwright 
 
 ## Testing Workflow
 
-1. Plan test cases and expected outcomes.
+1. Read `LEARNINGS.md` and plan test cases with expected outcomes.
 2. Execute each flow step-by-step.
 3. Capture screenshots at each significant state change.
 4. If behavior is wrong: diagnose, fix, and re-run until passing.
 5. Continue until all requested checks are complete.
+6. Update `LEARNINGS.md` with useful new learnings and clean up outdated guidance.
 
 ## Best Practices
 
