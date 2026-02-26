@@ -33,6 +33,7 @@ function makeCodexAdapterMock() {
   let onSessionMetaCb: ((meta: any) => void) | undefined;
   let onDisconnectCb: (() => void) | undefined;
   let onTurnStartFailedCb: ((msg: any) => void) | undefined;
+  let currentTurnId: string | null = null;
 
   return {
     onBrowserMessage: vi.fn((cb: (msg: any) => void) => { onBrowserMessageCb = cb; }),
@@ -41,9 +42,13 @@ function makeCodexAdapterMock() {
     onTurnStartFailed: vi.fn((cb: (msg: any) => void) => { onTurnStartFailedCb = cb; }),
     sendBrowserMessage: vi.fn(),
     isConnected: vi.fn(() => true),
+    getCurrentTurnId: vi.fn(() => currentTurnId),
     emitBrowserMessage: (msg: any) => onBrowserMessageCb?.(msg),
     emitSessionMeta: (meta: any) => onSessionMetaCb?.(meta),
-    emitDisconnect: () => onDisconnectCb?.(),
+    emitDisconnect: (turnId?: string | null) => {
+      currentTurnId = turnId === undefined ? currentTurnId : turnId;
+      onDisconnectCb?.();
+    },
     emitTurnStartFailed: (msg: any) => onTurnStartFailedCb?.(msg),
   };
 }
@@ -4866,6 +4871,162 @@ describe("Codex turn-start failure re-queue", () => {
     );
     const session = bridge.getSession("s1")!;
     expect(session.pendingMessages).toHaveLength(0);
+  });
+});
+
+describe("Codex disconnect auto-relaunch", () => {
+  it("requests relaunch when Codex adapter disconnects with active browser", () => {
+    const sid = "s1";
+    const relaunchCb = vi.fn();
+    bridge.onCLIRelaunchNeededCallback(relaunchCb);
+
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter as any);
+
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    browser.send.mockClear();
+
+    adapter.emitDisconnect();
+
+    expect(relaunchCb).toHaveBeenCalledWith(sid);
+    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    expect(calls).toContainEqual(expect.objectContaining({ type: "cli_disconnected" }));
+  });
+
+  it("does not request relaunch when no browser is connected", () => {
+    const sid = "s1";
+    const relaunchCb = vi.fn();
+    bridge.onCLIRelaunchNeededCallback(relaunchCb);
+
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter as any);
+    adapter.emitDisconnect();
+
+    expect(relaunchCb).not.toHaveBeenCalled();
+  });
+
+  it("does not request relaunch for idle-manager disconnects", () => {
+    const sid = "s1";
+    const relaunchCb = vi.fn();
+    bridge.onCLIRelaunchNeededCallback(relaunchCb);
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      getSession: vi.fn(() => ({ killedByIdleManager: true })),
+    } as any);
+
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter as any);
+
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    browser.send.mockClear();
+
+    adapter.emitDisconnect();
+
+    expect(relaunchCb).not.toHaveBeenCalled();
+    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    expect(calls).toContainEqual(expect.objectContaining({ type: "cli_disconnected", reason: "idle_limit" }));
+  });
+});
+
+describe("Codex resumed-turn recovery", () => {
+  it("recovers assistant text from resumed turn instead of retrying", async () => {
+    const sid = "s1";
+    const relaunchCb = vi.fn();
+    bridge.onCLIRelaunchNeededCallback(relaunchCb);
+
+    const adapter1 = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter1 as any);
+
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    browser.send.mockClear();
+
+    await bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "user_message",
+      content: "please recover this",
+    }));
+
+    adapter1.emitDisconnect("turn-123");
+
+    const adapter2 = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter2 as any);
+    adapter2.emitSessionMeta({
+      cliSessionId: "thread-1",
+      model: "gpt-5.3-codex",
+      cwd: "/repo",
+      resumeSnapshot: {
+        threadId: "thread-1",
+        turnCount: 10,
+        lastTurn: {
+          id: "turn-123",
+          status: "completed",
+          error: null,
+          items: [
+            { type: "userMessage", content: [{ type: "text", text: "please recover this" }] },
+            { type: "reasoning", summary: ["thinking"] },
+            { type: "agentMessage", id: "item-a1", text: "Recovered answer from resumed turn" },
+          ],
+        },
+      },
+    });
+
+    const session = bridge.getSession(sid)!;
+    expect(session.pendingCodexTurnRecovery).toBeNull();
+    expect(adapter2.sendBrowserMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "user_message", content: "please recover this" }),
+    );
+
+    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    const recovered = calls.find((c: any) =>
+      c.type === "assistant"
+      && c.message?.id === "codex-recovered-item-a1"
+      && c.message?.content?.[0]?.text === "Recovered answer from resumed turn");
+    expect(recovered).toBeDefined();
+  });
+
+  it("retries the user message when resumed turn has only user input", async () => {
+    const sid = "s1";
+    const adapter1 = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter1 as any);
+
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    browser.send.mockClear();
+
+    await bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "user_message",
+      content: "retry me",
+    }));
+
+    adapter1.emitDisconnect("turn-456");
+
+    const adapter2 = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter2 as any);
+    adapter2.emitSessionMeta({
+      cliSessionId: "thread-2",
+      model: "gpt-5.3-codex",
+      cwd: "/repo",
+      resumeSnapshot: {
+        threadId: "thread-2",
+        turnCount: 12,
+        lastTurn: {
+          id: "turn-456",
+          status: "completed",
+          error: null,
+          items: [
+            { type: "userMessage", content: [{ type: "text", text: "retry me" }] },
+          ],
+        },
+      },
+    });
+
+    expect(adapter2.sendBrowserMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "user_message", content: "retry me" }),
+    );
+    const session = bridge.getSession(sid)!;
+    expect(session.pendingCodexTurnRecovery).not.toBeNull();
   });
 });
 

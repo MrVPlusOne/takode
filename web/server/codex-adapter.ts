@@ -283,6 +283,26 @@ export interface CodexAdapterOptions {
   recorder?: RecorderManager;
 }
 
+export interface CodexResumeTurnSnapshot {
+  id: string;
+  status: string | null;
+  error: unknown;
+  items: Array<Record<string, unknown>>;
+}
+
+export interface CodexResumeSnapshot {
+  threadId: string;
+  turnCount: number;
+  lastTurn: CodexResumeTurnSnapshot | null;
+}
+
+export interface CodexSessionMeta {
+  cliSessionId?: string;
+  model?: string;
+  cwd?: string;
+  resumeSnapshot?: CodexResumeSnapshot | null;
+}
+
 // ─── JSON-RPC Transport ───────────────────────────────────────────────────────
 
 class JsonRpcTransport {
@@ -495,7 +515,7 @@ export class CodexAdapter {
   private options: CodexAdapterOptions;
 
   private browserMessageCb: ((msg: BrowserIncomingMessage) => void) | null = null;
-  private sessionMetaCb: ((meta: { cliSessionId?: string; model?: string; cwd?: string }) => void) | null = null;
+  private sessionMetaCb: ((meta: CodexSessionMeta) => void) | null = null;
   private disconnectCb: (() => void) | null = null;
   private initErrorCb: ((error: string) => void) | null = null;
   private turnStartFailedCb: ((msg: BrowserOutgoingMessage) => void) | null = null;
@@ -739,7 +759,7 @@ export class CodexAdapter {
     this.browserMessageCb = cb;
   }
 
-  onSessionMeta(cb: (meta: { cliSessionId?: string; model?: string; cwd?: string }) => void): void {
+  onSessionMeta(cb: (meta: CodexSessionMeta) => void): void {
     this.sessionMetaCb = cb;
   }
 
@@ -774,6 +794,10 @@ export class CodexAdapter {
     return this.threadId;
   }
 
+  getCurrentTurnId(): string | null {
+    return this.currentTurnId;
+  }
+
   private isMissingRolloutError(err: unknown): boolean {
     return String(err).toLowerCase().includes("no rollout found");
   }
@@ -782,6 +806,7 @@ export class CodexAdapter {
 
   private async initialize(): Promise<void> {
     try {
+      let resumeSnapshot: CodexResumeSnapshot | null = null;
       // Step 1: Send initialize request
       const result = await this.transport.call("initialize", {
         clientInfo: {
@@ -810,8 +835,9 @@ export class CodexAdapter {
             cwd: this.options.cwd,
             approvalPolicy: this.mapApprovalPolicy(this.options.approvalMode),
             sandbox: this.options.sandbox || this.mapSandboxPolicy(this.options.approvalMode),
-          }) as { thread: { id: string } };
+          }) as { thread: Record<string, unknown> & { id: string } };
           this.threadId = resumeResult.thread.id;
+          resumeSnapshot = this.buildResumeSnapshot(resumeResult.thread);
         } catch (err) {
           // Fresh or partially-initialized Codex threads may fail resume with
           // "no rollout found". Fall back to a fresh thread to avoid a stuck session.
@@ -843,6 +869,7 @@ export class CodexAdapter {
         cliSessionId: this.threadId,
         model: this.options.model,
         cwd: this.options.cwd,
+        resumeSnapshot,
       });
 
       // Send session_init to browser
@@ -2371,6 +2398,39 @@ export class CodexAdapter {
   private makeMessageId(kind: string, sourceId?: string): string {
     if (sourceId) return `codex-${kind}-${sourceId}`;
     return `codex-${kind}-${randomUUID()}`;
+  }
+
+  private buildResumeSnapshot(
+    thread: Record<string, unknown> & { id: string },
+  ): CodexResumeSnapshot | null {
+    const rawTurns = Array.isArray(thread.turns) ? thread.turns : [];
+    const turns = rawTurns.filter((t): t is Record<string, unknown> => !!t && typeof t === "object");
+    const last = turns.length > 0 ? turns[turns.length - 1] : null;
+
+    if (!last) {
+      return {
+        threadId: thread.id,
+        turnCount: 0,
+        lastTurn: null,
+      };
+    }
+
+    const lastId = typeof last.id === "string" ? last.id : "";
+    const status = typeof last.status === "string" ? last.status : null;
+    const items = Array.isArray(last.items)
+      ? last.items.filter((it): it is Record<string, unknown> => !!it && typeof it === "object")
+      : [];
+
+    return {
+      threadId: thread.id,
+      turnCount: turns.length,
+      lastTurn: {
+        id: lastId,
+        status,
+        error: last.error ?? null,
+        items,
+      },
+    };
   }
 
   private mapApprovalPolicy(mode?: string): string {

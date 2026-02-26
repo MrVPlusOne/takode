@@ -41,7 +41,7 @@ import type {
 } from "./session-types.js";
 import { TOOL_RESULT_PREVIEW_LIMIT } from "./session-types.js";
 import type { SessionStore } from "./session-store.js";
-import type { CodexAdapter } from "./codex-adapter.js";
+import type { CodexAdapter, CodexResumeSnapshot, CodexResumeTurnSnapshot } from "./codex-adapter.js";
 import type { RecorderManager } from "./recorder.js";
 import type { ImageStore } from "./image-store.js";
 import type { CliLauncher } from "./cli-launcher.js";
@@ -230,6 +230,14 @@ interface PendingControlRequest {
   resolve: (response: unknown) => void;
 }
 
+interface PendingCodexTurnRecovery {
+  adapterMsg: BrowserOutgoingMessage;
+  userMessageId: string;
+  userContent: string;
+  turnId: string | null;
+  disconnectedAt: number | null;
+}
+
 interface Session {
   id: string;
   backendType: BackendType;
@@ -243,6 +251,8 @@ interface Session {
   messageHistory: BrowserIncomingMessage[];
   /** Messages queued while waiting for CLI to connect */
   pendingMessages: string[];
+  /** Last in-flight Codex user turn that may need replay/recovery after disconnect. */
+  pendingCodexTurnRecovery: PendingCodexTurnRecovery | null;
   /** Monotonic sequence for broadcast events */
   nextEventSeq: number;
   /** Recent broadcast events for reconnect replay */
@@ -817,6 +827,7 @@ export class WsBridge {
         pendingControlRequests: new Map(),
         messageHistory: p.messageHistory || [],
         pendingMessages: p.pendingMessages || [],
+        pendingCodexTurnRecovery: null,
         nextEventSeq: p.nextEventSeq && p.nextEventSeq > 0 ? p.nextEventSeq : 1,
         eventBuffer: Array.isArray(p.eventBuffer) ? p.eventBuffer : [],
         lastAckSeq: typeof p.lastAckSeq === "number" ? p.lastAckSeq : 0,
@@ -1163,6 +1174,7 @@ export class WsBridge {
         pendingControlRequests: new Map(),
         messageHistory: [],
         pendingMessages: [],
+        pendingCodexTurnRecovery: null,
         nextEventSeq: 1,
         eventBuffer: [],
         lastAckSeq: 0,
@@ -1408,6 +1420,7 @@ export class WsBridge {
         session.messageHistory.push({ ...outgoing, timestamp: outgoing.timestamp || Date.now() });
         this.persistSession(session);
       } else if (outgoing?.type === "result") {
+        session.pendingCodexTurnRecovery = null;
         // Route through the unified result handler so Codex gets the same
         // post-turn state refresh (git + diff stats + attention) as Claude.
         this.handleResultMessage(session, outgoing.data);
@@ -1437,6 +1450,9 @@ export class WsBridge {
       if (meta.cliSessionId && this.onCLISessionId) {
         this.onCLISessionId(session.id, meta.cliSessionId);
       }
+      if (meta.resumeSnapshot) {
+        this.reconcileCodexResumedTurn(session, meta.resumeSnapshot);
+      }
       if (meta.model) {
         session.state.model = meta.model;
         this.broadcastToBrowsers(session, {
@@ -1453,6 +1469,11 @@ export class WsBridge {
     // Handle disconnect
     adapter.onDisconnect(() => {
       const wasGenerating = session.isGenerating;
+      const disconnectedTurnId = adapter.getCurrentTurnId ? adapter.getCurrentTurnId() : null;
+      if (session.pendingCodexTurnRecovery) {
+        session.pendingCodexTurnRecovery.turnId = disconnectedTurnId;
+        session.pendingCodexTurnRecovery.disconnectedAt = Date.now();
+      }
       for (const [reqId] of session.pendingPermissions) {
         this.broadcastToBrowsers(session, { type: "permission_cancelled", request_id: reqId });
       }
@@ -1470,11 +1491,29 @@ export class WsBridge {
       if (wasGenerating && !idleKilled) {
         this.setAttention(session, "error");
       }
+
+      // Recover faster from unexpected Codex transport drops while a browser is
+      // actively connected. Without this, the UI can remain disconnected until
+      // either the process exits by itself or the browser reconnects.
+      if (
+        !idleKilled
+        && this.onCLIRelaunchNeeded
+        && session.browserSockets.size > 0
+        // Suppress relaunch for intentional teardown (session closed/removed).
+        && this.sessions.get(sessionId) === session
+      ) {
+        console.log(`[ws-bridge] Codex adapter disconnected for active browser; requesting relaunch for session ${sessionTag(sessionId)}`);
+        this.onCLIRelaunchNeeded(sessionId);
+      }
     });
 
     // Re-queue user messages whose turn/start dispatch failed (e.g. transport closed mid-call)
     adapter.onTurnStartFailed((msg) => {
       console.log(`[ws-bridge] Turn start failed for session ${sessionTag(sessionId)}, re-queuing ${msg.type}`);
+      if (msg.type === "user_message") {
+        // turn/start never made it to Codex — standard pending queue handles retry.
+        session.pendingCodexTurnRecovery = null;
+      }
       session.pendingMessages.push(JSON.stringify(msg));
     });
 
@@ -2682,6 +2721,7 @@ export class WsBridge {
     // For Codex sessions, delegate entirely to the adapter
     if (session.backendType === "codex") {
       let userImageRefs: import("./image-store.js").ImageRef[] | undefined;
+      let codexUserMessageId: string | null = null;
 
       // Store user messages in history for replay with stable ID for dedup on reconnect
       if (msg.type === "user_message") {
@@ -2702,6 +2742,7 @@ export class WsBridge {
           id: `user-${ts}-${this.userMsgCounter++}`,
           ...(imageRefs?.length ? { images: imageRefs } : {}),
         };
+        codexUserMessageId = userHistoryEntry.id || null;
         session.messageHistory.push(userHistoryEntry);
         session.lastUserMessage = (msg.content || "").slice(0, 80);
         // Broadcast user message to all browsers (server-authoritative)
@@ -2803,6 +2844,18 @@ export class WsBridge {
           }
           adapterMsg = { ...msg, images: compressedImages };
         }
+      }
+
+      // Track the in-flight Codex user turn so we can reconcile/resume
+      // correctly if the transport drops right after turn/start.
+      if (msg.type === "user_message") {
+        session.pendingCodexTurnRecovery = {
+          adapterMsg,
+          userMessageId: codexUserMessageId || `user-recovery-${Date.now()}`,
+          userContent: msg.content || "",
+          turnId: null,
+          disconnectedAt: null,
+        };
       }
 
       if (session.codexAdapter) {
@@ -3541,6 +3594,131 @@ export class WsBridge {
   /** Get task history for a session (for REST API). */
   getSessionTaskHistory(sessionId: string): SessionTaskEntry[] {
     return this.sessions.get(sessionId)?.taskHistory ?? [];
+  }
+
+  private reconcileCodexResumedTurn(session: Session, snapshot: CodexResumeSnapshot): void {
+    const pending = session.pendingCodexTurnRecovery;
+    const lastTurn = snapshot.lastTurn;
+    if (!pending || !lastTurn) return;
+
+    const pendingText = pending.userContent.trim();
+    const resumedUserText = this.extractUserTextFromResumedTurn(lastTurn).trim();
+    const matchesTurnId = !!pending.turnId && pending.turnId === lastTurn.id;
+    const matchesText = !!pendingText && pendingText === resumedUserText;
+    if (!matchesTurnId && !matchesText) return;
+
+    const nonUserItems = lastTurn.items.filter((item) => item.type !== "userMessage");
+    if (nonUserItems.length === 0) {
+      console.log(
+        `[ws-bridge] Resumed Codex turn ${lastTurn.id} for session ${sessionTag(session.id)} has only user input; retrying message`,
+      );
+      this.retryPendingCodexTurn(session, pending);
+      return;
+    }
+
+    const recovered = this.recoverAgentMessagesFromResumedTurn(session, lastTurn, pending);
+    session.pendingCodexTurnRecovery = null;
+    if (recovered > 0) {
+      this.persistSession(session);
+      return;
+    }
+
+    console.warn(
+      `[ws-bridge] Resumed Codex turn ${lastTurn.id} for session ${sessionTag(session.id)} has non-user items but no recoverable agentMessage text; skipping auto-retry to avoid duplicate side effects`,
+    );
+    this.broadcastToBrowsers(session, {
+      type: "error",
+      message:
+        "Codex disconnected mid-turn and resumed with non-text tool activity. " +
+        "Automatic retry was skipped to avoid duplicate side effects.",
+    });
+    this.persistSession(session);
+  }
+
+  private extractUserTextFromResumedTurn(turn: CodexResumeTurnSnapshot): string {
+    for (const item of turn.items) {
+      if (item.type !== "userMessage") continue;
+      const content = Array.isArray(item.content) ? item.content : [];
+      const textParts: string[] = [];
+      for (const part of content) {
+        if (!part || typeof part !== "object") continue;
+        const rec = part as Record<string, unknown>;
+        if (rec.type === "text" && typeof rec.text === "string") {
+          textParts.push(rec.text);
+        }
+      }
+      if (textParts.length > 0) return textParts.join("\n");
+    }
+    return "";
+  }
+
+  private retryPendingCodexTurn(session: Session, pending: PendingCodexTurnRecovery): void {
+    const nextPending: PendingCodexTurnRecovery = {
+      ...pending,
+      turnId: null,
+      disconnectedAt: null,
+    };
+    session.pendingCodexTurnRecovery = nextPending;
+    this.setGenerating(session, true, "codex_resume_retry");
+    this.broadcastToBrowsers(session, { type: "status_change", status: "running" });
+
+    if (session.codexAdapter) {
+      const ok = session.codexAdapter.sendBrowserMessage(pending.adapterMsg);
+      if (!ok) {
+        session.pendingMessages.push(JSON.stringify(pending.adapterMsg));
+      }
+    } else {
+      session.pendingMessages.push(JSON.stringify(pending.adapterMsg));
+    }
+    this.persistSession(session);
+  }
+
+  private recoverAgentMessagesFromResumedTurn(
+    session: Session,
+    turn: CodexResumeTurnSnapshot,
+    pending: PendingCodexTurnRecovery,
+  ): number {
+    let recovered = 0;
+    const baseTs = pending.disconnectedAt ?? Date.now();
+
+    for (let i = 0; i < turn.items.length; i++) {
+      const item = turn.items[i];
+      if (item.type !== "agentMessage") continue;
+      const text = typeof item.text === "string" ? item.text : "";
+      if (!text.trim()) continue;
+
+      const itemId = typeof item.id === "string" ? item.id : `${turn.id}-${i}`;
+      const assistantId = `codex-recovered-${itemId}`;
+      const alreadyExists = session.messageHistory.some((m) => (
+        m.type === "assistant" && m.message?.id === assistantId
+      ));
+      if (alreadyExists) continue;
+
+      const assistant: BrowserIncomingMessage = {
+        type: "assistant",
+        message: {
+          id: assistantId,
+          type: "message",
+          role: "assistant",
+          model: session.state.model || "gpt-5.3-codex",
+          content: [{ type: "text", text }],
+          stop_reason: null,
+          usage: {
+            input_tokens: 0,
+            output_tokens: 0,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+          },
+        },
+        parent_tool_use_id: null,
+        timestamp: baseTs + i + 1,
+      };
+      session.messageHistory.push(assistant);
+      this.broadcastToBrowsers(session, assistant);
+      recovered++;
+    }
+
+    return recovered;
   }
 
   /** Centralized generation state setter with logging and recording. */
