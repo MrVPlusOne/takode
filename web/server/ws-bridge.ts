@@ -2450,10 +2450,10 @@ export class WsBridge {
           this.pushoverNotifier.scheduleNotification(session.id, eventType, detail, requestId);
         }
 
-        if (result?.decision === "deny") {
-          console.log(`[auto-approver] LLM denied ${perm.tool_name} for session ${sessionTag(session.id)}: ${result.reason}`);
+        if (result?.decision === "defer") {
+          console.log(`[auto-approver] LLM deferred ${perm.tool_name} for session ${sessionTag(session.id)}: ${result.reason}`);
         } else {
-          console.log(`[auto-approver] LLM evaluation failed/timed out for ${perm.tool_name} in session ${sessionTag(session.id)}, falling through to user`);
+          console.log(`[auto-approver] LLM evaluation failed/timed out for ${perm.tool_name} in session ${sessionTag(session.id)}, deferring to user`);
         }
         this.persistSession(session);
       }
