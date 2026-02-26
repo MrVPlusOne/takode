@@ -233,7 +233,7 @@ quest done   <id> [--notes "..."] [--cancelled] [--json]      Mark as done/cance
 quest transition <id> --status <s> [--desc "..."] [--json]    Change status
 quest edit   <id> [--title "..."] [--desc "..."] [--tags "t1,t2"] [--json]     Edit in place (NEVER use to create)
 quest check  <id> <index> [--json]                            Toggle verification item
-quest feedback <id> --text "..." [--author agent|human] [--json]  Add feedback entry
+quest feedback <id> --text "..." [--author agent|human] [--image <path>] [--images "p1,p2"] [--json]  Add feedback entry
 quest address <id> <index> [--json]                          Toggle feedback addressed status
 quest delete <id> [--json]                                    Delete quest
 \`\`\`

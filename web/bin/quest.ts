@@ -42,6 +42,8 @@ import {
 import type { QuestmasterTask } from "../server/quest-types.js";
 import { applyQuestListFilters } from "../server/quest-list-filters.js";
 import { getName } from "../server/session-names.js";
+import { readFile } from "node:fs/promises";
+import { basename, extname, resolve } from "node:path";
 
 // ─── Arg parsing helpers ────────────────────────────────────────────────────
 
@@ -58,6 +60,17 @@ function option(name: string): string | undefined {
     return args[idx + 1];
   }
   return undefined;
+}
+
+function options(name: string): string[] {
+  const values: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === `--${name}` && args[i + 1] && !args[i + 1].startsWith("--")) {
+      values.push(args[i + 1]);
+      i++;
+    }
+  }
+  return values;
 }
 
 /** Get positional arg at index (0-based, after the command). */
@@ -248,6 +261,53 @@ function formatQuestDetail(q: QuestmasterTask, archivedMap?: Map<string, boolean
 function die(message: string): never {
   console.error(`Error: ${message}`);
   process.exit(1);
+}
+
+type QuestImageRef = {
+  id: string;
+  filename: string;
+  mimeType: string;
+  path: string;
+};
+
+function guessMimeType(filePath: string): string {
+  switch (extname(filePath).toLowerCase()) {
+    case ".png":
+      return "image/png";
+    case ".jpg":
+    case ".jpeg":
+      return "image/jpeg";
+    case ".gif":
+      return "image/gif";
+    case ".webp":
+      return "image/webp";
+    case ".bmp":
+      return "image/bmp";
+    case ".svg":
+      return "image/svg+xml";
+    default:
+      return "application/octet-stream";
+  }
+}
+
+async function uploadQuestImage(port: string, rawPath: string): Promise<QuestImageRef> {
+  const filePath = resolve(rawPath);
+  const data = await readFile(filePath);
+  const form = new FormData();
+  form.set(
+    "file",
+    new File([data], basename(filePath), { type: guessMimeType(filePath) }),
+  );
+  const res = await fetch(`http://localhost:${port}/api/quests/_images`, {
+    method: "POST",
+    body: form,
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error((err as { error?: string }).error || res.statusText);
+  }
+  return await res.json() as QuestImageRef;
 }
 
 // ─── Commands ───────────────────────────────────────────────────────────────
@@ -570,13 +630,19 @@ async function cmdCheck(): Promise<void> {
 
 async function cmdFeedback(): Promise<void> {
   const id = positional(0);
-  if (!id) die("Usage: quest feedback <questId> --text \"...\" [--author agent|human]");
+  if (!id) {
+    die("Usage: quest feedback <questId> --text \"...\" [--author agent|human] [--image <path>] [--images \"p1,p2\"]");
+  }
 
   const text = option("text");
   if (!text?.trim()) die("--text is required");
 
   const authorOpt = option("author");
   const author = authorOpt === "human" ? "human" : "agent";
+  const imagePaths = [
+    ...options("image"),
+    ...options("images").flatMap((group) => group.split(",").map((p) => p.trim())),
+  ].filter(Boolean);
 
   const port = process.env.COMPANION_PORT;
   if (!port) {
@@ -584,10 +650,17 @@ async function cmdFeedback(): Promise<void> {
   }
 
   try {
+    const uploadedImages = imagePaths.length > 0
+      ? await Promise.all(imagePaths.map((p) => uploadQuestImage(port, p)))
+      : undefined;
     const res = await fetch(`http://localhost:${port}/api/quests/${encodeURIComponent(id)}/feedback`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: text.trim(), author }),
+      body: JSON.stringify({
+        text: text.trim(),
+        author,
+        ...(uploadedImages?.length ? { images: uploadedImages } : {}),
+      }),
       signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) {
@@ -599,7 +672,8 @@ async function cmdFeedback(): Promise<void> {
       out(quest);
     } else {
       const entries = "feedback" in quest ? (quest as { feedback?: { author: string; text: string }[] }).feedback : [];
-      console.log(`Added feedback to ${quest.questId} (${entries?.length ?? 0} entries total)`);
+      const imageNote = uploadedImages?.length ? `, ${uploadedImages.length} image(s)` : "";
+      console.log(`Added feedback to ${quest.questId} (${entries?.length ?? 0} entries total${imageNote})`);
     }
   } catch (e) {
     die((e as Error).message);
@@ -726,7 +800,7 @@ Commands:
   transition <id> --status <s> [--desc "..."] [--json]   Change status
   edit   <id> [--title "..."] [--desc "..."] [--json]    Edit in place
   check  <id> <index> [--json]                           Toggle verification item
-  feedback <id> --text "..." [--author agent|human] [--json]  Add feedback entry
+  feedback <id> --text "..." [--author agent|human] [--image <path>] [--images "p1,p2"] [--json]  Add feedback entry
   address <id> <index> [--json]                          Toggle feedback addressed status
   delete <id> [--json]                                   Delete quest
 

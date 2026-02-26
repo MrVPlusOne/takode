@@ -170,6 +170,7 @@ When syncing with upstream: fast-forward `main` to `upstream/main`, then rebase 
 ## Browser Exploration
 
 Always use `agent-browser` CLI command to explore the browser. Never use playwright or other browser automation libraries.
+When running E2E tests, use the dark theme, as it is the primary theme of this app.
 
 ## Pull Requests
 
