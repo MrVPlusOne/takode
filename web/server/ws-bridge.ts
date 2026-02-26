@@ -48,6 +48,7 @@ import type { CliLauncher } from "./cli-launcher.js";
 import * as gitUtils from "./git-utils.js";
 import { sessionTag } from "./session-tag.js";
 import { shouldAttemptAutoApproval, evaluatePermission, type RecentToolCall } from "./auto-approver.js";
+import type { AutoApprovalConfig } from "./auto-approval-store.js";
 import type { PerfTracer } from "./perf-tracer.js";
 
 // ─── Denial summary helper ───────────────────────────────────────────────────
@@ -2280,7 +2281,7 @@ export class WsBridge {
         // Path A: LLM auto-approval available — show collapsed spinner in browser,
         // defer attention/notifications until LLM evaluation completes.
         this.persistSession(session);
-        this.tryLlmAutoApproval(session, msg.request_id, perm);
+        this.tryLlmAutoApproval(session, msg.request_id, perm, autoApprovalConfig);
       } else {
         // Path B: Normal flow — immediate attention + notification.
         this.setAttention(session, "action");
@@ -2335,6 +2336,7 @@ export class WsBridge {
     session: Session,
     requestId: string,
     perm: PermissionRequest,
+    config: AutoApprovalConfig,
   ): Promise<void> {
     const abort = new AbortController();
     session.evaluatingAborts.set(requestId, abort);
@@ -2349,6 +2351,7 @@ export class WsBridge {
         perm.input,
         perm.description,
         session.state.cwd,
+        config,
         abort.signal,
         recentToolCalls,
       );

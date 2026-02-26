@@ -365,12 +365,10 @@ export async function evaluatePermission(
   input: Record<string, unknown>,
   description: string | undefined,
   cwd: string,
+  config: AutoApprovalConfig,
   signal?: AbortSignal,
   recentToolCalls?: RecentToolCall[],
 ): Promise<AutoApprovalResult | null> {
-  const config = await shouldAttemptAutoApproval(cwd);
-  if (!config) return null;
-
   const settings = getSettings();
   const model = settings.autoApprovalModel || "haiku";
   const prompt = buildPrompt(toolName, input, description, config.criteria, cwd, recentToolCalls);
