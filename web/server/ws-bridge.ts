@@ -299,6 +299,11 @@ interface Session {
   /** AbortControllers for in-flight LLM auto-approval evaluations, keyed by request_id.
    *  Used to cancel the LLM subprocess when the user responds manually. Transient — not persisted. */
   evaluatingAborts: Map<string, AbortController>;
+  /** True while a relaunched CLI is replaying old messages via --resume.
+   *  During this window, system.status permissionMode changes must NOT
+   *  overwrite uiMode — the replayed mode is stale and would revert
+   *  user-approved mode transitions (e.g. ExitPlanMode → agent). */
+  cliResuming: boolean;
 }
 
 type GitSessionKey =
@@ -849,6 +854,7 @@ export class WsBridge {
         keywords: Array.isArray(p.keywords) ? p.keywords : [],
         diffStatsDirty: true,
         evaluatingAborts: new Map(),
+        cliResuming: false,
       };
       session.state.backend_type = session.backendType;
 
@@ -1194,6 +1200,7 @@ export class WsBridge {
         keywords: [],
         diffStatsDirty: true,
         evaluatingAborts: new Map(),
+        cliResuming: false,
       };
       this.sessions.set(sessionId, session);
     } else if (backendType) {
@@ -1541,7 +1548,15 @@ export class WsBridge {
   handleCLIOpen(ws: ServerWebSocket<SocketData>, sessionId: string) {
     const session = this.getOrCreateSession(sessionId);
     session.cliSocket = ws;
-    console.log(`[ws-bridge] CLI connected for session ${sessionTag(sessionId)}`);
+    // When a CLI reconnects to an existing session (has history), mark it as
+    // resuming. During --resume replay, the CLI sends stale system.status
+    // messages with old permissionMode that would incorrectly overwrite uiMode
+    // (e.g. reverting an ExitPlanMode approval). The flag is cleared on
+    // system.init (which always follows replay completion).
+    if (session.messageHistory.length > 0) {
+      session.cliResuming = true;
+    }
+    console.log(`[ws-bridge] CLI connected for session ${sessionTag(sessionId)}${session.cliResuming ? " (resuming)" : ""}`);
     this.broadcastToBrowsers(session, { type: "cli_connected" });
     // Retry diff recomputation now that backend connectivity exists.
     this.refreshGitInfoThenRecomputeDiff(session, { notifyPoller: true });
@@ -1849,6 +1864,9 @@ export class WsBridge {
       session.state.tools = msg.tools;
       session.state.permissionMode = msg.permissionMode;
       session.state.claude_code_version = msg.claude_code_version;
+      // system.init marks the end of --resume replay. Clear the resuming flag
+      // so subsequent real-time system.status updates can change uiMode again.
+      session.cliResuming = false;
       session.state.mcp_servers = msg.mcp_servers;
       session.state.agents = msg.agents ?? [];
       session.state.slash_commands = msg.slash_commands ?? [];
@@ -1892,13 +1910,25 @@ export class WsBridge {
 
       if (msg.permissionMode) {
         session.state.permissionMode = msg.permissionMode;
-        // Broadcast CLI-authoritative mode change to all browsers so they stay in sync
-        const uiMode = msg.permissionMode === "plan" ? "plan" : "agent";
-        session.state.uiMode = uiMode;
-        this.broadcastToBrowsers(session, {
-          type: "session_update",
-          session: { permissionMode: msg.permissionMode, uiMode },
-        });
+        // During --resume replay, the CLI sends stale system.status messages
+        // with old permissionMode values. Updating uiMode from these would
+        // revert user-approved mode transitions (e.g. ExitPlanMode → agent
+        // gets overwritten back to plan). Only update uiMode from real-time
+        // status changes (after replay completes and cliResuming is cleared).
+        if (!session.cliResuming) {
+          const uiMode = msg.permissionMode === "plan" ? "plan" : "agent";
+          session.state.uiMode = uiMode;
+          this.broadcastToBrowsers(session, {
+            type: "session_update",
+            session: { permissionMode: msg.permissionMode, uiMode },
+          });
+        } else {
+          // Still broadcast permissionMode (CLI state) without changing uiMode
+          this.broadcastToBrowsers(session, {
+            type: "session_update",
+            session: { permissionMode: msg.permissionMode },
+          });
+        }
       }
 
       this.broadcastToBrowsers(session, {
