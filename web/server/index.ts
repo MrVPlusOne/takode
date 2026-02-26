@@ -556,12 +556,12 @@ const server = Bun.serve<SocketData>({
         terminalManager.handleBrowserMessage(ws, msg);
       }
     },
-    close(ws: ServerWebSocket<SocketData>) {
+    close(ws: ServerWebSocket<SocketData>, code: number, reason: string) {
       const data = ws.data;
       if (data.kind === "cli") {
-        wsBridge.handleCLIClose(ws);
+        wsBridge.handleCLIClose(ws, code, reason);
       } else if (data.kind === "browser") {
-        wsBridge.handleBrowserClose(ws);
+        wsBridge.handleBrowserClose(ws, code, reason);
       } else if (data.kind === "terminal") {
         terminalManager.removeBrowserSocket(ws);
       }
@@ -574,6 +574,29 @@ wsBridge.startHeartbeat();
 
 // Start watchdog to detect sessions stuck in "generating" state
 wsBridge.startStuckSessionWatchdog();
+
+// ── Event loop lag monitor ──────────────────────────────────────────────────
+// The Claude Code CLI (Node.js) sends WebSocket ping frames every 10s and
+// considers the connection dead if no pong arrives before the next ping.
+// On slow NFS, Bun's event loop can block for seconds during file I/O,
+// preventing it from responding to pings. This monitor detects those stalls
+// so we can identify what operations are causing CLI disconnections.
+{
+  const LAG_WARN_MS = 500;    // warn at 500ms
+  const LAG_ALERT_MS = 5_000; // alert at 5s (CLI timeout is 10s)
+  const CHECK_INTERVAL_MS = 2_000;
+  let lastTick = performance.now();
+  setInterval(() => {
+    const now = performance.now();
+    const lag = now - lastTick - CHECK_INTERVAL_MS;
+    lastTick = now;
+    if (lag > LAG_ALERT_MS) {
+      console.error(`[event-loop] ⚠️  CRITICAL LAG: ${lag.toFixed(0)}ms — Bun event loop was blocked! CLI ping/pong timeout is 10s, this stall may cause CLI disconnections.`);
+    } else if (lag > LAG_WARN_MS) {
+      console.warn(`[event-loop] Lag detected: ${lag.toFixed(0)}ms`);
+    }
+  }, CHECK_INTERVAL_MS);
+}
 
 console.log(`Server running on http://localhost:${server.port}`);
 console.log(`  CLI WebSocket:     ws://localhost:${server.port}/ws/cli/:sessionId`);

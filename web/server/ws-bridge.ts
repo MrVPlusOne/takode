@@ -1592,7 +1592,7 @@ export class WsBridge {
     }
   }
 
-  handleCLIClose(ws: ServerWebSocket<SocketData>) {
+  handleCLIClose(ws: ServerWebSocket<SocketData>, code?: number, reason?: string) {
     const sessionId = (ws.data as CLISocketData).sessionId;
     const session = this.sessions.get(sessionId);
     if (!session) return;
@@ -1601,7 +1601,10 @@ export class WsBridge {
     session.cliSocket = null;
     this.setGenerating(session, false, "cli_disconnect");
     const idleKilled = this.launcher?.getSession(sessionId)?.killedByIdleManager;
-    console.log(`[ws-bridge] CLI disconnected for session ${sessionTag(sessionId)}${idleKilled ? " (idle limit)" : ""}`);
+    // Log close code/reason to diagnose whether CLI is initiating the disconnect
+    // (e.g., ping/pong timeout) vs server-side close. Common codes:
+    //   1000 = normal, 1001 = going away, 1006 = abnormal (no close frame), 1011 = unexpected
+    console.log(`[ws-bridge] CLI disconnected for session ${sessionTag(sessionId)}${idleKilled ? " (idle limit)" : ""} | code=${code ?? "?"} reason=${JSON.stringify(reason || "")} wasGenerating=${wasGenerating}`);
     this.broadcastToBrowsers(session, {
       type: "cli_disconnected",
       ...(idleKilled ? { reason: "idle_limit" as const } : {}),
@@ -1717,14 +1720,14 @@ export class WsBridge {
     this.routeBrowserMessage(session, { type: "user_message", content });
   }
 
-  handleBrowserClose(ws: ServerWebSocket<SocketData>) {
+  handleBrowserClose(ws: ServerWebSocket<SocketData>, code?: number, reason?: string) {
     const sessionId = (ws.data as BrowserSocketData).sessionId;
     const session = this.sessions.get(sessionId);
     if (!session) return;
 
     session.browserSockets.delete(ws);
     const hasBackend = session.backendType === "codex" ? !!session.codexAdapter : !!session.cliSocket;
-    console.log(`[ws-bridge] Browser disconnected for session ${sessionTag(sessionId)} (${session.browserSockets.size} remaining, backend=${hasBackend ? "alive" : "dead"})`);
+    console.log(`[ws-bridge] Browser disconnected for session ${sessionTag(sessionId)} (${session.browserSockets.size} remaining, backend=${hasBackend ? "alive" : "dead"}) | code=${code ?? "?"} reason=${JSON.stringify(reason || "")}`);
   }
 
   // ── CLI message routing ─────────────────────────────────────────────────
@@ -3804,7 +3807,12 @@ export class WsBridge {
     if (session.browserSockets.size === 0 && (msg.type === "assistant" || msg.type === "stream_event" || msg.type === "result")) {
       console.log(`[ws-bridge] ⚠ Broadcasting ${msg.type} to 0 browsers for session ${sessionTag(session.id)} (stored in history: ${msg.type === "assistant" || msg.type === "result"})`);
     }
+    const serStart = performance.now();
     const json = JSON.stringify(this.sequenceEvent(session, msg));
+    const serMs = performance.now() - serStart;
+    if (serMs > 50) {
+      console.warn(`[ws-bridge] Slow JSON.stringify in broadcastToBrowsers: ${serMs.toFixed(1)}ms, type=${msg.type}, len=${json.length}, session=${sessionTag(session.id)}`);
+    }
 
     // Record raw outgoing browser message
     this.recorder?.record(session.id, "out", json, "browser", session.backendType, session.state.cwd);

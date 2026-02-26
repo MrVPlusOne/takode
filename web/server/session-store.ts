@@ -82,7 +82,12 @@ export class SessionStore {
    * async fs internally. Errors are logged but never thrown.
    */
   saveSync(session: PersistedSession): void {
+    const serStart = performance.now();
     const data = JSON.stringify(session);
+    const serMs = performance.now() - serStart;
+    if (serMs > 50) {
+      console.warn(`[session-store] Slow JSON.stringify: ${serMs.toFixed(1)}ms, session=${session.id.slice(0, 8)}, history=${session.messageHistory?.length ?? 0} msgs, len=${data.length}`);
+    }
     const p = writeFile(this.filePath(session.id), data, "utf-8")
       .catch((err) => {
         console.error(`[session-store] Failed to save session ${session.id}:`, err);
