@@ -1104,7 +1104,7 @@ const FeedFooter = memo(function FeedFooter({ sessionId }: { sessionId: string }
   return (
     <>
       {/* Tool progress indicator */}
-      {toolProgress && toolProgress.size > 0 && !streamingText && (
+      {toolProgress && toolProgress.size > 0 && !streamingText && !isCodexSession && (
         <div className="flex items-center gap-1.5 text-[11px] text-cc-muted font-mono-code pl-9">
           <YarnBallDot className="text-cc-primary animate-pulse" />
           {Array.from(toolProgress.values()).map((p, i) => (

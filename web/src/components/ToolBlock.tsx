@@ -73,6 +73,9 @@ function ToolDurationBadge({ toolUseId, sessionId }: { toolUseId: string; sessio
     s.toolResults.get(sessionId)?.get(toolUseId)
   );
   const finalDuration = toolResult?.duration_seconds;
+  const progressElapsedSeconds = useStore((s) =>
+    s.toolProgress.get(sessionId)?.get(toolUseId)?.elapsedSeconds
+  );
   // Server start timestamp (from tool_start_times on the assistant message)
   const startTimestamp = useStore((s) =>
     s.toolStartTimestamps.get(sessionId)?.get(toolUseId)
@@ -112,7 +115,8 @@ function ToolDurationBadge({ toolUseId, sessionId }: { toolUseId: string; sessio
   }, [finalDuration, startTimestamp, toolResult]);
 
   // Show final duration (static) or live timer
-  const displaySeconds = finalDuration ?? liveSeconds;
+  const liveElapsedSeconds = liveSeconds ?? progressElapsedSeconds ?? null;
+  const displaySeconds = finalDuration ?? (toolResult == null ? liveElapsedSeconds : null);
   if (displaySeconds == null) return null;
 
   const isLive = finalDuration == null;

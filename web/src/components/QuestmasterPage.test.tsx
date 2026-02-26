@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { QuestmasterTask } from "../types.js";
+import { buildQuestReworkDraft } from "./quest-rework.js";
 
 const mockMarkQuestVerificationRead = vi.fn();
 const mockMarkQuestVerificationInbox = vi.fn();
+const mockNavigateToSession = vi.fn();
 
 vi.mock("../api.js", () => ({
   api: {
@@ -17,7 +19,8 @@ vi.mock("../api.js", () => ({
 }));
 
 vi.mock("../utils/routing.js", () => ({
-  navigateToSession: vi.fn(),
+  navigateToSession: (...args: unknown[]) =>
+    mockNavigateToSession(...args),
 }));
 
 vi.mock("../utils/questmaster-view-state.js", () => ({
@@ -78,6 +81,16 @@ function buildVerificationQuest(input: {
     claimedAt: Date.now(),
     verificationItems: [{ text: "Verify behavior", checked: false }],
     verificationInboxUnread: input.verificationInboxUnread,
+    tags: ["ui", "questmaster"],
+    updatedAt: Date.now(),
+    feedback: [
+      {
+        author: "human",
+        text: "Please verify this behavior",
+        ts: Date.now(),
+        addressed: false,
+      },
+    ],
   } as QuestmasterTask;
 }
 
@@ -130,7 +143,19 @@ beforeEach(() => {
     title: "Regular verification quest",
     verificationInboxUnread: false,
   });
-  resetState({ quests: [inboxQuest, regularQuest] });
+  resetState({
+    quests: [inboxQuest, regularQuest],
+    sdkSessions: [
+      {
+        sessionId: "session-1",
+        state: "connected",
+        cwd: "/tmp/project",
+        createdAt: Date.now(),
+        archived: false,
+      },
+    ],
+    sessionNames: new Map([["session-1", "Session One"]]),
+  });
   mockMarkQuestVerificationRead.mockImplementation(async (questId: string) => {
     const quest = mockState.quests.find((q) => q.questId === questId);
     if (!quest || quest.status !== "needs_verification") throw new Error("quest not found");
@@ -216,5 +241,51 @@ describe("QuestmasterPage verification inbox", () => {
 
     expect(screen.queryByRole("button", { name: "Close quest details" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Inbox" })).toBeNull();
+  });
+
+  it("shows collapsed-card metadata in the quest modal header", () => {
+    // Modal should be a superset of card info: inbox/session/progress/feedback/time/tags.
+    window.location.hash = "#/questmaster?quest=q-1";
+    render(<QuestmasterPage />);
+
+    const dialog = screen.getByRole("dialog", { name: /Quest details: Inbox quest/ });
+    expect(within(dialog).getByText("Inbox")).toBeInTheDocument();
+    expect(within(dialog).getByText("Session One")).toBeInTheDocument();
+    expect(within(dialog).getByText("0/1")).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("1 pending feedback")).toBeInTheDocument();
+    expect(within(dialog).getByText("ui")).toBeInTheDocument();
+  });
+
+  it("prefills and navigates when clicking Rework with unaddressed feedback", () => {
+    window.location.hash = "#/questmaster?quest=q-1";
+    render(<QuestmasterPage />);
+
+    const dialog = screen.getByRole("dialog", { name: /Quest details: Inbox quest/ });
+    const reworkButton = within(dialog).getByRole("button", { name: "Rework" });
+    expect(reworkButton).toBeEnabled();
+
+    fireEvent.click(reworkButton);
+
+    expect(mockState.setComposerDraft).toHaveBeenCalledWith("session-1", {
+      text: buildQuestReworkDraft("q-1"),
+      images: [],
+    });
+    expect(mockNavigateToSession).toHaveBeenCalledWith("session-1");
+  });
+
+  it("disables Rework when all human feedback is addressed", () => {
+    mockState.quests = mockState.quests.map((q) => (
+      q.questId === "q-1"
+        ? ({
+            ...q,
+            feedback: [{ author: "human", text: "done", ts: Date.now(), addressed: true }],
+          } as QuestmasterTask)
+        : q
+    ));
+    window.location.hash = "#/questmaster?quest=q-1";
+    render(<QuestmasterPage />);
+
+    const dialog = screen.getByRole("dialog", { name: /Quest details: Inbox quest/ });
+    expect(within(dialog).getByRole("button", { name: "Rework" })).toBeDisabled();
   });
 });

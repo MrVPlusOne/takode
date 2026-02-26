@@ -107,6 +107,23 @@ function setStoreStreamingOutputTokens(sessionId: string, tokens: number | undef
   mockStoreValues.streamingOutputTokens = map;
 }
 
+function setStoreToolProgress(
+  sessionId: string,
+  entries: Array<{ toolUseId: string; toolName: string; elapsedSeconds: number; output?: string }>
+) {
+  const toolProgressMap = new Map();
+  const sessionProgress = new Map();
+  for (const entry of entries) {
+    sessionProgress.set(entry.toolUseId, {
+      toolName: entry.toolName,
+      elapsedSeconds: entry.elapsedSeconds,
+      ...(entry.output ? { output: entry.output } : {}),
+    });
+  }
+  toolProgressMap.set(sessionId, sessionProgress);
+  mockStoreValues.toolProgress = toolProgressMap;
+}
+
 function resetStore() {
   mockStoreValues.messages = new Map();
   mockStoreValues.streaming = new Map();
@@ -116,6 +133,7 @@ function resetStore() {
   mockStoreValues.streamingPauseStartedAt = new Map();
   mockStoreValues.sessionStatus = new Map();
   mockStoreValues.sessions = new Map();
+  mockStoreValues.toolProgress = new Map();
   mockStoreValues.turnActivityOverrides = new Map();
 }
 
@@ -372,6 +390,32 @@ describe("ElapsedTimer - generation stats bar", () => {
     expect(screen.getByText("Purring...")).toBeTruthy();
     // Should show "2.5k" token count
     expect(screen.getByText(/2\.5k/)).toBeTruthy();
+  });
+});
+
+describe("MessageFeed - tool timer footer", () => {
+  it("shows detached tool timer summary for Claude sessions", () => {
+    const sid = "test-footer-claude";
+    setStoreMessages(sid, [makeMessage({ role: "assistant", content: "ok" })]);
+    setStoreSessionBackend(sid, "claude");
+    setStoreToolProgress(sid, [{ toolUseId: "tu-1", toolName: "Bash", elapsedSeconds: 12 }]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByText("Terminal")).toBeTruthy();
+    expect(screen.getByText("12s")).toBeTruthy();
+  });
+
+  it("hides detached tool timer summary for Codex sessions", () => {
+    const sid = "test-footer-codex";
+    setStoreMessages(sid, [makeMessage({ role: "assistant", content: "ok" })]);
+    setStoreSessionBackend(sid, "codex");
+    setStoreToolProgress(sid, [{ toolUseId: "tu-1", toolName: "Bash", elapsedSeconds: 12 }]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.queryByText("Terminal")).toBeNull();
+    expect(screen.queryByText("12s")).toBeNull();
   });
 });
 

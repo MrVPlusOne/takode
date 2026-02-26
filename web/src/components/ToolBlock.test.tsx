@@ -673,6 +673,29 @@ describe("ToolBlock duration display", () => {
     expect(durationBadge).toBeNull();
   });
 
+  it("falls back to tool_progress elapsed seconds when start timestamp is missing", () => {
+    const toolProgress = new Map();
+    const sessionProgress = new Map();
+    sessionProgress.set("tu-progress-fallback", {
+      toolName: "Bash",
+      elapsedSeconds: 7,
+    });
+    toolProgress.set("test-session", sessionProgress);
+    useStore.setState({ toolProgress });
+
+    render(
+      <ToolBlock
+        name="Bash"
+        input={{ command: "npm run build" }}
+        toolUseId="tu-progress-fallback"
+        sessionId="test-session"
+      />
+    );
+
+    const badge = screen.getByText("7.0s");
+    expect(badge.className).toContain("text-cc-primary");
+  });
+
   it("does not show live timer when tool has completed but duration_seconds is missing", () => {
     // This reproduces the bug: server restarted mid-tool, lost transient start time,
     // so tool_result_preview has no duration_seconds. But the assistant message in

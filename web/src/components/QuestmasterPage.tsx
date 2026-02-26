@@ -13,6 +13,7 @@ import { getHighlightParts } from "../utils/highlight.js";
 import { Lightbox } from "./Lightbox.js";
 import { SessionStatusDot } from "./SessionStatusDot.js";
 import { buildQuestAssignDraft } from "./quest-assign.js";
+import { buildQuestReworkDraft } from "./quest-rework.js";
 import type { SessionItem as SessionItemType } from "../utils/project-grouping.js";
 import type {
   QuestmasterTask,
@@ -876,6 +877,17 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
     navigateToSession(sessionId);
   }
 
+  function handleReworkInSession(quest: QuestmasterTask, sessionId: string) {
+    const draftText = buildQuestReworkDraft(quest.questId);
+    useStore
+      .getState()
+      .setComposerDraft(sessionId, {
+        text: draftText,
+        images: [],
+      });
+    navigateToSession(sessionId);
+  }
+
   // ─── Derived tag list ─────────────────────────────────────────────────
 
   const allTags = useMemo(() => {
@@ -1674,6 +1686,9 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
               const questSessionId = "sessionId" in quest ? (quest as { sessionId: string }).sessionId : null;
               const isKnownSession = questSessionId ? sdkSessions.some((s) => s.sessionId === questSessionId) : false;
               const questSessionName = questSessionId ? (sessionNames.get(questSessionId) || (isKnownSession ? questSessionId.slice(0, 8) : questSessionId)) : null;
+              const feedbackEntries = "feedback" in quest ? (quest as { feedback?: QuestFeedbackEntry[] }).feedback : undefined;
+              const unaddressedFeedbackCount = feedbackEntries?.filter((e) => e.author === "human" && !e.addressed).length ?? 0;
+              const addressedFeedbackCount = feedbackEntries?.filter((e) => e.author === "human" && e.addressed).length ?? 0;
 
               return (
                 <div key={quest.id}>
@@ -1745,33 +1760,32 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
                             {vProgress.checked}/{vProgress.total}
                           </span>
                         )}
-                        {(() => {
-                          const fb = "feedback" in quest ? (quest as { feedback?: QuestFeedbackEntry[] }).feedback : undefined;
-                          if (!fb?.length) return null;
-                          const unaddressed = fb.filter((e) => e.author === "human" && !e.addressed).length;
-                          const addressed = fb.filter((e) => e.author === "human" && e.addressed).length;
-                          if (unaddressed === 0 && addressed === 0) return null;
-                          return (
-                            <span className="text-[10px] flex items-center gap-1.5">
-                              {unaddressed > 0 && (
-                                <span className="flex items-center gap-0.5 text-amber-400">
-                                  <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
-                                    <path d="M2.5 2A1.5 1.5 0 001 3.5v8A1.5 1.5 0 002.5 13H5l3 3 3-3h2.5a1.5 1.5 0 001.5-1.5v-8A1.5 1.5 0 0013.5 2h-11z" />
-                                  </svg>
-                                  {unaddressed}
-                                </span>
-                              )}
-                              {addressed > 0 && (
-                                <span className="flex items-center gap-0.5 text-emerald-400/70">
-                                  <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
-                                    <path d="M2.5 2A1.5 1.5 0 001 3.5v8A1.5 1.5 0 002.5 13H5l3 3 3-3h2.5a1.5 1.5 0 001.5-1.5v-8A1.5 1.5 0 0013.5 2h-11z" />
-                                  </svg>
-                                  {addressed}
-                                </span>
-                              )}
-                            </span>
-                          );
-                        })()}
+                        {(unaddressedFeedbackCount > 0 || addressedFeedbackCount > 0) && (
+                          <span className="text-[10px] flex items-center gap-1.5">
+                            {unaddressedFeedbackCount > 0 && (
+                              <span
+                                className="flex items-center gap-0.5 text-amber-400"
+                                aria-label={`${unaddressedFeedbackCount} pending feedback`}
+                              >
+                                <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
+                                  <path d="M2.5 2A1.5 1.5 0 001 3.5v8A1.5 1.5 0 002.5 13H5l3 3 3-3h2.5a1.5 1.5 0 001.5-1.5v-8A1.5 1.5 0 0013.5 2h-11z" />
+                                </svg>
+                                {unaddressedFeedbackCount}
+                              </span>
+                            )}
+                            {addressedFeedbackCount > 0 && (
+                              <span
+                                className="flex items-center gap-0.5 text-emerald-400/70"
+                                aria-label={`${addressedFeedbackCount} addressed feedback`}
+                              >
+                                <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
+                                  <path d="M2.5 2A1.5 1.5 0 001 3.5v8A1.5 1.5 0 002.5 13H5l3 3 3-3h2.5a1.5 1.5 0 001.5-1.5v-8A1.5 1.5 0 0013.5 2h-11z" />
+                                </svg>
+                                {addressedFeedbackCount}
+                              </span>
+                            )}
+                          </span>
+                        )}
                         <span className="text-[10px] text-cc-muted/50">
                           {timeAgo((quest as { updatedAt?: number }).updatedAt ?? quest.createdAt)}
                         </span>
@@ -1810,6 +1824,9 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
                     >
                       <div
                         className="w-[min(920px,100%)] max-h-[88dvh] bg-cc-card border border-cc-border rounded-xl shadow-2xl flex flex-col overflow-hidden"
+                        role="dialog"
+                        aria-modal="true"
+                        aria-label={`Quest details: ${quest.title}`}
                         onClick={(e) => e.stopPropagation()}
                       >
                         <div className="shrink-0 flex items-start justify-between gap-3 px-4 py-3 border-b border-cc-border">
@@ -1821,7 +1838,113 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
                               </span>
                               <span className="text-[10px] text-cc-muted/60">{quest.questId}</span>
                             </div>
-                            <div className="text-sm font-semibold text-cc-fg mt-1 truncate">{quest.title}</div>
+                            <div className="flex items-center gap-2 mt-1 min-w-0">
+                              <div className="text-sm font-semibold text-cc-fg truncate">{quest.title}</div>
+                              {quest.parentId && (
+                                <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-cc-hover text-cc-muted shrink-0">
+                                  sub:{quest.parentId}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2 mt-1">
+                              {isInboxVerification && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/25">
+                                  Inbox
+                                </span>
+                              )}
+                              {questSessionId && (
+                                isKnownSession ? (
+                                  <div className="flex items-center gap-1.5">
+                                    <span
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        window.location.hash = `#/session/${questSessionId}`;
+                                      }}
+                                      className="text-[11px] px-1.5 py-0.5 rounded bg-cc-primary/10 text-cc-primary hover:bg-cc-primary/20 cursor-pointer transition-colors truncate max-w-[220px]"
+                                    >
+                                      {questSessionName}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleReworkInSession(quest, questSessionId);
+                                      }}
+                                      disabled={unaddressedFeedbackCount === 0}
+                                      title={
+                                        unaddressedFeedbackCount > 0
+                                          ? "Switch to this session and draft a rework message for quest feedback."
+                                          : "No unaddressed human feedback."
+                                      }
+                                      className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors ${
+                                        unaddressedFeedbackCount > 0
+                                          ? "bg-amber-500/10 text-amber-400 border-amber-500/25 hover:bg-amber-500/20 cursor-pointer"
+                                          : "bg-cc-hover text-cc-muted/60 border-cc-border cursor-not-allowed"
+                                      }`}
+                                    >
+                                      Rework
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <span className="text-[10px] text-cc-muted/50 truncate max-w-[220px]">
+                                    {questSessionId}
+                                  </span>
+                                )
+                              )}
+                              {vProgress && (
+                                <span className="text-[10px] text-cc-muted flex items-center gap-1">
+                                  <svg
+                                    viewBox="0 0 16 16"
+                                    fill="currentColor"
+                                    className="w-3 h-3"
+                                  >
+                                    <path d="M8 2a6 6 0 100 12A6 6 0 008 2zM0 8a8 8 0 1116 0A8 8 0 010 8zm11.354-1.646a.5.5 0 00-.708-.708L7 9.293 5.354 7.646a.5.5 0 10-.708.708l2 2a.5.5 0 00.708 0l4-4z" />
+                                  </svg>
+                                  {vProgress.checked}/{vProgress.total}
+                                </span>
+                              )}
+                              {(unaddressedFeedbackCount > 0 || addressedFeedbackCount > 0) && (
+                                <span className="text-[10px] flex items-center gap-1.5">
+                                  {unaddressedFeedbackCount > 0 && (
+                                    <span
+                                      className="flex items-center gap-0.5 text-amber-400"
+                                      aria-label={`${unaddressedFeedbackCount} pending feedback`}
+                                    >
+                                      <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
+                                        <path d="M2.5 2A1.5 1.5 0 001 3.5v8A1.5 1.5 0 002.5 13H5l3 3 3-3h2.5a1.5 1.5 0 001.5-1.5v-8A1.5 1.5 0 0013.5 2h-11z" />
+                                      </svg>
+                                      {unaddressedFeedbackCount}
+                                    </span>
+                                  )}
+                                  {addressedFeedbackCount > 0 && (
+                                    <span
+                                      className="flex items-center gap-0.5 text-emerald-400/70"
+                                      aria-label={`${addressedFeedbackCount} addressed feedback`}
+                                    >
+                                      <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
+                                        <path d="M2.5 2A1.5 1.5 0 001 3.5v8A1.5 1.5 0 002.5 13H5l3 3 3-3h2.5a1.5 1.5 0 001.5-1.5v-8A1.5 1.5 0 0013.5 2h-11z" />
+                                      </svg>
+                                      {addressedFeedbackCount}
+                                    </span>
+                                  )}
+                                </span>
+                              )}
+                              <span className="text-[10px] text-cc-muted/50">
+                                {timeAgo((quest as { updatedAt?: number }).updatedAt ?? quest.createdAt)}
+                              </span>
+                            </div>
+                            {quest.tags && quest.tags.length > 0 && (
+                              <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                                {quest.tags.map((tag) => (
+                                  <span
+                                    key={tag}
+                                    className="text-[10px] px-1.5 py-0.5 rounded-full bg-cc-hover text-cc-muted"
+                                  >
+                                    {tag.toLowerCase()}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
                           </div>
                           <button
                             type="button"
