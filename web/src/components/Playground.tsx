@@ -170,6 +170,12 @@ const PERM_EVALUATING_BASH = mockPermission({
   evaluating: true,
 });
 
+const PERM_EVALUATING_BASH_LONG = mockPermission({
+  tool_name: "Bash",
+  input: { command: "cd /home/user/projects/my-app && npm run build --production && docker build -t my-app:latest . && docker push registry.example.com/my-app:latest", description: "Build and push Docker image" },
+  evaluating: true,
+});
+
 const PERM_EVALUATING_EDIT = mockPermission({
   tool_name: "Edit",
   input: { file_path: "/src/components/App.tsx", old_string: "const x = 1;", new_string: "const x = 2;" },
@@ -897,8 +903,11 @@ export function Playground() {
 
         {/* ─── Auto-Approval Evaluating State ─────────────────── */}
         <Section title="Auto-Approval Evaluating" description="Collapsed permission banners shown while the LLM auto-approver is evaluating. Click to expand for manual override.">
-          <Card label="Bash — evaluating">
+          <Card label="Bash — evaluating (short cmd)">
             <EvaluatingCollapsedChip permission={PERM_EVALUATING_BASH} sessionId={MOCK_SESSION_ID} onExpand={() => {}} />
+          </Card>
+          <Card label="Bash — evaluating (long cmd)">
+            <EvaluatingCollapsedChip permission={PERM_EVALUATING_BASH_LONG} sessionId={MOCK_SESSION_ID} onExpand={() => {}} />
           </Card>
           <Card label="Edit — evaluating">
             <EvaluatingCollapsedChip permission={PERM_EVALUATING_EDIT} sessionId={MOCK_SESSION_ID} onExpand={() => {}} />

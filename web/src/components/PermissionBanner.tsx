@@ -472,11 +472,11 @@ export function EvaluatingCollapsedChip({
           <span className="inline-block text-[10px] font-medium px-1.5 py-0.5 rounded bg-cc-muted/10 text-cc-muted shrink-0">
             {toolName}
           </span>
-          <span className="text-xs text-cc-muted truncate flex-1">
-            evaluating...
-          </span>
           <span className="text-[10px] text-cc-muted/60 shrink-0">
-            {typeof desc === "string" && desc.length > 50 ? desc.slice(0, 50) + "..." : desc}
+            evaluating
+          </span>
+          <span className="text-xs text-cc-muted truncate flex-1 min-w-0">
+            {desc}
           </span>
           <svg className="w-3 h-3 text-cc-muted shrink-0" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M3 5l3 3 3-3" />
