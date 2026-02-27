@@ -278,6 +278,8 @@ interface Session {
   generationStartedAt: number | null;
   /** Last message received from CLI (epoch ms), for stuck detection */
   lastCliMessageAt: number;
+  /** Last keep_alive or WebSocket ping from CLI (epoch ms), for disconnect diagnostics */
+  lastCliPingAt: number;
   /** When stuck notification was sent (epoch ms), to avoid repeated notifications */
   stuckNotifiedAt: number | null;
   /** Server-side activity preview (mirrors browser's sessionTaskPreview) */
@@ -516,6 +518,8 @@ export class WsBridge {
    *  user message). Key is repo_root || cwd. */
   private slashCommandCache = new Map<string, { slash_commands: string[]; skills: string[] }>();
   private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
+  /** Track recent CLI disconnects to detect mass disconnect events. */
+  private recentCliDisconnects: number[] = [];
   private onGitInfoReady: ((sessionId: string, cwd: string, branch: string) => void) | null = null;
   private static readonly GIT_SESSION_KEYS: GitSessionKey[] = [
     "git_branch",
@@ -694,16 +698,27 @@ export class WsBridge {
     }
   }
 
-  /** Send periodic pings to all browser sockets to prevent Bun's idle timeout from closing them. */
+  /** Send periodic pings to all browser and CLI sockets to detect dead connections. */
   startHeartbeat(): void {
     if (this.heartbeatInterval) return;
     this.heartbeatInterval = setInterval(() => {
       for (const session of this.sessions.values()) {
+        // Ping browser sockets (prevents Bun's idle timeout from closing them)
         for (const ws of session.browserSockets) {
           try {
             ws.ping();
           } catch {
             session.browserSockets.delete(ws);
+          }
+        }
+        // Ping CLI socket (detects half-open TCP connections from the server
+        // side — the CLI also pings us every 10s, but if the network silently
+        // drops packets, server-side pings give us earlier detection)
+        if (session.cliSocket) {
+          try {
+            session.cliSocket.ping();
+          } catch {
+            // ping() threw — socket is already dead
           }
         }
       }
@@ -847,6 +862,7 @@ export class WsBridge {
         isGenerating: false,
         generationStartedAt: null,
         lastCliMessageAt: 0,
+        lastCliPingAt: 0,
         stuckNotifiedAt: null,
         lastReadAt: typeof p.lastReadAt === "number" ? p.lastReadAt : 0,
         attentionReason: p.attentionReason ?? null,
@@ -1193,6 +1209,7 @@ export class WsBridge {
         isGenerating: false,
         generationStartedAt: null,
         lastCliMessageAt: 0,
+        lastCliPingAt: 0,
         stuckNotifiedAt: null,
         lastReadAt: 0,
         attentionReason: null,
@@ -1612,14 +1629,42 @@ export class WsBridge {
     const session = this.sessions.get(sessionId);
     if (!session) return;
 
+    const now = Date.now();
     const wasGenerating = session.isGenerating;
     session.cliSocket = null;
     this.setGenerating(session, false, "cli_disconnect");
     const idleKilled = this.launcher?.getSession(sessionId)?.killedByIdleManager;
-    // Log close code/reason to diagnose whether CLI is initiating the disconnect
-    // (e.g., ping/pong timeout) vs server-side close. Common codes:
-    //   1000 = normal, 1001 = going away, 1006 = abnormal (no close frame), 1011 = unexpected
-    console.log(`[ws-bridge] CLI disconnected for session ${sessionTag(sessionId)}${idleKilled ? " (idle limit)" : ""} | code=${code ?? "?"} reason=${JSON.stringify(reason || "")} wasGenerating=${wasGenerating}`);
+
+    // Diagnostic: time since last CLI activity for disconnect analysis
+    const sinceLastMsg = session.lastCliMessageAt ? now - session.lastCliMessageAt : -1;
+    const sinceLastPing = session.lastCliPingAt ? now - session.lastCliPingAt : -1;
+
+    // Log close code/reason with diagnostic timing to help diagnose whether
+    // CLI is initiating the disconnect (ping/pong timeout) vs network drop.
+    // Common codes: 1000=normal, 1001=going away, 1006=abnormal (no close frame)
+    console.log(
+      `[ws-bridge] CLI disconnected for session ${sessionTag(sessionId)}${idleKilled ? " (idle limit)" : ""}` +
+      ` | code=${code ?? "?"} reason=${JSON.stringify(reason || "")}` +
+      ` wasGenerating=${wasGenerating}` +
+      ` sinceLastMsg=${sinceLastMsg > 0 ? `${(sinceLastMsg / 1000).toFixed(1)}s` : "n/a"}` +
+      ` sinceLastPing=${sinceLastPing > 0 ? `${(sinceLastPing / 1000).toFixed(1)}s` : "n/a"}`
+    );
+
+    // Mass disconnect detection: if multiple CLIs disconnect within 2 seconds,
+    // it's likely a network event rather than individual session issues.
+    this.recentCliDisconnects.push(now);
+    // Prune entries older than 2 seconds
+    while (this.recentCliDisconnects.length > 0 && now - this.recentCliDisconnects[0] > 2000) {
+      this.recentCliDisconnects.shift();
+    }
+    if (this.recentCliDisconnects.length >= 3) {
+      const span = now - this.recentCliDisconnects[0];
+      console.warn(
+        `[ws-bridge] ⚠ Mass CLI disconnect: ${this.recentCliDisconnects.length} CLIs dropped in ${span}ms` +
+        ` — likely a network event, not a per-session issue`
+      );
+    }
+
     this.broadcastToBrowsers(session, {
       type: "cli_disconnected",
       ...(idleKilled ? { reason: "idle_limit" as const } : {}),
@@ -1835,7 +1880,8 @@ export class WsBridge {
       }
 
       case "keep_alive":
-        // Silently consume keepalives
+        // Track keepalive timing for disconnect diagnostics
+        session.lastCliPingAt = Date.now();
         break;
 
       default:
