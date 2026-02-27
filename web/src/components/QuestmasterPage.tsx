@@ -1005,12 +1005,13 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
 
   // ─── Filtering ────────────────────────────────────────────────────────
 
-  // Layer 1: text search (case-insensitive on title + description)
+  // Layer 1: text search (case-insensitive on quest ID + title + description)
   // Strip any trailing #hashtag token from the search text
   const searchText = searchQuery.replace(/#[^\s]*$/, "").trim();
   const searchLower = searchText.toLowerCase();
   const afterSearch = searchLower
     ? quests.filter((q) => {
+        if (q.questId.toLowerCase().includes(searchLower)) return true;
         if (q.title.toLowerCase().includes(searchLower)) return true;
         if (q.description && q.description.toLowerCase().includes(searchLower))
           return true;
@@ -1720,7 +1721,7 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
                       </div>
                       <div className="flex items-center gap-2 mt-0.5">
                         <span className="text-[10px] text-cc-muted/50 shrink-0">
-                          {quest.questId}
+                          {renderSearchHighlight(quest.questId)}
                         </span>
                         {isInboxVerification && (
                           <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/25">

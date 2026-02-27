@@ -41,10 +41,17 @@ describe("applyQuestListFilters", () => {
     expect(result.map((q) => q.questId)).toEqual(["q-1"]);
   });
 
-  it("filters by free-text search in title and description", () => {
-    // Text search should be case-insensitive and include title/description.
+  it("filters by free-text search in quest id, title, and description", () => {
+    // Text search should be case-insensitive and include quest id/title/description.
     const result = applyQuestListFilters(quests, { text: "cli" });
     expect(result.map((q) => q.questId)).toEqual(["q-2"]);
+  });
+
+  it("matches quest ids from free-text search", () => {
+    // Users often paste quest IDs directly (for example q-3), so text search
+    // should match the questId field in addition to title/description.
+    const result = applyQuestListFilters(quests, { text: "Q-3" });
+    expect(result.map((q) => q.questId)).toEqual(["q-3"]);
   });
 
   it("combines multiple filters with AND semantics", () => {
@@ -57,4 +64,3 @@ describe("applyQuestListFilters", () => {
     expect(result.map((q) => q.questId)).toEqual(["q-3"]);
   });
 });
-

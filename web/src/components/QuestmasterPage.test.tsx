@@ -339,6 +339,22 @@ describe("QuestmasterPage verification inbox", () => {
     expect(within(dialog).getByText("ui")).toBeInTheDocument();
   });
 
+  it("filters quests by quest id from the search box", () => {
+    // Questmaster search should support direct quest-id lookup so users can
+    // jump to a known quest like q-2 without remembering the title text.
+    render(<QuestmasterPage />);
+
+    const searchInput = screen.getByPlaceholderText("Search or #tag...");
+
+    fireEvent.change(searchInput, { target: { value: "q-2" } });
+    expect(screen.getByText("Regular verification quest")).toBeInTheDocument();
+    expect(screen.queryByText("Inbox quest")).toBeNull();
+
+    fireEvent.change(searchInput, { target: { value: "Q-1" } });
+    expect(screen.getByText("Inbox quest")).toBeInTheDocument();
+    expect(screen.queryByText("Regular verification quest")).toBeNull();
+  });
+
   it("renders agent feedback with session label and opens that session on click", () => {
     mockState.quests = [{
       id: "q-8-v4",

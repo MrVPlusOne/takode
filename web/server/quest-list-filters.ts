@@ -48,11 +48,10 @@ export function applyQuestListFilters(
     }
 
     if (textQuery) {
-      const haystack = `${quest.title}\n${"description" in quest ? quest.description || "" : ""}`.toLowerCase();
+      const haystack = `${quest.questId}\n${quest.title}\n${"description" in quest ? quest.description || "" : ""}`.toLowerCase();
       if (!haystack.includes(textQuery)) return false;
     }
 
     return true;
   });
 }
-
