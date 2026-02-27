@@ -2093,7 +2093,6 @@ export function createRoutes(
     if (body.autoNamerEnabled !== undefined && typeof body.autoNamerEnabled !== "boolean") {
       return c.json({ error: "autoNamerEnabled must be a boolean" }, 400);
     }
-    }
 
     // Check that at least one known field is present
     const knownFields = [
