@@ -140,6 +140,22 @@ function isVerificationInboxUnread(quest: QuestmasterTask): boolean {
   );
 }
 
+function getQuestOwnerSessionId(quest: QuestmasterTask): string | null {
+  if ("sessionId" in quest && typeof quest.sessionId === "string") {
+    const active = quest.sessionId.trim();
+    if (active) return active;
+  }
+  const previous = (quest as { previousOwnerSessionIds?: unknown }).previousOwnerSessionIds;
+  if (!Array.isArray(previous) || previous.length === 0) return null;
+  for (let i = previous.length - 1; i >= 0; i--) {
+    const sid = previous[i];
+    if (typeof sid !== "string") continue;
+    const trimmed = sid.trim();
+    if (trimmed) return trimmed;
+  }
+  return null;
+}
+
 type EditorTarget = "newTitle" | "newDescription" | "editTitle" | "editDescription";
 
 function extractHashtags(text: string): string[] {
@@ -573,6 +589,10 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
           .map((q) => (q.questId === updatedQuest.questId ? updatedQuest : q))
           .sort((a, b) => b.createdAt - a.createdAt),
       );
+      if (status === "done") {
+        setExpandedId(null);
+        setEditingId(null);
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -1693,7 +1713,7 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
                 : null;
               const description = "description" in quest ? quest.description : undefined;
               const questNotes = "notes" in quest ? (quest as { notes?: string }).notes : undefined;
-              const questSessionId = "sessionId" in quest ? (quest as { sessionId: string }).sessionId : null;
+              const questSessionId = getQuestOwnerSessionId(quest);
               const isKnownSession = questSessionId ? sdkSessions.some((s) => s.sessionId === questSessionId) : false;
               const questSessionName = questSessionId ? (sessionNames.get(questSessionId) || (isKnownSession ? questSessionId.slice(0, 8) : questSessionId)) : null;
               const feedbackEntries = "feedback" in quest ? (quest as { feedback?: QuestFeedbackEntry[] }).feedback : undefined;

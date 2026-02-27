@@ -6,6 +6,7 @@ import { buildQuestReworkDraft } from "./quest-rework.js";
 
 const mockMarkQuestVerificationRead = vi.fn();
 const mockMarkQuestVerificationInbox = vi.fn();
+const mockTransitionQuest = vi.fn();
 const mockNavigateToSession = vi.fn();
 
 vi.mock("../api.js", () => ({
@@ -14,6 +15,8 @@ vi.mock("../api.js", () => ({
       mockMarkQuestVerificationRead(...args),
     markQuestVerificationInbox: (...args: unknown[]) =>
       mockMarkQuestVerificationInbox(...args),
+    transitionQuest: (...args: unknown[]) =>
+      mockTransitionQuest(...args),
     questImageUrl: (id: string) => `/api/quests/_images/${id}`,
   },
 }));
@@ -166,6 +169,28 @@ beforeEach(() => {
     if (!quest || quest.status !== "needs_verification") throw new Error("quest not found");
     return { ...quest, verificationInboxUnread: true } as QuestmasterTask;
   });
+  mockTransitionQuest.mockImplementation(
+    async (questId: string, input: { status: "done" | "idea" | "refined" | "in_progress" | "needs_verification" }) => {
+      const quest = mockState.quests.find((q) => q.questId === questId);
+      if (!quest) throw new Error("quest not found");
+      if (input.status !== "done") return { ...quest, status: input.status } as QuestmasterTask;
+      const currentSessionId =
+        "sessionId" in quest && typeof quest.sessionId === "string" ? quest.sessionId : undefined;
+      const previousOwners = Array.isArray((quest as { previousOwnerSessionIds?: string[] }).previousOwnerSessionIds)
+        ? [...((quest as { previousOwnerSessionIds?: string[] }).previousOwnerSessionIds ?? [])]
+        : [];
+      if (currentSessionId && !previousOwners.includes(currentSessionId)) previousOwners.push(currentSessionId);
+      return {
+        ...quest,
+        id: `${quest.questId}-v${quest.version + 1}`,
+        version: quest.version + 1,
+        status: "done",
+        completedAt: Date.now(),
+        previousOwnerSessionIds: previousOwners,
+        sessionId: undefined,
+      } as QuestmasterTask;
+    },
+  );
   window.location.hash = "#/questmaster";
 });
 
@@ -318,6 +343,40 @@ describe("QuestmasterPage verification inbox", () => {
 
     expect(reworkButtons).toHaveLength(1);
     expect(reworkButtons[0].parentElement).toBe(finishButton.parentElement);
+  });
+
+  it("clicking Finish Quest closes the quest details modal", async () => {
+    window.location.hash = "#/questmaster?quest=q-1";
+    render(<QuestmasterPage />);
+
+    const dialog = screen.getByRole("dialog", { name: /Quest details: Inbox quest/ });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Finish Quest" }));
+
+    await waitFor(() => {
+      expect(mockTransitionQuest).toHaveBeenCalledWith("q-1", { status: "done" });
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: /Quest details: Inbox quest/ })).toBeNull();
+    });
+  });
+
+  it("shows previous owner session info for done quests", () => {
+    mockState.quests = [{
+      id: "q-9-v5",
+      questId: "q-9",
+      version: 5,
+      title: "Completed quest",
+      createdAt: Date.now(),
+      status: "done",
+      description: "Done",
+      verificationItems: [{ text: "checked", checked: true }],
+      completedAt: Date.now(),
+      previousOwnerSessionIds: ["session-1"],
+    } as QuestmasterTask];
+    window.location.hash = "#/questmaster?quest=q-9";
+    render(<QuestmasterPage />);
+
+    expect(screen.getAllByText("Session One").length).toBeGreaterThan(0);
   });
 
   it("disables Rework when all human feedback is addressed", () => {
