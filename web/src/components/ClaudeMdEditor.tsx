@@ -203,7 +203,7 @@ export function ClaudeMdEditor({ cwd, repoRoot, open, initialView = "file", init
         </div>
 
         {/* Body */}
-        <div className="flex-1 flex min-h-0">
+        <div data-testid="claude-md-editor-body" className="flex-1 flex flex-col sm:flex-row min-h-0">
           {loading ? (
             <div className="flex-1 flex items-center justify-center">
               <YarnBallSpinner className="w-5 h-5 text-cc-primary" />

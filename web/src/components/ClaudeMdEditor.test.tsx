@@ -105,6 +105,29 @@ describe("ClaudeMdEditor", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
+  it("uses stacked mobile layout for the modal body", async () => {
+    mockApi.getClaudeMdFiles.mockResolvedValue({
+      cwd: "/repo",
+      files: [{ path: "/repo/CLAUDE.md", content: "root file", writable: true }],
+    });
+
+    render(
+      <ClaudeMdEditor
+        cwd="/repo"
+        open
+        onClose={() => {}}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("Write your project instructions here...")).toBeTruthy();
+    });
+
+    const body = screen.getByTestId("claude-md-editor-body");
+    expect(body.className).toContain("flex-col");
+    expect(body.className).toContain("sm:flex-row");
+  });
+
   it("opens directly in auto-approval view when requested", async () => {
     mockApi.getClaudeMdFiles.mockResolvedValue({
       cwd: "/repo",
