@@ -946,6 +946,120 @@ async function handleSend(base: string, args: string[]): Promise<void> {
   console.log(`[${formatTime(Date.now())}] \u2713 Message sent to session ${sessionRef}`);
 }
 
+// ─── Search handler ──────────────────────────────────────────────────────────
+
+async function handleSearch(base: string, args: string[]): Promise<void> {
+  const query = args.filter(a => !a.startsWith("--")).join(" ").trim();
+  if (!query) err("Usage: takode search <query> [--all] [--json]");
+
+  const flags = parseFlags(args);
+  const showAll = flags.all === true;
+  const jsonMode = flags.json === true;
+
+  const sessions = await apiGet(base, "/sessions") as Array<{
+    sessionId: string;
+    sessionNum?: number;
+    name?: string;
+    state: string;
+    archived?: boolean;
+    cwd: string;
+    createdAt: number;
+    lastActivityAt?: number;
+    backendType?: string;
+    cliConnected?: boolean;
+    lastMessagePreview?: string;
+    gitBranch?: string;
+    isWorktree?: boolean;
+    isOrchestrator?: boolean;
+    isAssistant?: boolean;
+    repoRoot?: string;
+    taskHistory?: Array<{ title: string }>;
+    keywords?: string[];
+  }>;
+
+  // Filter active sessions unless --all
+  const pool = showAll ? sessions : sessions.filter(s => !s.archived && s.state !== "exited");
+
+  // Search across multiple fields (same algorithm as browser sidebar)
+  const q = query.toLowerCase();
+  const results: Array<{ session: typeof pool[0]; matchContext: string }> = [];
+
+  for (const s of pool) {
+    // 1. Session name
+    if (s.name?.toLowerCase().includes(q)) {
+      results.push({ session: s, matchContext: `name match` });
+      continue;
+    }
+
+    // 2. Task history titles
+    const matchedTask = s.taskHistory?.find(t => t.title.toLowerCase().includes(q));
+    if (matchedTask) {
+      results.push({ session: s, matchContext: `task: ${matchedTask.title}` });
+      continue;
+    }
+
+    // 3. Keywords
+    const matchedKw = s.keywords?.find(kw => kw.toLowerCase().includes(q));
+    if (matchedKw) {
+      results.push({ session: s, matchContext: `keyword: ${matchedKw}` });
+      continue;
+    }
+
+    // 4. Git branch
+    if (s.gitBranch?.toLowerCase().includes(q)) {
+      results.push({ session: s, matchContext: `branch: ${s.gitBranch}` });
+      continue;
+    }
+
+    // 5. Last message preview
+    if (s.lastMessagePreview?.toLowerCase().includes(q)) {
+      results.push({ session: s, matchContext: `message: "${truncate(s.lastMessagePreview, 50)}"` });
+      continue;
+    }
+
+    // 6. Working directory
+    if (s.cwd?.toLowerCase().includes(q)) {
+      results.push({ session: s, matchContext: `path: ${s.cwd}` });
+      continue;
+    }
+
+    // 7. Repo root
+    if (s.repoRoot?.toLowerCase().includes(q)) {
+      results.push({ session: s, matchContext: `repo: ${s.repoRoot}` });
+      continue;
+    }
+  }
+
+  if (jsonMode) {
+    console.log(JSON.stringify(results.map(r => ({
+      ...r.session,
+      matchContext: r.matchContext,
+    })), null, 2));
+    return;
+  }
+
+  if (results.length === 0) {
+    console.log(`No sessions matching "${query}".`);
+    return;
+  }
+
+  console.log(`${results.length} session(s) matching "${query}":`);
+  console.log("");
+
+  for (const { session: s, matchContext } of results) {
+    const num = s.sessionNum !== undefined ? `#${s.sessionNum}` : "  ";
+    const name = s.name || "(unnamed)";
+    const status = s.cliConnected
+      ? (s.state === "running" ? "●" : "○")
+      : (s.archived ? "⊘" : "✗");
+    const activity = s.lastActivityAt ? formatRelativeTime(s.lastActivityAt) : "";
+
+    console.log(`  ${num.padEnd(5)} ${status} ${name}`);
+    console.log(`        ${matchContext}  ${activity}`);
+    console.log("");
+  }
+}
+
 // ─── Main dispatch ──────────────────────────────────────────────────────────
 
 function printUsage(): void {
@@ -954,6 +1068,7 @@ Usage: takode <command> [options]
 
 Commands:
   list     List sessions (active by default, --all for all)
+  search   Search sessions by name, keyword, branch, path, or message
   watch    Wait for events from watched sessions
   tasks    Show task outline of a session (table of contents)
   peek     View session activity (smart overview by default)
@@ -973,6 +1088,8 @@ Global options:
 Examples:
   takode list
   takode list --all
+  takode search "auth"
+  takode search "jwt" --all
   takode tasks 1
   takode watch --sessions 1,2,3
   takode peek 1
@@ -1000,6 +1117,9 @@ try {
   switch (command) {
     case "list":
       await handleList(base, args);
+      break;
+    case "search":
+      await handleSearch(base, args);
       break;
     case "watch":
       await handleWatch(base, args);

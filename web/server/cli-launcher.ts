@@ -1160,6 +1160,87 @@ ${MARKER_END}`;
   }
 
   /**
+   * Inject orchestrator identity and instructions into .claude/CLAUDE.md.
+   * Uses marker-based injection (same pattern as worktree guardrails).
+   * Called before CLI launch when body.role === "orchestrator".
+   */
+  async injectOrchestratorGuardrails(cwd: string, port: number): Promise<void> {
+    const ORCH_START = "<!-- ORCHESTRATOR_GUARDRAILS_START -->";
+    const ORCH_END = "<!-- ORCHESTRATOR_GUARDRAILS_END -->";
+
+    const guardrails = `${ORCH_START}
+# Orchestrator Session
+
+You are an **orchestrator agent** managed by The Companion (Takode). Your role is to coordinate multiple worker sessions, monitor their progress, and decide when to intervene or notify the human.
+
+## Orchestrator Identity
+
+- **TAKODE_ROLE=orchestrator** is set in your environment
+- **TAKODE_API_PORT=${port}** — the Companion server port
+- The \`takode\` CLI is available at \`~/.companion/bin/takode\`
+
+## Available Commands
+
+| Command | Description |
+|---|---|
+| \`takode list\` | List all sessions with status, name, branch |
+| \`takode tasks <session>\` | Show task outline (table of contents) of a session |
+| \`takode peek <session>\` | Smart overview: collapsed turns + expanded last turn |
+| \`takode peek <session> --from N\` | Browse messages starting at index N |
+| \`takode peek <session> --task N\` | Browse a specific task's messages |
+| \`takode read <session> <msg-id>\` | Read full content of a specific message |
+| \`takode send <session> <message>\` | Send a message to a worker session |
+| \`takode watch --sessions 1,2\` | Block and wait for events from sessions |
+
+## Orchestration Workflow
+
+1. **\`takode list\`** — Discover sessions and their \`#N\` IDs
+2. **\`takode tasks N\`** — Get the table of contents for a session
+3. **\`takode peek N\`** — See recent activity (collapsed + expanded last turn)
+4. **\`takode peek N --from M\`** — Browse earlier messages by index
+5. **\`takode read N M\`** — Read full content of a specific message
+6. **\`takode send N "message"\`** — Send instructions to a worker
+
+For long-running monitoring, use the event loop pattern:
+\`\`\`
+takode watch --sessions 1,2,3 --timeout 120
+# Process returned events, then watch again
+\`\`\`
+
+## Tips
+
+- Use \`takode tasks\` first when investigating an unfamiliar session
+- Default \`peek\` shows a compact overview — use \`--from\` to browse history
+- Use \`read\` only when \`peek\` truncation hides important details
+- The \`quest\` CLI is also available for cross-session task tracking
+${ORCH_END}`;
+
+    const claudeDir = join(cwd, ".claude");
+    const claudeMdPath = join(claudeDir, "CLAUDE.md");
+
+    await mkdir(claudeDir, { recursive: true });
+
+    try {
+      const existing = await readFile(claudeMdPath, "utf-8");
+      // Replace existing orchestrator guardrails or append
+      const startIdx = existing.indexOf(ORCH_START);
+      const endIdx = existing.indexOf(ORCH_END);
+      if (startIdx >= 0 && endIdx >= 0) {
+        const before = existing.slice(0, startIdx);
+        const after = existing.slice(endIdx + ORCH_END.length);
+        await writeFile(claudeMdPath, before.trimEnd() + "\n\n" + guardrails + "\n" + after.trimStart());
+      } else {
+        await writeFile(claudeMdPath, existing.trimEnd() + "\n\n" + guardrails + "\n");
+      }
+    } catch {
+      // File doesn't exist — create with just guardrails
+      await writeFile(claudeMdPath, guardrails + "\n");
+    }
+
+    console.log(`[cli-launcher] Injected orchestrator guardrails into ${claudeMdPath}`);
+  }
+
+  /**
    * Add an entry to the worktree-local .git/info/exclude file.
    * This is a local-only gitignore that doesn't modify the repo's .gitignore.
    */

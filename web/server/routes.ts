@@ -424,6 +424,11 @@ export function createRoutes(
       const codexReasoningEffort = backend === "codex" && typeof body.codexReasoningEffort === "string"
         ? (body.codexReasoningEffort.trim() || undefined)
         : undefined;
+      // Inject orchestrator guardrails into .claude/CLAUDE.md before launch
+      if (body.role === "orchestrator" && cwd) {
+        await launcher.injectOrchestratorGuardrails(cwd, launcher.getPort());
+      }
+
       const binarySettings = getSettings();
       const session = await launcher.launch({
         model,
@@ -902,6 +907,11 @@ export function createRoutes(
         const codexReasoningEffort = backend === "codex" && typeof body.codexReasoningEffort === "string"
           ? (body.codexReasoningEffort.trim() || undefined)
           : undefined;
+        // Inject orchestrator guardrails into .claude/CLAUDE.md before launch
+        if (body.role === "orchestrator" && cwd) {
+          await launcher.injectOrchestratorGuardrails(cwd, launcher.getPort());
+        }
+
         const streamBinarySettings = getSettings();
         const session = await launcher.launch({
           model,

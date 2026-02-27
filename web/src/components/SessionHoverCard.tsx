@@ -129,8 +129,13 @@ export function SessionHoverCard({
         {/* Header: Name + Status */}
         <div className="px-4 pt-3 pb-2">
           <div className="flex items-center justify-between gap-2">
-            <span className="text-[14px] font-semibold text-cc-fg leading-snug break-words min-w-0">
-              {label}
+            <span className="flex items-center gap-1.5 min-w-0">
+              <span className="text-[14px] font-semibold text-cc-fg leading-snug break-words min-w-0">
+                {label}
+              </span>
+              {s.sessionNum != null && (
+                <span className="text-[10px] font-mono text-cc-muted/60 shrink-0">#{s.sessionNum}</span>
+              )}
             </span>
             <span className="flex items-center gap-1.5 shrink-0">
               <span className={`w-2 h-2 rounded-full ${statusDotClass}`} />
@@ -151,6 +156,12 @@ export function SessionHoverCard({
               <>
                 <span className="text-cc-muted/40 text-[10px]">&middot;</span>
                 <span className="text-[11px] text-violet-500 font-medium">Cron</span>
+              </>
+            )}
+            {s.isOrchestrator && (
+              <>
+                <span className="text-cc-muted/40 text-[10px]">&middot;</span>
+                <span className="text-[11px] text-amber-500 font-medium">Orchestrator</span>
               </>
             )}
           </div>

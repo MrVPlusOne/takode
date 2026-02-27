@@ -81,6 +81,20 @@ takode list --all
 
 Output shows session number (#N), status, name, role, model, branch, and last activity. Use the session number (#N) in all other commands.
 
+### \`takode search <query> [--all] [--json]\`
+
+Search sessions by name, keyword, task title, branch, message, or path.
+
+\`\`\`bash
+# Search for sessions related to "auth"
+takode search auth
+
+# Search including archived sessions
+takode search jwt --all
+\`\`\`
+
+Searches across: session name, task history titles, auto-extracted keywords, git branch, last message preview, working directory, and repo root.
+
 ### \`takode watch --sessions <ids> [--timeout <secs>] [--since <cursor>] [--json]\`
 
 Block and wait for events from specific sessions. Returns when events arrive or timeout (default 120s).

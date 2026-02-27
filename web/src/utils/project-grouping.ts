@@ -28,6 +28,8 @@ export interface SessionItem {
   askPermission?: boolean;
   idleKilled?: boolean;
   lastActivityAt?: number;
+  isOrchestrator?: boolean;
+  sessionNum?: number | null;
 }
 
 export interface ProjectGroup {

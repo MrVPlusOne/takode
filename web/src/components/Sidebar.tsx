@@ -380,6 +380,8 @@ export function Sidebar() {
       askPermission: askPermissionMap?.get(id),
       idleKilled: cliDisconnectReason.get(id) === "idle_limit",
       lastActivityAt: sdkInfo?.lastActivityAt,
+      isOrchestrator: sdkInfo?.isOrchestrator || false,
+      sessionNum: sdkInfo?.sessionNum ?? null,
     };
   }).sort((a, b) => b.createdAt - a.createdAt);
 

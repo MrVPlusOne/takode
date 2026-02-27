@@ -110,6 +110,10 @@ export interface SdkSessionInfo {
   worktreeDirty?: boolean;
   /** Whether this is an assistant-mode session */
   isAssistant?: boolean;
+  /** Whether this is an orchestrator session (has takode CLI access) */
+  isOrchestrator?: boolean;
+  /** Short integer session ID (e.g. #5), stable across restarts */
+  sessionNum?: number | null;
   /** Server-authoritative attention state */
   attentionReason?: "action" | "error" | "review" | null;
   /** Epoch ms when user last viewed this session */

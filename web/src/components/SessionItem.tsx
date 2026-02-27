@@ -257,6 +257,14 @@ export function SessionItem({
                     Cron
                   </span>
                 )}
+                {s.isOrchestrator && (
+                  <span className="text-[9px] font-medium px-1.5 rounded-full leading-[16px] shrink-0 text-amber-500 bg-amber-500/10" title="Orchestrator session">
+                    orch
+                  </span>
+                )}
+                {s.sessionNum != null && (
+                  <span className="text-[9px] font-mono text-cc-muted/60 shrink-0">#{s.sessionNum}</span>
+                )}
                 {s.gitBranch && (
                   <>
                     {s.isWorktree ? (
