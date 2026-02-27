@@ -6,11 +6,16 @@ interface MockStoreState {
   darkMode: boolean;
   notificationSound: boolean;
   notificationDesktop: boolean;
+  showUsageBars: boolean;
+  zoomLevel: number;
   currentSessionId: string | null;
   sdkSessions: Array<{ sessionId: string; createdAt: number; archived?: boolean; cronJobId?: string }>;
   toggleDarkMode: ReturnType<typeof vi.fn>;
   toggleNotificationSound: ReturnType<typeof vi.fn>;
   setNotificationDesktop: ReturnType<typeof vi.fn>;
+  toggleShowUsageBars: ReturnType<typeof vi.fn>;
+  setZoomLevel: ReturnType<typeof vi.fn>;
+  setServerRestarting: ReturnType<typeof vi.fn>;
 }
 
 let mockState: MockStoreState;
@@ -20,11 +25,16 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
     darkMode: false,
     notificationSound: true,
     notificationDesktop: false,
+    showUsageBars: false,
+    zoomLevel: 1.0,
     currentSessionId: null,
     sdkSessions: [],
     toggleDarkMode: vi.fn(),
     toggleNotificationSound: vi.fn(),
     setNotificationDesktop: vi.fn(),
+    toggleShowUsageBars: vi.fn(),
+    setZoomLevel: vi.fn(),
+    setServerRestarting: vi.fn(),
     ...overrides,
   };
 }
@@ -73,6 +83,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockState = createMockState();
   window.location.hash = "#/settings";
+  // Clear collapse and scroll state between tests
+  localStorage.removeItem("cc-settings-collapsed");
+  localStorage.removeItem("cc-settings-scroll");
   mockApi.getSettings.mockResolvedValue({
     serverName: "",
     serverId: "test-id",
@@ -103,7 +116,7 @@ describe("SettingsPage", () => {
     render(<SettingsPage />);
 
     expect(mockApi.getSettings).toHaveBeenCalledTimes(1);
-    // Wait for loading to complete — Notifications heading is always visible
+    // Wait for loading to complete — section headings are visible
     await screen.findByText("Notifications");
   });
 
@@ -150,7 +163,7 @@ describe("SettingsPage", () => {
     render(<SettingsPage />);
     await screen.findByText("Notifications");
 
-    fireEvent.click(screen.getByRole("button", { name: "Open Environments Page" }));
+    fireEvent.click(screen.getByRole("button", { name: "Manage Environments" }));
     expect(window.location.hash).toBe("#/environments");
   });
 
@@ -185,5 +198,72 @@ describe("SettingsPage", () => {
     render(<SettingsPage />);
     // NamerDebugPanel renders the "Session Namer Debug" heading
     expect(await screen.findByText("Session Namer Debug")).toBeInTheDocument();
+  });
+
+  // ── Collapsible section tests ──────────────────────────────────────────────
+
+  it("collapses a section when header is clicked", async () => {
+    render(<SettingsPage />);
+    await screen.findByText("Notifications");
+
+    // Sound toggle should be visible initially
+    expect(screen.getByRole("button", { name: /Sound/i })).toBeInTheDocument();
+
+    // Click the Notifications section header to collapse it
+    fireEvent.click(screen.getByText("Notifications"));
+
+    // Sound toggle should be hidden after collapsing
+    expect(screen.queryByRole("button", { name: /Sound/i })).not.toBeInTheDocument();
+  });
+
+  it("expands a collapsed section when header is clicked again", async () => {
+    render(<SettingsPage />);
+    await screen.findByText("Notifications");
+
+    // Collapse
+    fireEvent.click(screen.getByText("Notifications"));
+    expect(screen.queryByRole("button", { name: /Sound/i })).not.toBeInTheDocument();
+
+    // Expand
+    fireEvent.click(screen.getByText("Notifications"));
+    expect(screen.getByRole("button", { name: /Sound/i })).toBeInTheDocument();
+  });
+
+  it("persists collapse state to localStorage", async () => {
+    render(<SettingsPage />);
+    await screen.findByText("Notifications");
+
+    // Collapse the notifications section
+    fireEvent.click(screen.getByText("Notifications"));
+
+    // Verify localStorage was updated
+    const stored = JSON.parse(localStorage.getItem("cc-settings-collapsed") || "[]");
+    expect(stored).toContain("notifications");
+  });
+
+  it("restores collapse state from localStorage on mount", async () => {
+    // Pre-set collapse state
+    localStorage.setItem("cc-settings-collapsed", JSON.stringify(["notifications"]));
+
+    render(<SettingsPage />);
+    await screen.findByText("Appearance & Display"); // wait for render
+
+    // Notifications section should be collapsed — Sound toggle not visible
+    expect(screen.queryByRole("button", { name: /Sound/i })).not.toBeInTheDocument();
+    // But the section heading should still be visible
+    expect(screen.getByText("Notifications")).toBeInTheDocument();
+  });
+
+  it("renders all 7 section headings", async () => {
+    render(<SettingsPage />);
+    await screen.findByText("Notifications");
+
+    expect(screen.getByText("Appearance & Display")).toBeInTheDocument();
+    expect(screen.getByText("Notifications")).toBeInTheDocument();
+    expect(screen.getByText("CLI & Backends")).toBeInTheDocument();
+    expect(screen.getByText("Sessions")).toBeInTheDocument();
+    expect(screen.getByText("Push Notifications (Pushover)")).toBeInTheDocument();
+    expect(screen.getByText("Auto-Approval (LLM)")).toBeInTheDocument();
+    expect(screen.getByText("Server & Diagnostics")).toBeInTheDocument();
   });
 });

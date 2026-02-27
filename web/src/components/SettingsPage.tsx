@@ -3,9 +3,12 @@ import { api, checkHealth, type ImportStats, type AutoApprovalConfig } from "../
 import { useStore } from "../store.js";
 import { NamerDebugPanel } from "./NamerDebugPanel.js";
 import { AutoApprovalDebugPanel } from "./AutoApprovalDebugPanel.js";
+import { CollapsibleSection } from "./CollapsibleSection.js";
 import { FolderPicker } from "./FolderPicker.js";
 
 import { navigateToSession, navigateToMostRecentSession } from "../utils/routing.js";
+
+const SCROLL_STORAGE_KEY = "cc-settings-scroll";
 
 interface SettingsPageProps {
   embedded?: boolean;
@@ -79,6 +82,7 @@ export function SettingsPage({ embedded = false }: SettingsPageProps) {
 
   // Session export/import state
   const importInputRef = useRef<HTMLInputElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importStep, setImportStep] = useState("");
@@ -112,6 +116,32 @@ export function SettingsPage({ embedded = false }: SettingsPageProps) {
       .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
     loadAutoApprovalConfigs();
+  }, []);
+
+  // Restore scroll position on mount, save on scroll (debounced) and unmount
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    try {
+      const saved = localStorage.getItem(SCROLL_STORAGE_KEY);
+      if (saved) el.scrollTop = JSON.parse(saved);
+    } catch { /* ignore corrupt data */ }
+
+    let timeout: ReturnType<typeof setTimeout>;
+    const onScroll = () => {
+      clearTimeout(timeout);
+      timeout = setTimeout(() => {
+        localStorage.setItem(SCROLL_STORAGE_KEY, JSON.stringify(el.scrollTop));
+      }, 300);
+    };
+
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      clearTimeout(timeout);
+      localStorage.setItem(SCROLL_STORAGE_KEY, JSON.stringify(el.scrollTop));
+    };
   }, []);
 
   async function onSavePushover(e: React.FormEvent) {
@@ -296,9 +326,9 @@ export function SettingsPage({ embedded = false }: SettingsPageProps) {
   }
 
   return (
-    <div className={`${embedded ? "h-full" : "h-[100dvh]"} bg-cc-bg text-cc-fg font-sans-ui antialiased overflow-y-auto`}>
-      <div className="max-w-5xl mx-auto px-4 sm:px-8 py-6 sm:py-10">
-        <div className="flex items-start justify-between gap-3 mb-6">
+    <div ref={scrollRef} className={`${embedded ? "h-full" : "h-[100dvh]"} bg-cc-bg text-cc-fg font-sans-ui antialiased overflow-y-auto`}>
+      <div className="max-w-5xl mx-auto px-4 sm:px-8 py-6 sm:py-10 space-y-4">
+        <div className="flex items-start justify-between gap-3 mb-2">
           <div>
             <h1 className="text-xl font-semibold text-cc-fg">Settings</h1>
             <p className="mt-1 text-sm text-cc-muted">
@@ -323,13 +353,63 @@ export function SettingsPage({ embedded = false }: SettingsPageProps) {
         </div>
 
         {error && (
-          <div className="mb-4 px-3 py-2 rounded-lg bg-cc-error/10 border border-cc-error/20 text-xs text-cc-error">
+          <div className="px-3 py-2 rounded-lg bg-cc-error/10 border border-cc-error/20 text-xs text-cc-error">
             {error}
           </div>
         )}
 
-        <div className="bg-cc-card border border-cc-border rounded-xl p-4 sm:p-5 space-y-3">
-          <h2 className="text-sm font-semibold text-cc-fg">Notifications</h2>
+        {/* ── 1. Appearance & Display ──────────────────────────── */}
+        <CollapsibleSection id="appearance" title="Appearance & Display">
+          <button
+            type="button"
+            onClick={toggleDarkMode}
+            className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm bg-cc-hover text-cc-fg hover:bg-cc-active transition-colors cursor-pointer"
+          >
+            <span>Theme</span>
+            <span className="text-xs text-cc-muted">{darkMode ? "Dark" : "Light"}</span>
+          </button>
+          <div className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm bg-cc-hover text-cc-fg">
+            <span>Zoom</span>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setZoomLevel(zoomLevel - 0.1)}
+                disabled={zoomLevel <= 0.2}
+                className="w-6 h-6 flex items-center justify-center rounded text-xs font-medium hover:bg-cc-active transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                −
+              </button>
+              <input
+                type="text"
+                value={Math.round(zoomLevel * 100) + "%"}
+                onChange={(e) => {
+                  const num = parseInt(e.target.value.replace(/[^0-9]/g, ""), 10);
+                  if (!isNaN(num)) setZoomLevel(num / 100);
+                }}
+                className="w-12 text-center text-xs text-cc-muted bg-transparent border border-cc-border rounded px-1 py-0.5 focus:outline-none focus:border-cc-primary/60"
+              />
+              <button
+                type="button"
+                onClick={() => setZoomLevel(zoomLevel + 0.1)}
+                disabled={zoomLevel >= 4.0}
+                className="w-6 h-6 flex items-center justify-center rounded text-xs font-medium hover:bg-cc-active transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                +
+              </button>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={toggleShowUsageBars}
+            className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm bg-cc-hover text-cc-fg hover:bg-cc-active transition-colors cursor-pointer"
+          >
+            <span>Usage Bars in Sidebar</span>
+            <span className="text-xs text-cc-muted">{showUsageBars ? "On" : "Off"}</span>
+          </button>
+        </CollapsibleSection>
+
+        {/* ── 2. Notifications ─────────────────────────────────── */}
+        <CollapsibleSection id="notifications" title="Notifications">
           <button
             type="button"
             onClick={toggleNotificationSound}
@@ -358,67 +438,16 @@ export function SettingsPage({ embedded = false }: SettingsPageProps) {
               <span className="text-xs text-cc-muted">{notificationDesktop ? "On" : "Off"}</span>
             </button>
           )}
-        </div>
+        </CollapsibleSection>
 
-        <div className="mt-4 bg-cc-card border border-cc-border rounded-xl p-4 sm:p-5 space-y-3">
-          <h2 className="text-sm font-semibold text-cc-fg">Display</h2>
-          <button
-            type="button"
-            onClick={toggleShowUsageBars}
-            className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm bg-cc-hover text-cc-fg hover:bg-cc-active transition-colors cursor-pointer"
-          >
-            <span>Usage Bars in Sidebar</span>
-            <span className="text-xs text-cc-muted">{showUsageBars ? "On" : "Off"}</span>
-          </button>
-        </div>
-
-        <div className="mt-4 bg-cc-card border border-cc-border rounded-xl p-4 sm:p-5 space-y-3">
-          <div>
-            <h2 className="text-sm font-semibold text-cc-fg">Server</h2>
-            <p className="mt-1 text-xs text-cc-muted">
-              Restart the server process. Useful after pulling new code.
-              Sessions will reconnect automatically.
-            </p>
-          </div>
-
-          {!restartSupported && (
-            <div className="px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-600 dark:text-amber-400">
-              Restart not available. Start the server with <code className="font-mono bg-cc-hover px-1 py-0.5 rounded">make dev</code> or <code className="font-mono bg-cc-hover px-1 py-0.5 rounded">make serve</code> to enable.
-            </div>
-          )}
-
-          {restartError && (
-            <div className="px-3 py-2 rounded-lg bg-cc-error/10 border border-cc-error/20 text-xs text-cc-error">
-              {restartError}
-            </div>
-          )}
-
-          <button
-            type="button"
-            onClick={onRestartServer}
-            disabled={restarting || !restartSupported}
-            className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-              restarting || !restartSupported
-                ? "bg-cc-hover text-cc-muted cursor-not-allowed"
-                : "bg-cc-primary hover:bg-cc-primary-hover text-white cursor-pointer"
-            }`}
-          >
-            {restarting ? "Restarting..." : "Restart Server"}
-          </button>
-        </div>
-
-        <form
+        {/* ── 3. CLI & Backends ────────────────────────────────── */}
+        <CollapsibleSection
+          id="cli"
+          title="CLI & Backends"
+          description="Custom path or command for backend CLIs. Leave empty to auto-detect from PATH. New sessions use this immediately; existing sessions pick it up on relaunch."
+          as="form"
           onSubmit={onSaveBinaries}
-          className="mt-4 bg-cc-card border border-cc-border rounded-xl p-4 sm:p-5 space-y-4"
         >
-          <div>
-            <h2 className="text-sm font-semibold text-cc-fg">CLI Binaries</h2>
-            <p className="mt-1 text-xs text-cc-muted">
-              Custom path or command for backend CLIs. Leave empty to auto-detect from PATH.
-              New sessions use this immediately; existing sessions pick it up on relaunch.
-            </p>
-          </div>
-
           <div>
             <label className="block text-sm font-medium mb-1.5" htmlFor="claude-binary">
               Claude Code
@@ -501,7 +530,16 @@ export function SettingsPage({ embedded = false }: SettingsPageProps) {
             </div>
           )}
 
-          <div className="flex justify-end">
+          <div className="flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => {
+                window.location.hash = "#/environments";
+              }}
+              className="px-3 py-2 rounded-lg text-sm font-medium bg-cc-hover text-cc-fg hover:bg-cc-active transition-colors cursor-pointer"
+            >
+              Manage Environments
+            </button>
             <button
               type="submit"
               disabled={binSaving || loading}
@@ -514,78 +552,154 @@ export function SettingsPage({ embedded = false }: SettingsPageProps) {
               {binSaving ? "Saving..." : "Save"}
             </button>
           </div>
-        </form>
+        </CollapsibleSection>
 
-        <form
-          onSubmit={onSaveLifecycle}
-          className="mt-4 bg-cc-card border border-cc-border rounded-xl p-4 sm:p-5 space-y-4"
-        >
-          <div>
-            <h2 className="text-sm font-semibold text-cc-fg">Session Lifecycle</h2>
-            <p className="mt-1 text-xs text-cc-muted">
-              Limit how many CLI processes stay alive. Oldest idle sessions are
-              killed first when the limit is exceeded. Busy sessions are never killed.
-              Killed sessions can be relaunched from the sidebar context menu.
-            </p>
-          </div>
+        {/* ── 4. Sessions ──────────────────────────────────────── */}
+        <CollapsibleSection id="sessions" title="Sessions">
+          {/* Session Lifecycle (inner form — Sessions group contains two sub-sections) */}
+          <form onSubmit={onSaveLifecycle} className="space-y-3">
+            <div>
+              <label className="block text-sm font-medium mb-1.5" htmlFor="max-keep-alive">
+                Max Keep-Alive
+              </label>
+              <input
+                id="max-keep-alive"
+                type="number"
+                min={0}
+                step={1}
+                value={maxKeepAlive}
+                onChange={(e) => setMaxKeepAlive(Math.max(0, Math.floor(Number(e.target.value) || 0)))}
+                className="w-24 px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/60"
+              />
+              <p className="mt-1.5 text-xs text-cc-muted">
+                Maximum number of live CLI processes. Set to 0 for unlimited.
+                Oldest idle sessions are killed first. Busy sessions are never killed.
+              </p>
+            </div>
 
-          <div>
-            <label className="block text-sm font-medium mb-1.5" htmlFor="max-keep-alive">
-              Max Keep-Alive
-            </label>
+            {lifecycleError && (
+              <div className="px-3 py-2 rounded-lg bg-cc-error/10 border border-cc-error/20 text-xs text-cc-error">
+                {lifecycleError}
+              </div>
+            )}
+
+            {lifecycleSaved && (
+              <div className="px-3 py-2 rounded-lg bg-cc-success/10 border border-cc-success/20 text-xs text-cc-success">
+                Session lifecycle settings saved.
+              </div>
+            )}
+
+            <div className="flex justify-end">
+              <button
+                type="submit"
+                disabled={lifecycleSaving || loading}
+                className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  lifecycleSaving || loading
+                    ? "bg-cc-hover text-cc-muted cursor-not-allowed"
+                    : "bg-cc-primary hover:bg-cc-primary-hover text-white cursor-pointer"
+                }`}
+              >
+                {lifecycleSaving ? "Saving..." : "Save"}
+              </button>
+            </div>
+          </form>
+
+          {/* Session Data — export/import */}
+          <div className="border-t border-cc-border pt-3 space-y-3">
+            <div>
+              <span className="text-sm font-medium text-cc-fg">Session Data</span>
+              <p className="mt-1 text-xs text-cc-muted">
+                Export all sessions to a portable archive, or import sessions from another machine.
+                Paths are automatically rewritten to match this machine.
+              </p>
+            </div>
+
             <input
-              id="max-keep-alive"
-              type="number"
-              min={0}
-              step={1}
-              value={maxKeepAlive}
-              onChange={(e) => setMaxKeepAlive(Math.max(0, Math.floor(Number(e.target.value) || 0)))}
-              className="w-24 px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/60"
+              ref={importInputRef}
+              type="file"
+              accept=".tar.zst,.zst"
+              onChange={handleImportFile}
+              className="hidden"
             />
-            <p className="mt-1.5 text-xs text-cc-muted">
-              Maximum number of live CLI processes. Set to 0 for unlimited.
-            </p>
-          </div>
 
-          {lifecycleError && (
-            <div className="px-3 py-2 rounded-lg bg-cc-error/10 border border-cc-error/20 text-xs text-cc-error">
-              {lifecycleError}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleExport}
+                disabled={exporting}
+                className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  exporting
+                    ? "bg-cc-hover text-cc-muted cursor-not-allowed"
+                    : "bg-cc-hover text-cc-fg hover:bg-cc-active cursor-pointer"
+                }`}
+              >
+                {exporting ? "Exporting..." : "Export All Sessions"}
+              </button>
+              <button
+                type="button"
+                onClick={() => importInputRef.current?.click()}
+                disabled={importing}
+                className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  importing
+                    ? "bg-cc-hover text-cc-muted cursor-not-allowed"
+                    : "bg-cc-hover text-cc-fg hover:bg-cc-active cursor-pointer"
+                }`}
+              >
+                {importing ? "Importing..." : "Import Sessions"}
+              </button>
             </div>
-          )}
 
-          {lifecycleSaved && (
-            <div className="px-3 py-2 rounded-lg bg-cc-success/10 border border-cc-success/20 text-xs text-cc-success">
-              Session lifecycle settings saved.
-            </div>
-          )}
+            {importing && (
+              <div className="space-y-1">
+                <div className="flex justify-between text-xs text-cc-muted">
+                  <span>{importStep || "Starting import..."}</span>
+                  <span>{importPct != null ? `${importPct}%` : ""}</span>
+                </div>
+                <div className="h-1.5 rounded-full bg-cc-hover overflow-hidden">
+                  {importPct != null ? (
+                    <div
+                      className="h-full bg-cc-accent rounded-full transition-[width] duration-200"
+                      style={{ width: `${importPct}%` }}
+                    />
+                  ) : (
+                    <div className="h-full bg-cc-accent rounded-full animate-pulse w-full" />
+                  )}
+                </div>
+              </div>
+            )}
 
-          <div className="flex justify-end">
-            <button
-              type="submit"
-              disabled={lifecycleSaving || loading}
-              className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                lifecycleSaving || loading
-                  ? "bg-cc-hover text-cc-muted cursor-not-allowed"
-                  : "bg-cc-primary hover:bg-cc-primary-hover text-white cursor-pointer"
-              }`}
-            >
-              {lifecycleSaving ? "Saving..." : "Save"}
-            </button>
+            {importError && (
+              <div className="px-3 py-2 rounded-lg bg-cc-error/10 border border-cc-error/20 text-xs text-cc-error">
+                Import failed: {importError}
+              </div>
+            )}
+
+            {importResult && (
+              <div className="px-3 py-2 rounded-lg bg-cc-success/10 border border-cc-success/20 text-xs text-cc-success space-y-0.5">
+                <div className="font-medium">Import complete</div>
+                {importResult.sessionsNew > 0 && <div>{importResult.sessionsNew} new sessions imported</div>}
+                {importResult.sessionsUpdated > 0 && <div>{importResult.sessionsUpdated} updated (archive was newer)</div>}
+                {importResult.sessionsSkipped > 0 && <div>{importResult.sessionsSkipped} skipped (local was newer)</div>}
+                {importResult.claudeSessionsRestored > 0 && (
+                  <div>{importResult.claudeSessionsRestored} Claude Code sessions restored (conversation context preserved)</div>
+                )}
+                {importResult.worktreeSessionsNeedingRecreation > 0 && (
+                  <div>{importResult.worktreeSessionsNeedingRecreation} worktree sessions will recreate on open</div>
+                )}
+                {importResult.pathsRewritten && <div>Paths rewritten for this machine</div>}
+              </div>
+            )}
           </div>
-        </form>
+        </CollapsibleSection>
 
-        <form
+        {/* ── 5. Push Notifications (Pushover) ─────────────────── */}
+        <CollapsibleSection
+          id="pushover"
+          title="Push Notifications (Pushover)"
+          description="Get push notifications on your phone when sessions need attention. Get credentials at pushover.net."
+          as="form"
           onSubmit={onSavePushover}
-          className="mt-4 bg-cc-card border border-cc-border rounded-xl p-4 sm:p-5 space-y-4"
         >
-          <div>
-            <h2 className="text-sm font-semibold text-cc-fg">Push Notifications (Pushover)</h2>
-            <p className="mt-1 text-xs text-cc-muted">
-              Get push notifications on your phone when sessions need attention.
-              Get credentials at pushover.net.
-            </p>
-          </div>
-
           <div>
             <label className="block text-sm font-medium mb-1.5" htmlFor="po-user-key">
               User Key
@@ -712,161 +826,14 @@ export function SettingsPage({ embedded = false }: SettingsPageProps) {
               {poSaving ? "Saving..." : "Save"}
             </button>
           </div>
-        </form>
+        </CollapsibleSection>
 
-        <div className="mt-4 bg-cc-card border border-cc-border rounded-xl p-4 sm:p-5 space-y-3">
-          <h2 className="text-sm font-semibold text-cc-fg">Appearance</h2>
-          <button
-            type="button"
-            onClick={toggleDarkMode}
-            className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm bg-cc-hover text-cc-fg hover:bg-cc-active transition-colors cursor-pointer"
-          >
-            <span>Theme</span>
-            <span className="text-xs text-cc-muted">{darkMode ? "Dark" : "Light"}</span>
-          </button>
-          <div className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm bg-cc-hover text-cc-fg">
-            <span>Zoom</span>
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => setZoomLevel(zoomLevel - 0.1)}
-                disabled={zoomLevel <= 0.2}
-                className="w-6 h-6 flex items-center justify-center rounded text-xs font-medium hover:bg-cc-active transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-              >
-                −
-              </button>
-              <input
-                type="text"
-                value={Math.round(zoomLevel * 100) + "%"}
-                onChange={(e) => {
-                  const num = parseInt(e.target.value.replace(/[^0-9]/g, ""), 10);
-                  if (!isNaN(num)) setZoomLevel(num / 100);
-                }}
-                className="w-12 text-center text-xs text-cc-muted bg-transparent border border-cc-border rounded px-1 py-0.5 focus:outline-none focus:border-cc-primary/60"
-              />
-              <button
-                type="button"
-                onClick={() => setZoomLevel(zoomLevel + 0.1)}
-                disabled={zoomLevel >= 4.0}
-                className="w-6 h-6 flex items-center justify-center rounded text-xs font-medium hover:bg-cc-active transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-              >
-                +
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-4 bg-cc-card border border-cc-border rounded-xl p-4 sm:p-5 space-y-3">
-          <h2 className="text-sm font-semibold text-cc-fg">Environments</h2>
-          <p className="text-xs text-cc-muted">
-            Manage reusable environment profiles used when creating sessions.
-          </p>
-          <button
-            type="button"
-            onClick={() => {
-              window.location.hash = "#/environments";
-            }}
-            className="px-3 py-2 rounded-lg text-sm font-medium bg-cc-primary hover:bg-cc-primary-hover text-white transition-colors cursor-pointer"
-          >
-            Open Environments Page
-          </button>
-        </div>
-
-        <div className="mt-4 bg-cc-card border border-cc-border rounded-xl p-4 sm:p-5 space-y-3">
-          <div>
-            <h2 className="text-sm font-semibold text-cc-fg">Session Data</h2>
-            <p className="mt-1 text-xs text-cc-muted">
-              Export all sessions to a portable archive, or import sessions from another machine.
-              Paths are automatically rewritten to match this machine. Existing sessions are only
-              overwritten if the archive version is newer.
-            </p>
-          </div>
-
-          <input
-            ref={importInputRef}
-            type="file"
-            accept=".tar.zst,.zst"
-            onChange={handleImportFile}
-            className="hidden"
-          />
-
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleExport}
-              disabled={exporting}
-              className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                exporting
-                  ? "bg-cc-hover text-cc-muted cursor-not-allowed"
-                  : "bg-cc-hover text-cc-fg hover:bg-cc-active cursor-pointer"
-              }`}
-            >
-              {exporting ? "Exporting..." : "Export All Sessions"}
-            </button>
-            <button
-              type="button"
-              onClick={() => importInputRef.current?.click()}
-              disabled={importing}
-              className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                importing
-                  ? "bg-cc-hover text-cc-muted cursor-not-allowed"
-                  : "bg-cc-hover text-cc-fg hover:bg-cc-active cursor-pointer"
-              }`}
-            >
-              {importing ? "Importing..." : "Import Sessions"}
-            </button>
-          </div>
-
-          {importing && (
-            <div className="space-y-1">
-              <div className="flex justify-between text-xs text-cc-muted">
-                <span>{importStep || "Starting import..."}</span>
-                <span>{importPct != null ? `${importPct}%` : ""}</span>
-              </div>
-              <div className="h-1.5 rounded-full bg-cc-hover overflow-hidden">
-                {importPct != null ? (
-                  <div
-                    className="h-full bg-cc-accent rounded-full transition-[width] duration-200"
-                    style={{ width: `${importPct}%` }}
-                  />
-                ) : (
-                  <div className="h-full bg-cc-accent rounded-full animate-pulse w-full" />
-                )}
-              </div>
-            </div>
-          )}
-
-          {importError && (
-            <div className="px-3 py-2 rounded-lg bg-cc-error/10 border border-cc-error/20 text-xs text-cc-error">
-              Import failed: {importError}
-            </div>
-          )}
-
-          {importResult && (
-            <div className="px-3 py-2 rounded-lg bg-cc-success/10 border border-cc-success/20 text-xs text-cc-success space-y-0.5">
-              <div className="font-medium">Import complete</div>
-              {importResult.sessionsNew > 0 && <div>{importResult.sessionsNew} new sessions imported</div>}
-              {importResult.sessionsUpdated > 0 && <div>{importResult.sessionsUpdated} updated (archive was newer)</div>}
-              {importResult.sessionsSkipped > 0 && <div>{importResult.sessionsSkipped} skipped (local was newer)</div>}
-              {importResult.claudeSessionsRestored > 0 && (
-                <div>{importResult.claudeSessionsRestored} Claude Code sessions restored (conversation context preserved)</div>
-              )}
-              {importResult.worktreeSessionsNeedingRecreation > 0 && (
-                <div>{importResult.worktreeSessionsNeedingRecreation} worktree sessions will recreate on open</div>
-              )}
-              {importResult.pathsRewritten && <div>Paths rewritten for this machine</div>}
-            </div>
-          )}
-        </div>
-
-        {/* ── Auto-Approval (LLM) ─────────────────────────── */}
-        <div className="mt-4 bg-cc-card border border-cc-border rounded-xl p-4 sm:p-5 space-y-4">
-          <h2 className="text-sm font-semibold text-cc-fg">Auto-Approval (LLM)</h2>
-          <p className="text-xs text-cc-muted">
-            When enabled, permission requests are first evaluated by a fast LLM against your project-specific criteria.
-            If the LLM approves, the permission is auto-approved. Otherwise, it falls through to you as usual.
-          </p>
-
+        {/* ── 6. Auto-Approval (LLM) ──────────────────────────── */}
+        <CollapsibleSection
+          id="auto-approval"
+          title="Auto-Approval (LLM)"
+          description="When enabled, permission requests are first evaluated by a fast LLM against your project-specific criteria. If the LLM approves, the permission is auto-approved. Otherwise, it falls through to you as usual."
+        >
           {/* Master toggle + model selector — auto-save on change */}
           <div className="flex items-center gap-4 flex-wrap">
             <label className="flex items-center gap-2 text-xs text-cc-fg cursor-pointer">
@@ -883,7 +850,7 @@ export function SettingsPage({ embedded = false }: SettingsPageProps) {
                     const res = await api.updateSettings({ autoApprovalEnabled: newEnabled });
                     setAaEnabled(res.autoApprovalEnabled);
                   } catch (err: unknown) {
-                    setAaEnabled(!newEnabled); // revert on error
+                    setAaEnabled(!newEnabled);
                     setAaError(err instanceof Error ? err.message : String(err));
                   } finally {
                     setAaSaving(false);
@@ -908,7 +875,7 @@ export function SettingsPage({ embedded = false }: SettingsPageProps) {
                     const res = await api.updateSettings({ autoApprovalModel: newModel });
                     setAaModel(res.autoApprovalModel);
                   } catch (err: unknown) {
-                    setAaModel(oldModel); // revert on error
+                    setAaModel(oldModel);
                     setAaError(err instanceof Error ? err.message : String(err));
                   } finally {
                     setAaSaving(false);
@@ -1032,11 +999,46 @@ export function SettingsPage({ embedded = false }: SettingsPageProps) {
           <div className="border-t border-cc-border pt-4">
             <AutoApprovalDebugPanel />
           </div>
-        </div>
+        </CollapsibleSection>
 
-        <div className="mt-4 bg-cc-card border border-cc-border rounded-xl p-4 sm:p-5">
-          <NamerDebugPanel />
-        </div>
+        {/* ── 7. Server & Diagnostics ──────────────────────────── */}
+        <CollapsibleSection id="server" title="Server & Diagnostics">
+          <div className="space-y-3">
+            <p className="text-xs text-cc-muted">
+              Restart the server process. Useful after pulling new code.
+              Sessions will reconnect automatically.
+            </p>
+
+            {!restartSupported && (
+              <div className="px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-600 dark:text-amber-400">
+                Restart not available. Start the server with <code className="font-mono bg-cc-hover px-1 py-0.5 rounded">make dev</code> or <code className="font-mono bg-cc-hover px-1 py-0.5 rounded">make serve</code> to enable.
+              </div>
+            )}
+
+            {restartError && (
+              <div className="px-3 py-2 rounded-lg bg-cc-error/10 border border-cc-error/20 text-xs text-cc-error">
+                {restartError}
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={onRestartServer}
+              disabled={restarting || !restartSupported}
+              className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                restarting || !restartSupported
+                  ? "bg-cc-hover text-cc-muted cursor-not-allowed"
+                  : "bg-cc-primary hover:bg-cc-primary-hover text-white cursor-pointer"
+              }`}
+            >
+              {restarting ? "Restarting..." : "Restart Server"}
+            </button>
+          </div>
+
+          <div className="border-t border-cc-border pt-4">
+            <NamerDebugPanel />
+          </div>
+        </CollapsibleSection>
       </div>
     </div>
   );
