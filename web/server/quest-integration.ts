@@ -247,10 +247,11 @@ When the user asks you to work on a quest — whether via the Companion "Assign"
 3. **Polish metadata (required before coding)**:
    - Always do a quick metadata pass, even if it already looks good.
    - Ask the user clarifying questions if the quest is ambiguous or underspecified.
+   - If the quest is in \`refined\` or any later state (\`in_progress\`, \`needs_verification\`, \`done\`), enforce a short title before proceeding.
    - Run \`quest tags\` to reuse existing tags.
    - Apply updates with \`quest edit q-N --title "..." --desc "..." --tags "t1,t2"\`.
    - Immediately re-run \`quest show q-N\` and verify the final title/description/tags are clean.
-   - Title rule: concise, under 10 words. Move details to description.
+   - Title rule: concise, **less than 10 words**. Move details to description.
    - Reuse existing tags. Only create new tags when no existing tag fits.
 4. **Work**: Implement the changes. Use TodoWrite for sub-step tracking if needed.
 5. **Self-check**: Before submitting, verify everything you can yourself (tests, typecheck, code review). Do not include self-verifiable items in the verification checklist.
@@ -290,9 +291,11 @@ idea → refined → in_progress → needs_verification → done
 
 **Never skip states or jump directly to \`done\`.**
 
+**Title rule for refined and later:** Whenever a quest is \`refined\`, \`in_progress\`, \`needs_verification\`, or \`done\`, the title must be **less than 10 words**. If not, shorten it first with \`quest edit\` before other updates.
+
 ### idea → refined
 **Must polish the quest.** Ask the user clarifying questions if ambiguous, then:
-- Title: concise, under 10 words. Move detail to description.
+- Title: concise, less than 10 words. Move detail to description.
 - Description: clear, actionable. Define what "done" looks like.
 - Tags: run \`quest tags\`, reuse existing tags. Every quest needs at least one tag.
 - Apply via \`quest edit <id> --title "..." --desc "..." --tags "t1,t2"\`

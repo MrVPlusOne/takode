@@ -53,6 +53,20 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("Do not claim feedback was addressed unless both happened");
   });
 
+  it("requires titles under 10 words for refined and later stages", () => {
+    ensureQuestmasterIntegration(3456, "/repo/web");
+
+    const codexSkillWrite = fsMocks.writeFileSync.mock.calls.find(
+      (call) => call[0] === "/home/tester/.codex/skills/quest/SKILL.md",
+    );
+    expect(codexSkillWrite).toBeDefined();
+
+    const skill = String(codexSkillWrite?.[1] ?? "");
+    expect(skill).toContain("Title rule for refined and later");
+    expect(skill).toContain("less than 10 words");
+    expect(skill).toContain("refined`, `in_progress`, `needs_verification`, or `done");
+  });
+
   it("instructs agents to use quest directly before PATH fallbacks", () => {
     ensureQuestmasterIntegration(3456, "/repo/web");
 
