@@ -290,6 +290,7 @@ async function handleList(base: string, args: string[]): Promise<void> {
   }
 
   console.log(`${total} session(s)${showAll ? "" : " (active only, use --all to see all)"}`);
+  console.log(`Status: ● running  ○ idle  ✗ disconnected  ⊘ archived  ⚠ needs attention`);
 }
 
 function printSessionLine(s: {
