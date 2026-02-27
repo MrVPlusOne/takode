@@ -369,6 +369,14 @@ function groupMessages(messages: ChatMessage[]): FeedEntry[] {
     return groupToolMessages(messages);
   }
 
+  // Diagnostic: log subagent grouping for debugging q-40 (0-output bug)
+  if (taskInfo.size > 0) {
+    console.log(`[feed] buildFeed: ${messages.length} msgs, ${taskInfo.size} tasks, ${childrenByParent.size} parents with children`);
+    for (const [taskId, children] of childrenByParent) {
+      console.log(`[feed]   task ${taskId.slice(0, 20)}... → ${children.length} children`);
+    }
+  }
+
   // Phase 3: Build grouped entries with subagent nesting.
   // Orphaned subagent groups (no parent entry in topLevel) are appended at the end.
   const entries = buildEntries(topLevel, taskInfo, childrenByParent);
@@ -852,6 +860,10 @@ const SubagentContainer = memo(function SubagentContainer({
   const label = group.description || "Subagent";
   const agentType = group.agentType;
   const childCount = group.children.length;
+  // Diagnostic: log child count for q-40
+  if (childCount === 0) {
+    console.log(`[feed] SubagentContainer "${label}" (${group.taskToolUseId.slice(0, 20)}...): 0 children`);
+  }
   const hasPrompt = !!group.taskInput?.prompt;
 
   // Read the subagent's final result from the toolResults store
