@@ -431,6 +431,39 @@ describe("QuestmasterPage verification inbox", () => {
     expect(screen.getAllByText("Session One").length).toBeGreaterThan(0);
   });
 
+  it("navigates when clicking codex owner session chip in quest modal", () => {
+    mockState.quests = [{
+      id: "q-10-v3",
+      questId: "q-10",
+      version: 3,
+      title: "Codex linked quest",
+      createdAt: Date.now(),
+      status: "needs_verification",
+      description: "Verify codex navigation",
+      sessionId: "codex-session-1",
+      claimedAt: Date.now(),
+      verificationItems: [{ text: "Verify", checked: false }],
+    } as QuestmasterTask];
+    mockState.sdkSessions = [
+      {
+        sessionId: "codex-session-1",
+        state: "connected",
+        cwd: "/tmp/codex-project",
+        createdAt: Date.now(),
+        archived: false,
+      },
+    ];
+    mockState.sessionNames = new Map([["codex-session-1", "Codex Session One"]]);
+
+    window.location.hash = "#/questmaster?quest=q-10";
+    render(<QuestmasterPage />);
+
+    const dialog = screen.getByRole("dialog", { name: /Quest details: Codex linked quest/ });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Codex Session One" }));
+
+    expect(mockNavigateToSession).toHaveBeenCalledWith("codex-session-1");
+  });
+
   it("disables Rework when all human feedback is addressed", () => {
     mockState.quests = mockState.quests.map((q) => (
       q.questId === "q-1"

@@ -1729,15 +1729,17 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
                         )}
                         {questSessionId && (
                           isKnownSession ? (
-                            <span
+                            <button
+                              type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                window.location.hash = `#/session/${questSessionId}`;
+                                navigateToSession(questSessionId);
                               }}
                               className="text-[11px] px-1.5 py-0.5 rounded bg-cc-primary/10 text-cc-primary hover:bg-cc-primary/20 cursor-pointer transition-colors truncate max-w-[140px]"
+                              aria-label={questSessionName ?? questSessionId}
                             >
                               {questSessionName}
-                            </span>
+                            </button>
                           ) : (
                             <span className="text-[10px] text-cc-muted/50 truncate max-w-[140px]">
                               {questSessionId}
@@ -1851,15 +1853,17 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
                               {questSessionId && (
                                 isKnownSession ? (
                                   <div className="flex items-center gap-1.5">
-                                    <span
+                                    <button
+                                      type="button"
                                       onClick={(e) => {
                                         e.stopPropagation();
-                                        window.location.hash = `#/session/${questSessionId}`;
+                                        navigateToSession(questSessionId);
                                       }}
                                       className="text-[11px] px-1.5 py-0.5 rounded bg-cc-primary/10 text-cc-primary hover:bg-cc-primary/20 cursor-pointer transition-colors truncate max-w-[220px]"
+                                      aria-label={questSessionName ?? questSessionId}
                                     >
                                       {questSessionName}
-                                    </span>
+                                    </button>
                                   </div>
                                 ) : (
                                   <span className="text-[10px] text-cc-muted/50 truncate max-w-[220px]">
