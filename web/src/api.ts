@@ -235,12 +235,14 @@ export interface AppSettings {
   maxKeepAlive: number;
   autoApprovalEnabled: boolean;
   autoApprovalModel: string;
-  namerBackend: string;
-  namerOpenaiApiKey: string;
-  namerOpenaiBaseUrl: string;
-  namerOpenaiModel: string;
+  namerConfig: NamerConfig;
   restartSupported: boolean;
 }
+
+/** Discriminated union for session auto-namer backend. */
+export type NamerConfig =
+  | { backend: "claude" }
+  | { backend: "openai"; apiKey: string; baseUrl: string; model: string };
 
 // ─── Auto-Approval Types ─────────────────────────────────────────────────────
 
@@ -539,7 +541,7 @@ export const api = {
     claudeBinary?: string; codexBinary?: string;
     maxKeepAlive?: number;
     autoApprovalEnabled?: boolean; autoApprovalModel?: string;
-    namerBackend?: string; namerOpenaiApiKey?: string; namerOpenaiBaseUrl?: string; namerOpenaiModel?: string;
+    namerConfig?: NamerConfig;
   }) => put<AppSettings>("/settings", data),
   testBinary: (binary: string) =>
     post<{ ok: boolean; resolvedPath?: string; version?: string }>("/settings/test-binary", { binary }),

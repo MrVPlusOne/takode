@@ -10,7 +10,7 @@
  */
 import type { BrowserIncomingMessage, ContentBlock } from "./session-types.js";
 import { resolveBinary, getEnrichedPath } from "./path-resolver.js";
-import { getSettings } from "./settings-manager.js";
+import { getSettings, type NamerConfig } from "./settings-manager.js";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -520,18 +520,20 @@ const OPENAI_TIMEOUT_MS = 15_000;
  * Call an OpenAI-compatible API to generate/evaluate a session name.
  * Returns null on any failure (no key, timeout, API error).
  */
-async function callOpenAI(prompt: string, signal?: AbortSignal): Promise<string | null> {
+async function callOpenAI(
+  prompt: string,
+  config: Extract<NamerConfig, { backend: "openai" }>,
+  signal?: AbortSignal,
+): Promise<string | null> {
   if (signal?.aborted) return null;
 
-  const settings = getSettings();
-  const apiKey = settings.namerOpenaiApiKey;
-  if (!apiKey) {
+  if (!config.apiKey) {
     console.warn("[session-namer] OpenAI API key not configured, skipping auto-name");
     return null;
   }
 
-  const baseUrl = (settings.namerOpenaiBaseUrl || "https://api.openai.com/v1").replace(/\/+$/, "");
-  const model = settings.namerOpenaiModel || "gpt-4o-mini";
+  const baseUrl = (config.baseUrl || "https://api.openai.com/v1").replace(/\/+$/, "");
+  const model = config.model || "gpt-4o-mini";
 
   try {
     const controller = new AbortController();
@@ -546,7 +548,7 @@ async function callOpenAI(prompt: string, signal?: AbortSignal): Promise<string 
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${config.apiKey}`,
       },
       body: JSON.stringify({
         model,
@@ -582,17 +584,14 @@ async function callOpenAI(prompt: string, signal?: AbortSignal): Promise<string 
 }
 
 /**
- * Dispatch to the configured namer backend. Checks settings.namerBackend:
- * - "openai" → callOpenAI
- * - "" or "claude" → callHaiku (claude -p)
+ * Dispatch to the configured namer backend.
  * Returns null if the chosen backend is unavailable.
  */
 async function callNamerBackend(prompt: string, signal?: AbortSignal): Promise<string | null> {
-  const settings = getSettings();
-  const backend = settings.namerBackend || "claude";
+  const { namerConfig } = getSettings();
 
-  if (backend === "openai") {
-    return callOpenAI(prompt, signal);
+  if (namerConfig.backend === "openai") {
+    return callOpenAI(prompt, namerConfig, signal);
   }
 
   // Default: claude -p via callHaiku

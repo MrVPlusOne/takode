@@ -26,7 +26,7 @@ import { containerManager, ContainerManager, type ContainerConfig, type Containe
 import type { CreationStepId } from "./session-types.js";
 import { hasContainerClaudeAuth } from "./claude-container-auth.js";
 import { hasContainerCodexAuth } from "./codex-container-auth.js";
-import { getSettings, updateSettings, getServerName, setServerName, getServerId } from "./settings-manager.js";
+import { getSettings, updateSettings, getServerName, setServerName, getServerId, type NamerConfig } from "./settings-manager.js";
 import { getLogPath } from "./server-logger.js";
 import { getUsageLimits } from "./usage-limits.js";
 import { ensureAssistantWorkspace, ASSISTANT_DIR } from "./assistant-workspace.js";
@@ -1987,6 +1987,33 @@ export function createRoutes(
 
   // ─── Settings (~/.companion/settings.json) ────────────────────────
 
+  /** Mask sensitive fields in NamerConfig for API responses. */
+  function maskNamerConfig(config: NamerConfig): NamerConfig {
+    if (config.backend === "openai") {
+      return { ...config, apiKey: config.apiKey ? "***" : "" };
+    }
+    return config;
+  }
+
+  /** Parse a namerConfig from a request body (already validated).
+   *  If apiKey is "***" (masked sentinel), preserve the existing key from settings. */
+  function parseNamerConfigFromBody(nc: Record<string, unknown>): NamerConfig {
+    if (nc.backend === "openai") {
+      let apiKey = typeof nc.apiKey === "string" ? nc.apiKey.trim() : "";
+      if (apiKey === "***") {
+        const current = getSettings().namerConfig;
+        apiKey = current.backend === "openai" ? current.apiKey : "";
+      }
+      return {
+        backend: "openai",
+        apiKey,
+        baseUrl: typeof nc.baseUrl === "string" ? nc.baseUrl.trim() : "",
+        model: typeof nc.model === "string" ? nc.model.trim() : "",
+      };
+    }
+    return { backend: "claude" };
+  }
+
   api.get("/settings", (c) => {
     const settings = getSettings();
     return c.json({
@@ -2001,10 +2028,7 @@ export function createRoutes(
       maxKeepAlive: settings.maxKeepAlive,
       autoApprovalEnabled: settings.autoApprovalEnabled,
       autoApprovalModel: settings.autoApprovalModel,
-      namerBackend: settings.namerBackend,
-      namerOpenaiApiKey: settings.namerOpenaiApiKey ? "***" : "",
-      namerOpenaiBaseUrl: settings.namerOpenaiBaseUrl,
-      namerOpenaiModel: settings.namerOpenaiModel,
+      namerConfig: maskNamerConfig(settings.namerConfig),
       restartSupported: !!process.env.COMPANION_SUPERVISED,
       logFile: getLogPath(),
     });
@@ -2045,17 +2069,25 @@ export function createRoutes(
     if (body.autoApprovalModel !== undefined && typeof body.autoApprovalModel !== "string") {
       return c.json({ error: "autoApprovalModel must be a string" }, 400);
     }
-    if (body.namerBackend !== undefined && typeof body.namerBackend !== "string") {
-      return c.json({ error: "namerBackend must be a string" }, 400);
-    }
-    if (body.namerOpenaiApiKey !== undefined && typeof body.namerOpenaiApiKey !== "string") {
-      return c.json({ error: "namerOpenaiApiKey must be a string" }, 400);
-    }
-    if (body.namerOpenaiBaseUrl !== undefined && typeof body.namerOpenaiBaseUrl !== "string") {
-      return c.json({ error: "namerOpenaiBaseUrl must be a string" }, 400);
-    }
-    if (body.namerOpenaiModel !== undefined && typeof body.namerOpenaiModel !== "string") {
-      return c.json({ error: "namerOpenaiModel must be a string" }, 400);
+    if (body.namerConfig !== undefined) {
+      if (typeof body.namerConfig !== "object" || body.namerConfig === null || Array.isArray(body.namerConfig)) {
+        return c.json({ error: "namerConfig must be an object" }, 400);
+      }
+      const nc = body.namerConfig;
+      if (nc.backend !== "claude" && nc.backend !== "openai") {
+        return c.json({ error: 'namerConfig.backend must be "claude" or "openai"' }, 400);
+      }
+      if (nc.backend === "openai") {
+        if (nc.apiKey !== undefined && typeof nc.apiKey !== "string") {
+          return c.json({ error: "namerConfig.apiKey must be a string" }, 400);
+        }
+        if (nc.baseUrl !== undefined && typeof nc.baseUrl !== "string") {
+          return c.json({ error: "namerConfig.baseUrl must be a string" }, 400);
+        }
+        if (nc.model !== undefined && typeof nc.model !== "string") {
+          return c.json({ error: "namerConfig.model must be a string" }, 400);
+        }
+      }
     }
 
     // Check that at least one known field is present
@@ -2065,7 +2097,7 @@ export function createRoutes(
       "claudeBinary", "codexBinary",
       "maxKeepAlive",
       "autoApprovalEnabled", "autoApprovalModel",
-      "namerBackend", "namerOpenaiApiKey", "namerOpenaiBaseUrl", "namerOpenaiModel",
+      "namerConfig",
     ];
     if (!knownFields.some((f) => body[f] !== undefined)) {
       return c.json({ error: "At least one settings field is required" }, 400);
@@ -2116,22 +2148,7 @@ export function createRoutes(
         typeof body.autoApprovalModel === "string"
           ? body.autoApprovalModel.trim()
           : undefined,
-      namerBackend:
-        typeof body.namerBackend === "string"
-          ? body.namerBackend.trim()
-          : undefined,
-      namerOpenaiApiKey:
-        typeof body.namerOpenaiApiKey === "string"
-          ? body.namerOpenaiApiKey.trim()
-          : undefined,
-      namerOpenaiBaseUrl:
-        typeof body.namerOpenaiBaseUrl === "string"
-          ? body.namerOpenaiBaseUrl.trim()
-          : undefined,
-      namerOpenaiModel:
-        typeof body.namerOpenaiModel === "string"
-          ? body.namerOpenaiModel.trim()
-          : undefined,
+      namerConfig: body.namerConfig ? parseNamerConfigFromBody(body.namerConfig) : undefined,
     });
 
     return c.json({
@@ -2146,10 +2163,7 @@ export function createRoutes(
       maxKeepAlive: settings.maxKeepAlive,
       autoApprovalEnabled: settings.autoApprovalEnabled,
       autoApprovalModel: settings.autoApprovalModel,
-      namerBackend: settings.namerBackend,
-      namerOpenaiApiKey: settings.namerOpenaiApiKey ? "***" : "",
-      namerOpenaiBaseUrl: settings.namerOpenaiBaseUrl,
-      namerOpenaiModel: settings.namerOpenaiModel,
+      namerConfig: maskNamerConfig(settings.namerConfig),
     });
   });
 

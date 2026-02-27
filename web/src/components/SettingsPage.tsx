@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, checkHealth, type ImportStats, type AutoApprovalConfig } from "../api.js";
+import { api, checkHealth, type ImportStats, type AutoApprovalConfig, type NamerConfig } from "../api.js";
 import { useStore } from "../store.js";
 import { NamerDebugPanel } from "./NamerDebugPanel.js";
 import { AutoApprovalDebugPanel } from "./AutoApprovalDebugPanel.js";
@@ -83,7 +83,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
   const [showAaFolderPicker, setShowAaFolderPicker] = useState(false);
 
   // Session auto-namer state
-  const [namerBackend, setNamerBackend] = useState("");
+  const [namerBackend, setNamerBackend] = useState("claude");
   const [namerApiKey, setNamerApiKey] = useState("");
   const [namerBaseUrl, setNamerBaseUrl] = useState("");
   const [namerModel, setNamerModel] = useState("");
@@ -123,10 +123,12 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
         setRestartSupported(s.restartSupported);
         setAaEnabled(s.autoApprovalEnabled);
         setAaModel(s.autoApprovalModel ?? "");
-        setNamerBackend(s.namerBackend || "");
-        setNamerApiKey(s.namerOpenaiApiKey === "***" ? "***" : (s.namerOpenaiApiKey || ""));
-        setNamerBaseUrl(s.namerOpenaiBaseUrl || "");
-        setNamerModel(s.namerOpenaiModel || "");
+        setNamerBackend(s.namerConfig.backend);
+        if (s.namerConfig.backend === "openai") {
+          setNamerApiKey(s.namerConfig.apiKey === "***" ? "***" : (s.namerConfig.apiKey || ""));
+          setNamerBaseUrl(s.namerConfig.baseUrl || "");
+          setNamerModel(s.namerConfig.model || "");
+        }
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
@@ -632,8 +634,8 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
             <div>
               <label className="block text-xs font-medium text-cc-muted mb-1.5">Backend</label>
               <select
-                value={namerBackend || "claude"}
-                onChange={(e) => setNamerBackend(e.target.value === "claude" ? "" : e.target.value)}
+                value={namerBackend}
+                onChange={(e) => setNamerBackend(e.target.value)}
                 className="w-full px-3 py-2 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/60"
               >
                 <option value="claude">Claude CLI (default)</option>
@@ -709,15 +711,18 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
                   setNamerError("");
                   setNamerSaved(false);
                   try {
-                    const update: Record<string, string> = {
-                      namerBackend: namerBackend || "",
-                    };
+                    let config: NamerConfig;
                     if (namerBackend === "openai") {
-                      if (namerApiKey !== "***") update.namerOpenaiApiKey = namerApiKey;
-                      update.namerOpenaiBaseUrl = namerBaseUrl;
-                      update.namerOpenaiModel = namerModel;
+                      config = {
+                        backend: "openai",
+                        apiKey: namerApiKey === "***" ? "***" : namerApiKey,
+                        baseUrl: namerBaseUrl,
+                        model: namerModel,
+                      };
+                    } else {
+                      config = { backend: "claude" };
                     }
-                    await api.updateSettings(update);
+                    await api.updateSettings({ namerConfig: config });
                     setNamerSaved(true);
                     setTimeout(() => setNamerSaved(false), 3000);
                   } catch (err: unknown) {

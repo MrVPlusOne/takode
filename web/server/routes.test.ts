@@ -86,7 +86,7 @@ vi.mock("./settings-manager.js", () => ({
     claudeBinary: "", codexBinary: "",
     maxKeepAlive: 0,
     autoApprovalEnabled: false, autoApprovalModel: "haiku",
-    namerBackend: "", namerOpenaiApiKey: "", namerOpenaiBaseUrl: "", namerOpenaiModel: "",
+    namerConfig: { backend: "claude" },
     updatedAt: 0,
   })),
   updateSettings: vi.fn((patch) => ({
@@ -102,10 +102,7 @@ vi.mock("./settings-manager.js", () => ({
     maxKeepAlive: patch.maxKeepAlive ?? 0,
     autoApprovalEnabled: patch.autoApprovalEnabled ?? false,
     autoApprovalModel: patch.autoApprovalModel ?? "haiku",
-    namerBackend: patch.namerBackend ?? "",
-    namerOpenaiApiKey: patch.namerOpenaiApiKey ?? "",
-    namerOpenaiBaseUrl: patch.namerOpenaiBaseUrl ?? "",
-    namerOpenaiModel: patch.namerOpenaiModel ?? "",
+    namerConfig: patch.namerConfig ?? { backend: "claude" },
     updatedAt: Date.now(),
   })),
   getServerName: vi.fn(() => ""),
@@ -1189,7 +1186,7 @@ describe("GET /api/settings", () => {
       claudeBinary: "", codexBinary: "",
       maxKeepAlive: 0,
       autoApprovalEnabled: false, autoApprovalModel: "haiku",
-      namerBackend: "", namerOpenaiApiKey: "", namerOpenaiBaseUrl: "", namerOpenaiModel: "",
+      namerConfig: { backend: "claude" },
       updatedAt: 123,
     });
 
@@ -1209,10 +1206,7 @@ describe("GET /api/settings", () => {
       maxKeepAlive: 0,
       autoApprovalEnabled: false,
       autoApprovalModel: "haiku",
-      namerBackend: "",
-      namerOpenaiApiKey: "",
-      namerOpenaiBaseUrl: "",
-      namerOpenaiModel: "",
+      namerConfig: { backend: "claude" },
       restartSupported: expect.any(Boolean),
       logFile: expect.any(Object), // null or string depending on logger init
     });
@@ -1226,7 +1220,7 @@ describe("GET /api/settings", () => {
       claudeBinary: "", codexBinary: "",
       maxKeepAlive: 0,
       autoApprovalEnabled: false, autoApprovalModel: "haiku",
-      namerBackend: "", namerOpenaiApiKey: "", namerOpenaiBaseUrl: "", namerOpenaiModel: "",
+      namerConfig: { backend: "claude" },
       updatedAt: 123,
     });
 
@@ -1246,10 +1240,7 @@ describe("GET /api/settings", () => {
       maxKeepAlive: 0,
       autoApprovalEnabled: false,
       autoApprovalModel: "haiku",
-      namerBackend: "",
-      namerOpenaiApiKey: "",
-      namerOpenaiBaseUrl: "",
-      namerOpenaiModel: "",
+      namerConfig: { backend: "claude" },
       restartSupported: expect.any(Boolean),
       logFile: expect.any(Object), // null or string depending on logger init
     });
@@ -1264,7 +1255,7 @@ describe("GET /api/settings", () => {
       claudeBinary: "", codexBinary: "",
       maxKeepAlive: 0,
       autoApprovalEnabled: false, autoApprovalModel: "haiku",
-      namerBackend: "", namerOpenaiApiKey: "", namerOpenaiBaseUrl: "", namerOpenaiModel: "",
+      namerConfig: { backend: "claude" },
       updatedAt: 0,
     });
 
@@ -1286,7 +1277,7 @@ describe("PUT /api/settings", () => {
       claudeBinary: "", codexBinary: "",
       maxKeepAlive: 0,
       autoApprovalEnabled: false, autoApprovalModel: "haiku",
-      namerBackend: "", namerOpenaiApiKey: "", namerOpenaiBaseUrl: "", namerOpenaiModel: "",
+      namerConfig: { backend: "claude" },
       updatedAt: 456,
     });
 
@@ -1308,10 +1299,7 @@ describe("PUT /api/settings", () => {
       maxKeepAlive: undefined,
       autoApprovalEnabled: undefined,
       autoApprovalModel: undefined,
-      namerBackend: undefined,
-      namerOpenaiApiKey: undefined,
-      namerOpenaiBaseUrl: undefined,
-      namerOpenaiModel: undefined,
+      namerConfig: undefined,
     });
     const json = await res.json();
     expect(json).toEqual({
@@ -1326,10 +1314,7 @@ describe("PUT /api/settings", () => {
       maxKeepAlive: 0,
       autoApprovalEnabled: false,
       autoApprovalModel: "haiku",
-      namerBackend: "",
-      namerOpenaiApiKey: "",
-      namerOpenaiBaseUrl: "",
-      namerOpenaiModel: "",
+      namerConfig: { backend: "claude" },
     });
   });
 
@@ -1341,7 +1326,7 @@ describe("PUT /api/settings", () => {
       claudeBinary: "", codexBinary: "",
       maxKeepAlive: 0,
       autoApprovalEnabled: false, autoApprovalModel: "haiku",
-      namerBackend: "", namerOpenaiApiKey: "", namerOpenaiBaseUrl: "", namerOpenaiModel: "",
+      namerConfig: { backend: "claude" },
       updatedAt: 789,
     });
 
@@ -1363,10 +1348,7 @@ describe("PUT /api/settings", () => {
       maxKeepAlive: undefined,
       autoApprovalEnabled: undefined,
       autoApprovalModel: undefined,
-      namerBackend: undefined,
-      namerOpenaiApiKey: undefined,
-      namerOpenaiBaseUrl: undefined,
-      namerOpenaiModel: undefined,
+      namerConfig: undefined,
     });
   });
 
@@ -1378,7 +1360,7 @@ describe("PUT /api/settings", () => {
       claudeBinary: "", codexBinary: "",
       maxKeepAlive: 0,
       autoApprovalEnabled: false, autoApprovalModel: "haiku",
-      namerBackend: "", namerOpenaiApiKey: "", namerOpenaiBaseUrl: "", namerOpenaiModel: "",
+      namerConfig: { backend: "claude" },
       updatedAt: Date.now(),
     });
     vi.mocked(settingsManager.getServerName).mockReturnValue("My Backend");
@@ -1465,10 +1447,7 @@ describe("PUT /api/settings", () => {
       maxKeepAlive: undefined,
       autoApprovalEnabled: undefined,
       autoApprovalModel: undefined,
-      namerBackend: undefined,
-      namerOpenaiApiKey: undefined,
-      namerOpenaiBaseUrl: undefined,
-      namerOpenaiModel: undefined,
+      namerConfig: undefined,
     });
   });
 
@@ -1479,7 +1458,7 @@ describe("PUT /api/settings", () => {
       claudeBinary: "/usr/local/bin/claude", codexBinary: "",
       maxKeepAlive: 0,
       autoApprovalEnabled: false, autoApprovalModel: "haiku",
-      namerBackend: "", namerOpenaiApiKey: "", namerOpenaiBaseUrl: "", namerOpenaiModel: "",
+      namerConfig: { backend: "claude" },
       updatedAt: Date.now(),
     });
 
@@ -1552,7 +1531,7 @@ describe("PUT /api/settings", () => {
       claudeBinary: "", codexBinary: "",
       maxKeepAlive: 5,
       autoApprovalEnabled: false, autoApprovalModel: "haiku",
-      namerBackend: "", namerOpenaiApiKey: "", namerOpenaiBaseUrl: "", namerOpenaiModel: "",
+      namerConfig: { backend: "claude" },
       updatedAt: Date.now(),
     });
 
