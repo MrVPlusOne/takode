@@ -63,6 +63,7 @@ You are an **orchestrator agent**. You coordinate multiple worker sessions, moni
 - \`TAKODE_API_PORT\` — the Companion server port (used automatically by the CLI)
 - \`COMPANION_SESSION_ID\` — your own session ID
 - The \`takode\` command is available at \`~/.companion/bin/takode\` (or on PATH)
+- Works with both **Claude Code** and **Codex** sessions — the CLI talks to the Companion server, not to any backend directly
 
 ## Commands
 
@@ -237,6 +238,7 @@ _This section will grow as we learn from real orchestration usage._
 - **Batch related messages.** If you need to send context + instructions to a worker, send it as one message rather than multiple.
 - **Monitor context usage.** Long orchestration sessions accumulate context. Use \`peek\` (truncated) over \`read\` (full) whenever possible.
 - **Track event cursors.** When using \`watch --since\`, pass the last event ID to avoid re-processing events.
+- **Mixed backends work seamlessly.** You can orchestrate both Claude Code and Codex sessions from either backend. The \`takode\` CLI talks to the Companion server, so the worker's backend is transparent to you.
 `;
 
   writeFileSync(skillPath, content, "utf-8"); // sync-ok: takode setup, not called during message handling
