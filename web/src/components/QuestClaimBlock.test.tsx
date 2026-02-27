@@ -5,6 +5,22 @@ import { describe, expect, it } from "vitest";
 import { QuestClaimBlock } from "./QuestClaimBlock.js";
 
 describe("QuestClaimBlock", () => {
+  it("uses shared quest status colors for the status badge", () => {
+    render(
+      <QuestClaimBlock
+        quest={{
+          questId: "q-77",
+          title: "Palette test",
+          status: "in_progress",
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Quest Claimed/i }));
+    const inProgressBadge = screen.getByText("In Progress");
+    expect(inProgressBadge).toHaveClass("text-green-400");
+  });
+
   it("opens local details modal and keeps quest link scoped to the same id", () => {
     render(
       <QuestClaimBlock

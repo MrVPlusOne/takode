@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import { Lightbox } from "./Lightbox.js";
+import { getQuestStatusTheme } from "../utils/quest-status-theme.js";
 import type { QuestImage, QuestVerificationItem } from "../types.js";
 
 interface QuestClaimData {
@@ -13,14 +14,6 @@ interface QuestClaimData {
   verificationItems?: QuestVerificationItem[];
 }
 
-const STATUS_LABELS: Record<string, { label: string; color: string }> = {
-  idea: { label: "Idea", color: "text-zinc-400" },
-  refined: { label: "Refined", color: "text-blue-400" },
-  in_progress: { label: "In Progress", color: "text-amber-400" },
-  needs_verification: { label: "Verification", color: "text-purple-400" },
-  done: { label: "Done", color: "text-green-400" },
-};
-
 /**
  * Collapsible block rendered in the chat feed when a quest is claimed by a session.
  * Follows the same visual pattern as ToolBlock — a bordered card with a clickable
@@ -30,7 +23,7 @@ export function QuestClaimBlock({ quest, variant = "claimed" }: { quest: QuestCl
   const [open, setOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
-  const statusInfo = STATUS_LABELS[quest.status] || { label: quest.status, color: "text-cc-muted" };
+  const statusInfo = getQuestStatusTheme(quest.status);
   const isSubmitted = variant === "submitted";
   const headerLabel = isSubmitted ? "Quest Ready for Review" : "Quest Claimed";
   const borderColor = isSubmitted ? "border-purple-500/30" : "border-amber-500/30";
@@ -52,7 +45,7 @@ export function QuestClaimBlock({ quest, variant = "claimed" }: { quest: QuestCl
   const questDetailsContent = (
     <>
       <div className="flex items-center gap-2">
-        <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-cc-hover ${statusInfo.color}`}>
+        <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-cc-hover ${statusInfo.text}`}>
           {statusInfo.label}
         </span>
         {quest.tags && quest.tags.length > 0 && quest.tags.map((tag) => (
@@ -186,7 +179,7 @@ export function QuestClaimBlock({ quest, variant = "claimed" }: { quest: QuestCl
             <div className="shrink-0 flex items-start justify-between gap-3 px-4 py-3 border-b border-cc-border">
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className={`text-xs font-medium px-1.5 py-0.5 rounded-full bg-cc-hover ${statusInfo.color}`}>
+                  <span className={`text-xs font-medium px-1.5 py-0.5 rounded-full bg-cc-hover ${statusInfo.text}`}>
                     {statusInfo.label}
                   </span>
                   <span className="text-[10px] text-cc-muted/60">{quest.questId}</span>
