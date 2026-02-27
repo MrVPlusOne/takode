@@ -31,6 +31,7 @@ import { CronScheduler } from "./cron-scheduler.js";
 import { ImageStore } from "./image-store.js";
 import { IdleManager } from "./idle-manager.js";
 import { ensureQuestmasterIntegration } from "./quest-integration.js";
+import { ensureTakodeIntegration } from "./takode-integration.js";
 import { recreateWorktreeIfMissing } from "./migration.js";
 import { existsSync } from "node:fs";
 import {
@@ -668,6 +669,7 @@ await cronScheduler.startAll();
 
 // ── Questmaster CLI integration ─────────────────────────────────────────────
 ensureQuestmasterIntegration(port, packageRoot);
+ensureTakodeIntegration(packageRoot);
 
 // ── Idle session manager — enforce maxKeepAlive ─────────────────────────────
 const idleManager = new IdleManager(launcher, wsBridge, getSettings);

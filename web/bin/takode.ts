@@ -101,6 +101,13 @@ function formatTime(epoch: number): string {
   return d.toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
+function formatRelativeTime(epoch: number): string {
+  const diff = Date.now() - epoch;
+  if (diff < 60000) return `${Math.round(diff / 1000)}s ago`;
+  if (diff < 3600000) return `${Math.round(diff / 60000)}m ago`;
+  return `${Math.round(diff / 3600000)}h ago`;
+}
+
 function truncate(s: string, max: number): string {
   if (s.length <= max) return s;
   return s.slice(0, max) + ` [+${s.length - max} chars]`;
@@ -178,6 +185,63 @@ function printEvents(events: unknown[], jsonMode: boolean): void {
 }
 
 // ─── Command handlers ───────────────────────────────────────────────────────
+
+async function handleList(base: string, args: string[]): Promise<void> {
+  const flags = parseFlags(args);
+  const showAll = flags.all === true;
+  const jsonMode = flags.json === true;
+
+  const sessions = await apiGet(base, "/sessions") as Array<{
+    sessionId: string;
+    sessionNum?: number;
+    name?: string;
+    state: string;
+    archived?: boolean;
+    cwd: string;
+    createdAt: number;
+    lastActivityAt?: number;
+    model?: string;
+    backendType?: string;
+    isOrchestrator?: boolean;
+    isAssistant?: boolean;
+    cliConnected?: boolean;
+    lastMessagePreview?: string;
+    gitBranch?: string;
+    attentionReason?: string;
+  }>;
+
+  // Filter unless --all
+  const filtered = showAll ? sessions : sessions.filter(s => !s.archived && s.state !== "exited");
+
+  if (jsonMode) {
+    console.log(JSON.stringify(filtered, null, 2));
+    return;
+  }
+
+  if (filtered.length === 0) {
+    console.log("No active sessions.");
+    return;
+  }
+
+  // Human-readable table
+  for (const s of filtered) {
+    const num = s.sessionNum !== undefined ? `#${s.sessionNum}` : "  ";
+    const name = s.name ? `"${s.name}"` : "(unnamed)";
+    const role = s.isOrchestrator ? " [orchestrator]" : s.isAssistant ? " [assistant]" : "";
+    const status = s.cliConnected ? (s.state === "running" ? "running" : "idle") : (s.archived ? "archived" : s.state);
+    const attention = s.attentionReason ? ` ⚠ ${s.attentionReason}` : "";
+    const branch = s.gitBranch ? ` (${s.gitBranch})` : "";
+    const model = s.model ? ` [${s.model}]` : "";
+    const activity = s.lastActivityAt ? formatRelativeTime(s.lastActivityAt) : "never";
+    const preview = s.lastMessagePreview ? `  "${truncate(s.lastMessagePreview, 60)}"` : "";
+
+    console.log(`  ${num.padEnd(4)} ${status.padEnd(10)} ${name}${role}${model}${branch}${attention}`);
+    console.log(`       last: ${activity}${preview}`);
+    console.log("");
+  }
+
+  console.log(`${filtered.length} session(s)${showAll ? "" : " (active only, use --all to see all)"}`);
+}
 
 async function handleWatch(base: string, args: string[]): Promise<void> {
   const flags = parseFlags(args);
@@ -440,6 +504,7 @@ function printUsage(): void {
 Usage: takode <command> [options]
 
 Commands:
+  list     List sessions (active by default, --all for all)
   watch    Wait for events from watched sessions
   peek     View recent activity of a session (truncated)
   read     Read full content of a specific message
@@ -450,6 +515,8 @@ Global options:
   --json        Output in JSON format
 
 Examples:
+  takode list
+  takode list --all
   takode watch --sessions 1,2,3
   takode peek 1 --turns 3
   takode read 1 42
@@ -472,6 +539,9 @@ if (role !== "orchestrator") {
 
 try {
   switch (command) {
+    case "list":
+      await handleList(base, args);
+      break;
     case "watch":
       await handleWatch(base, args);
       break;
