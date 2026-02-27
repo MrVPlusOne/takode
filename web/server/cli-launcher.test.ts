@@ -8,6 +8,20 @@ import { homedir, tmpdir } from "node:os";
 // Mock randomUUID so session IDs are deterministic
 vi.mock("node:crypto", () => ({ randomUUID: () => "test-session-id" }));
 
+// Mock child_process.exec to prevent actual git commands from running in tests
+const mockExec = vi.hoisted(() => vi.fn((_cmd: string, _opts: any, cb: any) => {
+  // Simulate immediate success (exec callback signature: err, stdout, stderr)
+  if (typeof _opts === "function") { _opts(null, "", ""); return; }
+  if (cb) cb(null, "", "");
+}));
+vi.mock("node:child_process", async (importOriginal) => {
+  const actual = (await importOriginal()) as any;
+  return {
+    ...actual,
+    exec: mockExec,
+  };
+});
+
 // Mock path-resolver for binary resolution
 const mockResolveBinary = vi.hoisted(() => vi.fn((_name: string): string | null => "/usr/bin/claude"));
 const mockGetEnrichedPath = vi.hoisted(() => vi.fn(() => "/usr/bin:/usr/local/bin"));
@@ -36,6 +50,19 @@ const mockLstatSync = vi.hoisted(() => vi.fn((_path?: string): any => { throw Ob
 const isMockedPath = vi.hoisted(() => (path: string): boolean => {
   return path.includes(".claude") || path.startsWith("/tmp/worktrees/") || path.startsWith("/tmp/main-repo");
 });
+
+// Async mock functions for node:fs/promises — delegate to sync mocks so test
+// setups (mockExistsSync.mockImplementation, mockReadFileSync.mockImplementation, etc.)
+// and assertions (expect(mockSymlinkSync).toHaveBeenCalledWith, etc.) still work.
+const mockMkdir = vi.hoisted(() => vi.fn(async (...args: any[]) => { mockMkdirSync(...args); }));
+const mockAccess = vi.hoisted(() => vi.fn(async (...args: any[]) => {
+  if (!mockExistsSync(args[0])) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+}));
+const mockReadFile = vi.hoisted(() => vi.fn(async (...args: any[]) => mockReadFileSync(...args)));
+const mockWriteFile = vi.hoisted(() => vi.fn(async (...args: any[]) => { mockWriteFileSync(...args); }));
+const mockUnlink = vi.hoisted(() => vi.fn(async (...args: any[]) => { mockUnlinkSync(...args); }));
+const mockSymlink = vi.hoisted(() => vi.fn(async (...args: any[]) => { mockSymlinkSync(...args); }));
+const mockLstat = vi.hoisted(() => vi.fn(async (...args: any[]) => mockLstatSync(...args)));
 
 vi.mock("node:fs", async (importOriginal) => {
   const actual = (await importOriginal()) as any;
@@ -82,6 +109,56 @@ vi.mock("node:fs", async (importOriginal) => {
         return mockLstatSync(...args);
       }
       return actual.lstatSync(...args);
+    },
+  };
+});
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = (await importOriginal()) as any;
+  return {
+    ...actual,
+    mkdir: async (...args: any[]) => {
+      if (typeof args[0] === "string" && isMockedPath(args[0])) {
+        return mockMkdir(...args);
+      }
+      return actual.mkdir(...args);
+    },
+    access: async (...args: any[]) => {
+      if (typeof args[0] === "string" && isMockedPath(args[0])) {
+        return mockAccess(...args);
+      }
+      return actual.access(...args);
+    },
+    readFile: async (...args: any[]) => {
+      if (typeof args[0] === "string" && isMockedPath(args[0])) {
+        return mockReadFile(...args);
+      }
+      return actual.readFile(...args);
+    },
+    writeFile: async (...args: any[]) => {
+      if (typeof args[0] === "string" && isMockedPath(args[0])) {
+        return mockWriteFile(...args);
+      }
+      return actual.writeFile(...args);
+    },
+    unlink: async (...args: any[]) => {
+      if (typeof args[0] === "string" && isMockedPath(args[0])) {
+        return mockUnlink(...args);
+      }
+      return actual.unlink(...args);
+    },
+    symlink: async (...args: any[]) => {
+      // symlink(target, path) — route by target path
+      if (typeof args[0] === "string" && isMockedPath(args[0])) {
+        return mockSymlink(...args);
+      }
+      return actual.symlink(...args);
+    },
+    lstat: async (...args: any[]) => {
+      if (typeof args[0] === "string" && isMockedPath(args[0])) {
+        return mockLstat(...args);
+      }
+      return actual.lstat(...args);
     },
   };
 });
@@ -172,8 +249,8 @@ afterAll(() => {
 // ─── launch ──────────────────────────────────────────────────────────────────
 
 describe("launch", () => {
-  it("creates a session with a UUID and starting state", () => {
-    const info = launcher.launch({ cwd: "/tmp/project" });
+  it("creates a session with a UUID and starting state", async () => {
+    const info = await launcher.launch({ cwd: "/tmp/project" });
 
     expect(info.sessionId).toBe("test-session-id");
     expect(info.state).toBe("starting");
@@ -181,8 +258,8 @@ describe("launch", () => {
     expect(info.createdAt).toBeGreaterThan(0);
   });
 
-  it("spawns CLI with correct --sdk-url and flags", () => {
-    launcher.launch({ cwd: "/tmp/project" });
+  it("spawns CLI with correct --sdk-url and flags", async () => {
+    await launcher.launch({ cwd: "/tmp/project" });
 
     expect(mockSpawn).toHaveBeenCalledOnce();
     const [cmdAndArgs, options] = mockSpawn.mock.calls[0];
@@ -209,8 +286,8 @@ describe("launch", () => {
     expect(options.stderr).toBe("pipe");
   });
 
-  it("passes --model when provided", () => {
-    launcher.launch({ model: "claude-opus-4-20250514", cwd: "/tmp" });
+  it("passes --model when provided", async () => {
+    await launcher.launch({ model: "claude-opus-4-20250514", cwd: "/tmp" });
 
     const [cmdAndArgs] = mockSpawn.mock.calls[0];
     const modelIdx = cmdAndArgs.indexOf("--model");
@@ -218,8 +295,8 @@ describe("launch", () => {
     expect(cmdAndArgs[modelIdx + 1]).toBe("claude-opus-4-20250514");
   });
 
-  it("passes --permission-mode when provided", () => {
-    launcher.launch({ permissionMode: "bypassPermissions", cwd: "/tmp" });
+  it("passes --permission-mode when provided", async () => {
+    await launcher.launch({ permissionMode: "bypassPermissions", cwd: "/tmp" });
 
     const [cmdAndArgs] = mockSpawn.mock.calls[0];
     const modeIdx = cmdAndArgs.indexOf("--permission-mode");
@@ -227,8 +304,8 @@ describe("launch", () => {
     expect(cmdAndArgs[modeIdx + 1]).toBe("bypassPermissions");
   });
 
-  it("downgrades bypassPermissions to acceptEdits for containerized Claude sessions", () => {
-    launcher.launch({
+  it("downgrades bypassPermissions to acceptEdits for containerized Claude sessions", async () => {
+    await launcher.launch({
       cwd: "/tmp/project",
       permissionMode: "bypassPermissions",
       containerId: "abc123def456",
@@ -243,9 +320,9 @@ describe("launch", () => {
     expect(bashCmd).not.toContain("bypassPermissions");
   });
 
-  it("uses COMPANION_CONTAINER_SDK_HOST for containerized sdk-url when set", () => {
+  it("uses COMPANION_CONTAINER_SDK_HOST for containerized sdk-url when set", async () => {
     process.env.COMPANION_CONTAINER_SDK_HOST = "172.17.0.1";
-    launcher.launch({
+    await launcher.launch({
       cwd: "/tmp/project",
       containerId: "abc123def456",
       containerName: "companion-test",
@@ -258,8 +335,8 @@ describe("launch", () => {
     expect(bashCmd).toContain("ws://172.17.0.1:3456/ws/cli/test-session-id");
   });
 
-  it("passes --allowedTools for each tool", () => {
-    launcher.launch({
+  it("passes --allowedTools for each tool", async () => {
+    await launcher.launch({
       allowedTools: ["Read", "Write", "Bash"],
       cwd: "/tmp",
     });
@@ -276,18 +353,18 @@ describe("launch", () => {
     expect(toolFlags).toEqual(["Read", "Write", "Bash"]);
   });
 
-  it("resolves binary path via resolveBinary when not absolute", () => {
+  it("resolves binary path via resolveBinary when not absolute", async () => {
     mockResolveBinary.mockReturnValue("/usr/local/bin/claude-dev");
-    launcher.launch({ claudeBinary: "claude-dev", cwd: "/tmp" });
+    await launcher.launch({ claudeBinary: "claude-dev", cwd: "/tmp" });
 
     expect(mockResolveBinary).toHaveBeenCalledWith("claude-dev");
     const [cmdAndArgs] = mockSpawn.mock.calls[0];
     expect(cmdAndArgs[0]).toBe("/usr/local/bin/claude-dev");
   });
 
-  it("passes absolute binary path directly to resolveBinary", () => {
+  it("passes absolute binary path directly to resolveBinary", async () => {
     mockResolveBinary.mockReturnValue("/opt/bin/claude");
-    launcher.launch({
+    await launcher.launch({
       claudeBinary: "/opt/bin/claude",
       cwd: "/tmp",
     });
@@ -297,18 +374,18 @@ describe("launch", () => {
     expect(cmdAndArgs[0]).toBe("/opt/bin/claude");
   });
 
-  it("sets state=exited and exitCode=127 when claude binary not found", () => {
+  it("sets state=exited and exitCode=127 when claude binary not found", async () => {
     mockResolveBinary.mockReturnValue(null);
 
-    const info = launcher.launch({ cwd: "/tmp" });
+    const info = await launcher.launch({ cwd: "/tmp" });
 
     expect(info.state).toBe("exited");
     expect(info.exitCode).toBe(127);
     expect(mockSpawn).not.toHaveBeenCalled();
   });
 
-  it("stores container metadata when containerId provided", () => {
-    const info = launcher.launch({
+  it("stores container metadata when containerId provided", async () => {
+    const info = await launcher.launch({
       cwd: "/tmp/project",
       containerId: "abc123def456",
       containerName: "companion-session-1",
@@ -320,9 +397,9 @@ describe("launch", () => {
     expect(info.containerImage).toBe("ubuntu:22.04");
   });
 
-  it("uses docker exec -i with bash -lc for containerized Claude sessions", () => {
+  it("uses docker exec -i with bash -lc for containerized Claude sessions", async () => {
     // bash -lc ensures ~/.bashrc is sourced so nvm-installed CLIs are on PATH
-    launcher.launch({
+    await launcher.launch({
       cwd: "/tmp/project",
       containerId: "abc123def456",
       containerName: "companion-session-1",
@@ -337,21 +414,21 @@ describe("launch", () => {
     expect(cmdAndArgs).toContain("-lc");
   });
 
-  it("sets session pid from spawned process", () => {
+  it("sets session pid from spawned process", async () => {
     mockSpawn.mockReturnValue(createMockProc(99999));
-    const info = launcher.launch({ cwd: "/tmp" });
+    const info = await launcher.launch({ cwd: "/tmp" });
     expect(info.pid).toBe(99999);
   });
 
-  it("unsets CLAUDECODE to avoid CLI nesting guard", () => {
-    launcher.launch({ cwd: "/tmp" });
+  it("unsets CLAUDECODE to avoid CLI nesting guard", async () => {
+    await launcher.launch({ cwd: "/tmp" });
 
     const [, options] = mockSpawn.mock.calls[0];
     expect(options.env.CLAUDECODE).toBeUndefined();
   });
 
-  it("merges custom env variables", () => {
-    launcher.launch({
+  it("merges custom env variables", async () => {
+    await launcher.launch({
       cwd: "/tmp",
       env: { MY_VAR: "hello" },
     });
@@ -379,7 +456,7 @@ describe("launch", () => {
     mockResolveBinary.mockReturnValue("/opt/fake/codex");
     mockSpawn.mockReturnValueOnce(createMockCodexProc());
 
-    launcher.launch({
+    await launcher.launch({
       backendType: "codex",
       cwd: "/tmp/project",
       codexInternetAccess: true,
@@ -399,7 +476,7 @@ describe("launch", () => {
     mockResolveBinary.mockReturnValue("/opt/fake/codex");
     mockSpawn.mockReturnValueOnce(createMockCodexProc());
 
-    launcher.launch({
+    await launcher.launch({
       backendType: "codex",
       cwd: "/tmp/project",
       codexInternetAccess: false,
@@ -417,7 +494,7 @@ describe("launch", () => {
     mockResolveBinary.mockReturnValue("/opt/fake/codex");
     mockSpawn.mockReturnValueOnce(createMockCodexProc());
 
-    launcher.launch({
+    await launcher.launch({
       backendType: "codex",
       cwd: "/tmp/project",
       codexReasoningEffort: "high",
@@ -435,7 +512,7 @@ describe("launch", () => {
     mockResolveBinary.mockReturnValue("/opt/fake/codex");
     mockSpawn.mockReturnValueOnce(createMockCodexProc());
 
-    launcher.launch({
+    await launcher.launch({
       backendType: "codex",
       cwd: "/tmp/project",
       codexInternetAccess: true,
@@ -463,7 +540,7 @@ describe("launch", () => {
     mockResolveBinary.mockReturnValue(fakeCodex);
     mockSpawn.mockReturnValueOnce(createMockCodexProc());
 
-    launcher.launch({
+    await launcher.launch({
       backendType: "codex",
       cwd: "/tmp/project",
       codexSandbox: "workspace-write",
@@ -481,10 +558,10 @@ describe("launch", () => {
     rmSync(tmpBinDir, { recursive: true, force: true });
   });
 
-  it("sets state=exited and exitCode=127 when codex binary not found", () => {
+  it("sets state=exited and exitCode=127 when codex binary not found", async () => {
     mockResolveBinary.mockReturnValue(null);
 
-    const info = launcher.launch({
+    const info = await launcher.launch({
       backendType: "codex",
       cwd: "/tmp/project",
       codexSandbox: "workspace-write",
@@ -500,8 +577,8 @@ describe("launch", () => {
 
 describe("state management", () => {
   describe("markConnected", () => {
-    it("sets state to connected", () => {
-      launcher.launch({ cwd: "/tmp" });
+    it("sets state to connected", async () => {
+      await launcher.launch({ cwd: "/tmp" });
       launcher.markConnected("test-session-id");
 
       const session = launcher.getSession("test-session-id");
@@ -515,8 +592,8 @@ describe("state management", () => {
   });
 
   describe("setCLISessionId", () => {
-    it("stores the CLI session ID", () => {
-      launcher.launch({ cwd: "/tmp" });
+    it("stores the CLI session ID", async () => {
+      await launcher.launch({ cwd: "/tmp" });
       launcher.setCLISessionId("test-session-id", "cli-internal-abc");
 
       const session = launcher.getSession("test-session-id");
@@ -530,13 +607,13 @@ describe("state management", () => {
   });
 
   describe("isAlive", () => {
-    it("returns true for non-exited session", () => {
-      launcher.launch({ cwd: "/tmp" });
+    it("returns true for non-exited session", async () => {
+      await launcher.launch({ cwd: "/tmp" });
       expect(launcher.isAlive("test-session-id")).toBe(true);
     });
 
     it("returns false for exited session", async () => {
-      launcher.launch({ cwd: "/tmp" });
+      await launcher.launch({ cwd: "/tmp" });
 
       // Simulate process exit
       exitResolve(0);
@@ -552,10 +629,10 @@ describe("state management", () => {
   });
 
   describe("listSessions", () => {
-    it("returns all sessions", () => {
+    it("returns all sessions", async () => {
       // Because randomUUID is mocked to always return the same value,
       // we need to test with a single launch. But we can verify the list.
-      launcher.launch({ cwd: "/tmp" });
+      await launcher.launch({ cwd: "/tmp" });
       const sessions = launcher.listSessions();
 
       expect(sessions).toHaveLength(1);
@@ -568,8 +645,8 @@ describe("state management", () => {
   });
 
   describe("getSession", () => {
-    it("returns a specific session", () => {
-      launcher.launch({ cwd: "/tmp/myproject" });
+    it("returns a specific session", async () => {
+      await launcher.launch({ cwd: "/tmp/myproject" });
 
       const session = launcher.getSession("test-session-id");
       expect(session).toBeDefined();
@@ -583,7 +660,7 @@ describe("state management", () => {
 
   describe("pruneExited", () => {
     it("removes exited sessions and returns count", async () => {
-      launcher.launch({ cwd: "/tmp" });
+      await launcher.launch({ cwd: "/tmp" });
 
       // Simulate process exit
       exitResolve(0);
@@ -596,8 +673,8 @@ describe("state management", () => {
       expect(launcher.listSessions()).toHaveLength(0);
     });
 
-    it("returns 0 when no sessions are exited", () => {
-      launcher.launch({ cwd: "/tmp" });
+    it("returns 0 when no sessions are exited", async () => {
+      await launcher.launch({ cwd: "/tmp" });
       const pruned = launcher.pruneExited();
       expect(pruned).toBe(0);
       expect(launcher.listSessions()).toHaveLength(1);
@@ -605,16 +682,16 @@ describe("state management", () => {
   });
 
   describe("setArchived", () => {
-    it("sets the archived flag on a session", () => {
-      launcher.launch({ cwd: "/tmp" });
+    it("sets the archived flag on a session", async () => {
+      await launcher.launch({ cwd: "/tmp" });
       launcher.setArchived("test-session-id", true);
 
       const session = launcher.getSession("test-session-id");
       expect(session?.archived).toBe(true);
     });
 
-    it("can unset the archived flag", () => {
-      launcher.launch({ cwd: "/tmp" });
+    it("can unset the archived flag", async () => {
+      await launcher.launch({ cwd: "/tmp" });
       launcher.setArchived("test-session-id", true);
       launcher.setArchived("test-session-id", false);
 
@@ -629,8 +706,8 @@ describe("state management", () => {
   });
 
   describe("removeSession", () => {
-    it("deletes session from internal maps", () => {
-      launcher.launch({ cwd: "/tmp" });
+    it("deletes session from internal maps", async () => {
+      await launcher.launch({ cwd: "/tmp" });
       expect(launcher.getSession("test-session-id")).toBeDefined();
 
       launcher.removeSession("test-session-id");
@@ -649,7 +726,7 @@ describe("state management", () => {
 
 describe("kill", () => {
   it("sends SIGTERM via proc.kill", async () => {
-    launcher.launch({ cwd: "/tmp" });
+    await launcher.launch({ cwd: "/tmp" });
 
     // Grab the mock proc
     const mockProc = mockSpawn.mock.results[0].value;
@@ -664,7 +741,7 @@ describe("kill", () => {
   });
 
   it("marks session as exited", async () => {
-    launcher.launch({ cwd: "/tmp" });
+    await launcher.launch({ cwd: "/tmp" });
 
     setTimeout(() => exitResolve(0), 5);
     await launcher.kill("test-session-id");
@@ -695,7 +772,7 @@ describe("relaunch", () => {
     };
     mockSpawn.mockReturnValueOnce(firstProc);
 
-    launcher.launch({ cwd: "/tmp/project", model: "claude-sonnet-4-5-20250929" });
+    await launcher.launch({ cwd: "/tmp/project", model: "claude-sonnet-4-5-20250929" });
     launcher.setCLISessionId("test-session-id", "cli-resume-id");
 
     // Second proc for the relaunch — never exits during test
@@ -732,7 +809,7 @@ describe("relaunch", () => {
     };
     mockSpawn.mockReturnValueOnce(firstProc);
 
-    launcher.launch({
+    await launcher.launch({
       cwd: "/tmp/project",
       containerId: "abc123def456",
       containerName: "companion-test",
@@ -758,7 +835,7 @@ describe("relaunch", () => {
 
   it("returns error when container was removed externally", async () => {
     // Launch a containerized session
-    launcher.launch({
+    await launcher.launch({
       cwd: "/tmp/project",
       containerId: "abc123def456",
       containerName: "companion-gone",
@@ -793,7 +870,7 @@ describe("relaunch", () => {
     };
     mockSpawn.mockReturnValueOnce(firstProc);
 
-    launcher.launch({
+    await launcher.launch({
       cwd: "/tmp/project",
       containerId: "abc123def456",
       containerName: "companion-stopped",
@@ -813,7 +890,7 @@ describe("relaunch", () => {
   });
 
   it("returns error when stopped container cannot be restarted", async () => {
-    launcher.launch({
+    await launcher.launch({
       cwd: "/tmp/project",
       containerId: "abc123def456",
       containerName: "companion-dead",
@@ -830,7 +907,7 @@ describe("relaunch", () => {
   });
 
   it("returns error when CLI binary not found in container", async () => {
-    launcher.launch({
+    await launcher.launch({
       cwd: "/tmp/project",
       containerId: "abc123def456",
       containerName: "companion-nobin",
@@ -856,7 +933,7 @@ describe("relaunch", () => {
       codexBinary: "",
     }));
 
-    launcher.launch({
+    await launcher.launch({
       cwd: "/tmp/project",
       containerId: "abc123def456",
       containerName: "companion-custom-claude",
@@ -878,7 +955,7 @@ describe("relaunch", () => {
     }));
 
     mockSpawn.mockReturnValueOnce(createMockCodexProc());
-    launcher.launch({
+    await launcher.launch({
       backendType: "codex",
       cwd: "/tmp/project",
       containerId: "abc123def456",
@@ -907,7 +984,7 @@ describe("relaunch", () => {
     };
     mockSpawn.mockReturnValueOnce(firstProc);
 
-    launcher.launch({ cwd: "/tmp/project" });
+    await launcher.launch({ cwd: "/tmp/project" });
 
     const secondProc = createMockProc(54321);
     mockSpawn.mockReturnValueOnce(secondProc);
@@ -1045,16 +1122,16 @@ describe("persistence", () => {
 // ─── getStartingSessions ─────────────────────────────────────────────────────
 
 describe("getStartingSessions", () => {
-  it("returns only sessions in starting state", () => {
-    launcher.launch({ cwd: "/tmp" });
+  it("returns only sessions in starting state", async () => {
+    await launcher.launch({ cwd: "/tmp" });
 
     const starting = launcher.getStartingSessions();
     expect(starting).toHaveLength(1);
     expect(starting[0].state).toBe("starting");
   });
 
-  it("excludes sessions that have been connected", () => {
-    launcher.launch({ cwd: "/tmp" });
+  it("excludes sessions that have been connected", async () => {
+    await launcher.launch({ cwd: "/tmp" });
     launcher.markConnected("test-session-id");
 
     const starting = launcher.getStartingSessions();
@@ -1075,14 +1152,14 @@ describe("symlinkProjectSettings", () => {
   const WORKTREE = "/tmp/worktrees/my-project";
   const REPO_ROOT = "/tmp/main-repo/my-project";
 
-  function launchWorktree(existsSyncImpl?: (path: string) => boolean) {
+  async function launchWorktree(existsSyncImpl?: (path: string) => boolean) {
     // Default: worktree dir exists, no settings files present yet
     mockExistsSync.mockImplementation((path: string) => {
       if (path === WORKTREE) return true; // worktree dir must exist
       if (existsSyncImpl) return existsSyncImpl(path);
       return false; // no CLAUDE.md, no settings files
     });
-    launcher.launch({
+    await launcher.launch({
       cwd: WORKTREE,
       worktreeInfo: {
         isWorktree: true,
@@ -1094,8 +1171,8 @@ describe("symlinkProjectSettings", () => {
     });
   }
 
-  it("creates symlinks for settings.json and settings.local.json when they don't exist", () => {
-    launchWorktree();
+  it("creates symlinks for settings.json and settings.local.json when they don't exist", async () => {
+    await launchWorktree();
 
     // Both settings files should be symlinked to the main repo
     expect(mockSymlinkSync).toHaveBeenCalledTimes(2);
@@ -1109,17 +1186,17 @@ describe("symlinkProjectSettings", () => {
     );
   });
 
-  it("ensures the main repo .claude directory exists", () => {
-    launchWorktree();
+  it("ensures the main repo .claude directory exists", async () => {
+    await launchWorktree();
 
-    // mkdirSync should be called for the repo's .claude dir (recursive)
+    // mkdir should be called for the repo's .claude dir (recursive)
     expect(mockMkdirSync).toHaveBeenCalledWith(
       join(REPO_ROOT, ".claude"),
       { recursive: true },
     );
   });
 
-  it("merges a real (non-symlink) file into repo and replaces with symlink", () => {
+  it("merges a real (non-symlink) file into repo and replaces with symlink", async () => {
     // Simulate settings.json being a real file in the worktree (Claude Code's
     // atomic write broke a previous symlink). The file should be merged into
     // the main repo's copy and replaced with a symlink.
@@ -1146,7 +1223,7 @@ describe("symlinkProjectSettings", () => {
       return "";
     });
 
-    launcher.launch({
+    await launcher.launch({
       cwd: WORKTREE,
       worktreeInfo: {
         isWorktree: true,
@@ -1175,7 +1252,7 @@ describe("symlinkProjectSettings", () => {
     );
   });
 
-  it("leaves an existing symlink alone (idempotent)", () => {
+  it("leaves an existing symlink alone (idempotent)", async () => {
     // Both files exist and are already symlinks
     mockExistsSync.mockImplementation((path: string) => {
       if (path === WORKTREE) return true;
@@ -1185,7 +1262,7 @@ describe("symlinkProjectSettings", () => {
     });
     mockLstatSync.mockReturnValue({ isSymbolicLink: () => true });
 
-    launcher.launch({
+    await launcher.launch({
       cwd: WORKTREE,
       worktreeInfo: {
         isWorktree: true,
@@ -1200,13 +1277,13 @@ describe("symlinkProjectSettings", () => {
     expect(mockSymlinkSync).not.toHaveBeenCalled();
   });
 
-  it("skips symlink creation when repoRoot is empty", () => {
+  it("skips symlink creation when repoRoot is empty", async () => {
     mockExistsSync.mockImplementation((path: string) => {
       if (path === WORKTREE) return true;
       return false;
     });
 
-    launcher.launch({
+    await launcher.launch({
       cwd: WORKTREE,
       worktreeInfo: {
         isWorktree: true,
@@ -1220,7 +1297,7 @@ describe("symlinkProjectSettings", () => {
     expect(mockSymlinkSync).not.toHaveBeenCalled();
   });
 
-  it("adds git exclude entries when .git file is present", () => {
+  it("adds git exclude entries when .git file is present", async () => {
     // Simulate the worktree having a .git file (standard for worktrees) that
     // points to a gitdir. addWorktreeGitExclude reads it to find info/exclude.
     const gitDir = "/tmp/worktrees/.git-worktree-dir";
@@ -1235,7 +1312,7 @@ describe("symlinkProjectSettings", () => {
       return "";
     });
 
-    launcher.launch({
+    await launcher.launch({
       cwd: WORKTREE,
       worktreeInfo: {
         isWorktree: true,
@@ -1258,11 +1335,11 @@ describe("symlinkProjectSettings", () => {
     expect(excludeCalls.length).toBeGreaterThanOrEqual(2);
   });
 
-  it("does not inject .claude/CLAUDE.md for Codex worktree sessions", () => {
+  it("does not inject .claude/CLAUDE.md for Codex worktree sessions", async () => {
     mockExistsSync.mockImplementation((path: string) => path === WORKTREE);
     mockSpawn.mockReturnValueOnce(createMockCodexProc());
 
-    launcher.launch({
+    await launcher.launch({
       backendType: "codex",
       cwd: WORKTREE,
       worktreeInfo: {
@@ -1280,11 +1357,11 @@ describe("symlinkProjectSettings", () => {
     expect(mockSymlinkSync).not.toHaveBeenCalled();
   });
 
-  it("injects repo-agnostic sync context into Codex AGENTS.md guardrails", () => {
+  it("injects repo-agnostic sync context into Codex AGENTS.md guardrails", async () => {
     mockExistsSync.mockImplementation((path: string) => path === WORKTREE);
     mockSpawn.mockReturnValueOnce(createMockCodexProc());
 
-    launcher.launch({
+    await launcher.launch({
       backendType: "codex",
       cwd: WORKTREE,
       worktreeInfo: {
@@ -1308,7 +1385,7 @@ describe("symlinkProjectSettings", () => {
     expect(content).toContain(`git -C ${REPO_ROOT} push origin feature-x`);
   });
 
-  it("materializes AGENTS.md when AGENTS.md is a symlink in Codex worktree sessions", () => {
+  it("materializes AGENTS.md when AGENTS.md is a symlink in Codex worktree sessions", async () => {
     const agentsPath = join(WORKTREE, "AGENTS.md");
     mockExistsSync.mockImplementation((path: string) => path === WORKTREE || path === agentsPath);
     mockLstatSync.mockImplementation((path?: string) => {
@@ -1321,7 +1398,7 @@ describe("symlinkProjectSettings", () => {
     });
     mockSpawn.mockReturnValueOnce(createMockCodexProc());
 
-    launcher.launch({
+    await launcher.launch({
       backendType: "codex",
       cwd: WORKTREE,
       worktreeInfo: {

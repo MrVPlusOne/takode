@@ -698,7 +698,9 @@ export class WsBridge {
     }
   }
 
-  /** Send periodic pings to all browser and CLI sockets to detect dead connections. */
+  /** Send periodic pings to all browser and CLI sockets to detect dead connections.
+   *  10s interval matches the CLI's expected WebSocket ping/pong cadence and ensures
+   *  half-open TCP connections are detected within ~10s instead of ~30s. */
   startHeartbeat(): void {
     if (this.heartbeatInterval) return;
     this.heartbeatInterval = setInterval(() => {
@@ -722,7 +724,7 @@ export class WsBridge {
           }
         }
       }
-    }, 30_000);
+    }, 10_000);
   }
 
   /** Periodically check for sessions stuck in "generating" state with no CLI activity. */
@@ -1686,6 +1688,24 @@ export class WsBridge {
     session.assistantAccumulator.clear();
     // Flush cleared permissions to disk so they don't survive a server restart
     this.persistSession(session);
+
+    // Auto-relaunch: instead of waiting for a browser to connect and discover
+    // the dead CLI, proactively request relaunch after a short delay. This makes
+    // disconnects nearly invisible — the CLI restarts before the user notices.
+    // The 2s delay avoids relaunching during transient network blips.
+    // Safety: relaunchingSet in index.ts prevents concurrent relaunches (5s guard),
+    // killedByIdleManager/archived checks are in the callback, and cli-launcher's
+    // fast-exit retry handles crash loops.
+    if (!idleKilled && this.onCLIRelaunchNeeded) {
+      const sid = sessionId;
+      setTimeout(() => {
+        // Re-check: CLI may have already reconnected in the 2s window
+        const s = this.sessions.get(sid);
+        if (s && !s.cliSocket) {
+          this.onCLIRelaunchNeeded!(sid);
+        }
+      }, 2000);
+    }
   }
 
   // ── Browser WebSocket handlers ──────────────────────────────────────────
@@ -3538,7 +3558,10 @@ export class WsBridge {
       // NDJSON requires a newline delimiter
       session.cliSocket.send(ndjson + "\n");
     } catch (err) {
-      console.error(`[ws-bridge] Failed to send to CLI for session ${session.id}:`, err);
+      // Send failure means the socket is dead — close it so the auto-relaunch
+      // mechanism can kick in (either from handleCLIClose or browser reconnect).
+      console.warn(`[ws-bridge] CLI send failed for session ${sessionTag(session.id)}, closing dead socket:`, err);
+      try { session.cliSocket.close(); } catch { /* already dead */ }
     }
   }
 

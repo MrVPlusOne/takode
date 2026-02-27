@@ -138,7 +138,7 @@ export function createRoutes(
         // Inject COMPANION_PORT so resumed sessions can call the local API.
         envVars = { ...envVars, COMPANION_PORT: String(launcher.getPort()) };
         const binarySettings = getSettings();
-        const session = launcher.launch({
+        const session = await launcher.launch({
           cwd: body.cwd ? resolve(expandTilde(body.cwd)) : process.cwd(),
           claudeBinary: body.claudeBinary || binarySettings.claudeBinary || undefined,
           env: envVars,
@@ -407,7 +407,7 @@ export function createRoutes(
         ? (body.codexReasoningEffort.trim() || undefined)
         : undefined;
       const binarySettings = getSettings();
-      const session = launcher.launch({
+      const session = await launcher.launch({
         model,
         permissionMode: initialPermissionMode,
         cwd,
@@ -524,7 +524,7 @@ export function createRoutes(
 
           await emitProgress(stream, "launching_cli", "Resuming CLI session...", "in_progress");
           const binarySettings = getSettings();
-          const session = launcher.launch({
+          const session = await launcher.launch({
             cwd: body.cwd ? resolve(expandTilde(body.cwd)) : process.cwd(),
             claudeBinary: body.claudeBinary || binarySettings.claudeBinary || undefined,
             env: envVars,
@@ -867,7 +867,7 @@ export function createRoutes(
           ? (body.codexReasoningEffort.trim() || undefined)
           : undefined;
         const streamBinarySettings = getSettings();
-        const session = launcher.launch({
+        const session = await launcher.launch({
           model,
           permissionMode: initialPermissionMode,
           cwd,

@@ -121,7 +121,7 @@ export class CronScheduler {
 
       // Launch the session via CliLauncher
       // For Codex, explicitly set sandbox and internet access for full autonomy
-      const sessionInfo = this.launcher.launch({
+      const sessionInfo = await this.launcher.launch({
         model: job.model,
         permissionMode: job.permissionMode,
         cwd: job.cwd,

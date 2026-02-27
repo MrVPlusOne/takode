@@ -1,23 +1,23 @@
 import { randomUUID } from "node:crypto";
-import { execSync } from "node:child_process";
+import { exec as execCb } from "node:child_process";
+import { promisify } from "node:util";
 import {
-  mkdirSync,
   existsSync,
-  readFileSync,
-  writeFileSync,
-  unlinkSync,
-  copyFileSync,
-  cpSync,
   realpathSync,
-  symlinkSync,
-  lstatSync,
 } from "node:fs";
 import {
   mkdir,
   access,
   copyFile,
   cp,
+  readFile,
+  writeFile,
+  unlink,
+  symlink,
+  lstat,
 } from "node:fs/promises";
+
+const execPromise = promisify(execCb);
 import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 import type { Subprocess } from "bun";
@@ -32,6 +32,11 @@ import {
   resolveCompanionCodexSessionHome,
 } from "./codex-home.js";
 import { sessionTag } from "./session-tag.js";
+
+/** Check if a file exists (async equivalent of existsSync). */
+async function fileExists(path: string): Promise<boolean> {
+  try { await access(path); return true; } catch { return false; }
+}
 
 function sanitizeSpawnArgsForLog(args: string[]): string {
   const secretKeyPattern = /(token|key|secret|password)/i;
@@ -292,7 +297,7 @@ export class CliLauncher {
   /**
    * Launch a new CLI session (Claude Code or Codex).
    */
-  launch(options: LaunchOptions = {}): SdkSessionInfo {
+  async launch(options: LaunchOptions = {}): Promise<SdkSessionInfo> {
     const sessionId = randomUUID();
     const cwd = options.cwd || process.cwd();
     const backendType = options.backendType || "claude";
@@ -331,7 +336,7 @@ export class CliLauncher {
 
     // Inject backend-specific worktree guardrails.
     if (info.isWorktree && info.branch) {
-      this.injectWorktreeGuardrails(
+      await this.injectWorktreeGuardrails(
         info.cwd,
         info.actualBranch || info.branch,
         info.repoRoot || "",
@@ -909,13 +914,13 @@ export class CliLauncher {
    *
    * Only injects into actual worktree directories, never the main repo.
    */
-  private injectWorktreeGuardrails(
+  private async injectWorktreeGuardrails(
     worktreePath: string,
     branch: string,
     repoRoot: string,
     backendType: BackendType,
     parentBranch?: string,
-  ): void {
+  ): Promise<void> {
     // Safety: never inject guardrails into the main repository itself
     if (worktreePath === repoRoot) {
       console.warn(`[cli-launcher] Skipping guardrails injection: worktree path is the main repo (${repoRoot})`);
@@ -923,7 +928,7 @@ export class CliLauncher {
     }
 
     // Safety: only inject if the worktree directory actually exists (created by git worktree add)
-    if (!existsSync(worktreePath)) { // sync-ok: session launch, not called during message handling
+    if (!(await fileExists(worktreePath))) {
       console.warn(`[cli-launcher] Skipping guardrails injection: worktree path does not exist (${worktreePath})`);
       return;
     }
@@ -984,35 +989,35 @@ ${MARKER_END}`;
       const claudeMdPath = join(claudeDir, "CLAUDE.md");
 
       try {
-        mkdirSync(claudeDir, { recursive: true });
+        await mkdir(claudeDir, { recursive: true });
 
-        if (existsSync(claudeMdPath)) { // sync-ok: session launch, not called during message handling
-          const existing = readFileSync(claudeMdPath, "utf-8"); // sync-ok: session launch, not called during message handling
+        if (await fileExists(claudeMdPath)) {
+          const existing = await readFile(claudeMdPath, "utf-8");
           // Replace existing guardrails section or append
           if (existing.includes(MARKER_START)) {
             const before = existing.substring(0, existing.indexOf(MARKER_START));
             const afterIdx = existing.indexOf(MARKER_END);
             const after = afterIdx >= 0 ? existing.substring(afterIdx + MARKER_END.length) : "";
-            writeFileSync(claudeMdPath, before + guardrails + after, "utf-8"); // sync-ok: session launch, not called during message handling
+            await writeFile(claudeMdPath, before + guardrails + after, "utf-8");
           } else {
-            writeFileSync(claudeMdPath, existing + "\n\n" + guardrails, "utf-8"); // sync-ok: session launch, not called during message handling
+            await writeFile(claudeMdPath, existing + "\n\n" + guardrails, "utf-8");
           }
         } else {
-          writeFileSync(claudeMdPath, guardrails, "utf-8"); // sync-ok: session launch, not called during message handling
+          await writeFile(claudeMdPath, guardrails, "utf-8");
         }
         console.log(`[cli-launcher] Injected worktree guardrails into .claude/CLAUDE.md for branch ${branch}`);
 
         // Add .claude/CLAUDE.md to the worktree-local git exclude so it doesn't
         // show as untracked and is protected from `git clean -fd`.
         // Worktrees store their git metadata at the path inside .git (a file, not dir).
-        this.addWorktreeGitExclude(worktreePath, ".claude/CLAUDE.md");
+        await this.addWorktreeGitExclude(worktreePath, ".claude/CLAUDE.md");
 
         // Mark the file as skip-worktree so git ignores local modifications to this
         // tracked file. Without this, `git status` always shows .claude/CLAUDE.md as
         // modified, which prevents automatic worktree cleanup on archive.
         try {
-          execSync("git update-index --skip-worktree .claude/CLAUDE.md", { // sync-ok: session launch, not called during message handling
-            cwd: worktreePath, stdio: "pipe", timeout: 5000,
+          await execPromise("git --no-optional-locks update-index --skip-worktree .claude/CLAUDE.md", {
+            cwd: worktreePath, timeout: 5000,
           });
         } catch { /* file may not be tracked in this repo — ignore */ }
 
@@ -1020,7 +1025,7 @@ ${MARKER_END}`;
         // the same permission rules. Without this, rules written with
         // destination:"projectSettings" go to the worktree's local copy and aren't
         // visible to other sessions.
-        this.symlinkProjectSettings(worktreePath, repoRoot);
+        await this.symlinkProjectSettings(worktreePath, repoRoot);
       } catch (e) {
         console.warn(`[cli-launcher] Failed to inject .claude/CLAUDE.md guardrails:`, e);
       }
@@ -1033,31 +1038,31 @@ ${MARKER_END}`;
       const agentsMdPath = join(worktreePath, "AGENTS.md");
       try {
         let existing = "";
-        if (existsSync(agentsMdPath)) { // sync-ok: session launch, not called during message handling
-          const stat = lstatSync(agentsMdPath); // sync-ok: session launch, not called during message handling
+        if (await fileExists(agentsMdPath)) {
+          const stat = await lstat(agentsMdPath);
           if (stat.isSymbolicLink()) {
             // Read through the symlink first, then replace it with a regular file.
-            existing = readFileSync(agentsMdPath, "utf-8"); // sync-ok: session launch, not called during message handling
-            unlinkSync(agentsMdPath); // sync-ok: session launch, not called during message handling
+            existing = await readFile(agentsMdPath, "utf-8");
+            await unlink(agentsMdPath);
             console.log("[cli-launcher] Replaced symlinked AGENTS.md with worktree-local file");
           } else {
-            existing = readFileSync(agentsMdPath, "utf-8"); // sync-ok: session launch, not called during message handling
+            existing = await readFile(agentsMdPath, "utf-8");
           }
         }
         if (existing.includes(MARKER_START)) {
           const before = existing.substring(0, existing.indexOf(MARKER_START));
           const afterIdx = existing.indexOf(MARKER_END);
           const after = afterIdx >= 0 ? existing.substring(afterIdx + MARKER_END.length) : "";
-          writeFileSync(agentsMdPath, before + guardrails + after, "utf-8"); // sync-ok: session launch, not called during message handling
+          await writeFile(agentsMdPath, before + guardrails + after, "utf-8");
         } else {
-          writeFileSync(agentsMdPath, existing ? (existing + "\n\n" + guardrails) : guardrails, "utf-8"); // sync-ok: session launch, not called during message handling
+          await writeFile(agentsMdPath, existing ? (existing + "\n\n" + guardrails) : guardrails, "utf-8");
         }
         console.log(`[cli-launcher] Injected worktree guardrails into AGENTS.md for branch ${branch}`);
 
-        this.addWorktreeGitExclude(worktreePath, "AGENTS.md");
+        await this.addWorktreeGitExclude(worktreePath, "AGENTS.md");
         try {
-          execSync("git update-index --skip-worktree AGENTS.md", { // sync-ok: session launch, not called during message handling
-            cwd: worktreePath, stdio: "pipe", timeout: 5000,
+          await execPromise("git --no-optional-locks update-index --skip-worktree AGENTS.md", {
+            cwd: worktreePath, timeout: 5000,
           });
         } catch { /* file may not be tracked in this repo — ignore */ }
       } catch (e) {
@@ -1070,13 +1075,13 @@ ${MARKER_END}`;
    * Add an entry to the worktree-local .git/info/exclude file.
    * This is a local-only gitignore that doesn't modify the repo's .gitignore.
    */
-  private addWorktreeGitExclude(worktreePath: string, pattern: string): void {
+  private async addWorktreeGitExclude(worktreePath: string, pattern: string): Promise<void> {
     try {
       const dotGitPath = join(worktreePath, ".git");
       let gitDir: string;
 
-      if (existsSync(dotGitPath)) { // sync-ok: session launch, not called during message handling
-        const stat = readFileSync(dotGitPath, "utf-8").trim(); // sync-ok: session launch, not called during message handling
+      if (await fileExists(dotGitPath)) {
+        const stat = (await readFile(dotGitPath, "utf-8")).trim();
         // Worktrees have a .git file with "gitdir: <path>"
         if (stat.startsWith("gitdir: ")) {
           gitDir = stat.slice("gitdir: ".length);
@@ -1090,14 +1095,15 @@ ${MARKER_END}`;
       const excludeDir = join(gitDir, "info");
       const excludePath = join(excludeDir, "exclude");
 
-      mkdirSync(excludeDir, { recursive: true });
+      await mkdir(excludeDir, { recursive: true });
 
-      if (existsSync(excludePath)) { // sync-ok: session launch, not called during message handling
-        const existing = readFileSync(excludePath, "utf-8"); // sync-ok: session launch, not called during message handling
+      if (await fileExists(excludePath)) {
+        const existing = await readFile(excludePath, "utf-8");
         if (existing.includes(pattern)) return; // already present
       }
 
-      writeFileSync(excludePath, (existsSync(excludePath) ? readFileSync(excludePath, "utf-8") : "") + `\n${pattern}\n`, "utf-8"); // sync-ok: session launch, not called during message handling
+      const existingContent = await fileExists(excludePath) ? await readFile(excludePath, "utf-8") : "";
+      await writeFile(excludePath, existingContent + `\n${pattern}\n`, "utf-8");
       console.log(`[cli-launcher] Added "${pattern}" to worktree git exclude`);
     } catch (e) {
       console.warn(`[cli-launcher] Failed to add git exclude entry:`, e);
@@ -1116,7 +1122,7 @@ ${MARKER_END}`;
    *   repo file, replace with symlink. This handles the case where Claude Code's
    *   atomic write (write-to-temp-then-rename) broke a previous symlink.
    */
-  private symlinkProjectSettings(worktreePath: string, repoRoot: string): void {
+  private async symlinkProjectSettings(worktreePath: string, repoRoot: string): Promise<void> {
     if (!repoRoot) return;
 
     const SETTINGS_FILES = ["settings.json", "settings.local.json"];
@@ -1126,7 +1132,7 @@ ${MARKER_END}`;
     // Ensure the main repo's .claude/ directory exists so the CLI can create
     // the settings file at the symlink target.
     try {
-      mkdirSync(repoClaudeDir, { recursive: true }); // sync-ok: session launch, not called during message handling
+      await mkdir(repoClaudeDir, { recursive: true });
     } catch {
       return; // can't create target directory — skip
     }
@@ -1139,16 +1145,16 @@ ${MARKER_END}`;
         // Seed the target file if it doesn't exist, so the symlink is never
         // dangling. A dangling symlink gets replaced by a real file when the
         // CLI does an atomic write (write-temp-then-rename).
-        if (!existsSync(repoFile)) { // sync-ok: session launch, not called during message handling
-          writeFileSync(repoFile, "{}\n", "utf-8"); // sync-ok: session launch, not called during message handling
+        if (!(await fileExists(repoFile))) {
+          await writeFile(repoFile, "{}\n", "utf-8");
           console.log(`[cli-launcher] Seeded ${repoFile} for symlink target`);
         }
 
-        // Use lstatSync (doesn't follow symlinks) to detect dangling symlinks
+        // Use lstat (doesn't follow symlinks) to detect dangling symlinks
         // and real files that replaced a previous symlink.
         let worktreeFileStat: import("node:fs").Stats | null = null;
         try {
-          worktreeFileStat = lstatSync(worktreeFile); // sync-ok: session launch, not called during message handling
+          worktreeFileStat = await lstat(worktreeFile);
         } catch {
           // file doesn't exist — create symlink below
         }
@@ -1160,16 +1166,16 @@ ${MARKER_END}`;
 
           // Real file exists — Claude Code's atomic write broke a previous
           // symlink. Merge its contents into the main repo file, then replace.
-          this.mergeSettingsIntoRepo(worktreeFile, repoFile);
-          unlinkSync(worktreeFile); // sync-ok: session launch, not called during message handling
+          await this.mergeSettingsIntoRepo(worktreeFile, repoFile);
+          await unlink(worktreeFile);
           console.log(`[cli-launcher] Merged and removed real ${worktreeFile} (was broken symlink)`);
         }
 
-        symlinkSync(repoFile, worktreeFile); // sync-ok: session launch, not called during message handling
+        await symlink(repoFile, worktreeFile);
         console.log(`[cli-launcher] Symlinked ${worktreeFile} → ${repoFile}`);
 
         // Add to git exclude so symlink doesn't show as untracked
-        this.addWorktreeGitExclude(worktreePath, `.claude/${filename}`);
+        await this.addWorktreeGitExclude(worktreePath, `.claude/${filename}`);
       } catch (e) {
         console.warn(`[cli-launcher] Failed to symlink .claude/${filename}:`, e);
       }
@@ -1180,14 +1186,14 @@ ${MARKER_END}`;
    * Merge permission rules from a worktree's settings file into the main
    * repo's settings file. Deduplicates rules so merging is idempotent.
    */
-  private mergeSettingsIntoRepo(worktreeFile: string, repoFile: string): void {
+  private async mergeSettingsIntoRepo(worktreeFile: string, repoFile: string): Promise<void> {
     try {
-      const wtRaw = readFileSync(worktreeFile, "utf-8"); // sync-ok: session launch, not called during message handling
+      const wtRaw = await readFile(worktreeFile, "utf-8");
       const wtData = JSON.parse(wtRaw) as Record<string, unknown>;
 
       let repoData: Record<string, unknown> = {};
       try {
-        const repoRaw = readFileSync(repoFile, "utf-8"); // sync-ok: session launch, not called during message handling
+        const repoRaw = await readFile(repoFile, "utf-8");
         repoData = JSON.parse(repoRaw) as Record<string, unknown>;
       } catch { /* empty or corrupt — start fresh */ }
 
@@ -1208,7 +1214,7 @@ ${MARKER_END}`;
         repoData.permissions = repoPerms;
       }
 
-      writeFileSync(repoFile, JSON.stringify(repoData, null, 2) + "\n", "utf-8"); // sync-ok: session launch, not called during message handling
+      await writeFile(repoFile, JSON.stringify(repoData, null, 2) + "\n", "utf-8");
     } catch (e) {
       console.warn(`[cli-launcher] Failed to merge settings into repo:`, e);
     }

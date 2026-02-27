@@ -166,6 +166,11 @@ When syncing with upstream: fast-forward `main` to `upstream/main`, then rebase 
   - **Git commands** must include `--no-optional-locks` to avoid NFS lock contention on `.git/index.lock`.
   - **Recordings** default to `$TMPDIR/companion-recordings/` (local tmpfs, ~37× faster than NFS). They are ephemeral debugging data — never read by production code.
   - **Session data** stays on the home directory for persistence across reboots — it is critical user data. Optimize with async writes and debouncing, not by moving to tmpfs.
+- **CLI connection liveness is maintained through three layers:**
+  1. **Heartbeat pings (10s):** The server pings all CLI WebSockets every 10s via `ws.ping()`. Bun doesn't expose pong callbacks, so this is polling-based — if `ping()` throws, the socket is dead. Claude Code CLI does NOT send application-level `keep_alive` messages (confirmed via protocol recordings), so WebSocket-level ping/pong is the only liveness signal.
+  2. **Send failure detection:** When the server tries to send a message to a dead CLI socket, `ws.send()` throws. The catch handler closes the socket, which triggers `handleCLIClose` and the auto-relaunch mechanism. This gives instant detection on the next outbound message.
+  3. **Auto-relaunch on disconnect:** When a CLI disconnects (via `handleCLIClose`), the server proactively requests a relaunch after a 2-second delay — no need to wait for a browser to connect and discover the dead session. The delay avoids relaunching during transient network blips. Safety: `relaunchingSet` (5s throttle) prevents concurrent relaunches, `killedByIdleManager` check skips intentional kills, and cli-launcher's fast-exit retry handles crash loops.
+  - **Worktree setup must be fully async.** Creating a new worktree session involves file I/O (guardrails injection, git exclude, settings symlinks) and git commands (`update-index --skip-worktree`). On NFS, synchronous versions of these operations can block the event loop for 10+ seconds, killing all CLI WebSocket connections. All worktree setup methods in `cli-launcher.ts` (`injectWorktreeGuardrails`, `addWorktreeGitExclude`, `symlinkProjectSettings`) must use async I/O.
 
 ## Browser Exploration
 
