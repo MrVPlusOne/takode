@@ -208,6 +208,8 @@ async function handleList(base: string, args: string[]): Promise<void> {
     lastMessagePreview?: string;
     gitBranch?: string;
     attentionReason?: string;
+    repoRoot?: string;
+    isWorktree?: boolean;
   }>;
 
   // Filter unless --all
@@ -223,24 +225,91 @@ async function handleList(base: string, args: string[]): Promise<void> {
     return;
   }
 
-  // Human-readable table
-  for (const s of filtered) {
-    const num = s.sessionNum !== undefined ? `#${s.sessionNum}` : "  ";
-    const name = s.name ? `"${s.name}"` : "(unnamed)";
-    const role = s.isOrchestrator ? " [orchestrator]" : s.isAssistant ? " [assistant]" : "";
-    const status = s.cliConnected ? (s.state === "running" ? "running" : "idle") : (s.archived ? "archived" : s.state);
-    const attention = s.attentionReason ? ` ⚠ ${s.attentionReason}` : "";
-    const branch = s.gitBranch ? ` (${s.gitBranch})` : "";
-    const model = s.model ? ` [${s.model}]` : "";
-    const activity = s.lastActivityAt ? formatRelativeTime(s.lastActivityAt) : "never";
-    const preview = s.lastMessagePreview ? `  "${truncate(s.lastMessagePreview, 60)}"` : "";
+  // Group sessions by project (repo root or cwd)
+  const groups = new Map<string, typeof filtered>();
+  const archived: typeof filtered = [];
 
-    console.log(`  ${num.padEnd(4)} ${status.padEnd(10)} ${name}${role}${model}${branch}${attention}`);
-    console.log(`       last: ${activity}${preview}`);
+  for (const s of filtered) {
+    if (s.archived) {
+      archived.push(s);
+      continue;
+    }
+    const projectKey = (s.repoRoot || s.cwd || "").replace(/\/+$/, "") || "/";
+    if (!groups.has(projectKey)) groups.set(projectKey, []);
+    groups.get(projectKey)!.push(s);
+  }
+
+  // Sort groups alphabetically by label, render each
+  const sortedGroups = Array.from(groups.entries()).sort(([a], [b]) => {
+    const labelA = a.split("/").pop() || a;
+    const labelB = b.split("/").pop() || b;
+    return labelA.localeCompare(labelB);
+  });
+
+  let total = 0;
+  for (const [projectKey, projectSessions] of sortedGroups) {
+    const label = projectKey.split("/").pop() || projectKey;
+    const running = projectSessions.filter(s => s.cliConnected && s.state === "running").length;
+    const countLabel = running > 0 ? `  (${running} running)` : "";
+    console.log(`▸ ${label}  ${projectSessions.length}${countLabel}`);
+
+    // Sort: running first, then by most recent activity
+    projectSessions.sort((a, b) => {
+      const aRunning = a.cliConnected && a.state === "running" ? 1 : 0;
+      const bRunning = b.cliConnected && b.state === "running" ? 1 : 0;
+      if (aRunning !== bRunning) return bRunning - aRunning;
+      return (b.lastActivityAt || 0) - (a.lastActivityAt || 0);
+    });
+
+    for (const s of projectSessions) {
+      printSessionLine(s);
+      total++;
+    }
     console.log("");
   }
 
-  console.log(`${filtered.length} session(s)${showAll ? "" : " (active only, use --all to see all)"}`);
+  // Archived group
+  if (archived.length > 0) {
+    console.log(`▸ ARCHIVED  ${archived.length}`);
+    for (const s of archived) {
+      printSessionLine(s);
+      total++;
+    }
+    console.log("");
+  }
+
+  console.log(`${total} session(s)${showAll ? "" : " (active only, use --all to see all)"}`);
+}
+
+function printSessionLine(s: {
+  sessionNum?: number;
+  name?: string;
+  state: string;
+  cliConnected?: boolean;
+  archived?: boolean;
+  isOrchestrator?: boolean;
+  isAssistant?: boolean;
+  model?: string;
+  gitBranch?: string;
+  attentionReason?: string;
+  lastActivityAt?: number;
+  lastMessagePreview?: string;
+  isWorktree?: boolean;
+}): void {
+  const num = s.sessionNum !== undefined ? `#${s.sessionNum}` : "  ";
+  const name = s.name || "(unnamed)";
+  const role = s.isOrchestrator ? " [orch]" : s.isAssistant ? " [asst]" : "";
+  const status = s.cliConnected
+    ? (s.state === "running" ? "●" : "○")
+    : (s.archived ? "⊘" : "✗");
+  const attention = s.attentionReason ? ` ⚠ ${s.attentionReason}` : "";
+  const branch = s.gitBranch ? `  ${s.gitBranch}` : "";
+  const wt = s.isWorktree ? " wt" : "";
+  const activity = s.lastActivityAt ? formatRelativeTime(s.lastActivityAt) : "";
+  const preview = s.lastMessagePreview ? `  "${truncate(s.lastMessagePreview, 50)}"` : "";
+
+  console.log(`  ${num.padEnd(5)} ${status} ${name}${role}${attention}`);
+  console.log(`        ${branch}${wt}  ${activity}${preview}`);
 }
 
 async function handleWatch(base: string, args: string[]): Promise<void> {

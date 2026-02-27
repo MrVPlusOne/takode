@@ -149,6 +149,7 @@ function createMockLauncher() {
     getPort: vi.fn(() => 3456),
     // resolveSessionId: pass-through for exact UUIDs (used by resolveId helper in routes)
     resolveSessionId: vi.fn((id: string) => id),
+    getSessionNum: vi.fn(() => undefined),
   } as any;
 }
 
@@ -745,12 +746,12 @@ describe("GET /api/sessions", () => {
     const json = await res.json();
     expect(json).toEqual([
       {
-        sessionId: "s1", state: "running", cwd: "/a", name: "Fix auth bug",
+        sessionId: "s1", state: "running", cwd: "/a", name: "Fix auth bug", sessionNum: null,
         gitBranch: "", gitAhead: 0, gitBehind: 0, totalLinesAdded: 0, totalLinesRemoved: 0,
         lastMessagePreview: "", cliConnected: false, taskHistory: [], keywords: [],
       },
       {
-        sessionId: "s2", state: "stopped", cwd: "/b",
+        sessionId: "s2", state: "stopped", cwd: "/b", sessionNum: null,
         gitBranch: "", gitAhead: 0, gitBehind: 0, totalLinesAdded: 0, totalLinesRemoved: 0,
         lastMessagePreview: "", cliConnected: false, taskHistory: [], keywords: [],
       },

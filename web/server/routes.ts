@@ -1125,6 +1125,7 @@ export function createRoutes(
         // causing 800-1300ms latency on NFS.
         return {
           ...s,
+          sessionNum: launcher.getSessionNum(s.sessionId) ?? null,
           name: names[s.sessionId] ?? s.name,
           gitBranch: bridge?.git_branch || "",
           gitAhead,
