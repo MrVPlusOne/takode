@@ -29,7 +29,7 @@ import { hasContainerCodexAuth } from "./codex-container-auth.js";
 import { getSettings, updateSettings, getServerName, setServerName, getServerId, type NamerConfig } from "./settings-manager.js";
 import { getLogPath } from "./server-logger.js";
 import { getUsageLimits } from "./usage-limits.js";
-import { buildPeekResponse, buildReadResponse } from "./takode-messages.js";
+import { buildPeekResponse, buildPeekDefault, buildPeekRange, buildReadResponse } from "./takode-messages.js";
 import { ensureAssistantWorkspace, ASSISTANT_DIR } from "./assistant-workspace.js";
 import { generateUniqueSessionName } from "../src/utils/names.js";
 import { transcribeWithGemini, transcribeWithOpenai, getAvailableBackends } from "./transcription.js";
@@ -1534,10 +1534,6 @@ export function createRoutes(
     const sessionId = resolveId(c.req.param("id"));
     if (!sessionId) return c.json({ error: "Session not found" }, 404);
 
-    const turns = parseInt(c.req.query("turns") ?? "1", 10);
-    const since = parseInt(c.req.query("since") ?? "0", 10);
-    const full = c.req.query("full") === "true";
-
     const history = wsBridge.getMessageHistory(sessionId);
     if (!history) return c.json({ error: "Session not found in bridge" }, 404);
 
@@ -1562,16 +1558,31 @@ export function createRoutes(
         }
       : null;
 
-    const peekTurns = buildPeekResponse(history, { turns, since, full });
+    const base = { sessionId, sessionNum, sessionName, status, quest };
 
-    return c.json({
-      sessionId,
-      sessionNum,
-      sessionName,
-      status,
-      quest,
-      turns: peekTurns,
-    });
+    // ── Mode detection ──
+    const fromParam = c.req.query("from");
+    const detail = c.req.query("detail") === "true";
+
+    if (fromParam !== undefined) {
+      // Range browsing mode: show messages around a specific index
+      const from = parseInt(fromParam, 10);
+      const count = parseInt(c.req.query("count") ?? "30", 10);
+      return c.json({ ...base, ...buildPeekRange(history, from, count) });
+    }
+
+    if (detail) {
+      // Detail mode: legacy full-detail behavior
+      const turns = parseInt(c.req.query("turns") ?? "1", 10);
+      const since = parseInt(c.req.query("since") ?? "0", 10);
+      const full = c.req.query("full") === "true";
+      return c.json({ ...base, ...{ mode: "detail" as const, turns: buildPeekResponse(history, { turns, since, full }) } });
+    }
+
+    // Default mode: smart overview (collapsed recent turns + expanded last turn)
+    const collapsedCount = parseInt(c.req.query("collapsed") ?? "5", 10);
+    const expandLimit = parseInt(c.req.query("expand") ?? "10", 10);
+    return c.json({ ...base, ...buildPeekDefault(history, { collapsedCount, expandLimit }) });
   });
 
   api.get("/sessions/:id/messages/:idx", (c) => {

@@ -111,24 +111,46 @@ takode watch --sessions 1,2 --since 42
 
 **\`--sessions\` is required.** Always specify which sessions you're watching. Use \`takode list\` first to discover session numbers.
 
-### \`takode peek <session> [--turns N] [--since TIMESTAMP] [--json]\`
+### \`takode peek <session> [--from N] [--count N] [--detail --turns N] [--json]\`
 
-View recent activity of a session in a compact, truncated format. Default: last 1 turn.
+View session activity with progressive detail. Three modes:
 
+**Default mode** (smart overview):
 \`\`\`bash
-# Last turn of session #1
 takode peek 1
+\`\`\`
+Shows a smart overview: recent completed turns as collapsed one-liners (with stats and result preview), plus the last turn expanded with up to 10 messages. This is your primary monitoring command — covers broad context with minimal tokens.
 
-# Last 3 turns
-takode peek 1 --turns 3
+Output includes:
+- **Total turn/message count** and message ID range
+- **Collapsed turns** — one line each: turn number, time range, tool count, success indicator, result preview
+- **Expanded last turn** — full messages with \`[N]\` IDs, timestamps, tool tree, result
+- **Omission counts** when earlier turns or messages are hidden
+
+**Range browsing** (paged history):
+\`\`\`bash
+# Browse messages starting at index 500
+takode peek 1 --from 500
+
+# Browse 50 messages from index 500
+takode peek 1 --from 500 --count 50
+\`\`\`
+Shows ~30 messages around the given index with full detail and turn boundaries. Output includes prev/next hints for continued browsing. Use this to navigate backwards through a session's history.
+
+**Detail mode** (legacy full detail):
+\`\`\`bash
+# Full detail on last 3 turns
+takode peek 1 --detail --turns 3
 \`\`\`
 
-Output shows each turn with:
-- **\`[N]\`** — Integer message ID you can use with \`takode read\`
-- **Timestamps** on every message
-- **Truncated** assistant text (use \`takode read\` for full content)
-- **Tool calls** as one-line summaries (tool name + key argument)
-- **Result** with success/error indicator
+#### Navigation workflow
+
+\`\`\`
+1. takode peek 1              → Overview: see last 5 collapsed + expanded last turn
+2. takode peek 1 --from 800   → Browse messages [800]-[830] in detail
+3. takode read 1 815          → Full content of message 815
+4. takode peek 1 --from 770   → Continue browsing backwards
+\`\`\`
 
 ### \`takode read <session> <msg-id> [--offset N] [--limit N] [--json]\`
 

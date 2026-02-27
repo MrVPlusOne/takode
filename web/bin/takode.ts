@@ -101,6 +101,11 @@ function formatTime(epoch: number): string {
   return d.toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
+function formatTimeShort(epoch: number): string {
+  const d = new Date(epoch);
+  return d.toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit" });
+}
+
 function formatDate(epoch: number): string {
   const d = new Date(epoch);
   return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
@@ -421,60 +426,315 @@ async function handleWatch(base: string, args: string[]): Promise<void> {
   }
 }
 
-async function handlePeek(base: string, args: string[]): Promise<void> {
-  const sessionRef = args[0];
-  if (!sessionRef) err("Usage: takode peek <session> [--turns N] [--since TIMESTAMP] [--json]");
+// ─── Peek types ──────────────────────────────────────────────────────────────
 
-  const flags = parseFlags(args.slice(1));
-  const turns = Number(flags.turns) || 1;
-  const since = Number(flags.since) || 0;
-  const jsonMode = flags.json === true;
+type PeekMessage = {
+  idx: number;
+  type: string;
+  content: string;
+  ts: number;
+  tools?: Array<{ idx: number; name: string; summary: string }>;
+  turnDurationMs?: number;
+  success?: boolean;
+};
 
-  const params = new URLSearchParams({ turns: String(turns) });
-  if (since) params.set("since", String(since));
+type CollapsedTurn = {
+  turnNum: number;
+  startIdx: number;
+  endIdx: number;
+  startedAt: number;
+  endedAt: number | null;
+  durationMs: number | null;
+  stats: { tools: number; messages: number; subagents: number };
+  success: boolean | null;
+  resultPreview: string;
+  userPreview: string;
+};
 
-  const data = await apiGet(base, `/sessions/${encodeURIComponent(sessionRef)}/messages?${params}`);
+type PeekDefaultResponse = {
+  sessionId: string;
+  sessionNum: number;
+  sessionName: string;
+  status: string;
+  quest: { id: string; title: string; status: string } | null;
+  mode: "default";
+  totalTurns: number;
+  totalMessages: number;
+  collapsedTurns: CollapsedTurn[];
+  omittedTurnCount: number;
+  expandedTurn: {
+    turnNum: number;
+    startedAt: number;
+    endedAt: number | null;
+    durationMs: number | null;
+    messages: PeekMessage[];
+    stats: { tools: number; messages: number; subagents: number };
+    omittedMessageCount: number;
+  } | null;
+};
 
-  if (jsonMode) {
-    console.log(JSON.stringify(data, null, 2));
-    return;
+type PeekRangeResponse = {
+  sessionId: string;
+  sessionNum: number;
+  sessionName: string;
+  status: string;
+  quest: { id: string; title: string; status: string } | null;
+  mode: "range";
+  totalMessages: number;
+  from: number;
+  to: number;
+  messages: PeekMessage[];
+  turnBoundaries: Array<{ turnNum: number; startIdx: number; endIdx: number }>;
+};
+
+type PeekDetailResponse = {
+  sessionId: string;
+  sessionNum: number;
+  sessionName: string;
+  status: string;
+  quest: { id: string; title: string; status: string } | null;
+  turns: Array<{
+    turnNum: number;
+    startedAt: number;
+    endedAt: number | null;
+    durationMs: number | null;
+    messages: PeekMessage[];
+  }>;
+};
+
+// ─── Peek rendering helpers ──────────────────────────────────────────────────
+
+function formatCollapsedTurn(turn: CollapsedTurn): string {
+  const startTime = formatTimeShort(turn.startedAt);
+  const endTime = turn.endedAt ? formatTimeShort(turn.endedAt) : "running";
+  const duration = turn.durationMs ? `${Math.round(turn.durationMs / 1000)}s` : "";
+  const durationPart = duration ? ` (${duration})` : "";
+
+  const statParts: string[] = [];
+  if (turn.stats.tools > 0) statParts.push(`${turn.stats.tools} tools`);
+  if (turn.stats.subagents > 0) statParts.push(`${turn.stats.subagents} agents`);
+  const statStr = statParts.length > 0 ? ` · ${statParts.join(" · ")}` : "";
+
+  const icon = turn.success === true ? "✓" : turn.success === false ? "✗" : "…";
+  const preview = turn.resultPreview ? ` "${truncate(turn.resultPreview, 60)}"` : "";
+
+  return `Turn ${turn.turnNum} · ${startTime}-${endTime}${durationPart}${statStr} · ${icon}${preview}`;
+}
+
+/** Render a list of messages with tree-pipe connectors for tool calls */
+function printExpandedMessages(messages: PeekMessage[]): void {
+  for (let mi = 0; mi < messages.length; mi++) {
+    const msg = messages[mi];
+    const time = formatTime(msg.ts);
+    const idx = `[${msg.idx}]`;
+    const isLast = mi === messages.length - 1;
+    const pipe = isLast ? " " : "|";
+
+    switch (msg.type) {
+      case "user":
+        console.log(`  ${idx.padEnd(7)} ${time}  user  "${truncate(msg.content, 80)}"`);
+        break;
+      case "assistant": {
+        const text = msg.content.trim();
+        if (text) {
+          console.log(`  ${idx.padEnd(7)} ${time}  asst  ${truncate(text, 100)}`);
+        }
+        if (msg.tools && msg.tools.length > 0) {
+          for (let ti = 0; ti < msg.tools.length; ti++) {
+            const tool = msg.tools[ti];
+            const isLastTool = ti === msg.tools.length - 1 && !text;
+            const connector = isLastTool && isLast ? "└─" : "├─";
+            console.log(`  ${pipe}       ${connector} ${tool.name.padEnd(6)} ${tool.summary}`);
+          }
+        }
+        break;
+      }
+      case "result": {
+        const icon = msg.success ? "✓" : "✗";
+        const resultText = msg.content.trim();
+        if (resultText) {
+          console.log(`  ${idx.padEnd(7)} ${time}  ${icon} ${truncate(resultText, 100)}`);
+        } else {
+          console.log(`  ${idx.padEnd(7)} ${time}  ${icon} done`);
+        }
+        break;
+      }
+      case "system":
+        console.log(`  ${idx.padEnd(7)} ${time}  sys   ${msg.content}`);
+        break;
+    }
   }
+}
 
-  // Human-readable format
-  const d = data as {
-    sessionId: string;
-    sessionNum: number;
-    sessionName: string;
-    status: string;
-    quest: { id: string; title: string; status: string } | null;
-    turns: Array<{
-      turnNum: number;
-      startedAt: number;
-      endedAt: number | null;
-      durationMs: number | null;
-      messages: Array<{
-        idx: number;
-        type: string;
-        content: string;
-        ts: number;
-        tools?: Array<{ idx: number; name: string; summary: string }>;
-        turnDurationMs?: number;
-        success?: boolean;
-      }>;
-    }>;
-  };
-
-  // Header
+function printPeekHeader(d: { sessionNum: number; sessionName: string; status: string; quest?: { id: string; title: string; status: string } | null }): void {
   console.log(`Session #${d.sessionNum} "${d.sessionName}" -- ${d.status}`);
   if (d.quest) {
     console.log(`Quest: ${d.quest.id} "${d.quest.title}" [${d.quest.status}]`);
   }
+}
+
+// ─── Peek mode handlers ─────────────────────────────────────────────────────
+
+function printPeekDefault(d: PeekDefaultResponse, sessionRef: string): void {
+  printPeekHeader(d);
+  console.log(`Total: ${d.totalTurns} turns, ${d.totalMessages} messages (msg [0]-[${d.totalMessages - 1}])`);
   console.log("");
 
-  // Turns
+  let lastDate = "";
+
+  // Omitted turns hint
+  if (d.omittedTurnCount > 0) {
+    // Print the date boundary for the first collapsed turn if we have one
+    if (d.collapsedTurns.length > 0) {
+      const firstDate = dateKey(d.collapsedTurns[0].startedAt);
+      if (firstDate !== lastDate) {
+        console.log(`── ${formatDate(d.collapsedTurns[0].startedAt)} ──`);
+        lastDate = firstDate;
+      }
+    }
+    console.log(`  ... ${d.omittedTurnCount} earlier turns omitted (takode peek ${sessionRef} --from 0 to browse)`);
+    console.log("");
+  }
+
+  // Collapsed turns
+  for (const turn of d.collapsedTurns) {
+    const turnDate = dateKey(turn.startedAt);
+    if (turnDate !== lastDate) {
+      console.log(`── ${formatDate(turn.startedAt)} ──`);
+      lastDate = turnDate;
+    }
+    console.log(formatCollapsedTurn(turn));
+  }
+
+  // Expanded turn (the last turn, shown in detail)
+  if (d.expandedTurn) {
+    const et = d.expandedTurn;
+    const turnDate = dateKey(et.startedAt);
+    if (turnDate !== lastDate) {
+      console.log(`── ${formatDate(et.startedAt)} ──`);
+      lastDate = turnDate;
+    }
+
+    const duration = et.durationMs ? `${Math.round(et.durationMs / 1000)}s` : "running";
+    const durationPart = et.durationMs ? ` (${duration})` : "";
+    const msgCount = et.messages.length + et.omittedMessageCount;
+
+    const statParts: string[] = [];
+    if (et.stats.tools > 0) statParts.push(`${et.stats.tools} tools`);
+    if (et.stats.subagents > 0) statParts.push(`${et.stats.subagents} agents`);
+    const statStr = statParts.length > 0 ? ` · ${statParts.join(" · ")}` : "";
+
+    // Check if last message is a result to show success icon
+    const lastMsg = et.messages.length > 0 ? et.messages[et.messages.length - 1] : null;
+    const successIcon = lastMsg?.type === "result"
+      ? (lastMsg.success ? " · ✓" : " · ✗")
+      : "";
+
+    console.log("");
+    console.log(`Turn ${et.turnNum} (last, ${msgCount} messages) · ${formatTimeShort(et.startedAt)}-${et.endedAt ? formatTimeShort(et.endedAt) : "running"}${durationPart}${statStr}${successIcon}`);
+
+    // Omitted messages hint
+    if (et.omittedMessageCount > 0) {
+      const firstIdx = et.messages.length > 0 ? et.messages[0].idx - et.omittedMessageCount : 0;
+      console.log(`  ... ${et.omittedMessageCount} earlier messages omitted (takode peek ${sessionRef} --from ${firstIdx} to see all)`);
+    }
+
+    printExpandedMessages(et.messages);
+    console.log("");
+  }
+
+  // Hint
+  console.log(`Hint: takode peek ${sessionRef} --from <msg-id> to browse history | takode read ${sessionRef} <msg-id> for full message`);
+}
+
+function printPeekRange(d: PeekRangeResponse, sessionRef: string, count: number): void {
+  printPeekHeader(d);
+  console.log(`Messages [${d.from}]-[${d.to}] of [0]-[${d.totalMessages - 1}]`);
+  console.log("");
+
+  let lastDate = "";
+  let activeTurnNum = -1;
+
+  for (let mi = 0; mi < d.messages.length; mi++) {
+    const msg = d.messages[mi];
+
+    // Date boundary
+    const msgDate = dateKey(msg.ts);
+    if (msgDate !== lastDate) {
+      console.log(`── ${formatDate(msg.ts)} ──`);
+      lastDate = msgDate;
+    }
+
+    // Turn boundary
+    const boundary = d.turnBoundaries.find(b => msg.idx >= b.startIdx && msg.idx <= b.endIdx);
+    if (boundary && boundary.turnNum !== activeTurnNum) {
+      console.log(`--- Turn ${boundary.turnNum} ---`);
+      activeTurnNum = boundary.turnNum;
+    }
+
+    // Message rendering
+    const time = formatTime(msg.ts);
+    const idx = `[${msg.idx}]`;
+    const isLast = mi === d.messages.length - 1;
+    const pipe = isLast ? " " : "|";
+
+    switch (msg.type) {
+      case "user":
+        console.log(`  ${idx.padEnd(7)} ${time}  user  "${truncate(msg.content, 80)}"`);
+        break;
+      case "assistant": {
+        const text = msg.content.trim();
+        if (text) {
+          console.log(`  ${idx.padEnd(7)} ${time}  asst  ${truncate(text, 100)}`);
+        }
+        if (msg.tools && msg.tools.length > 0) {
+          for (let ti = 0; ti < msg.tools.length; ti++) {
+            const tool = msg.tools[ti];
+            const isLastTool = ti === msg.tools.length - 1 && !text;
+            const connector = isLastTool && isLast ? "└─" : "├─";
+            console.log(`  ${pipe}       ${connector} ${tool.name.padEnd(6)} ${tool.summary}`);
+          }
+        }
+        break;
+      }
+      case "result": {
+        const icon = msg.success ? "✓" : "✗";
+        const resultText = msg.content.trim();
+        if (resultText) {
+          console.log(`  ${idx.padEnd(7)} ${time}  ${icon} ${truncate(resultText, 100)}`);
+        } else {
+          console.log(`  ${idx.padEnd(7)} ${time}  ${icon} done`);
+        }
+        break;
+      }
+      case "system":
+        console.log(`  ${idx.padEnd(7)} ${time}  sys   ${msg.content}`);
+        break;
+    }
+  }
+
+  console.log("");
+
+  // Navigation hints
+  const hints: string[] = [];
+  if (d.from > 0) {
+    const prevFrom = Math.max(0, d.from - count);
+    hints.push(`Prev: takode peek ${sessionRef} --from ${prevFrom}`);
+  }
+  if (d.to < d.totalMessages - 1) {
+    hints.push(`Next: takode peek ${sessionRef} --from ${d.to + 1}`);
+  }
+  if (hints.length > 0) {
+    console.log(hints.join("  |  "));
+  }
+}
+
+function printPeekDetail(d: PeekDetailResponse): void {
+  printPeekHeader(d);
+  console.log("");
+
   let lastDate = "";
   for (const turn of d.turns) {
-    // Date boundary
     const turnDate = turn.startedAt ? dateKey(turn.startedAt) : "";
     if (turnDate && turnDate !== lastDate) {
       console.log(`── ${formatDate(turn.startedAt)} ──`);
@@ -485,52 +745,61 @@ async function handlePeek(base: string, args: string[]): Promise<void> {
     const ended = turn.endedAt ? `, ended ${formatTime(turn.endedAt)}` : "";
     console.log(`--- Turn ${turn.turnNum} (${duration}${ended}) ---`);
 
-    for (let mi = 0; mi < turn.messages.length; mi++) {
-      const msg = turn.messages[mi];
-      const time = formatTime(msg.ts);
-      const idx = `[${msg.idx}]`;
-      // Check if there are more messages after this one (for tree continuation)
-      const isLast = mi === turn.messages.length - 1;
-      const pipe = isLast ? " " : "|";
-
-      switch (msg.type) {
-        case "user":
-          console.log(`  ${idx.padEnd(7)} ${time}  user  "${truncate(msg.content, 80)}"`);
-          break;
-        case "assistant": {
-          // Show text content if any (without tool info — tools shown separately below)
-          const text = msg.content.trim();
-          if (text) {
-            console.log(`  ${idx.padEnd(7)} ${time}  asst  ${truncate(text, 100)}`);
-          }
-          // Show tool calls as tree children
-          if (msg.tools && msg.tools.length > 0) {
-            for (let ti = 0; ti < msg.tools.length; ti++) {
-              const tool = msg.tools[ti];
-              const isLastTool = ti === msg.tools.length - 1 && !text;
-              const connector = isLastTool && isLast ? "└─" : "├─";
-              console.log(`  ${pipe}       ${connector} ${tool.name.padEnd(6)} ${tool.summary}`);
-            }
-          }
-          break;
-        }
-        case "result": {
-          const icon = msg.success ? "✓" : "✗";
-          // Only show result content if it adds info (not just repeating the last assistant text)
-          const resultText = msg.content.trim();
-          if (resultText) {
-            console.log(`  ${idx.padEnd(7)} ${time}  ${icon} ${truncate(resultText, 100)}`);
-          } else {
-            console.log(`  ${idx.padEnd(7)} ${time}  ${icon} done`);
-          }
-          break;
-        }
-        case "system":
-          console.log(`  ${idx.padEnd(7)} ${time}  sys   ${msg.content}`);
-          break;
-      }
-    }
+    printExpandedMessages(turn.messages);
     console.log("");
+  }
+}
+
+// ─── Peek entry point ────────────────────────────────────────────────────────
+
+async function handlePeek(base: string, args: string[]): Promise<void> {
+  const sessionRef = args[0];
+  if (!sessionRef) err("Usage: takode peek <session> [--from N] [--detail] [--turns N] [--json]");
+
+  const flags = parseFlags(args.slice(1));
+  const jsonMode = flags.json === true;
+  const fromIdx = flags.from !== undefined ? Number(flags.from) : undefined;
+  const detail = flags.detail === true;
+
+  // Determine mode and build query params
+  let path: string;
+
+  if (fromIdx !== undefined) {
+    // Range mode
+    const count = Number(flags.count) || 30;
+    const params = new URLSearchParams({ from: String(fromIdx), count: String(count) });
+    path = `/sessions/${encodeURIComponent(sessionRef)}/messages?${params}`;
+
+    const data = await apiGet(base, path);
+    if (jsonMode) {
+      console.log(JSON.stringify(data, null, 2));
+      return;
+    }
+    printPeekRange(data as PeekRangeResponse, sessionRef, count);
+
+  } else if (detail) {
+    // Detail mode (legacy behavior)
+    const turns = Number(flags.turns) || 1;
+    const params = new URLSearchParams({ detail: "true", turns: String(turns) });
+    path = `/sessions/${encodeURIComponent(sessionRef)}/messages?${params}`;
+
+    const data = await apiGet(base, path);
+    if (jsonMode) {
+      console.log(JSON.stringify(data, null, 2));
+      return;
+    }
+    printPeekDetail(data as PeekDetailResponse);
+
+  } else {
+    // Default mode (smart overview)
+    path = `/sessions/${encodeURIComponent(sessionRef)}/messages`;
+
+    const data = await apiGet(base, path);
+    if (jsonMode) {
+      console.log(JSON.stringify(data, null, 2));
+      return;
+    }
+    printPeekDefault(data as PeekDefaultResponse, sessionRef);
   }
 }
 
@@ -613,9 +882,15 @@ Usage: takode <command> [options]
 Commands:
   list     List sessions (active by default, --all for all)
   watch    Wait for events from watched sessions
-  peek     View recent activity of a session (truncated)
+  peek     View session activity (smart overview by default)
   read     Read full content of a specific message
   send     Send a message to a session
+
+Peek modes:
+  takode peek 1                    Smart overview (collapsed turns + expanded last turn)
+  takode peek 1 --from 500         Browse messages starting at index 500
+  takode peek 1 --from 500 --count 50  Browse 50 messages from index 500
+  takode peek 1 --detail --turns 3 Full detail on last 3 turns
 
 Global options:
   --port <n>    Override API port (default: TAKODE_API_PORT or 3456)
@@ -625,7 +900,9 @@ Examples:
   takode list
   takode list --all
   takode watch --sessions 1,2,3
-  takode peek 1 --turns 3
+  takode peek 1
+  takode peek 1 --from 200
+  takode peek 1 --detail --turns 3
   takode read 1 42
   takode send 2 "Please add tests for the edge cases"
 `);

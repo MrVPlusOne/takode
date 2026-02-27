@@ -44,6 +44,51 @@ export interface TakodePeekTurn {
   messages: TakodePeekMessage[];
 }
 
+export interface TurnStats {
+  tools: number;
+  messages: number;   // assistant messages count
+  subagents: number;  // Task tool calls count
+}
+
+export interface TakodePeekTurnSummary {
+  turnNum: number;
+  startIdx: number;
+  endIdx: number;
+  startedAt: number;
+  endedAt: number | null;
+  durationMs: number | null;
+  stats: TurnStats;
+  success: boolean | null;
+  /** Truncated result or last assistant text for the collapsed one-liner */
+  resultPreview: string;
+  /** Truncated user message that started this turn */
+  userPreview: string;
+}
+
+export interface PeekDefaultResponse {
+  mode: "default";
+  totalTurns: number;
+  totalMessages: number;
+  /** Collapsed summaries of recent completed turns */
+  collapsedTurns: TakodePeekTurnSummary[];
+  /** Number of earlier turns not shown */
+  omittedTurnCount: number;
+  /** The last turn, expanded with messages */
+  expandedTurn: (TakodePeekTurn & {
+    stats: TurnStats;
+    omittedMessageCount: number;
+  }) | null;
+}
+
+export interface PeekRangeResponse {
+  mode: "range";
+  totalMessages: number;
+  from: number;
+  to: number;
+  messages: TakodePeekMessage[];
+  turnBoundaries: { turnNum: number; startIdx: number; endIdx: number }[];
+}
+
 export interface TakodeReadResponse {
   idx: number;
   type: string;
@@ -242,6 +287,29 @@ function findTurnBoundaries(messages: BrowserIncomingMessage[]): TurnBoundary[] 
   return turns;
 }
 
+/** Count tools, assistant messages, and Task subagents within a turn range. */
+function computeTurnStats(
+  messages: BrowserIncomingMessage[],
+  startIdx: number,
+  endIdx: number,
+): TurnStats {
+  let tools = 0, msgs = 0, subagents = 0;
+  const endBound = endIdx >= 0 ? endIdx : messages.length - 1;
+  for (let i = startIdx; i <= endBound; i++) {
+    const msg = messages[i];
+    if (msg.type === "assistant" && msg.message?.content) {
+      msgs++;
+      for (const block of msg.message.content) {
+        if (block.type === "tool_use") {
+          tools++;
+          if ((block as { name: string }).name === "Task") subagents++;
+        }
+      }
+    }
+  }
+  return { tools, messages: msgs, subagents };
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 export interface PeekOptions {
@@ -251,6 +319,75 @@ export interface PeekOptions {
   since?: number;
   /** If true, include full text (no truncation). Default: false. */
   full?: boolean;
+}
+
+/** Build peekable messages for a single turn. Reused by buildPeekResponse, buildPeekDefault, and buildPeekRange. */
+function buildTurnMessages(
+  messageHistory: BrowserIncomingMessage[],
+  turn: TurnBoundary,
+  contentLimit: number,
+  opts: { full?: boolean; endedAt?: number | null } = {},
+): TakodePeekMessage[] {
+  const { full = false, endedAt = null } = opts;
+  const startMsg = messageHistory[turn.startIdx];
+  const startedAt = extractTimestamp(startMsg);
+
+  const endBound = turn.endIdx >= 0 ? turn.endIdx : messageHistory.length - 1;
+  const peekMessages: TakodePeekMessage[] = [];
+  let lastKnownTs = startedAt;
+
+  for (let i = turn.startIdx; i <= endBound; i++) {
+    const msg = messageHistory[i];
+    if (!isPeekable(msg)) continue;
+
+    let ts = extractTimestamp(msg);
+    // Result messages have no timestamp — use endedAt or last known timestamp
+    if (ts === 0) ts = endedAt || lastKnownTs;
+    if (ts > 0) lastKnownTs = ts;
+
+    // For assistant messages, only show text blocks (not tool_use)
+    // since tools are displayed separately in the tools array
+    let rawText: string;
+    if (msg.type === "assistant" && msg.message?.content) {
+      rawText = extractTextFromBlocks(msg.message.content);
+    } else {
+      rawText = extractFullText(msg);
+    }
+    const content = full ? rawText : truncate(rawText, contentLimit);
+
+    const peekMsg: TakodePeekMessage = {
+      idx: i,
+      type: toPeekType(msg.type),
+      content,
+      ts,
+    };
+
+    // Extract tool calls for assistant messages
+    if (msg.type === "assistant" && msg.message?.content) {
+      const toolBlocks = extractToolUseBlocks(msg.message.content);
+      if (toolBlocks.length > 0) {
+        peekMsg.tools = toolBlocks.map((block) => {
+          const blockIdx = msg.message.content.indexOf(block);
+          return {
+            idx: blockIdx >= 0 ? blockIdx : 0,
+            name: block.name,
+            summary: buildToolSummary(block.name, block.input),
+          };
+        });
+      }
+    }
+
+    // Extract result metadata
+    if (msg.type === "result") {
+      const data = msg.data;
+      peekMsg.success = !data.is_error;
+      peekMsg.turnDurationMs = data.duration_ms;
+    }
+
+    peekMessages.push(peekMsg);
+  }
+
+  return peekMessages;
 }
 
 /**
@@ -279,7 +416,7 @@ export function buildPeekResponse(
   // Take the last N turns
   filteredTurns = filteredTurns.slice(-turnCount);
 
-  return filteredTurns.map((turn, turnIdx) => {
+  return filteredTurns.map((turn) => {
     const startMsg = messageHistory[turn.startIdx];
     const endMsg = turn.endIdx >= 0 ? messageHistory[turn.endIdx] : null;
 
@@ -292,61 +429,7 @@ export function buildPeekResponse(
       ? (durationMs && startedAt ? startedAt + durationMs : null)
       : null;
 
-    // Collect peekable messages within this turn's range
-    const endBound = turn.endIdx >= 0 ? turn.endIdx : messageHistory.length - 1;
-    const peekMessages: TakodePeekMessage[] = [];
-    let lastKnownTs = startedAt; // track last known timestamp for result fallback
-
-    for (let i = turn.startIdx; i <= endBound; i++) {
-      const msg = messageHistory[i];
-      if (!isPeekable(msg)) continue;
-
-      let ts = extractTimestamp(msg);
-      // Result messages have no timestamp — use endedAt or last known timestamp
-      if (ts === 0) ts = endedAt || lastKnownTs;
-      if (ts > 0) lastKnownTs = ts;
-
-      // For assistant messages in peek mode, only show text blocks (not tool_use)
-      // since tools are displayed separately in the tools array
-      let rawText: string;
-      if (msg.type === "assistant" && msg.message?.content) {
-        rawText = extractTextFromBlocks(msg.message.content);
-      } else {
-        rawText = extractFullText(msg);
-      }
-      const content = full ? rawText : truncate(rawText, contentLimit);
-
-      const peekMsg: TakodePeekMessage = {
-        idx: i,
-        type: toPeekType(msg.type),
-        content,
-        ts,
-      };
-
-      // Extract tool calls for assistant messages
-      if (msg.type === "assistant" && msg.message?.content) {
-        const toolBlocks = extractToolUseBlocks(msg.message.content);
-        if (toolBlocks.length > 0) {
-          peekMsg.tools = toolBlocks.map((block) => {
-            const blockIdx = msg.message.content.indexOf(block);
-            return {
-              idx: blockIdx >= 0 ? blockIdx : 0,
-              name: block.name,
-              summary: buildToolSummary(block.name, block.input),
-            };
-          });
-        }
-      }
-
-      // Extract result metadata
-      if (msg.type === "result") {
-        const data = msg.data;
-        peekMsg.success = !data.is_error;
-        peekMsg.turnDurationMs = data.duration_ms;
-      }
-
-      peekMessages.push(peekMsg);
-    }
+    const peekMessages = buildTurnMessages(messageHistory, turn, contentLimit, { full, endedAt });
 
     return {
       turnNum: allTurns.indexOf(turn),
@@ -356,6 +439,199 @@ export function buildPeekResponse(
       messages: peekMessages,
     };
   });
+}
+
+/**
+ * Build a "default" peek response: collapsed summaries of recent turns
+ * plus the last turn expanded with messages.
+ */
+export function buildPeekDefault(
+  messageHistory: BrowserIncomingMessage[],
+  options: { collapsedCount?: number; expandLimit?: number } = {},
+): PeekDefaultResponse {
+  const { collapsedCount = 5, expandLimit = 10 } = options;
+  const contentLimit = 120;
+
+  const allTurns = findTurnBoundaries(messageHistory);
+  const totalTurns = allTurns.length;
+  const totalMessages = messageHistory.length;
+
+  if (totalTurns === 0) {
+    return { mode: "default", totalTurns: 0, totalMessages, collapsedTurns: [], omittedTurnCount: 0, expandedTurn: null };
+  }
+
+  // Last turn = expanded
+  const lastTurn = allTurns[allTurns.length - 1];
+
+  // Turns before last = candidates for collapsed summaries
+  const priorTurns = allTurns.slice(0, -1);
+
+  // Take last N prior turns as collapsed
+  const collapsedSlice = priorTurns.slice(-collapsedCount);
+  const omittedTurnCount = priorTurns.length - collapsedSlice.length;
+
+  // Build collapsed summaries
+  const collapsedTurns: TakodePeekTurnSummary[] = collapsedSlice.map(turn => {
+    const startMsg = messageHistory[turn.startIdx];
+    const endMsg = turn.endIdx >= 0 ? messageHistory[turn.endIdx] : null;
+    const startedAt = extractTimestamp(startMsg);
+    const durationMs = endMsg?.type === "result"
+      ? ((endMsg.data as CLIResultMessage).duration_ms ?? null)
+      : null;
+    const endedAt = durationMs && startedAt ? startedAt + durationMs : null;
+    const stats = computeTurnStats(messageHistory, turn.startIdx, turn.endIdx);
+
+    // Success from result
+    const success = endMsg?.type === "result" ? !(endMsg.data as CLIResultMessage).is_error : null;
+
+    // Result preview: use result text or last assistant text
+    let resultPreview = "";
+    if (endMsg?.type === "result") {
+      const data = endMsg.data as CLIResultMessage;
+      resultPreview = truncate(data.result || "", contentLimit);
+    }
+    if (!resultPreview) {
+      // Fall back to last assistant text in this turn
+      const endBound = turn.endIdx >= 0 ? turn.endIdx : messageHistory.length - 1;
+      for (let i = endBound; i >= turn.startIdx; i--) {
+        const msg = messageHistory[i];
+        if (msg.type === "assistant" && msg.message?.content) {
+          const text = extractTextFromBlocks(msg.message.content).trim();
+          if (text) { resultPreview = truncate(text, contentLimit); break; }
+        }
+      }
+    }
+
+    // User preview
+    const userPreview = startMsg.type === "user_message"
+      ? truncate(startMsg.content || "", 80)
+      : "";
+
+    return {
+      turnNum: allTurns.indexOf(turn),
+      startIdx: turn.startIdx,
+      endIdx: turn.endIdx,
+      startedAt,
+      endedAt,
+      durationMs,
+      stats,
+      success,
+      resultPreview,
+      userPreview,
+    };
+  });
+
+  // Build expanded last turn (reuse extracted message-building logic)
+  const startMsg = messageHistory[lastTurn.startIdx];
+  const endMsg = lastTurn.endIdx >= 0 ? messageHistory[lastTurn.endIdx] : null;
+  const startedAt = extractTimestamp(startMsg);
+  const durationMs = endMsg?.type === "result"
+    ? ((endMsg.data as CLIResultMessage).duration_ms ?? null)
+    : null;
+  const endedAt = durationMs && startedAt ? startedAt + durationMs : null;
+
+  const expandedMessages = buildTurnMessages(messageHistory, lastTurn, contentLimit, { endedAt });
+  const lastTurnStats = computeTurnStats(messageHistory, lastTurn.startIdx, lastTurn.endIdx);
+
+  // Apply expandLimit — keep only the last N messages, track omitted count
+  const omittedMessageCount = Math.max(0, expandedMessages.length - expandLimit);
+  const visibleMessages = expandedMessages.slice(-expandLimit);
+
+  return {
+    mode: "default",
+    totalTurns,
+    totalMessages,
+    collapsedTurns,
+    omittedTurnCount,
+    expandedTurn: {
+      turnNum: allTurns.indexOf(lastTurn),
+      startedAt,
+      endedAt,
+      durationMs,
+      messages: visibleMessages,
+      stats: lastTurnStats,
+      omittedMessageCount,
+    },
+  };
+}
+
+/**
+ * Build a "range" peek response: messages around a specific index,
+ * with turn boundary annotations for context.
+ */
+export function buildPeekRange(
+  messageHistory: BrowserIncomingMessage[],
+  from: number,
+  count: number = 30,
+): PeekRangeResponse {
+  const totalMessages = messageHistory.length;
+  const clampedFrom = Math.max(0, Math.min(from, totalMessages - 1));
+  const clampedTo = Math.min(clampedFrom + count, totalMessages - 1);
+
+  const contentLimit = 120;
+  const allTurns = findTurnBoundaries(messageHistory);
+
+  // Collect peekable messages in range
+  const messages: TakodePeekMessage[] = [];
+  let lastKnownTs = 0;
+
+  for (let i = clampedFrom; i <= clampedTo; i++) {
+    const msg = messageHistory[i];
+    if (!isPeekable(msg)) continue;
+
+    let ts = extractTimestamp(msg);
+    if (ts === 0) ts = lastKnownTs;
+    if (ts > 0) lastKnownTs = ts;
+
+    let rawText: string;
+    if (msg.type === "assistant" && msg.message?.content) {
+      rawText = extractTextFromBlocks(msg.message.content);
+    } else {
+      rawText = extractFullText(msg);
+    }
+    const content = truncate(rawText, contentLimit);
+
+    const peekMsg: TakodePeekMessage = { idx: i, type: toPeekType(msg.type), content, ts };
+
+    if (msg.type === "assistant" && msg.message?.content) {
+      const toolBlocks = extractToolUseBlocks(msg.message.content);
+      if (toolBlocks.length > 0) {
+        peekMsg.tools = toolBlocks.map(block => ({
+          idx: msg.message.content.indexOf(block),
+          name: block.name,
+          summary: buildToolSummary(block.name, block.input),
+        }));
+      }
+    }
+
+    if (msg.type === "result") {
+      peekMsg.success = !(msg.data as CLIResultMessage).is_error;
+      peekMsg.turnDurationMs = (msg.data as CLIResultMessage).duration_ms;
+    }
+
+    messages.push(peekMsg);
+  }
+
+  // Find overlapping turn boundaries
+  const turnBoundaries = allTurns
+    .filter(t => {
+      const tEnd = t.endIdx >= 0 ? t.endIdx : totalMessages - 1;
+      return t.startIdx <= clampedTo && tEnd >= clampedFrom;
+    })
+    .map(t => ({
+      turnNum: allTurns.indexOf(t),
+      startIdx: t.startIdx,
+      endIdx: t.endIdx,
+    }));
+
+  return {
+    mode: "range",
+    totalMessages,
+    from: clampedFrom,
+    to: clampedTo,
+    messages,
+    turnBoundaries,
+  };
 }
 
 export interface ReadOptions {
@@ -384,7 +660,14 @@ export function buildReadResponse(
   const fullText = extractFullText(msg);
   const lines = fullText.split("\n");
   const paginatedLines = lines.slice(offset, offset + limit);
-  const ts = extractTimestamp(msg);
+  let ts = extractTimestamp(msg);
+  // Backwards-scan fallback: if message has no timestamp, find the nearest prior one
+  if (ts === 0 && idx > 0) {
+    for (let i = idx - 1; i >= 0; i--) {
+      const prevTs = extractTimestamp(messageHistory[i]);
+      if (prevTs > 0) { ts = prevTs; break; }
+    }
+  }
 
   const response: TakodeReadResponse = {
     idx,
