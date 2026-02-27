@@ -407,6 +407,8 @@ async function evaluateAndApply(
 
 // Continuous session auto-naming via Claude Haiku (triggered on each user message)
 wsBridge.onUserMessageCallback(async (sessionId, history, cwd, wasGenerating) => {
+  // Suppress auto-namer when disabled in settings
+  if (!getSettings().autoNamerEnabled) return;
   // Suppress auto-namer while a quest owns the session name
   if (await isQuestOwningSessionName(sessionId)) {
     console.log(`[session-namer] Skipping user-message namer for ${sessionId} (quest owns session name)`);
@@ -477,6 +479,7 @@ wsBridge.onUserMessageCallback(async (sessionId, history, cwd, wasGenerating) =>
 // The agent has done meaningful research/work to produce the plan, providing
 // rich context for naming — and it's a natural breakpoint before execution.
 wsBridge.onAgentPausedCallback(async (sessionId, history, cwd) => {
+  if (!getSettings().autoNamerEnabled) return;
   if (await isQuestOwningSessionName(sessionId)) {
     console.log(`[session-namer] Skipping agent-paused namer for ${sessionId} (quest owns session name)`);
     return;
@@ -501,6 +504,7 @@ wsBridge.onAgentPausedCallback(async (sessionId, history, cwd) => {
 // The turn-completed namer runs independently from user-message naming.
 // User-message outcomes are preferred when both produce competing revisions.
 wsBridge.onTurnCompletedCallback(async (sessionId, history, cwd) => {
+  if (!getSettings().autoNamerEnabled) return;
   if (await isQuestOwningSessionName(sessionId)) {
     console.log(`[session-namer] Skipping turn-completed namer for ${sessionId} (quest owns session name)`);
     return;

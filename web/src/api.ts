@@ -236,6 +236,7 @@ export interface AppSettings {
   autoApprovalEnabled: boolean;
   autoApprovalModel: string;
   namerConfig: NamerConfig;
+  autoNamerEnabled: boolean;
   restartSupported: boolean;
 }
 
@@ -542,6 +543,7 @@ export const api = {
     maxKeepAlive?: number;
     autoApprovalEnabled?: boolean; autoApprovalModel?: string;
     namerConfig?: NamerConfig;
+    autoNamerEnabled?: boolean;
   }) => put<AppSettings>("/settings", data),
   testBinary: (binary: string) =>
     post<{ ok: boolean; resolvedPath?: string; version?: string }>("/settings/test-binary", { binary }),

@@ -87,6 +87,7 @@ vi.mock("./settings-manager.js", () => ({
     maxKeepAlive: 0,
     autoApprovalEnabled: false, autoApprovalModel: "haiku",
     namerConfig: { backend: "claude" },
+    autoNamerEnabled: true,
     updatedAt: 0,
   })),
   updateSettings: vi.fn((patch) => ({
@@ -103,6 +104,7 @@ vi.mock("./settings-manager.js", () => ({
     autoApprovalEnabled: patch.autoApprovalEnabled ?? false,
     autoApprovalModel: patch.autoApprovalModel ?? "haiku",
     namerConfig: patch.namerConfig ?? { backend: "claude" },
+    autoNamerEnabled: patch.autoNamerEnabled ?? true,
     updatedAt: Date.now(),
   })),
   getServerName: vi.fn(() => ""),
@@ -1187,6 +1189,7 @@ describe("GET /api/settings", () => {
       maxKeepAlive: 0,
       autoApprovalEnabled: false, autoApprovalModel: "haiku",
       namerConfig: { backend: "claude" },
+      autoNamerEnabled: true,
       updatedAt: 123,
     });
 
@@ -1207,6 +1210,7 @@ describe("GET /api/settings", () => {
       autoApprovalEnabled: false,
       autoApprovalModel: "haiku",
       namerConfig: { backend: "claude" },
+      autoNamerEnabled: true,
       restartSupported: expect.any(Boolean),
       logFile: expect.any(Object), // null or string depending on logger init
     });
@@ -1221,6 +1225,7 @@ describe("GET /api/settings", () => {
       maxKeepAlive: 0,
       autoApprovalEnabled: false, autoApprovalModel: "haiku",
       namerConfig: { backend: "claude" },
+      autoNamerEnabled: true,
       updatedAt: 123,
     });
 
@@ -1241,6 +1246,7 @@ describe("GET /api/settings", () => {
       autoApprovalEnabled: false,
       autoApprovalModel: "haiku",
       namerConfig: { backend: "claude" },
+      autoNamerEnabled: true,
       restartSupported: expect.any(Boolean),
       logFile: expect.any(Object), // null or string depending on logger init
     });
@@ -1256,6 +1262,7 @@ describe("GET /api/settings", () => {
       maxKeepAlive: 0,
       autoApprovalEnabled: false, autoApprovalModel: "haiku",
       namerConfig: { backend: "claude" },
+      autoNamerEnabled: true,
       updatedAt: 0,
     });
 
@@ -1278,6 +1285,7 @@ describe("PUT /api/settings", () => {
       maxKeepAlive: 0,
       autoApprovalEnabled: false, autoApprovalModel: "haiku",
       namerConfig: { backend: "claude" },
+      autoNamerEnabled: true,
       updatedAt: 456,
     });
 
@@ -1300,6 +1308,7 @@ describe("PUT /api/settings", () => {
       autoApprovalEnabled: undefined,
       autoApprovalModel: undefined,
       namerConfig: undefined,
+      autoNamerEnabled: undefined,
     });
     const json = await res.json();
     expect(json).toEqual({
@@ -1315,6 +1324,7 @@ describe("PUT /api/settings", () => {
       autoApprovalEnabled: false,
       autoApprovalModel: "haiku",
       namerConfig: { backend: "claude" },
+      autoNamerEnabled: true,
     });
   });
 
@@ -1327,6 +1337,7 @@ describe("PUT /api/settings", () => {
       maxKeepAlive: 0,
       autoApprovalEnabled: false, autoApprovalModel: "haiku",
       namerConfig: { backend: "claude" },
+      autoNamerEnabled: true,
       updatedAt: 789,
     });
 
@@ -1349,6 +1360,7 @@ describe("PUT /api/settings", () => {
       autoApprovalEnabled: undefined,
       autoApprovalModel: undefined,
       namerConfig: undefined,
+      autoNamerEnabled: undefined,
     });
   });
 
@@ -1361,6 +1373,7 @@ describe("PUT /api/settings", () => {
       maxKeepAlive: 0,
       autoApprovalEnabled: false, autoApprovalModel: "haiku",
       namerConfig: { backend: "claude" },
+      autoNamerEnabled: true,
       updatedAt: Date.now(),
     });
     vi.mocked(settingsManager.getServerName).mockReturnValue("My Backend");
@@ -1448,6 +1461,7 @@ describe("PUT /api/settings", () => {
       autoApprovalEnabled: undefined,
       autoApprovalModel: undefined,
       namerConfig: undefined,
+      autoNamerEnabled: undefined,
     });
   });
 
@@ -1459,6 +1473,7 @@ describe("PUT /api/settings", () => {
       maxKeepAlive: 0,
       autoApprovalEnabled: false, autoApprovalModel: "haiku",
       namerConfig: { backend: "claude" },
+      autoNamerEnabled: true,
       updatedAt: Date.now(),
     });
 
@@ -1532,6 +1547,7 @@ describe("PUT /api/settings", () => {
       maxKeepAlive: 5,
       autoApprovalEnabled: false, autoApprovalModel: "haiku",
       namerConfig: { backend: "claude" },
+      autoNamerEnabled: true,
       updatedAt: Date.now(),
     });
 

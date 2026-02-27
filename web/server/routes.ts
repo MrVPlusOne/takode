@@ -2029,6 +2029,7 @@ export function createRoutes(
       autoApprovalEnabled: settings.autoApprovalEnabled,
       autoApprovalModel: settings.autoApprovalModel,
       namerConfig: maskNamerConfig(settings.namerConfig),
+      autoNamerEnabled: settings.autoNamerEnabled,
       restartSupported: !!process.env.COMPANION_SUPERVISED,
       logFile: getLogPath(),
     });
@@ -2089,6 +2090,10 @@ export function createRoutes(
         }
       }
     }
+    if (body.autoNamerEnabled !== undefined && typeof body.autoNamerEnabled !== "boolean") {
+      return c.json({ error: "autoNamerEnabled must be a boolean" }, 400);
+    }
+    }
 
     // Check that at least one known field is present
     const knownFields = [
@@ -2098,6 +2103,7 @@ export function createRoutes(
       "maxKeepAlive",
       "autoApprovalEnabled", "autoApprovalModel",
       "namerConfig",
+      "autoNamerEnabled",
     ];
     if (!knownFields.some((f) => body[f] !== undefined)) {
       return c.json({ error: "At least one settings field is required" }, 400);
@@ -2149,6 +2155,10 @@ export function createRoutes(
           ? body.autoApprovalModel.trim()
           : undefined,
       namerConfig: body.namerConfig ? parseNamerConfigFromBody(body.namerConfig) : undefined,
+      autoNamerEnabled:
+        typeof body.autoNamerEnabled === "boolean"
+          ? body.autoNamerEnabled
+          : undefined,
     });
 
     return c.json({
@@ -2164,6 +2174,7 @@ export function createRoutes(
       autoApprovalEnabled: settings.autoApprovalEnabled,
       autoApprovalModel: settings.autoApprovalModel,
       namerConfig: maskNamerConfig(settings.namerConfig),
+      autoNamerEnabled: settings.autoNamerEnabled,
     });
   });
 

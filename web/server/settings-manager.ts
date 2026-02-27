@@ -35,6 +35,8 @@ export interface CompanionSettings {
   autoApprovalModel: string;
   /** Session auto-namer backend configuration */
   namerConfig: NamerConfig;
+  /** Whether the AI session auto-namer is enabled (default: true) */
+  autoNamerEnabled: boolean;
   updatedAt: number;
 }
 
@@ -64,6 +66,7 @@ let settings: CompanionSettings = {
   autoApprovalEnabled: false,
   autoApprovalModel: "",
   namerConfig: { backend: "claude" },
+  autoNamerEnabled: true,
   updatedAt: 0,
 };
 
@@ -110,6 +113,7 @@ function normalize(raw: Partial<CompanionSettings> | null | undefined): Companio
     autoApprovalEnabled: typeof raw?.autoApprovalEnabled === "boolean" ? raw.autoApprovalEnabled : false,
     autoApprovalModel: typeof raw?.autoApprovalModel === "string" ? raw.autoApprovalModel : "",
     namerConfig: normalizeNamerConfig(raw),
+    autoNamerEnabled: typeof raw?.autoNamerEnabled === "boolean" ? raw.autoNamerEnabled : true,
     updatedAt: typeof raw?.updatedAt === "number" ? raw.updatedAt : 0,
   };
 }
@@ -145,7 +149,7 @@ export function getSettings(): CompanionSettings {
 
 export function updateSettings(
   patch: Partial<Pick<CompanionSettings,
-    "pushoverUserKey" | "pushoverApiToken" | "pushoverDelaySeconds" | "pushoverEnabled" | "pushoverBaseUrl" | "claudeBinary" | "codexBinary" | "maxKeepAlive" | "autoApprovalEnabled" | "autoApprovalModel" | "namerConfig"
+    "pushoverUserKey" | "pushoverApiToken" | "pushoverDelaySeconds" | "pushoverEnabled" | "pushoverBaseUrl" | "claudeBinary" | "codexBinary" | "maxKeepAlive" | "autoApprovalEnabled" | "autoApprovalModel" | "namerConfig" | "autoNamerEnabled"
   >>,
 ): CompanionSettings {
   ensureLoaded();

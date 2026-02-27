@@ -34,18 +34,22 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
   const [claudeBin, setClaudeBin] = useState("");
   const [codexBin, setCodexBin] = useState("");
   const [binSaving, setBinSaving] = useState(false);
-  const [binSaved, setBinSaved] = useState(false);
   const [binError, setBinError] = useState("");
   const [claudeTest, setClaudeTest] = useState<{ ok: boolean; resolvedPath?: string; version?: string; error?: string } | null>(null);
   const [codexTest, setCodexTest] = useState<{ ok: boolean; resolvedPath?: string; version?: string; error?: string } | null>(null);
   const [claudeTesting, setClaudeTesting] = useState(false);
   const [codexTesting, setCodexTesting] = useState(false);
+  const binDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Session lifecycle state
   const [maxKeepAlive, setMaxKeepAlive] = useState(0);
   const [lifecycleSaving, setLifecycleSaving] = useState(false);
-  const [lifecycleSaved, setLifecycleSaved] = useState(false);
   const [lifecycleError, setLifecycleError] = useState("");
+  const lifecycleDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Auto-namer toggle state
+  const [namerEnabled, setNamerEnabled] = useState(true);
+  const [namerToggleSaving, setNamerToggleSaving] = useState(false);
 
   // Pushover state
   const [poUserKey, setPoUserKey] = useState("");
@@ -129,6 +133,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
           setNamerBaseUrl(s.namerConfig.baseUrl || "");
           setNamerModel(s.namerConfig.model || "");
         }
+        setNamerEnabled(s.autoNamerEnabled ?? true);
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
@@ -205,25 +210,25 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
     }
   }
 
-  async function onSaveBinaries(e: React.FormEvent) {
-    e.preventDefault();
-    setBinSaving(true);
-    setBinError("");
-    setBinSaved(false);
-    try {
-      const res = await api.updateSettings({
-        claudeBinary: claudeBin.trim(),
-        codexBinary: codexBin.trim(),
-      });
-      setClaudeBin(res.claudeBinary || "");
-      setCodexBin(res.codexBinary || "");
-      setBinSaved(true);
-      setTimeout(() => setBinSaved(false), 1800);
-    } catch (err: unknown) {
-      setBinError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBinSaving(false);
-    }
+  // Debounced auto-save for CLI binaries (fires 800ms after last keystroke)
+  function debouncedSaveBinaries(newClaude: string, newCodex: string) {
+    if (binDebounceRef.current) clearTimeout(binDebounceRef.current);
+    binDebounceRef.current = setTimeout(async () => {
+      setBinSaving(true);
+      setBinError("");
+      try {
+        const res = await api.updateSettings({
+          claudeBinary: newClaude.trim(),
+          codexBinary: newCodex.trim(),
+        });
+        setClaudeBin(res.claudeBinary || "");
+        setCodexBin(res.codexBinary || "");
+      } catch (err: unknown) {
+        setBinError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setBinSaving(false);
+      }
+    }, 800);
   }
 
   async function onTestBinary(which: "claude" | "codex") {
@@ -243,21 +248,21 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
     }
   }
 
-  async function onSaveLifecycle(e: React.FormEvent) {
-    e.preventDefault();
-    setLifecycleSaving(true);
-    setLifecycleError("");
-    setLifecycleSaved(false);
-    try {
-      const res = await api.updateSettings({ maxKeepAlive });
-      setMaxKeepAlive(res.maxKeepAlive || 0);
-      setLifecycleSaved(true);
-      setTimeout(() => setLifecycleSaved(false), 1800);
-    } catch (err: unknown) {
-      setLifecycleError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLifecycleSaving(false);
-    }
+  // Debounced auto-save for session lifecycle (fires 800ms after last change)
+  function debouncedSaveLifecycle(newValue: number) {
+    if (lifecycleDebounceRef.current) clearTimeout(lifecycleDebounceRef.current);
+    lifecycleDebounceRef.current = setTimeout(async () => {
+      setLifecycleSaving(true);
+      setLifecycleError("");
+      try {
+        const res = await api.updateSettings({ maxKeepAlive: newValue });
+        setMaxKeepAlive(res.maxKeepAlive || 0);
+      } catch (err: unknown) {
+        setLifecycleError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setLifecycleSaving(false);
+      }
+    }, 800);
   }
 
   async function onRestartServer() {
@@ -423,6 +428,27 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
             <span>Usage Bars in Sidebar</span>
             <span className="text-xs text-cc-muted">{showUsageBars ? "On" : "Off"}</span>
           </button>
+          <button
+            type="button"
+            disabled={namerToggleSaving}
+            onClick={async () => {
+              const newVal = !namerEnabled;
+              setNamerEnabled(newVal);
+              setNamerToggleSaving(true);
+              try {
+                const res = await api.updateSettings({ autoNamerEnabled: newVal });
+                setNamerEnabled(res.autoNamerEnabled);
+              } catch {
+                setNamerEnabled(!newVal);
+              } finally {
+                setNamerToggleSaving(false);
+              }
+            }}
+            className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm bg-cc-hover text-cc-fg hover:bg-cc-active transition-colors cursor-pointer"
+          >
+            <span>AI Session Naming</span>
+            <span className="text-xs text-cc-muted">{namerToggleSaving ? "..." : namerEnabled ? "On" : "Off"}</span>
+          </button>
         </CollapsibleSection>
 
         {/* ── 2. Notifications ─────────────────────────────────── */}
@@ -462,8 +488,6 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
           id="cli"
           title="CLI & Backends"
           description="Custom path or command for backend CLIs. Leave empty to auto-detect from PATH. New sessions use this immediately; existing sessions pick it up on relaunch."
-          as="form"
-          onSubmit={onSaveBinaries}
         >
           <div>
             <label className="block text-sm font-medium mb-1.5" htmlFor="claude-binary">
@@ -474,7 +498,11 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
                 id="claude-binary"
                 type="text"
                 value={claudeBin}
-                onChange={(e) => setClaudeBin(e.target.value)}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setClaudeBin(v);
+                  debouncedSaveBinaries(v, codexBin);
+                }}
                 placeholder="claude (auto-detect)"
                 className="flex-1 px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg placeholder:text-cc-muted focus:outline-none focus:border-cc-primary/60 font-mono"
               />
@@ -509,7 +537,11 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
                 id="codex-binary"
                 type="text"
                 value={codexBin}
-                onChange={(e) => setCodexBin(e.target.value)}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setCodexBin(v);
+                  debouncedSaveBinaries(claudeBin, v);
+                }}
                 placeholder="codex (auto-detect)"
                 className="flex-1 px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg placeholder:text-cc-muted focus:outline-none focus:border-cc-primary/60 font-mono"
               />
@@ -541,40 +573,25 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
             </div>
           )}
 
-          {binSaved && (
-            <div className="px-3 py-2 rounded-lg bg-cc-success/10 border border-cc-success/20 text-xs text-cc-success">
-              Binary settings saved.
-            </div>
+          {binSaving && (
+            <p className="text-xs text-cc-muted">Saving...</p>
           )}
 
-          <div className="flex items-center justify-between">
-            <button
-              type="button"
-              onClick={() => {
-                window.location.hash = "#/environments";
-              }}
-              className="px-3 py-2 rounded-lg text-sm font-medium bg-cc-hover text-cc-fg hover:bg-cc-active transition-colors cursor-pointer"
-            >
-              Manage Environments
-            </button>
-            <button
-              type="submit"
-              disabled={binSaving || loading}
-              className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                binSaving || loading
-                  ? "bg-cc-hover text-cc-muted cursor-not-allowed"
-                  : "bg-cc-primary hover:bg-cc-primary-hover text-white cursor-pointer"
-              }`}
-            >
-              {binSaving ? "Saving..." : "Save"}
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => {
+              window.location.hash = "#/environments";
+            }}
+            className="px-3 py-2 rounded-lg text-sm font-medium bg-cc-hover text-cc-fg hover:bg-cc-active transition-colors cursor-pointer"
+          >
+            Manage Environments
+          </button>
         </CollapsibleSection>
 
         {/* ── 4. Sessions ──────────────────────────────────────── */}
         <CollapsibleSection id="sessions" title="Sessions">
-          {/* Session Lifecycle (inner form — Sessions group contains two sub-sections) */}
-          <form onSubmit={onSaveLifecycle} className="space-y-3">
+          {/* Session Lifecycle — auto-saves on change */}
+          <div className="space-y-3">
             <div>
               <label className="block text-sm font-medium mb-1.5" htmlFor="max-keep-alive">
                 Max Keep-Alive
@@ -585,7 +602,11 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
                 min={0}
                 step={1}
                 value={maxKeepAlive}
-                onChange={(e) => setMaxKeepAlive(Math.max(0, Math.floor(Number(e.target.value) || 0)))}
+                onChange={(e) => {
+                  const v = Math.max(0, Math.floor(Number(e.target.value) || 0));
+                  setMaxKeepAlive(v);
+                  debouncedSaveLifecycle(v);
+                }}
                 className="w-24 px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/60"
               />
               <p className="mt-1.5 text-xs text-cc-muted">
@@ -600,26 +621,10 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
               </div>
             )}
 
-            {lifecycleSaved && (
-              <div className="px-3 py-2 rounded-lg bg-cc-success/10 border border-cc-success/20 text-xs text-cc-success">
-                Session lifecycle settings saved.
-              </div>
+            {lifecycleSaving && (
+              <p className="text-xs text-cc-muted">Saving...</p>
             )}
-
-            <div className="flex justify-end">
-              <button
-                type="submit"
-                disabled={lifecycleSaving || loading}
-                className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  lifecycleSaving || loading
-                    ? "bg-cc-hover text-cc-muted cursor-not-allowed"
-                    : "bg-cc-primary hover:bg-cc-primary-hover text-white cursor-pointer"
-                }`}
-              >
-                {lifecycleSaving ? "Saving..." : "Save"}
-              </button>
-            </div>
-          </form>
+          </div>
 
           {/* Session Auto-Namer backend */}
           <div className="border-t border-cc-border pt-3 space-y-3">

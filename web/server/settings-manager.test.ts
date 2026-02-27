@@ -42,6 +42,7 @@ describe("settings-manager", () => {
       autoApprovalEnabled: false,
       autoApprovalModel: "",
       namerConfig: { backend: "claude" },
+      autoNamerEnabled: true,
       updatedAt: 0,
     });
   });
@@ -116,6 +117,7 @@ describe("settings-manager", () => {
       autoApprovalEnabled: false,
       autoApprovalModel: "",
       namerConfig: { backend: "claude" },
+      autoNamerEnabled: true,
       updatedAt: 0,
     });
   });
