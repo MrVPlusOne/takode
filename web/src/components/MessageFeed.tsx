@@ -697,13 +697,13 @@ const FeedEntries = memo(function FeedEntries({
         if (isTimedChatMessage(entry.msg)) {
           const markerLabel = minuteBoundaryLabels?.get(entry.msg.id);
           return (
-            <div key={entry.msg.id}>
+            <div key={entry.msg.id} data-message-id={entry.msg.id}>
               {markerLabel && <MinuteBoundaryTimestamp timestamp={entry.msg.timestamp} label={markerLabel} />}
               <MessageBubble message={entry.msg} sessionId={sessionId} showTimestamp={false} />
             </div>
           );
         }
-        return <MessageBubble key={entry.msg.id} message={entry.msg} sessionId={sessionId} />;
+        return <div key={entry.msg.id} data-message-id={entry.msg.id}><MessageBubble message={entry.msg} sessionId={sessionId} /></div>;
       })}
     </>
   );
@@ -1458,6 +1458,36 @@ export function MessageFeed({ sessionId }: { sessionId: string }) {
       }
     });
   }, [scrollToTurnId, sessionId, clearScrollToTurn]);
+
+  // Scroll-to-message: triggered from QuestmasterPage version history clicks.
+  // Finds the turn containing the target message, focuses it (expand target,
+  // collapse all others except last), and scrolls to the specific message element.
+  const scrollToMessageId = useStore((s) => s.scrollToMessageId.get(sessionId));
+  const clearScrollToMessage = useStore((s) => s.clearScrollToMessage);
+  useEffect(() => {
+    if (!scrollToMessageId) return;
+    clearScrollToMessage(sessionId);
+    const el = containerRef.current;
+    if (!el) return;
+
+    // Find which turn contains this message
+    const targetTurn = turns.find((t) =>
+      t.allEntries.some((e) => e.kind === "message" && e.msg.id === scrollToMessageId) ||
+      (t.userEntry?.kind === "message" && t.userEntry.msg.id === scrollToMessageId)
+    );
+    if (!targetTurn) return;
+
+    // Focus: expand target turn, all others revert to defaults (last expanded, rest collapsed)
+    useStore.getState().focusTurn(sessionId, targetTurn.id);
+
+    // Wait for DOM to settle, then scroll to the specific message
+    requestAnimationFrame(() => {
+      const target = el.querySelector(`[data-message-id="${CSS.escape(scrollToMessageId)}"]`);
+      if (target) {
+        target.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    });
+  }, [scrollToMessageId, sessionId, clearScrollToMessage, turns]);
 
   // Track which task outline chip should be highlighted based on scroll position.
   // The reference line is near the container top (with a small offset to avoid

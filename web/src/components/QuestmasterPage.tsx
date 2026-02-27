@@ -2804,6 +2804,32 @@ function QuestVersionHistory({ questId }: { questId: string }) {
     return () => { active = false; };
   }, [questId]);
 
+  /** Navigate to the quest_claimed/quest_submitted chat message for this version. */
+  const handleVersionClick = useCallback((ver: QuestmasterTask) => {
+    const sessionId = "sessionId" in ver && typeof ver.sessionId === "string" ? ver.sessionId : undefined;
+    if (!sessionId) return;
+
+    // Match the variant that ws.ts uses for the chat message ID prefix
+    const variant = ver.status === "needs_verification" ? "quest_submitted" : "quest_claimed";
+    const prefix = `${variant}-${ver.questId}-`;
+
+    // Search the session's messages for the closest match by timestamp
+    const messages = useStore.getState().messages.get(sessionId) ?? [];
+    const candidates = messages.filter((m) => m.id.startsWith(prefix));
+    const match = candidates.length > 0
+      ? candidates.reduce((best, m) => {
+          const bestDist = Math.abs((best.timestamp ?? 0) - ver.createdAt);
+          const mDist = Math.abs((m.timestamp ?? 0) - ver.createdAt);
+          return mDist < bestDist ? m : best;
+        })
+      : undefined;
+
+    if (match) {
+      useStore.getState().requestScrollToMessage(sessionId, match.id);
+    }
+    navigateToSession(sessionId);
+  }, []);
+
   if (loading) {
     return <div className="text-[10px] text-cc-muted py-1">Loading history...</div>;
   }
@@ -2819,10 +2845,17 @@ function QuestVersionHistory({ questId }: { questId: string }) {
       {history.map((ver) => {
         const cfg = STATUS_CONFIG[ver.status];
         const description = "description" in ver ? ver.description : undefined;
+        const hasSession = "sessionId" in ver && typeof ver.sessionId === "string" && !!ver.sessionId;
         return (
           <div
             key={ver.id}
-            className="px-3 py-2 rounded-lg bg-cc-input-bg border border-cc-border/50 text-xs"
+            role={hasSession ? "button" : undefined}
+            tabIndex={hasSession ? 0 : undefined}
+            onClick={hasSession ? () => handleVersionClick(ver) : undefined}
+            onKeyDown={hasSession ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleVersionClick(ver); } } : undefined}
+            className={`px-3 py-2 rounded-lg bg-cc-input-bg border border-cc-border/50 text-xs${
+              hasSession ? " cursor-pointer hover:bg-cc-hover/40 hover:border-cc-border transition-colors" : ""
+            }`}
           >
             <div className="flex items-center gap-2">
               <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${cfg.dot}`} />

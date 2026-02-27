@@ -86,6 +86,9 @@ interface AppState {
   sessionKeywords: Map<string, string[]>;
   // Scroll-to-turn request per session (session → turn ID to scroll to)
   scrollToTurnId: Map<string, string | null>;
+  // Scroll-to-message request per session (session → message ID to scroll to).
+  // Unlike scrollToTurnId, this also collapses all other turns except the target and last.
+  scrollToMessageId: Map<string, string | null>;
   // Currently visible task turn ID per session (set by MessageFeed IntersectionObserver)
   activeTaskTurnId: Map<string, string | null>;
   // Active task preview per session (from TodoWrite/TaskCreate/TaskUpdate in_progress items)
@@ -222,6 +225,8 @@ interface AppState {
   setSessionKeywords: (sessionId: string, keywords: string[]) => void;
   requestScrollToTurn: (sessionId: string, turnId: string) => void;
   clearScrollToTurn: (sessionId: string) => void;
+  requestScrollToMessage: (sessionId: string, messageId: string) => void;
+  clearScrollToMessage: (sessionId: string) => void;
   setActiveTaskTurnId: (sessionId: string, turnId: string | null) => void;
 
   // PR status action
@@ -290,6 +295,8 @@ interface AppState {
   collapsibleTurnIds: Map<string, string[]>;
   toggleTurnActivity: (sessionId: string, turnId: string, isLastTurn: boolean) => void;
   collapseAllTurnActivity: (sessionId: string, turnIds: string[]) => void;
+  /** Expand only the target turn; all others revert to default (last = expanded, rest = collapsed). */
+  focusTurn: (sessionId: string, targetTurnId: string) => void;
   setCollapsibleTurnIds: (sessionId: string, turnIds: string[]) => void;
 
   // Diff panel actions
@@ -406,6 +413,7 @@ export const useStore = create<AppState>((set) => ({
   sessionTaskHistory: new Map(),
   sessionKeywords: new Map(),
   scrollToTurnId: new Map(),
+  scrollToMessageId: new Map(),
   activeTaskTurnId: new Map(),
   sessionTaskPreview: new Map(),
   prStatus: new Map(),
@@ -1034,6 +1042,20 @@ export const useStore = create<AppState>((set) => ({
       return { scrollToTurnId };
     }),
 
+  requestScrollToMessage: (sessionId, messageId) =>
+    set((s) => {
+      const scrollToMessageId = new Map(s.scrollToMessageId);
+      scrollToMessageId.set(sessionId, messageId);
+      return { scrollToMessageId };
+    }),
+
+  clearScrollToMessage: (sessionId) =>
+    set((s) => {
+      const scrollToMessageId = new Map(s.scrollToMessageId);
+      scrollToMessageId.delete(sessionId);
+      return { scrollToMessageId };
+    }),
+
   setActiveTaskTurnId: (sessionId, turnId) =>
     set((s) => {
       const prev = s.activeTaskTurnId.get(sessionId);
@@ -1307,6 +1329,17 @@ export const useStore = create<AppState>((set) => ({
       return { turnActivityOverrides: overrides };
     }),
 
+  focusTurn: (sessionId, targetTurnId) =>
+    set((s) => {
+      const overrides = new Map(s.turnActivityOverrides);
+      // Replace all overrides with just the target expanded.
+      // All other turns revert to defaults (last = expanded, rest = collapsed).
+      const session = new Map<string, boolean>();
+      session.set(targetTurnId, true);
+      overrides.set(sessionId, session);
+      return { turnActivityOverrides: overrides };
+    }),
+
   setCollapsibleTurnIds: (sessionId, turnIds) =>
     set((s) => {
       const collapsibleTurnIds = new Map(s.collapsibleTurnIds);
@@ -1349,6 +1382,7 @@ export const useStore = create<AppState>((set) => ({
       sessionTaskHistory: new Map(),
       sessionKeywords: new Map(),
       scrollToTurnId: new Map(),
+      scrollToMessageId: new Map(),
       activeTaskTurnId: new Map(),
       sessionTaskPreview: new Map(),
       mcpServers: new Map(),
