@@ -406,6 +406,10 @@ function handleParsedMessage(
           }
         }
       }
+      // Diagnostic: log when assistant message sets status to running (q-40)
+      if (store.sessionStatus.get(sessionId) !== "running") {
+        console.log(`[ws] assistant msg: ${sessionId.slice(0, 8)} → running`);
+      }
       store.setSessionStatus(sessionId, "running");
 
       // Store server-provided tool start timestamps for live duration display
@@ -484,6 +488,8 @@ function handleParsedMessage(
       store.updateSession(sessionId, sessionUpdates);
       store.clearStreamingState(sessionId);
       store.clearToolProgress(sessionId);
+      // Diagnostic: log result → idle transition (q-40)
+      console.log(`[ws] result: ${sessionId.slice(0, 8)} → idle`);
       store.setSessionStatus(sessionId, "idle");
       store.setSessionStuck(sessionId, false);
       // Play notification sound if enabled and tab is not focused
@@ -694,6 +700,14 @@ function handleParsedMessage(
     }
 
     case "status_change": {
+      // Diagnostic: log status transitions to help debug q-40 (session stays
+      // "idle" in the UI after user sends a message, despite server sending
+      // status_change:running). Check browser console to verify receipt.
+      const prevStatus = store.sessionStatus.get(sessionId);
+      const newStatus = data.status === "compacting" ? "compacting" : data.status;
+      if (prevStatus !== newStatus) {
+        console.log(`[ws] status_change: ${sessionId.slice(0, 8)} ${prevStatus ?? "null"} → ${newStatus} (seq=${data.seq})`);
+      }
       if (data.status === "compacting") {
         store.setSessionStatus(sessionId, "compacting");
       } else {
@@ -716,6 +730,11 @@ function handleParsedMessage(
 
     case "state_snapshot": {
       // Authoritative state from server — overrides any stale transient state
+      const snapPrev = store.sessionStatus.get(sessionId);
+      const snapNew = data.sessionStatus as string | null;
+      if (snapPrev !== snapNew) {
+        console.log(`[ws] state_snapshot: ${sessionId.slice(0, 8)} status ${snapPrev ?? "null"} → ${snapNew ?? "null"}, cli=${data.cliConnected}`);
+      }
       store.setSessionStatus(sessionId, data.sessionStatus as "idle" | "running" | "compacting" | "reverting" | null);
       store.setCliConnected(sessionId, data.cliConnected);
       if (data.cliConnected) store.setCliEverConnected(sessionId);
@@ -1176,6 +1195,10 @@ export function waitForConnection(sessionId: string): Promise<void> {
 
 export function sendToSession(sessionId: string, msg: BrowserOutgoingMessage): boolean {
   const ws = sockets.get(sessionId);
+  // Diagnostic: log outgoing user messages to correlate with status changes (q-40)
+  if (msg.type === "user_message") {
+    console.log(`[ws] SEND user_message: ${sessionId.slice(0, 8)} (ws=${ws?.readyState === WebSocket.OPEN ? "open" : "closed"})`);
+  }
   let outgoing: BrowserOutgoingMessage = msg;
   if (IDEMPOTENT_OUTGOING_TYPES.has(msg.type)) {
     switch (msg.type) {
