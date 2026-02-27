@@ -339,17 +339,17 @@ describe("QuestmasterPage verification inbox", () => {
     expect(within(dialog).getByText("ui")).toBeInTheDocument();
   });
 
-  it("uses status-semantic colors for verification inbox actions", () => {
-    // Action colors should communicate state intent consistently:
-    // verification inbox = sky, finish done = purple, rework = green.
+  it("uses harmonious action hierarchy colors for verification inbox UI", () => {
+    // Keep status identity subtle on chips, and keep action buttons aligned
+    // with a consistent hierarchy (primary orange, secondary neutral).
     window.location.hash = "#/questmaster?quest=q-1";
     render(<QuestmasterPage />);
 
     const dialog = screen.getByRole("dialog", { name: /Quest details: Inbox quest/ });
-    expect(within(dialog).getByText("Inbox")).toHaveClass("text-sky-400");
-    expect(within(dialog).getByRole("button", { name: "Later" })).toHaveClass("text-sky-400");
-    expect(within(dialog).getByRole("button", { name: "Finish Quest" })).toHaveClass("text-purple-400");
-    expect(within(dialog).getByRole("button", { name: "Rework" })).toHaveClass("text-green-400");
+    expect(within(dialog).getByText("Inbox")).toHaveClass("text-cc-muted");
+    expect(within(dialog).getByRole("button", { name: "Later" })).toHaveClass("text-cc-muted");
+    expect(within(dialog).getByRole("button", { name: "Finish Quest" })).toHaveClass("bg-cc-primary");
+    expect(within(dialog).getByRole("button", { name: "Rework" })).toHaveClass("bg-cc-hover");
   });
 
   it("filters quests by quest id from the search box", () => {

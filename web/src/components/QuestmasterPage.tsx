@@ -1061,8 +1061,8 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
     questSections.push({
       key: VERIFICATION_INBOX_COLLAPSE_KEY,
       label: "Verification Inbox",
-      dotClass: "bg-sky-400",
-      textClass: "text-sky-400",
+      dotClass: "bg-amber-400",
+      textClass: "text-amber-300",
       quests: sortByRecencyDesc(verificationInboxQuests),
       ...(filter === "all" ? { collapseGroup: VERIFICATION_INBOX_COLLAPSE_KEY } : {}),
     });
@@ -1724,7 +1724,8 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
                           {renderSearchHighlight(quest.questId)}
                         </span>
                         {isInboxVerification && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-sky-500/15 text-sky-400 border border-sky-500/25">
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-cc-hover text-cc-muted border border-cc-border flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
                             Inbox
                           </span>
                         )}
@@ -1847,7 +1848,8 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
                             </div>
                             <div className="flex flex-wrap items-center gap-2 mt-1">
                               {isInboxVerification && (
-                                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-sky-500/15 text-sky-400 border border-sky-500/25">
+                                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-cc-hover text-cc-muted border border-cc-border flex items-center gap-1">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
                                   Inbox
                                 </span>
                               )}
@@ -2474,7 +2476,7 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
                                 <>
                                   <button
                                     onClick={() => handleTransition(quest.questId, "done")}
-                                    className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg bg-purple-500/12 text-purple-400 border border-purple-500/25 hover:bg-purple-500/20 transition-colors cursor-pointer"
+                                    className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg bg-cc-primary text-white border border-cc-primary/40 hover:bg-cc-primary-hover transition-colors cursor-pointer"
                                   >
                                     Finish Quest
                                   </button>
@@ -2497,7 +2499,7 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
                                     }
                                     className={`px-2.5 py-1.5 text-[11px] font-medium rounded-lg border transition-colors ${
                                       unaddressedFeedbackCount > 0
-                                        ? "bg-green-500/12 text-green-400 border-green-500/25 hover:bg-green-500/20 cursor-pointer"
+                                        ? "bg-cc-hover text-cc-fg border-cc-border hover:bg-amber-500/10 hover:text-amber-300 hover:border-amber-500/20 cursor-pointer"
                                         : "bg-cc-hover text-cc-muted/60 border-cc-border cursor-not-allowed"
                                     }`}
                                   >
@@ -2545,7 +2547,7 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
                                     }
                                   }}
                                   title="Remove from Verification Inbox and keep it in Verification for now."
-                                  className="ml-auto px-2.5 py-1.5 text-[11px] font-medium rounded-lg bg-sky-500/15 text-sky-400 border border-sky-500/25 hover:bg-sky-500/25 transition-colors cursor-pointer"
+                                  className="ml-auto px-2.5 py-1.5 text-[11px] font-medium rounded-lg bg-cc-hover text-cc-muted border border-cc-border hover:bg-amber-500/10 hover:text-amber-300 hover:border-amber-500/20 transition-colors cursor-pointer"
                                 >
                                   Later
                                 </button>
@@ -2553,7 +2555,7 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
                                 <button
                                   onClick={() => handleMarkVerificationInbox(quest.questId)}
                                   title="Move this quest back to Verification Inbox to prioritize it again."
-                                  className="ml-auto px-2.5 py-1.5 text-[11px] font-medium rounded-lg bg-sky-500/15 text-sky-400 border border-sky-500/25 hover:bg-sky-500/25 transition-colors cursor-pointer"
+                                  className="ml-auto px-2.5 py-1.5 text-[11px] font-medium rounded-lg bg-cc-hover text-cc-muted border border-cc-border hover:bg-amber-500/10 hover:text-amber-300 hover:border-amber-500/20 transition-colors cursor-pointer"
                                 >
                                   Inbox
                                 </button>
