@@ -435,11 +435,15 @@ describe("Sidebar", () => {
 
     render(<Sidebar />);
     const archiveButton = screen.getByTitle("Archive session");
+    const sessionButton = screen.getByText("claude-sonnet-4-5-20250929").closest("button");
 
     expect(archiveButton).toHaveClass("opacity-100");
     expect(archiveButton).toHaveClass("sm:opacity-0");
     expect(archiveButton).toHaveClass("sm:group-hover:opacity-100");
     expect(archiveButton).toHaveClass("left-2");
+    expect(archiveButton).toHaveClass("sm:right-2");
+    expect(archiveButton).toHaveClass("sm:left-auto");
+    expect(sessionButton).toHaveClass("sm:pl-3.5");
   });
 
   it("permission badge uses mobile-friendly positioning and hover behavior", () => {
