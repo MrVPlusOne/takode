@@ -702,6 +702,43 @@ describe("MessageFeed - subagent grouping", () => {
     // No "Subagent" ToolBlock label should appear (that would mean duplicate rendering)
     expect(screen.queryByText("Subagent")).toBeNull();
   });
+
+  it("renders subagent assistant text when child message also contains tool_use blocks", () => {
+    // Some child assistant messages include text in `content` while contentBlocks
+    // only contain tool_use entries. The subagent panel should still render both.
+    const sid = "test-subagent-child-mixed";
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "a1",
+        role: "assistant",
+        content: "",
+        contentBlocks: [
+          {
+            type: "tool_use",
+            id: "task-mixed-child",
+            name: "Task",
+            input: { description: "Inspect docs", subagent_type: "Explore" },
+          },
+        ],
+      }),
+      makeMessage({
+        id: "child-1",
+        role: "assistant",
+        content: "Let me inspect README first.",
+        parentToolUseId: "task-mixed-child",
+        contentBlocks: [
+          { type: "tool_use", id: "tu-read-1", name: "Read", input: { file_path: "/tmp/README.md" } },
+        ],
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    fireEvent.click(screen.getByText("Inspect docs"));
+
+    expect(screen.getByText("Let me inspect README first.")).toBeTruthy();
+    expect(screen.getByText("Read File")).toBeTruthy();
+  });
 });
 
 // ─── Turn grouping and collapse ─────────────────────────────────────────────

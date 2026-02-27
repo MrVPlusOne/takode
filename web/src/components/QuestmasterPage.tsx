@@ -546,6 +546,8 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
       setEditorAutocompleteTarget(null);
       setEditorAutocompleteIndex(0);
       setShowCreateForm(false);
+      setExpandedId(createdQuest.questId);
+      setEditingId(null);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {

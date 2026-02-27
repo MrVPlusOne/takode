@@ -7,6 +7,7 @@ import { buildQuestReworkDraft } from "./quest-rework.js";
 const mockMarkQuestVerificationRead = vi.fn();
 const mockMarkQuestVerificationInbox = vi.fn();
 const mockTransitionQuest = vi.fn();
+const mockCreateQuest = vi.fn();
 const mockNavigateToSession = vi.fn();
 
 vi.mock("../api.js", () => ({
@@ -17,6 +18,8 @@ vi.mock("../api.js", () => ({
       mockMarkQuestVerificationInbox(...args),
     transitionQuest: (...args: unknown[]) =>
       mockTransitionQuest(...args),
+    createQuest: (...args: unknown[]) =>
+      mockCreateQuest(...args),
     questImageUrl: (id: string) => `/api/quests/_images/${id}`,
   },
 }));
@@ -190,6 +193,19 @@ beforeEach(() => {
         sessionId: undefined,
       } as QuestmasterTask;
     },
+  );
+  mockCreateQuest.mockImplementation(
+    async (input: { title: string; description?: string; tags?: string[] }) =>
+      ({
+        id: "q-3-v1",
+        questId: "q-3",
+        version: 1,
+        title: input.title,
+        createdAt: Date.now(),
+        status: "idea",
+        description: input.description,
+        tags: input.tags,
+      }) as QuestmasterTask,
   );
   window.location.hash = "#/questmaster";
 });
@@ -421,5 +437,28 @@ describe("QuestmasterPage verification inbox", () => {
       expect(screen.queryByTestId("lightbox-backdrop")).toBeNull();
     });
     expect(screen.getByRole("dialog", { name: /Quest details: Inbox quest/ })).toBeInTheDocument();
+  });
+
+  it("opens newly created quest in modal immediately", async () => {
+    render(<QuestmasterPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: /New Quest/i }));
+    fireEvent.change(screen.getByPlaceholderText("Quest title"), {
+      target: { value: "Investigate reconnect jitter" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() => {
+      expect(mockCreateQuest).toHaveBeenCalledWith({
+        title: "Investigate reconnect jitter",
+        description: undefined,
+        tags: undefined,
+        images: undefined,
+      });
+    });
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: /Quest details: Investigate reconnect jitter/ })).toBeInTheDocument();
+    });
+    expect(screen.queryByPlaceholderText("Quest title")).toBeNull();
   });
 });

@@ -375,6 +375,8 @@ function AssistantMessage({ message, sessionId, showTimestamp }: { message: Chat
   const hidePaw = useContext(HidePawContext);
 
   const grouped = useMemo(() => groupContentBlocks(blocks), [blocks]);
+  const hasTextBlock = blocks.some((b) => b.type === "text" && b.text.trim().length > 0);
+  const shouldRenderContentFallback = message.content.trim().length > 0 && !hasTextBlock;
 
   // Only show copy-message button when there's actual text content to copy
   const hasTextContent = message.content
@@ -397,6 +399,7 @@ function AssistantMessage({ message, sessionId, showTimestamp }: { message: Chat
     <div className={`group/msg relative flex items-start ${hidePaw ? "" : "gap-3"}`}>
       {!hidePaw && <PawTrailAvatar />}
       <div ref={contentRef} className="flex-1 min-w-0 space-y-3 pr-6">
+        {shouldRenderContentFallback && <MarkdownContent text={message.content} />}
         {grouped.map((group, i) => {
           if (group.kind === "content") {
             return <ContentBlockRenderer key={i} block={group.block} sessionId={sessionId} />;

@@ -189,6 +189,9 @@ type FeedEntry =
  */
 function getToolOnlyName(msg: ChatMessage): string | null {
   if (msg.role !== "assistant") return null;
+  // Some SDK payloads carry assistant text only in `content` while contentBlocks
+  // contain tool_use entries. Treat those as mixed messages, not tool-only.
+  if (msg.content.trim()) return null;
   const blocks = msg.contentBlocks;
   if (!blocks || blocks.length === 0) return null;
 
