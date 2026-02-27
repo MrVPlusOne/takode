@@ -40,6 +40,18 @@ export interface CLISystemCompactBoundaryMessage {
   session_id: string;
 }
 
+export interface CLISystemTaskNotificationMessage {
+  type: "system";
+  subtype: "task_notification";
+  task_id: string;
+  tool_use_id: string;
+  status: string;
+  output_file?: string;
+  summary?: string;
+  uuid?: string;
+  session_id?: string;
+}
+
 export interface CLIAssistantMessage {
   type: "assistant";
   message: {
@@ -179,6 +191,7 @@ export type CLIMessage =
   | CLISystemInitMessage
   | CLISystemStatusMessage
   | CLISystemCompactBoundaryMessage
+  | CLISystemTaskNotificationMessage
   | CLIAssistantMessage
   | CLIResultMessage
   | CLIStreamEventMessage
@@ -301,7 +314,8 @@ export type BrowserIncomingMessageBase =
   | { type: "state_snapshot"; sessionStatus: string | null; permissionMode: string; cliConnected: boolean; uiMode: string | null; askPermission: boolean; lastReadAt?: number; attentionReason?: "action" | "error" | "review" | null; generationStartedAt?: number | null }
   | { type: "session_stuck" }
   | { type: "quest_list_updated" }
-  | { type: "session_quest_claimed"; quest: { id: string; title: string; status?: string } | null };
+  | { type: "session_quest_claimed"; quest: { id: string; title: string; status?: string } | null }
+  | { type: "task_notification"; task_id: string; tool_use_id: string; status: string; output_file?: string; summary?: string };
 
 export type BrowserIncomingMessage = BrowserIncomingMessageBase & { seq?: number };
 

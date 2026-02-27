@@ -1725,6 +1725,21 @@ export function createRoutes(
     return c.json(result);
   });
 
+  // ─── Background agent output file ────────────────────────────
+
+  api.get("/sessions/:id/agent-output", async (c) => {
+    const filePath = c.req.query("path");
+    if (!filePath) return c.text("Missing path parameter", 400);
+    // Security: only allow reading from temp directories
+    if (!filePath.startsWith("/tmp/")) return c.text("Access denied", 403);
+    try {
+      const content = await readFile(filePath, "utf-8");
+      return c.text(content);
+    } catch {
+      return c.text("File not found", 404);
+    }
+  });
+
   // ─── Image serving ─────────────────────────────────────────
 
   api.get("/images/:sessionId/:imageId/thumb", async (c) => {

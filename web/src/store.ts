@@ -106,6 +106,10 @@ interface AppState {
   // Tool results (session → tool_use_id → truncated preview)
   toolResults: Map<string, Map<string, ToolResultPreview>>;
 
+  // Background agent notifications (task_notification from CLI)
+  backgroundAgentNotifs: Map<string, Map<string, { status: string; outputFile?: string; summary?: string }>>;
+  setBackgroundAgentNotif: (sessionId: string, toolUseId: string, notif: { status: string; outputFile?: string; summary?: string }) => void;
+
   // Tool start timestamps from server (session → tool_use_id → server Date.now())
   toolStartTimestamps: Map<string, Map<string, number>>;
 
@@ -420,6 +424,7 @@ export const useStore = create<AppState>((set) => ({
   mcpServers: new Map(),
   toolProgress: new Map(),
   toolResults: new Map(),
+  backgroundAgentNotifs: new Map(),
   toolStartTimestamps: new Map(),
   sessionAttention: new Map(),
   sessionOrder: getInitialSessionOrder(),
@@ -637,6 +642,8 @@ export const useStore = create<AppState>((set) => ({
       toolProgress.delete(sessionId);
       const toolResults = new Map(s.toolResults);
       toolResults.delete(sessionId);
+      const backgroundAgentNotifs = new Map(s.backgroundAgentNotifs);
+      backgroundAgentNotifs.delete(sessionId);
       const toolStartTimestamps = new Map(s.toolStartTimestamps);
       toolStartTimestamps.delete(sessionId);
       const prStatus = new Map(s.prStatus);
@@ -687,6 +694,7 @@ export const useStore = create<AppState>((set) => ({
         mcpServers,
         toolProgress,
         toolResults,
+        backgroundAgentNotifs,
         toolStartTimestamps,
         prStatus,
         feedVisibleCount,
@@ -1131,6 +1139,15 @@ export const useStore = create<AppState>((set) => ({
       return { toolResults };
     }),
 
+  setBackgroundAgentNotif: (sessionId, toolUseId, notif) =>
+    set((s) => {
+      const backgroundAgentNotifs = new Map(s.backgroundAgentNotifs);
+      const session = new Map(backgroundAgentNotifs.get(sessionId) || new Map());
+      session.set(toolUseId, notif);
+      backgroundAgentNotifs.set(sessionId, session);
+      return { backgroundAgentNotifs };
+    }),
+
   setToolStartTimestamps: (sessionId, timestamps) =>
     set((s) => {
       const toolStartTimestamps = new Map(s.toolStartTimestamps);
@@ -1388,6 +1405,7 @@ export const useStore = create<AppState>((set) => ({
       mcpServers: new Map(),
       toolProgress: new Map(),
       toolResults: new Map(),
+      backgroundAgentNotifs: new Map(),
   toolStartTimestamps: new Map(),
       prStatus: new Map(),
       sessionAttention: new Map(),

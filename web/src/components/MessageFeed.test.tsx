@@ -46,6 +46,7 @@ vi.mock("../store.js", () => {
       sessionTaskHistory: mockStoreValues.sessionTaskHistory ?? new Map(),
       activeTaskTurnId: mockStoreValues.activeTaskTurnId ?? new Map(),
       setActiveTaskTurnId: vi.fn(),
+      backgroundAgentNotifs: mockStoreValues.backgroundAgentNotifs ?? new Map(),
     };
     return selector(state);
   };
@@ -138,6 +139,7 @@ function resetStore() {
   mockStoreValues.sessions = new Map();
   mockStoreValues.toolProgress = new Map();
   mockStoreValues.turnActivityOverrides = new Map();
+  mockStoreValues.backgroundAgentNotifs = new Map();
 }
 
 /** Set explicit overrides for turn activity expansion per session.

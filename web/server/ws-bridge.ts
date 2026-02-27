@@ -24,6 +24,7 @@ import type {
   CLIControlCancelRequestMessage,
   CLIAuthStatusMessage,
   CLISystemCompactBoundaryMessage,
+  CLISystemTaskNotificationMessage,
   CLIUserMessage,
   BrowserOutgoingMessage,
   BrowserIncomingMessage,
@@ -2064,7 +2065,7 @@ export class WsBridge {
     }
   }
 
-  private handleSystemMessage(session: Session, msg: CLISystemInitMessage | CLISystemStatusMessage | CLISystemCompactBoundaryMessage) {
+  private handleSystemMessage(session: Session, msg: CLISystemInitMessage | CLISystemStatusMessage | CLISystemCompactBoundaryMessage | CLISystemTaskNotificationMessage) {
     if (msg.subtype === "init") {
       // Keep the launcher-assigned session_id as the canonical ID.
       // The CLI may report its own internal session_id which differs
@@ -2199,8 +2200,17 @@ export class WsBridge {
         preTokens: meta?.pre_tokens,
       });
       this.persistSession(session);
+    } else if (msg.subtype === "task_notification") {
+      // Forward background agent completion notifications to browsers
+      this.broadcastToBrowsers(session, {
+        type: "task_notification" as const,
+        task_id: msg.task_id,
+        tool_use_id: msg.tool_use_id,
+        status: msg.status,
+        output_file: msg.output_file,
+        summary: msg.summary,
+      });
     }
-    // Other system subtypes (task_notification, etc.) can be forwarded as needed
   }
 
   private handleAssistantMessage(session: Session, msg: CLIAssistantMessage) {

@@ -169,6 +169,7 @@ interface SubagentGroup {
   agentType: string;
   taskInput: Record<string, unknown> | null;
   children: FeedEntry[];
+  isBackground: boolean;
 }
 
 interface SubagentBatch {
@@ -291,6 +292,7 @@ function buildEntries(
           agentType: info.agentType,
           taskInput: info.input,
           children: childEntries,
+          isBackground: !!info.input?.run_in_background,
         });
       }
       continue;
@@ -319,6 +321,7 @@ function buildEntries(
         agentType: info.agentType,
         taskInput: info.input,
         children: childEntries,
+        isBackground: !!info.input?.run_in_background,
       });
     }
   }
@@ -369,14 +372,6 @@ function groupMessages(messages: ChatMessage[]): FeedEntry[] {
     return groupToolMessages(messages);
   }
 
-  // Diagnostic: log subagent grouping for debugging q-40 (0-output bug)
-  if (taskInfo.size > 0) {
-    console.log(`[feed] buildFeed: ${messages.length} msgs, ${taskInfo.size} tasks, ${childrenByParent.size} parents with children`);
-    for (const [taskId, children] of childrenByParent) {
-      console.log(`[feed]   task ${taskId.slice(0, 20)}... → ${children.length} children`);
-    }
-  }
-
   // Phase 3: Build grouped entries with subagent nesting.
   // Orphaned subagent groups (no parent entry in topLevel) are appended at the end.
   const entries = buildEntries(topLevel, taskInfo, childrenByParent);
@@ -398,6 +393,7 @@ function groupMessages(messages: ChatMessage[]): FeedEntry[] {
       agentType: info.agentType,
       taskInput: info.input || null,
       children: childEntries,
+      isBackground: !!info.input?.run_in_background,
     });
   }
 
@@ -856,18 +852,20 @@ const SubagentContainer = memo(function SubagentContainer({
 }) {
   const [open, setOpen] = useState(false);
   const [promptOpen, setPromptOpen] = useState(false);
+  const [bgOutput, setBgOutput] = useState<string | null>(null);
   const headerRef = useRef<HTMLButtonElement>(null);
   const label = group.description || "Subagent";
   const agentType = group.agentType;
   const childCount = group.children.length;
-  // Diagnostic: log child count for q-40
-  if (childCount === 0) {
-    console.log(`[feed] SubagentContainer "${label}" (${group.taskToolUseId.slice(0, 20)}...): 0 children`);
-  }
   const hasPrompt = !!group.taskInput?.prompt;
 
   // Read the subagent's final result from the toolResults store
   const resultPreview = useStore((s) => s.toolResults.get(sessionId)?.get(group.taskToolUseId));
+
+  // Read background agent notification
+  const bgNotif = useStore((s) =>
+    s.backgroundAgentNotifs.get(sessionId)?.get(group.taskToolUseId)
+  );
 
   // Get the last visible entry for a compact preview (fallback when no result)
   const lastEntry = group.children[group.children.length - 1];
@@ -926,7 +924,13 @@ const SubagentContainer = memo(function SubagentContainer({
           </span>
         )}
         <span className="text-[10px] text-cc-muted bg-cc-hover rounded-full px-1.5 py-0.5 tabular-nums shrink-0 ml-auto">
-          {childCount}
+          {childCount > 0
+            ? childCount
+            : resultPreview
+              ? "✓"
+              : group.isBackground
+                ? "bg"
+                : "0"}
         </span>
       </button>
 
@@ -962,11 +966,36 @@ const SubagentContainer = memo(function SubagentContainer({
             </div>
           )}
 
+          {/* Background agent output (no streaming children, output goes to file) */}
+          {group.isBackground && childCount === 0 && bgNotif && (
+            <div className="border-b border-cc-border/50">
+              <div className="px-3 py-2">
+                <div className="text-[11px] text-cc-muted">{bgNotif.summary}</div>
+                {bgNotif.outputFile && !bgOutput && (
+                  <button
+                    onClick={async () => {
+                      const resp = await fetch(`/api/sessions/${sessionId}/agent-output?path=${encodeURIComponent(bgNotif.outputFile!)}`);
+                      if (resp.ok) setBgOutput(await resp.text());
+                    }}
+                    className="text-[11px] text-cc-accent hover:underline mt-1 cursor-pointer"
+                  >
+                    View full output
+                  </button>
+                )}
+                {bgOutput && (
+                  <pre className="text-[11px] text-cc-text font-mono-code whitespace-pre-wrap leading-relaxed max-h-60 overflow-y-auto mt-1 bg-cc-bg-code rounded p-2">
+                    {bgOutput}
+                  </pre>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* No children yet indicator */}
-          {childCount === 0 && !resultPreview && (
+          {childCount === 0 && !resultPreview && !bgNotif && (
             <div className="px-3 py-2 flex items-center gap-1.5 text-[11px] text-cc-muted">
               <YarnBallSpinner className="w-3.5 h-3.5" />
-              <span>Agent starting...</span>
+              <span>{group.isBackground ? "Running in background..." : "Agent starting..."}</span>
             </div>
           )}
 
