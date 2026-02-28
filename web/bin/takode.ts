@@ -193,6 +193,13 @@ function printEvents(events: unknown[], jsonMode: boolean): void {
         console.log(`[${time}] quest_update`);
         break;
       }
+      case "user_message": {
+        console.log(`[${time}] user_message  ${session}`);
+        if (evt.data.content) {
+          console.log(`  "${truncate(String(evt.data.content), 100)}"`);
+        }
+        break;
+      }
       default:
         console.log(`[${time}] ${evt.event}  ${session}`);
     }
@@ -331,8 +338,14 @@ function printSessionLine(s: {
 
 async function handleWatch(base: string, args: string[]): Promise<void> {
   const flags = parseFlags(args);
-  const sessionsRaw = flags.sessions as string;
+  let sessionsRaw = flags.sessions as string;
   if (!sessionsRaw) err("Usage: takode watch --sessions <id1,id2,...> [--timeout <seconds>] [--json]");
+
+  // Auto-include own session so human messages interrupt watch
+  const ownSessionId = process.env.COMPANION_SESSION_ID;
+  if (ownSessionId) {
+    sessionsRaw = sessionsRaw + "," + ownSessionId;
+  }
 
   const timeout = Number(flags.timeout) || DEFAULT_TIMEOUT;
   const jsonMode = flags.json === true;

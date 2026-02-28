@@ -122,6 +122,7 @@ takode watch --sessions 1,2 --since 42
 | \`quest_update\` | A quest was updated (any session). |
 | \`session_disconnected\` | Worker CLI disconnected. |
 | \`session_error\` | Worker turn ended with an error. |
+| \`user_message\` | New user message arrived in a watched session. |
 
 **\`--sessions\` is required.** Always specify which sessions you're watching. Use \`takode list\` first to discover session numbers.
 
@@ -297,6 +298,7 @@ _This section will grow as we learn from real orchestration usage._
 - **Monitor context usage.** Long orchestration sessions accumulate context. Use \`peek\` (truncated) over \`read\` (full) whenever possible.
 - **Track event cursors.** When using \`watch --since\`, pass the last event ID to avoid re-processing events.
 - **Mixed backends work seamlessly.** You can orchestrate both Claude Code and Codex sessions from either backend. The \`takode\` CLI talks to the Companion server, so the worker's backend is transparent to you.
+- **Watch auto-includes your own session.** When you run \`takode watch\`, human messages to your session will interrupt the watch so you stay responsive. Process the human's input first, then resume watching.
 `;
 
   writeFileSync(skillPath, content, "utf-8"); // sync-ok: takode setup, not called during message handling

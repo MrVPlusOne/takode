@@ -474,7 +474,8 @@ export type TakodeEventType =
   | "permission_resolved"
   | "quest_update"
   | "session_disconnected"
-  | "session_error";
+  | "session_error"
+  | "user_message";
 
 export interface TakodeEvent {
   /** Monotonic event ID for cursor-based catchup */

@@ -484,6 +484,26 @@ export function createRoutes(
       // Mark as orchestrator session if role is specified
       if (body.role === "orchestrator") {
         session.isOrchestrator = true;
+        // Fire-and-forget: wait for CLI to connect, then send identity message
+        (async () => {
+          const maxWait = 30_000;
+          const pollMs = 200;
+          const start = Date.now();
+          while (Date.now() - start < maxWait) {
+            const info = launcher.getSession(session.sessionId);
+            if (info && (info.state === "connected" || info.state === "running")) {
+              wsBridge.injectUserMessage(session.sessionId,
+                `You are an orchestrator agent. Your job is to coordinate worker sessions that I assign to you.\n\n` +
+                `Start by running \`~/.companion/bin/takode list\` to see active sessions, then ask me which sessions to monitor.\n\n` +
+                `When I send you a message during watch, it will return a user_message event — process my request and resume watching.\n\n` +
+                `Use the takode CLI (documented in your project CLAUDE.md) for all orchestration. Do not bypass it with curl or direct API calls.`
+              );
+              return;
+            }
+            if (info?.state === "exited") return; // CLI crashed, don't inject
+            await new Promise(r => setTimeout(r, pollMs));
+          }
+        })().catch(e => console.error(`[routes] Failed to inject orchestrator message:`, e));
       }
 
       // Generate a session name so all creation paths (browser, CLI, API) get names
@@ -971,6 +991,26 @@ export function createRoutes(
         // Mark as orchestrator session if role is specified
         if (body.role === "orchestrator") {
           session.isOrchestrator = true;
+          // Fire-and-forget: wait for CLI to connect, then send identity message
+          (async () => {
+            const maxWait = 30_000;
+            const pollMs = 200;
+            const start = Date.now();
+            while (Date.now() - start < maxWait) {
+              const info = launcher.getSession(session.sessionId);
+              if (info && (info.state === "connected" || info.state === "running")) {
+                wsBridge.injectUserMessage(session.sessionId,
+                  `You are an orchestrator agent. Your job is to coordinate worker sessions that I assign to you.\n\n` +
+                  `Start by running \`~/.companion/bin/takode list\` to see active sessions, then ask me which sessions to monitor.\n\n` +
+                  `When I send you a message during watch, it will return a user_message event — process my request and resume watching.\n\n` +
+                  `Use the takode CLI (documented in your project CLAUDE.md) for all orchestration. Do not bypass it with curl or direct API calls.`
+                );
+                return;
+              }
+              if (info?.state === "exited") return; // CLI crashed, don't inject
+              await new Promise(r => setTimeout(r, pollMs));
+            }
+          })().catch(e => console.error(`[routes] Failed to inject orchestrator message:`, e));
         }
 
         // Generate a session name so all creation paths (browser, CLI, API) get names

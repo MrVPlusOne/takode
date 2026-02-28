@@ -3390,6 +3390,10 @@ export class WsBridge {
     // never add user messages locally, they render only what the server sends)
     this.broadcastToBrowsers(session, userHistoryEntry);
 
+    this.emitTakodeEvent(session.id, "user_message", {
+      content: (msg.content || "").slice(0, 120),
+    });
+
     // Build content: if images are present, convert unsupported formats and use
     // content block array; otherwise plain string. Conversion operates on copies
     // so that the original base64 data stored to disk is not affected.
