@@ -1704,6 +1704,19 @@ ${ORCH_END}`;
     if (info) {
       info.archived = archived;
       info.archivedAt = archived ? Date.now() : undefined;
+      // Clean up herd relationships when a leader is archived
+      if (archived && info.isOrchestrator) {
+        for (const worker of this.sessions.values()) {
+          if (worker.herdedBy) {
+            const idx = worker.herdedBy.indexOf(sessionId);
+            if (idx !== -1) {
+              worker.herdedBy.splice(idx, 1);
+              if (worker.herdedBy.length === 0) worker.herdedBy = undefined;
+            }
+          }
+        }
+        this.onHerdChanged?.(sessionId);
+      }
       this.persistState();
     }
   }
