@@ -293,7 +293,6 @@ describe("GenericDisplay", () => {
 
 describe("Allow and Deny buttons", () => {
   it("Allow button calls sendToSession with correct permission_response", () => {
-    vi.useFakeTimers();
     const perm = makePermission({ request_id: "req-42" });
     render(<PermissionBanner permission={perm} sessionId="s1" />);
 
@@ -305,11 +304,9 @@ describe("Allow and Deny buttons", () => {
       behavior: "allow",
       updated_input: undefined,
     });
-    // removePermission is delayed by 350ms for the paw stamp animation
+    // removePermission is NOT called locally — the server broadcasts
+    // permission_approved which authoritatively removes it via ws.ts.
     expect(mockRemovePermission).not.toHaveBeenCalled();
-    vi.advanceTimersByTime(350);
-    expect(mockRemovePermission).toHaveBeenCalledWith("s1", "req-42");
-    vi.useRealTimers();
   });
 
   it("Deny button calls sendToSession with deny behavior", () => {
@@ -784,7 +781,6 @@ describe("Custom Permission Rule Editor", () => {
   });
 
   it("sends correct permission_response with default Session scope", () => {
-    vi.useFakeTimers();
     const perm = makePermission({
       request_id: "req-custom-1",
       tool_name: "Bash",
@@ -809,9 +805,9 @@ describe("Custom Permission Rule Editor", () => {
       }],
     });
 
-    vi.advanceTimersByTime(350);
-    expect(mockRemovePermission).toHaveBeenCalledWith("s1", "req-custom-1");
-    vi.useRealTimers();
+    // removePermission is NOT called locally — the server broadcasts
+    // permission_approved which authoritatively removes it via ws.ts.
+    expect(mockRemovePermission).not.toHaveBeenCalled();
   });
 
   it("scope selection changes the destination in the permission update", () => {

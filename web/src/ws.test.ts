@@ -1811,38 +1811,45 @@ describe("handleMessage: state_snapshot", () => {
 // ===========================================================================
 describe("handleMessage: permission_approved", () => {
   it("removes the permission from pending when request_id is present", () => {
-    wsModule.connectSession("s1");
-    fireMessage({ type: "session_init", session: makeSession("s1") });
+    vi.useFakeTimers();
+    try {
+      wsModule.connectSession("s1");
+      fireMessage({ type: "session_init", session: makeSession("s1") });
 
-    // Add a pending permission
-    const request: PermissionRequest = {
-      request_id: "req-approve-1",
-      tool_name: "Edit",
-      input: { file_path: "/test.ts" },
-      tool_use_id: "tu-approve-1",
-      timestamp: Date.now(),
-    };
-    useStore.getState().addPermission("s1", request);
-    expect(useStore.getState().pendingPermissions.get("s1")!.has("req-approve-1")).toBe(true);
+      // Add a pending permission
+      const request: PermissionRequest = {
+        request_id: "req-approve-1",
+        tool_name: "Edit",
+        input: { file_path: "/test.ts" },
+        tool_use_id: "tu-approve-1",
+        timestamp: Date.now(),
+      };
+      useStore.getState().addPermission("s1", request);
+      expect(useStore.getState().pendingPermissions.get("s1")!.has("req-approve-1")).toBe(true);
 
-    // Fire permission_approved with request_id
-    fireMessage({
-      type: "permission_approved",
-      id: "approval-req-approve-1",
-      request_id: "req-approve-1",
-      tool_name: "Edit",
-      tool_use_id: "tu-approve-1",
-      summary: "Approved Edit",
-      timestamp: Date.now(),
-    });
+      // Fire permission_approved with request_id
+      fireMessage({
+        type: "permission_approved",
+        id: "approval-req-approve-1",
+        request_id: "req-approve-1",
+        tool_name: "Edit",
+        tool_use_id: "tu-approve-1",
+        summary: "Approved Edit",
+        timestamp: Date.now(),
+      });
 
-    // Permission should be removed from pending
-    const perms = useStore.getState().pendingPermissions.get("s1");
-    expect(perms!.has("req-approve-1")).toBe(false);
+      // System message should be appended immediately
+      const msgs = useStore.getState().messages.get("s1")!;
+      expect(msgs.some((m) => m.variant === "approved")).toBe(true);
 
-    // System message should be appended
-    const msgs = useStore.getState().messages.get("s1")!;
-    expect(msgs.some((m) => m.variant === "approved")).toBe(true);
+      // Permission removal is delayed 400ms for the stamping animation
+      expect(useStore.getState().pendingPermissions.get("s1")!.has("req-approve-1")).toBe(true);
+      vi.advanceTimersByTime(400);
+      const perms = useStore.getState().pendingPermissions.get("s1");
+      expect(perms!.has("req-approve-1")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("still works without request_id (backward compat with old messages)", () => {

@@ -587,7 +587,14 @@ function handleParsedMessage(
     }
 
     case "permission_approved": {
-      if (data.request_id) store.removePermission(sessionId, data.request_id);
+      // Delay permission removal slightly so the "Approved" stamping animation
+      // has time to play before the component unmounts. The permission is already
+      // resolved on the server — this delay is purely cosmetic (400ms matches
+      // the paw-approve animation duration).
+      const approvedReqId = data.request_id;
+      if (approvedReqId) {
+        setTimeout(() => store.removePermission(sessionId, approvedReqId), 400);
+      }
       const approvedMsg: ChatMessage = {
         id: data.id,
         role: "system",
