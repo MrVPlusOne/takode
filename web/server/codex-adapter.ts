@@ -2188,8 +2188,9 @@ export class CodexAdapter {
       const raw = value as Record<string, unknown>;
       const usedRaw = Number(raw.usedPercent ?? 0);
       // Codex has been observed to report this as either 0..100 or 0..1.
+      // Use strict < 1 to avoid treating usedPercent:1 (1%) as 0..1 format → 100%.
       const normalizedPercent = Number.isFinite(usedRaw)
-        ? (usedRaw > 0 && usedRaw <= 1 ? usedRaw * 100 : usedRaw)
+        ? (usedRaw > 0 && usedRaw < 1 ? usedRaw * 100 : usedRaw)
         : 0;
       const usedPercent = Math.max(0, Math.min(100, normalizedPercent));
       const windowDurationMins = Number(raw.windowDurationMins ?? 0);
@@ -2240,7 +2241,7 @@ export class CodexAdapter {
       this.rateLimitsByLimitId.get("codex")
       ?? (directLimitId ? this.rateLimitsByLimitId.get(directLimitId) ?? null : null)
       ?? directNormalized
-      ?? (this.rateLimitsByLimitId.size > 0 ? this.rateLimitsByLimitId.values().next().value ?? null : null);
+      ?? null;
 
     if (!this._rateLimits) return;
 

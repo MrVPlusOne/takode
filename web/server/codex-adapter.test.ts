@@ -2405,6 +2405,34 @@ describe("CodexAdapter", () => {
     expect(rl!.secondary).toEqual({ usedPercent: 9, windowDurationMins: 10080, resetsAt: 1731552000 });
   });
 
+  it("does not scale usedPercent:1 to 100 (treats integer 1 as 1%, not 0..1 fraction)", async () => {
+    // Regression: usedPercent:1 (meaning 1%) was previously treated as 0..1 format
+    // and multiplied by 100, displaying 100% when actual usage was 1%.
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
+
+    await new Promise((r) => setTimeout(r, 50));
+    stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
+    await new Promise((r) => setTimeout(r, 20));
+    stdout.push(JSON.stringify({ id: 2, result: { thread: { id: "thr_123" } } }) + "\n");
+    await new Promise((r) => setTimeout(r, 50));
+
+    stdout.push(JSON.stringify({
+      method: "account/rateLimits/updated",
+      params: {
+        rateLimits: {
+          primary: { usedPercent: 1, windowDurationMins: 300, resetsAt: 1730947200 },
+          secondary: { usedPercent: 1, windowDurationMins: 10080, resetsAt: 1731552000 },
+        },
+      },
+    }) + "\n");
+    await new Promise((r) => setTimeout(r, 50));
+
+    const rl = adapter.getRateLimits();
+    expect(rl).toBeDefined();
+    expect(rl!.primary).toEqual({ usedPercent: 1, windowDurationMins: 300, resetsAt: 1730947200 });
+    expect(rl!.secondary).toEqual({ usedPercent: 1, windowDurationMins: 10080, resetsAt: 1731552000 });
+  });
+
   it("parses resetsAt when provided as numeric or ISO strings", async () => {
     const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
 
