@@ -1190,10 +1190,10 @@ You are an **orchestrator agent**. You coordinate multiple worker sessions, moni
 
 ### \`takode list [--all] [--json]\`
 
-List all active sessions with their status, name, model, and last activity.
+List all unarchived sessions with their status, name, model, and last activity.
 
 \`\`\`bash
-# Show active sessions (default)
+# Show unarchived sessions (default)
 takode list
 
 # Show all sessions including archived
