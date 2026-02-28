@@ -1001,8 +1001,28 @@ async function handleSend(base: string, args: string[]): Promise<void> {
 
   if (!sessionRef || !cleanContent) err("Usage: takode send <session> <message>");
 
-  // Identify the calling session so the receiver can show an agent badge
+  // Guard: orchestrators can only send to herded sessions
   const callerSessionId = process.env.COMPANION_SESSION_ID;
+  if (callerSessionId) {
+    try {
+      // Resolve target to a full UUID
+      const targetSession = await apiGet(base, `/sessions/${encodeURIComponent(sessionRef)}`) as { sessionId: string };
+      const targetId = targetSession.sessionId;
+
+      // Check herd membership
+      const herdList = await apiGet(base, `/sessions/${encodeURIComponent(callerSessionId)}/herd`) as Array<{ sessionId: string }>;
+      if (!herdList.some(s => s.sessionId === targetId)) {
+        err(`Cannot send to session ${sessionRef} — not in your herd. Run \`takode herd ${sessionRef}\` first.`);
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      // If error is from our own herd check (the err() call above), re-throw
+      if (msg.includes("not in your herd")) throw e;
+      // Other errors (session not found, etc.) — let the send call handle it
+    }
+  }
+
+  // Identify the calling session so the receiver can show an agent badge
   let agentSource: { sessionId: string; sessionLabel?: string } | undefined;
   if (callerSessionId) {
     let sessionLabel: string | undefined;

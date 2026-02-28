@@ -1330,14 +1330,15 @@ This works exactly like the Read tool for files — line numbers on the left, of
 
 ### \`takode send <session> <message>\`
 
-Send a message to a worker session (injected as a user message).
+Send a message to a **herded** worker session (injected as a user message).
+**Requires herding first** — run \`takode herd <session>\` before you can send.
 
 \`\`\`bash
-# Send follow-up instructions
-takode send 2 "Please also add tests for the edge cases"
+# First, herd the session
+takode herd 2
 
-# Send to session by number
-takode send 1 "Good work. Now refactor the auth middleware."
+# Then send instructions
+takode send 2 "Please also add tests for the edge cases"
 \`\`\`
 
 The worker will receive this as if the human typed it. It triggers a new turn.
