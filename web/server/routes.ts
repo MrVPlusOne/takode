@@ -1330,20 +1330,17 @@ export function createRoutes(
         stream.close().catch(() => {});
       }, timeoutMs);
 
-      // Clean up on stream abort (client disconnect)
+      // Clean up on stream abort (client disconnect or timeout close)
       stream.onAbort(() => {
         if (unsubscribe) unsubscribe();
         if (timeoutTimer) clearTimeout(timeoutTimer);
       });
 
-      // Keep the stream open until abort or timeout
-      await new Promise<void>((resolve) => {
-        stream.onAbort(resolve);
-      });
-
-      // Final cleanup (in case resolve was called before onAbort's cleanup)
-      if (unsubscribe) unsubscribe();
-      if (timeoutTimer) clearTimeout(timeoutTimer);
+      // Don't await — return immediately and let Hono manage the stream
+      // lifecycle. The subscription callback and timeout timer keep the
+      // stream alive. Blocking here with `await new Promise` causes double
+      // onAbort handler registration and multiple close attempts, which
+      // makes Bun's fetch report "socket connection was closed unexpectedly".
     });
   });
 
