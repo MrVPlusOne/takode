@@ -583,7 +583,7 @@ export class WsBridge {
   private onUserMessage: ((sessionId: string, history: import("./session-types.js").BrowserIncomingMessage[], cwd: string, wasGenerating: boolean) => void) | null = null;
   private onTurnCompleted: ((sessionId: string, history: import("./session-types.js").BrowserIncomingMessage[], cwd: string) => void) | null = null;
   private onAgentPaused: ((sessionId: string, history: import("./session-types.js").BrowserIncomingMessage[], cwd: string) => void) | null = null;
-  private onSessionNamedByQuest: ((sessionId: string) => void) | null = null;
+  private onSessionNamedByQuest: ((sessionId: string, title: string) => void) | null = null;
   private userMsgCounter = 0;
   /** Per-project cache of slash commands & skills so new sessions get them
    *  before the CLI sends system/init (which only arrives after the first
@@ -651,8 +651,10 @@ export class WsBridge {
     this.onAgentPaused = cb;
   }
 
-  /** Register a callback for when a quest claims a session name (to cancel in-flight namer calls). */
-  onSessionNamedByQuestCallback(cb: (sessionId: string) => void): void {
+  /** Register a callback for when a quest claims a session name.
+   *  The callback receives the session ID and quest title so the caller can
+   *  cancel in-flight namer calls AND update the persistent name store. */
+  onSessionNamedByQuestCallback(cb: (sessionId: string, title: string) => void): void {
     this.onSessionNamedByQuest = cb;
   }
 
@@ -875,13 +877,19 @@ export class WsBridge {
     session.state.claimedQuestStatus = quest?.status;
     // Cancel in-flight namer calls before broadcasting so no stale result
     // can arrive after the quest name update reaches browsers.
-    if (quest && this.onSessionNamedByQuest) {
-      this.onSessionNamedByQuest(sessionId);
+    if (quest?.title && this.onSessionNamedByQuest) {
+      this.onSessionNamedByQuest(sessionId, quest.title);
     }
     this.broadcastToBrowsers(session, {
       type: "session_quest_claimed",
       quest,
     } as BrowserIncomingMessage);
+    // When a quest is set, also broadcast a session_name_update with source "quest"
+    // so ALL paths (REST claim, Codex Bash detection, transitions) consistently
+    // update the session name and the browser's questNamedSessions guard.
+    if (quest?.title) {
+      this.broadcastNameUpdate(sessionId, quest.title, "quest");
+    }
     this.persistSession(session);
   }
 

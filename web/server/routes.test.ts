@@ -3006,8 +3006,9 @@ describe("PATCH /api/quests/:questId", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(sessionNames.setName).toHaveBeenCalledWith("session-1", "Updated quest title");
-    expect(bridge.broadcastNameUpdate).toHaveBeenCalledWith("session-1", "Updated quest title", "quest");
+    // setSessionClaimedQuest now handles broadcastNameUpdate source:quest and
+    // persisting the name via its onSessionNamedByQuest callback internally,
+    // so we only verify it was called with the right args.
     expect(bridge.setSessionClaimedQuest).toHaveBeenCalledWith("session-1", {
       id: "q-1",
       title: "Updated quest title",

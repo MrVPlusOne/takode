@@ -447,9 +447,12 @@ async function evaluateAndApply(
 
 // When a quest claims a session, abort all in-flight namer calls so no stale
 // result can overwrite the quest-derived title.
-wsBridge.onSessionNamedByQuestCallback((sessionId) => {
+wsBridge.onSessionNamedByQuestCallback((sessionId, title) => {
   cancelAllNamersForSession(sessionId);
-  console.log(`[session-namer] Cancelled all in-flight namer calls for ${sessionId} (quest name takeover)`);
+  // Persist the quest title in the name store so it survives server restarts
+  // and so subsequent namer checks see a non-random name.
+  sessionNames.setName(sessionId, title);
+  console.log(`[session-namer] Cancelled all in-flight namer calls for ${sessionId} (quest name takeover: "${title}")`);
 });
 
 // Continuous session auto-naming via Claude Haiku (triggered on each user message)

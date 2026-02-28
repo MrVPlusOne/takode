@@ -3416,8 +3416,8 @@ export function createRoutes(
         body.title.trim().length > 0
       ) {
         // Keep quest-owned session names in sync when a claimed quest is retitled.
-        sessionNames.setName(quest.sessionId, quest.title);
-        wsBridge.broadcastNameUpdate(quest.sessionId, quest.title, "quest");
+        // setSessionClaimedQuest broadcasts session_quest_claimed + session_name_update
+        // source:quest, and persists the name via callback.
         wsBridge.setSessionClaimedQuest(quest.sessionId, {
           id: quest.questId,
           title: quest.title,
@@ -3475,11 +3475,10 @@ export function createRoutes(
       });
       if (!quest) return c.json({ error: "Quest not found" }, 404);
       wsBridge.broadcastGlobal({ type: "quest_list_updated" } as import("./session-types.js").BrowserIncomingMessage);
+      // setSessionClaimedQuest broadcasts session_quest_claimed + session_name_update
+      // source:quest, cancels in-flight namers, and persists the name via callback.
       wsBridge.setSessionClaimedQuest(sessionId, { id: quest.questId, title: quest.title, status: quest.status });
-      // Override session name with quest title (suppresses auto-namer while quest is active)
       console.log(`[quest-claim] Setting session name for ${sessionId} to "${quest.title}" (quest ${quest.questId})`);
-      sessionNames.setName(sessionId, quest.title);
-      wsBridge.broadcastNameUpdate(sessionId, quest.title, "quest");
       // Use the last user message as trigger so clicking the quest chip scrolls
       // to the user message that initiated the claim (matches auto-namer behavior).
       const session = wsBridge.getSession(sessionId);
