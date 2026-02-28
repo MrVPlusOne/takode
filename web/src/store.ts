@@ -301,6 +301,8 @@ interface AppState {
   collapseAllTurnActivity: (sessionId: string, turnIds: string[]) => void;
   /** Expand only the target turn; all others revert to default (last = expanded, rest = collapsed). */
   focusTurn: (sessionId: string, targetTurnId: string) => void;
+  /** Set a sticky "expanded" override for a turn (used to keep in-flight turns visible). */
+  keepTurnExpanded: (sessionId: string, turnId: string) => void;
   setCollapsibleTurnIds: (sessionId: string, turnIds: string[]) => void;
 
   // Diff panel actions
@@ -1353,6 +1355,15 @@ export const useStore = create<AppState>((set) => ({
       // All other turns revert to defaults (last = expanded, rest = collapsed).
       const session = new Map<string, boolean>();
       session.set(targetTurnId, true);
+      overrides.set(sessionId, session);
+      return { turnActivityOverrides: overrides };
+    }),
+
+  keepTurnExpanded: (sessionId, turnId) =>
+    set((s) => {
+      const overrides = new Map(s.turnActivityOverrides);
+      const session = new Map(overrides.get(sessionId) || []);
+      session.set(turnId, true);
       overrides.set(sessionId, session);
       return { turnActivityOverrides: overrides };
     }),

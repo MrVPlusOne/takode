@@ -1023,4 +1023,42 @@ describe("MessageFeed - collapsed turns", () => {
     // Expanded state should keep the concrete tool row visible.
     expect(screen.getByText("Read File")).toBeTruthy();
   });
+
+  /** Regression: when sessionStatus flickers to "idle" after the interrupted turn's
+   *  result arrives, the sticky override from keepTurnExpanded should keep the
+   *  penultimate turn expanded regardless. */
+  it("keeps penultimate turn expanded via sticky override even when session is idle", () => {
+    const sid = "test-sticky-override-idle";
+    // Session is idle (result for interrupted turn already arrived)
+    setStoreStatus(sid, "idle");
+
+    // Set up messages: Turn 1 (in-flight with tool + response), Turn 2 (user follow-up + agent response)
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Primary request" }),
+      makeMessage({
+        id: "a1",
+        role: "assistant",
+        content: "",
+        contentBlocks: [
+          { type: "tool_use", id: "tu-prev", name: "Read", input: { file_path: "/tmp/prev.ts" } },
+        ],
+      }),
+      makeMessage({ id: "a2", role: "assistant", content: "Partial in-flight response" }),
+      makeMessage({ id: "u2", role: "user", content: "Follow-up sent during stream" }),
+      makeMessage({ id: "a3", role: "assistant", content: "Response to follow-up" }),
+    ]);
+
+    // Simulate the sticky override that ws.ts sets when user_message arrives during running
+    const sessionOverrides = new Map<string, boolean>();
+    sessionOverrides.set("u1", true); // keep turn 1 expanded
+    const overrides = new Map<string, Map<string, boolean>>();
+    overrides.set(sid, sessionOverrides);
+    mockStoreValues.turnActivityOverrides = overrides;
+
+    render(<MessageFeed sessionId={sid} />);
+
+    // Without the override, turn 1 would collapse since sessionStatus is idle.
+    // The sticky override should keep it expanded, so the tool row is visible.
+    expect(screen.getByText("Read File")).toBeTruthy();
+  });
 });

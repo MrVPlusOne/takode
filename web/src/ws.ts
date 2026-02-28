@@ -698,6 +698,18 @@ function handleParsedMessage(
     }
 
     case "user_message": {
+      // If the session is actively streaming, pin the current in-flight turn as
+      // expanded so it doesn't auto-collapse when sessionStatus flickers to "idle"
+      // after the interrupted turn's result arrives.
+      if (store.sessionStatus.get(sessionId) === "running") {
+        const msgs = store.messages.get(sessionId) || [];
+        for (let i = msgs.length - 1; i >= 0; i--) {
+          if (msgs[i].role === "user") {
+            store.keepTurnExpanded(sessionId, msgs[i].id);
+            break;
+          }
+        }
+      }
       // Server-authoritative: user messages are broadcast by the server to all
       // browsers. The browser never adds user messages to the store locally.
       const userMsg: ChatMessage = {

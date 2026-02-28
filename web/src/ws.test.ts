@@ -2103,3 +2103,63 @@ describe("agentSource propagation", () => {
     expect(msgs[1].agentSource).toBeUndefined();
   });
 });
+
+// ===========================================================================
+// mid-stream follow-up: sticky turn expansion override
+// ===========================================================================
+describe("mid-stream follow-up turn expansion", () => {
+  /** When a user_message arrives while the session is running, the in-flight
+   *  turn should get a sticky "expanded" override so it doesn't collapse
+   *  when sessionStatus flickers to "idle" after the interrupted result. */
+  it("sets keepTurnExpanded override for the in-flight turn when user_message arrives during running", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    // Simulate an active session with a user message + agent streaming
+    fireMessage({
+      type: "user_message",
+      id: "u1",
+      content: "First request",
+      timestamp: 1000,
+    });
+    // Set session to running (agent is streaming)
+    useStore.getState().setSessionStatus("s1", "running");
+
+    // Send a follow-up message while streaming
+    fireMessage({
+      type: "user_message",
+      id: "u2",
+      content: "Follow-up during stream",
+      timestamp: 2000,
+    });
+
+    // The override for the in-flight turn (u1) should be set to expanded
+    const overrides = useStore.getState().turnActivityOverrides.get("s1");
+    expect(overrides).toBeTruthy();
+    expect(overrides!.get("u1")).toBe(true);
+  });
+
+  it("does not set override when session is idle", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    fireMessage({
+      type: "user_message",
+      id: "u1",
+      content: "First request",
+      timestamp: 1000,
+    });
+    useStore.getState().setSessionStatus("s1", "idle");
+
+    fireMessage({
+      type: "user_message",
+      id: "u2",
+      content: "Follow-up after idle",
+      timestamp: 2000,
+    });
+
+    const overrides = useStore.getState().turnActivityOverrides.get("s1");
+    // No override should be set (or empty map)
+    expect(overrides?.get("u1")).toBeUndefined();
+  });
+});
