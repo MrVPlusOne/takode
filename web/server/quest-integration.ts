@@ -219,7 +219,7 @@ These are completely different systems. Do NOT confuse them.
 - **Working on an existing quest**: Use the exact quest ID provided by the user or from \`quest list\`/\`quest mine\` output. Before running \`quest edit q-N\`, always run \`quest show q-N\` first to confirm the quest title matches what you expect. If the title doesn't match, STOP — you have the wrong quest ID.
 - **Do NOT assume sequential IDs.** If you see \`q-3\` in the list, the next quest is NOT necessarily \`q-4\` — IDs may have gaps. Always let \`quest create\` assign the ID.
 
-## Commands
+## Commands (Quick Reference)
 
 \`\`\`
 quest list   [--status <s1,s2>] [--tag <t>] [--tags "t1,t2"] [--session <sid>] [--text <q>] [--json]  List quests
@@ -236,6 +236,122 @@ quest check  <id> <index> [--json]                            Toggle verificatio
 quest feedback <id> --text "..." [--author agent|human] [--image <path>] [--images "p1,p2"] [--json]  Add feedback entry
 quest address <id> <index> [--json]                          Toggle feedback addressed status
 quest delete <id> [--json]                                    Delete quest
+\`\`\`
+
+## ⚠️ Important: Flag Names
+
+The quest CLI uses **short flag names**. Common mistakes:
+- Use \`--desc\` NOT \`--description\`
+- Use \`--tags\` NOT \`--tag\` (for create/edit — comma-separated)
+- Use \`--notes\` NOT \`--note\`
+- Use \`--items\` NOT \`--item\`
+- Use \`--text\` NOT \`--message\` or \`--content\` (for feedback)
+
+Unknown flags are rejected with a "Did you mean?" suggestion.
+
+## Complete Flag Reference
+
+### quest create <title> [flags]
+| Flag | Description |
+|------|-------------|
+| \`--desc "..."\` | Quest description (markdown supported) |
+| \`--tags "t1,t2"\` | Comma-separated tags |
+| \`--json\` | Output JSON |
+
+### quest edit <id> [flags]
+| Flag | Description |
+|------|-------------|
+| \`--title "..."\` | New title |
+| \`--desc "..."\` | New description |
+| \`--tags "t1,t2"\` | New tags (replaces all) |
+| \`--json\` | Output JSON |
+
+### quest list [flags]
+| Flag | Description |
+|------|-------------|
+| \`--status <s>\` | Filter by status (idea/refined/in_progress/needs_verification/done) |
+| \`--tags "t1,t2"\` | Filter by tags |
+| \`--tag "t1"\` | Filter by single tag (alias for --tags) |
+| \`--session <id>\` | Filter by owning session |
+| \`--text "query"\` | Full-text search |
+| \`--json\` | Output JSON |
+
+### quest claim <id> [flags]
+| Flag | Description |
+|------|-------------|
+| \`--session <id>\` | Session ID to claim for (required if COMPANION_SESSION_ID not set) |
+| \`--json\` | Output JSON |
+
+### quest feedback <id> --text "..." [flags]
+| Flag | Description |
+|------|-------------|
+| \`--text "..."\` | Feedback text (REQUIRED) |
+| \`--author agent\\|human\` | Who wrote this (default: "agent") |
+| \`--session <id>\` | Session ID |
+| \`--image <path>\` | Attach an image (can repeat: --image a.png --image b.png) |
+| \`--images "a.png,b.png"\` | Attach multiple images (comma-separated) |
+| \`--json\` | Output JSON |
+
+### quest complete <id> --items "item1,item2"
+| Flag | Description |
+|------|-------------|
+| \`--items "i1,i2"\` | Comma-separated verification checklist items (REQUIRED) |
+| \`--json\` | Output JSON |
+
+### quest done <id> [flags]
+| Flag | Description |
+|------|-------------|
+| \`--notes "..."\` | Closure notes |
+| \`--cancelled\` | Mark as cancelled instead of done |
+| \`--json\` | Output JSON |
+
+### quest cancel <id> [flags]
+| Flag | Description |
+|------|-------------|
+| \`--notes "..."\` | Cancellation reason |
+| \`--json\` | Output JSON |
+
+### quest transition <id> --status <s> [flags]
+| Flag | Description |
+|------|-------------|
+| \`--status <s>\` | Target status (REQUIRED) |
+| \`--desc "..."\` | Optional description update |
+| \`--session <id>\` | Session ID |
+| \`--json\` | Output JSON |
+
+### quest show <id>, quest history <id>, quest check <id> <n>, quest address <id> <n>, quest delete <id>, quest mine, quest tags
+These commands accept only \`--json\` for JSON output.
+
+## Usage Examples
+
+\`\`\`bash
+# Create a quest with description and tags
+quest create "Fix mobile sidebar" --desc "Sidebar overflows on screens <400px" --tags "ui,bugfix,mobile"
+
+# List in-progress quests
+quest list --status in_progress
+
+# Search quests by text
+quest list --text "sidebar"
+
+# Claim and start working on a quest
+quest claim q-12
+quest transition q-12 --status in_progress
+
+# Edit a quest's title and tags
+quest edit q-12 --title "Fix sidebar overflow" --tags "ui,bugfix"
+
+# Add feedback with an image attachment
+quest feedback q-12 --text "Fixed with flex-wrap, see screenshot" --image /tmp/screenshot.png
+
+# Submit for verification
+quest complete q-12 --items "Sidebar fits on iPhone SE,No horizontal scroll on mobile"
+
+# Mark as done with notes
+quest done q-12 --notes "Fixed in commit abc123, tested on iOS Safari"
+
+# Cancel a quest
+quest cancel q-5 --notes "Superseded by q-12"
 \`\`\`
 
 ## When assigned a quest

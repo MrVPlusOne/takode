@@ -88,6 +88,36 @@ function positional(index: number): string | undefined {
   return undefined;
 }
 
+/**
+ * Validate that all --flags in args are from the allowed set.
+ * Rejects unknown flags with a helpful error message and "did you mean?" suggestions.
+ */
+function validateFlags(allowed: string[]): void {
+  const allowedSet = new Set(allowed);
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (!arg.startsWith("--")) continue;
+    const name = arg.slice(2);
+    if (allowedSet.has(name)) continue;
+
+    // Find close matches for "did you mean?" suggestion
+    const suggestions = allowed.filter((a) => {
+      // Shared prefix of >= 3 chars
+      if (a.startsWith(name.slice(0, 3)) || name.startsWith(a.slice(0, 3))) return true;
+      // One contains the other
+      if (a.includes(name) || name.includes(a)) return true;
+      return false;
+    });
+
+    let msg = `Unknown flag: --${name}`;
+    if (suggestions.length > 0) {
+      msg += `. Did you mean: ${suggestions.map((s) => `--${s}`).join(", ")}?`;
+    }
+    msg += `\nValid flags: ${allowed.map((f) => `--${f}`).join(", ")}`;
+    die(msg);
+  }
+}
+
 const jsonOutput = flag("json");
 
 // ─── Server notification ────────────────────────────────────────────────────
@@ -325,6 +355,7 @@ async function uploadQuestImage(port: string, rawPath: string): Promise<QuestIma
 // ─── Commands ───────────────────────────────────────────────────────────────
 
 async function cmdList(): Promise<void> {
+  validateFlags(["status", "tags", "tag", "session", "text", "json"]);
   const quests = applyQuestListFilters(await listQuests(), {
     status: option("status"),
     tags: option("tags"),
@@ -349,6 +380,7 @@ async function cmdList(): Promise<void> {
 }
 
 async function cmdShow(): Promise<void> {
+  validateFlags(["json"]);
   const id = positional(0);
   if (!id) die("Usage: quest show <questId>");
 
@@ -364,6 +396,7 @@ async function cmdShow(): Promise<void> {
 }
 
 async function cmdHistory(): Promise<void> {
+  validateFlags(["json"]);
   const id = positional(0);
   if (!id) die("Usage: quest history <questId>");
 
@@ -380,6 +413,7 @@ async function cmdHistory(): Promise<void> {
 }
 
 async function cmdCreate(): Promise<void> {
+  validateFlags(["desc", "tags", "json"]);
   const title = positional(0);
   if (!title) die("Usage: quest create <title> [--desc \"...\"] [--tags \"t1,t2\"]");
 
@@ -401,6 +435,7 @@ async function cmdCreate(): Promise<void> {
 }
 
 async function cmdClaim(): Promise<void> {
+  validateFlags(["session", "json"]);
   const id = positional(0);
   if (!id) die("Usage: quest claim <questId> [--session <sid>]");
 
@@ -449,6 +484,7 @@ async function cmdClaim(): Promise<void> {
 }
 
 async function cmdComplete(): Promise<void> {
+  validateFlags(["items", "json"]);
   const id = positional(0);
   if (!id) die("Usage: quest complete <questId> --items \"check1,check2\"");
 
@@ -508,6 +544,7 @@ async function cmdComplete(): Promise<void> {
 }
 
 async function cmdDone(): Promise<void> {
+  validateFlags(["notes", "cancelled", "json"]);
   const id = positional(0);
   if (!id) die("Usage: quest done <questId> [--notes \"...\"] [--cancelled]");
 
@@ -530,6 +567,7 @@ async function cmdDone(): Promise<void> {
 }
 
 async function cmdCancel(): Promise<void> {
+  validateFlags(["notes", "json"]);
   const id = positional(0);
   if (!id) die("Usage: quest cancel <id> [--notes \"reason\"] [--json]");
 
@@ -550,6 +588,7 @@ async function cmdCancel(): Promise<void> {
 }
 
 async function cmdTransition(): Promise<void> {
+  validateFlags(["status", "desc", "session", "json"]);
   const id = positional(0);
   if (!id) die("Usage: quest transition <questId> --status <s> [--desc \"...\"]");
 
@@ -578,6 +617,7 @@ async function cmdTransition(): Promise<void> {
 }
 
 async function cmdEdit(): Promise<void> {
+  validateFlags(["title", "desc", "tags", "json"]);
   const id = positional(0);
   if (!id) die("Usage: quest edit <questId> [--title \"...\"] [--desc \"...\"] [--tags \"t1,t2\"]");
 
@@ -609,6 +649,7 @@ async function cmdEdit(): Promise<void> {
 }
 
 async function cmdCheck(): Promise<void> {
+  validateFlags(["json"]);
   const id = positional(0);
   const indexStr = positional(1);
   if (!id || indexStr === undefined) die("Usage: quest check <questId> <index>");
@@ -641,6 +682,7 @@ async function cmdCheck(): Promise<void> {
 }
 
 async function cmdFeedback(): Promise<void> {
+  validateFlags(["text", "author", "session", "image", "images", "json"]);
   const id = positional(0);
   if (!id) {
     die("Usage: quest feedback <questId> --text \"...\" [--author agent|human] [--session <sid>] [--image <path>] [--images \"p1,p2\"]");
@@ -698,6 +740,7 @@ async function cmdFeedback(): Promise<void> {
 }
 
 async function cmdAddress(): Promise<void> {
+  validateFlags(["json"]);
   const id = positional(0);
   const indexStr = positional(1);
   if (!id || indexStr === undefined) die("Usage: quest address <questId> <index>");
@@ -733,6 +776,7 @@ async function cmdAddress(): Promise<void> {
 }
 
 async function cmdMine(): Promise<void> {
+  validateFlags(["json"]);
   if (!currentSessionId) die("COMPANION_SESSION_ID not set.");
 
   const quests = (await listQuests()).filter(
@@ -755,6 +799,7 @@ async function cmdMine(): Promise<void> {
 }
 
 async function cmdDelete(): Promise<void> {
+  validateFlags(["json"]);
   const id = positional(0);
   if (!id) die("Usage: quest delete <questId>");
 
@@ -769,6 +814,7 @@ async function cmdDelete(): Promise<void> {
 }
 
 async function cmdTags(): Promise<void> {
+  validateFlags(["json"]);
   const quests = await listQuests();
   const tagCounts = new Map<string, number>();
   for (const q of quests) {
