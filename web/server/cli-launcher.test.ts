@@ -1420,108 +1420,92 @@ describe("symlinkProjectSettings", () => {
 // ─── Cat herding (orchestrator→worker relationships) ────────────────────────
 
 describe("cat herding", () => {
-  /** Helper: create a session by saving it to the store and restoring.
-   *  This bypasses Bun.spawn and gives us unique IDs. */
-  async function injectSession(id: string): Promise<void> {
-    store.saveLauncher([
-      ...((store as any).launcherData || []),
-      { sessionId: id, state: "connected", cwd: "/tmp", createdAt: Date.now(), pid: 99999 },
-    ]);
-    // Store the data for subsequent calls
-    (store as any).launcherData = (store as any).launcherData || [];
-    (store as any).launcherData.push({ sessionId: id, state: "connected", cwd: "/tmp", createdAt: Date.now(), pid: 99999 });
-  }
+  // Use a dedicated launcher per test to avoid leaking state via the shared
+  // module-level `launcher`. Each test injects mock sessions into the store,
+  // then restores them into a fresh CliLauncher instance.
+  let herdLauncher: CliLauncher;
 
-  /** Inject sessions by directly using herd methods — we just need sessions
-   *  in the launcher's internal map. Use launch() with the mocked UUID,
-   *  then manually set the session ID via store restore. */
   async function setupSessions(...ids: string[]): Promise<void> {
     const sessions = ids.map(id => ({
       sessionId: id, state: "connected" as const, cwd: "/tmp", createdAt: Date.now(), pid: 99999,
     }));
     store.saveLauncher(sessions);
-    const fresh = new CliLauncher(3456);
-    fresh.setStore(store);
-
-    // We can't easily inject into the existing launcher, so let's use a
-    // different approach: call herd methods on the fresh launcher after restore.
-    await fresh.restoreFromDisk();
-
-    // Replace the module-level launcher with this one for herd tests
-    Object.assign(launcher, { sessions: (fresh as any).sessions, sessionByNum: (fresh as any).sessionByNum });
+    herdLauncher = new CliLauncher(3456);
+    herdLauncher.setStore(store);
+    await herdLauncher.restoreFromDisk();
   }
 
   it("herds sessions and retrieves them", async () => {
     await setupSessions("orch-1", "worker-1", "worker-2");
 
-    const result = launcher.herdSessions("orch-1", ["worker-1", "worker-2"]);
+    const result = herdLauncher.herdSessions("orch-1", ["worker-1", "worker-2"]);
     expect(result.herded).toEqual(["worker-1", "worker-2"]);
     expect(result.notFound).toEqual([]);
 
-    const herded = launcher.getHerdedSessions("orch-1");
+    const herded = herdLauncher.getHerdedSessions("orch-1");
     expect(herded.map(s => s.sessionId).sort()).toEqual(["worker-1", "worker-2"]);
   });
 
   it("herding is idempotent — re-herding same orchestrator is a no-op", async () => {
     await setupSessions("orch-1", "worker-1");
 
-    launcher.herdSessions("orch-1", ["worker-1"]);
-    launcher.herdSessions("orch-1", ["worker-1"]); // idempotent
+    herdLauncher.herdSessions("orch-1", ["worker-1"]);
+    herdLauncher.herdSessions("orch-1", ["worker-1"]); // idempotent
 
-    const worker = launcher.getSession("worker-1");
+    const worker = herdLauncher.getSession("worker-1");
     expect(worker?.herdedBy).toEqual(["orch-1"]); // only one entry
   });
 
   it("allows multiple orchestrators to herd the same session", async () => {
     await setupSessions("orch-1", "orch-2", "worker-1");
 
-    launcher.herdSessions("orch-1", ["worker-1"]);
-    launcher.herdSessions("orch-2", ["worker-1"]);
+    herdLauncher.herdSessions("orch-1", ["worker-1"]);
+    herdLauncher.herdSessions("orch-2", ["worker-1"]);
 
-    const worker = launcher.getSession("worker-1");
+    const worker = herdLauncher.getSession("worker-1");
     expect(worker?.herdedBy).toEqual(["orch-1", "orch-2"]);
 
-    expect(launcher.getHerdedSessions("orch-1").map(s => s.sessionId)).toEqual(["worker-1"]);
-    expect(launcher.getHerdedSessions("orch-2").map(s => s.sessionId)).toEqual(["worker-1"]);
+    expect(herdLauncher.getHerdedSessions("orch-1").map(s => s.sessionId)).toEqual(["worker-1"]);
+    expect(herdLauncher.getHerdedSessions("orch-2").map(s => s.sessionId)).toEqual(["worker-1"]);
   });
 
   it("unherds a session", async () => {
     await setupSessions("orch-1", "worker-1");
 
-    launcher.herdSessions("orch-1", ["worker-1"]);
-    expect(launcher.unherdSession("orch-1", "worker-1")).toBe(true);
+    herdLauncher.herdSessions("orch-1", ["worker-1"]);
+    expect(herdLauncher.unherdSession("orch-1", "worker-1")).toBe(true);
 
-    const worker = launcher.getSession("worker-1");
+    const worker = herdLauncher.getSession("worker-1");
     expect(worker?.herdedBy).toBeUndefined(); // cleaned up when empty
-    expect(launcher.getHerdedSessions("orch-1")).toEqual([]);
+    expect(herdLauncher.getHerdedSessions("orch-1")).toEqual([]);
   });
 
   it("unherd returns false for non-herded session", async () => {
     await setupSessions("orch-1", "worker-1");
-    expect(launcher.unherdSession("orch-1", "worker-1")).toBe(false);
+    expect(herdLauncher.unherdSession("orch-1", "worker-1")).toBe(false);
   });
 
   it("unherd only removes the specified orchestrator", async () => {
     await setupSessions("orch-1", "orch-2", "worker-1");
 
-    launcher.herdSessions("orch-1", ["worker-1"]);
-    launcher.herdSessions("orch-2", ["worker-1"]);
-    launcher.unherdSession("orch-1", "worker-1");
+    herdLauncher.herdSessions("orch-1", ["worker-1"]);
+    herdLauncher.herdSessions("orch-2", ["worker-1"]);
+    herdLauncher.unherdSession("orch-1", "worker-1");
 
-    const worker = launcher.getSession("worker-1");
+    const worker = herdLauncher.getSession("worker-1");
     expect(worker?.herdedBy).toEqual(["orch-2"]);
   });
 
   it("reports not-found worker IDs", async () => {
     await setupSessions("orch-1");
 
-    const result = launcher.herdSessions("orch-1", ["nonexistent-uuid"]);
+    const result = herdLauncher.herdSessions("orch-1", ["nonexistent-uuid"]);
     expect(result.herded).toEqual([]);
     expect(result.notFound).toEqual(["nonexistent-uuid"]);
   });
 
   it("getHerdedSessions returns empty for non-herding orchestrator", async () => {
     await setupSessions("orch-1");
-    expect(launcher.getHerdedSessions("orch-1")).toEqual([]);
+    expect(herdLauncher.getHerdedSessions("orch-1")).toEqual([]);
   });
 });
