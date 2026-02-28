@@ -1482,6 +1482,13 @@ Commands accept multiple formats for session IDs:
 
 Prefer integer numbers — they're stable within a server session and easy to type.
 
+## Worker Capabilities
+
+Herded worker sessions have the same tools and skills you do — including the \`quest\` CLI, project CLAUDE.md/AGENTS.md, and any configured skills (e.g. playwright-e2e-tester). **Don't duplicate their work by fetching quest details yourself and pasting them into messages.** Instead, give workers the quest ID and a brief description of what to do — they can run \`quest show q-XX\` themselves to get full details, verification items, feedback, and images.
+
+Good: \`"Work on q-70. Address the unaddressed human feedback — rename the dismiss button to Later and add an Inbox button."\`
+Bad: \`"Here are the full quest details: [300 lines of quest JSON pasted in]..."\`
+
 ## Tips
 
 - **Coordinate, don't implement.** Never do non-trivial work yourself (anything requiring more than a few reads/edits). Delegate larger work to a herded worker session via \`takode send\`, or spin up a sub-agent for smaller tasks. This protects your context window and keeps you responsive to herd events and user requests. Your job is coordination, not implementation.
