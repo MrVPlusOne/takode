@@ -1083,6 +1083,100 @@ async function handleSend(base: string, args: string[]): Promise<void> {
   console.log(`[${formatTime(Date.now())}] \u2713 Message sent to session ${sessionRef}`);
 }
 
+// ─── Spawn handler ───────────────────────────────────────────────────────────
+
+type SpawnedSession = {
+  sessionId: string;
+  sessionNum?: number | null;
+  name?: string;
+  backendType?: string;
+  cwd?: string;
+};
+
+async function handleSpawn(base: string, args: string[]): Promise<void> {
+  const flags = parseFlags(args);
+  const jsonMode = flags.json === true;
+
+  const backendRaw = typeof flags.backend === "string" ? flags.backend : "codex";
+  if (backendRaw !== "claude" && backendRaw !== "codex") {
+    err(`Invalid backend: ${backendRaw}. Expected "claude" or "codex".`);
+  }
+
+  const cwd = typeof flags.cwd === "string" ? flags.cwd : process.cwd();
+  const useWorktree = flags["no-worktree"] === true ? false : true;
+  const message = typeof flags.message === "string" ? flags.message.trim() : "";
+
+  const countRaw = flags.count;
+  const count = countRaw === undefined ? 1 : Number(countRaw);
+  if (!Number.isInteger(count) || count < 1) {
+    err("Invalid --count. Expected a positive integer.");
+  }
+
+  const leaderSessionId = process.env.COMPANION_SESSION_ID;
+  if (!leaderSessionId) err("COMPANION_SESSION_ID not set");
+
+  // Inherit permission behavior from the leader: bypass -> askPermission=false.
+  const leader = await apiGet(base, `/sessions/${encodeURIComponent(leaderSessionId)}`) as {
+    sessionId: string;
+    permissionMode?: string;
+  };
+  const inheritBypass = leader.permissionMode === "bypassPermissions";
+
+  const spawned: SpawnedSession[] = [];
+  for (let i = 0; i < count; i++) {
+    const createPayload: Record<string, unknown> = {
+      backend: backendRaw,
+      cwd,
+      useWorktree,
+      createdBy: leaderSessionId,
+    };
+    if (inheritBypass) {
+      createPayload.askPermission = false;
+      if (backendRaw === "codex") {
+        // Codex ignores askPermission — it uses permissionMode directly.
+        // Inherit bypass from leader: auto mode, no sandbox, full network.
+        createPayload.permissionMode = "bypassPermissions";
+        createPayload.codexInternetAccess = true;
+      }
+    }
+    // Always default Codex to high reasoning effort.
+    if (backendRaw === "codex") {
+      createPayload.codexReasoningEffort = "high";
+    }
+
+    const session = await apiPost(base, "/sessions/create", createPayload) as SpawnedSession;
+    spawned.push(session);
+
+    if (message) {
+      await apiPost(base, `/sessions/${encodeURIComponent(session.sessionId)}/message`, {
+        content: message,
+        agentSource: { sessionId: leaderSessionId },
+      });
+    }
+  }
+
+  if (jsonMode) {
+    console.log(JSON.stringify({
+      count: spawned.length,
+      backend: backendRaw,
+      cwd,
+      useWorktree,
+      leaderSessionId,
+      leaderPermissionMode: leader.permissionMode || null,
+      inheritedAskPermission: inheritBypass ? false : null,
+      message: message || null,
+      sessions: spawned,
+    }, null, 2));
+    return;
+  }
+
+  for (const session of spawned) {
+    const num = session.sessionNum != null ? `#${session.sessionNum}` : session.sessionId;
+    const name = session.name || "(unnamed)";
+    console.log(`[${formatTime(Date.now())}] \u2713 Spawned ${num} "${name}"`);
+  }
+}
+
 // ─── Herd/Unherd handlers ───────────────────────────────────────────────────
 
 async function handleHerd(base: string, args: string[]): Promise<void> {
@@ -1343,6 +1437,7 @@ Usage: takode <command> [options]
 Commands:
   list     List sessions (herded only for leaders, --active for all, --all includes archived)
   search   Search sessions by name, keyword, branch, path, or message
+  spawn    Create and auto-herd new worker sessions
   watch    Wait for events from watched sessions
   tasks    Show task outline of a session (table of contents)
   peek     View session activity (smart overview by default)
@@ -1368,6 +1463,7 @@ Examples:
   takode list --all
   takode search "auth"
   takode search "jwt" --all
+  takode spawn --backend codex --count 3 --message "Check flaky tests"
   takode tasks 1
   takode watch --sessions 1,2,3
   takode peek 1
@@ -1401,6 +1497,9 @@ try {
       break;
     case "watch":
       await handleWatch(base, args);
+      break;
+    case "spawn":
+      await handleSpawn(base, args);
       break;
     case "tasks":
       await handleTasks(base, args);
