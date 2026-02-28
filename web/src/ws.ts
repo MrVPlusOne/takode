@@ -618,12 +618,15 @@ function handleParsedMessage(
       // whether to dismiss silently or show an "auto-approved" indicator
       // (depending on whether the user had expanded the evaluating dialog).
       store.markPermissionAutoApproved(sessionId, data.request_id, data.reason || "Auto-approved");
+      // Summary shows what was approved; reason (LLM rationale) is passed via metadata
+      // for separate rendering in the AutoApprovedChip.
       store.appendMessage(sessionId, {
         id: nextId(),
         role: "system",
-        content: data.summary ?? `Auto-approved ${data.tool_name}: ${data.reason}`,
+        content: data.summary ?? `Auto-approved: ${data.tool_name}`,
         timestamp: data.timestamp,
         variant: "approved",
+        ...(data.reason ? { metadata: { autoApprovalReason: data.reason } } : {}),
       });
       break;
     }

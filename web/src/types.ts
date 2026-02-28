@@ -44,6 +44,8 @@ export interface ChatMessage {
   /** Extra structured data for rich rendering (e.g. AskUserQuestion answers, quest claim details) */
   metadata?: {
     answers?: { question: string; answer: string }[];
+    /** LLM rationale for auto-approved permissions (rendered separately from the summary). */
+    autoApprovalReason?: string;
     quest?: {
       questId: string;
       title: string;
