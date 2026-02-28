@@ -259,6 +259,7 @@ export function NewSessionModal({ open, onClose }: { open: boolean; onClose: () 
       if (effectiveBranch && effectiveBranch === gitRepoInfo.currentBranch) {
         const branchInfo = branches.find(b => b.name === effectiveBranch && !b.isRemote);
         if (branchInfo && branchInfo.behind > 0) {
+          setSending(false);
           setPullPrompt({ behind: branchInfo.behind, branchName: effectiveBranch });
           return;
         }
@@ -334,9 +335,10 @@ export function NewSessionModal({ open, onClose }: { open: boolean; onClose: () 
     }
   }
 
-  function handleSkipPull() {
+  async function handleSkipPull() {
     setPullPrompt(null);
-    doCreateSession();
+    setSending(true);
+    await doCreateSession();
   }
 
   function handleCancelPull() {
