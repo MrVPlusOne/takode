@@ -349,7 +349,11 @@ async function handleWatch(base: string, args: string[]): Promise<void> {
 
   const timeout = Number(flags.timeout) || DEFAULT_TIMEOUT;
   const jsonMode = flags.json === true;
-  const since = Number(flags.since) || 0;
+  // Only include --since if explicitly provided. Without it, the server
+  // skips replay and only streams new events (the expected default for watch).
+  const sinceRaw = flags.since;
+  const hasSince = sinceRaw !== undefined && sinceRaw !== false;
+  const since = hasSince ? Number(sinceRaw) : undefined;
   const allEvents = flags["all-events"] === true;
 
   // Default: only actionable events (things a human would be notified about).
@@ -359,7 +363,8 @@ async function handleWatch(base: string, args: string[]): Promise<void> {
     "session_disconnected", "session_error", "user_message",
   ]);
 
-  const url = `${base}/events/stream?sessions=${encodeURIComponent(sessionsRaw)}&timeout=${timeout * 1000}&since=${since}`;
+  const sinceParam = since !== undefined ? `&since=${since}` : "";
+  const url = `${base}/events/stream?sessions=${encodeURIComponent(sessionsRaw)}&timeout=${timeout * 1000}${sinceParam}`;
 
   const controller = new AbortController();
   const res = await fetch(url, {
