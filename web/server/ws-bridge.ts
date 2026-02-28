@@ -3868,6 +3868,53 @@ export class WsBridge {
 
   private handleCodexSetPermissionMode(session: Session, mode: string) {
     if (!mode || session.state.permissionMode === mode) return;
+
+    // Auto-resolve pending permission requests before relaunch.
+    // When switching to bypassPermissions (auto), approve pending requests so the
+    // Codex thread doesn't get stuck with unresolved approvals after process kill.
+    // For other transitions, cancel them — the new session uses the new policy.
+    if (session.pendingPermissions.size > 0) {
+      const approve = mode === "bypassPermissions";
+      for (const [reqId, perm] of session.pendingPermissions) {
+        // Send response to adapter so the JSON-RPC request is answered before
+        // the process is killed. Without this, the resumed thread has an
+        // unresolved approval and gets stuck permanently.
+        if (session.codexAdapter) {
+          session.codexAdapter.sendBrowserMessage({
+            type: "permission_response",
+            request_id: reqId,
+            behavior: approve ? "allow" : "deny",
+          } as BrowserOutgoingMessage);
+        }
+        // Broadcast UI resolution
+        if (approve) {
+          const approvedMsg: BrowserIncomingMessage = {
+            type: "permission_approved",
+            id: `approval-${reqId}`,
+            request_id: reqId,
+            tool_name: perm.tool_name,
+            tool_use_id: perm.tool_use_id,
+            summary: getApprovalSummary(perm.tool_name, perm.input),
+            timestamp: Date.now(),
+          };
+          session.messageHistory.push(approvedMsg);
+          this.broadcastToBrowsers(session, approvedMsg);
+        } else {
+          this.broadcastToBrowsers(session, { type: "permission_cancelled", request_id: reqId });
+        }
+        // Clean up associated auto-approval / notification state
+        this.abortAutoApproval(session, reqId);
+        this.pushoverNotifier?.cancelPermission(session.id, reqId);
+        // Emit herd event for orchestator visibility
+        this.emitTakodeEvent(session.id, "permission_resolved", {
+          tool_name: perm.tool_name,
+          outcome: approve ? "approved" : "denied",
+        });
+      }
+      session.pendingPermissions.clear();
+      this.clearActionAttentionIfNoPermissions(session);
+    }
+
     session.state.permissionMode = mode;
     const launchInfo = this.launcher?.getSession(session.id);
     if (launchInfo) launchInfo.permissionMode = mode;
@@ -3876,7 +3923,14 @@ export class WsBridge {
       session: { permissionMode: mode },
     });
     this.persistSession(session);
-    this.onSessionRelaunchRequested?.(session.id);
+
+    // Delay relaunch to let the adapter's async outgoing dispatch chain process
+    // the permission responses above. The relaunch kills the old process
+    // synchronously (SIGTERM), so without this delay the responses would be
+    // enqueued but never flushed to the Codex process stdin.
+    setTimeout(() => {
+      this.onSessionRelaunchRequested?.(session.id);
+    }, 100);
   }
 
   private handleCodexSetReasoningEffort(session: Session, effort: string) {

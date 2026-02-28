@@ -5239,6 +5239,171 @@ describe("Codex runtime settings updates", () => {
   });
 });
 
+// Regression: switching Codex permission mode while a tool approval is pending
+// used to leave the Codex thread stuck because the pending JSON-RPC approval
+// was never responded to before the process was killed via relaunch.
+describe("Codex permission mode switch with pending approvals", () => {
+  it("auto-approves pending permissions when switching to bypassPermissions", async () => {
+    vi.useFakeTimers();
+    const sid = "s-mode-switch";
+    const browser = makeBrowserSocket(sid);
+    const adapter = makeCodexAdapterMock();
+    const relaunchCb = vi.fn();
+    const launcherInfo = { permissionMode: "suggest" };
+    const launcherMock = {
+      touchActivity: vi.fn(),
+      getSession: vi.fn(() => launcherInfo),
+      getSessionNum: vi.fn(() => 1),
+    };
+    bridge.setLauncher(launcherMock as any);
+    bridge.onSessionRelaunchRequestedCallback(relaunchCb);
+    bridge.attachCodexAdapter(sid, adapter as any);
+    bridge.handleBrowserOpen(browser, sid);
+
+    // Simulate a pending permission request from Codex
+    adapter.emitBrowserMessage({
+      type: "permission_request",
+      request: {
+        request_id: "perm-stuck",
+        tool_name: "Bash",
+        description: "rm -rf node_modules",
+        input: { command: "rm -rf node_modules" },
+      },
+    });
+    const session = bridge.getSession(sid)!;
+    expect(session.pendingPermissions.has("perm-stuck")).toBe(true);
+    browser.send.mockClear();
+
+    // Switch to bypassPermissions (auto-approve mode)
+    await bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "set_permission_mode",
+      mode: "bypassPermissions",
+    }));
+
+    // Pending permission should be cleared
+    expect(session.pendingPermissions.size).toBe(0);
+
+    // Adapter should have received a permission_response with behavior "allow"
+    // so the JSON-RPC request is answered before the process is killed
+    expect(adapter.sendBrowserMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "permission_response",
+        request_id: "perm-stuck",
+        behavior: "allow",
+      }),
+    );
+
+    // Browser should receive permission_approved + session_update with new mode
+    const msgs = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    const approved = msgs.find((m: any) => m.type === "permission_approved");
+    expect(approved).toBeDefined();
+    expect(approved.request_id).toBe("perm-stuck");
+    const modeUpdate = msgs.find((m: any) =>
+      m.type === "session_update" && m.session?.permissionMode,
+    );
+    expect(modeUpdate?.session?.permissionMode).toBe("bypassPermissions");
+
+    // Relaunch should be requested (after setTimeout delay)
+    expect(relaunchCb).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(150);
+    expect(relaunchCb).toHaveBeenCalledWith(sid);
+
+    vi.useRealTimers();
+  });
+
+  it("cancels pending permissions when switching to a non-bypass mode", async () => {
+    vi.useFakeTimers();
+    const sid = "s-mode-cancel";
+    const browser = makeBrowserSocket(sid);
+    const adapter = makeCodexAdapterMock();
+    const relaunchCb = vi.fn();
+    const launcherInfo = { permissionMode: "bypassPermissions" };
+    const launcherMock = {
+      touchActivity: vi.fn(),
+      getSession: vi.fn(() => launcherInfo),
+      getSessionNum: vi.fn(() => 2),
+    };
+    bridge.setLauncher(launcherMock as any);
+    bridge.onSessionRelaunchRequestedCallback(relaunchCb);
+    bridge.attachCodexAdapter(sid, adapter as any);
+    bridge.handleBrowserOpen(browser, sid);
+
+    // Simulate a pending permission
+    adapter.emitBrowserMessage({
+      type: "permission_request",
+      request: {
+        request_id: "perm-cancel",
+        tool_name: "Edit",
+        description: "edit file",
+        input: { file: "test.ts" },
+      },
+    });
+    const session = bridge.getSession(sid)!;
+    expect(session.pendingPermissions.has("perm-cancel")).toBe(true);
+    browser.send.mockClear();
+
+    // Switch to suggest mode — pending permissions should be denied/cancelled
+    await bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "set_permission_mode",
+      mode: "suggest",
+    }));
+
+    expect(session.pendingPermissions.size).toBe(0);
+
+    // Adapter gets a deny response so the JSON-RPC request is resolved
+    expect(adapter.sendBrowserMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "permission_response",
+        request_id: "perm-cancel",
+        behavior: "deny",
+      }),
+    );
+
+    // Browser should receive permission_cancelled
+    const msgs = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    const cancelled = msgs.find((m: any) => m.type === "permission_cancelled");
+    expect(cancelled).toBeDefined();
+    expect(cancelled.request_id).toBe("perm-cancel");
+
+    vi.advanceTimersByTime(150);
+    expect(relaunchCb).toHaveBeenCalledWith(sid);
+
+    vi.useRealTimers();
+  });
+
+  it("skips auto-resolve when no permissions are pending", async () => {
+    vi.useFakeTimers();
+    const sid = "s-no-pending";
+    const browser = makeBrowserSocket(sid);
+    const adapter = makeCodexAdapterMock();
+    const relaunchCb = vi.fn();
+    const launcherInfo = { permissionMode: "suggest" };
+    const launcherMock = {
+      touchActivity: vi.fn(),
+      getSession: vi.fn(() => launcherInfo),
+    };
+    bridge.setLauncher(launcherMock as any);
+    bridge.onSessionRelaunchRequestedCallback(relaunchCb);
+    bridge.attachCodexAdapter(sid, adapter as any);
+    bridge.handleBrowserOpen(browser, sid);
+    browser.send.mockClear();
+
+    await bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "set_permission_mode",
+      mode: "bypassPermissions",
+    }));
+
+    // No adapter calls for permission resolution
+    expect(adapter.sendBrowserMessage).not.toHaveBeenCalled();
+
+    // Relaunch still triggered
+    vi.advanceTimersByTime(150);
+    expect(relaunchCb).toHaveBeenCalledWith(sid);
+
+    vi.useRealTimers();
+  });
+});
+
 describe("Codex /compact passthrough", () => {
   it("forwards /compact to adapter as a normal user message", async () => {
     const browser = makeBrowserSocket("s1");
