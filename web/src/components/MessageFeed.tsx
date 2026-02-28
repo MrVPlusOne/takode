@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useMemo, useState, useCallback, memo } from "react";
 import { useStore } from "../store.js";
 import { MessageBubble } from "./MessageBubble.js";
-import { ToolBlock, getToolIcon, getToolLabel, ToolIcon } from "./ToolBlock.js";
+import { ToolBlock, getToolIcon, getToolLabel, ToolIcon, formatDuration } from "./ToolBlock.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { CollapseFooter, TurnCollapseFooter } from "./CollapseFooter.js";
 import { api } from "../api.js";
@@ -148,6 +148,65 @@ export function ElapsedTimer({ sessionId }: { sessionId: string }) {
         </button>
       )}
     </div>
+  );
+}
+
+function LiveDurationBadge({
+  finalDurationSeconds,
+  progressElapsedSeconds,
+  startTimestamp,
+  isComplete,
+}: {
+  finalDurationSeconds?: number;
+  progressElapsedSeconds?: number;
+  startTimestamp?: number;
+  isComplete: boolean;
+}) {
+  const [liveSeconds, setLiveSeconds] = useState<number | null>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (finalDurationSeconds != null || isComplete) {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+      setLiveSeconds(null);
+      return;
+    }
+
+    if (startTimestamp == null) {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+      setLiveSeconds(null);
+      return;
+    }
+
+    const tick = () => {
+      const elapsed = Math.max(0, Math.round((Date.now() - startTimestamp) / 1000));
+      setLiveSeconds(elapsed);
+    };
+    tick();
+    intervalRef.current = setInterval(tick, 1000);
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
+  }, [finalDurationSeconds, isComplete, startTimestamp]);
+
+  const liveElapsed = liveSeconds ?? progressElapsedSeconds ?? null;
+  const displaySeconds = finalDurationSeconds ?? (isComplete ? null : liveElapsed);
+  if (displaySeconds == null) return null;
+
+  const isLive = finalDurationSeconds == null;
+  return (
+    <span className={`text-[10px] tabular-nums shrink-0 ${isLive ? "text-cc-primary" : "text-cc-muted"}`}>
+      {formatDuration(displaySeconds)}
+    </span>
   );
 }
 
@@ -693,10 +752,11 @@ const FeedEntries = memo(function FeedEntries({
         }
         if (isTimedChatMessage(entry.msg)) {
           const markerLabel = minuteBoundaryLabels?.get(entry.msg.id);
+          const showTimestamp = entry.msg.role === "assistant" && typeof entry.msg.turnDurationMs === "number";
           return (
             <div key={entry.msg.id} data-message-id={entry.msg.id}>
               {markerLabel && <MinuteBoundaryTimestamp timestamp={entry.msg.timestamp} label={markerLabel} />}
-              <MessageBubble message={entry.msg} sessionId={sessionId} showTimestamp={false} />
+              <MessageBubble message={entry.msg} sessionId={sessionId} showTimestamp={showTimestamp} />
             </div>
           );
         }
@@ -862,6 +922,12 @@ const SubagentContainer = memo(function SubagentContainer({
 
   // Read the subagent's final result from the toolResults store
   const resultPreview = useStore((s) => s.toolResults.get(sessionId)?.get(group.taskToolUseId));
+  const progressElapsedSeconds = useStore((s) =>
+    s.toolProgress.get(sessionId)?.get(group.taskToolUseId)?.elapsedSeconds
+  );
+  const startTimestamp = useStore((s) =>
+    s.toolStartTimestamps.get(sessionId)?.get(group.taskToolUseId)
+  );
 
   // Read background agent notification
   const bgNotif = useStore((s) =>
@@ -924,6 +990,12 @@ const SubagentContainer = memo(function SubagentContainer({
             {collapsedPreview}
           </span>
         )}
+        <LiveDurationBadge
+          finalDurationSeconds={resultPreview?.duration_seconds}
+          progressElapsedSeconds={progressElapsedSeconds}
+          startTimestamp={startTimestamp}
+          isComplete={resultPreview != null}
+        />
         <span className="text-[10px] text-cc-muted bg-cc-hover rounded-full px-1.5 py-0.5 tabular-nums shrink-0 ml-auto">
           {childCount > 0
             ? childCount

@@ -5,7 +5,7 @@ beforeAll(() => {
   Element.prototype.scrollIntoView = vi.fn();
 });
 
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import type { ChatMessage } from "../types.js";
 
 // Mock react-markdown to avoid ESM issues in tests
@@ -128,6 +128,21 @@ function setStoreToolProgress(
   mockStoreValues.toolProgress = toolProgressMap;
 }
 
+function setStoreToolStartTimestamps(sessionId: string, timestamps: Record<string, number>) {
+  const map = new Map();
+  map.set(sessionId, new Map(Object.entries(timestamps)));
+  mockStoreValues.toolStartTimestamps = map;
+}
+
+function setStoreToolResults(
+  sessionId: string,
+  results: Record<string, { content: string; is_truncated: boolean; duration_seconds?: number }>
+) {
+  const map = new Map();
+  map.set(sessionId, new Map(Object.entries(results)));
+  mockStoreValues.toolResults = map;
+}
+
 function resetStore() {
   mockStoreValues.messages = new Map();
   mockStoreValues.streaming = new Map();
@@ -138,6 +153,8 @@ function resetStore() {
   mockStoreValues.sessionStatus = new Map();
   mockStoreValues.sessions = new Map();
   mockStoreValues.toolProgress = new Map();
+  mockStoreValues.toolResults = new Map();
+  mockStoreValues.toolStartTimestamps = new Map();
   mockStoreValues.turnActivityOverrides = new Map();
   mockStoreValues.backgroundAgentNotifs = new Map();
 }
@@ -626,6 +643,72 @@ describe("MessageFeed - subagent grouping", () => {
     expect(screen.getByText("Agent starting...")).toBeTruthy();
   });
 
+  it("shows a live subagent timer while the task tool is running", () => {
+    // Validates that subagent cards use Task tool start timestamps for live duration.
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-01-01T00:00:10.000Z"));
+      const sid = "test-subagent-live-timer";
+      setStoreMessages(sid, [
+        makeMessage({
+          id: "a1",
+          role: "assistant",
+          content: "",
+          contentBlocks: [
+            {
+              type: "tool_use",
+              id: "task-live",
+              name: "Task",
+              input: { description: "Analyze logs", subagent_type: "Explore" },
+            },
+          ],
+        }),
+      ]);
+      setStoreToolStartTimestamps(sid, { "task-live": new Date("2026-01-01T00:00:05.000Z").getTime() });
+
+      render(<MessageFeed sessionId={sid} />);
+
+      expect(screen.getByText("5.0s")).toBeTruthy();
+      act(() => {
+        vi.advanceTimersByTime(2000);
+      });
+      expect(screen.getByText("7.0s")).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows final subagent duration when the task completes", () => {
+    // Validates that completed subagents render the server-reported final duration.
+    const sid = "test-subagent-final-duration";
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "a1",
+        role: "assistant",
+        content: "",
+        contentBlocks: [
+          {
+            type: "tool_use",
+            id: "task-final",
+            name: "Task",
+            input: { description: "Analyze logs", subagent_type: "Explore" },
+          },
+        ],
+      }),
+    ]);
+    setStoreToolResults(sid, {
+      "task-final": {
+        content: "done",
+        is_truncated: false,
+        duration_seconds: 5.2,
+      },
+    });
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByText("5.2s")).toBeTruthy();
+  });
+
   it("shows the Prompt toggle when task has a prompt", () => {
     // The unified card should include a collapsible "Prompt" section
     // when the Task tool_use includes a prompt field.
@@ -765,6 +848,19 @@ describe("MessageFeed - turn grouping", () => {
     expect(screen.getByText("First answer")).toBeTruthy();
     expect(screen.getByText("Second question")).toBeTruthy();
     expect(screen.getByText("Second answer")).toBeTruthy();
+  });
+
+  it("shows assistant turn duration in the feed for completed turns", () => {
+    // Validates that completed assistant turns surface total turn duration in feed UI.
+    const sid = "test-turn-duration";
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "First question" }),
+      makeMessage({ id: "a1", role: "assistant", content: "First answer", turnDurationMs: 4200 }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByTestId("message-timestamp").textContent).toContain("4.2s");
   });
 
   it("renders agent activity before first user message", () => {

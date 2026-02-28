@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { PermissionBanner, PlanReviewOverlay, PlanCollapsedChip, PermissionsCollapsedChip, EvaluatingCollapsedChip } from "./PermissionBanner.js";
 import { MessageBubble } from "./MessageBubble.js";
 import { Lightbox } from "./Lightbox.js";
-import { ToolBlock, getToolIcon, getToolLabel, getPreview, ToolIcon } from "./ToolBlock.js";
+import { ToolBlock, getToolIcon, getToolLabel, getPreview, ToolIcon, formatDuration } from "./ToolBlock.js";
 import { DiffViewer } from "./DiffViewer.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { useStore } from "../store.js";
@@ -1089,6 +1089,7 @@ export function Playground() {
             <ToolBlock name="Glob" input={{ pattern: "**/*.tsx", path: "/Users/stan/Dev/project/src" }} toolUseId="tb-5" sessionId={MOCK_SESSION_ID} />
             <ToolBlock name="Grep" input={{ pattern: "useEffect", path: "src/", glob: "*.tsx", output_mode: "content", context: 3, head_limit: 20 }} toolUseId="tb-6" sessionId={MOCK_SESSION_ID} />
             <ToolBlock name="WebSearch" input={{ query: "React 19 new features", allowed_domains: ["react.dev", "github.com"] }} toolUseId="tb-7" sessionId={MOCK_SESSION_ID} />
+            <ToolBlock name="web_search" input={{ search_query: [{ q: "Codex CLI skills documentation", domains: ["openai.com", "github.com"] }] }} toolUseId="tb-7b" sessionId={MOCK_SESSION_ID} />
             <ToolBlock name="WebFetch" input={{ url: "https://react.dev/blog/2024/12/05/react-19", prompt: "Summarize the key changes in React 19" }} toolUseId="tb-8" sessionId={MOCK_SESSION_ID} />
             <ToolBlock name="Task" input={{ description: "Search for auth patterns", subagent_type: "Explore", prompt: "Find all files related to authentication and authorization in the codebase. Look for middleware, guards, and token handling." }} toolUseId="tb-9" sessionId={MOCK_SESSION_ID} />
             <ToolBlock name="TodoWrite" input={{ todos: [
@@ -1701,6 +1702,7 @@ export function Playground() {
                 agentType="Explore"
                 prompt="Find all files related to authentication and authorization in the codebase. Look for middleware, guards, and token handling."
                 items={MOCK_SUBAGENT_TOOL_ITEMS}
+                durationSeconds={8.6}
                 resultText={"Found **3 authentication-related files**:\n\n- `src/auth/middleware.ts` — JWT validation middleware\n- `src/auth/session.ts` — Session management with Redis\n- `src/routes/login.ts` — Login endpoint with rate limiting\n\nThe codebase uses a standard JWT + refresh token pattern."}
               />
             </Card>
@@ -1710,6 +1712,7 @@ export function Playground() {
                 agentType="general-purpose"
                 prompt="Execute all database migration tests and report any failures."
                 items={MOCK_SUBAGENT_TOOL_ITEMS.slice(0, 2)}
+                liveStartedAt={Date.now() - 13_000}
               />
             </Card>
             <Card label="Subagent just spawned (no children yet)">
@@ -2111,9 +2114,41 @@ function PlaygroundToolGroup({ toolName, items }: { toolName: string; items: Too
 
 // ─── Inline Subagent Group (mirrors MessageFeed's SubagentContainer) ────────
 
-function PlaygroundSubagentGroup({ description, agentType, items, resultText, prompt }: { description: string; agentType: string; items: ToolItem[]; resultText?: string; prompt?: string }) {
+function PlaygroundSubagentGroup({
+  description,
+  agentType,
+  items,
+  resultText,
+  prompt,
+  durationSeconds,
+  liveStartedAt,
+}: {
+  description: string;
+  agentType: string;
+  items: ToolItem[];
+  resultText?: string;
+  prompt?: string;
+  durationSeconds?: number;
+  liveStartedAt?: number;
+}) {
   const [open, setOpen] = useState(true);
   const [promptOpen, setPromptOpen] = useState(false);
+  const [liveSeconds, setLiveSeconds] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!liveStartedAt || durationSeconds != null) {
+      setLiveSeconds(null);
+      return;
+    }
+    const tick = () => {
+      setLiveSeconds(Math.max(0, Math.round((Date.now() - liveStartedAt) / 1000)));
+    };
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [liveStartedAt, durationSeconds]);
+
+  const displayDurationSeconds = durationSeconds ?? liveSeconds;
 
   return (
     <div className="flex items-start gap-3">
@@ -2138,6 +2173,11 @@ function PlaygroundSubagentGroup({ description, agentType, items, resultText, pr
             {!open && resultText && (
               <span className="text-[11px] text-cc-muted truncate ml-1 font-mono-code">
                 {resultText.length > 120 ? resultText.slice(0, 120) + "..." : resultText}
+              </span>
+            )}
+            {displayDurationSeconds != null && (
+              <span className={`text-[10px] tabular-nums shrink-0 ${durationSeconds != null ? "text-cc-muted" : "text-cc-primary"}`}>
+                {formatDuration(displayDurationSeconds)}
               </span>
             )}
             <span className="text-[10px] text-cc-muted bg-cc-hover rounded-full px-1.5 py-0.5 tabular-nums shrink-0 ml-auto">
