@@ -103,6 +103,13 @@ export class HerdEventDispatcher {
   private onWorkerEvent(orchId: string, event: TakodeEvent): void {
     if (!ACTIONABLE_EVENTS.has(event.event)) return;
 
+    // Suppress user_message echo: when the leader sends a message to a worker,
+    // the event fires back — the leader already knows what it sent.
+    if (event.event === "user_message") {
+      const source = event.data.agentSource as { sessionId?: string } | undefined;
+      if (source?.sessionId === orchId) return;
+    }
+
     const inbox = this.inboxes.get(orchId);
     if (!inbox) return;
 

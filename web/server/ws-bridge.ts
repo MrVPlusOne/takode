@@ -3510,6 +3510,7 @@ export class WsBridge {
 
     this.emitTakodeEvent(session.id, "user_message", {
       content: (msg.content || "").slice(0, 120),
+      ...(msg.agentSource ? { agentSource: msg.agentSource } : {}),
     });
 
     // Build content: if images are present, convert unsupported formats and use
