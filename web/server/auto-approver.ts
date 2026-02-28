@@ -18,6 +18,13 @@ export type AutoApprovalResult =
   | { decision: "approve"; reason: string }
   | { decision: "defer"; reason: string };
 
+/** Why a callModel() invocation failed (null result). */
+export type AutoApprovalFailureReason =
+  | "timeout"         // 30s deadline hit, subprocess killed
+  | "non_zero_exit"   // claude -p returned exit code != 0 (rate limit, auth error, etc.)
+  | "aborted"         // user responded manually before LLM finished
+  | "no_binary";      // claude binary not found
+
 export interface AutoApprovalLogEntry {
   id: number;
   sessionId: string;
@@ -31,20 +38,90 @@ export interface AutoApprovalLogEntry {
   parsed: AutoApprovalResult | null;
   projectPath: string;
   durationMs: number;
+  /** Time spent waiting for a semaphore slot (0 if no wait). */
+  queueWaitMs?: number;
+  /** Why the LLM call failed (only present when parsed is null). */
+  failureReason?: AutoApprovalFailureReason;
+  /** Stderr snippet or error message on failure. */
+  failureDetail?: string;
 }
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-/** Timeout for the `claude -p` subprocess. Generous to avoid spurious
- *  fallbacks — a slower auto-approval is better than spamming the user
- *  with manual permission prompts on timeout. */
-const TIMEOUT_MS = 30_000;
+/** Timeout for the `claude -p` subprocess — fallback if settings not loaded.
+ *  Actual value is read from settings.autoApprovalTimeoutSeconds at call time. */
+const DEFAULT_TIMEOUT_MS = 45_000;
 
 /** Max characters for tool input values in the prompt. */
 const MAX_INPUT_CHARS = 2_000;
 
 /** Max characters of stderr to log on subprocess failure. */
 const MAX_STDERR_LOG_CHARS = 200;
+
+/** Default max concurrent `claude -p` subprocesses — fallback if settings not loaded.
+ *  Actual value is read from settings.autoApprovalMaxConcurrency at call time. */
+const DEFAULT_MAX_CONCURRENT = 4;
+
+// ─── Concurrency control ────────────────────────────────────────────────────
+
+/** Promise-based semaphore: limits concurrent async operations.
+ *  Supports dynamic resizing via setPermits(). */
+class Semaphore {
+  private _permits: number;
+  private _maxPermits: number;
+  private _queue: Array<() => void> = [];
+
+  constructor(permits: number) { this._permits = permits; this._maxPermits = permits; }
+
+  async acquire(): Promise<void> {
+    if (this._permits > 0) { this._permits--; return; }
+    return new Promise<void>(resolve => this._queue.push(resolve));
+  }
+
+  release(): void {
+    const next = this._queue.shift();
+    if (next) next();       // hand permit to next waiter
+    else if (this._permits < this._maxPermits) this._permits++;
+  }
+
+  /** Adjust the max concurrency. If increasing, immediately release extra permits. */
+  setPermits(n: number): void {
+    const delta = n - this._maxPermits;
+    this._maxPermits = n;
+    if (delta > 0) {
+      // Release queued waiters up to the delta, or add idle permits
+      for (let i = 0; i < delta; i++) {
+        const next = this._queue.shift();
+        if (next) next();
+        else this._permits++;
+      }
+    }
+    // If shrinking, permits will drain naturally as releases happen
+  }
+
+  get queueLength(): number { return this._queue.length; }
+}
+
+const approvalSemaphore = new Semaphore(DEFAULT_MAX_CONCURRENT);
+
+// ─── Queue health tracking (EMA of queue wait times) ─────────────────────────
+
+const QUEUE_WARN_DEPTH = 5;
+const QUEUE_WARN_AVG_WAIT_MS = 30_000;
+const EMA_ALPHA = 0.3;
+let avgQueueWaitMs = 0;
+
+function recordQueueWait(waitMs: number): void {
+  avgQueueWaitMs = avgQueueWaitMs === 0
+    ? waitMs
+    : EMA_ALPHA * waitMs + (1 - EMA_ALPHA) * avgQueueWaitMs;
+
+  if (avgQueueWaitMs > QUEUE_WARN_AVG_WAIT_MS) {
+    console.warn(
+      `[auto-approver] average queue wait time is ${(avgQueueWaitMs / 1000).toFixed(1)}s — consider using a faster model`,
+    );
+  }
+}
 
 const SYSTEM_PROMPT = `You are a strict permission evaluator for a coding assistant. You decide whether to APPROVE or DEFER tool permission requests based on user-defined criteria.
 
@@ -243,17 +320,25 @@ function getClaudeBinary(): string | null {
   return resolvedBinary;
 }
 
+/** Result of a callModel() invocation with failure classification. */
+interface CallModelResult {
+  output: string | null;
+  failureReason?: AutoApprovalFailureReason;
+  failureDetail?: string;
+}
+
 async function callModel(
   prompt: string,
   model: string,
+  timeoutMs: number,
   signal?: AbortSignal,
-): Promise<string | null> {
-  if (signal?.aborted) return null;
+): Promise<CallModelResult> {
+  if (signal?.aborted) return { output: null, failureReason: "aborted" };
 
   const binary = getClaudeBinary();
   if (!binary) {
     console.warn("[auto-approver] claude binary not found, skipping auto-approval");
-    return null;
+    return { output: null, failureReason: "no_binary", failureDetail: "claude binary not found" };
   }
 
   const args = [
@@ -280,11 +365,11 @@ async function callModel(
       signal.addEventListener("abort", abortHandler, { once: true });
     }
 
-    const timeoutPromise = new Promise<null>((resolve) => {
+    const timeoutPromise = new Promise<{ timedOut: true }>((resolve) => {
       setTimeout(() => {
         proc.kill();
-        resolve(null);
-      }, TIMEOUT_MS);
+        resolve({ timedOut: true });
+      }, timeoutMs);
     });
 
     const outputPromise = (async () => {
@@ -292,22 +377,35 @@ async function callModel(
       const exitCode = await proc.exited;
       if (exitCode !== 0) {
         const stderr = await new Response(proc.stderr).text();
-        if (!signal?.aborted) {
-          console.warn(`[auto-approver] claude -p exited with code ${exitCode}: ${stderr.slice(0, MAX_STDERR_LOG_CHARS)}`);
-        }
-        return null;
+        return { exitCode, output: null as string | null, stderr: stderr.slice(0, MAX_STDERR_LOG_CHARS) };
       }
-      return output.trim();
+      return { exitCode: 0, output: output.trim(), stderr: "" };
     })();
 
     const result = await Promise.race([outputPromise, timeoutPromise]);
     signal?.removeEventListener("abort", abortHandler);
-    return signal?.aborted ? null : result;
+
+    if (signal?.aborted) {
+      return { output: null, failureReason: "aborted" };
+    }
+
+    if ("timedOut" in result) {
+      return { output: null, failureReason: "timeout", failureDetail: `${timeoutMs}ms deadline exceeded` };
+    }
+
+    if (result.exitCode !== 0) {
+      if (!signal?.aborted) {
+        console.warn(`[auto-approver] claude -p exited with code ${result.exitCode}: ${result.stderr}`);
+      }
+      return { output: null, failureReason: "non_zero_exit", failureDetail: `exit ${result.exitCode}: ${result.stderr}` };
+    }
+
+    return { output: result.output };
   } catch (err) {
     if (!signal?.aborted) {
       console.warn("[auto-approver] Failed to run claude -p:", err);
     }
-    return null;
+    return { output: null, failureReason: "non_zero_exit", failureDetail: String(err).slice(0, MAX_STDERR_LOG_CHARS) };
   }
 }
 
@@ -371,6 +469,10 @@ export async function shouldAttemptAutoApproval(cwd: string, extraPaths?: string
  * - `null` — LLM call failed, timed out, or returned unparseable output (falls through to user)
  *
  * All non-approve outcomes are fail-safe: the permission stays pending for user approval.
+ *
+ * @param onAcquired Called when the request moves from queued to actively evaluating
+ *                   (i.e., semaphore acquired, about to call the LLM). ws-bridge uses
+ *                   this to broadcast the status transition to browsers.
  */
 export async function evaluatePermission(
   sessionId: string,
@@ -382,29 +484,67 @@ export async function evaluatePermission(
   signal?: AbortSignal,
   recentToolCalls?: RecentToolCall[],
   sessionModel?: string,
+  onAcquired?: () => void,
 ): Promise<AutoApprovalResult | null> {
   const settings = getSettings();
   // Empty autoApprovalModel means "use session model"; fall back to haiku if neither is set
   const model = settings.autoApprovalModel || sessionModel || "haiku";
+  const timeoutMs = (settings.autoApprovalTimeoutSeconds || 45) * 1000;
   const prompt = buildPrompt(toolName, input, description, config.criteria, cwd, recentToolCalls);
 
-  const start = Date.now();
-  const raw = await callModel(prompt, model, signal);
-  const parsed = raw ? parseResponse(raw) : null;
+  // Sync semaphore permits with settings (handles runtime config changes)
+  approvalSemaphore.setPermits(settings.autoApprovalMaxConcurrency || DEFAULT_MAX_CONCURRENT);
 
-  addLogEntry({
-    sessionId,
-    timestamp: Date.now(),
-    toolName,
-    model,
-    prompt,
-    rawResponse: raw,
-    parsed,
-    projectPath: config.projectPath,
-    durationMs: Date.now() - start,
-  });
+  const queueStart = Date.now();
 
-  return parsed;
+  // Log a warning when the queue gets deep
+  const depth = approvalSemaphore.queueLength;
+  if (depth >= QUEUE_WARN_DEPTH) {
+    console.warn(`[auto-approver] queue depth is ${depth + 1} — auto-approval may be slow`);
+  }
+
+  // Wait for a semaphore slot (limits concurrent claude -p subprocesses)
+  await approvalSemaphore.acquire();
+  const queueWaitMs = Date.now() - queueStart;
+  if (queueWaitMs > 0) recordQueueWait(queueWaitMs);
+
+  // Notify caller that we've moved from "queued" to "evaluating"
+  onAcquired?.();
+
+  try {
+    // Bail out if aborted while waiting in queue
+    if (signal?.aborted) {
+      addLogEntry({
+        sessionId, timestamp: Date.now(), toolName, model, prompt,
+        rawResponse: null, parsed: null, projectPath: config.projectPath,
+        durationMs: Date.now() - queueStart, queueWaitMs,
+        failureReason: "aborted",
+      });
+      return null;
+    }
+
+    const start = Date.now();
+    const { output: raw, failureReason, failureDetail } = await callModel(prompt, model, timeoutMs, signal);
+    const parsed = raw ? parseResponse(raw) : null;
+
+    addLogEntry({
+      sessionId,
+      timestamp: Date.now(),
+      toolName,
+      model,
+      prompt,
+      rawResponse: raw,
+      parsed,
+      projectPath: config.projectPath,
+      durationMs: Date.now() - start,
+      queueWaitMs,
+      ...(failureReason ? { failureReason, failureDetail } : {}),
+    });
+
+    return parsed;
+  } finally {
+    approvalSemaphore.release();
+  }
 }
 
 // ─── Test helpers ───────────────────────────────────────────────────────────
@@ -417,6 +557,8 @@ export const _testHelpers = {
   parseYaml,
   parseFreeForm,
   SYSTEM_PROMPT,
-  TIMEOUT_MS,
+  DEFAULT_TIMEOUT_MS,
   SKIP_IN_RECENT_CONTEXT,
+  Semaphore,
+  approvalSemaphore,
 };

@@ -313,6 +313,7 @@ export type BrowserIncomingMessageBase =
   | { type: "permission_auto_approved"; request_id: string; tool_name: string; tool_use_id: string; reason: string; timestamp: number }
   | { type: "permission_auto_denied"; request_id: string; tool_name: string; tool_use_id: string; reason: string; timestamp: number }
   | { type: "permission_needs_attention"; request_id: string; timestamp: number }
+  | { type: "permission_evaluating_status"; request_id: string; evaluating: "queued" | "evaluating"; timestamp: number }
   | { type: "state_snapshot"; sessionStatus: string | null; permissionMode: string; cliConnected: boolean; uiMode: string | null; askPermission: boolean; lastReadAt?: number; attentionReason?: "action" | "error" | "review" | null; generationStartedAt?: number | null }
   | { type: "session_stuck" }
   | { type: "quest_list_updated" }
@@ -440,9 +441,9 @@ export interface PermissionRequest {
   tool_use_id: string;
   agent_id?: string;
   timestamp: number;
-  /** True while the LLM auto-approver is evaluating this request.
-   *  Browser shows a collapsed spinner during this state. */
-  evaluating?: boolean;
+  /** Auto-approval status: "queued" (waiting for semaphore slot), "evaluating" (LLM call in progress).
+   *  Falsy/undefined means not in auto-approval flow — show full Allow/Deny UI. */
+  evaluating?: "queued" | "evaluating";
 }
 
 // ─── Session Creation Progress (SSE streaming) ──────────────────────────────

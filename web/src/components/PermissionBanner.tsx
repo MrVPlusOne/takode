@@ -438,7 +438,7 @@ function CustomRuleEditor({
 // ── PermissionBanner — handles all non-ExitPlanMode permissions ─────────────
 // ExitPlanMode is handled by PlanReviewOverlay/PlanCollapsedChip via ChatView.
 
-// ── EvaluatingCollapsedChip — compact bar shown while LLM auto-approver is evaluating ──
+// ── EvaluatingCollapsedChip — compact bar shown while LLM auto-approver is queued/evaluating ──
 
 export function EvaluatingCollapsedChip({
   permission,
@@ -454,26 +454,38 @@ export function EvaluatingCollapsedChip({
     ?? (toolName === "Bash" && typeof permission.input?.command === "string"
       ? permission.input.command as string
       : toolName);
+  const isQueued = permission.evaluating === "queued";
 
   return (
     <div className="px-2 sm:px-4 py-2 border-b border-cc-border animate-[fadeSlideIn_0.2s_ease-out]">
       <div className="max-w-3xl mx-auto">
         <button
           onClick={onExpand}
-          title="Evaluating for auto-approval — click to expand and approve manually"
+          title={isQueued
+            ? "Queued for auto-approval — click to expand and approve manually"
+            : "Evaluating for auto-approval — click to expand and approve manually"}
           className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg border border-cc-muted/20 bg-cc-muted/5 hover:bg-cc-muted/10 transition-colors cursor-pointer text-left"
         >
-          {/* Spinner icon */}
+          {/* Icon: clock for queued, spinner for evaluating */}
           <div className="w-6 h-6 rounded-md flex items-center justify-center shrink-0 bg-cc-muted/10 border border-cc-muted/20">
-            <svg className="w-3.5 h-3.5 text-cc-muted animate-spin" viewBox="0 0 16 16" fill="none">
-              <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" strokeDasharray="28" strokeDashoffset="7" strokeLinecap="round" />
-            </svg>
+            {isQueued ? (
+              // Clock icon (waiting in queue)
+              <svg className="w-3.5 h-3.5 text-cc-muted" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="8" cy="8" r="6" />
+                <path d="M8 5v3l2 1.5" />
+              </svg>
+            ) : (
+              // Spinner icon (LLM call in progress)
+              <svg className="w-3.5 h-3.5 text-cc-muted animate-spin" viewBox="0 0 16 16" fill="none">
+                <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" strokeDasharray="28" strokeDashoffset="7" strokeLinecap="round" />
+              </svg>
+            )}
           </div>
           <span className="inline-block text-[10px] font-medium px-1.5 py-0.5 rounded bg-cc-muted/10 text-cc-muted shrink-0">
             {toolName}
           </span>
           <span className="text-[10px] text-cc-muted/60 shrink-0">
-            evaluating
+            {isQueued ? "queued" : "evaluating"}
           </span>
           <span className="text-xs text-cc-muted truncate flex-1 min-w-0">
             {desc}

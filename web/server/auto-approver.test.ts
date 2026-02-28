@@ -8,7 +8,7 @@ import {
 
 const {
   buildPrompt, formatToolCall, parseResponse, stripCodeFences, parseYaml,
-  parseFreeForm, SYSTEM_PROMPT, SKIP_IN_RECENT_CONTEXT,
+  parseFreeForm, SYSTEM_PROMPT, SKIP_IN_RECENT_CONTEXT, Semaphore,
 } = _testHelpers;
 
 describe("auto-approver", () => {
@@ -493,6 +493,92 @@ APPROVE`;
 
     it("getApprovalLogEntry returns undefined for non-existent id", () => {
       expect(getApprovalLogEntry(999999)).toBeUndefined();
+    });
+  });
+
+  // ─── Semaphore ──────────────────────────────────────────────────────────────
+
+  describe("Semaphore", () => {
+    it("allows up to N concurrent acquires without blocking", async () => {
+      const sem = new Semaphore(2);
+      // Both acquires should resolve immediately
+      await sem.acquire();
+      await sem.acquire();
+      expect(sem.queueLength).toBe(0);
+      sem.release();
+      sem.release();
+    });
+
+    it("blocks the (N+1)th acquire until a release", async () => {
+      const sem = new Semaphore(1);
+      await sem.acquire(); // takes the only permit
+
+      let secondAcquired = false;
+      const p = sem.acquire().then(() => { secondAcquired = true; });
+
+      // Second acquire should be queued, not resolved yet
+      expect(sem.queueLength).toBe(1);
+      await Promise.resolve(); // flush microtasks
+      expect(secondAcquired).toBe(false);
+
+      sem.release(); // free the permit → second acquire should resolve
+      await p;
+      expect(secondAcquired).toBe(true);
+      expect(sem.queueLength).toBe(0);
+      sem.release();
+    });
+
+    it("processes waiters in FIFO order", async () => {
+      const sem = new Semaphore(1);
+      await sem.acquire();
+
+      const order: number[] = [];
+      const p1 = sem.acquire().then(() => order.push(1));
+      const p2 = sem.acquire().then(() => order.push(2));
+      const p3 = sem.acquire().then(() => order.push(3));
+
+      expect(sem.queueLength).toBe(3);
+
+      // Release 3 times — each should wake the next waiter in order
+      sem.release(); await p1;
+      sem.release(); await p2;
+      sem.release(); await p3;
+
+      expect(order).toEqual([1, 2, 3]);
+    });
+
+    it("queueLength reflects pending waiters accurately", async () => {
+      const sem = new Semaphore(2);
+      await sem.acquire();
+      await sem.acquire();
+
+      // Queue 3 more
+      const promises = [sem.acquire(), sem.acquire(), sem.acquire()];
+      expect(sem.queueLength).toBe(3);
+
+      sem.release(); await promises[0];
+      expect(sem.queueLength).toBe(2);
+
+      sem.release(); await promises[1];
+      expect(sem.queueLength).toBe(1);
+
+      sem.release(); await promises[2];
+      expect(sem.queueLength).toBe(0);
+
+      // Clean up
+      sem.release();
+      sem.release();
+      sem.release();
+    });
+
+    it("release without waiters restores a permit", async () => {
+      const sem = new Semaphore(1);
+      await sem.acquire();
+      sem.release();
+
+      // Should be able to acquire again immediately (permit was restored)
+      await sem.acquire();
+      sem.release();
     });
   });
 });

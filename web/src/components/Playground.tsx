@@ -167,19 +167,26 @@ const PERM_BASH_NO_SUGGESTIONS = mockPermission({
 const PERM_EVALUATING_BASH = mockPermission({
   tool_name: "Bash",
   input: { command: "git push origin main", description: "Push changes" },
-  evaluating: true,
+  evaluating: "evaluating",
 });
 
 const PERM_EVALUATING_BASH_LONG = mockPermission({
   tool_name: "Bash",
   input: { command: "cd /home/user/projects/my-app && npm run build --production && docker build -t my-app:latest . && docker push registry.example.com/my-app:latest", description: "Build and push Docker image" },
-  evaluating: true,
+  evaluating: "evaluating",
 });
 
 const PERM_EVALUATING_EDIT = mockPermission({
   tool_name: "Edit",
   input: { file_path: "/src/components/App.tsx", old_string: "const x = 1;", new_string: "const x = 2;" },
-  evaluating: true,
+  evaluating: "evaluating",
+});
+
+// Auto-approval queued state — waiting in semaphore queue
+const PERM_QUEUED_BASH = mockPermission({
+  tool_name: "Bash",
+  input: { command: "npm test -- --coverage", description: "Run tests with coverage" },
+  evaluating: "queued",
 });
 
 const PERM_ASK_SINGLE = mockPermission({
@@ -924,8 +931,11 @@ export function Playground() {
           <Card label="Edit — evaluating">
             <EvaluatingCollapsedChip permission={PERM_EVALUATING_EDIT} sessionId={MOCK_SESSION_ID} onExpand={() => {}} />
           </Card>
-          <Card label="PermissionBanner with evaluating=true (starts collapsed, click expand)">
+          <Card label="PermissionBanner with evaluating (starts collapsed, click expand)">
             <PermissionBanner permission={PERM_EVALUATING_BASH} sessionId={MOCK_SESSION_ID} />
+          </Card>
+          <Card label="Bash — queued (waiting for semaphore slot)">
+            <EvaluatingCollapsedChip permission={PERM_QUEUED_BASH} sessionId={MOCK_SESSION_ID} onExpand={() => {}} />
           </Card>
         </Section>
 

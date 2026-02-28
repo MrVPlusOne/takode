@@ -74,6 +74,8 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
   // Auto-approval state
   const [aaEnabled, setAaEnabled] = useState(false);
   const [aaModel, setAaModel] = useState("");
+  const [aaMaxConcurrency, setAaMaxConcurrency] = useState(4);
+  const [aaTimeoutSeconds, setAaTimeoutSeconds] = useState(45);
   const [aaSaving, setAaSaving] = useState(false);
   const [aaError, setAaError] = useState("");
   const [aaConfigs, setAaConfigs] = useState<AutoApprovalConfig[]>([]);
@@ -127,6 +129,8 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
         setRestartSupported(s.restartSupported);
         setAaEnabled(s.autoApprovalEnabled);
         setAaModel(s.autoApprovalModel ?? "");
+        setAaMaxConcurrency(s.autoApprovalMaxConcurrency ?? 4);
+        setAaTimeoutSeconds(s.autoApprovalTimeoutSeconds ?? 45);
         setNamerBackend(s.namerConfig.backend);
         if (s.namerConfig.backend === "openai") {
           setNamerApiKey(s.namerConfig.apiKey === "***" ? "***" : (s.namerConfig.apiKey || ""));
@@ -1032,6 +1036,65 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
               </select>
             </label>
             {aaError && <span className="text-xs text-cc-error">{aaError}</span>}
+          </div>
+
+          {/* Concurrency + Timeout controls */}
+          <div className="flex items-center gap-4 flex-wrap">
+            <label className="flex items-center gap-2 text-xs text-cc-fg">
+              <span className="text-cc-muted">Max concurrency:</span>
+              <input
+                type="number"
+                min={1}
+                max={20}
+                value={aaMaxConcurrency}
+                disabled={aaSaving}
+                onChange={async (e) => {
+                  const val = Math.max(1, Math.min(20, Math.floor(Number(e.target.value) || 4)));
+                  const old = aaMaxConcurrency;
+                  setAaMaxConcurrency(val);
+                  setAaSaving(true);
+                  setAaError("");
+                  try {
+                    const res = await api.updateSettings({ autoApprovalMaxConcurrency: val });
+                    setAaMaxConcurrency(res.autoApprovalMaxConcurrency);
+                  } catch (err: unknown) {
+                    setAaMaxConcurrency(old);
+                    setAaError(err instanceof Error ? err.message : String(err));
+                  } finally {
+                    setAaSaving(false);
+                  }
+                }}
+                className="w-16 px-2 py-1 text-xs bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/50"
+              />
+            </label>
+            <label className="flex items-center gap-2 text-xs text-cc-fg">
+              <span className="text-cc-muted">Timeout:</span>
+              <input
+                type="number"
+                min={5}
+                max={120}
+                value={aaTimeoutSeconds}
+                disabled={aaSaving}
+                onChange={async (e) => {
+                  const val = Math.max(5, Math.min(120, Math.floor(Number(e.target.value) || 45)));
+                  const old = aaTimeoutSeconds;
+                  setAaTimeoutSeconds(val);
+                  setAaSaving(true);
+                  setAaError("");
+                  try {
+                    const res = await api.updateSettings({ autoApprovalTimeoutSeconds: val });
+                    setAaTimeoutSeconds(res.autoApprovalTimeoutSeconds);
+                  } catch (err: unknown) {
+                    setAaTimeoutSeconds(old);
+                    setAaError(err instanceof Error ? err.message : String(err));
+                  } finally {
+                    setAaSaving(false);
+                  }
+                }}
+                className="w-16 px-2 py-1 text-xs bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/50"
+              />
+              <span className="text-cc-muted">seconds</span>
+            </label>
           </div>
 
           {/* Project configs list */}

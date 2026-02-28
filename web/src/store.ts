@@ -196,7 +196,7 @@ interface AppState {
   // Permission actions
   addPermission: (sessionId: string, perm: PermissionRequest) => void;
   removePermission: (sessionId: string, requestId: string) => void;
-  updatePermissionEvaluating: (sessionId: string, requestId: string, evaluating: boolean) => void;
+  updatePermissionEvaluating: (sessionId: string, requestId: string, evaluating: "queued" | "evaluating" | undefined) => void;
   clearPermissions: (sessionId: string) => void;
 
   // Streaming timer pause actions
@@ -1424,12 +1424,12 @@ export const useStore = create<AppState>((set) => ({
     }),
 }));
 
-/** Count permissions that need user attention (excludes those being LLM-evaluated). */
+/** Count permissions that need user attention (excludes those being LLM-evaluated or queued). */
 export function countUserPermissions(perms: Map<string, unknown> | undefined): number {
   if (!perms) return 0;
   let count = 0;
   for (const p of perms.values()) {
-    if (!(p as { evaluating?: boolean })?.evaluating) count++;
+    if (!(p as { evaluating?: string })?.evaluating) count++;
   }
   return count;
 }

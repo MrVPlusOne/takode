@@ -1030,7 +1030,7 @@ export class WsBridge {
       // have no running LLM subprocess. Transition them to normal pending.
       for (const perm of session.pendingPermissions.values()) {
         if (perm.evaluating) {
-          perm.evaluating = false;
+          perm.evaluating = undefined;
         }
       }
 
@@ -2605,7 +2605,7 @@ export class WsBridge {
         tool_use_id: msg.request.tool_use_id,
         agent_id: msg.request.agent_id,
         timestamp: Date.now(),
-        ...(autoApprovalConfig ? { evaluating: true } : {}),
+        ...(autoApprovalConfig ? { evaluating: "queued" as const } : {}),
       };
       session.pendingPermissions.set(msg.request_id, perm);
 
@@ -2702,6 +2702,17 @@ export class WsBridge {
         abort.signal,
         recentToolCalls,
         session.state.model,
+        // onAcquired: transition from "queued" → "evaluating" in browser
+        () => {
+          if (!session.pendingPermissions.has(requestId)) return;
+          perm.evaluating = "evaluating";
+          this.broadcastToBrowsers(session, {
+            type: "permission_evaluating_status",
+            request_id: requestId,
+            evaluating: "evaluating",
+            timestamp: Date.now(),
+          });
+        },
       );
 
       // Clean up abort controller
@@ -2743,7 +2754,7 @@ export class WsBridge {
       } else {
         // LLM denied or failed (null) — transition to normal pending state.
         // Clear the evaluating flag so the browser shows full approval UI.
-        perm.evaluating = false;
+        perm.evaluating = undefined;
 
         this.broadcastToBrowsers(session, {
           type: "permission_needs_attention",
@@ -2777,7 +2788,7 @@ export class WsBridge {
 
       // Fail-safe: if anything goes wrong, transition to normal pending
       if (session.pendingPermissions.has(requestId)) {
-        perm.evaluating = false;
+        perm.evaluating = undefined;
         this.broadcastToBrowsers(session, {
           type: "permission_needs_attention",
           request_id: requestId,

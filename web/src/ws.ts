@@ -616,7 +616,7 @@ function handleParsedMessage(
     case "permission_auto_denied": {
       // LLM auto-approver declined — transition from evaluating to normal pending state.
       // The permission stays pending for the user (LLM deny = "not confident, ask human").
-      store.updatePermissionEvaluating(sessionId, data.request_id, false);
+      store.updatePermissionEvaluating(sessionId, data.request_id, undefined);
       // NOW pause timer and send notification since this needs user attention
       store.pauseStreamingTimer(sessionId);
       if (!document.hasFocus() && store.notificationDesktop) {
@@ -638,7 +638,7 @@ function handleParsedMessage(
 
     case "permission_needs_attention": {
       // LLM evaluation failed or timed out — transition to normal pending state
-      store.updatePermissionEvaluating(sessionId, data.request_id, false);
+      store.updatePermissionEvaluating(sessionId, data.request_id, undefined);
       store.pauseStreamingTimer(sessionId);
       if (!document.hasFocus() && store.notificationDesktop) {
         sendBrowserNotification(
@@ -647,6 +647,12 @@ function handleParsedMessage(
           data.request_id,
         );
       }
+      break;
+    }
+
+    case "permission_evaluating_status": {
+      // Auto-approver status transition (e.g., "queued" → "evaluating")
+      store.updatePermissionEvaluating(sessionId, data.request_id, data.evaluating);
       break;
     }
 

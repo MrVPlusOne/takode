@@ -12,9 +12,10 @@ function timeAgo(ts: number): string {
   return new Date(ts).toLocaleDateString();
 }
 
-function decisionLabel(parsed: AutoApprovalLogIndexEntry["parsed"]): string {
-  if (!parsed) return "error/timeout";
-  return `${parsed.decision}: ${parsed.reason}`;
+function decisionLabel(entry: AutoApprovalLogIndexEntry): string {
+  if (entry.parsed) return `${entry.parsed.decision}: ${entry.parsed.reason}`;
+  if (entry.failureReason) return entry.failureReason;
+  return "error/timeout";
 }
 
 function decisionColor(parsed: AutoApprovalLogIndexEntry["parsed"]): string {
@@ -132,9 +133,14 @@ export function AutoApprovalDebugPanel() {
                     <span className="text-cc-fg shrink-0 font-mono-code">{entry.toolName}</span>
                     <span className="text-cc-muted shrink-0 text-[10px] font-mono-code">{entry.model}</span>
                     <span className={`flex-1 truncate ${decisionColor(entry.parsed)}`}>
-                      {decisionLabel(entry.parsed)}
+                      {decisionLabel(entry)}
                     </span>
                     <span className="text-cc-muted shrink-0">{formatDuration(entry.durationMs)}</span>
+                    {(entry.queueWaitMs ?? 0) > 0 && (
+                      <span className="text-cc-warning shrink-0 text-[10px]" title={`Waited ${formatDuration(entry.queueWaitMs!)} in queue`}>
+                        +{formatDuration(entry.queueWaitMs!)}q
+                      </span>
+                    )}
                     <span className="text-cc-muted shrink-0 font-mono text-[10px]" title={`Prompt: ${entry.promptLength} chars`}>
                       {entry.promptLength > 1000 ? `${(entry.promptLength / 1000).toFixed(1)}k` : entry.promptLength}ch
                     </span>
@@ -193,7 +199,21 @@ export function AutoApprovalDebugPanel() {
                 <>
                   <div className="text-xs text-cc-muted">
                     Project: <span className="text-cc-fg font-medium font-mono-code">{expandedEntry.projectPath}</span>
+                    {(expandedEntry.queueWaitMs ?? 0) > 0 && (
+                      <span className="ml-3">Queue wait: <span className="text-cc-warning">{formatDuration(expandedEntry.queueWaitMs!)}</span></span>
+                    )}
+                    {expandedEntry.failureReason && (
+                      <span className="ml-3">Failure: <span className="text-cc-error">{expandedEntry.failureReason}</span></span>
+                    )}
                   </div>
+                  {expandedEntry.failureDetail && (
+                    <div>
+                      <span className="text-[11px] uppercase tracking-wider text-cc-error font-medium">Failure Detail</span>
+                      <pre className="mt-1 text-[12px] leading-relaxed text-cc-error bg-cc-error/5 rounded-lg p-4 overflow-x-auto whitespace-pre-wrap break-words font-mono border border-cc-error/10">
+                        {expandedEntry.failureDetail}
+                      </pre>
+                    </div>
+                  )}
                   <div>
                     <span className="text-[11px] uppercase tracking-wider text-cc-muted font-medium">System Prompt</span>
                     <pre className="mt-1 text-[12px] leading-relaxed text-cc-fg bg-cc-hover rounded-lg p-4 overflow-x-auto whitespace-pre-wrap break-words font-mono">

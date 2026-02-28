@@ -237,6 +237,8 @@ export interface AppSettings {
   maxKeepAlive: number;
   autoApprovalEnabled: boolean;
   autoApprovalModel: string;
+  autoApprovalMaxConcurrency: number;
+  autoApprovalTimeoutSeconds: number;
   namerConfig: NamerConfig;
   autoNamerEnabled: boolean;
   restartSupported: boolean;
@@ -270,6 +272,9 @@ export interface AutoApprovalLogIndexEntry {
   projectPath: string;
   durationMs: number;
   promptLength: number;
+  queueWaitMs?: number;
+  failureReason?: string;
+  failureDetail?: string;
 }
 
 export interface AutoApprovalLogEntry extends AutoApprovalLogIndexEntry {
@@ -544,6 +549,7 @@ export const api = {
     claudeBinary?: string; codexBinary?: string;
     maxKeepAlive?: number;
     autoApprovalEnabled?: boolean; autoApprovalModel?: string;
+    autoApprovalMaxConcurrency?: number; autoApprovalTimeoutSeconds?: number;
     namerConfig?: NamerConfig;
     autoNamerEnabled?: boolean;
   }) => put<AppSettings>("/settings", data),

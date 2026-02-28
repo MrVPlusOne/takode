@@ -33,6 +33,10 @@ export interface CompanionSettings {
   autoApprovalEnabled: boolean;
   /** Model to use for auto-approval LLM calls (empty = use session model, falls back to "haiku") */
   autoApprovalModel: string;
+  /** Max concurrent auto-approval LLM subprocess calls (default: 4) */
+  autoApprovalMaxConcurrency: number;
+  /** Timeout in seconds for each auto-approval LLM call (default: 45) */
+  autoApprovalTimeoutSeconds: number;
   /** Session auto-namer backend configuration */
   namerConfig: NamerConfig;
   /** Whether the AI session auto-namer is enabled (default: true) */
@@ -65,6 +69,8 @@ let settings: CompanionSettings = {
   maxKeepAlive: 0,
   autoApprovalEnabled: false,
   autoApprovalModel: "",
+  autoApprovalMaxConcurrency: 4,
+  autoApprovalTimeoutSeconds: 45,
   namerConfig: { backend: "claude" },
   autoNamerEnabled: true,
   updatedAt: 0,
@@ -112,6 +118,8 @@ function normalize(raw: Partial<CompanionSettings> | null | undefined): Companio
     maxKeepAlive: typeof raw?.maxKeepAlive === "number" && raw.maxKeepAlive >= 0 ? Math.floor(raw.maxKeepAlive) : 0,
     autoApprovalEnabled: typeof raw?.autoApprovalEnabled === "boolean" ? raw.autoApprovalEnabled : false,
     autoApprovalModel: typeof raw?.autoApprovalModel === "string" ? raw.autoApprovalModel : "",
+    autoApprovalMaxConcurrency: typeof raw?.autoApprovalMaxConcurrency === "number" && raw.autoApprovalMaxConcurrency >= 1 ? Math.floor(raw.autoApprovalMaxConcurrency) : 4,
+    autoApprovalTimeoutSeconds: typeof raw?.autoApprovalTimeoutSeconds === "number" && raw.autoApprovalTimeoutSeconds >= 5 ? Math.floor(raw.autoApprovalTimeoutSeconds) : 45,
     namerConfig: normalizeNamerConfig(raw),
     autoNamerEnabled: typeof raw?.autoNamerEnabled === "boolean" ? raw.autoNamerEnabled : true,
     updatedAt: typeof raw?.updatedAt === "number" ? raw.updatedAt : 0,
@@ -149,7 +157,7 @@ export function getSettings(): CompanionSettings {
 
 export function updateSettings(
   patch: Partial<Pick<CompanionSettings,
-    "pushoverUserKey" | "pushoverApiToken" | "pushoverDelaySeconds" | "pushoverEnabled" | "pushoverBaseUrl" | "claudeBinary" | "codexBinary" | "maxKeepAlive" | "autoApprovalEnabled" | "autoApprovalModel" | "namerConfig" | "autoNamerEnabled"
+    "pushoverUserKey" | "pushoverApiToken" | "pushoverDelaySeconds" | "pushoverEnabled" | "pushoverBaseUrl" | "claudeBinary" | "codexBinary" | "maxKeepAlive" | "autoApprovalEnabled" | "autoApprovalModel" | "autoApprovalMaxConcurrency" | "autoApprovalTimeoutSeconds" | "namerConfig" | "autoNamerEnabled"
   >>,
 ): CompanionSettings {
   ensureLoaded();
