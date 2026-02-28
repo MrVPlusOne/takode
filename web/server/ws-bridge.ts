@@ -2554,7 +2554,7 @@ export class WsBridge {
     // rebroadcast it so the chat feed can render the completed turn timing.
     if (typeof turnDurationMs === "number") {
       const latestAssistant = session.messageHistory.findLast(
-        (m) => m.type === "assistant" && (m as { parent_tool_use_id?: string | null }).parent_tool_use_id === null,
+        (m) => m.type === "assistant" && (m as { parent_tool_use_id?: string | null }).parent_tool_use_id == null,
       ) as (BrowserIncomingMessage & { type: "assistant"; turn_duration_ms?: number }) | undefined;
       if (latestAssistant) {
         latestAssistant.turn_duration_ms = turnDurationMs;

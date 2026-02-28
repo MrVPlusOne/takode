@@ -453,6 +453,55 @@ describe("handleMessage: assistant", () => {
     expect(msgs[0].turnDurationMs).toBe(4200);
   });
 
+  it("does not set session status to running for rebroadcasted assistant with turn_duration_ms", () => {
+    // When the server rebroadcasts the latest assistant message with turn_duration_ms
+    // after a turn completes, the browser must NOT flip status to "running" — the turn
+    // is already done and the result message will set "idle" shortly after.
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    // Simulate initial assistant (sets status to running)
+    fireMessage({
+      type: "assistant",
+      timestamp: 1000,
+      message: {
+        id: "msg-1",
+        type: "message",
+        role: "assistant",
+        model: "claude-opus-4-20250514",
+        content: [{ type: "text", text: "done" }],
+        stop_reason: "end_turn",
+        usage: { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+    });
+    expect(useStore.getState().sessionStatus.get("s1")).toBe("running");
+
+    // Simulate result setting idle
+    fireMessage({ type: "status_change", status: "idle" });
+    expect(useStore.getState().sessionStatus.get("s1")).toBe("idle");
+
+    // Simulate rebroadcast with turn_duration_ms (arrives after result in some orderings)
+    fireMessage({
+      type: "assistant",
+      timestamp: 1000,
+      turn_duration_ms: 5000,
+      message: {
+        id: "msg-1",
+        type: "message",
+        role: "assistant",
+        model: "claude-opus-4-20250514",
+        content: [{ type: "text", text: "done" }],
+        stop_reason: "end_turn",
+        usage: { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+    });
+
+    // Status should remain idle — the rebroadcast must NOT flip it to "running"
+    expect(useStore.getState().sessionStatus.get("s1")).toBe("idle");
+  });
+
   it("tracks changed files using session cwd for resolving relative tool paths", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
@@ -1028,6 +1077,40 @@ describe("handleMessage: message_history", () => {
     const msgs = useStore.getState().messages.get("s1")!;
     expect(msgs[0].timestamp).toBe(42000);
     expect(msgs[1].timestamp).toBe(43000);
+  });
+
+  it("extracts turn_duration_ms from assistant messages in history", () => {
+    // When the browser reconnects, the server replays message_history which may
+    // include assistant messages with turn_duration_ms persisted from the previous
+    // turn. The browser must extract this so the chat feed can show turn durations.
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    fireMessage({
+      type: "message_history",
+      messages: [
+        { type: "user_message", content: "hello", timestamp: 1000 },
+        {
+          type: "assistant",
+          message: {
+            id: "msg-1",
+            type: "message",
+            role: "assistant",
+            model: "claude-opus-4-20250514",
+            content: [{ type: "text", text: "hi back" }],
+            stop_reason: "end_turn",
+            usage: { input_tokens: 5, output_tokens: 3, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+          },
+          parent_tool_use_id: null,
+          timestamp: 2000,
+          turn_duration_ms: 3500,
+        },
+      ],
+    });
+
+    const msgs = useStore.getState().messages.get("s1")!;
+    expect(msgs).toHaveLength(2);
+    expect(msgs[1].turnDurationMs).toBe(3500);
   });
 });
 

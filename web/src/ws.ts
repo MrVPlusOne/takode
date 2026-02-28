@@ -406,7 +406,13 @@ function handleParsedMessage(
           }
         }
       }
-      store.setSessionStatus(sessionId, "running");
+      // Rebroadcasted assistant messages with turn_duration_ms arrive AFTER the
+      // turn completes (post-result). Don't flip status to "running" for those —
+      // the result handler will set "idle" momentarily, but setting "running" here
+      // causes a brief incorrect status flicker.
+      if (typeof data.turn_duration_ms !== "number") {
+        store.setSessionStatus(sessionId, "running");
+      }
 
       // Store server-provided tool start timestamps for live duration display
       if (data.tool_start_times && typeof data.tool_start_times === "object") {
@@ -976,6 +982,9 @@ function handleParsedMessage(
             model: msg.model,
             stopReason: msg.stop_reason,
             cliUuid: (histMsg as Record<string, unknown>).uuid as string | undefined,
+            ...(typeof (histMsg as Record<string, unknown>).turn_duration_ms === "number"
+              ? { turnDurationMs: (histMsg as Record<string, unknown>).turn_duration_ms as number }
+              : {}),
           });
           // Also extract tasks and changed files from history
           if (msg.content?.length) {
