@@ -244,6 +244,8 @@ export type BrowserOutgoingMessage =
      */
     local_images?: string[];
     client_msg_id?: string;
+    /** Present when the message was injected programmatically (e.g. via takode CLI or cron). */
+    agentSource?: { sessionId: string; sessionLabel?: string };
   }
   | { type: "permission_response"; request_id: string; behavior: "allow" | "deny"; updated_input?: Record<string, unknown>; updated_permissions?: PermissionUpdate[]; message?: string; client_msg_id?: string }
   | { type: "session_subscribe"; last_seq: number }
@@ -295,7 +297,7 @@ export type BrowserIncomingMessageBase =
   | { type: "error"; message: string }
   | { type: "cli_disconnected"; reason?: "idle_limit" }
   | { type: "cli_connected" }
-  | { type: "user_message"; content: string; timestamp: number; id?: string; cliUuid?: string; images?: import("./image-store.js").ImageRef[] }
+  | { type: "user_message"; content: string; timestamp: number; id?: string; cliUuid?: string; images?: import("./image-store.js").ImageRef[]; agentSource?: { sessionId: string; sessionLabel?: string } }
   | { type: "message_history"; messages: BrowserIncomingMessage[] }
   | { type: "event_replay"; events: BufferedBrowserEvent[] }
   | { type: "session_name_update"; name: string; source?: "quest" }

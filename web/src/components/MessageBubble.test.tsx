@@ -201,6 +201,85 @@ describe("MessageBubble - user messages", () => {
   });
 });
 
+// ─── Agent source badge ─────────────────────────────────────────────────────
+
+describe("MessageBubble - agent source badge", () => {
+  it("does not render badge when agentSource is absent", () => {
+    const msg = makeMessage({ role: "user", content: "Normal message" });
+    render(<MessageBubble message={msg} />);
+
+    expect(screen.queryByTestId("agent-source-badge")).toBeNull();
+  });
+
+  it("renders badge with session label when agentSource is present", () => {
+    const msg = makeMessage({
+      role: "user",
+      content: "Run tests",
+      agentSource: { sessionId: "abc123def456", sessionLabel: "#3 orchestrator" },
+    });
+    render(<MessageBubble message={msg} />);
+
+    const badge = screen.getByTestId("agent-source-badge");
+    expect(badge).toBeTruthy();
+    expect(badge.textContent).toContain("via #3 orchestrator");
+  });
+
+  it("renders truncated session ID when no label is provided", () => {
+    const msg = makeMessage({
+      role: "user",
+      content: "Run tests",
+      agentSource: { sessionId: "abc123def456" },
+    });
+    render(<MessageBubble message={msg} />);
+
+    const badge = screen.getByTestId("agent-source-badge");
+    expect(badge).toBeTruthy();
+    expect(badge.textContent).toContain("via abc123de");
+  });
+
+  it("renders cron label for cron-originated messages", () => {
+    const msg = makeMessage({
+      role: "user",
+      content: "Check emails",
+      agentSource: { sessionId: "cron:email-digest", sessionLabel: "cron: Email Digest" },
+    });
+    render(<MessageBubble message={msg} />);
+
+    const badge = screen.getByTestId("agent-source-badge");
+    expect(badge.textContent).toContain("via cron: Email Digest");
+  });
+
+  it("opens context menu when badge is clicked", () => {
+    const msg = makeMessage({
+      role: "user",
+      content: "Run tests",
+      agentSource: { sessionId: "abc123def456", sessionLabel: "#3 orchestrator" },
+    });
+    render(<MessageBubble message={msg} />);
+
+    const badge = screen.getByTestId("agent-source-badge");
+    fireEvent.click(badge);
+
+    // Context menu should show "Open session" for non-cron sources
+    expect(screen.getByText("Open session")).toBeTruthy();
+  });
+
+  it("does not show 'Open session' for cron sources", () => {
+    const msg = makeMessage({
+      role: "user",
+      content: "Check emails",
+      agentSource: { sessionId: "cron:email-digest", sessionLabel: "cron: Email Digest" },
+    });
+    render(<MessageBubble message={msg} />);
+
+    const badge = screen.getByTestId("agent-source-badge");
+    fireEvent.click(badge);
+
+    // Cron sources should not have "Open session" option
+    expect(screen.queryByText("Open session")).toBeNull();
+  });
+});
+
 // ─── Assistant messages ──────────────────────────────────────────────────────
 
 describe("MessageBubble - assistant messages", () => {

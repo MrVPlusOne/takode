@@ -687,6 +687,7 @@ function handleParsedMessage(
         content: data.content,
         timestamp: data.timestamp || Date.now(),
         ...(data.images?.length ? { images: data.images } : {}),
+        ...(data.agentSource ? { agentSource: data.agentSource } : {}),
       };
       store.appendMessage(sessionId, userMsg);
       store.setSessionPreview(sessionId, data.content.slice(0, 80));
@@ -947,6 +948,7 @@ function handleParsedMessage(
             content: histMsg.content,
             timestamp: histMsg.timestamp,
             ...(histMsg.images?.length ? { images: histMsg.images } : {}),
+            ...(histMsg.agentSource ? { agentSource: histMsg.agentSource } : {}),
           });
         } else if (histMsg.type === "assistant") {
           const msg = histMsg.message;

@@ -1927,3 +1927,89 @@ describe("sendToSession return value", () => {
     expect(result).toBe(false);
   });
 });
+
+// ===========================================================================
+// agentSource propagation
+// ===========================================================================
+describe("agentSource propagation", () => {
+  /** Live user_message events with agentSource should populate the ChatMessage.agentSource field. */
+  it("propagates agentSource from live user_message to ChatMessage", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    fireMessage({
+      type: "user_message",
+      content: "Run tests",
+      timestamp: 1000,
+      id: "user-1000-0",
+      agentSource: { sessionId: "abc123", sessionLabel: "#3 orchestrator" },
+    });
+
+    const msgs = useStore.getState().messages.get("s1")!;
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].role).toBe("user");
+    expect(msgs[0].content).toBe("Run tests");
+    expect(msgs[0].agentSource).toEqual({
+      sessionId: "abc123",
+      sessionLabel: "#3 orchestrator",
+    });
+  });
+
+  it("does not set agentSource when absent from live user_message", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    fireMessage({
+      type: "user_message",
+      content: "Normal message",
+      timestamp: 1000,
+      id: "user-1000-0",
+    });
+
+    const msgs = useStore.getState().messages.get("s1")!;
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].agentSource).toBeUndefined();
+  });
+
+  /** message_history replay should also preserve agentSource on user messages. */
+  it("propagates agentSource from message_history replay", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    fireMessage({
+      type: "message_history",
+      messages: [
+        {
+          type: "user_message",
+          content: "Check PRs",
+          timestamp: 2000,
+          id: "user-2000-0",
+          agentSource: { sessionId: "cron:pr-check", sessionLabel: "cron: PR Check" },
+        },
+        {
+          type: "assistant",
+          message: {
+            id: "msg-hist-1",
+            type: "message",
+            role: "assistant",
+            model: "claude-opus-4-20250514",
+            content: [{ type: "text", text: "Done" }],
+            stop_reason: "end_turn",
+            usage: { input_tokens: 5, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+          },
+          parent_tool_use_id: null,
+        },
+      ],
+    });
+
+    const msgs = useStore.getState().messages.get("s1")!;
+    expect(msgs).toHaveLength(2);
+    expect(msgs[0].role).toBe("user");
+    expect(msgs[0].agentSource).toEqual({
+      sessionId: "cron:pr-check",
+      sessionLabel: "cron: PR Check",
+    });
+    // Assistant message should not have agentSource
+    expect(msgs[1].agentSource).toBeUndefined();
+  });
+});

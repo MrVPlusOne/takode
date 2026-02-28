@@ -54,6 +54,8 @@ export interface ChatMessage {
       verificationItems?: QuestVerificationItem[];
     };
   };
+  /** Present when this user message was injected programmatically (e.g. via takode CLI or cron). */
+  agentSource?: { sessionId: string; sessionLabel?: string };
   /** Assistant message UUID from CLI, for revert support */
   cliUuid?: string;
 }

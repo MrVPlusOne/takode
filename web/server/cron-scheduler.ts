@@ -151,7 +151,10 @@ export class CronScheduler {
 
       // Send the prompt with cron prefix for traceability
       const fullPrompt = `[cron:${job.id} ${job.name}]\n\n${job.prompt}`;
-      this.wsBridge.injectUserMessage(sessionInfo.sessionId, fullPrompt);
+      this.wsBridge.injectUserMessage(sessionInfo.sessionId, fullPrompt, {
+        sessionId: `cron:${job.id}`,
+        sessionLabel: `cron: ${job.name}`,
+      });
 
       // Update job tracking
       await cronStore.updateJob(jobId, {

@@ -247,6 +247,18 @@ const MSG_USER_IMAGE: ChatMessage = {
   timestamp: Date.now() - 55000,
 };
 
+/* User message — injected by an agent (via takode CLI) */
+const MSG_USER_AGENT: ChatMessage = {
+  id: "msg-agent-1",
+  role: "user",
+  content: "Run the full test suite and report any failures.",
+  timestamp: Date.now() - 53000,
+  agentSource: {
+    sessionId: "abc123def456",
+    sessionLabel: "#3 orchestrator",
+  },
+};
+
 const MSG_ASSISTANT: ChatMessage = {
   id: "msg-3",
   role: "assistant",
@@ -958,6 +970,9 @@ export function Playground() {
             </Card>
             <Card label="User message with image">
               <MessageBubble message={MSG_USER_IMAGE} sessionId="playground" />
+            </Card>
+            <Card label="User message (from agent)">
+              <MessageBubble message={MSG_USER_AGENT} />
             </Card>
             <Card label="Assistant message (markdown)">
               <MessageBubble message={MSG_ASSISTANT} />

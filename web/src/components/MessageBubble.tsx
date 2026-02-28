@@ -200,6 +200,65 @@ function CollapsibleContent({ children }: { children: React.ReactNode }) {
   );
 }
 
+/** Badge shown on user messages injected by an agent (via takode CLI or cron).
+ *  Displays a bolt icon + sender label. Click to see details / navigate to source session. */
+function AgentSourceBadge({ source }: { source: { sessionId: string; sessionLabel?: string } }) {
+  const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+
+  const label = source.sessionLabel || source.sessionId.slice(0, 8);
+  const isCron = source.sessionId.startsWith("cron:");
+
+  const toggle = useCallback(() => {
+    if (menuPos) {
+      setMenuPos(null);
+    } else {
+      const rect = btnRef.current?.getBoundingClientRect();
+      if (rect) setMenuPos({ x: rect.left, y: rect.bottom + 4 });
+    }
+  }, [menuPos]);
+
+  const items = useMemo(() => {
+    const list: ContextMenuItem[] = [];
+    if (!isCron) {
+      list.push({
+        label: `Open session`,
+        onClick: () => { window.location.hash = `#/sessions/${source.sessionId}`; },
+      });
+    }
+    list.push({
+      label: `ID: ${source.sessionId.slice(0, 12)}${source.sessionId.length > 12 ? "…" : ""}`,
+      onClick: () => { writeClipboardText(source.sessionId).catch(console.error); },
+    });
+    return list;
+  }, [source.sessionId, isCron]);
+
+  return (
+    <div className="mb-1.5">
+      <button
+        ref={btnRef}
+        onClick={toggle}
+        className="flex items-center gap-1 text-[10px] text-cc-muted/70 hover:text-cc-muted transition-colors cursor-pointer"
+        title="Sent by an agent"
+        data-testid="agent-source-badge"
+      >
+        <svg viewBox="0 0 16 16" fill="currentColor" className="w-2.5 h-2.5 text-cc-primary/60 shrink-0">
+          <path d="M9.5 2L3 9.5h5L6.5 14l7.5-7.5h-5L9.5 2z" />
+        </svg>
+        <span className="font-mono-code">via {label}</span>
+      </button>
+      {menuPos && (
+        <ContextMenu
+          x={menuPos.x}
+          y={menuPos.y}
+          items={items}
+          onClose={() => setMenuPos(null)}
+        />
+      )}
+    </div>
+  );
+}
+
 function UserMessage({ message, sessionId, showTimestamp }: { message: ChatMessage; sessionId?: string; showTimestamp: boolean }) {
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
 
@@ -209,6 +268,7 @@ function UserMessage({ message, sessionId, showTimestamp }: { message: ChatMessa
   return (
     <div className="flex justify-end items-start gap-1 group/msg animate-[fadeSlideIn_0.2s_ease-out]">
       <div className="max-w-[85%] sm:max-w-[80%] px-3 sm:px-4 py-2.5 rounded-[14px] rounded-br-[4px] bg-cc-user-bubble text-cc-fg">
+        {message.agentSource && <AgentSourceBadge source={message.agentSource} />}
         {message.images && message.images.length > 0 && sessionId && (
           <div className="flex gap-2 flex-wrap mb-2">
             {message.images.map((img) => {

@@ -226,14 +226,16 @@ describe("execution", () => {
       }),
     );
 
-    // Verify prompt was injected with cron prefix
+    // Verify prompt was injected with cron prefix and agentSource
     expect(bridge.injectUserMessage).toHaveBeenCalledWith(
       expect.stringMatching(/^mock-session-/),
       expect.stringContaining("[cron:run-me Run Me]"),
+      { sessionId: "cron:run-me", sessionLabel: "cron: Run Me" },
     );
     expect(bridge.injectUserMessage).toHaveBeenCalledWith(
       expect.any(String),
       expect.stringContaining("Check PRs"),
+      { sessionId: "cron:run-me", sessionLabel: "cron: Run Me" },
     );
 
     // Verify job tracking was updated

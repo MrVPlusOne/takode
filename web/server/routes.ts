@@ -2798,7 +2798,17 @@ export function createRoutes(
     if (typeof body.content !== "string" || !body.content.trim()) {
       return c.json({ error: "content is required" }, 400);
     }
-    wsBridge.injectUserMessage(id, body.content);
+    // Validate optional agentSource (identifies the caller when sent by takode/cron)
+    let agentSource: { sessionId: string; sessionLabel?: string } | undefined;
+    if (body.agentSource && typeof body.agentSource === "object") {
+      if (typeof body.agentSource.sessionId === "string" && body.agentSource.sessionId.trim()) {
+        agentSource = {
+          sessionId: body.agentSource.sessionId,
+          ...(typeof body.agentSource.sessionLabel === "string" ? { sessionLabel: body.agentSource.sessionLabel } : {}),
+        };
+      }
+    }
+    wsBridge.injectUserMessage(id, body.content, agentSource);
     return c.json({ ok: true, sessionId: id });
   });
 

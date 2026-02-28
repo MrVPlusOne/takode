@@ -1966,14 +1966,18 @@ export class WsBridge {
   }
 
   /** Send a user message into a session programmatically (no browser required).
-   *  Used by the cron scheduler to send prompts to autonomous sessions. */
-  injectUserMessage(sessionId: string, content: string): void {
+   *  Used by the cron scheduler and takode CLI to send prompts. */
+  injectUserMessage(sessionId: string, content: string, agentSource?: { sessionId: string; sessionLabel?: string }): void {
     const session = this.sessions.get(sessionId);
     if (!session) {
       console.error(`[ws-bridge] Cannot inject message: session ${sessionId} not found`);
       return;
     }
-    this.routeBrowserMessage(session, { type: "user_message", content });
+    this.routeBrowserMessage(session, {
+      type: "user_message",
+      content,
+      ...(agentSource ? { agentSource } : {}),
+    });
   }
 
   handleBrowserClose(ws: ServerWebSocket<SocketData>, code?: number, reason?: string) {
@@ -3402,7 +3406,7 @@ export class WsBridge {
 
   private async handleUserMessage(
     session: Session,
-    msg: { type: "user_message"; content: string; session_id?: string; images?: { media_type: string; data: string }[] }
+    msg: { type: "user_message"; content: string; session_id?: string; images?: { media_type: string; data: string }[]; agentSource?: { sessionId: string; sessionLabel?: string } }
   ) {
     const ts = Date.now();
 
@@ -3423,6 +3427,7 @@ export class WsBridge {
       timestamp: ts,
       id: `user-${ts}-${this.userMsgCounter++}`,
       ...(imageRefs?.length ? { images: imageRefs } : {}),
+      ...(msg.agentSource ? { agentSource: msg.agentSource } : {}),
     };
     session.messageHistory.push(userHistoryEntry);
     // Broadcast user message to all browsers (server-authoritative: browsers

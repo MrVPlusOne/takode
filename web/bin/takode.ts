@@ -964,7 +964,31 @@ async function handleSend(base: string, args: string[]): Promise<void> {
 
   if (!sessionRef || !cleanContent) err("Usage: takode send <session> <message>");
 
-  const result = await apiPost(base, `/sessions/${encodeURIComponent(sessionRef)}/message`, { content: cleanContent });
+  // Identify the calling session so the receiver can show an agent badge
+  const callerSessionId = process.env.COMPANION_SESSION_ID;
+  let agentSource: { sessionId: string; sessionLabel?: string } | undefined;
+  if (callerSessionId) {
+    let sessionLabel: string | undefined;
+    try {
+      const sessions = await apiGet(base, "/sessions") as Array<{
+        sessionId: string; sessionNum?: number; name?: string;
+      }>;
+      const own = sessions.find(s => s.sessionId === callerSessionId);
+      if (own) {
+        sessionLabel = own.name
+          ? `#${own.sessionNum ?? "?"} ${own.name}`
+          : `#${own.sessionNum ?? callerSessionId.slice(0, 8)}`;
+      }
+    } catch {
+      // Non-critical — send without label
+    }
+    agentSource = { sessionId: callerSessionId, ...(sessionLabel ? { sessionLabel } : {}) };
+  }
+
+  const result = await apiPost(base, `/sessions/${encodeURIComponent(sessionRef)}/message`, {
+    content: cleanContent,
+    ...(agentSource ? { agentSource } : {}),
+  });
 
   if (jsonMode) {
     console.log(JSON.stringify(result, null, 2));
