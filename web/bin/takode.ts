@@ -221,6 +221,7 @@ function printEvents(events: unknown[], jsonMode: boolean): void {
 async function handleList(base: string, args: string[]): Promise<void> {
   const flags = parseFlags(args);
   const showAll = flags.all === true;
+  const showActive = flags.active === true;
   const jsonMode = flags.json === true;
 
   const sessions = await apiGet(base, "/sessions") as Array<{
@@ -249,22 +250,30 @@ async function handleList(base: string, args: string[]): Promise<void> {
     claimedQuestStatus?: string | null;
   }>;
 
-  // Filter unless --all: default shows all unarchived sessions
-  let filtered = showAll ? sessions : sessions.filter(s => !s.archived);
-
-  // Orchestrator default: show only herded sessions (+ self) unless --all
+  // 3-mode filter:
+  //   default      — herded sessions only (orchestrator's flock, excludes self)
+  //   --active     — all unarchived sessions (discovery/triage view)
+  //   --all        — everything including archived
   const mySessionId = process.env.COMPANION_SESSION_ID;
   const mySelf = mySessionId ? sessions.find(s => s.sessionId === mySessionId) : null;
   const isOrchestrator = mySelf?.isOrchestrator === true;
-  let herdFilterApplied = false;
-  if (isOrchestrator && !showAll && mySessionId) {
-    const herdFiltered = filtered.filter(s =>
-      s.sessionId === mySessionId || s.herdedBy === mySessionId
-    );
-    if (herdFiltered.length > 0) {
-      herdFilterApplied = true;
-      filtered = herdFiltered;
-    }
+
+  let filtered: typeof sessions;
+  let filterHint = "";
+  if (showAll) {
+    filtered = sessions;
+  } else if (showActive) {
+    filtered = sessions.filter(s => !s.archived);
+    filterHint = " (use --all to include archived)";
+  } else if (isOrchestrator && mySessionId) {
+    // Default for orchestrators: show only herded sessions (the flock)
+    filtered = sessions.filter(s => !s.archived && s.herdedBy === mySessionId);
+    filterHint = filtered.length === 0
+      ? " (no herded sessions — run `takode list --active` to discover, then `takode herd <ids>`)"
+      : " (herded only — use --active to see all)";
+  } else {
+    filtered = sessions.filter(s => !s.archived);
+    filterHint = " (use --all to include archived)";
   }
 
   if (jsonMode) {
@@ -330,8 +339,7 @@ async function handleList(base: string, args: string[]): Promise<void> {
     console.log("");
   }
 
-  const herdNote = herdFilterApplied ? ` (${filtered.length - 1} herded, use --all to see all)` : "";
-  console.log(`${total} session(s)${herdNote}${!herdFilterApplied && !showAll ? " (use --all to include archived)" : ""}`);
+  console.log(`${total} session(s)${filterHint}`);
   console.log(`Status: ● running  ○ idle  ✗ disconnected  ⊘ archived  ⚠ needs attention  📋 quest  ↑↓ commits ahead/behind`);
 }
 
@@ -1333,7 +1341,7 @@ function printUsage(): void {
 Usage: takode <command> [options]
 
 Commands:
-  list     List sessions (unarchived by default, --all includes archived)
+  list     List sessions (herded only for leaders, --active for all, --all includes archived)
   search   Search sessions by name, keyword, branch, path, or message
   watch    Wait for events from watched sessions
   tasks    Show task outline of a session (table of contents)

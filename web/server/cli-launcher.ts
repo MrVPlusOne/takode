@@ -1230,13 +1230,16 @@ You are an **orchestrator agent**. You coordinate multiple worker sessions, moni
 
 ## Commands
 
-### \`takode list [--all] [--json]\`
+### \`takode list [--active] [--all] [--json]\`
 
-List all unarchived sessions with their status, name, model, and last activity.
+List sessions. For leaders, the default view shows only herded sessions (your flock). Use \`--active\` to see all unarchived sessions (for discovery/triage), or \`--all\` to include archived.
 
 \`\`\`bash
-# Show unarchived sessions (default)
+# Show herded sessions only (leader default)
 takode list
+
+# Show all unarchived sessions (discover sessions to herd)
+takode list --active
 
 # Show all sessions including archived
 takode list --all

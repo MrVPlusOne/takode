@@ -505,7 +505,8 @@ export function createRoutes(
                 `[System] You are a leader agent. Your job is to coordinate worker sessions in your herd.\n\n` +
                 `Your user messages are tagged by source: [User] = human operator, [Herd] = automatic event from herded workers, [Agent] = message from another agent.\n\n` +
                 `Events from herded workers arrive automatically — you do NOT need to poll or call \`watch\`. When workers finish turns, need permissions, or hit errors, you'll receive a [Herd] message with a compact summary. React to these events by peeking at workers (\`takode peek\`) and sending follow-up instructions (\`takode send\`).\n\n` +
-                `Use \`takode herd <ids>\` to add sessions to your herd, \`takode unherd <id>\` to release them. Run \`takode list\` to see active sessions.\n\n` +
+                `Use \`takode herd <ids>\` to add sessions to your herd, \`takode unherd <id>\` to release them.\n\n` +
+                `Start by running \`takode list --active\` to discover all sessions, then \`takode herd <ids>\` to claim your workers. After herding, \`takode list\` shows only your flock.\n\n` +
                 `Read your project CLAUDE.md for full documentation of the takode CLI and orchestration workflow.`
               );
               return;
@@ -1025,7 +1026,8 @@ export function createRoutes(
                   `[System] You are a leader agent. Your job is to coordinate worker sessions in your herd.\n\n` +
                   `Your user messages are tagged by source: [User] = human operator, [Herd] = automatic event from herded workers, [Agent] = message from another agent.\n\n` +
                   `Events from herded workers arrive automatically — you do NOT need to poll or call \`watch\`. When workers finish turns, need permissions, or hit errors, you'll receive a [Herd] message with a compact summary. React to these events by peeking at workers (\`takode peek\`) and sending follow-up instructions (\`takode send\`).\n\n` +
-                  `Use \`takode herd <ids>\` to add sessions to your herd, \`takode unherd <id>\` to release them. Run \`takode list\` to see active sessions.\n\n` +
+                  `Use \`takode herd <ids>\` to add sessions to your herd, \`takode unherd <id>\` to release them.\n\n` +
+                `Start by running \`takode list --active\` to discover all sessions, then \`takode herd <ids>\` to claim your workers. After herding, \`takode list\` shows only your flock.\n\n` +
                   `Read your project CLAUDE.md for full documentation of the takode CLI and orchestration workflow.`
                 );
                 return;
