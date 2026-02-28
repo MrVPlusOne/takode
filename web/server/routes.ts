@@ -163,6 +163,14 @@ export function createRoutes(
         wsBridge.markResumedFromExternal(session.sessionId);
         const existingNames = new Set(Object.values(sessionNames.getAllNames()));
         sessionNames.setName(session.sessionId, generateUniqueSessionName(existingNames));
+        // Auto-herd: if creator is an orchestrator, herd the new session
+        if (body.createdBy) {
+          const creatorId = resolveId(String(body.createdBy));
+          const creator = creatorId ? launcher.getSession(creatorId) : null;
+          if (creator?.isOrchestrator) {
+            launcher.herdSessions(creator.sessionId, [session.sessionId]);
+          }
+        }
         return c.json(session);
       }
 
@@ -513,6 +521,15 @@ export function createRoutes(
         const existingNames = new Set(Object.values(sessionNames.getAllNames()));
         const generatedName = generateUniqueSessionName(existingNames);
         sessionNames.setName(session.sessionId, generatedName);
+      }
+
+      // Auto-herd: if creator is an orchestrator, herd the new session
+      if (body.createdBy) {
+        const creatorId = resolveId(String(body.createdBy));
+        const creator = creatorId ? launcher.getSession(creatorId) : null;
+        if (creator?.isOrchestrator) {
+          launcher.herdSessions(creator.sessionId, [session.sessionId]);
+        }
       }
 
       return c.json(session);
@@ -2810,6 +2827,54 @@ export function createRoutes(
     }
     wsBridge.injectUserMessage(id, body.content, agentSource);
     return c.json({ ok: true, sessionId: id });
+  });
+
+  // ─── Cat herding (orchestrator→worker relationships) ──────────────
+
+  api.post("/sessions/:id/herd", async (c) => {
+    const orchId = resolveId(c.req.param("id"));
+    if (!orchId) return c.json({ error: "Orchestrator session not found" }, 404);
+    const orch = launcher.getSession(orchId);
+    if (!orch) return c.json({ error: "Orchestrator session not found" }, 404);
+    const body = await c.req.json().catch(() => ({}));
+    if (!Array.isArray(body.workerIds) || body.workerIds.length === 0) {
+      return c.json({ error: "workerIds array is required" }, 400);
+    }
+    // Resolve each worker ref (supports #N, UUID, prefix)
+    const resolved: string[] = [];
+    const notFound: string[] = [];
+    for (const ref of body.workerIds) {
+      const wid = resolveId(String(ref));
+      if (wid) { resolved.push(wid); } else { notFound.push(String(ref)); }
+    }
+    const result = launcher.herdSessions(orchId, resolved);
+    return c.json({ herded: result.herded, notFound: [...notFound, ...result.notFound] });
+  });
+
+  api.delete("/sessions/:id/herd/:workerId", (c) => {
+    const orchId = resolveId(c.req.param("id"));
+    if (!orchId) return c.json({ error: "Orchestrator session not found" }, 404);
+    const workerId = resolveId(c.req.param("workerId"));
+    if (!workerId) return c.json({ error: "Worker session not found" }, 404);
+    const removed = launcher.unherdSession(orchId, workerId);
+    return c.json({ ok: true, removed });
+  });
+
+  api.get("/sessions/:id/herd", (c) => {
+    const orchId = resolveId(c.req.param("id"));
+    if (!orchId) return c.json({ error: "Orchestrator session not found" }, 404);
+    const herded = launcher.getHerdedSessions(orchId);
+    return c.json(herded.map(s => ({
+      sessionId: s.sessionId,
+      sessionNum: s.sessionNum,
+      name: sessionNames.getName(s.sessionId),
+      state: s.state,
+      cwd: s.cwd,
+      backendType: s.backendType,
+      cliConnected: wsBridge.isCliConnected(s.sessionId),
+      isOrchestrator: s.isOrchestrator,
+      herdedBy: s.herdedBy,
+    })));
   });
 
   // ─── Skills ─────────────────────────────────────────────────────────

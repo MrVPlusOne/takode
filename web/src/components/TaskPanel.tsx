@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useSyncExternalStore } from "react";
 import { useStore } from "../store.js";
 import { api, type GitHubPRInfo } from "../api.js";
-import type { TaskItem, SessionTaskEntry } from "../types.js";
+import type { TaskItem, SessionTaskEntry, SdkSessionInfo } from "../types.js";
 import { McpSection } from "./McpPanel.js";
 import { ClaudeMdEditor } from "./ClaudeMdEditor.js";
 
@@ -646,6 +646,79 @@ function SessionTasksSection({ sessionId }: { sessionId: string }) {
   );
 }
 
+// ─── Herded sessions (orchestrator panel) ────────────────────────────────────
+
+function HerdedSessionsSection({ sessionId }: { sessionId: string }) {
+  const [collapsed, toggle] = usePersistedCollapse("cc-collapse-herded");
+  const sdkSessions = useStore((s) => s.sdkSessions);
+  const sessionNames = useStore((s) => s.sessionNames);
+
+  const herded = sdkSessions.filter(
+    (s: SdkSessionInfo) => s.herdedBy?.includes(sessionId)
+  );
+
+  const handleUnherd = useCallback(async (workerId: string) => {
+    try {
+      await api.unherdSession(sessionId, workerId);
+      api.listSessions().then((sessions: SdkSessionInfo[]) => {
+        useStore.getState().setSdkSessions(sessions);
+      }).catch(() => {});
+    } catch (e) {
+      console.error("[TaskPanel] Failed to unherd:", e);
+    }
+  }, [sessionId]);
+
+  return (
+    <>
+      <SectionHeader
+        title="Herded Sessions"
+        collapsed={collapsed}
+        onToggle={toggle}
+        right={herded.length > 0 ? (
+          <span className="text-[10px] text-cc-muted tabular-nums">{herded.length}</span>
+        ) : undefined}
+      />
+      {!collapsed && (
+        <div className="px-3 py-2 space-y-1">
+          {herded.length === 0 ? (
+            <p className="text-[11px] text-cc-muted italic">No herded sessions.</p>
+          ) : (
+            herded.map((s: SdkSessionInfo) => {
+              const name = sessionNames.get(s.sessionId) || s.name || "(unnamed)";
+              const isRunning = s.state === "running" || s.state === "connected";
+              const dotColor = s.state === "exited" ? "text-cc-muted/40"
+                : isRunning ? "text-cc-success"
+                : "text-cc-muted/60";
+              return (
+                <div key={s.sessionId} className="flex items-center gap-2 py-1 group/herd">
+                  <span className={`shrink-0 w-1.5 h-1.5 rounded-full ${dotColor} bg-current`} />
+                  <button
+                    className="flex-1 text-left text-[11px] text-cc-fg truncate hover:underline cursor-pointer"
+                    onClick={() => { window.location.hash = `#/sessions/${s.sessionId}`; }}
+                    title={name}
+                  >
+                    {s.sessionNum != null && <span className="text-cc-muted font-mono mr-1">#{s.sessionNum}</span>}
+                    {name}
+                  </button>
+                  <button
+                    className="opacity-0 group-hover/herd:opacity-100 text-cc-muted hover:text-cc-error transition-all cursor-pointer p-0.5"
+                    title="Unherd this session"
+                    onClick={() => handleUnherd(s.sessionId)}
+                  >
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3 h-3">
+                      <path d="M4 4l8 8M12 4l-8 8" />
+                    </svg>
+                  </button>
+                </div>
+              );
+            })
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
 export function TaskPanel({ sessionId }: { sessionId: string }) {
   const tasks = useStore((s) => s.sessionTasks.get(sessionId) || EMPTY_TASKS);
   const session = useStore((s) => s.sessions.get(sessionId));
@@ -699,6 +772,9 @@ export function TaskPanel({ sessionId }: { sessionId: string }) {
 
         {/* Session-level tasks recognized by the auto-namer */}
         {showTasks && <SessionTasksSection sessionId={sessionId} />}
+
+        {/* Herded sessions — only for orchestrator sessions */}
+        {sdkSession?.isOrchestrator && <HerdedSessionsSection sessionId={sessionId} />}
 
         {/* Agent to-do items — hidden when empty or all completed */}
         {showTasks && tasks.length > 0 && completedCount < tasks.length && (

@@ -161,7 +161,7 @@ export function SessionHoverCard({
             {s.isOrchestrator && (
               <>
                 <span className="text-cc-muted/40 text-[10px]">&middot;</span>
-                <span className="text-[11px] text-amber-500 font-medium">Orchestrator</span>
+                <span className="text-[11px] text-amber-500 font-medium">Leader</span>
               </>
             )}
           </div>

@@ -492,6 +492,23 @@ export const api = {
       { branch },
     ),
 
+  // Cat herding (orchestrator→worker relationships)
+  herdSessions: (orchId: string, workerIds: string[]) =>
+    post<{ herded: string[]; notFound: string[] }>(
+      `/sessions/${encodeURIComponent(orchId)}/herd`,
+      { workerIds },
+    ),
+
+  unherdSession: (orchId: string, workerId: string) =>
+    del<{ ok: boolean; removed: boolean }>(
+      `/sessions/${encodeURIComponent(orchId)}/herd/${encodeURIComponent(workerId)}`,
+    ),
+
+  getHerdedSessions: (orchId: string) =>
+    get<SdkSessionInfo[]>(
+      `/sessions/${encodeURIComponent(orchId)}/herd`,
+    ),
+
   listDirs: (path?: string) =>
     get<DirListResult>(
       `/fs/list${path ? `?path=${encodeURIComponent(path)}` : ""}`,

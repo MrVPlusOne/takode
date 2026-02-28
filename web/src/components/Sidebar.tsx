@@ -381,6 +381,7 @@ export function Sidebar() {
       idleKilled: cliDisconnectReason.get(id) === "idle_limit",
       lastActivityAt: sdkInfo?.lastActivityAt,
       isOrchestrator: sdkInfo?.isOrchestrator || false,
+      herdedBy: sdkInfo?.herdedBy,
       sessionNum: sdkInfo?.sessionNum ?? null,
     };
   }).sort((a, b) => b.createdAt - a.createdAt);

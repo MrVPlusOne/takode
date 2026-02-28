@@ -66,6 +66,15 @@ async function apiPost(base: string, path: string, body?: unknown): Promise<unkn
   return res.json();
 }
 
+async function apiDelete(base: string, path: string): Promise<unknown> {
+  const res = await fetch(`${base}${path}`, { method: "DELETE" });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error((data as { error?: string }).error || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
 function err(message: string): never {
   console.error(JSON.stringify({ error: message }));
   process.exit(1);
@@ -233,10 +242,26 @@ async function handleList(base: string, args: string[]): Promise<void> {
     attentionReason?: string;
     repoRoot?: string;
     isWorktree?: boolean;
+    herdedBy?: string[];
   }>;
 
   // Filter unless --all
-  const filtered = showAll ? sessions : sessions.filter(s => !s.archived && s.state !== "exited");
+  let filtered = showAll ? sessions : sessions.filter(s => !s.archived && s.state !== "exited");
+
+  // Orchestrator default: show only herded sessions (+ self) unless --all
+  const mySessionId = process.env.COMPANION_SESSION_ID;
+  const mySelf = mySessionId ? sessions.find(s => s.sessionId === mySessionId) : null;
+  const isOrchestrator = mySelf?.isOrchestrator === true;
+  let herdFilterApplied = false;
+  if (isOrchestrator && !showAll && mySessionId) {
+    const herdFiltered = filtered.filter(s =>
+      s.sessionId === mySessionId || s.herdedBy?.includes(mySessionId)
+    );
+    if (herdFiltered.length > 0) {
+      herdFilterApplied = true;
+      filtered = herdFiltered;
+    }
+  }
 
   if (jsonMode) {
     console.log(JSON.stringify(filtered, null, 2));
@@ -301,7 +326,8 @@ async function handleList(base: string, args: string[]): Promise<void> {
     console.log("");
   }
 
-  console.log(`${total} session(s)${showAll ? "" : " (active only, use --all to see all)"}`);
+  const herdNote = herdFilterApplied ? ` (${filtered.length - 1} herded, use --all to see all)` : "";
+  console.log(`${total} session(s)${herdNote}${!herdFilterApplied && !showAll ? " (active only, use --all to see all)" : ""}`);
   console.log(`Status: ● running  ○ idle  ✗ disconnected  ⊘ archived  ⚠ needs attention`);
 }
 
@@ -313,6 +339,7 @@ function printSessionLine(s: {
   archived?: boolean;
   isOrchestrator?: boolean;
   isAssistant?: boolean;
+  herdedBy?: string[];
   model?: string;
   gitBranch?: string;
   attentionReason?: string;
@@ -322,7 +349,8 @@ function printSessionLine(s: {
 }): void {
   const num = s.sessionNum !== undefined ? `#${s.sessionNum}` : "  ";
   const name = s.name || "(unnamed)";
-  const role = s.isOrchestrator ? " [orch]" : s.isAssistant ? " [asst]" : "";
+  const role = s.isOrchestrator ? " [leader]" : s.isAssistant ? " [asst]" : "";
+  const herd = s.herdedBy?.length ? " [herd]" : "";
   const status = s.cliConnected
     ? (s.state === "running" ? "●" : "○")
     : (s.archived ? "⊘" : "✗");
@@ -332,7 +360,7 @@ function printSessionLine(s: {
   const activity = s.lastActivityAt ? formatRelativeTime(s.lastActivityAt) : "";
   const preview = s.lastMessagePreview ? `  "${truncate(s.lastMessagePreview, 50)}"` : "";
 
-  console.log(`  ${num.padEnd(5)} ${status} ${name}${role}${attention}`);
+  console.log(`  ${num.padEnd(5)} ${status} ${name}${role}${herd}${attention}`);
   console.log(`        ${branch}${wt}  ${activity}${preview}`);
 }
 
@@ -998,6 +1026,56 @@ async function handleSend(base: string, args: string[]): Promise<void> {
   console.log(`[${formatTime(Date.now())}] \u2713 Message sent to session ${sessionRef}`);
 }
 
+// ─── Herd/Unherd handlers ───────────────────────────────────────────────────
+
+async function handleHerd(base: string, args: string[]): Promise<void> {
+  const jsonMode = args.includes("--json");
+  // Parse comma/space-separated session refs (filtering out flags)
+  const refs = args.filter(a => !a.startsWith("--")).join(",").split(",").map(s => s.trim()).filter(Boolean);
+  if (refs.length === 0) err("Usage: takode herd <session1,session2,...>");
+
+  const mySessionId = process.env.COMPANION_SESSION_ID;
+  if (!mySessionId) err("COMPANION_SESSION_ID not set");
+
+  const result = await apiPost(base, `/sessions/${encodeURIComponent(mySessionId)}/herd`, {
+    workerIds: refs,
+  }) as { herded: string[]; notFound: string[] };
+
+  if (jsonMode) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (result.herded.length > 0) {
+    console.log(`[${formatTime(Date.now())}] \u2713 Herded ${result.herded.length} session(s)`);
+  }
+  if (result.notFound.length > 0) {
+    console.log(`[${formatTime(Date.now())}] \u2717 Not found: ${result.notFound.join(", ")}`);
+  }
+}
+
+async function handleUnherd(base: string, args: string[]): Promise<void> {
+  const sessionRef = args.filter(a => !a.startsWith("--"))[0];
+  const jsonMode = args.includes("--json");
+  if (!sessionRef) err("Usage: takode unherd <session>");
+
+  const mySessionId = process.env.COMPANION_SESSION_ID;
+  if (!mySessionId) err("COMPANION_SESSION_ID not set");
+
+  const result = await apiDelete(base, `/sessions/${encodeURIComponent(mySessionId)}/herd/${encodeURIComponent(sessionRef)}`) as { ok: boolean; removed: boolean };
+
+  if (jsonMode) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (result.removed) {
+    console.log(`[${formatTime(Date.now())}] \u2713 Unherded session ${sessionRef}`);
+  } else {
+    console.log(`[${formatTime(Date.now())}] Session ${sessionRef} was not herded by you`);
+  }
+}
+
 // ─── Search handler ──────────────────────────────────────────────────────────
 
 async function handleSearch(base: string, args: string[]): Promise<void> {
@@ -1126,6 +1204,8 @@ Commands:
   peek     View session activity (smart overview by default)
   read     Read full content of a specific message
   send     Send a message to a session
+  herd     Herd sessions (e.g. takode herd 5,6,7)
+  unherd   Release a session from your herd (e.g. takode unherd 5)
 
 Peek modes:
   takode peek 1                    Smart overview (collapsed turns + expanded last turn)
@@ -1187,6 +1267,12 @@ try {
       break;
     case "send":
       await handleSend(base, args);
+      break;
+    case "herd":
+      await handleHerd(base, args);
+      break;
+    case "unherd":
+      await handleUnherd(base, args);
       break;
     case "help":
     case "-h":

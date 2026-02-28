@@ -117,6 +117,8 @@ export interface SdkSessionInfo {
   isAssistant?: boolean;
   /** Whether this is an orchestrator session (has takode CLI access) */
   isOrchestrator?: boolean;
+  /** Session UUIDs of orchestrators that have herded this worker */
+  herdedBy?: string[];
   /** One-shot: resume-session-at UUID for revert (cleared after use) */
   resumeAt?: string;
 
@@ -1706,6 +1708,55 @@ ${ORCH_END}`;
       info.archivedAt = archived ? Date.now() : undefined;
       this.persistState();
     }
+  }
+
+  // ─── Cat herding (orchestrator→worker relationships) ─────────────────────
+
+  /**
+   * Herd worker sessions under an orchestrator. Idempotent — re-herding
+   * by the same orchestrator is a no-op. Multiple orchestrators can herd
+   * the same session.
+   */
+  herdSessions(orchId: string, workerIds: string[]): { herded: string[]; notFound: string[] } {
+    const herded: string[] = [];
+    const notFound: string[] = [];
+    for (const wid of workerIds) {
+      const worker = this.sessions.get(wid);
+      if (!worker) { notFound.push(wid); continue; }
+      if (!worker.herdedBy) worker.herdedBy = [];
+      if (!worker.herdedBy.includes(orchId)) {
+        worker.herdedBy.push(orchId);
+      }
+      herded.push(wid);
+    }
+    if (herded.length > 0) this.persistState();
+    return { herded, notFound };
+  }
+
+  /**
+   * Remove an orchestrator's herding claim from a worker session.
+   * Returns true if the relationship existed and was removed.
+   */
+  unherdSession(orchId: string, workerId: string): boolean {
+    const worker = this.sessions.get(workerId);
+    if (!worker?.herdedBy) return false;
+    const idx = worker.herdedBy.indexOf(orchId);
+    if (idx === -1) return false;
+    worker.herdedBy.splice(idx, 1);
+    if (worker.herdedBy.length === 0) worker.herdedBy = undefined;
+    this.persistState();
+    return true;
+  }
+
+  /**
+   * Get all sessions herded by a specific orchestrator.
+   */
+  getHerdedSessions(orchId: string): SdkSessionInfo[] {
+    const result: SdkSessionInfo[] = [];
+    for (const s of this.sessions.values()) {
+      if (s.herdedBy?.includes(orchId)) result.push(s);
+    }
+    return result;
   }
 
   /**
