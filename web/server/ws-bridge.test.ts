@@ -5371,3 +5371,91 @@ describe("Codex image transport", () => {
     expect(sentMsg.images[0].data).toBe("raw-data");
   });
 });
+
+// ─── Sensitive path and command guards ───────────────────────────────────────
+// These are private static methods — access via `any` cast for testing.
+
+describe("isSensitiveConfigPath", () => {
+  const check = (p: string) => (WsBridge as any).isSensitiveConfigPath(p);
+
+  it("blocks CLAUDE.md anywhere", () => {
+    expect(check("/home/user/project/CLAUDE.md")).toBe(true);
+    expect(check("/home/user/.claude/CLAUDE.md")).toBe(true);
+    expect(check("/some/nested/dir/CLAUDE.md")).toBe(true);
+  });
+
+  it("blocks .mcp.json and .claude.json", () => {
+    expect(check("/project/.mcp.json")).toBe(true);
+    expect(check("/project/.claude.json")).toBe(true);
+  });
+
+  it("blocks .claude/ settings and credentials", () => {
+    expect(check("/home/user/.claude/settings.json")).toBe(true);
+    expect(check("/home/user/.claude/settings.local.json")).toBe(true);
+    expect(check("/home/user/.claude/.credentials.json")).toBe(true);
+  });
+
+  it("blocks .claude/ subdirectories (commands, agents, skills, hooks)", () => {
+    expect(check("/home/user/.claude/hooks/my-hook.sh")).toBe(true);
+    expect(check("/home/user/.claude/commands/custom.md")).toBe(true);
+    expect(check("/home/user/.claude/agents/reviewer.md")).toBe(true);
+    expect(check("/home/user/.claude/skills/skill.md")).toBe(true);
+  });
+
+  it("blocks companion auto-approval configs", () => {
+    const home = process.env.HOME || "/home/user";
+    expect(check(`${home}/.companion/auto-approval/abc123.json`)).toBe(true);
+  });
+
+  it("blocks port-specific companion settings", () => {
+    const home = process.env.HOME || "/home/user";
+    expect(check(`${home}/.companion/settings.json`)).toBe(true);
+    expect(check(`${home}/.companion/settings-3456.json`)).toBe(true);
+    expect(check(`${home}/.companion/settings-8080.json`)).toBe(true);
+  });
+
+  it("allows normal project files", () => {
+    expect(check("/home/user/project/src/main.ts")).toBe(false);
+    expect(check("/home/user/project/README.md")).toBe(false);
+    expect(check("/home/user/project/package.json")).toBe(false);
+  });
+});
+
+describe("isSensitiveBashCommand", () => {
+  const check = (cmd: string) => (WsBridge as any).isSensitiveBashCommand(cmd);
+
+  it("blocks commands targeting CLAUDE.md", () => {
+    expect(check("sed -i 's/foo/bar/' CLAUDE.md")).toBe(true);
+    expect(check("cat > /project/CLAUDE.md <<EOF")).toBe(true);
+    expect(check("echo 'new rules' >> CLAUDE.md")).toBe(true);
+  });
+
+  it("blocks commands targeting .claude/ config files", () => {
+    expect(check("tee ~/.claude/hooks/smart-approve.sh")).toBe(true);
+    expect(check("rm ~/.claude/settings.json")).toBe(true);
+    expect(check("cp evil.json .claude/commands/")).toBe(true);
+    expect(check("echo '{}' > .claude/agents/reviewer.md")).toBe(true);
+  });
+
+  it("blocks commands targeting companion config", () => {
+    expect(check("cat > ~/.companion/settings-3456.json")).toBe(true);
+    expect(check("rm ~/.companion/auto-approval/config.json")).toBe(true);
+    expect(check("tee ~/.companion/envs/prod.json")).toBe(true);
+  });
+
+  it("blocks commands targeting MCP configs", () => {
+    expect(check("echo '{}' > .mcp.json")).toBe(true);
+    expect(check("cat > ~/.claude.json")).toBe(true);
+  });
+
+  it("allows normal bash commands", () => {
+    expect(check("git status")).toBe(false);
+    expect(check("npm test")).toBe(false);
+    expect(check("ls -la /home/user/project")).toBe(false);
+    expect(check("cat src/main.ts")).toBe(false);
+  });
+
+  it("returns false for empty command", () => {
+    expect(check("")).toBe(false);
+  });
+});

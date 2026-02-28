@@ -2592,12 +2592,29 @@ export class WsBridge {
     // Companion config
     const home = homedir();
     if (filePath.startsWith(`${home}/.companion/settings.json`) ||
-        filePath.startsWith(`${home}/.companion/envs/`)) {
+        filePath.startsWith(`${home}/.companion/envs/`) ||
+        filePath.startsWith(`${home}/.companion/auto-approval/`)) {
+      return true;
+    }
+    // Port-specific companion settings (e.g. settings-3456.json)
+    if (filePath.startsWith(`${home}/.companion/`) && /settings(-\d+)?\.json$/.test(filePath)) {
       return true;
     }
     // ~/.claude.json (user-level MCP config at home root)
     if (filePath === `${home}/.claude.json`) return true;
     return false;
+  }
+
+  /** Check if a Bash command targets sensitive config files (CLAUDE.md, hooks, settings, etc.).
+   *  Used to skip LLM auto-approval for commands that could modify agent behavior. */
+  private static isSensitiveBashCommand(command: string): boolean {
+    if (!command) return false;
+    const sensitive = [
+      "CLAUDE.md", ".claude/settings", ".claude/hooks/", ".claude/commands/",
+      ".claude/agents/", ".claude/skills/", ".mcp.json", ".claude.json",
+      ".companion/settings", ".companion/auto-approval/", ".companion/envs/",
+    ];
+    return sensitive.some(p => command.includes(p));
   }
 
   // Tools that are auto-approved in acceptEdits mode (everything except Bash).
@@ -2645,9 +2662,14 @@ export class WsBridge {
 
       // Check if LLM auto-approval is available for this session's project.
       // Only for Claude Code sessions and non-NEVER_AUTO_APPROVE tools.
+      // Sensitive file edits and Bash commands targeting config files always
+      // require human review — never sent to the LLM auto-approver.
+      const bashCommand = toolName === "Bash" ? String(msg.request.input.command ?? "") : "";
       const autoApprovalConfig = (
         session.backendType === "claude" &&
-        !NEVER_AUTO_APPROVE.has(toolName)
+        !NEVER_AUTO_APPROVE.has(toolName) &&
+        !(isFileEdit && WsBridge.isSensitiveConfigPath(filePath)) &&
+        !(toolName === "Bash" && WsBridge.isSensitiveBashCommand(bashCommand))
       ) ? await shouldAttemptAutoApproval(
         session.state.cwd,
         session.state.repo_root ? [session.state.repo_root] : undefined,
