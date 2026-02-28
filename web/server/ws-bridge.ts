@@ -2130,7 +2130,14 @@ export class WsBridge {
         session.state.cwd = msg.cwd;
       }
       session.state.tools = msg.tools;
-      session.state.permissionMode = msg.permissionMode;
+      // On --resume reconnect, the CLI reports its launch-time permissionMode
+      // (typically "plan"), which would overwrite any mode the user approved
+      // before the disconnect (e.g. ExitPlanMode → acceptEdits). Preserve the
+      // server's existing permissionMode for resumed sessions.
+      const isResume = session.messageHistory.length > 0;
+      if (!isResume) {
+        session.state.permissionMode = msg.permissionMode;
+      }
       session.state.claude_code_version = msg.claude_code_version;
       // system.init marks the end of --resume replay. Clear the resuming flag
       // so subsequent real-time system.status updates can change uiMode again.
@@ -3733,6 +3740,10 @@ export class WsBridge {
     const uiMode = mode === "plan" ? "plan" : "agent";
     session.state.permissionMode = mode;
     session.state.uiMode = uiMode;
+    // Also update the launcher's stored mode so CLI relaunch uses the latest
+    // mode, not the one from session creation (which is typically "plan").
+    const launcherInfo = this.launcher?.getSession(session.id);
+    if (launcherInfo) launcherInfo.permissionMode = mode;
     this.broadcastToBrowsers(session, {
       type: "session_update",
       session: { permissionMode: mode, uiMode },
