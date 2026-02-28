@@ -2158,16 +2158,17 @@ export class CodexAdapter {
     // Wake any callers waiting for the turn to end (e.g. interruptAndWaitForTurnEnd)
     for (const resolve of this.turnEndResolvers.splice(0)) resolve();
 
-    // Interrupted turns are an internal mechanism (e.g. user sent a new
-    // message while a turn was active). Don't emit a result — the next
-    // turn/start will produce its own result when it finishes.
-    if (turn?.status === "interrupted") return;
+    // Always emit a result — even for interrupted turns — so the server
+    // transitions to idle. For internal interrupts (new message while a turn
+    // was active), the next turn/start will immediately set generating=true
+    // again, so the brief idle flash is imperceptible.
 
     // Synthesize a CLIResultMessage-like structure
+    const isSuccess = turn?.status === "completed" || turn?.status === "interrupted";
     const result: CLIResultMessage = {
       type: "result",
-      subtype: turn?.status === "completed" ? "success" : "error_during_execution",
-      is_error: turn?.status !== "completed",
+      subtype: isSuccess ? "success" : "error_during_execution",
+      is_error: !isSuccess,
       result: turn?.error?.message,
       duration_ms: 0,
       duration_api_ms: 0,

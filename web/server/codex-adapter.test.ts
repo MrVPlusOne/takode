@@ -893,9 +893,10 @@ describe("CodexAdapter", () => {
     expect(result.data.result).toBe("Rate limit exceeded");
   });
 
-  it("suppresses result for interrupted turn/completed", async () => {
-    // Interrupted turns (e.g. user sent new message mid-turn) should not
-    // emit a result message — the new turn will produce its own result.
+  it("emits result for interrupted turn/completed so session returns to idle", async () => {
+    // Interrupted turns must still emit a result so the server transitions
+    // to idle. For internal interrupts (new message mid-turn), the next
+    // turn/start immediately sets generating=true again.
     const messages: BrowserIncomingMessage[] = [];
     const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
     adapter.onBrowserMessage((msg) => messages.push(msg));
@@ -915,7 +916,11 @@ describe("CodexAdapter", () => {
     await new Promise((r) => setTimeout(r, 50));
 
     const results = messages.filter((m) => m.type === "result");
-    expect(results).toHaveLength(0);
+    expect(results).toHaveLength(1);
+    const resultData = (results[0] as { data: { subtype: string; is_error: boolean; stop_reason: string } }).data;
+    expect(resultData.subtype).toBe("success");
+    expect(resultData.is_error).toBe(false);
+    expect(resultData.stop_reason).toBe("interrupted");
   });
 
   it("returns false for unsupported outgoing message types", async () => {
