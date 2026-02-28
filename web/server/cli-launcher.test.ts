@@ -1453,20 +1453,21 @@ describe("cat herding", () => {
     herdLauncher.herdSessions("orch-1", ["worker-1"]); // idempotent
 
     const worker = herdLauncher.getSession("worker-1");
-    expect(worker?.herdedBy).toEqual(["orch-1"]); // only one entry
+    expect(worker?.herdedBy).toBe("orch-1");
   });
 
-  it("allows multiple orchestrators to herd the same session", async () => {
+  it("rejects herding by a second leader (conflict)", async () => {
     await setupSessions("orch-1", "orch-2", "worker-1");
 
     herdLauncher.herdSessions("orch-1", ["worker-1"]);
-    herdLauncher.herdSessions("orch-2", ["worker-1"]);
+    const result = herdLauncher.herdSessions("orch-2", ["worker-1"]);
+
+    // worker-1 stays with orch-1, orch-2 gets a conflict
+    expect(result.herded).toEqual([]);
+    expect(result.conflicts).toEqual([{ id: "worker-1", herder: "orch-1" }]);
 
     const worker = herdLauncher.getSession("worker-1");
-    expect(worker?.herdedBy).toEqual(["orch-1", "orch-2"]);
-
-    expect(herdLauncher.getHerdedSessions("orch-1").map(s => s.sessionId)).toEqual(["worker-1"]);
-    expect(herdLauncher.getHerdedSessions("orch-2").map(s => s.sessionId)).toEqual(["worker-1"]);
+    expect(worker?.herdedBy).toBe("orch-1"); // unchanged
   });
 
   it("unherds a session", async () => {
@@ -1485,15 +1486,15 @@ describe("cat herding", () => {
     expect(herdLauncher.unherdSession("orch-1", "worker-1")).toBe(false);
   });
 
-  it("unherd only removes the specified orchestrator", async () => {
+  it("unherd returns false when herded by a different leader", async () => {
     await setupSessions("orch-1", "orch-2", "worker-1");
 
     herdLauncher.herdSessions("orch-1", ["worker-1"]);
-    herdLauncher.herdSessions("orch-2", ["worker-1"]);
-    herdLauncher.unherdSession("orch-1", "worker-1");
+    // orch-2 can't unherd orch-1's worker
+    expect(herdLauncher.unherdSession("orch-2", "worker-1")).toBe(false);
 
     const worker = herdLauncher.getSession("worker-1");
-    expect(worker?.herdedBy).toEqual(["orch-2"]);
+    expect(worker?.herdedBy).toBe("orch-1"); // unchanged
   });
 
   it("reports not-found worker IDs", async () => {

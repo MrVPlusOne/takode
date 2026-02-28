@@ -924,6 +924,15 @@ export class WsBridge {
     this.sessionNameGetter = fn;
   }
 
+  /** Route a permission response from an external source (REST API / CLI).
+   *  This reuses the same handlePermissionResponse path as browser WebSocket responses. */
+  routeExternalPermissionResponse(
+    session: Session,
+    msg: { type: "permission_response"; request_id: string; behavior: "allow" | "deny"; updated_input?: Record<string, unknown>; message?: string },
+  ): void {
+    this.routeBrowserMessage(session, msg as BrowserOutgoingMessage);
+  }
+
   // ── Takode orchestration event methods ──────────────────────────────────
 
   /** Emit a takode event, buffering it and notifying matching subscribers. */
@@ -2644,7 +2653,9 @@ export class WsBridge {
         // Takode: emit permission_request only when it actually needs human attention
         this.emitTakodeEvent(session.id, "permission_request", {
           tool_name: perm.tool_name,
+          request_id: perm.request_id,
           summary: perm.description || perm.tool_name,
+          ...this.buildPermissionPreview(perm),
         });
 
         if (this.pushoverNotifier) {
@@ -2778,7 +2789,9 @@ export class WsBridge {
         // Takode: emit permission_request NOW — auto-approval deferred, human needs to act
         this.emitTakodeEvent(session.id, "permission_request", {
           tool_name: perm.tool_name,
+          request_id: perm.request_id,
           summary: perm.description || perm.tool_name,
+          ...this.buildPermissionPreview(perm),
         });
 
         // NOW set attention and schedule notifications
@@ -2810,7 +2823,9 @@ export class WsBridge {
         // Takode: emit permission_request on fail-safe escalation too
         this.emitTakodeEvent(session.id, "permission_request", {
           tool_name: perm.tool_name,
+          request_id: perm.request_id,
           summary: perm.description || perm.tool_name,
+          ...this.buildPermissionPreview(perm),
         });
         this.setAttention(session, "action");
         this.persistSession(session);
@@ -4152,6 +4167,25 @@ export class WsBridge {
         }
       }
     }
+  }
+
+  /** Build a preview of a permission request for inclusion in takode events.
+   *  For AskUserQuestion: first question text. For ExitPlanMode: truncated plan. */
+  private buildPermissionPreview(perm: PermissionRequest): Record<string, unknown> {
+    if (perm.tool_name === "AskUserQuestion") {
+      const questions = perm.input.questions as Array<{ question: string; options?: Array<{ label: string }> }> | undefined;
+      if (questions?.[0]) {
+        return {
+          question: questions[0].question,
+          options: questions[0].options?.map(o => o.label),
+        };
+      }
+    }
+    if (perm.tool_name === "ExitPlanMode") {
+      const plan = typeof perm.input.plan === "string" ? perm.input.plan.slice(0, 200) : undefined;
+      return plan ? { planPreview: plan } : {};
+    }
+    return {};
   }
 
   /** Scan backwards through messageHistory to build a tool usage summary for the last turn. */

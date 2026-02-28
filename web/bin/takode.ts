@@ -244,9 +244,10 @@ async function handleList(base: string, args: string[]): Promise<void> {
     attentionReason?: string;
     repoRoot?: string;
     isWorktree?: boolean;
-    herdedBy?: string[];
+    herdedBy?: string;
     claimedQuestId?: string | null;
-    claimedQuestStatus?: string | null;  }>;
+    claimedQuestStatus?: string | null;
+  }>;
 
   // Filter unless --all: default shows all unarchived sessions
   let filtered = showAll ? sessions : sessions.filter(s => !s.archived);
@@ -258,7 +259,7 @@ async function handleList(base: string, args: string[]): Promise<void> {
   let herdFilterApplied = false;
   if (isOrchestrator && !showAll && mySessionId) {
     const herdFiltered = filtered.filter(s =>
-      s.sessionId === mySessionId || s.herdedBy?.includes(mySessionId)
+      s.sessionId === mySessionId || s.herdedBy === mySessionId
     );
     if (herdFiltered.length > 0) {
       herdFilterApplied = true;
@@ -342,7 +343,7 @@ function printSessionLine(s: {
   archived?: boolean;
   isOrchestrator?: boolean;
   isAssistant?: boolean;
-  herdedBy?: string[];
+  herdedBy?: string;
   model?: string;
   gitBranch?: string;
   gitAhead?: number;
@@ -357,7 +358,7 @@ function printSessionLine(s: {
   const num = s.sessionNum !== undefined ? `#${s.sessionNum}` : "  ";
   const name = s.name || "(unnamed)";
   const role = s.isOrchestrator ? " [leader]" : s.isAssistant ? " [asst]" : "";
-  const herd = s.herdedBy?.length ? " [herd]" : "";
+  const herd = s.herdedBy ? " [herd]" : "";
   const status = s.cliConnected
     ? (s.state === "running" ? "●" : "○")
     : (s.archived ? "⊘" : "✗");
@@ -1087,7 +1088,7 @@ async function handleHerd(base: string, args: string[]): Promise<void> {
 
   const result = await apiPost(base, `/sessions/${encodeURIComponent(mySessionId)}/herd`, {
     workerIds: refs,
-  }) as { herded: string[]; notFound: string[] };
+  }) as { herded: string[]; notFound: string[]; conflicts: Array<{ id: string; herder: string }> };
 
   if (jsonMode) {
     console.log(JSON.stringify(result, null, 2));
@@ -1099,6 +1100,11 @@ async function handleHerd(base: string, args: string[]): Promise<void> {
   }
   if (result.notFound.length > 0) {
     console.log(`[${formatTime(Date.now())}] \u2717 Not found: ${result.notFound.join(", ")}`);
+  }
+  if (result.conflicts?.length > 0) {
+    for (const c of result.conflicts) {
+      console.log(`[${formatTime(Date.now())}] \u2717 Conflict: ${c.id} already herded by ${c.herder}`);
+    }
   }
 }
 
@@ -1121,6 +1127,88 @@ async function handleUnherd(base: string, args: string[]): Promise<void> {
     console.log(`[${formatTime(Date.now())}] \u2713 Unherded session ${sessionRef}`);
   } else {
     console.log(`[${formatTime(Date.now())}] Session ${sessionRef} was not herded by you`);
+  }
+}
+
+// ─── Pending/Answer handlers ────────────────────────────────────────────────
+
+async function handlePending(base: string, args: string[]): Promise<void> {
+  const sessionRef = args.filter(a => !a.startsWith("--"))[0];
+  const jsonMode = args.includes("--json");
+  if (!sessionRef) err("Usage: takode pending <session>");
+
+  const result = await apiGet(base, `/sessions/${encodeURIComponent(sessionRef)}/pending`) as {
+    pending: Array<{
+      request_id: string;
+      tool_name: string;
+      timestamp: number;
+      questions?: Array<{ header?: string; question: string; options?: Array<{ label: string; description?: string }> }>;
+      plan?: string;
+      allowedPrompts?: Array<{ tool: string; prompt: string }>;
+    }>;
+  };
+
+  if (jsonMode) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (result.pending.length === 0) {
+    console.log("No pending questions or plans to answer.");
+    return;
+  }
+
+  for (const p of result.pending) {
+    if (p.tool_name === "AskUserQuestion" && p.questions) {
+      for (const q of p.questions) {
+        console.log(`\n[AskUserQuestion] ${q.question}`);
+        if (q.options) {
+          for (let i = 0; i < q.options.length; i++) {
+            const opt = q.options[i];
+            console.log(`  ${i + 1}. ${opt.label}${opt.description ? ` — ${opt.description}` : ""}`);
+          }
+        }
+        console.log(`\nAnswer: takode answer ${sessionRef} <option-number-or-text>`);
+      }
+    } else if (p.tool_name === "ExitPlanMode") {
+      const planPreview = typeof p.plan === "string" ? p.plan.slice(0, 500) : "(no plan text)";
+      console.log(`\n[ExitPlanMode] Plan approval requested`);
+      console.log(planPreview);
+      if (typeof p.plan === "string" && p.plan.length > 500) console.log("  ...(truncated)");
+      console.log(`\nApprove: takode answer ${sessionRef} approve`);
+      console.log(`Reject:  takode answer ${sessionRef} reject 'feedback here'`);
+    }
+  }
+}
+
+async function handleAnswer(base: string, args: string[]): Promise<void> {
+  const sessionRef = args.filter(a => !a.startsWith("--"))[0];
+  const response = args.filter(a => !a.startsWith("--")).slice(1).join(" ");
+  const jsonMode = args.includes("--json");
+
+  if (!sessionRef || !response) err("Usage: takode answer <session> <response>");
+
+  const mySessionId = process.env.COMPANION_SESSION_ID;
+  if (!mySessionId) err("COMPANION_SESSION_ID not set");
+
+  const result = await apiPost(base, `/sessions/${encodeURIComponent(sessionRef)}/answer`, {
+    response,
+    callerSessionId: mySessionId,
+  }) as { ok: boolean; tool_name: string; answer?: string; action?: string; feedback?: string; error?: string };
+
+  if (jsonMode) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (result.tool_name === "AskUserQuestion") {
+    console.log(`[${formatTime(Date.now())}] \u2713 Answered: "${result.answer}"`);
+  } else if (result.tool_name === "ExitPlanMode") {
+    if (result.action === "approved") {
+      console.log(`[${formatTime(Date.now())}] \u2713 Plan approved`);
+    } else {
+      console.log(`[${formatTime(Date.now())}] \u2717 Plan rejected: ${result.feedback}`);
+    }
   }
 }
 
@@ -1254,6 +1342,8 @@ Commands:
   send     Send a message to a session
   herd     Herd sessions (e.g. takode herd 5,6,7)
   unherd   Release a session from your herd (e.g. takode unherd 5)
+  pending  Show pending questions/plans from a herded session
+  answer   Answer a pending question or approve/reject a plan
 
 Peek modes:
   takode peek 1                    Smart overview (collapsed turns + expanded last turn)
@@ -1321,6 +1411,12 @@ try {
       break;
     case "unherd":
       await handleUnherd(base, args);
+      break;
+    case "pending":
+      await handlePending(base, args);
+      break;
+    case "answer":
+      await handleAnswer(base, args);
       break;
     case "help":
     case "-h":

@@ -117,8 +117,8 @@ export interface SdkSessionInfo {
   isAssistant?: boolean;
   /** Whether this is an orchestrator session (has takode CLI access) */
   isOrchestrator?: boolean;
-  /** Session UUIDs of orchestrators that have herded this worker */
-  herdedBy?: string[];
+  /** Session UUID of the leader that has herded this worker (single leader per session) */
+  herdedBy?: string;
   /** One-shot: resume-session-at UUID for revert (cleared after use) */
   resumeAt?: string;
 
@@ -1373,7 +1373,7 @@ For each event, decide what to do:
 
 - **\`turn_end\` (✓ success)**: Peek at the output (\`takode peek <session>\`), then send follow-up work or mark as done
 - **\`turn_end\` (✗ error)**: Peek at recent turns (\`takode peek <session> --turns 2\`), diagnose, send recovery instructions
-- **\`permission_request\`**: The human handles permissions in the browser — just note it and move on
+- **\`permission_request\`**: If it's an \`AskUserQuestion\` or \`ExitPlanMode\`, you can answer it with \`takode answer\` (see below). Tool permissions (\`Bash\`, \`Edit\`, etc.) are human-only — leave those for the UI.
 - **\`permission_resolved\`**: A pending permission was approved or denied — the worker is unblocked and running again
 - **\`session_error\`**: The worker hit a fatal error — investigate and decide whether to retry
 - **\`session_disconnected\`**: Worker lost connection — it will auto-reconnect, or you can relaunch
@@ -1386,6 +1386,25 @@ To protect your context window during long orchestration:
 1. **Start with \`peek\`** — see the compact summary first
 2. **Drill into specific messages with \`read\`** — only when the summary isn't enough
 3. **Paginate long messages** — use \`--offset\`/\`--limit\` just like reading files
+
+### Answering worker questions and plans
+
+When a worker asks a question (\`AskUserQuestion\`) or submits a plan (\`ExitPlanMode\`), you can answer directly:
+
+\`\`\`bash
+# See what's pending
+takode pending <session>
+
+# Answer a question (pick option by number or provide free text)
+takode answer <session> 1           # pick option 1
+takode answer <session> "custom answer"
+
+# Approve or reject a plan
+takode answer <session> approve
+takode answer <session> reject "please add error handling"
+\`\`\`
+
+**Important**: Only answer when you have high confidence and enough context. For complex decisions, tell the human to review in the browser UI. Tool permission requests (\`Bash\`, \`Edit\`, etc.) cannot be answered — those are human-only.
 
 ### Coordinate with quests
 
@@ -1709,12 +1728,8 @@ ${ORCH_END}`;
       // Clean up herd relationships when a leader is archived
       if (archived && info.isOrchestrator) {
         for (const worker of this.sessions.values()) {
-          if (worker.herdedBy) {
-            const idx = worker.herdedBy.indexOf(sessionId);
-            if (idx !== -1) {
-              worker.herdedBy.splice(idx, 1);
-              if (worker.herdedBy.length === 0) worker.herdedBy = undefined;
-            }
+          if (worker.herdedBy === sessionId) {
+            worker.herdedBy = undefined;
           }
         }
         this.onHerdChanged?.(sessionId);
@@ -1726,27 +1741,29 @@ ${ORCH_END}`;
   // ─── Cat herding (orchestrator→worker relationships) ─────────────────────
 
   /**
-   * Herd worker sessions under an orchestrator. Idempotent — re-herding
-   * by the same orchestrator is a no-op. Multiple orchestrators can herd
-   * the same session.
+   * Herd worker sessions under an orchestrator. Each session can only have
+   * one leader — if already herded by someone else, it's reported as a conflict.
+   * Re-herding by the same orchestrator is idempotent.
    */
-  herdSessions(orchId: string, workerIds: string[]): { herded: string[]; notFound: string[] } {
+  herdSessions(orchId: string, workerIds: string[]): { herded: string[]; notFound: string[]; conflicts: Array<{ id: string; herder: string }> } {
     const herded: string[] = [];
     const notFound: string[] = [];
+    const conflicts: Array<{ id: string; herder: string }> = [];
     for (const wid of workerIds) {
       const worker = this.sessions.get(wid);
       if (!worker) { notFound.push(wid); continue; }
-      if (!worker.herdedBy) worker.herdedBy = [];
-      if (!worker.herdedBy.includes(orchId)) {
-        worker.herdedBy.push(orchId);
+      if (worker.herdedBy && worker.herdedBy !== orchId) {
+        conflicts.push({ id: wid, herder: worker.herdedBy });
+        continue;
       }
+      worker.herdedBy = orchId;
       herded.push(wid);
     }
     if (herded.length > 0) {
       this.persistState();
       this.onHerdChanged?.(orchId);
     }
-    return { herded, notFound };
+    return { herded, notFound, conflicts };
   }
 
   /**
@@ -1755,11 +1772,8 @@ ${ORCH_END}`;
    */
   unherdSession(orchId: string, workerId: string): boolean {
     const worker = this.sessions.get(workerId);
-    if (!worker?.herdedBy) return false;
-    const idx = worker.herdedBy.indexOf(orchId);
-    if (idx === -1) return false;
-    worker.herdedBy.splice(idx, 1);
-    if (worker.herdedBy.length === 0) worker.herdedBy = undefined;
+    if (!worker?.herdedBy || worker.herdedBy !== orchId) return false;
+    worker.herdedBy = undefined;
     this.persistState();
     this.onHerdChanged?.(orchId);
     return true;
@@ -1771,7 +1785,7 @@ ${ORCH_END}`;
   getHerdedSessions(orchId: string): SdkSessionInfo[] {
     const result: SdkSessionInfo[] = [];
     for (const s of this.sessions.values()) {
-      if (s.herdedBy?.includes(orchId)) result.push(s);
+      if (s.herdedBy === orchId) result.push(s);
     }
     return result;
   }

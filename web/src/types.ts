@@ -114,8 +114,8 @@ export interface SdkSessionInfo {
   isAssistant?: boolean;
   /** Whether this is an orchestrator session (has takode CLI access) */
   isOrchestrator?: boolean;
-  /** Session UUIDs of orchestrators that have herded this worker */
-  herdedBy?: string[];
+  /** Session UUID of the leader that has herded this worker (single leader per session) */
+  herdedBy?: string;
   /** Short integer session ID (e.g. #5), stable across restarts */
   sessionNum?: number | null;
   /** Server-authoritative attention state */

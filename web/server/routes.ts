@@ -2849,7 +2849,7 @@ export function createRoutes(
       if (wid) { resolved.push(wid); } else { notFound.push(String(ref)); }
     }
     const result = launcher.herdSessions(orchId, resolved);
-    return c.json({ herded: result.herded, notFound: [...notFound, ...result.notFound] });
+    return c.json({ herded: result.herded, notFound: [...notFound, ...result.notFound], conflicts: result.conflicts });
   });
 
   api.delete("/sessions/:id/herd/:workerId", (c) => {
@@ -2876,6 +2876,105 @@ export function createRoutes(
       isOrchestrator: s.isOrchestrator,
       herdedBy: s.herdedBy,
     })));
+  });
+
+  // ─── Leader answer (resolve AskUserQuestion / ExitPlanMode) ─────────
+
+  /** Answerable tool names — tool permissions (can_use_tool) are human-only */
+  const ANSWERABLE_TOOLS = new Set(["AskUserQuestion", "ExitPlanMode"]);
+
+  api.get("/sessions/:id/pending", (c) => {
+    const id = resolveId(c.req.param("id"));
+    if (!id) return c.json({ error: "Session not found" }, 404);
+    const session = wsBridge.getSession(id);
+    if (!session) return c.json({ error: "Session not found in bridge" }, 404);
+
+    const pending = [];
+    for (const [, perm] of session.pendingPermissions) {
+      if (!ANSWERABLE_TOOLS.has(perm.tool_name)) continue;
+      pending.push({
+        request_id: perm.request_id,
+        tool_name: perm.tool_name,
+        timestamp: perm.timestamp,
+        ...(perm.tool_name === "AskUserQuestion" ? { questions: perm.input.questions } : {}),
+        ...(perm.tool_name === "ExitPlanMode" ? { plan: perm.input.plan, allowedPrompts: perm.input.allowedPrompts } : {}),
+      });
+    }
+    return c.json({ pending });
+  });
+
+  api.post("/sessions/:id/answer", async (c) => {
+    const id = resolveId(c.req.param("id"));
+    if (!id) return c.json({ error: "Session not found" }, 404);
+    const session = wsBridge.getSession(id);
+    if (!session) return c.json({ error: "Session not found in bridge" }, 404);
+
+    const body = await c.req.json().catch(() => ({}));
+    const response = typeof body.response === "string" ? body.response : "";
+    const callerSessionId = typeof body.callerSessionId === "string" ? body.callerSessionId : "";
+
+    // Herd guard: only the leader can answer
+    const workerInfo = launcher.getSession(id);
+    if (!workerInfo) return c.json({ error: "Session not found" }, 404);
+    if (!callerSessionId || workerInfo.herdedBy !== callerSessionId) {
+      return c.json({ error: "Only the leader who herded this session can answer" }, 403);
+    }
+
+    // Find the first answerable pending permission
+    let target: { request_id: string; tool_name: string; input: Record<string, unknown> } | null = null;
+    for (const [, perm] of session.pendingPermissions) {
+      if (ANSWERABLE_TOOLS.has(perm.tool_name)) {
+        target = perm;
+        break;
+      }
+    }
+    if (!target) return c.json({ error: "No pending question or plan to answer" }, 404);
+
+    // Build the permission_response based on tool type
+    if (target.tool_name === "AskUserQuestion") {
+      // Parse response: number = pick option, otherwise free text
+      const questions = target.input.questions as Array<{ options?: Array<{ label: string }> }> | undefined;
+      const optIdx = parseInt(response, 10);
+      let answerValue: string;
+      if (!isNaN(optIdx) && questions?.[0]?.options && optIdx >= 1 && optIdx <= questions[0].options.length) {
+        answerValue = questions[0].options[optIdx - 1].label; // 1-indexed
+      } else {
+        answerValue = response; // free text
+      }
+
+      wsBridge.routeExternalPermissionResponse(session, {
+        type: "permission_response",
+        request_id: target.request_id,
+        behavior: "allow",
+        updated_input: { ...target.input, answers: { "0": answerValue } },
+      });
+      return c.json({ ok: true, tool_name: target.tool_name, answer: answerValue });
+    }
+
+    if (target.tool_name === "ExitPlanMode") {
+      const isApprove = response.toLowerCase().startsWith("approve");
+      if (isApprove) {
+        wsBridge.routeExternalPermissionResponse(session, {
+          type: "permission_response",
+          request_id: target.request_id,
+          behavior: "allow",
+          updated_input: target.input,
+        });
+        return c.json({ ok: true, tool_name: target.tool_name, action: "approved" });
+      } else {
+        // "reject" or "reject: feedback text"
+        const feedback = response.replace(/^reject:?\s*/i, "").trim() || "Rejected by leader";
+        wsBridge.routeExternalPermissionResponse(session, {
+          type: "permission_response",
+          request_id: target.request_id,
+          behavior: "deny",
+          message: feedback,
+        });
+        return c.json({ ok: true, tool_name: target.tool_name, action: "rejected", feedback });
+      }
+    }
+
+    return c.json({ error: "Unsupported tool type" }, 400);
   });
 
   // ─── Skills ─────────────────────────────────────────────────────────

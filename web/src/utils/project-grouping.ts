@@ -29,7 +29,7 @@ export interface SessionItem {
   idleKilled?: boolean;
   lastActivityAt?: number;
   isOrchestrator?: boolean;
-  herdedBy?: string[];
+  herdedBy?: string;
   sessionNum?: number | null;
 }
 

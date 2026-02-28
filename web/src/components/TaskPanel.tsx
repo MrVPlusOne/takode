@@ -654,7 +654,7 @@ function HerdedSessionsSection({ sessionId }: { sessionId: string }) {
   const sessionNames = useStore((s) => s.sessionNames);
 
   const herded = sdkSessions.filter(
-    (s: SdkSessionInfo) => s.herdedBy?.includes(sessionId)
+    (s: SdkSessionInfo) => s.herdedBy === sessionId
   );
 
   const handleUnherd = useCallback(async (workerId: string) => {

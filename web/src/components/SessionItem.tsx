@@ -262,7 +262,7 @@ export function SessionItem({
                     leader
                   </span>
                 )}
-                {!s.isOrchestrator && s.herdedBy && s.herdedBy.length > 0 && (
+                {!s.isOrchestrator && !!s.herdedBy && (
                   <span className="text-[9px] font-medium px-1.5 rounded-full leading-[16px] shrink-0 text-amber-400 bg-amber-500/10" title="Herded by an orchestrator">
                     herd
                   </span>
