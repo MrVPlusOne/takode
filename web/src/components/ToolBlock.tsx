@@ -578,13 +578,63 @@ function GrepDetail({ input }: { input: Record<string, unknown> }) {
   );
 }
 
+function extractWebSearchQuery(input: Record<string, unknown>): string {
+  if (typeof input.query === "string" && input.query.trim()) return input.query.trim();
+  if (typeof input.q === "string" && input.q.trim()) return input.q.trim();
+
+  const searchQuery = input.search_query;
+  if (Array.isArray(searchQuery)) {
+    for (const entry of searchQuery) {
+      if (!entry || typeof entry !== "object") continue;
+      const rec = entry as Record<string, unknown>;
+      if (typeof rec.q === "string" && rec.q.trim()) return rec.q.trim();
+      if (typeof rec.query === "string" && rec.query.trim()) return rec.query.trim();
+    }
+  }
+
+  const action = input.action;
+  if (action && typeof action === "object") {
+    const actionRec = action as Record<string, unknown>;
+    if (typeof actionRec.query === "string" && actionRec.query.trim()) return actionRec.query.trim();
+    if (typeof actionRec.q === "string" && actionRec.q.trim()) return actionRec.q.trim();
+    if (typeof actionRec.pattern === "string" && actionRec.pattern.trim()) return actionRec.pattern.trim();
+  }
+
+  return "";
+}
+
+function extractWebSearchDomains(input: Record<string, unknown>): string[] {
+  const directDomains = input.allowed_domains;
+  if (Array.isArray(directDomains)) {
+    const domains = directDomains.filter((d): d is string => typeof d === "string" && d.trim().length > 0);
+    if (domains.length > 0) return domains;
+  }
+
+  const searchQuery = input.search_query;
+  if (Array.isArray(searchQuery)) {
+    for (const entry of searchQuery) {
+      if (!entry || typeof entry !== "object") continue;
+      const rec = entry as Record<string, unknown>;
+      const recDomains = rec.domains;
+      if (!Array.isArray(recDomains)) continue;
+      const domains = recDomains.filter((d): d is string => typeof d === "string" && d.trim().length > 0);
+      if (domains.length > 0) return domains;
+    }
+  }
+
+  return [];
+}
+
 function WebSearchDetail({ input }: { input: Record<string, unknown> }) {
+  const query = extractWebSearchQuery(input);
+  const domains = extractWebSearchDomains(input);
+
   return (
     <div className="space-y-1">
-      <div className="text-xs text-cc-fg font-medium">{String(input.query || "")}</div>
-      {Array.isArray(input.allowed_domains) && input.allowed_domains.length > 0 && (
+      {query ? <div className="text-xs text-cc-fg font-medium">{query}</div> : null}
+      {domains.length > 0 && (
         <div className="text-[10px] text-cc-muted">
-          domains: {(input.allowed_domains as string[]).join(", ")}
+          domains: {domains.join(", ")}
         </div>
       )}
     </div>
@@ -799,7 +849,9 @@ export function getPreview(name: string, input: Record<string, unknown>): string
     const full = p + suffix;
     return full.length > 60 ? full.slice(0, 60) + "..." : full;
   }
-  if ((name === "WebSearch" || name === "web_search") && input.query) return String(input.query);
+  if (name === "WebSearch" || name === "web_search") {
+    return extractWebSearchQuery(input);
+  }
   if (name === "WebFetch" && input.url) {
     try {
       const u = new URL(String(input.url));

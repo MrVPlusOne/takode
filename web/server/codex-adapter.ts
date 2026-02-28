@@ -245,7 +245,12 @@ interface CodexMcpToolCallItem extends CodexItem {
 interface CodexWebSearchItem extends CodexItem {
   type: "webSearch";
   query?: string;
-  action?: { type: string; url?: string; pattern?: string };
+  action?: { type?: string; url?: string; pattern?: string; query?: string; q?: string };
+  result?: string;
+  output?: string;
+  summary?: string;
+  results?: unknown[];
+  searchResults?: unknown[];
 }
 
 interface CodexReasoningItem extends CodexItem {
@@ -256,6 +261,51 @@ interface CodexReasoningItem extends CodexItem {
 
 interface CodexContextCompactionItem extends CodexItem {
   type: "contextCompaction";
+}
+
+function formatWebSearchResultEntry(entry: unknown): string {
+  if (!entry || typeof entry !== "object") return "";
+  const rec = entry as Record<string, unknown>;
+  const title = toSafeText(rec.title ?? rec.name ?? "").trim();
+  const url = toSafeText(rec.url ?? rec.link ?? "").trim();
+  const snippet = toSafeText(rec.snippet ?? rec.description ?? rec.summary ?? "").trim();
+
+  if (title && url) return `${title}\n${url}`;
+  if (title && snippet) return `${title}\n${snippet}`;
+  if (title) return title;
+  if (url && snippet) return `${url}\n${snippet}`;
+  if (url) return url;
+  return snippet;
+}
+
+function extractWebSearchResultText(item: CodexWebSearchItem): string {
+  const directText = [item.result, item.output, item.summary]
+    .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+    .join("\n")
+    .trim();
+  if (directText) return directText;
+
+  const resultLists = [item.results, item.searchResults];
+  for (const list of resultLists) {
+    if (!Array.isArray(list)) continue;
+    const lines = list
+      .map((entry) => formatWebSearchResultEntry(entry))
+      .filter((line) => line.length > 0);
+    if (lines.length > 0) return lines.join("\n\n");
+  }
+
+  const actionUrl = item.action?.url;
+  if (typeof actionUrl === "string" && actionUrl.trim()) return actionUrl.trim();
+
+  return "Web search completed";
+}
+
+function extractWebSearchQuery(item: CodexWebSearchItem): string {
+  if (typeof item.query === "string" && item.query.trim()) return item.query.trim();
+  if (typeof item.action?.query === "string" && item.action.query.trim()) return item.action.query.trim();
+  if (typeof item.action?.q === "string" && item.action.q.trim()) return item.action.q.trim();
+  if (typeof item.action?.pattern === "string" && item.action.pattern.trim()) return item.action.pattern.trim();
+  return "";
 }
 
 interface CodexMcpServerStatus {
@@ -1752,7 +1802,7 @@ export class CodexAdapter {
 
       case "webSearch": {
         const ws = item as CodexWebSearchItem;
-        this.emitToolUseStart(item.id, "WebSearch", { query: ws.query || "" });
+        this.emitToolUseStart(item.id, "WebSearch", { query: extractWebSearchQuery(ws) });
         break;
       }
 
@@ -2041,8 +2091,8 @@ export class CodexAdapter {
       case "webSearch": {
         const ws = item as CodexWebSearchItem;
         // Ensure tool_use was emitted
-        this.ensureToolUseEmitted(item.id, "WebSearch", { query: ws.query || "" });
-        this.emitToolResult(item.id, ws.action?.url || ws.query || "Web search completed", false);
+        this.ensureToolUseEmitted(item.id, "WebSearch", { query: extractWebSearchQuery(ws) });
+        this.emitToolResult(item.id, extractWebSearchResultText(ws), false);
         break;
       }
 

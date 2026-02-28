@@ -141,6 +141,14 @@ describe("getPreview", () => {
     expect(getPreview("WebSearch", { query: "react testing library" })).toBe("react testing library");
   });
 
+  it("extracts query for Codex web_search input shape", () => {
+    expect(
+      getPreview("web_search", {
+        search_query: [{ q: "github openai codex skills config.toml skills directories" }],
+      }),
+    ).toBe("github openai codex skills config.toml skills directories");
+  });
+
   it("returns empty string for unknown tools", () => {
     expect(getPreview("UnknownTool", { some: "data" })).toBe("");
   });

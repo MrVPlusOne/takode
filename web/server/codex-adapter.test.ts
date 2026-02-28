@@ -899,6 +899,42 @@ describe("CodexAdapter", () => {
     expect((toolBlock as { input: { query: string } }).input.query).toBe("typescript generics guide");
   });
 
+  it("extracts webSearch query from action fields when query is absent", async () => {
+    const messages: BrowserIncomingMessage[] = [];
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
+    adapter.onBrowserMessage((msg) => messages.push(msg));
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
+    await new Promise((r) => setTimeout(r, 20));
+    stdout.push(JSON.stringify({ id: 2, result: { thread: { id: "thr_123" } } }) + "\n");
+    await new Promise((r) => setTimeout(r, 50));
+
+    stdout.push(JSON.stringify({
+      method: "item/started",
+      params: {
+        item: {
+          type: "webSearch",
+          id: "ws_action_query",
+          action: { type: "search", query: "codex cli skills documentation" },
+        },
+      },
+    }) + "\n");
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    const toolMsg = messages.filter((m) => m.type === "assistant").find((m) => {
+      const content = (m as { message: { content: Array<{ type: string; name?: string }> } }).message.content;
+      return content.some((b) => b.type === "tool_use" && b.name === "WebSearch");
+    });
+    expect(toolMsg).toBeDefined();
+
+    const content = (toolMsg as { message: { content: Array<{ type: string; input?: { query: string } }> } }).message.content;
+    const toolBlock = content.find((b) => b.type === "tool_use");
+    expect((toolBlock as { input: { query: string } }).input.query).toBe("codex cli skills documentation");
+  });
+
   it("calls onSessionMeta with thread ID after initialization", async () => {
     const metaCalls: Array<{ cliSessionId?: string; model?: string }> = [];
     const adapter = new CodexAdapter(proc as never, "test-session", { model: "gpt-5.2-codex", cwd: "/project" });
@@ -963,6 +999,65 @@ describe("CodexAdapter", () => {
     const resultBlock = resultMsg.message.content.find((b) => b.type === "tool_result");
     expect(resultBlock?.tool_use_id).toBe("ws_1");
     expect(resultBlock?.content).toContain("https://example.com/guide");
+  });
+
+  it("prefers structured webSearch results over echoing the query", async () => {
+    const messages: BrowserIncomingMessage[] = [];
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
+    adapter.onBrowserMessage((msg) => messages.push(msg));
+
+    await new Promise((r) => setTimeout(r, 50));
+    stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
+    await new Promise((r) => setTimeout(r, 20));
+    stdout.push(JSON.stringify({ id: 2, result: { thread: { id: "thr_123" } } }) + "\n");
+    await new Promise((r) => setTimeout(r, 50));
+
+    stdout.push(JSON.stringify({
+      method: "item/started",
+      params: {
+        item: {
+          type: "webSearch",
+          id: "ws_2",
+          query: "Codex CLI skills documentation",
+        },
+      },
+    }) + "\n");
+    await new Promise((r) => setTimeout(r, 20));
+
+    stdout.push(JSON.stringify({
+      method: "item/completed",
+      params: {
+        item: {
+          type: "webSearch",
+          id: "ws_2",
+          query: "Codex CLI skills documentation",
+          results: [
+            {
+              title: "OpenAI Codex CLI docs",
+              url: "https://platform.openai.com/docs/codex",
+              snippet: "Official setup and skills documentation.",
+            },
+          ],
+        },
+      },
+    }) + "\n");
+    await new Promise((r) => setTimeout(r, 50));
+
+    const toolResults = messages.filter((m) => {
+      if (m.type !== "assistant") return false;
+      const content = (m as { message: { content: Array<{ type: string }> } }).message.content;
+      return content.some((b) => b.type === "tool_result");
+    });
+    expect(toolResults.length).toBeGreaterThanOrEqual(1);
+
+    const resultMsg = toolResults[toolResults.length - 1] as {
+      message: { content: Array<{ type: string; tool_use_id?: string; content?: string }> };
+    };
+    const resultBlock = resultMsg.message.content.find((b) => b.type === "tool_result");
+    expect(resultBlock?.tool_use_id).toBe("ws_2");
+    expect(resultBlock?.content).toContain("OpenAI Codex CLI docs");
+    expect(resultBlock?.content).toContain("https://platform.openai.com/docs/codex");
+    expect(resultBlock?.content).not.toBe("Codex CLI skills documentation");
   });
 
   it("emits content_block_stop on reasoning item/completed", async () => {
