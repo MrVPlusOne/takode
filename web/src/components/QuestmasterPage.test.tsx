@@ -10,6 +10,7 @@ const mockTransitionQuest = vi.fn();
 const mockCreateQuest = vi.fn();
 const mockMarkQuestDone = vi.fn();
 const mockNavigateToSession = vi.fn();
+let promptSpy: ReturnType<typeof vi.spyOn>;
 
 vi.mock("../api.js", () => ({
   api: {
@@ -140,6 +141,7 @@ import { QuestmasterPage } from "./QuestmasterPage.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  promptSpy = vi.spyOn(window, "prompt").mockReturnValue("");
   const inboxQuest = buildVerificationQuest({
     id: "q-1-v3",
     questId: "q-1",
@@ -182,7 +184,10 @@ beforeEach(() => {
       return { ...quest, status: input.status } as QuestmasterTask;
     },
   );
-  mockMarkQuestDone.mockImplementation(async (questId: string) => {
+  mockMarkQuestDone.mockImplementation(async (
+    questId: string,
+    input?: { verificationItems?: Array<{ text: string; checked: boolean }> },
+  ) => {
     const quest = mockState.quests.find((q) => q.questId === questId);
     if (!quest) throw new Error("quest not found");
     const currentSessionId =
@@ -196,6 +201,7 @@ beforeEach(() => {
       id: `${quest.questId}-v${quest.version + 1}`,
       version: quest.version + 1,
       status: "done",
+      verificationItems: input?.verificationItems ?? ("verificationItems" in quest ? quest.verificationItems : []),
       completedAt: Date.now(),
       previousOwnerSessionIds: previousOwners,
       sessionId: undefined,
@@ -215,6 +221,10 @@ beforeEach(() => {
       }) as QuestmasterTask,
   );
   window.location.hash = "#/questmaster";
+});
+
+afterEach(() => {
+  promptSpy.mockRestore();
 });
 
 describe("QuestmasterPage verification inbox", () => {
@@ -434,11 +444,48 @@ describe("QuestmasterPage verification inbox", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Finish Quest" }));
 
     await waitFor(() => {
-      expect(mockMarkQuestDone).toHaveBeenCalledWith("q-1");
+      expect(mockMarkQuestDone).toHaveBeenCalledWith("q-1", {
+        verificationItems: [
+          { text: "Verify behavior", checked: false },
+          { text: "Manually marked as done by user", checked: true },
+        ],
+      });
     });
     await waitFor(() => {
       expect(screen.queryByRole("dialog", { name: /Quest details: Inbox quest/ })).toBeNull();
     });
+  });
+
+  it("uses prompt note text in manual done verification item", async () => {
+    promptSpy.mockReturnValue("Validated manually in UI");
+    window.location.hash = "#/questmaster?quest=q-1";
+    render(<QuestmasterPage />);
+
+    const dialog = screen.getByRole("dialog", { name: /Quest details: Inbox quest/ });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Finish Quest" }));
+
+    await waitFor(() => {
+      expect(mockMarkQuestDone).toHaveBeenCalledWith("q-1", {
+        verificationItems: [
+          { text: "Verify behavior", checked: false },
+          { text: "User verified: Validated manually in UI", checked: true },
+        ],
+      });
+    });
+  });
+
+  it("does not mark done when prompt is cancelled", async () => {
+    promptSpy.mockReturnValue(null);
+    window.location.hash = "#/questmaster?quest=q-1";
+    render(<QuestmasterPage />);
+
+    const dialog = screen.getByRole("dialog", { name: /Quest details: Inbox quest/ });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Finish Quest" }));
+
+    await waitFor(() => {
+      expect(mockMarkQuestDone).not.toHaveBeenCalled();
+    });
+    expect(screen.getByRole("dialog", { name: /Quest details: Inbox quest/ })).toBeInTheDocument();
   });
 
   it("shows previous owner session info for done quests", () => {

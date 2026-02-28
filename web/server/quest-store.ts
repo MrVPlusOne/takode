@@ -540,10 +540,14 @@ export async function transitionQuest(
       if (currentActiveSessionId && !previousOwners.includes(currentActiveSessionId)) {
         previousOwners.push(currentActiveSessionId);
       }
-      const verificationItems =
-        "verificationItems" in current
+      const rawItems =
+        input.verificationItems ??
+        ("verificationItems" in current
           ? (current as QuestNeedsVerification).verificationItems
-          : undefined;
+          : undefined);
+      const verificationItems = rawItems
+        ? normalizeVerificationItems(rawItems)
+        : undefined;
       if (!verificationItems || verificationItems.length === 0) {
         throw new Error("verificationItems are required for done status");
       }

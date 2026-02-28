@@ -543,22 +543,57 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
     }
   }
 
-  async function handleTransition(questId: string, status: QuestStatus) {
+  async function handleMarkDone(quest: QuestmasterTask) {
     setError("");
+    const noteInput = window.prompt(
+      "Optional verification note before marking done:",
+      "",
+    );
+    if (noteInput === null) return;
+
+    const note = noteInput.trim();
+    const manualVerificationText = note
+      ? `User verified: ${note}`
+      : "Manually marked as done by user";
+    const existingVerificationItems =
+      "verificationItems" in quest && Array.isArray(quest.verificationItems)
+        ? quest.verificationItems
+        : [];
+    const verificationItems: QuestVerificationItem[] = [
+      ...existingVerificationItems,
+      { text: manualVerificationText, checked: true },
+    ];
+
     try {
-      const updatedQuest = status === "done"
-        ? await api.markQuestDone(questId)
-        : await api.transitionQuest(questId, { status });
+      const updatedQuest = await api.markQuestDone(quest.questId, { verificationItems });
       const currentQuests = useStore.getState().quests;
       setQuests(
         currentQuests
           .map((q) => (q.questId === updatedQuest.questId ? updatedQuest : q))
           .sort((a, b) => b.createdAt - a.createdAt),
       );
-      if (status === "done") {
-        setExpandedId(null);
-        setEditingId(null);
-      }
+      setExpandedId(null);
+      setEditingId(null);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function handleTransition(quest: QuestmasterTask, status: QuestStatus) {
+    if (status === "done") {
+      await handleMarkDone(quest);
+      return;
+    }
+
+    setError("");
+    try {
+      const updatedQuest = await api.transitionQuest(quest.questId, { status });
+      const currentQuests = useStore.getState().quests;
+      setQuests(
+        currentQuests
+          .map((q) => (q.questId === updatedQuest.questId ? updatedQuest : q))
+          .sort((a, b) => b.createdAt - a.createdAt),
+      );
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -2460,7 +2495,7 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
                               <select
                                 value={quest.status}
                                 onChange={(e) =>
-                                  handleTransition(quest.questId, e.target.value as QuestStatus)
+                                  handleTransition(quest, e.target.value as QuestStatus)
                                 }
                                 className={`px-2 py-1.5 text-[11px] font-medium rounded-lg cursor-pointer outline-none transition-colors ${cfg.bg} ${cfg.text} border ${cfg.border}`}
                               >
@@ -2478,7 +2513,7 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
                               {quest.status !== "done" && (
                                 <>
                                   <button
-                                    onClick={() => handleTransition(quest.questId, "done")}
+                                    onClick={() => handleTransition(quest, "done")}
                                     className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg bg-cc-primary text-white border border-cc-primary/40 hover:bg-cc-primary-hover transition-colors cursor-pointer"
                                   >
                                     Finish Quest

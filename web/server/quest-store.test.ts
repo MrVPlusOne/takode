@@ -718,6 +718,28 @@ describe("transition validation", () => {
     ).rejects.toThrow("verificationItems are required");
   });
 
+  it("allows done transition from in_progress when verificationItems are provided", async () => {
+    await questStore.createQuest({ title: "Manual done flow" });
+    await questStore.transitionQuest("q-1", {
+      status: "refined",
+      description: "Ready",
+    });
+    await questStore.claimQuest("q-1", "sess-1");
+
+    const done = await questStore.transitionQuest("q-1", {
+      status: "done",
+      verificationItems: [{ text: "User verified: works as expected", checked: true }],
+    });
+
+    expect(done).not.toBeNull();
+    expect(done?.status).toBe("done");
+    if (done?.status === "done") {
+      expect(done.verificationItems).toEqual([
+        { text: "User verified: works as expected", checked: true },
+      ]);
+    }
+  });
+
   it("returns null when transitioning non-existent quest", async () => {
     expect(
       await questStore.transitionQuest("q-999", { status: "refined", description: "x" }),

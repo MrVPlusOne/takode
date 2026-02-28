@@ -773,10 +773,17 @@ export const api = {
     post<import("./types.js").QuestmasterTask>(`/quests/${encodeURIComponent(id)}/claim`, { sessionId }),
   completeQuest: (id: string, verificationItems: import("./types.js").QuestVerificationItem[]) =>
     post<import("./types.js").QuestmasterTask>(`/quests/${encodeURIComponent(id)}/complete`, { verificationItems }),
-  markQuestDone: (id: string) =>
+  markQuestDone: (
+    id: string,
+    input?: {
+      verificationItems?: import("./types.js").QuestVerificationItem[];
+      notes?: string;
+      cancelled?: boolean;
+    },
+  ) =>
     post<import("./types.js").QuestmasterTask>(
       `/quests/${encodeURIComponent(id)}/transition`,
-      { status: "done" },
+      { status: "done", ...(input ?? {}) },
     ),
   checkQuestVerification: (id: string, index: number, checked: boolean) =>
     patch<import("./types.js").QuestmasterTask>(`/quests/${encodeURIComponent(id)}/verification/${index}`, { checked }),
