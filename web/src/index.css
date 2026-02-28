@@ -295,6 +295,14 @@ select {
   padding: 24px;
   background: var(--color-cc-card);
 }
+.diff-file {
+  /* Size to the widest line so ALL rows (including short add/del lines)
+     extend to the full scrollable width — their background colors then
+     cover the entire horizontal scroll area instead of clipping at
+     each line's own content edge. */
+  width: max-content;
+  min-width: 100%;
+}
 .diff-file + .diff-file {
   border-top: 1px solid var(--color-cc-border);
 }
@@ -323,9 +331,6 @@ select {
   display: flex;
   min-height: 20px;
   white-space: pre;
-  /* Keep add/del background extending to full scrollable line width. */
-  width: max-content;
-  min-width: 100%;
 }
 .diff-gutter {
   flex-shrink: 0;
