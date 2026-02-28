@@ -159,6 +159,7 @@ export function createRoutes(
         if (body.role === "orchestrator") {
           session.isOrchestrator = true;
         }
+        if (body.envSlug) session.envSlug = body.envSlug;
         wsBridge.setInitialAskPermission(session.sessionId, body.askPermission !== false);
         wsBridge.markResumedFromExternal(session.sessionId);
         const existingNames = new Set(Object.values(sessionNames.getAllNames()));
@@ -515,6 +516,8 @@ export function createRoutes(
         })().catch(e => console.error(`[routes] Failed to inject orchestrator message:`, e));
       }
 
+      if (body.envSlug) session.envSlug = body.envSlug;
+
       // Generate a session name so all creation paths (browser, CLI, API) get names
       if (isAssistantMode) {
         sessionNames.setName(session.sessionId, "Takode");
@@ -606,6 +609,7 @@ export function createRoutes(
           if (body.role === "orchestrator") {
             session.isOrchestrator = true;
           }
+          if (body.envSlug) session.envSlug = body.envSlug;
           wsBridge.setInitialCwd(session.sessionId, body.cwd ? resolve(expandTilde(body.cwd)) : process.cwd());
           wsBridge.setInitialAskPermission(session.sessionId, body.askPermission !== false);
           wsBridge.markResumedFromExternal(session.sessionId);
@@ -1031,6 +1035,8 @@ export function createRoutes(
             }
           })().catch(e => console.error(`[routes] Failed to inject orchestrator message:`, e));
         }
+
+        if (body.envSlug) session.envSlug = body.envSlug;
 
         // Generate a session name so all creation paths (browser, CLI, API) get names
         if (isAssistantMode) {

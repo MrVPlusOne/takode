@@ -119,6 +119,8 @@ export interface SdkSessionInfo {
   isOrchestrator?: boolean;
   /** Session UUID of the leader that has herded this worker (single leader per session) */
   herdedBy?: string;
+  /** Env profile slug used at creation, for re-resolving env vars on relaunch */
+  envSlug?: string;
   /** One-shot: resume-session-at UUID for revert (cleared after use) */
   resumeAt?: string;
 
@@ -181,6 +183,8 @@ export class CliLauncher {
   private onCodexAdapter: ((sessionId: string, adapter: CodexAdapter) => void) | null = null;
   private exitHandlers: ((sessionId: string, exitCode: number | null) => void)[] = [];
   private settingsGetter: (() => { claudeBinary: string; codexBinary: string }) | null = null;
+  /** Callback to resolve env profile variables by slug (set by server bootstrap). */
+  private envResolver: ((slug: string) => Promise<Record<string, string> | null>) | null = null;
 
   /** Callback when herd relationships change (set by server bootstrap). */
   onHerdChanged: ((orchId: string) => void) | null = null;
@@ -224,6 +228,11 @@ export class CliLauncher {
   /** Attach a settings getter so relaunch() can read current binary settings. */
   setSettingsGetter(fn: () => { claudeBinary: string; codexBinary: string }): void {
     this.settingsGetter = fn;
+  }
+
+  /** Attach an env resolver so relaunch() can re-resolve env profiles after restart. */
+  setEnvResolver(fn: (slug: string) => Promise<Record<string, string> | null>): void {
+    this.envResolver = fn;
   }
 
   // ─── Integer session ID management ─────────────────────────────────────────
@@ -549,7 +558,27 @@ export class CliLauncher {
       backendType: info.backendType || "claude",
     }, info.backendType || "claude", info.cwd);
 
-    const runtimeEnv = this.sessionEnvs.get(sessionId);
+    let runtimeEnv = this.sessionEnvs.get(sessionId);
+
+    // After server restart, sessionEnvs is empty (not persisted to disk).
+    // Reconstruct essential env vars from persisted SdkSessionInfo fields
+    // and re-resolve the env profile if one was used at creation time.
+    if (!runtimeEnv) {
+      const reconstructed: Record<string, string> = {
+        COMPANION_SESSION_ID: sessionId,
+        COMPANION_PORT: String(this.port),
+      };
+      if (info.isOrchestrator) {
+        reconstructed.TAKODE_ROLE = "orchestrator";
+        reconstructed.TAKODE_API_PORT = String(this.port);
+      }
+      if (info.envSlug && this.envResolver) {
+        const profileVars = await this.envResolver(info.envSlug);
+        if (profileVars) Object.assign(reconstructed, profileVars);
+      }
+      this.sessionEnvs.set(sessionId, reconstructed);
+      runtimeEnv = reconstructed;
+    }
 
     if (info.backendType === "codex") {
       await this.spawnCodex(sessionId, info, {

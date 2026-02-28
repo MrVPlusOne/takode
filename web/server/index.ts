@@ -31,6 +31,7 @@ import { CronScheduler } from "./cron-scheduler.js";
 import { ImageStore } from "./image-store.js";
 import { IdleManager } from "./idle-manager.js";
 import { HerdEventDispatcher } from "./herd-event-dispatcher.js";
+import * as envManager from "./env-manager.js";
 import { ensureQuestmasterIntegration } from "./quest-integration.js";
 import { ensureTakodeIntegration } from "./takode-integration.js";
 import { recreateWorktreeIfMissing } from "./migration.js";
@@ -104,6 +105,10 @@ wsBridge.setLauncher(launcher);
 wsBridge.setSessionNameGetter((sessionId) => sessionNames.getName(sessionId) || sessionId.slice(0, 8));
 launcher.setStore(sessionStore);
 launcher.setRecorder(recorder);
+launcher.setEnvResolver(async (slug) => {
+  const env = await envManager.getEnv(slug);
+  return env?.variables ?? null;
+});
 await launcher.restoreFromDisk();
 await wsBridge.restoreFromDisk();
 containerManager.restoreState(CONTAINER_STATE_PATH);
