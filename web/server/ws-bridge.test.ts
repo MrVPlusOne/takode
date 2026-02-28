@@ -5469,3 +5469,64 @@ describe("isSensitiveBashCommand", () => {
     expect(check("")).toBe(false);
   });
 });
+
+// ─── Codex permission_request herd event ────────────────────────────────────
+
+describe("Codex permission_request emits herd event", () => {
+  // Regression: Codex permission requests were stored and broadcast to browsers
+  // but never emitted as takode herd events, so orchestrators never learned
+  // that a herded worker was blocked waiting for approval.
+  it("emits takode permission_request event when Codex adapter sends permission_request", () => {
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter("s1", adapter as any);
+
+    const spy = vi.spyOn(bridge, "emitTakodeEvent");
+
+    adapter.emitBrowserMessage({
+      type: "permission_request",
+      request: {
+        request_id: "perm-1",
+        tool_name: "Bash",
+        description: "rm -rf node_modules",
+        input: { command: "rm -rf node_modules" },
+      },
+    });
+
+    // Verify herd event was emitted with correct data
+    expect(spy).toHaveBeenCalledWith("s1", "permission_request", expect.objectContaining({
+      tool_name: "Bash",
+      request_id: "perm-1",
+      summary: "rm -rf node_modules",
+    }));
+
+    // Verify permission was also stored on the session
+    const session = bridge.getSession("s1")!;
+    expect(session.pendingPermissions.has("perm-1")).toBe(true);
+
+    spy.mockRestore();
+  });
+
+  it("uses tool_name as summary fallback when description is missing", () => {
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter("s1", adapter as any);
+
+    const spy = vi.spyOn(bridge, "emitTakodeEvent");
+
+    adapter.emitBrowserMessage({
+      type: "permission_request",
+      request: {
+        request_id: "perm-2",
+        tool_name: "Write",
+        input: { file_path: "/tmp/test.txt" },
+      },
+    });
+
+    expect(spy).toHaveBeenCalledWith("s1", "permission_request", expect.objectContaining({
+      tool_name: "Write",
+      request_id: "perm-2",
+      summary: "Write",
+    }));
+
+    spy.mockRestore();
+  });
+});

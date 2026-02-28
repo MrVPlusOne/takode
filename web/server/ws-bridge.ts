@@ -1661,8 +1661,18 @@ export class WsBridge {
 
       // Handle permission requests
       if (outgoing?.type === "permission_request") {
-        session.pendingPermissions.set(outgoing.request.request_id, outgoing.request);
+        const perm = outgoing.request;
+        session.pendingPermissions.set(perm.request_id, perm);
+        this.setAttention(session, "action");
         this.persistSession(session);
+
+        // Emit herd event so orchestrator knows this worker is blocked
+        this.emitTakodeEvent(session.id, "permission_request", {
+          tool_name: perm.tool_name,
+          request_id: perm.request_id,
+          summary: perm.description || perm.tool_name,
+          ...this.buildPermissionPreview(perm),
+        });
       }
 
       if (outgoing) this.broadcastToBrowsers(session, outgoing);
