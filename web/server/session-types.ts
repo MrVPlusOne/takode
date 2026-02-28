@@ -310,7 +310,7 @@ export type BrowserIncomingMessageBase =
   | { type: "tool_result_preview"; previews: ToolResultPreview[] }
   | { type: "permission_denied"; id: string; tool_name: string; tool_use_id: string; summary: string; timestamp: number; request_id?: string }
   | { type: "permission_approved"; id: string; tool_name: string; tool_use_id: string; summary: string; timestamp: number; request_id?: string; answers?: { question: string; answer: string }[] }
-  | { type: "permission_auto_approved"; request_id: string; tool_name: string; tool_use_id: string; reason: string; timestamp: number }
+  | { type: "permission_auto_approved"; request_id: string; tool_name: string; tool_use_id: string; reason: string; summary: string; timestamp: number }
   | { type: "permission_auto_denied"; request_id: string; tool_name: string; tool_use_id: string; reason: string; timestamp: number }
   | { type: "permission_needs_attention"; request_id: string; timestamp: number }
   | { type: "permission_evaluating_status"; request_id: string; evaluating: "queued" | "evaluating"; timestamp: number }
