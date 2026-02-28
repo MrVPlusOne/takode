@@ -555,6 +555,40 @@ describe("CodexAdapter", () => {
     expect(allWritten).toContain('"id":200');
   });
 
+  it("includes tool_start_times in tool_use assistant messages for live timers", async () => {
+    // Regression: Codex tool chips showed no ticking timer because tool_start_times
+    // was missing from the emitted assistant message.
+    const messages: BrowserIncomingMessage[] = [];
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
+    adapter.onBrowserMessage((msg) => messages.push(msg));
+
+    await new Promise((r) => setTimeout(r, 50));
+    stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
+    await new Promise((r) => setTimeout(r, 20));
+    stdout.push(JSON.stringify({ id: 2, result: { thread: { id: "thr_123" } } }) + "\n");
+    await new Promise((r) => setTimeout(r, 50));
+
+    stdout.push(JSON.stringify({
+      method: "item/started",
+      params: {
+        item: { type: "commandExecution", id: "cmd_timer", command: ["echo", "hi"], status: "inProgress" },
+      },
+    }) + "\n");
+    await new Promise((r) => setTimeout(r, 50));
+
+    const toolUseMsg = messages.find((m) => {
+      if (m.type !== "assistant") return false;
+      const content = (m as { message: { content: Array<{ type: string; id?: string }> } }).message.content;
+      return content.some((b) => b.type === "tool_use" && b.id === "cmd_timer");
+    });
+    expect(toolUseMsg).toBeDefined();
+
+    const startTimes = (toolUseMsg as { tool_start_times?: Record<string, number> }).tool_start_times;
+    expect(startTimes).toBeDefined();
+    expect(startTimes!["cmd_timer"]).toBeTypeOf("number");
+    expect(startTimes!["cmd_timer"]).toBeGreaterThan(0);
+  });
+
   it("translates fileChange item to Edit/Write tool_use", async () => {
     const messages: BrowserIncomingMessage[] = [];
     const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });

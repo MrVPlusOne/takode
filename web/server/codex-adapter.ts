@@ -2364,6 +2364,7 @@ export class CodexAdapter {
 
   /** Emit an assistant message with a tool_use content block (no tracking). */
   private emitToolUse(toolUseId: string, toolName: string, input: Record<string, unknown>): void {
+    const now = Date.now();
     this.emit({
       type: "assistant",
       message: {
@@ -2383,7 +2384,8 @@ export class CodexAdapter {
         usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
       },
       parent_tool_use_id: null,
-      timestamp: Date.now(),
+      timestamp: now,
+      tool_start_times: { [toolUseId]: now },
     });
   }
 
