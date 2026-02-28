@@ -593,32 +593,47 @@ export class CliLauncher {
       runtimeEnv = reconstructed;
     }
 
-    if (info.backendType === "codex") {
-      await this.spawnCodex(sessionId, info, {
-        model: info.model,
-        permissionMode: info.permissionMode,
-        cwd: info.cwd,
-        codexBinary: binSettings.codexBinary || undefined,
-        codexSandbox: info.codexSandbox,
-        codexInternetAccess: info.codexInternetAccess,
-        codexReasoningEffort: info.codexReasoningEffort,
-        containerId: info.containerId,
-        containerName: info.containerName,
-        containerImage: info.containerImage,
-        env: runtimeEnv,
-      });
-    } else {
-      this.spawnCLI(sessionId, info, {
-        model: info.model,
-        permissionMode: info.permissionMode,
-        cwd: info.cwd,
-        claudeBinary: binSettings.claudeBinary || undefined,
-        resumeSessionId: info.cliSessionId,
-        containerId: info.containerId,
-        containerName: info.containerName,
-        containerImage: info.containerImage,
-        env: runtimeEnv,
-      });
+    try {
+      if (info.backendType === "codex") {
+        await this.spawnCodex(sessionId, info, {
+          model: info.model,
+          permissionMode: info.permissionMode,
+          cwd: info.cwd,
+          codexBinary: binSettings.codexBinary || undefined,
+          codexSandbox: info.codexSandbox,
+          codexInternetAccess: info.codexInternetAccess,
+          codexReasoningEffort: info.codexReasoningEffort,
+          containerId: info.containerId,
+          containerName: info.containerName,
+          containerImage: info.containerImage,
+          env: runtimeEnv,
+        });
+      } else {
+        this.spawnCLI(sessionId, info, {
+          model: info.model,
+          permissionMode: info.permissionMode,
+          cwd: info.cwd,
+          claudeBinary: binSettings.claudeBinary || undefined,
+          resumeSessionId: info.cliSessionId,
+          containerId: info.containerId,
+          containerName: info.containerName,
+          containerImage: info.containerImage,
+          env: runtimeEnv,
+        });
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[cli-launcher] Spawn failed during relaunch for session ${sessionTag(sessionId)}: ${msg}`);
+      info.state = "exited";
+      info.exitCode = 1;
+      this.persistState();
+      return { ok: false, error: `Failed to spawn process: ${msg}` };
+    }
+
+    // spawnCLI may fail silently (marks state="exited" and returns).
+    // Re-read state since spawnCLI mutates info as a side effect.
+    if ((info.state as string) === "exited") {
+      return { ok: false, error: "Failed to spawn process (binary not found)" };
     }
     return { ok: true };
   }
@@ -768,12 +783,22 @@ export class CliLauncher {
       sanitizeSpawnArgsForLog(spawnCmd),
     );
 
-    const proc = Bun.spawn(spawnCmd, {
-      cwd: spawnCwd,
-      env: spawnEnv,
-      stdout: "pipe",
-      stderr: "pipe",
-    });
+    let proc: ReturnType<typeof Bun.spawn>;
+    try {
+      proc = Bun.spawn(spawnCmd, {
+        cwd: spawnCwd,
+        env: spawnEnv,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[cli-launcher] Failed to spawn CLI for session ${sessionTag(sessionId)}: ${msg}`);
+      info.state = "exited";
+      info.exitCode = 1;
+      this.persistState();
+      return;
+    }
 
     info.pid = proc.pid;
     this.processes.set(sessionId, proc);
@@ -972,13 +997,23 @@ export class CliLauncher {
       sanitizeSpawnArgsForLog(spawnCmd),
     );
 
-    const proc = Bun.spawn(spawnCmd, {
-      cwd: spawnCwd,
-      env: spawnEnv,
-      stdin: "pipe",
-      stdout: "pipe",
-      stderr: "pipe",
-    });
+    let proc: ReturnType<typeof Bun.spawn>;
+    try {
+      proc = Bun.spawn(spawnCmd, {
+        cwd: spawnCwd,
+        env: spawnEnv,
+        stdin: "pipe",
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[cli-launcher] Failed to spawn Codex for session ${sessionTag(sessionId)}: ${msg}`);
+      info.state = "exited";
+      info.exitCode = 1;
+      this.persistState();
+      throw err;
+    }
 
     info.pid = proc.pid;
     this.processes.set(sessionId, proc);

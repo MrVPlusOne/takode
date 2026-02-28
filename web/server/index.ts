@@ -760,7 +760,14 @@ if (starting.length > 0) {
     for (const info of stale) {
       if (info.archived) continue;
       console.log(`[server] CLI for session ${info.sessionId} did not reconnect, relaunching...`);
-      await launcher.relaunch(info.sessionId);
+      try {
+        const result = await launcher.relaunch(info.sessionId);
+        if (!result.ok && result.error) {
+          console.error(`[server] Relaunch failed for ${info.sessionId}: ${result.error}`);
+        }
+      } catch (err) {
+        console.error(`[server] Relaunch threw for ${info.sessionId}:`, err);
+      }
     }
   }, RECONNECT_GRACE_MS);
 }

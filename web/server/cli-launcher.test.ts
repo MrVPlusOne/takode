@@ -996,6 +996,57 @@ describe("relaunch", () => {
     expect(mockIsContainerAlive).not.toHaveBeenCalled();
     expect(mockHasBinaryInContainer).not.toHaveBeenCalled();
   });
+
+  // Regression: Bun.spawn throws ENOENT when the binary path is stale
+  // (e.g. nvm version changed). The server must not crash.
+  it("returns error gracefully when Bun.spawn throws ENOENT on Claude relaunch", async () => {
+    let resolveFirst: (code: number) => void;
+    const firstProc = {
+      pid: 12345,
+      kill: vi.fn(() => { resolveFirst(0); }),
+      exited: new Promise<number>((r) => { resolveFirst = r; }),
+      stdout: null,
+      stderr: null,
+    };
+    mockSpawn.mockReturnValueOnce(firstProc);
+
+    await launcher.launch({ cwd: "/tmp/project" });
+
+    // On relaunch, Bun.spawn throws ENOENT (binary path gone)
+    mockSpawn.mockImplementationOnce(() => {
+      throw Object.assign(new Error("ENOENT: no such file or directory, posix_spawn '/usr/bin/claude'"), { code: "ENOENT" });
+    });
+
+    const result = await launcher.relaunch("test-session-id");
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("Failed to spawn process");
+
+    const session = launcher.getSession("test-session-id");
+    expect(session?.state).toBe("exited");
+    expect(session?.exitCode).toBe(1);
+  });
+
+  it("returns error gracefully when Bun.spawn throws ENOENT on Codex relaunch", async () => {
+    mockSpawn.mockReturnValueOnce(createMockCodexProc());
+    await launcher.launch({
+      backendType: "codex",
+      cwd: "/tmp/project",
+      codexSandbox: "workspace-write",
+    });
+
+    // On relaunch, Bun.spawn throws ENOENT (node binary path gone)
+    mockSpawn.mockImplementationOnce(() => {
+      throw Object.assign(new Error("ENOENT: no such file or directory, posix_spawn '/home/user/.nvm/versions/node/v22/bin/node'"), { code: "ENOENT" });
+    });
+
+    const result = await launcher.relaunch("test-session-id");
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("Failed to spawn process");
+
+    const session = launcher.getSession("test-session-id");
+    expect(session?.state).toBe("exited");
+    expect(session?.exitCode).toBe(1);
+  });
 });
 
 // ─── persistence ─────────────────────────────────────────────────────────────
