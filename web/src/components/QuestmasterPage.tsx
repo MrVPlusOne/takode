@@ -545,27 +545,8 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
 
   async function handleMarkDone(quest: QuestmasterTask) {
     setError("");
-    const noteInput = window.prompt(
-      "Optional verification note before marking done:",
-      "",
-    );
-    if (noteInput === null) return;
-
-    const note = noteInput.trim();
-    const manualVerificationText = note
-      ? `User verified: ${note}`
-      : "Manually marked as done by user";
-    const existingVerificationItems =
-      "verificationItems" in quest && Array.isArray(quest.verificationItems)
-        ? quest.verificationItems
-        : [];
-    const verificationItems: QuestVerificationItem[] = [
-      ...existingVerificationItems,
-      { text: manualVerificationText, checked: true },
-    ];
-
     try {
-      const updatedQuest = await api.markQuestDone(quest.questId, { verificationItems });
+      const updatedQuest = await api.markQuestDone(quest.questId);
       const currentQuests = useStore.getState().quests;
       setQuests(
         currentQuests
