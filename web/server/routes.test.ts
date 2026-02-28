@@ -177,6 +177,7 @@ function createMockBridge() {
     broadcastNameUpdate: vi.fn(),
     setSessionClaimedQuest: vi.fn(),
     addTaskEntry: vi.fn(),
+    updateQuestTaskEntries: vi.fn(),
     persistSessionSync: vi.fn(),
     getSessionAttentionState: vi.fn(() => null),
     getSessionTaskHistory: vi.fn(() => []),
@@ -3012,6 +3013,7 @@ describe("PATCH /api/quests/:questId", () => {
       title: "Updated quest title",
       status: "in_progress",
     });
+    expect(bridge.updateQuestTaskEntries).toHaveBeenCalledWith("session-1", "q-1", "Updated quest title");
     expect(bridge.broadcastGlobal).toHaveBeenCalledWith(
       expect.objectContaining({ type: "quest_list_updated" }),
     );

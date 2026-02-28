@@ -187,6 +187,8 @@ interface AppState {
   appendMessage: (sessionId: string, msg: ChatMessage) => void;
   setMessages: (sessionId: string, msgs: ChatMessage[]) => void;
   updateMessage: (sessionId: string, msgId: string, updates: Partial<ChatMessage>) => void;
+  /** Update quest title in all quest_claimed/quest_submitted messages for a quest. */
+  updateQuestTitleInMessages: (sessionId: string, questId: string, newTitle: string) => void;
   updateLastAssistantMessage: (sessionId: string, updater: (msg: ChatMessage) => ChatMessage) => void;
   setStreaming: (sessionId: string, text: string | null) => void;
   setStreamingStats: (sessionId: string, stats: { startedAt?: number; outputTokens?: number } | null) => void;
@@ -744,6 +746,29 @@ export const useStore = create<AppState>((set) => ({
       const list = messages.get(sessionId);
       if (!list) return s;
       const updated = list.map((m) => (m.id === msgId ? { ...m, ...updates } : m));
+      messages.set(sessionId, updated);
+      return { messages };
+    }),
+
+  updateQuestTitleInMessages: (sessionId, questId, newTitle) =>
+    set((s) => {
+      const list = s.messages.get(sessionId);
+      if (!list) return s;
+      let changed = false;
+      const updated = list.map((m) => {
+        if (m.metadata?.quest?.questId === questId && m.metadata.quest.title !== newTitle) {
+          changed = true;
+          const label = m.variant === "quest_submitted" ? "Quest submitted" : "Quest Claimed";
+          return {
+            ...m,
+            content: `${label}: ${newTitle}`,
+            metadata: { ...m.metadata, quest: { ...m.metadata.quest, title: newTitle } },
+          };
+        }
+        return m;
+      });
+      if (!changed) return s;
+      const messages = new Map(s.messages);
       messages.set(sessionId, updated);
       return { messages };
     }),

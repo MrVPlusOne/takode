@@ -3423,6 +3423,8 @@ export function createRoutes(
           title: quest.title,
           status: quest.status,
         });
+        // Update task history entries that reference this quest
+        wsBridge.updateQuestTaskEntries(quest.sessionId, quest.questId, quest.title);
       }
       wsBridge.broadcastGlobal({ type: "quest_list_updated" } as import("./session-types.js").BrowserIncomingMessage);
       return c.json(quest);

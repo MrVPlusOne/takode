@@ -4082,6 +4082,23 @@ export class WsBridge {
     this.persistSession(session);
   }
 
+  /** Update titles of all task history entries linked to a quest, then broadcast. */
+  updateQuestTaskEntries(sessionId: string, questId: string, newTitle: string): void {
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+    let changed = false;
+    for (const entry of session.taskHistory) {
+      if (entry.source === "quest" && entry.questId === questId && entry.title !== newTitle) {
+        entry.title = newTitle;
+        changed = true;
+      }
+    }
+    if (changed) {
+      this.broadcastTaskHistory(session);
+      this.persistSession(session);
+    }
+  }
+
   /** Push the full task history to all connected browsers for a session. */
   private broadcastTaskHistory(session: Session): void {
     this.broadcastToBrowsers(session, {

@@ -900,6 +900,7 @@ function handleParsedMessage(
       console.log(`[ws] session_quest_claimed for ${sessionId}:`, data.quest);
       const prevStatus = store.sessions.get(sessionId)?.claimedQuestStatus;
       const prevQuestId = store.sessions.get(sessionId)?.claimedQuestId;
+      const prevTitle = store.sessions.get(sessionId)?.claimedQuestTitle;
       store.updateSession(sessionId, {
         claimedQuestId: data.quest?.id ?? undefined,
         claimedQuestTitle: data.quest?.title ?? undefined,
@@ -917,6 +918,12 @@ function handleParsedMessage(
       if (data.quest?.id) {
         const questId = data.quest.id;
         const isStatusChange = prevQuestId === questId && prevStatus && prevStatus !== data.quest.status;
+        const isTitleOnly = prevQuestId === questId && !isStatusChange && prevTitle !== data.quest.title;
+        // Title-only retitle: update existing quest chips instead of creating duplicates
+        if (isTitleOnly) {
+          store.updateQuestTitleInMessages(sessionId, questId, data.quest.title);
+          break;
+        }
         const isSubmitted = isStatusChange && data.quest.status === "needs_verification";
         const variant = isSubmitted ? "quest_submitted" as const : "quest_claimed" as const;
         const label = isSubmitted ? "Quest submitted" : "Quest claimed";
