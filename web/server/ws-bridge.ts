@@ -1878,10 +1878,38 @@ export class WsBridge {
     // a message that was being processed when the disconnect happened. By
     // re-queuing it in pendingMessages, it's automatically re-sent when the
     // CLI reconnects — making the disconnect transparent to the user.
-    if (wasGenerating && session.lastOutboundUserNdjson && !idleKilled) {
-      console.log(`[ws-bridge] Re-queuing in-flight user message for session ${sessionTag(sessionId)} (will re-send after reconnect)`);
-      session.pendingMessages.push(session.lastOutboundUserNdjson);
-      session.lastOutboundUserNdjson = null;
+    //
+    // If there's no user message to re-queue but the agent WAS generating
+    // (e.g., deep into multi-tool execution where the original user message
+    // already got a result, or the agent was auto-continuing), send a
+    // synthetic nudge message so the agent doesn't sit idle after reconnect.
+    if (wasGenerating && !idleKilled) {
+      if (session.lastOutboundUserNdjson) {
+        console.log(`[ws-bridge] Re-queuing in-flight user message for session ${sessionTag(sessionId)} (will re-send after reconnect)`);
+        session.pendingMessages.push(session.lastOutboundUserNdjson);
+        session.lastOutboundUserNdjson = null;
+      } else {
+        // Agent was generating but no user message in flight — the agent was
+        // mid-tool-execution or auto-continuing. Send a nudge so the --resume'd
+        // CLI picks up where it left off instead of sitting idle.
+        const nudgeContent = "[CLI disconnected and relaunched. Please continue your work from where you left off.]";
+        const nudge = JSON.stringify({
+          type: "user",
+          message: { role: "user", content: nudgeContent },
+          parent_tool_use_id: null,
+          session_id: session.state.session_id || "",
+        });
+        console.log(`[ws-bridge] Queuing continue-nudge for session ${sessionTag(sessionId)} (was generating, no user message in flight)`);
+        session.pendingMessages.push(nudge);
+        // Also add to messageHistory so the browser shows the nudge
+        const ts = Date.now();
+        session.messageHistory.push({
+          type: "user_message",
+          content: nudgeContent,
+          timestamp: ts,
+          id: `nudge-${ts}`,
+        } as BrowserIncomingMessage);
+      }
     }
 
     // Flush cleared permissions to disk so they don't survive a server restart
