@@ -292,46 +292,64 @@ describe("MessageBubble - assistant messages", () => {
     expect(markdown.textContent).toBe("Hello world");
   });
 
-  it("shows @user badge for leaderUserAddressed assistant messages", () => {
+  it("shows @to(user) badge for leaderUserAddressed assistant messages", () => {
     const msg = makeMessage({
       role: "assistant",
-      content: "@to(user): here's the latest status",
+      content: "here's the latest status @to(user)",
       leaderUserAddressed: true,
     });
     render(<MessageBubble message={msg} />);
 
     const marker = screen.getByTestId("leader-user-addressed-marker");
     expect(marker).toBeTruthy();
-    expect(marker.textContent).toBe("@to(user):");
+    expect(marker.textContent).toBe("@to(user)");
     const body = screen.getByTestId("leader-user-addressed-body");
     expect(body.className).toContain("border-l-2");
     expect(screen.getByTestId("markdown").textContent).toBe("here's the latest status");
   });
 
-  it("strips @to(user): prefix from clean user-addressed messages", () => {
+  it("strips trailing @to(user) suffix from clean user-addressed messages", () => {
     const msg = makeMessage({
       role: "assistant",
       content: "",
       leaderUserAddressed: true,
       contentBlocks: [
-        { type: "text", text: "@to(user): Worker #3 finished tests." },
+        { type: "text", text: "Worker #3 finished tests. @to(user)" },
       ],
     });
     render(<MessageBubble message={msg} />);
 
     expect(screen.getByTestId("markdown").textContent).toBe("Worker #3 finished tests.");
-    expect(screen.queryByText("@to(user): Worker #3 finished tests.")).toBeNull();
+    expect(screen.queryByText("Worker #3 finished tests. @to(user)")).toBeNull();
   });
 
-  it("does not strip @to(user): when it appears on a later line", () => {
+  it("strips trailing @to(self) suffix from internal assistant messages", () => {
     const msg = makeMessage({
       role: "assistant",
-      content: "Internal handoff details\n@to(user): Status update starts here.",
-      leaderUserAddressed: true,
+      content: "Internal handoff details @to(self)",
+      leaderUserAddressed: false,
     });
     render(<MessageBubble message={msg} />);
 
-    expect(screen.getByTestId("markdown").textContent).toContain("@to(user): Status update starts here.");
+    expect(screen.getByTestId("markdown").textContent).toBe("Internal handoff details");
+  });
+
+  it("strips suffix from the final text block when mixed with tool blocks", () => {
+    const msg = makeMessage({
+      role: "assistant",
+      content: "",
+      leaderUserAddressed: true,
+      contentBlocks: [
+        { type: "text", text: "First note." },
+        { type: "tool_use", id: "tool-1", name: "Bash", input: { command: "echo hi" } },
+        { type: "text", text: "Final status for user @to(user)" },
+      ],
+    });
+    render(<MessageBubble message={msg} />);
+
+    const markdownBlocks = screen.getAllByTestId("markdown");
+    expect(markdownBlocks[0].textContent).toBe("First note.");
+    expect(markdownBlocks[1].textContent).toBe("Final status for user");
   });
 
   it("renders a timestamp for assistant messages", () => {

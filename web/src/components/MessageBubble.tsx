@@ -454,18 +454,10 @@ function groupContentBlocks(blocks: ContentBlock[]): GroupedBlock[] {
   return groups;
 }
 
-const LEADER_USER_TAG = "@to(user):";
-const LEADER_USER_PREFIX_RE = /^@to\(user\):\s*/;
+const LEADER_TAG_SUFFIX_RE = /\s*@to\((?:user|self)\)\s*$/;
 
-function stripLeaderUserPrefix(text: string): string {
-  return text.replace(LEADER_USER_PREFIX_RE, "");
-}
-
-function shouldStripLeaderUserTag(message: ChatMessage): boolean {
-  if (message.content.startsWith(LEADER_USER_TAG)) return true;
-  if (message.content.length > 0) return false;
-  const firstTextBlock = message.contentBlocks?.find((b) => b.type === "text");
-  return firstTextBlock?.text.startsWith(LEADER_USER_TAG) === true;
+function stripLeaderAddressSuffix(text: string): string {
+  return text.replace(LEADER_TAG_SUFFIX_RE, "");
 }
 
 function LeaderUserAddressedMarker() {
@@ -474,7 +466,7 @@ function LeaderUserAddressedMarker() {
       data-testid="leader-user-addressed-marker"
       className="mb-1.5 flex items-center text-[10px] font-mono-code tracking-[0.08em] text-cc-primary/80"
     >
-      @to(user):
+      @to(user)
     </div>
   );
 }
@@ -485,26 +477,29 @@ function AssistantMessage({ message, sessionId, showTimestamp }: { message: Chat
   const userAddressed = message.leaderUserAddressed === true;
   const userAddressedBodyClass = userAddressed ? "border-l-2 border-cc-primary/35 pl-3" : "";
   const displayMessage = useMemo(() => {
-    if (!userAddressed) return message;
-    if (!shouldStripLeaderUserTag(message)) return message;
-
-    let strippedTextBlock = false;
-    const strippedBlocks = (message.contentBlocks || []).map((block) => {
-      if (block.type !== "text" || strippedTextBlock) return block;
-      const strippedText = stripLeaderUserPrefix(block.text);
+    const strippedContent = stripLeaderAddressSuffix(message.content);
+    const originalBlocks = message.contentBlocks || [];
+    let strippedBlocks = originalBlocks;
+    for (let i = originalBlocks.length - 1; i >= 0; i--) {
+      const block = originalBlocks[i];
+      if (block.type !== "text") continue;
+      const strippedText = stripLeaderAddressSuffix(block.text);
       if (strippedText !== block.text) {
-        strippedTextBlock = true;
-        return { ...block, text: strippedText };
+        strippedBlocks = originalBlocks.slice();
+        strippedBlocks[i] = { ...block, text: strippedText };
+        break;
       }
-      return block;
-    });
+    }
 
+    const contentChanged = strippedContent !== message.content;
+    const blocksChanged = strippedBlocks !== originalBlocks;
+    if (!contentChanged && !blocksChanged) return message;
     return {
       ...message,
-      content: stripLeaderUserPrefix(message.content),
-      contentBlocks: strippedBlocks,
+      content: strippedContent,
+      contentBlocks: blocksChanged ? strippedBlocks : message.contentBlocks,
     };
-  }, [message, userAddressed]);
+  }, [message]);
   const blocks = displayMessage.contentBlocks || [];
 
   const grouped = useMemo(() => groupContentBlocks(blocks), [blocks]);

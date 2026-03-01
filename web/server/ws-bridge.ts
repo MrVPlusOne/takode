@@ -315,6 +315,8 @@ interface PendingCodexTurnRecovery {
   disconnectedAt: number | null;
 }
 
+type LeaderAssistantAddressing = "not_leader" | "user" | "self" | "missing";
+
 interface Session {
   id: string;
   backendType: BackendType;
@@ -347,7 +349,7 @@ interface Session {
   /** Set after compact_boundary; the next user text message is the summary */
   awaitingCompactSummary?: boolean;
   /** Accumulates content blocks for assistant messages with the same ID (parallel tool calls) */
-  assistantAccumulator: Map<string, { contentBlockIds: Set<string> }>;
+  assistantAccumulator: Map<string, { contentBlockIds: Set<string>; reminderInjected: boolean }>;
   /** Wall-clock start times for tool calls (tool_use_id → Date.now()). Transient, not persisted. */
   toolStartTimes: Map<string, number>;
   /** Whether the CLI is actively generating a response (transient, not persisted) */
@@ -1141,7 +1143,7 @@ export class WsBridge {
       id: this.takodeEventNextId++,
       event,
       sessionId,
-      sessionNum: this.launcher?.getSessionNum(sessionId) ?? -1,
+      sessionNum: this.launcher?.getSessionNum?.(sessionId) ?? -1,
       sessionName: this.sessionNameGetter?.(sessionId) ?? sessionId.slice(0, 8),
       ts: Date.now(),
       data,
@@ -1625,6 +1627,10 @@ export class WsBridge {
   // ─── Attention state (server-authoritative read/unread) ───────────────────
 
   private static readonly ATTENTION_PRIORITY: Record<string, number> = { action: 3, error: 2, review: 1 };
+  private static readonly LEADER_TO_USER_SUFFIX = "@to(user)";
+  private static readonly LEADER_TO_SELF_SUFFIX = "@to(self)";
+  private static readonly LEADER_TAG_ENFORCEMENT_REMINDER =
+    "Your message is missing the addressing tag. Every message must end with @to(user) or @to(self).";
 
   private isLeaderSession(session: Session): boolean {
     return this.launcher?.getSession(session.id)?.isOrchestrator === true;
@@ -1634,14 +1640,34 @@ export class WsBridge {
     return !!this.launcher?.getSession(session.id)?.herdedBy;
   }
 
-  /** Leader messages are human-addressed when any line starts with @to(user):. */
-  private isLeaderUserAddressedAssistantMessage(session: Session, content: ContentBlock[]): boolean {
-    if (!this.isLeaderSession(session)) return false;
+  /**
+   * Leader assistant addressing is inferred from the suffix on the last text block:
+   * - ...@to(user) => human-addressed
+   * - ...@to(self) => internal activity
+   * - no text blocks => treated as self/internal (tool-only assistant message)
+   * - text present but no recognized suffix => missing tag (enforcement trigger)
+   */
+  private classifyLeaderAssistantAddressing(session: Session, content: ContentBlock[]): LeaderAssistantAddressing {
+    if (!this.isLeaderSession(session)) return "not_leader";
+
+    let lastText: string | null = null;
     for (const block of content) {
       if (block.type !== "text") continue;
-      if (/^@to\(user\):/m.test(block.text)) return true;
+      if (block.text.trim().length === 0) continue;
+      lastText = block.text;
     }
-    return false;
+    if (lastText === null) return "self";
+
+    const trimmed = lastText.trimEnd();
+    if (trimmed.endsWith(WsBridge.LEADER_TO_USER_SUFFIX)) return "user";
+    if (trimmed.endsWith(WsBridge.LEADER_TO_SELF_SUFFIX)) return "self";
+    return "missing";
+  }
+
+  private maybeInjectLeaderAddressingReminder(session: Session, addressing: LeaderAssistantAddressing): boolean {
+    if (addressing !== "missing") return false;
+    this.injectUserMessage(session.id, WsBridge.LEADER_TAG_ENFORCEMENT_REMINDER);
+    return true;
   }
 
   /** Whether a completed turn should surface attention/notifications to the human. */
@@ -1829,6 +1855,7 @@ export class WsBridge {
       this.launcher?.touchActivity(session.id);
       session.lastCliMessageAt = Date.now();
       let outgoing: BrowserIncomingMessage | null = msg;
+      let injectLeaderTagReminder = false;
 
       if (msg.type === "session_init") {
         const sanitized = this.sanitizeCodexSessionPatch(msg.session);
@@ -1879,7 +1906,9 @@ export class WsBridge {
       }
 
       if (outgoing?.type === "assistant") {
-        const leaderUserAddressed = this.isLeaderUserAddressedAssistantMessage(session, outgoing.message.content);
+        const addressing = this.classifyLeaderAssistantAddressing(session, outgoing.message.content);
+        injectLeaderTagReminder = addressing === "missing";
+        const leaderUserAddressed = addressing === "user";
         outgoing = {
           ...outgoing,
           ...(leaderUserAddressed ? { leader_user_addressed: true } : {}),
@@ -1924,6 +1953,7 @@ export class WsBridge {
       }
 
       if (outgoing) this.broadcastToBrowsers(session, outgoing);
+      if (injectLeaderTagReminder) this.maybeInjectLeaderAddressingReminder(session, "missing");
     });
 
     // Handle session metadata updates
@@ -2800,7 +2830,8 @@ export class WsBridge {
 
     // No ID — forward as-is (defensive)
     if (!msgId) {
-      const leaderUserAddressed = this.isLeaderUserAddressedAssistantMessage(session, msg.message.content);
+      const addressing = this.classifyLeaderAssistantAddressing(session, msg.message.content);
+      const leaderUserAddressed = addressing === "user";
       const browserMsg: BrowserIncomingMessage = {
         type: "assistant",
         message: msg.message,
@@ -2811,6 +2842,7 @@ export class WsBridge {
       };
       session.messageHistory.push(browserMsg);
       this.broadcastToBrowsers(session, browserMsg);
+      this.maybeInjectLeaderAddressingReminder(session, addressing);
       this.persistSession(session);
       return;
     }
@@ -2840,21 +2872,23 @@ export class WsBridge {
           }
         }
 
+        const addressing = this.classifyLeaderAssistantAddressing(session, msg.message.content);
         const browserMsg: BrowserIncomingMessage = {
           type: "assistant",
           message: { ...msg.message, content: [...msg.message.content] },
           parent_tool_use_id: msg.parent_tool_use_id,
           timestamp: Date.now(),
           uuid: msg.uuid,
-          ...(this.isLeaderUserAddressedAssistantMessage(session, msg.message.content)
+          ...(addressing === "user"
             ? { leader_user_addressed: true }
             : {}),
           ...(Object.keys(toolStartTimesMap).length > 0 ? { tool_start_times: toolStartTimesMap } : {}),
         };
-
-        session.assistantAccumulator.set(msgId, { contentBlockIds });
+        const accEntry = { contentBlockIds, reminderInjected: false };
+        session.assistantAccumulator.set(msgId, accEntry);
         session.messageHistory.push(browserMsg);
         this.broadcastToBrowsers(session, browserMsg);
+        accEntry.reminderInjected = this.maybeInjectLeaderAddressingReminder(session, addressing);
       }
     } else {
       // Subsequent occurrence — merge new content blocks into the history entry
@@ -2893,14 +2927,21 @@ export class WsBridge {
 
       // Treat the latest part as the completion timestamp for this assistant message.
       historyEntry.timestamp = Date.now();
-      historyEntry.leader_user_addressed = this.isLeaderUserAddressedAssistantMessage(session, historyEntry.message.content);
-
+      const addressing = this.classifyLeaderAssistantAddressing(session, historyEntry.message.content);
+      if (addressing === "user") {
+        historyEntry.leader_user_addressed = true;
+      } else {
+        delete historyEntry.leader_user_addressed;
+      }
       // Re-broadcast the full accumulated message with tool start times
       const rebroadcast: BrowserIncomingMessage = {
         ...(historyEntry as BrowserIncomingMessage),
         ...(Object.keys(allToolStartTimes).length > 0 ? { tool_start_times: allToolStartTimes } : {}),
       };
       this.broadcastToBrowsers(session, rebroadcast);
+      if (!acc.reminderInjected) {
+        acc.reminderInjected = this.maybeInjectLeaderAddressingReminder(session, addressing);
+      }
     }
 
     // NOTE: we intentionally do NOT delete the accumulator on stop_reason.
@@ -4813,7 +4854,7 @@ export class WsBridge {
         },
         parent_tool_use_id: null,
         timestamp: baseTs + i + 1,
-        ...(this.isLeaderUserAddressedAssistantMessage(session, [{ type: "text", text }])
+        ...(this.classifyLeaderAssistantAddressing(session, [{ type: "text", text }]) === "user"
           ? { leader_user_addressed: true }
           : {}),
       };

@@ -1661,10 +1661,11 @@ Every user message you receive has a source tag:
 
 ### Human-facing assistant replies
 
-When you want to communicate directly with the human in chat, start a line with \`@to(user):\`.
+When you want to communicate directly with the human in chat, end your message with \`@to(user)\`.
+For internal coordination updates, end your message with \`@to(self)\`.
 
-- Example: \`@to(user): Worker #7 finished auth middleware. Please review the PR notes.\`
-- Messages without this prefix are treated as internal herd activity and may be collapsed in the leader UI.
+- Example: \`Worker #7 finished auth middleware. Please review the PR notes. @to(user)\`
+- Every leader message with text must end with one of these suffixes or Companion will ask you to resend with a tag.
 
 ### Reacting to herd events
 

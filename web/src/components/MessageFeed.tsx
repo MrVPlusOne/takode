@@ -496,7 +496,7 @@ interface TurnStats {
 
 interface Turn {
   id: string;                      // Stable ID for collapse state (user msg ID or synthetic)
-  userEntry: FeedEntry | null;     // Boundary entry (user, or @to(user): assistant in leader mode)
+  userEntry: FeedEntry | null;     // Boundary entry (user, or @to(user) tagged assistant in leader mode)
   allEntries: FeedEntry[];         // All entries in original order (for expanded rendering)
   agentEntries: FeedEntry[];       // Non-system agent activity (collapsible), excludes responseEntry
   systemEntries: FeedEntry[];      // System messages (always visible, never collapsed)
