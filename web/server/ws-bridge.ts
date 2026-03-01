@@ -2319,15 +2319,14 @@ export class WsBridge {
       });
       this.persistSession(session);
 
-      // Reset isGenerating on system.init — the CLI just started/restarted and
-      // is definitively NOT generating. Any stale isGenerating=true from a
-      // previous turn that was interrupted by disconnect is now invalid.
-      // Queued messages flushed below will re-set isGenerating=true as needed.
+      // Force-clear isGenerating on system.init — the CLI just reconnected via
+      // --resume and is definitively NOT generating. Any stale isGenerating=true
+      // from a previous turn interrupted by disconnect is invalid. Use setGenerating()
+      // (not direct assignment) to emit turn_end takode event, which triggers
+      // herd event delivery for orchestrator sessions.
       if (session.isGenerating) {
-        console.log(`[ws-bridge] Resetting stale isGenerating=true on system.init for session ${sessionTag(session.id)}`);
-        session.isGenerating = false;
-        session.generationStartedAt = null;
-        // Broadcast idle status so the UI stops showing "running"
+        console.log(`[ws-bridge] Force-clearing stale isGenerating on system.init for session ${sessionTag(session.id)}`);
+        this.setGenerating(session, false, "system_init_reset");
         this.broadcastToBrowsers(session, { type: "status_change", status: "idle" });
       }
 
