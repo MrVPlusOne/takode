@@ -746,6 +746,16 @@ function handleParsedMessage(
       break;
     }
 
+    case "session_deleted": {
+      // Another browser or the API deleted a session — remove it from the store
+      // so the sidebar updates immediately without waiting for the next poll.
+      const deletedId = data.session_id;
+      if (deletedId) {
+        store.removeSession(deletedId);
+      }
+      break;
+    }
+
     case "permissions_cleared": {
       store.clearPermissions(sessionId);
       break;
@@ -898,6 +908,18 @@ function handleParsedMessage(
 
     case "quest_list_updated": {
       store.refreshQuests();
+      break;
+    }
+
+    case "session_deleted": {
+      // Another browser tab deleted a session — remove it from the sidebar immediately.
+      // The deleting tab already called removeSession() directly; this handles other tabs.
+      const deletedId = data.session_id;
+      if (deletedId && typeof deletedId === "string") {
+        console.log(`[ws] session_deleted: removing ${deletedId} from store`);
+        store.removeSession(deletedId);
+        disconnectSession(deletedId);
+      }
       break;
     }
 

@@ -1570,6 +1570,10 @@ export function createRoutes(
     const worktreeResult = cleanupWorktree(id, true);
     prPoller?.unwatch(id);
     launcher.removeSession(id);
+    // Broadcast deletion to all browsers BEFORE closing the session sockets.
+    // This ensures every browser tab (not just the one that triggered delete)
+    // removes the session from the sidebar immediately.
+    wsBridge.broadcastGlobal({ type: "session_deleted", session_id: id });
     wsBridge.closeSession(id);
     await imageStore?.removeSession(id);
     return c.json({ ok: true, worktree: worktreeResult });
