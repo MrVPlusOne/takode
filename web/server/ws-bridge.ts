@@ -604,7 +604,7 @@ export class WsBridge {
   private imageStore: ImageStore | null = null;
   private pushoverNotifier: PushoverNotifier | null = null;
   private launcher: CliLauncher | null = null;
-  private herdEventDispatcher: { onOrchestratorTurnEnd(orchId: string): void; getDiagnostics(orchId: string): Record<string, unknown> } | null = null;
+  private herdEventDispatcher: { onOrchestratorTurnEnd(orchId: string): void; onOrchestratorDisconnect(orchId: string): void; getDiagnostics(orchId: string): Record<string, unknown> } | null = null;
   private perfTracer: PerfTracer | null = null;
   private onCLISessionId: ((sessionId: string, cliSessionId: string) => void) | null = null;
   private onCLIRelaunchNeeded: ((sessionId: string) => void) | null = null;
@@ -951,7 +951,7 @@ export class WsBridge {
   }
 
   /** Attach the herd event dispatcher for push-based event delivery to orchestrators. */
-  setHerdEventDispatcher(dispatcher: { onOrchestratorTurnEnd(orchId: string): void; getDiagnostics(orchId: string): Record<string, unknown> }): void {
+  setHerdEventDispatcher(dispatcher: { onOrchestratorTurnEnd(orchId: string): void; onOrchestratorDisconnect(orchId: string): void; getDiagnostics(orchId: string): Record<string, unknown> }): void {
     this.herdEventDispatcher = dispatcher;
   }
 
@@ -2022,6 +2022,15 @@ export class WsBridge {
     if (idleKilled) {
       this.runFullDisconnect(session, sessionId, wasGenerating, idleKilled, reason);
       return;
+    }
+
+    // Reset herd event in-flight state: if this orchestrator had events injected
+    // but disconnected before consuming them, mark them for re-delivery.
+    if (this.herdEventDispatcher) {
+      const launcherInfo = this.launcher?.getSession(sessionId);
+      if (launcherInfo?.isOrchestrator) {
+        this.herdEventDispatcher.onOrchestratorDisconnect(sessionId);
+      }
     }
 
     // ── Grace period: the Claude Code CLI disconnects every ~5 minutes for

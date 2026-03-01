@@ -1,11 +1,23 @@
 /**
  * Push-based event delivery for herded sessions.
  *
- * When workers in an orchestrator's herd have noteworthy events (turn completed,
- * permission needed, error), the events accumulate in a per-orchestrator inbox.
- * When the orchestrator goes idle, the inbox is flushed as a single injected
- * user message. If the orchestrator is already idle, events are delivered after
- * a short debounce to batch near-simultaneous events.
+ * Architecture: server-internal inbox with decoupled delivery.
+ *
+ * 1. PRODUCTION: When a worker event fires, it's appended to the leader's
+ *    inbox — pure in-memory, no socket involved, never fails.
+ *
+ * 2. DELIVERY: When the leader's CLI is idle and connected, inbox contents
+ *    are formatted and injected as a user message. The events are marked
+ *    as "in-flight" but NOT removed from the inbox yet.
+ *
+ * 3. CONFIRMATION: When the leader's turn completes (processes the herd
+ *    message), in-flight events are confirmed consumed and trimmed.
+ *
+ * 4. RECOVERY: If the CLI disconnects before confirming, in-flight events
+ *    are reset to "pending" and re-delivered on next idle.
+ *
+ * Key principle: no event is ever lost because the inbox is server-internal
+ * state that survives any CLI disconnect/reconnect cycle.
  */
 
 import type { TakodeEvent, TakodeEventType } from "./session-types.js";
@@ -34,20 +46,42 @@ const ACTIONABLE_EVENTS = new Set<TakodeEventType>([
 ]);
 
 const DEBOUNCE_MS = 500;
-const INBOX_CAP = 100;
+const INBOX_CAP = 200;
+const HISTORY_CAP = 50;
 
 /** agentSource used to tag herd event messages */
 const HERD_AGENT_SOURCE = { sessionId: "herd-events", sessionLabel: "Herd Events" } as const;
 
 // ─── Inbox State ────────────────────────────────────────────────────────────────
 
+interface InboxEntry {
+  event: TakodeEvent;
+  /** Monotonic sequence number within this inbox */
+  seq: number;
+}
+
+interface DeliveryRecord {
+  event: string;
+  sessionName: string;
+  ts: number;
+  deliveredAt: number | null;
+  status: "pending" | "in_flight" | "confirmed" | "redelivered";
+}
+
 interface HerdInbox {
-  events: TakodeEvent[];
+  entries: InboxEntry[];
+  /** Next sequence number to assign */
+  nextSeq: number;
+  /** All entries with seq < confirmedUpTo have been consumed by the CLI */
+  confirmedUpTo: number;
+  /** Seq of the last entry included in the most recent flush (in-flight marker) */
+  inFlightUpTo: number | null;
+  /** Event subscription handle */
   unsubscribe: (() => void) | null;
   debounceTimer: ReturnType<typeof setTimeout> | null;
   workerIds: Set<string>;
-  /** Persistent event history for diagnostics (last N events with delivery status) */
-  eventHistory: Array<{ event: TakodeEvent; deliveredAt: number | null; status: "pending" | "delivered" | "dropped" }>;
+  /** Persistent delivery history for diagnostics (last N entries) */
+  deliveryHistory: DeliveryRecord[];
 }
 
 // ─── Dispatcher ─────────────────────────────────────────────────────────────────
@@ -82,11 +116,14 @@ export class HerdEventDispatcher {
       );
     } else {
       const inbox: HerdInbox = {
-        events: [],
+        entries: [],
+        nextSeq: 0,
+        confirmedUpTo: 0,
+        inFlightUpTo: null,
         unsubscribe: null,
         debounceTimer: null,
         workerIds,
-        eventHistory: [],
+        deliveryHistory: [],
       };
       inbox.unsubscribe = this.wsBridge.subscribeTakodeEvents(
         workerIds,
@@ -105,6 +142,8 @@ export class HerdEventDispatcher {
     this.inboxes.delete(orchId);
   }
 
+  // ─── Event Production (step 1: append-only, never fails) ─────────────────
+
   /** Called by the event subscription when a herded worker emits an event. */
   private onWorkerEvent(orchId: string, event: TakodeEvent): void {
     if (!ACTIONABLE_EVENTS.has(event.event)) return;
@@ -119,16 +158,30 @@ export class HerdEventDispatcher {
     const inbox = this.inboxes.get(orchId);
     if (!inbox) return;
 
-    inbox.events.push(event);
-    // Track in event history for diagnostics
-    inbox.eventHistory.push({ event, deliveredAt: null, status: "pending" });
-    // Cap history to prevent unbounded growth (keep last 50)
-    if (inbox.eventHistory.length > 50) {
-      inbox.eventHistory.splice(0, inbox.eventHistory.length - 50);
+    // Append to inbox (pure in-memory, never fails)
+    const seq = inbox.nextSeq++;
+    inbox.entries.push({ event, seq });
+
+    // Track in delivery history
+    inbox.deliveryHistory.push({
+      event: event.event,
+      sessionName: event.sessionName,
+      ts: event.ts,
+      deliveredAt: null,
+      status: "pending",
+    });
+    if (inbox.deliveryHistory.length > HISTORY_CAP) {
+      inbox.deliveryHistory.splice(0, inbox.deliveryHistory.length - HISTORY_CAP);
     }
-    // Cap inbox to prevent unbounded growth
-    if (inbox.events.length > INBOX_CAP) {
-      inbox.events.splice(0, inbox.events.length - INBOX_CAP);
+
+    // Cap inbox entries to prevent unbounded growth
+    if (inbox.entries.length > INBOX_CAP) {
+      const dropped = inbox.entries.length - INBOX_CAP;
+      inbox.entries.splice(0, dropped);
+      // Update confirmedUpTo so we don't try to re-deliver trimmed entries
+      if (inbox.entries.length > 0) {
+        inbox.confirmedUpTo = Math.max(inbox.confirmedUpTo, inbox.entries[0].seq);
+      }
     }
 
     // If orchestrator is idle, schedule delivery
@@ -138,11 +191,49 @@ export class HerdEventDispatcher {
     // If generating, events accumulate — delivered on next onOrchestratorTurnEnd
   }
 
+  // ─── Event Delivery (step 2: inject when CLI is ready) ────────────────────
+
   /** Called from ws-bridge when an orchestrator finishes a turn. */
   onOrchestratorTurnEnd(orchId: string): void {
     const inbox = this.inboxes.get(orchId);
-    if (!inbox || inbox.events.length === 0) return;
-    this.scheduleDelivery(orchId);
+    if (!inbox) return;
+
+    // Confirm in-flight events: the turn completed, so the CLI consumed them
+    if (inbox.inFlightUpTo !== null) {
+      inbox.confirmedUpTo = inbox.inFlightUpTo + 1;
+      inbox.inFlightUpTo = null;
+      // Trim confirmed entries from the inbox
+      while (inbox.entries.length > 0 && inbox.entries[0].seq < inbox.confirmedUpTo) {
+        inbox.entries.shift();
+      }
+    }
+
+    // If there are new pending events, schedule delivery
+    if (this.pendingCount(inbox) > 0) {
+      this.scheduleDelivery(orchId);
+    }
+  }
+
+  /** Called when the orchestrator's CLI disconnects. Reset in-flight state. */
+  onOrchestratorDisconnect(orchId: string): void {
+    const inbox = this.inboxes.get(orchId);
+    if (!inbox) return;
+
+    // Reset in-flight: events were injected but CLI disconnected before consuming.
+    // They'll be re-delivered when the CLI reconnects and goes idle.
+    if (inbox.inFlightUpTo !== null) {
+      // Mark redelivered in history
+      for (const h of inbox.deliveryHistory) {
+        if (h.status === "in_flight") h.status = "redelivered";
+      }
+      inbox.inFlightUpTo = null;
+    }
+
+    // Cancel any pending delivery timer
+    if (inbox.debounceTimer) {
+      clearTimeout(inbox.debounceTimer);
+      inbox.debounceTimer = null;
+    }
   }
 
   /** Called when herd relationships change (workers added/removed). */
@@ -160,37 +251,58 @@ export class HerdEventDispatcher {
     }, DEBOUNCE_MS);
   }
 
-  /** Deliver accumulated events as a single user message.
-   *  Re-checks idle state before delivery. Only dequeues events on successful injection. */
+  /** Deliver pending events to the orchestrator's CLI. */
   private flushInbox(orchId: string): void {
     const inbox = this.inboxes.get(orchId);
-    if (!inbox || inbox.events.length === 0) return;
+    if (!inbox) return;
 
-    // Re-check idle — orchestrator may have started generating during debounce window
+    const pending = this.getPendingEntries(inbox);
+    if (pending.length === 0) return;
+
+    // Re-check idle — orchestrator may have started generating during debounce
     if (!this.wsBridge.isSessionIdle(orchId)) {
       // Events stay in inbox, delivered on next onOrchestratorTurnEnd
       return;
     }
 
-    // Peek at events (don't remove yet)
-    const events = [...inbox.events];
+    // Format and inject
+    const events = pending.map(e => e.event);
     const content = formatHerdEventBatch(events);
-
-    // Attempt delivery
     this.wsBridge.injectUserMessage(orchId, content, HERD_AGENT_SOURCE);
 
-    // Only now dequeue the events (delivery was attempted — sendToCLI will re-queue if socket fails)
-    inbox.events.splice(0);
+    // Mark as in-flight (NOT confirmed yet — that happens on turn end)
+    const lastSeq = pending[pending.length - 1].seq;
+    inbox.inFlightUpTo = lastSeq;
 
-    // Mark events as delivered in history
+    // Update delivery history
     const now = Date.now();
-    for (const entry of inbox.eventHistory) {
-      if (entry.status === "pending") {
-        entry.deliveredAt = now;
-        entry.status = "delivered";
+    let histIdx = inbox.deliveryHistory.length - pending.length;
+    if (histIdx < 0) histIdx = 0;
+    for (let i = histIdx; i < inbox.deliveryHistory.length; i++) {
+      if (inbox.deliveryHistory[i].status === "pending" || inbox.deliveryHistory[i].status === "redelivered") {
+        inbox.deliveryHistory[i].deliveredAt = now;
+        inbox.deliveryHistory[i].status = "in_flight";
       }
     }
   }
+
+  // ─── Helpers ──────────────────────────────────────────────────────────────
+
+  /** Get entries that haven't been confirmed consumed yet. */
+  private getPendingEntries(inbox: HerdInbox): InboxEntry[] {
+    // Pending = everything after confirmedUpTo that isn't already in-flight
+    const startSeq = inbox.inFlightUpTo !== null
+      ? inbox.inFlightUpTo + 1  // Already have in-flight batch, only get newer
+      : inbox.confirmedUpTo;     // Nothing in-flight, get from last confirmed
+    return inbox.entries.filter(e => e.seq >= startSeq);
+  }
+
+  /** Count of events waiting to be delivered. */
+  private pendingCount(inbox: HerdInbox): number {
+    return this.getPendingEntries(inbox).length;
+  }
+
+  // ─── Lifecycle ────────────────────────────────────────────────────────────
 
   /** Clean up all inboxes (for server shutdown). */
   destroy(): void {
@@ -204,28 +316,33 @@ export class HerdEventDispatcher {
     hasInbox: boolean;
     pendingEventCount: number;
     pendingEventTypes: string[];
+    inFlightCount: number;
+    confirmedUpTo: number;
     workerCount: number;
     debounceActive: boolean;
-    eventHistory: Array<{ event: string; sessionName: string; ts: number; deliveredAt: number | null; status: string }>;
+    eventHistory: DeliveryRecord[];
   } {
     const inbox = this.inboxes.get(orchId);
     if (!inbox) {
-      return { hasInbox: false, pendingEventCount: 0, pendingEventTypes: [], workerCount: 0, debounceActive: false, eventHistory: [] };
+      return {
+        hasInbox: false, pendingEventCount: 0, pendingEventTypes: [],
+        inFlightCount: 0, confirmedUpTo: 0,
+        workerCount: 0, debounceActive: false, eventHistory: [],
+      };
     }
-    const eventTypes = inbox.events.map(e => e.event);
+    const pending = this.getPendingEntries(inbox);
+    const inFlight = inbox.inFlightUpTo !== null
+      ? inbox.entries.filter(e => e.seq >= inbox.confirmedUpTo && e.seq <= inbox.inFlightUpTo!).length
+      : 0;
     return {
       hasInbox: true,
-      pendingEventCount: inbox.events.length,
-      pendingEventTypes: eventTypes,
+      pendingEventCount: pending.length,
+      pendingEventTypes: pending.map(e => e.event.event),
+      inFlightCount: inFlight,
+      confirmedUpTo: inbox.confirmedUpTo,
       workerCount: inbox.workerIds.size,
       debounceActive: inbox.debounceTimer !== null,
-      eventHistory: inbox.eventHistory.map(h => ({
-        event: h.event.event,
-        sessionName: h.event.sessionName,
-        ts: h.event.ts,
-        deliveredAt: h.deliveredAt,
-        status: h.status,
-      })),
+      eventHistory: inbox.deliveryHistory,
     };
   }
 
