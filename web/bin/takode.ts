@@ -4,6 +4,9 @@
  * Server-authoritative orchestration commands.
  */
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 const DEFAULT_PORT = 3456;
 
 // ─── Port discovery (same pattern as ctl.ts) ────────────────────────────────
@@ -49,17 +52,31 @@ function getCredentials(): { sessionId: string; authToken: string } | null {
   const authToken = process.env.COMPANION_AUTH_TOKEN;
   if (sessionId && authToken) return { sessionId, authToken };
 
-  // Fallback: read from .claude/session-auth.json in cwd
-  try {
-    const { readFileSync } = require("node:fs");
-    const { join } = require("node:path");
-    const authFile = join(process.cwd(), ".claude", "session-auth.json");
-    const data = JSON.parse(readFileSync(authFile, "utf-8"));
-    if (data.sessionId && data.authToken) return { sessionId: data.sessionId, authToken: data.authToken };
-  } catch {
-    // File doesn't exist or is malformed — auth not available
+  // Fallback: read session-auth from workspace metadata files.
+  const candidates = [
+    join(process.cwd(), ".companion", "session-auth.json"), // current, backend-agnostic
+    join(process.cwd(), ".codex", "session-auth.json"), // legacy Codex-specific fallback
+    join(process.cwd(), ".claude", "session-auth.json"), // legacy Claude-specific fallback
+  ];
+  for (const authFile of candidates) {
+    try {
+      const data = JSON.parse(readFileSync(authFile, "utf-8"));
+      if (data.sessionId && data.authToken) {
+        return { sessionId: data.sessionId, authToken: data.authToken };
+      }
+    } catch {
+      // Try the next candidate.
+    }
   }
   return null;
+}
+
+function getCallerSessionId(): string {
+  const creds = getCredentials();
+  if (!creds?.sessionId) {
+    err("COMPANION_SESSION_ID not set. Relaunch this session to refresh orchestration auth.");
+  }
+  return creds.sessionId;
 }
 
 /** Get auth headers for API requests. Returns empty object if no credentials. */
@@ -78,11 +95,10 @@ const TAKODE_SESSION_ID_HEADER = "x-companion-session-id";
 const TAKODE_AUTH_TOKEN_HEADER = "x-companion-auth-token";
 
 function getAuthContext(): { sessionId: string; authToken: string } {
-  const sessionId = process.env.COMPANION_SESSION_ID?.trim();
-  const authToken = process.env.COMPANION_AUTH_TOKEN?.trim();
-  if (!sessionId) err("COMPANION_SESSION_ID not set");
-  if (!authToken) err("COMPANION_AUTH_TOKEN not set. Relaunch this session to refresh orchestration auth.");
-  return { sessionId, authToken };
+  const creds = getCredentials();
+  if (!creds?.sessionId) err("COMPANION_SESSION_ID not set. Relaunch this session to refresh orchestration auth.");
+  if (!creds?.authToken) err("COMPANION_AUTH_TOKEN not set. Relaunch this session to refresh orchestration auth.");
+  return creds;
 }
 
 function takodeAuthHeaders(extra?: Record<string, string>): Record<string, string> {
@@ -233,7 +249,7 @@ async function handleList(base: string, args: string[]): Promise<void> {
   //   default      — herded sessions only (orchestrator's flock, excludes self)
   //   --active     — all unarchived sessions (discovery/triage view)
   //   --all        — everything including archived
-  const mySessionId = process.env.COMPANION_SESSION_ID;
+  const mySessionId = getCredentials()?.sessionId;
   const mySelf = mySessionId ? sessions.find(s => s.sessionId === mySessionId) : null;
   const isOrchestrator = mySelf?.isOrchestrator === true;
 
@@ -898,7 +914,7 @@ async function handleSend(base: string, args: string[]): Promise<void> {
   if (!sessionRef || !cleanContent) err("Usage: takode send <session> <message>");
 
   // Guard: orchestrators can only send to herded sessions
-  const callerSessionId = process.env.COMPANION_SESSION_ID;
+  const callerSessionId = getCredentials()?.sessionId;
   if (callerSessionId) {
     try {
       // Resolve target to a full UUID
@@ -980,8 +996,7 @@ async function handleSpawn(base: string, args: string[]): Promise<void> {
     err("Invalid --count. Expected a positive integer.");
   }
 
-  const leaderSessionId = process.env.COMPANION_SESSION_ID;
-  if (!leaderSessionId) err("COMPANION_SESSION_ID not set");
+  const leaderSessionId = getCallerSessionId();
 
   // Inherit permission behavior from the leader: bypass -> askPermission=false.
   const leader = await apiGet(base, `/sessions/${encodeURIComponent(leaderSessionId)}`) as {
@@ -1052,8 +1067,7 @@ async function handleStop(base: string, args: string[]): Promise<void> {
   const jsonMode = args.includes("--json");
   if (!sessionRef) err("Usage: takode stop <session>");
 
-  const mySessionId = process.env.COMPANION_SESSION_ID;
-  if (!mySessionId) err("COMPANION_SESSION_ID not set");
+  const mySessionId = getCallerSessionId();
 
   const result = await apiPost(base, `/sessions/${encodeURIComponent(sessionRef)}/stop`, {
     callerSessionId: mySessionId,
@@ -1075,8 +1089,7 @@ async function handleHerd(base: string, args: string[]): Promise<void> {
   const refs = args.filter(a => !a.startsWith("--")).join(",").split(",").map(s => s.trim()).filter(Boolean);
   if (refs.length === 0) err("Usage: takode herd <session1,session2,...>");
 
-  const mySessionId = process.env.COMPANION_SESSION_ID;
-  if (!mySessionId) err("COMPANION_SESSION_ID not set");
+  const mySessionId = getCallerSessionId();
 
   const result = await apiPost(base, `/sessions/${encodeURIComponent(mySessionId)}/herd`, {
     workerIds: refs,
@@ -1105,8 +1118,7 @@ async function handleUnherd(base: string, args: string[]): Promise<void> {
   const jsonMode = args.includes("--json");
   if (!sessionRef) err("Usage: takode unherd <session>");
 
-  const mySessionId = process.env.COMPANION_SESSION_ID;
-  if (!mySessionId) err("COMPANION_SESSION_ID not set");
+  const mySessionId = getCallerSessionId();
 
   const result = await apiDelete(base, `/sessions/${encodeURIComponent(mySessionId)}/herd/${encodeURIComponent(sessionRef)}`) as { ok: boolean; removed: boolean };
 
@@ -1180,8 +1192,7 @@ async function handleAnswer(base: string, args: string[]): Promise<void> {
 
   if (!sessionRef || !response) err("Usage: takode answer <session> <response>");
 
-  const mySessionId = process.env.COMPANION_SESSION_ID;
-  if (!mySessionId) err("COMPANION_SESSION_ID not set");
+  const mySessionId = getCallerSessionId();
 
   const result = await apiPost(base, `/sessions/${encodeURIComponent(sessionRef)}/answer`, {
     response,

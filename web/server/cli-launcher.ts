@@ -2121,10 +2121,10 @@ ${ORCH_END}`;
    * (e.g., after CLI relaunch fails to pass them).
    */
   private async writeSessionAuthFile(cwd: string, sessionId: string, authToken: string, port: number): Promise<void> {
-    const claudeDir = join(cwd, ".claude");
-    const authFilePath = join(claudeDir, "session-auth.json");
+    const companionDir = join(cwd, ".companion");
+    const authFilePath = join(companionDir, "session-auth.json");
     try {
-      await mkdir(claudeDir, { recursive: true });
+      await mkdir(companionDir, { recursive: true });
       const data = JSON.stringify({ sessionId, authToken, port }, null, 2);
       await writeFile(authFilePath, data, { mode: 0o600 });
     } catch (err) {

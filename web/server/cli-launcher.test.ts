@@ -51,7 +51,11 @@ const mockUnlinkSync = vi.hoisted(() => vi.fn());
 const mockSymlinkSync = vi.hoisted(() => vi.fn());
 const mockLstatSync = vi.hoisted(() => vi.fn((_path?: string): any => { throw Object.assign(new Error("ENOENT"), { code: "ENOENT" }); }));
 const isMockedPath = vi.hoisted(() => (path: string): boolean => {
-  return path.includes(".claude") || path.startsWith("/tmp/worktrees/") || path.startsWith("/tmp/main-repo");
+  return path.includes(".claude")
+    || path.includes(".codex")
+    || path.includes(".companion")
+    || path.startsWith("/tmp/worktrees/")
+    || path.startsWith("/tmp/main-repo");
 });
 
 // Async mock functions for node:fs/promises — delegate to sync mocks so test
@@ -269,6 +273,33 @@ describe("launch", () => {
     expect(typeof options.env.COMPANION_AUTH_TOKEN).toBe("string");
     expect(options.env.COMPANION_AUTH_TOKEN.length).toBeGreaterThan(0);
     expect(launcher.verifySessionAuthToken("test-session-id", options.env.COMPANION_AUTH_TOKEN)).toBe(true);
+  });
+
+  it("writes session-auth to backend-agnostic .companion/session-auth.json", async () => {
+    mockResolveBinary.mockReturnValue("/opt/fake/codex");
+    mockSpawn.mockReturnValueOnce(createMockCodexProc());
+    await launcher.launch({ backendType: "codex", cwd: "/tmp/project" });
+
+    const expectedPath = "/tmp/project/.companion/session-auth.json";
+    const deadline = Date.now() + 1000;
+    while (!mockWriteFile.mock.calls.some((call) => call[0] === expectedPath)) {
+      if (Date.now() > deadline) throw new Error("Timed out waiting for session-auth write");
+      await new Promise<void>((r) => setTimeout(r, 10));
+    }
+
+    const writeCall = mockWriteFile.mock.calls.find((call) => call[0] === expectedPath);
+    expect(writeCall).toBeDefined();
+    expect(mockMkdir).toHaveBeenCalledWith("/tmp/project/.companion", { recursive: true });
+    expect(writeCall?.[2]).toEqual({ mode: 0o600 });
+
+    const payload = JSON.parse(String(writeCall?.[1])) as {
+      sessionId: string;
+      authToken: string;
+      port: number;
+    };
+    expect(payload.sessionId).toBe("test-session-id");
+    expect(payload.authToken.length).toBeGreaterThan(0);
+    expect(payload.port).toBe(3456);
   });
 
   it("spawns CLI with correct --sdk-url and flags", async () => {
