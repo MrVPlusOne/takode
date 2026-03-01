@@ -199,6 +199,7 @@ interface AppState {
   addPermission: (sessionId: string, perm: PermissionRequest) => void;
   removePermission: (sessionId: string, requestId: string) => void;
   updatePermissionEvaluating: (sessionId: string, requestId: string, evaluating: "queued" | "evaluating" | undefined) => void;
+  updatePermissionDeferralReason: (sessionId: string, requestId: string, reason: string) => void;
   markPermissionAutoApproved: (sessionId: string, requestId: string, reason: string) => void;
   clearPermissions: (sessionId: string) => void;
 
@@ -889,6 +890,21 @@ export const useStore = create<AppState>((set) => ({
         if (perm) {
           const updated = new Map(sessionPerms);
           updated.set(requestId, { ...perm, evaluating });
+          pendingPermissions.set(sessionId, updated);
+        }
+      }
+      return { pendingPermissions };
+    }),
+
+  updatePermissionDeferralReason: (sessionId, requestId, deferralReason) =>
+    set((s) => {
+      const pendingPermissions = new Map(s.pendingPermissions);
+      const sessionPerms = pendingPermissions.get(sessionId);
+      if (sessionPerms) {
+        const perm = sessionPerms.get(requestId);
+        if (perm) {
+          const updated = new Map(sessionPerms);
+          updated.set(requestId, { ...perm, deferralReason });
           pendingPermissions.set(sessionId, updated);
         }
       }

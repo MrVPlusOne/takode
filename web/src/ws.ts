@@ -655,13 +655,17 @@ function handleParsedMessage(
     }
 
     case "permission_needs_attention": {
-      // LLM evaluation failed or timed out — transition to normal pending state
+      // LLM evaluation deferred, failed, or timed out — transition to normal pending state.
+      // Store the deferral reason so PermissionBanner can explain WHY.
       store.updatePermissionEvaluating(sessionId, data.request_id, undefined);
+      if (data.reason) {
+        store.updatePermissionDeferralReason(sessionId, data.request_id, data.reason);
+      }
       store.pauseStreamingTimer(sessionId);
       if (!document.hasFocus() && store.notificationDesktop) {
         sendBrowserNotification(
           "Permission needed",
-          "Auto-approval evaluation finished — needs your input",
+          data.reason || "Auto-approval evaluation finished — needs your input",
           data.request_id,
         );
       }

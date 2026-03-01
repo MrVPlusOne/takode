@@ -1887,6 +1887,7 @@ describe("Persistence", () => {
       processedClientMessageIds: ["restored-client-1"],
     });
 
+    await store.flushAll(); // ensure fire-and-forget writeFile completes before reading back
     const count = await bridge.restoreFromDisk();
     expect(count).toBe(1);
 
@@ -1938,6 +1939,7 @@ describe("Persistence", () => {
       pendingPermissions: [],
     });
 
+    await store.flushAll(); // ensure fire-and-forget writeFile completes before reading back
     const count = await bridge.restoreFromDisk();
     expect(count).toBe(0);
 
@@ -2614,6 +2616,7 @@ describe("Restore from disk with pendingPermissions", () => {
       pendingPermissions: pendingPerms,
     });
 
+    await store.flushAll(); // ensure fire-and-forget writeFile completes before reading back
     const count = await bridge.restoreFromDisk();
     expect(count).toBe(1);
 
@@ -2673,6 +2676,7 @@ describe("Restore from disk with pendingPermissions", () => {
       ],
     });
 
+    await store.flushAll(); // ensure fire-and-forget writeFile completes before reading back
     await bridge.restoreFromDisk();
 
     // Connect a CLI so we don't trigger relaunch
@@ -2725,6 +2729,7 @@ describe("Restore from disk with pendingPermissions", () => {
       pendingPermissions: [],
     });
 
+    await store.flushAll(); // ensure fire-and-forget writeFile completes before reading back
     const count = await bridge.restoreFromDisk();
     expect(count).toBe(1);
 
@@ -2767,6 +2772,7 @@ describe("Restore from disk with pendingPermissions", () => {
       pendingPermissions: undefined as any,
     });
 
+    await store.flushAll(); // ensure fire-and-forget writeFile completes before reading back
     const count = await bridge.restoreFromDisk();
     expect(count).toBe(1);
 

@@ -2932,12 +2932,18 @@ export class WsBridge {
       } else {
         // LLM denied or failed (null) — transition to normal pending state.
         // Clear the evaluating flag so the browser shows full approval UI.
+        // Set deferralReason so the browser can explain WHY the permission needs human review.
+        const deferralReason = result?.decision === "defer"
+          ? (result.reason || "Auto-approver deferred to human")
+          : "Auto-approval evaluation failed or timed out";
         perm.evaluating = undefined;
+        perm.deferralReason = deferralReason;
 
         this.broadcastToBrowsers(session, {
           type: "permission_needs_attention",
           request_id: requestId,
           timestamp: Date.now(),
+          reason: deferralReason,
         });
 
         // Takode: emit permission_request NOW — auto-approval deferred, human needs to act
@@ -2968,11 +2974,14 @@ export class WsBridge {
 
       // Fail-safe: if anything goes wrong, transition to normal pending
       if (session.pendingPermissions.has(requestId)) {
+        const errorReason = "Auto-approval evaluation encountered an error";
         perm.evaluating = undefined;
+        perm.deferralReason = errorReason;
         this.broadcastToBrowsers(session, {
           type: "permission_needs_attention",
           request_id: requestId,
           timestamp: Date.now(),
+          reason: errorReason,
         });
         // Takode: emit permission_request on fail-safe escalation too
         this.emitTakodeEvent(session.id, "permission_request", {

@@ -1,4 +1,5 @@
 import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -427,13 +428,13 @@ describe("initWithPort", () => {
     // Verify they're independent
     expect(prodId).not.toBe(devId);
 
-    // Re-read port 3456 — name should still be "Production"
-    _resetForTest(port3456Path);
-    expect(getServerName()).toBe("Production");
+    // Re-read from disk via async readFile to avoid NFS close-to-open race
+    // (readFileSync after _resetForTest can see stale data on NFS)
+    const saved3456 = JSON.parse(await readFile(port3456Path, "utf-8"));
+    expect(saved3456.serverName).toBe("Production");
 
-    // Re-read port 3457 — name should still be "Development"
-    _resetForTest(port3457Path);
-    expect(getServerName()).toBe("Development");
+    const saved3457 = JSON.parse(await readFile(port3457Path, "utf-8"));
+    expect(saved3457.serverName).toBe("Development");
   });
 
   it("works cleanly on fresh install with no legacy file", async () => {

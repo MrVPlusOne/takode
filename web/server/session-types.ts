@@ -313,7 +313,7 @@ export type BrowserIncomingMessageBase =
   | { type: "permission_approved"; id: string; tool_name: string; tool_use_id: string; summary: string; timestamp: number; request_id?: string; answers?: { question: string; answer: string }[] }
   | { type: "permission_auto_approved"; request_id: string; tool_name: string; tool_use_id: string; reason: string; summary: string; timestamp: number }
   | { type: "permission_auto_denied"; request_id: string; tool_name: string; tool_use_id: string; reason: string; timestamp: number }
-  | { type: "permission_needs_attention"; request_id: string; timestamp: number }
+  | { type: "permission_needs_attention"; request_id: string; timestamp: number; reason?: string }
   | { type: "permission_evaluating_status"; request_id: string; evaluating: "queued" | "evaluating"; timestamp: number }
   | { type: "state_snapshot"; sessionStatus: string | null; permissionMode: string; cliConnected: boolean; uiMode: string | null; askPermission: boolean; lastReadAt?: number; attentionReason?: "action" | "error" | "review" | null; generationStartedAt?: number | null }
   | { type: "session_stuck" }
@@ -450,6 +450,9 @@ export interface PermissionRequest {
    *  PermissionBanner uses this to show a brief "auto-approved" indicator instead of vanishing
    *  the dialog when the user was actively viewing it. */
   autoApproved?: string;
+  /** Set when the LLM auto-approver deferred this permission to the human.
+   *  Explains why: LLM rationale (for "defer"), "evaluation timed out", or "evaluation failed". */
+  deferralReason?: string;
 }
 
 // ─── Session Creation Progress (SSE streaming) ──────────────────────────────

@@ -725,6 +725,13 @@ export function PermissionBanner({
               </div>
             )}
 
+            {/* Show why the auto-approver deferred this permission to the human */}
+            {!expandedFromEvaluating && permission.deferralReason && (
+              <div className="text-[11px] text-cc-warning/70 italic mb-1">
+                {permission.deferralReason}
+              </div>
+            )}
+
             {isAskUser ? (
               <AskUserQuestionDisplay
                 input={permission.input}
