@@ -658,6 +658,36 @@ describe("QuestmasterPage verification inbox", () => {
     expect(within(dialog).getByRole("button", { name: "Rework" })).toBeDisabled();
   });
 
+  it("renders feedback image thumbnails and opens a lightbox from quest feedback entries", () => {
+    mockState.quests = mockState.quests.map((q) => (
+      q.questId === "q-1"
+        ? ({
+            ...q,
+            feedback: [{
+              author: "agent",
+              text: "Screenshot attached for validation.",
+              ts: Date.now(),
+              images: [{
+                id: "feedback-img-1",
+                filename: "server-proof.png",
+                mimeType: "image/png",
+                path: "/home/jiayiwei/.companion/questmaster/images/feedback-img-1.png",
+              }],
+            }],
+          } as QuestmasterTask)
+        : q
+    ));
+    window.location.hash = "#/questmaster?quest=q-1";
+    render(<QuestmasterPage />);
+
+    const dialog = screen.getByRole("dialog", { name: /Quest details: Inbox quest/ });
+    const thumb = within(dialog).getByTitle("server-proof.png");
+    expect(thumb).toHaveAttribute("src", "/api/quests/_images/feedback-img-1");
+
+    fireEvent.click(thumb);
+    expect(screen.getByTestId("lightbox-backdrop")).toBeInTheDocument();
+  });
+
   it("closes lightbox first on Escape and keeps quest modal open", async () => {
     mockState.quests = mockState.quests.map((q) => (
       q.questId === "q-1"
