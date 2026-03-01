@@ -1268,6 +1268,24 @@ export function createRoutes(
     }));
   };
 
+  const backfillSessionProjectMeta = async (
+    info: { cwd: string; repoRoot?: string },
+    bridgeSession?: { state?: { repo_root?: string; cwd?: string } } | null,
+  ): Promise<void> => {
+    if ((!info.cwd || !info.cwd.trim()) && bridgeSession?.state?.cwd) {
+      info.cwd = bridgeSession.state.cwd;
+    }
+    if (info.repoRoot && info.repoRoot.trim()) return;
+    const fromBridge = bridgeSession?.state?.repo_root?.trim();
+    if (fromBridge) {
+      info.repoRoot = fromBridge;
+      return;
+    }
+    if (!info.cwd || !info.cwd.trim()) return;
+    const inferred = await execCaptureStdoutAsync("git --no-optional-locks rev-parse --show-toplevel", info.cwd);
+    if (inferred) info.repoRoot = inferred;
+  };
+
   api.get("/takode/me", (c) => {
     const auth = authenticateTakodeCaller(c);
     if ("response" in auth) return auth.response;
@@ -1385,12 +1403,16 @@ export function createRoutes(
       return c.json({ error: "Only the leader who herded this session can stop it" }, 403);
     }
 
+    // Preserve project metadata used for grouping. Some sessions only have repo
+    // root in bridge state (derived from git), not in launcher state.
+    const session = wsBridge.getSession(id);
+    await backfillSessionProjectMeta(workerInfo, session);
+
     // Inject a visible system message into the worker's chat before stopping
     const leaderNum = launcher.getSessionNum(callerSessionId);
     const leaderName = sessionNames.getName(callerSessionId) || callerSessionId.slice(0, 8);
     const stopMsg = `Session stopped by leader #${leaderNum ?? "?"} ${leaderName}`;
     const ts = Date.now();
-    const session = wsBridge.getSession(id);
     if (session) {
       const historyEntry = {
         type: "user_message" as const,
@@ -1415,6 +1437,7 @@ export function createRoutes(
     if (!id) return c.json({ error: "Session not found" }, 404);
     const info = launcher.getSession(id);
     if (!info) return c.json({ error: "Session not found" }, 404);
+    await backfillSessionProjectMeta(info, wsBridge.getSession(id));
 
     // Worktree sessions: validate the worktree still exists and isn't used by another session
     if (info.isWorktree && info.repoRoot && info.branch) {

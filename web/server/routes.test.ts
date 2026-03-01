@@ -934,6 +934,22 @@ describe("POST /api/sessions/:id/relaunch", () => {
     expect(launcher.relaunch).toHaveBeenCalledWith("s1");
   });
 
+  it("backfills missing repoRoot from bridge state before relaunch", async () => {
+    const info = { sessionId: "s1", state: "exited", cwd: "/repo/web", repoRoot: undefined };
+    launcher.getSession.mockReturnValue(info);
+    launcher.relaunch.mockResolvedValue({ ok: true });
+    bridge.getSession.mockReturnValue({
+      id: "s1",
+      state: { repo_root: "/repo", cwd: "/repo/web" },
+    });
+
+    const res = await app.request("/api/sessions/s1/relaunch", { method: "POST" });
+
+    expect(res.status).toBe(200);
+    expect(info.repoRoot).toBe("/repo");
+    expect(launcher.relaunch).toHaveBeenCalledWith("s1");
+  });
+
   it("returns 503 with error when container is missing", async () => {
     launcher.getSession.mockReturnValue({ sessionId: "s1", state: "exited", cwd: "/test", containerId: "abc" });
     launcher.relaunch.mockResolvedValue({
@@ -3560,6 +3576,27 @@ describe("Takode server-authoritative auth", () => {
     });
     expect(unherdOk.status).toBe(200);
     expect(launcher.unherdSession).toHaveBeenCalledWith("orch-1", "worker-1");
+  });
+
+  it("preserves repoRoot metadata when stopping a herded session", async () => {
+    const sessions = setupTakodeSessions();
+    sessions["worker-1"].cwd = "/repo/web";
+    sessions["worker-1"].repoRoot = undefined;
+    bridge.getSession.mockReturnValue({
+      id: "worker-1",
+      state: { repo_root: "/repo", cwd: "/repo/web" },
+      messageHistory: [],
+    });
+
+    const res = await app.request("/api/sessions/worker-1/stop", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ callerSessionId: "orch-1" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(launcher.kill).toHaveBeenCalledWith("worker-1");
+    expect(sessions["worker-1"].repoRoot).toBe("/repo");
   });
 
   it("blocks spoofed sender identity and accepts authenticated send", async () => {
