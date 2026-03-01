@@ -119,6 +119,22 @@ function getQuestOwnerSessionId(quest: QuestmasterTask): string | null {
   return null;
 }
 
+const DEFAULT_DONE_VERIFICATION_ITEM: QuestVerificationItem = {
+  text: "User marked this quest as done in Questmaster.",
+  checked: true,
+};
+
+function getDoneVerificationItems(quest: QuestmasterTask): QuestVerificationItem[] | undefined {
+  if (
+    "verificationItems" in quest &&
+    Array.isArray(quest.verificationItems) &&
+    quest.verificationItems.length > 0
+  ) {
+    return undefined;
+  }
+  return [DEFAULT_DONE_VERIFICATION_ITEM];
+}
+
 type EditorTarget = "newTitle" | "newDescription" | "editTitle" | "editDescription";
 
 function extractHashtags(text: string): string[] {
@@ -547,7 +563,10 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
   async function handleMarkDone(quest: QuestmasterTask) {
     setError("");
     try {
-      const updatedQuest = await api.markQuestDone(quest.questId);
+      const verificationItems = getDoneVerificationItems(quest);
+      const updatedQuest = verificationItems
+        ? await api.markQuestDone(quest.questId, { verificationItems })
+        : await api.markQuestDone(quest.questId);
       const currentQuests = useStore.getState().quests;
       setQuests(
         currentQuests

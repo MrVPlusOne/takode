@@ -471,6 +471,40 @@ describe("QuestmasterPage verification inbox", () => {
     });
   });
 
+  it("includes fallback verification items when marking an in-progress quest done", async () => {
+    // Regression: done transitions from in_progress have no verification checklist,
+    // so the UI must provide a fallback item to satisfy server validation.
+    mockState.quests = [{
+      id: "q-12-v2",
+      questId: "q-12",
+      version: 2,
+      title: "In-progress quest",
+      createdAt: Date.now(),
+      status: "in_progress",
+      description: "Implement the feature",
+      sessionId: "session-1",
+      claimedAt: Date.now(),
+    } as QuestmasterTask];
+    window.location.hash = "#/questmaster?quest=q-12";
+    render(<QuestmasterPage />);
+
+    const dialog = screen.getByRole("dialog", { name: /Quest details: In-progress quest/ });
+    fireEvent.change(within(dialog).getByDisplayValue("In Progress"), {
+      target: { value: "done" },
+    });
+
+    await waitFor(() => {
+      expect(mockMarkQuestDone).toHaveBeenCalledWith("q-12", {
+        verificationItems: [
+          {
+            text: "User marked this quest as done in Questmaster.",
+            checked: true,
+          },
+        ],
+      });
+    });
+  });
+
   it("shows previous owner session info for done quests", () => {
     mockState.quests = [{
       id: "q-9-v5",
