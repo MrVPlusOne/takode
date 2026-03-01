@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * Takode CLI — cross-session orchestration commands.
- * Only available in orchestrator sessions (TAKODE_ROLE=orchestrator).
+ * Server-authoritative orchestration commands.
  */
 
 const DEFAULT_PORT = 3456;
@@ -44,8 +44,30 @@ function stripGlobalFlags(argv: string[]): string[] {
 
 // ─── HTTP helpers ────────────────────────────────────────────────────────────
 
+const TAKODE_SESSION_ID_HEADER = "x-companion-session-id";
+const TAKODE_AUTH_TOKEN_HEADER = "x-companion-auth-token";
+
+function getAuthContext(): { sessionId: string; authToken: string } {
+  const sessionId = process.env.COMPANION_SESSION_ID?.trim();
+  const authToken = process.env.COMPANION_AUTH_TOKEN?.trim();
+  if (!sessionId) err("COMPANION_SESSION_ID not set");
+  if (!authToken) err("COMPANION_AUTH_TOKEN not set. Relaunch this session to refresh orchestration auth.");
+  return { sessionId, authToken };
+}
+
+function takodeAuthHeaders(extra?: Record<string, string>): Record<string, string> {
+  const { sessionId, authToken } = getAuthContext();
+  return {
+    [TAKODE_SESSION_ID_HEADER]: sessionId,
+    [TAKODE_AUTH_TOKEN_HEADER]: authToken,
+    ...extra,
+  };
+}
+
 async function apiGet(base: string, path: string): Promise<unknown> {
-  const res = await fetch(`${base}${path}`);
+  const res = await fetch(`${base}${path}`, {
+    headers: takodeAuthHeaders(),
+  });
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error((body as { error?: string }).error || `HTTP ${res.status}`);
@@ -56,7 +78,7 @@ async function apiGet(base: string, path: string): Promise<unknown> {
 async function apiPost(base: string, path: string, body?: unknown): Promise<unknown> {
   const res = await fetch(`${base}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: takodeAuthHeaders({ "Content-Type": "application/json" }),
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) {
@@ -67,7 +89,10 @@ async function apiPost(base: string, path: string, body?: unknown): Promise<unkn
 }
 
 async function apiDelete(base: string, path: string): Promise<unknown> {
-  const res = await fetch(`${base}${path}`, { method: "DELETE" });
+  const res = await fetch(`${base}${path}`, {
+    method: "DELETE",
+    headers: takodeAuthHeaders(),
+  });
   if (!res.ok) {
     const data = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error((data as { error?: string }).error || `HTTP ${res.status}`);
@@ -238,7 +263,7 @@ async function handleList(base: string, args: string[]): Promise<void> {
   const showActive = flags.active === true;
   const jsonMode = flags.json === true;
 
-  const sessions = await apiGet(base, "/sessions") as Array<{
+  const sessions = await apiGet(base, "/takode/sessions") as Array<{
     sessionId: string;
     sessionNum?: number;
     name?: string;
@@ -448,7 +473,7 @@ async function handleWatch(base: string, args: string[]): Promise<void> {
   const controller = new AbortController();
   const res = await fetch(url, {
     signal: controller.signal,
-    headers: { Accept: "text/event-stream" },
+    headers: takodeAuthHeaders({ Accept: "text/event-stream" }),
   });
 
   if (!res.ok) {
@@ -1078,7 +1103,7 @@ async function handleSend(base: string, args: string[]): Promise<void> {
   if (callerSessionId) {
     let sessionLabel: string | undefined;
     try {
-      const sessions = await apiGet(base, "/sessions") as Array<{
+      const sessions = await apiGet(base, "/takode/sessions") as Array<{
         sessionId: string; sessionNum?: number; name?: string;
       }>;
       const own = sessions.find(s => s.sessionId === callerSessionId);
@@ -1369,7 +1394,7 @@ async function handleSearch(base: string, args: string[]): Promise<void> {
   const showAll = flags.all === true;
   const jsonMode = flags.json === true;
 
-  const sessions = await apiGet(base, "/sessions") as Array<{
+  const sessions = await apiGet(base, "/takode/sessions") as Array<{
     sessionId: string;
     sessionNum?: number;
     name?: string;
@@ -1520,20 +1545,38 @@ Examples:
 `);
 }
 
+async function ensureOrchestratorAccess(base: string): Promise<void> {
+  const me = await apiGet(base, "/takode/me") as { isOrchestrator?: boolean };
+  if (me.isOrchestrator !== true) {
+    err("takode commands require an orchestrator session.");
+  }
+}
+
 const command = process.argv[2];
 const rawArgs = process.argv.slice(3);
 const args = stripGlobalFlags(rawArgs);
 const base = getBase(rawArgs);
 
-// Role check — orchestrator sessions only
-const role = process.env.TAKODE_ROLE;
-if (role !== "orchestrator") {
-  console.error("Error: takode commands require an orchestrator session.");
-  console.error("Create a session with the orchestrator role to use these commands.");
-  process.exit(1);
-}
-
 try {
+  const requiresAuth = new Set([
+    "list",
+    "search",
+    "spawn",
+    "watch",
+    "tasks",
+    "peek",
+    "read",
+    "send",
+    "herd",
+    "unherd",
+    "stop",
+    "pending",
+    "answer",
+  ]);
+  if (command && requiresAuth.has(command)) {
+    await ensureOrchestratorAccess(base);
+  }
+
   switch (command) {
     case "list":
       await handleList(base, args);
@@ -1588,6 +1631,7 @@ try {
         process.exit(1);
       }
   }
+  process.exit(0);
 } catch (e) {
   const message = e instanceof Error ? e.message : String(e);
   if (message.includes("ECONNREFUSED") || message.includes("fetch failed")) {

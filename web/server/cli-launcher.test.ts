@@ -258,6 +258,16 @@ describe("launch", () => {
     expect(info.createdAt).toBeGreaterThan(0);
   });
 
+  it("injects server-issued auth env vars into launched sessions", async () => {
+    await launcher.launch({ cwd: "/tmp/project" });
+
+    const [, options] = mockSpawn.mock.calls[0];
+    expect(options.env.COMPANION_SESSION_ID).toBe("test-session-id");
+    expect(typeof options.env.COMPANION_AUTH_TOKEN).toBe("string");
+    expect(options.env.COMPANION_AUTH_TOKEN.length).toBeGreaterThan(0);
+    expect(launcher.verifySessionAuthToken("test-session-id", options.env.COMPANION_AUTH_TOKEN)).toBe(true);
+  });
+
   it("spawns CLI with correct --sdk-url and flags", async () => {
     await launcher.launch({ cwd: "/tmp/project" });
 
@@ -555,6 +565,7 @@ describe("launch", () => {
       expect(updatedConfig).toContain("\"PATH\"");
       expect(updatedConfig).toContain("\"HOME\"");
       expect(updatedConfig).toContain("\"COMPANION_SESSION_ID\"");
+      expect(updatedConfig).toContain("\"COMPANION_AUTH_TOKEN\"");
       expect(updatedConfig).toContain("\"COMPANION_PORT\"");
       expect(updatedConfig).toContain("\"TAKODE_ROLE\"");
       expect(updatedConfig).toContain("\"TAKODE_API_PORT\"");
@@ -880,6 +891,7 @@ describe("relaunch", () => {
     const [relaunchCmd] = mockSpawn.mock.calls[1];
     expect(relaunchCmd).toContain("-e");
     expect(relaunchCmd).toContain("CLAUDE_CODE_OAUTH_TOKEN=tok-test");
+    expect(relaunchCmd.some((arg: string) => arg.startsWith("COMPANION_AUTH_TOKEN="))).toBe(true);
   });
 
   it("returns error for unknown session", async () => {

@@ -142,6 +142,7 @@ function createMockLauncher() {
       createdAt: Date.now(),
     })),
     kill: vi.fn(async () => true),
+    isAlive: vi.fn(() => true),
     relaunch: vi.fn(async () => ({ ok: true })),
     relaunchWithResumeAt: vi.fn(async () => ({ ok: true })),
     listSessions: vi.fn(() => []),
@@ -151,6 +152,10 @@ function createMockLauncher() {
     removeSession: vi.fn(),
     injectOrchestratorGuardrails: vi.fn(async () => {}),
     getPort: vi.fn(() => 3456),
+    verifySessionAuthToken: vi.fn(() => true),
+    herdSessions: vi.fn(() => ({ herded: [], notFound: [], conflicts: [] })),
+    unherdSession: vi.fn(() => false),
+    getHerdedSessions: vi.fn(() => []),
     // resolveSessionId: pass-through for exact UUIDs (used by resolveId helper in routes)
     resolveSessionId: vi.fn((id: string) => id),
     getSessionNum: vi.fn(() => undefined),
@@ -186,6 +191,9 @@ function createMockBridge() {
     markSessionRead: vi.fn(() => true),
     markSessionUnread: vi.fn(() => true),
     markAllSessionsRead: vi.fn(),
+    injectUserMessage: vi.fn(),
+    subscribeTakodeEvents: vi.fn(() => () => {}),
+    routeExternalPermissionResponse: vi.fn(),
   } as any;
 }
 
@@ -3437,5 +3445,146 @@ describe("POST /api/quests/_notify", () => {
     expect(bridge.broadcastGlobal).toHaveBeenCalledWith(
       expect.objectContaining({ type: "quest_list_updated" }),
     );
+  });
+});
+
+describe("Takode server-authoritative auth", () => {
+  function authHeaders(sessionId: string, token: string): Record<string, string> {
+    return {
+      "x-companion-session-id": sessionId,
+      "x-companion-auth-token": token,
+      "Content-Type": "application/json",
+    };
+  }
+
+  function setupTakodeSessions() {
+    const sessions: Record<string, any> = {
+      "orch-1": {
+        sessionId: "orch-1",
+        state: "running",
+        cwd: "/repo",
+        createdAt: Date.now(),
+        isOrchestrator: true,
+      },
+      "worker-1": {
+        sessionId: "worker-1",
+        state: "running",
+        cwd: "/repo/w1",
+        createdAt: Date.now(),
+        herdedBy: "orch-1",
+      },
+      "worker-2": {
+        sessionId: "worker-2",
+        state: "running",
+        cwd: "/repo/w2",
+        createdAt: Date.now(),
+      },
+    };
+    launcher.getSession.mockImplementation((id: string) => sessions[id]);
+    launcher.listSessions.mockReturnValue(Object.values(sessions));
+    launcher.resolveSessionId.mockImplementation((id: string) => (sessions[id] ? id : null));
+    launcher.verifySessionAuthToken.mockImplementation((id: string, token: string) => id === "orch-1" && token === "tok-1");
+    return sessions;
+  }
+
+  it("denies spoofed token and allows authenticated orchestrator list scope", async () => {
+    setupTakodeSessions();
+
+    const denied = await app.request("/api/takode/sessions", {
+      method: "GET",
+      headers: authHeaders("orch-1", "spoofed"),
+    });
+    expect(denied.status).toBe(403);
+
+    const allowed = await app.request("/api/takode/sessions", {
+      method: "GET",
+      headers: authHeaders("orch-1", "tok-1"),
+    });
+    expect(allowed.status).toBe(200);
+    const json = await allowed.json();
+    expect(Array.isArray(json)).toBe(true);
+    expect(json).toHaveLength(3);
+  });
+
+  it("enforces authenticated orchestrator identity for herd and unherd", async () => {
+    setupTakodeSessions();
+    launcher.herdSessions.mockReturnValue({ herded: ["worker-1"], notFound: [], conflicts: [] });
+    launcher.unherdSession.mockReturnValue(true);
+
+    const denied = await app.request("/api/sessions/orch-1/herd", {
+      method: "POST",
+      headers: authHeaders("orch-1", "spoofed"),
+      body: JSON.stringify({ workerIds: ["worker-1"] }),
+    });
+    expect(denied.status).toBe(403);
+    expect(launcher.herdSessions).not.toHaveBeenCalled();
+
+    const herdOk = await app.request("/api/sessions/orch-1/herd", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ workerIds: ["worker-1"] }),
+    });
+    expect(herdOk.status).toBe(200);
+    expect(launcher.herdSessions).toHaveBeenCalledWith("orch-1", ["worker-1"]);
+
+    const unherdOk = await app.request("/api/sessions/orch-1/herd/worker-1", {
+      method: "DELETE",
+      headers: authHeaders("orch-1", "tok-1"),
+    });
+    expect(unherdOk.status).toBe(200);
+    expect(launcher.unherdSession).toHaveBeenCalledWith("orch-1", "worker-1");
+  });
+
+  it("blocks spoofed sender identity and accepts authenticated send", async () => {
+    setupTakodeSessions();
+    launcher.isAlive.mockReturnValue(true);
+
+    const deniedByToken = await app.request("/api/sessions/worker-1/message", {
+      method: "POST",
+      headers: authHeaders("orch-1", "spoofed"),
+      body: JSON.stringify({ content: "hi" }),
+    });
+    expect(deniedByToken.status).toBe(403);
+
+    const deniedByBodySpoof = await app.request("/api/sessions/worker-1/message", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({
+        content: "hi",
+        agentSource: { sessionId: "worker-2" },
+      }),
+    });
+    expect(deniedByBodySpoof.status).toBe(403);
+
+    const allowed = await app.request("/api/sessions/worker-1/message", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ content: "ship it" }),
+    });
+    expect(allowed.status).toBe(200);
+    expect(bridge.injectUserMessage).toHaveBeenCalledWith(
+      "worker-1",
+      "ship it",
+      { sessionId: "orch-1" },
+    );
+  });
+
+  it("denies watch outside herd scope and allows watching herded workers", async () => {
+    setupTakodeSessions();
+    launcher.getHerdedSessions.mockImplementation((id: string) =>
+      id === "orch-1" ? [{ sessionId: "worker-1" }] : []);
+
+    const denied = await app.request("/api/events/stream?sessions=worker-2&timeout=1", {
+      method: "GET",
+      headers: authHeaders("orch-1", "tok-1"),
+    });
+    expect(denied.status).toBe(403);
+
+    const allowed = await app.request("/api/events/stream?sessions=worker-1&timeout=1", {
+      method: "GET",
+      headers: authHeaders("orch-1", "tok-1"),
+    });
+    expect(allowed.status).toBe(200);
+    expect(bridge.subscribeTakodeEvents).toHaveBeenCalled();
   });
 });

@@ -207,6 +207,8 @@ export interface SdkSessionInfo {
   herdedBy?: string;
   /** Env profile slug used at creation, for re-resolving env vars on relaunch */
   envSlug?: string;
+  /** Server-issued secret used to authenticate privileged REST calls from this session. */
+  sessionAuthToken?: string;
   /** One-shot: resume-session-at UUID for revert (cleared after use) */
   resumeAt?: string;
 
@@ -364,6 +366,29 @@ export class CliLauncher {
   /** Get the integer session number for a UUID. */
   getSessionNum(sessionId: string): number | undefined {
     return this.sessionNumMap.get(sessionId);
+  }
+
+  /** Ensure a session has an auth token and return it. */
+  private ensureSessionAuthToken(info: SdkSessionInfo): string {
+    if (!info.sessionAuthToken) {
+      info.sessionAuthToken = randomUUID();
+      this.persistState();
+    }
+    return info.sessionAuthToken;
+  }
+
+  /** Get the auth token for a session, generating one for legacy sessions if missing. */
+  getSessionAuthToken(sessionId: string): string | undefined {
+    const info = this.sessions.get(sessionId);
+    if (!info) return undefined;
+    return this.ensureSessionAuthToken(info);
+  }
+
+  /** Verify a session auth token for privileged API operations. */
+  verifySessionAuthToken(sessionId: string, token: string): boolean {
+    if (!token) return false;
+    const expected = this.getSessionAuthToken(sessionId);
+    return !!expected && token === expected;
   }
 
   /** Persist launcher state to disk (debounced).
@@ -553,8 +578,15 @@ export class CliLauncher {
     // Assign monotonic integer session number
     info.sessionNum = this.assignSessionNum(sessionId);
 
-    // Always inject COMPANION_SESSION_ID so agents can identify themselves
-    const envWithSessionId = { ...options.env, COMPANION_SESSION_ID: sessionId };
+    // Server-issued token for authenticating privileged REST requests.
+    const sessionAuthToken = this.ensureSessionAuthToken(info);
+
+    // Always inject companion identity/auth vars so agents can identify and authenticate themselves.
+    const envWithSessionId = {
+      ...options.env,
+      COMPANION_SESSION_ID: sessionId,
+      COMPANION_AUTH_TOKEN: sessionAuthToken,
+    };
     this.sessionEnvs.set(sessionId, envWithSessionId);
     options = { ...options, env: envWithSessionId };
 
@@ -658,6 +690,13 @@ export class CliLauncher {
     }, info.backendType || "claude", info.cwd);
 
     let runtimeEnv = this.sessionEnvs.get(sessionId);
+    const sessionAuthToken = this.ensureSessionAuthToken(info);
+
+    // Ensure runtime env always carries the auth token (covers legacy in-memory maps).
+    if (runtimeEnv && runtimeEnv.COMPANION_AUTH_TOKEN !== sessionAuthToken) {
+      runtimeEnv = { ...runtimeEnv, COMPANION_AUTH_TOKEN: sessionAuthToken };
+      this.sessionEnvs.set(sessionId, runtimeEnv);
+    }
 
     // After server restart, sessionEnvs is empty (not persisted to disk).
     // Reconstruct essential env vars from persisted SdkSessionInfo fields
@@ -665,6 +704,7 @@ export class CliLauncher {
     if (!runtimeEnv) {
       const reconstructed: Record<string, string> = {
         COMPANION_SESSION_ID: sessionId,
+        COMPANION_AUTH_TOKEN: sessionAuthToken,
         COMPANION_PORT: String(this.port),
       };
       if (info.isOrchestrator) {

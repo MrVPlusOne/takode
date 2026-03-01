@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { streamSSE, type SSEStreamingApi } from "hono/streaming";
 import { execSync, exec as execCb } from "node:child_process";
 import { promisify } from "node:util";
@@ -94,6 +94,37 @@ export function createRoutes(
 
   /** Resolve a session ID from an integer, UUID, or UUID prefix. */
   const resolveId = (raw: string): string | null => launcher.resolveSessionId(raw);
+  const TAKODE_SESSION_ID_HEADER = "x-companion-session-id";
+  const TAKODE_AUTH_TOKEN_HEADER = "x-companion-auth-token";
+
+  type TakodeCaller = { callerId: string; caller: NonNullable<ReturnType<CliLauncher["getSession"]>> };
+
+  const authenticateTakodeCaller = (
+    c: Context,
+    options?: { requireOrchestrator?: boolean },
+  ): TakodeCaller | { response: Response } => {
+    const rawCallerId = c.req.header(TAKODE_SESSION_ID_HEADER)?.trim();
+    const authToken = c.req.header(TAKODE_AUTH_TOKEN_HEADER)?.trim();
+    if (!rawCallerId || !authToken) {
+      return { response: c.json({ error: "Missing Takode auth headers" }, 403) };
+    }
+
+    const callerId = resolveId(rawCallerId);
+    if (!callerId) {
+      return { response: c.json({ error: "Caller session not found" }, 403) };
+    }
+    const caller = launcher.getSession(callerId);
+    if (!caller) {
+      return { response: c.json({ error: "Caller session not found" }, 403) };
+    }
+    if (!launcher.verifySessionAuthToken(callerId, authToken)) {
+      return { response: c.json({ error: "Invalid Takode auth token" }, 403) };
+    }
+    if (options?.requireOrchestrator && !caller.isOrchestrator) {
+      return { response: c.json({ error: "Caller is not an orchestrator session" }, 403) };
+    }
+    return { callerId, caller };
+  };
 
   // Performance tracing middleware — records slow API requests
   if (perfTracer) {
@@ -1187,12 +1218,15 @@ export function createRoutes(
     }
   });
 
-  api.get("/sessions", async (c) => {
+  const buildEnrichedSessions = async (
+    filterFn?: (s: ReturnType<CliLauncher["listSessions"]>[number]) => boolean,
+  ) => {
     const sessions = launcher.listSessions();
     const names = sessionNames.getAllNames();
     const bridgeStates = wsBridge.getAllSessions();
     const bridgeMap = new Map(bridgeStates.map((s) => [s.session_id, s]));
-    const enriched = await Promise.all(sessions.map(async (s) => {
+    const pool = filterFn ? sessions.filter(filterFn) : sessions;
+    return Promise.all(pool.map(async (s) => {
       try {
         const bridge = bridgeMap.get(s.sessionId);
         let gitAhead = bridge?.git_ahead || 0;
@@ -1230,6 +1264,29 @@ export function createRoutes(
         return { ...s, name: names[s.sessionId] ?? s.name };
       }
     }));
+  };
+
+  api.get("/takode/me", (c) => {
+    const auth = authenticateTakodeCaller(c);
+    if ("response" in auth) return auth.response;
+    return c.json({
+      sessionId: auth.callerId,
+      sessionNum: launcher.getSessionNum(auth.callerId) ?? null,
+      isOrchestrator: auth.caller.isOrchestrator === true,
+      state: auth.caller.state,
+      backendType: auth.caller.backendType || "claude",
+    });
+  });
+
+  api.get("/sessions", async (c) => {
+    const enriched = await buildEnrichedSessions();
+    return c.json(enriched);
+  });
+
+  api.get("/takode/sessions", async (c) => {
+    const auth = authenticateTakodeCaller(c, { requireOrchestrator: true });
+    if ("response" in auth) return auth.response;
+    const enriched = await buildEnrichedSessions();
     return c.json(enriched);
   });
 
@@ -1292,6 +1349,9 @@ export function createRoutes(
   // ─── Takode Event Stream (SSE) ─────────────────────────────────────────
 
   api.get("/events/stream", (c) => {
+    const auth = authenticateTakodeCaller(c, { requireOrchestrator: true });
+    if ("response" in auth) return auth.response;
+
     const sessionsParam = c.req.query("sessions");
     if (!sessionsParam) {
       return c.json({ error: "sessions parameter is required" }, 400);
@@ -1309,6 +1369,16 @@ export function createRoutes(
     }
     if (sessionIds.size === 0) {
       return c.json({ error: "No valid sessions found" }, 400);
+    }
+
+    const allowedSessionIds = new Set<string>([
+      auth.callerId,
+      ...launcher.getHerdedSessions(auth.callerId).map((s) => s.sessionId),
+    ]);
+    for (const sessionId of sessionIds) {
+      if (!allowedSessionIds.has(sessionId)) {
+        return c.json({ error: "Cannot watch sessions outside your herd scope" }, 403);
+      }
     }
 
     const sinceParam = c.req.query("since");
@@ -1372,10 +1442,20 @@ export function createRoutes(
 
   // Leader-initiated stop: gracefully stop a herded worker session
   api.post("/sessions/:id/stop", async (c) => {
+    const auth = authenticateTakodeCaller(c, { requireOrchestrator: true });
+    if ("response" in auth) return auth.response;
+
     const id = resolveId(c.req.param("id"));
     if (!id) return c.json({ error: "Session not found" }, 404);
     const body = await c.req.json().catch(() => ({}));
-    const callerSessionId = typeof body.callerSessionId === "string" ? body.callerSessionId : "";
+    if (
+      typeof body.callerSessionId === "string"
+      && body.callerSessionId.trim()
+      && body.callerSessionId.trim() !== auth.callerId
+    ) {
+      return c.json({ error: "callerSessionId does not match authenticated caller" }, 403);
+    }
+    const callerSessionId = auth.callerId;
 
     // Herd guard: only the herding leader can stop
     const workerInfo = launcher.getSession(id);
@@ -2859,6 +2939,9 @@ export function createRoutes(
   // ─── Cross-session messaging ───────────────────────────────────────
 
   api.post("/sessions/:id/message", async (c) => {
+    const auth = authenticateTakodeCaller(c);
+    if ("response" in auth) return auth.response;
+
     const id = resolveId(c.req.param("id"));
     if (!id) return c.json({ error: "Session not found" }, 404);
     const session = launcher.getSession(id);
@@ -2868,32 +2951,24 @@ export function createRoutes(
     if (typeof body.content !== "string" || !body.content.trim()) {
       return c.json({ error: "content is required" }, 400);
     }
-    // Validate optional agentSource (identifies the caller when sent by takode/cron)
-    let agentSource: { sessionId: string; sessionLabel?: string } | undefined;
+    // Validate optional agentSource label from callers.
+    let sessionLabel: string | undefined;
     if (body.agentSource && typeof body.agentSource === "object") {
       if (typeof body.agentSource.sessionId === "string" && body.agentSource.sessionId.trim()) {
-        agentSource = {
-          sessionId: body.agentSource.sessionId,
-          ...(typeof body.agentSource.sessionLabel === "string" ? { sessionLabel: body.agentSource.sessionLabel } : {}),
-        };
+        const claimed = resolveId(body.agentSource.sessionId.trim());
+        if (!claimed || claimed !== auth.callerId) {
+          return c.json({ error: "agentSource.sessionId does not match authenticated caller" }, 403);
+        }
+      }
+      if (typeof body.agentSource.sessionLabel === "string" && body.agentSource.sessionLabel.trim()) {
+        sessionLabel = body.agentSource.sessionLabel;
       }
     }
-
-    // Authentication: require a valid caller identity for ALL REST message sends.
-    // Browser messages go through WebSocket (already authenticated by connection).
-    // Cron scheduler calls wsBridge.injectUserMessage() directly (bypasses REST).
-    // This blocks unauthenticated curl calls from injecting messages into any session.
-    if (!agentSource?.sessionId) {
-      return c.json({ error: "agentSource with sessionId is required" }, 403);
-    }
-    const callerSession = launcher.getSession(agentSource.sessionId);
-    if (!callerSession) {
-      return c.json({ error: "Caller session not found" }, 403);
-    }
+    const agentSource = { sessionId: auth.callerId, ...(sessionLabel ? { sessionLabel } : {}) };
 
     // Herd guard: if the target session is herded, only its leader can send messages.
     if (session.herdedBy) {
-      if (agentSource.sessionId !== session.herdedBy) {
+      if (auth.callerId !== session.herdedBy) {
         return c.json({ error: "Session is herded — only its leader can send messages" }, 403);
       }
     }
@@ -2904,8 +2979,14 @@ export function createRoutes(
   // ─── Cat herding (orchestrator→worker relationships) ──────────────
 
   api.post("/sessions/:id/herd", async (c) => {
+    const auth = authenticateTakodeCaller(c, { requireOrchestrator: true });
+    if ("response" in auth) return auth.response;
+
     const orchId = resolveId(c.req.param("id"));
     if (!orchId) return c.json({ error: "Orchestrator session not found" }, 404);
+    if (orchId !== auth.callerId) {
+      return c.json({ error: "Authenticated caller does not match orchestrator id" }, 403);
+    }
     const orch = launcher.getSession(orchId);
     if (!orch) return c.json({ error: "Orchestrator session not found" }, 404);
     const body = await c.req.json().catch(() => ({}));
@@ -2924,8 +3005,14 @@ export function createRoutes(
   });
 
   api.delete("/sessions/:id/herd/:workerId", (c) => {
+    const auth = authenticateTakodeCaller(c, { requireOrchestrator: true });
+    if ("response" in auth) return auth.response;
+
     const orchId = resolveId(c.req.param("id"));
     if (!orchId) return c.json({ error: "Orchestrator session not found" }, 404);
+    if (orchId !== auth.callerId) {
+      return c.json({ error: "Authenticated caller does not match orchestrator id" }, 403);
+    }
     const workerId = resolveId(c.req.param("workerId"));
     if (!workerId) return c.json({ error: "Worker session not found" }, 404);
     const removed = launcher.unherdSession(orchId, workerId);
@@ -2933,8 +3020,14 @@ export function createRoutes(
   });
 
   api.get("/sessions/:id/herd", (c) => {
+    const auth = authenticateTakodeCaller(c, { requireOrchestrator: true });
+    if ("response" in auth) return auth.response;
+
     const orchId = resolveId(c.req.param("id"));
     if (!orchId) return c.json({ error: "Orchestrator session not found" }, 404);
+    if (orchId !== auth.callerId) {
+      return c.json({ error: "Authenticated caller does not match orchestrator id" }, 403);
+    }
     const herded = launcher.getHerdedSessions(orchId);
     return c.json(herded.map(s => ({
       sessionId: s.sessionId,
@@ -2955,8 +3048,16 @@ export function createRoutes(
   const ANSWERABLE_TOOLS = new Set(["AskUserQuestion", "ExitPlanMode"]);
 
   api.get("/sessions/:id/pending", (c) => {
+    const auth = authenticateTakodeCaller(c, { requireOrchestrator: true });
+    if ("response" in auth) return auth.response;
+
     const id = resolveId(c.req.param("id"));
     if (!id) return c.json({ error: "Session not found" }, 404);
+    const workerInfo = launcher.getSession(id);
+    if (!workerInfo) return c.json({ error: "Session not found" }, 404);
+    if (workerInfo.herdedBy !== auth.callerId) {
+      return c.json({ error: "Only the leader who herded this session can view pending prompts" }, 403);
+    }
     const session = wsBridge.getSession(id);
     if (!session) return c.json({ error: "Session not found in bridge" }, 404);
 
@@ -2975,6 +3076,9 @@ export function createRoutes(
   });
 
   api.post("/sessions/:id/answer", async (c) => {
+    const auth = authenticateTakodeCaller(c, { requireOrchestrator: true });
+    if ("response" in auth) return auth.response;
+
     const id = resolveId(c.req.param("id"));
     if (!id) return c.json({ error: "Session not found" }, 404);
     const session = wsBridge.getSession(id);
@@ -2982,7 +3086,14 @@ export function createRoutes(
 
     const body = await c.req.json().catch(() => ({}));
     const response = typeof body.response === "string" ? body.response : "";
-    const callerSessionId = typeof body.callerSessionId === "string" ? body.callerSessionId : "";
+    if (
+      typeof body.callerSessionId === "string"
+      && body.callerSessionId.trim()
+      && body.callerSessionId.trim() !== auth.callerId
+    ) {
+      return c.json({ error: "callerSessionId does not match authenticated caller" }, 403);
+    }
+    const callerSessionId = auth.callerId;
 
     // Herd guard: only the leader can answer
     const workerInfo = launcher.getSession(id);

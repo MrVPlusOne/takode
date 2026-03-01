@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { createServer } from "node:http";
 import type { IncomingMessage } from "node:http";
@@ -19,6 +19,26 @@ function readJson(req: IncomingMessage): Promise<JsonObject> {
   });
 }
 
+async function runTakode(args: string[], env: Record<string, string | undefined>): Promise<{
+  status: number | null;
+  stdout: string;
+  stderr: string;
+}> {
+  const takodePath = fileURLToPath(new URL("./takode.ts", import.meta.url));
+  const child = spawn(process.execPath, [takodePath, ...args], {
+    env,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  let stdout = "";
+  let stderr = "";
+  child.stdout?.on("data", (chunk) => { stdout += String(chunk); });
+  child.stderr?.on("data", (chunk) => { stderr += String(chunk); });
+
+  const [code] = await once(child, "close");
+  return { status: code as number | null, stdout, stderr };
+}
+
 describe("takode spawn", () => {
   it("uses defaults and includes createdBy for auto-herding", async () => {
     const createBodies: JsonObject[] = [];
@@ -26,6 +46,12 @@ describe("takode spawn", () => {
     const server = createServer(async (req, res) => {
       const method = req.method || "";
       const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-1", isOrchestrator: true }));
+        return;
+      }
 
       if (method === "GET" && url === "/api/sessions/leader-1") {
         res.writeHead(200, { "content-type": "application/json" });
@@ -47,14 +73,10 @@ describe("takode spawn", () => {
     await once(server, "listening");
     const port = (server.address() as AddressInfo).port;
 
-    const takodePath = fileURLToPath(new URL("./takode.ts", import.meta.url));
-    const result = spawnSync(process.execPath, [takodePath, "spawn", "--port", String(port)], {
-      encoding: "utf-8",
-      env: {
-        ...process.env,
-        TAKODE_ROLE: "orchestrator",
-        COMPANION_SESSION_ID: "leader-1",
-      },
+    const result = await runTakode(["spawn", "--port", String(port)], {
+      ...process.env,
+      COMPANION_SESSION_ID: "leader-1",
+      COMPANION_AUTH_TOKEN: "auth-1",
     });
 
     server.close();
@@ -67,6 +89,7 @@ describe("takode spawn", () => {
       cwd: process.cwd(),
       useWorktree: true,
       createdBy: "leader-1",
+      codexReasoningEffort: "high",
     });
     expect(result.stdout).toContain('#21 "Worker One"');
   });
@@ -82,6 +105,12 @@ describe("takode spawn", () => {
     const server = createServer(async (req, res) => {
       const method = req.method || "";
       const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-2", isOrchestrator: true }));
+        return;
+      }
 
       if (method === "GET" && url === "/api/sessions/leader-2") {
         res.writeHead(200, { "content-type": "application/json" });
@@ -111,11 +140,8 @@ describe("takode spawn", () => {
     await once(server, "listening");
     const port = (server.address() as AddressInfo).port;
 
-    const takodePath = fileURLToPath(new URL("./takode.ts", import.meta.url));
-    const result = spawnSync(
-      process.execPath,
+    const result = await runTakode(
       [
-        takodePath,
         "spawn",
         "--port",
         String(port),
@@ -130,12 +156,9 @@ describe("takode spawn", () => {
         "--json",
       ],
       {
-        encoding: "utf-8",
-        env: {
-          ...process.env,
-          TAKODE_ROLE: "orchestrator",
-          COMPANION_SESSION_ID: "leader-2",
-        },
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-2",
+        COMPANION_AUTH_TOKEN: "auth-2",
       },
     );
 
