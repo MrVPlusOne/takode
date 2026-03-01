@@ -600,7 +600,7 @@ export class WsBridge {
   private imageStore: ImageStore | null = null;
   private pushoverNotifier: PushoverNotifier | null = null;
   private launcher: CliLauncher | null = null;
-  private herdEventDispatcher: { onOrchestratorTurnEnd(orchId: string): void } | null = null;
+  private herdEventDispatcher: { onOrchestratorTurnEnd(orchId: string): void; getDiagnostics(orchId: string): Record<string, unknown> } | null = null;
   private perfTracer: PerfTracer | null = null;
   private onCLISessionId: ((sessionId: string, cliSessionId: string) => void) | null = null;
   private onCLIRelaunchNeeded: ((sessionId: string) => void) | null = null;
@@ -944,7 +944,7 @@ export class WsBridge {
   }
 
   /** Attach the herd event dispatcher for push-based event delivery to orchestrators. */
-  setHerdEventDispatcher(dispatcher: { onOrchestratorTurnEnd(orchId: string): void }): void {
+  setHerdEventDispatcher(dispatcher: { onOrchestratorTurnEnd(orchId: string): void; getDiagnostics(orchId: string): Record<string, unknown> }): void {
     this.herdEventDispatcher = dispatcher;
   }
 
@@ -953,6 +953,22 @@ export class WsBridge {
     const session = this.sessions.get(sessionId);
     if (!session) return false;
     return !!(session.cliSocket || session.codexAdapter) && !session.isGenerating;
+  }
+
+  /** Get diagnostic info for a session's herd event and generation state. */
+  getHerdDiagnostics(sessionId: string): Record<string, unknown> | null {
+    const session = this.sessions.get(sessionId);
+    if (!session) return null;
+    return {
+      isGenerating: session.isGenerating,
+      generationStartedAt: session.generationStartedAt,
+      cliConnected: !!(session.cliSocket || session.codexAdapter),
+      pendingMessagesCount: session.pendingMessages.length,
+      pendingPermissionsCount: session.pendingPermissions.size,
+      disconnectGraceActive: session.disconnectGraceTimer !== null,
+      disconnectWasGenerating: session.disconnectWasGenerating,
+      ...(this.herdEventDispatcher ? { herdDispatcher: this.herdEventDispatcher.getDiagnostics(sessionId) } : {}),
+    };
   }
 
   setPerfTracer(tracer: PerfTracer): void {

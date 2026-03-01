@@ -509,6 +509,11 @@ export const api = {
       `/sessions/${encodeURIComponent(orchId)}/herd`,
     ),
 
+  getHerdDiagnostics: (sessionId: string) =>
+    get<Record<string, unknown>>(
+      `/sessions/${encodeURIComponent(sessionId)}/herd-diagnostics`,
+    ),
+
   listDirs: (path?: string) =>
     get<DirListResult>(
       `/fs/list${path ? `?path=${encodeURIComponent(path)}` : ""}`,

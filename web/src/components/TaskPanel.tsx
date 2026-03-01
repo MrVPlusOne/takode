@@ -719,6 +719,72 @@ function HerdedSessionsSection({ sessionId }: { sessionId: string }) {
   );
 }
 
+// ─── Herd diagnostics (orchestrator debug panel) ─────────────────────────────
+
+function HerdDiagnosticsSection({ sessionId }: { sessionId: string }) {
+  const [collapsed, toggle] = usePersistedCollapse("cc-collapse-herd-diag");
+  const [diag, setDiag] = useState<Record<string, unknown> | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    async function poll() {
+      try {
+        const data = await api.getHerdDiagnostics(sessionId);
+        if (active) setDiag(data);
+      } catch { /* ignore */ }
+    }
+    poll();
+    const interval = setInterval(poll, 5000);
+    return () => { active = false; clearInterval(interval); };
+  }, [sessionId]);
+
+  if (!diag) return null;
+
+  const pendingCount = typeof diag.herdDispatcher === "object" && diag.herdDispatcher
+    ? (diag.herdDispatcher as Record<string, unknown>).pendingEventCount as number || 0
+    : 0;
+  const isGen = diag.isGenerating as boolean;
+  const cliConn = diag.cliConnected as boolean;
+  const pendingMsgs = diag.pendingMessagesCount as number || 0;
+  const graceActive = diag.disconnectGraceActive as boolean;
+
+  // Compact status line
+  const statusParts: string[] = [];
+  if (pendingCount > 0) statusParts.push(`${pendingCount} events`);
+  if (isGen) statusParts.push("generating");
+  if (!cliConn) statusParts.push("cli disconnected");
+  if (graceActive) statusParts.push("grace period");
+  if (pendingMsgs > 0) statusParts.push(`${pendingMsgs} queued msgs`);
+  const statusLine = statusParts.length > 0 ? statusParts.join(" · ") : "✓ idle";
+
+  return (
+    <>
+      <SectionHeader
+        title="Herd Diagnostics"
+        collapsed={collapsed}
+        onToggle={toggle}
+        right={pendingCount > 0 ? (
+          <span className="text-[10px] text-amber-400 tabular-nums">{pendingCount} pending</span>
+        ) : undefined}
+      />
+      {!collapsed && (
+        <div className="px-3 py-2 text-[10px] font-mono text-cc-muted space-y-0.5">
+          <div>{statusLine}</div>
+          {pendingCount > 0 && diag.herdDispatcher != null && (
+            <div className="text-amber-400/70">
+              Events: {String(((diag.herdDispatcher as Record<string, unknown>).pendingEventTypes as string[] || []).join(", "))}
+            </div>
+          )}
+          <div className="opacity-50">
+            workers: {(diag.herdedWorkers as Array<Record<string, unknown>> || []).length}
+            {" · "}perms: {diag.pendingPermissionsCount as number || 0}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 export function TaskPanel({ sessionId }: { sessionId: string }) {
   const tasks = useStore((s) => s.sessionTasks.get(sessionId) || EMPTY_TASKS);
   const session = useStore((s) => s.sessions.get(sessionId));
@@ -775,6 +841,9 @@ export function TaskPanel({ sessionId }: { sessionId: string }) {
 
         {/* Herded sessions — only for orchestrator sessions */}
         {sdkSession?.isOrchestrator && <HerdedSessionsSection sessionId={sessionId} />}
+
+        {/* Herd diagnostics — only for orchestrator sessions */}
+        {sdkSession?.isOrchestrator && <HerdDiagnosticsSection sessionId={sessionId} />}
 
         {/* Agent to-do items — hidden when empty or all completed */}
         {showTasks && tasks.length > 0 && completedCount < tasks.length && (

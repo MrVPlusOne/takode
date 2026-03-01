@@ -3048,6 +3048,33 @@ export function createRoutes(
     return c.json({ error: "Unsupported tool type" }, 400);
   });
 
+  // ─── Herd diagnostics ────────────────────────────────────────────────
+
+  api.get("/sessions/:id/herd-diagnostics", (c) => {
+    const id = resolveId(c.req.param("id"));
+    if (!id) return c.json({ error: "Session not found" }, 404);
+    const info = launcher.getSession(id);
+    if (!info) return c.json({ error: "Session not found" }, 404);
+
+    const bridgeDiag = wsBridge.getHerdDiagnostics(id);
+    const herded = info.isOrchestrator ? launcher.getHerdedSessions(id) : [];
+
+    return c.json({
+      sessionId: id,
+      sessionNum: info.sessionNum,
+      isOrchestrator: info.isOrchestrator || false,
+      herdedBy: info.herdedBy,
+      herdedWorkers: herded.map(s => ({
+        sessionId: s.sessionId,
+        sessionNum: s.sessionNum,
+        name: sessionNames.getName(s.sessionId),
+        state: s.state,
+        cliConnected: wsBridge.isCliConnected(s.sessionId),
+      })),
+      ...(bridgeDiag || {}),
+    });
+  });
+
   // ─── Skills ─────────────────────────────────────────────────────────
 
   type SkillBackend = "claude" | "codex" | "both";

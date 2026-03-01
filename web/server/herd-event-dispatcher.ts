@@ -170,6 +170,28 @@ export class HerdEventDispatcher {
     }
   }
 
+  /** Get diagnostic info about an orchestrator's herd event state. */
+  getDiagnostics(orchId: string): {
+    hasInbox: boolean;
+    pendingEventCount: number;
+    pendingEventTypes: string[];
+    workerCount: number;
+    debounceActive: boolean;
+  } {
+    const inbox = this.inboxes.get(orchId);
+    if (!inbox) {
+      return { hasInbox: false, pendingEventCount: 0, pendingEventTypes: [], workerCount: 0, debounceActive: false };
+    }
+    const eventTypes = inbox.events.map(e => e.event);
+    return {
+      hasInbox: true,
+      pendingEventCount: inbox.events.length,
+      pendingEventTypes: eventTypes,
+      workerCount: inbox.workerIds.size,
+      debounceActive: inbox.debounceTimer !== null,
+    };
+  }
+
   /** Expose for testing */
   _getInbox(orchId: string): HerdInbox | undefined {
     return this.inboxes.get(orchId);
