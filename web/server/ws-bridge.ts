@@ -2176,12 +2176,14 @@ export class WsBridge {
       : !!session.cliSocket;
 
     if (!backendConnected) {
-      // For SDK sessions, the adapter may still be initializing (async import + spawn).
-      // Don't immediately request relaunch — check launcher state first.
       const launcherInfo = this.launcher?.getSession(sessionId);
-      if (launcherInfo?.state === "starting" || launcherInfo?.backendType === "claude-sdk") {
-        // SDK adapter is being set up — send a temporary disconnected state
-        // but DON'T request relaunch. The adapter will broadcast cli_connected when ready.
+      // For SDK sessions, the adapter should be attached synchronously during launch.
+      // If it's not (edge case during relaunch), send cli_connected optimistically —
+      // the adapter will be ready within seconds and the session is truly alive.
+      if (launcherInfo?.backendType === "claude-sdk") {
+        this.sendToBrowser(ws, { type: "cli_connected" });
+      } else if (launcherInfo?.state === "starting") {
+        // CLI is starting up — don't request relaunch, just notify
         this.sendToBrowser(ws, { type: "cli_disconnected" });
       } else {
         const idleKilled = launcherInfo?.killedByIdleManager;

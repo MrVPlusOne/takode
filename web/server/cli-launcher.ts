@@ -605,9 +605,9 @@ export class CliLauncher {
         console.error(`[cli-launcher] Codex spawn failed for ${sessionTag(sessionId)}:`, err);
       });
     } else if (backendType === "claude-sdk") {
-      this.spawnClaudeSdk(sessionId, info, options).catch((err) => {
-        console.error(`[cli-launcher] Claude SDK spawn failed for ${sessionTag(sessionId)}:`, err);
-      });
+      // Await SDK spawn so the adapter is attached before launch() returns.
+      // This ensures the browser sees cli_connected in the state_snapshot.
+      await this.spawnClaudeSdk(sessionId, info, options);
     } else {
       this.spawnCLI(sessionId, info, {
         ...options,
