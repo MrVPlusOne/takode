@@ -721,7 +721,7 @@ function HerdedSessionsSection({ sessionId }: { sessionId: string }) {
 
 // ─── Herd diagnostics (orchestrator debug panel) ─────────────────────────────
 
-function HerdDiagnosticsSection({ sessionId }: { sessionId: string }) {
+export function HerdDiagnosticsSection({ sessionId }: { sessionId: string }) {
   const [collapsed, toggle] = usePersistedCollapse("cc-collapse-herd-diag");
   const [diag, setDiag] = useState<Record<string, unknown> | null>(null);
 

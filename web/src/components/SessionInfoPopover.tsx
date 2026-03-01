@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback } from "react";
 import { useStore } from "../store.js";
-import { GitHubPRSection, McpCollapsible, ClaudeMdCollapsible } from "./TaskPanel.js";
+import { GitHubPRSection, McpCollapsible, ClaudeMdCollapsible, HerdDiagnosticsSection } from "./TaskPanel.js";
 import { shortenHome } from "../utils/path-display.js";
 import { formatModel } from "../utils/backends.js";
 
@@ -207,6 +207,13 @@ export function SessionInfoPopover({
                 </>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Herd diagnostics — only for orchestrator/leader sessions */}
+        {sdkSession?.isOrchestrator && (
+          <div className="border-t border-cc-border/50">
+            <HerdDiagnosticsSection sessionId={sessionId} />
           </div>
         )}
 
