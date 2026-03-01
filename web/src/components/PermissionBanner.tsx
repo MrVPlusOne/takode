@@ -96,10 +96,13 @@ export function PlanReviewOverlay({
       updated_input: updatedInput,
       ...(updatedPermissions?.length ? { updated_permissions: updatedPermissions } : {}),
     });
-    // Don't call removePermission locally — the server broadcasts
-    // permission_approved which authoritatively removes it via ws.ts.
-    // Local removal caused a race: the component would unmount before
-    // the stamping animation could play.
+    // Safety net: if the server already resolved this permission, clean up locally
+    setTimeout(() => {
+      const perms = useStore.getState().pendingPermissions.get(sessionId);
+      if (perms?.has(permission.request_id)) {
+        removePermission(sessionId, permission.request_id);
+      }
+    }, 3000);
   }
 
   function handleDeny() {
@@ -243,8 +246,13 @@ export function PlanCollapsedChip({
       behavior: "allow",
       ...(updatedPermissions?.length ? { updated_permissions: updatedPermissions } : {}),
     });
-    // Don't call removePermission locally — the server broadcasts
-    // permission_approved which authoritatively removes it via ws.ts.
+    // Safety net: if the server already resolved this permission, clean up locally
+    setTimeout(() => {
+      const perms = useStore.getState().pendingPermissions.get(sessionId);
+      if (perms?.has(permission.request_id)) {
+        removePermission(sessionId, permission.request_id);
+      }
+    }, 3000);
   }
 
   function handleDeny() {
@@ -587,6 +595,16 @@ export function PermissionBanner({
     // permission_approved which authoritatively removes it via ws.ts.
     // Local removal caused a race: the component would unmount before
     // the stamping animation could play.
+    //
+    // Safety net: if the server already resolved this permission (e.g.,
+    // auto-approver won the race), the broadcast will never come. Clean
+    // up locally after a timeout to prevent a stuck zombie dialog.
+    setTimeout(() => {
+      const perms = useStore.getState().pendingPermissions.get(sessionId);
+      if (perms?.has(permission.request_id)) {
+        removePermission(sessionId, permission.request_id);
+      }
+    }, 3000);
   }
 
   function handleDeny() {
