@@ -742,6 +742,42 @@ describe("handleMessage: result", () => {
     expect(state.sessionStatus.get("s1")).toBe("idle");
   });
 
+  it("does not recompute context_used_percent from result.modelUsage on the client", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+    fireMessage({ type: "session_update", session: { context_used_percent: 37 } });
+
+    fireMessage({
+      type: "result",
+      data: {
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        duration_ms: 1000,
+        duration_api_ms: 800,
+        num_turns: 3,
+        total_cost_usd: 0.05,
+        stop_reason: "end_turn",
+        usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        modelUsage: {
+          "claude-opus-4-6": {
+            inputTokens: 254,
+            outputTokens: 77708,
+            cacheReadInputTokens: 21737912,
+            cacheCreationInputTokens: 263780,
+            contextWindow: 200000,
+            maxOutputTokens: 32000,
+            costUSD: 14.46,
+          },
+        },
+        uuid: "u1-model-usage",
+        session_id: "s1",
+      },
+    });
+
+    expect(useStore.getState().sessions.get("s1")!.context_used_percent).toBe(37);
+  });
+
   it("appends a system error message when result has errors", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });

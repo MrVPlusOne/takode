@@ -580,6 +580,66 @@ async function resolveGitInfo(state: SessionState): Promise<void> {
   state.is_containerized = wasContainerized;
 }
 
+function clampPercent(value: number): number {
+  return Math.max(0, Math.min(100, value));
+}
+
+function inferContextWindowFromModel(model: string | undefined): number | undefined {
+  if (!model) return undefined;
+  const normalized = model.toLowerCase();
+  if (normalized.includes("[1m]") || normalized.includes("context-1m")) {
+    return 1_000_000;
+  }
+  if (normalized.startsWith("claude-")) {
+    // Claude models default to 200k unless explicitly marked as 1m.
+    return 200_000;
+  }
+  return undefined;
+}
+
+function resolveResultContextWindow(
+  model: string | undefined,
+  modelUsage: CLIResultMessage["modelUsage"] | undefined,
+): number | undefined {
+  let fromUsage = 0;
+  if (modelUsage) {
+    for (const usage of Object.values(modelUsage)) {
+      if (usage.contextWindow > 0) {
+        fromUsage = Math.max(fromUsage, usage.contextWindow);
+      }
+    }
+  }
+  const fromModel = inferContextWindowFromModel(model) ?? 0;
+  const resolved = Math.max(fromUsage, fromModel);
+  return resolved > 0 ? resolved : undefined;
+}
+
+function computeResultContextUsedPercent(
+  model: string | undefined,
+  msg: CLIResultMessage,
+): number | undefined {
+  const contextWindow = resolveResultContextWindow(model, msg.modelUsage);
+  if (!contextWindow) return undefined;
+
+  const usage = msg.usage as {
+    input_tokens?: number;
+    output_tokens?: number;
+    cache_creation_input_tokens?: number;
+    cache_read_input_tokens?: number;
+  } | undefined;
+  if (!usage) return undefined;
+
+  const usedInContext =
+    Number(usage.input_tokens || 0)
+    + Number(usage.cache_creation_input_tokens || 0)
+    + Number(usage.cache_read_input_tokens || 0)
+    + Number(usage.output_tokens || 0);
+  if (usedInContext <= 0) return undefined;
+
+  const pct = Math.round((usedInContext / contextWindow) * 100);
+  return clampPercent(pct);
+}
+
 // ─── Bridge ───────────────────────────────────────────────────────────────────
 
 export class WsBridge {
@@ -2726,16 +2786,9 @@ export class WsBridge {
     session.state.total_cost_usd = msg.total_cost_usd;
     session.state.num_turns = msg.num_turns;
 
-    // Compute context usage from modelUsage
-    if (msg.modelUsage) {
-      for (const usage of Object.values(msg.modelUsage)) {
-        if (usage.contextWindow > 0) {
-          const pct = Math.round(
-            ((usage.inputTokens + usage.outputTokens) / usage.contextWindow) * 100
-          );
-          session.state.context_used_percent = Math.max(0, Math.min(pct, 100));
-        }
-      }
+    const nextContextPct = computeResultContextUsedPercent(session.state.model, msg);
+    if (typeof nextContextPct === "number") {
+      session.state.context_used_percent = nextContextPct;
     }
 
     // Re-check git state after each turn (session idle), then recompute diff stats.

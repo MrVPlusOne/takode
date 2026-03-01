@@ -476,17 +476,6 @@ function handleParsedMessage(
       if (typeof r.total_lines_removed === "number") {
         sessionUpdates.total_lines_removed = r.total_lines_removed;
       }
-      // Compute context % from modelUsage if available
-      if (r.modelUsage) {
-        for (const usage of Object.values(r.modelUsage)) {
-          if (usage.contextWindow > 0) {
-            const pct = Math.round(
-              ((usage.inputTokens + usage.outputTokens) / usage.contextWindow) * 100
-            );
-            sessionUpdates.context_used_percent = Math.max(0, Math.min(pct, 100));
-          }
-        }
-      }
       store.updateSession(sessionId, sessionUpdates);
       store.clearStreamingState(sessionId);
       store.clearToolProgress(sessionId);

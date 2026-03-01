@@ -91,6 +91,8 @@ export interface CLIResultMessage {
     cache_creation_input_tokens: number;
     cache_read_input_tokens: number;
   };
+  // Observed from recordings: modelUsage totals are cumulative across the session
+  // (for cost/accounting), not per-turn usage.
   modelUsage?: Record<string, {
     inputTokens: number;
     outputTokens: number;

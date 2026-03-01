@@ -293,7 +293,7 @@ function formatTokenCount(n: number): string {
 
 function CodexTokenDetailsSection({ sessionId }: { sessionId: string }) {
   const details = useStore((s) => s.sessions.get(sessionId)?.codex_token_details);
-  // Use the server-computed context percentage (input+output / contextWindow, capped 0-100)
+  // Use the server-computed context percentage (backend-specific, capped 0-100).
   const contextPct = useStore((s) => s.sessions.get(sessionId)?.context_used_percent ?? 0);
 
   if (!details) return null;

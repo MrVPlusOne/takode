@@ -1331,7 +1331,7 @@ describe("CLI message routing", () => {
     expect(updateMsg.session.git_ahead).toBe(1);
   });
 
-  it("result: computes context_used_percent from modelUsage", () => {
+  it("result: computes context_used_percent from per-turn usage (not cumulative modelUsage)", () => {
     const msg = JSON.stringify({
       type: "result",
       subtype: "success",
@@ -1341,13 +1341,15 @@ describe("CLI message routing", () => {
       num_turns: 1,
       total_cost_usd: 0.02,
       stop_reason: "end_turn",
-      usage: { input_tokens: 500, output_tokens: 200, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      usage: { input_tokens: 3, output_tokens: 12, cache_creation_input_tokens: 19705, cache_read_input_tokens: 20959 },
       modelUsage: {
         "claude-sonnet-4-5-20250929": {
-          inputTokens: 8000,
-          outputTokens: 2000,
-          cacheReadInputTokens: 0,
-          cacheCreationInputTokens: 0,
+          // Cumulative totals can exceed the context window and should not be used
+          // to compute per-turn context usage.
+          inputTokens: 14,
+          outputTokens: 1255,
+          cacheReadInputTokens: 278932,
+          cacheCreationInputTokens: 38934,
           contextWindow: 200000,
           maxOutputTokens: 16384,
           costUSD: 0.02,
@@ -1360,8 +1362,79 @@ describe("CLI message routing", () => {
     bridge.handleCLIMessage(cli, msg);
 
     const state = bridge.getSession("s1")!.state;
-    // (8000 + 2000) / 200000 * 100 = 5
-    expect(state.context_used_percent).toBe(5);
+    // (3 + 12 + 19705 + 20959) / 200000 * 100 = 20
+    expect(state.context_used_percent).toBe(20);
+  });
+
+  it("result: uses 1m context window for [1m] model variants even if modelUsage reports 200k", () => {
+    const session = bridge.getSession("s1")!;
+    session.state.model = "claude-opus-4-6[1m]";
+
+    const msg = JSON.stringify({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      duration_ms: 5000,
+      duration_api_ms: 4000,
+      num_turns: 1,
+      total_cost_usd: 0.02,
+      stop_reason: "end_turn",
+      usage: { input_tokens: 400000, output_tokens: 10000, cache_creation_input_tokens: 15000, cache_read_input_tokens: 25000 },
+      modelUsage: {
+        "claude-opus-4-6": {
+          inputTokens: 10,
+          outputTokens: 50,
+          cacheReadInputTokens: 100,
+          cacheCreationInputTokens: 200,
+          contextWindow: 200000,
+          maxOutputTokens: 32000,
+          costUSD: 0.02,
+        },
+      },
+      uuid: "uuid-5-1m",
+      session_id: "s1",
+    });
+
+    bridge.handleCLIMessage(cli, msg);
+
+    const state = bridge.getSession("s1")!.state;
+    // (400000 + 10000 + 15000 + 25000) / 1000000 * 100 = 45
+    expect(state.context_used_percent).toBe(45);
+  });
+
+  it("result: keeps previous context_used_percent when usage payload is empty", () => {
+    const session = bridge.getSession("s1")!;
+    session.state.context_used_percent = 61;
+    session.state.model = "claude-opus-4-6";
+
+    const msg = JSON.stringify({
+      type: "result",
+      subtype: "error_during_execution",
+      is_error: false,
+      duration_ms: 5000,
+      duration_api_ms: 4000,
+      num_turns: 1,
+      total_cost_usd: 0.02,
+      stop_reason: "end_turn",
+      usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      modelUsage: {
+        "claude-opus-4-6": {
+          inputTokens: 10,
+          outputTokens: 50,
+          cacheReadInputTokens: 100,
+          cacheCreationInputTokens: 200,
+          contextWindow: 200000,
+          maxOutputTokens: 32000,
+          costUSD: 0.02,
+        },
+      },
+      uuid: "uuid-5-empty-usage",
+      session_id: "s1",
+    });
+
+    bridge.handleCLIMessage(cli, msg);
+
+    expect(bridge.getSession("s1")!.state.context_used_percent).toBe(61);
   });
 
   it("stream_event: broadcasts without storing", () => {
