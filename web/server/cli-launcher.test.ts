@@ -1481,6 +1481,7 @@ describe("cat herding", () => {
       sessionId: id, state: "connected" as const, cwd: "/tmp", createdAt: Date.now(), pid: 99999,
     }));
     store.saveLauncher(sessions);
+    await store.flushAll(); // ensure launcher.json is written before restoreFromDisk reads it
     herdLauncher = new CliLauncher(3456);
     herdLauncher.setStore(store);
     await herdLauncher.restoreFromDisk();
