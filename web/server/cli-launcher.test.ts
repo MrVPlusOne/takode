@@ -508,6 +508,61 @@ describe("launch", () => {
     expect(cmdAndArgs).toContain("model_reasoning_effort=high");
   });
 
+  it("preserves Companion/Takode env vars in Codex shell policy for orchestrators", async () => {
+    mockResolveBinary.mockReturnValue("/opt/fake/codex");
+    mockSpawn.mockReturnValueOnce(createMockCodexProc());
+
+    const customHome = mkdtempSync(join(tmpdir(), "codex-home-test-"));
+    const sessionHome = join(customHome, "test-session-id");
+    const configPath = join(sessionHome, "config.toml");
+    const { mkdirSync: realMkdirSync, writeFileSync: realWriteFileSync, readFileSync: realReadFileSync } = require("node:fs");
+    realMkdirSync(sessionHome, { recursive: true });
+    realWriteFileSync(
+      configPath,
+      [
+        "sandbox_mode = \"workspace-write\"",
+        "",
+        "[shell_environment_policy]",
+        "inherit = \"core\"",
+        "include_only = [",
+        "    \"PATH\",",
+        "    \"HOME\",",
+        "]",
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    try {
+      await launcher.launch({
+        backendType: "codex",
+        cwd: "/tmp/project",
+        codexSandbox: "workspace-write",
+        codexHome: customHome,
+        env: {
+          COMPANION_PORT: "3456",
+          TAKODE_ROLE: "orchestrator",
+          TAKODE_API_PORT: "3456",
+        },
+      });
+      await waitForSpawnCalls(1);
+
+      const [cmdAndArgs, options] = mockSpawn.mock.calls[0];
+      expect(cmdAndArgs).toContain("app-server");
+      expect(options.env.COMPANION_SESSION_ID).toBe("test-session-id");
+
+      const updatedConfig = realReadFileSync(configPath, "utf-8");
+      expect(updatedConfig).toContain("\"PATH\"");
+      expect(updatedConfig).toContain("\"HOME\"");
+      expect(updatedConfig).toContain("\"COMPANION_SESSION_ID\"");
+      expect(updatedConfig).toContain("\"COMPANION_PORT\"");
+      expect(updatedConfig).toContain("\"TAKODE_ROLE\"");
+      expect(updatedConfig).toContain("\"TAKODE_API_PORT\"");
+    } finally {
+      rmSync(customHome, { recursive: true, force: true });
+    }
+  });
+
   it("adds companion and bun bin directories to PATH for host Codex sessions", async () => {
     mockResolveBinary.mockReturnValue("/opt/fake/codex");
     mockSpawn.mockReturnValueOnce(createMockCodexProc());

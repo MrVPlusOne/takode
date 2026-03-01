@@ -149,6 +149,7 @@ function createMockLauncher() {
     setArchived: vi.fn(),
     updateWorktree: vi.fn(),
     removeSession: vi.fn(),
+    injectOrchestratorGuardrails: vi.fn(async () => {}),
     getPort: vi.fn(() => 3456),
     // resolveSessionId: pass-through for exact UUIDs (used by resolveId helper in routes)
     resolveSessionId: vi.fn((id: string) => id),
@@ -2144,6 +2145,26 @@ describe("POST /api/sessions/create with backend", () => {
     expect(res.status).toBe(200);
     expect(launcher.launch).toHaveBeenCalledWith(
       expect.objectContaining({ model: "gpt-5.2-codex", backendType: "codex" }),
+    );
+  });
+
+  it("injects orchestrator env vars for codex leader sessions", async () => {
+    const res = await app.request("/api/sessions/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cwd: "/test", backend: "codex", role: "orchestrator" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(launcher.launch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        backendType: "codex",
+        env: expect.objectContaining({
+          COMPANION_PORT: "3456",
+          TAKODE_ROLE: "orchestrator",
+          TAKODE_API_PORT: "3456",
+        }),
+      }),
     );
   });
 

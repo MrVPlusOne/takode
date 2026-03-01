@@ -56,6 +56,92 @@ function sanitizeSpawnArgsForLog(args: string[]): string {
   return out.join(" ");
 }
 
+const SHELL_ENV_POLICY_SECTION = "shell_environment_policy";
+const SHELL_ENV_POLICY_HEADER = `[${SHELL_ENV_POLICY_SECTION}]`;
+
+function mergeUniqueStrings(existing: string[], additions: string[]): string[] {
+  const merged = [...existing];
+  for (const value of additions) {
+    if (!merged.includes(value)) merged.push(value);
+  }
+  return merged;
+}
+
+function extractQuotedStrings(input: string): string[] {
+  const out: string[] = [];
+  const re = /"((?:[^"\\]|\\.)*)"/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(input)) !== null) {
+    out.push(m[1].replace(/\\"/g, "\""));
+  }
+  return out;
+}
+
+function renderIncludeOnlyArray(vars: string[]): string[] {
+  return [
+    "include_only = [",
+    ...vars.map((v) => `    "${v}",`),
+    "]",
+  ];
+}
+
+function upsertShellEnvironmentIncludeOnly(configToml: string, requiredVars: string[]): string {
+  if (requiredVars.length === 0) return configToml;
+  const normalizedRequired = Array.from(new Set(requiredVars)).sort();
+  const endsWithNewline = configToml.endsWith("\n");
+  const lines = configToml.split("\n");
+  if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+
+  const sectionStart = lines.findIndex((line) =>
+    line.trim().toLowerCase() === SHELL_ENV_POLICY_HEADER.toLowerCase(),
+  );
+
+  if (sectionStart === -1) {
+    const out = [...lines];
+    if (out.length > 0 && out[out.length - 1].trim() !== "") out.push("");
+    out.push(SHELL_ENV_POLICY_HEADER);
+    out.push(...renderIncludeOnlyArray(normalizedRequired));
+    return out.join("\n") + (endsWithNewline || configToml.length === 0 ? "\n" : "");
+  }
+
+  let sectionEnd = lines.length;
+  for (let i = sectionStart + 1; i < lines.length; i++) {
+    if (/^\s*\[[^\]]+\]\s*$/.test(lines[i])) {
+      sectionEnd = i;
+      break;
+    }
+  }
+
+  let includeStart = -1;
+  for (let i = sectionStart + 1; i < sectionEnd; i++) {
+    if (/^\s*include_only\s*=\s*\[/.test(lines[i])) {
+      includeStart = i;
+      break;
+    }
+  }
+
+  if (includeStart === -1) {
+    const out = [...lines];
+    const insertAt = sectionStart + 1;
+    out.splice(insertAt, 0, ...renderIncludeOnlyArray(normalizedRequired));
+    return out.join("\n") + (endsWithNewline ? "\n" : "");
+  }
+
+  let includeEnd = includeStart;
+  while (includeEnd < sectionEnd) {
+    if (lines[includeEnd].includes("]")) break;
+    includeEnd++;
+  }
+  if (includeEnd >= sectionEnd) includeEnd = includeStart;
+  const includeBlock = lines.slice(includeStart, includeEnd + 1).join("\n");
+  const existingVars = extractQuotedStrings(includeBlock);
+  const mergedVars = mergeUniqueStrings(existingVars, normalizedRequired);
+  const replacement = renderIncludeOnlyArray(mergedVars);
+  const out = [...lines];
+  out.splice(includeStart, includeEnd - includeStart + 1, ...replacement);
+  return out.join("\n") + (endsWithNewline ? "\n" : "");
+}
+
 export interface SdkSessionInfo {
   sessionId: string;
   /** Monotonic integer ID assigned at runtime (not persisted — regenerated on restart) */
@@ -902,6 +988,25 @@ export class CliLauncher {
     }
   }
 
+  /**
+   * Codex can restrict shell env inheritance via config.toml.
+   * Ensure Companion/Takode vars remain available to tools for this session.
+   */
+  private async ensureCodexShellEnvVars(codexHome: string, envVars: string[]): Promise<void> {
+    if (envVars.length === 0) return;
+    const configPath = join(codexHome, "config.toml");
+    let current = "";
+    try {
+      current = await readFile(configPath, "utf-8");
+    } catch {
+      // No existing config is fine; we'll create one.
+    }
+    const next = upsertShellEnvironmentIncludeOnly(current, envVars);
+    if (next !== current) {
+      await writeFile(configPath, next, "utf-8");
+    }
+  }
+
   private async spawnCodex(sessionId: string, info: SdkSessionInfo, options: LaunchOptions): Promise<void> {
     const isContainerized = !!options.containerId;
 
@@ -929,8 +1034,12 @@ export class CliLauncher {
       sessionId,
       options.codexHome,
     );
+    const shellEnvVars = Object.keys(options.env || {}).filter(
+      (name) => name.startsWith("COMPANION_") || name.startsWith("TAKODE_"),
+    );
     if (!isContainerized) {
       await this.prepareCodexHome(codexHome);
+      await this.ensureCodexShellEnvVars(codexHome, shellEnvVars);
     }
 
     let spawnCmd: string[];
