@@ -42,7 +42,7 @@ import type {
   TakodeEventType,
   TakodeEventSubscriber,
 } from "./session-types.js";
-import { TOOL_RESULT_PREVIEW_LIMIT } from "./session-types.js";
+import { TOOL_RESULT_PREVIEW_LIMIT, assertNever } from "./session-types.js";
 import type { SessionStore } from "./session-store.js";
 import type { CodexAdapter, CodexResumeSnapshot, CodexResumeTurnSnapshot } from "./codex-adapter.js";
 import type { RecorderManager } from "./recorder.js";
@@ -1750,16 +1750,26 @@ export class WsBridge {
     return session?.codexAdapter?.getRateLimits() ?? null;
   }
 
+  /** Is the correct backend for this session connected and responsive? */
+  private backendConnected(session: Session): boolean {
+    switch (session.backendType) {
+      case "claude":     return !!session.cliSocket;
+      case "codex":      return !!session.codexAdapter?.isConnected();
+      case "claude-sdk": return !!session.claudeSdkAdapter?.isConnected();
+      default:           return assertNever(session.backendType);
+    }
+  }
+
+  /** Is any transport attached (even if still initializing)?
+   *  Use this to guard against relaunching sessions that are mid-startup. */
+  private backendAttached(session: Session): boolean {
+    return !!(session.cliSocket || session.codexAdapter || session.claudeSdkAdapter);
+  }
+
   isCliConnected(sessionId: string): boolean {
     const session = this.sessions.get(sessionId);
     if (!session) return false;
-    if (session.backendType === "codex") {
-      return !!session.codexAdapter?.isConnected();
-    }
-    if (session.backendType === "claude-sdk") {
-      return !!session.claudeSdkAdapter?.isConnected();
-    }
-    return !!session.cliSocket;
+    return this.backendConnected(session);
   }
 
   removeSession(sessionId: string) {
@@ -2419,12 +2429,10 @@ export class WsBridge {
     // Sending them here too would cause double delivery, leading to duplicate
     // or tangled messages across sessions during reconnects.
 
-    // Notify if backend is not connected and request relaunch
-    const backendConnected = session.backendType === "codex"
-      ? !!session.codexAdapter
-      : session.backendType === "claude-sdk"
-      ? !!session.claudeSdkAdapter
-      : !!session.cliSocket;
+    // Notify if backend is not connected and request relaunch.
+    // Use backendAttached (not backendConnected) to avoid relaunching sessions
+    // where the adapter exists but is still initializing.
+    const backendConnected = this.backendAttached(session);
 
     if (!backendConnected) {
       const launcherInfo = this.launcher?.getSession(sessionId);
@@ -2501,9 +2509,7 @@ export class WsBridge {
     if (!session) return;
 
     session.browserSockets.delete(ws);
-    const hasBackend = session.backendType === "codex" ? !!session.codexAdapter
-      : session.backendType === "claude-sdk" ? !!session.claudeSdkAdapter
-      : !!session.cliSocket;
+    const hasBackend = this.backendConnected(session);
     console.log(`[ws-bridge] Browser disconnected for session ${sessionTag(sessionId)} (${session.browserSockets.size} remaining, backend=${hasBackend ? "alive" : "dead"}) | code=${code ?? "?"} reason=${JSON.stringify(reason || "")}`);
   }
 
