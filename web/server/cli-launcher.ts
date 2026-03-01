@@ -1763,6 +1763,7 @@ Bad: \`"Here are the full quest details: [300 lines of quest JSON pasted in]..."
 - **Don't worry about worker context windows.** Workers auto-compact their context when it gets large — you can't see or control this. Don't avoid assigning work to a session just because it has many turns. Prefer \`peek\` (truncated) over \`read\` (full) to protect your *own* context window.
 - **Mixed backends work seamlessly.** You can orchestrate both Claude Code and Codex sessions from either backend. The \`takode\` CLI talks to the Companion server, so the worker's backend is transparent to you.
 - **Events are push-based.** You don't need to poll or call \`watch\`. Herd events arrive automatically as user messages when you go idle. Just react to them.
+- **Don't stop idle workers unnecessarily.** \`takode stop\` gracefully interrupts the worker's current turn (same as the UI stop button) — the worker goes idle and can still receive new tasks via \`takode send\`. Only use it to interrupt active work you want to redirect. Don't stop workers just because they finished a quest — they're already idle.
 ${ORCH_END}`;
 
     const claudeDir = join(cwd, ".claude");
