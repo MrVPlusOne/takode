@@ -1079,8 +1079,10 @@ describe("relaunch", () => {
 
     await launcher.launch({ cwd: "/tmp/project" });
 
-    // On relaunch, Bun.spawn throws ENOENT (binary path gone)
-    mockSpawn.mockImplementationOnce(() => {
+    // On relaunch, Bun.spawn throws ENOENT (binary path gone).
+    // Use persistent implementation (not once) to avoid order-dependent
+    // consumption from unrelated async spawn attempts in prior tests.
+    mockSpawn.mockImplementation(() => {
       throw Object.assign(new Error("ENOENT: no such file or directory, posix_spawn '/usr/bin/claude'"), { code: "ENOENT" });
     });
 
@@ -1101,8 +1103,9 @@ describe("relaunch", () => {
       codexSandbox: "workspace-write",
     });
 
-    // On relaunch, Bun.spawn throws ENOENT (node binary path gone)
-    mockSpawn.mockImplementationOnce(() => {
+    // On relaunch, Bun.spawn throws ENOENT (node binary path gone).
+    // Use persistent implementation (not once) to keep this deterministic.
+    mockSpawn.mockImplementation(() => {
       throw Object.assign(new Error("ENOENT: no such file or directory, posix_spawn '/home/user/.nvm/versions/node/v22/bin/node'"), { code: "ENOENT" });
     });
 
