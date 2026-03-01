@@ -2261,6 +2261,27 @@ describe("POST /api/sessions/create permission mode resolution", () => {
     expect(bridge.setInitialAskPermission).not.toHaveBeenCalled();
   });
 
+  it("forwards explicit codex permissionMode to launcher", async () => {
+    const res = await app.request("/api/sessions/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        cwd: "/test",
+        backend: "codex",
+        permissionMode: "bypassPermissions",
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(launcher.launch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        backendType: "codex",
+        permissionMode: "bypassPermissions",
+      }),
+    );
+    expect(bridge.setInitialAskPermission).not.toHaveBeenCalled();
+  });
+
   it("does not call setInitialAskPermission for codex sessions", async () => {
     const res = await app.request("/api/sessions/create", {
       method: "POST",

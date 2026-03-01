@@ -56,6 +56,18 @@ function sanitizeSpawnArgsForLog(args: string[]): string {
   return out.join(" ");
 }
 
+function mapCodexApprovalPolicy(permissionMode?: string): "never" | "untrusted" {
+  return permissionMode === "bypassPermissions" ? "never" : "untrusted";
+}
+
+function resolveCodexSandbox(
+  permissionMode?: string,
+  requested?: "workspace-write" | "danger-full-access",
+): "workspace-write" | "danger-full-access" {
+  if (requested) return requested;
+  return permissionMode === "bypassPermissions" ? "danger-full-access" : "workspace-write";
+}
+
 const SHELL_ENV_POLICY_SECTION = "shell_environment_policy";
 const SHELL_ENV_POLICY_HEADER = `[${SHELL_ENV_POLICY_SECTION}]`;
 
@@ -1117,7 +1129,11 @@ export class CliLauncher {
       }
     }
 
-    const args: string[] = ["app-server"];
+    const approvalPolicy = mapCodexApprovalPolicy(options.permissionMode);
+    const sandboxMode = resolveCodexSandbox(options.permissionMode, options.codexSandbox);
+    // Set process-level defaults so Codex starts in the intended approval mode
+    // before any JSON-RPC thread calls are made.
+    const args: string[] = ["-a", approvalPolicy, "-s", sandboxMode, "app-server"];
     const internetEnabled = options.codexInternetAccess === true;
     args.push("-c", `tools.webSearch=${internetEnabled ? "true" : "false"}`);
     if (options.codexReasoningEffort) {
@@ -1233,7 +1249,7 @@ export class CliLauncher {
       cwd: info.cwd,
       approvalMode: options.permissionMode,
       threadId: info.cliSessionId,
-      sandbox: options.codexSandbox,
+      sandbox: sandboxMode,
       reasoningEffort: options.codexReasoningEffort,
       recorder: this.recorder ?? undefined,
     });
@@ -1597,6 +1613,26 @@ takode send 2 "Please also add tests for the edge cases"
 \`\`\`
 
 The worker will receive this as if the human typed it. It triggers a new turn.
+
+### \`takode spawn [--backend claude|codex] [--count N] [--message "..."] [--cwd DIR] [--no-worktree] [--json]\`
+
+Create worker sessions and auto-herd them to yourself.
+
+\`\`\`bash
+# Spawn one Codex worker in the current directory (default backend)
+takode spawn
+
+# Spawn 3 Claude workers in a specific repo and send initial instructions
+takode spawn --backend claude --count 3 --cwd ~/repos/app --message "Run tests and summarize failures"
+
+# Spawn without git worktree isolation
+takode spawn --no-worktree
+\`\`\`
+
+Behavior:
+- Defaults: \`--backend codex\`, \`--count 1\`, \`--cwd\` = current directory, worktree enabled.
+- New sessions are automatically herded by the current orchestrator (no extra \`takode herd\` needed).
+- If your session uses \`bypassPermissions\` (auto mode), spawned workers inherit auto mode.
 
 ## Orchestration Workflow — Push-Based Event Delivery
 

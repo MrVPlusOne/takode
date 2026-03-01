@@ -503,6 +503,48 @@ describe("launch", () => {
     expect(cmdAndArgs).toContain("tools.webSearch=false");
   });
 
+  it("maps bypassPermissions to Codex never-ask launch flags", async () => {
+    mockResolveBinary.mockReturnValue("/opt/fake/codex");
+    mockSpawn.mockReturnValueOnce(createMockCodexProc());
+
+    await launcher.launch({
+      backendType: "codex",
+      cwd: "/tmp/project",
+      permissionMode: "bypassPermissions",
+      codexInternetAccess: false,
+    });
+    await waitForSpawnCalls(1);
+
+    const [cmdAndArgs] = mockSpawn.mock.calls[0];
+    const approvalIdx = cmdAndArgs.indexOf("-a");
+    const sandboxIdx = cmdAndArgs.indexOf("-s");
+    expect(approvalIdx).toBeGreaterThan(-1);
+    expect(cmdAndArgs[approvalIdx + 1]).toBe("never");
+    expect(sandboxIdx).toBeGreaterThan(-1);
+    expect(cmdAndArgs[sandboxIdx + 1]).toBe("danger-full-access");
+  });
+
+  it("maps non-bypass modes to Codex untrusted launch policy", async () => {
+    mockResolveBinary.mockReturnValue("/opt/fake/codex");
+    mockSpawn.mockReturnValueOnce(createMockCodexProc());
+
+    await launcher.launch({
+      backendType: "codex",
+      cwd: "/tmp/project",
+      permissionMode: "suggest",
+      codexInternetAccess: false,
+    });
+    await waitForSpawnCalls(1);
+
+    const [cmdAndArgs] = mockSpawn.mock.calls[0];
+    const approvalIdx = cmdAndArgs.indexOf("-a");
+    const sandboxIdx = cmdAndArgs.indexOf("-s");
+    expect(approvalIdx).toBeGreaterThan(-1);
+    expect(cmdAndArgs[approvalIdx + 1]).toBe("untrusted");
+    expect(sandboxIdx).toBeGreaterThan(-1);
+    expect(cmdAndArgs[sandboxIdx + 1]).toBe("workspace-write");
+  });
+
   it("passes Codex reasoning effort via config flag when provided", async () => {
     mockResolveBinary.mockReturnValue("/opt/fake/codex");
     mockSpawn.mockReturnValueOnce(createMockCodexProc());
@@ -1105,6 +1147,13 @@ describe("relaunch", () => {
       cwd: "/tmp/project",
       codexSandbox: "workspace-write",
     });
+    // Codex spawn is async; ensure the initial launch consumed the first spawn call
+    // before swapping to the throwing implementation for relaunch.
+    const deadline = Date.now() + 2000;
+    while (mockSpawn.mock.calls.length < 1) {
+      if (Date.now() > deadline) throw new Error("Timed out waiting for initial Codex spawn");
+      await new Promise<void>((r) => setTimeout(r, 10));
+    }
 
     // On relaunch, Bun.spawn throws ENOENT (node binary path gone).
     // Use persistent implementation (not once) to keep this deterministic.
