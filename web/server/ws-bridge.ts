@@ -3589,7 +3589,19 @@ export class WsBridge {
         session.lastUserMessage = (msg.content || "").slice(0, 80);
         // Broadcast user message to all browsers (server-authoritative)
         this.broadcastToBrowsers(session, userHistoryEntry);
+
+        this.emitTakodeEvent(session.id, "user_message", {
+          content: (msg.content || "").slice(0, 120),
+          ...(msg.agentSource ? { agentSource: msg.agentSource } : {}),
+        });
+
         const wasGenerating = session.isGenerating;
+        // Codex auto-interrupts an active turn before starting the next one.
+        // Mark the current turn as interrupted so the worker herd turn_end
+        // event renders "⊘ interrupted" instead of a success check.
+        if (session.backendType === "codex" && wasGenerating) {
+          session.interruptedDuringTurn = true;
+        }
         this.setGenerating(session, true, "user_message");
         this.broadcastToBrowsers(session, { type: "status_change", status: "running" });
         this.persistSession(session);

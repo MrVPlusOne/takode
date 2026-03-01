@@ -179,6 +179,48 @@ describe("HerdEventDispatcher", () => {
     dispatcher.destroy();
   });
 
+  it("delivers direct human user_message events from workers", () => {
+    const { bridge, launcher } = createMocks();
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+
+    triggerEvent(makeEvent({
+      event: "user_message",
+      data: { content: "please check latest logs" },
+    }));
+    vi.advanceTimersByTime(600);
+
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+    const content = vi.mocked(bridge.injectUserMessage).mock.calls[0][1];
+    expect(content).toContain("user_message [User]");
+    expect(content).toContain("please check latest logs");
+
+    dispatcher.destroy();
+  });
+
+  it("suppresses user_message echo events that originated from the leader", () => {
+    const { bridge, launcher } = createMocks();
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+
+    triggerEvent(makeEvent({
+      event: "user_message",
+      data: {
+        content: "run focused tests",
+        agentSource: { sessionId: "orch-1", sessionLabel: "#1 Leader" },
+      },
+    }));
+    vi.advanceTimersByTime(600);
+
+    expect(bridge.injectUserMessage).not.toHaveBeenCalled();
+
+    dispatcher.destroy();
+  });
+
   it("does not inject when inbox is empty on turnEnd", () => {
     const { bridge, launcher } = createMocks();
     const dispatcher = new HerdEventDispatcher(bridge, launcher);
@@ -322,5 +364,14 @@ describe("formatHerdEventBatch", () => {
     ];
     const result = formatHerdEventBatch(events);
     expect(result).toContain("3 events from 2 sessions");
+  });
+
+  it("formats interrupted turn_end events with interrupted status marker", () => {
+    const events = [makeEvent({
+      event: "turn_end",
+      data: { duration_ms: 1600, interrupted: true },
+    })];
+    const result = formatHerdEventBatch(events);
+    expect(result).toContain("⊘ interrupted");
   });
 });

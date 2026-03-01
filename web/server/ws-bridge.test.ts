@@ -5775,6 +5775,91 @@ describe("Codex injected user_message metadata", () => {
   });
 });
 
+describe("Codex user_message takode events", () => {
+  it("emits takode user_message for direct human worker messages", async () => {
+    const sid = "worker-codex-1";
+    const browser = makeBrowserSocket(sid);
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter as any);
+    bridge.handleBrowserOpen(browser, sid);
+
+    const spy = vi.spyOn(bridge, "emitTakodeEvent");
+
+    bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "user_message",
+      content: "Please prioritize fixing auth bug first",
+    }));
+    await Promise.resolve();
+
+    expect(spy).toHaveBeenCalledWith(
+      sid,
+      "user_message",
+      expect.objectContaining({
+        content: "Please prioritize fixing auth bug first",
+      }),
+    );
+
+    spy.mockRestore();
+  });
+
+  it("marks turn_end as interrupted when a new user_message arrives during a running codex turn", async () => {
+    const sid = "worker-codex-2";
+    const browser = makeBrowserSocket(sid);
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter as any);
+    bridge.handleBrowserOpen(browser, sid);
+
+    const spy = vi.spyOn(bridge, "emitTakodeEvent");
+
+    // Start an active turn.
+    bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "user_message",
+      content: "Run full test suite",
+    }));
+
+    // Mid-turn follow-up message causes Codex to interrupt the active turn first.
+    bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "user_message",
+      content: "Actually run only server tests",
+    }));
+
+    // Adapter reports completion of the interrupted turn.
+    adapter.emitBrowserMessage({
+      type: "result",
+      data: {
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result: "interrupted by new user message",
+        duration_ms: 320,
+        duration_api_ms: 320,
+        num_turns: 1,
+        total_cost_usd: 0,
+        stop_reason: "interrupted",
+        usage: {
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+        },
+        uuid: "codex-result-interrupted-1",
+        session_id: sid,
+      },
+    });
+
+    await Promise.resolve();
+
+    const turnEndCalls = spy.mock.calls.filter(
+      ([eventSid, eventType]) => eventSid === sid && eventType === "turn_end",
+    );
+    expect(turnEndCalls.length).toBeGreaterThan(0);
+    const lastTurnEnd = turnEndCalls[turnEndCalls.length - 1];
+    expect(lastTurnEnd[2]).toEqual(expect.objectContaining({ interrupted: true }));
+
+    spy.mockRestore();
+  });
+});
+
 describe("Codex image transport", () => {
   // Prefer local image paths for Codex turn/start to avoid persisting large
   // data: URLs in thread history. If local paths are unavailable, fall back to
