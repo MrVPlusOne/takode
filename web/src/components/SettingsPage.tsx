@@ -136,6 +136,8 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
           setNamerApiKey(s.namerConfig.apiKey === "***" ? "***" : (s.namerConfig.apiKey || ""));
           setNamerBaseUrl(s.namerConfig.baseUrl || "");
           setNamerModel(s.namerConfig.model || "");
+        } else {
+          setNamerModel(s.namerConfig.model || "");
         }
         setNamerEnabled(s.autoNamerEnabled ?? true);
       })
@@ -652,6 +654,27 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
               </select>
             </div>
 
+            {(namerBackend === "claude") && (
+              <div className="space-y-3 pl-3 border-l-2 border-cc-border">
+                <div>
+                  <label className="block text-xs font-medium text-cc-muted mb-1.5" htmlFor="namer-claude-model">
+                    Model
+                  </label>
+                  <input
+                    id="namer-claude-model"
+                    type="text"
+                    value={namerModel}
+                    onChange={(e) => setNamerModel(e.target.value)}
+                    placeholder="haiku"
+                    className="w-full px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/60 font-mono"
+                  />
+                  <p className="mt-1 text-xs text-cc-muted">
+                    Claude CLI model name passed to <code className="font-mono bg-cc-hover px-1 py-0.5 rounded">--model</code>. Defaults to haiku.
+                  </p>
+                </div>
+              </div>
+            )}
+
             {(namerBackend === "openai") && (
               <div className="space-y-3 pl-3 border-l-2 border-cc-border">
                 <div>
@@ -729,7 +752,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
                         model: namerModel,
                       };
                     } else {
-                      config = { backend: "claude" };
+                      config = { backend: "claude", model: namerModel || undefined };
                     }
                     await api.updateSettings({ namerConfig: config });
                     setNamerSaved(true);
@@ -749,6 +772,8 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
                 {namerSaving ? "Saving..." : "Save"}
               </button>
             </div>
+
+            <NamerDebugPanel />
           </div>
 
           {/* Session Data — export/import */}
@@ -1292,10 +1317,6 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
             >
               {restarting ? "Restarting..." : "Restart Server"}
             </button>
-          </div>
-
-          <div className="border-t border-cc-border pt-4">
-            <NamerDebugPanel />
           </div>
         </CollapsibleSection>
       </div>

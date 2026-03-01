@@ -246,7 +246,7 @@ export interface AppSettings {
 
 /** Discriminated union for session auto-namer backend. */
 export type NamerConfig =
-  | { backend: "claude" }
+  | { backend: "claude"; model?: string }
   | { backend: "openai"; apiKey: string; baseUrl: string; model: string };
 
 // ─── Auto-Approval Types ─────────────────────────────────────────────────────

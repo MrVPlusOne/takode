@@ -595,14 +595,14 @@ async function callNamerBackend(prompt: string, signal?: AbortSignal): Promise<s
   }
 
   // Default: claude -p via callHaiku
-  return callHaiku(prompt, signal);
+  return callHaiku(prompt, namerConfig.model, signal);
 }
 
 /**
- * Call `claude -p` with Haiku to generate/evaluate a session name.
+ * Call `claude -p` with the configured model (defaults to Haiku) to generate/evaluate a session name.
  * Returns null on any failure (binary not found, timeout, bad output).
  */
-async function callHaiku(prompt: string, signal?: AbortSignal): Promise<string | null> {
+async function callHaiku(prompt: string, model?: string, signal?: AbortSignal): Promise<string | null> {
   if (signal?.aborted) return null;
 
   const binary = getClaudeBinary();
@@ -619,7 +619,7 @@ async function callHaiku(prompt: string, signal?: AbortSignal): Promise<string |
     "--strict-mcp-config",
     "--mcp-config", '{"mcpServers":{}}',
     "--system-prompt", SYSTEM_PROMPT,
-    "--model", "haiku",
+    "--model", model || "haiku",
     prompt,
   ];
 

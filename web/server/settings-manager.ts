@@ -46,7 +46,7 @@ export interface CompanionSettings {
 
 /** Discriminated union for session auto-namer backend. */
 export type NamerConfig =
-  | { backend: "claude" }
+  | { backend: "claude"; model?: string }
   | { backend: "openai"; apiKey: string; baseUrl: string; model: string };
 
 const DEFAULT_PATH = join(homedir(), ".companion", "settings.json");
