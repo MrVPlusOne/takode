@@ -1853,6 +1853,12 @@ export class WsBridge {
       this.launcher?.touchActivity(session.id);
       session.lastCliMessageAt = Date.now();
 
+      // Track generation state for SDK sessions
+      if (msg.type === "result") {
+        this.setGenerating(session, false, "result");
+        this.broadcastToBrowsers(session, { type: "status_change", status: "idle" });
+      }
+
       // SDK messages are already in BrowserIncomingMessage format — process them
       // through the same handler as CLI WebSocket messages.
       if (msg.type === "session_init") {
