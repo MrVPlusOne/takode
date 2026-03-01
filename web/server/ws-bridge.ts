@@ -353,6 +353,10 @@ interface Session {
   isGenerating: boolean;
   /** When isGenerating became true (epoch ms), for stuck detection + timer restore */
   generationStartedAt: number | null;
+  /** Quest status snapshot at turn start, for detecting changes in turn_end events */
+  questStatusAtTurnStart: string | null;
+  /** Message history length at turn start, for computing message ID range in turn_end */
+  messageCountAtTurnStart: number;
   /** Last message received from CLI (epoch ms), for stuck detection */
   lastCliMessageAt: number;
   /** Last keep_alive or WebSocket ping from CLI (epoch ms), for disconnect diagnostics */
@@ -1068,6 +1072,8 @@ export class WsBridge {
         toolStartTimes: new Map(),
         isGenerating: false,
         generationStartedAt: null,
+        questStatusAtTurnStart: null,
+        messageCountAtTurnStart: 0,
         lastCliMessageAt: 0,
         lastCliPingAt: 0,
         lastOutboundUserNdjson: null,
@@ -1418,6 +1424,8 @@ export class WsBridge {
         toolStartTimes: new Map(),
         isGenerating: false,
         generationStartedAt: null,
+        questStatusAtTurnStart: null,
+        messageCountAtTurnStart: 0,
         lastCliMessageAt: 0,
         lastCliPingAt: 0,
         lastOutboundUserNdjson: null,
@@ -4398,6 +4406,9 @@ export class WsBridge {
     if (generating) {
       session.generationStartedAt = Date.now();
       session.stuckNotifiedAt = null;
+      // Snapshot for turn_end enrichment: quest status and message count at turn start
+      session.questStatusAtTurnStart = session.state.claimedQuestStatus ?? null;
+      session.messageCountAtTurnStart = session.messageHistory.length;
       console.log(`[ws-bridge] Generation started for session ${sessionTag(session.id)} (${reason})`);
       this.recorder?.recordServerEvent(session.id, "generation_started", { reason }, session.backendType, session.state.cwd);
 
@@ -4479,9 +4490,27 @@ export class WsBridge {
       }
     }
 
+    // Message ID range: from turn start snapshot to current end
+    const msgFrom = session.messageCountAtTurnStart;
+    const msgTo = history.length > 0 ? history.length - 1 : 0;
+    const msgRange = msgFrom < msgTo ? { from: msgFrom, to: msgTo } : undefined;
+
+    // Quest status change: compare snapshot at turn start with current status
+    const currentQuestStatus = session.state.claimedQuestStatus ?? null;
+    const prevQuestStatus = session.questStatusAtTurnStart;
+    const questChange = (prevQuestStatus !== currentQuestStatus && session.state.claimedQuestId)
+      ? {
+          questId: session.state.claimedQuestId,
+          from: prevQuestStatus || "none",
+          to: currentQuestStatus || "none",
+        }
+      : undefined;
+
     return {
       tools: Object.keys(toolCounts).length > 0 ? toolCounts : undefined,
       resultPreview,
+      msgRange,
+      questChange,
     };
   }
 

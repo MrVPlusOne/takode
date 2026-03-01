@@ -160,10 +160,18 @@ function printEvents(events: unknown[], jsonMode: boolean): void {
       case "turn_end": {
         const duration = evt.data.duration_ms ? ` (${Math.round(Number(evt.data.duration_ms) / 1000)}s)` : "";
         console.log(`[${time}] turn_end  ${session}${duration}`);
-        if (evt.data.toolSummary) {
-          const tools = evt.data.toolSummary as Record<string, number>;
+        if (evt.data.tools) {
+          const tools = evt.data.tools as Record<string, number>;
           const parts = Object.entries(tools).map(([k, v]) => `${k}(${v})`);
           console.log(`  Tools: ${parts.join(", ")}`);
+        }
+        const range = evt.data.msgRange as { from: number; to: number } | undefined;
+        if (range) {
+          console.log(`  Messages: [${range.from}]-[${range.to}]`);
+        }
+        const qc = evt.data.questChange as { questId: string; from: string; to: string } | undefined;
+        if (qc) {
+          console.log(`  Quest: ${qc.questId}: ${qc.from} → ${qc.to}`);
         }
         if (evt.data.resultPreview) {
           console.log(`  Result: ${truncate(String(evt.data.resultPreview), 120)}`);
@@ -247,6 +255,8 @@ async function handleList(base: string, args: string[]): Promise<void> {
     gitBranch?: string;
     gitAhead?: number;
     gitBehind?: number;
+    totalLinesAdded?: number;
+    totalLinesRemoved?: number;
     attentionReason?: string;
     repoRoot?: string;
     isWorktree?: boolean;
@@ -361,6 +371,8 @@ function printSessionLine(s: {
   gitBranch?: string;
   gitAhead?: number;
   gitBehind?: number;
+  totalLinesAdded?: number;
+  totalLinesRemoved?: number;
   attentionReason?: string;
   lastActivityAt?: number;
   lastMessagePreview?: string;
@@ -389,12 +401,17 @@ function printSessionLine(s: {
   const behind = s.gitBehind ? `${s.gitBehind}↓` : "";
   const gitDelta = (ahead || behind) ? ` ${ahead}${behind}` : "";
 
+  // Uncommitted diff stats: "+114 -10" (only show non-zero)
+  const added = s.totalLinesAdded ? `+${s.totalLinesAdded}` : "";
+  const removed = s.totalLinesRemoved ? `-${s.totalLinesRemoved}` : "";
+  const diffStats = (added || removed) ? ` ${[added, removed].filter(Boolean).join(" ")}` : "";
+
   const wt = s.isWorktree ? " wt" : "";
   const activity = s.lastActivityAt ? formatRelativeTime(s.lastActivityAt) : "";
   const preview = s.lastMessagePreview ? `  "${truncate(s.lastMessagePreview, 50)}"` : "";
 
   console.log(`  ${num.padEnd(5)} ${status} ${name}${role}${herd}${quest}${attention}`);
-  console.log(`        ${branch}${gitDelta}${wt}  ${activity}${preview}`);
+  console.log(`        ${branch}${gitDelta}${diffStats}${wt}  ${activity}${preview}`);
 }
 
 async function handleWatch(base: string, args: string[]): Promise<void> {

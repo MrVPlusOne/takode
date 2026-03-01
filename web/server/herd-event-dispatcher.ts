@@ -200,7 +200,13 @@ function formatSingleEvent(evt: TakodeEvent): string {
         ? ` | "${truncate(evt.data.resultPreview, 60)}"`
         : "";
       const success = evt.data.is_error ? "✗" : "✓";
-      return `${label} | turn_end | ${success} ${duration}${tools}${resultPreview}`;
+      // Message ID range for quick peek navigation
+      const range = evt.data.msgRange as { from: number; to: number } | undefined;
+      const rangeStr = range ? ` | [${range.from}]-[${range.to}]` : "";
+      // Quest status change during this turn
+      const qc = evt.data.questChange as { questId: string; from: string; to: string } | undefined;
+      const questStr = qc ? ` | ${qc.questId}: ${qc.from} → ${qc.to}` : "";
+      return `${label} | turn_end | ${success} ${duration}${tools}${rangeStr}${questStr}${resultPreview}`;
     }
     case "permission_request": {
       const tool = evt.data.tool_name || "unknown";
