@@ -107,7 +107,7 @@ export function SessionItem({
 
   // Backend icon source
   const backendLogo = s.backendType === "codex" ? "/logo-codex.svg" : "/logo.png";
-  const backendAlt = s.backendType === "codex" ? "Codex" : "Claude";
+  const backendAlt = s.backendType === "codex" ? "Codex" : s.backendType === "claude-sdk" ? "Claude SDK" : "Claude";
   const hasBranchDivergence = s.gitAhead > 0 || s.gitBehind > 0;
   const hasLineDiff = s.linesAdded > 0 || s.linesRemoved > 0;
 
@@ -250,6 +250,11 @@ export function SessionItem({
                 {s.isContainerized && (
                   <span className="text-[9px] font-medium px-1.5 rounded-full leading-[16px] shrink-0 text-blue-400 bg-blue-500/10">
                     Docker
+                  </span>
+                )}
+                {s.backendType === "claude-sdk" && (
+                  <span className="text-[9px] font-medium px-1.5 rounded-full leading-[16px] shrink-0 text-emerald-400 bg-emerald-500/10" title="Agent SDK (stdio transport)">
+                    SDK
                   </span>
                 )}
                 {s.cronJobId && (

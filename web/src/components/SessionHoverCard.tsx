@@ -92,7 +92,7 @@ export function SessionHoverCard({
   const shortId = s.id.slice(0, 8);
   const label = sessionName || s.model || shortId;
   const model = sessionState?.model || s.model || "";
-  const backendLabel = s.backendType === "codex" ? "Codex" : "Claude";
+  const backendLabel = s.backendType === "codex" ? "Codex" : s.backendType === "claude-sdk" ? "Claude SDK" : "Claude";
   const createdAtLabel = s.createdAt > 0 ? new Date(s.createdAt).toLocaleString() : "Unknown";
 
   // Stats from sessionState

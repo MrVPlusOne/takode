@@ -118,14 +118,28 @@ export class ClaudeSdkAdapter {
     // Dynamic import to avoid loading the SDK at startup for WebSocket-only servers
     const sdk = await import("@anthropic-ai/claude-agent-sdk");
 
+    // Merge process.env (inherits ANTHROPIC_BASE_URL, ANTHROPIC_AUTH_TOKEN from
+    // claude.sh) with session-specific vars (COMPANION_SESSION_ID, etc.)
+    const mergedEnv: Record<string, string | undefined> = {
+      ...process.env,
+      ...(this.options.env || {}),
+    };
+
     const sessionOptions: Record<string, unknown> = {
       model: this.options.model || "claude-sonnet-4-5-20250929",
       cwd: this.options.cwd,
       permissionMode: this.mapPermissionMode(this.options.permissionMode),
-      env: this.options.env,
+      env: mergedEnv,
       canUseTool: this.handleCanUseTool.bind(this),
     };
 
+    // bypassPermissions → SDK's allowDangerouslySkipPermissions flag
+    if (this.options.permissionMode === "bypassPermissions") {
+      sessionOptions.allowDangerouslySkipPermissions = true;
+      delete sessionOptions.canUseTool; // no permission prompts needed
+    }
+
+    // Resolve the claude binary path — use the configured binary or find it on PATH
     if (this.options.claudeBinary) {
       sessionOptions.pathToClaudeCodeExecutable = this.options.claudeBinary;
     }
