@@ -1235,8 +1235,10 @@ export function createRoutes(
         // lazily on CLI connect, not on every sidebar poll). Previously this ran
         // a `git rev-list` per worktree session on every /api/sessions request,
         // causing 800-1300ms latency on NFS.
+        // Strip sessionAuthToken — never expose to browser clients
+        const { sessionAuthToken: _token, ...safeSession } = s;
         return {
-          ...s,
+          ...safeSession,
           sessionNum: launcher.getSessionNum(s.sessionId) ?? null,
           name: names[s.sessionId] ?? s.name,
           gitBranch: bridge?.git_branch || "",
@@ -2908,6 +2910,12 @@ export function createRoutes(
     }
     const orch = launcher.getSession(orchId);
     if (!orch) return c.json({ error: "Orchestrator session not found" }, 404);
+
+    // Server-side role check: only orchestrators can herd
+    if (!orch.isOrchestrator) {
+      return c.json({ error: "Session is not an orchestrator" }, 403);
+    }
+
     const body = await c.req.json().catch(() => ({}));
     if (!Array.isArray(body.workerIds) || body.workerIds.length === 0) {
       return c.json({ error: "workerIds array is required" }, 400);

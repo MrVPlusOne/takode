@@ -5,8 +5,11 @@ import { homedir, tmpdir } from "node:os";
 
 // ─── Hoisted mocks ──────────────────────────────────────────────────────────
 
-// Mock randomUUID so session IDs are deterministic
-vi.mock("node:crypto", () => ({ randomUUID: () => "test-session-id" }));
+// Mock randomUUID and randomBytes so session IDs and auth tokens are deterministic
+vi.mock("node:crypto", () => ({
+  randomUUID: () => "test-session-id",
+  randomBytes: (n: number) => ({ toString: () => "a".repeat(n * 2) }),
+}));
 
 // Mock child_process.exec to prevent actual git commands from running in tests
 const mockExec = vi.hoisted(() => vi.fn((_cmd: string, _opts: any, cb: any) => {

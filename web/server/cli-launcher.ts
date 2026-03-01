@@ -590,6 +590,10 @@ export class CliLauncher {
     this.sessionEnvs.set(sessionId, envWithSessionId);
     options = { ...options, env: envWithSessionId };
 
+    // Write session-auth file so takode/quest CLIs can authenticate when env vars are missing
+    // (e.g., after CLI relaunch). Fire-and-forget — non-blocking.
+    this.writeSessionAuthFile(cwd, sessionId, sessionAuthToken, this.port).catch(() => {});
+
     if (backendType === "codex") {
       this.spawnCodex(sessionId, info, options).catch((err) => {
         console.error(`[cli-launcher] Codex spawn failed for ${sessionTag(sessionId)}:`, err);
@@ -2024,6 +2028,23 @@ ${ORCH_END}`;
     this.processes.delete(sessionId);
     this.sessionEnvs.delete(sessionId);
     this.persistState();
+  }
+
+  /**
+   * Write a session-auth file to the session's working directory.
+   * This allows takode/quest CLIs to authenticate when env vars are missing
+   * (e.g., after CLI relaunch fails to pass them).
+   */
+  private async writeSessionAuthFile(cwd: string, sessionId: string, authToken: string, port: number): Promise<void> {
+    const claudeDir = join(cwd, ".claude");
+    const authFilePath = join(claudeDir, "session-auth.json");
+    try {
+      await mkdir(claudeDir, { recursive: true });
+      const data = JSON.stringify({ sessionId, authToken, port }, null, 2);
+      await writeFile(authFilePath, data, { mode: 0o600 });
+    } catch (err) {
+      console.warn(`[cli-launcher] Failed to write session-auth file to ${authFilePath}:`, err);
+    }
   }
 
   /**

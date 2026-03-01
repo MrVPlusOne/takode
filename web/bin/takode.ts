@@ -41,6 +41,37 @@ function stripGlobalFlags(argv: string[]): string[] {
   return result;
 }
 
+// ─── Credential discovery ───────────────────────────────────────────────────
+
+/** Discover session credentials from env vars or session-auth file fallback. */
+function getCredentials(): { sessionId: string; authToken: string } | null {
+  const sessionId = process.env.COMPANION_SESSION_ID;
+  const authToken = process.env.COMPANION_AUTH_TOKEN;
+  if (sessionId && authToken) return { sessionId, authToken };
+
+  // Fallback: read from .claude/session-auth.json in cwd
+  try {
+    const { readFileSync } = require("node:fs");
+    const { join } = require("node:path");
+    const authFile = join(process.cwd(), ".claude", "session-auth.json");
+    const data = JSON.parse(readFileSync(authFile, "utf-8"));
+    if (data.sessionId && data.authToken) return { sessionId: data.sessionId, authToken: data.authToken };
+  } catch {
+    // File doesn't exist or is malformed — auth not available
+  }
+  return null;
+}
+
+/** Get auth headers for API requests. Returns empty object if no credentials. */
+function getAuthHeaders(): Record<string, string> {
+  const creds = getCredentials();
+  if (!creds) return {};
+  return {
+    "x-companion-session": creds.sessionId,
+    "x-companion-auth": creds.authToken,
+  };
+}
+
 // ─── HTTP helpers ────────────────────────────────────────────────────────────
 
 const TAKODE_SESSION_ID_HEADER = "x-companion-session-id";
