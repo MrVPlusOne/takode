@@ -357,6 +357,8 @@ interface Session {
   questStatusAtTurnStart: string | null;
   /** Message history length at turn start, for computing message ID range in turn_end */
   messageCountAtTurnStart: number;
+  /** Set when handleInterrupt is called during generation, cleared at turn end */
+  interruptedDuringTurn: boolean;
   /** Last message received from CLI (epoch ms), for stuck detection */
   lastCliMessageAt: number;
   /** Last keep_alive or WebSocket ping from CLI (epoch ms), for disconnect diagnostics */
@@ -1074,6 +1076,7 @@ export class WsBridge {
         generationStartedAt: null,
         questStatusAtTurnStart: null,
         messageCountAtTurnStart: 0,
+        interruptedDuringTurn: false,
         lastCliMessageAt: 0,
         lastCliPingAt: 0,
         lastOutboundUserNdjson: null,
@@ -1426,6 +1429,7 @@ export class WsBridge {
         generationStartedAt: null,
         questStatusAtTurnStart: null,
         messageCountAtTurnStart: 0,
+        interruptedDuringTurn: false,
         lastCliMessageAt: 0,
         lastCliPingAt: 0,
         lastOutboundUserNdjson: null,
@@ -3890,6 +3894,10 @@ export class WsBridge {
   }
 
   private handleInterrupt(session: Session) {
+    // Track that this turn was interrupted (for herd event reporting)
+    if (session.isGenerating) {
+      session.interruptedDuringTurn = true;
+    }
     const ndjson = JSON.stringify({
       type: "control_request",
       request_id: randomUUID(),
@@ -4420,6 +4428,7 @@ export class WsBridge {
       // Snapshot for turn_end enrichment: quest status and message count at turn start
       session.questStatusAtTurnStart = session.state.claimedQuestStatus ?? null;
       session.messageCountAtTurnStart = session.messageHistory.length;
+      session.interruptedDuringTurn = false; // Reset for new turn
       console.log(`[ws-bridge] Generation started for session ${sessionTag(session.id)} (${reason})`);
       this.recorder?.recordServerEvent(session.id, "generation_started", { reason }, session.backendType, session.state.cwd);
 
@@ -4437,9 +4446,12 @@ export class WsBridge {
 
       // Takode: turn_end with tool summary from the last turn
       const toolSummary = this.buildTurnToolSummary(session);
+      const interrupted = session.interruptedDuringTurn;
+      session.interruptedDuringTurn = false; // Clear for next turn
       this.emitTakodeEvent(session.id, "turn_end", {
         reason,
         duration_ms: elapsed,
+        ...(interrupted ? { interrupted: true } : {}),
         ...toolSummary,
       });
 

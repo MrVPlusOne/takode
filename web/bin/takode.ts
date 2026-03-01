@@ -159,7 +159,8 @@ function printEvents(events: unknown[], jsonMode: boolean): void {
     switch (evt.event) {
       case "turn_end": {
         const duration = evt.data.duration_ms ? ` (${Math.round(Number(evt.data.duration_ms) / 1000)}s)` : "";
-        console.log(`[${time}] turn_end  ${session}${duration}`);
+        const interrupted = evt.data.interrupted ? " [INTERRUPTED]" : "";
+        console.log(`[${time}] turn_end  ${session}${duration}${interrupted}`);
         if (evt.data.tools) {
           const tools = evt.data.tools as Record<string, number>;
           const parts = Object.entries(tools).map(([k, v]) => `${k}(${v})`);

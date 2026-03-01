@@ -199,7 +199,7 @@ function formatSingleEvent(evt: TakodeEvent): string {
       const resultPreview = typeof evt.data.resultPreview === "string"
         ? ` | "${truncate(evt.data.resultPreview, 60)}"`
         : "";
-      const success = evt.data.is_error ? "✗" : "✓";
+      const success = evt.data.interrupted ? "⊘ interrupted" : evt.data.is_error ? "✗" : "✓";
       // Message ID range for quick peek navigation
       const range = evt.data.msgRange as { from: number; to: number } | undefined;
       const rangeStr = range ? ` | [${range.from}]-[${range.to}]` : "";
