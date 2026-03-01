@@ -359,6 +359,9 @@ interface Session {
   messageCountAtTurnStart: number;
   /** Set when handleInterrupt is called during generation, cleared at turn end */
   interruptedDuringTurn: boolean;
+  /** Whether system.init has been received since the last CLI connect.
+   *  False during --resume replay — messages sent before init are dropped by CLI. */
+  cliInitReceived: boolean;
   /** Last message received from CLI (epoch ms), for stuck detection */
   lastCliMessageAt: number;
   /** Last keep_alive or WebSocket ping from CLI (epoch ms), for disconnect diagnostics */
@@ -832,7 +835,10 @@ export class WsBridge {
           try {
             session.cliSocket.ping();
           } catch {
-            // ping() threw — socket is already dead
+            // ping() threw — socket is already dead. Close it to trigger
+            // handleCLIClose → auto-relaunch instead of leaving a ghost socket.
+            console.warn(`[ws-bridge] CLI ping failed for session ${sessionTag(session.id)}, closing dead socket`);
+            try { session.cliSocket.close(); } catch { /* already dead */ }
           }
         }
       }
@@ -948,11 +954,14 @@ export class WsBridge {
     this.herdEventDispatcher = dispatcher;
   }
 
-  /** Check if a session is idle (CLI connected, not generating). */
+  /** Check if a session is idle AND ready to receive messages.
+   *  Requires: CLI connected, system.init received, not generating. */
   isSessionIdle(sessionId: string): boolean {
     const session = this.sessions.get(sessionId);
     if (!session) return false;
-    return !!(session.cliSocket || session.codexAdapter) && !session.isGenerating;
+    return !!(session.cliSocket || session.codexAdapter)
+      && session.cliInitReceived
+      && !session.isGenerating;
   }
 
   /** Get diagnostic info for a session's herd event and generation state. */
@@ -963,6 +972,7 @@ export class WsBridge {
       isGenerating: session.isGenerating,
       generationStartedAt: session.generationStartedAt,
       cliConnected: !!(session.cliSocket || session.codexAdapter),
+      cliInitReceived: session.cliInitReceived,
       pendingMessagesCount: session.pendingMessages.length,
       pendingPermissionsCount: session.pendingPermissions.size,
       disconnectGraceActive: session.disconnectGraceTimer !== null,
@@ -1093,6 +1103,7 @@ export class WsBridge {
         questStatusAtTurnStart: null,
         messageCountAtTurnStart: 0,
         interruptedDuringTurn: false,
+        cliInitReceived: false,
         lastCliMessageAt: 0,
         lastCliPingAt: 0,
         lastOutboundUserNdjson: null,
@@ -1446,6 +1457,7 @@ export class WsBridge {
         questStatusAtTurnStart: null,
         messageCountAtTurnStart: 0,
         interruptedDuringTurn: false,
+        cliInitReceived: false,
         lastCliMessageAt: 0,
         lastCliPingAt: 0,
         lastOutboundUserNdjson: null,
@@ -1911,6 +1923,7 @@ export class WsBridge {
     const now = Date.now();
     const wasGenerating = session.isGenerating;
     session.cliSocket = null;
+    session.cliInitReceived = false; // Reset — next CLI must send system.init before we deliver
     // Reset generating state immediately — the UI needs to stop showing "running"
     // even during the grace period. But DON'T call setGenerating() here because
     // that emits turn_end/turn_start takode events which we want to defer.
@@ -1959,7 +1972,8 @@ export class WsBridge {
     // (events, permission cancel, relaunch) to allow seamless reconnect.
     // If the CLI reconnects within the grace window, handleCLIOpen cancels the
     // timer and the disconnect is invisible to the rest of the system.
-    session.disconnectWasGenerating = wasGenerating;
+    // Sticky: accumulate across multiple disconnects during grace period
+    session.disconnectWasGenerating = session.disconnectWasGenerating || wasGenerating;
     if (session.disconnectGraceTimer) clearTimeout(session.disconnectGraceTimer);
     session.disconnectGraceTimer = setTimeout(() => {
       session.disconnectGraceTimer = null;
@@ -2266,6 +2280,9 @@ export class WsBridge {
 
   private handleSystemMessage(session: Session, msg: CLISystemInitMessage | CLISystemStatusMessage | CLISystemCompactBoundaryMessage | CLISystemTaskNotificationMessage) {
     if (msg.subtype === "init") {
+      // Mark CLI as fully initialized — safe to send messages now
+      session.cliInitReceived = true;
+
       // Keep the launcher-assigned session_id as the canonical ID.
       // The CLI may report its own internal session_id which differs
       // from the launcher UUID, causing duplicate entries in the sidebar.
@@ -4162,9 +4179,11 @@ export class WsBridge {
       // NDJSON requires a newline delimiter
       session.cliSocket.send(ndjson + "\n");
     } catch (err) {
-      // Send failure means the socket is dead — close it so the auto-relaunch
-      // mechanism can kick in (either from handleCLIClose or browser reconnect).
-      console.warn(`[ws-bridge] CLI send failed for session ${sessionTag(session.id)}, closing dead socket:`, err);
+      // Send failure means the socket is dead — re-queue the message so it
+      // can be delivered after reconnect, then close the socket to trigger
+      // the auto-relaunch mechanism.
+      console.warn(`[ws-bridge] CLI send failed for session ${sessionTag(session.id)}, re-queuing message and closing dead socket:`, err);
+      session.pendingMessages.push(ndjson);
       try { session.cliSocket.close(); } catch { /* already dead */ }
     }
   }

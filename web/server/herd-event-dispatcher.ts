@@ -46,6 +46,8 @@ interface HerdInbox {
   unsubscribe: (() => void) | null;
   debounceTimer: ReturnType<typeof setTimeout> | null;
   workerIds: Set<string>;
+  /** Persistent event history for diagnostics (last N events with delivery status) */
+  eventHistory: Array<{ event: TakodeEvent; deliveredAt: number | null; status: "pending" | "delivered" | "dropped" }>;
 }
 
 // ─── Dispatcher ─────────────────────────────────────────────────────────────────
@@ -84,6 +86,7 @@ export class HerdEventDispatcher {
         unsubscribe: null,
         debounceTimer: null,
         workerIds,
+        eventHistory: [],
       };
       inbox.unsubscribe = this.wsBridge.subscribeTakodeEvents(
         workerIds,
@@ -117,6 +120,12 @@ export class HerdEventDispatcher {
     if (!inbox) return;
 
     inbox.events.push(event);
+    // Track in event history for diagnostics
+    inbox.eventHistory.push({ event, deliveredAt: null, status: "pending" });
+    // Cap history to prevent unbounded growth (keep last 50)
+    if (inbox.eventHistory.length > 50) {
+      inbox.eventHistory.splice(0, inbox.eventHistory.length - 50);
+    }
     // Cap inbox to prevent unbounded growth
     if (inbox.events.length > INBOX_CAP) {
       inbox.events.splice(0, inbox.events.length - INBOX_CAP);
@@ -151,16 +160,36 @@ export class HerdEventDispatcher {
     }, DEBOUNCE_MS);
   }
 
-  /** Deliver accumulated events as a single user message. */
+  /** Deliver accumulated events as a single user message.
+   *  Re-checks idle state before delivery. Only dequeues events on successful injection. */
   private flushInbox(orchId: string): void {
     const inbox = this.inboxes.get(orchId);
     if (!inbox || inbox.events.length === 0) return;
 
-    // Swap events to local, clear inbox
-    const events = inbox.events.splice(0);
+    // Re-check idle — orchestrator may have started generating during debounce window
+    if (!this.wsBridge.isSessionIdle(orchId)) {
+      // Events stay in inbox, delivered on next onOrchestratorTurnEnd
+      return;
+    }
+
+    // Peek at events (don't remove yet)
+    const events = [...inbox.events];
     const content = formatHerdEventBatch(events);
 
+    // Attempt delivery
     this.wsBridge.injectUserMessage(orchId, content, HERD_AGENT_SOURCE);
+
+    // Only now dequeue the events (delivery was attempted — sendToCLI will re-queue if socket fails)
+    inbox.events.splice(0);
+
+    // Mark events as delivered in history
+    const now = Date.now();
+    for (const entry of inbox.eventHistory) {
+      if (entry.status === "pending") {
+        entry.deliveredAt = now;
+        entry.status = "delivered";
+      }
+    }
   }
 
   /** Clean up all inboxes (for server shutdown). */
@@ -177,10 +206,11 @@ export class HerdEventDispatcher {
     pendingEventTypes: string[];
     workerCount: number;
     debounceActive: boolean;
+    eventHistory: Array<{ event: string; sessionName: string; ts: number; deliveredAt: number | null; status: string }>;
   } {
     const inbox = this.inboxes.get(orchId);
     if (!inbox) {
-      return { hasInbox: false, pendingEventCount: 0, pendingEventTypes: [], workerCount: 0, debounceActive: false };
+      return { hasInbox: false, pendingEventCount: 0, pendingEventTypes: [], workerCount: 0, debounceActive: false, eventHistory: [] };
     }
     const eventTypes = inbox.events.map(e => e.event);
     return {
@@ -189,6 +219,13 @@ export class HerdEventDispatcher {
       pendingEventTypes: eventTypes,
       workerCount: inbox.workerIds.size,
       debounceActive: inbox.debounceTimer !== null,
+      eventHistory: inbox.eventHistory.map(h => ({
+        event: h.event.event,
+        sessionName: h.event.sessionName,
+        ts: h.event.ts,
+        deliveredAt: h.deliveredAt,
+        status: h.status,
+      })),
     };
   }
 

@@ -96,7 +96,8 @@ describe("HerdEventDispatcher", () => {
     // Nothing injected yet
     expect(bridge.injectUserMessage).not.toHaveBeenCalled();
 
-    // Orchestrator finishes turn
+    // Orchestrator finishes turn — now idle
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
     dispatcher.onOrchestratorTurnEnd("orch-1");
 
     // After debounce
