@@ -355,17 +355,18 @@ export class HerdEventDispatcher {
 // ─── Event Formatting ───────────────────────────────────────────────────────────
 
 /** Format a batch of events into a compact, scannable summary. */
-export function formatHerdEventBatch(events: TakodeEvent[]): string {
+export function formatHerdEventBatch(events: TakodeEvent[], nowTs: number = Date.now()): string {
   // Count unique sessions
   const sessionIds = new Set(events.map(e => e.sessionId));
   const header = `${events.length} event${events.length === 1 ? "" : "s"} from ${sessionIds.size} session${sessionIds.size === 1 ? "" : "s"}`;
 
-  const lines = events.map(formatSingleEvent);
+  const lines = events.map((event) => formatSingleEvent(event, nowTs));
   return `${header}\n\n${lines.join("\n")}`;
 }
 
-function formatSingleEvent(evt: TakodeEvent): string {
+function formatSingleEvent(evt: TakodeEvent, nowTs: number): string {
   const label = `#${evt.sessionNum} ${evt.sessionName}`;
+  const age = formatRelativeAge(evt.ts, nowTs);
   switch (evt.event) {
     case "turn_end": {
       const duration = typeof evt.data.duration_ms === "number"
@@ -382,20 +383,20 @@ function formatSingleEvent(evt: TakodeEvent): string {
       // Quest status change during this turn
       const qc = evt.data.questChange as { questId: string; from: string; to: string } | undefined;
       const questStr = qc ? ` | ${qc.questId}: ${qc.from} → ${qc.to}` : "";
-      return `${label} | turn_end | ${success} ${duration}${tools}${rangeStr}${questStr}${resultPreview}`;
+      return `${label} | turn_end | ${success} ${duration}${tools}${rangeStr}${questStr}${resultPreview} | ${age}`;
     }
     case "permission_request": {
       const tool = evt.data.tool_name || "unknown";
       const summary = typeof evt.data.summary === "string" ? `: ${truncate(evt.data.summary, 60)}` : "";
-      return `${label} | permission_request | ${tool}${summary}`;
+      return `${label} | permission_request | ${tool}${summary} | ${age}`;
     }
     case "session_error": {
       const error = typeof evt.data.error === "string" ? truncate(evt.data.error, 80) : "unknown error";
-      return `${label} | session_error | ${error}`;
+      return `${label} | session_error | ${error} | ${age}`;
     }
     case "session_disconnected": {
       const reason = typeof evt.data.reason === "string" ? evt.data.reason : "unknown";
-      return `${label} | session_disconnected | ${reason}`;
+      return `${label} | session_disconnected | ${reason} | ${age}`;
     }
     case "user_message": {
       const content = typeof evt.data.content === "string" ? truncate(evt.data.content, 80) : "";
@@ -407,10 +408,10 @@ function formatSingleEvent(evt: TakodeEvent): string {
       } else if (agentSource?.sessionId) {
         sender = agentSource.sessionLabel ? `Agent ${agentSource.sessionLabel}` : "Agent";
       }
-      return `${label} | user_message [${sender}] | "${content}"`;
+      return `${label} | user_message [${sender}] | "${content}" | ${age}`;
     }
     default:
-      return `${label} | ${evt.event}`;
+      return `${label} | ${evt.event} | ${age}`;
   }
 }
 
@@ -431,6 +432,18 @@ function formatToolCounts(tools: Record<string, number> | undefined): string {
 function truncate(s: string, max: number): string {
   if (s.length <= max) return s;
   return s.slice(0, max - 1) + "…";
+}
+
+function formatRelativeAge(ts: number, nowTs: number): string {
+  const deltaMs = Math.max(0, nowTs - ts);
+  const deltaSec = Math.floor(deltaMs / 1000);
+  if (deltaSec < 60) return `${deltaSec}s ago`;
+  const deltaMin = Math.floor(deltaSec / 60);
+  if (deltaMin < 60) return `${deltaMin}m ago`;
+  const deltaHour = Math.floor(deltaMin / 60);
+  if (deltaHour < 24) return `${deltaHour}h ago`;
+  const deltaDay = Math.floor(deltaHour / 24);
+  return `${deltaDay}d ago`;
 }
 
 function setsEqual<T>(a: Set<T>, b: Set<T>): boolean {

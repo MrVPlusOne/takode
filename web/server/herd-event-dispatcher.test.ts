@@ -374,4 +374,26 @@ describe("formatHerdEventBatch", () => {
     const result = formatHerdEventBatch(events);
     expect(result).toContain("⊘ interrupted");
   });
+
+  it("appends relative age for recent events", () => {
+    const now = 1_700_000_000_000;
+    const events = [makeEvent({
+      event: "user_message",
+      ts: now - 45_000,
+      data: { content: "ping" },
+    })];
+    const result = formatHerdEventBatch(events, now);
+    expect(result).toContain("| 45s ago");
+  });
+
+  it("appends relative age for stale queued events", () => {
+    const now = 1_700_000_000_000;
+    const events = [makeEvent({
+      event: "turn_end",
+      ts: now - 2 * 60_000,
+      data: { duration_ms: 1230 },
+    })];
+    const result = formatHerdEventBatch(events, now);
+    expect(result).toContain("| 2m ago");
+  });
 });
