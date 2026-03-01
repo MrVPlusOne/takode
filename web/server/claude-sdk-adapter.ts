@@ -171,16 +171,24 @@ export class ClaudeSdkAdapter {
   private async streamMessages(): Promise<void> {
     if (!this.sdkSession) return;
 
-    try {
-      for await (const msg of this.sdkSession.stream()) {
-        this.handleSdkMessage(msg);
-      }
-    } catch (err) {
-      if (this.connected) {
-        console.error(`[claude-sdk-adapter] Stream ended unexpectedly for session ${this.sessionId}:`, err);
+    // The V2 SDK session's stream() yields messages until a result, then returns.
+    // For multi-turn sessions, we loop back and call stream() again for the next turn.
+    // The session stays alive between turns — only truly disconnects when closed.
+    while (this.connected && this.sdkSession) {
+      try {
+        for await (const msg of this.sdkSession.stream()) {
+          this.handleSdkMessage(msg);
+        }
+        // Stream ended normally (result received) — session is still alive,
+        // just waiting for the next send(). Don't disconnect.
+      } catch (err) {
+        if (this.connected) {
+          console.error(`[claude-sdk-adapter] Stream error for session ${this.sessionId}:`, err);
+          this.handleDisconnect();
+          return;
+        }
       }
     }
-    this.handleDisconnect();
   }
 
   // ─── SDK Message → BrowserIncomingMessage translation ───────────────────────
