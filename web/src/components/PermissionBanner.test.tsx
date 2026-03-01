@@ -607,6 +607,7 @@ describe("PlanReviewOverlay", () => {
 
     // Plan header label
     expect(screen.getAllByText("Plan").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByTitle("Copy plan")).toBeTruthy();
     // Markdown content rendered via mock
     expect(screen.getByTestId("markdown")).toBeTruthy();
     expect(screen.getByTestId("markdown").textContent).toBe("## Step 1\nDo something");
@@ -617,6 +618,20 @@ describe("PlanReviewOverlay", () => {
     expect(screen.getByText("Run tests")).toBeTruthy();
     expect(screen.getByText("Edit")).toBeTruthy();
     expect(screen.getByText("Fix typo")).toBeTruthy();
+  });
+
+  it("shows the same 3-format copy menu used by assistant messages", async () => {
+    const { PlanReviewOverlay } = await import("./PermissionBanner.js");
+    const perm = makePermission({
+      tool_name: "ExitPlanMode",
+      input: { plan: "## Copy me\nPlan details" },
+    });
+    render(<PlanReviewOverlay permission={perm} sessionId="s1" onCollapse={() => {}} />);
+
+    fireEvent.click(screen.getByTitle("Copy plan"));
+    expect(screen.getByText("Copy as Markdown")).toBeTruthy();
+    expect(screen.getByText("Copy as Rich Text")).toBeTruthy();
+    expect(screen.getByText("Copy as Plain Text")).toBeTruthy();
   });
 
   it("renders fallback when no plan or prompts", async () => {

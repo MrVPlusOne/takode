@@ -20,7 +20,14 @@ export function getMessageMarkdown(message: ChatMessage): string {
  */
 export function getMessagePlainText(message: ChatMessage): string {
   const md = getMessageMarkdown(message);
-  return stripMarkdown(md);
+  return markdownToPlainText(md);
+}
+
+/**
+ * Strip markdown syntax from arbitrary markdown content.
+ */
+export function markdownToPlainText(markdown: string): string {
+  return stripMarkdown(markdown);
 }
 
 /**

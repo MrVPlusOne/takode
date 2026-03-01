@@ -430,6 +430,22 @@ describe("ToolBlock", () => {
     expect(screen.getByText("/home/user/test.txt")).toBeTruthy();
   });
 
+  it("shows a 3-format copy menu for ExitPlanMode detail blocks", () => {
+    render(
+      <ToolBlock
+        name="ExitPlanMode"
+        input={{ plan: "## Plan title\n\n1. First step" }}
+        toolUseId="tool-plan-copy"
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button"));
+    fireEvent.click(screen.getByTitle("Copy plan"));
+    expect(screen.getByText("Copy as Markdown")).toBeTruthy();
+    expect(screen.getByText("Copy as Rich Text")).toBeTruthy();
+    expect(screen.getByText("Copy as Plain Text")).toBeTruthy();
+  });
+
   it("hides binary result dumps for Read image tool results", () => {
     const toolResults = new Map();
     const sessionResults = new Map();

@@ -3,6 +3,7 @@ import { DiffViewer } from "./DiffViewer.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { CodeCopyButton } from "./CodeCopyButton.js";
 import { CollapseFooter } from "./CollapseFooter.js";
+import { CopyFormatButton } from "./CopyFormatButton.js";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
 
@@ -774,12 +775,22 @@ function SendMessageDetail({ input }: { input: Record<string, unknown> }) {
 function ExitPlanModeDetail({ input }: { input: Record<string, unknown> }) {
   const plan = typeof input.plan === "string" ? input.plan : "";
   const allowedPrompts = Array.isArray(input.allowedPrompts) ? input.allowedPrompts : [];
+  const planContentRef = useRef<HTMLDivElement>(null);
 
   return (
     <div className="space-y-2">
       {plan && (
-        <div className="max-h-96 overflow-y-auto">
-          <MarkdownContent text={plan} size="sm" />
+        <div className="relative max-h-96 overflow-y-auto">
+          <div className="absolute top-0 right-0 z-10">
+            <CopyFormatButton
+              markdownText={plan}
+              getHtml={() => planContentRef.current?.innerHTML ?? ""}
+              title="Copy plan"
+            />
+          </div>
+          <div ref={planContentRef} className="pr-7">
+            <MarkdownContent text={plan} size="sm" />
+          </div>
         </div>
       )}
       {allowedPrompts.length > 0 && (

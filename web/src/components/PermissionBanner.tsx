@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useStore } from "../store.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { sendToSession } from "../ws.js";
@@ -6,6 +6,7 @@ import type { PermissionRequest } from "../types.js";
 import type { PermissionUpdate } from "../../server/session-types.js";
 import { DiffViewer } from "./DiffViewer.js";
 import { CatPawAvatar } from "./CatIcons.js";
+import { CopyFormatButton } from "./CopyFormatButton.js";
 
 /** Human-readable label for a permission suggestion */
 function suggestionLabel(s: PermissionUpdate): string {
@@ -85,6 +86,7 @@ export function PlanReviewOverlay({
     ? (permission.input.allowedPrompts as Record<string, unknown>[])
     : [];
   const suggestions = permission.permission_suggestions;
+  const planContentRef = useRef<HTMLDivElement>(null);
 
   function handleAllow(updatedInput?: Record<string, unknown>, updatedPermissions?: PermissionUpdate[]) {
     setLoading(true);
@@ -140,7 +142,18 @@ export function PlanReviewOverlay({
       <div className="flex-1 overflow-y-auto px-4 py-4">
         <div className="max-w-3xl mx-auto">
           {planText ? (
-            <MarkdownContent text={planText} size="sm" />
+            <div className="relative">
+              <div className="absolute top-0 right-0 z-10">
+                <CopyFormatButton
+                  markdownText={planText}
+                  getHtml={() => planContentRef.current?.innerHTML ?? ""}
+                  title="Copy plan"
+                />
+              </div>
+              <div ref={planContentRef} className="pr-7">
+                <MarkdownContent text={planText} size="sm" />
+              </div>
+            </div>
           ) : (
             <div className="text-xs text-cc-muted">Plan approval requested</div>
           )}
