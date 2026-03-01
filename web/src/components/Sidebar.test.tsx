@@ -442,8 +442,8 @@ describe("Sidebar", () => {
     expect(archiveButton).toHaveClass("sm:opacity-0");
     expect(archiveButton).toHaveClass("sm:group-hover:opacity-100");
     expect(archiveButton).toHaveClass("left-2");
-    expect(archiveButton).toHaveClass("sm:right-2");
-    expect(archiveButton).toHaveClass("sm:left-auto");
+    // Archive button stays on left for both mobile and desktop (overlays text on hover)
+    expect(archiveButton).not.toHaveClass("sm:right-2");
     expect(sessionButton).toHaveClass("sm:pl-3.5");
   });
 
