@@ -126,10 +126,12 @@ export function ProjectGroup({
   const hasStatus = group.runningCount > 0 || group.permCount > 0 || group.unreadCount > 0;
 
   const reorderMode = useStore((s) => s.reorderMode);
+  const touchDevice = isTouchDevice();
 
   // Drag-and-drop: always register the sensor so the useMemo dependency array
   // inside useSensors keeps a constant length across renders (React requirement).
-  // Drag is gated by only spreading listeners on items when reorderMode is true.
+  // On desktop, items remain drag-anywhere. On mobile, drag attaches to the
+  // explicit handle shown in Edit mode.
   const pointerSensor = useSensor(PointerSensor, { activationConstraint: { distance: 8 } });
   const sensors = useSensors(pointerSensor);
 
@@ -194,7 +196,7 @@ export function ProjectGroup({
           modifiers={[restrictToVerticalAxis]}
         >
           <SortableContext items={sessionIds} strategy={verticalListSortingStrategy}>
-            <div className="space-y-0.5 mt-0.5">
+            <div className="space-y-2 sm:space-y-0.5 mt-1 sm:mt-0.5">
               {group.sessions.map((s) => {
                 const permCount = countUserPermissions(pendingPermissions.get(s.id));
                 const attention = sessionAttention?.get(s.id) ?? null;
@@ -204,7 +206,7 @@ export function ProjectGroup({
                       <div
                         ref={setNodeRef}
                         style={style}
-                        {...((reorderMode || !isTouchDevice()) ? { ...listeners, ...attributes } : {})}
+                        {...(!touchDevice ? { ...listeners, ...attributes } : {})}
                       >
                         <SessionItem
                           session={s}
@@ -234,6 +236,12 @@ export function ProjectGroup({
                           attention={attention}
                           hasUnread={!!attention}
                           reorderMode={reorderMode}
+                          dragHandleProps={reorderMode && touchDevice
+                            ? {
+                                listeners: listeners as Record<string, unknown> | undefined,
+                                attributes: attributes as unknown as Record<string, unknown>,
+                              }
+                            : undefined}
                         />
                       </div>
                     )}

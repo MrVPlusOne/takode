@@ -1,4 +1,4 @@
-import { useRef, useCallback, useMemo, type RefObject } from "react";
+import { useRef, useCallback, useState, type RefObject } from "react";
 import type { SessionItem as SessionItemType } from "../utils/project-grouping.js";
 import { SessionStatusDot } from "./SessionStatusDot.js";
 import { useStore } from "../store.js";
@@ -43,6 +43,10 @@ interface SessionItemProps {
   attention?: "action" | "error" | "review" | null;
   hasUnread?: boolean;
   reorderMode?: boolean;
+  dragHandleProps?: {
+    listeners?: Record<string, unknown>;
+    attributes?: Record<string, unknown>;
+  };
   /** When set, shows why this session matched a search query (e.g. "keyword: zustand") */
   matchContext?: string | null;
 }
@@ -76,24 +80,34 @@ export function SessionItem({
   attention,
   hasUnread,
   reorderMode,
+  dragHandleProps,
   matchContext,
 }: SessionItemProps) {
   const buttonRef = useRef<HTMLButtonElement>(null);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const swipeStart = useRef<{ x: number; y: number } | null>(null);
+  const swipeActive = useRef(false);
+  const suppressTap = useRef(false);
+  const [swipeOffsetPx, setSwipeOffsetPx] = useState(0);
   const shortId = s.id.slice(0, 8);
   const label = sessionName || s.model || shortId;
   const isEditing = editingSessionId === s.id;
   const isQuestNamed = useStore((st) => st.questNamedSessions.has(s.id));
   const questStatus = useStore((st) => st.sessions.get(s.id)?.claimedQuestStatus);
+  const canSwipeToArchive = !archived && !reorderMode;
 
   // Long-press to open context menu on touch devices
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    if (!onCtxMenu || reorderMode) return;
     const touch = e.touches[0];
+    swipeStart.current = { x: touch.clientX, y: touch.clientY };
+    swipeActive.current = false;
+    setSwipeOffsetPx(0);
+    if (!onCtxMenu || reorderMode) return;
     const cx = touch.clientX;
     const cy = touch.clientY;
     longPressTimer.current = setTimeout(() => {
       longPressTimer.current = null;
+      suppressTap.current = true;
       onCtxMenu({ preventDefault: () => {}, stopPropagation: () => {}, clientX: cx, clientY: cy } as React.MouseEvent, s.id);
     }, 500);
   }, [onCtxMenu, reorderMode, s.id]);
@@ -105,17 +119,89 @@ export function SessionItem({
     }
   }, []);
 
+  const triggerArchiveFromSwipe = useCallback(() => {
+    const synthetic = { preventDefault: () => {}, stopPropagation: () => {} } as React.MouseEvent;
+    onArchive(synthetic, s.id);
+  }, [onArchive, s.id]);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    const start = swipeStart.current;
+    if (!start) {
+      cancelLongPress();
+      return;
+    }
+    const touch = e.touches[0];
+    const dx = touch.clientX - start.x;
+    const dy = touch.clientY - start.y;
+    if (!swipeActive.current) {
+      const isHorizontalSwipe = Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy) + 4;
+      if (isHorizontalSwipe && canSwipeToArchive) {
+        swipeActive.current = true;
+        suppressTap.current = true;
+      }
+      if (isHorizontalSwipe || Math.abs(dy) > 8) {
+        cancelLongPress();
+      }
+    }
+    if (swipeActive.current) {
+      const clampedDx = Math.max(-120, Math.min(120, dx));
+      setSwipeOffsetPx(clampedDx);
+      e.preventDefault();
+    }
+  }, [cancelLongPress, canSwipeToArchive]);
+
+  const handleTouchEnd = useCallback(() => {
+    cancelLongPress();
+    if (swipeActive.current) {
+      const shouldArchive = Math.abs(swipeOffsetPx) >= 72 && canSwipeToArchive;
+      swipeActive.current = false;
+      setSwipeOffsetPx(0);
+      if (shouldArchive) {
+        triggerArchiveFromSwipe();
+      }
+    }
+    swipeStart.current = null;
+  }, [cancelLongPress, canSwipeToArchive, swipeOffsetPx, triggerArchiveFromSwipe]);
+
+  const handleTouchCancel = useCallback(() => {
+    cancelLongPress();
+    swipeStart.current = null;
+    swipeActive.current = false;
+    setSwipeOffsetPx(0);
+  }, [cancelLongPress]);
+
+  const handleSelect = useCallback(() => {
+    if (suppressTap.current) {
+      suppressTap.current = false;
+      return;
+    }
+    onSelect(s.id);
+  }, [onSelect, s.id]);
+
   // Backend icon source
   const backendLogo = s.backendType === "codex" ? "/logo-codex.svg" : "/logo.png";
   const backendAlt = s.backendType === "codex" ? "Codex" : s.backendType === "claude-sdk" ? "Claude SDK" : "Claude";
   const hasBranchDivergence = s.gitAhead > 0 || s.gitBehind > 0;
   const hasLineDiff = s.linesAdded > 0 || s.linesRemoved > 0;
+  const showingSwipeBackdrop = canSwipeToArchive && Math.abs(swipeOffsetPx) > 0;
 
   return (
     <div className={`relative group ${archived ? "opacity-50" : ""}`}>
+      {canSwipeToArchive && (
+        <div
+          className={`absolute inset-0 sm:hidden rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-300 pointer-events-none transition-opacity ${
+            showingSwipeBackdrop ? "opacity-100" : "opacity-0"
+          }`}
+        >
+          <div className="h-full px-3.5 flex items-center justify-between text-[11px] font-medium">
+            <span>Archive</span>
+            <span>Archive</span>
+          </div>
+        </div>
+      )}
       <button
         ref={buttonRef}
-        onClick={() => onSelect(s.id)}
+        onClick={handleSelect}
         onDoubleClick={(e) => {
           e.preventDefault();
           onStartRename(s.id, label);
@@ -135,29 +221,28 @@ export function SessionItem({
           if (onHoverEnd) onHoverEnd();
         }}
         onTouchStart={handleTouchStart}
-        onTouchEnd={cancelLongPress}
-        onTouchMove={cancelLongPress}
-        className={`w-full py-2 ${archived ? "pl-3.5 pr-14 sm:pr-14" : "pl-8 pr-3 sm:pl-3.5"} text-left rounded-lg transition-all duration-100 select-none ${
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onTouchCancel={handleTouchCancel}
+        style={{
+          transform: swipeOffsetPx !== 0 ? `translateX(${swipeOffsetPx}px)` : undefined,
+          transition: swipeActive.current ? "none" : "transform 180ms ease-out",
+        }}
+        className={`w-full text-left rounded-xl sm:rounded-lg border sm:border-transparent ${
+          archived ? "pl-3.5 pr-12 py-2.5 sm:pl-3.5 sm:pr-14 sm:py-2" : "pl-3.5 pr-12 py-2.5 sm:pl-8 sm:pr-3 sm:py-2"
+        } transition-all duration-100 select-none ${
           reorderMode ? "cursor-grab active:cursor-grabbing" : "cursor-pointer sm:cursor-grab sm:active:cursor-grabbing"
         } ${
           isActive
-            ? "bg-cc-active"
-            : reorderMode ? "bg-cc-hover/50" : "hover:bg-cc-hover"
+            ? "bg-cc-active border-cc-primary/25"
+            : reorderMode
+              ? "bg-cc-hover/50 border-cc-border/80"
+              : "bg-cc-hover/20 border-cc-border/80 hover:bg-cc-hover/35 sm:bg-transparent sm:hover:bg-cc-hover"
         }`}
       >
-        {/* Drag handle — visible on mobile in reorder mode */}
-        {reorderMode && (
-          <span className="absolute right-2 top-1/2 -translate-y-1/2 text-cc-muted/40 sm:hidden">
-            <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
-              <circle cx="6" cy="4" r="1.2" /><circle cx="10" cy="4" r="1.2" />
-              <circle cx="6" cy="8" r="1.2" /><circle cx="10" cy="8" r="1.2" />
-              <circle cx="6" cy="12" r="1.2" /><circle cx="10" cy="12" r="1.2" />
-            </svg>
-          </span>
-        )}
         {/* Left accent border */}
         <span
-          className={`absolute left-0 top-2 bottom-2 w-[2px] rounded-full ${
+          className={`absolute left-0 top-2 bottom-2 w-[2px] rounded-full hidden sm:block ${
             s.backendType === "codex"
               ? "bg-blue-500"
               : "bg-[#D97757]"
@@ -165,6 +250,20 @@ export function SessionItem({
         />
 
         <div className="flex items-start gap-2">
+          {/* Drag handle — mobile reorder mode only (iOS Edit pattern) */}
+          {reorderMode && (
+            <span
+              className="text-cc-muted/40 sm:hidden shrink-0 pt-[1px] cursor-grab active:cursor-grabbing"
+              {...(dragHandleProps?.listeners ?? {})}
+              {...(dragHandleProps?.attributes ?? {})}
+            >
+              <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
+                <circle cx="6" cy="4" r="1.2" /><circle cx="10" cy="4" r="1.2" />
+                <circle cx="6" cy="8" r="1.2" /><circle cx="10" cy="8" r="1.2" />
+                <circle cx="6" cy="12" r="1.2" /><circle cx="10" cy="12" r="1.2" />
+              </svg>
+            </span>
+          )}
           {/* Status indicator dot */}
           <SessionStatusDot
             archived={!!archived}
@@ -364,14 +463,14 @@ export function SessionItem({
 
       {/* Permission badge */}
       {!archived && permCount > 0 && (
-        <span className="absolute right-8 sm:right-2 top-1/2 -translate-y-1/2 min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-cc-warning text-white text-[10px] font-bold leading-none px-1 sm:group-hover:opacity-0 transition-opacity pointer-events-none">
+        <span className="absolute right-11 sm:right-2 top-1/2 -translate-y-1/2 min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-cc-warning text-white text-[10px] font-bold leading-none px-1 sm:group-hover:opacity-0 transition-opacity pointer-events-none">
           {permCount}
         </span>
       )}
 
       {/* Attention badge (shown when session needs review and no permission badge is displayed) */}
       {!archived && attention === "review" && permCount === 0 && (
-        <span className="absolute right-8 sm:right-2 top-1/2 -translate-y-1/2 min-w-[6px] h-[6px] rounded-full bg-blue-500 sm:group-hover:opacity-0 transition-opacity pointer-events-none" />
+        <span className="absolute right-11 sm:right-2 top-1/2 -translate-y-1/2 min-w-[6px] h-[6px] rounded-full bg-blue-500 sm:group-hover:opacity-0 transition-opacity pointer-events-none" />
       )}
 
       {/* Action buttons */}
@@ -389,7 +488,7 @@ export function SessionItem({
           </button>
           <button
             onClick={(e) => onDelete(e, s.id)}
-            className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md opacity-100 sm:opacity-0 sm:group-hover:opacity-100 hover:bg-cc-border text-cc-muted hover:text-red-400 transition-all cursor-pointer"
+            className="hidden sm:block absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md sm:opacity-0 sm:group-hover:opacity-100 hover:bg-cc-border text-cc-muted hover:text-red-400 transition-all cursor-pointer"
             title="Delete permanently"
           >
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5">
@@ -400,7 +499,7 @@ export function SessionItem({
       ) : (
         <button
           onClick={(e) => onArchive(e, s.id)}
-          className="absolute left-2 top-1/2 -translate-y-1/2 p-1 rounded-md opacity-100 sm:opacity-0 sm:group-hover:opacity-100 hover:bg-cc-border text-cc-muted hover:text-cc-fg transition-all cursor-pointer z-10"
+          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:left-2 sm:right-auto hover:bg-cc-border text-cc-muted hover:text-cc-fg transition-all cursor-pointer z-10"
           title="Archive session"
         >
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5">

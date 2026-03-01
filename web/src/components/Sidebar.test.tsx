@@ -441,10 +441,10 @@ describe("Sidebar", () => {
     expect(archiveButton).toHaveClass("opacity-100");
     expect(archiveButton).toHaveClass("sm:opacity-0");
     expect(archiveButton).toHaveClass("sm:group-hover:opacity-100");
-    expect(archiveButton).toHaveClass("left-2");
-    // Archive button stays on left for both mobile and desktop (overlays text on hover)
-    expect(archiveButton).not.toHaveClass("sm:right-2");
-    expect(sessionButton).toHaveClass("sm:pl-3.5");
+    expect(archiveButton).toHaveClass("right-2");
+    expect(archiveButton).toHaveClass("sm:left-2");
+    expect(archiveButton).toHaveClass("sm:right-auto");
+    expect(sessionButton).toHaveClass("sm:pl-8");
   });
 
   it("permission badge uses mobile-friendly positioning and hover behavior", () => {
@@ -460,9 +460,40 @@ describe("Sidebar", () => {
     const mobilePermissionBadge = screen.getAllByText("1").find((node) =>
       node.classList.contains("bg-cc-warning") && node.classList.contains("px-1"),
     )!;
-    expect(mobilePermissionBadge).toHaveClass("right-8");
+    expect(mobilePermissionBadge).toHaveClass("right-11");
     expect(mobilePermissionBadge).toHaveClass("sm:right-2");
     expect(mobilePermissionBadge).toHaveClass("sm:group-hover:opacity-0");
+  });
+
+  it("shows mobile Edit/Done reorder toggle", () => {
+    const session1 = makeSession("s1");
+    const session2 = makeSession("s2");
+    const sdk1 = makeSdkSession("s1");
+    const sdk2 = makeSdkSession("s2");
+    mockState = createMockState({
+      sessions: new Map([["s1", session1], ["s2", session2]]),
+      sdkSessions: [sdk1, sdk2],
+    });
+
+    render(<Sidebar />);
+
+    expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reorder" })).not.toBeInTheDocument();
+  });
+
+  it("shows Done label when reorder mode is active", () => {
+    const session1 = makeSession("s1");
+    const session2 = makeSession("s2");
+    const sdk1 = makeSdkSession("s1");
+    const sdk2 = makeSdkSession("s2");
+    mockState = createMockState({
+      sessions: new Map([["s1", session1], ["s2", session2]]),
+      sdkSessions: [sdk1, sdk2],
+      reorderMode: true,
+    });
+
+    render(<Sidebar />);
+    expect(screen.getByRole("button", { name: "Done" })).toBeInTheDocument();
   });
 
   it("archived sessions section shows count", () => {
@@ -477,6 +508,22 @@ describe("Sidebar", () => {
     render(<Sidebar />);
     // The component renders "Archived (2)"
     expect(screen.getByText(/Archived \(2\)/)).toBeInTheDocument();
+  });
+
+  it("hides archived delete button on mobile cards (delete via context menu)", () => {
+    const session = makeSession("s1");
+    const sdk = makeSdkSession("s1", { archived: true });
+    mockState = createMockState({
+      sessions: new Map([["s1", session]]),
+      sdkSessions: [sdk],
+    });
+
+    render(<Sidebar />);
+    fireEvent.click(screen.getByText(/Archived \(1\)/));
+
+    const deleteButton = screen.getByTitle("Delete permanently");
+    expect(deleteButton).toHaveClass("hidden");
+    expect(deleteButton).toHaveClass("sm:block");
   });
 
   it("toggle archived shows/hides archived sessions", () => {

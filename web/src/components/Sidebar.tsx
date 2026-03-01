@@ -476,7 +476,7 @@ export function Sidebar() {
   };
 
   return (
-    <aside className="w-[260px] h-full flex flex-col bg-cc-sidebar border-r border-cc-border">
+    <aside className="w-full sm:w-[260px] h-full flex flex-col bg-cc-sidebar border-r border-cc-border">
       {/* Header */}
       <div className="p-4 pb-3">
         <div className="flex items-center gap-2 mb-4">
@@ -526,7 +526,7 @@ export function Sidebar() {
 
       {/* Session list */}
       <div className="flex-1 overflow-y-auto px-2 pb-2">
-        {/* Toolbar: search + reorder */}
+        {/* Toolbar: search + mobile edit mode */}
         {allSessionList.length > 0 && (
           <div className="px-2 pb-1.5 flex items-center gap-1">
             <div className="relative flex-1 transition-all duration-200 ease-in-out">
@@ -556,17 +556,17 @@ export function Sidebar() {
                 </button>
               )}
             </div>
-            {/* Reorder button — mobile only (desktop sessions are always draggable) */}
+            {/* Edit/Done reorder toggle — mobile only (desktop sessions are always draggable) */}
             {!searchFocused && !searchQuery && !filteredSessions && activeSessions.length > 1 && (
               <button
                 onClick={() => setReorderMode(!reorderMode)}
-                className={`sm:hidden text-[10px] font-medium px-2 py-1 rounded-md transition-colors cursor-pointer shrink-0 ${
+                className={`sm:hidden text-[10px] font-medium px-2.5 py-1 rounded-md transition-colors cursor-pointer shrink-0 ${
                   reorderMode
                     ? "bg-cc-primary/10 text-cc-primary"
                     : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
                 }`}
               >
-                {reorderMode ? "Done" : "Reorder"}
+                {reorderMode ? "Done" : "Edit"}
               </button>
             )}
           </div>
@@ -579,7 +579,7 @@ export function Sidebar() {
               No matching sessions.
             </p>
           ) : (
-            <div className="space-y-0.5">
+            <div className="space-y-2 sm:space-y-0.5">
               {filteredSessions.map(({ session: s, matchContext }) => (
                 <SessionItem
                   key={s.id}
@@ -604,7 +604,7 @@ export function Sidebar() {
           <>
             {/* Pending sessions — shown above project groups during creation */}
             {pendingSessions.size > 0 && (
-              <div className="space-y-0.5 mb-1">
+              <div className="space-y-2 sm:space-y-0.5 mb-1">
                 {Array.from(pendingSessions.values())
                   .sort((a, b) => b.createdAt - a.createdAt)
                   .map((ps) => (
@@ -652,7 +652,7 @@ export function Sidebar() {
                   Scheduled Runs ({cronSessions.length})
                 </button>
                 {showCronSessions && (
-                  <div className="space-y-0.5 mt-1">
+                  <div className="space-y-2 sm:space-y-0.5 mt-1">
                     {cronSessions.map((s) => (
                       <SessionItem
                         key={s.id}
@@ -681,7 +681,7 @@ export function Sidebar() {
                   Archived ({archivedSessions.length})
                 </button>
                 {showArchived && (
-                  <div className="space-y-0.5 mt-1">
+                  <div className="space-y-2 sm:space-y-0.5 mt-1">
                     {archivedSessions.map((s) => (
                       <SessionItem
                         key={s.id}
