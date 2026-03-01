@@ -409,9 +409,42 @@ describe("QuestmasterPage verification inbox", () => {
     render(<QuestmasterPage />);
 
     const dialog = screen.getByRole("dialog", { name: /Quest details: Quest with agent feedback/ });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Session One" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "#5 (Session One)" }));
 
     expect(mockNavigateToSession).toHaveBeenCalledWith("session-1");
+  });
+
+  it("truncates long agent session titles in feedback labels", () => {
+    mockState.sessionNames = new Map([[
+      "session-1",
+      "Codex web search tool call is not rendered correctly",
+    ]]);
+    mockState.quests = [{
+      id: "q-9-v2",
+      questId: "q-9",
+      version: 2,
+      title: "Quest with long session title",
+      createdAt: Date.now(),
+      status: "done",
+      description: "Done",
+      verificationItems: [{ text: "checked", checked: true }],
+      completedAt: Date.now(),
+      feedback: [
+        {
+          author: "agent",
+          authorSessionId: "session-1",
+          text: "Done.",
+          ts: Date.now(),
+        },
+      ],
+    } as QuestmasterTask];
+
+    window.location.hash = "#/questmaster?quest=q-9";
+    render(<QuestmasterPage />);
+
+    const dialog = screen.getByRole("dialog", { name: /Quest details: Quest with long session title/ });
+    const labelButton = within(dialog).getByRole("button", { name: /^#5 \(.+\)$/ });
+    expect(labelButton).toHaveTextContent(/^#5 \(.+\.\.\.\)$/);
   });
 
   it("prefills and navigates when clicking Rework with unaddressed feedback", () => {
