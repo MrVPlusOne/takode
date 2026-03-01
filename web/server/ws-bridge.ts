@@ -2319,6 +2319,18 @@ export class WsBridge {
       });
       this.persistSession(session);
 
+      // Reset isGenerating on system.init — the CLI just started/restarted and
+      // is definitively NOT generating. Any stale isGenerating=true from a
+      // previous turn that was interrupted by disconnect is now invalid.
+      // Queued messages flushed below will re-set isGenerating=true as needed.
+      if (session.isGenerating) {
+        console.log(`[ws-bridge] Resetting stale isGenerating=true on system.init for session ${sessionTag(session.id)}`);
+        session.isGenerating = false;
+        session.generationStartedAt = null;
+        // Broadcast idle status so the UI stops showing "running"
+        this.broadcastToBrowsers(session, { type: "status_change", status: "idle" });
+      }
+
       // Flush any messages queued before CLI was initialized (e.g. user sent
       // a message while the container was still starting up).
       if (session.pendingMessages.length > 0) {
