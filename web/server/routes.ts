@@ -18,6 +18,7 @@ import * as questStore from "./quest-store.js";
 import * as cronStore from "./cron-store.js";
 import * as gitUtils from "./git-utils.js";
 import * as sessionNames from "./session-names.js";
+import * as sessionOrderStore from "./session-order.js";
 import { getNamerLogIndex, getNamerLogEntry } from "./session-namer.js";
 import * as autoApprovalStore from "./auto-approval-store.js";
 import { getApprovalLogIndex, getApprovalLogEntry } from "./auto-approver.js";
@@ -1360,6 +1361,27 @@ export function createRoutes(
     sessionNames.setName(id, body.name.trim());
     wsBridge.broadcastSessionUpdate(id, { name: body.name.trim() });
     return c.json({ ok: true, name: body.name.trim() });
+  });
+
+  api.patch("/sessions/order", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const groupKey = typeof body.groupKey === "string" ? body.groupKey.trim() : "";
+    if (!groupKey) {
+      return c.json({ error: "groupKey is required" }, 400);
+    }
+    if (!Array.isArray(body.orderedIds)) {
+      return c.json({ error: "orderedIds must be an array" }, 400);
+    }
+
+    const orderedIds = body.orderedIds
+      .filter((value: unknown): value is string => typeof value === "string")
+      .map((value: string) => value.trim())
+      .filter(Boolean);
+
+    const sessionOrder = wsBridge.updateSessionOrder(groupKey, orderedIds);
+    await sessionOrderStore.setAllOrder(sessionOrder);
+    wsBridge.broadcastSessionOrderUpdate();
+    return c.json({ ok: true, sessionOrder });
   });
 
   api.patch("/sessions/:id/diff-base", async (c) => {

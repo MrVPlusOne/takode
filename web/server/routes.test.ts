@@ -78,6 +78,13 @@ vi.mock("./session-names.js", () => ({
   _resetForTest: vi.fn(),
 }));
 
+vi.mock("./session-order.js", () => ({
+  getAllOrder: vi.fn(async () => ({})),
+  setAllOrder: vi.fn(async () => {}),
+  _resetForTest: vi.fn(),
+  _flushForTest: vi.fn(async () => {}),
+}));
+
 vi.mock("./settings-manager.js", () => ({
   getSettings: vi.fn(() => ({
     serverName: "",
@@ -128,6 +135,7 @@ import * as envManager from "./env-manager.js";
 import * as gitUtils from "./git-utils.js";
 import * as questStore from "./quest-store.js";
 import * as sessionNames from "./session-names.js";
+import * as sessionOrderStore from "./session-order.js";
 import * as settingsManager from "./settings-manager.js";
 import { containerManager } from "./container-manager.js";
 
@@ -181,6 +189,8 @@ function createMockBridge() {
     broadcastToSession: vi.fn(),
     broadcastGlobal: vi.fn(),
     broadcastNameUpdate: vi.fn(),
+    updateSessionOrder: vi.fn((_groupKey: string, _orderedIds: string[]) => ({})),
+    broadcastSessionOrderUpdate: vi.fn(),
     setSessionClaimedQuest: vi.fn(),
     addTaskEntry: vi.fn(),
     updateQuestTaskEntries: vi.fn(),
@@ -1762,6 +1772,51 @@ describe("PATCH /api/sessions/:id/name", () => {
     });
 
     expect(res.status).toBe(400);
+  });
+});
+
+describe("PATCH /api/sessions/order", () => {
+  it("updates session order, persists it, and broadcasts to browsers", async () => {
+    vi.mocked(bridge.updateSessionOrder).mockReturnValueOnce({
+      "/repo-a": ["s2", "s1"],
+    });
+
+    const res = await app.request("/api/sessions/order", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ groupKey: "/repo-a", orderedIds: ["s2", "s1"] }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(bridge.updateSessionOrder).toHaveBeenCalledWith("/repo-a", ["s2", "s1"]);
+    expect(sessionOrderStore.setAllOrder).toHaveBeenCalledWith({ "/repo-a": ["s2", "s1"] });
+    expect(bridge.broadcastSessionOrderUpdate).toHaveBeenCalled();
+    await expect(res.json()).resolves.toEqual({
+      ok: true,
+      sessionOrder: { "/repo-a": ["s2", "s1"] },
+    });
+  });
+
+  it("returns 400 when groupKey is missing", async () => {
+    const res = await app.request("/api/sessions/order", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ orderedIds: ["s1"] }),
+    });
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual({ error: "groupKey is required" });
+  });
+
+  it("returns 400 when orderedIds is not an array", async () => {
+    const res = await app.request("/api/sessions/order", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ groupKey: "/repo-a", orderedIds: "s1" }),
+    });
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual({ error: "orderedIds must be an array" });
   });
 });
 

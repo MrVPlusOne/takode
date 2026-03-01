@@ -848,6 +848,16 @@ function handleParsedMessage(
       break;
     }
 
+    case "session_order_update": {
+      const nextOrder = new Map<string, string[]>();
+      for (const [groupKey, orderedIds] of Object.entries(data.sessionOrder || {})) {
+        if (!Array.isArray(orderedIds)) continue;
+        nextOrder.set(groupKey, orderedIds.filter((id): id is string => typeof id === "string"));
+      }
+      store.setSessionOrderMap(nextOrder);
+      break;
+    }
+
     case "session_name_update": {
       // Server is authoritative for all name updates (auto-naming, manual rename, etc.)
       const prevName = store.sessionNames.get(sessionId);

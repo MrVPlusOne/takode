@@ -207,6 +207,11 @@ export interface DirListResult {
   error?: string;
 }
 
+export interface SessionOrderResponse {
+  ok: boolean;
+  sessionOrder: Record<string, string[]>;
+}
+
 export interface TreeNode {
   name: string;
   path: string;
@@ -472,6 +477,9 @@ export const api = {
       `/sessions/${encodeURIComponent(sessionId)}/name`,
       { name },
     ),
+
+  updateSessionOrder: (groupKey: string, orderedIds: string[]) =>
+    patch<SessionOrderResponse>("/sessions/order", { groupKey, orderedIds }),
 
   markSessionRead: (sessionId: string) =>
     patch<{ ok: boolean }>(

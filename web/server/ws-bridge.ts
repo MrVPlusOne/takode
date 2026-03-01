@@ -679,6 +679,8 @@ export class WsBridge {
    *  before the CLI sends system/init (which only arrives after the first
    *  user message). Key is repo_root || cwd. */
   private slashCommandCache = new Map<string, { slash_commands: string[]; skills: string[] }>();
+  /** Server-authoritative custom session ordering by group key. */
+  private sessionOrderByGroup = new Map<string, string[]>();
   private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
   /** Track recent CLI disconnects to detect mass disconnect events. */
   private recentCliDisconnects: number[] = [];
@@ -831,6 +833,71 @@ export class WsBridge {
       session.state.cwd = cwd;
     }
     this.prefillSlashCommands(session);
+  }
+
+  /** Replace the full server-side session order map (startup restore path). */
+  setSessionOrderState(orderByGroup: Record<string, string[]>): void {
+    const next = new Map<string, string[]>();
+    for (const [rawGroupKey, rawOrderedIds] of Object.entries(orderByGroup || {})) {
+      const groupKey = rawGroupKey.trim();
+      if (!groupKey || !Array.isArray(rawOrderedIds)) continue;
+      const seen = new Set<string>();
+      const orderedIds: string[] = [];
+      for (const rawId of rawOrderedIds) {
+        if (typeof rawId !== "string") continue;
+        const id = rawId.trim();
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+        orderedIds.push(id);
+      }
+      next.set(groupKey, orderedIds);
+    }
+    this.sessionOrderByGroup = next;
+  }
+
+  /** Snapshot the full server-side session order map. */
+  getSessionOrderState(): Record<string, string[]> {
+    const out: Record<string, string[]> = {};
+    for (const [groupKey, orderedIds] of this.sessionOrderByGroup.entries()) {
+      out[groupKey] = [...orderedIds];
+    }
+    return out;
+  }
+
+  /** Update one group's order and return the full normalized snapshot. */
+  updateSessionOrder(groupKey: string, orderedIds: string[]): Record<string, string[]> {
+    const key = groupKey.trim();
+    if (!key) return this.getSessionOrderState();
+
+    const seen = new Set<string>();
+    const normalized: string[] = [];
+    for (const rawId of orderedIds) {
+      if (typeof rawId !== "string") continue;
+      const id = rawId.trim();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      normalized.push(id);
+    }
+
+    if (normalized.length === 0) {
+      this.sessionOrderByGroup.delete(key);
+    } else {
+      this.sessionOrderByGroup.set(key, normalized);
+    }
+    return this.getSessionOrderState();
+  }
+
+  /** Broadcast the latest session order to every connected browser socket. */
+  broadcastSessionOrderUpdate(): void {
+    const payload: BrowserIncomingMessage = {
+      type: "session_order_update",
+      sessionOrder: this.getSessionOrderState(),
+    };
+    for (const session of this.sessions.values()) {
+      for (const ws of session.browserSockets) {
+        this.sendToBrowser(ws, payload);
+      }
+    }
   }
 
   /** Fill slash_commands/skills from the per-project cache if not yet populated. */
@@ -2342,6 +2409,10 @@ export class WsBridge {
       nextEventSeq: session.nextEventSeq,
     };
     this.sendToBrowser(ws, snapshot);
+    this.sendToBrowser(ws, {
+      type: "session_order_update",
+      sessionOrder: this.getSessionOrderState(),
+    });
 
     // History replay and pending permissions are sent by handleSessionSubscribe
     // (triggered when the browser sends session_subscribe after onopen).

@@ -263,8 +263,8 @@ interface AppState {
   markAllSessionsViewed: () => void;
   clearSessionAttention: (sessionId: string) => void;
 
-  // Manual session ordering actions
-  setSessionOrder: (groupKey: string, orderedIds: string[]) => void;
+  // Manual session ordering actions (server-authoritative snapshot)
+  setSessionOrderMap: (sessionOrder: Map<string, string[]>) => void;
 
   // Sidebar project grouping actions
   toggleProjectCollapse: (projectKey: string) => void;
@@ -374,16 +374,6 @@ function getInitialZoomLevel(): number {
 }
 
 
-function getInitialSessionOrder(): Map<string, string[]> {
-  if (typeof window === "undefined") return new Map();
-  try {
-    return new Map(JSON.parse(scopedGetItem("cc-session-order") || "[]"));
-  } catch {
-    return new Map();
-  }
-}
-
-
 function getInitialCollapsedProjects(): Set<string> {
   if (typeof window === "undefined") return new Set();
   try {
@@ -433,7 +423,7 @@ export const useStore = create<AppState>((set) => ({
   backgroundAgentNotifs: new Map(),
   toolStartTimestamps: new Map(),
   sessionAttention: new Map(),
-  sessionOrder: getInitialSessionOrder(),
+  sessionOrder: new Map(),
   collapsedProjects: getInitialCollapsedProjects(),
   quests: [],
   questsLoading: false,
@@ -1252,13 +1242,8 @@ export const useStore = create<AppState>((set) => ({
       return { sessionAttention };
     }),
 
-  setSessionOrder: (groupKey, orderedIds) =>
-    set((s) => {
-      const sessionOrder = new Map(s.sessionOrder);
-      sessionOrder.set(groupKey, orderedIds);
-      scopedSetItem("cc-session-order", JSON.stringify(Array.from(sessionOrder.entries())));
-      return { sessionOrder };
-    }),
+  setSessionOrderMap: (sessionOrder) =>
+    set(() => ({ sessionOrder: new Map(sessionOrder) })),
 
   toggleProjectCollapse: (projectKey) =>
     set((s) => {

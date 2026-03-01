@@ -26,6 +26,7 @@ const restrictToVerticalAxis: Modifier = ({ transform }) => ({
 import { SessionItem } from "./SessionItem.js";
 import { useStore, countUserPermissions } from "../store.js";
 import { isTouchDevice } from "../utils/mobile.js";
+import { api } from "../api.js";
 
 interface ProjectGroupProps {
   group: ProjectGroupType;
@@ -147,7 +148,9 @@ export function ProjectGroup({
       if (oldIndex === -1 || newIndex === -1) return;
 
       const newOrder = arrayMove(sessionIds, oldIndex, newIndex);
-      useStore.getState().setSessionOrder(group.key, newOrder);
+      api.updateSessionOrder(group.key, newOrder).catch((err) => {
+        console.warn("[project-group] failed to update session order:", err);
+      });
     },
     [sessionIds, group.key],
   );
