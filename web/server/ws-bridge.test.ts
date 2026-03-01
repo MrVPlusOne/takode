@@ -5455,6 +5455,42 @@ describe("Codex /compact passthrough", () => {
   });
 });
 
+describe("Codex injected user_message metadata", () => {
+  it("preserves herd agentSource on injected user messages for special UI rendering", async () => {
+    const sid = "s-herd-events";
+    const browser = makeBrowserSocket(sid);
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter as any);
+    bridge.handleBrowserOpen(browser, sid);
+    browser.send.mockClear();
+
+    // Regression guard: herd-event injections come through injectUserMessage()
+    // with agentSource={sessionId:"herd-events"}. The frontend relies on this
+    // exact metadata to render the compact "Herd Events" card instead of a
+    // normal right-aligned user bubble.
+    bridge.injectUserMessage(sid, "2 events from 1 session", {
+      sessionId: "herd-events",
+      sessionLabel: "Herd Events",
+    });
+    await Promise.resolve();
+
+    const session = bridge.getSession(sid)!;
+    const userMsgs = session.messageHistory.filter((m: any) => m.type === "user_message");
+    expect(userMsgs).toHaveLength(1);
+    expect((userMsgs[0] as any).agentSource).toEqual({
+      sessionId: "herd-events",
+      sessionLabel: "Herd Events",
+    });
+
+    const outbound = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    const broadcastUser = outbound.find((m: any) => m.type === "user_message");
+    expect(broadcastUser?.agentSource).toEqual({
+      sessionId: "herd-events",
+      sessionLabel: "Herd Events",
+    });
+  });
+});
+
 describe("Codex image transport", () => {
   // Prefer local image paths for Codex turn/start to avoid persisting large
   // data: URLs in thread history. If local paths are unavailable, fall back to

@@ -3325,6 +3325,7 @@ export class WsBridge {
           timestamp: ts,
           id: `user-${ts}-${this.userMsgCounter++}`,
           ...(imageRefs?.length ? { images: imageRefs } : {}),
+          ...(msg.agentSource ? { agentSource: msg.agentSource } : {}),
         };
         codexUserMessageId = userHistoryEntry.id || null;
         session.messageHistory.push(userHistoryEntry);
