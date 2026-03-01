@@ -1997,6 +1997,30 @@ export class WsBridge {
         this.broadcastToBrowsers(session, { type: "status_change", status: "idle" });
       }
 
+      // Track tool start times from assistant messages (for duration display).
+      // The WebSocket path does this in handleAssistantMessage; SDK messages
+      // bypass that handler, so we extract tool_use IDs here.
+      if (msg.type === "assistant") {
+        const content = (msg as any).message?.content;
+        if (Array.isArray(content)) {
+          const now = Date.now();
+          for (const block of content) {
+            if (block.type === "tool_use" && block.id && !session.toolStartTimes.has(block.id)) {
+              session.toolStartTimes.set(block.id, now);
+            }
+          }
+        }
+      }
+
+      // Extract tool results from "user" messages (tool_result blocks).
+      // The WebSocket path does this in handleToolResultMessage; SDK messages
+      // bypass that handler, so we call it directly here.
+      // Note: "user" is a CLI message type (not in BrowserIncomingMessage), but
+      // the SDK adapter forwards raw CLI messages including this type.
+      if ((msg as any).type === "user") {
+        this.handleToolResultMessage(session, msg as any);
+      }
+
       // SDK messages are already in BrowserIncomingMessage format — process them
       // through the same handler as CLI WebSocket messages.
       if (msg.type === "session_init") {

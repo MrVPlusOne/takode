@@ -1457,6 +1457,42 @@ ${MARKER_END}`;
         console.warn(`[cli-launcher] Failed to inject AGENTS.md guardrails:`, e);
       }
     }
+
+    // Claude SDK uses the same .claude/CLAUDE.md as Claude Code
+    if (backendType === "claude-sdk") {
+      const claudeDir = join(worktreePath, ".claude");
+      const claudeMdPath = join(claudeDir, "CLAUDE.md");
+
+      try {
+        await mkdir(claudeDir, { recursive: true });
+
+        if (await fileExists(claudeMdPath)) {
+          const existing = await readFile(claudeMdPath, "utf-8");
+          if (existing.includes(MARKER_START)) {
+            const before = existing.substring(0, existing.indexOf(MARKER_START));
+            const afterIdx = existing.indexOf(MARKER_END);
+            const after = afterIdx >= 0 ? existing.substring(afterIdx + MARKER_END.length) : "";
+            await writeFile(claudeMdPath, before + guardrails + after, "utf-8");
+          } else {
+            await writeFile(claudeMdPath, existing + "\n\n" + guardrails, "utf-8");
+          }
+        } else {
+          await writeFile(claudeMdPath, guardrails, "utf-8");
+        }
+        console.log(`[cli-launcher] Injected worktree guardrails into .claude/CLAUDE.md for SDK session on branch ${branch}`);
+
+        await this.addWorktreeGitExclude(worktreePath, ".claude/CLAUDE.md");
+        try {
+          await execPromise("git --no-optional-locks update-index --skip-worktree .claude/CLAUDE.md", {
+            cwd: worktreePath, timeout: 5000,
+          });
+        } catch { /* file may not be tracked in this repo — ignore */ }
+
+        await this.symlinkProjectSettings(worktreePath, repoRoot);
+      } catch (e) {
+        console.warn(`[cli-launcher] Failed to inject .claude/CLAUDE.md guardrails for SDK:`, e);
+      }
+    }
   }
 
   /**
