@@ -20,7 +20,7 @@ interface MockStoreState {
   activeTab: "chat" | "diff";
   setActiveTab: ReturnType<typeof vi.fn>;
   sessions: Map<string, { cwd?: string }>;
-  sdkSessions: { sessionId: string; cwd?: string }[];
+  sdkSessions: { sessionId: string; cwd?: string; name?: string; sessionNum?: number | null }[];
   changedFiles: Map<string, Set<string>>;
   pendingPermissions: Map<string, Map<string, unknown>>;
   sessionAttention: Map<string, "action" | "error" | "review" | null>;
@@ -80,6 +80,17 @@ beforeEach(() => {
 });
 
 describe("TopBar", () => {
+  it("shows session number next to the session name in the title area", () => {
+    resetStore({
+      sessionNames: new Map([["s1", "Main Session"]]),
+      sdkSessions: [{ sessionId: "s1", sessionNum: 111, name: "Main Session" }],
+    });
+
+    render(<TopBar />);
+    expect(screen.getByText("#111")).toBeInTheDocument();
+    expect(screen.getByText("Main Session")).toBeInTheDocument();
+  });
+
   it("shows diff badge count only for files within cwd", () => {
     resetStore({
       changedFiles: new Map([

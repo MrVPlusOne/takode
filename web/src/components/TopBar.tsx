@@ -185,6 +185,9 @@ export function TopBar() {
       sdkSessions.find((s) => s.sessionId === currentSessionId)?.name ||
       `Session ${currentSessionId.slice(0, 8)}`)
     : null;
+  const sessionNum = currentSessionId
+    ? sdkSessions.find((s) => s.sessionId === currentSessionId)?.sessionNum
+    : null;
   const isQuestNamed = useStore((s) => currentSessionId ? s.questNamedSessions.has(currentSessionId) : false);
   const questStatus = useStore((s) => currentSessionId ? s.sessions.get(currentSessionId)?.claimedQuestStatus : undefined);
 
@@ -218,6 +221,11 @@ export function TopBar() {
                   idleKilled={currentSessionId ? cliDisconnectReason.get(currentSessionId) === "idle_limit" : false}
                 />
               </div>
+              {typeof sessionNum === "number" && (
+                <span className="text-[11px] font-medium text-cc-muted shrink-0" title={`Session #${sessionNum}`}>
+                  #{sessionNum}
+                </span>
+              )}
               {sessionName && (
                 <span className={`text-[11px] font-medium truncate ${isQuestNamed && questStatus !== "needs_verification" ? "text-amber-400" : "text-cc-fg"}`} title={sessionName}>
                   {isQuestNamed && questStatus === "needs_verification" ? `☑ ${sessionName}` : sessionName}
