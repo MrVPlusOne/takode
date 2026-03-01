@@ -179,7 +179,13 @@ beforeEach(() => {
     return { ...quest, verificationInboxUnread: true } as QuestmasterTask;
   });
   mockTransitionQuest.mockImplementation(
-    async (questId: string, input: { status: "done" | "idea" | "refined" | "in_progress" | "needs_verification" }) => {
+    async (
+      questId: string,
+      input: {
+        status: "done" | "idea" | "refined" | "in_progress" | "needs_verification";
+        sessionId?: string;
+      },
+    ) => {
       const quest = mockState.quests.find((q) => q.questId === questId);
       if (!quest) throw new Error("quest not found");
       return { ...quest, status: input.status } as QuestmasterTask;
@@ -482,6 +488,37 @@ describe("QuestmasterPage verification inbox", () => {
     render(<QuestmasterPage />);
 
     expect(screen.getAllByText("#5").length).toBeGreaterThan(0);
+  });
+
+  it("includes owner session id when transitioning done quest back to verification", async () => {
+    // Done quests can lose active sessionId, so transition payload must reuse the
+    // most recent owner to satisfy server validation for needs_verification.
+    mockState.quests = [{
+      id: "q-11-v5",
+      questId: "q-11",
+      version: 5,
+      title: "Done quest for rework",
+      createdAt: Date.now(),
+      status: "done",
+      description: "Needs follow-up",
+      verificationItems: [{ text: "checked", checked: true }],
+      completedAt: Date.now(),
+      previousOwnerSessionIds: ["session-1"],
+    } as QuestmasterTask];
+    window.location.hash = "#/questmaster?quest=q-11";
+    render(<QuestmasterPage />);
+
+    const dialog = screen.getByRole("dialog", { name: /Quest details: Done quest for rework/ });
+    fireEvent.change(within(dialog).getByDisplayValue("Done"), {
+      target: { value: "needs_verification" },
+    });
+
+    await waitFor(() => {
+      expect(mockTransitionQuest).toHaveBeenCalledWith("q-11", {
+        status: "needs_verification",
+        sessionId: "session-1",
+      });
+    });
   });
 
   it("navigates when clicking codex owner session chip in quest modal", () => {

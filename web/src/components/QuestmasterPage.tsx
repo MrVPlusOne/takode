@@ -569,7 +569,11 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
 
     setError("");
     try {
-      const updatedQuest = await api.transitionQuest(quest.questId, { status });
+      const sessionId = getQuestOwnerSessionId(quest);
+      const updatedQuest = await api.transitionQuest(quest.questId, {
+        status,
+        ...(sessionId ? { sessionId } : {}),
+      });
       const currentQuests = useStore.getState().quests;
       setQuests(
         currentQuests
