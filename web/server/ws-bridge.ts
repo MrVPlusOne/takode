@@ -2001,11 +2001,18 @@ export class WsBridge {
     // Re-queue the in-flight user message if the CLI disconnected mid-turn.
     if (wasGenerating && !idleKilled) {
       if (session.lastOutboundUserNdjson) {
-        console.log(`[ws-bridge] Re-queuing in-flight user message for session ${sessionTag(sessionId)} (will re-send after reconnect)`);
-        session.pendingMessages.push(session.lastOutboundUserNdjson);
+        // Only re-queue if the message isn't already in pendingMessages
+        // (it could have been queued by sendToCLI during the grace period)
+        const alreadyQueued = session.pendingMessages.some(m => m === session.lastOutboundUserNdjson);
+        if (!alreadyQueued) {
+          console.log(`[ws-bridge] Re-queuing in-flight user message for session ${sessionTag(sessionId)} (will re-send after reconnect)`);
+          session.pendingMessages.push(session.lastOutboundUserNdjson);
+        }
         session.lastOutboundUserNdjson = null;
-      } else {
-        // Agent was generating but no user message in flight — send a nudge
+      } else if (session.pendingMessages.length === 0) {
+        // Agent was generating but no user message in flight AND nothing already
+        // queued (e.g., no user message sent during grace period). Send a nudge
+        // so the --resume'd CLI picks up where it left off.
         const nudgeContent = "[CLI disconnected and relaunched. Please continue your work from where you left off.]";
         const nudge = JSON.stringify({
           type: "user",
@@ -2022,6 +2029,7 @@ export class WsBridge {
           id: `nudge-${Date.now()}`,
         } as BrowserIncomingMessage);
       }
+      // else: messages already queued (e.g., user sent a message during grace period) — skip nudge
     }
 
     // Flush cleared permissions to disk
