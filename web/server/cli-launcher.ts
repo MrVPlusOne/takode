@@ -23,6 +23,7 @@ import { homedir } from "node:os";
 import type { Subprocess } from "bun";
 import type { SessionStore } from "./session-store.js";
 import type { BackendType } from "./session-types.js";
+import { assertNever, isClaudeFamily } from "./session-types.js";
 import type { RecorderManager } from "./recorder.js";
 import { CodexAdapter } from "./codex-adapter.js";
 import { resolveBinary, getEnrichedPath } from "./path-resolver.js";
@@ -612,19 +613,25 @@ export class CliLauncher {
     // (e.g., after CLI relaunch). Fire-and-forget — non-blocking.
     this.writeSessionAuthFile(cwd, sessionId, sessionAuthToken, this.port).catch(() => {});
 
-    if (backendType === "codex") {
-      this.spawnCodex(sessionId, info, options).catch((err) => {
-        console.error(`[cli-launcher] Codex spawn failed for ${sessionTag(sessionId)}:`, err);
-      });
-    } else if (backendType === "claude-sdk") {
-      // Await SDK spawn so the adapter is attached before launch() returns.
-      // This ensures the browser sees cli_connected in the state_snapshot.
-      await this.spawnClaudeSdk(sessionId, info, options);
-    } else {
-      this.spawnCLI(sessionId, info, {
-        ...options,
-        ...(options.resumeCliSessionId ? { resumeSessionId: options.resumeCliSessionId } : {}),
-      });
+    switch (backendType) {
+      case "codex":
+        this.spawnCodex(sessionId, info, options).catch((err) => {
+          console.error(`[cli-launcher] Codex spawn failed for ${sessionTag(sessionId)}:`, err);
+        });
+        break;
+      case "claude-sdk":
+        // Await SDK spawn so the adapter is attached before launch() returns.
+        // This ensures the browser sees cli_connected in the state_snapshot.
+        await this.spawnClaudeSdk(sessionId, info, options);
+        break;
+      case "claude":
+        this.spawnCLI(sessionId, info, {
+          ...options,
+          ...(options.resumeCliSessionId ? { resumeSessionId: options.resumeCliSessionId } : {}),
+        });
+        break;
+      default:
+        assertNever(backendType);
     }
     return info;
   }
@@ -746,40 +753,47 @@ export class CliLauncher {
     }
 
     try {
-      if (info.backendType === "codex") {
-        await this.spawnCodex(sessionId, info, {
-          model: info.model,
-          permissionMode: info.permissionMode,
-          cwd: info.cwd,
-          codexBinary: binSettings.codexBinary || undefined,
-          codexSandbox: info.codexSandbox,
-          codexInternetAccess: info.codexInternetAccess,
-          codexReasoningEffort: info.codexReasoningEffort,
-          containerId: info.containerId,
-          containerName: info.containerName,
-          containerImage: info.containerImage,
-          env: runtimeEnv,
-        });
-      } else if (info.backendType === "claude-sdk") {
-        await this.spawnClaudeSdk(sessionId, info, {
-          model: info.model,
-          permissionMode: info.permissionMode,
-          cwd: info.cwd,
-          claudeBinary: binSettings.claudeBinary || undefined,
-          env: runtimeEnv,
-        });
-      } else {
-        this.spawnCLI(sessionId, info, {
-          model: info.model,
-          permissionMode: info.permissionMode,
-          cwd: info.cwd,
-          claudeBinary: binSettings.claudeBinary || undefined,
-          resumeSessionId: info.cliSessionId,
-          containerId: info.containerId,
-          containerName: info.containerName,
-          containerImage: info.containerImage,
-          env: runtimeEnv,
-        });
+      const bt = info.backendType ?? "claude";
+      switch (bt) {
+        case "codex":
+          await this.spawnCodex(sessionId, info, {
+            model: info.model,
+            permissionMode: info.permissionMode,
+            cwd: info.cwd,
+            codexBinary: binSettings.codexBinary || undefined,
+            codexSandbox: info.codexSandbox,
+            codexInternetAccess: info.codexInternetAccess,
+            codexReasoningEffort: info.codexReasoningEffort,
+            containerId: info.containerId,
+            containerName: info.containerName,
+            containerImage: info.containerImage,
+            env: runtimeEnv,
+          });
+          break;
+        case "claude-sdk":
+          await this.spawnClaudeSdk(sessionId, info, {
+            model: info.model,
+            permissionMode: info.permissionMode,
+            cwd: info.cwd,
+            claudeBinary: binSettings.claudeBinary || undefined,
+            env: runtimeEnv,
+          });
+          break;
+        case "claude":
+          this.spawnCLI(sessionId, info, {
+            model: info.model,
+            permissionMode: info.permissionMode,
+            cwd: info.cwd,
+            claudeBinary: binSettings.claudeBinary || undefined,
+            resumeSessionId: info.cliSessionId,
+            containerId: info.containerId,
+            containerName: info.containerName,
+            containerImage: info.containerImage,
+            env: runtimeEnv,
+          });
+          break;
+        default:
+          assertNever(bt);
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -1372,126 +1386,86 @@ Do NOT report the sync as complete until ALL of the following are true:
 - [ ] Changes have been pushed to the remote
 ${MARKER_END}`;
 
-    if (backendType === "claude") {
-      const claudeDir = join(worktreePath, ".claude");
-      const claudeMdPath = join(claudeDir, "CLAUDE.md");
+    // Claude and Claude SDK both use .claude/CLAUDE.md for guardrails;
+    // Codex uses AGENTS.md. Exhaustive check ensures new backends get covered.
+    switch (backendType) {
+      case "claude":
+      case "claude-sdk": {
+        const claudeDir = join(worktreePath, ".claude");
+        const claudeMdPath = join(claudeDir, "CLAUDE.md");
 
-      try {
-        await mkdir(claudeDir, { recursive: true });
+        try {
+          await mkdir(claudeDir, { recursive: true });
 
-        if (await fileExists(claudeMdPath)) {
-          const existing = await readFile(claudeMdPath, "utf-8");
-          // Replace existing guardrails section or append
+          if (await fileExists(claudeMdPath)) {
+            const existing = await readFile(claudeMdPath, "utf-8");
+            // Replace existing guardrails section or append
+            if (existing.includes(MARKER_START)) {
+              const before = existing.substring(0, existing.indexOf(MARKER_START));
+              const afterIdx = existing.indexOf(MARKER_END);
+              const after = afterIdx >= 0 ? existing.substring(afterIdx + MARKER_END.length) : "";
+              await writeFile(claudeMdPath, before + guardrails + after, "utf-8");
+            } else {
+              await writeFile(claudeMdPath, existing + "\n\n" + guardrails, "utf-8");
+            }
+          } else {
+            await writeFile(claudeMdPath, guardrails, "utf-8");
+          }
+          console.log(`[cli-launcher] Injected worktree guardrails into .claude/CLAUDE.md for branch ${branch}`);
+
+          await this.addWorktreeGitExclude(worktreePath, ".claude/CLAUDE.md");
+          try {
+            await execPromise("git --no-optional-locks update-index --skip-worktree .claude/CLAUDE.md", {
+              cwd: worktreePath, timeout: 5000,
+            });
+          } catch { /* file may not be tracked in this repo — ignore */ }
+
+          await this.symlinkProjectSettings(worktreePath, repoRoot);
+        } catch (e) {
+          console.warn(`[cli-launcher] Failed to inject .claude/CLAUDE.md guardrails:`, e);
+        }
+        break;
+      }
+      case "codex": {
+        // Codex auto-discovers AGENTS.md by walking from git root to cwd.
+        // If AGENTS.md is a symlink (commonly to CLAUDE.md), materialize a real
+        // worktree-local AGENTS.md so Codex-specific instructions live in AGENTS.md.
+        const agentsMdPath = join(worktreePath, "AGENTS.md");
+        try {
+          let existing = "";
+          if (await fileExists(agentsMdPath)) {
+            const stat = await lstat(agentsMdPath);
+            if (stat.isSymbolicLink()) {
+              existing = await readFile(agentsMdPath, "utf-8");
+              await unlink(agentsMdPath);
+              console.log("[cli-launcher] Replaced symlinked AGENTS.md with worktree-local file");
+            } else {
+              existing = await readFile(agentsMdPath, "utf-8");
+            }
+          }
           if (existing.includes(MARKER_START)) {
             const before = existing.substring(0, existing.indexOf(MARKER_START));
             const afterIdx = existing.indexOf(MARKER_END);
             const after = afterIdx >= 0 ? existing.substring(afterIdx + MARKER_END.length) : "";
-            await writeFile(claudeMdPath, before + guardrails + after, "utf-8");
+            await writeFile(agentsMdPath, before + guardrails + after, "utf-8");
           } else {
-            await writeFile(claudeMdPath, existing + "\n\n" + guardrails, "utf-8");
+            await writeFile(agentsMdPath, existing ? (existing + "\n\n" + guardrails) : guardrails, "utf-8");
           }
-        } else {
-          await writeFile(claudeMdPath, guardrails, "utf-8");
+          console.log(`[cli-launcher] Injected worktree guardrails into AGENTS.md for branch ${branch}`);
+
+          await this.addWorktreeGitExclude(worktreePath, "AGENTS.md");
+          try {
+            await execPromise("git --no-optional-locks update-index --skip-worktree AGENTS.md", {
+              cwd: worktreePath, timeout: 5000,
+            });
+          } catch { /* file may not be tracked in this repo — ignore */ }
+        } catch (e) {
+          console.warn(`[cli-launcher] Failed to inject AGENTS.md guardrails:`, e);
         }
-        console.log(`[cli-launcher] Injected worktree guardrails into .claude/CLAUDE.md for branch ${branch}`);
-
-        // Add .claude/CLAUDE.md to the worktree-local git exclude so it doesn't
-        // show as untracked and is protected from `git clean -fd`.
-        // Worktrees store their git metadata at the path inside .git (a file, not dir).
-        await this.addWorktreeGitExclude(worktreePath, ".claude/CLAUDE.md");
-
-        // Mark the file as skip-worktree so git ignores local modifications to this
-        // tracked file. Without this, `git status` always shows .claude/CLAUDE.md as
-        // modified, which prevents automatic worktree cleanup on archive.
-        try {
-          await execPromise("git --no-optional-locks update-index --skip-worktree .claude/CLAUDE.md", {
-            cwd: worktreePath, timeout: 5000,
-          });
-        } catch { /* file may not be tracked in this repo — ignore */ }
-
-        // Symlink project settings files so all worktrees for the same repo share
-        // the same permission rules. Without this, rules written with
-        // destination:"projectSettings" go to the worktree's local copy and aren't
-        // visible to other sessions.
-        await this.symlinkProjectSettings(worktreePath, repoRoot);
-      } catch (e) {
-        console.warn(`[cli-launcher] Failed to inject .claude/CLAUDE.md guardrails:`, e);
+        break;
       }
-    }
-
-    if (backendType === "codex") {
-      // Codex auto-discovers AGENTS.md by walking from git root to cwd.
-      // If AGENTS.md is a symlink (commonly to CLAUDE.md), materialize a real
-      // worktree-local AGENTS.md so Codex-specific instructions live in AGENTS.md.
-      const agentsMdPath = join(worktreePath, "AGENTS.md");
-      try {
-        let existing = "";
-        if (await fileExists(agentsMdPath)) {
-          const stat = await lstat(agentsMdPath);
-          if (stat.isSymbolicLink()) {
-            // Read through the symlink first, then replace it with a regular file.
-            existing = await readFile(agentsMdPath, "utf-8");
-            await unlink(agentsMdPath);
-            console.log("[cli-launcher] Replaced symlinked AGENTS.md with worktree-local file");
-          } else {
-            existing = await readFile(agentsMdPath, "utf-8");
-          }
-        }
-        if (existing.includes(MARKER_START)) {
-          const before = existing.substring(0, existing.indexOf(MARKER_START));
-          const afterIdx = existing.indexOf(MARKER_END);
-          const after = afterIdx >= 0 ? existing.substring(afterIdx + MARKER_END.length) : "";
-          await writeFile(agentsMdPath, before + guardrails + after, "utf-8");
-        } else {
-          await writeFile(agentsMdPath, existing ? (existing + "\n\n" + guardrails) : guardrails, "utf-8");
-        }
-        console.log(`[cli-launcher] Injected worktree guardrails into AGENTS.md for branch ${branch}`);
-
-        await this.addWorktreeGitExclude(worktreePath, "AGENTS.md");
-        try {
-          await execPromise("git --no-optional-locks update-index --skip-worktree AGENTS.md", {
-            cwd: worktreePath, timeout: 5000,
-          });
-        } catch { /* file may not be tracked in this repo — ignore */ }
-      } catch (e) {
-        console.warn(`[cli-launcher] Failed to inject AGENTS.md guardrails:`, e);
-      }
-    }
-
-    // Claude SDK uses the same .claude/CLAUDE.md as Claude Code
-    if (backendType === "claude-sdk") {
-      const claudeDir = join(worktreePath, ".claude");
-      const claudeMdPath = join(claudeDir, "CLAUDE.md");
-
-      try {
-        await mkdir(claudeDir, { recursive: true });
-
-        if (await fileExists(claudeMdPath)) {
-          const existing = await readFile(claudeMdPath, "utf-8");
-          if (existing.includes(MARKER_START)) {
-            const before = existing.substring(0, existing.indexOf(MARKER_START));
-            const afterIdx = existing.indexOf(MARKER_END);
-            const after = afterIdx >= 0 ? existing.substring(afterIdx + MARKER_END.length) : "";
-            await writeFile(claudeMdPath, before + guardrails + after, "utf-8");
-          } else {
-            await writeFile(claudeMdPath, existing + "\n\n" + guardrails, "utf-8");
-          }
-        } else {
-          await writeFile(claudeMdPath, guardrails, "utf-8");
-        }
-        console.log(`[cli-launcher] Injected worktree guardrails into .claude/CLAUDE.md for SDK session on branch ${branch}`);
-
-        await this.addWorktreeGitExclude(worktreePath, ".claude/CLAUDE.md");
-        try {
-          await execPromise("git --no-optional-locks update-index --skip-worktree .claude/CLAUDE.md", {
-            cwd: worktreePath, timeout: 5000,
-          });
-        } catch { /* file may not be tracked in this repo — ignore */ }
-
-        await this.symlinkProjectSettings(worktreePath, repoRoot);
-      } catch (e) {
-        console.warn(`[cli-launcher] Failed to inject .claude/CLAUDE.md guardrails for SDK:`, e);
-      }
+      default:
+        assertNever(backendType);
     }
   }
 
