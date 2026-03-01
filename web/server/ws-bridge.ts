@@ -2176,14 +2176,23 @@ export class WsBridge {
       : !!session.cliSocket;
 
     if (!backendConnected) {
-      const idleKilled = this.launcher?.getSession(sessionId)?.killedByIdleManager;
-      this.sendToBrowser(ws, {
-        type: "cli_disconnected",
-        ...(idleKilled ? { reason: "idle_limit" as const } : {}),
-      });
-      if (this.onCLIRelaunchNeeded) {
-        console.log(`[ws-bridge] Browser connected but backend is dead for session ${sessionTag(sessionId)}, requesting relaunch`);
-        this.onCLIRelaunchNeeded(sessionId);
+      // For SDK sessions, the adapter may still be initializing (async import + spawn).
+      // Don't immediately request relaunch — check launcher state first.
+      const launcherInfo = this.launcher?.getSession(sessionId);
+      if (launcherInfo?.state === "starting" || launcherInfo?.backendType === "claude-sdk") {
+        // SDK adapter is being set up — send a temporary disconnected state
+        // but DON'T request relaunch. The adapter will broadcast cli_connected when ready.
+        this.sendToBrowser(ws, { type: "cli_disconnected" });
+      } else {
+        const idleKilled = launcherInfo?.killedByIdleManager;
+        this.sendToBrowser(ws, {
+          type: "cli_disconnected",
+          ...(idleKilled ? { reason: "idle_limit" as const } : {}),
+        });
+        if (this.onCLIRelaunchNeeded) {
+          console.log(`[ws-bridge] Browser connected but backend is dead for session ${sessionTag(sessionId)}, requesting relaunch`);
+          this.onCLIRelaunchNeeded(sessionId);
+        }
       }
     } else {
       this.sendToBrowser(ws, { type: "cli_connected" });

@@ -358,11 +358,14 @@ export class ClaudeSdkAdapter {
   }
 
   private mapPermissionMode(mode?: string): string | undefined {
-    // Map Companion permission modes to SDK permission modes
+    // Map Companion permission modes to SDK permission modes.
+    // Companion's "plan" mode means "ask before executing" — which maps to the
+    // SDK's "default" mode (calls canUseTool for every tool). The SDK's own
+    // "plan" mode is a different concept (planning only, no tool execution).
     switch (mode) {
-      case "bypassPermissions": return "dangerouslySkipPermissions" as any;
+      case "bypassPermissions": return "default"; // handled via allowDangerouslySkipPermissions
       case "acceptEdits": return "acceptEdits";
-      case "plan": return "plan";
+      case "plan": return "default"; // Companion's "plan" = SDK's "default" (ask before doing)
       default: return "default";
     }
   }
