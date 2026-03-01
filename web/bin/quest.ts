@@ -43,7 +43,18 @@ import type { QuestmasterTask } from "../server/quest-types.js";
 import { applyQuestListFilters } from "../server/quest-list-filters.js";
 import { getName } from "../server/session-names.js";
 import { readFile } from "node:fs/promises";
-import { basename, extname, resolve } from "node:path";
+import { readFileSync } from "node:fs";
+import { basename, extname, join, resolve } from "node:path";
+
+const DEFAULT_PORT = 3456;
+const COMPANION_SESSION_ID_HEADER = "x-companion-session-id";
+const COMPANION_AUTH_TOKEN_HEADER = "x-companion-auth-token";
+
+type CompanionCredentials = {
+  sessionId: string;
+  authToken: string;
+  port?: number;
+};
 
 // ─── Arg parsing helpers ────────────────────────────────────────────────────
 
@@ -120,14 +131,79 @@ function validateFlags(allowed: string[]): void {
 
 const jsonOutput = flag("json");
 
+// ─── Companion auth discovery ──────────────────────────────────────────────
+
+/** Discover session credentials from env vars or session-auth file fallback. */
+function getCredentials(): CompanionCredentials | null {
+  const sessionId = process.env.COMPANION_SESSION_ID;
+  const authToken = process.env.COMPANION_AUTH_TOKEN;
+  const envPort = Number(process.env.COMPANION_PORT);
+  if (sessionId && authToken) {
+    return {
+      sessionId,
+      authToken,
+      ...(Number.isFinite(envPort) && envPort > 0 ? { port: envPort } : {}),
+    };
+  }
+
+  const candidates = [
+    join(process.cwd(), ".companion", "session-auth.json"), // current, backend-agnostic
+    join(process.cwd(), ".codex", "session-auth.json"), // legacy Codex-specific fallback
+    join(process.cwd(), ".claude", "session-auth.json"), // legacy Claude-specific fallback
+  ];
+  for (const authFile of candidates) {
+    try {
+      const data = JSON.parse(readFileSync(authFile, "utf-8")) as {
+        sessionId?: unknown;
+        authToken?: unknown;
+        port?: unknown;
+      };
+      if (typeof data.sessionId === "string" && data.sessionId && typeof data.authToken === "string" && data.authToken) {
+        const filePort = typeof data.port === "number" ? data.port : Number(data.port);
+        return {
+          sessionId: data.sessionId,
+          authToken: data.authToken,
+          ...(Number.isFinite(filePort) && filePort > 0 ? { port: filePort } : {}),
+        };
+      }
+    } catch {
+      // Try next candidate
+    }
+  }
+  return null;
+}
+
+function getCurrentSessionId(): string | undefined {
+  return getCredentials()?.sessionId || process.env.COMPANION_SESSION_ID || undefined;
+}
+
+function getCompanionPort(): string | undefined {
+  if (process.env.COMPANION_PORT) return process.env.COMPANION_PORT;
+  const creds = getCredentials();
+  const credsPort = creds?.port;
+  if (typeof credsPort === "number" && credsPort > 0) return String(credsPort);
+  return creds ? String(DEFAULT_PORT) : undefined;
+}
+
+function companionAuthHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  const creds = getCredentials();
+  if (!creds) return extra;
+  return {
+    [COMPANION_SESSION_ID_HEADER]: creds.sessionId,
+    [COMPANION_AUTH_TOKEN_HEADER]: creds.authToken,
+    ...extra,
+  };
+}
+
 // ─── Server notification ────────────────────────────────────────────────────
 
 async function notifyServer(): Promise<void> {
-  const port = process.env.COMPANION_PORT;
+  const port = getCompanionPort();
   if (!port) return;
   try {
     await fetch(`http://localhost:${port}/api/quests/_notify`, {
       method: "POST",
+      headers: companionAuthHeaders(),
       signal: AbortSignal.timeout(2000),
     });
   } catch {
@@ -168,8 +244,8 @@ const STATUS_LABELS: Record<string, string> = {
   done: "done",
 };
 
-const currentSessionId = process.env.COMPANION_SESSION_ID;
-const companionPort = process.env.COMPANION_PORT;
+const currentSessionId = getCurrentSessionId();
+const companionPort = getCompanionPort();
 
 let sessionArchivedCache: Map<string, boolean> | null = null;
 
@@ -181,6 +257,7 @@ async function getSessionArchivedMap(): Promise<Map<string, boolean>> {
   }
   try {
     const res = await fetch(`http://localhost:${companionPort}/api/sessions`, {
+      headers: companionAuthHeaders(),
       signal: AbortSignal.timeout(2000),
     });
     if (!res.ok) throw new Error(res.statusText);
@@ -342,6 +419,7 @@ async function uploadQuestImage(port: string, rawPath: string): Promise<QuestIma
   );
   const res = await fetch(`http://localhost:${port}/api/quests/_images`, {
     method: "POST",
+    headers: companionAuthHeaders(),
     body: form,
     signal: AbortSignal.timeout(10_000),
   });
@@ -439,8 +517,12 @@ async function cmdClaim(): Promise<void> {
   const id = positional(0);
   if (!id) die("Usage: quest claim <questId> [--session <sid>]");
 
-  const sessionId = option("session") || process.env.COMPANION_SESSION_ID;
-  if (!sessionId) die("No session ID. Pass --session <id> or set COMPANION_SESSION_ID.");
+  const sessionId = option("session") || currentSessionId;
+  if (!sessionId && !companionPort) {
+    die(
+      "No session identity. Pass --session <id> or run from a Companion session with .companion/session-auth.json.",
+    );
+  }
 
   // Prefer HTTP endpoint when server is available — it handles session name
   // override, session_quest_claimed broadcast, and task entry addition.
@@ -448,8 +530,8 @@ async function cmdClaim(): Promise<void> {
     try {
       const res = await fetch(`http://localhost:${companionPort}/api/quests/${encodeURIComponent(id)}/claim`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId }),
+        headers: companionAuthHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify(sessionId ? { sessionId } : {}),
         signal: AbortSignal.timeout(5000),
       });
       if (!res.ok) {
@@ -460,7 +542,10 @@ async function cmdClaim(): Promise<void> {
       if (jsonOutput) {
         out(quest);
       } else {
-        console.log(`Claimed ${quest.questId} "${quest.title}" for session ${formatSessionLabel(sessionId)}`);
+        const owner = "sessionId" in quest && typeof quest.sessionId === "string"
+          ? quest.sessionId
+          : sessionId;
+        console.log(`Claimed ${quest.questId} "${quest.title}" for session ${formatSessionLabel(owner || "unknown")}`);
       }
       return;
     } catch (e) {
@@ -469,6 +554,11 @@ async function cmdClaim(): Promise<void> {
   }
 
   // Fallback: direct filesystem claim (no session name integration)
+  if (!sessionId) {
+    die(
+      "No session identity. Pass --session <id> or run from a Companion session with .companion/session-auth.json.",
+    );
+  }
   try {
     const quest = await claimQuest(id, sessionId);
     if (!quest) die(`Quest ${id} not found`);
@@ -504,7 +594,7 @@ async function cmdComplete(): Promise<void> {
     try {
       const res = await fetch(`http://localhost:${companionPort}/api/quests/${encodeURIComponent(id)}/complete`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: companionAuthHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ verificationItems: items }),
         signal: AbortSignal.timeout(5000),
       });
@@ -596,7 +686,7 @@ async function cmdTransition(): Promise<void> {
   if (!status) die("--status is required");
 
   const description = option("desc");
-  const sessionId = option("session") || process.env.COMPANION_SESSION_ID;
+  const sessionId = option("session") || currentSessionId;
 
   try {
     const quest = await transitionQuest(id, {
@@ -695,16 +785,16 @@ async function cmdFeedback(): Promise<void> {
   const author = authorOpt === "human" ? "human" : "agent";
   const sessionId = option("session") || currentSessionId;
   if (author === "agent" && !sessionId) {
-    die("Agent feedback requires --session <sid> or COMPANION_SESSION_ID.");
+    die("Agent feedback requires --session <sid> or Companion session auth.");
   }
   const imagePaths = [
     ...options("image"),
     ...options("images").flatMap((group) => group.split(",").map((p) => p.trim())),
   ].filter(Boolean);
 
-  const port = process.env.COMPANION_PORT;
+  const port = companionPort;
   if (!port) {
-    die("COMPANION_PORT not set. The feedback endpoint requires the server.");
+    die("Companion server port not found. Set COMPANION_PORT or use .companion/session-auth.json.");
   }
 
   try {
@@ -713,7 +803,7 @@ async function cmdFeedback(): Promise<void> {
       : undefined;
     const res = await fetch(`http://localhost:${port}/api/quests/${encodeURIComponent(id)}/feedback`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: companionAuthHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({
         text: text.trim(),
         author,
@@ -748,15 +838,19 @@ async function cmdAddress(): Promise<void> {
   const index = parseInt(indexStr, 10);
   if (isNaN(index) || index < 0) die("Invalid index");
 
-  const port = process.env.COMPANION_PORT;
+  const port = companionPort;
   if (!port) {
-    die("COMPANION_PORT not set. The address endpoint requires the server.");
+    die("Companion server port not found. Set COMPANION_PORT or use .companion/session-auth.json.");
   }
 
   try {
     const res = await fetch(
       `http://localhost:${port}/api/quests/${encodeURIComponent(id)}/feedback/${index}/addressed`,
-      { method: "POST", signal: AbortSignal.timeout(5000) },
+      {
+        method: "POST",
+        headers: companionAuthHeaders(),
+        signal: AbortSignal.timeout(5000),
+      },
     );
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: res.statusText }));
@@ -777,7 +871,7 @@ async function cmdAddress(): Promise<void> {
 
 async function cmdMine(): Promise<void> {
   validateFlags(["json"]);
-  if (!currentSessionId) die("COMPANION_SESSION_ID not set.");
+  if (!currentSessionId) die("No current session identity found.");
 
   const quests = (await listQuests()).filter(
     (q) => "sessionId" in q && (q as { sessionId?: string }).sessionId === currentSessionId,
@@ -869,7 +963,11 @@ Commands:
 
 Environment:
   COMPANION_SESSION_ID  Session ID (auto-set by Companion)
-  COMPANION_PORT        Server port for browser notifications`);
+  COMPANION_AUTH_TOKEN  Session auth token (auto-set by Companion)
+  COMPANION_PORT        Server port for browser notifications
+
+Auth fallback:
+  .companion/session-auth.json (or legacy .codex/.claude paths)`);
 }
 
 // ─── Main ───────────────────────────────────────────────────────────────────

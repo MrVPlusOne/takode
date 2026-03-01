@@ -126,6 +126,34 @@ export function createRoutes(
     return { callerId, caller };
   };
 
+  /**
+   * Optional companion auth for non-Takode endpoints.
+   * Returns null when no auth headers are present.
+   */
+  const authenticateCompanionCallerOptional = (
+    c: Context,
+  ): { callerId: string; caller: NonNullable<ReturnType<CliLauncher["getSession"]>> } | { response: Response } | null => {
+    const rawCallerId = c.req.header(TAKODE_SESSION_ID_HEADER)?.trim();
+    const authToken = c.req.header(TAKODE_AUTH_TOKEN_HEADER)?.trim();
+    if (!rawCallerId && !authToken) return null;
+    if (!rawCallerId || !authToken) {
+      return { response: c.json({ error: "Missing Companion auth headers" }, 403) };
+    }
+
+    const callerId = resolveId(rawCallerId);
+    if (!callerId) {
+      return { response: c.json({ error: "Caller session not found" }, 403) };
+    }
+    const caller = launcher.getSession(callerId);
+    if (!caller) {
+      return { response: c.json({ error: "Caller session not found" }, 403) };
+    }
+    if (!launcher.verifySessionAuthToken(callerId, authToken)) {
+      return { response: c.json({ error: "Invalid Companion auth token" }, 403) };
+    }
+    return { callerId, caller };
+  };
+
   // Performance tracing middleware — records slow API requests
   if (perfTracer) {
     api.use("/*", async (c, next) => {
@@ -3596,10 +3624,19 @@ export function createRoutes(
   });
 
   api.post("/quests/:questId/claim", async (c) => {
+    const auth = authenticateCompanionCallerOptional(c);
+    if (auth && "response" in auth) return auth.response;
     const body = await c.req.json().catch(() => ({}));
     const rawSessionId = body.sessionId as string | undefined;
-    const sessionId = typeof rawSessionId === "string" ? rawSessionId.trim() : "";
-    if (!sessionId) return c.json({ error: "sessionId is required" }, 400);
+    const bodySessionId = typeof rawSessionId === "string" ? rawSessionId.trim() : "";
+    const authSessionId = auth ? auth.callerId : "";
+    if (authSessionId && bodySessionId && bodySessionId !== authSessionId) {
+      return c.json({ error: "sessionId does not match authenticated caller" }, 403);
+    }
+    const sessionId = bodySessionId || authSessionId;
+    if (!sessionId) {
+      return c.json({ error: "sessionId is required (or provide Companion auth headers)" }, 400);
+    }
     const knownSession = launcher.getSession(sessionId);
     if (!knownSession) {
       return c.json(
@@ -3736,14 +3773,21 @@ export function createRoutes(
 
   // Append a feedback entry to a quest's thread
   api.post("/quests/:questId/feedback", async (c) => {
+    const auth = authenticateCompanionCallerOptional(c);
+    if (auth && "response" in auth) return auth.response;
     const body = await c.req.json().catch(() => ({}));
     const text = body.text;
     const author = body.author === "agent" ? "agent" : "human";
     const rawAuthorSessionId = typeof body.sessionId === "string" ? body.sessionId.trim() : "";
-    if (author === "agent" && rawAuthorSessionId.length === 0) {
-      return c.json({ error: "sessionId is required for agent feedback" }, 400);
+    const authSessionId = auth ? auth.callerId : "";
+    if (authSessionId && rawAuthorSessionId && rawAuthorSessionId !== authSessionId) {
+      return c.json({ error: "sessionId does not match authenticated caller" }, 403);
     }
-    const authorSessionId = author === "agent" ? rawAuthorSessionId : undefined;
+    const resolvedAuthorSessionId = rawAuthorSessionId || authSessionId;
+    if (author === "agent" && resolvedAuthorSessionId.length === 0) {
+      return c.json({ error: "sessionId is required for agent feedback (or provide Companion auth headers)" }, 400);
+    }
+    const authorSessionId = author === "agent" ? resolvedAuthorSessionId : undefined;
     if (!text || typeof text !== "string" || !text.trim()) {
       return c.json({ error: "text is required" }, 400);
     }

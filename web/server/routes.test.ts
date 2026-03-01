@@ -3164,6 +3164,14 @@ describe("POST /api/quests/:questId/transition", () => {
 });
 
 describe("POST /api/quests/:questId/claim", () => {
+  function companionAuthHeaders(sessionId: string, token: string): Record<string, string> {
+    return {
+      "x-companion-session-id": sessionId,
+      "x-companion-auth-token": token,
+      "Content-Type": "application/json",
+    };
+  }
+
   it("returns 400 when sessionId does not belong to a known companion session", async () => {
     const claimSpy = vi.spyOn(questStore, "claimQuest");
 
@@ -3175,6 +3183,56 @@ describe("POST /api/quests/:questId/claim", () => {
 
     expect(res.status).toBe(400);
     expect(claimSpy).not.toHaveBeenCalled();
+  });
+
+  it("accepts authenticated caller identity when sessionId is omitted", async () => {
+    vi.spyOn(questStore, "claimQuest").mockResolvedValueOnce({
+      id: "q-1-v3",
+      questId: "q-1",
+      title: "Quest",
+      status: "in_progress",
+      sessionId: "session-2",
+      createdAt: Date.now(),
+      claimedAt: Date.now(),
+      description: "Ready",
+    } as any);
+    launcher.getSession.mockImplementation((sid: string) => (
+      sid === "session-2"
+        ? { sessionId: "session-2", state: "running", cwd: "/test", archived: false }
+        : undefined
+    ));
+    launcher.verifySessionAuthToken.mockImplementation((sid: string, token: string) => sid === "session-2" && token === "tok-2");
+
+    const res = await app.request("/api/quests/q-1/claim", {
+      method: "POST",
+      headers: companionAuthHeaders("session-2", "tok-2"),
+      body: JSON.stringify({}),
+    });
+
+    expect(res.status).toBe(200);
+    expect(questStore.claimQuest).toHaveBeenCalledWith(
+      "q-1",
+      "session-2",
+      expect.any(Object),
+    );
+  });
+
+  it("returns 403 when body sessionId mismatches authenticated caller", async () => {
+    launcher.getSession.mockImplementation((sid: string) => (
+      sid === "session-2"
+        ? { sessionId: "session-2", state: "running", cwd: "/test", archived: false }
+        : undefined
+    ));
+    launcher.verifySessionAuthToken.mockImplementation((sid: string, token: string) => sid === "session-2" && token === "tok-2");
+
+    const res = await app.request("/api/quests/q-1/claim", {
+      method: "POST",
+      headers: companionAuthHeaders("session-2", "tok-2"),
+      body: JSON.stringify({ sessionId: "session-3" }),
+    });
+
+    expect(res.status).toBe(403);
+    expect(questStore.claimQuest).not.toHaveBeenCalled();
   });
 
   it("passes archived-owner takeover policy to questStore.claimQuest", async () => {
@@ -3258,6 +3316,14 @@ describe("POST /api/quests/:questId/claim", () => {
 });
 
 describe("POST /api/quests/:questId/feedback", () => {
+  function companionAuthHeaders(sessionId: string, token: string): Record<string, string> {
+    return {
+      "x-companion-session-id": sessionId,
+      "x-companion-auth-token": token,
+      "Content-Type": "application/json",
+    };
+  }
+
   it("returns 400 when agent feedback omits sessionId", async () => {
     const getQuestSpy = vi.spyOn(questStore, "getQuest");
     const patchSpy = vi.spyOn(questStore, "patchQuest");
@@ -3271,6 +3337,69 @@ describe("POST /api/quests/:questId/feedback", () => {
     expect(res.status).toBe(400);
     expect(getQuestSpy).not.toHaveBeenCalled();
     expect(patchSpy).not.toHaveBeenCalled();
+  });
+
+  it("accepts authenticated caller identity for agent feedback when sessionId is omitted", async () => {
+    launcher.getSession.mockImplementation((sid: string) => (
+      sid === "session-1"
+        ? { sessionId: "session-1", state: "running", cwd: "/test", archived: false }
+        : undefined
+    ));
+    launcher.verifySessionAuthToken.mockImplementation((sid: string, token: string) => sid === "session-1" && token === "tok-1");
+    vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
+      id: "q-1-v3",
+      questId: "q-1",
+      version: 3,
+      title: "Quest",
+      createdAt: Date.now(),
+      status: "needs_verification",
+      description: "Needs verification",
+      sessionId: "session-1",
+      claimedAt: Date.now(),
+      verificationItems: [],
+      feedback: [],
+    } as any);
+    const patchSpy = vi.spyOn(questStore, "patchQuest").mockResolvedValueOnce({
+      id: "q-1-v3",
+      questId: "q-1",
+      version: 3,
+      title: "Quest",
+      createdAt: Date.now(),
+      status: "needs_verification",
+      description: "Needs verification",
+      sessionId: "session-1",
+      claimedAt: Date.now(),
+      verificationItems: [],
+      feedback: [{ author: "agent", authorSessionId: "session-1", text: "Addressed", ts: Date.now() }],
+    } as any);
+
+    const res = await app.request("/api/quests/q-1/feedback", {
+      method: "POST",
+      headers: companionAuthHeaders("session-1", "tok-1"),
+      body: JSON.stringify({ text: "Addressed", author: "agent" }),
+    });
+
+    expect(res.status).toBe(200);
+    const feedback = (patchSpy.mock.calls[0][1] as { feedback: Array<{ authorSessionId?: string }> }).feedback;
+    expect(feedback[feedback.length - 1]?.authorSessionId).toBe("session-1");
+  });
+
+  it("returns 403 when feedback sessionId mismatches authenticated caller", async () => {
+    launcher.getSession.mockImplementation((sid: string) => (
+      sid === "session-1"
+        ? { sessionId: "session-1", state: "running", cwd: "/test", archived: false }
+        : undefined
+    ));
+    launcher.verifySessionAuthToken.mockImplementation((sid: string, token: string) => sid === "session-1" && token === "tok-1");
+
+    const res = await app.request("/api/quests/q-1/feedback", {
+      method: "POST",
+      headers: companionAuthHeaders("session-1", "tok-1"),
+      body: JSON.stringify({ text: "Addressed", author: "agent", sessionId: "session-2" }),
+    });
+
+    expect(res.status).toBe(403);
+    expect(questStore.patchQuest).not.toHaveBeenCalled();
   });
 
   it("returns 400 when agent feedback sessionId does not belong to a known companion session", async () => {
