@@ -1,11 +1,14 @@
 // @vitest-environment jsdom
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 
 vi.mock("../api.js", () => ({
   api: {
     relaunchSession: vi.fn().mockResolvedValue({ ok: true }),
   },
+}));
+vi.mock("./SessionInfoPopover.js", () => ({
+  SessionInfoPopover: () => <div data-testid="session-info-popover" />,
 }));
 
 interface MockStoreState {
@@ -15,6 +18,7 @@ interface MockStoreState {
   sessionStatus: Map<string, "idle" | "running" | "compacting" | null>;
   sidebarOpen: boolean;
   setSidebarOpen: ReturnType<typeof vi.fn>;
+  setSessionInfoOpenSessionId: ReturnType<typeof vi.fn>;
   taskPanelOpen: boolean;
   setTaskPanelOpen: ReturnType<typeof vi.fn>;
   activeTab: "chat" | "diff";
@@ -41,6 +45,7 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     sessionStatus: new Map([["s1", "idle"]]),
     sidebarOpen: true,
     setSidebarOpen: vi.fn(),
+    setSessionInfoOpenSessionId: vi.fn(),
     taskPanelOpen: false,
     setTaskPanelOpen: vi.fn(),
     activeTab: "chat",
@@ -113,5 +118,19 @@ describe("TopBar", () => {
 
     render(<TopBar />);
     expect(screen.queryByText("1")).not.toBeInTheDocument();
+  });
+
+  it("publishes opened session info panel id for sidebar-linked highlights", async () => {
+    render(<TopBar />);
+
+    fireEvent.click(screen.getByTitle("Session info"));
+    await waitFor(() => {
+      expect(storeState.setSessionInfoOpenSessionId).toHaveBeenLastCalledWith("s1");
+    });
+
+    fireEvent.click(screen.getByTitle("Session info"));
+    await waitFor(() => {
+      expect(storeState.setSessionInfoOpenSessionId).toHaveBeenLastCalledWith(null);
+    });
   });
 });

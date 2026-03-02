@@ -65,6 +65,7 @@ interface MockStoreState {
   sessionAttention: Map<string, "action" | "error" | "review" | null>;
   diffFileStats: Map<string, Map<string, { additions: number; deletions: number }>>;
   sessionOrder: Map<string, string[]>;
+  sessionInfoOpenSessionId: string | null;
   reorderMode: boolean;
   setReorderMode: ReturnType<typeof vi.fn>;
   pendingSessions: Map<string, unknown>;
@@ -150,6 +151,7 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
     sessionAttention: new Map(),
     diffFileStats: new Map(),
     sessionOrder: new Map(),
+    sessionInfoOpenSessionId: null,
     reorderMode: false,
     setReorderMode: vi.fn(),
     pendingSessions: new Map(),
@@ -965,5 +967,71 @@ describe("Sidebar", () => {
       expect(screen.getByText("Herded by")).toBeInTheDocument();
       expect(screen.getByTitle("Navigate to Leader Session")).toBeInTheDocument();
     });
+  });
+
+  it("keeps herd highlights active when leader info panel is open", () => {
+    const leaderSessionId = "leader-2";
+    const workerSessionId = "worker-2";
+    const leaderSession = makeSession(leaderSessionId, { model: "leader-open-model" });
+    const workerSession = makeSession(workerSessionId, { model: "worker-open-model" });
+    const leaderSdk = makeSdkSession(leaderSessionId, {
+      isOrchestrator: true,
+      sessionNum: 21,
+      createdAt: 1700000002000,
+    });
+    const workerSdk = makeSdkSession(workerSessionId, {
+      herdedBy: leaderSessionId,
+      sessionNum: 22,
+      createdAt: 1700000003000,
+    });
+    mockState = createMockState({
+      sessions: new Map([
+        [leaderSessionId, leaderSession],
+        [workerSessionId, workerSession],
+      ]),
+      sdkSessions: [leaderSdk, workerSdk],
+      sessionNames: new Map([
+        [leaderSessionId, "Leader Open"],
+        [workerSessionId, "Worker Open"],
+      ]),
+      sessionInfoOpenSessionId: leaderSessionId,
+    });
+
+    render(<Sidebar />);
+    const workerButton = screen.getByText("Worker Open").closest("button");
+    expect(workerButton).toHaveClass("ring-amber-400/45");
+  });
+
+  it("keeps herd highlights active when worker info panel is open", () => {
+    const leaderSessionId = "leader-3";
+    const workerSessionId = "worker-3";
+    const leaderSession = makeSession(leaderSessionId, { model: "leader-worker-open-model" });
+    const workerSession = makeSession(workerSessionId, { model: "worker-worker-open-model" });
+    const leaderSdk = makeSdkSession(leaderSessionId, {
+      isOrchestrator: true,
+      sessionNum: 31,
+      createdAt: 1700000004000,
+    });
+    const workerSdk = makeSdkSession(workerSessionId, {
+      herdedBy: leaderSessionId,
+      sessionNum: 32,
+      createdAt: 1700000005000,
+    });
+    mockState = createMockState({
+      sessions: new Map([
+        [leaderSessionId, leaderSession],
+        [workerSessionId, workerSession],
+      ]),
+      sdkSessions: [leaderSdk, workerSdk],
+      sessionNames: new Map([
+        [leaderSessionId, "Leader Worker Open"],
+        [workerSessionId, "Worker Worker Open"],
+      ]),
+      sessionInfoOpenSessionId: workerSessionId,
+    });
+
+    render(<Sidebar />);
+    const leaderButton = screen.getByText("Leader Worker Open").closest("button");
+    expect(leaderButton).toHaveClass("ring-amber-400/70");
   });
 });

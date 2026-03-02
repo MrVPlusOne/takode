@@ -156,6 +156,8 @@ interface AppState {
   notificationDesktop: boolean;
   showUsageBars: boolean;
   sidebarOpen: boolean;
+  // Session ID whose info popover is currently open in TopBar.
+  sessionInfoOpenSessionId: string | null;
   reorderMode: boolean;
   taskPanelOpen: boolean;
   showNewSessionModal: boolean;
@@ -173,6 +175,7 @@ interface AppState {
   setShowUsageBars: (v: boolean) => void;
   toggleShowUsageBars: () => void;
   setSidebarOpen: (v: boolean) => void;
+  setSessionInfoOpenSessionId: (sessionId: string | null) => void;
   setReorderMode: (v: boolean) => void;
   setTaskPanelOpen: (open: boolean) => void;
   setShowNewSessionModal: (open: boolean) => void;
@@ -455,6 +458,7 @@ export const useStore = create<AppState>((set) => ({
   notificationDesktop: getInitialNotificationDesktop(),
   showUsageBars: typeof window !== "undefined" ? scopedGetItem("cc-show-usage") !== "false" : true,
   sidebarOpen: typeof window !== "undefined" ? window.innerWidth >= 768 : true,
+  sessionInfoOpenSessionId: null,
   reorderMode: false,
   taskPanelOpen: false,
   showNewSessionModal: false,
@@ -547,6 +551,7 @@ export const useStore = create<AppState>((set) => ({
       return { showUsageBars: next };
     }),
   setSidebarOpen: (v) => set({ sidebarOpen: v }),
+  setSessionInfoOpenSessionId: (sessionId) => set({ sessionInfoOpenSessionId: sessionId }),
   setReorderMode: (v) => set({ reorderMode: v }),
   setTaskPanelOpen: (open) => set({ taskPanelOpen: open }),
   setShowNewSessionModal: (open) => set({ showNewSessionModal: open }),
@@ -661,6 +666,7 @@ export const useStore = create<AppState>((set) => ({
       collapsibleTurnIds.delete(sessionId);
       const sessionAttention = new Map(s.sessionAttention);
       sessionAttention.delete(sessionId);
+      const sessionInfoOpenSessionId = s.sessionInfoOpenSessionId === sessionId ? null : s.sessionInfoOpenSessionId;
       scopedSetItem("cc-session-names", JSON.stringify(Array.from(sessionNames.entries())));
       if (s.currentSessionId === sessionId) {
         scopedRemoveItem("cc-current-session");
@@ -704,6 +710,7 @@ export const useStore = create<AppState>((set) => ({
         turnActivityOverrides,
         collapsibleTurnIds,
         sessionAttention,
+        sessionInfoOpenSessionId,
         sdkSessions: s.sdkSessions.filter((sdk) => sdk.sessionId !== sessionId),
         currentSessionId: s.currentSessionId === sessionId ? null : s.currentSessionId,
       };
@@ -1472,6 +1479,7 @@ export const useStore = create<AppState>((set) => ({
       sessionAttention: new Map(),
       sessionOrder: new Map(),
       groupOrder: [],
+      sessionInfoOpenSessionId: null,
       activeTab: "chat" as const,
       diffPanelSelectedFile: new Map(),
       feedVisibleCount: new Map(),

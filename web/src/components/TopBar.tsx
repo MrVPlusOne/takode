@@ -25,10 +25,17 @@ export function TopBar() {
   const sdkSessions = useStore((s) => s.sdkSessions);
   const sidebarOpen = useStore((s) => s.sidebarOpen);
   const setSidebarOpen = useStore((s) => s.setSidebarOpen);
+  const setSessionInfoOpenSessionId = useStore((s) => s.setSessionInfoOpenSessionId);
   const activeTab = useStore((s) => s.activeTab);
   const setActiveTab = useStore((s) => s.setActiveTab);
   const [copiedCliId, setCopiedCliId] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
+
+  useEffect(() => {
+    const openSessionId = infoOpen && isSessionView ? currentSessionId : null;
+    setSessionInfoOpenSessionId(openSessionId);
+    return () => setSessionInfoOpenSessionId(null);
+  }, [infoOpen, isSessionView, currentSessionId, setSessionInfoOpenSessionId]);
 
   // Count of active (non-done) quests for the quest toggle badge
   const activeQuestCount = useStore((s) => s.quests.filter((q) => q.status !== "done").length);

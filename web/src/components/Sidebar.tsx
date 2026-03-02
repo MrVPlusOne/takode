@@ -99,6 +99,7 @@ export function Sidebar() {
   const toggleProjectCollapse = useStore((s) => s.toggleProjectCollapse);
   const sessionAttention = useStore((s) => s.sessionAttention);
   const askPermissionMap = useStore((s) => s.askPermission);
+  const sessionInfoOpenSessionId = useStore((s) => s.sessionInfoOpenSessionId);
   const sessionOrder = useStore((s) => s.sessionOrder);
   const groupOrder = useStore((s) => s.groupOrder);
   const reorderMode = useStore((s) => s.reorderMode);
@@ -529,30 +530,47 @@ export function Sidebar() {
 
   const herdHoverHighlights = useMemo(() => {
     const highlights = new Map<string, "leader" | "worker">();
-    const hoveredId = hoveredSession?.sessionId;
-    if (!hoveredId) return highlights;
+    const sourceIds = [
+      hoveredSession?.sessionId ?? null,
+      sessionInfoOpenSessionId && sessionInfoOpenSessionId !== hoveredSession?.sessionId
+        ? sessionInfoOpenSessionId
+        : null,
+    ].filter((id): id is string => !!id);
 
-    const hovered = allSessionList.find((session) => session.id === hoveredId);
-    if (!hovered) return highlights;
+    if (sourceIds.length === 0) return highlights;
 
-    // Hovering a leader highlights all active workers in that herd.
-    if (hovered.isOrchestrator) {
-      for (const candidate of allSessionList) {
-        if (candidate.archived) continue;
-        if (!candidate.isOrchestrator && candidate.herdedBy === hovered.id) {
-          highlights.set(candidate.id, "worker");
-        }
+    const setHighlight = (sessionId: string, type: "leader" | "worker") => {
+      const existing = highlights.get(sessionId);
+      if (existing === "leader" || type === "leader") {
+        highlights.set(sessionId, "leader");
+      } else {
+        highlights.set(sessionId, "worker");
       }
-      return highlights;
-    }
+    };
 
-    // Hovering a worker highlights its leader session.
-    if (hovered.herdedBy) {
-      highlights.set(hovered.herdedBy, "leader");
+    for (const sourceId of sourceIds) {
+      const sourceSession = allSessionList.find((session) => session.id === sourceId);
+      if (!sourceSession) continue;
+
+      // Leaders highlight all active workers in that herd.
+      if (sourceSession.isOrchestrator) {
+        for (const candidate of allSessionList) {
+          if (candidate.archived) continue;
+          if (!candidate.isOrchestrator && candidate.herdedBy === sourceSession.id) {
+            setHighlight(candidate.id, "worker");
+          }
+        }
+        continue;
+      }
+
+      // Workers highlight their leader session.
+      if (sourceSession.herdedBy) {
+        setHighlight(sourceSession.herdedBy, "leader");
+      }
     }
 
     return highlights;
-  }, [hoveredSession?.sessionId, allSessionList]);
+  }, [hoveredSession?.sessionId, sessionInfoOpenSessionId, allSessionList]);
 
   // Shared props for SessionItem / ProjectGroup
   const sessionItemProps = {
