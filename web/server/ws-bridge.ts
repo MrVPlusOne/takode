@@ -349,7 +349,7 @@ interface Session {
   /** Set after compact_boundary; the next user text message is the summary */
   awaitingCompactSummary?: boolean;
   /** Accumulates content blocks for assistant messages with the same ID (parallel tool calls) */
-  assistantAccumulator: Map<string, { contentBlockIds: Set<string>; reminderInjected: boolean }>;
+  assistantAccumulator: Map<string, { contentBlockIds: Set<string> }>;
   /** Wall-clock start times for tool calls (tool_use_id → Date.now()). Transient, not persisted. */
   toolStartTimes: Map<string, number>;
   /** Whether the CLI is actively generating a response (transient, not persisted) */
@@ -1859,7 +1859,6 @@ export class WsBridge {
       this.launcher?.touchActivity(session.id);
       session.lastCliMessageAt = Date.now();
       let outgoing: BrowserIncomingMessage | null = msg;
-      let injectLeaderTagReminder = false;
 
       if (msg.type === "session_init") {
         const sanitized = this.sanitizeCodexSessionPatch(msg.session);
@@ -1911,12 +1910,14 @@ export class WsBridge {
 
       if (outgoing?.type === "assistant") {
         const addressing = this.classifyLeaderAssistantAddressing(session, outgoing.message.content);
-        injectLeaderTagReminder = addressing === "missing";
         const leaderUserAddressed = addressing === "user";
         outgoing = {
           ...outgoing,
           ...(leaderUserAddressed ? { leader_user_addressed: true } : {}),
         };
+        // NOTE: Do NOT inject leader addressing reminder here.
+        // Deferred to handleResultMessage (turn end) to avoid false nudges
+        // during intermediate tool-call gaps.
       }
 
       // Store assistant/result messages in history for replay
@@ -1957,7 +1958,6 @@ export class WsBridge {
       }
 
       if (outgoing) this.broadcastToBrowsers(session, outgoing);
-      if (injectLeaderTagReminder) this.maybeInjectLeaderAddressingReminder(session, "missing");
     });
 
     // Handle session metadata updates
@@ -2153,6 +2153,30 @@ export class WsBridge {
           console.error(`[ws-bridge] SDK auto-approval error for session ${sessionTag(session.id)}:`, err);
         });
         return; // Don't broadcast yet — handleSdkPermissionRequest will broadcast
+      }
+
+      // Label leader assistant messages with @to(user) addressing and store in history.
+      // The tag enforcement reminder is deferred to handleResultMessage (turn end).
+      if (msg.type === "assistant") {
+        const content = (msg as any).message?.content;
+        if (Array.isArray(content)) {
+          const addressing = this.classifyLeaderAssistantAddressing(session, content);
+          if (addressing === "user") {
+            (msg as any).leader_user_addressed = true;
+          }
+        }
+        session.messageHistory.push({ ...msg, timestamp: Date.now() });
+        this.broadcastToBrowsers(session, msg);
+        this.persistSession(session);
+        return;
+      }
+
+      // Route result messages through the unified handler so SDK sessions get
+      // the same post-turn state refresh (git, diff, attention, leader tag
+      // enforcement) as WebSocket and Codex sessions.
+      if (msg.type === "result") {
+        this.handleResultMessage(session, (msg as any).data ?? msg as any);
+        return;
       }
 
       // Forward to all browsers + store in history
@@ -2861,7 +2885,8 @@ export class WsBridge {
       };
       session.messageHistory.push(browserMsg);
       this.broadcastToBrowsers(session, browserMsg);
-      this.maybeInjectLeaderAddressingReminder(session, addressing);
+      // NOTE: Do NOT inject leader addressing reminder here.
+      // Deferred to handleResultMessage (turn end).
       this.persistSession(session);
       return;
     }
@@ -2903,11 +2928,14 @@ export class WsBridge {
             : {}),
           ...(Object.keys(toolStartTimesMap).length > 0 ? { tool_start_times: toolStartTimesMap } : {}),
         };
-        const accEntry = { contentBlockIds, reminderInjected: false };
+        const accEntry = { contentBlockIds };
         session.assistantAccumulator.set(msgId, accEntry);
         session.messageHistory.push(browserMsg);
         this.broadcastToBrowsers(session, browserMsg);
-        accEntry.reminderInjected = this.maybeInjectLeaderAddressingReminder(session, addressing);
+        // NOTE: Do NOT inject the leader addressing reminder here.
+        // This is an intermediate assistant message — the agent may add the
+        // @to(user)/@to(self) tag in a later text block after tool calls.
+        // The reminder is deferred to handleResultMessage (turn end).
       }
     } else {
       // Subsequent occurrence — merge new content blocks into the history entry
@@ -2958,9 +2986,9 @@ export class WsBridge {
         ...(Object.keys(allToolStartTimes).length > 0 ? { tool_start_times: allToolStartTimes } : {}),
       };
       this.broadcastToBrowsers(session, rebroadcast);
-      if (!acc.reminderInjected) {
-        acc.reminderInjected = this.maybeInjectLeaderAddressingReminder(session, addressing);
-      }
+      // NOTE: Do NOT inject the leader addressing reminder here.
+      // Deferred to handleResultMessage (turn end) to avoid false nudges
+      // during intermediate tool-call gaps.
     }
 
     // NOTE: we intentionally do NOT delete the accumulator on stop_reason.
@@ -3096,6 +3124,19 @@ export class WsBridge {
     session.messageHistory.push(browserMsg);
     this.broadcastToBrowsers(session, browserMsg);
     this.persistSession(session);
+
+    // ── Leader addressing enforcement (deferred from assistant messages) ──
+    // Now that the turn is complete, check the latest top-level assistant
+    // message for the @to(user)/@to(self) tag. Previously this ran on every
+    // intermediate assistant message, causing false nudges during tool-call
+    // gaps before the agent's final text response.
+    const latestTopLevelAssistant = session.messageHistory.findLast(
+      (m) => m.type === "assistant" && (m as { parent_tool_use_id?: string | null }).parent_tool_use_id == null,
+    ) as (BrowserIncomingMessage & { type: "assistant"; message: { content: ContentBlock[] } }) | undefined;
+    if (latestTopLevelAssistant) {
+      const addressing = this.classifyLeaderAssistantAddressing(session, latestTopLevelAssistant.message.content);
+      this.maybeInjectLeaderAddressingReminder(session, addressing);
+    }
 
     // Set attention only when this turn should surface to the human.
     if (shouldNotifyHuman) {

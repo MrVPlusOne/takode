@@ -1287,7 +1287,26 @@ describe("CLI message routing", () => {
       session_id: "s1",
     }));
 
-    const reminderSend = cli.send.mock.calls
+    // Reminder is NOT injected on the assistant message itself — it is
+    // deferred to handleResultMessage (turn end) to avoid false nudges
+    // during intermediate tool-call gaps.
+    let reminderSend = cli.send.mock.calls
+      .map(([payload]: [string]) => JSON.parse(String(payload).trim()))
+      .find((payload: any) => payload.type === "user" && String(payload.message?.content).includes("As a leader session"));
+    expect(reminderSend).toBeUndefined();
+
+    // Now send the result message to end the turn — this triggers enforcement.
+    bridge.handleCLIMessage(cli, JSON.stringify({
+      type: "result",
+      subtype: "success",
+      result: "",
+      is_error: false,
+      total_cost_usd: 0.01,
+      num_turns: 1,
+      session_id: "s1",
+    }));
+
+    reminderSend = cli.send.mock.calls
       .map(([payload]: [string]) => JSON.parse(String(payload).trim()))
       .find((payload: any) => payload.type === "user" && String(payload.message?.content).includes("As a leader session"));
     expect(reminderSend).toBeDefined();
