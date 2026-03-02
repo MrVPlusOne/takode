@@ -1654,6 +1654,7 @@ describe("CLI message routing", () => {
       leader_label: expect.stringContaining("#7"),
     }));
     expect(bridge.getSession(leaderId)!.attentionReason).toBe("review");
+    expect(bridge.getSession(workerId)!.attentionReason).toBeNull();
     expect(scheduleNotification).toHaveBeenCalledWith(
       leaderId,
       "completed",
@@ -1664,6 +1665,42 @@ describe("CLI message routing", () => {
       .map(([arg]: [string]) => JSON.parse(arg))
       .filter((msg: any) => msg.type === "leader_group_idle");
     expect(workerIdleEvents).toHaveLength(0);
+    vi.useRealTimers();
+  });
+
+  it("clears leader unread badge when any group member becomes active after idle notification", () => {
+    vi.useFakeTimers();
+    const leaderId = "orch-1a";
+    const workerId = "worker-1a";
+    const launcherSessions = new Map<string, any>([
+      [leaderId, { sessionId: leaderId, isOrchestrator: true, backendType: "claude", cwd: "/test" }],
+      [workerId, { sessionId: workerId, herdedBy: leaderId, backendType: "claude", cwd: "/test" }],
+    ]);
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      getSession: vi.fn((id: string) => launcherSessions.get(id)),
+      getHerdedSessions: vi.fn((id: string) => (id === leaderId ? [{ sessionId: workerId }] : [])),
+      getSessionNum: vi.fn((id: string) => (id === leaderId ? 17 : undefined)),
+    } as any);
+
+    const leaderCli = makeCliSocket(leaderId);
+    const workerCli = makeCliSocket(workerId);
+    const leaderBrowser = makeBrowserSocket(leaderId);
+
+    bridge.handleCLIOpen(leaderCli, leaderId);
+    bridge.handleCLIOpen(workerCli, workerId);
+    bridge.handleBrowserOpen(leaderBrowser, leaderId);
+
+    bridge.handleCLIMessage(leaderCli, makeInitMsg({ session_id: "cli-orch-1a" }));
+    bridge.handleCLIMessage(workerCli, makeInitMsg({ session_id: "cli-worker-1a" }));
+
+    vi.advanceTimersByTime(10_500);
+    expect(bridge.getSession(leaderId)!.attentionReason).toBe("review");
+
+    bridge.injectUserMessage(workerId, "Continue with validation");
+    expect(bridge.getSession(leaderId)!.attentionReason).toBeNull();
+    expect(bridge.getSession(workerId)!.attentionReason).toBeNull();
+
     vi.useRealTimers();
   });
 

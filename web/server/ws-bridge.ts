@@ -421,6 +421,7 @@ interface LeaderGroupIdleTimerState {
   timer: ReturnType<typeof setTimeout> | null;
   idleSince: number | null;
   notifiedWhileIdle: boolean;
+  leaderUnreadSetByGroupIdle: boolean;
 }
 
 type GitSessionKey =
@@ -1215,7 +1216,12 @@ export class WsBridge {
   private getOrCreateLeaderGroupIdleState(leaderId: string): LeaderGroupIdleTimerState {
     let state = this.leaderGroupIdleStates.get(leaderId);
     if (!state) {
-      state = { timer: null, idleSince: null, notifiedWhileIdle: false };
+      state = {
+        timer: null,
+        idleSince: null,
+        notifiedWhileIdle: false,
+        leaderUnreadSetByGroupIdle: false,
+      };
       this.leaderGroupIdleStates.set(leaderId, state);
     }
     return state;
@@ -1244,6 +1250,13 @@ export class WsBridge {
       this.clearLeaderGroupIdleTimer(state);
       state.idleSince = null;
       state.notifiedWhileIdle = false;
+      if (state.leaderUnreadSetByGroupIdle) {
+        const leaderSession = this.sessions.get(leaderId);
+        if (leaderSession?.attentionReason === "review") {
+          this.clearAttentionAndMarkRead(leaderSession);
+        }
+        state.leaderUnreadSetByGroupIdle = false;
+      }
       return;
     }
 
@@ -1258,7 +1271,7 @@ export class WsBridge {
         return this.isIdleForLeaderGroup(session);
       });
       if (!stillIdle || state.notifiedWhileIdle) return;
-      this.emitLeaderGroupIdleNotification(leaderId, latestMembers, state.idleSince);
+      state.leaderUnreadSetByGroupIdle = this.emitLeaderGroupIdleNotification(leaderId, latestMembers, state.idleSince);
       state.notifiedWhileIdle = true;
     }, WsBridge.LEADER_GROUP_IDLE_NOTIFY_DELAY_MS);
     this.recorder?.recordServerEvent(leaderId, "leader_group_idle_timer_started", { reason, members: members.length }, leaderInfo.backendType ?? "claude", leaderInfo.cwd);
@@ -1273,13 +1286,14 @@ export class WsBridge {
     return leaderId.slice(0, 8);
   }
 
-  private emitLeaderGroupIdleNotification(leaderId: string, members: string[], idleSince: number | null): void {
+  private emitLeaderGroupIdleNotification(leaderId: string, members: string[], idleSince: number | null): boolean {
     const session = this.sessions.get(leaderId);
-    if (!session) return;
+    if (!session) return false;
     const now = Date.now();
     const idleForMs = idleSince ? Math.max(0, now - idleSince) : WsBridge.LEADER_GROUP_IDLE_NOTIFY_DELAY_MS;
     const leaderLabel = this.buildLeaderGroupLabel(leaderId);
     const detail = `${leaderLabel} is idle and waiting for attention`;
+    const priorAttention = session.attentionReason;
     this.setAttention(session, "review");
     this.pushoverNotifier?.scheduleNotification(leaderId, "completed", detail);
     this.broadcastToBrowsers(session, {
@@ -1290,6 +1304,7 @@ export class WsBridge {
       idle_for_ms: idleForMs,
       timestamp: now,
     });
+    return priorAttention === null && session.attentionReason === "review";
   }
 
   setPerfTracer(tracer: PerfTracer): void {
