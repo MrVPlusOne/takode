@@ -1080,7 +1080,7 @@ describe("handleMessage: status_change", () => {
 // handleMessage: cli_disconnected / cli_connected
 // ===========================================================================
 describe("handleMessage: cli_disconnected/connected", () => {
-  it("toggles cliConnected in the store", () => {
+  it("toggles cliConnected in the store with disconnect debounce", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
 
@@ -1091,11 +1091,28 @@ describe("handleMessage: cli_disconnected/connected", () => {
     expect(useStore.getState().cliConnected.get("s1")).toBe(true);
 
     fireMessage({ type: "cli_disconnected" });
+    // Disconnect is debounced to avoid visual flicker during fast relaunches.
+    expect(useStore.getState().cliConnected.get("s1")).toBe(true);
+    vi.advanceTimersByTime(300);
     expect(useStore.getState().cliConnected.get("s1")).toBe(false);
     expect(useStore.getState().sessionStatus.get("s1")).toBeNull();
 
     fireMessage({ type: "cli_connected" });
     expect(useStore.getState().cliConnected.get("s1")).toBe(true);
+  });
+
+  it("coalesces fast disconnect/reconnect without showing disconnected state", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+    fireMessage({ type: "cli_connected" });
+    expect(useStore.getState().cliConnected.get("s1")).toBe(true);
+
+    fireMessage({ type: "cli_disconnected" });
+    fireMessage({ type: "cli_connected" });
+    vi.advanceTimersByTime(300);
+
+    expect(useStore.getState().cliConnected.get("s1")).toBe(true);
+    expect(useStore.getState().sessionStatus.get("s1")).toBe("idle");
   });
 });
 

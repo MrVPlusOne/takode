@@ -5936,6 +5936,41 @@ describe("Codex turn-start failure re-queue", () => {
 });
 
 describe("Codex disconnect auto-relaunch", () => {
+  it("skips disconnect auto-relaunch/failure counting for intentional settings relaunches", async () => {
+    vi.useFakeTimers();
+    const sid = "s-intentional";
+    const crashRelaunchCb = vi.fn();
+    const settingsRelaunchCb = vi.fn();
+    bridge.onCLIRelaunchNeededCallback(crashRelaunchCb);
+    bridge.onSessionRelaunchRequestedCallback(settingsRelaunchCb);
+
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter as any);
+
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    browser.send.mockClear();
+
+    await bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "set_permission_mode",
+      mode: "plan",
+    }));
+
+    // Simulate the disconnect from the intentional relaunch teardown.
+    adapter.emitDisconnect();
+
+    const session = bridge.getSession(sid)!;
+    expect(session.consecutiveAdapterFailures).toBe(0);
+    expect(crashRelaunchCb).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(150);
+    expect(settingsRelaunchCb).toHaveBeenCalledWith(sid);
+
+    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    expect(calls).toContainEqual(expect.objectContaining({ type: "cli_disconnected" }));
+    vi.useRealTimers();
+  });
+
   it("requests relaunch when Codex adapter disconnects with active browser", () => {
     const sid = "s1";
     const relaunchCb = vi.fn();

@@ -110,6 +110,7 @@ const NOTABLE_APPROVALS = NEVER_AUTO_APPROVE;
 
 const MAX_ADAPTER_RELAUNCH_FAILURES = 3;
 const ADAPTER_FAILURE_RESET_WINDOW_MS = 120_000;
+const CODEX_INTENTIONAL_RELAUNCH_GUARD_MS = 15_000;
 const CODEX_RETRY_SAFE_RESUME_ITEM_TYPES: ReadonlySet<string> = new Set(["reasoning", "contextCompaction"]);
 
 /** Extract structured Q&A pairs from an AskUserQuestion approval. */
@@ -371,6 +372,10 @@ interface Session {
   consecutiveAdapterFailures: number;
   /** Timestamp of the latest adapter disconnect failure for decay/reset windows. */
   lastAdapterFailureAt: number | null;
+  /** Expected disconnect deadline for an intentional Codex relaunch. */
+  intentionalCodexRelaunchUntil: number | null;
+  /** Debug label for the current intentional Codex relaunch guard. */
+  intentionalCodexRelaunchReason: string | null;
   /** Message history indices of user messages received during the current turn (for turn_end herd events) */
   userMessageIdsThisTurn: number[];
   /** Whether system.init has been received since the last CLI connect.
@@ -1444,6 +1449,8 @@ export class WsBridge {
         interruptedDuringTurn: false,
         consecutiveAdapterFailures: 0,
         lastAdapterFailureAt: null,
+        intentionalCodexRelaunchUntil: null,
+        intentionalCodexRelaunchReason: null,
         userMessageIdsThisTurn: [],
         cliInitReceived: false,
         lastCliMessageAt: 0,
@@ -1803,6 +1810,8 @@ export class WsBridge {
         interruptedDuringTurn: false,
         consecutiveAdapterFailures: 0,
         lastAdapterFailureAt: null,
+        intentionalCodexRelaunchUntil: null,
+        intentionalCodexRelaunchReason: null,
         userMessageIdsThisTurn: [],
         cliInitReceived: false,
         lastCliMessageAt: 0,
@@ -2267,6 +2276,14 @@ export class WsBridge {
         session.pendingCodexTurnRecovery.turnId = disconnectedTurnId;
         session.pendingCodexTurnRecovery.disconnectedAt = Date.now();
       }
+      const now = Date.now();
+      const intentionalRelaunch = session.intentionalCodexRelaunchUntil !== null
+        && now <= session.intentionalCodexRelaunchUntil;
+      const intentionalReason = intentionalRelaunch ? (session.intentionalCodexRelaunchReason || "unknown") : null;
+      if (session.intentionalCodexRelaunchUntil !== null) {
+        session.intentionalCodexRelaunchUntil = null;
+        session.intentionalCodexRelaunchReason = null;
+      }
       for (const [reqId] of session.pendingPermissions) {
         this.broadcastToBrowsers(session, { type: "permission_cancelled", request_id: reqId });
       }
@@ -2274,24 +2291,29 @@ export class WsBridge {
       this.onSessionActivityStateChanged(session.id, "codex_disconnect_permissions_cleared");
       session.pendingQuestCommands.clear();
       session.codexAdapter = null;
-      const now = Date.now();
-      if (
-        session.lastAdapterFailureAt !== null
-        && now - session.lastAdapterFailureAt > ADAPTER_FAILURE_RESET_WINDOW_MS
-      ) {
-        session.consecutiveAdapterFailures = 0;
+      if (!intentionalRelaunch) {
+        if (
+          session.lastAdapterFailureAt !== null
+          && now - session.lastAdapterFailureAt > ADAPTER_FAILURE_RESET_WINDOW_MS
+        ) {
+          session.consecutiveAdapterFailures = 0;
+        }
+        session.lastAdapterFailureAt = now;
+        session.consecutiveAdapterFailures++;
       }
-      session.lastAdapterFailureAt = now;
-      session.consecutiveAdapterFailures++;
       this.setGenerating(session, false, "codex_disconnect");
       this.persistSession(session);
       const idleKilled = this.launcher?.getSession(sessionId)?.killedByIdleManager;
-      console.log(`[ws-bridge] Codex adapter disconnected for session ${sessionTag(sessionId)}${idleKilled ? " (idle limit)" : ""} (consecutive failures: ${session.consecutiveAdapterFailures})`);
+      console.log(
+        `[ws-bridge] Codex adapter disconnected for session ${sessionTag(sessionId)}${idleKilled ? " (idle limit)" : ""}`
+        + `${intentionalReason ? ` (intentional relaunch: ${intentionalReason})` : ""}`
+        + ` (consecutive failures: ${session.consecutiveAdapterFailures})`,
+      );
       this.broadcastToBrowsers(session, {
         type: "cli_disconnected",
         ...(idleKilled ? { reason: "idle_limit" as const } : {}),
       });
-      if (wasGenerating && !idleKilled) {
+      if (wasGenerating && !idleKilled && !intentionalRelaunch) {
         this.setAttention(session, "error");
       }
 
@@ -2299,6 +2321,8 @@ export class WsBridge {
       // actively connected. Without this, the UI can remain disconnected until
       // either the process exits by itself or the browser reconnects.
       if (
+        !intentionalRelaunch
+        &&
         !idleKilled
         && this.onCLIRelaunchNeeded
         && session.browserSockets.size > 0
@@ -2308,7 +2332,7 @@ export class WsBridge {
       ) {
         console.log(`[ws-bridge] Codex adapter disconnected for active browser; requesting relaunch for session ${sessionTag(sessionId)} (attempt ${session.consecutiveAdapterFailures}/${MAX_ADAPTER_RELAUNCH_FAILURES})`);
         this.onCLIRelaunchNeeded(sessionId);
-      } else if (session.consecutiveAdapterFailures > MAX_ADAPTER_RELAUNCH_FAILURES) {
+      } else if (!intentionalRelaunch && session.consecutiveAdapterFailures > MAX_ADAPTER_RELAUNCH_FAILURES) {
         console.error(`[ws-bridge] Codex adapter for session ${sessionTag(sessionId)} exceeded ${MAX_ADAPTER_RELAUNCH_FAILURES} consecutive failures — stopping auto-relaunch`);
         this.broadcastToBrowsers(session, {
           type: "error",
@@ -4880,7 +4904,7 @@ export class WsBridge {
       session: { model: nextModel },
     });
     this.persistSession(session);
-    this.onSessionRelaunchRequested?.(session.id);
+    this.requestCodexIntentionalRelaunch(session, "set_model");
   }
 
   private handleSetPermissionMode(session: Session, mode: string) {
@@ -4984,9 +5008,7 @@ export class WsBridge {
     // the permission responses above. The relaunch kills the old process
     // synchronously (SIGTERM), so without this delay the responses would be
     // enqueued but never flushed to the Codex process stdin.
-    setTimeout(() => {
-      this.onSessionRelaunchRequested?.(session.id);
-    }, 100);
+    this.requestCodexIntentionalRelaunch(session, "set_permission_mode", 100);
   }
 
   private handleCodexSetReasoningEffort(session: Session, effort: string) {
@@ -5001,7 +5023,7 @@ export class WsBridge {
       session: { codex_reasoning_effort: next },
     });
     this.persistSession(session);
-    this.onSessionRelaunchRequested?.(session.id);
+    this.requestCodexIntentionalRelaunch(session, "set_codex_reasoning_effort");
   }
 
   private handleSetAskPermission(session: Session, askPermission: boolean) {
@@ -5022,7 +5044,7 @@ export class WsBridge {
         session: { askPermission, permissionMode: newMode, uiMode },
       });
       this.persistSession(session);
-      this.onSessionRelaunchRequested?.(session.id);
+      this.requestCodexIntentionalRelaunch(session, "set_ask_permission");
       return;
     }
 
@@ -5038,6 +5060,17 @@ export class WsBridge {
     this.persistSession(session);
     // Trigger CLI restart with the new permission mode
     this.onPermissionModeChanged?.(session.id, newMode);
+  }
+
+  private requestCodexIntentionalRelaunch(session: Session, reason: string, delayMs = 0): void {
+    const guardMs = Math.max(CODEX_INTENTIONAL_RELAUNCH_GUARD_MS, delayMs + 5_000);
+    session.intentionalCodexRelaunchUntil = Date.now() + guardMs;
+    session.intentionalCodexRelaunchReason = reason;
+    if (delayMs > 0) {
+      setTimeout(() => this.onSessionRelaunchRequested?.(session.id), delayMs);
+      return;
+    }
+    this.onSessionRelaunchRequested?.(session.id);
   }
 
   // ── Control response handling ─────────────────────────────────────────

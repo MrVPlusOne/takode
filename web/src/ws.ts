@@ -11,6 +11,7 @@ const reconnectAttempts = new Map<string, number>();
 const heartbeatIntervals = new Map<string, ReturnType<typeof setInterval>>();
 const lastSeqBySession = new Map<string, number>();
 const taskCounters = new Map<string, number>();
+const pendingCliDisconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
 /** Track processed tool_use IDs to prevent duplicate task creation */
 const processedToolUseIds = new Map<string, Set<string>>();
 
@@ -20,6 +21,24 @@ const HEARTBEAT_INTERVAL_MS = 30_000;
 const MAX_RECONNECT_DELAY_MS = 30_000;
 /** Base reconnect delay */
 const BASE_RECONNECT_DELAY_MS = 2_000;
+/** Delay transient cli_disconnected flips to avoid sidebar flicker during fast relaunches. */
+const CLI_DISCONNECT_DEBOUNCE_MS = 250;
+
+function clearPendingCliDisconnect(sessionId: string): void {
+  const timer = pendingCliDisconnectTimers.get(sessionId);
+  if (!timer) return;
+  clearTimeout(timer);
+  pendingCliDisconnectTimers.delete(sessionId);
+}
+
+function applyCliDisconnected(sessionId: string, reason: "idle_limit" | null): void {
+  const store = useStore.getState();
+  store.setCliConnected(sessionId, false);
+  store.setCliDisconnectReason(sessionId, reason);
+  store.setSessionStatus(sessionId, null);
+  store.clearStreamingState(sessionId);
+  store.clearToolProgress(sessionId);
+}
 
 function normalizePath(path: string): string {
   const isAbs = path.startsWith("/");
@@ -849,15 +868,18 @@ function handleParsedMessage(
     }
 
     case "cli_disconnected": {
-      store.setCliConnected(sessionId, false);
-      store.setCliDisconnectReason(sessionId, data.reason ?? null);
-      store.setSessionStatus(sessionId, null);
-      store.clearStreamingState(sessionId);
-      store.clearToolProgress(sessionId);
+      clearPendingCliDisconnect(sessionId);
+      const reason = data.reason ?? null;
+      const timer = setTimeout(() => {
+        pendingCliDisconnectTimers.delete(sessionId);
+        applyCliDisconnected(sessionId, reason);
+      }, CLI_DISCONNECT_DEBOUNCE_MS);
+      pendingCliDisconnectTimers.set(sessionId, timer);
       break;
     }
 
     case "cli_connected": {
+      clearPendingCliDisconnect(sessionId);
       store.setCliConnected(sessionId, true);
       break;
     }
@@ -1242,6 +1264,7 @@ function scheduleReconnect(sessionId: string) {
 }
 
 export function disconnectSession(sessionId: string) {
+  clearPendingCliDisconnect(sessionId);
   const timer = reconnectTimers.get(sessionId);
   if (timer) {
     clearTimeout(timer);
@@ -1263,6 +1286,9 @@ export function disconnectSession(sessionId: string) {
 }
 
 export function disconnectAll() {
+  for (const [id] of pendingCliDisconnectTimers) {
+    clearPendingCliDisconnect(id);
+  }
   for (const [id] of sockets) {
     disconnectSession(id);
   }
