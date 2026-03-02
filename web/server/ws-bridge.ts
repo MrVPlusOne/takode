@@ -2598,11 +2598,39 @@ export class WsBridge {
         console.log(`[ws-bridge] SDK adapter disconnected for active browser; requesting relaunch for session ${sessionTag(sessionId)} (attempt ${session.consecutiveAdapterFailures}/${MAX_ADAPTER_RELAUNCH_FAILURES})`);
         this.onCLIRelaunchNeeded(sessionId);
       } else if (session.consecutiveAdapterFailures > MAX_ADAPTER_RELAUNCH_FAILURES) {
-        console.error(`[ws-bridge] SDK adapter for session ${sessionTag(sessionId)} exceeded ${MAX_ADAPTER_RELAUNCH_FAILURES} consecutive failures — stopping auto-relaunch`);
-        this.broadcastToBrowsers(session, {
-          type: "error",
-          message: `Session stopped after ${MAX_ADAPTER_RELAUNCH_FAILURES} consecutive launch failures. Use the relaunch button to try again.`,
-        });
+        // SDK crash-looped — revert to WebSocket backend and try one more relaunch.
+        // This recovers from corrupted SDK sessions (e.g. failed transport upgrades
+        // that leave backendType as "claude-sdk" but the SDK can't resume).
+        const launcherInfo = this.launcher?.getSession(sessionId);
+        if (
+          launcherInfo
+          && !idleKilled
+          && this.onCLIRelaunchNeeded
+          && session.browserSockets.size > 0
+          && this.sessions.get(sessionId) === session
+        ) {
+          console.warn(`[ws-bridge] SDK adapter for session ${sessionTag(sessionId)} exceeded ${MAX_ADAPTER_RELAUNCH_FAILURES} consecutive failures — reverting to WebSocket backend`);
+          // Revert backend type in both ws-bridge session and launcher state
+          session.backendType = "claude";
+          session.state.backend_type = "claude";
+          launcherInfo.backendType = "claude";
+          // Reset failure counter so WebSocket relaunch isn't immediately blocked
+          session.consecutiveAdapterFailures = 0;
+          session.lastAdapterFailureAt = null;
+          // Notify browsers about the backend switch
+          this.broadcastSessionUpdate(sessionId, { backend_type: "claude" });
+          this.broadcastToBrowsers(session, {
+            type: "error",
+            message: "SDK backend crash-looped — reverting to WebSocket mode.",
+          });
+          this.onCLIRelaunchNeeded(sessionId);
+        } else {
+          console.error(`[ws-bridge] SDK adapter for session ${sessionTag(sessionId)} exceeded ${MAX_ADAPTER_RELAUNCH_FAILURES} consecutive failures — stopping auto-relaunch`);
+          this.broadcastToBrowsers(session, {
+            type: "error",
+            message: `Session stopped after ${MAX_ADAPTER_RELAUNCH_FAILURES} consecutive launch failures. Use the relaunch button to try again.`,
+          });
+        }
       }
     });
 
