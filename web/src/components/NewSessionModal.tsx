@@ -103,7 +103,11 @@ export function NewSessionModal({ open, onClose }: { open: boolean; onClose: () 
   const [gitRepoInfo, setGitRepoInfo] = useState<GitRepoInfo | null>(null);
   const [repoInfoLoading, setRepoInfoLoading] = useState(false);
   const [useWorktree, setUseWorktree] = useState(
-    () => scopedGetItem("cc-worktree") === "true",
+    () => {
+      const stored = scopedGetItem("cc-worktree");
+      // Default to true (matching takode spawn behavior) when not explicitly set.
+      return stored === null ? true : stored === "true";
+    },
   );
   const [assistantMode, setAssistantMode] = useState(false);
   const [sessionRole, setSessionRole] = useState<"worker" | "orchestrator">("worker");
