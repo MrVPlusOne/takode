@@ -1302,7 +1302,16 @@ async function handleSearch(base: string, args: string[]): Promise<void> {
     return (m?.[1] ?? context).trim();
   };
 
-  const results = searchResp.results.map((match) => {
+  type SearchResultRow = {
+    session: (typeof sessions)[number] | undefined;
+    match: (typeof searchResp.results)[number];
+    matchReason: string;
+    snippet: string;
+    messageId: string | null;
+    matchedFieldLabel: string;
+  };
+
+  const mappedResults: SearchResultRow[] = searchResp.results.map((match) => {
     const session = sessionsById.get(match.sessionId);
     const fallbackName = session?.name || "(unnamed)";
     const snippet = match.messageMatch?.snippet?.trim()
@@ -1320,9 +1329,15 @@ async function handleSearch(base: string, args: string[]): Promise<void> {
     };
   });
 
+  const results = mappedResults.filter((row): row is SearchResultRow & { session: (typeof sessions)[number] } => {
+    if (!row.session) return false; // Drop stale search rows that no longer map to a visible session.
+    if (showAll) return true;
+    return !row.session.archived && row.session.state !== "exited";
+  });
+
   if (jsonMode) {
     console.log(JSON.stringify(results.map((r) => ({
-      ...(r.session ?? { sessionId: r.match.sessionId }),
+      ...r.session,
       matchedField: r.match.matchedField,
       matchReason: r.matchReason,
       matchContext: r.match.matchContext,
@@ -1343,15 +1358,13 @@ async function handleSearch(base: string, args: string[]): Promise<void> {
 
   for (const row of results) {
     const s = row.session;
-    const num = s?.sessionNum !== undefined ? `#${s.sessionNum}` : "  ";
-    const name = s?.name || "(unnamed)";
-    const status = s
-      ? (s.cliConnected
-        ? (s.state === "running" ? "●" : "○")
-        : (s.archived ? "⊘" : "✗"))
-      : "?";
-    const activity = s?.lastActivityAt ? formatRelativeTime(s.lastActivityAt) : "";
-    const sessionRef = s?.sessionNum != null ? String(s.sessionNum) : row.match.sessionId;
+    const num = s.sessionNum !== undefined ? `#${s.sessionNum}` : "  ";
+    const name = s.name || "(unnamed)";
+    const status = s.cliConnected
+      ? (s.state === "running" ? "●" : "○")
+      : (s.archived ? "⊘" : "✗");
+    const activity = s.lastActivityAt ? formatRelativeTime(s.lastActivityAt) : "";
+    const sessionRef = s.sessionNum != null ? String(s.sessionNum) : s.sessionId;
 
     console.log(`  ${num.padEnd(5)} ${status} ${name}`);
     console.log(`        field: ${row.matchedFieldLabel}  reason: ${row.matchReason}`);

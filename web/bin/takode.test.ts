@@ -275,7 +275,7 @@ describe("takode spawn", () => {
 });
 
 describe("takode search", () => {
-  it("uses server-side session search and shows field/reason/snippet/message id", async () => {
+  it("uses server-side session search, excludes exited by default, and shows field/reason/snippet/message id", async () => {
     const searchRequests: URL[] = [];
     const server = createServer((req, res) => {
       const method = req.method || "";
@@ -294,6 +294,17 @@ describe("takode search", () => {
             createdAt: Date.now() - 60_000,
             lastActivityAt: Date.now() - 5_000,
             cliConnected: true,
+          },
+          {
+            sessionId: "worker-exited",
+            sessionNum: 70,
+            name: "Exited worker",
+            state: "exited",
+            archived: false,
+            cwd: "/repo",
+            createdAt: Date.now() - 60_000,
+            lastActivityAt: Date.now() - 5_000,
+            cliConnected: false,
           },
         ]));
         return;
@@ -324,6 +335,13 @@ describe("takode search", () => {
                 snippet: "auth token is missing in env",
               },
             },
+            {
+              sessionId: "worker-exited",
+              score: 480,
+              matchedField: "name",
+              matchContext: "name: Exited worker",
+              matchedAt: Date.now() - 3000,
+            },
           ],
         }));
         return;
@@ -348,10 +366,69 @@ describe("takode search", () => {
     expect(searchRequests).toHaveLength(1);
     expect(searchRequests[0]?.searchParams.get("q")).toBe("auth");
     expect(searchRequests[0]?.searchParams.get("includeArchived")).toBe("false");
+    expect(result.stdout).not.toContain("Exited worker");
     expect(result.stdout).toContain("field: message");
     expect(result.stdout).toContain("reason: message: auth token is missing in env");
     expect(result.stdout).toContain("snippet: auth token is missing in env");
     expect(result.stdout).toContain("message id: m-42 (takode peek 7 --from m-42)");
+  });
+
+  it("drops stale search rows when session id is missing from takode session list", async () => {
+    const server = createServer((req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/sessions") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify([]));
+        return;
+      }
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-1", isOrchestrator: true }));
+        return;
+      }
+      if (method === "GET" && url.startsWith("/api/sessions/search?")) {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({
+          query: "auth",
+          tookMs: 2,
+          totalMatches: 1,
+          results: [
+            {
+              sessionId: "deleted-worker",
+              score: 500,
+              matchedField: "user_message",
+              matchContext: "message: should not render",
+              matchedAt: Date.now() - 5000,
+              messageMatch: {
+                id: "m-stale-1",
+                timestamp: Date.now() - 5000,
+                snippet: "should not render",
+              },
+            },
+          ],
+        }));
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    const result = await runTakode(["search", "auth", "--json", "--port", String(port)], {
+      ...process.env,
+      COMPANION_SESSION_ID: "leader-1",
+      COMPANION_AUTH_TOKEN: "auth-1",
+    });
+
+    server.close();
+
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual([]);
   });
 
   it("keeps archived sessions enabled for --all and exposes match metadata in --json output", async () => {
