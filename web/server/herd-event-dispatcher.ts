@@ -40,12 +40,12 @@ export interface LauncherHandle {
  *  session_disconnected is excluded — disconnects are transient (CLI reconnects
  *  every 5 minutes for token refresh) and auto-relaunch handles recovery.
  *  Delivering disconnect events would flood the leader with noise.
- *  user_message is excluded — individual messages are noisy and truncated.
- *  Instead, user message count + IDs are included in the turn_end event
- *  so the leader can peek at specific messages via [msg-id] if needed. */
+ *  user_message is included so the leader knows when a human directly steers
+ *  a worker. Leader-echo suppression (below) prevents the leader's own
+ *  injected messages from bouncing back. */
 const ACTIONABLE_EVENTS = new Set<TakodeEventType>([
   "turn_end", "permission_request", "permission_resolved",
-  "session_error",
+  "session_error", "user_message",
 ]);
 
 const DEBOUNCE_MS = 500;

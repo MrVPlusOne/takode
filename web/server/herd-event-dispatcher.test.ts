@@ -179,7 +179,9 @@ describe("HerdEventDispatcher", () => {
     dispatcher.destroy();
   });
 
-  it("filters user_message events (deferred to turn_end)", () => {
+  it("delivers direct human user_message events to the leader", () => {
+    // When a human sends a message directly to a worker via the browser,
+    // the leader should be notified so it can adjust coordination.
     const { bridge, launcher } = createMocks();
     const dispatcher = new HerdEventDispatcher(bridge, launcher);
     dispatcher.setupForOrchestrator("orch-1");
@@ -192,13 +194,17 @@ describe("HerdEventDispatcher", () => {
     }));
     vi.advanceTimersByTime(600);
 
-    // user_message is no longer an actionable event — filtered out
-    expect(bridge.injectUserMessage).not.toHaveBeenCalled();
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+    const content = vi.mocked(bridge.injectUserMessage).mock.calls[0][1];
+    expect(content).toContain("user_message");
+    expect(content).toContain("please check latest logs");
 
     dispatcher.destroy();
   });
 
-  it("filters user_message echo events (all user_messages are deferred)", () => {
+  it("suppresses leader-echo user_message events", () => {
+    // When the leader sends a message to a worker, the event fires back —
+    // suppress it since the leader already knows what it sent.
     const { bridge, launcher } = createMocks();
     const dispatcher = new HerdEventDispatcher(bridge, launcher);
     dispatcher.setupForOrchestrator("orch-1");
