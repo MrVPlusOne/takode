@@ -1070,6 +1070,17 @@ describe("POST /api/sessions/:id/relaunch", () => {
     const json = await res.json();
     expect(json.error).toContain("Session not found");
   });
+
+  // Regression: result.error?.includes() throws in minified builds when error is undefined.
+  // Using explicit && guard prevents "undefined is not an object (evaluating H.includes)".
+  it("returns 503 (not crash) when relaunch error message is undefined", async () => {
+    launcher.getSession.mockReturnValue({ sessionId: "s1", state: "exited", cwd: "/test", createdAt: Date.now() });
+    launcher.relaunch.mockResolvedValue({ ok: false }); // no error property
+    const res = await app.request("/api/sessions/s1/relaunch", { method: "POST" });
+    expect(res.status).toBe(503);
+    const json = await res.json();
+    expect(json.error).toBe("Relaunch failed");
+  });
 });
 
 describe("DELETE /api/sessions/:id", () => {

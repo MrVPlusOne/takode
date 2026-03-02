@@ -490,7 +490,7 @@ export class SessionStore {
 
   /** Persist launcher state (separate file). */
   saveLauncher(data: unknown): void {
-    const p = writeFile(join(this.dir, "launcher.json"), JSON.stringify(data), "utf-8")
+    const p = writeFile(join(this.dir, "launcher.json"), JSON.stringify(data, null, 2), "utf-8")
       .catch((err) => { console.error("[session-store] Failed to save launcher state:", err); })
       .finally(() => { this.inflightWrites.delete(p); });
     this.inflightWrites.add(p);

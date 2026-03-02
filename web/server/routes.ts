@@ -1681,7 +1681,7 @@ export function createRoutes(
 
     const result = await launcher.relaunch(id);
     if (!result.ok) {
-      const status = result.error?.includes("not found") || result.error?.includes("Session not found") ? 404 : 503;
+      const status = (result.error && (result.error.includes("not found") || result.error.includes("Session not found"))) ? 404 : 503;
       return c.json({ error: result.error || "Relaunch failed" }, status);
     }
     return c.json({ ok: true });
@@ -1694,7 +1694,7 @@ export function createRoutes(
 
     const result = await launcher.upgradeToSdk(id);
     if (!result.ok) {
-      const status = result.error?.includes("not found") ? 404 : 400;
+      const status = (result.error && result.error.includes("not found")) ? 404 : 400;
       return c.json({ error: result.error }, status);
     }
 
