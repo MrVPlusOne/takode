@@ -340,9 +340,12 @@ export class ClaudeSdkAdapter {
         if (pending) {
           this.pendingPermissions.delete(requestId);
           if (behavior === "allow") {
+            const updatedInput = (msg as any).updated_input;
             pending.resolve({
               behavior: "allow",
-              updatedInput: (msg as any).updated_input,
+              // Only include updatedInput when defined — the SDK's Zod schema
+              // rejects explicit `undefined` (expects Record or absent).
+              ...(updatedInput !== undefined ? { updatedInput } : {}),
             });
           } else {
             pending.resolve({
