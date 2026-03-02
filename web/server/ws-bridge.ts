@@ -641,21 +641,20 @@ function resolveResultContextWindow(
   return resolved > 0 ? resolved : undefined;
 }
 
-function computeResultContextUsedPercent(
-  model: string | undefined,
-  msg: CLIResultMessage,
-): number | undefined {
-  const contextWindow = resolveResultContextWindow(model, msg.modelUsage);
-  if (!contextWindow) return undefined;
+/** Token usage fields shared between assistant and result messages. */
+interface TokenUsage {
+  input_tokens?: number;
+  output_tokens?: number;
+  cache_creation_input_tokens?: number;
+  cache_read_input_tokens?: number;
+}
 
-  const usage = msg.usage as {
-    input_tokens?: number;
-    output_tokens?: number;
-    cache_creation_input_tokens?: number;
-    cache_read_input_tokens?: number;
-  } | undefined;
-  if (!usage) return undefined;
-
+/**
+ * Compute context fill % from token usage and a context window size.
+ * Total tokens in context = input_tokens + cache_creation + cache_read + output_tokens.
+ * These fields are mutually exclusive components (input_tokens excludes cached portions).
+ */
+function computeContextUsedPercent(usage: TokenUsage, contextWindow: number): number | undefined {
   const usedInContext =
     Number(usage.input_tokens || 0)
     + Number(usage.cache_creation_input_tokens || 0)
@@ -665,6 +664,32 @@ function computeResultContextUsedPercent(
 
   const pct = Math.round((usedInContext / contextWindow) * 100);
   return clampPercent(pct);
+}
+
+/**
+ * Compute context_used_percent from a turn result. Prefers the last assistant
+ * message's per-turn usage (accurate context fill for one API call) over the
+ * result message's cumulative session-total usage (which grows unbounded and
+ * was the source of the inaccuracy bug — see q-86).
+ */
+function computeResultContextUsedPercent(
+  model: string | undefined,
+  msg: CLIResultMessage,
+  lastAssistantUsage: TokenUsage | undefined,
+): number | undefined {
+  const contextWindow = resolveResultContextWindow(model, msg.modelUsage);
+  if (!contextWindow) return undefined;
+
+  // Prefer per-turn assistant usage — it reflects what actually fit in the
+  // context window for the most recent API call.
+  if (lastAssistantUsage) {
+    return computeContextUsedPercent(lastAssistantUsage, contextWindow);
+  }
+
+  // Fallback: use the result's usage (cumulative). Still better than nothing
+  // for the first turn or when assistant usage isn't available.
+  if (!msg.usage) return undefined;
+  return computeContextUsedPercent(msg.usage, contextWindow);
 }
 
 // ─── Bridge ───────────────────────────────────────────────────────────────────
@@ -3461,7 +3486,15 @@ export class WsBridge {
     session.state.total_cost_usd = msg.total_cost_usd;
     session.state.num_turns = msg.num_turns;
 
-    const nextContextPct = computeResultContextUsedPercent(session.state.model, msg);
+    // Extract per-turn usage from the last top-level assistant message.
+    // This is the accurate context fill for the most recent API call, unlike
+    // msg.usage which is cumulative across the entire session.
+    const lastAssistant = session.messageHistory.findLast(
+      (m) => m.type === "assistant" && (m as { parent_tool_use_id?: string | null }).parent_tool_use_id == null,
+    ) as { message?: { usage?: TokenUsage } } | undefined;
+    const lastAssistantUsage = lastAssistant?.message?.usage;
+
+    const nextContextPct = computeResultContextUsedPercent(session.state.model, msg, lastAssistantUsage);
     if (typeof nextContextPct === "number") {
       session.state.context_used_percent = nextContextPct;
     }
