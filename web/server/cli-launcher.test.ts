@@ -1700,6 +1700,21 @@ describe("symlinkProjectSettings", () => {
   });
 });
 
+describe("injectOrchestratorGuardrails", () => {
+  it("documents the session markdown link format for chat references", async () => {
+    const cwd = "/tmp/main-repo/orchestrator";
+    await launcher.injectOrchestratorGuardrails(cwd, 3456);
+
+    const claudeWrite = mockWriteFileSync.mock.calls.find(
+      (c: any[]) => String(c[0]).endsWith("/.claude/CLAUDE.md"),
+    );
+    expect(claudeWrite).toBeDefined();
+    const content = String(claudeWrite![1]);
+    expect(content).toContain("[#N](session:N)");
+    expect(content).toContain("[#5](session:5)");
+  });
+});
+
 // ─── Cat herding (orchestrator→worker relationships) ────────────────────────
 
 describe("cat herding", () => {

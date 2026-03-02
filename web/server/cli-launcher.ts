@@ -1535,6 +1535,8 @@ Output format for each session:
 - \`wt\` — worktree session indicator
 - Last activity timestamp and message preview
 
+When referencing a session in chat responses, use markdown links in the format \`[#N](session:N)\` (example: \`[#5](session:5)\`).
+
 ### \`takode search <query> [--all] [--json]\`
 
 Search sessions by name, keyword, task title, branch, message, or path.

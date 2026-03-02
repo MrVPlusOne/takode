@@ -1,6 +1,10 @@
-import { useRef, useCallback, type ComponentProps, type ReactNode } from "react";
+import { useRef, useCallback, useMemo, useState, useEffect, type ComponentProps, type MouseEvent, type ReactNode } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { useStore, countUserPermissions } from "../store.js";
+import { navigateToSession, sessionHash } from "../utils/routing.js";
+import { SessionHoverCard } from "./SessionHoverCard.js";
+import type { SessionItem as SessionItemType } from "../utils/project-grouping.js";
 import { CodeCopyButton } from "./CodeCopyButton.js";
 import { withQuestIdInHash } from "../utils/routing.js";
 
@@ -20,8 +24,21 @@ function parseQuestIdFromHref(href?: string): string | null {
   return null;
 }
 
+function parseSessionNumFromHref(href?: string): number | null {
+  if (!href) return null;
+  const trimmed = href.trim();
+
+  const sessionScheme = trimmed.match(/^session:(\d+)$/i);
+  if (sessionScheme) return Number.parseInt(sessionScheme[1], 10);
+
+  const sessionUri = trimmed.match(/^session:\/\/(\d+)$/i);
+  if (sessionUri) return Number.parseInt(sessionUri[1], 10);
+
+  return null;
+}
+
 function transformMarkdownUrl(url: string): string {
-  if (parseQuestIdFromHref(url)) return url;
+  if (parseQuestIdFromHref(url) || parseSessionNumFromHref(url) != null) return url;
   // Block dangerous protocols while preserving normal links.
   const normalized = url.toLowerCase().replace(/[\u0000-\u001f\u007f\s]+/g, "");
   if (
@@ -89,6 +106,14 @@ export function MarkdownContent({ text, size = "default" }: { text: string; size
                 </a>
               );
             }
+            const sessionNum = parseSessionNumFromHref(href);
+            if (sessionNum != null) {
+              return (
+                <SessionMarkdownLink sessionNum={sessionNum}>
+                  {children}
+                </SessionMarkdownLink>
+              );
+            }
             return (
               <a href={href} target="_blank" rel="noopener noreferrer" className="text-cc-primary hover:underline">
                 {children}
@@ -144,6 +169,140 @@ export function MarkdownContent({ text, size = "default" }: { text: string; size
         {text}
       </Markdown>
     </div>
+  );
+}
+
+function SessionMarkdownLink({ sessionNum, children }: { sessionNum: number; children: ReactNode }) {
+  const sessions = useStore((s) => s.sessions);
+  const sdkSessions = useStore((s) => s.sdkSessions);
+  const sessionNames = useStore((s) => s.sessionNames);
+  const sessionPreviews = useStore((s) => s.sessionPreviews);
+  const sessionTaskHistory = useStore((s) => s.sessionTaskHistory);
+  const pendingPermissions = useStore((s) => s.pendingPermissions);
+  const cliConnected = useStore((s) => s.cliConnected);
+  const sessionStatus = useStore((s) => s.sessionStatus);
+  const askPermission = useStore((s) => s.askPermission);
+  const cliDisconnectReason = useStore((s) => s.cliDisconnectReason);
+
+  const [hoverRect, setHoverRect] = useState<DOMRect | null>(null);
+  const hideHoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (hideHoverTimerRef.current) clearTimeout(hideHoverTimerRef.current);
+  }, []);
+
+  const sdkInfo = useMemo(
+    () => sdkSessions.find((session) => session.sessionNum === sessionNum),
+    [sdkSessions, sessionNum],
+  );
+  const sessionId = sdkInfo?.sessionId ?? null;
+
+  const sessionItem = useMemo<SessionItemType | null>(() => {
+    if (!sessionId) return null;
+
+    const bridgeState = sessions.get(sessionId);
+    const sdkGitAhead = sdkInfo?.gitAhead ?? 0;
+    const sdkGitBehind = sdkInfo?.gitBehind ?? 0;
+    const gitAhead = bridgeState?.git_ahead === 0 && sdkGitAhead > 0
+      ? sdkGitAhead
+      : (bridgeState?.git_ahead ?? sdkGitAhead);
+    const gitBehind = bridgeState?.git_behind === 0 && sdkGitBehind > 0
+      ? sdkGitBehind
+      : (bridgeState?.git_behind ?? sdkGitBehind);
+
+    return {
+      id: sessionId,
+      model: bridgeState?.model || sdkInfo?.model || "",
+      cwd: bridgeState?.cwd || sdkInfo?.cwd || "",
+      gitBranch: bridgeState?.git_branch || sdkInfo?.gitBranch || "",
+      isContainerized: bridgeState?.is_containerized || !!sdkInfo?.containerId || false,
+      gitAhead,
+      gitBehind,
+      linesAdded: bridgeState?.total_lines_added ?? sdkInfo?.totalLinesAdded ?? 0,
+      linesRemoved: bridgeState?.total_lines_removed ?? sdkInfo?.totalLinesRemoved ?? 0,
+      isConnected: cliConnected.get(sessionId) ?? sdkInfo?.cliConnected ?? false,
+      status: sessionStatus.get(sessionId) ?? null,
+      sdkState: sdkInfo?.state ?? null,
+      createdAt: sdkInfo?.createdAt ?? 0,
+      archived: sdkInfo?.archived ?? false,
+      archivedAt: sdkInfo?.archivedAt,
+      backendType: bridgeState?.backend_type || sdkInfo?.backendType || "claude",
+      repoRoot: bridgeState?.repo_root || sdkInfo?.repoRoot || "",
+      permCount: countUserPermissions(pendingPermissions.get(sessionId)),
+      cronJobId: bridgeState?.cronJobId || sdkInfo?.cronJobId,
+      cronJobName: bridgeState?.cronJobName || sdkInfo?.cronJobName,
+      isWorktree: bridgeState?.is_worktree || sdkInfo?.isWorktree || false,
+      worktreeExists: sdkInfo?.worktreeExists,
+      worktreeDirty: sdkInfo?.worktreeDirty,
+      askPermission: askPermission.get(sessionId),
+      idleKilled: cliDisconnectReason.get(sessionId) === "idle_limit",
+      lastActivityAt: sdkInfo?.lastActivityAt,
+      isOrchestrator: sdkInfo?.isOrchestrator || false,
+      herdedBy: sdkInfo?.herdedBy,
+      sessionNum: sdkInfo?.sessionNum ?? null,
+    };
+  }, [
+    askPermission,
+    cliConnected,
+    cliDisconnectReason,
+    pendingPermissions,
+    sdkInfo,
+    sessionId,
+    sessionStatus,
+    sessions,
+  ]);
+
+  function handleLinkMouseEnter(e: MouseEvent<HTMLAnchorElement>) {
+    if (!sessionItem) return;
+    if (hideHoverTimerRef.current) clearTimeout(hideHoverTimerRef.current);
+    setHoverRect(e.currentTarget.getBoundingClientRect());
+  }
+
+  function handleLinkMouseLeave() {
+    if (hideHoverTimerRef.current) clearTimeout(hideHoverTimerRef.current);
+    hideHoverTimerRef.current = setTimeout(() => setHoverRect(null), 100);
+  }
+
+  function handleHoverCardEnter() {
+    if (hideHoverTimerRef.current) clearTimeout(hideHoverTimerRef.current);
+  }
+
+  function handleHoverCardLeave() {
+    setHoverRect(null);
+  }
+
+  const href = sessionId ? sessionHash(sessionId) : "#";
+
+  return (
+    <>
+      <a
+        href={href}
+        onClick={(e) => {
+          e.preventDefault();
+          if (!sessionId) return;
+          navigateToSession(sessionId);
+        }}
+        onMouseEnter={handleLinkMouseEnter}
+        onMouseLeave={handleLinkMouseLeave}
+        className={sessionId ? "text-cc-primary hover:underline" : "text-cc-muted"}
+        title={sessionId ? `Open session #${sessionNum}` : `Session #${sessionNum} not found`}
+      >
+        {children}
+      </a>
+      {sessionId && sessionItem && hoverRect && (
+        <SessionHoverCard
+          session={sessionItem}
+          sessionName={sessionNames.get(sessionId)}
+          sessionPreview={sessionPreviews.get(sessionId)}
+          taskHistory={sessionTaskHistory.get(sessionId)}
+          sessionState={sessions.get(sessionId)}
+          cliSessionId={sdkInfo?.cliSessionId}
+          anchorRect={hoverRect}
+          onMouseEnter={handleHoverCardEnter}
+          onMouseLeave={handleHoverCardLeave}
+        />
+      )}
+    </>
   );
 }
 
