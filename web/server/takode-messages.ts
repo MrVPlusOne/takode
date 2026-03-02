@@ -7,6 +7,12 @@
  */
 
 import type { BrowserIncomingMessage, CLIResultMessage, ContentBlock } from "./session-types.js";
+import type { ImageRef } from "./image-store.js";
+import { join } from "node:path";
+import { homedir } from "node:os";
+
+/** Default image store base directory (must match image-store.ts). */
+const IMAGE_STORE_BASE = join(homedir(), ".companion", "images");
 
 // ─── Peek Response Types ──────────────────────────────────────────────────────
 
@@ -36,6 +42,9 @@ export interface TakodePeekMessage {
   success?: boolean;
   /** Source of the message if injected programmatically (user_message only) */
   agentSource?: { sessionId: string; sessionLabel?: string };
+  /** Disk paths of images attached to this message (user_message only).
+   *  Points to the transport-optimized JPEG files in ~/.companion/images/. */
+  imagePaths?: string[];
 }
 
 export interface TakodePeekTurn {
@@ -106,9 +115,27 @@ export interface TakodeReadResponse {
   content: string;
   /** Raw content blocks for assistant messages */
   contentBlocks?: unknown[];
+  /** Disk paths of images attached to this message (user_message only). */
+  imagePaths?: string[];
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Derive transport image file paths from ImageRefs stored in message history.
+ *  Transport images are pre-processed JPEGs (≤1536px, normalized orientation)
+ *  suitable for passing to herded workers via file path references. */
+function deriveImagePaths(sessionId: string, images: ImageRef[]): string[] {
+  const dir = join(IMAGE_STORE_BASE, sessionId);
+  return images.map((ref) => join(dir, `${ref.imageId}.transport.jpeg`));
+}
+
+/** Extract image paths from a user_message in message history, if present. */
+function extractImagePaths(sessionId: string, msg: BrowserIncomingMessage): string[] | undefined {
+  if (msg.type !== "user_message") return undefined;
+  const images = (msg as { images?: ImageRef[] }).images;
+  if (!images?.length) return undefined;
+  return deriveImagePaths(sessionId, images);
+}
 
 function truncate(s: string, max: number): string {
   if (s.length <= max) return s;
@@ -166,11 +193,20 @@ function stringifyToolResult(block: { tool_use_id: string; content: string | Con
   return `${prefix} ${content}`;
 }
 
-/** Get the full text content of any message in the history. */
-function extractFullText(msg: BrowserIncomingMessage): string {
+/** Get the full text content of any message in the history.
+ *  When sessionId is provided, user messages with images include their file paths. */
+function extractFullText(msg: BrowserIncomingMessage, sessionId?: string): string {
   switch (msg.type) {
-    case "user_message":
-      return msg.content || "";
+    case "user_message": {
+      const text = msg.content || "";
+      if (sessionId) {
+        const paths = extractImagePaths(sessionId, msg);
+        if (paths?.length) {
+          return `${text}\n[📎 ${paths.length} image${paths.length === 1 ? "" : "s"}: ${paths.join(", ")}]`;
+        }
+      }
+      return text;
+    }
 
     case "assistant": {
       const blocks = msg.message?.content || [];
@@ -332,9 +368,9 @@ function buildTurnMessages(
   messageHistory: BrowserIncomingMessage[],
   turn: TurnBoundary,
   contentLimit: number,
-  opts: { full?: boolean; endedAt?: number | null } = {},
+  opts: { full?: boolean; endedAt?: number | null; sessionId?: string } = {},
 ): TakodePeekMessage[] {
-  const { full = false, endedAt = null } = opts;
+  const { full = false, endedAt = null, sessionId } = opts;
   const startMsg = messageHistory[turn.startIdx];
   const startedAt = extractTimestamp(startMsg);
 
@@ -357,7 +393,7 @@ function buildTurnMessages(
     if (msg.type === "assistant" && msg.message?.content) {
       rawText = extractTextFromBlocks(msg.message.content);
     } else {
-      rawText = extractFullText(msg);
+      rawText = extractFullText(msg, sessionId);
     }
     const content = full ? rawText : truncate(rawText, contentLimit);
 
@@ -371,6 +407,12 @@ function buildTurnMessages(
     // Include agentSource for user messages (identifies human vs agent vs herd origin)
     if (msg.type === "user_message" && (msg as any).agentSource) {
       peekMsg.agentSource = (msg as any).agentSource;
+    }
+
+    // Include image file paths for user messages with attached images
+    if (sessionId) {
+      const paths = extractImagePaths(sessionId, msg);
+      if (paths) peekMsg.imagePaths = paths;
     }
 
     // Extract tool calls for assistant messages
@@ -410,6 +452,7 @@ function buildTurnMessages(
 export function buildPeekResponse(
   messageHistory: BrowserIncomingMessage[],
   options: PeekOptions = {},
+  sessionId?: string,
 ): TakodePeekTurn[] {
   const { turns: turnCount = 1, since = 0, full = false } = options;
   const contentLimit = 120;
@@ -440,7 +483,7 @@ export function buildPeekResponse(
       ? (durationMs && startedAt ? startedAt + durationMs : null)
       : null;
 
-    const peekMessages = buildTurnMessages(messageHistory, turn, contentLimit, { full, endedAt });
+    const peekMessages = buildTurnMessages(messageHistory, turn, contentLimit, { full, endedAt, sessionId });
 
     return {
       turnNum: allTurns.indexOf(turn),
@@ -459,6 +502,7 @@ export function buildPeekResponse(
 export function buildPeekDefault(
   messageHistory: BrowserIncomingMessage[],
   options: { collapsedCount?: number; expandLimit?: number } = {},
+  sessionId?: string,
 ): PeekDefaultResponse {
   const { collapsedCount = 5, expandLimit = 10 } = options;
   const contentLimit = 120;
@@ -542,7 +586,7 @@ export function buildPeekDefault(
     : null;
   const endedAt = durationMs && startedAt ? startedAt + durationMs : null;
 
-  const expandedMessages = buildTurnMessages(messageHistory, lastTurn, contentLimit, { endedAt });
+  const expandedMessages = buildTurnMessages(messageHistory, lastTurn, contentLimit, { endedAt, sessionId });
   const lastTurnStats = computeTurnStats(messageHistory, lastTurn.startIdx, lastTurn.endIdx);
 
   // Apply expandLimit — keep only the last N messages, track omitted count
@@ -575,6 +619,7 @@ export function buildPeekRange(
   messageHistory: BrowserIncomingMessage[],
   from: number,
   count: number = 30,
+  sessionId?: string,
 ): PeekRangeResponse {
   const totalMessages = messageHistory.length;
   const clampedFrom = Math.max(0, Math.min(from, totalMessages - 1));
@@ -600,7 +645,7 @@ export function buildPeekRange(
     if (msg.type === "assistant" && msg.message?.content) {
       rawText = extractTextFromBlocks(msg.message.content);
     } else {
-      rawText = extractFullText(msg);
+      rawText = extractFullText(msg, sessionId);
     }
     const content = truncate(rawText, contentLimit);
 
@@ -609,6 +654,12 @@ export function buildPeekRange(
     // Include agentSource for user messages (identifies human vs agent vs herd origin)
     if (msg.type === "user_message" && (msg as any).agentSource) {
       peekMsg.agentSource = (msg as any).agentSource;
+    }
+
+    // Include image file paths for user messages with attached images
+    if (sessionId) {
+      const paths = extractImagePaths(sessionId, msg);
+      if (paths) peekMsg.imagePaths = paths;
     }
 
     // Compact tool counts (not individual tool lines — use `read` for details)
@@ -670,13 +721,14 @@ export function buildReadResponse(
   messageHistory: BrowserIncomingMessage[],
   idx: number,
   options: ReadOptions = {},
+  sessionId?: string,
 ): TakodeReadResponse | null {
   if (idx < 0 || idx >= messageHistory.length) return null;
 
   const { offset = 0, limit = 200 } = options;
   const msg = messageHistory[idx];
 
-  const fullText = extractFullText(msg);
+  const fullText = extractFullText(msg, sessionId);
   const lines = fullText.split("\n");
   const paginatedLines = lines.slice(offset, offset + limit);
   let ts = extractTimestamp(msg);
@@ -701,6 +753,12 @@ export function buildReadResponse(
   // Include raw content blocks for assistant messages
   if (msg.type === "assistant" && msg.message?.content) {
     response.contentBlocks = msg.message.content;
+  }
+
+  // Include image file paths for user messages with attached images
+  if (sessionId) {
+    const paths = extractImagePaths(sessionId, msg);
+    if (paths) response.imagePaths = paths;
   }
 
   return response;

@@ -1956,7 +1956,7 @@ export function createRoutes(
       // Range browsing mode: show messages around a specific index
       const from = parseInt(fromParam, 10);
       const count = parseInt(c.req.query("count") ?? "30", 10);
-      return c.json({ ...base, ...buildPeekRange(history, from, count) });
+      return c.json({ ...base, ...buildPeekRange(history, from, count, sessionId) });
     }
 
     if (detail) {
@@ -1964,13 +1964,13 @@ export function createRoutes(
       const turns = parseInt(c.req.query("turns") ?? "1", 10);
       const since = parseInt(c.req.query("since") ?? "0", 10);
       const full = c.req.query("full") === "true";
-      return c.json({ ...base, ...{ mode: "detail" as const, turns: buildPeekResponse(history, { turns, since, full }) } });
+      return c.json({ ...base, ...{ mode: "detail" as const, turns: buildPeekResponse(history, { turns, since, full }, sessionId) } });
     }
 
     // Default mode: smart overview (collapsed recent turns + expanded last turn)
     const collapsedCount = parseInt(c.req.query("collapsed") ?? "5", 10);
     const expandLimit = parseInt(c.req.query("expand") ?? "10", 10);
-    return c.json({ ...base, ...buildPeekDefault(history, { collapsedCount, expandLimit }) });
+    return c.json({ ...base, ...buildPeekDefault(history, { collapsedCount, expandLimit }, sessionId) });
   });
 
   api.get("/sessions/:id/messages/:idx", (c) => {
@@ -1986,7 +1986,7 @@ export function createRoutes(
     const history = wsBridge.getMessageHistory(sessionId);
     if (!history) return c.json({ error: "Session not found in bridge" }, 404);
 
-    const result = buildReadResponse(history, idx, { offset, limit });
+    const result = buildReadResponse(history, idx, { offset, limit }, sessionId);
     if (!result) {
       return c.json(
         { error: `Message index ${idx} out of range (0-${history.length - 1})` },
