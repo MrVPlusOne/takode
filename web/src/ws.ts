@@ -521,6 +521,8 @@ function handleParsedMessage(
       const notifyOnResult = shouldNotifyOnResult(sessionId, store);
       // Play notification sound if enabled and tab is not focused
       if (notifyOnResult && !document.hasFocus() && store.notificationSound) {
+        const sdk = store.sdkSessions.find((s) => s.sessionId === sessionId);
+        console.log(`[notification] result sound: session=${sessionId.slice(0, 8)} isOrch=${!!sdk?.isOrchestrator} herdedBy=${sdk?.herdedBy ?? "none"}`);
         playNotificationSound();
       }
       if (notifyOnResult && !document.hasFocus() && store.notificationDesktop) {
@@ -579,6 +581,7 @@ function handleParsedMessage(
         store.pauseStreamingTimer(sessionId);
         if (!document.hasFocus() && store.notificationDesktop) {
           const req = data.request;
+          console.log(`[notification] permission_request: session=${sessionId.slice(0, 8)} tool=${req.tool_name}`);
           sendBrowserNotification(
             "Permission needed",
             `${req.tool_name}: approve or deny`,
@@ -700,6 +703,7 @@ function handleParsedMessage(
     }
 
     case "leader_group_idle": {
+      console.log(`[notification] leader_group_idle: leader=${data.leader_label} members=${data.member_count} idle_for=${data.idle_for_ms}ms focus=${document.hasFocus()} sound=${store.notificationSound}`);
       if (!document.hasFocus() && store.notificationSound) {
         playNotificationSound();
       }

@@ -1217,6 +1217,33 @@ export class WsBridge {
     return this.deriveSessionStatus(session) === "idle" && session.pendingPermissions.size === 0;
   }
 
+  /** Build per-member idle diagnostic for group idle logging. */
+  private buildGroupIdleDiag(members: string[]): { memberStates: Record<string, unknown>[]; allIdle: boolean } {
+    const memberStates: Record<string, unknown>[] = [];
+    let allIdle = true;
+    for (const memberId of members) {
+      const session = this.sessions.get(memberId);
+      const num = this.launcher?.getSessionNum?.(memberId);
+      const tag = num !== undefined ? `#${num}` : memberId.slice(0, 8);
+      if (!session) {
+        memberStates.push({ id: tag, status: "no_session" });
+        allIdle = false;
+        continue;
+      }
+      const status = this.deriveSessionStatus(session);
+      const idle = this.isIdleForLeaderGroup(session);
+      if (!idle) allIdle = false;
+      memberStates.push({
+        id: tag,
+        status,
+        generating: session.isGenerating,
+        perms: session.pendingPermissions.size,
+        idle,
+      });
+    }
+    return { memberStates, allIdle };
+  }
+
   private clearLeaderGroupIdleTimer(state: LeaderGroupIdleTimerState): void {
     if (state.timer) {
       clearTimeout(state.timer);
@@ -1273,19 +1300,34 @@ export class WsBridge {
 
     if (state.notifiedWhileIdle || state.timer) return;
     state.idleSince = Date.now();
+    const leaderNum = this.launcher?.getSessionNum?.(leaderId);
+    const leaderTag = leaderNum !== undefined ? `#${leaderNum}` : leaderId.slice(0, 8);
+    const startDiag = this.buildGroupIdleDiag(members);
+    console.log(
+      `[ws-bridge] Group idle timer started for ${leaderTag} (reason: ${reason}, members: ${members.length})` +
+      ` | ${startDiag.memberStates.map((m) => `${m.id}:${m.idle ? "idle" : m.status}`).join(", ")}`,
+    );
     state.timer = setTimeout(() => {
       state.timer = null;
       const latestMembers = this.getLeaderGroupMembers(leaderId);
-      const stillIdle = latestMembers.every((memberId) => {
-        const session = this.sessions.get(memberId);
-        if (!session) return false;
-        return this.isIdleForLeaderGroup(session);
-      });
-      if (!stillIdle || state.notifiedWhileIdle) return;
+      const fireDiag = this.buildGroupIdleDiag(latestMembers);
+      if (!fireDiag.allIdle || state.notifiedWhileIdle) {
+        console.log(
+          `[ws-bridge] Group idle timer fired but NOT notifying for ${leaderTag}` +
+          ` (allIdle=${fireDiag.allIdle}, notifiedWhileIdle=${state.notifiedWhileIdle})` +
+          ` | ${fireDiag.memberStates.map((m) => `${m.id}:${m.idle ? "idle" : m.status}`).join(", ")}`,
+        );
+        return;
+      }
+      console.log(
+        `[ws-bridge] Group idle timer fired → NOTIFYING for ${leaderTag}` +
+        ` (idle for ${state.idleSince ? Math.round((Date.now() - state.idleSince) / 1000) : "?"}s)` +
+        ` | ${fireDiag.memberStates.map((m) => `${m.id}:${m.idle ? "idle" : m.status}`).join(", ")}`,
+      );
       state.leaderUnreadSetByGroupIdle = this.emitLeaderGroupIdleNotification(leaderId, latestMembers, state.idleSince);
       state.notifiedWhileIdle = true;
     }, WsBridge.LEADER_GROUP_IDLE_NOTIFY_DELAY_MS);
-    this.recorder?.recordServerEvent(leaderId, "leader_group_idle_timer_started", { reason, members: members.length }, leaderInfo.backendType ?? "claude", leaderInfo.cwd);
+    this.recorder?.recordServerEvent(leaderId, "leader_group_idle_timer_started", { reason, members: members.length, memberStates: startDiag.memberStates }, leaderInfo.backendType ?? "claude", leaderInfo.cwd);
   }
 
   private buildLeaderGroupLabel(leaderId: string): string {
