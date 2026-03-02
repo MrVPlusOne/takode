@@ -1034,6 +1034,36 @@ describe("MessageFeed - collapsed turns", () => {
     expect(screen.getAllByText("1 message")).toHaveLength(3);
   });
 
+  it("leader mode keeps all text blocks visible for a user-addressed mixed assistant message", () => {
+    const sid = "test-leader-multi-text-boundary";
+    setStoreSdkSessionRole(sid, { isOrchestrator: true });
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Need a status update" }),
+      makeMessage({ id: "a1", role: "assistant", content: "Assigned q-777 to #4" }),
+      makeMessage({
+        id: "a2",
+        role: "assistant",
+        content: "I investigated worker logs and reproduced the failure.\nRoot cause confirmed; patch queued. @to(user)",
+        leaderUserAddressed: true,
+        contentBlocks: [
+          { type: "text", text: "I investigated worker logs and reproduced the failure." },
+          { type: "tool_use", id: "tu-200", name: "Bash", input: { command: "rg -n \"leader\" web/src/components" } },
+          { type: "text", text: "Root cause confirmed; patch queued. @to(user)" },
+        ],
+      }),
+      makeMessage({ id: "a3", role: "assistant", content: "Queued follow-up validation for #4" }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByText("I investigated worker logs and reproduced the failure.")).toBeTruthy();
+    expect(screen.getByText("Root cause confirmed; patch queued.")).toBeTruthy();
+    expect(screen.getByTestId("leader-user-addressed-marker")).toBeTruthy();
+    expect(screen.queryByText("Root cause confirmed; patch queued. @to(user)")).toBeNull();
+    expect(screen.queryByText("Assigned q-777 to #4")).toBeNull();
+    expect(screen.queryByText("Queued follow-up validation for #4")).toBeNull();
+  });
+
   it("passes defaultExpanded=false when expanding the latest collapsed row after an @to(user) boundary", () => {
     const sid = "test-leader-last-user-boundary";
     setStoreSdkSessionRole(sid, { isOrchestrator: true });

@@ -462,6 +462,26 @@ function stripLeaderAddressSuffix(text: string): string {
   return text.replace(LEADER_TAG_SUFFIX_RE, "");
 }
 
+function stripLeaderSuffixFromLastTextBlock(blocks: ContentBlock[]): ContentBlock[] {
+  let lastTextIndex = -1;
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    if (blocks[i].type === "text") {
+      lastTextIndex = i;
+      break;
+    }
+  }
+  if (lastTextIndex < 0) return blocks;
+
+  const lastTextBlock = blocks[lastTextIndex];
+  if (lastTextBlock.type !== "text") return blocks;
+  const strippedText = stripLeaderAddressSuffix(lastTextBlock.text);
+  if (strippedText === lastTextBlock.text) return blocks;
+
+  const next = blocks.slice();
+  next[lastTextIndex] = { ...lastTextBlock, text: strippedText };
+  return next;
+}
+
 function LeaderUserAddressedMarker() {
   return (
     <div
@@ -481,17 +501,7 @@ function AssistantMessage({ message, sessionId, showTimestamp }: { message: Chat
   const displayMessage = useMemo(() => {
     const strippedContent = stripLeaderAddressSuffix(message.content);
     const originalBlocks = message.contentBlocks || [];
-    let strippedBlocks = originalBlocks;
-    for (let i = originalBlocks.length - 1; i >= 0; i--) {
-      const block = originalBlocks[i];
-      if (block.type !== "text") continue;
-      const strippedText = stripLeaderAddressSuffix(block.text);
-      if (strippedText !== block.text) {
-        strippedBlocks = originalBlocks.slice();
-        strippedBlocks[i] = { ...block, text: strippedText };
-        break;
-      }
-    }
+    const strippedBlocks = stripLeaderSuffixFromLastTextBlock(originalBlocks);
 
     const contentChanged = strippedContent !== message.content;
     const blocksChanged = strippedBlocks !== originalBlocks;
