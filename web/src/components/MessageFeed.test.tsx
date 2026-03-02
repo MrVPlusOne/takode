@@ -1141,6 +1141,65 @@ describe("MessageFeed - collapsed turns", () => {
     expect(screen.getByText("npm test")).toBeTruthy();
   });
 
+  it("leader mode keeps the active latest turn expanded while streaming even with a stale collapsed override", () => {
+    const sid = "test-leader-streaming-latest-forces-expanded";
+    setStoreSdkSessionRole(sid, { isOrchestrator: true });
+    setStoreStatus(sid, "running");
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Status?" }),
+      makeMessage({ id: "a1", role: "assistant", content: "Assigned q-333 to #6" }),
+      makeMessage({
+        id: "a2",
+        role: "assistant",
+        content: "Worker #6 is implementing now. @to(user)",
+        leaderUserAddressed: true,
+      }),
+      makeMessage({
+        id: "a3",
+        role: "assistant",
+        content: "",
+        contentBlocks: [
+          { type: "tool_use", id: "tu-1", name: "Bash", input: { command: "npm test" } },
+        ],
+      }),
+    ]);
+    setStoreTurnOverrides(sid, [["a2", false]]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByText("npm test")).toBeTruthy();
+  });
+
+  it("leader mode keeps the active penultimate turn expanded during streaming despite a stale collapsed override", () => {
+    const sid = "test-leader-streaming-penultimate-forces-expanded";
+    setStoreSdkSessionRole(sid, { isOrchestrator: true });
+    setStoreStatus(sid, "running");
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Status?" }),
+      makeMessage({ id: "a1", role: "assistant", content: "Assigned q-333 to #6" }),
+      makeMessage({
+        id: "a2",
+        role: "assistant",
+        content: "Worker #6 is implementing now. @to(user)",
+        leaderUserAddressed: true,
+      }),
+      makeMessage({
+        id: "a3",
+        role: "assistant",
+        content: "",
+        contentBlocks: [
+          { type: "tool_use", id: "tu-1", name: "Bash", input: { command: "npm test" } },
+        ],
+      }),
+      makeMessage({ id: "u2", role: "user", content: "Follow-up while streaming" }),
+    ]);
+    setStoreTurnOverrides(sid, [["a2", false]]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByText("npm test")).toBeTruthy();
+  });
+
   it("leader mode shows internal messages when the activity row is expanded", () => {
     const sid = "test-leader-expand";
     setStoreSdkSessionRole(sid, { isOrchestrator: true });

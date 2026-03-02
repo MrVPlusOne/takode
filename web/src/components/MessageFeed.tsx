@@ -789,6 +789,18 @@ function getDefaultTurnExpanded(
   return isLastTurn || turn.responseEntry === null || keepExpandedDuringStreaming;
 }
 
+function shouldForceLeaderStreamingTurnExpanded(
+  turn: Turn,
+  isLastTurn: boolean,
+  keepExpandedDuringStreaming: boolean,
+  leaderMode: boolean,
+  sessionStatus: "idle" | "running" | "compacting" | "reverting" | null,
+): boolean {
+  if (!leaderMode || sessionStatus !== "running") return false;
+  if (turn.allEntries.length === 0) return false;
+  return isLastTurn || keepExpandedDuringStreaming;
+}
+
 function TurnSummaryStats({
   stats,
   durationMs,
@@ -1379,7 +1391,15 @@ const TurnEntries = memo(function TurnEntries({ turns, sessionId, leaderMode }: 
         sessionStatus === "running" && isPenultimateTurn && lastTurnIsFreshUserOnly;
       const override = overrides?.get(turn.id);
       const defaultExpanded = getDefaultTurnExpanded(turn, isLastTurn, keepExpandedDuringStreaming, leaderMode);
-      const isActivityExpanded = override !== undefined ? override : defaultExpanded;
+      const isActivityExpanded = shouldForceLeaderStreamingTurnExpanded(
+        turn,
+        isLastTurn,
+        keepExpandedDuringStreaming,
+        leaderMode,
+        sessionStatus ?? null,
+      )
+        ? true
+        : (override !== undefined ? override : defaultExpanded);
 
       if (turn.userEntry?.kind === "message" && isTimedChatMessage(turn.userEntry.msg)) {
         visibleTimedMessages.push(turn.userEntry.msg);
@@ -1412,7 +1432,15 @@ const TurnEntries = memo(function TurnEntries({ turns, sessionId, leaderMode }: 
         // Keep in-flight turns expanded for the previous-turn streaming case:
         // when the latest turn is fresh user-only and generation is still on the penultimate turn.
         const defaultExpanded = getDefaultTurnExpanded(turn, isLastTurn, keepExpandedDuringStreaming, leaderMode);
-        const isActivityExpanded = override !== undefined ? override : defaultExpanded;
+        const isActivityExpanded = shouldForceLeaderStreamingTurnExpanded(
+          turn,
+          isLastTurn,
+          keepExpandedDuringStreaming,
+          leaderMode,
+          sessionStatus ?? null,
+        )
+          ? true
+          : (override !== undefined ? override : defaultExpanded);
         const turnSummaryDuration = getTurnSummaryDurationMs(turn, turns[index + 1] ?? null, leaderMode);
 
         return (
