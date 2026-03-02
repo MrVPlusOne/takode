@@ -362,6 +362,8 @@ interface Session {
   messageCountAtTurnStart: number;
   /** Set when handleInterrupt is called during generation, cleared at turn end */
   interruptedDuringTurn: boolean;
+  /** Message history indices of user messages received during the current turn (for turn_end herd events) */
+  userMessageIdsThisTurn: number[];
   /** Whether system.init has been received since the last CLI connect.
    *  False during --resume replay — messages sent before init are dropped by CLI. */
   cliInitReceived: boolean;
@@ -1240,6 +1242,7 @@ export class WsBridge {
         questStatusAtTurnStart: null,
         messageCountAtTurnStart: 0,
         interruptedDuringTurn: false,
+        userMessageIdsThisTurn: [],
         cliInitReceived: false,
         lastCliMessageAt: 0,
         lastCliPingAt: 0,
@@ -1595,6 +1598,7 @@ export class WsBridge {
         questStatusAtTurnStart: null,
         messageCountAtTurnStart: 0,
         interruptedDuringTurn: false,
+        userMessageIdsThisTurn: [],
         cliInitReceived: false,
         lastCliMessageAt: 0,
         lastCliPingAt: 0,
@@ -2100,21 +2104,6 @@ export class WsBridge {
         this.broadcastToBrowsers(session, { type: "status_change", status: "idle" });
       }
 
-      // Track tool start times from assistant messages (for duration display).
-      // The WebSocket path does this in handleAssistantMessage; SDK messages
-      // bypass that handler, so we extract tool_use IDs here.
-      if (msg.type === "assistant") {
-        const content = (msg as any).message?.content;
-        if (Array.isArray(content)) {
-          const now = Date.now();
-          for (const block of content) {
-            if (block.type === "tool_use" && block.id && !session.toolStartTimes.has(block.id)) {
-              session.toolStartTimes.set(block.id, now);
-            }
-          }
-        }
-      }
-
       // Extract tool results from "user" messages (tool_result blocks).
       // The WebSocket path does this in handleToolResultMessage; SDK messages
       // bypass that handler, so we call it directly here.
@@ -2155,19 +2144,13 @@ export class WsBridge {
         return; // Don't broadcast yet — handleSdkPermissionRequest will broadcast
       }
 
-      // Label leader assistant messages with @to(user) addressing and store in history.
-      // The tag enforcement reminder is deferred to handleResultMessage (turn end).
+      // Route assistant messages through the unified handler so SDK sessions
+      // get the same content-block accumulation, deduplication, tool timing,
+      // and leader tag labeling as WebSocket sessions. This also ensures
+      // messageHistory persists correctly for takode peek/read and survives
+      // server restarts.
       if (msg.type === "assistant") {
-        const content = (msg as any).message?.content;
-        if (Array.isArray(content)) {
-          const addressing = this.classifyLeaderAssistantAddressing(session, content);
-          if (addressing === "user") {
-            (msg as any).leader_user_addressed = true;
-          }
-        }
-        session.messageHistory.push({ ...msg, timestamp: Date.now() });
-        this.broadcastToBrowsers(session, msg);
-        this.persistSession(session);
+        this.handleAssistantMessage(session, msg as any);
         return;
       }
 
@@ -3938,6 +3921,9 @@ export class WsBridge {
           ...(msg.agentSource ? { agentSource: msg.agentSource } : {}),
         });
 
+        // Track user message index for deferred turn_end herd event
+        session.userMessageIdsThisTurn.push(session.messageHistory.length - 1);
+
         const wasGenerating = session.isGenerating;
         // Codex auto-interrupts an active turn before starting the next one.
         // Mark the current turn as interrupted so the worker herd turn_end
@@ -4318,6 +4304,9 @@ export class WsBridge {
       content: (msg.content || "").slice(0, 120),
       ...(msg.agentSource ? { agentSource: msg.agentSource } : {}),
     });
+
+    // Track user message index for deferred turn_end herd event
+    session.userMessageIdsThisTurn.push(session.messageHistory.length - 1);
 
     // Build content: if images are present, convert unsupported formats and use
     // content block array; otherwise plain string. Conversion operates on copies
@@ -5106,6 +5095,7 @@ export class WsBridge {
       session.questStatusAtTurnStart = session.state.claimedQuestStatus ?? null;
       session.messageCountAtTurnStart = session.messageHistory.length;
       session.interruptedDuringTurn = false; // Reset for new turn
+      session.userMessageIdsThisTurn = []; // Reset user message tracking for new turn
       console.log(`[ws-bridge] Generation started for session ${sessionTag(session.id)} (${reason})`);
       this.recorder?.recordServerEvent(session.id, "generation_started", { reason }, session.backendType, session.state.cwd);
 
@@ -5206,11 +5196,17 @@ export class WsBridge {
         }
       : undefined;
 
+    // User messages received during this turn (deferred from immediate delivery)
+    const userMsgs = session.userMessageIdsThisTurn.length > 0
+      ? { count: session.userMessageIdsThisTurn.length, ids: [...session.userMessageIdsThisTurn] }
+      : undefined;
+
     return {
       tools: Object.keys(toolCounts).length > 0 ? toolCounts : undefined,
       resultPreview,
       msgRange,
       questChange,
+      userMsgs,
     };
   }
 

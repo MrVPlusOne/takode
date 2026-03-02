@@ -39,10 +39,13 @@ export interface LauncherHandle {
 /** Events worth delivering to orchestrators.
  *  session_disconnected is excluded — disconnects are transient (CLI reconnects
  *  every 5 minutes for token refresh) and auto-relaunch handles recovery.
- *  Delivering disconnect events would flood the leader with noise. */
+ *  Delivering disconnect events would flood the leader with noise.
+ *  user_message is excluded — individual messages are noisy and truncated.
+ *  Instead, user message count + IDs are included in the turn_end event
+ *  so the leader can peek at specific messages via [msg-id] if needed. */
 const ACTIONABLE_EVENTS = new Set<TakodeEventType>([
   "turn_end", "permission_request", "permission_resolved",
-  "session_error", "user_message",
+  "session_error",
 ]);
 
 const DEBOUNCE_MS = 500;
@@ -380,10 +383,13 @@ function formatSingleEvent(evt: TakodeEvent, nowTs: number): string {
       // Message ID range for quick peek navigation
       const range = evt.data.msgRange as { from: number; to: number } | undefined;
       const rangeStr = range ? ` | [${range.from}]-[${range.to}]` : "";
+      // User messages received during this turn (deferred from individual delivery)
+      const um = evt.data.userMsgs as { count: number; ids: number[] } | undefined;
+      const userMsgStr = um ? ` | ${um.count} user msg${um.count === 1 ? "" : "s"} [${um.ids.join(", ")}]` : "";
       // Quest status change during this turn
       const qc = evt.data.questChange as { questId: string; from: string; to: string } | undefined;
       const questStr = qc ? ` | ${qc.questId}: ${qc.from} → ${qc.to}` : "";
-      return `${label} | turn_end | ${success} ${duration}${tools}${rangeStr}${questStr}${resultPreview} | ${age}`;
+      return `${label} | turn_end | ${success} ${duration}${tools}${rangeStr}${userMsgStr}${questStr}${resultPreview} | ${age}`;
     }
     case "permission_request": {
       const tool = evt.data.tool_name || "unknown";

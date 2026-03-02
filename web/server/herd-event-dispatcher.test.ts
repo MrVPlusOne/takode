@@ -179,7 +179,7 @@ describe("HerdEventDispatcher", () => {
     dispatcher.destroy();
   });
 
-  it("delivers direct human user_message events from workers", () => {
+  it("filters user_message events (deferred to turn_end)", () => {
     const { bridge, launcher } = createMocks();
     const dispatcher = new HerdEventDispatcher(bridge, launcher);
     dispatcher.setupForOrchestrator("orch-1");
@@ -192,15 +192,13 @@ describe("HerdEventDispatcher", () => {
     }));
     vi.advanceTimersByTime(600);
 
-    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
-    const content = vi.mocked(bridge.injectUserMessage).mock.calls[0][1];
-    expect(content).toContain("user_message [User]");
-    expect(content).toContain("please check latest logs");
+    // user_message is no longer an actionable event — filtered out
+    expect(bridge.injectUserMessage).not.toHaveBeenCalled();
 
     dispatcher.destroy();
   });
 
-  it("suppresses user_message echo events that originated from the leader", () => {
+  it("filters user_message echo events (all user_messages are deferred)", () => {
     const { bridge, launcher } = createMocks();
     const dispatcher = new HerdEventDispatcher(bridge, launcher);
     dispatcher.setupForOrchestrator("orch-1");
@@ -384,6 +382,45 @@ describe("formatHerdEventBatch", () => {
     })];
     const result = formatHerdEventBatch(events, now);
     expect(result).toContain("| 45s ago");
+  });
+
+  it("formats turn_end with user message count and IDs", () => {
+    const events = [makeEvent({
+      event: "turn_end",
+      data: {
+        duration_ms: 15 * 60 * 1000,
+        tools: { Edit: 3 },
+        msgRange: { from: 169, to: 281 },
+        userMsgs: { count: 3, ids: [172, 195, 240] },
+      },
+    })];
+    const result = formatHerdEventBatch(events);
+    expect(result).toContain("15m 0s");
+    expect(result).toContain("Edit(3)");
+    expect(result).toContain("[169]-[281]");
+    expect(result).toContain("3 user msgs [172, 195, 240]");
+  });
+
+  it("formats turn_end with single user message (no plural)", () => {
+    const events = [makeEvent({
+      event: "turn_end",
+      data: {
+        duration_ms: 5000,
+        userMsgs: { count: 1, ids: [42] },
+      },
+    })];
+    const result = formatHerdEventBatch(events);
+    expect(result).toContain("1 user msg [42]");
+    expect(result).not.toContain("user msgs");
+  });
+
+  it("formats turn_end without user messages when none received", () => {
+    const events = [makeEvent({
+      event: "turn_end",
+      data: { duration_ms: 5000 },
+    })];
+    const result = formatHerdEventBatch(events);
+    expect(result).not.toContain("user msg");
   });
 
   it("appends relative age for stale queued events", () => {
