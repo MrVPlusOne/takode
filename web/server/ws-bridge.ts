@@ -1926,7 +1926,19 @@ export class WsBridge {
 
   /** Upgrade attention (never downgrade). Broadcasts + persists. */
   private setAttention(session: Session, reason: "action" | "error" | "review"): void {
-    if (reason === "review" && this.isHerdedWorkerSession(session)) return;
+    // Herded workers should never surface local unread/action/error badges.
+    // Their noteworthy events are delivered to the orchestrator via herd events.
+    if (this.isHerdedWorkerSession(session)) {
+      if (session.attentionReason !== null) {
+        session.attentionReason = null;
+        this.broadcastToBrowsers(session, {
+          type: "session_update",
+          session: { attentionReason: null },
+        });
+        this.persistSession(session);
+      }
+      return;
+    }
     const current = session.attentionReason;
     const pri = WsBridge.ATTENTION_PRIORITY;
     if (current && pri[current] >= pri[reason]) return; // already equal or higher
@@ -1992,7 +2004,10 @@ export class WsBridge {
   getSessionAttentionState(sessionId: string): { lastReadAt: number; attentionReason: "action" | "error" | "review" | null } | null {
     const session = this.sessions.get(sessionId);
     if (!session) return null;
-    return { lastReadAt: session.lastReadAt, attentionReason: session.attentionReason };
+    return {
+      lastReadAt: session.lastReadAt,
+      attentionReason: this.isHerdedWorkerSession(session) ? null : session.attentionReason,
+    };
   }
 
   getAllSessions(): SessionState[] {
@@ -5375,9 +5390,12 @@ export class WsBridge {
    * arrives. This closes the idle-race window between dispatch and first token.
    */
   private markRunningFromUserDispatch(session: Session, reason: string): void {
+    const wasGenerating = session.isGenerating;
     this.restartOptimisticRunningTimer(session, reason);
     this.setGenerating(session, true, reason);
-    this.broadcastToBrowsers(session, { type: "status_change", status: "running" });
+    if (!wasGenerating) {
+      this.broadcastToBrowsers(session, { type: "status_change", status: "running" });
+    }
     this.persistSession(session);
   }
 
@@ -5566,7 +5584,7 @@ export class WsBridge {
       uiMode: session.state.uiMode ?? null,
       askPermission: session.state.askPermission ?? true,
       lastReadAt: session.lastReadAt,
-      attentionReason: session.attentionReason,
+      attentionReason: this.isHerdedWorkerSession(session) ? null : session.attentionReason,
       generationStartedAt: session.generationStartedAt ?? null,
     });
   }

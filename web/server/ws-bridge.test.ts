@@ -1974,6 +1974,32 @@ describe("CLI message routing", () => {
     expect(permBroadcast.request.tool_name).toBe("Bash");
   });
 
+  it("control_request (can_use_tool): does not set attention for herded worker sessions", async () => {
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      getSession: vi.fn(() => ({ herdedBy: "orch-1" })),
+    } as any);
+
+    const msg = JSON.stringify({
+      type: "control_request",
+      request_id: "req-herded-attention",
+      request: {
+        subtype: "can_use_tool",
+        tool_name: "Bash",
+        input: { command: "ls -la" },
+        description: "List files",
+        tool_use_id: "tu-herded-attention",
+      },
+    });
+
+    bridge.handleCLIMessage(cli, msg);
+    await new Promise(r => setTimeout(r, 0)); // flush async handleControlRequest
+
+    const session = bridge.getSession("s1")!;
+    expect(session.pendingPermissions.size).toBe(1);
+    expect(session.attentionReason).toBeNull();
+  });
+
   it("tool_progress: broadcasts", () => {
     const msg = JSON.stringify({
       type: "tool_progress",
@@ -4323,6 +4349,23 @@ describe("status_change: running on user_message", () => {
     expect(statusChange.status).toBe("running");
   });
 
+  it("does not rebroadcast status_change: running when already generating", () => {
+    bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "user_message",
+      content: "First message",
+    }));
+    browser.send.mockClear();
+
+    bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "user_message",
+      content: "Second message while still running",
+    }));
+
+    const calls = browser.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
+    const statusChanges = calls.filter((m: any) => m.type === "status_change" && m.status === "running");
+    expect(statusChanges).toHaveLength(0);
+  });
+
   it("reverts optimistic running to idle after 30s without backend output", () => {
     vi.useFakeTimers();
     try {
@@ -4514,6 +4557,24 @@ describe("status_change: running on user_message", () => {
     // because CLI disconnect resets it
     expect(snapshot.sessionStatus).toBe("idle");
     expect(snapshot.cliConnected).toBe(true);
+  });
+
+  it("state_snapshot suppresses attention for herded worker sessions", () => {
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      getSession: vi.fn(() => ({ herdedBy: "orch-1" })),
+    } as any);
+
+    const session = bridge.getSession("s1")!;
+    session.attentionReason = "review";
+
+    browser.send.mockClear();
+    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+
+    const calls = browser.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
+    const snapshot = calls.find((m: any) => m.type === "state_snapshot");
+    expect(snapshot).toBeDefined();
+    expect(snapshot.attentionReason).toBeNull();
   });
 });
 
