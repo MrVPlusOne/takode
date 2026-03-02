@@ -761,6 +761,109 @@ describe("CLI handlers", () => {
   });
 });
 
+// ─── Seamless reconnect (5-minute token refresh) ────────────────────────────
+
+describe("Seamless CLI reconnect preserves isGenerating", () => {
+  // The CLI disconnects every ~5 minutes for token refresh and reconnects in ~13s.
+  // During this cycle, if the CLI was mid-generation, isGenerating must be preserved —
+  // clearing it emits a false turn_end takode event while the agent is still working.
+
+  it("preserves isGenerating on seamless reconnect and skips system.init force-clear", () => {
+    vi.useFakeTimers();
+    const cli1 = makeCliSocket("s1");
+    const browser = makeBrowserSocket("s1");
+    bridge.handleCLIOpen(cli1, "s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    // Send system.init to initialize, then send user message to start generation
+    bridge.handleCLIMessage(cli1, makeInitMsg());
+    bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "user_message",
+      content: "Do something",
+    }));
+    const session = bridge.getSession("s1")!;
+    expect(session.isGenerating).toBe(true);
+
+    const spy = vi.spyOn(bridge, "emitTakodeEvent");
+
+    // CLI disconnects (token refresh) — isGenerating preserved (not cleared)
+    bridge.handleCLIClose(cli1);
+    expect(session.isGenerating).toBe(true); // NOT cleared during grace period
+    expect(session.disconnectGraceTimer).not.toBeNull();
+
+    // CLI reconnects within grace period (seamless)
+    const cli2 = makeCliSocket("s1");
+    bridge.handleCLIOpen(cli2, "s1");
+    expect(session.isGenerating).toBe(true); // preserved
+    expect(session.seamlessReconnect).toBe(true);
+    expect(session.disconnectGraceTimer).toBeNull(); // grace timer cancelled
+
+    // system.init arrives — should NOT force-clear isGenerating
+    bridge.handleCLIMessage(cli2, makeInitMsg());
+    expect(session.isGenerating).toBe(true); // still generating
+    expect(session.seamlessReconnect).toBe(false); // consumed
+
+    // No turn_end should have been emitted during the entire reconnect cycle
+    const turnEndCalls = spy.mock.calls.filter(([, event]) => event === "turn_end");
+    expect(turnEndCalls).toHaveLength(0);
+
+    spy.mockRestore();
+    vi.useRealTimers();
+  });
+
+  it("force-clears isGenerating after grace period expires (relaunch)", () => {
+    vi.useFakeTimers();
+    const cli1 = makeCliSocket("s1");
+    const browser = makeBrowserSocket("s1");
+    bridge.handleCLIOpen(cli1, "s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    // Start generation
+    bridge.handleCLIMessage(cli1, makeInitMsg());
+    bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "user_message",
+      content: "Do something",
+    }));
+    const session = bridge.getSession("s1")!;
+    expect(session.isGenerating).toBe(true);
+
+    const spy = vi.spyOn(bridge, "emitTakodeEvent");
+
+    // CLI disconnects and grace period expires (relaunch scenario)
+    bridge.handleCLIClose(cli1);
+    vi.advanceTimersByTime(16_000); // past 15s grace period
+
+    // runFullDisconnect should have emitted turn_end
+    const turnEndCalls = spy.mock.calls.filter(([, event]) => event === "turn_end");
+    expect(turnEndCalls).toHaveLength(1);
+    expect(session.isGenerating).toBe(false);
+
+    spy.mockRestore();
+    vi.useRealTimers();
+  });
+
+  it("does not set seamlessReconnect when no grace timer was active", () => {
+    vi.useFakeTimers();
+    const cli1 = makeCliSocket("s1");
+    bridge.handleCLIOpen(cli1, "s1");
+    bridge.handleCLIMessage(cli1, makeInitMsg());
+
+    const session = bridge.getSession("s1")!;
+    expect(session.isGenerating).toBe(false);
+
+    // CLI disconnects while idle, grace period expires
+    bridge.handleCLIClose(cli1);
+    vi.advanceTimersByTime(16_000);
+
+    // New CLI connects — no grace timer was active
+    const cli2 = makeCliSocket("s1");
+    bridge.handleCLIOpen(cli2, "s1");
+    expect(session.seamlessReconnect).toBe(false); // NOT a seamless reconnect
+
+    vi.useRealTimers();
+  });
+});
+
 // ─── Browser handlers ────────────────────────────────────────────────────────
 
 describe("Browser handlers", () => {
@@ -4548,7 +4651,8 @@ describe("status_change: running on user_message", () => {
     expect(snapshot.sessionStatus).toBe("idle");
   });
 
-  it("deriveSessionStatus returns 'idle' after CLI reconnect (simulating server restart)", () => {
+  it("deriveSessionStatus returns 'idle' after CLI relaunch (simulating server restart)", () => {
+    vi.useFakeTimers();
     // Session was generating when CLI disconnected (interrupted generation)
     bridge.handleBrowserMessage(browser, JSON.stringify({
       type: "user_message",
@@ -4567,8 +4671,11 @@ describe("status_change: running on user_message", () => {
       },
     }));
 
-    // CLI disconnects (server restart scenario) — isGenerating is reset to false
+    // CLI disconnects (server restart scenario)
     bridge.handleCLIClose(cli);
+
+    // Grace period expires — this is a real disconnect, not a token refresh
+    vi.advanceTimersByTime(16_000);
 
     // CLI reconnects (like --resume after server restart)
     const cli2 = makeCliSocket("s1");
@@ -4585,10 +4692,10 @@ describe("status_change: running on user_message", () => {
     const calls = browser2.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
     const snapshot = calls.find((m: any) => m.type === "state_snapshot");
     expect(snapshot).toBeDefined();
-    // Key assertion: despite history ending with "assistant", isGenerating is false
-    // because CLI disconnect resets it
+    // Key assertion: after a full relaunch (grace expired), isGenerating is cleared
     expect(snapshot.sessionStatus).toBe("idle");
     expect(snapshot.cliConnected).toBe(true);
+    vi.useRealTimers();
   });
 
   it("state_snapshot suppresses attention for herded worker sessions", () => {

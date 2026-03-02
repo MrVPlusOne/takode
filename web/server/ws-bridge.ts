@@ -410,6 +410,9 @@ interface Session {
   disconnectGraceTimer: ReturnType<typeof setTimeout> | null;
   /** Whether the CLI was generating when the grace timer started (preserved for deferred handling). */
   disconnectWasGenerating: boolean;
+  /** Set when the CLI reconnects within the grace period (token refresh, not relaunch).
+   *  Consumed by system.init handler to skip force-clearing isGenerating. */
+  seamlessReconnect: boolean;
   /** High-level task history recognized by the session auto-namer */
   taskHistory: SessionTaskEntry[];
   /** Accumulated search keywords from the session auto-namer */
@@ -1216,6 +1219,7 @@ export class WsBridge {
       pendingPermissionsCount: session.pendingPermissions.size,
       disconnectGraceActive: session.disconnectGraceTimer !== null,
       disconnectWasGenerating: session.disconnectWasGenerating,
+      seamlessReconnect: session.seamlessReconnect,
       ...(this.herdEventDispatcher ? { herdDispatcher: this.herdEventDispatcher.getDiagnostics(sessionId) } : {}),
     };
   }
@@ -1529,6 +1533,7 @@ export class WsBridge {
         attentionReason: p.attentionReason ?? null,
         disconnectGraceTimer: null,
         disconnectWasGenerating: false,
+        seamlessReconnect: false,
         taskHistory: Array.isArray(p.taskHistory) ? p.taskHistory : [],
         keywords: Array.isArray(p.keywords) ? p.keywords : [],
         diffStatsDirty: true,
@@ -1890,6 +1895,7 @@ export class WsBridge {
         attentionReason: null,
         disconnectGraceTimer: null,
         disconnectWasGenerating: false,
+        seamlessReconnect: false,
         taskHistory: [],
         keywords: [],
         diffStatsDirty: true,
@@ -2661,7 +2667,8 @@ export class WsBridge {
     if (session.disconnectGraceTimer) {
       clearTimeout(session.disconnectGraceTimer);
       session.disconnectGraceTimer = null;
-      console.log(`[ws-bridge] CLI reconnected within grace period for session ${sessionTag(sessionId)} (seamless)`);
+      session.seamlessReconnect = true;
+      console.log(`[ws-bridge] CLI reconnected within grace period for session ${sessionTag(sessionId)} (seamless, wasGenerating=${session.disconnectWasGenerating})`);
     }
 
     // NOTE: Herd event flush is NOT done here — it's done after system.init
@@ -2745,11 +2752,11 @@ export class WsBridge {
     const wasGenerating = session.isGenerating;
     session.cliSocket = null;
     session.cliInitReceived = false; // Reset — next CLI must send system.init before we deliver
-    // Reset generating state immediately — the UI needs to stop showing "running"
-    // even during the grace period. But DON'T call setGenerating() here because
-    // that emits turn_end/turn_start takode events which we want to defer.
-    session.isGenerating = false;
-    session.generationStartedAt = null;
+    // DON'T clear isGenerating here — defer to the grace period. During the grace
+    // window, the UI already shows "disconnected" (cliSocket=null makes
+    // deriveSessionStatus return null). If the CLI reconnects (token refresh),
+    // isGenerating is preserved. If the grace period expires, runFullDisconnect
+    // clears it properly with setGenerating() to emit turn_end events.
     this.onSessionActivityStateChanged(session.id, "cli_close");
     const idleKilled = this.launcher?.getSession(sessionId)?.killedByIdleManager;
 
@@ -3191,11 +3198,14 @@ export class WsBridge {
       });
       this.persistSession(session);
 
-      // Force-clear isGenerating on system.init for stale reconnect state.
-      // Exception: if we already dispatched a user message and are waiting for
-      // that turn's backend output, preserve running state so we don't emit a
-      // spurious turn_end before the real turn starts producing output.
-      if (session.isGenerating) {
+      // Force-clear isGenerating on system.init ONLY for actual relaunches (new CLI
+      // process via --resume). On seamless reconnects (5-minute token refresh), the CLI
+      // process is still alive and may still be mid-generation — clearing isGenerating
+      // would emit a false turn_end takode event while the agent is still working.
+      // Also preserve running state if we already dispatched a user message and are
+      // waiting for that turn's backend output, to avoid a spurious turn_end before
+      // the real turn starts producing output.
+      if (session.isGenerating && !session.seamlessReconnect) {
         const hasInFlightUserDispatch =
           typeof session.lastOutboundUserNdjson === "string"
           && this.isCliUserMessagePayload(session.lastOutboundUserNdjson);
@@ -3207,6 +3217,10 @@ export class WsBridge {
           this.broadcastToBrowsers(session, { type: "status_change", status: "idle" });
         }
       }
+      // Clear the seamless reconnect flag — consumed. Future system.init messages
+      // (from actual relaunches) should force-clear isGenerating normally.
+      session.seamlessReconnect = false;
+      session.disconnectWasGenerating = false;
 
       // Flush any messages queued before CLI was initialized (e.g. user sent
       // a message while the container was still starting up).
