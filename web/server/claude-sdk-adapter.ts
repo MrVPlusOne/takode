@@ -161,11 +161,36 @@ export class ClaudeSdkAdapter {
       sessionOptions.pathToClaudeCodeExecutable = this.options.claudeBinary;
     }
 
+    // WORKAROUND: The Agent SDK's session API (unstable_v2_createSession /
+    // unstable_v2_resumeSession) does NOT pass `cwd` to the ProcessTransport
+    // that spawns the Claude CLI subprocess. The subprocess inherits
+    // process.cwd() instead, which is the Companion server's own directory
+    // (e.g., companion/web/). We temporarily chdir to the target cwd before
+    // creating the session so the subprocess spawns in the correct directory.
+    // This is safe because the SDK constructor synchronously spawns the
+    // subprocess in the same tick.
+    const originalCwd = process.cwd();
+    const targetCwd = this.options.cwd;
+    if (targetCwd && targetCwd !== originalCwd) {
+      try {
+        process.chdir(targetCwd);
+      } catch (e) {
+        console.warn(`[claude-sdk-adapter] Failed to chdir to ${targetCwd}: ${e instanceof Error ? e.message : e}`);
+      }
+    }
+
     // Create or resume session
-    if (this.options.cliSessionId) {
-      this.sdkSession = sdk.unstable_v2_resumeSession(this.options.cliSessionId, sessionOptions as any);
-    } else {
-      this.sdkSession = sdk.unstable_v2_createSession(sessionOptions as any);
+    try {
+      if (this.options.cliSessionId) {
+        this.sdkSession = sdk.unstable_v2_resumeSession(this.options.cliSessionId, sessionOptions as any);
+      } else {
+        this.sdkSession = sdk.unstable_v2_createSession(sessionOptions as any);
+      }
+    } finally {
+      // Always restore the original cwd, even if session creation throws
+      if (process.cwd() !== originalCwd) {
+        try { process.chdir(originalCwd); } catch { /* ignore */ }
+      }
     }
 
     this.connected = true;
