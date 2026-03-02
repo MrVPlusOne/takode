@@ -29,6 +29,7 @@ import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
 import { SessionHoverCard } from "./SessionHoverCard.js";
 import { SidebarUsageBar } from "./SidebarUsageBar.js";
 import { YarnBallSpinner } from "./CatIcons.js";
+import { deriveSessionStatus } from "./SessionStatusDot.js";
 
 import { groupSessionsByProject, type SessionItem as SessionItemType } from "../utils/project-grouping.js";
 
@@ -207,22 +208,27 @@ export function Sidebar() {
     }).catch(() => {});
   }, []);
 
-  // Update document.title when serverName, attention, or permission counts change
+  // Update document.title when serverName, attention, or permission counts change.
+  // Uses the same deriveSessionStatus logic as the yarn ball indicator (TopBar)
+  // so the tab badge count always matches the visible attention indicators.
   useEffect(() => {
-    // Only count attention for sessions that actually exist and are not archived
-    const activeSessionIds = new Set(sdkSessions.filter(s => !s.archived).map(s => s.sessionId));
-    const attentionIds = new Set<string>();
-    for (const [id, a] of sessionAttention) {
-      if (a !== null && activeSessionIds.has(id)) attentionIds.add(id);
+    let totalAttention = 0;
+    for (const sdk of sdkSessions) {
+      if (sdk.archived) continue;
+      const vs = deriveSessionStatus({
+        permCount: countUserPermissions(pendingPermissions.get(sdk.sessionId)),
+        isConnected: cliConnected.get(sdk.sessionId) ?? sdk.cliConnected ?? false,
+        sdkState: sdk.state ?? null,
+        status: sessionStatus.get(sdk.sessionId) ?? null,
+        hasUnread: !!sessionAttention.get(sdk.sessionId),
+        idleKilled: cliDisconnectReason.get(sdk.sessionId) === "idle_limit",
+      });
+      if (vs === "permission" || vs === "completed_unread") totalAttention++;
     }
-    for (const [id, perms] of pendingPermissions) {
-      if (countUserPermissions(perms) > 0 && activeSessionIds.has(id)) attentionIds.add(id);
-    }
-    const totalAttention = attentionIds.size;
     const suffix = import.meta.env.DEV ? "[DEV] Takode" : "Takode";
     const base = serverName ? `${serverName} — ${suffix}` : suffix;
     document.title = totalAttention > 0 ? `(${totalAttention}) ${base}` : base;
-  }, [serverName, sessionAttention, pendingPermissions, sdkSessions]);
+  }, [serverName, sessionAttention, pendingPermissions, sdkSessions, sessionStatus, cliConnected, cliDisconnectReason]);
 
   // Focus server name input when entering edit mode
   useEffect(() => {
