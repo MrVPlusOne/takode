@@ -53,6 +53,27 @@ function makeCodexAdapterMock() {
   };
 }
 
+function makeClaudeSdkAdapterMock() {
+  let onBrowserMessageCb: ((msg: any) => void) | undefined;
+  let onSessionMetaCb: ((meta: any) => void) | undefined;
+  let onDisconnectCb: (() => void) | undefined;
+  let onInitErrorCb: ((error: string) => void) | undefined;
+
+  return {
+    onBrowserMessage: vi.fn((cb: (msg: any) => void) => { onBrowserMessageCb = cb; }),
+    onSessionMeta: vi.fn((cb: (meta: any) => void) => { onSessionMetaCb = cb; }),
+    onDisconnect: vi.fn((cb: () => void) => { onDisconnectCb = cb; }),
+    onInitError: vi.fn((cb: (error: string) => void) => { onInitErrorCb = cb; }),
+    sendBrowserMessage: vi.fn(),
+    isConnected: vi.fn(() => true),
+    disconnect: vi.fn(async () => {}),
+    emitBrowserMessage: (msg: any) => onBrowserMessageCb?.(msg),
+    emitSessionMeta: (meta: any) => onSessionMetaCb?.(meta),
+    emitDisconnect: () => onDisconnectCb?.(),
+    emitInitError: (error: string) => onInitErrorCb?.(error),
+  };
+}
+
 let bridge: WsBridge;
 let tempDir: string;
 let store: SessionStore;
@@ -6333,5 +6354,102 @@ describe("Codex permission_request emits herd event", () => {
     }));
 
     spy.mockRestore();
+  });
+});
+
+// ─── SDK disconnect auto-relaunch ───────────────────────────────────────────
+
+describe("SDK disconnect auto-relaunch", () => {
+  it("requests relaunch when SDK adapter disconnects with active browser", () => {
+    const sid = "s1";
+    const relaunchCb = vi.fn();
+    bridge.onCLIRelaunchNeededCallback(relaunchCb);
+
+    const adapter = makeClaudeSdkAdapterMock();
+    bridge.attachClaudeSdkAdapter(sid, adapter as any);
+
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    browser.send.mockClear();
+
+    adapter.emitDisconnect();
+
+    expect(relaunchCb).toHaveBeenCalledWith(sid);
+    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    expect(calls).toContainEqual(expect.objectContaining({ type: "cli_disconnected" }));
+  });
+
+  it("does not request relaunch when no browser is connected", () => {
+    const sid = "s1";
+    const relaunchCb = vi.fn();
+    bridge.onCLIRelaunchNeededCallback(relaunchCb);
+
+    const adapter = makeClaudeSdkAdapterMock();
+    bridge.attachClaudeSdkAdapter(sid, adapter as any);
+    adapter.emitDisconnect();
+
+    expect(relaunchCb).not.toHaveBeenCalled();
+  });
+
+  it("does not request relaunch for idle-manager disconnects", () => {
+    const sid = "s1";
+    const relaunchCb = vi.fn();
+    bridge.onCLIRelaunchNeededCallback(relaunchCb);
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      getSession: vi.fn(() => ({ killedByIdleManager: true })),
+    } as any);
+
+    const adapter = makeClaudeSdkAdapterMock();
+    bridge.attachClaudeSdkAdapter(sid, adapter as any);
+
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    browser.send.mockClear();
+
+    adapter.emitDisconnect();
+
+    expect(relaunchCb).not.toHaveBeenCalled();
+    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    expect(calls).toContainEqual(expect.objectContaining({ type: "cli_disconnected", reason: "idle_limit" }));
+  });
+
+  it("triggers relaunch for exited SDK session when browser connects", () => {
+    const sid = "s1";
+    const relaunchCb = vi.fn();
+    bridge.onCLIRelaunchNeededCallback(relaunchCb);
+    // Simulate post-restart: launcher reports SDK session as exited, no adapter attached
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      getSession: vi.fn(() => ({ backendType: "claude-sdk", state: "exited" })),
+    } as any);
+
+    // Create a session in the bridge without an adapter (simulates restoreFromDisk)
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+
+    // Should trigger relaunch, NOT optimistically send cli_connected
+    expect(relaunchCb).toHaveBeenCalledWith(sid);
+    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    expect(calls).toContainEqual(expect.objectContaining({ type: "cli_disconnected" }));
+  });
+
+  it("sends cli_connected optimistically for non-exited SDK session without adapter", () => {
+    const sid = "s1";
+    const relaunchCb = vi.fn();
+    bridge.onCLIRelaunchNeededCallback(relaunchCb);
+    // Simulate active relaunch: launcher reports SDK session as connected
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      getSession: vi.fn(() => ({ backendType: "claude-sdk", state: "connected" })),
+    } as any);
+
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+
+    // Should NOT trigger relaunch — adapter is being attached during active relaunch
+    expect(relaunchCb).not.toHaveBeenCalled();
+    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    expect(calls).toContainEqual(expect.objectContaining({ type: "cli_connected" }));
   });
 });

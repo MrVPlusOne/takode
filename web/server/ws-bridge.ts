@@ -2196,10 +2196,26 @@ export class WsBridge {
     });
 
     adapter.onDisconnect(() => {
-      console.log(`[ws-bridge] Claude SDK adapter disconnected for session ${sessionTag(sessionId)}`);
+      const idleKilled = this.launcher?.getSession(sessionId)?.killedByIdleManager;
+      console.log(`[ws-bridge] Claude SDK adapter disconnected for session ${sessionTag(sessionId)}${idleKilled ? " (idle limit)" : ""}`);
       session.claudeSdkAdapter = null;
-      this.broadcastToBrowsers(session, { type: "cli_disconnected" });
+      this.setGenerating(session, false, "sdk_disconnect");
+      this.broadcastToBrowsers(session, {
+        type: "cli_disconnected",
+        ...(idleKilled ? { reason: "idle_limit" as const } : {}),
+      });
       this.broadcastToBrowsers(session, { type: "status_change", status: "idle" });
+
+      // Auto-relaunch when a browser is actively connected (mirrors Codex behaviour).
+      if (
+        !idleKilled
+        && this.onCLIRelaunchNeeded
+        && session.browserSockets.size > 0
+        && this.sessions.get(sessionId) === session
+      ) {
+        console.log(`[ws-bridge] SDK adapter disconnected for active browser; requesting relaunch for session ${sessionTag(sessionId)}`);
+        this.onCLIRelaunchNeeded(sessionId);
+      }
     });
 
     adapter.onInitError((error) => {
@@ -2504,10 +2520,11 @@ export class WsBridge {
 
     if (!backendConnected) {
       const launcherInfo = this.launcher?.getSession(sessionId);
-      // For SDK sessions, the adapter should be attached synchronously during launch.
-      // If it's not (edge case during relaunch), send cli_connected optimistically —
-      // the adapter will be ready within seconds and the session is truly alive.
-      if (launcherInfo?.backendType === "claude-sdk") {
+      // For SDK sessions during an active relaunch, the adapter attaches
+      // synchronously so it should be ready within seconds — send cli_connected
+      // optimistically.  However, after a server restart the adapter is gone
+      // (state="exited") and we need to trigger a relaunch just like CLI sessions.
+      if (launcherInfo?.backendType === "claude-sdk" && launcherInfo.state !== "exited") {
         this.sendToBrowser(ws, { type: "cli_connected" });
       } else if (launcherInfo?.state === "starting") {
         // CLI is starting up — don't request relaunch, just notify

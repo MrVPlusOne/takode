@@ -464,6 +464,13 @@ export class CliLauncher {
           info.exitCode = -1;
           this.sessions.set(info.sessionId, info);
         }
+      } else if (info.backendType === "claude-sdk" && info.state !== "exited") {
+        // SDK sessions have no PID — the in-memory adapter is gone after server
+        // restart.  Mark them as "exited" so handleBrowserOpen() will trigger
+        // relaunch instead of optimistically assuming the adapter is alive.
+        info.state = "exited";
+        info.exitCode = -1;
+        this.sessions.set(info.sessionId, info);
       } else {
         // Already exited or no PID
         this.sessions.set(info.sessionId, info);

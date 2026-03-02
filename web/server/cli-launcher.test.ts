@@ -1343,10 +1343,66 @@ describe("persistence", () => {
       expect(session).toBeDefined();
       expect(session?.state).toBe("exited");
     });
+
+    it("marks SDK sessions without PID as exited for auto-relaunch", async () => {
+      const savedSessions = [
+        {
+          sessionId: "sdk-session-1",
+          // No pid — SDK sessions use in-memory adapters, not processes
+          state: "connected" as const,
+          backendType: "claude-sdk" as const,
+          cwd: "/tmp/project",
+          createdAt: Date.now(),
+          cliSessionId: "sdk-cli-123",
+        },
+      ];
+      store.saveLauncher(savedSessions);
+      await store.flushAll();
+
+      const newLauncher = new CliLauncher(3456);
+      newLauncher.setStore(store);
+      const recovered = await newLauncher.restoreFromDisk();
+
+      // SDK sessions are not "recovered" (no live process) but are marked exited
+      // so handleBrowserOpen will trigger relaunch instead of optimistically
+      // sending cli_connected.
+      expect(recovered).toBe(0);
+
+      const session = newLauncher.getSession("sdk-session-1");
+      expect(session).toBeDefined();
+      expect(session?.state).toBe("exited");
+      expect(session?.exitCode).toBe(-1);
+      // cliSessionId is preserved for --resume via SDK's resumeSession
+      expect(session?.cliSessionId).toBe("sdk-cli-123");
+    });
+
+    it("does not re-mark already-exited SDK sessions", async () => {
+      const savedSessions = [
+        {
+          sessionId: "sdk-already-exited",
+          state: "exited" as const,
+          exitCode: 0,
+          backendType: "claude-sdk" as const,
+          cwd: "/tmp/project",
+          createdAt: Date.now(),
+        },
+      ];
+      store.saveLauncher(savedSessions);
+      await store.flushAll();
+
+      const newLauncher = new CliLauncher(3456);
+      newLauncher.setStore(store);
+      const recovered = await newLauncher.restoreFromDisk();
+
+      expect(recovered).toBe(0);
+      const session = newLauncher.getSession("sdk-already-exited");
+      expect(session).toBeDefined();
+      expect(session?.state).toBe("exited");
+      // exitCode should remain as originally set (0), not overwritten to -1
+      expect(session?.exitCode).toBe(0);
+    });
   });
 });
-
-// ─── getStartingSessions ─────────────────────────────────────────────────────
 
 describe("getStartingSessions", () => {
   it("returns only sessions in starting state", async () => {
