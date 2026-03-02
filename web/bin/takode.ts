@@ -979,11 +979,34 @@ type SpawnedSession = {
 
 async function handleSpawn(base: string, args: string[]): Promise<void> {
   const flags = parseFlags(args);
+
+  if (flags.help === true || flags.h === true) {
+    console.log(`
+Usage: takode spawn [options]
+
+  Create and auto-herd new worker sessions.
+
+Options:
+  --backend <type>   AI backend: "claude", "codex", or "claude-sdk" (default: "codex")
+  --cwd <path>       Working directory (default: current directory)
+  --count <n>        Number of sessions to spawn (default: 1)
+  --message <text>   Initial message to send to spawned sessions
+  --no-worktree      Disable worktree creation
+  --json             Output in JSON format
+
+Examples:
+  takode spawn --backend claude-sdk --count 2
+  takode spawn --backend codex --message "Fix the flaky tests"
+  takode spawn --count 3 --no-worktree
+`);
+    return;
+  }
+
   const jsonMode = flags.json === true;
 
   const backendRaw = typeof flags.backend === "string" ? flags.backend : "codex";
-  if (backendRaw !== "claude" && backendRaw !== "codex") {
-    err(`Invalid backend: ${backendRaw}. Expected "claude" or "codex".`);
+  if (backendRaw !== "claude" && backendRaw !== "codex" && backendRaw !== "claude-sdk") {
+    err(`Invalid backend: ${backendRaw}. Expected "claude", "codex", or "claude-sdk".`);
   }
 
   const cwd = typeof flags.cwd === "string" ? flags.cwd : process.cwd();
@@ -1364,6 +1387,7 @@ Examples:
   takode list --all
   takode search "auth"
   takode search "jwt" --all
+  takode spawn --backend claude-sdk --count 2
   takode spawn --backend codex --count 3 --message "Check flaky tests"
   takode tasks 1
   takode peek 1
