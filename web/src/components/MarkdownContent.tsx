@@ -2,6 +2,7 @@ import { useRef, useCallback, type ComponentProps, type ReactNode } from "react"
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { CodeCopyButton } from "./CodeCopyButton.js";
+import { withQuestIdInHash } from "../utils/routing.js";
 
 function parseQuestIdFromHref(href?: string): string | null {
   if (!href) return null;
@@ -74,13 +75,13 @@ export function MarkdownContent({ text, size = "default" }: { text: string; size
           a: ({ href, children }) => {
             const questId = parseQuestIdFromHref(href);
             if (questId) {
-              const questHash = `#/questmaster?quest=${encodeURIComponent(questId)}`;
+              const questHash = withQuestIdInHash(window.location.hash, questId);
               return (
                 <a
                   href={questHash}
                   onClick={(e) => {
                     e.preventDefault();
-                    window.location.hash = questHash;
+                    window.location.hash = questHash.startsWith("#") ? questHash.slice(1) : questHash;
                   }}
                   className="text-cc-primary hover:underline"
                 >

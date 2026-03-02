@@ -28,10 +28,14 @@ vi.mock("../api.js", () => ({
   },
 }));
 
-vi.mock("../utils/routing.js", () => ({
-  navigateToSession: (...args: unknown[]) =>
-    mockNavigateToSession(...args),
-}));
+vi.mock("../utils/routing.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../utils/routing.js")>();
+  return {
+    ...actual,
+    navigateToSession: (...args: unknown[]) =>
+      mockNavigateToSession(...args),
+  };
+});
 
 vi.mock("../utils/questmaster-view-state.js", () => ({
   VERIFICATION_INBOX_COLLAPSE_KEY: "verification_inbox",
@@ -341,6 +345,18 @@ describe("QuestmasterPage verification inbox", () => {
 
     expect(screen.queryByRole("button", { name: "Close quest details" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Inbox" })).toBeNull();
+    expect(window.location.hash).toBe("#/questmaster");
+  });
+
+  it("opens from a session quest query and closes back to that session route", () => {
+    window.location.hash = "#/session/session-1?quest=q-2";
+    render(<QuestmasterPage isActive={false} />);
+
+    expect(screen.getByRole("button", { name: "Close quest details" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Close quest details" }));
+
+    expect(window.location.hash).toBe("#/session/session-1");
   });
 
   it("shows collapsed-card metadata in the quest modal header", () => {

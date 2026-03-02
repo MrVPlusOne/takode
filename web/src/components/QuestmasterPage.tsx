@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo, useSyncExternalStore
 import { createPortal } from "react-dom";
 import { useStore, countUserPermissions } from "../store.js";
 import { api } from "../api.js";
-import { navigateToSession } from "../utils/routing.js";
+import { navigateToSession, questIdFromHash, withoutQuestIdInHash } from "../utils/routing.js";
 import { SessionNumChip } from "./SessionNumChip.js";
 import {
   VERIFICATION_INBOX_COLLAPSE_KEY,
@@ -158,15 +158,6 @@ function findHashtagTokenAtCursor(text: string, cursor: number): { start: number
   return { start: hashPos, end: clamped, query: token };
 }
 
-function questIdFromHash(hash: string): string | null {
-  if (!hash.startsWith("#/questmaster")) return null;
-  const queryStart = hash.indexOf("?");
-  if (queryStart < 0) return null;
-  const params = new URLSearchParams(hash.slice(queryStart + 1));
-  const questId = params.get("quest");
-  return questId && questId.trim() ? questId.trim() : null;
-}
-
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
@@ -282,6 +273,16 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
     setHistoryForId(historyForId === questId ? null : questId);
   }
 
+  const closeQuestDetails = useCallback(() => {
+    setExpandedId(null);
+    setEditingId(null);
+    const nextHash = withoutQuestIdInHash(window.location.hash);
+    const currentHash = window.location.hash || "#/";
+    if (nextHash !== currentHash) {
+      window.location.hash = nextHash.startsWith("#") ? nextHash.slice(1) : nextHash;
+    }
+  }, []);
+
   // Close assign modal on Escape
   useEffect(() => {
     if (!assignPickerForId) return;
@@ -299,13 +300,12 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
       if (e.key === "Escape") {
         // When image preview is open, Esc should close that first.
         if (lightboxSrc) return;
-        setExpandedId(null);
-        setEditingId(null);
+        closeQuestDetails();
       }
     }
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
-  }, [expandedId, lightboxSrc]);
+  }, [expandedId, lightboxSrc, closeQuestDetails]);
 
   // Load quests on mount, poll periodically as a fallback for cases where
   // no session WebSocket is open (the `quest_list_updated` broadcast only
@@ -398,7 +398,7 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
     });
   }, [isActive, collapsedGroups]);
 
-  // Deep-link support: #/questmaster?quest=q-123 should focus and expand that quest.
+  // Deep-link support: any hash with ?quest=q-123 should focus and expand that quest.
   useEffect(() => {
     const targetQuestId = questIdFromHash(hash);
     if (!targetQuestId) return;
@@ -471,14 +471,13 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
   const handleExpand = useCallback(
     (quest: QuestmasterTask) => {
       if (expandedId === quest.questId) {
-        setExpandedId(null);
-        setEditingId(null);
+        closeQuestDetails();
         return;
       }
       setExpandedId(quest.questId);
       setEditingId(null);
     },
-    [expandedId],
+    [expandedId, closeQuestDetails],
   );
 
   function enterEditMode(quest: QuestmasterTask) {
@@ -573,8 +572,7 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
           .map((q) => (q.questId === updatedQuest.questId ? updatedQuest : q))
           .sort((a, b) => b.createdAt - a.createdAt),
       );
-      setExpandedId(null);
-      setEditingId(null);
+      closeQuestDetails();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -608,7 +606,7 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
     setError("");
     try {
       await api.deleteQuest(questId);
-      if (expandedId === questId) setExpandedId(null);
+      if (expandedId === questId) closeQuestDetails();
       setConfirmDeleteId(null);
       const currentQuests = useStore.getState().quests;
       setQuests(currentQuests.filter((q) => q.questId !== questId));
@@ -1844,10 +1842,11 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
                   </div>
 
                   {/* Expanded detail */}
-                  {isExpanded && (
+                  {isExpanded && createPortal(
+                    (
                     <div
                       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-3 py-4"
-                      onClick={() => { setExpandedId(null); setEditingId(null); }}
+                      onClick={closeQuestDetails}
                     >
                       <div
                         className="w-[min(920px,100%)] max-h-[88dvh] bg-cc-card border border-cc-border rounded-xl shadow-2xl flex flex-col overflow-hidden"
@@ -1938,7 +1937,7 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
                           </div>
                           <button
                             type="button"
-                            onClick={() => { setExpandedId(null); setEditingId(null); }}
+                            onClick={closeQuestDetails}
                             className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-cc-hover text-cc-muted hover:text-cc-fg transition-colors cursor-pointer shrink-0"
                             aria-label="Close quest details"
                           >
@@ -2541,8 +2540,7 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
                                   onClick={async () => {
                                     const marked = await handleMarkVerificationRead(quest.questId);
                                     if (marked) {
-                                      setExpandedId(null);
-                                      setEditingId(null);
+                                      closeQuestDetails();
                                     }
                                   }}
                                   title="Remove from Verification Inbox and keep it in Verification for now."
@@ -2566,6 +2564,8 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
                         </div>
                       </div>
                     </div>
+                    ),
+                    document.body,
                   )}
                 </div>
                 </div>

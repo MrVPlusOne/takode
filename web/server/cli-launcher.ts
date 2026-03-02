@@ -1765,6 +1765,8 @@ quest transition q-42 --status needs_verification
 quest feedback q-42 --text "Auth implementation looks good, but needs rate limiting"
 \`\`\`
 
+- When mentioning quests in chat, always use clickable quest links: \`[q-42](quest:q-42)\` (not plain \`q-42\`).
+
 ## Session Identification
 
 Commands accept multiple formats for session IDs:
@@ -1778,7 +1780,7 @@ Prefer integer numbers — they're stable within a server session and easy to ty
 
 Herded worker sessions have the same tools and skills you do — including the \`quest\` CLI, project CLAUDE.md/AGENTS.md, and any configured skills (e.g. playwright-e2e-tester). **Don't duplicate their work by fetching quest details yourself and pasting them into messages.** Instead, give workers the quest ID and a brief description of what to do — they can run \`quest show q-XX\` themselves to get full details, verification items, feedback, and images.
 
-Good: \`"Work on q-70. Address the unaddressed human feedback — rename the dismiss button to Later and add an Inbox button."\`
+Good: \`"Work on [q-70](quest:q-70). Address the unaddressed human feedback — rename the dismiss button to Later and add an Inbox button."\`
 Bad: \`"Here are the full quest details: [300 lines of quest JSON pasted in]..."\`
 
 ## Tips

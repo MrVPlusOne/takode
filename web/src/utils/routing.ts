@@ -12,24 +12,72 @@ export type Route =
   | { page: "playground" };
 
 const SESSION_PREFIX = "#/session/";
+const QUEST_ID_PATTERN = /^q-\d+$/i;
+
+function splitHash(hash: string): { path: string; params: URLSearchParams } {
+  const normalized = hash
+    ? (hash.startsWith("#") ? hash : `#${hash}`)
+    : "#/";
+  const qIdx = normalized.indexOf("?");
+  const path = qIdx >= 0 ? normalized.slice(0, qIdx) : normalized;
+  const query = qIdx >= 0 ? normalized.slice(qIdx + 1) : "";
+  return { path: path || "#/", params: new URLSearchParams(query) };
+}
+
+function normalizeQuestId(raw: string | null): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim().toLowerCase();
+  return QUEST_ID_PATTERN.test(trimmed) ? trimmed : null;
+}
 
 /**
  * Parse a window.location.hash string into a typed Route.
  */
 export function parseHash(hash: string): Route {
-  if (hash === "#/settings") return { page: "settings" };
-  if (hash === "#/terminal") return { page: "terminal" };
-  if (hash === "#/environments") return { page: "environments" };
-  if (hash === "#/scheduled") return { page: "scheduled" };
-  if (hash === "#/questmaster" || hash.startsWith("#/questmaster?")) return { page: "questmaster" };
-  if (hash === "#/playground") return { page: "playground" };
+  const { path } = splitHash(hash);
+  if (path === "#/settings") return { page: "settings" };
+  if (path === "#/terminal") return { page: "terminal" };
+  if (path === "#/environments") return { page: "environments" };
+  if (path === "#/scheduled") return { page: "scheduled" };
+  if (path === "#/questmaster") return { page: "questmaster" };
+  if (path === "#/playground") return { page: "playground" };
 
-  if (hash.startsWith(SESSION_PREFIX)) {
-    const sessionId = hash.slice(SESSION_PREFIX.length);
+  if (path.startsWith(SESSION_PREFIX)) {
+    const sessionId = decodeURIComponent(path.slice(SESSION_PREFIX.length));
     if (sessionId) return { page: "session", sessionId };
   }
 
   return { page: "home" };
+}
+
+/**
+ * Read quest overlay ID from the hash query (if present).
+ */
+export function questIdFromHash(hash: string): string | null {
+  const { params } = splitHash(hash);
+  return normalizeQuestId(params.get("quest"));
+}
+
+/**
+ * Return a hash string with quest overlay query param set.
+ */
+export function withQuestIdInHash(hash: string, questId: string): string {
+  const normalized = normalizeQuestId(questId);
+  const { path, params } = splitHash(hash);
+  if (!normalized) return path;
+  params.set("quest", normalized);
+  const query = params.toString();
+  return query ? `${path}?${query}` : path;
+}
+
+/**
+ * Return a hash string with quest overlay query param removed.
+ */
+export function withoutQuestIdInHash(hash: string): string {
+  const { path, params } = splitHash(hash);
+  params.delete("quest");
+  const query = params.toString();
+  return query ? `${path}?${query}` : path;
 }
 
 /**

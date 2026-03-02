@@ -1,6 +1,15 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { parseHash, sessionHash, navigateToSession, navigateHome, navigateToMostRecentSession } from "./routing.js";
+import {
+  parseHash,
+  sessionHash,
+  navigateToSession,
+  navigateHome,
+  navigateToMostRecentSession,
+  questIdFromHash,
+  withQuestIdInHash,
+  withoutQuestIdInHash,
+} from "./routing.js";
 import { useStore } from "../store.js";
 
 describe("parseHash", () => {
@@ -54,9 +63,34 @@ describe("parseHash", () => {
     });
   });
 
+  it("parses session route with query params", () => {
+    expect(parseHash("#/session/abc123?quest=q-42")).toEqual({
+      page: "session",
+      sessionId: "abc123",
+    });
+  });
+
   it("returns home for session route with empty ID", () => {
     // #/session/ with no ID should be treated as home
     expect(parseHash("#/session/")).toEqual({ page: "home" });
+  });
+});
+
+describe("quest hash helpers", () => {
+  it("extracts quest ID from any route query", () => {
+    expect(questIdFromHash("#/session/s1?quest=q-42")).toBe("q-42");
+    expect(questIdFromHash("#/questmaster?quest=q-8")).toBe("q-8");
+    expect(questIdFromHash("#/session/s1?quest=oops")).toBeNull();
+  });
+
+  it("adds quest query while preserving existing route and params", () => {
+    expect(withQuestIdInHash("#/session/s1", "q-12")).toBe("#/session/s1?quest=q-12");
+    expect(withQuestIdInHash("#/session/s1?foo=1", "q-12")).toBe("#/session/s1?foo=1&quest=q-12");
+  });
+
+  it("removes quest query while preserving other params", () => {
+    expect(withoutQuestIdInHash("#/session/s1?foo=1&quest=q-12&bar=2")).toBe("#/session/s1?foo=1&bar=2");
+    expect(withoutQuestIdInHash("#/session/s1?quest=q-12")).toBe("#/session/s1");
   });
 });
 
