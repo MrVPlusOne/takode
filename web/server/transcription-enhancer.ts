@@ -200,7 +200,7 @@ async function callEnhancementLLM(
           { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content: prompt },
         ],
-        max_tokens: 1000,
+        max_completion_tokens: 1000,
         temperature: 0,
       }),
       signal: controller.signal,
