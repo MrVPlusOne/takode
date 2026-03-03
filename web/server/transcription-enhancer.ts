@@ -159,15 +159,59 @@ export function buildTranscriptionContext(history: BrowserIncomingMessage[]): st
 
 // ─── Prompt construction ────────────────────────────────────────────────────
 
+export interface EnhancementContextInput {
+  /** Text before the cursor in the composer. */
+  composerBefore?: string;
+  /** Text after the cursor in the composer. */
+  composerAfter?: string;
+  /** Task titles from the session auto-namer. */
+  taskTitles?: string[];
+  /** Session display name. */
+  sessionName?: string;
+  /** Names of other active sessions (vocabulary from the user's workspace). */
+  activeSessionNames?: string[];
+}
+
 /**
  * Build the full user message for the enhancement LLM call.
- * Wraps conversation context and transcript in XML tags.
+ * Wraps conversation context, supplementary context, and transcript in XML tags.
  */
-export function buildEnhancementPrompt(rawTranscript: string, context: string): string {
+export function buildEnhancementPrompt(
+  rawTranscript: string,
+  conversationContext: string,
+  extra?: EnhancementContextInput,
+): string {
   const parts: string[] = [];
 
-  if (context) {
-    parts.push(`<CONVERSATION_CONTEXT>\nRecent conversation in this coding session:\n\n${context}\n</CONVERSATION_CONTEXT>`);
+  if (conversationContext) {
+    parts.push(`<CONVERSATION_CONTEXT>\nRecent conversation in this coding session:\n\n${conversationContext}\n</CONVERSATION_CONTEXT>`);
+    parts.push("");
+  }
+
+  // Supplementary context — vocabulary and domain knowledge
+  const supplementary: string[] = [];
+
+  if (extra?.composerBefore || extra?.composerAfter) {
+    const pieces: string[] = [];
+    if (extra.composerBefore) pieces.push(trunc(extra.composerBefore.trim(), 500));
+    if (extra.composerAfter) pieces.push(trunc(extra.composerAfter.trim(), 500));
+    supplementary.push(`Composer text around cursor: ${pieces.join(" [...] ")}`);
+  }
+
+  if (extra?.taskTitles && extra.taskTitles.length > 0) {
+    supplementary.push(`Session tasks: ${extra.taskTitles.join("; ")}`);
+  }
+
+  if (extra?.sessionName) {
+    supplementary.push(`Current session: ${extra.sessionName}`);
+  }
+
+  if (extra?.activeSessionNames && extra.activeSessionNames.length > 0) {
+    supplementary.push(`Other active sessions: ${extra.activeSessionNames.join("; ")}`);
+  }
+
+  if (supplementary.length > 0) {
+    parts.push(`<SESSION_CONTEXT>\n${supplementary.join("\n")}\n</SESSION_CONTEXT>`);
     parts.push("");
   }
 
@@ -252,26 +296,40 @@ export function buildSttPrompt(input: SttPromptInput): string {
     if (!addPart("Context", composerParts.join(" [...] "))) return parts.join("\n");
   }
 
-  // 4. Recent user messages — greedy fill
+  // 4. Recent conversation turns (user + assistant) — greedy fill
+  //    Including assistant messages helps the STT recognize vocabulary from questions
+  //    the user might be verbally answering.
   if (input.messageHistory && remaining > 50) {
-    const userMessages: string[] = [];
+    const turnSnippets: string[] = [];
     // Walk backwards to get most recent first
     for (let i = input.messageHistory.length - 1; i >= 0 && remaining > 50; i--) {
       const msg = input.messageHistory[i];
-      if (msg.type !== "user_message") continue;
-      const content = typeof (msg as { content?: unknown }).content === "string"
-        ? (msg as { content: string }).content
-        : "";
+      let content = "";
+      if (msg.type === "user_message") {
+        content = typeof (msg as { content?: unknown }).content === "string"
+          ? (msg as { content: string }).content
+          : "";
+      } else if (msg.type === "assistant") {
+        // Skip subagent messages
+        const parentId = (msg as { parent_tool_use_id?: string | null }).parent_tool_use_id;
+        if (parentId) continue;
+        const blocks = (msg as { message?: { content?: ContentBlock[] } }).message?.content;
+        if (Array.isArray(blocks)) {
+          content = extractAssistantText(blocks);
+        }
+      } else {
+        continue;
+      }
       if (!content.trim()) continue;
       const truncated = trunc(content.trim(), STT_PROMPT_MAX_MSG_CHARS);
-      if (truncated.length + 2 > remaining) break;
-      userMessages.push(truncated);
-      remaining -= truncated.length + 2;
+      if (truncated.length + 4 > remaining) break;
+      turnSnippets.push(truncated);
+      remaining -= truncated.length + 4;
     }
-    if (userMessages.length > 0) {
+    if (turnSnippets.length > 0) {
       // Reverse back to chronological order
-      userMessages.reverse();
-      parts.push("Recent messages: " + userMessages.join(" | "));
+      turnSnippets.reverse();
+      parts.push("Recent conversation: " + turnSnippets.join(" | "));
     }
   }
 
@@ -355,7 +413,7 @@ export interface EnhancementResult {
  *
  * Returns the raw text unchanged (with enhanced=false) when:
  * - The transcript is too short (< 3 words)
- * - No conversation context is available
+ * - No context is available (no conversation turns AND no supplementary context)
  * - Enhancement is disabled in config
  * - The LLM call fails
  * - The LLM output looks like hallucination (> 3x original length)
@@ -365,6 +423,7 @@ export async function enhanceTranscript(
   history: BrowserIncomingMessage[] | null,
   config: TranscriptionConfig,
   apiKey: string,
+  extra?: EnhancementContextInput,
 ): Promise<EnhancementResult> {
   const model = config.enhancementModel || "gpt-5-mini";
 
@@ -380,15 +439,16 @@ export async function enhanceTranscript(
   }
 
   // Build context from session history
-  const context = history ? buildTranscriptionContext(history) : "";
+  const conversationContext = history ? buildTranscriptionContext(history) : "";
 
-  // Skip if no meaningful context
-  if (!context) {
+  // Check if we have any meaningful context at all
+  const hasExtra = !!(extra?.composerBefore || extra?.composerAfter || extra?.taskTitles?.length || extra?.sessionName || extra?.activeSessionNames?.length);
+  if (!conversationContext && !hasExtra) {
     return { text: rawText, enhanced: false, _debug: { model, systemPrompt: SYSTEM_PROMPT, userMessage: "", enhancedText: null, durationMs: 0, skipReason: "no context" } };
   }
 
   // Build prompt and call LLM
-  const prompt = buildEnhancementPrompt(rawText, context);
+  const prompt = buildEnhancementPrompt(rawText, conversationContext, extra);
   const t0 = Date.now();
   const enhanced = await callEnhancementLLM(prompt, config, apiKey);
   const durationMs = Date.now() - t0;

@@ -2984,7 +2984,23 @@ export function createRoutes(
         const enhancementKey = resolveOpenAIKey();
         if (enhancementKey && settings.transcriptionConfig.enhancementEnabled) {
           const history = wsBridge.getMessageHistory(sessionId);
-          const result = await enhanceTranscript(rawText, history, settings.transcriptionConfig, enhancementKey);
+
+          // Build enriched context for enhancement
+          const taskHistory = wsBridge.getSessionTaskHistory(sessionId);
+          const allNames = sessionNames.getAllNames();
+          const currentName = allNames[sessionId];
+          const otherNames = Object.entries(allNames)
+            .filter(([id]) => id !== sessionId)
+            .map(([, name]) => name)
+            .filter(Boolean);
+
+          const result = await enhanceTranscript(rawText, history, settings.transcriptionConfig, enhancementKey, {
+            composerBefore: composerBefore,
+            composerAfter: composerAfter,
+            taskTitles: taskHistory.map((t) => t.title),
+            sessionName: currentName,
+            activeSessionNames: otherNames.length > 0 ? otherNames : undefined,
+          });
 
           // Log for debug panel
           addTranscriptionLogEntry({

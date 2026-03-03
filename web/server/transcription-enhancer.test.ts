@@ -237,6 +237,66 @@ describe("buildEnhancementPrompt", () => {
     expect(prompt).not.toContain("<CONVERSATION_CONTEXT>");
     expect(prompt).toContain("<TRANSCRIPT>");
   });
+
+  it("includes composer text in SESSION_CONTEXT", () => {
+    const prompt = buildEnhancementPrompt("fix the bug", "", {
+      composerBefore: "Please update",
+      composerAfter: "in the auth module",
+    });
+    expect(prompt).toContain("<SESSION_CONTEXT>");
+    expect(prompt).toContain("Composer text around cursor:");
+    expect(prompt).toContain("Please update");
+    expect(prompt).toContain("[...]");
+    expect(prompt).toContain("in the auth module");
+    expect(prompt).toContain("</SESSION_CONTEXT>");
+  });
+
+  it("includes task titles in SESSION_CONTEXT", () => {
+    const prompt = buildEnhancementPrompt("fix the bug", "", {
+      taskTitles: ["Fix WsBridge reconnect", "Add voice transcription"],
+    });
+    expect(prompt).toContain("<SESSION_CONTEXT>");
+    expect(prompt).toContain("Session tasks:");
+    expect(prompt).toContain("Fix WsBridge reconnect");
+    expect(prompt).toContain("Add voice transcription");
+  });
+
+  it("includes session name in SESSION_CONTEXT", () => {
+    const prompt = buildEnhancementPrompt("fix the bug", "", {
+      sessionName: "Debug voice input",
+    });
+    expect(prompt).toContain("Current session: Debug voice input");
+  });
+
+  it("includes active session names in SESSION_CONTEXT", () => {
+    const prompt = buildEnhancementPrompt("fix the bug", "", {
+      activeSessionNames: ["Fix sidebar layout", "Add dark mode"],
+    });
+    expect(prompt).toContain("Other active sessions:");
+    expect(prompt).toContain("Fix sidebar layout");
+    expect(prompt).toContain("Add dark mode");
+  });
+
+  it("omits SESSION_CONTEXT when no extra context is provided", () => {
+    const prompt = buildEnhancementPrompt("hello", "some context");
+    expect(prompt).not.toContain("<SESSION_CONTEXT>");
+  });
+
+  it("includes both CONVERSATION_CONTEXT and SESSION_CONTEXT when both available", () => {
+    const prompt = buildEnhancementPrompt("fix it", "User: Fix the bug", {
+      taskTitles: ["Fix auth"],
+      sessionName: "Debug session",
+    });
+    expect(prompt).toContain("<CONVERSATION_CONTEXT>");
+    expect(prompt).toContain("<SESSION_CONTEXT>");
+    expect(prompt).toContain("<TRANSCRIPT>");
+    // Verify order: conversation first, then session, then transcript
+    const convIdx = prompt.indexOf("<CONVERSATION_CONTEXT>");
+    const sessIdx = prompt.indexOf("<SESSION_CONTEXT>");
+    const transIdx = prompt.indexOf("<TRANSCRIPT>");
+    expect(convIdx).toBeLessThan(sessIdx);
+    expect(sessIdx).toBeLessThan(transIdx);
+  });
 });
 
 // ─── enhanceTranscript ──────────────────────────────────────────────────────
@@ -274,7 +334,7 @@ describe("enhanceTranscript", () => {
     expect(result.enhanced).toBe(false);
   });
 
-  it("skips enhancement with empty history", async () => {
+  it("skips enhancement with empty history and no extra context", async () => {
     const result = await enhanceTranscript(
       "fix the auth token refresh bug",
       [],
@@ -282,6 +342,20 @@ describe("enhanceTranscript", () => {
       "key",
     );
     expect(result.enhanced).toBe(false);
+  });
+
+  it("does not skip when extra context is provided even with empty history", async () => {
+    // This will attempt the LLM call (which will fail in tests since there's no real API),
+    // but the important thing is it doesn't return the "no context" skip
+    const result = await enhanceTranscript(
+      "fix the auth token refresh bug",
+      [],
+      defaultConfig,
+      "key",
+      { taskTitles: ["Fix auth middleware"], sessionName: "Debug session" },
+    );
+    // Should NOT have skipReason "no context" — it should attempt the call
+    expect(result._debug?.skipReason).not.toBe("no context");
   });
 });
 
@@ -343,16 +417,17 @@ describe("buildSttPrompt", () => {
     expect(prompt).not.toContain("[...]");
   });
 
-  it("includes recent user messages", () => {
+  it("includes recent conversation turns (user + assistant)", () => {
     const prompt = buildSttPrompt({
       messageHistory: [
         userMsg("Fix the auth token refresh in middleware"),
-        assistantMsg("Done, fixed it"),
+        assistantMsg("Done, fixed it in auth.ts"),
         userMsg("Now add unit tests for WsBridge"),
       ],
     });
-    expect(prompt).toContain("Recent messages:");
+    expect(prompt).toContain("Recent conversation:");
     expect(prompt).toContain("Fix the auth token refresh");
+    expect(prompt).toContain("fixed it in auth.ts");
     expect(prompt).toContain("Now add unit tests for WsBridge");
   });
 
@@ -371,7 +446,7 @@ describe("buildSttPrompt", () => {
     // Composer third
     expect(lines[2]).toMatch(/^Context:/);
     // Messages last
-    expect(lines[3]).toMatch(/^Recent messages:/);
+    expect(lines[3]).toMatch(/^Recent conversation:/);
   });
 
   it("respects the character budget", () => {
@@ -390,17 +465,19 @@ describe("buildSttPrompt", () => {
     expect(prompt.length).toBeLessThanOrEqual(STT_PROMPT_MAX_CHARS + 50); // small margin for labels
   });
 
-  it("skips assistant messages when extracting user messages", () => {
+  it("includes both user and assistant messages but skips subagent messages", () => {
     const prompt = buildSttPrompt({
       messageHistory: [
         userMsg("Fix the bug"),
-        assistantMsg("I fixed it"),
+        assistantMsg("I fixed the bug in auth.ts"),
+        { type: "assistant", message: { content: [{ type: "text", text: "subagent work" }] }, parent_tool_use_id: "parent-1" } as unknown as BrowserIncomingMessage,
         userMsg("Add tests"),
       ],
     });
-    // Only user messages in the "Recent messages" section
     expect(prompt).toContain("Fix the bug");
+    expect(prompt).toContain("I fixed the bug in auth.ts");
     expect(prompt).toContain("Add tests");
-    expect(prompt).not.toContain("I fixed it");
+    // Subagent messages should be excluded
+    expect(prompt).not.toContain("subagent work");
   });
 });
