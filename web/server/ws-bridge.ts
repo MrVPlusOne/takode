@@ -5600,13 +5600,31 @@ export class WsBridge {
   private reconcileCodexResumedTurn(session: Session, snapshot: CodexResumeSnapshot): void {
     const pending = session.pendingCodexTurnRecovery;
     const lastTurn = snapshot.lastTurn;
-    if (!pending || !lastTurn) return;
+    if (!pending) return;
 
-    const pendingText = pending.userContent.trim();
-    const resumedUserText = this.extractUserTextFromResumedTurn(lastTurn).trim();
+    if (!lastTurn) {
+      if (pending.turnId) {
+        console.log(
+          `[ws-bridge] Resumed Codex snapshot for session ${sessionTag(session.id)} has no lastTurn while pending turn ${pending.turnId} is in flight; retrying message`,
+        );
+        this.retryPendingCodexTurn(session, pending);
+      }
+      return;
+    }
+
+    const pendingText = this.normalizeResumedUserText(pending.userContent);
+    const resumedUserText = this.normalizeResumedUserText(this.extractUserTextFromResumedTurn(lastTurn));
     const matchesTurnId = !!pending.turnId && pending.turnId === lastTurn.id;
     const matchesText = !!pendingText && pendingText === resumedUserText;
-    if (!matchesTurnId && !matchesText) return;
+    if (!matchesTurnId && !matchesText) {
+      if (pending.turnId && pending.turnId !== lastTurn.id) {
+        console.log(
+          `[ws-bridge] Resumed Codex turn ${lastTurn.id} for session ${sessionTag(session.id)} does not match pending turn ${pending.turnId}; retrying message`,
+        );
+        this.retryPendingCodexTurn(session, pending);
+      }
+      return;
+    }
 
     const nonUserItems = lastTurn.items.filter((item) => item.type !== "userMessage");
     if (nonUserItems.length === 0) {
@@ -5670,6 +5688,10 @@ export class WsBridge {
       if (textParts.length > 0) return textParts.join("\n");
     }
     return "";
+  }
+
+  private normalizeResumedUserText(text: string): string {
+    return text.trim().replace(/\s+/g, " ");
   }
 
   private retryPendingCodexTurn(session: Session, pending: PendingCodexTurnRecovery): void {

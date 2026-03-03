@@ -6516,6 +6516,84 @@ describe("Codex resumed-turn recovery", () => {
       && c.message.includes("non-text tool activity"));
     expect(retrySkipError).toBeUndefined();
   });
+
+  it("retries when resumed snapshot has no lastTurn for a pending in-flight turn", async () => {
+    const sid = "s1";
+    const adapter1 = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter1 as any);
+
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    browser.send.mockClear();
+
+    await bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "user_message",
+      content: "resume without last turn",
+    }));
+
+    adapter1.emitDisconnect("turn-missing");
+
+    const adapter2 = makeCodexAdapterMock();
+    adapter2.sendBrowserMessage.mockReturnValue(true);
+    bridge.attachCodexAdapter(sid, adapter2 as any);
+    adapter2.emitSessionMeta({
+      cliSessionId: "thread-4",
+      model: "gpt-5.3-codex",
+      cwd: "/repo",
+      resumeSnapshot: {
+        threadId: "thread-4",
+        turnCount: 13,
+        lastTurn: null,
+      },
+    });
+
+    expect(adapter2.sendBrowserMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "user_message", content: "resume without last turn" }),
+    );
+  });
+
+  it("retries when resumed snapshot lastTurn does not match pending disconnected turn", async () => {
+    const sid = "s1";
+    const adapter1 = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter1 as any);
+
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    browser.send.mockClear();
+
+    await bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "user_message",
+      content: "retry unmatched turn",
+    }));
+
+    adapter1.emitDisconnect("turn-expected");
+
+    const adapter2 = makeCodexAdapterMock();
+    adapter2.sendBrowserMessage.mockReturnValue(true);
+    bridge.attachCodexAdapter(sid, adapter2 as any);
+    adapter2.emitSessionMeta({
+      cliSessionId: "thread-5",
+      model: "gpt-5.3-codex",
+      cwd: "/repo",
+      resumeSnapshot: {
+        threadId: "thread-5",
+        turnCount: 14,
+        lastTurn: {
+          id: "turn-other",
+          status: "completed",
+          error: null,
+          items: [
+            { type: "userMessage", content: [{ type: "text", text: "some prior request" }] },
+            { type: "agentMessage", id: "item-z1", text: "previous output" },
+          ],
+        },
+      },
+    });
+
+    expect(adapter2.sendBrowserMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "user_message", content: "retry unmatched turn" }),
+    );
+  });
 });
 
 describe("Codex runtime settings updates", () => {
