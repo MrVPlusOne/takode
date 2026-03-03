@@ -2795,6 +2795,7 @@ export function createRoutes(
       "autoApprovalEnabled", "autoApprovalModel",
       "namerConfig",
       "autoNamerEnabled",
+      "transcriptionConfig",
     ];
     if (!knownFields.some((f) => body[f] !== undefined)) {
       return c.json({ error: "At least one settings field is required" }, 400);
