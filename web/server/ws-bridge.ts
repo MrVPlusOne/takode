@@ -2239,8 +2239,10 @@ export class WsBridge {
         this.refreshGitInfoThenRecomputeDiff(session, { notifyPoller: true });
         this.persistSession(session);
       } else if (msg.type === "status_change") {
+        const wasCompacting = session.state.is_compacting;
         session.state.is_compacting = msg.status === "compacting";
-        if (msg.status === "compacting") {
+        // Only emit for NEW compaction transitions (not re-notifications)
+        if (msg.status === "compacting" && !wasCompacting) {
           session.compactedDuringTurn = true;
           this.emitTakodeEvent(session.id, "compaction_started", {
             context_used_percent: session.state.context_used_percent ?? undefined,
@@ -3196,6 +3198,10 @@ export class WsBridge {
       // system.init marks the end of --resume replay. Clear the resuming flag
       // so subsequent real-time system.status updates can change uiMode again.
       session.cliResuming = false;
+      // Reset stale compaction state — a fresh CLI connection is never mid-compaction.
+      // Persisted is_compacting=true from a previous run would cause false
+      // "compacting" status in the UI until the next real status message arrives.
+      session.state.is_compacting = false;
       session.state.mcp_servers = msg.mcp_servers;
       session.state.agents = msg.agents ?? [];
       session.state.slash_commands = msg.slash_commands ?? [];
@@ -3267,12 +3273,15 @@ export class WsBridge {
       }
       this.onSessionActivityStateChanged(session.id, "system_init");
     } else if (msg.subtype === "status") {
+      const wasCompacting = session.state.is_compacting;
       session.state.is_compacting = msg.status === "compacting";
-      // Compaction pauses generation; clear the flag so deriveSessionStatus is accurate
-      if (msg.status === "compacting") {
+      // Compaction pauses generation; clear the flag so deriveSessionStatus is accurate.
+      // Guard: only emit compaction_started for NEW compaction transitions (not
+      // re-notifications of already-known compaction) and skip --resume replay
+      // which replays stale status messages from the CLI's history.
+      if (msg.status === "compacting" && !wasCompacting && !session.cliResuming) {
         session.compactedDuringTurn = true;
         this.setGenerating(session, false, "compaction");
-        // Emit takode event so orchestrators know immediately
         this.emitTakodeEvent(session.id, "compaction_started", {
           context_used_percent: session.state.context_used_percent ?? undefined,
         });
