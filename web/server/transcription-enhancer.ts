@@ -227,6 +227,8 @@ export interface SttPromptInput {
   taskHistory?: SessionTaskEntry[];
   /** Session display name. */
   sessionName?: string;
+  /** Names of other active sessions (vocabulary from the user's workspace). */
+  activeSessionNames?: string[];
   /** Text before the cursor in the composer (for mid-prompt voice insertion). */
   composerBefore?: string;
   /** Text after the cursor in the composer. */
@@ -238,12 +240,14 @@ export interface SttPromptInput {
 /**
  * Build a prompt string for the STT model (gpt-4o-mini-transcribe).
  *
- * The prompt parameter guides vocabulary recognition — the model is more likely
- * to recognize terms that appear in the prompt. We fill greedily in priority order:
- *   1. Session task titles (high density of file names, feature names, libraries)
- *   2. Session title
- *   3. Composer surrounding text (critical for mid-prompt voice insertion)
- *   4. Recent user messages (greedy fill until budget exhausted)
+ * Optimized for information density — every token should carry vocabulary signal.
+ * The STT model uses this text purely for vocabulary recognition, not instruction following.
+ *
+ * Format (no verbose labels — just vocabulary):
+ *   1. Task titles, comma-separated (highest density: file names, features, libraries)
+ *   2. Session name + other session names, comma-separated
+ *   3. Composer surrounding text (for mid-prompt voice insertion)
+ *   4. Recent conversation turns in chat format (User: / Assistant:)
  *
  * Returns empty string if no useful context is available.
  */
@@ -251,25 +255,22 @@ export function buildSttPrompt(input: SttPromptInput): string {
   const parts: string[] = [];
   let remaining = STT_PROMPT_MAX_CHARS;
 
-  const addPart = (label: string, content: string): boolean => {
-    const line = `${label}: ${content}`;
-    if (line.length > remaining) {
-      // Try to fit a truncated version
-      if (remaining > label.length + 10) {
-        parts.push(trunc(line, remaining));
+  // Helper: append text if it fits, returns false when budget exhausted
+  const addLine = (text: string): boolean => {
+    if (text.length > remaining) {
+      if (remaining > 20) {
+        parts.push(trunc(text, remaining));
         remaining = 0;
-        return false;
       }
       return false;
     }
-    parts.push(line);
-    remaining -= line.length + 1; // +1 for newline
+    parts.push(text);
+    remaining -= text.length + 1; // +1 for newline
     return remaining > 0;
   };
 
-  // 1. Task titles — high information density
+  // 1. Task titles — highest density vocabulary (file names, features, libraries)
   if (input.taskHistory && input.taskHistory.length > 0) {
-    // Deduplicate and take unique titles (latest first since revisions update in-place)
     const seen = new Set<string>();
     const titles: string[] = [];
     for (let i = input.taskHistory.length - 1; i >= 0; i--) {
@@ -279,57 +280,67 @@ export function buildSttPrompt(input: SttPromptInput): string {
         titles.push(t);
       }
     }
-    const tasksText = titles.join("; ");
-    if (!addPart("Tasks", trunc(tasksText, 800))) return parts.join("\n");
+    if (!addLine(trunc(titles.join(", "), 800))) return parts.join("\n");
   }
 
-  // 2. Session title
-  if (input.sessionName) {
-    if (!addPart("Session", input.sessionName)) return parts.join("\n");
+  // 2. Session names — current + other active sessions, comma-separated
+  const sessionParts: string[] = [];
+  if (input.sessionName) sessionParts.push(input.sessionName);
+  if (input.activeSessionNames) {
+    for (const name of input.activeSessionNames) {
+      if (name && name !== input.sessionName) sessionParts.push(name);
+    }
+  }
+  if (sessionParts.length > 0) {
+    if (!addLine(trunc(sessionParts.join(", "), 500))) return parts.join("\n");
   }
 
-  // 3. Composer surrounding text
+  // 3. Composer surrounding text (just the text, minimal wrapper)
   if (input.composerBefore || input.composerAfter) {
-    const composerParts: string[] = [];
-    if (input.composerBefore) composerParts.push(trunc(input.composerBefore.trim(), 500));
-    if (input.composerAfter) composerParts.push(trunc(input.composerAfter.trim(), 500));
-    if (!addPart("Context", composerParts.join(" [...] "))) return parts.join("\n");
+    const pieces: string[] = [];
+    if (input.composerBefore) pieces.push(trunc(input.composerBefore.trim(), 500));
+    if (input.composerAfter) pieces.push(trunc(input.composerAfter.trim(), 500));
+    if (!addLine(pieces.join(" [...] "))) return parts.join("\n");
   }
 
-  // 4. Recent conversation turns (user + assistant) — greedy fill
+  // 4. Recent conversation turns in chat format (User: / Assistant:)
   //    Including assistant messages helps the STT recognize vocabulary from questions
   //    the user might be verbally answering.
   if (input.messageHistory && remaining > 50) {
-    const turnSnippets: string[] = [];
-    // Walk backwards to get most recent first
-    for (let i = input.messageHistory.length - 1; i >= 0 && remaining > 50; i--) {
+    // Collect turns as (role, text) pairs, walking backwards for most recent first
+    const turns: Array<{ role: "User" | "Assistant"; text: string }> = [];
+    for (let i = input.messageHistory.length - 1; i >= 0 && remaining > 20; i--) {
       const msg = input.messageHistory[i];
       let content = "";
+      let role: "User" | "Assistant";
       if (msg.type === "user_message") {
         content = typeof (msg as { content?: unknown }).content === "string"
           ? (msg as { content: string }).content
           : "";
+        role = "User";
       } else if (msg.type === "assistant") {
-        // Skip subagent messages
         const parentId = (msg as { parent_tool_use_id?: string | null }).parent_tool_use_id;
         if (parentId) continue;
         const blocks = (msg as { message?: { content?: ContentBlock[] } }).message?.content;
         if (Array.isArray(blocks)) {
           content = extractAssistantText(blocks);
         }
+        role = "Assistant";
       } else {
         continue;
       }
       if (!content.trim()) continue;
       const truncated = trunc(content.trim(), STT_PROMPT_MAX_MSG_CHARS);
-      if (truncated.length + 4 > remaining) break;
-      turnSnippets.push(truncated);
-      remaining -= truncated.length + 4;
+      const line = `${role}: ${truncated}`;
+      if (line.length + 1 > remaining) break;
+      turns.push({ role, text: truncated });
+      remaining -= line.length + 1;
     }
-    if (turnSnippets.length > 0) {
-      // Reverse back to chronological order
-      turnSnippets.reverse();
-      parts.push("Recent conversation: " + turnSnippets.join(" | "));
+    if (turns.length > 0) {
+      turns.reverse();
+      for (const t of turns) {
+        parts.push(`${t.role}: ${t.text}`);
+      }
     }
   }
 
@@ -338,15 +349,20 @@ export function buildSttPrompt(input: SttPromptInput): string {
 
 // ─── LLM call ───────────────────────────────────────────────────────────────
 
+/** Result from callEnhancementLLM — either the enhanced text or an error message. */
+type LLMCallResult =
+  | { ok: true; text: string }
+  | { ok: false; error: string };
+
 /**
  * Call an OpenAI-compatible chat completions API to enhance the transcript.
- * Returns the enhanced text, or null on failure.
+ * Returns the enhanced text on success, or an error message on failure.
  */
 async function callEnhancementLLM(
   prompt: string,
   config: TranscriptionConfig,
   apiKey: string,
-): Promise<string | null> {
+): Promise<LLMCallResult> {
   const baseUrl = (config.baseUrl || "https://api.openai.com/v1").replace(/\/+$/, "");
   const model = config.enhancementModel || "gpt-5-mini";
 
@@ -375,15 +391,19 @@ async function callEnhancementLLM(
 
     if (!res.ok) {
       const body = await res.text().catch(() => "");
-      console.warn(`[transcription-enhancer] LLM API error ${res.status}: ${body.slice(0, 200)}`);
-      return null;
+      const errorMsg = `API error ${res.status}: ${body.slice(0, 300) || res.statusText}`;
+      console.warn(`[transcription-enhancer] ${errorMsg}`);
+      return { ok: false, error: errorMsg };
     }
 
     const json = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
-    return json.choices?.[0]?.message?.content?.trim() ?? null;
+    const text = json.choices?.[0]?.message?.content?.trim();
+    if (!text) return { ok: false, error: "Empty response from LLM" };
+    return { ok: true, text };
   } catch (err) {
-    console.warn("[transcription-enhancer] LLM call failed:", err);
-    return null;
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    console.warn("[transcription-enhancer] LLM call failed:", errorMsg);
+    return { ok: false, error: errorMsg };
   }
 }
 
@@ -449,12 +469,14 @@ export async function enhanceTranscript(
   // Build prompt and call LLM
   const prompt = buildEnhancementPrompt(rawText, conversationContext, extra);
   const t0 = Date.now();
-  const enhanced = await callEnhancementLLM(prompt, config, apiKey);
+  const llmResult = await callEnhancementLLM(prompt, config, apiKey);
   const durationMs = Date.now() - t0;
 
-  if (!enhanced) {
-    return { text: rawText, enhanced: false, _debug: { model, systemPrompt: SYSTEM_PROMPT, userMessage: prompt, enhancedText: null, durationMs, skipReason: "LLM call failed" } };
+  if (!llmResult.ok) {
+    return { text: rawText, enhanced: false, _debug: { model, systemPrompt: SYSTEM_PROMPT, userMessage: prompt, enhancedText: null, durationMs, skipReason: llmResult.error } };
   }
+
+  const enhanced = llmResult.text;
 
   // Hallucination guard: if the enhanced text is way longer than the raw, discard it
   if (enhanced.length > rawText.length * HALLUCINATION_LENGTH_RATIO) {

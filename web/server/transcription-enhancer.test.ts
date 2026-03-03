@@ -370,13 +370,17 @@ describe("buildSttPrompt", () => {
     expect(buildSttPrompt({})).toBe("");
   });
 
-  it("includes task titles", () => {
+  it("includes task titles as comma-separated line (no label)", () => {
+    // Task titles should appear directly without a "Tasks:" label for maximum density
     const prompt = buildSttPrompt({
       taskHistory: [makeTask("Fix WsBridge reconnect"), makeTask("Add useVoiceInput hook")],
     });
-    expect(prompt).toContain("Tasks:");
     expect(prompt).toContain("Fix WsBridge reconnect");
     expect(prompt).toContain("Add useVoiceInput hook");
+    // No verbose label
+    expect(prompt).not.toContain("Tasks:");
+    // Comma-separated on the same line
+    expect(prompt.split("\n")[0]).toContain(", ");
   });
 
   it("deduplicates task titles (keeps unique only)", () => {
@@ -387,37 +391,52 @@ describe("buildSttPrompt", () => {
         makeTask("Add tests"),
       ],
     });
-    // "Fix auth bug" should appear only once
     const matches = prompt.match(/Fix auth bug/g);
     expect(matches).toHaveLength(1);
     expect(prompt).toContain("Add tests");
   });
 
-  it("includes session name", () => {
+  it("includes session name without verbose label", () => {
     const prompt = buildSttPrompt({ sessionName: "Debug voice transcription" });
-    expect(prompt).toContain("Session:");
     expect(prompt).toContain("Debug voice transcription");
+    // No "Session:" label
+    expect(prompt).not.toContain("Session:");
   });
 
-  it("includes composer context", () => {
+  it("combines session name and other session names on one line", () => {
+    // Current session + other sessions should appear comma-separated
+    const prompt = buildSttPrompt({
+      sessionName: "Debug voice input",
+      activeSessionNames: ["Fix sidebar layout", "Add dark mode"],
+    });
+    expect(prompt).toContain("Debug voice input");
+    expect(prompt).toContain("Fix sidebar layout");
+    expect(prompt).toContain("Add dark mode");
+    // All on one line, comma-separated
+    const line = prompt.split("\n")[0];
+    expect(line).toContain(", ");
+  });
+
+  it("includes composer context without label", () => {
     const prompt = buildSttPrompt({
       composerBefore: "Fix the bug in",
       composerAfter: "and add tests",
     });
-    expect(prompt).toContain("Context:");
     expect(prompt).toContain("Fix the bug in");
     expect(prompt).toContain("[...]");
     expect(prompt).toContain("and add tests");
+    // No "Context:" label
+    expect(prompt).not.toContain("Context:");
   });
 
   it("includes only composerBefore when composerAfter is empty", () => {
     const prompt = buildSttPrompt({ composerBefore: "Implement the" });
-    expect(prompt).toContain("Context:");
     expect(prompt).toContain("Implement the");
     expect(prompt).not.toContain("[...]");
   });
 
-  it("includes recent conversation turns (user + assistant)", () => {
+  it("formats recent turns as chat-style User:/Assistant: lines", () => {
+    // Conversation should use "User: ..." and "Assistant: ..." format, not pipe-separated
     const prompt = buildSttPrompt({
       messageHistory: [
         userMsg("Fix the auth token refresh in middleware"),
@@ -425,28 +444,32 @@ describe("buildSttPrompt", () => {
         userMsg("Now add unit tests for WsBridge"),
       ],
     });
-    expect(prompt).toContain("Recent conversation:");
-    expect(prompt).toContain("Fix the auth token refresh");
-    expect(prompt).toContain("fixed it in auth.ts");
-    expect(prompt).toContain("Now add unit tests for WsBridge");
+    expect(prompt).toContain("User: Fix the auth token refresh");
+    expect(prompt).toContain("Assistant: Done, fixed it in auth.ts");
+    expect(prompt).toContain("User: Now add unit tests for WsBridge");
+    // No pipe-separated format or "Recent conversation:" label
+    expect(prompt).not.toContain(" | ");
+    expect(prompt).not.toContain("Recent conversation:");
   });
 
-  it("fills in priority order: tasks > session > composer > messages", () => {
+  it("fills in priority order: tasks > sessions > composer > conversation", () => {
     const prompt = buildSttPrompt({
       taskHistory: [makeTask("Fix auth bug")],
       sessionName: "Debug session",
+      activeSessionNames: ["Other session"],
       composerBefore: "Add a test for",
       messageHistory: [userMsg("Some earlier message")],
     });
     const lines = prompt.split("\n");
-    // Tasks first
-    expect(lines[0]).toMatch(/^Tasks:/);
-    // Session second
-    expect(lines[1]).toMatch(/^Session:/);
-    // Composer third
-    expect(lines[2]).toMatch(/^Context:/);
-    // Messages last
-    expect(lines[3]).toMatch(/^Recent conversation:/);
+    // Line 0: task titles (comma-separated, no label)
+    expect(lines[0]).toContain("Fix auth bug");
+    // Line 1: session names (current + others)
+    expect(lines[1]).toContain("Debug session");
+    expect(lines[1]).toContain("Other session");
+    // Line 2: composer text
+    expect(lines[2]).toContain("Add a test for");
+    // Line 3: conversation turn
+    expect(lines[3]).toMatch(/^User: /);
   });
 
   it("respects the character budget", () => {
@@ -461,8 +484,7 @@ describe("buildSttPrompt", () => {
         userMsg("G".repeat(500)),
       ],
     });
-    // Should not exceed the budget
-    expect(prompt.length).toBeLessThanOrEqual(STT_PROMPT_MAX_CHARS + 50); // small margin for labels
+    expect(prompt.length).toBeLessThanOrEqual(STT_PROMPT_MAX_CHARS + 50);
   });
 
   it("includes both user and assistant messages but skips subagent messages", () => {
@@ -477,7 +499,17 @@ describe("buildSttPrompt", () => {
     expect(prompt).toContain("Fix the bug");
     expect(prompt).toContain("I fixed the bug in auth.ts");
     expect(prompt).toContain("Add tests");
-    // Subagent messages should be excluded
     expect(prompt).not.toContain("subagent work");
+  });
+
+  it("deduplicates session name from activeSessionNames", () => {
+    // If the current session name also appears in activeSessionNames, it should appear only once
+    const prompt = buildSttPrompt({
+      sessionName: "Debug voice input",
+      activeSessionNames: ["Debug voice input", "Fix sidebar layout"],
+    });
+    const matches = prompt.match(/Debug voice input/g);
+    expect(matches).toHaveLength(1);
+    expect(prompt).toContain("Fix sidebar layout");
   });
 });

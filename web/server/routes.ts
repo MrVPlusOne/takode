@@ -2948,13 +2948,23 @@ export function createRoutes(
       let sttModel = "unknown";
 
       // Build context-aware STT prompt (guides vocabulary recognition)
-      const sttPrompt = sessionId ? buildSttPrompt({
-        taskHistory: wsBridge.getSessionTaskHistory(sessionId),
-        sessionName: sessionNames.getName(sessionId),
-        composerBefore: composerBefore,
-        composerAfter: composerAfter,
-        messageHistory: wsBridge.getMessageHistory(sessionId),
-      }) : "";
+      let sttPrompt = "";
+      if (sessionId) {
+        const allNames = sessionNames.getAllNames();
+        const currentName = allNames[sessionId];
+        const otherNames = Object.entries(allNames)
+          .filter(([id]) => id !== sessionId)
+          .map(([, name]) => name)
+          .filter(Boolean);
+        sttPrompt = buildSttPrompt({
+          taskHistory: wsBridge.getSessionTaskHistory(sessionId),
+          sessionName: currentName,
+          activeSessionNames: otherNames.length > 0 ? otherNames : undefined,
+          composerBefore: composerBefore,
+          composerAfter: composerAfter,
+          messageHistory: wsBridge.getMessageHistory(sessionId),
+        });
+      }
 
       const sttStart = Date.now();
 
