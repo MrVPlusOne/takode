@@ -96,6 +96,7 @@ beforeEach(() => {
     claudeBinary: "",
     codexBinary: "",
     maxKeepAlive: 0,
+    editorConfig: { editor: "none" },
   });
   mockApi.updateSettings.mockResolvedValue({
     serverName: "",
@@ -107,6 +108,7 @@ beforeEach(() => {
     claudeBinary: "",
     codexBinary: "",
     maxKeepAlive: 0,
+    editorConfig: { editor: "none" },
   });
   mockApi.getNamerLogs.mockResolvedValue([]);
 });
@@ -165,6 +167,41 @@ describe("SettingsPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Manage Environments" }));
     expect(window.location.hash).toBe("#/environments");
+  });
+
+  it("updates editor preference from settings dropdown", async () => {
+    mockApi.getSettings.mockResolvedValue({
+      serverName: "",
+      serverId: "test-id",
+      pushoverConfigured: false,
+      pushoverEnabled: true,
+      pushoverDelaySeconds: 30,
+      pushoverBaseUrl: "",
+      claudeBinary: "",
+      codexBinary: "",
+      maxKeepAlive: 0,
+      editorConfig: { editor: "vscode" },
+    });
+    mockApi.updateSettings.mockResolvedValue({
+      serverName: "",
+      serverId: "test-id",
+      pushoverConfigured: false,
+      pushoverEnabled: true,
+      pushoverDelaySeconds: 30,
+      pushoverBaseUrl: "",
+      claudeBinary: "",
+      codexBinary: "",
+      maxKeepAlive: 0,
+      editorConfig: { editor: "cursor" },
+    });
+
+    render(<SettingsPage />);
+    const select = await screen.findByLabelText("Editor");
+    fireEvent.change(select, { target: { value: "cursor" } });
+
+    await waitFor(() => {
+      expect(mockApi.updateSettings).toHaveBeenCalledWith({ editorConfig: { editor: "cursor" } });
+    });
   });
 
   it("requests desktop permission before enabling desktop alerts", async () => {

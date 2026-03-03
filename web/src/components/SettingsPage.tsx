@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, checkHealth, type ImportStats, type AutoApprovalConfig, type NamerConfig, type TranscriptionConfig } from "../api.js";
+import { api, checkHealth, type ImportStats, type AutoApprovalConfig, type NamerConfig, type TranscriptionConfig, type EditorKind } from "../api.js";
 import { useStore } from "../store.js";
 import { NamerDebugPanel } from "./NamerDebugPanel.js";
 import { AutoApprovalDebugPanel } from "./AutoApprovalDebugPanel.js";
@@ -40,6 +40,9 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
   const [codexTest, setCodexTest] = useState<{ ok: boolean; resolvedPath?: string; version?: string; error?: string } | null>(null);
   const [claudeTesting, setClaudeTesting] = useState(false);
   const [codexTesting, setCodexTesting] = useState(false);
+  const [editorChoice, setEditorChoice] = useState<EditorKind>("none");
+  const [editorSaving, setEditorSaving] = useState(false);
+  const [editorError, setEditorError] = useState("");
   const binDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Session lifecycle state
@@ -156,6 +159,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
           setTranscriptionModel(s.transcriptionConfig.enhancementModel || "");
           setTranscriptionEnhancement(s.transcriptionConfig.enhancementEnabled ?? false);
         }
+        setEditorChoice(s.editorConfig?.editor ?? "none");
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
@@ -267,6 +271,20 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
     } finally {
       setTesting(false);
       setTimeout(() => setResult(null), 5000);
+    }
+  }
+
+  async function onChangeEditor(nextEditor: EditorKind) {
+    setEditorChoice(nextEditor);
+    setEditorSaving(true);
+    setEditorError("");
+    try {
+      const res = await api.updateSettings({ editorConfig: { editor: nextEditor } });
+      setEditorChoice(res.editorConfig?.editor ?? nextEditor);
+    } catch (err: unknown) {
+      setEditorError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setEditorSaving(false);
     }
   }
 
@@ -589,13 +607,37 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
             )}
           </div>
 
+          <div>
+            <label className="block text-sm font-medium mb-1.5" htmlFor="editor-preference">
+              Editor
+            </label>
+            <select
+              id="editor-preference"
+              value={editorChoice}
+              onChange={(e) => onChangeEditor(e.target.value as EditorKind)}
+              className="w-full px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/60"
+            >
+              <option value="vscode">VS Code</option>
+              <option value="cursor">Cursor</option>
+              <option value="none">None</option>
+            </select>
+            <p className="mt-1.5 text-xs text-cc-muted">
+              Used for clickable <code className="font-mono">file:</code> links in chat messages.
+            </p>
+          </div>
+
           {binError && (
             <div className="px-3 py-2 rounded-lg bg-cc-error/10 border border-cc-error/20 text-xs text-cc-error">
               {binError}
             </div>
           )}
+          {editorError && (
+            <div className="px-3 py-2 rounded-lg bg-cc-error/10 border border-cc-error/20 text-xs text-cc-error">
+              {editorError}
+            </div>
+          )}
 
-          {binSaving && (
+          {(binSaving || editorSaving) && (
             <p className="text-xs text-cc-muted">Saving...</p>
           )}
 

@@ -281,6 +281,7 @@ export interface AppSettings {
   namerConfig: NamerConfig;
   autoNamerEnabled: boolean;
   transcriptionConfig: TranscriptionConfig;
+  editorConfig: EditorConfig;
   restartSupported: boolean;
 }
 
@@ -295,6 +296,12 @@ export interface TranscriptionConfig {
   baseUrl: string;
   enhancementEnabled: boolean;
   enhancementModel: string;
+}
+
+export type EditorKind = "vscode" | "cursor" | "none";
+
+export interface EditorConfig {
+  editor: EditorKind;
 }
 
 // ─── Auto-Approval Types ─────────────────────────────────────────────────────
@@ -690,6 +697,7 @@ export const api = {
     namerConfig?: NamerConfig;
     autoNamerEnabled?: boolean;
     transcriptionConfig?: TranscriptionConfig;
+    editorConfig?: EditorConfig;
   }) => put<AppSettings>("/settings", data),
   testBinary: (binary: string) =>
     post<{ ok: boolean; resolvedPath?: string; version?: string }>("/settings/test-binary", { binary }),

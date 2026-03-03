@@ -104,6 +104,7 @@ vi.mock("./settings-manager.js", () => ({
     namerConfig: { backend: "claude" },
     autoNamerEnabled: true,
     transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-5-mini" },
+      editorConfig: { editor: "none" },
     updatedAt: 0,
   })),
   updateSettings: vi.fn((patch) => ({
@@ -124,6 +125,7 @@ vi.mock("./settings-manager.js", () => ({
     namerConfig: patch.namerConfig ?? { backend: "claude" },
     autoNamerEnabled: patch.autoNamerEnabled ?? true,
     transcriptionConfig: patch.transcriptionConfig ?? { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-5-mini" },
+    editorConfig: patch.editorConfig ?? { editor: "none" },
     updatedAt: Date.now(),
   })),
   getServerName: vi.fn(() => ""),
@@ -1336,6 +1338,7 @@ describe("GET /api/settings", () => {
       namerConfig: { backend: "claude" },
       autoNamerEnabled: true,
       transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-5-mini" },
+      editorConfig: { editor: "none" },
       updatedAt: 123,
     });
 
@@ -1358,6 +1361,7 @@ describe("GET /api/settings", () => {
       namerConfig: { backend: "claude" },
       autoNamerEnabled: true,
       transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-5-mini" },
+      editorConfig: { editor: "none" },
       restartSupported: expect.any(Boolean),
       logFile: expect.any(Object), // null or string depending on logger init
     });
@@ -1375,6 +1379,7 @@ describe("GET /api/settings", () => {
       namerConfig: { backend: "claude" },
       autoNamerEnabled: true,
       transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-5-mini" },
+      editorConfig: { editor: "none" },
       updatedAt: 123,
     });
 
@@ -1397,6 +1402,7 @@ describe("GET /api/settings", () => {
       namerConfig: { backend: "claude" },
       autoNamerEnabled: true,
       transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-5-mini" },
+      editorConfig: { editor: "none" },
       restartSupported: expect.any(Boolean),
       logFile: expect.any(Object), // null or string depending on logger init
     });
@@ -1415,6 +1421,7 @@ describe("GET /api/settings", () => {
       namerConfig: { backend: "claude" },
       autoNamerEnabled: true,
       transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-5-mini" },
+      editorConfig: { editor: "none" },
       updatedAt: 0,
     });
 
@@ -1440,6 +1447,7 @@ describe("PUT /api/settings", () => {
       namerConfig: { backend: "claude" },
       autoNamerEnabled: true,
       transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-5-mini" },
+      editorConfig: { editor: "none" },
       updatedAt: 456,
     });
 
@@ -1464,6 +1472,7 @@ describe("PUT /api/settings", () => {
       namerConfig: undefined,
       autoNamerEnabled: undefined,
       transcriptionConfig: undefined,
+      editorConfig: undefined,
     });
     const json = await res.json();
     expect(json).toEqual({
@@ -1481,6 +1490,7 @@ describe("PUT /api/settings", () => {
       namerConfig: { backend: "claude" },
       autoNamerEnabled: true,
       transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-5-mini" },
+      editorConfig: { editor: "none" },
     });
   });
 
@@ -1496,6 +1506,7 @@ describe("PUT /api/settings", () => {
       namerConfig: { backend: "claude" },
       autoNamerEnabled: true,
       transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-5-mini" },
+      editorConfig: { editor: "none" },
       updatedAt: 789,
     });
 
@@ -1520,6 +1531,7 @@ describe("PUT /api/settings", () => {
       namerConfig: undefined,
       autoNamerEnabled: undefined,
       transcriptionConfig: undefined,
+      editorConfig: undefined,
     });
   });
 
@@ -1535,6 +1547,7 @@ describe("PUT /api/settings", () => {
       namerConfig: { backend: "claude" },
       autoNamerEnabled: true,
       transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-5-mini" },
+      editorConfig: { editor: "none" },
       updatedAt: Date.now(),
     });
     vi.mocked(settingsManager.getServerName).mockReturnValue("My Backend");
@@ -1624,6 +1637,7 @@ describe("PUT /api/settings", () => {
       namerConfig: undefined,
       autoNamerEnabled: undefined,
       transcriptionConfig: undefined,
+      editorConfig: undefined,
     });
   });
 
@@ -1638,6 +1652,7 @@ describe("PUT /api/settings", () => {
       namerConfig: { backend: "claude" },
       autoNamerEnabled: true,
       transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-5-mini" },
+      editorConfig: { editor: "none" },
       updatedAt: Date.now(),
     });
 
@@ -1714,6 +1729,7 @@ describe("PUT /api/settings", () => {
       namerConfig: { backend: "claude" },
       autoNamerEnabled: true,
       transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-5-mini" },
+      editorConfig: { editor: "none" },
       updatedAt: Date.now(),
     });
 
@@ -1729,6 +1745,47 @@ describe("PUT /api/settings", () => {
     );
     const json = await res.json();
     expect(json.maxKeepAlive).toBe(5);
+  });
+
+  it("updates editorConfig setting", async () => {
+    vi.mocked(settingsManager.updateSettings).mockReturnValue({
+      serverName: "", serverId: "",
+      pushoverUserKey: "", pushoverApiToken: "", pushoverDelaySeconds: 30, pushoverEnabled: true, pushoverBaseUrl: "",
+      claudeBinary: "", codexBinary: "",
+      maxKeepAlive: 0,
+      autoApprovalEnabled: false, autoApprovalModel: "haiku",
+      autoApprovalMaxConcurrency: 4, autoApprovalTimeoutSeconds: 45,
+      namerConfig: { backend: "claude" },
+      autoNamerEnabled: true,
+      transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-5-mini" },
+      editorConfig: { editor: "cursor" },
+      updatedAt: Date.now(),
+    });
+
+    const res = await app.request("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ editorConfig: { editor: "cursor" } }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(settingsManager.updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ editorConfig: { editor: "cursor" } }),
+    );
+    const json = await res.json();
+    expect(json.editorConfig).toEqual({ editor: "cursor" });
+  });
+
+  it("returns 400 for invalid editorConfig.editor", async () => {
+    const res = await app.request("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ editorConfig: { editor: "vim" } }),
+    });
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json).toEqual({ error: 'editorConfig.editor must be "vscode", "cursor", or "none"' });
   });
 });
 

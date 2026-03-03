@@ -1,6 +1,7 @@
 import { useRef, useCallback, useMemo, useState, useEffect, type ComponentProps, type MouseEvent, type ReactNode } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { api, type EditorKind } from "../api.js";
 import { useStore, countUserPermissions } from "../store.js";
 import { navigateToSession, sessionHash } from "../utils/routing.js";
 import { SessionHoverCard } from "./SessionHoverCard.js";
@@ -38,8 +39,68 @@ function parseSessionNumFromHref(href?: string): number | null {
   return null;
 }
 
+interface FileLinkTarget {
+  absolutePath: string;
+  line: number;
+  column: number;
+}
+
+function parseFileLinkFromHref(href?: string): FileLinkTarget | null {
+  if (!href) return null;
+  const trimmed = href.trim();
+  if (!/^file:/i.test(trimmed)) return null;
+
+  let raw = trimmed.slice(5);
+  if (!raw) return null;
+  if (raw.startsWith("///")) {
+    raw = raw.slice(2);
+  } else if (raw.startsWith("//")) {
+    const slashAt = raw.indexOf("/", 2);
+    raw = slashAt >= 0 ? raw.slice(slashAt) : "/";
+  }
+
+  let decoded = raw;
+  try {
+    decoded = decodeURIComponent(raw);
+  } catch {
+    return null;
+  }
+
+  let path = decoded;
+  let line = 1;
+  let column = 1;
+
+  const lineColMatch = decoded.match(/^(.*):(\d+):(\d+)$/);
+  if (lineColMatch) {
+    path = lineColMatch[1];
+    line = Number.parseInt(lineColMatch[2], 10);
+    column = Number.parseInt(lineColMatch[3], 10);
+  } else {
+    const lineOnlyMatch = decoded.match(/^(.*):(\d+)$/);
+    if (lineOnlyMatch) {
+      path = lineOnlyMatch[1];
+      line = Number.parseInt(lineOnlyMatch[2], 10);
+    }
+  }
+
+  const isAbsolute =
+    path.startsWith("/")
+    || /^\/[A-Za-z]:\//.test(path)
+    || /^[A-Za-z]:[\\/]/.test(path);
+  if (!isAbsolute || line < 1 || column < 1) return null;
+
+  return { absolutePath: path, line, column };
+}
+
+function buildEditorUri(target: FileLinkTarget, editor: EditorKind): string | null {
+  if (editor === "none") return null;
+  const scheme = editor === "cursor" ? "cursor" : "vscode";
+  return `${scheme}://file/${encodeURI(target.absolutePath)}:${target.line}:${target.column}`;
+}
+
 function transformMarkdownUrl(url: string): string {
-  if (parseQuestIdFromHref(url) || parseSessionNumFromHref(url) != null) return url;
+  if (parseQuestIdFromHref(url) || parseSessionNumFromHref(url) != null || parseFileLinkFromHref(url)) return url;
+  if (/^file:/i.test(url.trim())) return "";
   // Block dangerous protocols while preserving normal links.
   const normalized = url.toLowerCase().replace(/[\u0000-\u001f\u007f\s]+/g, "");
   if (
@@ -105,6 +166,14 @@ export function MarkdownContent({ text, size = "default" }: { text: string; size
                 <SessionMarkdownLink sessionNum={sessionNum}>
                   {children}
                 </SessionMarkdownLink>
+              );
+            }
+            const fileTarget = parseFileLinkFromHref(href);
+            if (fileTarget) {
+              return (
+                <FileMarkdownLink target={fileTarget}>
+                  {children}
+                </FileMarkdownLink>
               );
             }
             return (
@@ -359,6 +428,32 @@ function SessionMarkdownLink({ sessionNum, children }: { sessionNum: number; chi
         />
       )}
     </>
+  );
+}
+
+function FileMarkdownLink({ target, children }: { target: FileLinkTarget; children: ReactNode }) {
+  const onClick = useCallback(async (e: MouseEvent<HTMLAnchorElement>) => {
+    e.preventDefault();
+    let settings;
+    try {
+      settings = await api.getSettings();
+    } catch {
+      return;
+    }
+    const uri = buildEditorUri(target, settings.editorConfig?.editor ?? "none");
+    if (!uri) return;
+    window.open(uri, "_blank", "noopener,noreferrer");
+  }, [target]);
+
+  return (
+    <a
+      href={`file:${target.absolutePath}:${target.line}:${target.column}`}
+      onClick={(e) => { void onClick(e); }}
+      className="text-cc-primary hover:underline"
+      title={`${target.absolutePath}:${target.line}:${target.column}`}
+    >
+      {children}
+    </a>
   );
 }
 

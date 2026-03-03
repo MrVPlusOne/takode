@@ -1771,6 +1771,7 @@ quest feedback q-42 --text "Auth implementation looks good, but needs rate limit
 \`\`\`
 
 - When mentioning quests in chat, always use clickable quest links: \`[q-42](quest:q-42)\` (not plain \`q-42\`).
+- When referencing files for the user, use clickable file links: \`[src/app.ts:42](file:/absolute/path/to/src/app.ts:42)\`.
 
 ## Session Identification
 

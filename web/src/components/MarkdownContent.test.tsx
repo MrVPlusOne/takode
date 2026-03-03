@@ -1,12 +1,23 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent } from "@testing-library/react";
-import { MarkdownContent } from "./MarkdownContent.js";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { useStore } from "../store.js";
+
+const mockGetSettings = vi.fn();
+
+vi.mock("../api.js", () => ({
+  api: {
+    getSettings: (...args: unknown[]) => mockGetSettings(...args),
+  },
+}));
+
+import { MarkdownContent } from "./MarkdownContent.js";
 
 describe("MarkdownContent quest links", () => {
   beforeEach(() => {
     window.location.hash = "#/session/s1";
     useStore.getState().reset();
+    mockGetSettings.mockReset();
+    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "none" } });
   });
 
   it("opens quest links as overlay on the current route", () => {
@@ -98,5 +109,36 @@ describe("MarkdownContent quest links", () => {
     fireEvent.mouseEnter(screen.getByRole("link", { name: "#123" }));
 
     expect(await screen.findByText("Auth Worker")).toBeTruthy();
+  });
+
+  it("opens file: links in VS Code using configured editor preference", async () => {
+    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode" } });
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+
+    render(<MarkdownContent text="[app.ts](file:/tmp/project/app.ts:42)" />);
+    fireEvent.click(screen.getByRole("link", { name: "app.ts" }));
+
+    await waitFor(() => {
+      expect(openSpy).toHaveBeenCalledWith(
+        "vscode://file//tmp/project/app.ts:42:1",
+        "_blank",
+        "noopener,noreferrer",
+      );
+    });
+    openSpy.mockRestore();
+  });
+
+  it("does not launch an editor for file: links when editor preference is none", async () => {
+    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "none" } });
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+
+    render(<MarkdownContent text="[app.ts](file:/tmp/project/app.ts:7:3)" />);
+    fireEvent.click(screen.getByRole("link", { name: "app.ts" }));
+
+    await waitFor(() => {
+      expect(mockGetSettings).toHaveBeenCalledTimes(1);
+    });
+    expect(openSpy).not.toHaveBeenCalled();
+    openSpy.mockRestore();
   });
 });

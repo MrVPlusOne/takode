@@ -28,7 +28,7 @@ import { containerManager, ContainerManager, type ContainerConfig, type Containe
 import type { CreationStepId } from "./session-types.js";
 import { hasContainerClaudeAuth } from "./claude-container-auth.js";
 import { hasContainerCodexAuth } from "./codex-container-auth.js";
-import { getSettings, updateSettings, getServerName, setServerName, getServerId, type NamerConfig, type TranscriptionConfig } from "./settings-manager.js";
+import { getSettings, updateSettings, getServerName, setServerName, getServerId, type NamerConfig, type TranscriptionConfig, type EditorConfig } from "./settings-manager.js";
 import { getLogPath } from "./server-logger.js";
 import { getUsageLimits } from "./usage-limits.js";
 import { buildPeekResponse, buildPeekDefault, buildPeekRange, buildReadResponse } from "./takode-messages.js";
@@ -655,7 +655,8 @@ export function createRoutes(
                 `[System] You are a leader agent. Your job is to coordinate worker sessions in your herd.\n\n` +
                 `Your user messages are tagged by source: [User] = human operator, [Herd] = automatic event from herded workers, [Agent] = message from another agent.\n\n` +
                 `Every text message must end with \`@to(user)\` or \`@to(self)\` — missing tags trigger a resend prompt. **@to(user)** (default): anything the user would want to know — answers, results, status updates, decisions needed, errors, or confirmations of dispatched work. **@to(self)**: only for internal bookkeeping with little user relevance. When in doubt, use @to(user).\n\n` +
-                `When mentioning quests in chat, always use clickable links like \`[q-42](quest:q-42)\` (not plain \`q-42\`).\n\n` +
+                `When mentioning quests in chat, always use clickable links like \`[q-42](quest:q-42)\` (not plain \`q-42\`).\n` +
+                `When referencing files, always use clickable editor links like \`[src/app.ts:42](file:/absolute/path/to/src/app.ts:42)\`.\n\n` +
                 `Events from herded workers arrive automatically — you do NOT need to poll or call \`watch\`. When workers finish turns, need permissions, or hit errors, you'll receive a [Herd] message with a compact summary. React to these events by peeking at workers (\`takode peek\`) and sending follow-up instructions (\`takode send\`).\n\n` +
                 `**Task queuing:** Workers should only focus on one task at a time. Never send an unrelated new task to a busy worker. Queue new tasks in your own todo list and wait for the worker's turn_end event. Only send the next task after the worker finishes and goes idle. It IS okay to send mid-work messages that steer the current task (refining scope, correcting mistakes) or urgent interventions.\n\n` +
                 `Use \`takode herd <ids>\` to add sessions to your herd, \`takode unherd <id>\` to release them.\n\n` +
@@ -1186,7 +1187,8 @@ export function createRoutes(
                   `[System] You are a leader agent. Your job is to coordinate worker sessions in your herd.\n\n` +
                   `Your user messages are tagged by source: [User] = human operator, [Herd] = automatic event from herded workers, [Agent] = message from another agent.\n\n` +
                   `Every text message must end with \`@to(user)\` or \`@to(self)\` — missing tags trigger a resend prompt. **@to(user)** (default): anything the user would want to know — answers, results, status updates, decisions needed, errors, or confirmations of dispatched work. **@to(self)**: only for internal bookkeeping with little user relevance. When in doubt, use @to(user).\n\n` +
-                  `When mentioning quests in chat, always use clickable links like \`[q-42](quest:q-42)\` (not plain \`q-42\`).\n\n` +
+                  `When mentioning quests in chat, always use clickable links like \`[q-42](quest:q-42)\` (not plain \`q-42\`).\n` +
+                  `When referencing files, always use clickable editor links like \`[src/app.ts:42](file:/absolute/path/to/src/app.ts:42)\`.\n\n` +
                   `Events from herded workers arrive automatically — you do NOT need to poll or call \`watch\`. When workers finish turns, need permissions, or hit errors, you'll receive a [Herd] message with a compact summary. React to these events by peeking at workers (\`takode peek\`) and sending follow-up instructions (\`takode send\`).\n\n` +
                   `Use \`takode herd <ids>\` to add sessions to your herd, \`takode unherd <id>\` to release them.\n\n` +
                 `Start by running \`takode list --active\` to discover all sessions, then \`takode herd <ids>\` to claim your workers. After herding, \`takode list\` shows only your flock.\n\n` +
@@ -2705,6 +2707,14 @@ export function createRoutes(
     };
   }
 
+  function parseEditorConfigFromBody(ec: Record<string, unknown>): EditorConfig {
+    const editor = ec.editor;
+    if (editor === "vscode" || editor === "cursor" || editor === "none") {
+      return { editor };
+    }
+    return { editor: "none" };
+  }
+
   api.get("/settings", (c) => {
     const settings = getSettings();
     return c.json({
@@ -2722,6 +2732,7 @@ export function createRoutes(
       namerConfig: maskNamerConfig(settings.namerConfig),
       autoNamerEnabled: settings.autoNamerEnabled,
       transcriptionConfig: maskTranscriptionConfig(settings.transcriptionConfig),
+      editorConfig: settings.editorConfig,
       restartSupported: !!process.env.COMPANION_SUPERVISED,
       logFile: getLogPath(),
     });
@@ -2785,6 +2796,15 @@ export function createRoutes(
     if (body.autoNamerEnabled !== undefined && typeof body.autoNamerEnabled !== "boolean") {
       return c.json({ error: "autoNamerEnabled must be a boolean" }, 400);
     }
+    if (body.editorConfig !== undefined) {
+      if (typeof body.editorConfig !== "object" || body.editorConfig === null || Array.isArray(body.editorConfig)) {
+        return c.json({ error: "editorConfig must be an object" }, 400);
+      }
+      const ec = body.editorConfig as Record<string, unknown>;
+      if (ec.editor !== undefined && ec.editor !== "vscode" && ec.editor !== "cursor" && ec.editor !== "none") {
+        return c.json({ error: 'editorConfig.editor must be "vscode", "cursor", or "none"' }, 400);
+      }
+    }
 
     // Check that at least one known field is present
     const knownFields = [
@@ -2796,6 +2816,7 @@ export function createRoutes(
       "namerConfig",
       "autoNamerEnabled",
       "transcriptionConfig",
+      "editorConfig",
     ];
     if (!knownFields.some((f) => body[f] !== undefined)) {
       return c.json({ error: "At least one settings field is required" }, 400);
@@ -2852,6 +2873,7 @@ export function createRoutes(
           ? body.autoNamerEnabled
           : undefined,
       transcriptionConfig: body.transcriptionConfig ? parseTranscriptionConfigFromBody(body.transcriptionConfig) : undefined,
+      editorConfig: body.editorConfig ? parseEditorConfigFromBody(body.editorConfig) : undefined,
     });
 
     return c.json({
@@ -2869,6 +2891,7 @@ export function createRoutes(
       namerConfig: maskNamerConfig(settings.namerConfig),
       autoNamerEnabled: settings.autoNamerEnabled,
       transcriptionConfig: maskTranscriptionConfig(settings.transcriptionConfig),
+      editorConfig: settings.editorConfig,
     });
   });
 

@@ -43,6 +43,8 @@ export interface CompanionSettings {
   autoNamerEnabled: boolean;
   /** Voice transcription configuration */
   transcriptionConfig: TranscriptionConfig;
+  /** Preferred local editor for clickable file: links */
+  editorConfig: EditorConfig;
   updatedAt: number;
 }
 
@@ -56,6 +58,12 @@ export interface TranscriptionConfig {
   enhancementEnabled: boolean;
   /** Model to use for enhancement (e.g. "gpt-5-mini", "gpt-4o") */
   enhancementModel: string;
+}
+
+export type EditorKind = "vscode" | "cursor" | "none";
+
+export interface EditorConfig {
+  editor: EditorKind;
 }
 
 /** Discriminated union for session auto-namer backend. */
@@ -88,6 +96,7 @@ let settings: CompanionSettings = {
   namerConfig: { backend: "claude" },
   autoNamerEnabled: true,
   transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-5-mini" },
+  editorConfig: { editor: "none" },
   updatedAt: 0,
 };
 
@@ -133,6 +142,18 @@ function normalizeTranscriptionConfig(raw: Record<string, unknown> | null | unde
   return { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-5-mini" };
 }
 
+function normalizeEditorConfig(raw: Record<string, unknown> | null | undefined): EditorConfig {
+  const cfg = raw?.editorConfig;
+  if (cfg && typeof cfg === "object" && !Array.isArray(cfg)) {
+    const c = cfg as Record<string, unknown>;
+    const editor = c.editor;
+    if (editor === "vscode" || editor === "cursor" || editor === "none") {
+      return { editor };
+    }
+  }
+  return { editor: "none" };
+}
+
 function normalize(raw: Partial<CompanionSettings> | null | undefined): CompanionSettings {
   return {
     serverName: typeof raw?.serverName === "string" ? raw.serverName : "",
@@ -152,6 +173,7 @@ function normalize(raw: Partial<CompanionSettings> | null | undefined): Companio
     namerConfig: normalizeNamerConfig(raw),
     autoNamerEnabled: typeof raw?.autoNamerEnabled === "boolean" ? raw.autoNamerEnabled : true,
     transcriptionConfig: normalizeTranscriptionConfig(raw),
+    editorConfig: normalizeEditorConfig(raw),
     updatedAt: typeof raw?.updatedAt === "number" ? raw.updatedAt : 0,
   };
 }
@@ -187,7 +209,7 @@ export function getSettings(): CompanionSettings {
 
 export function updateSettings(
   patch: Partial<Pick<CompanionSettings,
-    "pushoverUserKey" | "pushoverApiToken" | "pushoverDelaySeconds" | "pushoverEnabled" | "pushoverBaseUrl" | "claudeBinary" | "codexBinary" | "maxKeepAlive" | "autoApprovalEnabled" | "autoApprovalModel" | "autoApprovalMaxConcurrency" | "autoApprovalTimeoutSeconds" | "namerConfig" | "autoNamerEnabled" | "transcriptionConfig"
+    "pushoverUserKey" | "pushoverApiToken" | "pushoverDelaySeconds" | "pushoverEnabled" | "pushoverBaseUrl" | "claudeBinary" | "codexBinary" | "maxKeepAlive" | "autoApprovalEnabled" | "autoApprovalModel" | "autoApprovalMaxConcurrency" | "autoApprovalTimeoutSeconds" | "namerConfig" | "autoNamerEnabled" | "transcriptionConfig" | "editorConfig"
   >>,
 ): CompanionSettings {
   ensureLoaded();

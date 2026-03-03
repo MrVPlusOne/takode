@@ -47,6 +47,7 @@ describe("settings-manager", () => {
       namerConfig: { backend: "claude" },
       autoNamerEnabled: true,
       transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-5-mini" },
+      editorConfig: { editor: "none" },
       updatedAt: 0,
     });
   });
@@ -125,6 +126,7 @@ describe("settings-manager", () => {
       namerConfig: { backend: "claude" },
       autoNamerEnabled: true,
       transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-5-mini" },
+      editorConfig: { editor: "none" },
       updatedAt: 0,
     });
   });
@@ -268,6 +270,21 @@ describe("CLI binary settings", () => {
     );
     _resetForTest(settingsPath);
     expect(getSettings().claudeBinary).toBe("/custom/claude");
+  });
+});
+
+describe("editor settings", () => {
+  it("defaults editor preference to none", () => {
+    expect(getSettings().editorConfig).toEqual({ editor: "none" });
+  });
+
+  it("updates and persists editor preference", async () => {
+    const updated = updateSettings({ editorConfig: { editor: "cursor" } });
+    expect(updated.editorConfig).toEqual({ editor: "cursor" });
+
+    await _flushForTest();
+    const saved = JSON.parse(readFileSync(settingsPath, "utf-8"));
+    expect(saved.editorConfig).toEqual({ editor: "cursor" });
   });
 });
 
