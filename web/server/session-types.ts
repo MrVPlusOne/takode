@@ -252,7 +252,7 @@ export type BrowserOutgoingMessage =
   | { type: "permission_response"; request_id: string; behavior: "allow" | "deny"; updated_input?: Record<string, unknown>; updated_permissions?: PermissionUpdate[]; message?: string; client_msg_id?: string }
   | { type: "session_subscribe"; last_seq: number }
   | { type: "session_ack"; last_seq: number }
-  | { type: "interrupt"; client_msg_id?: string }
+  | { type: "interrupt"; client_msg_id?: string; interruptSource?: "user" | "leader" | "system" }
   | { type: "set_model"; model: string; client_msg_id?: string }
   | { type: "set_codex_reasoning_effort"; effort: string; client_msg_id?: string }
   | { type: "set_permission_mode"; mode: string; client_msg_id?: string }

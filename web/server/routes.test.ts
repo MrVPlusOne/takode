@@ -3945,6 +3945,7 @@ describe("Takode server-authoritative auth", () => {
     expect(res.status).toBe(200);
     expect(bridge.routeExternalInterrupt).toHaveBeenCalledWith(
       expect.objectContaining({ id: "worker-1" }),
+      "leader",
     );
     expect(launcher.kill).not.toHaveBeenCalled();
     expect(sessions["worker-1"].repoRoot).toBe("/repo");
@@ -3972,6 +3973,7 @@ describe("Takode server-authoritative auth", () => {
     expect(bridge.getOrCreateSession).toHaveBeenCalledWith("worker-1", "codex");
     expect(bridge.routeExternalInterrupt).toHaveBeenCalledWith(
       expect.objectContaining({ id: "worker-1", backendType: "codex" }),
+      "leader",
     );
     expect(launcher.kill).not.toHaveBeenCalled();
   });

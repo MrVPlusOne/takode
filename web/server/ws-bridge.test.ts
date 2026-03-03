@@ -836,6 +836,9 @@ describe("Seamless CLI reconnect preserves isGenerating", () => {
     // runFullDisconnect should have emitted turn_end
     const turnEndCalls = spy.mock.calls.filter(([, event]) => event === "turn_end");
     expect(turnEndCalls).toHaveLength(1);
+    expect(turnEndCalls[0]?.[2]).toEqual(
+      expect.objectContaining({ interrupted: true, interrupt_source: "system" }),
+    );
     expect(session.isGenerating).toBe(false);
 
     spy.mockRestore();
@@ -2449,6 +2452,52 @@ describe("Browser message routing", () => {
     expect(sent.type).toBe("control_request");
     expect(sent.request_id).toBe("test-uuid");
     expect(sent.request.subtype).toBe("interrupt");
+  });
+
+  it("interrupt: emits turn_end with interrupt_source=user", () => {
+    const spy = vi.spyOn(bridge, "emitTakodeEvent");
+
+    bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "user_message",
+      content: "start work",
+    }));
+    bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "interrupt",
+    }));
+    bridge.handleCLIMessage(cli, JSON.stringify({
+      type: "result",
+      total_cost_usd: 0,
+      num_turns: 1,
+    }));
+
+    const turnEndCalls = spy.mock.calls.filter(([, eventType]) => eventType === "turn_end");
+    expect(turnEndCalls.length).toBeGreaterThan(0);
+    expect(turnEndCalls[turnEndCalls.length - 1]?.[2]).toEqual(
+      expect.objectContaining({ interrupted: true, interrupt_source: "user" }),
+    );
+    spy.mockRestore();
+  });
+
+  it("routeExternalInterrupt: emits turn_end with interrupt_source=leader", async () => {
+    const spy = vi.spyOn(bridge, "emitTakodeEvent");
+
+    bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "user_message",
+      content: "start work",
+    }));
+    await bridge.routeExternalInterrupt(bridge.getSession("s1")!, "leader");
+    bridge.handleCLIMessage(cli, JSON.stringify({
+      type: "result",
+      total_cost_usd: 0,
+      num_turns: 1,
+    }));
+
+    const turnEndCalls = spy.mock.calls.filter(([, eventType]) => eventType === "turn_end");
+    expect(turnEndCalls.length).toBeGreaterThan(0);
+    expect(turnEndCalls[turnEndCalls.length - 1]?.[2]).toEqual(
+      expect.objectContaining({ interrupted: true, interrupt_source: "leader" }),
+    );
+    spy.mockRestore();
   });
 
   it("interrupt: deduplicates repeated client_msg_id", () => {
@@ -6903,7 +6952,7 @@ describe("Codex user_message takode events", () => {
     );
     expect(turnEndCalls.length).toBeGreaterThan(0);
     const lastTurnEnd = turnEndCalls[turnEndCalls.length - 1];
-    expect(lastTurnEnd[2]).toEqual(expect.objectContaining({ interrupted: true }));
+    expect(lastTurnEnd[2]).toEqual(expect.objectContaining({ interrupted: true, interrupt_source: "user" }));
 
     spy.mockRestore();
   });

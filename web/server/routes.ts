@@ -1651,7 +1651,7 @@ export function createRoutes(
     }
 
     const targetSession = session || wsBridge.getOrCreateSession(id, workerInfo.backendType || "claude");
-    await wsBridge.routeExternalInterrupt(targetSession);
+    await wsBridge.routeExternalInterrupt(targetSession, "leader");
 
     return c.json({ ok: true, sessionId: id, stoppedBy: callerSessionId });
   });

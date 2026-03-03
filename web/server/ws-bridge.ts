@@ -329,6 +329,7 @@ interface PendingCodexTurnRecovery {
 }
 
 type LeaderAssistantAddressing = "not_leader" | "user" | "self" | "missing";
+type InterruptSource = "user" | "leader" | "system";
 
 interface Session {
   id: string;
@@ -375,6 +376,8 @@ interface Session {
   messageCountAtTurnStart: number;
   /** Set when handleInterrupt is called during generation, cleared at turn end */
   interruptedDuringTurn: boolean;
+  /** Source of the current turn interruption (if interruptedDuringTurn=true). */
+  interruptSourceDuringTurn: InterruptSource | null;
   /** Consecutive SDK/adapter disconnect count without a successful turn completion.
    *  Used to cap auto-relaunch attempts and prevent infinite respawn loops. */
   consecutiveAdapterFailures: number;
@@ -1419,8 +1422,8 @@ export class WsBridge {
 
   /** Route an interrupt from an external source (REST API / CLI).
    *  This reuses the same interrupt path as the browser stop button. */
-  async routeExternalInterrupt(session: Session): Promise<void> {
-    await this.routeBrowserMessage(session, { type: "interrupt" } as BrowserOutgoingMessage);
+  async routeExternalInterrupt(session: Session, source: InterruptSource = "system"): Promise<void> {
+    await this.routeBrowserMessage(session, { type: "interrupt", interruptSource: source } as BrowserOutgoingMessage);
   }
 
   // ── Takode orchestration event methods ──────────────────────────────────
@@ -1528,6 +1531,7 @@ export class WsBridge {
         questStatusAtTurnStart: null,
         messageCountAtTurnStart: 0,
         interruptedDuringTurn: false,
+        interruptSourceDuringTurn: null,
         compactedDuringTurn: false,
         consecutiveAdapterFailures: 0,
         lastAdapterFailureAt: null,
@@ -1891,6 +1895,7 @@ export class WsBridge {
         questStatusAtTurnStart: null,
         messageCountAtTurnStart: 0,
         interruptedDuringTurn: false,
+        interruptSourceDuringTurn: null,
         compactedDuringTurn: false,
         consecutiveAdapterFailures: 0,
         lastAdapterFailureAt: null,
@@ -2399,6 +2404,7 @@ export class WsBridge {
         session.lastAdapterFailureAt = now;
         session.consecutiveAdapterFailures++;
       }
+      this.markTurnInterrupted(session, "system");
       this.setGenerating(session, false, "codex_disconnect");
       this.persistSession(session);
       const idleKilled = this.launcher?.getSession(sessionId)?.killedByIdleManager;
@@ -2616,6 +2622,7 @@ export class WsBridge {
       session.consecutiveAdapterFailures++;
       console.log(`[ws-bridge] Claude SDK adapter disconnected for session ${sessionTag(sessionId)}${idleKilled ? " (idle limit)" : ""} (consecutive failures: ${session.consecutiveAdapterFailures})`);
       session.claudeSdkAdapter = null;
+      this.markTurnInterrupted(session, "system");
       this.setGenerating(session, false, "sdk_disconnect");
       this.broadcastToBrowsers(session, {
         type: "cli_disconnected",
@@ -2857,6 +2864,7 @@ export class WsBridge {
   ): void {
     // Clear generating state if not already done
     if (session.isGenerating) {
+      this.markTurnInterrupted(session, "system");
       this.setGenerating(session, false, "cli_disconnect");
     }
 
@@ -3242,6 +3250,7 @@ export class WsBridge {
           console.log(`[ws-bridge] Preserving running state on system.init for in-flight user dispatch in session ${sessionTag(session.id)}`);
         } else {
           console.log(`[ws-bridge] Force-clearing stale isGenerating on system.init for session ${sessionTag(session.id)}`);
+          this.markTurnInterrupted(session, "system");
           this.setGenerating(session, false, "system_init_reset");
           this.broadcastToBrowsers(session, { type: "status_change", status: "idle" });
         }
@@ -4474,7 +4483,10 @@ export class WsBridge {
         // Mark the current turn as interrupted so the worker herd turn_end
         // event renders "⊘ interrupted" instead of a success check.
         if (session.backendType === "codex" && wasGenerating) {
-          session.interruptedDuringTurn = true;
+          const source: InterruptSource = msg.agentSource
+            ? (this.isSystemSourceTag(msg.agentSource) ? "system" : "leader")
+            : "user";
+          this.markTurnInterrupted(session, source);
         }
         this.markRunningFromUserDispatch(session, "user_message");
 
@@ -4644,7 +4656,7 @@ export class WsBridge {
         break;
 
       case "interrupt":
-        this.handleInterrupt(session);
+        this.handleInterrupt(session, msg.interruptSource ?? "user");
         break;
 
       case "set_model":
@@ -5062,7 +5074,7 @@ export class WsBridge {
       // When ExitPlanMode is denied, also interrupt the CLI so it stops
       // and waits for new user input (matches Claude Code vanilla behavior)
       if (pending?.tool_name === "ExitPlanMode") {
-        this.handleInterrupt(session);
+        this.handleInterrupt(session, "system");
         // Don't broadcast "idle" here — let the CLI's interrupt response set
         // the status naturally. Broadcasting idle eagerly causes a flash when
         // the browser auto-rejects a plan by sending a new message (deny →
@@ -5093,17 +5105,20 @@ export class WsBridge {
     this.persistSession(session);
   }
 
-  private handleInterrupt(session: Session) {
-    // Track that this turn was interrupted (for herd event reporting)
-    if (session.isGenerating) {
-      session.interruptedDuringTurn = true;
-    }
+  private handleInterrupt(session: Session, source: InterruptSource = "user") {
+    this.markTurnInterrupted(session, source);
     const ndjson = JSON.stringify({
       type: "control_request",
       request_id: randomUUID(),
       request: { subtype: "interrupt" },
     });
     this.sendToCLI(session, ndjson);
+  }
+
+  private markTurnInterrupted(session: Session, source: InterruptSource): void {
+    if (!session.isGenerating) return;
+    session.interruptedDuringTurn = true;
+    session.interruptSourceDuringTurn = source;
   }
 
   private handleSetModel(session: Session, model: string) {
@@ -5732,6 +5747,7 @@ export class WsBridge {
       console.warn(
         `[ws-bridge] Reverting optimistic running state after ${WsBridge.USER_MESSAGE_RUNNING_TIMEOUT_MS}ms for session ${sessionTag(current.id)} (${reason})`,
       );
+      this.markTurnInterrupted(current, "system");
       this.setGenerating(current, false, "user_message_timeout");
       this.broadcastToBrowsers(current, { type: "status_change", status: "idle" });
       this.persistSession(current);
@@ -5769,6 +5785,7 @@ export class WsBridge {
       session.questStatusAtTurnStart = session.state.claimedQuestStatus ?? null;
       session.messageCountAtTurnStart = session.messageHistory.length;
       session.interruptedDuringTurn = false; // Reset for new turn
+      session.interruptSourceDuringTurn = null;
       session.compactedDuringTurn = false; // Reset compaction tracking for new turn
       session.userMessageIdsThisTurn = []; // Reset user message tracking for new turn
       console.log(`[ws-bridge] Generation started for session ${sessionTag(session.id)} (${reason})`);
@@ -5790,13 +5807,15 @@ export class WsBridge {
       // Takode: turn_end with tool summary from the last turn
       const toolSummary = this.buildTurnToolSummary(session);
       const interrupted = session.interruptedDuringTurn;
+      const interruptSource = interrupted ? (session.interruptSourceDuringTurn || "system") : null;
       const compacted = session.compactedDuringTurn;
       session.interruptedDuringTurn = false; // Clear for next turn
+      session.interruptSourceDuringTurn = null; // Clear for next turn
       session.compactedDuringTurn = false; // Clear for next turn
       this.emitTakodeEvent(session.id, "turn_end", {
         reason,
         duration_ms: elapsed,
-        ...(interrupted ? { interrupted: true } : {}),
+        ...(interrupted ? { interrupted: true, interrupt_source: interruptSource } : {}),
         ...(compacted ? { compacted: true } : {}),
         ...toolSummary,
       });

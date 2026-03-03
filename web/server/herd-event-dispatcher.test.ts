@@ -372,7 +372,16 @@ describe("formatHerdEventBatch", () => {
       data: { duration_ms: 1600, interrupted: true },
     })];
     const result = formatHerdEventBatch(events);
-    expect(result).toContain("⊘ interrupted");
+    expect(result).toContain("interrupted 1.6s");
+  });
+
+  it("formats interrupted turn_end events with interrupt source attribution", () => {
+    const events = [makeEvent({
+      event: "turn_end",
+      data: { duration_ms: 1600, interrupted: true, interrupt_source: "leader" },
+    })];
+    const result = formatHerdEventBatch(events);
+    expect(result).toContain("interrupted (by leader) 1.6s");
   });
 
   it("formats turn_end with compacted annotation when context was compacted", () => {

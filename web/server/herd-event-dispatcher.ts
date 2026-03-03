@@ -373,7 +373,12 @@ function formatSingleEvent(evt: TakodeEvent, nowTs: number): string {
         ? ` | "${truncate(evt.data.resultPreview, 60)}"`
         : "";
       const compacted = evt.data.compacted ? " (compacted)" : "";
-      const success = evt.data.interrupted ? "⊘ interrupted" : evt.data.is_error ? "✗" : "✓";
+      const interruptSource = typeof evt.data.interrupt_source === "string"
+        ? evt.data.interrupt_source
+        : null;
+      const success = evt.data.interrupted
+        ? `interrupted${interruptSource ? ` (by ${interruptSource})` : ""}`
+        : evt.data.is_error ? "✗" : "✓";
       // Message ID range for quick peek navigation
       const range = evt.data.msgRange as { from: number; to: number } | undefined;
       const rangeStr = range ? ` | [${range.from}]-[${range.to}]` : "";
