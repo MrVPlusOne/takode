@@ -793,7 +793,10 @@ function getDefaultTurnExpanded(
   keepExpandedDuringStreaming: boolean,
   leaderMode: boolean,
 ): boolean {
-  if (leaderMode) return isLastTurn || keepExpandedDuringStreaming;
+  // Leader mode: keep @to(user) turns expanded — their responseEntry is set
+  // only when the turn contains a user-addressed message. Everything else
+  // (internal activity, herd events, @to(self)) collapses as before.
+  if (leaderMode) return isLastTurn || keepExpandedDuringStreaming || turn.responseEntry !== null;
   return isLastTurn || turn.responseEntry === null || keepExpandedDuringStreaming;
 }
 
