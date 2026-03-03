@@ -436,7 +436,11 @@ function groupMessages(messages: ChatMessage[]): FeedEntry[] {
   // Orphaned subagent groups (no parent entry in topLevel) are appended at the end.
   const entries = buildEntries(topLevel, taskInfo, childrenByParent);
 
-  // Emit any orphaned subagent groups whose parent Task wasn't in any top-level entry
+  // Emit any orphaned subagent groups whose parent Task wasn't in any top-level entry.
+  // Skip orphans with synthetic taskInfo (empty input) — these appear when the parent
+  // Task block was lost during message dedup or compaction. The synthetic entry (created
+  // at line 420) has input: {} while real Task entries have input with prompt/description.
+  // Keeping synthetic orphans would show persistent "ghost" chips at the bottom of the turn.
   const emittedTaskIds = new Set<string>();
   for (const entry of entries) {
     if (entry.kind === "subagent") emittedTaskIds.add(entry.taskToolUseId);
@@ -444,7 +448,10 @@ function groupMessages(messages: ChatMessage[]): FeedEntry[] {
   for (const [taskId, children] of childrenByParent) {
     if (emittedTaskIds.has(taskId)) continue;
     if (children.length === 0) continue;
-    const info = taskInfo.get(taskId) || { description: "Subagent", agentType: "", input: {} };
+    const info = taskInfo.get(taskId);
+    if (!info) continue;
+    // Skip synthetic orphans (empty input = parent Task was never in message history)
+    if (Object.keys(info.input).length === 0) continue;
     const childEntries = buildEntries(children, taskInfo, childrenByParent);
     entries.push({
       kind: "subagent",

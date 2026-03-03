@@ -602,12 +602,12 @@ describe("MessageFeed - subagent grouping", () => {
     expect(screen.queryByText("Subagent")).toBeNull();
   });
 
-  it("groups orphaned child messages when parent Task tool_use block is missing", () => {
-    // This simulates a scenario where the CLI sent the parent assistant message
-    // in two parts (text block first, Task tool_use second) and the Task block
-    // was lost due to browser-side message deduplication. The child messages
-    // still have parentToolUseId set and should be grouped under a fallback
-    // SubagentContainer instead of appearing as flat top-level entries.
+  it("filters out orphaned child messages when parent Task tool_use block is missing", () => {
+    // When the CLI sent the parent assistant message in two parts and the Task
+    // block was lost due to message deduplication, the child messages still have
+    // parentToolUseId set but the synthetic taskInfo has empty input. These
+    // orphaned subagents should NOT appear — they create persistent "ghost" chips
+    // at the bottom of the turn that never go away.
     const sid = "test-orphan-subagent";
     setStoreMessages(sid, [
       // Parent message only has text — no Task tool_use block (it was lost)
@@ -642,10 +642,11 @@ describe("MessageFeed - subagent grouping", () => {
 
     render(<MessageFeed sessionId={sid} />);
 
-    // The orphaned children should be nested under a fallback "Subagent" container
-    // instead of appearing as top-level entries. The SubagentContainer renders
-    // the description text as a label — our fallback is "Subagent".
-    expect(screen.getByText("Subagent")).toBeTruthy();
+    // Orphaned children with synthetic taskInfo (empty input) should be filtered
+    // out, not rendered as a fallback SubagentContainer. The parent text should
+    // still render, but no "Subagent" chip should appear.
+    expect(screen.getByText("Let me use the playwright agent to check this")).toBeTruthy();
+    expect(screen.queryByText("Subagent")).toBeNull();
   });
 
   it("renders 'Agent starting...' when Task has no children yet", () => {
