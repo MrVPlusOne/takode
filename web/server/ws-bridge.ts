@@ -2270,6 +2270,24 @@ export class WsBridge {
           this.emitTakodeEvent(session.id, "compaction_started", {
             context_used_percent: session.state.context_used_percent ?? undefined,
           });
+          // Synthesize compact marker for the chat UI (Codex doesn't emit compact_boundary)
+          const ts = Date.now();
+          const markerId = `compact-boundary-${ts}`;
+          session.messageHistory.push({
+            type: "compact_marker" as const,
+            timestamp: ts,
+            id: markerId,
+          });
+          this.broadcastToBrowsers(session, {
+            type: "compact_boundary",
+            id: markerId,
+            timestamp: ts,
+          });
+        }
+        if (wasCompacting && msg.status !== "compacting") {
+          this.emitTakodeEvent(session.id, "compaction_finished", {
+            context_used_percent: session.state.context_used_percent ?? undefined,
+          });
         }
         this.persistSession(session);
       } else if (msg.type === "assistant") {
@@ -3326,6 +3344,11 @@ export class WsBridge {
         session.compactedDuringTurn = true;
         this.setGenerating(session, false, "compaction");
         this.emitTakodeEvent(session.id, "compaction_started", {
+          context_used_percent: session.state.context_used_percent ?? undefined,
+        });
+      }
+      if (wasCompacting && msg.status !== "compacting" && !session.cliResuming) {
+        this.emitTakodeEvent(session.id, "compaction_finished", {
           context_used_percent: session.state.context_used_percent ?? undefined,
         });
       }

@@ -4213,6 +4213,167 @@ describe("compact_boundary handling", () => {
   });
 });
 
+// ─── Codex compaction marker synthesis ───────────────────────────────────────
+
+describe("Codex compaction marker synthesis", () => {
+  // Codex sessions don't emit compact_boundary like Claude Code. Instead, the
+  // server synthesizes a compact_marker in messageHistory when it sees the
+  // status_change to "compacting", so the chat UI shows the compaction divider.
+
+  it("appends compact_marker to messageHistory when Codex status changes to compacting", () => {
+    const browser = makeBrowserSocket("s1");
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter("s1", adapter as any);
+    bridge.handleBrowserOpen(browser, "s1");
+
+    // Simulate Codex status_change to compacting
+    adapter.emitBrowserMessage({ type: "status_change", status: "compacting" });
+
+    const session = bridge.getSession("s1")!;
+    const markers = session.messageHistory.filter((m) => m.type === "compact_marker");
+    expect(markers).toHaveLength(1);
+    const marker = markers[0] as any;
+    expect(marker.id).toMatch(/^compact-boundary-/);
+    expect(typeof marker.timestamp).toBe("number");
+  });
+
+  it("broadcasts compact_boundary to browsers when Codex compaction starts", () => {
+    const browser = makeBrowserSocket("s1");
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter("s1", adapter as any);
+    bridge.handleBrowserOpen(browser, "s1");
+    browser.send.mockClear();
+
+    adapter.emitBrowserMessage({ type: "status_change", status: "compacting" });
+
+    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    const compactMsg = calls.find((m: any) => m.type === "compact_boundary");
+    expect(compactMsg).toBeTruthy();
+    expect(compactMsg.id).toMatch(/^compact-boundary-\d+$/);
+    expect(typeof compactMsg.timestamp).toBe("number");
+  });
+
+  it("does not duplicate compact_marker on re-notification of same compacting status", () => {
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter("s1", adapter as any);
+
+    // First compacting notification
+    adapter.emitBrowserMessage({ type: "status_change", status: "compacting" });
+    // Re-notification (same status)
+    adapter.emitBrowserMessage({ type: "status_change", status: "compacting" });
+
+    const session = bridge.getSession("s1")!;
+    const markers = session.messageHistory.filter((m) => m.type === "compact_marker");
+    expect(markers).toHaveLength(1);
+  });
+});
+
+// ─── compaction_finished herd event ──────────────────────────────────────────
+
+describe("compaction_finished herd event", () => {
+  it("emits compaction_finished when Claude Code exits compacting state", () => {
+    const cli = makeCliSocket("s1");
+    bridge.handleCLIOpen(cli, "s1");
+    bridge.handleCLIMessage(cli, makeInitMsg());
+
+    const spy = vi.spyOn(bridge, "emitTakodeEvent");
+
+    // Enter compacting
+    bridge.handleCLIMessage(cli, JSON.stringify({
+      type: "system",
+      subtype: "status",
+      status: "compacting",
+    }));
+
+    // Exit compacting
+    bridge.handleCLIMessage(cli, JSON.stringify({
+      type: "system",
+      subtype: "status",
+      status: "idle",
+    }));
+
+    const finishedCalls = spy.mock.calls.filter(([, event]) => event === "compaction_finished");
+    expect(finishedCalls).toHaveLength(1);
+    spy.mockRestore();
+  });
+
+  it("emits compaction_finished when Codex exits compacting state", () => {
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter("s1", adapter as any);
+
+    const spy = vi.spyOn(bridge, "emitTakodeEvent");
+
+    // Enter compacting
+    adapter.emitBrowserMessage({ type: "status_change", status: "compacting" });
+    // Exit compacting
+    adapter.emitBrowserMessage({ type: "status_change", status: "idle" });
+
+    const finishedCalls = spy.mock.calls.filter(([, event]) => event === "compaction_finished");
+    expect(finishedCalls).toHaveLength(1);
+    spy.mockRestore();
+  });
+
+  it("includes context_used_percent in compaction_finished event data", () => {
+    const cli = makeCliSocket("s1");
+    bridge.handleCLIOpen(cli, "s1");
+    bridge.handleCLIMessage(cli, makeInitMsg());
+
+    // Set context usage on the session
+    const session = bridge.getSession("s1")!;
+    session.state.context_used_percent = 85;
+
+    const spy = vi.spyOn(bridge, "emitTakodeEvent");
+
+    // Enter then exit compacting
+    bridge.handleCLIMessage(cli, JSON.stringify({
+      type: "system", subtype: "status", status: "compacting",
+    }));
+    bridge.handleCLIMessage(cli, JSON.stringify({
+      type: "system", subtype: "status", status: "idle",
+    }));
+
+    const finishedCalls = spy.mock.calls.filter(([, event]) => event === "compaction_finished");
+    expect(finishedCalls).toHaveLength(1);
+    expect(finishedCalls[0][2]).toEqual({ context_used_percent: 85 });
+    spy.mockRestore();
+  });
+
+  it("does not emit compaction_finished during CLI resume replay", () => {
+    vi.useFakeTimers();
+
+    // Create session with existing history to trigger cliResuming
+    const session = bridge.getOrCreateSession("s1");
+    session.messageHistory.push({ role: "assistant", content: "previous" } as any);
+
+    const cli = makeCliSocket("s1");
+    bridge.handleCLIOpen(cli, "s1");
+    expect(session.cliResuming).toBe(true);
+
+    const spy = vi.spyOn(bridge, "emitTakodeEvent");
+
+    // Replayed system.init
+    bridge.handleCLIMessage(cli, makeInitMsg());
+
+    // Replayed compacting status (suppressed by cliResuming guard)
+    bridge.handleCLIMessage(cli, JSON.stringify({
+      type: "system", subtype: "status", status: "compacting",
+    }));
+    // Replayed idle status
+    bridge.handleCLIMessage(cli, JSON.stringify({
+      type: "system", subtype: "status", status: "idle",
+    }));
+
+    // Neither compaction_started nor compaction_finished should be emitted
+    const compactionCalls = spy.mock.calls.filter(
+      ([, event]) => event === "compaction_started" || event === "compaction_finished",
+    );
+    expect(compactionCalls).toHaveLength(0);
+
+    spy.mockRestore();
+    vi.useRealTimers();
+  });
+});
+
 // ─── handleSessionSubscribe — single message_history delivery ───────────────
 
 describe("handleSessionSubscribe — no double message_history", () => {
