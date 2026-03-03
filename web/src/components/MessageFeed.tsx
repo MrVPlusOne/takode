@@ -501,6 +501,7 @@ interface TurnStats {
   messageCount: number;
   toolCount: number;
   subagentCount: number;
+  herdEventCount: number;
 }
 
 interface Turn {
@@ -515,10 +516,11 @@ interface Turn {
 }
 
 /** Count tool_use blocks and subagents recursively in a list of FeedEntries */
-function countEntryStats(entries: FeedEntry[]): { messages: number; tools: number; subagents: number; lastText: string } {
+function countEntryStats(entries: FeedEntry[]): { messages: number; tools: number; subagents: number; herdEvents: number; lastText: string } {
   let messages = 0;
   let tools = 0;
   let subagents = 0;
+  let herdEvents = 0;
   let lastText = "";
 
   for (const entry of entries) {
@@ -542,6 +544,8 @@ function countEntryStats(entries: FeedEntry[]): { messages: number; tools: numbe
       } else {
         // Non-assistant messages (e.g. user, system) count as messages
         messages++;
+        // Track herd orchestration event injections
+        if (msg.agentSource?.sessionId === "herd-events") herdEvents++;
       }
     } else if (entry.kind === "tool_msg_group") {
       // Tool results — only count as tools, not messages
@@ -552,6 +556,7 @@ function countEntryStats(entries: FeedEntry[]): { messages: number; tools: numbe
       messages += childStats.messages;
       tools += childStats.tools;
       subagents += childStats.subagents;
+      herdEvents += childStats.herdEvents;
       if (childStats.lastText) lastText = childStats.lastText;
     } else if (entry.kind === "subagent_batch") {
       for (const sg of entry.subagents) {
@@ -560,12 +565,13 @@ function countEntryStats(entries: FeedEntry[]): { messages: number; tools: numbe
         messages += childStats.messages;
         tools += childStats.tools;
         subagents += childStats.subagents;
+        herdEvents += childStats.herdEvents;
         if (childStats.lastText) lastText = childStats.lastText;
       }
     }
   }
 
-  return { messages, tools, subagents, lastText };
+  return { messages, tools, subagents, herdEvents, lastText };
 }
 
 /** Check if a FeedEntry is a system message (compact markers, errors, info dividers).
@@ -688,6 +694,7 @@ function makeTurn(userEntry: FeedEntry | null, entries: FeedEntry[], turnIndex: 
       messageCount: s.messages - (responseEntry ? 1 : 0) - promotedEntries.length - selfAddressedCount,
       toolCount: s.tools,
       subagentCount: s.subagents,
+      herdEventCount: s.herdEvents,
     },
   };
 }
@@ -862,6 +869,7 @@ function TurnSummaryStats({
   const hasMessages = stats.messageCount > 0;
   const hasTools = stats.toolCount > 0;
   const hasAgents = stats.subagentCount > 0;
+  const hasHerdEvents = stats.herdEventCount > 0;
   const hasDuration = durationMs !== null;
 
   return (
@@ -881,9 +889,15 @@ function TurnSummaryStats({
           <span>{stats.subagentCount} agent{stats.subagentCount !== 1 ? "s" : ""}</span>
         </>
       )}
-      {hasDuration && (
+      {hasHerdEvents && (
         <>
           {(hasMessages || hasTools || hasAgents) && <span className={separatorClass}>·</span>}
+          <span>{stats.herdEventCount} herd event{stats.herdEventCount !== 1 ? "s" : ""}</span>
+        </>
+      )}
+      {hasDuration && (
+        <>
+          {(hasMessages || hasTools || hasAgents || hasHerdEvents) && <span className={separatorClass}>·</span>}
           <span data-testid="turn-summary-duration">{formatElapsed(durationMs)}</span>
         </>
       )}
@@ -941,7 +955,7 @@ const CollapsedActivityBar = memo(function CollapsedActivityBar({
   return (
     <button
       onClick={onClick}
-      className="w-full flex items-center gap-1.5 py-1.5 px-3 hover:bg-cc-hover/30 transition-colors cursor-pointer text-[11px] text-cc-muted font-mono-code"
+      className="w-full flex items-center gap-1.5 py-1.5 px-3 border-l-2 border-cc-border/40 bg-cc-hover/10 hover:bg-cc-hover/30 transition-colors cursor-pointer text-[11px] text-cc-muted font-mono-code"
     >
       <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 shrink-0 text-cc-muted/60">
         <path d="M6 4l4 4-4 4" />

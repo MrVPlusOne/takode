@@ -1789,6 +1789,44 @@ export function Playground() {
           </div>
         </Section>
 
+        {/* ─── Collapsed Activity Bars ──────────────────────────────── */}
+        <Section title="Collapsed Activity Bars" description="Turn summary bars for collapsed agent activity — shows message, tool, agent, and herd event counts">
+          <div className="space-y-4 max-w-3xl">
+            <Card label="Collapsed bar with herd events">
+              <div className="rounded-xl border border-cc-border/20 bg-cc-card/20 overflow-hidden">
+                <button className="w-full flex items-center gap-1.5 py-1.5 px-3 border-l-2 border-cc-border/40 bg-cc-hover/10 hover:bg-cc-hover/30 transition-colors cursor-pointer text-[11px] text-cc-muted font-mono-code">
+                  <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 shrink-0 text-cc-muted/60">
+                    <path d="M6 4l4 4-4 4" />
+                  </svg>
+                  <span>3 messages</span>
+                  <span className="text-cc-muted/40">&middot;</span>
+                  <span>5 tools</span>
+                  <span className="text-cc-muted/40">&middot;</span>
+                  <span>1 agent</span>
+                  <span className="text-cc-muted/40">&middot;</span>
+                  <span>2 herd events</span>
+                  <span className="text-cc-muted/40">&middot;</span>
+                  <span>2m 15s</span>
+                </button>
+              </div>
+            </Card>
+            <Card label="Collapsed bar without herd events">
+              <div className="rounded-xl border border-cc-border/20 bg-cc-card/20 overflow-hidden">
+                <button className="w-full flex items-center gap-1.5 py-1.5 px-3 border-l-2 border-cc-border/40 bg-cc-hover/10 hover:bg-cc-hover/30 transition-colors cursor-pointer text-[11px] text-cc-muted font-mono-code">
+                  <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 shrink-0 text-cc-muted/60">
+                    <path d="M6 4l4 4-4 4" />
+                  </svg>
+                  <span>1 message</span>
+                  <span className="text-cc-muted/40">&middot;</span>
+                  <span>3 tools</span>
+                  <span className="text-cc-muted/40">&middot;</span>
+                  <span>12s</span>
+                </button>
+              </div>
+            </Card>
+          </div>
+        </Section>
+
         {/* ─── Diff Viewer ──────────────────────────────── */}
         <Section title="Diff Viewer" description="Unified diff rendering with word-level highlighting — used in ToolBlock, PermissionBanner, and DiffPanel">
           <div className="space-y-4 max-w-3xl">
