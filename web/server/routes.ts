@@ -3369,7 +3369,12 @@ export function createRoutes(
       if (wid) { resolved.push(wid); } else { notFound.push(String(ref)); }
     }
     const result = launcher.herdSessions(orchId, resolved);
-    return c.json({ herded: result.herded, notFound: [...notFound, ...result.notFound], conflicts: result.conflicts });
+    return c.json({
+      herded: result.herded,
+      notFound: [...notFound, ...result.notFound],
+      conflicts: result.conflicts,
+      ...(result.leaders.length > 0 ? { leaders: result.leaders } : {}),
+    });
   });
 
   api.delete("/sessions/:id/herd/:workerId", (c) => {

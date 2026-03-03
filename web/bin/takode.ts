@@ -1136,7 +1136,7 @@ async function handleHerd(base: string, args: string[]): Promise<void> {
 
   const result = await apiPost(base, `/sessions/${encodeURIComponent(mySessionId)}/herd`, {
     workerIds: refs,
-  }) as { herded: string[]; notFound: string[]; conflicts: Array<{ id: string; herder: string }> };
+  }) as { herded: string[]; notFound: string[]; conflicts: Array<{ id: string; herder: string }>; leaders?: string[] };
 
   if (jsonMode) {
     console.log(JSON.stringify(result, null, 2));
@@ -1152,6 +1152,11 @@ async function handleHerd(base: string, args: string[]): Promise<void> {
   if (result.conflicts?.length > 0) {
     for (const c of result.conflicts) {
       console.log(`[${formatTime(Date.now())}] \u2717 Conflict: ${c.id} already herded by ${c.herder}`);
+    }
+  }
+  if (result.leaders?.length) {
+    for (const lid of result.leaders) {
+      console.log(`[${formatTime(Date.now())}] \u2717 Cannot herd leader session: ${lid}`);
     }
   }
 }

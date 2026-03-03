@@ -3956,7 +3956,7 @@ describe("Takode server-authoritative auth", () => {
 
   it("enforces authenticated orchestrator identity for herd and unherd", async () => {
     setupTakodeSessions();
-    launcher.herdSessions.mockReturnValue({ herded: ["worker-1"], notFound: [], conflicts: [] });
+    launcher.herdSessions.mockReturnValue({ herded: ["worker-1"], notFound: [], conflicts: [], leaders: [] });
     launcher.unherdSession.mockReturnValue(true);
 
     const denied = await app.request("/api/sessions/orch-1/herd", {

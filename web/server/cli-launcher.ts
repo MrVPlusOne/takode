@@ -2205,13 +2205,16 @@ ${ORCH_END}`;
    * one leader — if already herded by someone else, it's reported as a conflict.
    * Re-herding by the same orchestrator is idempotent.
    */
-  herdSessions(orchId: string, workerIds: string[]): { herded: string[]; notFound: string[]; conflicts: Array<{ id: string; herder: string }> } {
+  herdSessions(orchId: string, workerIds: string[]): { herded: string[]; notFound: string[]; conflicts: Array<{ id: string; herder: string }>; leaders: string[] } {
     const herded: string[] = [];
     const notFound: string[] = [];
     const conflicts: Array<{ id: string; herder: string }> = [];
+    const leaders: string[] = [];
     for (const wid of workerIds) {
       const worker = this.sessions.get(wid);
       if (!worker) { notFound.push(wid); continue; }
+      // Leaders/orchestrators cannot be herded — they are not workers
+      if (worker.isOrchestrator) { leaders.push(wid); continue; }
       if (worker.herdedBy && worker.herdedBy !== orchId) {
         conflicts.push({ id: wid, herder: worker.herdedBy });
         continue;
@@ -2223,7 +2226,7 @@ ${ORCH_END}`;
       this.persistState();
       this.onHerdChanged?.(orchId);
     }
-    return { herded, notFound, conflicts };
+    return { herded, notFound, conflicts, leaders };
   }
 
   /**
