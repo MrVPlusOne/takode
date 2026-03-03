@@ -1,6 +1,7 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState, useMemo } from "react";
 import { useStore } from "../store.js";
 import { GitHubPRSection, McpCollapsible, ClaudeMdCollapsible, HerdDiagnosticsSection } from "./TaskPanel.js";
+import { QuestHoverCard } from "./QuestHoverCard.js";
 import { shortenHome } from "../utils/path-display.js";
 import { formatModel } from "../utils/backends.js";
 
@@ -145,17 +146,7 @@ export function SessionInfoPopover({
                   <div key={i} className="flex items-start gap-1.5">
                     <span className="text-[10px] text-cc-muted/60 shrink-0 mt-px">{i + 1}.</span>
                     {task.source === "quest" && questId ? (
-                      <button
-                        type="button"
-                        className="text-[11px] leading-snug line-clamp-1 text-amber-400 hover:text-amber-300 underline decoration-dotted underline-offset-2 cursor-pointer"
-                        title={`Open ${questId} in Questmaster`}
-                        onClick={() => {
-                          window.location.hash = `#/questmaster?quest=${encodeURIComponent(questId)}`;
-                          onClose();
-                        }}
-                      >
-                        {task.title}
-                      </button>
+                      <QuestTaskChip questId={questId} title={task.title} onNavigate={onClose} />
                     ) : (
                       <span className={`text-[11px] leading-snug line-clamp-1 ${task.source === "quest" ? "text-amber-400" : "text-cc-fg"}`}>{task.title}</span>
                     )}
@@ -237,5 +228,51 @@ export function SessionInfoPopover({
         {cwd && <ClaudeMdCollapsible cwd={cwd} repoRoot={session?.repo_root || undefined} />}
       </div>
     </div>
+  );
+}
+
+/** Quest chip in task history with hover card support. */
+function QuestTaskChip({ questId, title, onNavigate }: { questId: string; title: string; onNavigate: () => void }) {
+  const quests = useStore((s) => s.quests) ?? [];
+  const quest = useMemo(
+    () => quests.find((q) => q.questId.toLowerCase() === questId.toLowerCase()) ?? null,
+    [questId, quests],
+  );
+  const [hoverRect, setHoverRect] = useState<DOMRect | null>(null);
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => { if (hideTimerRef.current) clearTimeout(hideTimerRef.current); }, []);
+
+  return (
+    <>
+      <button
+        type="button"
+        className="text-[11px] leading-snug line-clamp-1 text-amber-400 hover:text-amber-300 underline decoration-dotted underline-offset-2 cursor-pointer"
+        title={`Open ${questId} in Questmaster`}
+        onClick={() => {
+          window.location.hash = `#/questmaster?quest=${encodeURIComponent(questId)}`;
+          onNavigate();
+        }}
+        onMouseEnter={(e) => {
+          if (!quest) return;
+          if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+          setHoverRect(e.currentTarget.getBoundingClientRect());
+        }}
+        onMouseLeave={() => {
+          if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+          hideTimerRef.current = setTimeout(() => setHoverRect(null), 100);
+        }}
+      >
+        {title}
+      </button>
+      {quest && hoverRect && (
+        <QuestHoverCard
+          quest={quest}
+          anchorRect={hoverRect}
+          onMouseEnter={() => { if (hideTimerRef.current) clearTimeout(hideTimerRef.current); }}
+          onMouseLeave={() => setHoverRect(null)}
+        />
+      )}
+    </>
   );
 }
