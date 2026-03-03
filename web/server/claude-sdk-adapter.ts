@@ -394,7 +394,20 @@ export class ClaudeSdkAdapter {
       }
 
       case "interrupt": {
-        console.log(`[claude-sdk-adapter] Interrupt requested for session ${this.sessionId}`);
+        // The v2 SDKSession type doesn't expose interrupt() directly, but the
+        // underlying SQ class holds a v1 Query at this.query which has it.
+        // Calling query.interrupt() sends a control_request {subtype:"interrupt"}
+        // to the CLI process — the same mechanism the Stop button uses for
+        // WebSocket sessions.
+        const query = (this.sdkSession as any)?.query;
+        if (query?.interrupt) {
+          query.interrupt().catch((err: Error) => {
+            console.error(`[claude-sdk-adapter] Interrupt failed for session ${this.sessionId}:`, err);
+          });
+          console.log(`[claude-sdk-adapter] Interrupt sent for session ${this.sessionId}`);
+        } else {
+          console.warn(`[claude-sdk-adapter] No interrupt method available for session ${this.sessionId}`);
+        }
         return true;
       }
 
