@@ -1,11 +1,11 @@
-export const adjectives = [
+const adjectives = [
   "Swift", "Calm", "Bold", "Bright", "Warm", "Keen", "Vast", "Crisp", "Agile", "Noble",
   "Vivid", "Lucid", "Brisk", "Deft", "Fleet", "Grand", "Lush", "Prime", "Sage", "True",
   "Clear", "Deep", "Fair", "Firm", "Glad", "Kind", "Pure", "Rich", "Safe", "Wise",
   "Fresh", "Sharp", "Steady", "Quick", "Gentle", "Silent", "Golden", "Radiant", "Serene", "Verdant",
 ];
 
-export const nouns = [
+const nouns = [
   "Falcon", "River", "Cedar", "Stone", "Ember", "Frost", "Bloom", "Ridge", "Crane", "Birch",
   "Coral", "Dawn", "Flint", "Grove", "Heron", "Lark", "Maple", "Opal", "Pearl", "Quartz",
   "Reef", "Sage", "Tide", "Vale", "Wren", "Aspen", "Brook", "Cliff", "Delta", "Eagle",

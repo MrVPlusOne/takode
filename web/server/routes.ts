@@ -36,7 +36,7 @@ import { searchSessionDocuments, type SessionSearchDocument } from "./session-se
 import { ensureAssistantWorkspace, ASSISTANT_DIR } from "./assistant-workspace.js";
 import { generateUniqueSessionName } from "../src/utils/names.js";
 import { transcribeWithGemini, transcribeWithOpenai, getAvailableBackends, getTranscriptionStatus, resolveOpenAIKey } from "./transcription.js";
-import { enhanceTranscript, buildSttPrompt, filterSessionNames, addTranscriptionLogEntry, getTranscriptionLogIndex, getTranscriptionLogEntry } from "./transcription-enhancer.js";
+import { enhanceTranscript, buildSttPrompt, addTranscriptionLogEntry, getTranscriptionLogIndex, getTranscriptionLogEntry } from "./transcription-enhancer.js";
 import { getLegacyCodexHome } from "./codex-home.js";
 import type { PerfTracer } from "./perf-tracer.js";
 import { GIT_CMD_TIMEOUT } from "./constants.js";
@@ -2914,6 +2914,20 @@ export function createRoutes(
 
   // ─── Audio transcription ─────────────────────────────────────────────
 
+  /**
+   * Get names of recent non-archived sessions (excluding the given session).
+   * Sorted by last activity (most recent first), limited to `limit` entries.
+   */
+  function getRecentSessionNames(excludeSessionId: string, limit: number): string[] {
+    const allSessions = launcher.listSessions();
+    const allNames = sessionNames.getAllNames();
+    return allSessions
+      .filter((s) => s.sessionId !== excludeSessionId && !s.archived && allNames[s.sessionId])
+      .sort((a, b) => (b.lastActivityAt ?? b.createdAt) - (a.lastActivityAt ?? a.createdAt))
+      .slice(0, limit)
+      .map((s) => allNames[s.sessionId]);
+  }
+
   api.get("/transcribe/status", (c) => {
     return c.json(getTranscriptionStatus());
   });
@@ -2948,18 +2962,14 @@ export function createRoutes(
       let sttModel = "unknown";
 
       // Build context-aware STT prompt (guides vocabulary recognition)
+      // Get recent non-archived session names sorted by activity (most recent first)
       let sttPrompt = "";
       if (sessionId) {
-        const allNames = sessionNames.getAllNames();
-        const currentName = allNames[sessionId];
-        const otherNames = Object.entries(allNames)
-          .filter(([id]) => id !== sessionId)
-          .map(([, name]) => name)
-          .filter(Boolean);
+        const recentOtherNames = getRecentSessionNames(sessionId, 10);
         sttPrompt = buildSttPrompt({
           taskHistory: wsBridge.getSessionTaskHistory(sessionId),
-          sessionName: currentName,
-          activeSessionNames: otherNames.length > 0 ? otherNames : undefined,
+          sessionName: sessionNames.getName(sessionId),
+          activeSessionNames: recentOtherNames.length > 0 ? recentOtherNames : undefined,
           composerBefore: composerBefore,
           composerAfter: composerAfter,
           messageHistory: wsBridge.getMessageHistory(sessionId),
@@ -2997,21 +3007,13 @@ export function createRoutes(
 
           // Build enriched context for enhancement
           const taskHistory = wsBridge.getSessionTaskHistory(sessionId);
-          const enhAllNames = sessionNames.getAllNames();
-          const enhCurrentName = enhAllNames[sessionId];
-          const enhOtherNames = filterSessionNames(
-            Object.entries(enhAllNames)
-              .filter(([id]) => id !== sessionId)
-              .map(([, name]) => name)
-              .filter(Boolean),
-            20,
-          );
+          const enhOtherNames = getRecentSessionNames(sessionId, 20);
 
           const result = await enhanceTranscript(rawText, history, settings.transcriptionConfig, enhancementKey, {
             composerBefore: composerBefore,
             composerAfter: composerAfter,
             taskTitles: taskHistory.map((t) => t.title),
-            sessionName: enhCurrentName,
+            sessionName: sessionNames.getName(sessionId),
             activeSessionNames: enhOtherNames.length > 0 ? enhOtherNames : undefined,
           });
 
