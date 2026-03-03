@@ -275,6 +275,8 @@ export interface LaunchOptions {
   };
   /** CLI session ID to resume (from an external CLI session, e.g. VS Code or terminal) */
   resumeCliSessionId?: string;
+  /** Plugin directories to load for SDK sessions (maps to --plugin-dir CLI flags). */
+  pluginDirs?: string[];
 }
 
 /**
@@ -1067,6 +1069,7 @@ export class CliLauncher {
       env: options.env as Record<string, string | undefined>,
       claudeBinary: options.claudeBinary,
       recorder: this.recorder,
+      pluginDirs: options.pluginDirs,
     });
 
     if (this.onClaudeSdkAdapter) {

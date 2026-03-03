@@ -18,6 +18,12 @@ import type {
 } from "./session-types.js";
 import type { RecorderManager } from "./recorder.js";
 
+// ─── SDK internals cache ─────────────────────────────────────────────────────
+// We cache the V4 (ProcessTransport) class reference after the first SDK import
+// so we can patch V4.prototype.initialize without spawning a new probe process
+// on every session creation.
+let cachedV4Class: any = null;
+
 // ─── Types ──────────────────────────────────────────────────────────────────────
 
 export interface ClaudeSdkAdapterOptions {
@@ -130,23 +136,25 @@ export class ClaudeSdkAdapter {
       PATH: getEnrichedPath(),
     };
 
+    // Build the plugins list from pluginDirs
+    const plugins = (this.options.pluginDirs ?? []).map((path) => ({ type: "local" as const, path }));
+
     const sessionOptions: Record<string, unknown> = {
       cwd: this.options.cwd,
       permissionMode: this.mapPermissionMode(this.options.permissionMode),
       env: mergedEnv,
       canUseTool: this.handleCanUseTool.bind(this),
-      // Load all filesystem settings so the CLI natively handles:
-      //  - Permission rules from settings.json (allow/deny/ask patterns)
-      //  - CLAUDE.md files (user + project level)
-      //  - Model configuration
-      //  - Output styles, hooks, etc.
-      // The v2 SDK defaults settingSources to [] when not specified, which
-      // disables all settings loading. Passing it explicitly overrides that.
+      // NOTE: settingSources and plugins are NOT forwarded by the v2 SDK's SQ
+      // class to the underlying V4 (ProcessTransport). SQ hardcodes
+      // settingSources:[] and omits plugins entirely. We work around this by
+      // patching V4.prototype.initialize (see below) so the subprocess receives
+      // the correct --setting-sources and --plugin-dir flags.
       settingSources: ["user", "project", "local"],
+      ...(plugins.length > 0 ? { plugins } : {}),
     };
 
     // Pass model explicitly if provided — otherwise the CLI reads it from
-    // settings.json (which we now load via settingSources).
+    // settings.json (which we load via settingSources).
     if (this.options.model) {
       sessionOptions.model = this.options.model;
     }
@@ -161,10 +169,71 @@ export class ClaudeSdkAdapter {
       sessionOptions.pathToClaudeCodeExecutable = this.options.claudeBinary;
     }
 
+    console.log(
+      `[claude-sdk-adapter] Creating session ${this.sessionId} with options:`,
+      JSON.stringify({
+        cwd: this.options.cwd,
+        permissionMode: sessionOptions.permissionMode,
+        model: sessionOptions.model ?? "(from settings.json)",
+        settingSources: sessionOptions.settingSources,
+        plugins: plugins.map((p) => p.path),
+        claudeBinary: this.options.claudeBinary ?? "(default)",
+      }),
+    );
+
+    // WORKAROUND: The SDK's v2 SQ class hardcodes settingSources:[] and omits
+    // plugins when constructing V4 (ProcessTransport). We fix this by temporarily
+    // patching V4.prototype.initialize to inject the correct values before the
+    // subprocess spawns.
+    //
+    // Strategy:
+    //  1. On first call, create a throwaway SQ instance with a nonexistent binary
+    //     to get the V4 class reference (cached module-level for subsequent calls).
+    //  2. Save the original V4.prototype.initialize.
+    //  3. Replace it with a wrapper that overrides settingSources and plugins in
+    //     this.options before delegating to the original.
+    //  4. Create the real session (which synchronously calls new V4 → V4.initialize).
+    //  5. Restore the original prototype method immediately after.
+    //
+    // Safety: JavaScript is single-threaded — no concurrent code can call
+    // V4.prototype.initialize between step 3 and step 5.
+    if (!cachedV4Class) {
+      try {
+        // Probe: create a session with a nonexistent binary so the process fails
+        // fast. We just need the V4 class reference — the subprocess dying is fine.
+        // This probe only runs ONCE per server process lifetime (result is cached).
+        const probe = (sdk as any).unstable_v2_createSession({
+          permissionMode: "bypassPermissions",
+          pathToClaudeCodeExecutable: "__nonexistent_probe__",
+        });
+        cachedV4Class = probe?.query?.transport?.constructor ?? null;
+        // Close the probe session immediately
+        try { probe?.close?.(); } catch { /* ignore */ }
+      } catch {
+        // Probe failed — V4 class unavailable, skip the patch
+      }
+    }
+    const v4Class = cachedV4Class;
+
+    const originalInitialize = v4Class?.prototype?.initialize;
+    if (v4Class && originalInitialize) {
+      const patchedSettingSources = sessionOptions.settingSources as string[];
+      const patchedPlugins = plugins;
+      v4Class.prototype.initialize = function patchedInitialize(this: any) {
+        // Override the values SQ hardcoded so V4 builds correct CLI args
+        this.options.settingSources = patchedSettingSources;
+        if (patchedPlugins.length > 0) {
+          this.options.plugins = patchedPlugins;
+        }
+        return originalInitialize.call(this);
+      };
+    } else {
+      console.warn(`[claude-sdk-adapter] Could not patch V4.prototype.initialize — settingSources and plugins may not reach the CLI`);
+    }
+
     // WORKAROUND: The SDK's v2 session API (SDKSessionOptions) does NOT expose
-    // `cwd` or `spawnClaudeCodeProcess` — those exist only on the query() API's
-    // Options type. The Session constructor (SQ) never forwards them to
-    // ProcessTransport (V4). So the subprocess inherits process.cwd().
+    // `cwd` — the Session constructor (SQ) never forwards it to ProcessTransport
+    // (V4). So the subprocess inherits process.cwd().
     //
     // We temporarily chdir before the synchronous SDK constructor call. This is
     // safe because: (1) JavaScript is single-threaded — no other code runs
@@ -183,7 +252,8 @@ export class ClaudeSdkAdapter {
     }
 
     // Create or resume session — MUST be synchronous (no await) so process.cwd()
-    // is still set to targetCwd when the subprocess spawns.
+    // is still set to targetCwd when the subprocess spawns. The V4.prototype.initialize
+    // patch above is also active at this point.
     try {
       if (this.options.cliSessionId) {
         this.sdkSession = sdk.unstable_v2_resumeSession(this.options.cliSessionId, sessionOptions as any);
@@ -194,6 +264,10 @@ export class ClaudeSdkAdapter {
       // Restore immediately — the subprocess has already been spawned synchronously.
       if (process.cwd() !== originalCwd) {
         try { process.chdir(originalCwd); } catch { /* ignore */ }
+      }
+      // Always restore the original V4.prototype.initialize
+      if (v4Class && originalInitialize) {
+        v4Class.prototype.initialize = originalInitialize;
       }
     }
 
