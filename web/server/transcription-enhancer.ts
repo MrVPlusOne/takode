@@ -213,15 +213,17 @@ export function buildEnhancementPrompt(
     parts.push("");
   }
 
+  // Composer context — shows where the voice text will be inserted
+  if (extra?.composerBefore || extra?.composerAfter) {
+    const composerLines: string[] = [];
+    if (extra.composerBefore) composerLines.push(`Text before cursor: ${trunc(extra.composerBefore.trim(), 500)}`);
+    if (extra.composerAfter) composerLines.push(`Text after cursor: ${trunc(extra.composerAfter.trim(), 500)}`);
+    parts.push(`<COMPOSER_CONTEXT>\n${composerLines.join("\n")}\n</COMPOSER_CONTEXT>`);
+    parts.push("");
+  }
+
   // Supplementary context — vocabulary and domain knowledge
   const supplementary: string[] = [];
-
-  if (extra?.composerBefore || extra?.composerAfter) {
-    const pieces: string[] = [];
-    if (extra.composerBefore) pieces.push(trunc(extra.composerBefore.trim(), 500));
-    if (extra.composerAfter) pieces.push(trunc(extra.composerAfter.trim(), 500));
-    supplementary.push(`Composer text around cursor: ${pieces.join(" [...] ")}`);
-  }
 
   if (extra?.taskTitles && extra.taskTitles.length > 0) {
     supplementary.push(`Session tasks: ${extra.taskTitles.join("; ")}`);
@@ -320,12 +322,11 @@ export function buildSttPrompt(input: SttPromptInput): string {
     if (!addLine("Sessions: " + truncated.join(", "))) return parts.join("\n");
   }
 
-  // 4. Composer surrounding text
+  // 4. Composer text with cursor position marker
   if (input.composerBefore || input.composerAfter) {
-    const pieces: string[] = [];
-    if (input.composerBefore) pieces.push(trunc(input.composerBefore.trim(), 500));
-    if (input.composerAfter) pieces.push(trunc(input.composerAfter.trim(), 500));
-    if (!addLine(pieces.join(" [...] "))) return parts.join("\n");
+    const before = input.composerBefore ? trunc(input.composerBefore.trim(), 500) + " " : "";
+    const after = input.composerAfter ? " " + trunc(input.composerAfter.trim(), 500) : "";
+    if (!addLine(`Composer: ${before}[CURSOR]${after}`)) return parts.join("\n");
   }
 
   // 5. Recent conversation turns in chat format (User: / Assistant:)

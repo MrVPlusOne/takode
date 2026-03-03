@@ -811,6 +811,19 @@ export function Composer({ sessionId }: { sessionId: string }) {
               </div>
             </div>
           )}
+          {/* Cursor insertion preview — shows where voice text will be inserted when cursor is mid-text */}
+          {isRecording && preRecordingTextRef.current.after && (
+            <div className="flex items-center px-4 pt-1 text-[11px] font-mono-code text-cc-muted/60 overflow-hidden whitespace-nowrap">
+              {preRecordingTextRef.current.before && (
+                <span>{preRecordingTextRef.current.before.replace(/\n/g, " ").slice(-30)}</span>
+              )}
+              <span
+                className="inline-block w-[2px] h-3.5 rounded-full mx-0.5 shrink-0 animate-pulse"
+                style={{ backgroundColor: "rgb(239 68 68 / 0.7)" }}
+              />
+              <span>{preRecordingTextRef.current.after.replace(/\n/g, " ").slice(0, 30)}</span>
+            </div>
+          )}
           {isTranscribing && !isRecording && (
             <div className="flex items-center gap-2 px-4 pt-2 text-[11px] text-cc-primary">
               <span className="w-2 h-2 rounded-full bg-cc-primary animate-pulse" />

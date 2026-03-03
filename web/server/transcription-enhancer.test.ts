@@ -285,17 +285,17 @@ describe("buildEnhancementPrompt", () => {
     expect(prompt).toContain("<TRANSCRIPT>");
   });
 
-  it("includes composer text in SESSION_CONTEXT", () => {
+  it("includes composer text in COMPOSER_CONTEXT XML block", () => {
     const prompt = buildEnhancementPrompt("fix the bug", "", {
       composerBefore: "Please update",
       composerAfter: "in the auth module",
     });
-    expect(prompt).toContain("<SESSION_CONTEXT>");
-    expect(prompt).toContain("Composer text around cursor:");
-    expect(prompt).toContain("Please update");
-    expect(prompt).toContain("[...]");
-    expect(prompt).toContain("in the auth module");
-    expect(prompt).toContain("</SESSION_CONTEXT>");
+    expect(prompt).toContain("<COMPOSER_CONTEXT>");
+    expect(prompt).toContain("Text before cursor: Please update");
+    expect(prompt).toContain("Text after cursor: in the auth module");
+    expect(prompt).toContain("</COMPOSER_CONTEXT>");
+    // Composer context is its own block, not inside SESSION_CONTEXT
+    expect(prompt).not.toContain("<SESSION_CONTEXT>");
   });
 
   it("includes task titles in SESSION_CONTEXT", () => {
@@ -329,19 +329,24 @@ describe("buildEnhancementPrompt", () => {
     expect(prompt).not.toContain("<SESSION_CONTEXT>");
   });
 
-  it("includes both CONVERSATION_CONTEXT and SESSION_CONTEXT when both available", () => {
+  it("includes all context blocks in correct order", () => {
     const prompt = buildEnhancementPrompt("fix it", "User: Fix the bug", {
+      composerBefore: "Update the",
+      composerAfter: "module",
       taskTitles: ["Fix auth"],
       sessionName: "Debug session",
     });
     expect(prompt).toContain("<CONVERSATION_CONTEXT>");
+    expect(prompt).toContain("<COMPOSER_CONTEXT>");
     expect(prompt).toContain("<SESSION_CONTEXT>");
     expect(prompt).toContain("<TRANSCRIPT>");
-    // Verify order: conversation first, then session, then transcript
+    // Verify order: conversation → composer → session → transcript
     const convIdx = prompt.indexOf("<CONVERSATION_CONTEXT>");
+    const compIdx = prompt.indexOf("<COMPOSER_CONTEXT>");
     const sessIdx = prompt.indexOf("<SESSION_CONTEXT>");
     const transIdx = prompt.indexOf("<TRANSCRIPT>");
-    expect(convIdx).toBeLessThan(sessIdx);
+    expect(convIdx).toBeLessThan(compIdx);
+    expect(compIdx).toBeLessThan(sessIdx);
     expect(sessIdx).toBeLessThan(transIdx);
   });
 });
@@ -461,20 +466,22 @@ describe("buildSttPrompt", () => {
     expect(prompt).toContain("Session: " + "A".repeat(100) + "...");
   });
 
-  it("includes composer context", () => {
+  it("includes composer context with [CURSOR] marker", () => {
     const prompt = buildSttPrompt({
       composerBefore: "Fix the bug in",
       composerAfter: "and add tests",
     });
-    expect(prompt).toContain("Fix the bug in");
-    expect(prompt).toContain("[...]");
-    expect(prompt).toContain("and add tests");
+    expect(prompt).toContain("Composer: Fix the bug in [CURSOR] and add tests");
   });
 
-  it("includes only composerBefore when composerAfter is empty", () => {
+  it("includes only composerBefore with [CURSOR] when composerAfter is empty", () => {
     const prompt = buildSttPrompt({ composerBefore: "Implement the" });
-    expect(prompt).toContain("Implement the");
-    expect(prompt).not.toContain("[...]");
+    expect(prompt).toContain("Composer: Implement the [CURSOR]");
+  });
+
+  it("includes only composerAfter with [CURSOR] when composerBefore is empty", () => {
+    const prompt = buildSttPrompt({ composerAfter: "and add tests" });
+    expect(prompt).toContain("Composer: [CURSOR] and add tests");
   });
 
   it("formats recent turns as chat-style User:/Assistant: lines", () => {
