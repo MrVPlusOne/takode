@@ -202,6 +202,52 @@ export class SessionStore {
   }
 
   /**
+   * Rewrite the frozen JSONL log with only the messages that survived a
+   * history truncation (e.g., session revert). Replaces the entire file.
+   * Fire-and-forget async — tracked in inflightWrites for flushAll().
+   */
+  private rewriteFrozenLog(
+    sessionId: string,
+    survivingMessages: BrowserIncomingMessage[],
+    survivingToolResults: PersistedSession["toolResults"],
+  ): void {
+    // Compute how many of the surviving messages belong to completed turns
+    const frozenCount = this.computeFreezeCutoff(survivingMessages);
+    const frozenMessages = survivingMessages.slice(0, frozenCount);
+
+    // Build the full JSONL content from scratch
+    let data = JSON.stringify({ v: 1, sessionId }) + "\n";
+    for (const msg of frozenMessages) {
+      data += JSON.stringify(msg) + "\n";
+    }
+    // Include tool results that survived the truncation
+    if (survivingToolResults?.length) {
+      data += JSON.stringify({ _toolResults: survivingToolResults }) + "\n";
+    }
+
+    // Update in-memory frozen counts to match the rewritten file
+    this.frozenCounts.set(sessionId, frozenCount);
+    this.frozenToolResultCounts.set(sessionId, survivingToolResults?.length ?? 0);
+
+    const logPath = this.frozenLogPath(sessionId);
+    if (frozenCount === 0) {
+      // No completed turns survive — delete the JSONL file entirely
+      const p = unlink(logPath)
+        .catch(() => { /* File may not exist */ })
+        .finally(() => { this.inflightWrites.delete(p); });
+      this.inflightWrites.add(p);
+    } else {
+      // Rewrite with only the surviving frozen messages
+      const p = writeFile(logPath, data, "utf-8")
+        .catch((err) => {
+          console.error(`[session-store] Failed to rewrite frozen log for ${sessionId}:`, err);
+        })
+        .finally(() => { this.inflightWrites.delete(p); });
+      this.inflightWrites.add(p);
+    }
+  }
+
+  /**
    * Parse a JSONL frozen log into messages and tool results.
    * Skips the header line and gracefully handles corrupt/truncated lines.
    */
@@ -279,15 +325,19 @@ export class SessionStore {
     let prevFrozenMsgs = this.frozenCounts.get(session.id) ?? (session._frozenCount ?? 0);
     let prevFrozenToolResults = this.frozenToolResultCounts.get(session.id) ?? (session._frozenToolResultCount ?? 0);
 
-    // Safety: if messageHistory was truncated below the frozen count (e.g.,
-    // session revert), clamp to avoid slicing past the end. The frozen JSONL
-    // retains its data — the append-only log cannot be shortened.
+    // Revert detection: if messageHistory was truncated below the frozen count
+    // (e.g., session revert), rewrite the JSONL frozen log with only the
+    // surviving messages so the revert persists across server restarts.
+    // This breaks the append-only invariant but only during an explicit
+    // user-initiated revert (which is inherently destructive anyway).
     if (prevFrozenMsgs > messages.length) {
-      console.warn(
-        `[session-store] Session ${session.id.slice(0, 8)} messageHistory (${messages.length}) shorter than frozenCount (${prevFrozenMsgs}). ` +
-        `History may have been truncated; frozen log retains previous data.`,
+      console.log(
+        `[session-store] Session ${session.id.slice(0, 8)} reverted: messageHistory (${messages.length}) < frozenCount (${prevFrozenMsgs}). ` +
+        `Rewriting frozen log to match truncated history.`,
       );
+      this.rewriteFrozenLog(session.id, messages, allToolResults);
       prevFrozenMsgs = messages.length;
+      prevFrozenToolResults = Math.min(prevFrozenToolResults, allToolResults.length);
     }
     if (prevFrozenToolResults > allToolResults.length) {
       prevFrozenToolResults = allToolResults.length;
