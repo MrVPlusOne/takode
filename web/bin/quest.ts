@@ -688,15 +688,16 @@ async function cmdComplete(): Promise<void> {
 }
 
 async function cmdDone(): Promise<void> {
-  validateFlags(["notes", "cancelled", "json"]);
+  validateFlags(["notes", "cancelled", "force", "json"]);
   const id = positional(0);
-  if (!id) die("Usage: quest done <questId> [--notes \"...\"] [--cancelled]");
+  if (!id) die("Usage: quest done <questId> [--notes \"...\"] [--cancelled] [--force]");
 
   const notes = option("notes");
   const cancelled = flag("cancelled");
+  const force = flag("force");
 
   try {
-    const quest = await markDone(id, { notes, cancelled });
+    const quest = await markDone(id, { notes, cancelled, force });
     if (!quest) die(`Quest ${id} not found`);
     await notifyServer();
     if (jsonOutput) {

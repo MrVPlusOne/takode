@@ -549,7 +549,9 @@ export async function transitionQuest(
         ? normalizeVerificationItems(rawItems)
         : undefined;
       if (!verificationItems || verificationItems.length === 0) {
-        throw new Error("verificationItems are required for done status");
+        if (!input.force) {
+          throw new Error("verificationItems are required for done status (use --force to skip)");
+        }
       }
       quest = {
         ...base,
@@ -559,7 +561,7 @@ export async function transitionQuest(
           "claimedAt" in current
             ? (current as QuestInProgress).claimedAt
             : now,
-        verificationItems,
+        verificationItems: verificationItems ?? [],
         ...(previousOwners.length ? { previousOwnerSessionIds: previousOwners } : {}),
         completedAt: now,
         ...(input.notes ? { notes: input.notes } : {}),
@@ -660,12 +662,13 @@ export async function completeQuest(
 /** Convenience: mark a quest as done (or cancelled). */
 export async function markDone(
   questId: string,
-  opts?: { notes?: string; cancelled?: boolean },
+  opts?: { notes?: string; cancelled?: boolean; force?: boolean },
 ): Promise<QuestmasterTask | null> {
   return transitionQuest(questId, {
     status: "done",
     ...(opts?.notes ? { notes: opts.notes } : {}),
     ...(opts?.cancelled ? { cancelled: true } : {}),
+    ...(opts?.force ? { force: true } : {}),
   });
 }
 

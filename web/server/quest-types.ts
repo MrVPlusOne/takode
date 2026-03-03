@@ -168,4 +168,6 @@ export interface QuestTransitionInput {
   notes?: string;
   /** If true, marks this as cancelled/aborted rather than completed */
   cancelled?: boolean;
+  /** If true, skips verification items requirement for done status */
+  force?: boolean;
 }
