@@ -504,11 +504,12 @@ interface TurnStats {
 
 interface Turn {
   id: string;                      // Stable ID for collapse state (user msg ID or synthetic)
-  userEntry: FeedEntry | null;     // Boundary entry (user, or @to(user) tagged assistant in leader mode)
+  userEntry: FeedEntry | null;     // Boundary entry (user message)
   allEntries: FeedEntry[];         // All entries in original order (for expanded rendering)
-  agentEntries: FeedEntry[];       // Non-system agent activity (collapsible), excludes responseEntry
+  agentEntries: FeedEntry[];       // Non-system agent activity (collapsible), excludes responseEntry and promotedEntries
   systemEntries: FeedEntry[];      // System messages (always visible, never collapsed)
   responseEntry: FeedEntry | null; // Default-visible assistant response entry (leader mode: only user-addressed messages)
+  promotedEntries: FeedEntry[];    // Text entries promoted to visible when turn has @to(user) (leader mode)
   stats: TurnStats;
 }
 
@@ -593,10 +594,10 @@ function isUserBoundaryEntry(entry: FeedEntry | null): boolean {
 }
 
 function isLeaderBoundaryEntry(entry: FeedEntry): boolean {
-  return (
-    isUserBoundaryEntry(entry)
-    || (entry.kind === "message" && entry.msg.role === "assistant" && entry.msg.leaderUserAddressed === true)
-  );
+  // Only split at user messages — NOT at @to(user) assistant messages.
+  // When a turn contains @to(user), earlier text blocks should stay in the
+  // same turn and be promoted to user-facing (see makeTurn promotedEntries).
+  return isUserBoundaryEntry(entry);
 }
 
 /** Build a Turn from accumulated entries */
@@ -633,6 +634,41 @@ function makeTurn(userEntry: FeedEntry | null, entries: FeedEntry[], turnIndex: 
     }
   }
 
+  // Leader mode: when a turn has @to(user), promote all non-@to(self) text
+  // entries from agentEntries so they're visible even when the turn is collapsed.
+  // Also hide @to(self) entries entirely (both collapsed and expanded views).
+  let promotedEntries: FeedEntry[] = [];
+  let selfAddressedCount = 0;
+  let allEntries: FeedEntry[] = entries;
+  if (leaderMode && responseEntry) {
+    const isSelfAddressed = (e: FeedEntry) =>
+      e.kind === "message"
+      && e.msg.role === "assistant"
+      && e.msg.content?.trimEnd().endsWith("@to(self)");
+
+    // Collect indices to splice: promote (user-facing text) or hide (@to(self))
+    const toSplice: { i: number; promote: boolean }[] = [];
+    for (let i = 0; i < agentEntries.length; i++) {
+      const e = agentEntries[i];
+      if (e.kind === "message" && e.msg.role === "assistant" && e.msg.content?.trim()) {
+        toSplice.push({ i, promote: !isSelfAddressed(e) });
+      }
+    }
+    // Single reverse pass keeps indices stable
+    for (let j = toSplice.length - 1; j >= 0; j--) {
+      const [entry] = agentEntries.splice(toSplice[j].i, 1);
+      if (toSplice[j].promote) {
+        promotedEntries.unshift(entry);
+      } else {
+        selfAddressedCount++;
+      }
+    }
+    // Filter @to(self) from allEntries so expanded view also hides them
+    if (selfAddressedCount > 0) {
+      allEntries = entries.filter(e => !isSelfAddressed(e));
+    }
+  }
+
   // Stable ID: prefer user message ID, fall back to first agent entry ID, then synthetic
   const id = userEntry
     ? (userEntry.kind === "message" ? userEntry.msg.id : `turn-u-${turnIndex}`)
@@ -641,13 +677,14 @@ function makeTurn(userEntry: FeedEntry | null, entries: FeedEntry[], turnIndex: 
   return {
     id,
     userEntry,
-    allEntries: entries,
+    allEntries,
     agentEntries,
     systemEntries,
     responseEntry,
+    promotedEntries,
     stats: {
-      // Subtract 1 for the responseEntry since it's shown separately below the bar
-      messageCount: responseEntry ? s.messages - 1 : s.messages,
+      // Subtract responseEntry, promotedEntries, and hidden @to(self) entries
+      messageCount: s.messages - (responseEntry ? 1 : 0) - promotedEntries.length - selfAddressedCount,
       toolCount: s.tools,
       subagentCount: s.subagents,
     },
@@ -1449,6 +1486,11 @@ const TurnEntries = memo(function TurnEntries({ turns, sessionId, leaderMode }: 
         appendTimedMessagesFromEntries(turn.allEntries, visibleTimedMessages);
       } else {
         appendTimedMessagesFromEntries(turn.systemEntries, visibleTimedMessages);
+        for (const pe of turn.promotedEntries) {
+          if (pe.kind === "message" && isTimedChatMessage(pe.msg)) {
+            visibleTimedMessages.push(pe.msg);
+          }
+        }
         if (turn.responseEntry?.kind === "message" && isTimedChatMessage(turn.responseEntry.msg)) {
           visibleTimedMessages.push(turn.responseEntry.msg);
         }
@@ -1512,8 +1554,8 @@ const TurnEntries = memo(function TurnEntries({ turns, sessionId, leaderMode }: 
                   {turn.systemEntries.length > 0 && (
                     <FeedEntries entries={turn.systemEntries} sessionId={sessionId} minuteBoundaryLabels={minuteBoundaryLabels} />
                   )}
-                  {/* Collapsed: single paw outside, activity bar + response in shared card */}
-                  {(turn.agentEntries.length > 0 || turn.responseEntry) && (
+                  {/* Collapsed: single paw outside, activity bar + promoted entries + response in shared card */}
+                  {(turn.agentEntries.length > 0 || turn.promotedEntries.length > 0 || turn.responseEntry) && (
                     <div className="flex items-start gap-3">
                       <PawTrailAvatar />
                       <div className="flex-1 min-w-0 rounded-xl border border-cc-border/20 bg-cc-card/20 overflow-hidden">
@@ -1524,10 +1566,10 @@ const TurnEntries = memo(function TurnEntries({ turns, sessionId, leaderMode }: 
                             onClick={() => toggleTurn(sessionId, turn.id, defaultExpanded)}
                           />
                         )}
-                        {turn.responseEntry && (
+                        {(turn.promotedEntries.length > 0 || turn.responseEntry) && (
                           <div className="px-3 py-2.5">
                             <HidePawContext.Provider value={true}>
-                              <FeedEntries entries={[turn.responseEntry]} sessionId={sessionId} minuteBoundaryLabels={minuteBoundaryLabels} />
+                              <FeedEntries entries={[...turn.promotedEntries, ...(turn.responseEntry ? [turn.responseEntry] : [])]} sessionId={sessionId} minuteBoundaryLabels={minuteBoundaryLabels} />
                             </HidePawContext.Provider>
                           </div>
                         )}

@@ -971,11 +971,20 @@ describe("MessageFeed - turn grouping", () => {
   });
 
   it("shows leader-session durations inside activity summary rows", () => {
+    // Leader mode: turns split at user messages only. Each non-last turn
+    // with collapsible agent activity shows a duration in its summary row.
+    // Turns need tool calls so agentEntries isn't empty after text promotion.
     const sid = "test-turn-duration-summary-leader";
     setStoreSdkSessionRole(sid, { isOrchestrator: true });
     setStoreMessages(sid, [
       makeMessage({ id: "u1", role: "user", content: "Coordinate", timestamp: 1_000 }),
-      makeMessage({ id: "a1", role: "assistant", content: "Assigned q-700 to #4", timestamp: 31_000 }),
+      makeMessage({
+        id: "a1",
+        role: "assistant",
+        content: "",
+        timestamp: 31_000,
+        contentBlocks: [{ type: "tool_use", id: "tu-700", name: "Read", input: { file_path: "/a.ts" } }],
+      }),
       makeMessage({
         id: "a2",
         role: "assistant",
@@ -983,6 +992,8 @@ describe("MessageFeed - turn grouping", () => {
         leaderUserAddressed: true,
         timestamp: 121_000,
       }),
+      // Second user message creates a new turn
+      makeMessage({ id: "u2", role: "user", content: "Continue", timestamp: 130_000 }),
       makeMessage({ id: "a3", role: "assistant", content: "Nudged #4", timestamp: 170_000 }),
       makeMessage({
         id: "a4",
@@ -991,15 +1002,14 @@ describe("MessageFeed - turn grouping", () => {
         leaderUserAddressed: true,
         timestamp: 313_000,
       }),
-      makeMessage({ id: "a5", role: "assistant", content: "Queued smoke tests", timestamp: 330_000 }),
     ]);
 
     render(<MessageFeed sessionId={sid} />);
 
+    // First turn: leader duration is boundary-to-boundary (u1 at 1s → u2 at 130s = 2m 9s)
     const durations = screen.getAllByTestId("turn-summary-duration");
-    expect(durations).toHaveLength(2);
-    expect(durations[0].textContent).toBe("2m 0s");
-    expect(durations[1].textContent).toBe("3m 12s");
+    expect(durations).toHaveLength(1);
+    expect(durations[0].textContent).toBe("2m 9s");
   });
 
   it("does not show normal-session summary duration when no final assistant response exists", () => {
@@ -1038,8 +1048,10 @@ describe("MessageFeed - collapsed turns", () => {
     expect(mockToggleTurnActivity).toHaveBeenCalledWith(sid, "u1", true);
   });
 
-  it("leader mode splits turns at each @to(user) boundary and keeps post-boundary activity separate", () => {
-    const sid = "test-leader-boundaries";
+  it("leader mode promotes all non-@to(self) text when turn has @to(user)", () => {
+    // When a turn contains @to(user), all text-bearing assistant messages
+    // without @to(self) are promoted to user-facing in the collapsed view.
+    const sid = "test-leader-promotion";
     setStoreSdkSessionRole(sid, { isOrchestrator: true });
     setStoreMessages(sid, [
       makeMessage({ id: "u1", role: "user", content: "Kick off orchestration" }),
@@ -1057,21 +1069,27 @@ describe("MessageFeed - collapsed turns", () => {
         content: "Second update with progress. @to(user)",
         leaderUserAddressed: true,
       }),
-      makeMessage({ id: "a5", role: "assistant", content: "Queued final smoke checks" }),
+      makeMessage({ id: "a5", role: "assistant", content: "Internal coordination @to(self)" }),
+      // New user message creates turn boundary
+      makeMessage({ id: "u2", role: "user", content: "Thanks" }),
     ]);
 
     render(<MessageFeed sessionId={sid} />);
 
+    // User message is always visible
     expect(screen.getByText("Kick off orchestration")).toBeTruthy();
+    // All non-@to(self) text entries are promoted and visible
+    expect(screen.getByText("Assigned q-600 to #2")).toBeTruthy();
     expect(screen.getByText("First update from the herd.")).toBeTruthy();
+    expect(screen.getByText("Nudged #2 about test coverage")).toBeTruthy();
     expect(screen.getByText("Second update with progress.")).toBeTruthy();
-    expect(screen.queryByText("Assigned q-600 to #2")).toBeNull();
-    expect(screen.queryByText("Nudged #2 about test coverage")).toBeNull();
-    expect(screen.getByText("Queued final smoke checks")).toBeTruthy();
-    expect(screen.getAllByText("1 message")).toHaveLength(3);
+    // @to(self) entry is NOT promoted — stays collapsed
+    expect(screen.queryByText("Internal coordination")).toBeNull();
   });
 
   it("leader mode keeps all text blocks visible for a user-addressed mixed assistant message", () => {
+    // When a turn has @to(user), ALL non-@to(self) text entries are promoted,
+    // including earlier untagged messages like a1.
     const sid = "test-leader-multi-text-boundary";
     setStoreSdkSessionRole(sid, { isOrchestrator: true });
     setStoreMessages(sid, [
@@ -1097,38 +1115,48 @@ describe("MessageFeed - collapsed turns", () => {
     expect(screen.getByText("Root cause confirmed; patch queued.")).toBeTruthy();
     expect(screen.getByTestId("leader-user-addressed-marker")).toBeTruthy();
     expect(screen.queryByText("Root cause confirmed; patch queued. @to(user)")).toBeNull();
-    expect(screen.queryByText("Assigned q-777 to #4")).toBeNull();
+    // a1 is promoted (non-@to(self) text in a turn with @to(user))
+    expect(screen.getByText("Assigned q-777 to #4")).toBeTruthy();
+    // a3 is also promoted
     expect(screen.getByText("Queued follow-up validation for #4")).toBeTruthy();
   });
 
-  it("passes defaultExpanded=true when collapsing the latest row after an @to(user) boundary", () => {
+  it("passes defaultExpanded=true when collapsing the latest leader turn with tool activity", () => {
+    // Turns no longer split at @to(user) — all entries stay in one turn.
+    // Add a tool call so there's a collapsible activity bar to click.
     const sid = "test-leader-last-user-boundary";
     setStoreSdkSessionRole(sid, { isOrchestrator: true });
     setStoreMessages(sid, [
       makeMessage({ id: "u1", role: "user", content: "status" }),
-      makeMessage({ id: "a1", role: "assistant", content: "Assigned q-401 to #9" }),
+      makeMessage({
+        id: "a1", role: "assistant", content: "",
+        contentBlocks: [{ type: "tool_use", id: "tu-1", name: "Bash", input: { command: "ls" } }],
+      }),
       makeMessage({
         id: "a2",
         role: "assistant",
         content: "#9 is implementing now. @to(user)",
         leaderUserAddressed: true,
       }),
-      makeMessage({ id: "a3", role: "assistant", content: "Ran follow-up checks on #9" }),
     ]);
 
     render(<MessageFeed sessionId={sid} />);
 
-    const activityRows = screen.getAllByText("1 message");
+    // The turn has tool activity → click the activity bar
+    const activityRows = screen.getAllByText("1 tool");
     fireEvent.click(activityRows[activityRows.length - 1]);
-    expect(mockToggleTurnActivity).toHaveBeenCalledWith(sid, "a2", true);
+    expect(mockToggleTurnActivity).toHaveBeenCalledWith(sid, "u1", true);
   });
 
-  it("leader mode keeps user-addressed assistant responses visible while collapsing internal activity", () => {
+  it("leader mode keeps user-addressed and promoted text visible, collapses @to(self)", () => {
+    // Turn 1 (u1→a2): a2 has @to(user), so a1 is promoted (non-@to(self) text).
+    // a_self is explicitly @to(self) — stays collapsed.
     const sid = "test-leader-collapse";
     setStoreSdkSessionRole(sid, { isOrchestrator: true });
     setStoreMessages(sid, [
       makeMessage({ id: "u1", role: "user", content: "Coordinate workers" }),
       makeMessage({ id: "a1", role: "assistant", content: "Assigned q-127 to #3" }),
+      makeMessage({ id: "a_self", role: "assistant", content: "internal check @to(self)" }),
       makeMessage({
         id: "a2",
         role: "assistant",
@@ -1141,14 +1169,20 @@ describe("MessageFeed - collapsed turns", () => {
 
     render(<MessageFeed sessionId={sid} />);
 
+    // @to(user) response visible
     expect(screen.getByText("I delegated auth + tests. Waiting for your review.")).toBeTruthy();
     expect(screen.getByTestId("leader-user-addressed-marker")).toBeTruthy();
-    expect(screen.queryByText("Assigned q-127 to #3")).toBeNull();
+    // Promoted: a1 is non-@to(self) text in a turn with @to(user)
+    expect(screen.getByText("Assigned q-127 to #3")).toBeTruthy();
+    // @to(self) stays collapsed
+    expect(screen.queryByText("internal check")).toBeNull();
+    // Last turn (u2→a3) is expanded as last turn
     expect(screen.getByText("peeked #3 and nudged #4")).toBeTruthy();
-    expect(screen.getAllByText(/message/).length).toBeGreaterThan(0);
   });
 
   it("leader mode keeps the latest turn tool activity expanded by default", () => {
+    // All entries are in one turn (last turn). Turn has @to(user) so a1 is promoted.
+    // Tool activity a3 is also visible since the turn is expanded (last + has responseEntry).
     const sid = "test-leader-latest-tools-expanded";
     setStoreSdkSessionRole(sid, { isOrchestrator: true });
     setStoreMessages(sid, [
@@ -1172,9 +1206,9 @@ describe("MessageFeed - collapsed turns", () => {
 
     render(<MessageFeed sessionId={sid} />);
 
-    // Older internal activity remains collapsed in previous turns.
-    expect(screen.queryByText("Assigned q-333 to #6")).toBeNull();
-    // Latest turn stays expanded so live tool activity remains visible.
+    // a1 is promoted (non-@to(self) text in a turn with @to(user))
+    expect(screen.getByText("Assigned q-333 to #6")).toBeTruthy();
+    // Tool activity visible since turn is expanded (last turn)
     expect(screen.getByText("npm test")).toBeTruthy();
   });
 
@@ -1200,7 +1234,8 @@ describe("MessageFeed - collapsed turns", () => {
         ],
       }),
     ]);
-    setStoreTurnOverrides(sid, [["a2", false]]);
+    // Override uses "u1" — the turn ID (turns no longer split at @to(user))
+    setStoreTurnOverrides(sid, [["u1", false]]);
 
     render(<MessageFeed sessionId={sid} />);
 
@@ -1230,7 +1265,8 @@ describe("MessageFeed - collapsed turns", () => {
       }),
       makeMessage({ id: "u2", role: "user", content: "Follow-up while streaming" }),
     ]);
-    setStoreTurnOverrides(sid, [["a2", false]]);
+    // Override uses "u1" — the turn ID (turns no longer split at @to(user))
+    setStoreTurnOverrides(sid, [["u1", false]]);
 
     render(<MessageFeed sessionId={sid} />);
 
