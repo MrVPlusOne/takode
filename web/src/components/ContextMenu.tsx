@@ -67,7 +67,7 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
   return createPortal(
     <div
       ref={menuRef}
-      className="fixed z-50 min-w-[140px] bg-cc-card border border-cc-border rounded-lg shadow-lg overflow-hidden"
+      className="fixed z-50 min-w-[120px] bg-cc-card border border-cc-border rounded-lg shadow-lg overflow-hidden"
       style={{ left: x, top: y }}
     >
       {confirmingItem ? (
@@ -102,7 +102,7 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
             item.disabled ? (
               <div
                 key={`${item.label}-${idx}`}
-                className="w-full px-3 py-1.5 text-left text-[11px] text-cc-muted font-mono-code break-all leading-relaxed"
+                className="w-full px-2.5 py-1.5 text-left text-[11px] text-cc-muted font-mono-code break-all leading-relaxed"
               >
                 {item.label}
               </div>
@@ -117,7 +117,7 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
                     onClose();
                   }
                 }}
-                className="w-full px-3 py-1.5 text-left text-[12px] text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
+                className="w-full px-2.5 py-1.5 text-left text-[11px] text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
               >
                 {item.label}
               </button>

@@ -15,6 +15,7 @@ import { Lightbox } from "./Lightbox.js";
 import { SessionStatusDot } from "./SessionStatusDot.js";
 import { buildQuestAssignDraft } from "./quest-assign.js";
 import { buildQuestReworkDraft } from "./quest-rework.js";
+import { writeClipboardText } from "../utils/copy-utils.js";
 import type { SessionItem as SessionItemType } from "../utils/project-grouping.js";
 import { QUEST_STATUS_THEME } from "../utils/quest-status-theme.js";
 import type {
@@ -24,6 +25,28 @@ import type {
   QuestFeedbackEntry,
   QuestImage,
 } from "../types.js";
+
+// ─── Copyable quest ID label ──────────────────────────────────────────────
+
+/** Click-to-copy quest ID with brief visual confirmation. */
+function CopyableQuestId({ questId, className }: { questId: string; className?: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      className={`cursor-pointer hover:text-cc-fg transition-colors ${className || "text-[10px] text-cc-muted/60"}`}
+      title="Click to copy quest ID"
+      onClick={(e) => {
+        e.stopPropagation();
+        writeClipboardText(questId).then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1200);
+        }).catch(console.error);
+      }}
+    >
+      {copied ? "Copied!" : questId}
+    </button>
+  );
+}
 
 // ─── Image paste/upload helpers ────────────────────────────────────────────
 
@@ -1862,7 +1885,7 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
                               <span className={`text-xs font-medium px-1.5 py-0.5 rounded-full border ${cfg.border} ${cfg.bg} ${cfg.text}`}>
                                 {cfg.label}
                               </span>
-                              <span className="text-[10px] text-cc-muted/60">{quest.questId}</span>
+                              <CopyableQuestId questId={quest.questId} />
                             </div>
                             <div className="flex items-center gap-2 mt-1 min-w-0">
                               <div className="text-sm font-semibold text-cc-fg truncate">{quest.title}</div>
@@ -2409,7 +2432,7 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
 
                           {/* Metadata: quest ID + version history button */}
                           <div className="flex items-center gap-2 text-[10px] text-cc-muted/50">
-                            <span>{quest.questId}</span>
+                            <CopyableQuestId questId={quest.questId} className="text-[10px] text-cc-muted/50" />
                             {quest.version > 1 ? (
                               <button
                                 onClick={() => toggleHistory(quest.questId)}

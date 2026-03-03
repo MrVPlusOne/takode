@@ -996,13 +996,19 @@ export function Sidebar() {
         const isExited = sdk?.state === "exited";
         const attention = sessionAttention.get(contextMenu.sessionId);
 
+        const sessionNum = sdk?.sessionNum;
         const items: ContextMenuItem[] = [
-          {
+          ...(sessionNum != null ? [{
+            label: "Copy Session Number",
+            onClick: () => {
+              writeClipboardText(String(sessionNum)).catch(console.error);
+            },
+          }] : [{
             label: "Copy Session ID",
             onClick: () => {
               writeClipboardText(contextMenu.sessionId).catch(console.error);
             },
-          },
+          }]),
           ...(cliId ? [{
             label: "Copy CLI Session ID",
             onClick: () => {
