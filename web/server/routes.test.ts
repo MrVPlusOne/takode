@@ -103,7 +103,7 @@ vi.mock("./settings-manager.js", () => ({
     autoApprovalMaxConcurrency: 4, autoApprovalTimeoutSeconds: 45,
     namerConfig: { backend: "claude" },
     autoNamerEnabled: true,
-    transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-4o-mini" },
+    transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-5-mini" },
     updatedAt: 0,
   })),
   updateSettings: vi.fn((patch) => ({
@@ -123,7 +123,7 @@ vi.mock("./settings-manager.js", () => ({
     autoApprovalTimeoutSeconds: patch.autoApprovalTimeoutSeconds ?? 45,
     namerConfig: patch.namerConfig ?? { backend: "claude" },
     autoNamerEnabled: patch.autoNamerEnabled ?? true,
-    transcriptionConfig: patch.transcriptionConfig ?? { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-4o-mini" },
+    transcriptionConfig: patch.transcriptionConfig ?? { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-5-mini" },
     updatedAt: Date.now(),
   })),
   getServerName: vi.fn(() => ""),
@@ -1335,7 +1335,7 @@ describe("GET /api/settings", () => {
     autoApprovalMaxConcurrency: 4, autoApprovalTimeoutSeconds: 45,
       namerConfig: { backend: "claude" },
       autoNamerEnabled: true,
-      transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-4o-mini" },
+      transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-5-mini" },
       updatedAt: 123,
     });
 
@@ -1357,7 +1357,7 @@ describe("GET /api/settings", () => {
       autoApprovalModel: "haiku",
       namerConfig: { backend: "claude" },
       autoNamerEnabled: true,
-      transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-4o-mini" },
+      transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-5-mini" },
       restartSupported: expect.any(Boolean),
       logFile: expect.any(Object), // null or string depending on logger init
     });
@@ -1374,7 +1374,7 @@ describe("GET /api/settings", () => {
     autoApprovalMaxConcurrency: 4, autoApprovalTimeoutSeconds: 45,
       namerConfig: { backend: "claude" },
       autoNamerEnabled: true,
-      transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-4o-mini" },
+      transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-5-mini" },
       updatedAt: 123,
     });
 
@@ -1396,7 +1396,7 @@ describe("GET /api/settings", () => {
       autoApprovalModel: "haiku",
       namerConfig: { backend: "claude" },
       autoNamerEnabled: true,
-      transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-4o-mini" },
+      transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-5-mini" },
       restartSupported: expect.any(Boolean),
       logFile: expect.any(Object), // null or string depending on logger init
     });
@@ -1414,7 +1414,7 @@ describe("GET /api/settings", () => {
     autoApprovalMaxConcurrency: 4, autoApprovalTimeoutSeconds: 45,
       namerConfig: { backend: "claude" },
       autoNamerEnabled: true,
-      transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-4o-mini" },
+      transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-5-mini" },
       updatedAt: 0,
     });
 
@@ -1439,7 +1439,7 @@ describe("PUT /api/settings", () => {
     autoApprovalMaxConcurrency: 4, autoApprovalTimeoutSeconds: 45,
       namerConfig: { backend: "claude" },
       autoNamerEnabled: true,
-      transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-4o-mini" },
+      transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-5-mini" },
       updatedAt: 456,
     });
 
@@ -1480,7 +1480,7 @@ describe("PUT /api/settings", () => {
       autoApprovalModel: "haiku",
       namerConfig: { backend: "claude" },
       autoNamerEnabled: true,
-      transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-4o-mini" },
+      transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-5-mini" },
     });
   });
 
@@ -1495,7 +1495,7 @@ describe("PUT /api/settings", () => {
     autoApprovalMaxConcurrency: 4, autoApprovalTimeoutSeconds: 45,
       namerConfig: { backend: "claude" },
       autoNamerEnabled: true,
-      transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-4o-mini" },
+      transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-5-mini" },
       updatedAt: 789,
     });
 
@@ -1534,7 +1534,7 @@ describe("PUT /api/settings", () => {
     autoApprovalMaxConcurrency: 4, autoApprovalTimeoutSeconds: 45,
       namerConfig: { backend: "claude" },
       autoNamerEnabled: true,
-      transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-4o-mini" },
+      transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-5-mini" },
       updatedAt: Date.now(),
     });
     vi.mocked(settingsManager.getServerName).mockReturnValue("My Backend");
@@ -1637,7 +1637,7 @@ describe("PUT /api/settings", () => {
     autoApprovalMaxConcurrency: 4, autoApprovalTimeoutSeconds: 45,
       namerConfig: { backend: "claude" },
       autoNamerEnabled: true,
-      transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-4o-mini" },
+      transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-5-mini" },
       updatedAt: Date.now(),
     });
 
@@ -1713,7 +1713,7 @@ describe("PUT /api/settings", () => {
     autoApprovalMaxConcurrency: 4, autoApprovalTimeoutSeconds: 45,
       namerConfig: { backend: "claude" },
       autoNamerEnabled: true,
-      transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-4o-mini" },
+      transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-5-mini" },
       updatedAt: Date.now(),
     });
 

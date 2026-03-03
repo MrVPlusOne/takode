@@ -841,7 +841,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
                   type="text"
                   value={transcriptionModel}
                   onChange={(e) => setTranscriptionModel(e.target.value)}
-                  placeholder="gpt-4o-mini"
+                  placeholder="gpt-5-mini"
                   className="w-full px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/60 font-mono"
                 />
               </div>

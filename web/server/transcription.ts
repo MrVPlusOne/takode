@@ -83,7 +83,7 @@ export async function transcribeWithOpenai(
   const ext = extMap[mimeType] || "webm";
 
   const form = new FormData();
-  form.append("model", "whisper-1");
+  form.append("model", "gpt-4o-mini-transcribe");
   form.append(
     "file",
     new Blob([new Uint8Array(audioBuffer)], { type: mimeType }),

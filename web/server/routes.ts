@@ -2701,7 +2701,7 @@ export function createRoutes(
       apiKey,
       baseUrl: typeof tc.baseUrl === "string" ? tc.baseUrl.trim() : "https://api.openai.com/v1",
       enhancementEnabled: typeof tc.enhancementEnabled === "boolean" ? tc.enhancementEnabled : true,
-      enhancementModel: typeof tc.enhancementModel === "string" ? tc.enhancementModel.trim() : "gpt-4o-mini",
+      enhancementModel: typeof tc.enhancementModel === "string" ? tc.enhancementModel.trim() : "gpt-5-mini",
     };
   }
 

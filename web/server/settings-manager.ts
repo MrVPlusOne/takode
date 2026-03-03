@@ -54,7 +54,7 @@ export interface TranscriptionConfig {
   baseUrl: string;
   /** Whether context-aware LLM enhancement is enabled */
   enhancementEnabled: boolean;
-  /** Model to use for enhancement (e.g. "gpt-4o-mini", "gpt-4o") */
+  /** Model to use for enhancement (e.g. "gpt-5-mini", "gpt-4o") */
   enhancementModel: string;
 }
 
@@ -87,7 +87,7 @@ let settings: CompanionSettings = {
   autoApprovalTimeoutSeconds: 45,
   namerConfig: { backend: "claude" },
   autoNamerEnabled: true,
-  transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-4o-mini" },
+  transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-5-mini" },
   updatedAt: 0,
 };
 
@@ -127,10 +127,10 @@ function normalizeTranscriptionConfig(raw: Record<string, unknown> | null | unde
       apiKey: typeof c.apiKey === "string" ? c.apiKey : "",
       baseUrl: typeof c.baseUrl === "string" ? c.baseUrl : "https://api.openai.com/v1",
       enhancementEnabled: typeof c.enhancementEnabled === "boolean" ? c.enhancementEnabled : true,
-      enhancementModel: typeof c.enhancementModel === "string" ? c.enhancementModel : "gpt-4o-mini",
+      enhancementModel: typeof c.enhancementModel === "string" ? c.enhancementModel : "gpt-5-mini",
     };
   }
-  return { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-4o-mini" };
+  return { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-5-mini" };
 }
 
 function normalize(raw: Partial<CompanionSettings> | null | undefined): CompanionSettings {

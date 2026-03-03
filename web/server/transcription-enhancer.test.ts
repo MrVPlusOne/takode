@@ -244,7 +244,7 @@ describe("enhanceTranscript", () => {
     apiKey: "test-key",
     baseUrl: "https://api.openai.com/v1",
     enhancementEnabled: true,
-    enhancementModel: "gpt-4o-mini",
+    enhancementModel: "gpt-5-mini",
   };
 
   it("skips enhancement when disabled in config", async () => {

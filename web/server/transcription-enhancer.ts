@@ -181,7 +181,7 @@ async function callEnhancementLLM(
   apiKey: string,
 ): Promise<string | null> {
   const baseUrl = (config.baseUrl || "https://api.openai.com/v1").replace(/\/+$/, "");
-  const model = config.enhancementModel || "gpt-4o-mini";
+  const model = config.enhancementModel || "gpt-5-mini";
 
   try {
     const controller = new AbortController();
