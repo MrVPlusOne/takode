@@ -706,16 +706,21 @@ describe("transition validation", () => {
     ).rejects.toThrow("sessionId is required");
   });
 
-  it("requires verificationItems for needs_verification status", async () => {
+  it("allows needs_verification with empty verificationItems (auto-pass)", async () => {
+    // When no --items are provided, the quest transitions to needs_verification
+    // with an empty items array. quest done will auto-pass since there's nothing to verify.
     await questStore.createQuest({ title: "No items" });
     await questStore.transitionQuest("q-1", {
       status: "refined",
       description: "Ready",
     });
     await questStore.claimQuest("q-1", "sess-1");
-    await expect(
-      questStore.transitionQuest("q-1", { status: "needs_verification" }),
-    ).rejects.toThrow("verificationItems are required");
+    const quest = await questStore.transitionQuest("q-1", { status: "needs_verification" });
+    expect(quest).not.toBeNull();
+    expect(quest?.status).toBe("needs_verification");
+    if (quest?.status === "needs_verification") {
+      expect(quest.verificationItems).toEqual([]);
+    }
   });
 
   it("allows done transition from in_progress when verificationItems are provided", async () => {
@@ -737,6 +742,22 @@ describe("transition validation", () => {
       expect(done.verificationItems).toEqual([
         { text: "User verified: works as expected", checked: true },
       ]);
+    }
+  });
+
+  it("allows done transition with empty verification items (auto-pass)", async () => {
+    // When a quest reaches needs_verification with no items, quest done should
+    // succeed immediately — there's nothing to verify.
+    await questStore.createQuest({ title: "Auto-pass done" });
+    await questStore.transitionQuest("q-1", { status: "refined", description: "Ready" });
+    await questStore.claimQuest("q-1", "sess-1");
+    await questStore.transitionQuest("q-1", { status: "needs_verification" });
+    const done = await questStore.markDone("q-1", { notes: "No items to verify" });
+    expect(done).not.toBeNull();
+    expect(done?.status).toBe("done");
+    if (done?.status === "done") {
+      expect(done.verificationItems).toEqual([]);
+      expect(done.notes).toBe("No items to verify");
     }
   });
 

@@ -509,10 +509,10 @@ export async function transitionQuest(
         ("verificationItems" in current
           ? (current as QuestNeedsVerification).verificationItems
           : undefined);
-      if (!rawItems || rawItems.length === 0) {
-        throw new Error("verificationItems are required for needs_verification status");
-      }
-      const verificationItems = normalizeVerificationItems(rawItems);
+      // Empty items is allowed — quest done will auto-pass with nothing to verify
+      const verificationItems = rawItems && rawItems.length > 0
+        ? normalizeVerificationItems(rawItems)
+        : [];
       quest = {
         ...base,
         status: "needs_verification",
@@ -545,14 +545,10 @@ export async function transitionQuest(
         ("verificationItems" in current
           ? (current as QuestNeedsVerification).verificationItems
           : undefined);
-      const verificationItems = rawItems
+      const verificationItems = rawItems && rawItems.length > 0
         ? normalizeVerificationItems(rawItems)
-        : undefined;
-      if (!verificationItems || verificationItems.length === 0) {
-        if (!input.force) {
-          throw new Error("verificationItems are required for done status (use --force to skip)");
-        }
-      }
+        : [];
+      // Empty items = auto-pass (nothing to verify)
       quest = {
         ...base,
         status: "done",

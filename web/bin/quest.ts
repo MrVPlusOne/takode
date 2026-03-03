@@ -630,17 +630,20 @@ async function cmdClaim(): Promise<void> {
 async function cmdComplete(): Promise<void> {
   validateFlags(["items", "json"]);
   const id = positional(0);
-  if (!id) die("Usage: quest complete <questId> --items \"check1,check2\"");
+  if (!id) die("Usage: quest complete <questId> [--items \"check1,check2\"]");
 
   const itemsStr = option("items");
-  if (!itemsStr) die("--items is required. Example: --items \"Tests pass,Typecheck passes\"");
-
-  const items = itemsStr
-    .split(",")
-    .map((t) => t.trim())
-    .filter(Boolean)
-    .map((text) => ({ text, checked: false }));
-  if (items.length === 0) die("--items must contain at least one non-empty item");
+  let items: { text: string; checked: boolean }[] = [];
+  if (itemsStr) {
+    items = itemsStr
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean)
+      .map((text) => ({ text, checked: false }));
+  }
+  if (items.length === 0) {
+    console.error("Warning: quest submitted for verification without verification items. Consider adding --items for trackable verification.");
+  }
 
   // Prefer HTTP endpoint when server is available — it broadcasts quest status
   // change to browsers (triggers "Quest Submitted" chat message + review badge).
