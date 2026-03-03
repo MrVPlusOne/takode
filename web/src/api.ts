@@ -789,7 +789,7 @@ export const api = {
   saveClaudeMd: (path: string, content: string) =>
     put<{ ok: boolean; path: string }>("/fs/claude-md", { path, content }),
 
-  // Audio transcription
+  // Audio transcription (SSE streaming: stt_complete → result)
   transcribe: async (
     audio: Blob,
     options?: {
@@ -797,6 +797,8 @@ export const api = {
       sessionId?: string;
       composerBefore?: string;
       composerAfter?: string;
+      /** Called when transcription phase changes (e.g. "enhancing" after STT completes) */
+      onPhase?: (phase: "transcribing" | "enhancing") => void;
     },
   ): Promise<{ text: string; rawText?: string; backend: string; enhanced: boolean }> => {
     const form = new FormData();
@@ -810,7 +812,48 @@ export const api = {
       const err = await res.json().catch(() => ({ error: res.statusText }));
       throw new Error((err as { error?: string }).error || res.statusText);
     }
-    return res.json();
+
+    // Parse SSE stream for phase-aware progress
+    if (!res.body) throw new Error("No response body");
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let result: { text: string; rawText?: string; backend: string; enhanced: boolean } | null = null;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const chunks = buffer.split("\n\n");
+      buffer = chunks.pop() || "";
+
+      for (const chunk of chunks) {
+        if (!chunk.trim()) continue;
+        let eventType = "";
+        let data = "";
+        for (const line of chunk.split("\n")) {
+          if (line.startsWith("event:")) eventType = line.slice(6).trim();
+          else if (line.startsWith("data:")) data = line.slice(5).trim();
+        }
+        if (!data) continue;
+
+        const parsed = JSON.parse(data);
+        if (eventType === "stt_complete") {
+          // STT done — if enhancement will follow, notify the caller
+          if (parsed.willEnhance) {
+            options?.onPhase?.("enhancing");
+          }
+        } else if (eventType === "result") {
+          result = parsed;
+        } else if (eventType === "error") {
+          throw new Error(parsed.error || "Transcription failed");
+        }
+      }
+    }
+
+    if (!result) throw new Error("Stream ended without transcription result");
+    return result;
   },
 
   getTranscriptionStatus: () =>

@@ -2956,70 +2956,82 @@ export function createRoutes(
     const buf = Buffer.from(await audioFile.arrayBuffer());
     const mimeType = audioFile.type || "audio/webm";
 
-    try {
-      let rawText: string;
-      let usedBackend = backend;
-      let sttModel = "unknown";
+    // Stream SSE events so the client can show phase transitions (Transcribing → Enhancing)
+    return streamSSE(c, async (stream) => {
+      try {
+        let rawText: string;
+        const usedBackend = backend;
+        let sttModel = "unknown";
 
-      // Build context-aware STT prompt (guides vocabulary recognition)
-      // Get recent non-archived session names sorted by activity (most recent first)
-      let sttPrompt = "";
-      if (sessionId) {
-        const recentOtherNames = getRecentSessionNames(sessionId, 10);
-        sttPrompt = buildSttPrompt({
-          taskHistory: wsBridge.getSessionTaskHistory(sessionId),
-          sessionName: sessionNames.getName(sessionId),
-          activeSessionNames: recentOtherNames.length > 0 ? recentOtherNames : undefined,
-          composerBefore: composerBefore,
-          composerAfter: composerAfter,
-          messageHistory: wsBridge.getMessageHistory(sessionId),
+        // Build context-aware STT prompt (guides vocabulary recognition)
+        // Get recent non-archived session names sorted by activity (most recent first)
+        let sttPrompt = "";
+        if (sessionId) {
+          const recentOtherNames = getRecentSessionNames(sessionId, 10);
+          sttPrompt = buildSttPrompt({
+            taskHistory: wsBridge.getSessionTaskHistory(sessionId),
+            sessionName: sessionNames.getName(sessionId),
+            activeSessionNames: recentOtherNames.length > 0 ? recentOtherNames : undefined,
+            composerBefore: composerBefore,
+            composerAfter: composerAfter,
+            messageHistory: wsBridge.getMessageHistory(sessionId),
+          });
+        }
+
+        const sttStart = Date.now();
+
+        if (backend === "gemini") {
+          const apiKey = process.env.GOOGLE_API_KEY;
+          if (!apiKey) {
+            await stream.writeSSE({ event: "error", data: JSON.stringify({ error: "GOOGLE_API_KEY not set in environment" }) });
+            return;
+          }
+          rawText = await transcribeWithGemini(buf, mimeType, apiKey);
+          sttModel = "gemini";
+        } else if (backend === "openai") {
+          const apiKey = resolveOpenAIKey();
+          if (!apiKey) {
+            await stream.writeSSE({ event: "error", data: JSON.stringify({ error: "No OpenAI API key configured. Set it in Settings → Voice Transcription, or set OPENAI_API_KEY in your environment." }) });
+            return;
+          }
+          rawText = await transcribeWithOpenai(buf, mimeType, apiKey, sttPrompt || undefined);
+          sttModel = "gpt-4o-mini-transcribe";
+        } else {
+          await stream.writeSSE({ event: "error", data: JSON.stringify({ error: `Unknown backend: ${backend}` }) });
+          return;
+        }
+
+        const sttDurationMs = Date.now() - sttStart;
+
+        // Notify client that STT is done — if enhancement follows, UI can show "Enhancing..."
+        const willEnhance = !!(sessionId && usedBackend === "openai" &&
+          getSettings().transcriptionConfig.enhancementEnabled && resolveOpenAIKey());
+        await stream.writeSSE({
+          event: "stt_complete",
+          data: JSON.stringify({ rawText, backend: usedBackend, willEnhance }),
         });
-      }
 
-      const sttStart = Date.now();
-
-      if (backend === "gemini") {
-        const apiKey = process.env.GOOGLE_API_KEY;
-        if (!apiKey) {
-          return c.json({ error: "GOOGLE_API_KEY not set in environment" }, 400);
-        }
-        rawText = await transcribeWithGemini(buf, mimeType, apiKey);
-        sttModel = "gemini";
-      } else if (backend === "openai") {
-        const apiKey = resolveOpenAIKey();
-        if (!apiKey) {
-          return c.json({ error: "No OpenAI API key configured. Set it in Settings → Voice Transcription, or set OPENAI_API_KEY in your environment." }, 400);
-        }
-        rawText = await transcribeWithOpenai(buf, mimeType, apiKey, sttPrompt || undefined);
-        sttModel = "gpt-4o-mini-transcribe";
-      } else {
-        return c.json({ error: `Unknown backend: ${backend}` }, 400);
-      }
-
-      const sttDurationMs = Date.now() - sttStart;
-
-      // Tier 2: Context-aware enhancement (OpenAI backend only)
-      if (sessionId && usedBackend === "openai") {
-        const settings = getSettings();
-        const enhancementKey = resolveOpenAIKey();
-        if (enhancementKey && settings.transcriptionConfig.enhancementEnabled) {
-          const history = wsBridge.getMessageHistory(sessionId);
+        // Tier 2: Context-aware enhancement (OpenAI backend only)
+        if (willEnhance) {
+          const enhancementKey = resolveOpenAIKey()!;
+          const settings = getSettings();
+          const history = wsBridge.getMessageHistory(sessionId!);
 
           // Build enriched context for enhancement
-          const taskHistory = wsBridge.getSessionTaskHistory(sessionId);
-          const enhOtherNames = getRecentSessionNames(sessionId, 20);
+          const taskHistory = wsBridge.getSessionTaskHistory(sessionId!);
+          const enhOtherNames = getRecentSessionNames(sessionId!, 20);
 
           const result = await enhanceTranscript(rawText, history, settings.transcriptionConfig, enhancementKey, {
             composerBefore: composerBefore,
             composerAfter: composerAfter,
             taskTitles: taskHistory.map((t) => t.title),
-            sessionName: sessionNames.getName(sessionId),
+            sessionName: sessionNames.getName(sessionId!),
             activeSessionNames: enhOtherNames.length > 0 ? enhOtherNames : undefined,
           });
 
           // Log for debug panel
           addTranscriptionLogEntry({
-            sessionId,
+            sessionId: sessionId!,
             sttModel,
             sttDurationMs,
             sttPrompt,
@@ -3035,32 +3047,34 @@ export function createRoutes(
             } : null,
           });
 
-          return c.json({
-            text: result.text,
-            rawText: result.rawText,
-            backend: usedBackend,
-            enhanced: result.enhanced,
+          await stream.writeSSE({
+            event: "result",
+            data: JSON.stringify({ text: result.text, rawText: result.rawText, backend: usedBackend, enhanced: result.enhanced }),
           });
+          return;
         }
+
+        // Log STT-only call (no enhancement attempted)
+        addTranscriptionLogEntry({
+          sessionId: sessionId ?? null,
+          sttModel,
+          sttDurationMs,
+          sttPrompt,
+          rawTranscript: rawText,
+          audioSizeBytes: buf.length,
+          enhancement: null,
+        });
+
+        await stream.writeSSE({
+          event: "result",
+          data: JSON.stringify({ text: rawText, backend: usedBackend, enhanced: false }),
+        });
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error(`[transcription] ${backend} failed:`, msg);
+        await stream.writeSSE({ event: "error", data: JSON.stringify({ error: `Transcription failed: ${msg}` }) });
       }
-
-      // Log STT-only call (no enhancement attempted)
-      addTranscriptionLogEntry({
-        sessionId: sessionId ?? null,
-        sttModel,
-        sttDurationMs,
-        sttPrompt,
-        rawTranscript: rawText,
-        audioSizeBytes: buf.length,
-        enhancement: null,
-      });
-
-      return c.json({ text: rawText, backend: usedBackend, enhanced: false });
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      console.error(`[transcription] ${backend} failed:`, msg);
-      return c.json({ error: `Transcription failed: ${msg}` }, 500);
-    }
+    });
   });
 
   // ─── Git operations ─────────────────────────────────────────────────

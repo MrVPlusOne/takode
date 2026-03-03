@@ -5,14 +5,19 @@ export interface UseVoiceInputOptions {
   onAudioReady?: (blob: Blob) => void;
 }
 
+export type TranscriptionPhase = "transcribing" | "enhancing" | null;
+
 export interface UseVoiceInputReturn {
   isRecording: boolean;
   isSupported: boolean;
   isTranscribing: boolean;
+  /** Current transcription phase: "transcribing" (STT in progress), "enhancing" (LLM enhancement), or null */
+  transcriptionPhase: TranscriptionPhase;
   error: string | null;
   /** Normalized volume level 0–1 while recording, 0 otherwise */
   volumeLevel: number;
   setIsTranscribing: (v: boolean) => void;
+  setTranscriptionPhase: (phase: TranscriptionPhase) => void;
   setError: (e: string | null) => void;
   startRecording: () => void;
   stopRecording: () => void;
@@ -43,6 +48,7 @@ export function normalizeMeterLevel(rms: number, previousLevel: number): number 
 export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInputReturn {
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
+  const [transcriptionPhase, setTranscriptionPhase] = useState<TranscriptionPhase>(null);
   const [error, setError] = useState<string | null>(null);
   const [volumeLevel, setVolumeLevel] = useState(0);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -202,9 +208,11 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
     isRecording,
     isSupported: isMediaRecorderSupported,
     isTranscribing,
+    transcriptionPhase,
     error,
     volumeLevel,
     setIsTranscribing,
+    setTranscriptionPhase,
     setError,
     startRecording,
     stopRecording,

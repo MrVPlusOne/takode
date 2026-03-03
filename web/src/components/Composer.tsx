@@ -181,17 +181,21 @@ export function Composer({ sessionId }: { sessionId: string }) {
   const preRecordingTextRef = useRef({ before: "", after: "" });
   const {
     isRecording, isSupported: voiceSupported, isTranscribing,
-    error: voiceError, volumeLevel, setIsTranscribing, setError: setVoiceError,
+    transcriptionPhase,
+    error: voiceError, volumeLevel, setIsTranscribing, setTranscriptionPhase,
+    setError: setVoiceError,
     toggleRecording,
   } = useVoiceInput({
     onAudioReady: async (blob) => {
       setIsTranscribing(true);
+      setTranscriptionPhase("transcribing");
       try {
         const { before, after } = preRecordingTextRef.current;
         const { text: transcript } = await api.transcribe(blob, {
           sessionId,
           composerBefore: before || undefined,
           composerAfter: after || undefined,
+          onPhase: (phase) => setTranscriptionPhase(phase),
         });
         const separator = before && !before.endsWith(" ") && !before.endsWith("\n") ? " " : "";
         const afterSep = after && !after.startsWith(" ") && !after.startsWith("\n") ? " " : "";
@@ -200,6 +204,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
         setVoiceError(err instanceof Error ? err.message : "Transcription failed");
       } finally {
         setIsTranscribing(false);
+        setTranscriptionPhase(null);
       }
     },
   });
@@ -675,7 +680,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
                     ? "text-red-500 bg-red-500/10 hover:bg-red-500/20 cursor-pointer"
                     : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover cursor-pointer"
                 }`}
-                title={voiceError || (isTranscribing ? "Transcribing..." : isRecording ? "Stop recording" : "Voice input")}
+                title={voiceError || (isTranscribing ? (transcriptionPhase === "enhancing" ? "Enhancing..." : "Transcribing...") : isRecording ? "Stop recording" : "Voice input")}
               >
                 <svg viewBox="0 0 16 16" fill="currentColor" className={`w-5 h-5 ${isRecording ? "animate-pulse" : ""}`}>
                   <path d="M8 1a2.5 2.5 0 0 0-2.5 2.5v4a2.5 2.5 0 0 0 5 0v-4A2.5 2.5 0 0 0 8 1z" />
@@ -809,7 +814,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
           {isTranscribing && !isRecording && (
             <div className="flex items-center gap-2 px-4 pt-2 text-[11px] text-cc-primary">
               <span className="w-2 h-2 rounded-full bg-cc-primary animate-pulse" />
-              <span>Transcribing...</span>
+              <span>{transcriptionPhase === "enhancing" ? "Enhancing..." : "Transcribing..."}</span>
             </div>
           )}
           {voiceError && !isRecording && !isTranscribing && (
@@ -1099,7 +1104,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
                       ? "text-red-500 bg-red-500/10 hover:bg-red-500/20 cursor-pointer"
                       : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover cursor-pointer"
                   }`}
-                  title={voiceError || (isTranscribing ? "Transcribing..." : isRecording ? "Stop recording" : "Voice input")}
+                  title={voiceError || (isTranscribing ? (transcriptionPhase === "enhancing" ? "Enhancing..." : "Transcribing...") : isRecording ? "Stop recording" : "Voice input")}
                 >
                   <svg viewBox="0 0 16 16" fill="currentColor" className={`w-5 h-5 sm:w-4 sm:h-4 ${isRecording ? "animate-pulse" : ""}`}>
                     <path d="M8 1a2.5 2.5 0 0 0-2.5 2.5v4a2.5 2.5 0 0 0 5 0v-4A2.5 2.5 0 0 0 8 1z" />
