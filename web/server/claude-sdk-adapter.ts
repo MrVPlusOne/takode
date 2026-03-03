@@ -10,9 +10,6 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
-import { homedir } from "node:os";
 import { getEnrichedPath } from "./path-resolver.js";
 import type {
   BrowserIncomingMessage,
@@ -138,17 +135,20 @@ export class ClaudeSdkAdapter {
       permissionMode: this.mapPermissionMode(this.options.permissionMode),
       env: mergedEnv,
       canUseTool: this.handleCanUseTool.bind(this),
+      // Load all filesystem settings so the CLI natively handles:
+      //  - Permission rules from settings.json (allow/deny/ask patterns)
+      //  - CLAUDE.md files (user + project level)
+      //  - Model configuration
+      //  - Output styles, hooks, etc.
+      // The v2 SDK defaults settingSources to [] when not specified, which
+      // disables all settings loading. Passing it explicitly overrides that.
+      settingSources: ["user", "project", "local"],
     };
 
-    // Resolve model: if not explicitly specified, read from Claude Code's
-    // settings.json. The SDK doesn't read settings.json itself (unlike the CLI),
-    // so we must pass the model explicitly or it defaults to Sonnet.
-    let resolvedModel = this.options.model;
-    if (!resolvedModel) {
-      resolvedModel = await this.readModelFromSettings();
-    }
-    if (resolvedModel) {
-      sessionOptions.model = resolvedModel;
+    // Pass model explicitly if provided — otherwise the CLI reads it from
+    // settings.json (which we now load via settingSources).
+    if (this.options.model) {
+      sessionOptions.model = this.options.model;
     }
 
     // bypassPermissions mode: SDK auto-approves everything, no canUseTool needed
@@ -159,29 +159,6 @@ export class ClaudeSdkAdapter {
     // Resolve the claude binary path — use the configured binary or find it on PATH
     if (this.options.claudeBinary) {
       sessionOptions.pathToClaudeCodeExecutable = this.options.claudeBinary;
-    }
-
-    // WORKAROUND: The SDK's v2 session API hardcodes settingSources: [] which
-    // passes --setting-sources "" to the CLI, disabling all settings loading
-    // (including CLAUDE.md). We inject CLAUDE.md content via a SessionStart hook
-    // that returns additionalContext — the SDK appends this to the system prompt.
-    if (!this.options.cliSessionId) {
-      // Only for fresh sessions — resumed sessions already have the context
-      const claudeMdContent = await this.loadClaudeMdFiles(this.options.cwd);
-      if (claudeMdContent) {
-        const existingHooks = (sessionOptions.hooks as Record<string, unknown[]> | undefined) || {};
-        const sessionStartHooks = (existingHooks.SessionStart as unknown[] | undefined) || [];
-        sessionStartHooks.push({
-          hooks: [async () => ({
-            hookSpecificOutput: {
-              hookEventName: "SessionStart",
-              additionalContext: claudeMdContent,
-            },
-          })],
-        });
-        existingHooks.SessionStart = sessionStartHooks;
-        sessionOptions.hooks = existingHooks;
-      }
     }
 
     // WORKAROUND: The SDK's v2 session API (SDKSessionOptions) does NOT expose
@@ -470,60 +447,4 @@ export class ClaudeSdkAdapter {
     }
   }
 
-  /** Read the model from Claude Code's ~/.claude/settings.json.
-   *  Returns the model string (e.g. "opus[1m]") or undefined if not found. */
-  private async readModelFromSettings(): Promise<string | undefined> {
-    try {
-      const settingsPath = join(homedir(), ".claude", "settings.json");
-      const raw = await readFile(settingsPath, "utf-8");
-      const settings = JSON.parse(raw);
-      if (settings.model && typeof settings.model === "string") {
-        console.log(`[claude-sdk-adapter] Resolved model from settings.json: ${settings.model}`);
-        return settings.model;
-      }
-    } catch {
-      // settings.json doesn't exist or is malformed — SDK will use its default
-    }
-    return undefined;
-  }
-
-  /** Read CLAUDE.md files that the CLI would normally load from settings sources.
-   *  The SDK's v2 session API hardcodes settingSources: [] which disables all
-   *  settings loading. We read the files ourselves and return them as a single
-   *  string for injection via --append-system-prompt. */
-  private async loadClaudeMdFiles(cwd: string): Promise<string | undefined> {
-    const sections: string[] = [];
-
-    // User-level: ~/.claude/CLAUDE.md
-    try {
-      const userPath = join(homedir(), ".claude", "CLAUDE.md");
-      const content = await readFile(userPath, "utf-8");
-      if (content.trim()) {
-        sections.push(`# User CLAUDE.md (~/.claude/CLAUDE.md)\n\n${content.trim()}`);
-      }
-    } catch { /* file doesn't exist */ }
-
-    // Project-level: <cwd>/CLAUDE.md
-    try {
-      const projectPath = join(cwd, "CLAUDE.md");
-      const content = await readFile(projectPath, "utf-8");
-      if (content.trim()) {
-        sections.push(`# Project CLAUDE.md (${projectPath})\n\n${content.trim()}`);
-      }
-    } catch { /* file doesn't exist */ }
-
-    // Project .claude dir: <cwd>/.claude/CLAUDE.md
-    try {
-      const dotClaudePath = join(cwd, ".claude", "CLAUDE.md");
-      const content = await readFile(dotClaudePath, "utf-8");
-      if (content.trim()) {
-        sections.push(`# Project .claude/CLAUDE.md (${dotClaudePath})\n\n${content.trim()}`);
-      }
-    } catch { /* file doesn't exist */ }
-
-    if (sections.length === 0) return undefined;
-
-    console.log(`[claude-sdk-adapter] Loaded ${sections.length} CLAUDE.md file(s) for session ${this.sessionId}`);
-    return sections.join("\n\n---\n\n");
-  }
 }
