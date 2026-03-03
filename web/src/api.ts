@@ -386,6 +386,35 @@ export interface CronJobExecution {
 
 // ─── Namer Log Types ────────────────────────────────────────────────────────
 
+// ─── Transcription Debug Logs ────────────────────────────────────────────────
+
+export interface TranscriptionLogIndexEntry {
+  id: number;
+  timestamp: number;
+  sessionId: string | null;
+  sttModel: string;
+  sttDurationMs: number;
+  rawTranscript: string;
+  audioSizeBytes: number;
+  enhancement: {
+    model: string;
+    enhancedText: string | null;
+    durationMs: number;
+    skipReason?: string;
+  } | null;
+}
+
+export interface TranscriptionLogEntry extends TranscriptionLogIndexEntry {
+  enhancement: {
+    model: string;
+    systemPrompt: string;
+    userMessage: string;
+    enhancedText: string | null;
+    durationMs: number;
+    skipReason?: string;
+  } | null;
+}
+
 export interface NamerLogIndexEntry {
   id: number;
   sessionId: string;
@@ -807,6 +836,12 @@ export const api = {
   // Cross-session messaging
   sendSessionMessage: (sessionId: string, content: string) =>
     post<{ ok: boolean }>(`/sessions/${encodeURIComponent(sessionId)}/message`, { content }),
+
+  // Transcription debug logs
+  getTranscriptionLogs: () =>
+    get<TranscriptionLogIndexEntry[]>("/transcription-logs"),
+  getTranscriptionLogEntry: (id: number) =>
+    get<TranscriptionLogEntry>(`/transcription-logs/${id}`),
 
   // Namer debug logs
   getNamerLogs: () =>

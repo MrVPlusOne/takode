@@ -36,7 +36,7 @@ import { searchSessionDocuments, type SessionSearchDocument } from "./session-se
 import { ensureAssistantWorkspace, ASSISTANT_DIR } from "./assistant-workspace.js";
 import { generateUniqueSessionName } from "../src/utils/names.js";
 import { transcribeWithGemini, transcribeWithOpenai, getAvailableBackends, getTranscriptionStatus, resolveOpenAIKey } from "./transcription.js";
-import { enhanceTranscript } from "./transcription-enhancer.js";
+import { enhanceTranscript, addTranscriptionLogEntry, getTranscriptionLogIndex, getTranscriptionLogEntry } from "./transcription-enhancer.js";
 import { getLegacyCodexHome } from "./codex-home.js";
 import type { PerfTracer } from "./perf-tracer.js";
 import { GIT_CMD_TIMEOUT } from "./constants.js";
@@ -2943,6 +2943,8 @@ export function createRoutes(
     try {
       let rawText: string;
       let usedBackend = backend;
+      let sttModel = "unknown";
+      const sttStart = Date.now();
 
       if (backend === "gemini") {
         const apiKey = process.env.GOOGLE_API_KEY;
@@ -2950,15 +2952,19 @@ export function createRoutes(
           return c.json({ error: "GOOGLE_API_KEY not set in environment" }, 400);
         }
         rawText = await transcribeWithGemini(buf, mimeType, apiKey);
+        sttModel = "gemini";
       } else if (backend === "openai") {
         const apiKey = resolveOpenAIKey();
         if (!apiKey) {
           return c.json({ error: "No OpenAI API key configured. Set it in Settings → Voice Transcription, or set OPENAI_API_KEY in your environment." }, 400);
         }
         rawText = await transcribeWithOpenai(buf, mimeType, apiKey);
+        sttModel = "gpt-4o-mini-transcribe";
       } else {
         return c.json({ error: `Unknown backend: ${backend}` }, 400);
       }
+
+      const sttDurationMs = Date.now() - sttStart;
 
       // Tier 2: Context-aware enhancement (OpenAI backend only)
       if (sessionId && usedBackend === "openai") {
@@ -2967,6 +2973,24 @@ export function createRoutes(
         if (enhancementKey && settings.transcriptionConfig.enhancementEnabled) {
           const history = wsBridge.getMessageHistory(sessionId);
           const result = await enhanceTranscript(rawText, history, settings.transcriptionConfig, enhancementKey);
+
+          // Log for debug panel
+          addTranscriptionLogEntry({
+            sessionId,
+            sttModel,
+            sttDurationMs,
+            rawTranscript: rawText,
+            audioSizeBytes: buf.length,
+            enhancement: result._debug ? {
+              model: result._debug.model,
+              systemPrompt: result._debug.systemPrompt,
+              userMessage: result._debug.userMessage,
+              enhancedText: result._debug.enhancedText,
+              durationMs: result._debug.durationMs,
+              skipReason: result._debug.skipReason,
+            } : null,
+          });
+
           return c.json({
             text: result.text,
             rawText: result.rawText,
@@ -2975,6 +2999,16 @@ export function createRoutes(
           });
         }
       }
+
+      // Log STT-only call (no enhancement attempted)
+      addTranscriptionLogEntry({
+        sessionId: sessionId ?? null,
+        sttModel,
+        sttDurationMs,
+        rawTranscript: rawText,
+        audioSizeBytes: buf.length,
+        enhancement: null,
+      });
 
       return c.json({ text: rawText, backend: usedBackend, enhanced: false });
     } catch (e: unknown) {
@@ -4148,6 +4182,20 @@ export function createRoutes(
     } catch (e: unknown) {
       return c.json({ error: e instanceof Error ? e.message : String(e) }, 500);
     }
+  });
+
+  // ─── Transcription Debug Logs ────────────────────────────────────
+
+  api.get("/transcription-logs", (c) => {
+    return c.json(getTranscriptionLogIndex());
+  });
+
+  api.get("/transcription-logs/:id", (c) => {
+    const id = Number(c.req.param("id"));
+    if (Number.isNaN(id)) return c.json({ error: "Invalid ID" }, 400);
+    const entry = getTranscriptionLogEntry(id);
+    if (!entry) return c.json({ error: "Not found" }, 404);
+    return c.json(entry);
   });
 
   // ─── Session Namer Debug Logs ─────────────────────────────────────

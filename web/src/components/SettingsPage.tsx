@@ -3,6 +3,7 @@ import { api, checkHealth, type ImportStats, type AutoApprovalConfig, type Namer
 import { useStore } from "../store.js";
 import { NamerDebugPanel } from "./NamerDebugPanel.js";
 import { AutoApprovalDebugPanel } from "./AutoApprovalDebugPanel.js";
+import { TranscriptionDebugPanel } from "./TranscriptionDebugPanel.js";
 import { CollapsibleSection } from "./CollapsibleSection.js";
 import { FolderPicker } from "./FolderPicker.js";
 
@@ -900,6 +901,8 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
                 {transcriptionSaving ? "Saving..." : "Save"}
               </button>
             </div>
+
+            <TranscriptionDebugPanel />
           </div>
 
           {/* Session Data — export/import */}

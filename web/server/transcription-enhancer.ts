@@ -230,6 +230,15 @@ export interface EnhancementResult {
   rawText?: string;
   /** Whether LLM enhancement was actually applied. */
   enhanced: boolean;
+  /** Debug info about the enhancement call (for debug panel). */
+  _debug?: {
+    model: string;
+    systemPrompt: string;
+    userMessage: string;
+    enhancedText: string | null;
+    durationMs: number;
+    skipReason?: string;
+  };
 }
 
 /**
@@ -248,15 +257,17 @@ export async function enhanceTranscript(
   config: TranscriptionConfig,
   apiKey: string,
 ): Promise<EnhancementResult> {
+  const model = config.enhancementModel || "gpt-5-mini";
+
   // Skip if enhancement is disabled
   if (!config.enhancementEnabled) {
-    return { text: rawText, enhanced: false };
+    return { text: rawText, enhanced: false, _debug: { model, systemPrompt: SYSTEM_PROMPT, userMessage: "", enhancedText: null, durationMs: 0, skipReason: "disabled" } };
   }
 
   // Skip for very short transcripts
   const wordCount = rawText.trim().split(/\s+/).length;
   if (wordCount < MIN_WORDS_FOR_ENHANCEMENT) {
-    return { text: rawText, enhanced: false };
+    return { text: rawText, enhanced: false, _debug: { model, systemPrompt: SYSTEM_PROMPT, userMessage: "", enhancedText: null, durationMs: 0, skipReason: "too short" } };
   }
 
   // Build context from session history
@@ -264,15 +275,17 @@ export async function enhanceTranscript(
 
   // Skip if no meaningful context
   if (!context) {
-    return { text: rawText, enhanced: false };
+    return { text: rawText, enhanced: false, _debug: { model, systemPrompt: SYSTEM_PROMPT, userMessage: "", enhancedText: null, durationMs: 0, skipReason: "no context" } };
   }
 
   // Build prompt and call LLM
   const prompt = buildEnhancementPrompt(rawText, context);
+  const t0 = Date.now();
   const enhanced = await callEnhancementLLM(prompt, config, apiKey);
+  const durationMs = Date.now() - t0;
 
   if (!enhanced) {
-    return { text: rawText, enhanced: false };
+    return { text: rawText, enhanced: false, _debug: { model, systemPrompt: SYSTEM_PROMPT, userMessage: prompt, enhancedText: null, durationMs, skipReason: "LLM call failed" } };
   }
 
   // Hallucination guard: if the enhanced text is way longer than the raw, discard it
@@ -280,10 +293,65 @@ export async function enhanceTranscript(
     console.warn(
       `[transcription-enhancer] Discarding hallucinated output (${enhanced.length} chars vs ${rawText.length} raw)`,
     );
-    return { text: rawText, enhanced: false };
+    return { text: rawText, enhanced: false, _debug: { model, systemPrompt: SYSTEM_PROMPT, userMessage: prompt, enhancedText: enhanced, durationMs, skipReason: "hallucination guard" } };
   }
 
-  return { text: enhanced, rawText, enhanced: true };
+  return { text: enhanced, rawText, enhanced: true, _debug: { model, systemPrompt: SYSTEM_PROMPT, userMessage: prompt, enhancedText: enhanced, durationMs } };
+}
+
+// ─── Debug log (in-memory, for Settings debug panel) ─────────────────────────
+
+export interface TranscriptionLogEntry {
+  id: number;
+  timestamp: number;
+  sessionId: string | null;
+  /** STT phase */
+  sttModel: string;
+  sttDurationMs: number;
+  rawTranscript: string;
+  audioSizeBytes: number;
+  /** Enhancement phase (null if not attempted) */
+  enhancement: {
+    model: string;
+    systemPrompt: string;
+    userMessage: string;
+    enhancedText: string | null;
+    durationMs: number;
+    skipReason?: string;
+  } | null;
+}
+
+const MAX_LOG_ENTRIES = 50;
+let logIdCounter = 0;
+const transcriptionLog: TranscriptionLogEntry[] = [];
+
+/** Add a transcription log entry. Called from routes.ts after each transcription. */
+export function addTranscriptionLogEntry(entry: Omit<TranscriptionLogEntry, "id" | "timestamp">): TranscriptionLogEntry {
+  const full = { ...entry, id: ++logIdCounter, timestamp: Date.now() };
+  transcriptionLog.push(full);
+  if (transcriptionLog.length > MAX_LOG_ENTRIES) {
+    transcriptionLog.splice(0, transcriptionLog.length - MAX_LOG_ENTRIES);
+  }
+  return full;
+}
+
+/** List all log entries (lightweight: no system prompt or user message). Newest first. */
+export function getTranscriptionLogIndex(): Array<Omit<TranscriptionLogEntry, "enhancement"> & {
+  enhancement: Omit<NonNullable<TranscriptionLogEntry["enhancement"]>, "systemPrompt" | "userMessage"> | null;
+}> {
+  return transcriptionLog
+    .map((entry) => {
+      const { enhancement, ...rest } = entry;
+      if (!enhancement) return { ...rest, enhancement: null };
+      const { systemPrompt: _s, userMessage: _u, ...enhRest } = enhancement;
+      return { ...rest, enhancement: enhRest };
+    })
+    .reverse();
+}
+
+/** Get a single log entry by ID (includes full details). */
+export function getTranscriptionLogEntry(id: number): TranscriptionLogEntry | undefined {
+  return transcriptionLog.find((e) => e.id === id);
 }
 
 // ─── Test helpers ───────────────────────────────────────────────────────────
