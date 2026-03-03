@@ -364,11 +364,10 @@ function printSessionLine(s: {
 }): void {
   const num = s.sessionNum !== undefined ? `#${s.sessionNum}` : "  ";
   const name = s.name || "(unnamed)";
-  const role = s.isOrchestrator ? " [leader]" : s.isAssistant ? " [asst]" : "";
+  const role = s.isOrchestrator ? " [leader]" : "";
   const herd = s.herdedBy ? " [herd]" : "";
-  // Backend type tag: only show for non-default types (sdk, codex)
-  const backend = s.backendType === "claude-sdk" ? " [sdk]"
-    : s.backendType === "codex" ? " [codex]"
+  // Backend type tag: only show for codex (sdk is implied by session details)
+  const backend = s.backendType === "codex" ? " [codex]"
     : "";
   const status = s.cliConnected
     ? (s.state === "running" ? "●" : "○")
@@ -1091,9 +1090,8 @@ Examples:
   for (const session of spawned) {
     const num = session.sessionNum != null ? `#${session.sessionNum}` : session.sessionId.slice(0, 8);
     const name = session.name || "(unnamed)";
-    const backend = session.backendType === "claude-sdk" ? " [sdk]"
-      : session.backendType === "codex" ? " [codex]"
-      : " [claude]";
+    const backend = session.backendType === "codex" ? " [codex]"
+      : "";
     const wt = session.isWorktree ? " wt" : "";
     const branch = session.actualBranch || session.branch || "";
     const branchLabel = branch ? `  ${branch}` : "";
