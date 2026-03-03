@@ -25,6 +25,21 @@ const isMediaRecorderSupported =
   !!navigator.mediaDevices?.getUserMedia &&
   typeof MediaRecorder !== "undefined";
 
+// Meter tuning constants calibrated for speech-level mic input.
+const VOLUME_NOISE_FLOOR = 0.01;
+const VOLUME_SENSITIVITY = 5.5;
+const VOLUME_CURVE = 0.55;
+const VOLUME_ATTACK = 0.42;
+const VOLUME_RELEASE = 0.14;
+
+export function normalizeMeterLevel(rms: number, previousLevel: number): number {
+  const gated = Math.max(0, rms - VOLUME_NOISE_FLOOR);
+  const boosted = Math.min(1, Math.pow(gated * VOLUME_SENSITIVITY, VOLUME_CURVE));
+  const smoothing = boosted > previousLevel ? VOLUME_ATTACK : VOLUME_RELEASE;
+  const next = previousLevel + (boosted - previousLevel) * smoothing;
+  return Math.max(0, Math.min(1, next));
+}
+
 export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInputReturn {
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
@@ -40,6 +55,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
   const audioCtxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animFrameRef = useRef<number>(0);
+  const previousLevelRef = useRef(0);
 
   /** Start polling AnalyserNode for volume level */
   const startVolumeMonitor = useCallback((stream: MediaStream) => {
@@ -47,19 +63,28 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
       const ctx = new AudioContext();
       const source = ctx.createMediaStreamSource(stream);
       const analyser = ctx.createAnalyser();
-      analyser.fftSize = 256;
+      analyser.fftSize = 1024;
+      analyser.smoothingTimeConstant = 0.8;
       source.connect(analyser);
+      if (ctx.state === "suspended") {
+        ctx.resume().catch(() => {});
+      }
       audioCtxRef.current = ctx;
       analyserRef.current = analyser;
+      previousLevelRef.current = 0;
 
-      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      const dataArray = new Uint8Array(analyser.fftSize);
       const poll = () => {
-        analyser.getByteFrequencyData(dataArray);
-        // RMS-like average of frequency bins, normalized to 0–1
-        let sum = 0;
-        for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
-        const avg = sum / dataArray.length / 255;
-        setVolumeLevel(avg);
+        analyser.getByteTimeDomainData(dataArray);
+        let sumSquares = 0;
+        for (let i = 0; i < dataArray.length; i++) {
+          const centered = (dataArray[i] - 128) / 128;
+          sumSquares += centered * centered;
+        }
+        const rms = Math.sqrt(sumSquares / dataArray.length);
+        const level = normalizeMeterLevel(rms, previousLevelRef.current);
+        previousLevelRef.current = level;
+        setVolumeLevel(level);
         animFrameRef.current = requestAnimationFrame(poll);
       };
       animFrameRef.current = requestAnimationFrame(poll);
@@ -79,6 +104,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
       audioCtxRef.current = null;
     }
     analyserRef.current = null;
+    previousLevelRef.current = 0;
     setVolumeLevel(0);
   }, []);
 

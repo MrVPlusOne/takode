@@ -47,6 +47,7 @@ function readFileAsBase64(file: File): Promise<{ base64: string; mediaType: stri
 }
 
 const API_SUPPORTED_IMAGE_FORMATS = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
+const VOICE_BAR_THRESHOLDS = [0.03, 0.08, 0.15, 0.24, 0.36] as const;
 
 /** Convert unsupported image formats to JPEG via Canvas (browser-native). */
 async function ensureSupportedFormat(base64: string, mediaType: string): Promise<{ base64: string; mediaType: string }> {
@@ -660,6 +661,28 @@ export function Composer({ sessionId }: { sessionId: string }) {
               </span>
               <span className="flex-1 text-sm text-cc-muted text-left truncate">Type a message...</span>
             </button>
+            {voiceSupported && (
+              <button
+                onClick={() => {
+                  setComposerExpanded(true);
+                  handleMicClick();
+                }}
+                disabled={!isConnected || isTranscribing || isRunning}
+                className={`flex items-center justify-center w-10 h-10 rounded-lg transition-colors shrink-0 ${
+                  !isConnected || isTranscribing || isRunning
+                    ? "text-cc-muted opacity-30 cursor-not-allowed"
+                    : isRecording
+                    ? "text-red-500 bg-red-500/10 hover:bg-red-500/20 cursor-pointer"
+                    : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover cursor-pointer"
+                }`}
+                title={voiceError || (isTranscribing ? "Transcribing..." : isRecording ? "Stop recording" : "Voice input")}
+              >
+                <svg viewBox="0 0 16 16" fill="currentColor" className={`w-5 h-5 ${isRecording ? "animate-pulse" : ""}`}>
+                  <path d="M8 1a2.5 2.5 0 0 0-2.5 2.5v4a2.5 2.5 0 0 0 5 0v-4A2.5 2.5 0 0 0 8 1z" />
+                  <path d="M3.5 7a.5.5 0 0 1 .5.5v.5a4 4 0 0 0 8 0v-.5a.5.5 0 0 1 1 0v.5a5 5 0 0 1-4.5 4.975V14.5h2a.5.5 0 0 1 0 1h-5a.5.5 0 0 1 0-1h2v-1.525A5 5 0 0 1 3 8v-.5a.5.5 0 0 1 .5-.5z" />
+                </svg>
+              </button>
+            )}
             {/* Stop button — visible in compact bar while streaming */}
             {isRunning && (
               <button
@@ -770,12 +793,12 @@ export function Composer({ sessionId }: { sessionId: string }) {
               <span className="shrink-0">Recording</span>
               {/* Volume bars */}
               <div className="flex items-center gap-[2px] h-3">
-                {[0.05, 0.15, 0.25, 0.35, 0.45].map((threshold, i) => (
+                {VOICE_BAR_THRESHOLDS.map((threshold, i) => (
                   <div
                     key={i}
                     className="w-[3px] rounded-full transition-all duration-75"
                     style={{
-                      height: volumeLevel > threshold ? `${Math.min(12, 4 + (volumeLevel - threshold) * 40)}px` : "3px",
+                      height: volumeLevel > threshold ? `${Math.min(12, 4 + (volumeLevel - threshold) * 20)}px` : "3px",
                       backgroundColor: volumeLevel > threshold ? "rgb(239 68 68)" : "rgb(239 68 68 / 0.3)",
                     }}
                   />
