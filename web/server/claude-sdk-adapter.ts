@@ -50,6 +50,10 @@ interface PendingPermission {
   reject: (err: Error) => void;
   requestId: string;
   toolName: string;
+  /** Original tool input — used as updatedInput fallback when browser approves
+   *  without providing modified input. The CLI's Zod schema requires updatedInput
+   *  to be a Record matching the tool's input shape, not undefined or {}. */
+  originalInput: Record<string, unknown>;
 }
 
 // ─── Adapter ────────────────────────────────────────────────────────────────────
@@ -410,7 +414,7 @@ export class ClaudeSdkAdapter {
         // confuse the SDK's retry logic and cause the session to loop through
         // alternative approaches without permission).
         resolve({ behavior: "deny", message: err.message || "Permission request failed" });
-      }, requestId, toolName });
+      }, requestId, toolName, originalInput: input });
 
       // Handle abort signal — resolve with deny, don't reject
       options.signal.addEventListener("abort", () => {
@@ -446,17 +450,15 @@ export class ClaudeSdkAdapter {
           this.pendingPermissions.delete(requestId);
           if (behavior === "allow") {
             const updatedInput = (msg as any).updated_input;
-            // Only include updatedInput when the browser actually sent modified
-            // input. Omitting it means "approve with original input unchanged."
-            // Including an empty {} causes the CLI to persist it in the session
-            // transcript, and on --resume the CLI validates it against the tool's
-            // Zod schema — an empty object fails validation for tools with
-            // required fields (e.g. Bash requires 'command'), crashing the session.
-            const result: { behavior: "allow"; updatedInput?: Record<string, unknown> } = { behavior: "allow" };
-            if (updatedInput && Object.keys(updatedInput).length > 0) {
-              result.updatedInput = updatedInput;
-            }
-            pending.resolve(result);
+            // Always provide updatedInput — the CLI's Zod schema requires a Record,
+            // not undefined. Use browser-provided input if non-empty, otherwise fall
+            // back to the original tool input from the permission request.
+            pending.resolve({
+              behavior: "allow",
+              updatedInput: (updatedInput && Object.keys(updatedInput).length > 0)
+                ? updatedInput
+                : pending.originalInput,
+            });
           } else {
             pending.resolve({
               behavior: "deny",

@@ -4030,6 +4030,7 @@ export class WsBridge {
           type: "permission_response",
           request_id: perm.request_id,
           behavior: "allow",
+          updated_input: perm.input,
         } as any);
       }
       // Broadcast approval to browsers for UI consistency
