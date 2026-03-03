@@ -295,7 +295,7 @@ export function SessionItem({
           transition: swipeActive.current ? "none" : "transform 180ms ease-out",
         }}
         className={`w-full text-left rounded-xl sm:rounded-lg border sm:border-transparent ${
-          archived ? "pl-3.5 pr-12 py-2.5 sm:pl-3.5 sm:pr-14 sm:py-2" : "pl-3.5 pr-12 py-2.5 sm:pl-8 sm:pr-3 sm:py-2"
+          archived ? "pl-3.5 pr-12 py-2.5 sm:pl-3.5 sm:pr-14 sm:py-2" : "pl-3.5 pr-12 py-2.5 sm:pl-3.5 sm:pr-3 sm:py-2"
         } transition-all duration-100 select-none ${
           reorderMode ? "cursor-grab active:cursor-grabbing" : "cursor-pointer sm:cursor-grab sm:active:cursor-grabbing"
         } ${
@@ -570,7 +570,7 @@ export function SessionItem({
       ) : (
         <button
           onClick={(e) => onArchive(e, s.id)}
-          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:left-2 sm:right-auto hover:bg-cc-border text-cc-muted hover:text-cc-fg transition-all cursor-pointer z-10"
+          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md opacity-100 sm:opacity-0 sm:group-hover:opacity-100 hover:bg-cc-border text-cc-muted hover:text-cc-fg transition-all cursor-pointer z-10"
           title="Archive session"
         >
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5">
