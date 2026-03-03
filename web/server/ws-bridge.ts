@@ -4762,9 +4762,11 @@ export class WsBridge {
           delete (localMsg as { images?: unknown }).images;
           adapterMsg = localMsg;
         } else if (this.imageStore) {
+          // SDK sessions can handle larger payloads (~1MB) than Codex (~500KB)
+          const maxChars = session.backendType === "claude-sdk" ? 1_000_000 : undefined;
           const compressedImages: { media_type: string; data: string }[] = [];
           for (const img of msg.images) {
-            const { base64, mediaType } = await this.imageStore.compressForTransport(img.data, img.media_type);
+            const { base64, mediaType } = await this.imageStore.compressForTransport(img.data, img.media_type, maxChars);
             compressedImages.push({ media_type: mediaType, data: base64 });
           }
           adapterMsg = { ...adapterMsg, images: compressedImages } as BrowserOutgoingMessage;

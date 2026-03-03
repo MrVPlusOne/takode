@@ -7323,7 +7323,7 @@ describe("Codex image transport", () => {
 
     // Adapter receives compressed inline data and no local_images.
     const sentMsg = adapter.sendBrowserMessage.mock.calls[0][0];
-    expect(mockImageStore.compressForTransport).toHaveBeenCalledWith("small-data", "image/png");
+    expect(mockImageStore.compressForTransport).toHaveBeenCalledWith("small-data", "image/png", undefined);
     expect(sentMsg.images[0].data).toBe("compressed-fallback-data");
     expect(sentMsg.images[0].media_type).toBe("image/jpeg");
     expect(sentMsg.local_images).toBeUndefined();

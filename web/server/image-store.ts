@@ -135,13 +135,14 @@ export class ImageStore {
   }
 
   /**
-   * Compress large images to a transport-safe size for JSON-RPC payloads.
+   * Compress large images to a transport-safe size.
    * Codex receives messages on stdin as single NDJSON lines — multi-MB
    * base64 images block the event loop and can crash the Codex process.
+   * SDK sessions can handle larger payloads (~1MB) through stdio.
    * Images below the threshold are returned unchanged.
    */
-  async compressForTransport(base64Data: string, mediaType: string): Promise<{ base64: string; mediaType: string }> {
-    if (base64Data.length <= TRANSPORT_MAX_BASE64_CHARS) {
+  async compressForTransport(base64Data: string, mediaType: string, maxBase64Chars = TRANSPORT_MAX_BASE64_CHARS): Promise<{ base64: string; mediaType: string }> {
+    if (base64Data.length <= maxBase64Chars) {
       return { base64: base64Data, mediaType };
     }
     try {
