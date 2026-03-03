@@ -36,7 +36,7 @@ import { searchSessionDocuments, type SessionSearchDocument } from "./session-se
 import { ensureAssistantWorkspace, ASSISTANT_DIR } from "./assistant-workspace.js";
 import { generateUniqueSessionName } from "../src/utils/names.js";
 import { transcribeWithGemini, transcribeWithOpenai, getAvailableBackends, getTranscriptionStatus, resolveOpenAIKey } from "./transcription.js";
-import { enhanceTranscript, buildSttPrompt, addTranscriptionLogEntry, getTranscriptionLogIndex, getTranscriptionLogEntry } from "./transcription-enhancer.js";
+import { enhanceTranscript, buildSttPrompt, filterSessionNames, addTranscriptionLogEntry, getTranscriptionLogIndex, getTranscriptionLogEntry } from "./transcription-enhancer.js";
 import { getLegacyCodexHome } from "./codex-home.js";
 import type { PerfTracer } from "./perf-tracer.js";
 import { GIT_CMD_TIMEOUT } from "./constants.js";
@@ -2997,19 +2997,22 @@ export function createRoutes(
 
           // Build enriched context for enhancement
           const taskHistory = wsBridge.getSessionTaskHistory(sessionId);
-          const allNames = sessionNames.getAllNames();
-          const currentName = allNames[sessionId];
-          const otherNames = Object.entries(allNames)
-            .filter(([id]) => id !== sessionId)
-            .map(([, name]) => name)
-            .filter(Boolean);
+          const enhAllNames = sessionNames.getAllNames();
+          const enhCurrentName = enhAllNames[sessionId];
+          const enhOtherNames = filterSessionNames(
+            Object.entries(enhAllNames)
+              .filter(([id]) => id !== sessionId)
+              .map(([, name]) => name)
+              .filter(Boolean),
+            20,
+          );
 
           const result = await enhanceTranscript(rawText, history, settings.transcriptionConfig, enhancementKey, {
             composerBefore: composerBefore,
             composerAfter: composerAfter,
             taskTitles: taskHistory.map((t) => t.title),
-            sessionName: currentName,
-            activeSessionNames: otherNames.length > 0 ? otherNames : undefined,
+            sessionName: enhCurrentName,
+            activeSessionNames: enhOtherNames.length > 0 ? enhOtherNames : undefined,
           });
 
           // Log for debug panel
