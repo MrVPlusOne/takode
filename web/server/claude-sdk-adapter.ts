@@ -161,35 +161,40 @@ export class ClaudeSdkAdapter {
       sessionOptions.pathToClaudeCodeExecutable = this.options.claudeBinary;
     }
 
-    // The SDK's session API does NOT pass `cwd` to the ProcessTransport that
-    // spawns the Claude CLI subprocess — it defaults to process.cwd(). Override
-    // the spawn function to inject the target cwd. This is safe for concurrent
-    // sessions because each gets its own callback closure with its own targetCwd.
-    // (The previous approach used process.chdir() which is process-global and
-    // caused race conditions between concurrent SDK sessions.)
+    // WORKAROUND: The SDK's v2 session API (SDKSessionOptions) does NOT expose
+    // `cwd` or `spawnClaudeCodeProcess` — those exist only on the query() API's
+    // Options type. The Session constructor (SQ) never forwards them to
+    // ProcessTransport (V4). So the subprocess inherits process.cwd().
+    //
+    // We temporarily chdir before the synchronous SDK constructor call. This is
+    // safe because: (1) JavaScript is single-threaded — no other code runs
+    // between chdir and restore, (2) the SDK constructor synchronously spawns
+    // the subprocess (V4.initialize() is called from the constructor, not
+    // deferred), (3) all await points in our initialize() happen ABOVE this
+    // block, so no other async code can interleave here.
+    const originalCwd = process.cwd();
     const targetCwd = this.options.cwd;
-    if (targetCwd) {
-      sessionOptions.spawnClaudeCodeProcess = (spawnOpts: {
-        command: string; args: string[];
-        cwd?: string; env: Record<string, string | undefined>;
-        signal: AbortSignal;
-      }) => {
-        const { spawn } = require("node:child_process") as typeof import("node:child_process");
-        const proc = spawn(spawnOpts.command, spawnOpts.args, {
-          cwd: targetCwd,
-          env: spawnOpts.env as NodeJS.ProcessEnv,
-          stdio: ["pipe", "pipe", "pipe"],
-          signal: spawnOpts.signal,
-        });
-        return proc;
-      };
+    if (targetCwd && targetCwd !== originalCwd) {
+      try {
+        process.chdir(targetCwd);
+      } catch (e) {
+        console.warn(`[claude-sdk-adapter] Failed to chdir to ${targetCwd}: ${e instanceof Error ? e.message : e}`);
+      }
     }
 
-    // Create or resume session
-    if (this.options.cliSessionId) {
-      this.sdkSession = sdk.unstable_v2_resumeSession(this.options.cliSessionId, sessionOptions as any);
-    } else {
-      this.sdkSession = sdk.unstable_v2_createSession(sessionOptions as any);
+    // Create or resume session — MUST be synchronous (no await) so process.cwd()
+    // is still set to targetCwd when the subprocess spawns.
+    try {
+      if (this.options.cliSessionId) {
+        this.sdkSession = sdk.unstable_v2_resumeSession(this.options.cliSessionId, sessionOptions as any);
+      } else {
+        this.sdkSession = sdk.unstable_v2_createSession(sessionOptions as any);
+      }
+    } finally {
+      // Restore immediately — the subprocess has already been spawned synchronously.
+      if (process.cwd() !== originalCwd) {
+        try { process.chdir(originalCwd); } catch { /* ignore */ }
+      }
     }
 
     this.connected = true;
