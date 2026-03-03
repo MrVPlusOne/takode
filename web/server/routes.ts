@@ -413,7 +413,10 @@ export function createRoutes(
           defaultBranch: repoInfo.defaultBranch,
         };
       } else if (body.branch && cwd) {
-        // Non-worktree: checkout the selected branch in-place (lightweight)
+        // Non-worktree: attempt to checkout the selected branch in-place.
+        // All git operations are non-fatal — dirty repos, auth failures, or missing
+        // branches just proceed with the current state. The session will use whatever
+        // branch the repo is currently on.
         const repoInfo = gitUtils.getRepoInfo(cwd);
         if (repoInfo) {
           const fetchResult = gitUtils.gitFetch(repoInfo.repoRoot);
@@ -422,7 +425,11 @@ export function createRoutes(
           }
 
           if (repoInfo.currentBranch !== body.branch) {
-            gitUtils.checkoutBranch(repoInfo.repoRoot, body.branch);
+            try {
+              gitUtils.checkoutBranch(repoInfo.repoRoot, body.branch);
+            } catch (err) {
+              console.warn(`[routes] git checkout warning (non-fatal, repo may have uncommitted changes): ${err}`);
+            }
           }
 
           const pullResult = gitUtils.gitPull(repoInfo.repoRoot);
@@ -900,8 +907,13 @@ export function createRoutes(
 
             if (repoInfo.currentBranch !== body.branch) {
               await emitProgress(stream, "checkout_branch", `Checking out ${body.branch}...`, "in_progress");
-              gitUtils.checkoutBranch(repoInfo.repoRoot, body.branch);
-              await emitProgress(stream, "checkout_branch", `On branch ${body.branch}`, "done");
+              try {
+                gitUtils.checkoutBranch(repoInfo.repoRoot, body.branch);
+                await emitProgress(stream, "checkout_branch", `On branch ${body.branch}`, "done");
+              } catch (err) {
+                console.warn(`[routes] git checkout warning (non-fatal, repo may have uncommitted changes): ${err}`);
+                await emitProgress(stream, "checkout_branch", `Checkout skipped (uncommitted changes)`, "done");
+              }
             }
 
             await emitProgress(stream, "pulling_git", "Pulling latest changes...", "in_progress");
