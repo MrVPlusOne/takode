@@ -33,8 +33,15 @@ const MIN_WORDS_FOR_ENHANCEMENT = 3;
 /** Max total characters for the STT prompt (~1024 tokens ≈ 4000 chars). */
 const STT_PROMPT_MAX_CHARS = 3800;
 
-/** Max characters per user message included in the STT prompt. */
-const STT_PROMPT_MAX_MSG_CHARS = 300;
+/** Budget reserved for conversation context (the rest goes to metadata). */
+const STT_CONVO_BUDGET_RATIO = 0.55;
+
+/**
+ * Per-message character limits by recency (index 0 = most recent message).
+ * The most recent message (usually the assistant response the user is replying to)
+ * gets the most space. Older messages get progressively less.
+ */
+const STT_MSG_CHAR_LIMITS = [800, 500, 300, 200, 200, 150, 150, 100];
 
 /** Max characters per session name in the STT prompt. */
 const MAX_SESSION_NAME_CHARS = 100;
@@ -271,31 +278,34 @@ export interface SttPromptInput {
  * Optimized for information density — every token should carry vocabulary signal.
  * The STT model uses this text purely for vocabulary recognition, not instruction following.
  *
- * Format (labeled sections for structure):
- *   1. Tasks: comma-separated task titles (highest density: file names, features, libraries)
- *   2. Session: current session name
- *   3. Sessions: other session names (caller pre-filters by recency/archive status)
- *   4. Composer surrounding text (for mid-prompt voice insertion)
- *   5. Conversation: recent turns in chat format (User: / Assistant:)
+ * Budget allocation strategy:
+ *   - Split budget into metadata (~45%) and conversation (~55%)
+ *   - Metadata: tasks, session name, other sessions, composer text
+ *   - Conversation: allocate per-message in reverse chronological order with
+ *     recency weighting — most recent message gets the most chars, older messages
+ *     get progressively less. When budget runs out, stop.
  *
  * Returns empty string if no useful context is available.
  */
 export function buildSttPrompt(input: SttPromptInput): string {
-  const parts: string[] = [];
-  let remaining = STT_PROMPT_MAX_CHARS;
+  const metaBudget = Math.floor(STT_PROMPT_MAX_CHARS * (1 - STT_CONVO_BUDGET_RATIO));
+  const convoBudget = STT_PROMPT_MAX_CHARS - metaBudget;
 
-  // Helper: append text if it fits, returns false when budget exhausted
-  const addLine = (text: string): boolean => {
-    if (text.length > remaining) {
-      if (remaining > 20) {
-        parts.push(trunc(text, remaining));
-        remaining = 0;
+  // ── Phase 1: Build metadata sections with metaBudget ──────────────────
+  const metaParts: string[] = [];
+  let metaRemaining = metaBudget;
+
+  const addMeta = (text: string): boolean => {
+    if (text.length > metaRemaining) {
+      if (metaRemaining > 20) {
+        metaParts.push(trunc(text, metaRemaining));
+        metaRemaining = 0;
       }
       return false;
     }
-    parts.push(text);
-    remaining -= text.length + 1; // +1 for newline
-    return remaining > 0;
+    metaParts.push(text);
+    metaRemaining -= text.length + 1;
+    return metaRemaining > 0;
   };
 
   // 1. Task titles — highest density vocabulary (file names, features, libraries)
@@ -309,42 +319,46 @@ export function buildSttPrompt(input: SttPromptInput): string {
         titles.push(t);
       }
     }
-    if (!addLine("Tasks: " + trunc(titles.join(", "), 800))) return parts.join("\n");
+    if (!addMeta("Tasks: " + trunc(titles.join(", "), 400))) {}
   }
 
   // 2. Session name
-  if (input.sessionName) {
-    if (!addLine("Session: " + trunc(input.sessionName, MAX_SESSION_NAME_CHARS))) return parts.join("\n");
+  if (input.sessionName && metaRemaining > 0) {
+    addMeta("Session: " + trunc(input.sessionName, MAX_SESSION_NAME_CHARS));
   }
 
-  // 3. Other session names (pre-filtered by caller: non-archived, sorted by recency, limited)
-  if (input.activeSessionNames && input.activeSessionNames.length > 0) {
-    const truncated = input.activeSessionNames.map((n) => trunc(n, MAX_SESSION_NAME_CHARS));
-    if (!addLine("Sessions: " + truncated.join(", "))) return parts.join("\n");
+  // 3. Other session names (pre-filtered by caller)
+  if (input.activeSessionNames && input.activeSessionNames.length > 0 && metaRemaining > 0) {
+    const truncated = input.activeSessionNames.slice(0, 5).map((n) => trunc(n, 60));
+    addMeta("Sessions: " + truncated.join(", "));
   }
 
   // 4. Composer text with cursor position marker
-  if (input.composerBefore || input.composerAfter) {
+  if ((input.composerBefore || input.composerAfter) && metaRemaining > 0) {
     const before = input.composerBefore ? trunc(input.composerBefore.trim(), 500) + " " : "";
     const after = input.composerAfter ? " " + trunc(input.composerAfter.trim(), 500) : "";
-    if (!addLine(`Composer: ${before}[CURSOR]${after}`)) return parts.join("\n");
+    addMeta(`Composer: ${before}[CURSOR]${after}`);
   }
 
-  // 5. Recent conversation turns in chat format (User: / Assistant:)
-  //    Including assistant messages helps the STT recognize vocabulary from questions
-  //    the user might be verbally answering.
-  if (input.messageHistory && remaining > 50) {
-    const turns: Array<{ role: "User" | "Assistant"; text: string }> = [];
-    for (let i = input.messageHistory.length - 1; i >= 0 && remaining > 20; i--) {
+  // ── Phase 2: Allocate conversation budget to messages ─────────────────
+  // Scan backwards from most recent, allocating per-message char limits.
+  // Most recent message gets first pick; older messages get progressively less.
+  const convoEntries: Array<{ role: "User" | "Assistant"; text: string }> = [];
+
+  if (input.messageHistory && convoBudget > 50) {
+    let convoRemaining = convoBudget;
+    let msgIndex = 0; // recency index: 0 = most recent
+
+    for (let i = input.messageHistory.length - 1; i >= 0 && convoRemaining > 20; i--) {
       const msg = input.messageHistory[i];
       let content = "";
       let role: "User" | "Assistant";
+
       if (msg.type === "user_message") {
         content = typeof (msg as { content?: unknown }).content === "string"
           ? (msg as { content: string }).content
           : "";
         role = "User";
-        // Skip orchestrator noise
         if (content && isOrchestratorNoise(content)) continue;
       } else if (msg.type === "assistant") {
         const parentId = (msg as { parent_tool_use_id?: string | null }).parent_tool_use_id;
@@ -358,17 +372,29 @@ export function buildSttPrompt(input: SttPromptInput): string {
         continue;
       }
       if (!content.trim()) continue;
-      const truncated = trunc(content.trim(), STT_PROMPT_MAX_MSG_CHARS);
+
+      // Recency-weighted per-message char limit
+      const charLimit = msgIndex < STT_MSG_CHAR_LIMITS.length
+        ? STT_MSG_CHAR_LIMITS[msgIndex]
+        : STT_MSG_CHAR_LIMITS[STT_MSG_CHAR_LIMITS.length - 1];
+
+      const truncated = trunc(content.trim(), Math.min(charLimit, convoRemaining - 12));
       const line = `${role}: ${truncated}`;
-      if (line.length + 1 > remaining) break;
-      turns.push({ role, text: truncated });
-      remaining -= line.length + 1;
+      if (line.length + 1 > convoRemaining) break;
+
+      convoEntries.push({ role, text: truncated });
+      convoRemaining -= line.length + 1;
+      msgIndex++;
     }
-    if (turns.length > 0) {
-      turns.reverse();
-      for (const t of turns) {
-        parts.push(`${t.role}: ${t.text}`);
-      }
+  }
+
+  // ── Phase 3: Assemble final prompt ────────────────────────────────────
+  const parts = [...metaParts];
+  if (convoEntries.length > 0) {
+    // Reverse to chronological order
+    convoEntries.reverse();
+    for (const entry of convoEntries) {
+      parts.push(`${entry.role}: ${entry.text}`);
     }
   }
 
@@ -585,7 +611,8 @@ export const _testHelpers = {
   MIN_WORDS_FOR_ENHANCEMENT,
   HALLUCINATION_LENGTH_RATIO,
   STT_PROMPT_MAX_CHARS,
-  STT_PROMPT_MAX_MSG_CHARS,
+  STT_CONVO_BUDGET_RATIO,
+  STT_MSG_CHAR_LIMITS,
   MAX_SESSION_NAME_CHARS,
   trunc,
   extractAssistantText,
