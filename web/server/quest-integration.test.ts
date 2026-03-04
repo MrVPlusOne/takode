@@ -22,8 +22,8 @@ describe("ensureQuestmasterIntegration", () => {
     fsMocks.existsSync.mockReturnValue(false);
   });
 
-  it("writes quest skill to both Claude and Codex skill homes", () => {
-    ensureQuestmasterIntegration(3456, "/repo/web");
+  it("writes quest skill to both Claude and Codex skill homes", async () => {
+    await ensureQuestmasterIntegration(3456, "/repo/web");
 
     expect(fsMocks.mkdirSync).toHaveBeenCalledWith("/home/tester/.claude/skills/quest", { recursive: true });
     expect(fsMocks.mkdirSync).toHaveBeenCalledWith("/home/tester/.codex/skills/quest", { recursive: true });
@@ -39,8 +39,8 @@ describe("ensureQuestmasterIntegration", () => {
     );
   });
 
-  it("includes explicit feedback-addressing workflow in generated skill", () => {
-    ensureQuestmasterIntegration(3456, "/repo/web");
+  it("includes explicit feedback-addressing workflow in generated skill", async () => {
+    await ensureQuestmasterIntegration(3456, "/repo/web");
 
     const codexSkillWrite = fsMocks.writeFileSync.mock.calls.find(
       (call) => call[0] === "/home/tester/.codex/skills/quest/SKILL.md",
@@ -53,8 +53,8 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("Do not claim feedback was addressed unless both happened");
   });
 
-  it("requires titles under 10 words for refined and later stages", () => {
-    ensureQuestmasterIntegration(3456, "/repo/web");
+  it("requires titles under 10 words for refined and later stages", async () => {
+    await ensureQuestmasterIntegration(3456, "/repo/web");
 
     const codexSkillWrite = fsMocks.writeFileSync.mock.calls.find(
       (call) => call[0] === "/home/tester/.codex/skills/quest/SKILL.md",
@@ -67,8 +67,8 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("refined`, `in_progress`, `needs_verification`, or `done");
   });
 
-  it("instructs agents to use quest directly before PATH fallbacks", () => {
-    ensureQuestmasterIntegration(3456, "/repo/web");
+  it("instructs agents to use quest directly before PATH fallbacks", async () => {
+    await ensureQuestmasterIntegration(3456, "/repo/web");
 
     const codexSkillWrite = fsMocks.writeFileSync.mock.calls.find(
       (call) => call[0] === "/home/tester/.codex/skills/quest/SKILL.md",
@@ -80,8 +80,8 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("Do not prepend to `PATH` proactively");
   });
 
-  it("writes a quest wrapper that falls back to $HOME/.bun/bin/bun", () => {
-    ensureQuestmasterIntegration(3456, "/repo/web");
+  it("writes a quest wrapper that falls back to $HOME/.bun/bin/bun", async () => {
+    await ensureQuestmasterIntegration(3456, "/repo/web");
 
     expect(fsMocks.writeFileSync).toHaveBeenCalledWith(
       "/home/tester/.companion/bin/quest",
@@ -95,8 +95,8 @@ describe("ensureQuestmasterIntegration", () => {
     );
   });
 
-  it("writes a ~/.local/bin/quest shim that delegates to ~/.companion/bin/quest", () => {
-    ensureQuestmasterIntegration(3456, "/repo/web");
+  it("writes a ~/.local/bin/quest shim that delegates to ~/.companion/bin/quest", async () => {
+    await ensureQuestmasterIntegration(3456, "/repo/web");
 
     expect(fsMocks.mkdirSync).toHaveBeenCalledWith("/home/tester/.local/bin", { recursive: true });
     expect(fsMocks.writeFileSync).toHaveBeenCalledWith(
@@ -107,8 +107,8 @@ describe("ensureQuestmasterIntegration", () => {
     expect(fsMocks.chmodSync).toHaveBeenCalledWith("/home/tester/.local/bin/quest", 0o755);
   });
 
-  it("writes a ~/.local/bin/rg compatibility shim", () => {
-    ensureQuestmasterIntegration(3456, "/repo/web");
+  it("writes a ~/.local/bin/rg compatibility shim", async () => {
+    await ensureQuestmasterIntegration(3456, "/repo/web");
 
     expect(fsMocks.writeFileSync).toHaveBeenCalledWith(
       "/home/tester/.local/bin/rg",
@@ -133,8 +133,8 @@ describe("ensureQuestmasterIntegration", () => {
     expect(fsMocks.chmodSync).toHaveBeenCalledWith("/home/tester/.local/bin/rg", 0o755);
   });
 
-  it("documents verification inbox commands and filters", () => {
-    ensureQuestmasterIntegration(3456, "/repo/web");
+  it("documents verification inbox commands and filters", async () => {
+    await ensureQuestmasterIntegration(3456, "/repo/web");
 
     const codexSkillWrite = fsMocks.writeFileSync.mock.calls.find(
       (call) => call[0] === "/home/tester/.codex/skills/quest/SKILL.md",

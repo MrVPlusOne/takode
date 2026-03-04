@@ -705,8 +705,8 @@ if (!process.env.COMPANION_SUPERVISED) {
 await cronScheduler.startAll();
 
 // ── Questmaster CLI integration ─────────────────────────────────────────────
-ensureQuestmasterIntegration(port, packageRoot);
-ensureTakodeIntegration(packageRoot);
+await ensureQuestmasterIntegration(port, packageRoot);
+await ensureTakodeIntegration(packageRoot);
 
 // ── Idle session manager — enforce maxKeepAlive ─────────────────────────────
 const idleManager = new IdleManager(launcher, wsBridge, getSettings);
