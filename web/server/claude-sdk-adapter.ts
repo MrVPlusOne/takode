@@ -19,6 +19,7 @@ import type {
   PermissionRequest,
 } from "./session-types.js";
 import type { RecorderManager } from "./recorder.js";
+import type { BackendAdapter } from "./bridge/adapter-interface.js";
 
 // ─── SDK internals cache ─────────────────────────────────────────────────────
 // We cache the V4 (ProcessTransport) class reference after the first SDK import
@@ -42,7 +43,7 @@ export interface ClaudeSdkAdapterOptions {
   instructions?: string;
 }
 
-interface SessionMeta {
+export interface ClaudeSdkSessionMeta {
   cliSessionId?: string;
   model?: string;
   tools?: string[];
@@ -62,13 +63,13 @@ interface PendingPermission {
 
 // ─── Adapter ────────────────────────────────────────────────────────────────────
 
-export class ClaudeSdkAdapter {
+export class ClaudeSdkAdapter implements BackendAdapter<ClaudeSdkSessionMeta> {
   private sessionId: string;
   private options: ClaudeSdkAdapterOptions;
   private sdkSession: any = null; // SDKSession from the Agent SDK
   private connected = false;
   private browserMessageCb: ((msg: BrowserIncomingMessage) => void) | null = null;
-  private sessionMetaCb: ((meta: SessionMeta) => void) | null = null;
+  private sessionMetaCb: ((meta: ClaudeSdkSessionMeta) => void) | null = null;
   private disconnectCb: (() => void) | null = null;
   private initErrorCb: ((error: string) => void) | null = null;
   private pendingPermissions = new Map<string, PendingPermission>();
@@ -99,7 +100,7 @@ export class ClaudeSdkAdapter {
     this.browserMessageCb = cb;
   }
 
-  onSessionMeta(cb: (meta: SessionMeta) => void): void {
+  onSessionMeta(cb: (meta: ClaudeSdkSessionMeta) => void): void {
     this.sessionMetaCb = cb;
   }
 
@@ -340,7 +341,7 @@ export class ClaudeSdkAdapter {
       case "system": {
         if (msg.subtype === "init") {
           // Extract session metadata
-          const meta: SessionMeta = {
+          const meta: ClaudeSdkSessionMeta = {
             cliSessionId: msg.session_id,
             model: msg.model,
             tools: msg.tools,

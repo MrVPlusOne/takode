@@ -44,7 +44,8 @@ import type {
 } from "./session-types.js";
 import { TOOL_RESULT_PREVIEW_LIMIT, assertNever } from "./session-types.js";
 import type { SessionStore } from "./session-store.js";
-import type { CodexAdapter, CodexResumeSnapshot, CodexResumeTurnSnapshot } from "./codex-adapter.js";
+import type { CodexResumeSnapshot, CodexResumeTurnSnapshot, CodexSessionMeta } from "./codex-adapter.js";
+import type { ClaudeSdkSessionMeta } from "./claude-sdk-adapter.js";
 import type { RecorderManager } from "./recorder.js";
 import type { ImageStore } from "./image-store.js";
 import type { CliLauncher } from "./cli-launcher.js";
@@ -68,6 +69,12 @@ import {
   setGenerating as setGeneratingLifecycle,
   type InterruptSource as GenerationInterruptSource,
 } from "./bridge/generation-lifecycle.js";
+import type {
+  BackendAdapter,
+  CurrentTurnIdAwareAdapter,
+  RateLimitsAwareAdapter,
+  TurnStartFailedAwareAdapter,
+} from "./bridge/adapter-interface.js";
 
 // ─── Denial summary helper ───────────────────────────────────────────────────
 
@@ -193,13 +200,18 @@ interface PendingCodexTurnRecovery {
 
 type LeaderAssistantAddressing = "not_leader" | "user" | "self" | "missing";
 type InterruptSource = GenerationInterruptSource;
+type CodexBridgeAdapter = BackendAdapter<CodexSessionMeta>
+  & TurnStartFailedAwareAdapter
+  & CurrentTurnIdAwareAdapter
+  & RateLimitsAwareAdapter;
+type ClaudeSdkBridgeAdapter = BackendAdapter<ClaudeSdkSessionMeta>;
 
 interface Session {
   id: string;
   backendType: BackendType;
   cliSocket: ServerWebSocket<SocketData> | null;
-  codexAdapter: CodexAdapter | null;
-  claudeSdkAdapter: import("./claude-sdk-adapter.js").ClaudeSdkAdapter | null;
+  codexAdapter: CodexBridgeAdapter | null;
+  claudeSdkAdapter: ClaudeSdkBridgeAdapter | null;
   browserSockets: Set<ServerWebSocket<SocketData>>;
   state: SessionState;
   pendingPermissions: Map<string, PermissionRequest>;
@@ -2104,7 +2116,7 @@ export class WsBridge {
    * translation between the Codex app-server (stdio JSON-RPC) and the
    * browser WebSocket protocol.
    */
-  attachCodexAdapter(sessionId: string, adapter: CodexAdapter): void {
+  attachCodexAdapter(sessionId: string, adapter: CodexBridgeAdapter): void {
     const session = this.getOrCreateSession(sessionId, "codex");
     session.backendType = "codex";
     session.state.backend_type = "codex";
@@ -2398,7 +2410,7 @@ export class WsBridge {
     console.log(`[ws-bridge] Codex adapter attached for session ${sessionTag(sessionId)}`);
   }
 
-  private flushQueuedMessagesToCodexAdapter(session: Session, adapter: CodexAdapter, reason: string): void {
+  private flushQueuedMessagesToCodexAdapter(session: Session, adapter: CodexBridgeAdapter, reason: string): void {
     if (session.pendingMessages.length === 0) return;
     console.log(
       `[ws-bridge] Flushing ${session.pendingMessages.length} queued message(s) to Codex adapter for session ${sessionTag(session.id)} (${reason})`,
@@ -2419,7 +2431,7 @@ export class WsBridge {
 
   /** Attach a Claude SDK adapter (stdio transport) for a session.
    *  Mirrors attachCodexAdapter but simpler — SDK messages already match our protocol. */
-  attachClaudeSdkAdapter(sessionId: string, adapter: import("./claude-sdk-adapter.js").ClaudeSdkAdapter): void {
+  attachClaudeSdkAdapter(sessionId: string, adapter: ClaudeSdkBridgeAdapter): void {
     const session = this.getOrCreateSession(sessionId, "claude-sdk");
     session.backendType = "claude-sdk";
     session.state.backend_type = "claude-sdk";
@@ -4441,57 +4453,14 @@ export class WsBridge {
       let userImageRefs: import("./image-store.js").ImageRef[] | undefined;
       let codexUserMessageId: string | null = null;
 
-      // Store user messages in history for replay with stable ID for dedup on reconnect
       if (msg.type === "user_message") {
-        const ts = Date.now();
-        let imageRefs: import("./image-store.js").ImageRef[] | undefined;
-        if (msg.images?.length && this.imageStore) {
-          imageRefs = [];
-          for (const img of msg.images) {
-            const ref = await this.imageStore.store(session.id, img.data, img.media_type);
-            imageRefs.push(ref);
-          }
-        }
-        userImageRefs = imageRefs;
-        const userHistoryEntry: BrowserIncomingMessage = {
-          type: "user_message",
-          content: msg.content,
-          timestamp: ts,
-          id: `user-${ts}-${this.userMsgCounter++}`,
-          ...(imageRefs?.length ? { images: imageRefs } : {}),
-          ...(msg.agentSource ? { agentSource: msg.agentSource } : {}),
-        };
-        codexUserMessageId = userHistoryEntry.id || null;
-        session.messageHistory.push(userHistoryEntry);
-        session.lastUserMessage = (msg.content || "").slice(0, 80);
-        // Broadcast user message to all browsers (server-authoritative)
-        this.broadcastToBrowsers(session, userHistoryEntry);
-
-        this.emitTakodeEvent(session.id, "user_message", {
-          content: (msg.content || "").slice(0, 120),
-          ...(msg.agentSource ? { agentSource: msg.agentSource } : {}),
-        });
-
-        const userMsgIdx = session.messageHistory.length - 1;
-        const wasGenerating = session.isGenerating;
-        // Codex auto-interrupts an active turn before starting the next one.
-        // Mark the current turn as interrupted so the worker herd turn_end
-        // event renders "⊘ interrupted" instead of a success check.
-        if (session.backendType === "codex" && wasGenerating) {
-          const source: InterruptSource = msg.agentSource
-            ? (this.isSystemSourceTag(msg.agentSource) ? "system" : "leader")
-            : "user";
-          this.markTurnInterrupted(session, source);
-        }
-        this.markRunningFromUserDispatch(session, "user_message");
-        // Track user message for turn_end herd event AFTER markRunningFromUserDispatch,
-        // which calls setGenerating(true) → resets userMessageIdsThisTurn for new turns.
-        // Tracking after ensures the message that triggered the turn isn't erased.
-        session.userMessageIdsThisTurn.push(userMsgIdx);
-
-        // Trigger auto-naming evaluation (async, fire-and-forget)
+        const maybeIngested = this.ingestUserMessage(session, msg, "adapter");
+        const ingested = maybeIngested instanceof Promise ? await maybeIngested : maybeIngested;
+        userImageRefs = ingested.imageRefs;
+        codexUserMessageId = ingested.historyEntry.id || null;
+        // Trigger auto-naming evaluation (async, fire-and-forget).
         if (this.onUserMessage) {
-          this.onUserMessage(session.id, [...session.messageHistory], session.state.cwd, wasGenerating);
+          this.onUserMessage(session.id, [...session.messageHistory], session.state.cwd, ingested.wasGenerating);
         }
       }
       if (msg.type === "permission_response") {
@@ -4871,41 +4840,97 @@ export class WsBridge {
     }
   }
 
+  private ingestUserMessage(
+    session: Session,
+    msg: {
+      type: "user_message";
+      content: string;
+      images?: { media_type: string; data: string }[];
+      agentSource?: { sessionId: string; sessionLabel?: string };
+    },
+    source: "adapter" | "cli",
+  ): {
+    timestamp: number;
+    historyEntry: Extract<BrowserIncomingMessage, { type: "user_message" }>;
+    historyIndex: number;
+    imageRefs?: import("./image-store.js").ImageRef[];
+    wasGenerating: boolean;
+  } | Promise<{
+    timestamp: number;
+    historyEntry: Extract<BrowserIncomingMessage, { type: "user_message" }>;
+    historyIndex: number;
+    imageRefs?: import("./image-store.js").ImageRef[];
+    wasGenerating: boolean;
+  }> {
+    const ts = Date.now();
+
+    const finalize = (imageRefs?: import("./image-store.js").ImageRef[]) => {
+      const userHistoryEntry: Extract<BrowserIncomingMessage, { type: "user_message" }> = {
+        type: "user_message",
+        content: msg.content,
+        timestamp: ts,
+        id: `user-${ts}-${this.userMsgCounter++}`,
+        ...(imageRefs?.length ? { images: imageRefs } : {}),
+        ...(msg.agentSource ? { agentSource: msg.agentSource } : {}),
+      };
+      session.messageHistory.push(userHistoryEntry);
+      const userMsgHistoryIdx = session.messageHistory.length - 1;
+      session.lastUserMessage = (msg.content || "").slice(0, 80);
+
+      // Server-authoritative user message fan-out: browsers render only what ws-bridge broadcasts.
+      this.broadcastToBrowsers(session, userHistoryEntry);
+      this.emitTakodeEvent(session.id, "user_message", {
+        content: (msg.content || "").slice(0, 120),
+        ...(msg.agentSource ? { agentSource: msg.agentSource } : {}),
+      });
+
+      const wasGenerating = session.isGenerating;
+      if (source === "adapter") {
+        // Codex auto-interrupts active turns before dispatching the next user turn.
+        if (session.backendType === "codex" && wasGenerating) {
+          const interruptSource: InterruptSource = msg.agentSource
+            ? (this.isSystemSourceTag(msg.agentSource) ? "system" : "leader")
+            : "user";
+          this.markTurnInterrupted(session, interruptSource);
+        }
+
+        this.markRunningFromUserDispatch(session, "user_message");
+        // Track after markRunningFromUserDispatch() because a new turn reset clears this array.
+        session.userMessageIdsThisTurn.push(userMsgHistoryIdx);
+      }
+
+      return {
+        timestamp: ts,
+        historyEntry: userHistoryEntry,
+        historyIndex: userMsgHistoryIdx,
+        imageRefs,
+        wasGenerating,
+      };
+    };
+
+    if (msg.images?.length && this.imageStore) {
+      return (async () => {
+        const imageRefs: import("./image-store.js").ImageRef[] = [];
+        for (const img of msg.images || []) {
+          const ref = await this.imageStore!.store(session.id, img.data, img.media_type);
+          imageRefs.push(ref);
+        }
+        return finalize(imageRefs);
+      })();
+    }
+
+    return finalize();
+  }
+
   private async handleUserMessage(
     session: Session,
     msg: { type: "user_message"; content: string; session_id?: string; images?: { media_type: string; data: string }[]; agentSource?: { sessionId: string; sessionLabel?: string } }
   ) {
-    const ts = Date.now();
-
-    // Store images to disk and get refs (if imageStore is available)
-    let imageRefs: import("./image-store.js").ImageRef[] | undefined;
-    if (msg.images?.length && this.imageStore) {
-      imageRefs = [];
-      for (const img of msg.images) {
-        const ref = await this.imageStore.store(session.id, img.data, img.media_type);
-        imageRefs.push(ref);
-      }
-    }
-
-    // Store user message in history for replay with stable ID for dedup on reconnect
-    const userHistoryEntry: BrowserIncomingMessage = {
-      type: "user_message",
-      content: msg.content,
-      timestamp: ts,
-      id: `user-${ts}-${this.userMsgCounter++}`,
-      ...(imageRefs?.length ? { images: imageRefs } : {}),
-      ...(msg.agentSource ? { agentSource: msg.agentSource } : {}),
-    };
-    session.messageHistory.push(userHistoryEntry);
-    const userMsgHistoryIdx = session.messageHistory.length - 1;
-    // Broadcast user message to all browsers (server-authoritative: browsers
-    // never add user messages locally, they render only what the server sends)
-    this.broadcastToBrowsers(session, userHistoryEntry);
-
-    this.emitTakodeEvent(session.id, "user_message", {
-      content: (msg.content || "").slice(0, 120),
-      ...(msg.agentSource ? { agentSource: msg.agentSource } : {}),
-    });
+    const maybeIngested = this.ingestUserMessage(session, msg, "cli");
+    const ingested = maybeIngested instanceof Promise ? await maybeIngested : maybeIngested;
+    const ts = ingested.timestamp;
+    const imageRefs = ingested.imageRefs;
+    const userMsgHistoryIdx = ingested.historyIndex;
 
     // Build content: if images are present, convert unsupported formats and use
     // content block array; otherwise plain string. Conversion operates on copies
@@ -4966,7 +4991,6 @@ export class WsBridge {
       parent_tool_use_id: null,
       session_id: msg.session_id || session.state.session_id || "",
     });
-    const wasGenerating = session.isGenerating;
     this.sendToCLI(session, ndjson);
     // Track user message for turn_end herd event AFTER sendToCLI, which calls
     // setGenerating(true) → resets userMessageIdsThisTurn for new turns. Tracking
@@ -4979,7 +5003,7 @@ export class WsBridge {
 
     // Trigger auto-naming evaluation (async, fire-and-forget)
     if (this.onUserMessage) {
-      this.onUserMessage(session.id, [...session.messageHistory], session.state.cwd, wasGenerating);
+      this.onUserMessage(session.id, [...session.messageHistory], session.state.cwd, ingested.wasGenerating);
     }
   }
 

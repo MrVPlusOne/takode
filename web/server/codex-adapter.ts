@@ -21,6 +21,12 @@ import type {
   McpServerConfig,
 } from "./session-types.js";
 import type { RecorderManager } from "./recorder.js";
+import type {
+  BackendAdapter,
+  CurrentTurnIdAwareAdapter,
+  RateLimitsAwareAdapter,
+  TurnStartFailedAwareAdapter,
+} from "./bridge/adapter-interface.js";
 
 // ─── Codex JSON-RPC Types ─────────────────────────────────────────────────────
 
@@ -561,7 +567,12 @@ class JsonRpcTransport {
 
 // ─── Codex Adapter ────────────────────────────────────────────────────────────
 
-export class CodexAdapter {
+export class CodexAdapter
+  implements
+    BackendAdapter<CodexSessionMeta>,
+    TurnStartFailedAwareAdapter,
+    CurrentTurnIdAwareAdapter,
+    RateLimitsAwareAdapter {
   private transport: JsonRpcTransport;
   private proc: Subprocess;
   private sessionId: string;
