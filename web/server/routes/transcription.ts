@@ -1,0 +1,180 @@
+import { Hono } from "hono";
+import { streamSSE, type SSEStreamingApi } from "hono/streaming";
+import { transcribeWithGemini, transcribeWithOpenai, getAvailableBackends, getTranscriptionStatus, resolveOpenAIKey } from "../transcription.js";
+import { enhanceTranscript, buildSttPrompt, addTranscriptionLogEntry } from "../transcription-enhancer.js";
+import * as sessionNames from "../session-names.js";
+import { getSettings } from "../settings-manager.js";
+import type { RouteContext } from "./context.js";
+
+export function createTranscriptionRoutes(ctx: RouteContext) {
+  const api = new Hono();
+  const { launcher, wsBridge } = ctx;
+
+  // ─── Audio transcription ─────────────────────────────────────────────
+
+  /**
+   * Get names of recent non-archived sessions (excluding the given session).
+   * Sorted by last activity (most recent first), limited to `limit` entries.
+   */
+  function getRecentSessionNames(excludeSessionId: string, limit: number): string[] {
+    const allSessions = launcher.listSessions();
+    const allNames = sessionNames.getAllNames();
+    return allSessions
+      .filter((s) => s.sessionId !== excludeSessionId && !s.archived && allNames[s.sessionId])
+      .sort((a, b) => (b.lastActivityAt ?? b.createdAt) - (a.lastActivityAt ?? a.createdAt))
+      .slice(0, limit)
+      .map((s) => allNames[s.sessionId]);
+  }
+
+  api.get("/transcribe/status", (c) => {
+    return c.json(getTranscriptionStatus());
+  });
+
+  api.post("/transcribe", async (c) => {
+    const body = await c.req.parseBody();
+    const audioFile = body["audio"];
+    if (!audioFile || typeof audioFile === "string") {
+      return c.json({ error: "audio field is required (multipart)" }, 400);
+    }
+
+    const sessionId = typeof body["sessionId"] === "string" ? body["sessionId"] : undefined;
+    const composerBefore = typeof body["composerBefore"] === "string" ? body["composerBefore"] : undefined;
+    const composerAfter = typeof body["composerAfter"] === "string" ? body["composerAfter"] : undefined;
+    const requestedBackend = typeof body["backend"] === "string" ? body["backend"] : undefined;
+    const { default: defaultBackend } = getAvailableBackends();
+    const backend = requestedBackend || defaultBackend;
+
+    if (!backend) {
+      return c.json(
+        { error: "No transcription backend available. Configure an OpenAI API key in Settings → Voice Transcription, or set OPENAI_API_KEY / GOOGLE_API_KEY in your environment." },
+        400,
+      );
+    }
+
+    const buf = Buffer.from(await audioFile.arrayBuffer());
+    const mimeType = audioFile.type || "audio/webm";
+
+    // Stream SSE events so the client can show phase transitions (Transcribing → Enhancing)
+    return streamSSE(c, async (stream: SSEStreamingApi) => {
+      try {
+        let rawText: string;
+        const usedBackend = backend;
+        let sttModel = "unknown";
+
+        // Build context-aware STT prompt (guides vocabulary recognition)
+        // Get recent non-archived session names sorted by activity (most recent first)
+        let sttPrompt = "";
+        if (sessionId) {
+          const recentOtherNames = getRecentSessionNames(sessionId, 10);
+          sttPrompt = buildSttPrompt({
+            taskHistory: wsBridge.getSessionTaskHistory(sessionId),
+            sessionName: sessionNames.getName(sessionId),
+            activeSessionNames: recentOtherNames.length > 0 ? recentOtherNames : undefined,
+            composerBefore: composerBefore,
+            composerAfter: composerAfter,
+            messageHistory: wsBridge.getMessageHistory(sessionId),
+          });
+        }
+
+        const sttStart = Date.now();
+
+        if (backend === "gemini") {
+          const apiKey = process.env.GOOGLE_API_KEY;
+          if (!apiKey) {
+            await stream.writeSSE({ event: "error", data: JSON.stringify({ error: "GOOGLE_API_KEY not set in environment" }) });
+            return;
+          }
+          rawText = await transcribeWithGemini(buf, mimeType, apiKey);
+          sttModel = "gemini";
+        } else if (backend === "openai") {
+          const apiKey = resolveOpenAIKey();
+          if (!apiKey) {
+            await stream.writeSSE({ event: "error", data: JSON.stringify({ error: "No OpenAI API key configured. Set it in Settings → Voice Transcription, or set OPENAI_API_KEY in your environment." }) });
+            return;
+          }
+          rawText = await transcribeWithOpenai(buf, mimeType, apiKey, sttPrompt || undefined);
+          sttModel = "gpt-4o-mini-transcribe";
+        } else {
+          await stream.writeSSE({ event: "error", data: JSON.stringify({ error: `Unknown backend: ${backend}` }) });
+          return;
+        }
+
+        const sttDurationMs = Date.now() - sttStart;
+
+        // Notify client that STT is done — if enhancement follows, UI can show "Enhancing..."
+        const willEnhance = !!(sessionId && usedBackend === "openai" &&
+          getSettings().transcriptionConfig.enhancementEnabled && resolveOpenAIKey());
+        await stream.writeSSE({
+          event: "stt_complete",
+          data: JSON.stringify({ rawText, backend: usedBackend, willEnhance }),
+        });
+
+        // Tier 2: Context-aware enhancement (OpenAI backend only)
+        if (willEnhance) {
+          const enhancementKey = resolveOpenAIKey()!;
+          const settings = getSettings();
+          const history = wsBridge.getMessageHistory(sessionId!);
+
+          // Build enriched context for enhancement
+          const taskHistory = wsBridge.getSessionTaskHistory(sessionId!);
+          const enhOtherNames = getRecentSessionNames(sessionId!, 20);
+
+          const result = await enhanceTranscript(rawText, history, settings.transcriptionConfig, enhancementKey, {
+            composerBefore: composerBefore,
+            composerAfter: composerAfter,
+            taskTitles: taskHistory.map((t) => t.title),
+            sessionName: sessionNames.getName(sessionId!),
+            activeSessionNames: enhOtherNames.length > 0 ? enhOtherNames : undefined,
+          });
+
+          // Log for debug panel
+          addTranscriptionLogEntry({
+            sessionId: sessionId!,
+            sttModel,
+            sttDurationMs,
+            sttPrompt,
+            rawTranscript: rawText,
+            audioSizeBytes: buf.length,
+            enhancement: result._debug ? {
+              model: result._debug.model,
+              systemPrompt: result._debug.systemPrompt,
+              userMessage: result._debug.userMessage,
+              enhancedText: result._debug.enhancedText,
+              durationMs: result._debug.durationMs,
+              skipReason: result._debug.skipReason,
+            } : null,
+          });
+
+          await stream.writeSSE({
+            event: "result",
+            data: JSON.stringify({ text: result.text, rawText: result.rawText, backend: usedBackend, enhanced: result.enhanced }),
+          });
+          return;
+        }
+
+        // Log STT-only call (no enhancement attempted)
+        addTranscriptionLogEntry({
+          sessionId: sessionId ?? null,
+          sttModel,
+          sttDurationMs,
+          sttPrompt,
+          rawTranscript: rawText,
+          audioSizeBytes: buf.length,
+          enhancement: null,
+        });
+
+        await stream.writeSSE({
+          event: "result",
+          data: JSON.stringify({ text: rawText, backend: usedBackend, enhanced: false }),
+        });
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error(`[transcription] ${backend} failed:`, msg);
+        await stream.writeSSE({ event: "error", data: JSON.stringify({ error: `Transcription failed: ${msg}` }) });
+      }
+    });
+  });
+
+
+  return api;
+}

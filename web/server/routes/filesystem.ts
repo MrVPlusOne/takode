@@ -1,0 +1,318 @@
+import { Hono } from "hono";
+import { readFile, writeFile, stat, readdir } from "node:fs/promises";
+import { resolve, join, dirname, extname } from "node:path";
+import { homedir } from "node:os";
+import { ensureAssistantWorkspace, ASSISTANT_DIR } from "../assistant-workspace.js";
+import { expandTilde } from "../path-resolver.js";
+import type { RouteContext } from "./context.js";
+
+export function createFilesystemRoutes(ctx: RouteContext) {
+  const api = new Hono();
+  const { wsBridge, execAsync, execCaptureStdoutAsync } = ctx;
+
+  // ─── Filesystem browsing ─────────────────────────────────────
+
+  api.get("/fs/list", async (c) => {
+    const rawPath = c.req.query("path") || homedir();
+    const basePath = resolve(expandTilde(rawPath));
+    try {
+      const entries = await readdir(basePath, { withFileTypes: true });
+      const dirs: { name: string; path: string }[] = [];
+      for (const entry of entries) {
+        if (entry.isDirectory() && !entry.name.startsWith(".")) {
+          dirs.push({ name: entry.name, path: join(basePath, entry.name) });
+        }
+      }
+      dirs.sort((a, b) => a.name.localeCompare(b.name));
+      return c.json({ path: basePath, dirs, home: homedir() });
+    } catch {
+      return c.json(
+        {
+          error: "Cannot read directory",
+          path: basePath,
+          dirs: [],
+          home: homedir(),
+        },
+        400,
+      );
+    }
+  });
+
+  api.get("/fs/home", (c) => {
+    const home = homedir();
+    const cwd = process.cwd();
+    // Only report cwd if the user launched companion from a real project directory
+    // (not from the package root or the home directory itself)
+    const packageRoot = process.env.__COMPANION_PACKAGE_ROOT;
+    const isProjectDir =
+      cwd !== home &&
+      (!packageRoot || !cwd.startsWith(packageRoot));
+    return c.json({ home, cwd: isProjectDir ? cwd : home });
+  });
+
+  // ─── Editor filesystem APIs ─────────────────────────────────────
+
+  /** Recursive directory tree for the editor file explorer */
+  api.get("/fs/tree", async (c) => {
+    const rawPath = c.req.query("path");
+    if (!rawPath) return c.json({ error: "path required" }, 400);
+    const basePath = resolve(rawPath);
+
+    interface TreeNode {
+      name: string;
+      path: string;
+      type: "file" | "directory";
+      children?: TreeNode[];
+    }
+
+    async function buildTree(dir: string, depth: number): Promise<TreeNode[]> {
+      if (depth > 10) return []; // Safety limit
+      try {
+        const entries = await readdir(dir, { withFileTypes: true });
+        const nodes: TreeNode[] = [];
+        for (const entry of entries) {
+          if (entry.name.startsWith(".") || entry.name === "node_modules")
+            continue;
+          const fullPath = join(dir, entry.name);
+          if (entry.isDirectory()) {
+            const children = await buildTree(fullPath, depth + 1);
+            nodes.push({
+              name: entry.name,
+              path: fullPath,
+              type: "directory",
+              children,
+            });
+          } else if (entry.isFile()) {
+            nodes.push({ name: entry.name, path: fullPath, type: "file" });
+          }
+        }
+        nodes.sort((a, b) => {
+          if (a.type !== b.type) return a.type === "directory" ? -1 : 1;
+          return a.name.localeCompare(b.name);
+        });
+        return nodes;
+      } catch {
+        return [];
+      }
+    }
+
+    const tree = await buildTree(basePath, 0);
+    return c.json({ path: basePath, tree });
+  });
+
+  /** Read a single file */
+  api.get("/fs/read", async (c) => {
+    const filePath = c.req.query("path");
+    if (!filePath) return c.json({ error: "path required" }, 400);
+    const absPath = resolve(filePath);
+    try {
+      const info = await stat(absPath);
+      if (info.size > 2 * 1024 * 1024) {
+        return c.json({ error: "File too large (>2MB)" }, 413);
+      }
+      const content = await readFile(absPath, "utf-8");
+      return c.json({ path: absPath, content });
+    } catch (e: unknown) {
+      return c.json(
+        { error: e instanceof Error ? e.message : "Cannot read file" },
+        404,
+      );
+    }
+  });
+
+  api.get("/fs/image", async (c) => {
+    const path = c.req.query("path");
+    if (!path) return c.json({ error: "path required" }, 400);
+    const absPath = resolve(path);
+    const ext = extname(absPath).toLowerCase();
+    const mimeByExt: Record<string, string> = {
+      ".png": "image/png",
+      ".jpg": "image/jpeg",
+      ".jpeg": "image/jpeg",
+      ".gif": "image/gif",
+      ".webp": "image/webp",
+      ".svg": "image/svg+xml",
+      ".bmp": "image/bmp",
+      ".ico": "image/x-icon",
+      ".avif": "image/avif",
+      ".tif": "image/tiff",
+      ".tiff": "image/tiff",
+      ".heic": "image/heic",
+      ".heif": "image/heif",
+    };
+    const contentType = mimeByExt[ext];
+    if (!contentType) {
+      return c.json({ error: "file is not a supported image type" }, 400);
+    }
+    try {
+      const content = await readFile(absPath);
+      return c.body(content, 200, {
+        "Content-Type": contentType,
+        "Cache-Control": "private, max-age=30",
+      });
+    } catch (e: unknown) {
+      return c.json(
+        { error: e instanceof Error ? e.message : "Cannot read image file" },
+        404,
+      );
+    }
+  });
+
+  /** Write a single file */
+  api.put("/fs/write", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const { path: filePath, content } = body;
+    if (!filePath || typeof content !== "string") {
+      return c.json({ error: "path and content required" }, 400);
+    }
+    const absPath = resolve(filePath);
+    try {
+      await writeFile(absPath, content, "utf-8");
+      return c.json({ ok: true, path: absPath });
+    } catch (e: unknown) {
+      return c.json(
+        { error: e instanceof Error ? e.message : "Cannot write file" },
+        500,
+      );
+    }
+  });
+
+  /** Git diff for a single file (unified diff) */
+  api.get("/fs/diff", async (c) => {
+    const filePath = c.req.query("path");
+    if (!filePath) return c.json({ error: "path required" }, 400);
+    const base = c.req.query("base");
+    if (!base) return c.json({ error: "base branch required" }, 400);
+    const absPath = resolve(filePath);
+    try {
+      const repoRoot = await execAsync("git rev-parse --show-toplevel", dirname(absPath));
+      const relPath = (await execAsync(`git -C "${repoRoot}" ls-files --full-name -- "${absPath}"`, repoRoot)) || absPath;
+
+      let diff = "";
+      try {
+        // Compare directly to the selected base ref tip. Using merge-base here
+        // makes cherry-picked commits appear as unsynced in the UI.
+        diff = await execCaptureStdoutAsync(`git diff ${base} -- "${relPath}"`, repoRoot);
+      } catch {
+        // Base ref unavailable — leave diff empty
+      }
+
+      // For untracked files, base-branch diff is empty. Show full file as added.
+      if (!diff.trim()) {
+        const untracked = await execAsync(`git ls-files --others --exclude-standard -- "${relPath}"`, repoRoot);
+        if (untracked) {
+          diff = await execCaptureStdoutAsync(`git diff --no-index -- /dev/null "${absPath}"`, repoRoot);
+        }
+      }
+
+      return c.json({ path: absPath, diff, baseBranch: base });
+    } catch {
+      return c.json({ path: absPath, diff: "" });
+    }
+  });
+
+  /**
+   * Bulk diff stats — returns per-file additions/deletions for a list of files
+   * in a single `git diff --numstat` call. Much cheaper than fetching full diffs.
+   */
+  api.post("/fs/diff-stats", async (c) => {
+    const body = await c.req.json<{ files: string[]; base?: string; repoRoot: string }>();
+    if (!body?.files?.length || !body.repoRoot) {
+      return c.json({ error: "files[] and repoRoot required" }, 400);
+    }
+    if (!body.base) {
+      return c.json({ error: "base branch required" }, 400);
+    }
+    const repoRoot = resolve(body.repoRoot);
+    try {
+      // git diff --numstat returns: "additions\tdeletions\tfilepath" per line
+      const rootPrefix = `${repoRoot}/`;
+      const relFiles = body.files.map((f) =>
+        f.startsWith(rootPrefix) ? f.slice(rootPrefix.length) : f,
+      );
+      const fileArgs = relFiles.map((f) => `"${f}"`).join(" ");
+      const raw = await execCaptureStdoutAsync(
+        `git diff --numstat ${body.base} -- ${fileArgs}`,
+        repoRoot,
+      );
+
+      const stats: Record<string, { additions: number; deletions: number }> = {};
+      for (const line of raw.split("\n")) {
+        if (!line.trim()) continue;
+        const [add, del, file] = line.split("\t");
+        if (file) {
+          const absPath = `${repoRoot}/${file}`;
+          stats[absPath] = {
+            additions: add === "-" ? 0 : parseInt(add, 10) || 0,
+            deletions: del === "-" ? 0 : parseInt(del, 10) || 0,
+          };
+        }
+      }
+      return c.json({ stats, baseBranch: body.base });
+    } catch {
+      return c.json({ stats: {} });
+    }
+  });
+
+  /** Find Claude config files for a project (CLAUDE.md + .claude/settings*.json) */
+  api.get("/fs/claude-md", async (c) => {
+    const cwd = c.req.query("cwd");
+    if (!cwd) return c.json({ error: "cwd required" }, 400);
+
+    // Resolve to absolute path to prevent path traversal
+    const resolvedCwd = resolve(cwd);
+
+    const candidates: Array<{ path: string; writable: boolean }> = [
+      { path: join(resolvedCwd, "CLAUDE.md"), writable: true },
+      { path: join(resolvedCwd, ".claude", "CLAUDE.md"), writable: true },
+      { path: join(resolvedCwd, ".claude", "settings.json"), writable: false },
+      { path: join(resolvedCwd, ".claude", "settings.local.json"), writable: false },
+    ];
+
+    const files: { path: string; content: string; writable: boolean }[] = [];
+    for (const { path: p, writable } of candidates) {
+      try {
+        const content = await readFile(p, "utf-8");
+        files.push({ path: p, content, writable });
+      } catch {
+        // file doesn't exist — skip
+      }
+    }
+
+    return c.json({ cwd: resolvedCwd, files });
+  });
+
+  /** Create or update a CLAUDE.md file */
+  api.put("/fs/claude-md", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const { path: filePath, content } = body;
+    if (!filePath || typeof content !== "string") {
+      return c.json({ error: "path and content required" }, 400);
+    }
+    // Only allow writing CLAUDE.md files
+    const base = filePath.split("/").pop();
+    if (base !== "CLAUDE.md") {
+      return c.json({ error: "Can only write CLAUDE.md files" }, 400);
+    }
+    const absPath = resolve(filePath);
+    // Verify the resolved path ends with CLAUDE.md or .claude/CLAUDE.md
+    if (!absPath.endsWith("/CLAUDE.md") && !absPath.endsWith("/.claude/CLAUDE.md")) {
+      return c.json({ error: "Invalid CLAUDE.md path" }, 400);
+    }
+    try {
+      // Ensure parent directory exists
+      const { mkdir } = await import("node:fs/promises");
+      await mkdir(dirname(absPath), { recursive: true });
+      await writeFile(absPath, content, "utf-8");
+      return c.json({ ok: true, path: absPath });
+    } catch (e: unknown) {
+      return c.json(
+        { error: e instanceof Error ? e.message : "Cannot write file" },
+        500,
+      );
+    }
+  });
+
+
+  return api;
+}
