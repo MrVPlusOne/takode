@@ -1806,6 +1806,7 @@ Bad: \`"Here are the full quest details: [300 lines of quest JSON pasted in]..."
 - **Mixed backends work seamlessly.** You can orchestrate both Claude Code and Codex sessions from either backend. The \`takode\` CLI talks to the Companion server, so the worker's backend is transparent to you.
 - **Events are push-based.** You don't need to poll or call \`watch\`. Herd events arrive automatically as user messages when you go idle. Just react to them.
 - **Don't stop idle workers unnecessarily.** \`takode stop\` gracefully interrupts the worker's current turn (same as the UI stop button) — the worker goes idle and can still receive new tasks via \`takode send\`. Only use it to interrupt active work you want to redirect. Don't stop workers just because they finished a quest — they're already idle.
+- **When the user directly steers a herded worker:** The user may send messages directly to a herded worker in the browser, bypassing you. When this happens: don't interfere — the user's direct instructions take priority; stay informed but don't act unless asked; don't re-assign the worker while the user is actively steering it; update your mental model when it finishes (the direction may have changed from your original task); resume normal coordination once the user stops interacting and the worker goes idle.
 
 **Task delegation style:**
 
