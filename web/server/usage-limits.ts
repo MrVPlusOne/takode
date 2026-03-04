@@ -1,5 +1,6 @@
-import { execSync, execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { execFile as execFileCb } from "node:child_process";
+import { promisify } from "node:util";
+import { access, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
@@ -16,6 +17,7 @@ export interface UsageLimits {
 
 const OAUTH_TOKEN_URL = "https://platform.claude.com/v1/oauth/token";
 const OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
+const execFilePromise = promisify(execFileCb);
 
 // In-memory cache (60s TTL)
 const CACHE_DURATION_MS = 60 * 1000;
@@ -28,24 +30,53 @@ interface OAuthCredentials {
   [key: string]: unknown;
 }
 
-function readRawCredentials(): { raw: string; parsed: Record<string, unknown>; oauth: OAuthCredentials } | null {
+function getStdoutString(result: unknown): string {
+  if (typeof result === "string") return result;
+  if (Buffer.isBuffer(result)) return result.toString("utf-8");
+  if (
+    result &&
+    typeof result === "object" &&
+    "stdout" in result &&
+    typeof (result as { stdout?: unknown }).stdout === "string"
+  ) {
+    return (result as { stdout: string }).stdout;
+  }
+  if (
+    result &&
+    typeof result === "object" &&
+    "stdout" in result &&
+    Buffer.isBuffer((result as { stdout?: unknown }).stdout)
+  ) {
+    return ((result as { stdout: Buffer }).stdout).toString("utf-8");
+  }
+  return "";
+}
+
+async function readRawCredentials(): Promise<{ raw: string; parsed: Record<string, unknown>; oauth: OAuthCredentials } | null> {
   try {
     if (process.platform !== "darwin") {
       // Windows and Linux: read from credentials file
       const home =
         process.env.USERPROFILE || process.env.HOME || homedir() || "";
       const credPath = join(home, ".claude", ".credentials.json");
-      if (!existsSync(credPath)) return null; // sync-ok: usage check, not called during message handling
-      const raw = readFileSync(credPath, "utf-8"); // sync-ok: usage check, not called during message handling
+      try {
+        await access(credPath);
+      } catch {
+        return null;
+      }
+      const raw = await readFile(credPath, "utf-8");
       const parsed = JSON.parse(raw);
       if (!parsed?.claudeAiOauth?.accessToken) return null;
       return { raw, parsed, oauth: parsed.claudeAiOauth };
     }
 
     // macOS: use Keychain
-    const raw = execSync( // sync-ok: usage check, not called during message handling
-      'security find-generic-password -s "Claude Code-credentials" -w',
-      { encoding: "utf-8", timeout: 5000, stdio: ["pipe", "pipe", "pipe"] },
+    const raw = getStdoutString(
+      await execFilePromise(
+        "security",
+        ["find-generic-password", "-s", "Claude Code-credentials", "-w"],
+        { encoding: "utf-8", timeout: 5000 },
+      ),
     ).trim();
 
     const decoded = raw.startsWith("{")
@@ -60,7 +91,7 @@ function readRawCredentials(): { raw: string; parsed: Record<string, unknown>; o
   }
 }
 
-function writeCredentials(creds: Record<string, unknown>): void {
+async function writeCredentials(creds: Record<string, unknown>): Promise<void> {
   try {
     const json = JSON.stringify(creds);
     if (process.platform !== "darwin") {
@@ -68,13 +99,13 @@ function writeCredentials(creds: Record<string, unknown>): void {
       const home =
         process.env.USERPROFILE || process.env.HOME || homedir() || "";
       const credPath = join(home, ".claude", ".credentials.json");
-      require("node:fs").writeFileSync(credPath, json, "utf-8"); // sync-ok: usage check, not called during message handling
+      await writeFile(credPath, json, "utf-8");
     } else {
       // macOS: use Keychain
-      execFileSync( // sync-ok: usage check, not called during message handling
+      await execFilePromise(
         "security",
         ["add-generic-password", "-U", "-s", "Claude Code-credentials", "-a", "Claude Code", "-w", json],
-        { timeout: 5000, stdio: ["pipe", "pipe", "pipe"] },
+        { timeout: 5000 },
       );
     }
   } catch {
@@ -109,13 +140,13 @@ async function refreshAccessToken(refreshToken: string): Promise<{
   }
 }
 
-export function getCredentials(): string | null {
-  const creds = readRawCredentials();
+export async function getCredentials(): Promise<string | null> {
+  const creds = await readRawCredentials();
   return creds?.oauth.accessToken ?? null;
 }
 
 async function getValidAccessToken(): Promise<string | null> {
-  const creds = readRawCredentials();
+  const creds = await readRawCredentials();
   if (!creds) return null;
 
   const { oauth } = creds;
@@ -138,7 +169,7 @@ async function getValidAccessToken(): Promise<string | null> {
     refreshToken: refreshed.refreshToken,
     expiresAt: Date.now() + refreshed.expiresIn * 1000,
   };
-  writeCredentials(creds.parsed);
+  void writeCredentials(creds.parsed).catch(() => {});
 
   return refreshed.accessToken;
 }

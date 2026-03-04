@@ -125,8 +125,25 @@ vi.mock("node:fs", () => ({
 
 vi.mock("node:fs/promises", () => ({
   readdir: vi.fn(async (path: string) => listChildDirs(path)),
+  access: vi.fn(async (path: string) => {
+    if (!state.dirs.has(path) && !state.files.has(path)) {
+      throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+    }
+  }),
   readFile: vi.fn(async (path: string) => state.files.get(path) ?? ""),
   writeFile: vi.fn(async (path: string, content: string) => addFile(path, content)),
+  unlink: vi.fn(async (path: string) => {
+    state.files.delete(path);
+  }),
+  mkdir: vi.fn(async (path: string) => addDir(path)),
+  rm: vi.fn(async (path: string) => {
+    for (const filePath of Array.from(state.files.keys())) {
+      if (filePath === path || filePath.startsWith(`${path}/`)) state.files.delete(filePath);
+    }
+    for (const dirPath of Array.from(state.dirs.values())) {
+      if (dirPath === path || dirPath.startsWith(`${path}/`)) state.dirs.delete(dirPath);
+    }
+  }),
   stat: vi.fn(async () => ({ isDirectory: () => true })),
 }));
 

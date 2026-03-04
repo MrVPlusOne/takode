@@ -2,15 +2,12 @@ import { randomUUID } from "node:crypto";
 import { exec as execCb } from "node:child_process";
 import { promisify } from "node:util";
 import {
-  existsSync,
-  realpathSync,
-} from "node:fs";
-import {
   mkdir,
   access,
   copyFile,
   cp,
   readFile,
+  realpath,
   writeFile,
   unlink,
   symlink,
@@ -1319,10 +1316,10 @@ export class CliLauncher {
       const enrichedPath = getEnrichedPath();
       const spawnPath = [binaryDir, companionBinDir, bunBinDir, ...enrichedPath.split(":")].filter(Boolean).join(":");
 
-      if (existsSync(siblingNode)) { // sync-ok: session launch, not called during message handling
+      if (await fileExists(siblingNode)) {
         let codexScript: string;
         try {
-          codexScript = realpathSync(binary);
+          codexScript = await realpath(binary);
         } catch {
           codexScript = binary;
         }

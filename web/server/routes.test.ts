@@ -46,6 +46,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();
   return {
     ...actual,
+    readFile: vi.fn((...args: Parameters<typeof actual.readFile>) => actual.readFile(...args)),
     access: vi.fn(async () => {}), // default: file exists (no throw)
   };
 });
@@ -141,6 +142,7 @@ vi.mock("./usage-limits.js", () => ({
 import { Hono } from "hono";
 import { execSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
+import { access, readFile } from "node:fs/promises";
 import { createRoutes } from "./routes.js";
 import * as envManager from "./env-manager.js";
 import * as gitUtils from "./git-utils.js";
@@ -2381,8 +2383,8 @@ describe("GET /api/backends/:id/models", () => {
         { slug: "gpt-5-codex", display_name: "gpt-5-codex", description: "Old model", visibility: "hide", priority: 8 },
       ],
     });
-    vi.mocked(existsSync).mockReturnValue(true);
-    vi.mocked(readFileSync).mockReturnValue(cacheContent);
+    vi.mocked(access).mockResolvedValue(undefined);
+    vi.mocked(readFile).mockResolvedValue(cacheContent);
 
     const res = await app.request("/api/backends/codex/models", { method: "GET" });
 
@@ -2396,7 +2398,7 @@ describe("GET /api/backends/:id/models", () => {
   });
 
   it("returns 404 when codex cache file does not exist", async () => {
-    vi.mocked(existsSync).mockReturnValue(false);
+    vi.mocked(access).mockRejectedValueOnce(Object.assign(new Error("ENOENT"), { code: "ENOENT" }));
 
     const res = await app.request("/api/backends/codex/models", { method: "GET" });
 
@@ -2406,8 +2408,8 @@ describe("GET /api/backends/:id/models", () => {
   });
 
   it("returns 500 when cache file is malformed", async () => {
-    vi.mocked(existsSync).mockReturnValue(true);
-    vi.mocked(readFileSync).mockReturnValue("not valid json{{{");
+    vi.mocked(access).mockResolvedValue(undefined);
+    vi.mocked(readFile).mockResolvedValue("not valid json{{{");
 
     const res = await app.request("/api/backends/codex/models", { method: "GET" });
 

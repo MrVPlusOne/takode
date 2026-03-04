@@ -497,41 +497,47 @@ describe("launch", () => {
   it("enables Codex web search when codexInternetAccess=true", async () => {
     // Use a fake path where no sibling `node` exists, so the spawn uses
     // the codex binary directly (the explicit-node path is tested separately).
+    const cwd = "/tmp/project-web-on";
     mockResolveBinary.mockReturnValue("/opt/fake/codex");
     mockSpawn.mockReturnValueOnce(createMockCodexProc());
 
     await launcher.launch({
       backendType: "codex",
-      cwd: "/tmp/project",
+      cwd,
       codexInternetAccess: true,
       codexSandbox: "danger-full-access",
     });
     await waitForSpawnCalls(1);
 
-    const [cmdAndArgs, options] = mockSpawn.mock.calls[0];
+    const matchingCall = mockSpawn.mock.calls.find(([, options]) => options.cwd === cwd);
+    expect(matchingCall).toBeDefined();
+    const [cmdAndArgs, options] = matchingCall!;
     expect(cmdAndArgs[0]).toBe("/opt/fake/codex");
     expect(cmdAndArgs).toContain("app-server");
     expect(cmdAndArgs).toContain("-c");
-    expect(cmdAndArgs).toContain("tools.webSearch=true");
-    expect(options.cwd).toBe("/tmp/project");
+    expect(cmdAndArgs.join(" ")).toContain("tools.webSearch=true");
+    expect(options.cwd).toBe(cwd);
   });
 
   it("disables Codex web search when codexInternetAccess=false", async () => {
+    const cwd = "/tmp/project-web-off";
     mockResolveBinary.mockReturnValue("/opt/fake/codex");
     mockSpawn.mockReturnValueOnce(createMockCodexProc());
 
     await launcher.launch({
       backendType: "codex",
-      cwd: "/tmp/project",
+      cwd,
       codexInternetAccess: false,
       codexSandbox: "workspace-write",
     });
     await waitForSpawnCalls(1);
 
-    const [cmdAndArgs] = mockSpawn.mock.calls[0];
+    const matchingCall = mockSpawn.mock.calls.find(([, options]) => options.cwd === cwd);
+    expect(matchingCall).toBeDefined();
+    const [cmdAndArgs] = matchingCall!;
     expect(cmdAndArgs).toContain("app-server");
     expect(cmdAndArgs).toContain("-c");
-    expect(cmdAndArgs).toContain("tools.webSearch=false");
+    expect(cmdAndArgs.join(" ")).toContain("tools.webSearch=false");
   });
 
   it("maps bypassPermissions to Codex never-ask launch flags", async () => {
