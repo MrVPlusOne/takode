@@ -1,0 +1,56 @@
+# `web/server/routes/`
+
+Domain-oriented REST API modules for the backend.
+
+This directory was split out from the former monolithic `server/routes.ts`.
+Each file owns a route domain and is mounted by [index.ts](./index.ts).
+
+## Structure
+
+- [index.ts](./index.ts)
+  - Composition root for route modules.
+  - Builds shared `RouteContext` and mounts each domain router.
+- [context.ts](./context.ts)
+  - Shared dependency/context contract passed to every route module.
+- [auth.ts](./auth.ts)
+  - Common Companion/Takode auth validation helpers.
+
+## Domain modules
+
+- [sessions.ts](./sessions.ts)
+  - Session create/list/search/lifecycle APIs (archive, relaunch, naming, ordering).
+- [takode.ts](./takode.ts)
+  - Orchestration APIs (`takode list/herd/send/peek/read/answer`).
+- [quests.ts](./quests.ts)
+  - Quest CRUD, transitions, claims, feedback, verification inbox actions.
+- [settings.ts](./settings.ts)
+  - Settings reads/writes, auto-approval configuration, logs.
+- [filesystem.ts](./filesystem.ts)
+  - Directory browsing, file preview, diff and diff-stat endpoints.
+- [git.ts](./git.ts)
+  - Repo info, branch listing, worktree creation/removal helpers.
+- [transcription.ts](./transcription.ts)
+  - STT/transcription API and transcription debug endpoints.
+- [recordings.ts](./recordings.ts)
+  - Raw protocol recording list/start/stop/status endpoints.
+- [system.ts](./system.ts)
+  - Health, service/system endpoints, migration/export/import, backend discovery.
+
+## Small helper module
+
+- [quest-helpers.ts](./quest-helpers.ts)
+  - Shared quest transition helper used by quest routes.
+
+## How it fits together
+
+1. `createRoutes(...)` in [index.ts](./index.ts) constructs `RouteContext`.
+2. Each `create*Routes(ctx)` module registers its own endpoints on a local `Hono` router.
+3. Routers are mounted onto the top-level API router.
+4. Shared behavior (auth, shell exec, ID resolution, prompts, dependency handles) comes from `RouteContext`.
+
+## Practical guidance
+
+- Add new REST endpoints by extending the relevant domain module first.
+- Put cross-domain reusable logic in `context.ts`, `auth.ts`, or a focused helper file.
+- Keep route handlers thin; delegate long-running/session logic to `ws-bridge`, launcher, stores, or managers.
+
