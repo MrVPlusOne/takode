@@ -173,6 +173,10 @@ function str(v: unknown): string {
 /**
  * Categorize tool calls from an assistant message's content blocks.
  * Returns non-file-op tool call lines plus file paths grouped by operation.
+ *
+ * Test-only utility:
+ * Runtime prompt construction no longer uses this helper, but unit tests
+ * still validate its behavior directly via `_testHelpers`.
  */
 function categorizeToolCalls(
   content: ContentBlock[],
@@ -202,6 +206,10 @@ function categorizeToolCalls(
 /**
  * Build summary lines for aggregated file operations.
  * e.g. "[Files read: foo.ts, bar.ts, +3 more]"
+ *
+ * Test-only utility:
+ * Runtime prompt construction no longer uses this helper, but unit tests
+ * still validate its behavior directly via `_testHelpers`.
  */
 function buildFileOpSummaries(fileOps: Map<string, Set<string>>): string[] {
   const labels: Record<string, string> = {
@@ -865,6 +873,7 @@ export const _testHelpers = {
   buildUpdatePrompt,
   buildConversationBlock,
   formatToolCall,
+  // Test-only helpers retained for focused unit coverage.
   categorizeToolCalls,
   buildFileOpSummaries,
   parseResponse,

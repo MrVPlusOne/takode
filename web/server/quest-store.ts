@@ -12,7 +12,6 @@ import { extname } from "node:path";
 import { randomBytes } from "node:crypto";
 import type {
   QuestmasterTask,
-  QuestStatus,
   QuestCreateInput,
   QuestPatchInput,
   QuestTransitionInput,
@@ -237,16 +236,6 @@ function latestVersion(versions: QuestmasterTask[]): QuestmasterTask {
 function nextVersionId(questId: string, currentVersion: number): string {
   return `${questId}-v${currentVersion + 1}`;
 }
-
-// ─── Status ordering (for carrying forward fields) ───────────────────────────
-
-const STATUS_ORDER: Record<QuestStatus, number> = {
-  idea: 0,
-  refined: 1,
-  in_progress: 2,
-  needs_verification: 3,
-  done: 4,
-};
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
@@ -658,13 +647,12 @@ export async function completeQuest(
 /** Convenience: mark a quest as done (or cancelled). */
 export async function markDone(
   questId: string,
-  opts?: { notes?: string; cancelled?: boolean; force?: boolean },
+  opts?: { notes?: string; cancelled?: boolean },
 ): Promise<QuestmasterTask | null> {
   return transitionQuest(questId, {
     status: "done",
     ...(opts?.notes ? { notes: opts.notes } : {}),
     ...(opts?.cancelled ? { cancelled: true } : {}),
-    ...(opts?.force ? { force: true } : {}),
   });
 }
 

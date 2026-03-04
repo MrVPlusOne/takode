@@ -502,7 +502,6 @@ export type TakodeEventType =
   | "compaction_finished"
   | "permission_request"
   | "permission_resolved"
-  | "quest_update"
   | "session_disconnected"
   | "session_error"
   | "session_archived"

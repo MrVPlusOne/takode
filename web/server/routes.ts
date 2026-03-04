@@ -4113,12 +4113,11 @@ export function createRoutes(
 
   api.post("/quests/:questId/done", async (c) => {
     try {
-      const body = await c.req.json().catch(() => ({})) as { notes?: string; cancelled?: boolean; force?: boolean };
+      const body = await c.req.json().catch(() => ({})) as { notes?: string; cancelled?: boolean };
       const quest = await transitionQuestAndSync(c.req.param("questId"), {
         status: "done",
         ...(body.notes ? { notes: body.notes } : {}),
         ...(body.cancelled ? { cancelled: true } : {}),
-        ...(body.force ? { force: true } : {}),
       });
       if (!quest) return c.json({ error: "Quest not found" }, 404);
       c.header("X-Companion-Deprecated", "Use /api/quests/:questId/transition with {status:\"done\"}");
