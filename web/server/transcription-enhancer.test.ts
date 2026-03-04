@@ -9,7 +9,7 @@ import {
   enhanceTranscript,
 } from "./transcription-enhancer.js";
 
-const { trunc, extractAssistantText, isInjectedMessage, MAX_TURNS, MIN_WORDS_FOR_ENHANCEMENT, HALLUCINATION_LENGTH_RATIO, STT_PROMPT_MAX_CHARS } = _testHelpers;
+const { trunc, extractAssistantText, isSystemNoise, MAX_TURNS, MIN_WORDS_FOR_ENHANCEMENT, HALLUCINATION_LENGTH_RATIO, STT_PROMPT_MAX_CHARS } = _testHelpers;
 
 // ─── Helper to build mock messages ──────────────────────────────────────────
 
@@ -95,30 +95,36 @@ describe("extractAssistantText", () => {
   });
 });
 
-// ─── isInjectedMessage ──────────────────────────────────────────────────────
+// ─── isSystemNoise ──────────────────────────────────────────────────────────
 
-describe("isInjectedMessage", () => {
+describe("isSystemNoise", () => {
   it("detects system-injected messages", () => {
     const msg = userMsg("some system nudge");
     (msg as any).agentSource = { sessionId: "system", sessionLabel: "System" };
-    expect(isInjectedMessage(msg)).toBe(true);
+    expect(isSystemNoise(msg)).toBe(true);
   });
 
   it("detects herd event messages", () => {
     const msg = userMsg("1 event from 1 session");
     (msg as any).agentSource = { sessionId: "herd-events", sessionLabel: "Herd Events" };
-    expect(isInjectedMessage(msg)).toBe(true);
+    expect(isSystemNoise(msg)).toBe(true);
   });
 
-  it("detects inter-agent messages", () => {
-    const msg = userMsg("do the task");
-    (msg as any).agentSource = { sessionId: "abc-123", sessionLabel: "Worker #5" };
-    expect(isInjectedMessage(msg)).toBe(true);
+  it("detects cron messages", () => {
+    const msg = userMsg("scheduled task");
+    (msg as any).agentSource = { sessionId: "cron:daily-check" };
+    expect(isSystemNoise(msg)).toBe(true);
   });
 
-  it("does not flag human-typed messages", () => {
-    expect(isInjectedMessage(userMsg("Fix the auth bug"))).toBe(false);
-    expect(isInjectedMessage(userMsg("Now add tests for WsBridge"))).toBe(false);
+  it("keeps inter-agent messages (leader instructions)", () => {
+    const msg = userMsg("Work on q-42, fix the auth bug");
+    (msg as any).agentSource = { sessionId: "abc-123", sessionLabel: "Leader #22" };
+    expect(isSystemNoise(msg)).toBe(false);
+  });
+
+  it("keeps human-typed messages", () => {
+    expect(isSystemNoise(userMsg("Fix the auth bug"))).toBe(false);
+    expect(isSystemNoise(userMsg("Now add tests for WsBridge"))).toBe(false);
   });
 });
 

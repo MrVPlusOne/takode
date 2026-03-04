@@ -53,15 +53,20 @@ const MAX_SESSION_NAME_CHARS = 100;
 
 // ─── Injected message filtering ───────────────────────────────────────────
 
+/** System/infrastructure source prefixes — these messages have no vocabulary
+ *  value for STT. Agent-to-agent messages (leader → worker) are kept because
+ *  they contain real task context the user might be replying to. */
+const SYSTEM_SOURCE_PREFIXES = ["system", "herd-events", "cron:"];
+
 /**
- * Check if a user message was injected programmatically (not typed by the human).
- * Uses the agentSource metadata — set by the server for all programmatic injections
- * (system nudges, herd events, inter-agent messages, cron jobs).
- * Only messages with no agentSource are from the actual human user.
+ * Check if a user message is system/infrastructure noise (not from a human or agent).
+ * Messages from real agent sessions (leader instructions via takode send) are kept —
+ * they contain task context relevant for STT vocabulary recognition.
  */
-function isInjectedMessage(msg: BrowserIncomingMessage): boolean {
+function isSystemNoise(msg: BrowserIncomingMessage): boolean {
   const source = (msg as { agentSource?: { sessionId: string } }).agentSource;
-  return !!source;
+  if (!source) return false; // human-typed → keep
+  return SYSTEM_SOURCE_PREFIXES.some((p) => source.sessionId === p || source.sessionId.startsWith(p));
 }
 
 // ─── System prompt ──────────────────────────────────────────────────────────
@@ -132,7 +137,7 @@ export function buildTranscriptionContext(history: BrowserIncomingMessage[]): st
         ? (msg as { content: string }).content
         : "";
       // Skip programmatically-injected messages (system nudges, herd events, agent msgs)
-      if (isInjectedMessage(msg)) {
+      if (isSystemNoise(msg)) {
         currentTurn = null;
         continue;
       }
@@ -377,7 +382,7 @@ export function buildSttPrompt(input: SttPromptInput): string {
         if (currentTurn) turns.push(currentTurn);
         const content = typeof (msg as { content?: unknown }).content === "string"
           ? (msg as { content: string }).content : "";
-        if (isInjectedMessage(msg)) {
+        if (isSystemNoise(msg)) {
           currentTurn = null;
           continue;
         }
@@ -657,7 +662,7 @@ export const _testHelpers = {
   MAX_SESSION_NAME_CHARS,
   trunc,
   extractAssistantText,
-  isInjectedMessage,
+  isSystemNoise,
   buildTranscriptionContext,
   buildEnhancementPrompt,
   buildSttPrompt,
