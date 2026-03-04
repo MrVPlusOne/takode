@@ -460,6 +460,39 @@ export function Composer({ sessionId }: { sessionId: string }) {
     setTimeout(() => setSendPressing(false), 500);
   }
 
+  // Double-Shift shortcut: toggle voice recording when Shift is pressed
+  // twice within 400ms (JetBrains "Search Everywhere" pattern).
+  // Escape also stops an active recording.
+  useEffect(() => {
+    if (!voiceSupported) return;
+    let lastShiftUp = 0;
+    let otherKeyPressed = false;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Shift") otherKeyPressed = true;
+      if (e.key === "Escape" && isRecording) handleMicClick();
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key !== "Shift") return;
+      if (otherKeyPressed) { otherKeyPressed = false; lastShiftUp = 0; return; }
+      const now = Date.now();
+      if (now - lastShiftUp < 400) {
+        lastShiftUp = 0;
+        if (!isConnected || isTranscribing) return;
+        handleMicClick();
+      } else {
+        lastShiftUp = now;
+      }
+    };
+
+    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("keyup", onKeyUp);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("keyup", onKeyUp);
+    };
+  }, [voiceSupported, isRecording, isConnected, isTranscribing, handleMicClick]);
+
   function handleKeyDown(e: React.KeyboardEvent) {
     // Slash menu navigation
     if (slashMenuOpen && filteredCommands.length > 0) {
@@ -495,7 +528,9 @@ export function Composer({ sessionId }: { sessionId: string }) {
       cycleMode();
       return;
     }
-    if (e.key === "Enter" && !e.shiftKey) {
+    // Desktop: Enter sends, Shift+Enter inserts newline.
+    // Mobile: Enter always inserts newline (users tap the Send button).
+    if (e.key === "Enter" && !e.shiftKey && !isMobile) {
       e.preventDefault();
       handleSend();
     }
@@ -828,7 +863,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
               onChange={handleInput}
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}
-              enterKeyHint={isTouchDevice() ? "send" : undefined}
+              enterKeyHint={isTouchDevice() ? "enter" : undefined}
               placeholder={
                 pendingAskUserPerm
                   ? "Type your answer..."
@@ -1128,45 +1163,23 @@ export function Composer({ sessionId }: { sessionId: string }) {
                 </button>
               )}
 
+              {/* Stop button — always rendered to reserve space; visibility toggles
+                   so the voice button and send button never shift position. */}
               <button
-                onClick={() => {
-                  if (!textareaRef.current) return;
-                  const ta = textareaRef.current;
-                  const start = ta.selectionStart;
-                  const end = ta.selectionEnd;
-                  const val = ta.value;
-                  const setter = Object.getOwnPropertyDescriptor(
-                    window.HTMLTextAreaElement.prototype, "value"
-                  )?.set;
-                  setter?.call(ta, val.substring(0, start) + "\n" + val.substring(end));
-                  ta.dispatchEvent(new Event("input", { bubbles: true }));
-                  requestAnimationFrame(() => {
-                    ta.selectionStart = ta.selectionEnd = start + 1;
-                    ta.style.height = "auto";
-                    ta.style.height = Math.min(ta.scrollHeight, 200) + "px";
-                  });
-                  ta.focus();
-                }}
-                className={`${isRunning ? "hidden" : "flex"} sm:hidden items-center justify-center w-11 h-11 rounded-lg text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer`}
-                title="Insert newline"
+                onClick={handleInterrupt}
+                className={`flex items-center justify-center w-11 h-11 sm:w-8 sm:h-8 rounded-lg transition-colors ${
+                  isRunning
+                    ? "bg-cc-error/10 hover:bg-cc-error/20 text-cc-error cursor-pointer"
+                    : "invisible pointer-events-none"
+                }`}
+                title="Stop generation"
+                aria-hidden={!isRunning}
+                tabIndex={isRunning ? 0 : -1}
               >
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
-                  <path d="M12 3v6a2 2 0 0 1-2 2H4" />
-                  <path d="M6 9L3.5 11.5 6 14" />
+                <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4 sm:w-3.5 sm:h-3.5">
+                  <rect x="3" y="3" width="10" height="10" rx="1" />
                 </svg>
               </button>
-
-              {isRunning && (
-                <button
-                  onClick={handleInterrupt}
-                  className="flex items-center justify-center w-11 h-11 sm:w-8 sm:h-8 rounded-lg bg-cc-error/10 hover:bg-cc-error/20 text-cc-error transition-colors cursor-pointer"
-                  title="Stop generation"
-                >
-                  <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4 sm:w-3.5 sm:h-3.5">
-                    <rect x="3" y="3" width="10" height="10" rx="1" />
-                  </svg>
-                </button>
-              )}
               <button
                 onClick={handleSend}
                 disabled={!canSend}

@@ -452,7 +452,10 @@ describe("Composer interrupt button", () => {
     render(<Composer sessionId="s1" />);
 
     expect(screen.getByTitle("Send message")).toBeTruthy();
-    expect(screen.queryByTitle("Stop generation")).toBeNull();
+    // Stop button is always rendered (to reserve space) but invisible when idle
+    const stopBtn = screen.getByTitle("Stop generation");
+    expect(stopBtn).toBeTruthy();
+    expect(stopBtn.classList.contains("invisible")).toBe(true);
   });
 });
 
