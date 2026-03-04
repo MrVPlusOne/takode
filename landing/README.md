@@ -1,6 +1,6 @@
 # `landing`
 
-Standalone marketing/landing site for The Companion (`thecompanion.sh`).
+Standalone marketing/landing site for Takode (`thecompanion.sh`).
 
 This is a separate Vite + React app from the main `web/` product UI. It is used
 for the public-facing homepage and onboarding copy/screenshots.

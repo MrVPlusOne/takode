@@ -1,6 +1,6 @@
 # `web/bin/`
 
-CLI entry points for Companion tooling.
+CLI entry points for Takode tooling.
 
 These executables provide local command interfaces for running the server,
 managing sessions/settings, and orchestrating/working quests.
@@ -19,7 +19,7 @@ managing sessions/settings, and orchestrating/working quests.
 
 - [takode.ts](./takode.ts)
   - `takode` orchestration CLI.
-  - Uses authenticated Companion/Takode headers to call orchestration APIs.
+  - Uses authenticated Takode headers to call orchestration APIs.
   - Supports worker/session discovery, herding, peek/read, send, and answer flows.
 
 - [quest.ts](./quest.ts)
@@ -33,7 +33,7 @@ managing sessions/settings, and orchestrating/working quests.
 ## How pieces fit together
 
 1. User runs `companion ...` / `takode ...` / `quest ...`.
-2. `cli.ts` is the top-level dispatcher for Companion runtime commands.
+2. `cli.ts` is the top-level dispatcher for Takode runtime commands.
 3. Management/orchestration commands call server APIs on `localhost`.
 4. Takode/Quest commands use session auth context from env or `.companion/session-auth.json`.
 
@@ -62,7 +62,7 @@ managing sessions/settings, and orchestrating/working quests.
 - Session auth is read from env (`COMPANION_SESSION_ID`, `COMPANION_AUTH_TOKEN`) or
   local metadata files such as `.companion/session-auth.json`.
 - Port defaults to `3456` unless overridden by `--port` or env.
-- Most commands assume a local Companion server is available on `localhost`.
+- Most commands assume a local Takode server is available on `localhost`.
 
 ## When adding a new CLI command
 

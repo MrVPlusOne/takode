@@ -1,6 +1,6 @@
 # `web/server/`
 
-Backend runtime for The Companion (Bun + Hono + WebSocket bridge).
+Backend runtime for Takode (Bun + Hono + WebSocket bridge).
 
 This directory contains the server process that:
 - Starts HTTP + WebSocket endpoints
@@ -58,4 +58,3 @@ This directory contains the server process that:
 
 Most modules have colocated `*.test.ts` files in this directory.
 Protocol/architecture guard tests are also here (for drift and sync-I/O constraints).
-

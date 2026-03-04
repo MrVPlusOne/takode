@@ -1,4 +1,4 @@
-# Changelog
+# Takode Changelog
 
 ## [0.46.0](https://github.com/The-Vibe-Company/companion/compare/the-companion-v0.45.0...the-companion-v0.46.0) (2026-02-16)
 

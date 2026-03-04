@@ -1,6 +1,6 @@
 # `web/src`
 
-Frontend source for The Companion React app.
+Frontend source for the Takode React app.
 
 This directory is the browser-side application: routing, UI state, WebSocket client,
 REST client, and page/component composition.

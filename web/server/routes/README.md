@@ -13,7 +13,7 @@ Each file owns a route domain and is mounted by [index.ts](./index.ts).
 - [context.ts](./context.ts)
   - Shared dependency/context contract passed to every route module.
 - [auth.ts](./auth.ts)
-  - Common Companion/Takode auth validation helpers.
+  - Common Takode auth validation helpers.
 
 ## Domain modules
 
@@ -53,4 +53,3 @@ Each file owns a route domain and is mounted by [index.ts](./index.ts).
 - Add new REST endpoints by extending the relevant domain module first.
 - Put cross-domain reusable logic in `context.ts`, `auth.ts`, or a focused helper file.
 - Keep route handlers thin; delegate long-running/session logic to `ws-bridge`, launcher, stores, or managers.
-

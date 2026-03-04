@@ -999,7 +999,7 @@ When the context window fills up:
 
 ### Permission Mode Locking
 
-The `--permission-mode` flag is a **CLI launch-time argument** — it cannot be changed after the process starts via `set_permission_mode` in all cases (e.g., switching from `bypassPermissions` to a guarded mode may not be honored by the CLI). The Companion server resolves the initial permission mode at session creation based on the user's Ask permission preference:
+The `--permission-mode` flag is a **CLI launch-time argument** — it cannot be changed after the process starts via `set_permission_mode` in all cases (e.g., switching from `bypassPermissions` to a guarded mode may not be honored by the CLI). The Takode server resolves the initial permission mode at session creation based on the user's Ask permission preference:
 
 | Ask Toggle | UI Mode | CLI `--permission-mode` |
 |-----------|---------|------------------------|
