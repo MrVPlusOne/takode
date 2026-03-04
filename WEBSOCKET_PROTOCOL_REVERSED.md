@@ -4,6 +4,12 @@
 >
 > This document describes the undocumented WebSocket protocol that Claude Code CLI uses for programmatic control via the `--sdk-url` flag. This is the same NDJSON protocol used over stdin/stdout, but transported over WebSocket — enabling full bidirectional control without tmux or PTY hacks.
 
+## Verification Status (March 2026)
+
+- Re-checked against current server bridge code (`web/server/ws-bridge.ts`) after the Phase 2/3 ws-bridge refactors.
+- No wire-protocol changes were introduced by those refactors; they were internal module extractions and typing cleanup.
+- Keepalive detail update: protocol supports `keep_alive`, but recent runtime behavior primarily relies on WebSocket ping/pong heartbeats.
+
 ---
 
 ## Table of Contents
@@ -45,7 +51,7 @@ Claude Code CLI has a **hidden** `--sdk-url <ws-url>` flag (`.hideHelp()` in Com
 | Direction | CLI connects TO your server (CLI = client) |
 | Auth | `Authorization: Bearer <token>` header on upgrade |
 | First message | Server sends `user` message, CLI responds with `system/init` |
-| Keepalive | `keep_alive` messages + WebSocket ping/pong every 10s |
+| Keepalive | WebSocket ping/pong every 10s (`keep_alive` may be present but is not guaranteed) |
 
 ---
 

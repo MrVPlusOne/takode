@@ -42,9 +42,12 @@ The UI permission modes map to Codex approval policies via `mapApprovalPolicy()`
 | UI Permission Mode | Codex `approvalPolicy` | Behavior |
 |---|---|---|
 | `bypassPermissions` | `"never"` | Auto-approve all tool calls |
+| `suggest` | `"untrusted"` | Prompt for untrusted operations |
 | `acceptEdits` | `"untrusted"` | Prompt for untrusted operations |
 | `plan` | `"untrusted"` | Prompt for untrusted operations |
 | `default` | `"untrusted"` | Prompt for untrusted operations |
+
+Note: when `askPermission=false`, `mapApprovalPolicy()` forces `"never"` regardless of mode.
 
 Valid Codex enum values (kebab-case only):
 - **sandbox**: `"read-only"`, `"workspace-write"`, `"danger-full-access"`
