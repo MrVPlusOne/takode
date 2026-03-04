@@ -194,7 +194,7 @@ export function buildTranscriptionContext(history: BrowserIncomingMessage[]): st
 
     if (turn.userContent) {
       lines.push("");
-      lines.push("  User:");
+      lines.push("[user]");
       for (const line of trunc(turn.userContent.trim(), userLimit).split("\n")) {
         lines.push(`    ${line}`);
       }
@@ -202,7 +202,7 @@ export function buildTranscriptionContext(history: BrowserIncomingMessage[]): st
 
     if (turn.assistantText) {
       lines.push("");
-      lines.push("  Assistant:");
+      lines.push("[assistant]");
       for (const line of trunc(turn.assistantText.trim(), asstLimit).split("\n")) {
         lines.push(`    ${line}`);
       }
@@ -367,55 +367,79 @@ export function buildSttPrompt(input: SttPromptInput): string {
   const convoEntries: Array<{ role: "User" | "Assistant"; text: string }> = [];
 
   if (input.messageHistory && convoBudget > 50) {
-    let convoRemaining = convoBudget;
-    let msgIndex = 0; // recency index: 0 = most recent
+    // Group messages into turns (user + last assistant response), scanning backwards.
+    // This mirrors how the chat UI collapses older turns: each turn shows the user's
+    // message and only the FINAL assistant text (intermediate assistant messages that
+    // address the agent itself are skipped). This prevents long multi-message exchanges
+    // about a single topic from consuming the entire conversation budget.
+    interface SttTurn { userText: string; assistantText: string }
+    const turns: SttTurn[] = [];
+    let currentTurn: SttTurn | null = null;
 
-    for (let i = input.messageHistory.length - 1; i >= 0 && convoRemaining > 20; i--) {
-      const msg = input.messageHistory[i];
-      let content = "";
-      let role: "User" | "Assistant";
-
+    for (const msg of input.messageHistory) {
       if (msg.type === "user_message") {
-        content = typeof (msg as { content?: unknown }).content === "string"
-          ? (msg as { content: string }).content
-          : "";
-        role = "User";
-        if (content && isOrchestratorNoise(content)) continue;
-      } else if (msg.type === "assistant") {
+        if (currentTurn) turns.push(currentTurn);
+        const content = typeof (msg as { content?: unknown }).content === "string"
+          ? (msg as { content: string }).content : "";
+        if (content && isOrchestratorNoise(content)) {
+          currentTurn = null;
+          continue;
+        }
+        currentTurn = { userText: content, assistantText: "" };
+      } else if (msg.type === "assistant" && currentTurn) {
         const parentId = (msg as { parent_tool_use_id?: string | null }).parent_tool_use_id;
         if (parentId) continue;
         const blocks = (msg as { message?: { content?: ContentBlock[] } }).message?.content;
         if (Array.isArray(blocks)) {
-          content = extractAssistantText(blocks);
+          const text = extractAssistantText(blocks);
+          if (text) currentTurn.assistantText = text; // keep overwriting → last wins
         }
-        role = "Assistant";
-      } else {
-        continue;
       }
-      if (!content.trim()) continue;
+    }
+    if (currentTurn) turns.push(currentTurn);
 
-      // Recency-weighted per-message char limit
-      const charLimit = msgIndex < STT_MSG_CHAR_LIMITS.length
-        ? STT_MSG_CHAR_LIMITS[msgIndex]
+    // Allocate budget to turns in reverse chronological order (most recent first)
+    let convoRemaining = convoBudget;
+    let turnIdx = 0;
+
+    for (let i = turns.length - 1; i >= 0 && convoRemaining > 20; i--) {
+      const turn = turns[i];
+      const charLimit = turnIdx < STT_MSG_CHAR_LIMITS.length
+        ? STT_MSG_CHAR_LIMITS[turnIdx]
         : STT_MSG_CHAR_LIMITS[STT_MSG_CHAR_LIMITS.length - 1];
 
-      const truncated = trunc(content.trim(), Math.min(charLimit, convoRemaining - 12));
-      const line = `${role}: ${truncated}`;
-      if (line.length + 1 > convoRemaining) break;
+      // Add user message
+      if (turn.userText.trim()) {
+        const userTrunc = trunc(turn.userText.trim(), Math.min(charLimit, convoRemaining - 12));
+        const userLine = `[user]\n    ${userTrunc.split("\n").join("\n    ")}`;
+        if (userLine.length + 1 > convoRemaining) break;
+        convoEntries.push({ role: "User", text: userTrunc });
+        convoRemaining -= userLine.length + 1;
+      }
 
-      convoEntries.push({ role, text: truncated });
-      convoRemaining -= line.length + 1;
-      msgIndex++;
+      // Add last assistant message (with slightly smaller limit for balance)
+      if (turn.assistantText.trim() && convoRemaining > 20) {
+        const asstLimit = Math.max(Math.floor(charLimit * 0.7), 80);
+        const asstTrunc = trunc(turn.assistantText.trim(), Math.min(asstLimit, convoRemaining - 16));
+        const asstLine = `[assistant]\n    ${asstTrunc.split("\n").join("\n    ")}`;
+        if (asstLine.length + 1 <= convoRemaining) {
+          convoEntries.push({ role: "Assistant", text: asstTrunc });
+          convoRemaining -= asstLine.length + 1;
+        }
+      }
+
+      turnIdx++;
     }
   }
 
   // ── Phase 3: Assemble final prompt ────────────────────────────────────
   const parts = [...metaParts];
   if (convoEntries.length > 0) {
-    // Reverse to chronological order
+    // Reverse to chronological order (scan was most-recent-first)
     convoEntries.reverse();
     for (const entry of convoEntries) {
-      parts.push(`${entry.role}: ${entry.text}`);
+      const indented = entry.text.split("\n").join("\n    ");
+      parts.push(`[${entry.role.toLowerCase()}]\n    ${indented}`);
     }
   }
 

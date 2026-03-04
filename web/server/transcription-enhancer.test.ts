@@ -135,9 +135,9 @@ describe("buildTranscriptionContext", () => {
       assistantMsg("I found the issue in auth.ts"),
     ];
     const ctx = buildTranscriptionContext(history);
-    expect(ctx).toContain("User:");
+    expect(ctx).toContain("[user]");
     expect(ctx).toContain("Fix the auth bug");
-    expect(ctx).toContain("Assistant:");
+    expect(ctx).toContain("[assistant]");
     expect(ctx).toContain("I found the issue in auth.ts");
   });
 
@@ -233,9 +233,9 @@ describe("buildTranscriptionContext", () => {
     const ctx = buildTranscriptionContext(history);
     // Check indentation structure — first "User:" may lose leading spaces after trim(),
     // but the content lines and "Assistant:" still have proper indentation
-    expect(ctx).toContain("User:");
+    expect(ctx).toContain("[user]");
     expect(ctx).toMatch(/\s{4}Fix bug/);
-    expect(ctx).toMatch(/\s{2}Assistant:/);
+    expect(ctx).toContain("[assistant]");
     expect(ctx).toMatch(/\s{4}Fixed it/);
   });
 
@@ -484,7 +484,7 @@ describe("buildSttPrompt", () => {
     expect(prompt).toContain("Composer: [CURSOR] and add tests");
   });
 
-  it("formats recent turns as chat-style User:/Assistant: lines", () => {
+  it("formats recent turns as indented [user]/[assistant] blocks", () => {
     const prompt = buildSttPrompt({
       messageHistory: [
         userMsg("Fix the auth token refresh in middleware"),
@@ -492,9 +492,11 @@ describe("buildSttPrompt", () => {
         userMsg("Now add unit tests for WsBridge"),
       ],
     });
-    expect(prompt).toContain("User: Fix the auth token refresh");
-    expect(prompt).toContain("Assistant: Done, fixed it in auth.ts");
-    expect(prompt).toContain("User: Now add unit tests for WsBridge");
+    expect(prompt).toContain("[user]");
+    expect(prompt).toContain("Fix the auth token refresh");
+    expect(prompt).toContain("[assistant]");
+    expect(prompt).toContain("Done, fixed it in auth.ts");
+    expect(prompt).toContain("Now add unit tests for WsBridge");
     // No pipe-separated format
     expect(prompt).not.toContain(" | ");
   });
@@ -512,7 +514,7 @@ describe("buildSttPrompt", () => {
     expect(lines[1]).toBe("Session: Debug session");
     expect(lines[2]).toBe("Sessions: Other session");
     expect(lines[3]).toContain("Add a test for");
-    expect(lines[4]).toMatch(/^User: /);
+    expect(lines[4]).toBe("[user]");
   });
 
   it("respects the character budget", () => {
