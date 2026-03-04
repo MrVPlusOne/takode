@@ -12,14 +12,15 @@ import type { TranscriptionConfig } from "./settings-manager.js";
 
 // ─── Tunable limits ─────────────────────────────────────────────────────────
 
-/** Max recent turns to include in context. */
-const MAX_TURNS = 5;
+/** Max recent turns to include in enhancer context. */
+const MAX_TURNS = 8;
 
-/** Max characters per user message in context. */
-const MAX_USER_MSG_CHARS = 500;
-
-/** Max characters of assistant text per turn. */
-const MAX_ASSISTANT_TEXT_CHARS = 500;
+/** Enhancer context: per-turn char limits by recency (index 0 = most recent).
+ *  For the most recent (active) turn, both user and assistant get these limits.
+ *  For older turns, user messages get the limit but only the LAST assistant
+ *  message is included (intermediate assistant messages are pruned). */
+const ENHANCER_USER_CHAR_LIMITS = [800, 600, 400, 300, 200, 200, 150, 150];
+const ENHANCER_ASST_CHAR_LIMITS = [800, 500, 300, 200, 150, 150, 100, 100];
 
 /** Timeout for the enhancement LLM call. */
 const ENHANCEMENT_TIMEOUT_MS = 30_000;
@@ -30,8 +31,12 @@ const HALLUCINATION_LENGTH_RATIO = 3;
 /** Minimum word count to attempt enhancement (very short utterances don't benefit). */
 const MIN_WORDS_FOR_ENHANCEMENT = 3;
 
-/** Max total characters for the STT prompt (~1024 tokens ≈ 4000 chars). */
-const STT_PROMPT_MAX_CHARS = 3800;
+/** Max total characters for the STT prompt.
+ *  Conservative limit: gpt-4o-mini-transcribe accepts up to ~1024 tokens in the
+ *  prompt parameter. 3000 chars ≈ 750 tokens, safely under the limit.
+ *  If the prompt exceeds the model's limit, the API returns an error, so we must
+ *  stay well under. */
+const STT_PROMPT_MAX_CHARS = 3000;
 
 /** Budget reserved for conversation context (the rest goes to metadata). */
 const STT_CONVO_BUDGET_RATIO = 0.55;
@@ -110,9 +115,15 @@ interface Turn {
 }
 
 /**
- * Build conversation context from message history.
- * Extracts the last N turns as simple User/Assistant pairs with indentation.
- * Skips subagent messages and tool-only assistant messages.
+ * Build conversation context from message history for the enhancement LLM.
+ * Extracts the last N turns as User/Assistant pairs with recency-weighted truncation.
+ *
+ * Turn-based pruning (similar to how the chat UI collapses older turns):
+ * - Most recent (active) turn: include all user + assistant messages with generous limits
+ * - Older turns: include user message + only the LAST assistant message (skip intermediate
+ *   assistant messages which usually address the agent, not the user)
+ *
+ * Skips subagent messages, orchestrator noise, and tool-only assistant messages.
  */
 export function buildTranscriptionContext(history: BrowserIncomingMessage[]): string {
   const turns: Turn[] = [];
@@ -152,10 +163,10 @@ export function buildTranscriptionContext(history: BrowserIncomingMessage[]): st
       if (summary && typeof summary === "string" && summary.trim()) {
         if (currentTurn) turns.push(currentTurn);
         currentTurn = null;
-        // Add a synthetic turn representing the compacted context
+        const lastAstLimit = ENHANCER_ASST_CHAR_LIMITS[ENHANCER_ASST_CHAR_LIMITS.length - 1];
         turns.push({
           userContent: "",
-          assistantText: `[Earlier conversation summary: ${trunc(summary.trim(), MAX_ASSISTANT_TEXT_CHARS)}]`,
+          assistantText: `[Earlier conversation summary: ${trunc(summary.trim(), lastAstLimit)}]`,
         });
       }
     }
@@ -167,13 +178,24 @@ export function buildTranscriptionContext(history: BrowserIncomingMessage[]): st
 
   if (recentTurns.length === 0) return "";
 
-  // Format as indented text
+  // Format with recency-weighted truncation
   const lines: string[] = [];
-  for (const turn of recentTurns) {
+  const numTurns = recentTurns.length;
+  for (let i = 0; i < numTurns; i++) {
+    const turn = recentTurns[i];
+    // Recency index: 0 = most recent (last element)
+    const recencyIdx = numTurns - 1 - i;
+    const userLimit = recencyIdx < ENHANCER_USER_CHAR_LIMITS.length
+      ? ENHANCER_USER_CHAR_LIMITS[recencyIdx]
+      : ENHANCER_USER_CHAR_LIMITS[ENHANCER_USER_CHAR_LIMITS.length - 1];
+    const asstLimit = recencyIdx < ENHANCER_ASST_CHAR_LIMITS.length
+      ? ENHANCER_ASST_CHAR_LIMITS[recencyIdx]
+      : ENHANCER_ASST_CHAR_LIMITS[ENHANCER_ASST_CHAR_LIMITS.length - 1];
+
     if (turn.userContent) {
       lines.push("");
       lines.push("  User:");
-      for (const line of trunc(turn.userContent.trim(), MAX_USER_MSG_CHARS).split("\n")) {
+      for (const line of trunc(turn.userContent.trim(), userLimit).split("\n")) {
         lines.push(`    ${line}`);
       }
     }
@@ -181,7 +203,7 @@ export function buildTranscriptionContext(history: BrowserIncomingMessage[]): st
     if (turn.assistantText) {
       lines.push("");
       lines.push("  Assistant:");
-      for (const line of trunc(turn.assistantText.trim(), MAX_ASSISTANT_TEXT_CHARS).split("\n")) {
+      for (const line of trunc(turn.assistantText.trim(), asstLimit).split("\n")) {
         lines.push(`    ${line}`);
       }
     }
@@ -279,8 +301,8 @@ export interface SttPromptInput {
  * The STT model uses this text purely for vocabulary recognition, not instruction following.
  *
  * Budget allocation strategy:
- *   - Split budget into metadata (~45%) and conversation (~55%)
- *   - Metadata: tasks, session name, other sessions, composer text
+ *   - Start with metadata budget (~45%) and conversation budget (~55%)
+ *   - Fill metadata sections; any unused metadata budget is reallocated to conversation
  *   - Conversation: allocate per-message in reverse chronological order with
  *     recency weighting — most recent message gets the most chars, older messages
  *     get progressively less. When budget runs out, stop.
@@ -289,7 +311,6 @@ export interface SttPromptInput {
  */
 export function buildSttPrompt(input: SttPromptInput): string {
   const metaBudget = Math.floor(STT_PROMPT_MAX_CHARS * (1 - STT_CONVO_BUDGET_RATIO));
-  const convoBudget = STT_PROMPT_MAX_CHARS - metaBudget;
 
   // ── Phase 1: Build metadata sections with metaBudget ──────────────────
   const metaParts: string[] = [];
@@ -340,9 +361,9 @@ export function buildSttPrompt(input: SttPromptInput): string {
     addMeta(`Composer: ${before}[CURSOR]${after}`);
   }
 
-  // ── Phase 2: Allocate conversation budget to messages ─────────────────
-  // Scan backwards from most recent, allocating per-message char limits.
-  // Most recent message gets first pick; older messages get progressively less.
+  // ── Phase 2: Allocate conversation budget (base + unused metadata) ────
+  // Any chars the metadata section didn't use get reallocated to conversation.
+  const convoBudget = (STT_PROMPT_MAX_CHARS - metaBudget) + metaRemaining;
   const convoEntries: Array<{ role: "User" | "Assistant"; text: string }> = [];
 
   if (input.messageHistory && convoBudget > 50) {
@@ -606,8 +627,8 @@ export function getTranscriptionLogEntry(id: number): TranscriptionLogEntry | un
 export const _testHelpers = {
   SYSTEM_PROMPT,
   MAX_TURNS,
-  MAX_USER_MSG_CHARS,
-  MAX_ASSISTANT_TEXT_CHARS,
+  ENHANCER_USER_CHAR_LIMITS,
+  ENHANCER_ASST_CHAR_LIMITS,
   MIN_WORDS_FOR_ENHANCEMENT,
   HALLUCINATION_LENGTH_RATIO,
   STT_PROMPT_MAX_CHARS,
