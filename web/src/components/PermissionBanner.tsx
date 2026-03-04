@@ -7,6 +7,7 @@ import type { PermissionUpdate } from "../../server/session-types.js";
 import { DiffViewer } from "./DiffViewer.js";
 import { CatPawAvatar } from "./CatIcons.js";
 import { CopyFormatButton } from "./CopyFormatButton.js";
+import { parseEditToolInput, parseWriteToolInput } from "../utils/tool-rendering.js";
 
 /** Human-readable label for a permission suggestion */
 function suggestionLabel(s: PermissionUpdate): string {
@@ -1053,26 +1054,14 @@ function AskUserQuestionDisplay({
   );
 }
 
-function getChangePatch(change: Record<string, unknown>): string {
-  const candidates = [
-    change.diff,
-    change.unified_diff,
-    change.unifiedDiff,
-    change.patch,
-  ];
-  for (const candidate of candidates) {
-    if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
-  }
-  return "";
-}
-
 function EditDisplay({ input }: { input: Record<string, unknown> }) {
-  const changes = Array.isArray(input.changes) ? input.changes as Array<Record<string, unknown>> : [];
-  const firstChangePath = changes.find((c) => typeof c.path === "string")?.path as string | undefined;
-  const filePath = String(input.file_path || firstChangePath || "");
-  const oldStr = String(input.old_string || "");
-  const newStr = String(input.new_string || "");
-  const unifiedDiff = changes.map((c) => getChangePatch(c)).filter(Boolean).join("\n");
+  const {
+    changes,
+    filePath,
+    oldText: oldStr,
+    newText: newStr,
+    unifiedDiff,
+  } = parseEditToolInput(input, { fallbackToFirstChangePath: true });
 
   if (!oldStr && !newStr && unifiedDiff) {
     return (
@@ -1107,8 +1096,7 @@ function EditDisplay({ input }: { input: Record<string, unknown> }) {
 }
 
 function WriteDisplay({ input }: { input: Record<string, unknown> }) {
-  const filePath = String(input.file_path || "");
-  const content = String(input.content || "");
+  const { filePath, content } = parseWriteToolInput(input);
 
   return (
     <DiffViewer

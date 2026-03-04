@@ -1,40 +1,12 @@
 import { useStore } from "../store.js";
 import { useUsageLimits } from "../hooks/useUsageLimits.js";
-
-function barColor(pct: number): string {
-  if (pct > 80) return "bg-cc-error";
-  if (pct > 50) return "bg-cc-warning";
-  return "bg-cc-primary";
-}
-
-function formatResetTime(resetsAt: string): string {
-  try {
-    const diffMs = new Date(resetsAt).getTime() - Date.now();
-    if (diffMs <= 0) return "now";
-    const hours = Math.floor(diffMs / 3_600_000);
-    const minutes = Math.floor((diffMs % 3_600_000) / 60_000);
-    if (hours > 0) return `${hours}h${minutes}m`;
-    return `${minutes}m`;
-  } catch {
-    return "";
-  }
-}
-
-/** Compute elapsed % within a reset cycle. Returns null if unknown. */
-function cycleElapsedPct(resetsAt: string | null | undefined, cycleDurationMs: number): number | null {
-  if (!resetsAt) return null;
-  try {
-    const remainingMs = new Date(resetsAt).getTime() - Date.now();
-    if (remainingMs <= 0) return 100;
-    const elapsed = 1 - remainingMs / cycleDurationMs;
-    return Math.max(0, Math.min(100, elapsed * 100));
-  } catch {
-    return null;
-  }
-}
-
-const FIVE_HOURS_MS = 5 * 3_600_000;
-const SEVEN_DAYS_MS = 7 * 86_400_000;
+import {
+  cycleElapsedPct,
+  FIVE_HOURS_MS,
+  formatUsageResetTime,
+  SEVEN_DAYS_MS,
+  usageBarColor,
+} from "../utils/usage-bars.js";
 
 function UsageRow({ label, pct, resetStr, timePct }: { label: string; pct: number; resetStr: string; timePct: number | null }) {
   return (
@@ -47,7 +19,7 @@ function UsageRow({ label, pct, resetStr, timePct }: { label: string; pct: numbe
       </span>
       <div className="flex-1 h-1 rounded-full bg-cc-hover overflow-hidden relative">
         <div
-          className={`h-full rounded-full transition-all duration-500 ${barColor(pct)}`}
+          className={`h-full rounded-full transition-all duration-500 ${usageBarColor(pct)}`}
           style={{ width: `${Math.min(pct, 100)}%` }}
         />
         {timePct !== null && (
@@ -85,7 +57,7 @@ export function SidebarUsageBar() {
     rows.push({
       label: "5H",
       pct: fiveHour.utilization,
-      resetStr: fiveHour.resets_at ? formatResetTime(fiveHour.resets_at) : "",
+      resetStr: fiveHour.resets_at ? formatUsageResetTime(fiveHour.resets_at, { invalidFallback: "" }) : "",
       timePct: cycleElapsedPct(fiveHour.resets_at, FIVE_HOURS_MS),
     });
   }
@@ -93,7 +65,7 @@ export function SidebarUsageBar() {
     rows.push({
       label: "7D",
       pct: sevenDay.utilization,
-      resetStr: sevenDay.resets_at ? formatResetTime(sevenDay.resets_at) : "",
+      resetStr: sevenDay.resets_at ? formatUsageResetTime(sevenDay.resets_at, { invalidFallback: "" }) : "",
       timePct: cycleElapsedPct(sevenDay.resets_at, SEVEN_DAYS_MS),
     });
   }

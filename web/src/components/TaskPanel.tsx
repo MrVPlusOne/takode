@@ -4,6 +4,13 @@ import { api, type GitHubPRInfo } from "../api.js";
 import type { TaskItem, SessionTaskEntry, SdkSessionInfo } from "../types.js";
 import { McpSection } from "./McpPanel.js";
 import { ClaudeMdEditor } from "./ClaudeMdEditor.js";
+import {
+  cycleElapsedPct,
+  FIVE_HOURS_MS,
+  formatUsageResetTime,
+  SEVEN_DAYS_MS,
+  usageBarColor,
+} from "../utils/usage-bars.js";
 
 const EMPTY_TASKS: TaskItem[] = [];
 
@@ -51,42 +58,6 @@ function SectionHeader({ title, collapsed, onToggle, right }: {
 
 import { useUsageLimits } from "../hooks/useUsageLimits.js";
 
-function formatResetTime(resetsAt: string): string {
-  try {
-    const diffMs = new Date(resetsAt).getTime() - Date.now();
-    if (diffMs <= 0) return "now";
-    const days = Math.floor(diffMs / 86_400_000);
-    const hours = Math.floor((diffMs % 86_400_000) / 3_600_000);
-    const minutes = Math.floor((diffMs % 3_600_000) / 60_000);
-    if (days > 0) return `${days}d ${hours}h${minutes}m`;
-    if (hours > 0) return `${hours}h${minutes}m`;
-    return `${minutes}m`;
-  } catch {
-    return "N/A";
-  }
-}
-
-function barColor(pct: number): string {
-  if (pct > 80) return "bg-cc-error";
-  if (pct > 50) return "bg-cc-warning";
-  return "bg-cc-primary";
-}
-
-const FIVE_HOURS_MS = 5 * 3_600_000;
-const SEVEN_DAYS_MS = 7 * 86_400_000;
-
-function cycleElapsedPct(resetsAt: string | null | undefined, cycleDurationMs: number): number | null {
-  if (!resetsAt) return null;
-  try {
-    const remainingMs = new Date(resetsAt).getTime() - Date.now();
-    if (remainingMs <= 0) return 100;
-    const elapsed = 1 - remainingMs / cycleDurationMs;
-    return Math.max(0, Math.min(100, elapsed * 100));
-  } catch {
-    return null;
-  }
-}
-
 function UsageLimitsSection({ sessionId }: { sessionId: string }) {
   const limits = useUsageLimits(sessionId);
 
@@ -109,20 +80,20 @@ function UsageLimitsSection({ sessionId }: { sessionId: string }) {
             </span>
             <span className="text-[11px] text-cc-muted tabular-nums">
               {limits.five_hour.utilization}%
-              {limits.five_hour.resets_at && (
-                <span className="ml-1 text-cc-muted">
-                  ({formatResetTime(limits.five_hour.resets_at)})
+                  {limits.five_hour.resets_at && (
+                    <span className="ml-1 text-cc-muted">
+                      ({formatUsageResetTime(limits.five_hour.resets_at, { includeDays: true, invalidFallback: "N/A" })})
+                    </span>
+                  )}
                 </span>
-              )}
-            </span>
-          </div>
-          <div className="w-full h-1.5 rounded-full bg-cc-hover overflow-hidden relative">
-            <div
-              className={`h-full rounded-full transition-all duration-500 ${barColor(limits.five_hour.utilization)}`}
-              style={{
-                width: `${Math.min(limits.five_hour.utilization, 100)}%`,
-              }}
-            />
+              </div>
+              <div className="w-full h-1.5 rounded-full bg-cc-hover overflow-hidden relative">
+                <div
+                  className={`h-full rounded-full transition-all duration-500 ${usageBarColor(limits.five_hour.utilization)}`}
+                  style={{
+                    width: `${Math.min(limits.five_hour.utilization, 100)}%`,
+                  }}
+                />
             {(() => {
               const tp = cycleElapsedPct(limits.five_hour.resets_at, FIVE_HOURS_MS);
               return tp !== null ? (
@@ -142,20 +113,20 @@ function UsageLimitsSection({ sessionId }: { sessionId: string }) {
             </span>
             <span className="text-[11px] text-cc-muted tabular-nums">
               {limits.seven_day.utilization}%
-              {limits.seven_day.resets_at && (
-                <span className="ml-1 text-cc-muted">
-                  ({formatResetTime(limits.seven_day.resets_at)})
+                  {limits.seven_day.resets_at && (
+                    <span className="ml-1 text-cc-muted">
+                      ({formatUsageResetTime(limits.seven_day.resets_at, { includeDays: true, invalidFallback: "N/A" })})
+                    </span>
+                  )}
                 </span>
-              )}
-            </span>
-          </div>
-          <div className="w-full h-1.5 rounded-full bg-cc-hover overflow-hidden relative">
-            <div
-              className={`h-full rounded-full transition-all duration-500 ${barColor(limits.seven_day.utilization)}`}
-              style={{
-                width: `${Math.min(limits.seven_day.utilization, 100)}%`,
-              }}
-            />
+              </div>
+              <div className="w-full h-1.5 rounded-full bg-cc-hover overflow-hidden relative">
+                <div
+                  className={`h-full rounded-full transition-all duration-500 ${usageBarColor(limits.seven_day.utilization)}`}
+                  style={{
+                    width: `${Math.min(limits.seven_day.utilization, 100)}%`,
+                  }}
+                />
             {(() => {
               const tp = cycleElapsedPct(limits.seven_day.resets_at, SEVEN_DAYS_MS);
               return tp !== null ? (
@@ -181,7 +152,7 @@ function UsageLimitsSection({ sessionId }: { sessionId: string }) {
           {limits.extra_usage.utilization !== null && (
             <div className="w-full h-1.5 rounded-full bg-cc-hover overflow-hidden">
               <div
-                className={`h-full rounded-full transition-all duration-500 ${barColor(limits.extra_usage.utilization)}`}
+                className={`h-full rounded-full transition-all duration-500 ${usageBarColor(limits.extra_usage.utilization)}`}
                 style={{
                   width: `${Math.min(limits.extra_usage.utilization, 100)}%`,
                 }}
@@ -249,8 +220,8 @@ function CodexRateLimitsSection({ sessionId }: { sessionId: string }) {
             </span>
           </div>
           <div className="w-full h-1.5 rounded-full bg-cc-hover overflow-hidden">
-            <div
-              className={`h-full rounded-full transition-all duration-500 ${barColor(primary.usedPercent)}`}
+              <div
+              className={`h-full rounded-full transition-all duration-500 ${usageBarColor(primary.usedPercent)}`}
               style={{ width: `${Math.min(primary.usedPercent, 100)}%` }}
             />
           </div>
@@ -272,8 +243,8 @@ function CodexRateLimitsSection({ sessionId }: { sessionId: string }) {
             </span>
           </div>
           <div className="w-full h-1.5 rounded-full bg-cc-hover overflow-hidden">
-            <div
-              className={`h-full rounded-full transition-all duration-500 ${barColor(secondary.usedPercent)}`}
+              <div
+              className={`h-full rounded-full transition-all duration-500 ${usageBarColor(secondary.usedPercent)}`}
               style={{ width: `${Math.min(secondary.usedPercent, 100)}%` }}
             />
           </div>
@@ -331,7 +302,7 @@ function CodexTokenDetailsSection({ sessionId }: { sessionId: string }) {
           </div>
           <div className="w-full h-1.5 rounded-full bg-cc-hover overflow-hidden">
             <div
-              className={`h-full rounded-full transition-all duration-500 ${barColor(contextPct)}`}
+              className={`h-full rounded-full transition-all duration-500 ${usageBarColor(contextPct)}`}
               style={{ width: `${Math.min(contextPct, 100)}%` }}
             />
           </div>

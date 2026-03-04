@@ -7,6 +7,7 @@ import { CollapseFooter } from "./CollapseFooter.js";
 import { CopyFormatButton } from "./CopyFormatButton.js";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
+import { parseEditToolInput, parseWriteToolInput } from "../utils/tool-rendering.js";
 
 const TOOL_ICONS: Record<string, string> = {
   Bash: "terminal",
@@ -472,30 +473,14 @@ function BashDetail({ input }: { input: Record<string, unknown> }) {
   );
 }
 
-function getChangePatch(change: Record<string, unknown>): string {
-  const candidates = [
-    change.diff,
-    change.unified_diff,
-    change.unifiedDiff,
-    change.patch,
-  ];
-  for (const candidate of candidates) {
-    if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
-  }
-  return "";
-}
-
 function EditToolDetail({ input }: { input: Record<string, unknown> }) {
-  const filePath = String(input.file_path || "");
-  const oldStr = String(input.old_string || "");
-  const newStr = String(input.new_string || "");
-  const changes = Array.isArray(input.changes)
-    ? input.changes as Array<Record<string, unknown>>
-    : [];
-  const unifiedDiff = changes
-    .map((c) => getChangePatch(c))
-    .filter(Boolean)
-    .join("\n");
+  const {
+    filePath,
+    oldText: oldStr,
+    newText: newStr,
+    changes,
+    unifiedDiff,
+  } = parseEditToolInput(input);
 
   if (!oldStr && !newStr && unifiedDiff) {
     return <DiffViewer unifiedDiff={unifiedDiff} fileName={filePath} mode="compact" />;
@@ -532,8 +517,7 @@ function EditToolDetail({ input }: { input: Record<string, unknown> }) {
 }
 
 function WriteToolDetail({ input }: { input: Record<string, unknown> }) {
-  const filePath = String(input.file_path || "");
-  const content = String(input.content || "");
+  const { filePath, content } = parseWriteToolInput(input);
 
   return <DiffViewer newText={content} fileName={filePath} mode="compact" />;
 }
