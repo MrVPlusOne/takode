@@ -107,7 +107,7 @@ function oldPlistPath(): string {
 }
 
 function unitPath(): string {
-  return join(tempDir, ".config", "systemd", "user", "the-companion.service");
+  return join(tempDir, ".config", "systemd", "user", "takode.service");
 }
 
 function logDir(): string {
@@ -193,7 +193,7 @@ describe("generateSystemdUnit", () => {
 
   it("includes the description", () => {
     const unit = service.generateSystemdUnit({ binPath: "/usr/local/bin/the-companion" });
-    expect(unit).toContain("Description=The Companion");
+    expect(unit).toContain("Description=Takode");
   });
 
   it("uses the provided binary path in ExecStart", () => {
@@ -650,7 +650,7 @@ describe("start (linux)", () => {
     await service.start();
 
     const startCall = mockExecSync.mock.calls.find(
-      ([cmd]) => typeof cmd === "string" && cmd.includes("start the-companion.service"),
+      ([cmd]) => typeof cmd === "string" && cmd.includes("start takode.service"),
     );
     expect(startCall).toBeDefined();
   });
@@ -799,7 +799,7 @@ describe("stop (linux)", () => {
     await service.stop();
 
     const stopCall = mockExecSync.mock.calls.find(
-      ([cmd]) => typeof cmd === "string" && cmd.includes("stop the-companion.service"),
+      ([cmd]) => typeof cmd === "string" && cmd.includes("stop takode.service"),
     );
     expect(stopCall).toBeDefined();
   });
@@ -874,7 +874,7 @@ describe("restart (linux)", () => {
     await service.restart();
 
     const restartCall = mockExecSync.mock.calls.find(
-      ([cmd]) => typeof cmd === "string" && cmd.includes("restart the-companion.service"),
+      ([cmd]) => typeof cmd === "string" && cmd.includes("restart takode.service"),
     );
     expect(restartCall).toBeDefined();
   });
@@ -1041,7 +1041,7 @@ describe("status (linux)", () => {
     service = await import("./service.js");
     mockExecSync.mockReset();
     mockExecSync.mockImplementation((cmd: string) => {
-      if (typeof cmd === "string" && cmd.includes("show the-companion.service")) {
+      if (typeof cmd === "string" && cmd.includes("show takode.service")) {
         return "ActiveState=active\nMainPID=54321\n";
       }
       return "";
@@ -1067,7 +1067,7 @@ describe("status (linux)", () => {
     service = await import("./service.js");
     mockExecSync.mockReset();
     mockExecSync.mockImplementation((cmd: string) => {
-      if (typeof cmd === "string" && cmd.includes("show the-companion.service")) {
+      if (typeof cmd === "string" && cmd.includes("show takode.service")) {
         return "ActiveState=inactive\nMainPID=0\n";
       }
       return "";
@@ -1090,7 +1090,7 @@ describe("status (linux)", () => {
     service = await import("./service.js");
     mockExecSync.mockReset();
     mockExecSync.mockImplementation((cmd: string) => {
-      if (typeof cmd === "string" && cmd.includes("show the-companion.service")) {
+      if (typeof cmd === "string" && cmd.includes("show takode.service")) {
         return "ActiveState=active\nMainPID=1234\n";
       }
       return "";

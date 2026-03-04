@@ -19,7 +19,7 @@ const CTL_COMMANDS = new Set([
 
 function printUsage(): void {
   console.log(`
-Usage: companion [command]
+Usage: takode [command]
 
 Server commands:
   (none)      Start the server in foreground (default)
@@ -29,7 +29,7 @@ Server commands:
   stop        Stop the background service
   restart     Restart the background service
   uninstall   Remove the background service
-  status      Show service status (or use 'companion status' when server is running)
+  status      Show service status (or use 'takode status' when server is running)
   logs        Tail service log files
   help        Show this help message
 
@@ -46,7 +46,7 @@ Management commands (requires running server):
   cron        Manage scheduled jobs (list, get, create, update, delete, toggle, run)
   skills      Manage Claude Code skills (list, get, create, update, delete)
   settings    Manage settings (get, set)
-  assistant   Manage the Companion Assistant (status, launch, stop, config)
+  assistant   Manage the Takode Assistant (status, launch, stop, config)
 
 Options:
   --port <n>  Override the default port (default: 3456)
@@ -116,13 +116,13 @@ switch (command) {
       const { status } = await import("../server/service.js");
       const result = await status();
       if (!result.installed) {
-        console.log("The Companion is not installed as a service.");
-        console.log("Run: companion install");
+        console.log("Takode is not installed as a service.");
+        console.log("Run: takode install");
       } else if (result.running) {
-        console.log(`The Companion is running (PID: ${result.pid})`);
+        console.log(`Takode is running (PID: ${result.pid})`);
         console.log(`  URL: http://localhost:${result.port}`);
       } else {
-        console.log("The Companion is installed but not running.");
+        console.log("Takode is installed but not running.");
         console.log("Check logs at ~/.companion/logs/");
       }
     }
@@ -169,7 +169,7 @@ switch (command) {
     const importPort = importPortIdx !== -1 ? Number(importArgs[importPortIdx + 1]) : 3456;
     const importArg = importArgs.find((a, i) => !a.startsWith("--") && i !== importPortIdx + 1);
     if (!importArg) {
-      console.error("Usage: companion import <archive.tar.zst> [--port PORT]");
+      console.error("Usage: takode import <archive.tar.zst> [--port PORT]");
       process.exit(1);
     }
     const { resolve: resolvePath } = await import("node:path");
