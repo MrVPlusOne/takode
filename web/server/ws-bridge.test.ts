@@ -7,6 +7,7 @@ vi.mock("node:crypto", () => ({ randomUUID: () => "test-uuid" }));
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
 import { SessionStore } from "./session-store.js";
+import { HerdEventDispatcher } from "./herd-event-dispatcher.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -7249,6 +7250,157 @@ describe("Codex user_message takode events", () => {
     expect(lastTurnEnd[2]).toEqual(expect.objectContaining({ interrupted: true, interrupt_source: "user" }));
 
     spy.mockRestore();
+  });
+
+  it("emits both interrupted and resumed turn_end events after correction, with herd delivery for each", async () => {
+    vi.useFakeTimers();
+    const leaderId = "orch-correction";
+    const workerId = "worker-correction";
+    const launcherSessions = new Map<string, any>([
+      [leaderId, { sessionId: leaderId, isOrchestrator: true, backendType: "claude", cwd: "/test" }],
+      [workerId, { sessionId: workerId, herdedBy: leaderId, backendType: "codex", cwd: "/test" }],
+    ]);
+
+    const launcherMock = {
+      touchActivity: vi.fn(),
+      getSession: vi.fn((id: string) => launcherSessions.get(id)),
+      getHerdedSessions: vi.fn((id: string) => (id === leaderId ? [{ sessionId: workerId }] : [])),
+      getSessionNum: vi.fn((id: string) => (id === leaderId ? 1 : 2)),
+    };
+    bridge.setLauncher(launcherMock as any);
+
+    const dispatcher = new HerdEventDispatcher(bridge as any, launcherMock as any);
+    bridge.setHerdEventDispatcher(dispatcher);
+    dispatcher.setupForOrchestrator(leaderId);
+
+    const leaderCli = makeCliSocket(leaderId);
+    bridge.handleCLIOpen(leaderCli, leaderId);
+    bridge.handleCLIMessage(leaderCli, makeInitMsg({ session_id: "cli-orch-correction" }));
+
+    const workerBrowser = makeBrowserSocket(workerId);
+    const workerAdapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(workerId, workerAdapter as any);
+    bridge.handleBrowserOpen(workerBrowser, workerId);
+
+    const eventSpy = vi.spyOn(bridge, "emitTakodeEvent");
+    const herdInjectSpy = vi.spyOn(bridge, "injectUserMessage");
+
+    // Initial worker task turn.
+    bridge.handleBrowserMessage(workerBrowser, JSON.stringify({
+      type: "user_message",
+      content: "Implement the first version",
+    }));
+    await Promise.resolve();
+
+    // Mid-turn correction from leader.
+    bridge.handleBrowserMessage(workerBrowser, JSON.stringify({
+      type: "user_message",
+      content: "Correction: include edge-case handling",
+      agentSource: { sessionId: leaderId, sessionLabel: "#1 leader" },
+    }));
+    await Promise.resolve();
+
+    // First result ends interrupted turn.
+    workerAdapter.emitBrowserMessage({
+      type: "result",
+      data: {
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result: "interrupted by correction",
+        duration_ms: 200,
+        duration_api_ms: 200,
+        num_turns: 1,
+        total_cost_usd: 0,
+        stop_reason: "interrupted",
+        usage: {
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+        },
+        uuid: "worker-correction-result-1",
+        session_id: workerId,
+      },
+    });
+    await Promise.resolve();
+
+    // Deliver first herd event batch.
+    vi.advanceTimersByTime(600);
+    await Promise.resolve();
+
+    // Leader processes injected herd event message and returns idle.
+    bridge.handleCLIMessage(leaderCli, JSON.stringify({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      result: "ack",
+      duration_ms: 100,
+      duration_api_ms: 100,
+      num_turns: 1,
+      total_cost_usd: 0,
+      stop_reason: "end_turn",
+      usage: {
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+      },
+      uuid: "leader-herd-ack-1",
+      session_id: leaderId,
+    }));
+    await Promise.resolve();
+
+    // Second result ends the resumed follow-up turn.
+    workerAdapter.emitBrowserMessage({
+      type: "result",
+      data: {
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result: "completed after correction",
+        duration_ms: 450,
+        duration_api_ms: 450,
+        num_turns: 2,
+        total_cost_usd: 0,
+        stop_reason: "completed",
+        usage: {
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+        },
+        uuid: "worker-correction-result-2",
+        session_id: workerId,
+      },
+    });
+    await Promise.resolve();
+    vi.advanceTimersByTime(600);
+    await Promise.resolve();
+
+    try {
+      const workerTurnEndCalls = eventSpy.mock.calls.filter(
+        ([sid, eventType]) => sid === workerId && eventType === "turn_end",
+      );
+      expect(workerTurnEndCalls).toHaveLength(2);
+      expect(workerTurnEndCalls[0]?.[2]).toEqual(expect.objectContaining({
+        interrupted: true,
+        interrupt_source: "leader",
+      }));
+      expect(workerTurnEndCalls[1]?.[2]).toEqual(expect.not.objectContaining({
+        interrupted: true,
+      }));
+
+      const herdDeliveries = herdInjectSpy.mock.calls.filter(
+        ([sid, _content, source]) => sid === leaderId && source?.sessionId === "herd-events",
+      );
+      expect(herdDeliveries).toHaveLength(2);
+    } finally {
+      dispatcher.destroy();
+      eventSpy.mockRestore();
+      herdInjectSpy.mockRestore();
+      vi.useRealTimers();
+    }
   });
 });
 

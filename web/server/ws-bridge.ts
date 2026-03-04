@@ -72,6 +72,8 @@ import {
   markTurnInterrupted as markTurnInterruptedLifecycle,
   setGenerating as setGeneratingLifecycle,
   type InterruptSource as GenerationInterruptSource,
+  type UserDispatchTurnTarget,
+  trackUserMessageForTurn as trackUserMessageForTurnLifecycle,
 } from "./bridge/generation-lifecycle.js";
 import type {
   BackendAdapter,
@@ -270,6 +272,12 @@ interface Session {
   compactedDuringTurn: boolean;
   /** Message history indices of user messages received during the current turn (for turn_end herd events) */
   userMessageIdsThisTurn: number[];
+  /** Number of follow-up turns queued while a current turn is still running. */
+  queuedTurnStarts: number;
+  /** Dispatch reasons for queued follow-up turns (aligned with queuedTurnStarts). */
+  queuedTurnReasons: string[];
+  /** User message history IDs per queued follow-up turn. */
+  queuedTurnUserMessageIds: number[][];
   /** Whether system.init has been received since the last CLI connect.
    *  False during --resume replay — messages sent before init are dropped by CLI. */
   cliInitReceived: boolean;
@@ -1121,6 +1129,7 @@ export class WsBridge {
     return {
       isGenerating: session.isGenerating,
       generationStartedAt: session.generationStartedAt,
+      queuedTurnStarts: session.queuedTurnStarts,
       backendConnected: !!(session.backendSocket || session.codexAdapter || session.claudeSdkAdapter),
       cliInitReceived: session.cliInitReceived,
       pendingMessagesCount: session.pendingMessages.length,
@@ -1437,6 +1446,9 @@ export class WsBridge {
         intentionalCodexRelaunchUntil: null,
         intentionalCodexRelaunchReason: null,
         userMessageIdsThisTurn: [],
+        queuedTurnStarts: 0,
+        queuedTurnReasons: [],
+        queuedTurnUserMessageIds: [],
         cliInitReceived: false,
         lastCliMessageAt: 0,
         lastCliPingAt: 0,
@@ -1802,6 +1814,9 @@ export class WsBridge {
         intentionalCodexRelaunchUntil: null,
         intentionalCodexRelaunchReason: null,
         userMessageIdsThisTurn: [],
+        queuedTurnStarts: 0,
+        queuedTurnReasons: [],
+        queuedTurnUserMessageIds: [],
         cliInitReceived: false,
         lastCliMessageAt: 0,
         lastCliPingAt: 0,
@@ -4910,9 +4925,9 @@ export class WsBridge {
           this.markTurnInterrupted(session, interruptSource);
         }
 
-        this.markRunningFromUserDispatch(session, "user_message");
-        // Track after markRunningFromUserDispatch() because a new turn reset clears this array.
-        session.userMessageIdsThisTurn.push(userMsgHistoryIdx);
+        const target = this.markRunningFromUserDispatch(session, "user_message");
+        // Queue follow-up user messages onto the next turn when dispatching while running.
+        this.trackUserMessageForTurn(session, userMsgHistoryIdx, target);
       }
 
       return {
@@ -5007,11 +5022,8 @@ export class WsBridge {
       parent_tool_use_id: null,
       session_id: msg.session_id || session.state.session_id || "",
     });
-    this.sendToCLI(session, ndjson);
-    // Track user message for turn_end herd event AFTER sendToCLI, which calls
-    // setGenerating(true) → resets userMessageIdsThisTurn for new turns. Tracking
-    // after ensures the message that triggered the turn isn't erased by the reset.
-    session.userMessageIdsThisTurn.push(userMsgHistoryIdx);
+    const turnTarget = this.sendToCLI(session, ndjson);
+    this.trackUserMessageForTurn(session, userMsgHistoryIdx, turnTarget ?? "current");
     // Track the outbound user message so we can re-queue it if the CLI
     // disconnects mid-turn (before sending a result). On --resume reconnect,
     // the CLI's internal checkpoint won't include the in-flight message.
@@ -5459,16 +5471,17 @@ export class WsBridge {
 
   // ── Transport helpers ───────────────────────────────────────────────────
 
-  private sendToCLI(session: Session, ndjson: string) {
+  private sendToCLI(session: Session, ndjson: string): UserDispatchTurnTarget | null {
+    let turnTarget: UserDispatchTurnTarget | null = null;
     if (this.isCliUserMessagePayload(ndjson)) {
-      this.markRunningFromUserDispatch(session, "user_message_dispatch");
+      turnTarget = this.markRunningFromUserDispatch(session, "user_message_dispatch");
     }
     if (!session.backendSocket) {
       // Queue the message — CLI might still be starting up.
       // Don't record here; the message will be recorded when flushed.
       console.log(`[ws-bridge] CLI not yet connected for session ${sessionTag(session.id)}, queuing message`);
       session.pendingMessages.push(ndjson);
-      return;
+      return turnTarget;
     }
     // Record raw outgoing CLI message (only when actually sending, not when queuing)
     this.recorder?.record(session.id, "out", ndjson, "cli", session.backendType, session.state.cwd);
@@ -5483,6 +5496,7 @@ export class WsBridge {
       session.pendingMessages.push(ndjson);
       try { session.backendSocket.close(); } catch { /* already dead */ }
     }
+    return turnTarget;
   }
 
   /** Push a partial session state update to all connected browsers for a session. */
@@ -5813,8 +5827,16 @@ export class WsBridge {
    * dispatched, then roll back after a safety timeout if no backend output
    * arrives. This closes the idle-race window between dispatch and first token.
    */
-  private markRunningFromUserDispatch(session: Session, reason: string): void {
-    markRunningFromUserDispatchLifecycle(this.getGenerationLifecycleDeps(), session, reason);
+  private markRunningFromUserDispatch(session: Session, reason: string): UserDispatchTurnTarget {
+    return markRunningFromUserDispatchLifecycle(this.getGenerationLifecycleDeps(), session, reason);
+  }
+
+  private trackUserMessageForTurn(
+    session: Session,
+    historyIndex: number,
+    target: UserDispatchTurnTarget,
+  ): void {
+    trackUserMessageForTurnLifecycle(session, historyIndex, target);
   }
 
   private clearOptimisticRunningTimer(session: Session, _reason: string): void {
