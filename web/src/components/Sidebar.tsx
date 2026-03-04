@@ -258,6 +258,7 @@ export function Sidebar() {
   function handleSelectSession(sessionId: string) {
     setContextMenu(null);
     useStore.getState().markSessionViewed(sessionId);
+    api.markSessionRead?.(sessionId).catch(() => {});
     // Navigate to session hash — App.tsx hash effect handles setCurrentSession + connectSession
     navigateToSession(sessionId);
     // Close sidebar on mobile
@@ -1032,6 +1033,7 @@ export function Sidebar() {
             label: "Mark as read",
             onClick: () => {
               useStore.getState().markSessionViewed(contextMenu.sessionId);
+              api.markSessionRead?.(contextMenu.sessionId).catch(() => {});
             },
           } : {
             label: "Mark as unread",

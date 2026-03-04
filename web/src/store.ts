@@ -1224,8 +1224,6 @@ export const useStore = create<AppState>((set) => ({
     set((s) => {
       const sessionAttention = new Map(s.sessionAttention);
       sessionAttention.set(sessionId, null);
-      // Fire-and-forget REST call; server broadcasts authoritative state to all browsers
-      api.markSessionRead(sessionId).catch(() => {});
       return { sessionAttention };
     }),
 

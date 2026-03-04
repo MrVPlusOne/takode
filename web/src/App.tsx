@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { useStore } from "./store.js";
 import { connectSession } from "./ws.js";
-import { checkHealth } from "./api.js";
+import { api, checkHealth } from "./api.js";
 
 import { parseHash, navigateToSession, navigateToMostRecentSession } from "./utils/routing.js";
 import { Sidebar } from "./components/Sidebar.js";
@@ -113,6 +113,7 @@ export default function App() {
       // (they don't exist on the server yet)
       if (!isPendingId(route.sessionId)) {
         store.markSessionViewed(route.sessionId);
+        api.markSessionRead?.(route.sessionId).catch(() => {});
         connectSession(route.sessionId);
       }
     } else if (route.page === "home") {

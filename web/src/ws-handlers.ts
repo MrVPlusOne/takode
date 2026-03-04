@@ -1,0 +1,1109 @@
+import { useStore } from "./store.js";
+import { api } from "./api.js";
+import type { BrowserIncomingMessage, ContentBlock, ChatMessage, TaskItem, SdkSessionInfo } from "./types.js";
+import { generateUniqueSessionName } from "./utils/names.js";
+import { playNotificationSound } from "./utils/notification-sound.js";
+
+const taskCounters = new Map<string, number>();
+const pendingCliDisconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
+/** Track processed tool_use IDs to prevent duplicate task creation */
+const processedToolUseIds = new Map<string, Set<string>>();
+/** Delay transient cli_disconnected flips to avoid sidebar flicker during fast relaunches. */
+const CLI_DISCONNECT_DEBOUNCE_MS = 250;
+
+export interface WsMessageHandlerDeps {
+  disconnectSession: (sessionId: string) => void;
+  connectAllSessions: (sessions: SdkSessionInfo[]) => void;
+}
+
+function clearPendingCliDisconnect(sessionId: string): void {
+  const timer = pendingCliDisconnectTimers.get(sessionId);
+  if (!timer) return;
+  clearTimeout(timer);
+  pendingCliDisconnectTimers.delete(sessionId);
+}
+
+function applyCliDisconnected(sessionId: string, reason: "idle_limit" | null): void {
+  const store = useStore.getState();
+  store.setCliConnected(sessionId, false);
+  store.setCliDisconnectReason(sessionId, reason);
+  store.setSessionStatus(sessionId, null);
+  store.clearStreamingState(sessionId);
+  store.clearToolProgress(sessionId);
+}
+
+function normalizePath(path: string): string {
+  const isAbs = path.startsWith("/");
+  const parts = path.split("/");
+  const out: string[] = [];
+  for (const part of parts) {
+    if (!part || part === ".") continue;
+    if (part === "..") {
+      if (out.length > 0) out.pop();
+      continue;
+    }
+    out.push(part);
+  }
+  return `${isAbs ? "/" : ""}${out.join("/")}`;
+}
+
+export function resolveSessionFilePath(filePath: string, cwd?: string): string {
+  if (filePath.startsWith("/")) return normalizePath(filePath);
+  if (!cwd) return normalizePath(filePath);
+  return normalizePath(`${cwd}/${filePath}`);
+}
+
+function isPathInSessionScope(filePath: string, cwd?: string): boolean {
+  if (!cwd) return true;
+  const normalizedCwd = normalizePath(cwd);
+  return filePath === normalizedCwd || filePath.startsWith(`${normalizedCwd}/`);
+}
+
+function getProcessedSet(sessionId: string): Set<string> {
+  let set = processedToolUseIds.get(sessionId);
+  if (!set) {
+    set = new Set();
+    processedToolUseIds.set(sessionId, set);
+  }
+  return set;
+}
+
+function extractTasksFromBlocks(sessionId: string, blocks: ContentBlock[]) {
+  const store = useStore.getState();
+  const processed = getProcessedSet(sessionId);
+  let hadTaskUpdate = false;
+
+  for (const block of blocks) {
+    if (block.type !== "tool_use") continue;
+    const { name, input, id: toolUseId } = block;
+
+    // Deduplicate by tool_use_id
+    if (toolUseId) {
+      if (processed.has(toolUseId)) continue;
+      processed.add(toolUseId);
+    }
+
+    // TodoWrite: full replacement — { todos: [{ content, status, activeForm }] }
+    if (name === "TodoWrite") {
+      const todos = input.todos as { content?: string; status?: string; activeForm?: string }[] | undefined;
+      if (Array.isArray(todos)) {
+        const tasks: TaskItem[] = todos.map((t, i) => ({
+          id: String(i + 1),
+          subject: t.content || "Task",
+          description: "",
+          activeForm: t.activeForm,
+          status: (t.status as TaskItem["status"]) || "pending",
+        }));
+        store.setTasks(sessionId, tasks);
+        taskCounters.set(sessionId, tasks.length);
+        hadTaskUpdate = true;
+      }
+      continue;
+    }
+
+    // TaskCreate: incremental add — { subject, description, activeForm }
+    if (name === "TaskCreate") {
+      const count = (taskCounters.get(sessionId) || 0) + 1;
+      taskCounters.set(sessionId, count);
+      const task = {
+        id: String(count),
+        subject: (input.subject as string) || "Task",
+        description: (input.description as string) || "",
+        activeForm: input.activeForm as string | undefined,
+        status: "pending" as const,
+      };
+      store.addTask(sessionId, task);
+      hadTaskUpdate = true;
+      continue;
+    }
+
+    // TaskUpdate: incremental update — { taskId, status, owner, activeForm, addBlockedBy }
+    if (name === "TaskUpdate") {
+      const taskId = input.taskId as string;
+      if (taskId) {
+        const updates: Partial<TaskItem> = {};
+        if (input.status) updates.status = input.status as TaskItem["status"];
+        if (input.owner) updates.owner = input.owner as string;
+        if (input.activeForm !== undefined) updates.activeForm = input.activeForm as string;
+        if (input.addBlockedBy) updates.blockedBy = input.addBlockedBy as string[];
+        store.updateTask(sessionId, taskId, updates);
+        hadTaskUpdate = true;
+      }
+    }
+  }
+
+  // Update sidebar task preview: show the first in_progress task's activeForm
+  if (hadTaskUpdate) {
+    const tasks = useStore.getState().sessionTasks.get(sessionId);
+    const active = tasks?.find((t) => t.status === "in_progress");
+    store.setSessionTaskPreview(sessionId, active ? (active.activeForm || active.subject) : null);
+  }
+}
+
+function extractChangedFilesFromBlocks(sessionId: string, blocks: ContentBlock[]) {
+  const store = useStore.getState();
+  const session = store.sessions.get(sessionId);
+  const sessionCwd =
+    session?.cwd ||
+    store.sdkSessions.find((sdk) => sdk.sessionId === sessionId)?.cwd;
+  // Use repo root as scope so files outside session cwd (e.g. repo-root CLAUDE.md) are tracked.
+  // For worktrees, repo_root points to the main repo (not the worktree directory), so fall
+  // back to cwd when repo_root isn't an ancestor of cwd.
+  const scope = (session?.repo_root && sessionCwd?.startsWith(session.repo_root + "/"))
+    ? session.repo_root
+    : sessionCwd;
+  for (const block of blocks) {
+    if (block.type !== "tool_use") continue;
+    const { name, input } = block;
+    const filePath = name === "NotebookEdit" ? input.notebook_path : input.file_path;
+    if ((name === "Edit" || name === "Write" || name === "MultiEdit" || name === "NotebookEdit") && typeof filePath === "string") {
+      const resolvedPath = resolveSessionFilePath(filePath, sessionCwd);
+      if (isPathInSessionScope(resolvedPath, scope)) {
+        store.addChangedFile(sessionId, resolvedPath);
+      }
+    }
+  }
+}
+
+function sendBrowserNotification(title: string, body: string, tag: string) {
+  if (typeof Notification === "undefined") return;
+  if (Notification.permission !== "granted") return;
+  new Notification(title, { body, tag });
+}
+
+function shouldNotifyOnResult(sessionId: string, store: ReturnType<typeof useStore.getState>): boolean {
+  const sdk = store.sdkSessions.find((s) => s.sessionId === sessionId);
+  if (sdk?.herdedBy) return false;
+  if (!sdk?.isOrchestrator) return true;
+
+  const messages = store.messages.get(sessionId) || [];
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg.role !== "assistant") continue;
+    return msg.leaderUserAddressed === true;
+  }
+  return false;
+}
+
+let idCounter = 0;
+function nextId(): string {
+  return `msg-${Date.now()}-${++idCounter}`;
+}
+
+function extractTextFromBlocks(blocks: ContentBlock[]): string {
+  return blocks
+    .map((b) => {
+      if (b.type === "text") return b.text;
+      if (b.type === "thinking") return b.thinking;
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
+/** Merge content blocks from two versions of the same assistant message.
+ *  Deduplicates tool_use blocks by their unique `id` and text/thinking
+ *  blocks by content equality. Returns all unique blocks in order. */
+function mergeContentBlocks(existing: ContentBlock[], incoming: ContentBlock[]): ContentBlock[] {
+  const seenToolIds = new Set<string>();
+  const seenTexts = new Set<string>();
+  const result: ContentBlock[] = [];
+
+  for (const block of existing) {
+    if (block.type === "tool_use" && block.id) {
+      seenToolIds.add(block.id);
+    } else if (block.type === "text") {
+      seenTexts.add(block.text);
+    } else if (block.type === "thinking") {
+      seenTexts.add(`thinking:${block.thinking}`);
+    }
+    result.push(block);
+  }
+
+  for (const block of incoming) {
+    if (block.type === "tool_use" && block.id) {
+      if (seenToolIds.has(block.id)) continue;
+      seenToolIds.add(block.id);
+    } else if (block.type === "text") {
+      if (seenTexts.has(block.text)) continue;
+      seenTexts.add(block.text);
+    } else if (block.type === "thinking") {
+      if (seenTexts.has(`thinking:${block.thinking}`)) continue;
+      seenTexts.add(`thinking:${block.thinking}`);
+    }
+    result.push(block);
+  }
+
+  return result;
+}
+
+function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, deps: WsMessageHandlerDeps) {
+  const store = useStore.getState();
+
+  switch (data.type) {
+    case "session_init": {
+      const existingSession = store.sessions.get(sessionId);
+      store.addSession(data.session);
+      // Do NOT set cliConnected here — session_init is just a state snapshot.
+      // CLI connection status comes from explicit cli_connected/cli_disconnected messages.
+      if (!existingSession) {
+        store.setSessionStatus(sessionId, "idle");
+      }
+      if (!store.sessionNames.has(sessionId)) {
+        const existingNames = new Set(store.sessionNames.values());
+        const name = generateUniqueSessionName(existingNames);
+        store.setSessionName(sessionId, name);
+      }
+      // Sync askPermission from server state
+      if (typeof data.session.askPermission === "boolean") {
+        store.setAskPermission(sessionId, data.session.askPermission);
+      }
+      // Restore quest name and styling from persisted session state (on reconnect).
+      // This is the most reliable path since session_init fires on every WS connect.
+      if (data.session.claimedQuestId && data.session.claimedQuestTitle) {
+        store.setSessionName(sessionId, data.session.claimedQuestTitle);
+        store.markQuestNamed(sessionId);
+      } else if (data.session.claimedQuestId) {
+        store.markQuestNamed(sessionId);
+      } else {
+        store.clearQuestNamed(sessionId);
+      }
+      break;
+    }
+
+    case "session_update": {
+      store.updateSession(sessionId, data.session);
+      // Sync askPermission if updated
+      if (typeof data.session.askPermission === "boolean") {
+        store.setAskPermission(sessionId, data.session.askPermission);
+      }
+      // Sync session name if included (e.g. after a rename via REST API)
+      if (typeof (data.session as Record<string, unknown>).name === "string") {
+        store.setSessionName(sessionId, (data.session as Record<string, unknown>).name as string);
+      }
+      // Sync server-authoritative attention state
+      if (data.session.attentionReason !== undefined) {
+        const isViewing = useStore.getState().currentSessionId === sessionId;
+        if (isViewing && data.session.attentionReason) {
+          // User is viewing this session — suppress badge, tell server we've read it
+          api.markSessionRead?.(sessionId).catch(() => {});
+        } else {
+          const sessionAttention = new Map(useStore.getState().sessionAttention);
+          sessionAttention.set(sessionId, data.session.attentionReason ?? null);
+          useStore.setState({ sessionAttention });
+        }
+      }
+      break;
+    }
+
+    case "assistant": {
+      const msg = data.message;
+      const textContent = extractTextFromBlocks(msg.content);
+      const chatMsg: ChatMessage = {
+        id: msg.id,
+        role: "assistant",
+        content: textContent,
+        contentBlocks: msg.content,
+        timestamp: data.timestamp || Date.now(),
+        parentToolUseId: data.parent_tool_use_id,
+        model: msg.model,
+        stopReason: msg.stop_reason,
+        turnDurationMs: data.turn_duration_ms,
+        cliUuid: (data as Record<string, unknown>).uuid as string | undefined,
+        leaderUserAddressed: data.leader_user_addressed === true,
+      };
+      // Server accumulates content blocks for same-ID messages (parallel tool calls).
+      // If this ID already exists, merge content blocks rather than replace — this
+      // handles both accumulated messages (server sends full set) and non-accumulated
+      // messages (old server sends partial blocks) correctly.
+      const existingMsgs = store.messages.get(sessionId) || [];
+      const existing = msg.id ? existingMsgs.find((m) => m.id === msg.id) : undefined;
+      if (existing) {
+        const mergedBlocks = mergeContentBlocks(existing.contentBlocks || [], msg.content || []);
+        store.updateMessage(sessionId, msg.id!, {
+          content: extractTextFromBlocks(mergedBlocks),
+          contentBlocks: mergedBlocks,
+          timestamp: data.timestamp || existing.timestamp,
+          stopReason: msg.stop_reason || existing.stopReason,
+          ...(data.leader_user_addressed !== undefined
+            ? { leaderUserAddressed: data.leader_user_addressed === true }
+            : {}),
+          ...(typeof data.turn_duration_ms === "number"
+            ? { turnDurationMs: data.turn_duration_ms }
+            : {}),
+        });
+      } else {
+        store.appendMessage(sessionId, chatMsg);
+      }
+      store.setStreaming(sessionId, null);
+      // Clear progress only for completed tools (tool_result blocks), not all tools.
+      // Blanket clear would cause flickering during concurrent tool execution.
+      if (msg.content?.length) {
+        for (const block of msg.content) {
+          if (block.type === "tool_result") {
+            store.clearToolProgress(sessionId, block.tool_use_id);
+          }
+        }
+      }
+      // Rebroadcasted assistant messages with turn_duration_ms arrive AFTER the
+      // turn completes (post-result). Don't flip status to "running" for those —
+      // the result handler will set "idle" momentarily, but setting "running" here
+      // causes a brief incorrect status flicker.
+      if (typeof data.turn_duration_ms !== "number") {
+        store.setSessionStatus(sessionId, "running");
+      }
+
+      // Store server-provided tool start timestamps for live duration display
+      if (data.tool_start_times && typeof data.tool_start_times === "object") {
+        store.setToolStartTimestamps(sessionId, data.tool_start_times as Record<string, number>);
+      }
+
+      // Start timer if not already started (for non-streaming tool calls)
+      if (!store.streamingStartedAt.has(sessionId)) {
+        store.setStreamingStats(sessionId, { startedAt: Date.now() });
+      }
+
+      // Extract tasks and changed files from tool_use content blocks
+      if (msg.content?.length) {
+        extractTasksFromBlocks(sessionId, msg.content);
+        extractChangedFilesFromBlocks(sessionId, msg.content);
+      }
+
+      break;
+    }
+
+    case "stream_event": {
+      const evt = data.event as Record<string, unknown>;
+      if (evt && typeof evt === "object") {
+        // message_start → mark generation start time
+        if (evt.type === "message_start") {
+          if (!store.streamingStartedAt.has(sessionId)) {
+            store.setStreamingStats(sessionId, { startedAt: Date.now(), outputTokens: 0 });
+          }
+        }
+
+        // content_block_delta → accumulate streaming text
+        if (evt.type === "content_block_delta") {
+          const delta = evt.delta as Record<string, unknown> | undefined;
+          if (delta?.type === "text_delta" && typeof delta.text === "string") {
+            const current = store.streaming.get(sessionId) || "";
+            store.setStreaming(sessionId, current + delta.text);
+          }
+        }
+
+        // message_delta → extract output token count
+        if (evt.type === "message_delta") {
+          const usage = (evt as { usage?: { output_tokens?: number } }).usage;
+          if (usage?.output_tokens) {
+            store.setStreamingStats(sessionId, { outputTokens: usage.output_tokens });
+          }
+        }
+      }
+      break;
+    }
+
+    case "result": {
+      const r = data.data;
+      const sessionUpdates: Partial<{ total_cost_usd: number; num_turns: number; context_used_percent: number; total_lines_added: number; total_lines_removed: number }> = {
+        total_cost_usd: r.total_cost_usd,
+        num_turns: r.num_turns,
+      };
+      // Forward lines changed if present
+      if (typeof r.total_lines_added === "number") {
+        sessionUpdates.total_lines_added = r.total_lines_added;
+      }
+      if (typeof r.total_lines_removed === "number") {
+        sessionUpdates.total_lines_removed = r.total_lines_removed;
+      }
+      store.updateSession(sessionId, sessionUpdates);
+      store.clearStreamingState(sessionId);
+      store.clearToolProgress(sessionId);
+      store.setSessionStatus(sessionId, "idle");
+      store.setSessionStuck(sessionId, false);
+      const notifyOnResult = shouldNotifyOnResult(sessionId, store);
+      // Play notification sound if enabled and tab is not focused
+      if (notifyOnResult && !document.hasFocus() && store.notificationSound) {
+        const sdk = store.sdkSessions.find((s) => s.sessionId === sessionId);
+        console.log(`[notification] result sound: session=${sessionId.slice(0, 8)} isOrch=${!!sdk?.isOrchestrator} herdedBy=${sdk?.herdedBy ?? "none"}`);
+        playNotificationSound();
+      }
+      if (notifyOnResult && !document.hasFocus() && store.notificationDesktop) {
+        sendBrowserNotification("Session completed", "Claude finished the task", sessionId);
+      }
+      if (r.is_error) {
+        const errorText = r.errors?.length
+          ? r.errors.join(", ")
+          : r.result || "An error occurred";
+        const isContextLimit = errorText.toLowerCase().includes("prompt is too long");
+
+        // If user tried /compact but it failed because context is full,
+        // auto-recover by killing the CLI and relaunching with --resume.
+        // The SDK protocol doesn't intercept slash commands from user messages,
+        // so /compact gets treated as a regular prompt and overflows again.
+        if (isContextLimit) {
+          const msgs = store.messages.get(sessionId) || [];
+          const lastUserMsg = [...msgs].reverse().find(m => m.role === "user");
+          if (lastUserMsg?.content.trim().toLowerCase() === "/compact") {
+            store.appendMessage(sessionId, {
+              id: nextId(),
+              role: "system",
+              content: "Context is full — restarting session to compact...",
+              timestamp: Date.now(),
+              variant: "info",
+            });
+            fetch(`/api/sessions/${encodeURIComponent(sessionId)}/force-compact`, { method: "POST" }).catch(() => {
+              store.appendMessage(sessionId, {
+                id: nextId(),
+                role: "system",
+                content: `Error: ${errorText}`,
+                timestamp: Date.now(),
+                variant: "error",
+              });
+            });
+            break;
+          }
+        }
+
+        store.appendMessage(sessionId, {
+          id: nextId(),
+          role: "system",
+          content: `Error: ${errorText}`,
+          timestamp: Date.now(),
+          variant: "error",
+        });
+      }
+      break;
+    }
+
+    case "permission_request": {
+      store.addPermission(sessionId, data.request);
+      // If evaluating via LLM auto-approver, don't pause timer or notify —
+      // the agent isn't waiting on the user yet.
+      if (!data.request.evaluating) {
+        store.pauseStreamingTimer(sessionId);
+        if (!document.hasFocus() && store.notificationDesktop) {
+          const req = data.request;
+          console.log(`[notification] permission_request: session=${sessionId.slice(0, 8)} tool=${req.tool_name}`);
+          sendBrowserNotification(
+            "Permission needed",
+            `${req.tool_name}: approve or deny`,
+            req.request_id,
+          );
+        }
+      }
+      // Also extract tasks and changed files from permission requests
+      const req = data.request;
+      if (req.tool_name && req.input) {
+        const permBlocks = [{
+          type: "tool_use" as const,
+          id: req.tool_use_id,
+          name: req.tool_name,
+          input: req.input,
+        }];
+        extractTasksFromBlocks(sessionId, permBlocks);
+        extractChangedFilesFromBlocks(sessionId, permBlocks);
+      }
+      break;
+    }
+
+    case "permission_cancelled": {
+      store.removePermission(sessionId, data.request_id);
+      break;
+    }
+
+    case "permission_denied": {
+      if (data.request_id) store.removePermission(sessionId, data.request_id);
+      const denialMsg: ChatMessage = {
+        id: data.id,
+        role: "system",
+        content: data.summary,
+        timestamp: data.timestamp,
+        variant: "denied",
+      };
+      store.appendMessage(sessionId, denialMsg);
+      break;
+    }
+
+    case "permission_approved": {
+      // Delay permission removal slightly so the "Approved" stamping animation
+      // has time to play before the component unmounts. The permission is already
+      // resolved on the server — this delay is purely cosmetic (400ms matches
+      // the paw-approve animation duration).
+      const approvedReqId = data.request_id;
+      if (approvedReqId) {
+        setTimeout(() => store.removePermission(sessionId, approvedReqId), 400);
+      }
+      const approvedMsg: ChatMessage = {
+        id: data.id,
+        role: "system",
+        content: data.summary,
+        timestamp: data.timestamp,
+        variant: "approved",
+        ...(data.answers?.length ? { metadata: { answers: data.answers } } : {}),
+      };
+      store.appendMessage(sessionId, approvedMsg);
+      break;
+    }
+
+    case "permission_auto_approved": {
+      // Don't remove — mark as auto-approved so PermissionBanner can decide
+      // whether to dismiss silently or show an "auto-approved" indicator
+      // (depending on whether the user had expanded the evaluating dialog).
+      store.markPermissionAutoApproved(sessionId, data.request_id, data.reason || "Auto-approved");
+      // Summary shows what was approved; reason (LLM rationale) is passed via metadata
+      // for separate rendering in the AutoApprovedChip.
+      store.appendMessage(sessionId, {
+        id: nextId(),
+        role: "system",
+        content: data.summary ?? `Auto-approved: ${data.tool_name}`,
+        timestamp: data.timestamp,
+        variant: "approved",
+        ...(data.reason ? { metadata: { autoApprovalReason: data.reason } } : {}),
+      });
+      break;
+    }
+
+    case "permission_auto_denied": {
+      // LLM auto-approver declined — transition from evaluating to normal pending state.
+      // The permission stays pending for the user (LLM deny = "not confident, ask human").
+      store.updatePermissionEvaluating(sessionId, data.request_id, undefined);
+      // NOW pause timer and send notification since this needs user attention
+      store.pauseStreamingTimer(sessionId);
+      if (!document.hasFocus() && store.notificationDesktop) {
+        sendBrowserNotification(
+          "Permission needed",
+          `${data.tool_name}: approve or deny`,
+          data.request_id,
+        );
+      }
+      store.appendMessage(sessionId, {
+        id: nextId(),
+        role: "system",
+        content: `Auto-approver declined ${data.tool_name}: ${data.reason}`,
+        timestamp: data.timestamp,
+        variant: "info",
+      });
+      break;
+    }
+
+    case "permission_needs_attention": {
+      // LLM evaluation deferred, failed, or timed out — transition to normal pending state.
+      // Store the deferral reason so PermissionBanner can explain WHY.
+      store.updatePermissionEvaluating(sessionId, data.request_id, undefined);
+      if (data.reason) {
+        store.updatePermissionDeferralReason(sessionId, data.request_id, data.reason);
+      }
+      store.pauseStreamingTimer(sessionId);
+      if (!document.hasFocus() && store.notificationDesktop) {
+        sendBrowserNotification(
+          "Permission needed",
+          data.reason || "Auto-approval evaluation finished — needs your input",
+          data.request_id,
+        );
+      }
+      break;
+    }
+
+    case "leader_group_idle": {
+      console.log(`[notification] leader_group_idle: leader=${data.leader_label} members=${data.member_count} idle_for=${data.idle_for_ms}ms focus=${document.hasFocus()} sound=${store.notificationSound}`);
+      if (!document.hasFocus() && store.notificationSound) {
+        playNotificationSound();
+      }
+      if (!document.hasFocus() && store.notificationDesktop) {
+        sendBrowserNotification(
+          "Leader group idle",
+          `${data.leader_label} is idle and waiting for attention`,
+          `leader-group-idle:${data.leader_session_id}`,
+        );
+      }
+      break;
+    }
+
+    case "permission_evaluating_status": {
+      // Auto-approver status transition (e.g., "queued" → "evaluating")
+      store.updatePermissionEvaluating(sessionId, data.request_id, data.evaluating);
+      break;
+    }
+
+    case "tool_progress": {
+      store.setToolProgress(sessionId, data.tool_use_id, {
+        toolName: data.tool_name,
+        elapsedSeconds: data.elapsed_time_seconds,
+        outputDelta: typeof data.output_delta === "string" ? data.output_delta : undefined,
+      });
+      break;
+    }
+
+    case "tool_use_summary": {
+      store.appendMessage(sessionId, {
+        id: nextId(),
+        role: "system",
+        content: data.summary,
+        timestamp: Date.now(),
+      });
+      break;
+    }
+
+    case "tool_result_preview": {
+      for (const preview of data.previews) {
+        store.setToolResult(sessionId, preview.tool_use_id, preview);
+        // Tool completed — clear live progress/output for this tool call.
+        store.clearToolProgress(sessionId, preview.tool_use_id);
+      }
+      break;
+    }
+
+    case "user_message": {
+      // If the session is actively streaming, pin the current in-flight turn as
+      // expanded so it doesn't auto-collapse when sessionStatus flickers to "idle"
+      // after the interrupted turn's result arrives.
+      if (store.sessionStatus.get(sessionId) === "running") {
+        const msgs = store.messages.get(sessionId) || [];
+        for (let i = msgs.length - 1; i >= 0; i--) {
+          if (msgs[i].role === "user") {
+            store.keepTurnExpanded(sessionId, msgs[i].id);
+            break;
+          }
+        }
+      }
+      // Server-authoritative: user messages are broadcast by the server to all
+      // browsers. The browser never adds user messages to the store locally.
+      const userMsg: ChatMessage = {
+        id: data.id || nextId(),
+        role: "user",
+        content: data.content,
+        timestamp: data.timestamp || Date.now(),
+        ...(data.images?.length ? { images: data.images } : {}),
+        ...(data.agentSource ? { agentSource: data.agentSource } : {}),
+      };
+      store.appendMessage(sessionId, userMsg);
+      store.setSessionPreview(sessionId, data.content.slice(0, 80));
+      break;
+    }
+
+    case "status_change": {
+      if (data.status === "compacting") {
+        store.setSessionStatus(sessionId, "compacting");
+      } else {
+        store.setSessionStatus(sessionId, data.status);
+      }
+      // Any status change clears stuck flag
+      store.setSessionStuck(sessionId, false);
+      break;
+    }
+
+    case "session_stuck": {
+      store.setSessionStuck(sessionId, true);
+      break;
+    }
+
+    case "session_deleted": {
+      // Another browser or the API deleted a session — remove it from the store
+      // so the sidebar updates immediately without waiting for the next poll.
+      // Also disconnect the WebSocket to prevent reconnect attempts.
+      const deletedId = data.session_id;
+      if (deletedId && typeof deletedId === "string") {
+        console.log(`[ws] session_deleted: removing ${deletedId} from store`);
+        store.removeSession(deletedId);
+        deps.disconnectSession(deletedId);
+      }
+      break;
+    }
+
+    case "session_created": {
+      // Another browser or the API created a session — refresh the session
+      // list so the sidebar shows it immediately without a manual page refresh.
+      const createdId = data.session_id;
+      if (createdId && typeof createdId === "string") {
+        console.log(`[ws] session_created: refreshing session list for ${createdId}`);
+        api.listSessions().then((list) => {
+          store.setSdkSessions(list);
+          deps.connectAllSessions(list);
+        }).catch((err) => {
+          console.warn("[ws] Failed to refresh sessions after session_created:", err);
+        });
+      }
+      break;
+    }
+
+    case "permissions_cleared": {
+      store.clearPermissions(sessionId);
+      break;
+    }
+
+    case "state_snapshot": {
+      // Authoritative state from server — overrides any stale transient state
+      store.setSessionStatus(sessionId, data.sessionStatus as "idle" | "running" | "compacting" | "reverting" | null);
+      store.setCliConnected(sessionId, data.cliConnected);
+      if (data.cliConnected) store.setCliEverConnected(sessionId);
+      if (data.askPermission !== undefined) {
+        store.setAskPermission(sessionId, data.askPermission);
+      }
+      // Clear stale streaming state when session is not actively generating.
+      // This handles: server restart (event_replay sets stale timers),
+      // CLI crash mid-generation, and any other state desync.
+      if (data.sessionStatus !== "running") {
+        store.clearStreamingState(sessionId);
+        store.clearToolProgress(sessionId);
+        store.setSessionStuck(sessionId, false);
+      } else if (data.generationStartedAt && !store.streamingStartedAt.has(sessionId)) {
+        // Restore generation timer from server so switching sessions
+        // doesn't reset the "Purring..." counter.
+        store.setStreamingStats(sessionId, { startedAt: data.generationStartedAt });
+      }
+      // Sync server-authoritative attention state
+      if (data.attentionReason !== undefined) {
+        const isViewing = useStore.getState().currentSessionId === sessionId;
+        if (isViewing && data.attentionReason) {
+          api.markSessionRead?.(sessionId).catch(() => {});
+        } else {
+          const sessionAttention = new Map(useStore.getState().sessionAttention);
+          sessionAttention.set(sessionId, data.attentionReason ?? null);
+          useStore.setState({ sessionAttention });
+        }
+      }
+      break;
+    }
+
+    case "auth_status": {
+      if (data.error) {
+        store.appendMessage(sessionId, {
+          id: nextId(),
+          role: "system",
+          content: `Auth error: ${data.error}`,
+          timestamp: Date.now(),
+          variant: "error",
+        });
+      }
+      break;
+    }
+
+    case "error": {
+      store.appendMessage(sessionId, {
+        id: nextId(),
+        role: "system",
+        content: data.message,
+        timestamp: Date.now(),
+        variant: "error",
+      });
+      break;
+    }
+
+    case "cli_disconnected": {
+      clearPendingCliDisconnect(sessionId);
+      const reason = data.reason ?? null;
+      const timer = setTimeout(() => {
+        pendingCliDisconnectTimers.delete(sessionId);
+        applyCliDisconnected(sessionId, reason);
+      }, CLI_DISCONNECT_DEBOUNCE_MS);
+      pendingCliDisconnectTimers.set(sessionId, timer);
+      break;
+    }
+
+    case "cli_connected": {
+      clearPendingCliDisconnect(sessionId);
+      store.setCliConnected(sessionId, true);
+      break;
+    }
+
+    case "session_order_update": {
+      const nextOrder = new Map<string, string[]>();
+      for (const [groupKey, orderedIds] of Object.entries(data.sessionOrder || {})) {
+        if (!Array.isArray(orderedIds)) continue;
+        nextOrder.set(groupKey, orderedIds.filter((id): id is string => typeof id === "string"));
+      }
+      store.setSessionOrderMap(nextOrder);
+      break;
+    }
+
+    case "group_order_update": {
+      const nextOrder = Array.isArray(data.groupOrder)
+        ? data.groupOrder.filter((key): key is string => typeof key === "string")
+        : [];
+      store.setGroupOrder(nextOrder);
+      break;
+    }
+
+    case "session_name_update": {
+      // Server is authoritative for all name updates (auto-naming, manual rename, etc.)
+      const prevName = store.sessionNames.get(sessionId);
+      console.log(`[ws] session_name_update for ${sessionId}: "${prevName}" → "${data.name}" source=${(data as Record<string, unknown>).source ?? "none"}`);
+      // When a quest is actively claiming the session name, ignore non-quest name updates
+      // (prevents auto-namer race conditions from overwriting the quest title)
+      if (store.questNamedSessions.has(sessionId) && data.source !== "quest") {
+        console.log(`[ws] Ignoring non-quest name update for quest-named session ${sessionId}`);
+        break;
+      }
+      if (prevName !== data.name) {
+        store.setSessionName(sessionId, data.name);
+        store.markRecentlyRenamed(sessionId);
+      }
+      // Track whether this name was set by a quest claim (for amber styling)
+      if (data.source === "quest") {
+        store.markQuestNamed(sessionId);
+      } else {
+        store.clearQuestNamed(sessionId);
+      }
+      break;
+    }
+
+    case "session_task_history": {
+      store.setSessionTaskHistory(sessionId, data.tasks);
+      break;
+    }
+
+    case "pr_status_update": {
+      store.setPRStatus(sessionId, { available: data.available, pr: data.pr });
+      break;
+    }
+
+    case "compact_boundary": {
+      // CLI has compacted — preserve existing messages and insert a compact marker divider
+      const markerTs = typeof data.timestamp === "number" ? data.timestamp : Date.now();
+      const markerId = data.id || `compact-boundary-${markerTs}`;
+      store.appendMessage(sessionId, {
+        id: markerId,
+        role: "system",
+        content: "Conversation compacted",
+        timestamp: markerTs,
+        variant: "info",
+      });
+      break;
+    }
+
+    case "compact_summary": {
+      // Update the most recent compact marker with the full summary text
+      const msgs = store.messages.get(sessionId) || [];
+      const lastCompact = [...msgs].reverse().find(
+        (m) => m.role === "system" && m.id.startsWith("compact-boundary-"),
+      );
+      if (lastCompact) {
+        store.updateMessage(sessionId, lastCompact.id, { content: data.summary });
+      }
+      break;
+    }
+
+    case "mcp_status": {
+      store.setMcpServers(sessionId, data.servers);
+      break;
+    }
+
+    case "task_notification": {
+      if (data.tool_use_id) {
+        store.setBackgroundAgentNotif(sessionId, data.tool_use_id, {
+          status: data.status,
+          outputFile: data.output_file,
+          summary: data.summary,
+        });
+      }
+      break;
+    }
+
+    case "quest_list_updated": {
+      store.refreshQuests();
+      break;
+    }
+
+    case "session_quest_claimed": {
+      console.log(`[ws] session_quest_claimed for ${sessionId}:`, data.quest);
+      const prevStatus = store.sessions.get(sessionId)?.claimedQuestStatus;
+      const prevQuestId = store.sessions.get(sessionId)?.claimedQuestId;
+      const prevTitle = store.sessions.get(sessionId)?.claimedQuestTitle;
+      store.updateSession(sessionId, {
+        claimedQuestId: data.quest?.id ?? undefined,
+        claimedQuestTitle: data.quest?.title ?? undefined,
+        claimedQuestStatus: data.quest?.status ?? undefined,
+      });
+      if (data.quest?.id && data.quest?.title) {
+        // Override session name with quest title and mark as quest-named.
+        store.setSessionName(sessionId, data.quest.title);
+        store.markRecentlyRenamed(sessionId);
+        store.markQuestNamed(sessionId);
+      } else {
+        store.clearQuestNamed(sessionId);
+      }
+      // Insert a chat feed message for quest lifecycle events
+      if (data.quest?.id) {
+        const questId = data.quest.id;
+        const isStatusChange = prevQuestId === questId && prevStatus && prevStatus !== data.quest.status;
+        const isTitleOnly = prevQuestId === questId && !isStatusChange && prevTitle !== data.quest.title;
+        // Title-only retitle: update existing quest chips instead of creating duplicates
+        if (isTitleOnly) {
+          store.updateQuestTitleInMessages(sessionId, questId, data.quest.title);
+          break;
+        }
+        const isSubmitted = isStatusChange && data.quest.status === "needs_verification";
+        const variant = isSubmitted ? "quest_submitted" as const : "quest_claimed" as const;
+        const label = isSubmitted ? "Quest submitted" : "Quest claimed";
+        // Only insert chat message for new claims or submission — skip redundant status updates
+        if (!isStatusChange || isSubmitted) {
+          api.getQuest(questId).then((quest) => {
+            const questMeta: ChatMessage["metadata"] = {
+              quest: {
+                questId: quest.questId,
+                title: quest.title,
+                description: "description" in quest ? quest.description : undefined,
+                status: quest.status,
+                tags: quest.tags,
+                images: quest.images,
+                verificationItems: "verificationItems" in quest ? quest.verificationItems : undefined,
+              },
+            };
+            useStore.getState().appendMessage(sessionId, {
+              id: `${variant}-${questId}-${Date.now()}`,
+              role: "system",
+              content: `${label}: ${quest.title}`,
+              timestamp: Date.now(),
+              variant,
+              metadata: questMeta,
+            });
+          }).catch(() => {
+            useStore.getState().appendMessage(sessionId, {
+              id: `${variant}-${questId}-${Date.now()}`,
+              role: "system",
+              content: `${label}: ${data.quest!.title}`,
+              timestamp: Date.now(),
+              variant,
+              metadata: {
+                quest: {
+                  questId: questId,
+                  title: data.quest!.title,
+                  status: data.quest!.status ?? (isSubmitted ? "needs_verification" : "in_progress"),
+                },
+              },
+            });
+          });
+        }
+      }
+      break;
+    }
+
+    case "message_history": {
+      // Clear stale pending permissions — the server will re-send any that
+      // are actually still pending as permission_request messages immediately
+      // after message_history. This prevents stale banners from surviving
+      // reconnects or server restarts.
+      store.clearPermissions(sessionId);
+      const chatMessages: ChatMessage[] = [];
+      for (let i = 0; i < data.messages.length; i++) {
+        const histMsg = data.messages[i];
+        if (histMsg.type === "user_message") {
+          chatMessages.push({
+            id: histMsg.id || nextId(),
+            role: "user",
+            content: histMsg.content,
+            timestamp: histMsg.timestamp,
+            ...(histMsg.images?.length ? { images: histMsg.images } : {}),
+            ...(histMsg.agentSource ? { agentSource: histMsg.agentSource } : {}),
+          });
+        } else if (histMsg.type === "assistant") {
+          const msg = histMsg.message;
+          const textContent = extractTextFromBlocks(msg.content);
+          chatMessages.push({
+            id: msg.id,
+            role: "assistant",
+            content: textContent,
+            contentBlocks: msg.content,
+            timestamp: histMsg.timestamp || Date.now(),
+            parentToolUseId: histMsg.parent_tool_use_id,
+            model: msg.model,
+            stopReason: msg.stop_reason,
+            cliUuid: (histMsg as Record<string, unknown>).uuid as string | undefined,
+            leaderUserAddressed: (histMsg as { leader_user_addressed?: boolean }).leader_user_addressed === true,
+            ...(typeof (histMsg as Record<string, unknown>).turn_duration_ms === "number"
+              ? { turnDurationMs: (histMsg as Record<string, unknown>).turn_duration_ms as number }
+              : {}),
+          });
+          // Also extract tasks and changed files from history
+          if (msg.content?.length) {
+            extractTasksFromBlocks(sessionId, msg.content);
+            extractChangedFilesFromBlocks(sessionId, msg.content);
+          }
+          // Restore tool start timestamps for in-flight tools on reconnect
+          const histToolStartTimes = (histMsg as Record<string, unknown>).tool_start_times as Record<string, number> | undefined;
+          if (histToolStartTimes) {
+            store.setToolStartTimestamps(sessionId, histToolStartTimes);
+          }
+        } else if (histMsg.type === "compact_marker") {
+          chatMessages.push({
+            id: histMsg.id || `compact-${i}`,
+            role: "system",
+            content: histMsg.summary || "Conversation compacted",
+            timestamp: histMsg.timestamp,
+            variant: "info",
+          });
+        } else if (histMsg.type === "permission_denied") {
+          chatMessages.push({
+            id: histMsg.id,
+            role: "system",
+            content: histMsg.summary,
+            timestamp: histMsg.timestamp,
+            variant: "denied",
+          });
+        } else if (histMsg.type === "permission_approved") {
+          chatMessages.push({
+            id: histMsg.id,
+            role: "system",
+            content: histMsg.summary,
+            timestamp: histMsg.timestamp,
+            variant: "approved",
+            ...(histMsg.answers?.length ? { metadata: { answers: histMsg.answers } } : {}),
+          });
+        } else if (histMsg.type === "tool_result_preview") {
+          for (const preview of histMsg.previews) {
+            store.setToolResult(sessionId, preview.tool_use_id, preview);
+          }
+        } else if (histMsg.type === "task_notification") {
+          // Replay background agent completion so bgNotif survives reconnects
+          if (histMsg.tool_use_id) {
+            store.setBackgroundAgentNotif(sessionId, histMsg.tool_use_id, {
+              status: histMsg.status,
+              outputFile: histMsg.output_file,
+              summary: histMsg.summary,
+            });
+          }
+        } else if (histMsg.type === "result") {
+          const r = histMsg.data as { is_error?: boolean; errors?: string[]; result?: string };
+          if (r.is_error) {
+            const errorText = r.errors?.length
+              ? r.errors.join(", ")
+              : r.result || "An error occurred";
+            chatMessages.push({
+              id: `hist-error-${i}`,
+              role: "system",
+              content: `Error: ${errorText}`,
+              timestamp: Date.now(),
+              variant: "error",
+            });
+          }
+        }
+      }
+      // Server history is authoritative — always replace browser state.
+      // This prevents cross-session message contamination that occurred
+      // when the old merge logic kept stale messages from a previous session.
+      store.setMessages(sessionId, chatMessages);
+      // If we received history with messages, the CLI was connected before (e.g. page refresh).
+      // Mark it so the UI shows "CLI disconnected" instead of "Starting session..." if it drops.
+      if (chatMessages.length > 0) {
+        store.setCliEverConnected(sessionId);
+      }
+      processedToolUseIds.delete(sessionId);
+      taskCounters.delete(sessionId);
+      // Extract last user message as sidebar preview
+      for (let i = data.messages.length - 1; i >= 0; i--) {
+        const m = data.messages[i];
+        if (m.type === "user_message" && m.content) {
+          store.setSessionPreview(sessionId, m.content.slice(0, 80));
+          break;
+        }
+      }
+      break;
+    }
+  }
+}
+
+export function createWsMessageHandler(deps: WsMessageHandlerDeps) {
+  return (sessionId: string, data: BrowserIncomingMessage) => {
+    handleParsedMessage(sessionId, data, deps);
+  };
+}
