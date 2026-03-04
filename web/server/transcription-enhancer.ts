@@ -42,11 +42,16 @@ const STT_PROMPT_MAX_CHARS = 3000;
 const STT_CONVO_BUDGET_RATIO = 0.55;
 
 /**
- * Per-message character limits by recency (index 0 = most recent message).
- * The most recent message (usually the assistant response the user is replying to)
- * gets the most space. Older messages get progressively less.
+ * Per-TURN character budget by recency (index 0 = most recent turn).
+ * Each turn's budget is split between user message and assistant response.
+ * The most recent turn (the context the user is replying to) gets the most
+ * space. Older turns get progressively less — just enough for vocabulary.
  */
-const STT_MSG_CHAR_LIMITS = [800, 500, 300, 200, 200, 150, 150, 100];
+const STT_TURN_CHAR_LIMITS = [600, 400, 300, 200, 150, 120, 100, 80];
+
+/** Within each turn, fraction of the turn budget allocated to the user message.
+ *  The rest goes to the assistant response. */
+const STT_USER_BUDGET_FRACTION = 0.45;
 
 /** Max characters per session name in the STT prompt. */
 const MAX_SESSION_NAME_CHARS = 100;
@@ -397,28 +402,30 @@ export function buildSttPrompt(input: SttPromptInput): string {
     }
     if (currentTurn) turns.push(currentTurn);
 
-    // Allocate budget to turns in reverse chronological order (most recent first)
+    // Allocate budget to turns in reverse chronological order (most recent first).
+    // Each turn gets a total char budget split between user and assistant.
     let convoRemaining = convoBudget;
     let turnIdx = 0;
 
     for (let i = turns.length - 1; i >= 0 && convoRemaining > 20; i--) {
       const turn = turns[i];
-      const charLimit = turnIdx < STT_MSG_CHAR_LIMITS.length
-        ? STT_MSG_CHAR_LIMITS[turnIdx]
-        : STT_MSG_CHAR_LIMITS[STT_MSG_CHAR_LIMITS.length - 1];
+      const turnBudget = turnIdx < STT_TURN_CHAR_LIMITS.length
+        ? STT_TURN_CHAR_LIMITS[turnIdx]
+        : STT_TURN_CHAR_LIMITS[STT_TURN_CHAR_LIMITS.length - 1];
+      const userLimit = Math.floor(turnBudget * STT_USER_BUDGET_FRACTION);
+      const asstLimit = turnBudget - userLimit;
 
       // Add user message
       if (turn.userText.trim()) {
-        const userTrunc = trunc(turn.userText.trim(), Math.min(charLimit, convoRemaining - 12));
+        const userTrunc = trunc(turn.userText.trim(), Math.min(userLimit, convoRemaining - 12));
         const userLine = `[user]\n    ${userTrunc.split("\n").join("\n    ")}`;
         if (userLine.length + 1 > convoRemaining) break;
         convoEntries.push({ role: "User", text: userTrunc });
         convoRemaining -= userLine.length + 1;
       }
 
-      // Add last assistant message (with slightly smaller limit for balance)
+      // Add last assistant message
       if (turn.assistantText.trim() && convoRemaining > 20) {
-        const asstLimit = Math.max(Math.floor(charLimit * 0.7), 80);
         const asstTrunc = trunc(turn.assistantText.trim(), Math.min(asstLimit, convoRemaining - 16));
         const asstLine = `[assistant]\n    ${asstTrunc.split("\n").join("\n    ")}`;
         if (asstLine.length + 1 <= convoRemaining) {
@@ -656,7 +663,7 @@ export const _testHelpers = {
   HALLUCINATION_LENGTH_RATIO,
   STT_PROMPT_MAX_CHARS,
   STT_CONVO_BUDGET_RATIO,
-  STT_MSG_CHAR_LIMITS,
+  STT_TURN_CHAR_LIMITS,
   MAX_SESSION_NAME_CHARS,
   trunc,
   extractAssistantText,
