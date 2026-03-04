@@ -15,12 +15,17 @@ import type { TranscriptionConfig } from "./settings-manager.js";
 /** Max recent turns to include in enhancer context. */
 const MAX_TURNS = 8;
 
-/** Enhancer context: per-turn char limits by recency (index 0 = most recent).
- *  For the most recent (active) turn, both user and assistant get these limits.
- *  For older turns, user messages get the limit but only the LAST assistant
- *  message is included (intermediate assistant messages are pruned). */
-const ENHANCER_USER_CHAR_LIMITS = [800, 600, 400, 300, 200, 200, 150, 150];
-const ENHANCER_ASST_CHAR_LIMITS = [800, 500, 300, 200, 150, 150, 100, 100];
+/**
+ * Enhancer context: per-message char limit = max(ENHANCER_MSG_START - idx * ENHANCER_MSG_STEP, ENHANCER_MSG_FLOOR).
+ * Start at 2000 for the most recent message, drop 200 per message, floor at 600.
+ * More generous than STT because the enhancement LLM has a large context window.
+ */
+const ENHANCER_MSG_START = 2000;
+const ENHANCER_MSG_STEP = 200;
+const ENHANCER_MSG_FLOOR = 600;
+
+/** Max total characters for the enhancer conversation context. */
+const ENHANCER_CONTEXT_MAX_CHARS = 10_000;
 
 /** Timeout for the enhancement LLM call. */
 const ENHANCEMENT_TIMEOUT_MS = 30_000;
@@ -42,16 +47,13 @@ const STT_PROMPT_MAX_CHARS = 3000;
 const STT_CONVO_BUDGET_RATIO = 0.55;
 
 /**
- * Per-TURN character budget by recency (index 0 = most recent turn).
- * Each turn's budget is split between user message and assistant response.
- * The most recent turn (the context the user is replying to) gets the most
- * space. Older turns get progressively less — just enough for vocabulary.
+ * STT prompt: per-message char limit = max(STT_MSG_START - idx * STT_MSG_STEP, STT_MSG_FLOOR).
+ * Start at 1000 for the most recent message, drop 100 per message, floor at 300.
+ * Prefers showing more detail from fewer messages over thin slices of many messages.
  */
-const STT_TURN_CHAR_LIMITS = [600, 400, 300, 200, 150, 120, 100, 80];
-
-/** Within each turn, fraction of the turn budget allocated to the user message.
- *  The rest goes to the assistant response. */
-const STT_USER_BUDGET_FRACTION = 0.45;
+const STT_MSG_START = 1000;
+const STT_MSG_STEP = 100;
+const STT_MSG_FLOOR = 300;
 
 /** Max characters per session name in the STT prompt. */
 const MAX_SESSION_NAME_CHARS = 100;
@@ -169,10 +171,9 @@ export function buildTranscriptionContext(history: BrowserIncomingMessage[]): st
       if (summary && typeof summary === "string" && summary.trim()) {
         if (currentTurn) turns.push(currentTurn);
         currentTurn = null;
-        const lastAstLimit = ENHANCER_ASST_CHAR_LIMITS[ENHANCER_ASST_CHAR_LIMITS.length - 1];
         turns.push({
           userContent: "",
-          assistantText: `[Earlier conversation summary: ${trunc(summary.trim(), lastAstLimit)}]`,
+          assistantText: `[Earlier conversation summary: ${trunc(summary.trim(), ENHANCER_MSG_FLOOR)}]`,
         });
       }
     }
@@ -184,34 +185,49 @@ export function buildTranscriptionContext(history: BrowserIncomingMessage[]): st
 
   if (recentTurns.length === 0) return "";
 
-  // Format with recency-weighted truncation
-  const lines: string[] = [];
-  const numTurns = recentTurns.length;
-  for (let i = 0; i < numTurns; i++) {
-    const turn = recentTurns[i];
-    // Recency index: 0 = most recent (last element)
-    const recencyIdx = numTurns - 1 - i;
-    const userLimit = recencyIdx < ENHANCER_USER_CHAR_LIMITS.length
-      ? ENHANCER_USER_CHAR_LIMITS[recencyIdx]
-      : ENHANCER_USER_CHAR_LIMITS[ENHANCER_USER_CHAR_LIMITS.length - 1];
-    const asstLimit = recencyIdx < ENHANCER_ASST_CHAR_LIMITS.length
-      ? ENHANCER_ASST_CHAR_LIMITS[recencyIdx]
-      : ENHANCER_ASST_CHAR_LIMITS[ENHANCER_ASST_CHAR_LIMITS.length - 1];
+  // Scan backwards (most recent first) to allocate per-message budgets.
+  // Each message gets its own limit: max(START - idx * STEP, FLOOR).
+  // The total is capped at ENHANCER_CONTEXT_MAX_CHARS.
+  const entries: Array<{ role: "user" | "assistant"; text: string }> = [];
+  let remaining = ENHANCER_CONTEXT_MAX_CHARS;
+  let msgIdx = 0;
 
-    if (turn.userContent) {
-      lines.push("");
-      lines.push("[user]");
-      for (const line of trunc(turn.userContent.trim(), userLimit).split("\n")) {
-        lines.push(`    ${line}`);
+  for (let i = recentTurns.length - 1; i >= 0 && remaining > 20; i--) {
+    const turn = recentTurns[i];
+
+    // Assistant response first (more recent within the turn)
+    if (turn.assistantText && remaining > 20) {
+      const limit = Math.max(ENHANCER_MSG_START - msgIdx * ENHANCER_MSG_STEP, ENHANCER_MSG_FLOOR);
+      const truncated = trunc(turn.assistantText.trim(), Math.min(limit, remaining - 20));
+      const formatted = `\n[assistant]\n    ${truncated.split("\n").join("\n    ")}`;
+      if (formatted.length < remaining) {
+        entries.push({ role: "assistant", text: truncated });
+        remaining -= formatted.length;
+        msgIdx++;
       }
     }
 
-    if (turn.assistantText) {
-      lines.push("");
-      lines.push("[assistant]");
-      for (const line of trunc(turn.assistantText.trim(), asstLimit).split("\n")) {
-        lines.push(`    ${line}`);
+    // User message
+    if (turn.userContent && remaining > 20) {
+      const limit = Math.max(ENHANCER_MSG_START - msgIdx * ENHANCER_MSG_STEP, ENHANCER_MSG_FLOOR);
+      const truncated = trunc(turn.userContent.trim(), Math.min(limit, remaining - 20));
+      const formatted = `\n[user]\n    ${truncated.split("\n").join("\n    ")}`;
+      if (formatted.length < remaining) {
+        entries.push({ role: "user", text: truncated });
+        remaining -= formatted.length;
+        msgIdx++;
       }
+    }
+  }
+
+  // Reverse to chronological order and format
+  entries.reverse();
+  const lines: string[] = [];
+  for (const entry of entries) {
+    lines.push("");
+    lines.push(`[${entry.role}]`);
+    for (const line of entry.text.split("\n")) {
+      lines.push(`    ${line}`);
     }
   }
 
@@ -403,38 +419,36 @@ export function buildSttPrompt(input: SttPromptInput): string {
     if (currentTurn) turns.push(currentTurn);
 
     // Allocate budget to turns in reverse chronological order (most recent first).
-    // Each turn gets a total char budget split between user and assistant.
+    // Each user message and assistant response gets its own recency-weighted limit.
+    // The recency index increments for each individual message, not each turn.
     let convoRemaining = convoBudget;
-    let turnIdx = 0;
+    let msgIdx = 0; // recency index across all messages
 
     for (let i = turns.length - 1; i >= 0 && convoRemaining > 20; i--) {
       const turn = turns[i];
-      const turnBudget = turnIdx < STT_TURN_CHAR_LIMITS.length
-        ? STT_TURN_CHAR_LIMITS[turnIdx]
-        : STT_TURN_CHAR_LIMITS[STT_TURN_CHAR_LIMITS.length - 1];
-      const userLimit = Math.floor(turnBudget * STT_USER_BUDGET_FRACTION);
-      const asstLimit = turnBudget - userLimit;
 
-      // Add user message
-      if (turn.userText.trim()) {
-        const userTrunc = trunc(turn.userText.trim(), Math.min(userLimit, convoRemaining - 12));
-        const userLine = `[user]\n    ${userTrunc.split("\n").join("\n    ")}`;
-        if (userLine.length + 1 > convoRemaining) break;
-        convoEntries.push({ role: "User", text: userTrunc });
-        convoRemaining -= userLine.length + 1;
-      }
-
-      // Add last assistant message
+      // Add last assistant response first (most recent in this turn)
       if (turn.assistantText.trim() && convoRemaining > 20) {
-        const asstTrunc = trunc(turn.assistantText.trim(), Math.min(asstLimit, convoRemaining - 16));
+        const limit = Math.max(STT_MSG_START - msgIdx * STT_MSG_STEP, STT_MSG_FLOOR);
+        const asstTrunc = trunc(turn.assistantText.trim(), Math.min(limit, convoRemaining - 16));
         const asstLine = `[assistant]\n    ${asstTrunc.split("\n").join("\n    ")}`;
         if (asstLine.length + 1 <= convoRemaining) {
           convoEntries.push({ role: "Assistant", text: asstTrunc });
           convoRemaining -= asstLine.length + 1;
+          msgIdx++;
         }
       }
 
-      turnIdx++;
+      // Add user message
+      if (turn.userText.trim() && convoRemaining > 20) {
+        const limit = Math.max(STT_MSG_START - msgIdx * STT_MSG_STEP, STT_MSG_FLOOR);
+        const userTrunc = trunc(turn.userText.trim(), Math.min(limit, convoRemaining - 12));
+        const userLine = `[user]\n    ${userTrunc.split("\n").join("\n    ")}`;
+        if (userLine.length + 1 > convoRemaining) break;
+        convoEntries.push({ role: "User", text: userTrunc });
+        convoRemaining -= userLine.length + 1;
+        msgIdx++;
+      }
     }
   }
 
@@ -657,13 +671,17 @@ export function getTranscriptionLogEntry(id: number): TranscriptionLogEntry | un
 export const _testHelpers = {
   SYSTEM_PROMPT,
   MAX_TURNS,
-  ENHANCER_USER_CHAR_LIMITS,
-  ENHANCER_ASST_CHAR_LIMITS,
+  ENHANCER_MSG_START,
+  ENHANCER_MSG_STEP,
+  ENHANCER_MSG_FLOOR,
+  ENHANCER_CONTEXT_MAX_CHARS,
   MIN_WORDS_FOR_ENHANCEMENT,
   HALLUCINATION_LENGTH_RATIO,
   STT_PROMPT_MAX_CHARS,
   STT_CONVO_BUDGET_RATIO,
-  STT_TURN_CHAR_LIMITS,
+  STT_MSG_START,
+  STT_MSG_STEP,
+  STT_MSG_FLOOR,
   MAX_SESSION_NAME_CHARS,
   trunc,
   extractAssistantText,
