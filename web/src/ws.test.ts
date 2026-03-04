@@ -246,7 +246,7 @@ describe("disconnectSession", () => {
 describe("handleMessage: session_init", () => {
   it("adds session to store, generates name, but does not set CLI connected", () => {
     // session_init is just a state snapshot — CLI connection status comes from
-    // explicit cli_connected/cli_disconnected messages, not from session_init.
+    // explicit backend_connected/backend_disconnected messages, not from session_init.
     wsModule.connectSession("s1");
     const session = makeSession("s1");
 
@@ -1077,38 +1077,38 @@ describe("handleMessage: status_change", () => {
 });
 
 // ===========================================================================
-// handleMessage: cli_disconnected / cli_connected
+// handleMessage: backend_disconnected / backend_connected
 // ===========================================================================
-describe("handleMessage: cli_disconnected/connected", () => {
-  it("toggles cliConnected in the store with disconnect debounce", () => {
+describe("handleMessage: backend_disconnected/connected", () => {
+  it("toggles backendConnected in the store with disconnect debounce", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
 
-    // session_init does not set cliConnected — only explicit messages do
+    // session_init does not set backendConnected — only explicit messages do
     expect(useStore.getState().cliConnected.get("s1")).toBeUndefined();
 
-    fireMessage({ type: "cli_connected" });
+    fireMessage({ type: "backend_connected" });
     expect(useStore.getState().cliConnected.get("s1")).toBe(true);
 
-    fireMessage({ type: "cli_disconnected" });
+    fireMessage({ type: "backend_disconnected" });
     // Disconnect is debounced to avoid visual flicker during fast relaunches.
     expect(useStore.getState().cliConnected.get("s1")).toBe(true);
     vi.advanceTimersByTime(300);
     expect(useStore.getState().cliConnected.get("s1")).toBe(false);
     expect(useStore.getState().sessionStatus.get("s1")).toBeNull();
 
-    fireMessage({ type: "cli_connected" });
+    fireMessage({ type: "backend_connected" });
     expect(useStore.getState().cliConnected.get("s1")).toBe(true);
   });
 
   it("coalesces fast disconnect/reconnect without showing disconnected state", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
-    fireMessage({ type: "cli_connected" });
+    fireMessage({ type: "backend_connected" });
     expect(useStore.getState().cliConnected.get("s1")).toBe(true);
 
-    fireMessage({ type: "cli_disconnected" });
-    fireMessage({ type: "cli_connected" });
+    fireMessage({ type: "backend_disconnected" });
+    fireMessage({ type: "backend_connected" });
     vi.advanceTimersByTime(300);
 
     expect(useStore.getState().cliConnected.get("s1")).toBe(true);
@@ -2282,7 +2282,7 @@ describe("handleMessage: state_snapshot", () => {
       type: "state_snapshot",
       sessionStatus: "running",
       permissionMode: "acceptEdits",
-      cliConnected: true,
+      backendConnected: true,
       uiMode: null,
       askPermission: false,
     });
@@ -2293,7 +2293,7 @@ describe("handleMessage: state_snapshot", () => {
     expect(useStore.getState().askPermission.get("s1")).toBe(false);
   });
 
-  it("sets cliConnected to false and sessionStatus to null when CLI is disconnected", () => {
+  it("sets backendConnected to false and sessionStatus to null when CLI is disconnected", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
 
@@ -2302,7 +2302,7 @@ describe("handleMessage: state_snapshot", () => {
       type: "state_snapshot",
       sessionStatus: "idle",
       permissionMode: "default",
-      cliConnected: true,
+      backendConnected: true,
       uiMode: null,
       askPermission: true,
     });
@@ -2313,7 +2313,7 @@ describe("handleMessage: state_snapshot", () => {
       type: "state_snapshot",
       sessionStatus: null,
       permissionMode: "default",
-      cliConnected: false,
+      backendConnected: false,
       uiMode: null,
       askPermission: true,
     });

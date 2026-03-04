@@ -131,7 +131,7 @@ describe("saveSync / load", () => {
         ],
       ],
       eventBuffer: [
-        { seq: 1, message: { type: "cli_connected" } },
+        { seq: 1, message: { type: "backend_connected" } },
       ],
       nextEventSeq: 2,
       lastAckSeq: 1,
@@ -147,7 +147,7 @@ describe("saveSync / load", () => {
     expect(loaded!.archived).toBe(true);
     expect(loaded!.pendingPermissions).toHaveLength(1);
     expect(loaded!.pendingMessages).toEqual(["msg1", "msg2"]);
-    expect(loaded!.eventBuffer).toEqual([{ seq: 1, message: { type: "cli_connected" } }]);
+    expect(loaded!.eventBuffer).toEqual([{ seq: 1, message: { type: "backend_connected" } }]);
     expect(loaded!.nextEventSeq).toBe(2);
     expect(loaded!.lastAckSeq).toBe(1);
     expect(loaded!.processedClientMessageIds).toEqual(["client-msg-1", "client-msg-2"]);

@@ -707,7 +707,7 @@ export class CliLauncher {
         break;
       case "claude-sdk":
         // Await SDK spawn so the adapter is attached before launch() returns.
-        // This ensures the browser sees cli_connected in the state_snapshot.
+        // This ensures the browser sees backend_connected in the state_snapshot.
         await this.spawnClaudeSdk(sessionId, info, options);
         break;
       case "claude":

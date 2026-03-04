@@ -298,8 +298,8 @@ export type BrowserIncomingMessageBase =
   | { type: "permissions_cleared" }
   | { type: "auth_status"; isAuthenticating: boolean; output: string[]; error?: string }
   | { type: "error"; message: string }
-  | { type: "cli_disconnected"; reason?: "idle_limit" }
-  | { type: "cli_connected" }
+  | { type: "backend_disconnected"; reason?: "idle_limit" }
+  | { type: "backend_connected" }
   | { type: "user_message"; content: string; timestamp: number; id?: string; cliUuid?: string; images?: import("./image-store.js").ImageRef[]; agentSource?: { sessionId: string; sessionLabel?: string } }
   | { type: "message_history"; messages: BrowserIncomingMessage[] }
   | { type: "event_replay"; events: BufferedBrowserEvent[] }
@@ -320,7 +320,7 @@ export type BrowserIncomingMessageBase =
   | { type: "permission_needs_attention"; request_id: string; timestamp: number; reason?: string }
   | { type: "leader_group_idle"; leader_session_id: string; leader_label: string; member_count: number; idle_for_ms: number; timestamp: number }
   | { type: "permission_evaluating_status"; request_id: string; evaluating: "queued" | "evaluating"; timestamp: number }
-  | { type: "state_snapshot"; sessionStatus: string | null; permissionMode: string; cliConnected: boolean; uiMode: string | null; askPermission: boolean; lastReadAt?: number; attentionReason?: "action" | "error" | "review" | null; generationStartedAt?: number | null }
+  | { type: "state_snapshot"; sessionStatus: string | null; permissionMode: string; backendConnected: boolean; uiMode: string | null; askPermission: boolean; lastReadAt?: number; attentionReason?: "action" | "error" | "review" | null; generationStartedAt?: number | null }
   | { type: "session_stuck" }
   | { type: "quest_list_updated" }
   | { type: "session_quest_claimed"; quest: { id: string; title: string; status?: string } | null }

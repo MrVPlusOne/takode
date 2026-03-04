@@ -8,7 +8,7 @@ const taskCounters = new Map<string, number>();
 const pendingCliDisconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
 /** Track processed tool_use IDs to prevent duplicate task creation */
 const processedToolUseIds = new Map<string, Set<string>>();
-/** Delay transient cli_disconnected flips to avoid sidebar flicker during fast relaunches. */
+/** Delay transient backend_disconnected flips to avoid sidebar flicker during fast relaunches. */
 const CLI_DISCONNECT_DEBOUNCE_MS = 250;
 
 export interface WsMessageHandlerDeps {
@@ -245,7 +245,7 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       const existingSession = store.sessions.get(sessionId);
       store.addSession(data.session);
       // Do NOT set cliConnected here — session_init is just a state snapshot.
-      // CLI connection status comes from explicit cli_connected/cli_disconnected messages.
+      // Connection status comes from explicit backend_connected/backend_disconnected messages.
       if (!existingSession) {
         store.setSessionStatus(sessionId, "idle");
       }
@@ -734,8 +734,8 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
     case "state_snapshot": {
       // Authoritative state from server — overrides any stale transient state
       store.setSessionStatus(sessionId, data.sessionStatus as "idle" | "running" | "compacting" | "reverting" | null);
-      store.setCliConnected(sessionId, data.cliConnected);
-      if (data.cliConnected) store.setCliEverConnected(sessionId);
+      store.setCliConnected(sessionId, data.backendConnected);
+      if (data.backendConnected) store.setCliEverConnected(sessionId);
       if (data.askPermission !== undefined) {
         store.setAskPermission(sessionId, data.askPermission);
       }
@@ -789,7 +789,7 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       break;
     }
 
-    case "cli_disconnected": {
+    case "backend_disconnected": {
       clearPendingCliDisconnect(sessionId);
       const reason = data.reason ?? null;
       const timer = setTimeout(() => {
@@ -800,7 +800,7 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       break;
     }
 
-    case "cli_connected": {
+    case "backend_connected": {
       clearPendingCliDisconnect(sessionId);
       store.setCliConnected(sessionId, true);
       break;

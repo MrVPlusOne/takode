@@ -191,7 +191,7 @@ function createMockBridge() {
     getOrCreateSession: vi.fn(),
     getAllSessions: vi.fn(() => []),
     getLastUserMessage: vi.fn(() => undefined),
-    isCliConnected: vi.fn(() => false),
+    isBackendConnected: vi.fn(() => false),
     getCodexRateLimits: vi.fn(() => null),
     markContainerized: vi.fn(),
     markWorktree: vi.fn(),

@@ -1375,7 +1375,7 @@ describe("persistence", () => {
 
       // SDK sessions are not "recovered" (no live process) but are marked exited
       // so handleBrowserOpen will trigger relaunch instead of optimistically
-      // sending cli_connected.
+      // sending backend_connected.
       expect(recovered).toBe(0);
 
       const session = newLauncher.getSession("sdk-session-1");

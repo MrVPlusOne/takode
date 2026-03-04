@@ -209,7 +209,7 @@ type ClaudeSdkBridgeAdapter = BackendAdapter<ClaudeSdkSessionMeta>;
 interface Session {
   id: string;
   backendType: BackendType;
-  cliSocket: ServerWebSocket<SocketData> | null;
+  backendSocket: ServerWebSocket<SocketData> | null;
   codexAdapter: CodexBridgeAdapter | null;
   claudeSdkAdapter: ClaudeSdkBridgeAdapter | null;
   browserSockets: Set<ServerWebSocket<SocketData>>;
@@ -972,14 +972,14 @@ export class WsBridge {
         // Ping CLI socket (detects half-open TCP connections from the server
         // side — the CLI also pings us every 10s, but if the network silently
         // drops packets, server-side pings give us earlier detection)
-        if (session.cliSocket) {
+        if (session.backendSocket) {
           try {
-            session.cliSocket.ping();
+            session.backendSocket.ping();
           } catch {
             // ping() threw — socket is already dead. Close it to trigger
             // handleCLIClose → auto-relaunch instead of leaving a ghost socket.
             console.warn(`[ws-bridge] CLI ping failed for session ${sessionTag(session.id)}, closing dead socket`);
-            try { session.cliSocket.close(); } catch { /* already dead */ }
+            try { session.backendSocket.close(); } catch { /* already dead */ }
           }
         }
       }
@@ -1105,7 +1105,7 @@ export class WsBridge {
   isSessionIdle(sessionId: string): boolean {
     const session = this.sessions.get(sessionId);
     if (!session) return false;
-    return !!(session.cliSocket || session.codexAdapter || session.claudeSdkAdapter)
+    return !!(session.backendSocket || session.codexAdapter || session.claudeSdkAdapter)
       && session.cliInitReceived
       && !session.isGenerating;
   }
@@ -1117,7 +1117,7 @@ export class WsBridge {
     return {
       isGenerating: session.isGenerating,
       generationStartedAt: session.generationStartedAt,
-      cliConnected: !!(session.cliSocket || session.codexAdapter || session.claudeSdkAdapter),
+      backendConnected: !!(session.backendSocket || session.codexAdapter || session.claudeSdkAdapter),
       cliInitReceived: session.cliInitReceived,
       pendingMessagesCount: session.pendingMessages.length,
       pendingPermissionsCount: session.pendingPermissions.size,
@@ -1396,7 +1396,7 @@ export class WsBridge {
       const session: Session = {
         id: p.id,
         backendType: p.state.backend_type || "claude",
-        cliSocket: null,
+        backendSocket: null,
         codexAdapter: null,
         claudeSdkAdapter: null,
         browserSockets: new Set(),
@@ -1530,7 +1530,7 @@ export class WsBridge {
     // backend connection. Exception: actively viewed worktree sessions still
     // need refresh to re-anchor diff_base_start_sha after sync/rebase/reset.
     if (
-      !session.cliSocket
+      !session.backendSocket
       && !session.codexAdapter
       && !(session.state.is_worktree && session.browserSockets.size > 0)
     ) return;
@@ -1664,7 +1664,7 @@ export class WsBridge {
     // Skip expensive git diff for fully background sessions without a backend.
     // Exception: actively viewed worktree sessions should refresh totals.
     if (
-      !session.cliSocket
+      !session.backendSocket
       && !session.codexAdapter
       && !(session.state.is_worktree && session.browserSockets.size > 0)
     ) return;
@@ -1763,7 +1763,7 @@ export class WsBridge {
       session = {
         id: sessionId,
         backendType: type,
-        cliSocket: null,
+        backendSocket: null,
         codexAdapter: null,
         claudeSdkAdapter: null,
         browserSockets: new Set(),
@@ -2047,7 +2047,7 @@ export class WsBridge {
   /** Is the correct backend for this session connected and responsive? */
   private backendConnected(session: Session): boolean {
     switch (session.backendType) {
-      case "claude":     return !!session.cliSocket;
+      case "claude":     return !!session.backendSocket;
       case "codex":      return !!session.codexAdapter?.isConnected();
       case "claude-sdk": return !!session.claudeSdkAdapter?.isConnected();
       default:           return assertNever(session.backendType);
@@ -2057,10 +2057,10 @@ export class WsBridge {
   /** Is any transport attached (even if still initializing)?
    *  Use this to guard against relaunching sessions that are mid-startup. */
   private backendAttached(session: Session): boolean {
-    return !!(session.cliSocket || session.codexAdapter || session.claudeSdkAdapter);
+    return !!(session.backendSocket || session.codexAdapter || session.claudeSdkAdapter);
   }
 
-  isCliConnected(sessionId: string): boolean {
+  isBackendConnected(sessionId: string): boolean {
     const session = this.sessions.get(sessionId);
     if (!session) return false;
     return this.backendConnected(session);
@@ -2086,9 +2086,9 @@ export class WsBridge {
     this.clearOptimisticRunningTimer(session, "close_session");
 
     // Close CLI socket (Claude)
-    if (session.cliSocket) {
-      try { session.cliSocket.close(); } catch {}
-      session.cliSocket = null;
+    if (session.backendSocket) {
+      try { session.backendSocket.close(); } catch {}
+      session.backendSocket = null;
     }
 
     // Disconnect Codex adapter
@@ -2349,7 +2349,7 @@ export class WsBridge {
         + ` (consecutive failures: ${session.consecutiveAdapterFailures})`,
       );
       this.broadcastToBrowsers(session, {
-        type: "cli_disconnected",
+        type: "backend_disconnected",
         ...(idleKilled ? { reason: "idle_limit" as const } : {}),
       });
       if (wasGenerating && !idleKilled && !intentionalRelaunch) {
@@ -2406,7 +2406,7 @@ export class WsBridge {
     this.flushQueuedMessagesToCodexAdapter(session, adapter, "adapter_attach");
 
     // Notify browsers that the backend is connected
-    this.broadcastToBrowsers(session, { type: "cli_connected" });
+    this.broadcastToBrowsers(session, { type: "backend_connected" });
     console.log(`[ws-bridge] Codex adapter attached for session ${sessionTag(sessionId)}`);
   }
 
@@ -2594,7 +2594,7 @@ export class WsBridge {
       this.markTurnInterrupted(session, "system");
       this.setGenerating(session, false, "sdk_disconnect");
       this.broadcastToBrowsers(session, {
-        type: "cli_disconnected",
+        type: "backend_disconnected",
         ...(idleKilled ? { reason: "idle_limit" as const } : {}),
       });
       this.broadcastToBrowsers(session, { type: "status_change", status: "idle" });
@@ -2652,7 +2652,7 @@ export class WsBridge {
       session.claudeSdkAdapter = null;
     });
 
-    this.broadcastToBrowsers(session, { type: "cli_connected" });
+    this.broadcastToBrowsers(session, { type: "backend_connected" });
     console.log(`[ws-bridge] Claude SDK adapter attached for session ${sessionTag(sessionId)}`);
   }
 
@@ -2660,7 +2660,7 @@ export class WsBridge {
 
   handleCLIOpen(ws: ServerWebSocket<SocketData>, sessionId: string) {
     const session = this.getOrCreateSession(sessionId);
-    session.cliSocket = ws;
+    session.backendSocket = ws;
 
     // Cancel disconnect grace timer if the CLI reconnected within the window.
     // The CLI disconnects every ~5 minutes for token refresh and reconnects in ~13s.
@@ -2691,7 +2691,7 @@ export class WsBridge {
       session.cliResuming = true;
     }
     console.log(`[ws-bridge] CLI connected for session ${sessionTag(sessionId)}${session.cliResuming ? " (resuming)" : ""}`);
-    this.broadcastToBrowsers(session, { type: "cli_connected" });
+    this.broadcastToBrowsers(session, { type: "backend_connected" });
     // Retry diff recomputation now that backend connectivity exists.
     this.refreshGitInfoThenRecomputeDiff(session, { notifyPoller: true });
 
@@ -2757,10 +2757,10 @@ export class WsBridge {
 
     const now = Date.now();
     const wasGenerating = session.isGenerating;
-    session.cliSocket = null;
+    session.backendSocket = null;
     session.cliInitReceived = false; // Reset — next CLI must send system.init before we deliver
     // DON'T clear isGenerating here — defer to the grace period. During the grace
-    // window, the UI already shows "disconnected" (cliSocket=null makes
+    // window, the UI already shows "disconnected" (backendSocket=null makes
     // deriveSessionStatus return null). If the CLI reconnects (token refresh),
     // isGenerating is preserved. If the grace period expires, runFullDisconnect
     // clears it properly with setGenerating() to emit turn_end events.
@@ -2823,7 +2823,7 @@ export class WsBridge {
     session.disconnectGraceTimer = setTimeout(() => {
       session.disconnectGraceTimer = null;
       // CLI didn't reconnect in time — run full disconnect
-      if (!session.cliSocket) {
+      if (!session.backendSocket) {
         console.log(`[ws-bridge] Grace period expired for session ${sessionTag(sessionId)}, running full disconnect`);
         this.runFullDisconnect(session, sessionId, session.disconnectWasGenerating, false, reason);
       }
@@ -2844,7 +2844,7 @@ export class WsBridge {
     }
 
     this.broadcastToBrowsers(session, {
-      type: "cli_disconnected",
+      type: "backend_disconnected",
       ...(idleKilled ? { reason: "idle_limit" as const } : {}),
     });
 
@@ -2960,18 +2960,18 @@ export class WsBridge {
     if (!hasBackendAttached) {
       const launcherInfo = this.launcher?.getSession(sessionId);
       // For SDK sessions during an active relaunch, the adapter attaches
-      // synchronously so it should be ready within seconds — send cli_connected
+      // synchronously so it should be ready within seconds — send backend_connected
       // optimistically.  However, after a server restart the adapter is gone
       // (state="exited") and we need to trigger a relaunch just like CLI sessions.
       if (launcherInfo?.backendType === "claude-sdk" && launcherInfo.state !== "exited") {
-        this.sendToBrowser(ws, { type: "cli_connected" });
+        this.sendToBrowser(ws, { type: "backend_connected" });
       } else if (launcherInfo?.state === "starting") {
         // CLI is starting up — don't request relaunch, just notify
-        this.sendToBrowser(ws, { type: "cli_disconnected" });
+        this.sendToBrowser(ws, { type: "backend_disconnected" });
       } else {
         const idleKilled = launcherInfo?.killedByIdleManager;
         this.sendToBrowser(ws, {
-          type: "cli_disconnected",
+          type: "backend_disconnected",
           ...(idleKilled ? { reason: "idle_limit" as const } : {}),
         });
         if (this.onCLIRelaunchNeeded) {
@@ -2980,7 +2980,7 @@ export class WsBridge {
         }
       }
     } else {
-      this.sendToBrowser(ws, { type: "cli_connected" });
+      this.sendToBrowser(ws, { type: "backend_connected" });
     }
   }
 
@@ -5447,7 +5447,7 @@ export class WsBridge {
     if (this.isCliUserMessagePayload(ndjson)) {
       this.markRunningFromUserDispatch(session, "user_message_dispatch");
     }
-    if (!session.cliSocket) {
+    if (!session.backendSocket) {
       // Queue the message — CLI might still be starting up.
       // Don't record here; the message will be recorded when flushed.
       console.log(`[ws-bridge] CLI not yet connected for session ${sessionTag(session.id)}, queuing message`);
@@ -5458,14 +5458,14 @@ export class WsBridge {
     this.recorder?.record(session.id, "out", ndjson, "cli", session.backendType, session.state.cwd);
     try {
       // NDJSON requires a newline delimiter
-      session.cliSocket.send(ndjson + "\n");
+      session.backendSocket.send(ndjson + "\n");
     } catch (err) {
       // Send failure means the socket is dead — re-queue the message so it
       // can be delivered after reconnect, then close the socket to trigger
       // the auto-relaunch mechanism.
       console.warn(`[ws-bridge] CLI send failed for session ${sessionTag(session.id)}, re-queuing message and closing dead socket:`, err);
       session.pendingMessages.push(ndjson);
-      try { session.cliSocket.close(); } catch { /* already dead */ }
+      try { session.backendSocket.close(); } catch { /* already dead */ }
     }
   }
 
@@ -5939,7 +5939,7 @@ export class WsBridge {
   /** Derive current session status from explicit runtime state. */
   private deriveSessionStatus(session: Session): string | null {
     if (session.state.is_compacting) return "compacting";
-    const hasBackend = !!(session.cliSocket || session.codexAdapter || session.claudeSdkAdapter);
+    const hasBackend = !!(session.backendSocket || session.codexAdapter || session.claudeSdkAdapter);
     if (!hasBackend) return null;
     if (session.isGenerating) return "running";
     return "idle";
@@ -5951,7 +5951,7 @@ export class WsBridge {
       type: "state_snapshot",
       sessionStatus: this.deriveSessionStatus(session),
       permissionMode: session.state.permissionMode,
-      cliConnected: !!(session.cliSocket || session.codexAdapter || session.claudeSdkAdapter),
+      backendConnected: !!(session.backendSocket || session.codexAdapter || session.claudeSdkAdapter),
       uiMode: session.state.uiMode ?? null,
       askPermission: session.state.askPermission ?? true,
       lastReadAt: session.lastReadAt,

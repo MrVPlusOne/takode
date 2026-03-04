@@ -31,7 +31,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
           totalLinesAdded: bridge?.total_lines_added || 0,
           totalLinesRemoved: bridge?.total_lines_removed || 0,
           lastMessagePreview: wsBridge.getLastUserMessage(s.sessionId) || "",
-          cliConnected: wsBridge.isCliConnected(s.sessionId),
+          cliConnected: wsBridge.isBackendConnected(s.sessionId),
           taskHistory: wsBridge.getSessionTaskHistory(s.sessionId),
           keywords: wsBridge.getSessionKeywords(s.sessionId),
           claimedQuestId: bridge?.claimedQuestId ?? null,
@@ -80,7 +80,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
 
     const sessionNum = launcher.getSessionNum(sessionId) ?? -1;
     const sessionName = sessionNames.getName(sessionId) || sessionId.slice(0, 8);
-    const cliConnected = wsBridge.isCliConnected(sessionId);
+    const cliConnected = wsBridge.isBackendConnected(sessionId);
 
     // Derive status: check bridge session for generation state
     const bridgeSession = wsBridge.getSession(sessionId);
@@ -262,7 +262,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
       state: s.state,
       cwd: s.cwd,
       backendType: s.backendType,
-      cliConnected: wsBridge.isCliConnected(s.sessionId),
+      cliConnected: wsBridge.isBackendConnected(s.sessionId),
       isOrchestrator: s.isOrchestrator,
       herdedBy: s.herdedBy,
     })));
@@ -406,7 +406,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
         sessionNum: s.sessionNum,
         name: sessionNames.getName(s.sessionId),
         state: s.state,
-        cliConnected: wsBridge.isCliConnected(s.sessionId),
+        cliConnected: wsBridge.isBackendConnected(s.sessionId),
       })),
       ...(bridgeDiag || {}),
     });

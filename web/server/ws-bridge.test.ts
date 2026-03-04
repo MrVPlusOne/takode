@@ -146,7 +146,7 @@ describe("Session management", () => {
     expect(session.state.repo_root).toBe("");
     expect(session.state.git_ahead).toBe(0);
     expect(session.state.git_behind).toBe(0);
-    expect(session.cliSocket).toBeNull();
+    expect(session.backendSocket).toBeNull();
     expect(session.browserSockets.size).toBe(0);
     expect(session.pendingPermissions.size).toBe(0);
     expect(session.messageHistory).toEqual([]);
@@ -205,10 +205,10 @@ describe("Session management", () => {
     expect(ids).toContain("s3");
   });
 
-  it("isCliConnected: returns false without CLI socket", () => {
+  it("isBackendConnected: returns false without CLI socket", () => {
     bridge.getOrCreateSession("s1");
-    expect(bridge.isCliConnected("s1")).toBe(false);
-    expect(bridge.isCliConnected("nonexistent")).toBe(false);
+    expect(bridge.isBackendConnected("s1")).toBe(false);
+    expect(bridge.isBackendConnected("nonexistent")).toBe(false);
   });
 
   it("removeSession: deletes from map and store", () => {
@@ -253,7 +253,7 @@ describe("Session management", () => {
 // ─── CLI handlers ────────────────────────────────────────────────────────────
 
 describe("CLI handlers", () => {
-  it("handleCLIOpen: sets cliSocket and broadcasts cli_connected", () => {
+  it("handleCLIOpen: sets backendSocket and broadcasts backend_connected", () => {
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
     // Clear session_init send calls
@@ -263,12 +263,12 @@ describe("CLI handlers", () => {
     bridge.handleCLIOpen(cli, "s1");
 
     const session = bridge.getSession("s1")!;
-    expect(session.cliSocket).toBe(cli);
-    expect(bridge.isCliConnected("s1")).toBe(true);
+    expect(session.backendSocket).toBe(cli);
+    expect(bridge.isBackendConnected("s1")).toBe(true);
 
-    // Should have broadcast cli_connected
+    // Should have broadcast backend_connected
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    expect(calls).toContainEqual(expect.objectContaining({ type: "cli_connected" }));
+    expect(calls).toContainEqual(expect.objectContaining({ type: "backend_connected" }));
   });
 
   it("handleCLIOpen: flushes pending messages immediately", () => {
@@ -530,7 +530,7 @@ describe("CLI handlers", () => {
     bridge.markWorktree("s1", "/home/user/companion", "/tmp/wt", "jiayi");
     const session = bridge.getSession("s1")!;
     // Ensure the session has a CLI socket so refreshGitInfo/recomputeDiffIfDirty don't skip
-    (session as any).cliSocket = { send: vi.fn() };
+    (session as any).backendSocket = { send: vi.fn() };
     const browserWs = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browserWs, "s1");
     browserWs.send.mockClear();
@@ -636,7 +636,7 @@ describe("CLI handlers", () => {
     const session = bridge.getOrCreateSession("s1");
     session.state.cwd = "/repo";
     session.state.diff_base_branch = "main";
-    (session as any).cliSocket = { send: vi.fn() };
+    (session as any).backendSocket = { send: vi.fn() };
 
     const cli = makeCliSocket("s1");
     bridge.handleCLIOpen(cli, "s1");
@@ -701,7 +701,7 @@ describe("CLI handlers", () => {
     expect(calls).toContainEqual(expect.objectContaining({ type: "status_change", status: "compacting" }));
   });
 
-  it("handleCLIClose: nulls cliSocket and broadcasts cli_disconnected", () => {
+  it("handleCLIClose: nulls backendSocket and broadcasts backend_disconnected", () => {
     vi.useFakeTimers();
     const cli = makeCliSocket("s1");
     const browser = makeBrowserSocket("s1");
@@ -712,14 +712,14 @@ describe("CLI handlers", () => {
     bridge.handleCLIClose(cli);
 
     const session = bridge.getSession("s1")!;
-    expect(session.cliSocket).toBeNull();
-    expect(bridge.isCliConnected("s1")).toBe(false);
+    expect(session.backendSocket).toBeNull();
+    expect(bridge.isBackendConnected("s1")).toBe(false);
 
     // Side-effects are deferred by 15s grace period (CLI token refresh cycle)
     vi.advanceTimersByTime(16_000);
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    expect(calls).toContainEqual(expect.objectContaining({ type: "cli_disconnected" }));
+    expect(calls).toContainEqual(expect.objectContaining({ type: "backend_disconnected" }));
     vi.useRealTimers();
   });
 
@@ -941,7 +941,7 @@ describe("Browser handlers", () => {
     session.state.cwd = "/repo";
     session.state.git_branch = "main";
     // Ensure the session has a CLI socket so refreshGitInfo doesn't skip
-    (session as any).cliSocket = { send: vi.fn() };
+    (session as any).backendSocket = { send: vi.fn() };
 
     const gitInfoCb = vi.fn();
     bridge.onSessionGitInfoReadyCallback(gitInfoCb);
@@ -1051,9 +1051,9 @@ describe("Browser handlers", () => {
 
     expect(relaunchCb).toHaveBeenCalledWith("s1");
 
-    // Also sends cli_disconnected
+    // Also sends backend_disconnected
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    const disconnectedMsg = calls.find((c: any) => c.type === "cli_disconnected");
+    const disconnectedMsg = calls.find((c: any) => c.type === "backend_disconnected");
     expect(disconnectedMsg).toBeDefined();
   });
 
@@ -1070,7 +1070,7 @@ describe("Browser handlers", () => {
     expect(relaunchCb).not.toHaveBeenCalled();
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    const disconnectedMsg = calls.find((c: any) => c.type === "cli_disconnected");
+    const disconnectedMsg = calls.find((c: any) => c.type === "backend_disconnected");
     expect(disconnectedMsg).toBeUndefined();
   });
 
@@ -1107,7 +1107,7 @@ describe("Browser handlers", () => {
     bridge.handleBrowserOpen(browser, "s1");
     browser.send.mockClear();
 
-    // Ask for replay after seq=1 (cli_connected). Both stream events should replay.
+    // Ask for replay after seq=1 (backend_connected). Both stream events should replay.
     bridge.handleBrowserMessage(browser, JSON.stringify({
       type: "session_subscribe",
       last_seq: 1,
@@ -1214,7 +1214,7 @@ describe("Browser handlers", () => {
     bridge.handleBrowserOpen(browser, "s1");
     browser.send.mockClear();
 
-    // Browser reconnects claiming it last saw seq=1 (cli_connected event).
+    // Browser reconnects claiming it last saw seq=1 (backend_connected event).
     // Event buffer covers seqs 2-3 (no gap), but seq=3 is history-backed.
     bridge.handleBrowserMessage(browser, JSON.stringify({
       type: "session_subscribe",
@@ -2692,7 +2692,7 @@ describe("Persistence", () => {
     expect(session!.state.cwd).toBe("/saved");
     expect(session!.state.total_cost_usd).toBe(0.1);
     expect(session!.messageHistory).toHaveLength(1);
-    expect(session!.cliSocket).toBeNull();
+    expect(session!.backendSocket).toBeNull();
     expect(session!.browserSockets.size).toBe(0);
     expect(session!.processedClientMessageIdSet.has("restored-client-1")).toBe(true);
   });
@@ -4441,7 +4441,7 @@ describe("handleSessionSubscribe — no double message_history", () => {
     expect(snapshots.length).toBe(1);
     expect(snapshots[0]).toEqual(expect.objectContaining({
       type: "state_snapshot",
-      cliConnected: true,
+      backendConnected: true,
       permissionMode: expect.any(String),
     }));
   });
@@ -4487,7 +4487,7 @@ describe("state_snapshot", () => {
     const calls = browser.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
     const snapshots = calls.filter((m: any) => m.type === "state_snapshot");
     expect(snapshots.length).toBe(1);
-    expect(snapshots[0].cliConnected).toBe(true);
+    expect(snapshots[0].backendConnected).toBe(true);
     expect(snapshots[0].sessionStatus).toBe("idle");
     expect(typeof snapshots[0].permissionMode).toBe("string");
     expect(typeof snapshots[0].askPermission).toBe("boolean");
@@ -4539,7 +4539,7 @@ describe("state_snapshot", () => {
     expect(snapshot.sessionStatus).toBe("running");
   });
 
-  it("reports cliConnected as false when CLI is disconnected", () => {
+  it("reports backendConnected as false when CLI is disconnected", () => {
     bridge.handleCLIClose(cli);
     browser.send.mockClear();
 
@@ -4550,7 +4550,7 @@ describe("state_snapshot", () => {
 
     const calls = browser.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
     const snapshot = calls.find((m: any) => m.type === "state_snapshot");
-    expect(snapshot.cliConnected).toBe(false);
+    expect(snapshot.backendConnected).toBe(false);
     expect(snapshot.sessionStatus).toBeNull();
   });
 });
@@ -4960,7 +4960,7 @@ describe("status_change: running on user_message", () => {
     expect(snapshot).toBeDefined();
     // Key assertion: after a full relaunch (grace expired), isGenerating is cleared
     expect(snapshot.sessionStatus).toBe("idle");
-    expect(snapshot.cliConnected).toBe(true);
+    expect(snapshot.backendConnected).toBe(true);
     vi.useRealTimers();
   });
 
@@ -5301,7 +5301,7 @@ describe("Diff stats computation", () => {
     bridge.markWorktree("s1", "/repo", "/tmp/wt", "main");
     const session = bridge.getSession("s1")!;
     session.state.cwd = "/tmp/wt";
-    (session as any).cliSocket = { send: vi.fn() };
+    (session as any).backendSocket = { send: vi.fn() };
 
     mockExecSync.mockImplementation((cmd: string) => {
       if (cmd.includes("--abbrev-ref HEAD")) return "feat-wt-1234\n";
@@ -5328,7 +5328,7 @@ describe("Diff stats computation", () => {
     session.state.cwd = "/tmp/wt";
     session.state.diff_base_branch = "abcdef1234567";
     session.diffStatsDirty = true;
-    (session as any).cliSocket = { send: vi.fn() };
+    (session as any).backendSocket = { send: vi.fn() };
 
     mockExecSync.mockImplementation((cmd: string) => {
       if (cmd.includes("diff --numstat abcdef1234567")) return "9\t4\tsrc/file.ts\n";
@@ -5357,7 +5357,7 @@ describe("Diff stats computation", () => {
     session.state.cwd = "/tmp/wt";
     session.state.diff_base_start_sha = "base-start-sha";
     session.diffStatsDirty = true;
-    (session as any).cliSocket = { send: vi.fn() };
+    (session as any).backendSocket = { send: vi.fn() };
 
     bridge.recomputeDiffIfDirty(session);
 
@@ -5385,7 +5385,7 @@ describe("Diff stats computation", () => {
     session.state.git_head_sha = "old-head-sha";
     session.state.diff_base_start_sha = "old-anchor-sha";
     session.diffStatsDirty = true;
-    (session as any).cliSocket = { send: vi.fn() };
+    (session as any).backendSocket = { send: vi.fn() };
 
     bridge.setDiffBaseBranch("s1", "jiayi");
 
@@ -5410,7 +5410,7 @@ describe("Diff stats computation", () => {
     // Set cwd so computeDiffStats can run
     session.state.cwd = "/tmp/wt";
     // Ensure the session has a CLI socket so recomputeDiffIfDirty doesn't skip
-    (session as any).cliSocket = { send: vi.fn() };
+    (session as any).backendSocket = { send: vi.fn() };
 
     // Use setDiffBaseBranch which triggers computeDiff
     mockExecSync.mockImplementation((cmd: string) => {
@@ -5469,7 +5469,7 @@ describe("Diff stats computation", () => {
     const session = bridge.getSession("s1")!;
     session.state.cwd = "/tmp/wt";
     // Ensure the session has a CLI socket so refreshGitInfo/recomputeDiffIfDirty don't skip
-    (session as any).cliSocket = { send: vi.fn() };
+    (session as any).backendSocket = { send: vi.fn() };
     const browserWs = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browserWs, "s1");
 
@@ -6372,7 +6372,7 @@ describe("Codex disconnect auto-relaunch", () => {
     expect(settingsRelaunchCb).toHaveBeenCalledWith(sid);
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    expect(calls).toContainEqual(expect.objectContaining({ type: "cli_disconnected" }));
+    expect(calls).toContainEqual(expect.objectContaining({ type: "backend_disconnected" }));
     vi.useRealTimers();
   });
 
@@ -6393,7 +6393,7 @@ describe("Codex disconnect auto-relaunch", () => {
 
     expect(relaunchCb).toHaveBeenCalledWith(sid);
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    expect(calls).toContainEqual(expect.objectContaining({ type: "cli_disconnected" }));
+    expect(calls).toContainEqual(expect.objectContaining({ type: "backend_disconnected" }));
   });
 
   it("does not request relaunch when no browser is connected", () => {
@@ -6428,7 +6428,7 @@ describe("Codex disconnect auto-relaunch", () => {
 
     expect(relaunchCb).not.toHaveBeenCalled();
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    expect(calls).toContainEqual(expect.objectContaining({ type: "cli_disconnected", reason: "idle_limit" }));
+    expect(calls).toContainEqual(expect.objectContaining({ type: "backend_disconnected", reason: "idle_limit" }));
   });
 
   it("stops auto-relaunch after repeated reconnect failures even across session_init", () => {
@@ -7518,7 +7518,7 @@ describe("SDK disconnect auto-relaunch", () => {
 
     expect(relaunchCb).toHaveBeenCalledWith(sid);
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    expect(calls).toContainEqual(expect.objectContaining({ type: "cli_disconnected" }));
+    expect(calls).toContainEqual(expect.objectContaining({ type: "backend_disconnected" }));
   });
 
   it("does not request relaunch when no browser is connected", () => {
@@ -7553,7 +7553,7 @@ describe("SDK disconnect auto-relaunch", () => {
 
     expect(relaunchCb).not.toHaveBeenCalled();
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    expect(calls).toContainEqual(expect.objectContaining({ type: "cli_disconnected", reason: "idle_limit" }));
+    expect(calls).toContainEqual(expect.objectContaining({ type: "backend_disconnected", reason: "idle_limit" }));
   });
 
   it("triggers relaunch for exited SDK session when browser connects", () => {
@@ -7570,13 +7570,13 @@ describe("SDK disconnect auto-relaunch", () => {
     const browser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(browser, sid);
 
-    // Should trigger relaunch, NOT optimistically send cli_connected
+    // Should trigger relaunch, NOT optimistically send backend_connected
     expect(relaunchCb).toHaveBeenCalledWith(sid);
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    expect(calls).toContainEqual(expect.objectContaining({ type: "cli_disconnected" }));
+    expect(calls).toContainEqual(expect.objectContaining({ type: "backend_disconnected" }));
   });
 
-  it("sends cli_connected optimistically for non-exited SDK session without adapter", () => {
+  it("sends backend_connected optimistically for non-exited SDK session without adapter", () => {
     const sid = "s1";
     const relaunchCb = vi.fn();
     bridge.onCLIRelaunchNeededCallback(relaunchCb);
@@ -7592,7 +7592,7 @@ describe("SDK disconnect auto-relaunch", () => {
     // Should NOT trigger relaunch — adapter is being attached during active relaunch
     expect(relaunchCb).not.toHaveBeenCalled();
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    expect(calls).toContainEqual(expect.objectContaining({ type: "cli_connected" }));
+    expect(calls).toContainEqual(expect.objectContaining({ type: "backend_connected" }));
   });
 });
 

@@ -853,7 +853,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
           totalLinesAdded: bridge?.total_lines_added || 0,
           totalLinesRemoved: bridge?.total_lines_removed || 0,
           lastMessagePreview: wsBridge.getLastUserMessage(s.sessionId) || "",
-          cliConnected: wsBridge.isCliConnected(s.sessionId),
+          cliConnected: wsBridge.isBackendConnected(s.sessionId),
           taskHistory: wsBridge.getSessionTaskHistory(s.sessionId),
           keywords: wsBridge.getSessionKeywords(s.sessionId),
           claimedQuestId: bridge?.claimedQuestId ?? null,
