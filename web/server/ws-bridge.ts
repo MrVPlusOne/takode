@@ -7,7 +7,7 @@ import { GIT_CMD_TIMEOUT } from "./constants.js";
 const execPromise = promisify(execCb);
 
 const GIT_SHA_REF_RE = /^[0-9a-f]{7,40}$/i;
-import { resolve, basename, join } from "node:path";
+import { resolve, join } from "node:path";
 import { homedir } from "node:os";
 import type { PushoverNotifier } from "./pushover.js";
 import type {
@@ -42,7 +42,7 @@ import type {
   TakodeEventType,
   TakodeEventSubscriber,
 } from "./session-types.js";
-import { TOOL_RESULT_PREVIEW_LIMIT, assertNever, isClaudeFamily } from "./session-types.js";
+import { TOOL_RESULT_PREVIEW_LIMIT, assertNever } from "./session-types.js";
 import type { SessionStore } from "./session-store.js";
 import type { CodexAdapter, CodexResumeSnapshot, CodexResumeTurnSnapshot } from "./codex-adapter.js";
 import type { RecorderManager } from "./recorder.js";
@@ -50,9 +50,24 @@ import type { ImageStore } from "./image-store.js";
 import type { CliLauncher } from "./cli-launcher.js";
 import * as gitUtils from "./git-utils.js";
 import { sessionTag } from "./session-tag.js";
-import { shouldAttemptAutoApproval, evaluatePermission, type RecentToolCall } from "./auto-approver.js";
+import { evaluatePermission, type RecentToolCall } from "./auto-approver.js";
 import type { AutoApprovalConfig } from "./auto-approval-store.js";
 import type { PerfTracer } from "./perf-tracer.js";
+import {
+  NEVER_AUTO_APPROVE,
+  handlePermissionRequest as handlePermissionRequestPipeline,
+  type PermissionPipelineResult,
+  isSensitiveBashCommand as isSensitiveBashCommandPolicy,
+  isSensitiveConfigPath as isSensitiveConfigPathPolicy,
+} from "./bridge/permission-pipeline.js";
+import { detectQuestEvent, type QuestLifecycleStatus } from "./bridge/quest-detector.js";
+import {
+  clearOptimisticRunningTimer as clearOptimisticRunningTimerLifecycle,
+  markRunningFromUserDispatch as markRunningFromUserDispatchLifecycle,
+  markTurnInterrupted as markTurnInterruptedLifecycle,
+  setGenerating as setGeneratingLifecycle,
+  type InterruptSource as GenerationInterruptSource,
+} from "./bridge/generation-lifecycle.js";
 
 // ─── Denial summary helper ───────────────────────────────────────────────────
 
@@ -101,10 +116,6 @@ function getAutoApprovalSummary(toolName: string, input: Record<string, unknown>
   return `Auto-approved: ${toolName}`;
 }
 
-/** Tools that require user interaction — must NEVER be auto-approved regardless of permission mode.
- *  These tools collect user input (answers, plan approval) that cannot be synthesized by the server. */
-const NEVER_AUTO_APPROVE: ReadonlySet<string> = new Set(["AskUserQuestion", "ExitPlanMode"]);
-
 /** Tools whose approvals appear as chat messages (same set — interactive tools need visible records). */
 const NOTABLE_APPROVALS = NEVER_AUTO_APPROVE;
 
@@ -141,154 +152,6 @@ function extractAskUserAnswers(
     }
   }
   return pairs.length ? pairs : undefined;
-}
-
-type QuestLifecycleStatus = "in_progress" | "needs_verification" | "done";
-
-interface ParsedQuestLifecycleCommand {
-  questId: string;
-  targetStatus?: QuestLifecycleStatus;
-}
-
-function normalizeQuestStatus(value: string | undefined): QuestLifecycleStatus | undefined {
-  if (!value) return undefined;
-  const s = value.toLowerCase();
-  if (s === "in_progress") return "in_progress";
-  if (s === "needs_verification" || s === "verification") return "needs_verification";
-  if (s === "done") return "done";
-  return undefined;
-}
-
-function normalizeQuestId(value: string | undefined): string | undefined {
-  if (!value) return undefined;
-  const match = value.match(/\b(q-\d+)\b/i);
-  return match?.[1]?.toLowerCase();
-}
-
-function extractJsonObjectCandidates(text: string): string[] {
-  const candidates: string[] = [];
-  let depth = 0;
-  let start = -1;
-  let inString = false;
-  let escaping = false;
-
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-
-    if (inString) {
-      if (escaping) {
-        escaping = false;
-      } else if (ch === "\\") {
-        escaping = true;
-      } else if (ch === "\"") {
-        inString = false;
-      }
-      continue;
-    }
-
-    if (ch === "\"") {
-      inString = true;
-      continue;
-    }
-
-    if (ch === "{") {
-      if (depth === 0) start = i;
-      depth++;
-      continue;
-    }
-
-    if (ch === "}") {
-      if (depth === 0) continue;
-      depth--;
-      if (depth === 0 && start >= 0) {
-        candidates.push(text.slice(start, i + 1));
-        start = -1;
-      }
-    }
-  }
-
-  return candidates;
-}
-
-function parseQuestLifecycleCommand(command: string): ParsedQuestLifecycleCommand | null {
-  const match = command.match(/(?:^|[\s;|&])\/?quest\s+([a-z_]+)\s+(q-\d+)\b/i);
-  if (!match) return null;
-
-  const subcommand = match[1]?.toLowerCase();
-  const questId = match[2];
-  if (!subcommand || !questId) return null;
-
-  if (subcommand === "claim") return { questId, targetStatus: "in_progress" };
-  if (subcommand === "complete") return { questId, targetStatus: "needs_verification" };
-  if (subcommand === "done" || subcommand === "cancel") return { questId, targetStatus: "done" };
-  if (subcommand === "transition") {
-    const statusMatch = command.match(/--status\s+([a-z_]+)/i);
-    return { questId, targetStatus: normalizeQuestStatus(statusMatch?.[1]) };
-  }
-
-  return null;
-}
-
-function parseQuestLifecycleResult(resultText: string): {
-  questId?: string;
-  title?: string;
-  status?: QuestLifecycleStatus;
-} | null {
-  const trimmed = resultText.trim();
-  if (!trimmed) return null;
-
-  const parseCandidate = (candidate: string) => {
-    try {
-      const parsed = JSON.parse(candidate) as Record<string, unknown>;
-      const questId = normalizeQuestId(
-        typeof parsed.questId === "string"
-          ? parsed.questId
-          : (typeof parsed.id === "string" ? parsed.id : undefined),
-      );
-      const title = typeof parsed.title === "string" ? parsed.title : undefined;
-      const status = normalizeQuestStatus(
-        typeof parsed.status === "string" ? parsed.status : undefined,
-      );
-      if (!questId && !title && !status) return null;
-      return { questId, title, status };
-    } catch {
-      return null;
-    }
-  };
-
-  const whole = parseCandidate(trimmed);
-  if (whole) return whole;
-
-  const jsonCandidates = extractJsonObjectCandidates(trimmed);
-  for (let i = jsonCandidates.length - 1; i >= 0; i--) {
-    const parsed = parseCandidate(jsonCandidates[i]);
-    if (parsed) return parsed;
-  }
-
-  const claimLine = trimmed.match(/Claimed\s+(q-\d+)\s+"([^"]+)"/i);
-  if (claimLine) {
-    return { questId: claimLine[1], title: claimLine[2], status: "in_progress" };
-  }
-
-  const completeLine = trimmed.match(/Completed\s+(q-\d+)\s+"([^"]+)"/i);
-  if (completeLine) {
-    return { questId: completeLine[1], title: completeLine[2], status: "needs_verification" };
-  }
-
-  const doneLine = trimmed.match(/(?:Marked done|Cancelled)\s+(q-\d+)\s+"([^"]+)"/i);
-  if (doneLine) {
-    return { questId: doneLine[1], title: doneLine[2], status: "done" };
-  }
-
-  const transitionLine = trimmed.match(/Transitioned\s+(q-\d+)\s+to\s+([a-z_]+)/i);
-  if (transitionLine) {
-    return {
-      questId: transitionLine[1],
-      status: normalizeQuestStatus(transitionLine[2]),
-    };
-  }
-
-  return null;
 }
 
 // ─── WebSocket data tags ──────────────────────────────────────────────────────
@@ -329,7 +192,7 @@ interface PendingCodexTurnRecovery {
 }
 
 type LeaderAssistantAddressing = "not_leader" | "user" | "self" | "missing";
-type InterruptSource = "user" | "leader" | "system";
+type InterruptSource = GenerationInterruptSource;
 
 interface Session {
   id: string;
@@ -359,7 +222,7 @@ interface Session {
   /** Full tool results indexed by tool_use_id for lazy fetch */
   toolResults: Map<string, { content: string; is_error: boolean; timestamp: number }>;
   /** Parsed quest lifecycle commands pending completion, keyed by tool_use_id. */
-  pendingQuestCommands: Map<string, ParsedQuestLifecycleCommand>;
+  pendingQuestCommands: Map<string, { questId: string; targetStatus?: QuestLifecycleStatus }>;
   /** Set after compact_boundary; the next user text message is the summary */
   awaitingCompactSummary?: boolean;
   /** Accumulates content blocks for assistant messages with the same ID (parallel tool calls) */
@@ -2374,18 +2237,37 @@ export class WsBridge {
       // Handle permission requests
       if (outgoing?.type === "permission_request") {
         const perm = outgoing.request;
-        session.pendingPermissions.set(perm.request_id, perm);
-        this.onSessionActivityStateChanged(session.id, "codex_permission_request");
-        this.setAttention(session, "action");
-        this.persistSession(session);
-
-        // Emit herd event so orchestrator knows this worker is blocked
-        this.emitTakodeEvent(session.id, "permission_request", {
-          tool_name: perm.tool_name,
-          request_id: perm.request_id,
-          summary: perm.description || perm.tool_name,
-          ...this.buildPermissionPreview(perm),
-        });
+        const maybeResult = handlePermissionRequestPipeline(
+          session,
+          perm,
+          "codex",
+          {
+            onSessionActivityStateChanged: (sessionId, reason) => this.onSessionActivityStateChanged(sessionId, reason),
+            broadcastPermissionRequest: (targetSession, request) => this.broadcastToBrowsers(targetSession, {
+              type: "permission_request",
+              request,
+            }),
+            persistSession: (targetSession) => this.persistSession(targetSession),
+            setAttentionAction: (targetSession) => this.setAttention(targetSession, "action"),
+            emitTakodePermissionRequest: (targetSession, request) => this.emitTakodeEvent(targetSession.id, "permission_request", {
+              tool_name: request.tool_name,
+              request_id: request.request_id,
+              summary: request.description || request.tool_name,
+              ...this.buildPermissionPreview(request),
+            }),
+          },
+          {
+            activityReason: "codex_permission_request",
+            enableModeAutoApprove: false,
+            enableLlmAutoApproval: false,
+          },
+        );
+        if (maybeResult instanceof Promise) {
+          void maybeResult.catch((err) => {
+            console.error(`[ws-bridge] Failed to process Codex permission_request for session ${sessionTag(session.id)}:`, err);
+          });
+        }
+        outgoing = null;
       }
 
       if (outgoing) this.broadcastToBrowsers(session, outgoing);
@@ -2640,9 +2522,12 @@ export class WsBridge {
       // before broadcasting to browser. This mirrors the NDJSON permission flow.
       if (msg.type === "permission_request") {
         const permMsg = msg as { type: "permission_request"; request: PermissionRequest };
-        this.handleSdkPermissionRequest(session, permMsg.request).catch((err) => {
-          console.error(`[ws-bridge] SDK auto-approval error for session ${sessionTag(session.id)}:`, err);
-        });
+        const maybe = this.handleSdkPermissionRequest(session, permMsg.request);
+        if (maybe instanceof Promise) {
+          void maybe.catch((err) => {
+            console.error(`[ws-bridge] SDK auto-approval error for session ${sessionTag(session.id)}:`, err);
+          });
+        }
         return; // Don't broadcast yet — handleSdkPermissionRequest will broadcast
       }
 
@@ -3833,82 +3718,28 @@ export class WsBridge {
    * acceptEdits mode since they control the agent's own behavior.
    */
   private static isSensitiveConfigPath(filePath: string): boolean {
-    if (!filePath) return false;
-    const name = basename(filePath);
-    // CLAUDE.md anywhere — project root, parent dirs, .claude/, ~/.claude/
-    if (name === "CLAUDE.md") return true;
-    // MCP server configs
-    if (name === ".mcp.json" || name === ".claude.json") return true;
-    // Settings / credentials inside .claude/
-    if (filePath.includes("/.claude/")) {
-      if (name === "settings.json" || name === "settings.local.json" || name === ".credentials.json") return true;
-      // commands/, agents/, skills/, hooks/ directories
-      if (/\/\.claude\/(commands|agents|skills|hooks)\//.test(filePath)) return true;
-    }
-    // Companion config
-    const home = homedir();
-    if (filePath.startsWith(`${home}/.companion/settings.json`) ||
-        filePath.startsWith(`${home}/.companion/envs/`) ||
-        filePath.startsWith(`${home}/.companion/auto-approval/`)) {
-      return true;
-    }
-    // Port-specific companion settings (e.g. settings-3456.json)
-    if (filePath.startsWith(`${home}/.companion/`) && /settings(-\d+)?\.json$/.test(filePath)) {
-      return true;
-    }
-    // ~/.claude.json (user-level MCP config at home root)
-    if (filePath === `${home}/.claude.json`) return true;
-    return false;
+    return isSensitiveConfigPathPolicy(filePath);
   }
 
   /** Check if a Bash command targets sensitive config files (CLAUDE.md, hooks, settings, etc.).
    *  Used to skip LLM auto-approval for commands that could modify agent behavior. */
   private static isSensitiveBashCommand(command: string): boolean {
-    if (!command) return false;
-    const sensitive = [
-      "CLAUDE.md", ".claude/settings", ".claude/hooks/", ".claude/commands/",
-      ".claude/agents/", ".claude/skills/", ".mcp.json", ".claude.json",
-      ".companion/settings", ".companion/auto-approval/", ".companion/envs/",
-    ];
-    return sensitive.some(p => command.includes(p));
+    return isSensitiveBashCommandPolicy(command);
   }
 
-  // Tools that are auto-approved in acceptEdits mode (everything except Bash).
-  // In bypassPermissions mode, all tools are auto-approved EXCEPT those in NEVER_AUTO_APPROVE.
-  private static readonly ACCEPT_EDITS_AUTO_APPROVE = new Set([
-    "Edit", "Write", "Read", "MultiEdit", "NotebookEdit",
-    "Glob", "Grep", "WebFetch", "WebSearch",
-    "TodoWrite", "Task", "Agent", "Skill",
-  ]);
-
-  private async handleControlRequest(session: Session, msg: CLIControlRequestMessage) {
-    if (msg.request.subtype === "can_use_tool") {
-      const mode = session.state.permissionMode;
-      const toolName = msg.request.tool_name;
-
-      // Server-side auto-approval based on permission mode.
-      // The CLI may not honor runtime set_permission_mode for out-of-project
-      // files, so the server acts as the enforcement layer.
-      // In acceptEdits mode, edits to sensitive config files (CLAUDE.md,
-      // settings.json, hooks, etc.) still require explicit approval.
-      const isFileEdit = toolName === "Edit" || toolName === "Write" || toolName === "MultiEdit" || toolName === "NotebookEdit";
-      const filePath = isFileEdit ? String(msg.request.input.file_path ?? "") : "";
-      const autoApprove = !NEVER_AUTO_APPROVE.has(toolName) && (
-        mode === "bypassPermissions" ||
-        (mode === "acceptEdits"
-          && toolName !== "Bash"
-          && WsBridge.ACCEPT_EDITS_AUTO_APPROVE.has(toolName)
-          && !(isFileEdit && WsBridge.isSensitiveConfigPath(filePath))));
-
-      if (autoApprove) {
+  private handleControlRequest(session: Session, msg: CLIControlRequestMessage): void {
+    if (msg.request.subtype !== "can_use_tool") return;
+    const toolName = msg.request.tool_name;
+    const applyResult = (result: PermissionPipelineResult): void => {
+      if (result.kind === "mode_auto_approved") {
         const ndjson = JSON.stringify({
           type: "control_response",
           response: {
             subtype: "success",
-            request_id: msg.request_id,
+            request_id: result.request.request_id,
             response: {
               behavior: "allow",
-              updatedInput: msg.request.input,
+              updatedInput: result.request.input,
             },
           },
         });
@@ -3916,67 +3747,13 @@ export class WsBridge {
         return;
       }
 
-      // Check if LLM auto-approval is available for this session's project.
-      // Only for Claude Code sessions (WebSocket or SDK) and non-NEVER_AUTO_APPROVE tools.
-      // Sensitive file edits and Bash commands targeting config files always
-      // require human review — never sent to the LLM auto-approver.
-      const bashCommand = toolName === "Bash" ? String(msg.request.input.command ?? "") : "";
-      const autoApprovalConfig = (
-        isClaudeFamily(session.backendType) &&
-        !NEVER_AUTO_APPROVE.has(toolName) &&
-        !(isFileEdit && WsBridge.isSensitiveConfigPath(filePath)) &&
-        !(toolName === "Bash" && WsBridge.isSensitiveBashCommand(bashCommand))
-      ) ? await shouldAttemptAutoApproval(
-        session.state.cwd,
-        session.state.repo_root ? [session.state.repo_root] : undefined,
-      ) : null;
-
-      const perm: PermissionRequest = {
-        request_id: msg.request_id,
-        tool_name: msg.request.tool_name,
-        input: msg.request.input,
-        permission_suggestions: msg.request.permission_suggestions,
-        description: msg.request.description,
-        tool_use_id: msg.request.tool_use_id,
-        agent_id: msg.request.agent_id,
-        timestamp: Date.now(),
-        ...(autoApprovalConfig ? { evaluating: "queued" as const } : {}),
-      };
-      session.pendingPermissions.set(msg.request_id, perm);
-      this.onSessionActivityStateChanged(session.id, "permission_request");
-
-      this.broadcastToBrowsers(session, {
-        type: "permission_request",
-        request: perm,
-      });
-
-      // NOTE: Takode permission_request event is NOT emitted here.
-      // It's deferred until auto-approval decides (if auto-approval is configured).
-      // If no auto-approval, it's emitted immediately in Path B below.
-
-      if (autoApprovalConfig) {
-        // Path A: LLM auto-approval available — show collapsed spinner in browser,
-        // defer attention/notifications until LLM evaluation completes.
-        this.persistSession(session);
-        this.tryLlmAutoApproval(session, msg.request_id, perm, autoApprovalConfig);
-      } else {
-        // Path B: Normal flow — immediate attention + notification.
-        this.setAttention(session, "action");
-        this.persistSession(session);
-
-        // Takode: emit permission_request only when it actually needs human attention
-        this.emitTakodeEvent(session.id, "permission_request", {
-          tool_name: perm.tool_name,
-          request_id: perm.request_id,
-          summary: perm.description || perm.tool_name,
-          ...this.buildPermissionPreview(perm),
-        });
-
-        if (this.pushoverNotifier) {
-          const eventType = toolName === "AskUserQuestion" ? "question" as const : "permission" as const;
-          const detail = toolName + (perm.description ? `: ${perm.description}` : "");
-          this.pushoverNotifier.scheduleNotification(session.id, eventType, detail, msg.request_id);
-        }
+      if (result.kind === "queued_for_llm_auto_approval") {
+        this.tryLlmAutoApproval(
+          session,
+          result.request.request_id,
+          result.request,
+          result.autoApprovalConfig,
+        );
       }
 
       // Trigger auto-naming when agent pauses for plan approval — the agent
@@ -3984,7 +3761,54 @@ export class WsBridge {
       if (toolName === "ExitPlanMode" && this.onAgentPaused) {
         this.onAgentPaused(session.id, [...session.messageHistory], session.state.cwd);
       }
+    };
+
+    const resultOrPromise = handlePermissionRequestPipeline(
+      session,
+      {
+        request_id: msg.request_id,
+        tool_name: toolName,
+        input: msg.request.input,
+        permission_suggestions: msg.request.permission_suggestions,
+        description: msg.request.description,
+        tool_use_id: msg.request.tool_use_id,
+        agent_id: msg.request.agent_id,
+      },
+      "claude-ws",
+      {
+        onSessionActivityStateChanged: (sessionId, reason) => this.onSessionActivityStateChanged(sessionId, reason),
+        broadcastPermissionRequest: (targetSession, perm) => this.broadcastToBrowsers(targetSession, {
+          type: "permission_request",
+          request: perm,
+        }),
+        persistSession: (targetSession) => this.persistSession(targetSession),
+        setAttentionAction: (targetSession) => this.setAttention(targetSession, "action"),
+        emitTakodePermissionRequest: (targetSession, perm) => this.emitTakodeEvent(targetSession.id, "permission_request", {
+          tool_name: perm.tool_name,
+          request_id: perm.request_id,
+          summary: perm.description || perm.tool_name,
+          ...this.buildPermissionPreview(perm),
+        }),
+        schedulePermissionNotification: (targetSession, perm) => {
+          if (!this.pushoverNotifier) return;
+          const eventType = perm.tool_name === "AskUserQuestion" ? "question" as const : "permission" as const;
+          const detail = perm.tool_name + (perm.description ? `: ${perm.description}` : "");
+          this.pushoverNotifier.scheduleNotification(targetSession.id, eventType, detail, perm.request_id);
+        },
+      },
+      { activityReason: "permission_request" },
+    );
+
+    if (resultOrPromise instanceof Promise) {
+      void resultOrPromise.then((result) => {
+        applyResult(result);
+      }).catch((err) => {
+        console.error(`[ws-bridge] Failed to process control_request for session ${sessionTag(session.id)}:`, err);
+      });
+      return;
     }
+
+    applyResult(resultOrPromise);
   }
 
   /**
@@ -4023,98 +3847,72 @@ export class WsBridge {
    * then broadcasts to browsers. If auto-approved, sends the response
    * directly back to the SDK adapter.
    */
-  private async handleSdkPermissionRequest(session: Session, perm: PermissionRequest): Promise<void> {
-    const toolName = perm.tool_name;
-    const filePath = typeof perm.input?.file_path === "string" ? perm.input.file_path : "";
-    const isFileEdit = toolName === "Edit" || toolName === "Write" || toolName === "NotebookEdit";
-    const bashCommand = toolName === "Bash" ? String(perm.input?.command ?? "") : "";
-
-    // ── Mode-based auto-approval ────────────────────────────────────────────
-    // SDK sessions use --permission-prompt-tool stdio, so the CLI delegates ALL
-    // tool permission decisions to the server. The server enforces the current
-    // permission mode here (bypassPermissions → approve everything,
-    // acceptEdits → approve file edits but prompt for Bash).
-    // This mirrors handleControlRequest() for WebSocket sessions.
-    const mode = session.state.permissionMode;
-    const modeAutoApprove = !NEVER_AUTO_APPROVE.has(toolName) && (
-      mode === "bypassPermissions" ||
-      (mode === "acceptEdits"
-        && toolName !== "Bash"
-        && WsBridge.ACCEPT_EDITS_AUTO_APPROVE.has(toolName)
-        && !(isFileEdit && WsBridge.isSensitiveConfigPath(filePath))));
-
-    if (modeAutoApprove) {
-      // Auto-approve: send response directly back to the SDK adapter
-      if (session.claudeSdkAdapter) {
-        session.claudeSdkAdapter.sendBrowserMessage({
-          type: "permission_response",
-          request_id: perm.request_id,
-          behavior: "allow",
-          updated_input: perm.input,
-        } as any);
+  private handleSdkPermissionRequest(session: Session, perm: PermissionRequest): void | Promise<void> {
+    const applyResult = (result: PermissionPipelineResult): void => {
+      if (result.kind === "mode_auto_approved") {
+        // Auto-approve: send response directly back to the SDK adapter
+        if (session.claudeSdkAdapter) {
+          session.claudeSdkAdapter.sendBrowserMessage({
+            type: "permission_response",
+            request_id: result.request.request_id,
+            behavior: "allow",
+            updated_input: result.request.input,
+          } as any);
+        }
+        // Broadcast approval to browsers for UI consistency
+        const approvedMsg: BrowserIncomingMessage = {
+          type: "permission_approved",
+          id: `approval-${result.request.request_id}`,
+          request_id: result.request.request_id,
+          tool_name: result.request.tool_name,
+          tool_use_id: result.request.tool_use_id,
+          summary: getApprovalSummary(result.request.tool_name, result.request.input),
+          timestamp: Date.now(),
+        };
+        session.messageHistory.push(approvedMsg);
+        this.broadcastToBrowsers(session, approvedMsg);
+        this.persistSession(session);
+        return;
       }
-      // Broadcast approval to browsers for UI consistency
-      const approvedMsg: BrowserIncomingMessage = {
-        type: "permission_approved",
-        id: `approval-${perm.request_id}`,
-        request_id: perm.request_id,
-        tool_name: toolName,
-        tool_use_id: perm.tool_use_id,
-        summary: getApprovalSummary(toolName, perm.input),
-        timestamp: Date.now(),
-      };
-      session.messageHistory.push(approvedMsg);
-      this.broadcastToBrowsers(session, approvedMsg);
-      this.persistSession(session);
-      return;
-    }
 
-    // ── LLM auto-approval check ─────────────────────────────────────────────
-    const autoApprovalConfig = (
-      !NEVER_AUTO_APPROVE.has(toolName) &&
-      !(isFileEdit && WsBridge.isSensitiveConfigPath(filePath)) &&
-      !(toolName === "Bash" && WsBridge.isSensitiveBashCommand(bashCommand))
-    ) ? await shouldAttemptAutoApproval(
-      session.state.cwd,
-      session.state.repo_root ? [session.state.repo_root] : undefined,
-    ) : null;
+      if (result.kind === "queued_for_llm_auto_approval") {
+        this.tryLlmAutoApproval(session, result.request.request_id, result.request, result.autoApprovalConfig);
+      }
+    };
 
-    // Add evaluating flag if auto-approval is available
-    if (autoApprovalConfig) {
-      perm.evaluating = "queued" as const;
-    }
+    const resultOrPromise = handlePermissionRequestPipeline(
+      session,
+      perm,
+      "claude-sdk",
+      {
+        onSessionActivityStateChanged: (sessionId, reason) => this.onSessionActivityStateChanged(sessionId, reason),
+        broadcastPermissionRequest: (targetSession, request) => this.broadcastToBrowsers(targetSession, {
+          type: "permission_request",
+          request,
+        }),
+        persistSession: (targetSession) => this.persistSession(targetSession),
+        setAttentionAction: (targetSession) => this.setAttention(targetSession, "action"),
+        emitTakodePermissionRequest: (targetSession, request) => this.emitTakodeEvent(targetSession.id, "permission_request", {
+          tool_name: request.tool_name,
+          summary: request.description || request.tool_name,
+        }),
+        schedulePermissionNotification: (targetSession, request) => {
+          if (!this.pushoverNotifier) return;
+          const eventType = request.tool_name === "AskUserQuestion" ? "question" as const : "permission" as const;
+          const detail = request.tool_name + (request.description ? `: ${request.description}` : "");
+          this.pushoverNotifier.scheduleNotification(targetSession.id, eventType, detail, request.request_id);
+        },
+      },
+      { activityReason: "sdk_permission_request" },
+    );
 
-    // Track in ws-bridge's pending permissions (for attention state, diagnostics)
-    session.pendingPermissions.set(perm.request_id, perm);
-    this.onSessionActivityStateChanged(session.id, "sdk_permission_request");
-
-    // Broadcast to browsers
-    this.broadcastToBrowsers(session, {
-      type: "permission_request",
-      request: perm,
-    });
-
-    if (autoApprovalConfig) {
-      // Path A: LLM auto-approval — defer attention until evaluation completes
-      this.persistSession(session);
-      this.tryLlmAutoApproval(session, perm.request_id, perm, autoApprovalConfig);
-    } else {
-      // Path B: No auto-approval — immediate attention
-      this.setAttention(session, "action");
-      this.persistSession(session);
-
-      // Takode: emit permission_request for herd event delivery
-      this.emitTakodeEvent(session.id, "permission_request", {
-        tool_name: perm.tool_name,
-        summary: perm.description || perm.tool_name,
+    if (resultOrPromise instanceof Promise) {
+      return resultOrPromise.then((result) => {
+        applyResult(result);
       });
-
-      if (this.pushoverNotifier) {
-        const eventType = toolName === "AskUserQuestion" ? "question" as const : "permission" as const;
-        const detail = toolName + (perm.description ? `: ${perm.description}` : "");
-        this.pushoverNotifier.scheduleNotification(session.id, eventType, detail, perm.request_id);
-      }
     }
+
+    applyResult(resultOrPromise);
   }
 
   private async tryLlmAutoApproval(
@@ -5339,9 +5137,7 @@ export class WsBridge {
   }
 
   private markTurnInterrupted(session: Session, source: InterruptSource): void {
-    if (!session.isGenerating) return;
-    session.interruptedDuringTurn = true;
-    session.interruptSourceDuringTurn = source;
+    markTurnInterruptedLifecycle(session, source);
   }
 
   private handleSetModel(session: Session, model: string) {
@@ -5676,9 +5472,12 @@ export class WsBridge {
       if (block.type !== "tool_use" || block.name !== "Bash") continue;
       const command = typeof block.input.command === "string" ? block.input.command : "";
       if (!command) continue;
-      const parsed = parseQuestLifecycleCommand(command);
-      if (!parsed) continue;
-      session.pendingQuestCommands.set(block.id, parsed);
+      const parsed = detectQuestEvent({ kind: "command", text: command });
+      if (!parsed?.questId) continue;
+      session.pendingQuestCommands.set(block.id, {
+        questId: parsed.questId,
+        targetStatus: parsed.targetStatus,
+      });
     }
   }
 
@@ -5695,7 +5494,7 @@ export class WsBridge {
     const raw = typeof toolResult.content === "string"
       ? toolResult.content
       : JSON.stringify(toolResult.content);
-    const parsedResult = parseQuestLifecycleResult(raw);
+    const parsedResult = detectQuestEvent({ kind: "result", text: raw });
     if (!parsedResult) return;
 
     const questId = parsedResult?.questId || pending.questId;
@@ -5975,39 +5774,11 @@ export class WsBridge {
    * arrives. This closes the idle-race window between dispatch and first token.
    */
   private markRunningFromUserDispatch(session: Session, reason: string): void {
-    const wasGenerating = session.isGenerating;
-    this.restartOptimisticRunningTimer(session, reason);
-    this.setGenerating(session, true, reason);
-    if (!wasGenerating) {
-      this.broadcastToBrowsers(session, { type: "status_change", status: "running" });
-    }
-    this.persistSession(session);
-  }
-
-  private restartOptimisticRunningTimer(session: Session, reason: string): void {
-    this.clearOptimisticRunningTimer(session, `${reason}:restart`);
-    const timer = setTimeout(() => {
-      const current = this.sessions.get(session.id);
-      if (!current) return;
-      if (current.optimisticRunningTimer !== timer) return;
-      current.optimisticRunningTimer = null;
-      if (!current.isGenerating) return;
-
-      console.warn(
-        `[ws-bridge] Reverting optimistic running state after ${WsBridge.USER_MESSAGE_RUNNING_TIMEOUT_MS}ms for session ${sessionTag(current.id)} (${reason})`,
-      );
-      this.markTurnInterrupted(current, "system");
-      this.setGenerating(current, false, "user_message_timeout");
-      this.broadcastToBrowsers(current, { type: "status_change", status: "idle" });
-      this.persistSession(current);
-    }, WsBridge.USER_MESSAGE_RUNNING_TIMEOUT_MS);
-    session.optimisticRunningTimer = timer;
+    markRunningFromUserDispatchLifecycle(this.getGenerationLifecycleDeps(), session, reason);
   }
 
   private clearOptimisticRunningTimer(session: Session, _reason: string): void {
-    if (!session.optimisticRunningTimer) return;
-    clearTimeout(session.optimisticRunningTimer);
-    session.optimisticRunningTimer = null;
+    clearOptimisticRunningTimerLifecycle(session);
   }
 
   private isCliUserMessagePayload(ndjson: string): boolean {
@@ -6025,59 +5796,42 @@ export class WsBridge {
 
   /** Centralized generation state setter with logging and recording. */
   private setGenerating(session: Session, generating: boolean, reason: string): void {
-    if (session.isGenerating === generating) return;
-    session.isGenerating = generating;
-    if (generating) {
-      session.generationStartedAt = Date.now();
-      session.stuckNotifiedAt = null;
-      // Snapshot for turn_end enrichment: quest status and message count at turn start
-      session.questStatusAtTurnStart = session.state.claimedQuestStatus ?? null;
-      session.messageCountAtTurnStart = session.messageHistory.length;
-      session.interruptedDuringTurn = false; // Reset for new turn
-      session.interruptSourceDuringTurn = null;
-      session.compactedDuringTurn = false; // Reset compaction tracking for new turn
-      session.userMessageIdsThisTurn = []; // Reset user message tracking for new turn
-      console.log(`[ws-bridge] Generation started for session ${sessionTag(session.id)} (${reason})`);
-      this.recorder?.recordServerEvent(session.id, "generation_started", { reason }, session.backendType, session.state.cwd);
+    setGeneratingLifecycle(this.getGenerationLifecycleDeps(), session, generating, reason);
+  }
 
-      // Takode: turn_start
-      this.emitTakodeEvent(session.id, "turn_start", {
-        reason,
-        userMessage: session.lastUserMessage?.slice(0, 120),
-      });
-    } else {
-      this.clearOptimisticRunningTimer(session, `generation_end:${reason}`);
-      const elapsed = session.generationStartedAt ? Date.now() - session.generationStartedAt : 0;
-      session.generationStartedAt = null;
-      session.stuckNotifiedAt = null;
-      console.log(`[ws-bridge] Generation ended for session ${sessionTag(session.id)} (${reason}, duration: ${elapsed}ms)`);
-      this.recorder?.recordServerEvent(session.id, "generation_ended", { reason, elapsed }, session.backendType, session.state.cwd);
-
-      // Takode: turn_end with tool summary from the last turn
-      const toolSummary = this.buildTurnToolSummary(session);
-      const interrupted = session.interruptedDuringTurn;
-      const interruptSource = interrupted ? (session.interruptSourceDuringTurn || "system") : null;
-      const compacted = session.compactedDuringTurn;
-      session.interruptedDuringTurn = false; // Clear for next turn
-      session.interruptSourceDuringTurn = null; // Clear for next turn
-      session.compactedDuringTurn = false; // Clear for next turn
-      this.emitTakodeEvent(session.id, "turn_end", {
-        reason,
-        duration_ms: elapsed,
-        ...(interrupted ? { interrupted: true, interrupt_source: interruptSource } : {}),
-        ...(compacted ? { compacted: true } : {}),
-        ...toolSummary,
-      });
-
-      // Herd event dispatcher: notify if this is an orchestrator finishing a turn
-      if (this.herdEventDispatcher) {
-        const info = this.launcher?.getSession(session.id);
+  private getGenerationLifecycleDeps() {
+    return {
+      sessions: this.sessions,
+      userMessageRunningTimeoutMs: WsBridge.USER_MESSAGE_RUNNING_TIMEOUT_MS,
+      broadcastStatus: (session: Session, status: "running" | "idle") => {
+        this.broadcastToBrowsers(session, { type: "status_change", status });
+      },
+      persistSession: (session: Session) => this.persistSession(session),
+      onSessionActivityStateChanged: (sessionId: string, reason: string) => this.onSessionActivityStateChanged(sessionId, reason),
+      emitTakodeEvent: (sessionId: string, type: "turn_start" | "turn_end", data: Record<string, unknown>) => {
+        this.emitTakodeEvent(sessionId, type, data);
+      },
+      buildTurnToolSummary: (session: Session) => this.buildTurnToolSummary(session),
+      recordGenerationStarted: (session: Session, reason: string) => {
+        this.recorder?.recordServerEvent(session.id, "generation_started", { reason }, session.backendType, session.state.cwd);
+      },
+      recordGenerationEnded: (session: Session, reason: string, elapsedMs: number) => {
+        this.recorder?.recordServerEvent(
+          session.id,
+          "generation_ended",
+          { reason, elapsed: elapsedMs },
+          session.backendType,
+          session.state.cwd,
+        );
+      },
+      onOrchestratorTurnEnd: (sessionId: string) => {
+        if (!this.herdEventDispatcher) return;
+        const info = this.launcher?.getSession(sessionId);
         if (info?.isOrchestrator) {
-          this.herdEventDispatcher.onOrchestratorTurnEnd(session.id);
+          this.herdEventDispatcher.onOrchestratorTurnEnd(sessionId);
         }
-      }
-    }
-    this.onSessionActivityStateChanged(session.id, `generating:${reason}`);
+      },
+    };
   }
 
   /** Build a preview of a permission request for inclusion in takode events.
