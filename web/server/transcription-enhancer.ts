@@ -59,10 +59,14 @@ const MAX_SESSION_NAME_CHARS = 100;
  */
 function isOrchestratorNoise(text: string): boolean {
   const trimmed = text.trim();
+  // System-injected messages: "[System]", "[System HH:MM]"
+  if (trimmed.startsWith("[System")) return true;
   // Herd event summaries: "[Herd", "1 event from", "N events from"
   if (trimmed.startsWith("[Herd") || /^\d+ events? from \d+ sessions?/.test(trimmed)) return true;
   // Internal orchestrator routing notes
   if (trimmed.startsWith("@to(")) return true;
+  // Agent-injected messages: "[Agent"
+  if (trimmed.startsWith("[Agent")) return true;
   // Event notification tables: lines with "| turn_end |", "| compaction_started |", etc.
   if (/\|\s*(turn_end|compaction_started|idle|turn_start|exit)\s*\|/.test(trimmed)) return true;
   return false;
