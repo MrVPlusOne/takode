@@ -132,15 +132,15 @@ export function buildTranscriptionContext(history: BrowserIncomingMessage[]): st
 
   for (const msg of history) {
     if (msg.type === "user_message") {
+      // Skip system noise without disrupting the current turn — system messages
+      // can appear mid-turn (e.g., leader tag nudges between user question and
+      // assistant response). Pushing/nullifying currentTurn here would orphan
+      // the subsequent assistant response.
+      if (isSystemNoise(msg)) continue;
       if (currentTurn) turns.push(currentTurn);
       const content = typeof (msg as { content?: unknown }).content === "string"
         ? (msg as { content: string }).content
         : "";
-      // Skip programmatically-injected messages (system nudges, herd events, agent msgs)
-      if (isSystemNoise(msg)) {
-        currentTurn = null;
-        continue;
-      }
       currentTurn = {
         userContent: content,
         assistantText: "",
@@ -379,13 +379,11 @@ export function buildSttPrompt(input: SttPromptInput): string {
 
     for (const msg of input.messageHistory) {
       if (msg.type === "user_message") {
+        // Skip system noise without disrupting the current turn (same fix as enhancer)
+        if (isSystemNoise(msg)) continue;
         if (currentTurn) turns.push(currentTurn);
         const content = typeof (msg as { content?: unknown }).content === "string"
           ? (msg as { content: string }).content : "";
-        if (isSystemNoise(msg)) {
-          currentTurn = null;
-          continue;
-        }
         currentTurn = { userText: content, assistantText: "" };
       } else if (msg.type === "assistant" && currentTurn) {
         const parentId = (msg as { parent_tool_use_id?: string | null }).parent_tool_use_id;
