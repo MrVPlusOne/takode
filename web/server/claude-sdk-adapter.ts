@@ -4,9 +4,11 @@
  * Bridges between the Agent SDK's stdio transport (via @anthropic-ai/claude-agent-sdk)
  * and The Companion's BrowserIncomingMessage/BrowserOutgoingMessage types.
  *
- * This adapter eliminates the WebSocket transport entirely — no 5-minute disconnect
- * cycles, no stuck isGenerating, no lost tool results. The process either exists or
- * it doesn't. Follows the same pattern as CodexAdapter for consistency.
+ * This adapter eliminates the WebSocket transport layer, which reduces a major class
+ * of transport disconnect issues (e.g. periodic WS churn) and simplifies liveness
+ * semantics to process lifecycle. The bridge still handles disconnect/relaunch and
+ * generation-state edge cases above the adapter layer. Follows the same pattern as
+ * CodexAdapter for consistency.
  */
 
 import { randomUUID } from "node:crypto";

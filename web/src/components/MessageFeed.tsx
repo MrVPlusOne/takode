@@ -576,7 +576,8 @@ function countEntryStats(entries: FeedEntry[]): { messages: number; tools: numbe
 
 /** Check if a FeedEntry is a system message (compact markers, errors, info dividers).
  *  Permission denied/approved badges and quest_claimed blocks are NOT system entries
- *  — they flow with agent activity so they appear at the correct chronological position in the turn. */
+ *  — they flow with agent activity so they appear at the correct chronological position in the turn.
+ *  quest_submitted currently remains a system entry under this classifier. */
 function isSystemEntry(entry: FeedEntry): boolean {
   if (entry.kind !== "message" || entry.msg.role !== "system") return false;
   if (entry.msg.variant === "denied" || entry.msg.variant === "approved" || entry.msg.variant === "quest_claimed") return false;
@@ -699,7 +700,9 @@ function makeTurn(userEntry: FeedEntry | null, entries: FeedEntry[], turnIndex: 
   };
 }
 
-/** Group flat feed entries into turns. Leader mode also splits at user-addressed assistant messages. */
+/** Group flat feed entries into turns.
+ *  Leader mode keeps the same boundary rule (user messages only); @to(user) affects
+ *  response/promotion behavior inside a turn, not turn splitting. */
 function groupIntoTurns(entries: FeedEntry[], leaderMode = false): Turn[] {
   const turns: Turn[] = [];
   let currentUser: FeedEntry | null = null;

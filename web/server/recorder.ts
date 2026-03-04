@@ -163,7 +163,7 @@ export class SessionRecorder {
  * with COMPANION_RECORDINGS_DIR for persistent storage.
  *
  * Automatic rotation: when total lines across all recording files exceed
- * maxLines (default 100 000, override with COMPANION_RECORDINGS_MAX_LINES),
+ * maxLines (default 500 000, override with COMPANION_RECORDINGS_MAX_LINES),
  * the oldest files are deleted until we're back under the limit.
  */
 export class RecorderManager {

@@ -2,7 +2,9 @@
  * Session auto-namer: constructs a compressed conversation summary and asks
  * Claude Haiku (via `claude -p`) to generate or update a concise session title.
  *
- * Triggered on each new user message. The model can respond with:
+ * Triggered on new user messages, and on turn lifecycle events
+ * (`turn_completed`, `agent_paused`) to allow title refresh after tool/result changes.
+ * The model can respond with:
  * - A title (first turn — always generates)
  * - NO_CHANGE  — current title is still accurate
  * - REVISE: <title> — same task, better wording

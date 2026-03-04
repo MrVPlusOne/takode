@@ -4568,7 +4568,8 @@ export class WsBridge {
       }
     }
 
-    // For Codex and Claude SDK sessions, delegate entirely to the adapter
+    // For Codex/Claude SDK sessions, route CLI-bound messages through the adapter,
+    // while ws-bridge still owns cross-cutting session state/history/permissions.
     if (session.backendType === "codex" || session.backendType === "claude-sdk") {
       // Clean up ws-bridge permission tracking for SDK sessions when browser resolves
       if (msg.type === "permission_response" && session.backendType === "claude-sdk") {

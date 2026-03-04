@@ -2686,7 +2686,7 @@ export function createRoutes(
     return c.json({ ok: true });
   });
 
-  // ─── Settings (~/.companion/settings.json) ────────────────────────
+  // ─── Settings (~/.companion/settings-{port}.json; migrates legacy settings.json) ────────────────────────
 
   /** Mask sensitive fields in NamerConfig for API responses. */
   function maskNamerConfig(config: NamerConfig): NamerConfig {

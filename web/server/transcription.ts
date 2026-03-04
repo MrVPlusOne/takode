@@ -1,5 +1,5 @@
 /**
- * Audio transcription service supporting Gemini and OpenAI Whisper backends.
+ * Audio transcription service supporting Gemini and OpenAI STT backends.
  *
  * Both functions accept raw audio as a Buffer and return the transcription text.
  * API keys are resolved via resolveOpenAIKey() (settings → env var → namer key).
@@ -63,7 +63,7 @@ export async function transcribeWithGemini(
 }
 
 /**
- * Transcribe audio using OpenAI Whisper API (multipart form upload).
+ * Transcribe audio using OpenAI's audio transcription API (multipart form upload).
  * @param sttPrompt Optional prompt to guide the STT model's vocabulary recognition (up to 1024 tokens).
  */
 export async function transcribeWithOpenai(
@@ -72,7 +72,7 @@ export async function transcribeWithOpenai(
   apiKey: string,
   sttPrompt?: string,
 ): Promise<string> {
-  // Map MIME type to a file extension Whisper expects
+  // Map MIME type to a file extension accepted by OpenAI's transcription endpoint
   const extMap: Record<string, string> = {
     "audio/webm": "webm",
     "audio/ogg": "ogg",
