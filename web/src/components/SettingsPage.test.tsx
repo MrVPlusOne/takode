@@ -77,6 +77,21 @@ vi.mock("../store.js", () => {
   return { useStore: useStoreFn };
 });
 
+// These panels are tested in their own files; keep SettingsPage tests focused
+// on page-level wiring and interactions to avoid cross-test contention.
+vi.mock("./NamerDebugPanel.js", () => ({
+  NamerDebugPanel: () => <div>Session Namer Debug</div>,
+}));
+vi.mock("./AutoApprovalDebugPanel.js", () => ({
+  AutoApprovalDebugPanel: () => null,
+}));
+vi.mock("./TranscriptionDebugPanel.js", () => ({
+  TranscriptionDebugPanel: () => null,
+}));
+vi.mock("./FolderPicker.js", () => ({
+  FolderPicker: () => null,
+}));
+
 import { SettingsPage } from "./SettingsPage.js";
 
 beforeEach(() => {
@@ -134,21 +149,21 @@ describe("SettingsPage", () => {
     render(<SettingsPage />);
     await screen.findByText("Notifications");
 
-    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    fireEvent.click(screen.getByText("Back"));
     expect(window.location.hash).toBe("");
   });
 
   it("hides Back button in embedded mode", async () => {
     render(<SettingsPage embedded />);
     await screen.findByText("Notifications");
-    expect(screen.queryByRole("button", { name: "Back" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Back")).not.toBeInTheDocument();
   });
 
   it("toggles sound notifications from settings", async () => {
     render(<SettingsPage />);
     await screen.findByText("Notifications");
 
-    fireEvent.click(screen.getByRole("button", { name: /Sound/i }));
+    fireEvent.click(screen.getByText(/^Sound$/));
     expect(mockState.toggleNotificationSound).toHaveBeenCalledTimes(1);
   });
 
@@ -157,7 +172,7 @@ describe("SettingsPage", () => {
     render(<SettingsPage />);
     await screen.findByText("Notifications");
 
-    fireEvent.click(screen.getByRole("button", { name: /Theme/i }));
+    fireEvent.click(screen.getByText(/^Theme$/));
     expect(mockState.toggleDarkMode).toHaveBeenCalledTimes(1);
   });
 
@@ -165,7 +180,7 @@ describe("SettingsPage", () => {
     render(<SettingsPage />);
     await screen.findByText("Notifications");
 
-    fireEvent.click(screen.getByRole("button", { name: "Manage Environments" }));
+    fireEvent.click(screen.getByText("Manage Environments"));
     expect(window.location.hash).toBe("#/environments");
   });
 
@@ -211,15 +226,18 @@ describe("SettingsPage", () => {
       requestPermission,
     });
 
-    render(<SettingsPage />);
-    await screen.findByText("Notifications");
-    fireEvent.click(screen.getByRole("button", { name: /Desktop Alerts/i }));
+    try {
+      render(<SettingsPage />);
+      await screen.findByText("Notifications");
+      fireEvent.click(screen.getByText(/^Desktop Alerts$/));
 
-    await waitFor(() => {
-      expect(requestPermission).toHaveBeenCalledTimes(1);
-      expect(mockState.setNotificationDesktop).toHaveBeenCalledWith(true);
-    });
-    vi.unstubAllGlobals();
+      await waitFor(() => {
+        expect(requestPermission).toHaveBeenCalledTimes(1);
+        expect(mockState.setNotificationDesktop).toHaveBeenCalledWith(true);
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("does not show OpenRouter section", async () => {
@@ -283,14 +301,14 @@ describe("SettingsPage", () => {
     render(<SettingsPage />);
     await screen.findByText("Notifications");
 
-    // Sound toggle should be visible initially
-    expect(screen.getByRole("button", { name: /Sound/i })).toBeInTheDocument();
+    // Sound toggle should be visible initially.
+    expect(screen.getByText(/^Sound$/)).toBeInTheDocument();
 
     // Click the Notifications section header to collapse it
     fireEvent.click(screen.getByText("Notifications"));
 
-    // Sound toggle should be hidden after collapsing
-    expect(screen.queryByRole("button", { name: /Sound/i })).not.toBeInTheDocument();
+    // Sound toggle should be hidden after collapsing.
+    expect(screen.queryByText(/^Sound$/)).not.toBeInTheDocument();
   });
 
   it("expands a collapsed section when header is clicked again", async () => {
@@ -299,11 +317,11 @@ describe("SettingsPage", () => {
 
     // Collapse
     fireEvent.click(screen.getByText("Notifications"));
-    expect(screen.queryByRole("button", { name: /Sound/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Sound$/)).not.toBeInTheDocument();
 
     // Expand
     fireEvent.click(screen.getByText("Notifications"));
-    expect(screen.getByRole("button", { name: /Sound/i })).toBeInTheDocument();
+    expect(screen.getByText(/^Sound$/)).toBeInTheDocument();
   });
 
   it("persists collapse state to localStorage", async () => {

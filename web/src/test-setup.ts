@@ -1,5 +1,14 @@
 // Setup file for jsdom-based tests
 // Polyfills that must be available before any module import
+import { afterEach, vi } from "vitest";
+
+// Guard against fake-timer leaks across test files. Some tests intentionally
+// switch to fake timers; this ensures each test always starts from real timers
+// even if a prior assertion fails before cleanup runs.
+afterEach(() => {
+  vi.clearAllTimers();
+  vi.useRealTimers();
+});
 
 if (typeof window !== "undefined") {
   Object.defineProperty(window, "matchMedia", {

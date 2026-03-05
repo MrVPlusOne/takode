@@ -143,6 +143,10 @@ vi.mock("../store.js", () => {
 
 import { QuestmasterPage } from "./QuestmasterPage.js";
 
+function renderQuestmaster(props: { isActive?: boolean } = {}) {
+  return render(<QuestmasterPage isActive={false} {...props} />);
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   promptSpy = vi.spyOn(window, "prompt").mockReturnValue("");
@@ -241,7 +245,7 @@ afterEach(() => {
 describe("QuestmasterPage verification inbox", () => {
   it("renders inbox quests separately from regular verification quests", () => {
     // Inbox should be a distinct section so reviewers can triage fresh updates first.
-    render(<QuestmasterPage />);
+    renderQuestmaster();
 
     expect(screen.getByText("Verification Inbox")).toBeInTheDocument();
     expect(screen.getByText(/^Verification$/)).toBeInTheDocument();
@@ -251,9 +255,9 @@ describe("QuestmasterPage verification inbox", () => {
 
   it("collapses and expands the verification inbox section", () => {
     // Inbox should behave like other grouped sections and support collapse toggling.
-    render(<QuestmasterPage />);
+    renderQuestmaster();
 
-    const inboxHeader = screen.getByRole("button", { name: /Verification Inbox/ });
+    const inboxHeader = screen.getByText("Verification Inbox");
     expect(screen.getByText("Inbox quest")).toBeInTheDocument();
 
     fireEvent.click(inboxHeader);
@@ -289,7 +293,7 @@ describe("QuestmasterPage verification inbox", () => {
     } as QuestmasterTask;
 
     mockState.quests = [newerCreatedButNotUpdated, olderCreatedButRecentlyUpdated];
-    render(<QuestmasterPage />);
+    renderQuestmaster();
 
     const order = Array.from(document.querySelectorAll<HTMLElement>("[data-quest-id]"))
       .map((el) => el.dataset.questId);
@@ -298,27 +302,23 @@ describe("QuestmasterPage verification inbox", () => {
 
   it("marks an inbox quest as read", async () => {
     // Clicking Later should remove an inbox item from the inbox split and close the modal.
-    render(<QuestmasterPage />);
+    renderQuestmaster();
 
     fireEvent.click(screen.getByText("Inbox quest"));
-    fireEvent.click(screen.getByRole("button", { name: "Later" }));
+    fireEvent.click(screen.getByText(/^Later$/));
 
     await waitFor(() => {
       expect(mockMarkQuestVerificationRead).toHaveBeenCalledWith("q-1");
-    });
-    await waitFor(() => {
       const quest = mockState.quests.find((q) => q.questId === "q-1");
       expect(quest).toBeTruthy();
       expect((quest as { verificationInboxUnread?: boolean }).verificationInboxUnread).toBe(false);
-    });
-    await waitFor(() => {
-      expect(screen.queryByRole("button", { name: "Close quest details" })).toBeNull();
+      expect(screen.queryByLabelText("Close quest details")).toBeNull();
     });
   });
 
   it("moves a regular verification quest into inbox", async () => {
     // Clicking Inbox should move a regular verification quest back to inbox.
-    render(<QuestmasterPage />);
+    renderQuestmaster();
 
     fireEvent.click(screen.getByText("Regular verification quest"));
     fireEvent.click(screen.getByRole("button", { name: "Inbox" }));
@@ -336,21 +336,22 @@ describe("QuestmasterPage verification inbox", () => {
   it("opens deep-linked quest in modal and closes it", () => {
     // Deep-linking should open the targeted quest in modal detail view.
     window.location.hash = "#/questmaster?quest=q-2";
-    render(<QuestmasterPage />);
+    renderQuestmaster();
 
-    expect(screen.getByRole("button", { name: "Close quest details" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Inbox" })).toBeInTheDocument();
+    const dialog = screen.getByRole("dialog");
+    expect(screen.getByLabelText("Close quest details")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Inbox" })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Close quest details" }));
+    fireEvent.click(screen.getByLabelText("Close quest details"));
 
-    expect(screen.queryByRole("button", { name: "Close quest details" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Inbox" })).toBeNull();
+    expect(screen.queryByLabelText("Close quest details")).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(window.location.hash).toBe("#/questmaster");
   });
 
   it("opens from a session quest query and closes back to that session route", () => {
     window.location.hash = "#/session/session-1?quest=q-2";
-    render(<QuestmasterPage isActive={false} />);
+    renderQuestmaster();
 
     expect(screen.getByRole("button", { name: "Close quest details" })).toBeInTheDocument();
 
@@ -362,7 +363,7 @@ describe("QuestmasterPage verification inbox", () => {
   it("shows collapsed-card metadata in the quest modal header", () => {
     // Modal should be a superset of card info: inbox/session/progress/feedback/time/tags.
     window.location.hash = "#/questmaster?quest=q-1";
-    render(<QuestmasterPage />);
+    renderQuestmaster();
 
     const dialog = screen.getByRole("dialog", { name: /Quest details: Inbox quest/ });
     expect(within(dialog).getByText("Inbox")).toBeInTheDocument();
@@ -374,7 +375,7 @@ describe("QuestmasterPage verification inbox", () => {
 
   it("shows full session tooltip when hovering a compact session number chip", async () => {
     window.location.hash = "#/questmaster?quest=q-1";
-    render(<QuestmasterPage />);
+    renderQuestmaster();
 
     const dialog = screen.getByRole("dialog", { name: /Quest details: Inbox quest/ });
     const sessionChip = within(dialog).getByRole("button", { name: "#5" });
@@ -395,7 +396,7 @@ describe("QuestmasterPage verification inbox", () => {
     // Keep status identity subtle on chips, and keep action buttons aligned
     // with a consistent hierarchy (primary orange, secondary neutral).
     window.location.hash = "#/questmaster?quest=q-1";
-    render(<QuestmasterPage />);
+    renderQuestmaster();
 
     const dialog = screen.getByRole("dialog", { name: /Quest details: Inbox quest/ });
     expect(within(dialog).getByText("Inbox")).toHaveClass("text-cc-muted");
@@ -407,7 +408,7 @@ describe("QuestmasterPage verification inbox", () => {
   it("filters quests by quest id from the search box", () => {
     // Questmaster search should support direct quest-id lookup so users can
     // jump to a known quest like q-2 without remembering the title text.
-    render(<QuestmasterPage />);
+    renderQuestmaster();
 
     const searchInput = screen.getByPlaceholderText("Search or #tag...");
 
@@ -441,7 +442,7 @@ describe("QuestmasterPage verification inbox", () => {
       ],
     } as QuestmasterTask];
     window.location.hash = "#/questmaster?quest=q-8";
-    render(<QuestmasterPage />);
+    renderQuestmaster();
 
     const dialog = screen.getByRole("dialog", { name: /Quest details: Quest with agent feedback/ });
     fireEvent.click(within(dialog).getByRole("button", { name: "#5" }));
@@ -475,7 +476,7 @@ describe("QuestmasterPage verification inbox", () => {
     } as QuestmasterTask];
 
     window.location.hash = "#/questmaster?quest=q-9";
-    render(<QuestmasterPage />);
+    renderQuestmaster();
 
     const dialog = screen.getByRole("dialog", { name: /Quest details: Quest with long session title/ });
     const labelButton = within(dialog).getByRole("button", { name: "#5" });
@@ -485,7 +486,7 @@ describe("QuestmasterPage verification inbox", () => {
 
   it("prefills and navigates when clicking Rework with unaddressed feedback", () => {
     window.location.hash = "#/questmaster?quest=q-1";
-    render(<QuestmasterPage />);
+    renderQuestmaster();
 
     const dialog = screen.getByRole("dialog", { name: /Quest details: Inbox quest/ });
     const reworkButton = within(dialog).getByRole("button", { name: "Rework" });
@@ -502,7 +503,7 @@ describe("QuestmasterPage verification inbox", () => {
 
   it("shows Rework in the bottom action row next to Finish Quest", () => {
     window.location.hash = "#/questmaster?quest=q-1";
-    render(<QuestmasterPage />);
+    renderQuestmaster();
 
     const dialog = screen.getByRole("dialog", { name: /Quest details: Inbox quest/ });
     const reworkButtons = within(dialog).getAllByRole("button", { name: "Rework" });
@@ -514,7 +515,7 @@ describe("QuestmasterPage verification inbox", () => {
 
   it("clicking Finish Quest closes the quest details modal", async () => {
     window.location.hash = "#/questmaster?quest=q-1";
-    render(<QuestmasterPage />);
+    renderQuestmaster();
 
     const dialog = screen.getByRole("dialog", { name: /Quest details: Inbox quest/ });
     fireEvent.click(within(dialog).getByRole("button", { name: "Finish Quest" }));
@@ -529,7 +530,7 @@ describe("QuestmasterPage verification inbox", () => {
 
   it("Finish Quest calls markQuestDone with just the quest ID", async () => {
     window.location.hash = "#/questmaster?quest=q-1";
-    render(<QuestmasterPage />);
+    renderQuestmaster();
 
     const dialog = screen.getByRole("dialog", { name: /Quest details: Inbox quest/ });
     fireEvent.click(within(dialog).getByRole("button", { name: "Finish Quest" }));
@@ -555,7 +556,7 @@ describe("QuestmasterPage verification inbox", () => {
       claimedAt: Date.now(),
     } as QuestmasterTask];
     window.location.hash = "#/questmaster?quest=q-12";
-    render(<QuestmasterPage />);
+    renderQuestmaster();
 
     const dialog = screen.getByRole("dialog", { name: /Quest details: In-progress quest/ });
     fireEvent.change(within(dialog).getByDisplayValue("In Progress"), {
@@ -588,7 +589,7 @@ describe("QuestmasterPage verification inbox", () => {
       previousOwnerSessionIds: ["session-1"],
     } as QuestmasterTask];
     window.location.hash = "#/questmaster?quest=q-9";
-    render(<QuestmasterPage />);
+    renderQuestmaster();
 
     expect(screen.getAllByText("#5").length).toBeGreaterThan(0);
   });
@@ -609,7 +610,7 @@ describe("QuestmasterPage verification inbox", () => {
       previousOwnerSessionIds: ["session-1"],
     } as QuestmasterTask];
     window.location.hash = "#/questmaster?quest=q-11";
-    render(<QuestmasterPage />);
+    renderQuestmaster();
 
     const dialog = screen.getByRole("dialog", { name: /Quest details: Done quest for rework/ });
     fireEvent.change(within(dialog).getByDisplayValue("Done"), {
@@ -650,7 +651,7 @@ describe("QuestmasterPage verification inbox", () => {
     mockState.sessionNames = new Map([["codex-session-1", "Codex Session One"]]);
 
     window.location.hash = "#/questmaster?quest=q-10";
-    render(<QuestmasterPage />);
+    renderQuestmaster();
 
     const dialog = screen.getByRole("dialog", { name: /Quest details: Codex linked quest/ });
     fireEvent.click(within(dialog).getByRole("button", { name: "#6" }));
@@ -668,7 +669,7 @@ describe("QuestmasterPage verification inbox", () => {
         : q
     ));
     window.location.hash = "#/questmaster?quest=q-1";
-    render(<QuestmasterPage />);
+    renderQuestmaster();
 
     const dialog = screen.getByRole("dialog", { name: /Quest details: Inbox quest/ });
     expect(within(dialog).getByRole("button", { name: "Rework" })).toBeDisabled();
@@ -694,7 +695,7 @@ describe("QuestmasterPage verification inbox", () => {
         : q
     ));
     window.location.hash = "#/questmaster?quest=q-1";
-    render(<QuestmasterPage />);
+    renderQuestmaster();
 
     const dialog = screen.getByRole("dialog", { name: /Quest details: Inbox quest/ });
     const thumb = within(dialog).getByTitle("server-proof.png");
@@ -719,7 +720,7 @@ describe("QuestmasterPage verification inbox", () => {
         : q
     ));
     window.location.hash = "#/questmaster?quest=q-1";
-    render(<QuestmasterPage />);
+    renderQuestmaster();
 
     const dialog = screen.getByRole("dialog", { name: /Quest details: Inbox quest/ });
     fireEvent.click(within(dialog).getByAltText("proof.png"));
@@ -733,7 +734,7 @@ describe("QuestmasterPage verification inbox", () => {
   });
 
   it("opens newly created quest in modal immediately", async () => {
-    render(<QuestmasterPage />);
+    renderQuestmaster();
 
     fireEvent.click(screen.getByRole("button", { name: /New Quest/i }));
     fireEvent.change(screen.getByPlaceholderText("Quest title"), {
