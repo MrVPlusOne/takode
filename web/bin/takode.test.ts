@@ -98,6 +98,60 @@ describe("takode auth fallback", () => {
       rmSync(tmp, { recursive: true, force: true });
     }
   });
+
+  it("uses .companion/session-auth.json port when no explicit port env or flag is provided", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "takode-auth-port-fallback-"));
+    const companionDir = join(tmp, ".companion");
+    mkdirSync(companionDir, { recursive: true });
+
+    const seenHeaders: Record<string, string | string[] | undefined>[] = [];
+    const server = createServer((req, res) => {
+      seenHeaders.push(req.headers);
+      if (req.method === "GET" && req.url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-port-file", isOrchestrator: true }));
+        return;
+      }
+      if (req.method === "GET" && req.url === "/api/takode/sessions") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify([]));
+        return;
+      }
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    writeFileSync(
+      join(companionDir, "session-auth.json"),
+      JSON.stringify({ sessionId: "leader-port-file", authToken: "file-port-token", port }),
+      "utf-8",
+    );
+
+    try {
+      const result = await runTakode(
+        ["list", "--json"],
+        {
+          ...process.env,
+          COMPANION_SESSION_ID: undefined,
+          COMPANION_AUTH_TOKEN: undefined,
+          COMPANION_PORT: undefined,
+          TAKODE_API_PORT: undefined,
+        },
+        tmp,
+      );
+
+      expect(result.status).toBe(0);
+      expect(result.stdout.trim()).toBe("[]");
+      expect(seenHeaders.some((h) => h["x-companion-session-id"] === "leader-port-file")).toBe(true);
+      expect(seenHeaders.some((h) => h["x-companion-auth-token"] === "file-port-token")).toBe(true);
+    } finally {
+      server.close();
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("takode spawn", () => {

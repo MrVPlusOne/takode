@@ -8,6 +8,35 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const DEFAULT_PORT = 3456;
+const SESSION_AUTH_CANDIDATES = [
+  ".companion/session-auth.json", // current, backend-agnostic
+  ".codex/session-auth.json", // legacy Codex-specific fallback
+  ".claude/session-auth.json", // legacy Claude-specific fallback
+];
+
+type SessionAuthFileData = {
+  sessionId: string;
+  authToken: string;
+  port?: number;
+};
+
+function getSessionAuthFileData(): SessionAuthFileData | null {
+  for (const relPath of SESSION_AUTH_CANDIDATES) {
+    const authFile = join(process.cwd(), relPath);
+    try {
+      const data = JSON.parse(readFileSync(authFile, "utf-8"));
+      if (typeof data.sessionId !== "string" || !data.sessionId.trim()) continue;
+      if (typeof data.authToken !== "string" || !data.authToken.trim()) continue;
+      const parsedPort = typeof data.port === "number" && Number.isFinite(data.port) && data.port > 0
+        ? data.port
+        : undefined;
+      return { sessionId: data.sessionId, authToken: data.authToken, ...(parsedPort ? { port: parsedPort } : {}) };
+    } catch {
+      // Try the next candidate.
+    }
+  }
+  return null;
+}
 
 // ─── Port discovery (same pattern as ctl.ts) ────────────────────────────────
 
@@ -22,7 +51,13 @@ function getPort(argv: string[]): number {
     const p = Number(process.env.TAKODE_API_PORT);
     if (!Number.isNaN(p) && p > 0) return p;
   }
-  return Number(process.env.COMPANION_PORT) || DEFAULT_PORT;
+  if (process.env.COMPANION_PORT) {
+    const p = Number(process.env.COMPANION_PORT);
+    if (!Number.isNaN(p) && p > 0) return p;
+  }
+  const authFile = getSessionAuthFileData();
+  if (authFile?.port) return authFile.port;
+  return DEFAULT_PORT;
 }
 
 function getBase(argv: string[]): string {
@@ -53,20 +88,9 @@ function getCredentials(): { sessionId: string; authToken: string } | null {
   if (sessionId && authToken) return { sessionId, authToken };
 
   // Fallback: read session-auth from workspace metadata files.
-  const candidates = [
-    join(process.cwd(), ".companion", "session-auth.json"), // current, backend-agnostic
-    join(process.cwd(), ".codex", "session-auth.json"), // legacy Codex-specific fallback
-    join(process.cwd(), ".claude", "session-auth.json"), // legacy Claude-specific fallback
-  ];
-  for (const authFile of candidates) {
-    try {
-      const data = JSON.parse(readFileSync(authFile, "utf-8"));
-      if (data.sessionId && data.authToken) {
-        return { sessionId: data.sessionId, authToken: data.authToken };
-      }
-    } catch {
-      // Try the next candidate.
-    }
+  const data = getSessionAuthFileData();
+  if (data) {
+    return { sessionId: data.sessionId, authToken: data.authToken };
   }
   return null;
 }
