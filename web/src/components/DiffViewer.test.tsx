@@ -197,6 +197,21 @@ diff --git a/b.ts b/b.ts
     expect(container.querySelector(".hljs-keyword")).toBeTruthy();
   });
 
+  it("keeps syntax highlighting when file stats are shown separately", () => {
+    const { container } = render(
+      <DiffViewer
+        oldText=""
+        newText={"def format_label(name: str) -> str:\n    return f\"label:{name}\""}
+        fileName="scripts/python-diff-test.py"
+        fileStatsLabel="+11 -0"
+        mode="full"
+      />,
+    );
+
+    expect(screen.getByText("+11 -0")).toBeTruthy();
+    expect(container.querySelector(".hljs-keyword")).toBeTruthy();
+  });
+
   it("shows expandable hidden context between distant hunks", () => {
     const oldLines = Array.from({ length: 40 }, (_, i) => `const line${i + 1} = ${i + 1};`);
     const newLines = [...oldLines];

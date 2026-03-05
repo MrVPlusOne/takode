@@ -16,6 +16,8 @@ export interface DiffViewerProps {
   unifiedDiff?: string;
   /** File name/path for the header */
   fileName?: string;
+  /** Optional stats text shown in the file header (e.g. +10 -2) */
+  fileStatsLabel?: string;
   /** compact = inline in chat (capped height, no line numbers), full = panel (scrollable, line numbers) */
   mode?: "compact" | "full";
   /** Explicit control over line numbers. When omitted, defaults to true for "full" mode, false for "compact". */
@@ -361,7 +363,7 @@ function buildRenderBlocks(
   return blocks;
 }
 
-function FileHeader({ fileName }: { fileName: string }) {
+function FileHeader({ fileName, fileStatsLabel }: { fileName: string; fileStatsLabel?: string }) {
   const parts = fileName.split("/");
   const base = parts.pop() || fileName;
   const dir = parts.join("/");
@@ -373,6 +375,7 @@ function FileHeader({ fileName }: { fileName: string }) {
       </svg>
       {dir && <span className="text-cc-muted">{dir}/</span>}
       <span className="font-semibold text-cc-fg">{base}</span>
+      {fileStatsLabel && <span className="ml-2 text-cc-muted text-[11px] font-mono-code">{fileStatsLabel}</span>}
     </div>
   );
 }
@@ -382,6 +385,7 @@ export function DiffViewer({
   newText,
   unifiedDiff,
   fileName,
+  fileStatsLabel,
   mode = "compact",
   showLineNumbers: showLineNumbersProp,
   expandButtonLabel = "Open",
@@ -469,7 +473,10 @@ export function DiffViewer({
         return (
           <div key={fi} className="diff-file">
             {(file.fileName || fileName) && (
-              <FileHeader fileName={file.fileName || fileName || ""} />
+              <FileHeader
+                fileName={file.fileName || fileName || ""}
+                fileStatsLabel={data.length === 1 ? fileStatsLabel : undefined}
+              />
             )}
             {blocks.map((block) => {
               if (block.type === "hunk") {

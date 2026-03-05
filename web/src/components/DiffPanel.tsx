@@ -501,7 +501,8 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
                     oldText={hasFullSource ? diffData?.oldText : undefined}
                     newText={hasFullSource ? diffData?.newText : undefined}
                     unifiedDiff={hasFullSource ? undefined : (diffData?.diff ?? "")}
-                    fileName={stats ? `${rel}  +${stats.additions} -${stats.deletions}` : rel}
+                    fileName={rel}
+                    fileStatsLabel={stats ? `+${stats.additions} -${stats.deletions}` : undefined}
                     mode="full"
                     showLineNumbers={showLineNumbers}
                   />
