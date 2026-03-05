@@ -375,6 +375,45 @@ function TurnSummaryStats({
   );
 }
 
+/** Check if a feed entry is an auto-approval message. */
+function isApprovalEntry(entry: FeedEntry): entry is { kind: "message"; msg: ChatMessage } {
+  return entry.kind === "message" && entry.msg.role === "system" && entry.msg.variant === "approved";
+}
+
+/** Collapsed group for consecutive auto-approved tool calls — shows "N tools auto-approved"
+ *  with an expand toggle to see individual approval details. */
+function ApprovalBatchGroup({ messages }: { messages: ChatMessage[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const count = messages.length;
+  return (
+    <div className="flex justify-end animate-[fadeSlideIn_0.2s_ease-out]">
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="flex items-start gap-1.5 px-3 py-1.5 rounded-[14px] rounded-br-[4px] bg-green-500/10 text-xs text-green-400/80 font-mono-code max-w-[85%] text-left cursor-pointer hover:bg-green-500/15 transition-colors"
+      >
+        <svg className="w-3 h-3 text-green-400/60 shrink-0 mt-0.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <circle cx="8" cy="8" r="6.5" />
+          <path d="M5.5 8.5l2 2 3.5-4" />
+        </svg>
+        <div className="min-w-0">
+          {expanded ? (
+            <div className="space-y-0.5">
+              {messages.map((msg) => (
+                <div key={msg.id} className="line-clamp-1">{msg.content}</div>
+              ))}
+            </div>
+          ) : (
+            <span>{count} tool{count !== 1 ? "s" : ""} auto-approved</span>
+          )}
+        </div>
+        <svg viewBox="0 0 16 16" fill="currentColor" className={`w-3 h-3 text-green-400/40 shrink-0 mt-0.5 transition-transform ${expanded ? "rotate-90" : ""}`}>
+          <path d="M6 4l4 4-4 4" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
 const FeedEntries = memo(function FeedEntries({
   entries,
   sessionId,
@@ -384,32 +423,52 @@ const FeedEntries = memo(function FeedEntries({
   sessionId: string;
   minuteBoundaryLabels?: Map<string, string>;
 }) {
-  return (
-    <>
-      {entries.map((entry, i) => {
-        if (entry.kind === "tool_msg_group") {
-          return <ToolMessageGroup key={entry.firstId || i} group={entry} sessionId={sessionId} />;
+  // Pre-compute batched rendering: merge consecutive approval messages into
+  // single ApprovalBatchGroup components to reduce visual noise.
+  const rendered = useMemo(() => {
+    const result: React.ReactNode[] = [];
+    let i = 0;
+    while (i < entries.length) {
+      const entry = entries[i];
+      // Batch consecutive approval entries (2+ become a group)
+      if (isApprovalEntry(entry)) {
+        const batch: ChatMessage[] = [entry.msg];
+        let j = i + 1;
+        while (j < entries.length && isApprovalEntry(entries[j])) {
+          batch.push((entries[j] as { kind: "message"; msg: ChatMessage }).msg);
+          j++;
         }
-        if (entry.kind === "subagent") {
-          return <SubagentContainer key={entry.taskToolUseId} group={entry} sessionId={sessionId} minuteBoundaryLabels={minuteBoundaryLabels} />;
+        if (batch.length >= 2) {
+          result.push(<ApprovalBatchGroup key={batch[0].id} messages={batch} />);
+          i = j;
+          continue;
         }
-        if (entry.kind === "subagent_batch") {
-          return <SubagentBatchContainer key={entry.subagents[0]?.taskToolUseId || i} batch={entry} sessionId={sessionId} minuteBoundaryLabels={minuteBoundaryLabels} />;
-        }
-        if (isTimedChatMessage(entry.msg)) {
-          const markerLabel = minuteBoundaryLabels?.get(entry.msg.id);
-          const showTimestamp = entry.msg.role === "assistant" && typeof entry.msg.turnDurationMs === "number";
-          return (
-            <div key={entry.msg.id} data-message-id={entry.msg.id}>
-              {markerLabel && <MinuteBoundaryTimestamp timestamp={entry.msg.timestamp} label={markerLabel} />}
-              <MessageBubble message={entry.msg} sessionId={sessionId} showTimestamp={showTimestamp} />
-            </div>
-          );
-        }
-        return <div key={entry.msg.id} data-message-id={entry.msg.id}><MessageBubble message={entry.msg} sessionId={sessionId} /></div>;
-      })}
-    </>
-  );
+        // Single approval — render normally (fall through below)
+      }
+      if (entry.kind === "tool_msg_group") {
+        result.push(<ToolMessageGroup key={entry.firstId || i} group={entry} sessionId={sessionId} />);
+      } else if (entry.kind === "subagent") {
+        result.push(<SubagentContainer key={entry.taskToolUseId} group={entry} sessionId={sessionId} minuteBoundaryLabels={minuteBoundaryLabels} />);
+      } else if (entry.kind === "subagent_batch") {
+        result.push(<SubagentBatchContainer key={entry.subagents[0]?.taskToolUseId || i} batch={entry} sessionId={sessionId} minuteBoundaryLabels={minuteBoundaryLabels} />);
+      } else if (isTimedChatMessage(entry.msg)) {
+        const markerLabel = minuteBoundaryLabels?.get(entry.msg.id);
+        const showTimestamp = entry.msg.role === "assistant" && typeof entry.msg.turnDurationMs === "number";
+        result.push(
+          <div key={entry.msg.id} data-message-id={entry.msg.id}>
+            {markerLabel && <MinuteBoundaryTimestamp timestamp={entry.msg.timestamp} label={markerLabel} />}
+            <MessageBubble message={entry.msg} sessionId={sessionId} showTimestamp={showTimestamp} />
+          </div>
+        );
+      } else {
+        result.push(<div key={entry.msg.id} data-message-id={entry.msg.id}><MessageBubble message={entry.msg} sessionId={sessionId} /></div>);
+      }
+      i++;
+    }
+    return result;
+  }, [entries, sessionId, minuteBoundaryLabels]);
+
+  return <>{rendered}</>;
 });
 
 /** Compact bar showing agent activity stats. Click to expand the full activity. */
