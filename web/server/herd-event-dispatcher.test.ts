@@ -412,7 +412,7 @@ describe("formatHerdEventBatch", () => {
     })];
     const result = formatHerdEventBatch(events);
     expect(result).toContain("1 event from 1 session");
-    expect(result).toContain("#5 auth-module");
+    expect(result).toContain("#5");
     expect(result).toContain("turn_end");
     expect(result).toContain("12.3s");
     expect(result).toContain("Edit(3)");

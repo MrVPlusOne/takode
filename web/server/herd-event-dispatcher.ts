@@ -385,7 +385,7 @@ export function formatHerdEventBatch(events: TakodeEvent[], nowTs: number = Date
 }
 
 function formatSingleEvent(evt: TakodeEvent, nowTs: number): string {
-  const label = `#${evt.sessionNum} ${evt.sessionName}`;
+  const label = `#${evt.sessionNum}`;
   const age = formatRelativeAge(evt.ts, nowTs);
   const ageSuffix = age ? ` | ${age}` : "";
   switch (evt.event) {
