@@ -519,8 +519,8 @@ describe("Sidebar", () => {
     expect(archiveButton).toHaveClass("opacity-100");
     expect(archiveButton).toHaveClass("sm:opacity-0");
     expect(archiveButton).toHaveClass("sm:group-hover:opacity-100");
-    expect(archiveButton).toHaveClass("right-2");
-    // Archive button overlays on the right side on desktop (no reserved left padding)
+    expect(archiveButton).toHaveClass("left-1");
+    // Archive button overlays on the left side on desktop (no reserved padding — overlays existing pl-3.5)
     expect(sessionButton).toHaveClass("sm:pl-3.5");
   });
 
