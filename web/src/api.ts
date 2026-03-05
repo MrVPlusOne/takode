@@ -780,10 +780,11 @@ export const api = {
     `${BASE}/fs/image?path=${encodeURIComponent(path)}`,
   writeFile: (path: string, content: string) =>
     put<{ ok: boolean; path: string }>("/fs/write", { path, content }),
-  getFileDiff: (path: string, base?: string) => {
+  getFileDiff: (path: string, base?: string, opts?: { includeContents?: boolean }) => {
     let url = `/fs/diff?path=${encodeURIComponent(path)}`;
     if (base) url += `&base=${encodeURIComponent(base)}`;
-    return get<{ path: string; diff: string; baseBranch?: string }>(url);
+    if (opts?.includeContents) url += "&includeContents=1";
+    return get<{ path: string; diff: string; baseBranch?: string; oldText?: string; newText?: string }>(url);
   },
   getDiffStats: (files: string[], repoRoot: string, base?: string) =>
     post<{ stats: Record<string, { additions: number; deletions: number }>; baseBranch?: string }>(

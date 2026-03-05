@@ -47,6 +47,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   return {
     ...actual,
     readFile: vi.fn((...args: Parameters<typeof actual.readFile>) => actual.readFile(...args)),
+    stat: vi.fn((...args: Parameters<typeof actual.stat>) => actual.stat(...args)),
     access: vi.fn(async () => {}), // default: file exists (no throw)
   };
 });
@@ -142,7 +143,7 @@ vi.mock("./usage-limits.js", () => ({
 import { Hono } from "hono";
 import { execSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { access, readFile } from "node:fs/promises";
+import { access, readFile, stat } from "node:fs/promises";
 import { createRoutes } from "./routes.js";
 import * as envManager from "./env-manager.js";
 import * as gitUtils from "./git-utils.js";
@@ -2244,6 +2245,37 @@ index 0000000..e69de29
     expect(vi.mocked(execSync)).toHaveBeenCalledWith(
       expect.stringContaining("git diff --no-index -- /dev/null"),
     );
+  });
+
+  it("returns old/new file contents when includeContents=1", async () => {
+    const diffOutput = `diff --git a/file.ts b/file.ts
+--- a/file.ts
++++ b/file.ts
+@@ -1 +1 @@
+-const value = 1;
++const value = 2;`;
+
+    vi.mocked(execSync).mockImplementation((cmd: string) => {
+      if (typeof cmd !== "string") throw new Error("non-string cmd");
+      if (cmd.includes("rev-parse --show-toplevel")) return "/repo\n";
+      if (cmd.includes("ls-files --full-name")) return "file.ts\n";
+      if (cmd.includes("git diff main")) return diffOutput;
+      if (cmd.includes("git show main:\"file.ts\"")) return "const value = 1;\n";
+      throw new Error(`Unmocked: ${cmd}`);
+    });
+
+    vi.mocked(stat).mockResolvedValueOnce({ size: 100 } as any);
+    vi.mocked(readFile).mockResolvedValueOnce("const value = 2;\n" as any);
+
+    const res = await app.request(
+      "/api/fs/diff?path=/repo/file.ts&base=main&includeContents=1",
+      { method: "GET" },
+    );
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.oldText).toContain("const value = 1;");
+    expect(json.newText).toContain("const value = 2;");
   });
 
   it("uses user-specified base branch for diff comparison", async () => {

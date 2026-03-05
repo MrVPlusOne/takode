@@ -141,7 +141,11 @@ describe("DiffPanel", () => {
 
     await waitFor(() => {
       // getFileDiff is called with the resolved base branch (from git_default_branch)
-      expect(mockApi.getFileDiff).toHaveBeenCalledWith("/repo/src/app.ts", "main");
+      expect(mockApi.getFileDiff).toHaveBeenCalledWith(
+        "/repo/src/app.ts",
+        "main",
+        { includeContents: true },
+      );
     });
 
     // DiffViewer should render the diff content (may appear in top bar + DiffViewer header)
@@ -254,7 +258,11 @@ describe("DiffPanel", () => {
     render(<DiffPanel sessionId="s1" />);
 
     await waitFor(() => {
-      expect(mockApi.getFileDiff).toHaveBeenCalledWith("/repo/src/app.ts", "develop");
+      expect(mockApi.getFileDiff).toHaveBeenCalledWith(
+        "/repo/src/app.ts",
+        "develop",
+        { includeContents: true },
+      );
     });
   });
 
@@ -277,7 +285,11 @@ describe("DiffPanel", () => {
     render(<DiffPanel sessionId="s1" />);
 
     await waitFor(() => {
-      expect(mockApi.getFileDiff).toHaveBeenCalledWith("/repo/src/app.ts", "origin/jiayi");
+      expect(mockApi.getFileDiff).toHaveBeenCalledWith(
+        "/repo/src/app.ts",
+        "origin/jiayi",
+        { includeContents: true },
+      );
     });
 
     const [branchSelect] = screen.getAllByRole("combobox") as HTMLSelectElement[];

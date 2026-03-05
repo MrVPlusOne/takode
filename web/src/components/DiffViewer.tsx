@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import * as Diff from "diff";
+import {
+  buildHighlightedLines,
+  inferLanguageFromPath,
+  splitSourceToLines,
+} from "../utils/syntax-highlighting.js";
 
 export interface DiffViewerProps {
   /** Original text (for computing diff from old/new) */
@@ -20,7 +25,7 @@ export interface DiffViewerProps {
 }
 
 interface DiffLine {
-  type: "add" | "del" | "context" | "hunk";
+  type: "add" | "del" | "context";
   content: string;
   oldLineNo?: number;
   newLineNo?: number;
@@ -30,7 +35,25 @@ interface DiffLine {
 
 interface DiffHunk {
   header: string;
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
   lines: DiffLine[];
+}
+
+interface ParsedFileDiff {
+  fileName: string;
+  hunks: DiffHunk[];
+}
+
+type RenderBlock =
+  | { type: "hunk"; key: string; hunk: DiffHunk }
+  | { type: "gap"; key: string; lines: DiffLine[] };
+
+interface HighlightedLineMaps {
+  oldLines: string[] | null;
+  newLines: string[] | null;
 }
 
 function parsePatchToHunks(oldText: string, newText: string): DiffHunk[] {
@@ -53,17 +76,24 @@ function parsePatchToHunks(oldText: string, newText: string): DiffHunk[] {
       }
     }
 
-    // Compute word-level diffs for adjacent del/add pairs
+    // Compute word-level diffs for adjacent del/add pairs.
     addWordHighlights(lines);
 
-    return { header, lines };
+    return {
+      header,
+      oldStart: hunk.oldStart,
+      oldLines: hunk.oldLines,
+      newStart: hunk.newStart,
+      newLines: hunk.newLines,
+      lines,
+    };
   });
 }
 
-function parseUnifiedDiffToHunks(diffStr: string): { fileName: string; hunks: DiffHunk[] }[] {
-  const files: { fileName: string; hunks: DiffHunk[] }[] = [];
+function parseUnifiedDiffToFiles(diffStr: string): ParsedFileDiff[] {
+  const files: ParsedFileDiff[] = [];
   const diffLines = diffStr.split("\n");
-  let currentFile: { fileName: string; hunks: DiffHunk[] } | null = null;
+  let currentFile: ParsedFileDiff | null = null;
   let currentHunk: DiffHunk | null = null;
   let oldLine = 0;
   let newLine = 0;
@@ -86,16 +116,30 @@ function parseUnifiedDiffToHunks(diffStr: string): { fileName: string; hunks: Di
     if (line.startsWith("+++ /dev/null")) {
       continue;
     }
-    if (line.startsWith("index ") || line.startsWith("new file") || line.startsWith("deleted file") || line.startsWith("old mode") || line.startsWith("new mode") || line.startsWith("rename from") || line.startsWith("rename to") || line.startsWith("similarity index") || line.startsWith("Binary files")) {
+    if (
+      line.startsWith("index ")
+      || line.startsWith("new file")
+      || line.startsWith("deleted file")
+      || line.startsWith("old mode")
+      || line.startsWith("new mode")
+      || line.startsWith("rename from")
+      || line.startsWith("rename to")
+      || line.startsWith("similarity index")
+      || line.startsWith("Binary files")
+    ) {
       continue;
     }
 
-    const hunkMatch = line.match(/^@@\s+-(\d+)(?:,\d+)?\s+\+(\d+)(?:,\d+)?\s+@@(.*)$/);
+    const hunkMatch = line.match(/^@@\s+-(\d+)(?:,(\d+))?\s+\+(\d+)(?:,(\d+))?\s+@@(.*)$/);
     if (hunkMatch) {
       if (currentHunk && currentFile) currentFile.hunks.push(currentHunk);
-      oldLine = parseInt(hunkMatch[1], 10);
-      newLine = parseInt(hunkMatch[2], 10);
-      currentHunk = { header: line, lines: [] };
+      const oldStart = parseInt(hunkMatch[1], 10);
+      const oldLines = hunkMatch[2] ? parseInt(hunkMatch[2], 10) : 1;
+      const newStart = parseInt(hunkMatch[3], 10);
+      const newLines = hunkMatch[4] ? parseInt(hunkMatch[4], 10) : 1;
+      oldLine = oldStart;
+      newLine = newStart;
+      currentHunk = { header: line, oldStart, oldLines, newStart, newLines, lines: [] };
       continue;
     }
 
@@ -108,14 +152,14 @@ function parseUnifiedDiffToHunks(diffStr: string): { fileName: string; hunks: Di
     } else if (line.startsWith(" ")) {
       currentHunk.lines.push({ type: "context", content: line.slice(1), oldLineNo: oldLine++, newLineNo: newLine++ });
     } else if (line === "\\ No newline at end of file") {
-      // skip
+      // Skip metadata line.
     }
   }
 
   if (currentHunk && currentFile) currentFile.hunks.push(currentHunk);
   if (currentFile) files.push(currentFile);
 
-  // Add word highlights
+  // Add word highlights.
   for (const file of files) {
     for (const hunk of file.hunks) {
       addWordHighlights(hunk.lines);
@@ -125,21 +169,18 @@ function parseUnifiedDiffToHunks(diffStr: string): { fileName: string; hunks: Di
   return files;
 }
 
-/** Add word-level diff highlights to adjacent del/add line pairs */
+/** Add word-level diff highlights to adjacent del/add line pairs. */
 function addWordHighlights(lines: DiffLine[]) {
   let i = 0;
   while (i < lines.length) {
-    // Find consecutive del lines
     const delStart = i;
     while (i < lines.length && lines[i].type === "del") i++;
     const delEnd = i;
 
-    // Find consecutive add lines
     const addStart = i;
     while (i < lines.length && lines[i].type === "add") i++;
     const addEnd = i;
 
-    // If we have matching del/add pairs, compute word diff
     const delCount = delEnd - delStart;
     const addCount = addEnd - addStart;
     if (delCount > 0 && addCount > 0) {
@@ -158,12 +199,25 @@ function addWordHighlights(lines: DiffLine[]) {
       }
     }
 
-    // If we didn't move forward, advance
     if (i === delStart) i++;
   }
 }
 
-function LineContent({ line }: { line: DiffLine }) {
+function getLineHtml(line: DiffLine, highlighted: HighlightedLineMaps): string | null {
+  if (line.type === "del") {
+    if (line.oldLineNo == null || !highlighted.oldLines) return null;
+    return highlighted.oldLines[line.oldLineNo - 1] ?? "";
+  }
+  if (line.newLineNo == null || !highlighted.newLines) return null;
+  return highlighted.newLines[line.newLineNo - 1] ?? "";
+}
+
+function LineContent({ line, highlightedHtml }: { line: DiffLine; highlightedHtml: string | null }) {
+  if (highlightedHtml !== null) {
+    if (!highlightedHtml) return <>&nbsp;</>;
+    return <span dangerouslySetInnerHTML={{ __html: highlightedHtml }} />;
+  }
+
   if (line.wordChanges) {
     return (
       <>
@@ -179,36 +233,125 @@ function LineContent({ line }: { line: DiffLine }) {
       </>
     );
   }
+
+  if (!line.content) {
+    return <>&nbsp;</>;
+  }
+
   return <>{line.content}</>;
 }
 
-function HunkBlock({ hunk, showLineNumbers }: { hunk: DiffHunk; showLineNumbers: boolean }) {
+function DiffLineRow({
+  line,
+  showLineNumbers,
+  highlightedHtml,
+}: {
+  line: DiffLine;
+  showLineNumbers: boolean;
+  highlightedHtml: string | null;
+}) {
+  return (
+    <div className={`diff-line diff-line-${line.type}`}>
+      {showLineNumbers && (
+        <>
+          <span className="diff-gutter diff-gutter-old">
+            {line.oldLineNo ?? ""}
+          </span>
+          <span className="diff-gutter diff-gutter-new">
+            {line.newLineNo ?? ""}
+          </span>
+        </>
+      )}
+      <span className="diff-marker">
+        {line.type === "add" ? "+" : line.type === "del" ? "-" : " "}
+      </span>
+      <span className="diff-content">
+        <LineContent line={line} highlightedHtml={highlightedHtml} />
+      </span>
+    </div>
+  );
+}
+
+function HunkBlock({
+  hunk,
+  showLineNumbers,
+  highlighted,
+}: {
+  hunk: DiffHunk;
+  showLineNumbers: boolean;
+  highlighted: HighlightedLineMaps;
+}) {
   return (
     <div className="diff-hunk">
       <div className="diff-hunk-header">{hunk.header}</div>
       {hunk.lines.map((line, i) => (
-        <div key={i} className={`diff-line diff-line-${line.type}`}>
-          {showLineNumbers && (
-            <>
-              <span className="diff-gutter diff-gutter-old">
-                {line.oldLineNo ?? ""}
-              </span>
-              <span className="diff-gutter diff-gutter-new">
-                {line.newLineNo ?? ""}
-              </span>
-            </>
-          )}
-          <span className="diff-marker">
-            {line.type === "add" ? "+" : line.type === "del" ? "-" : " "}
-          </span>
-          <span className="diff-content">
-            <LineContent line={line} />
-            {!line.content && "\u00A0"}
-          </span>
-        </div>
+        <DiffLineRow
+          key={i}
+          line={line}
+          showLineNumbers={showLineNumbers}
+          highlightedHtml={getLineHtml(line, highlighted)}
+        />
       ))}
     </div>
   );
+}
+
+function buildRenderBlocks(
+  hunks: DiffHunk[],
+  oldSourceLines: string[] | null,
+  newSourceLines: string[] | null,
+): RenderBlock[] {
+  if (!oldSourceLines || !newSourceLines || oldSourceLines.length === 0 || newSourceLines.length === 0) {
+    return hunks.map((hunk, index) => ({ type: "hunk", key: `hunk-${index}`, hunk }));
+  }
+
+  const blocks: RenderBlock[] = [];
+  let prevOld = 1;
+  let prevNew = 1;
+
+  for (let i = 0; i < hunks.length; i++) {
+    const hunk = hunks[i];
+    const gapOld = hunk.oldStart - prevOld;
+    const gapNew = hunk.newStart - prevNew;
+
+    if (gapOld > 0 && gapNew > 0 && gapOld === gapNew) {
+      const lines: DiffLine[] = [];
+      for (let j = 0; j < gapOld; j++) {
+        const oldLineNo = prevOld + j;
+        const newLineNo = prevNew + j;
+        lines.push({
+          type: "context",
+          content: newSourceLines[newLineNo - 1] ?? oldSourceLines[oldLineNo - 1] ?? "",
+          oldLineNo,
+          newLineNo,
+        });
+      }
+      blocks.push({ type: "gap", key: `gap-${i}`, lines });
+    }
+
+    blocks.push({ type: "hunk", key: `hunk-${i}`, hunk });
+    prevOld = hunk.oldStart + hunk.oldLines;
+    prevNew = hunk.newStart + hunk.newLines;
+  }
+
+  const trailingOld = oldSourceLines.length - (prevOld - 1);
+  const trailingNew = newSourceLines.length - (prevNew - 1);
+  if (trailingOld > 0 && trailingNew > 0 && trailingOld === trailingNew) {
+    const lines: DiffLine[] = [];
+    for (let j = 0; j < trailingOld; j++) {
+      const oldLineNo = prevOld + j;
+      const newLineNo = prevNew + j;
+      lines.push({
+        type: "context",
+        content: newSourceLines[newLineNo - 1] ?? oldSourceLines[oldLineNo - 1] ?? "",
+        oldLineNo,
+        newLineNo,
+      });
+    }
+    blocks.push({ type: "gap", key: "gap-tail", lines });
+  }
+
+  return blocks;
 }
 
 function FileHeader({ fileName }: { fileName: string }) {
@@ -239,24 +382,46 @@ export function DiffViewer({
   const isCompact = mode === "compact";
   const showLineNumbers = showLineNumbersProp ?? !isCompact;
   const [expanded, setExpanded] = useState(false);
+  const [expandedGaps, setExpandedGaps] = useState<Record<string, boolean>>({});
 
-  const data = useMemo(() => {
-    // Case 1: unified diff string provided (from git diff)
-    if (unifiedDiff) {
-      return parseUnifiedDiffToHunks(unifiedDiff);
+  const hasSource = oldText !== undefined || newText !== undefined;
+  const normalizedOldText = oldText ?? "";
+  const normalizedNewText = newText ?? "";
+
+  const oldSourceLines = useMemo(
+    () => (hasSource ? splitSourceToLines(normalizedOldText) : null),
+    [hasSource, normalizedOldText],
+  );
+  const newSourceLines = useMemo(
+    () => (hasSource ? splitSourceToLines(normalizedNewText) : null),
+    [hasSource, normalizedNewText],
+  );
+
+  const language = useMemo(() => inferLanguageFromPath(fileName), [fileName]);
+  const highlighted = useMemo<HighlightedLineMaps>(() => {
+    if (!language || !hasSource) {
+      return { oldLines: null, newLines: null };
+    }
+    return {
+      oldLines: buildHighlightedLines(normalizedOldText, language),
+      newLines: buildHighlightedLines(normalizedNewText, language),
+    };
+  }, [hasSource, language, normalizedNewText, normalizedOldText]);
+
+  const data = useMemo<ParsedFileDiff[]>(() => {
+    if (hasSource) {
+      if (!normalizedOldText && !normalizedNewText) return [];
+      const hunks = parsePatchToHunks(normalizedOldText, normalizedNewText);
+      return [{ fileName: fileName || "", hunks }];
     }
 
-    // Case 2: compute diff from old/new text
-    const old = oldText ?? "";
-    const neu = newText ?? "";
-    if (!old && !neu) return [];
+    if (unifiedDiff) {
+      return parseUnifiedDiffToFiles(unifiedDiff);
+    }
 
-    const hunks = parsePatchToHunks(old, neu);
-    return [{ fileName: fileName || "", hunks }];
-  }, [oldText, newText, unifiedDiff, fileName]);
+    return [];
+  }, [hasSource, normalizedOldText, normalizedNewText, unifiedDiff, fileName]);
 
-  // Escape key handler for modal — must be above the early return to satisfy
-  // React's Rules of Hooks (hooks must run in the same order every render).
   useEffect(() => {
     if (!expanded) return;
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -266,7 +431,10 @@ export function DiffViewer({
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [expanded]);
 
-  // Nothing to show
+  useEffect(() => {
+    setExpandedGaps({});
+  }, [oldText, newText, unifiedDiff, fileName]);
+
   if (data.length === 0 || data.every((f) => f.hunks.length === 0)) {
     return (
       <div className="diff-viewer diff-empty">
@@ -289,16 +457,59 @@ export function DiffViewer({
           </button>
         </div>
       )}
-      {data.map((file, fi) => (
-        <div key={fi} className="diff-file">
-          {(file.fileName || fileName) && (
-            <FileHeader fileName={file.fileName || fileName || ""} />
-          )}
-          {file.hunks.map((hunk, hi) => (
-            <HunkBlock key={hi} hunk={hunk} showLineNumbers={showLineNumbers} />
-          ))}
-        </div>
-      ))}
+      {data.map((file, fi) => {
+        const blocks = buildRenderBlocks(file.hunks, oldSourceLines, newSourceLines);
+        return (
+          <div key={fi} className="diff-file">
+            {(file.fileName || fileName) && (
+              <FileHeader fileName={file.fileName || fileName || ""} />
+            )}
+            {blocks.map((block) => {
+              if (block.type === "hunk") {
+                return (
+                  <HunkBlock
+                    key={`${fi}-${block.key}`}
+                    hunk={block.hunk}
+                    showLineNumbers={showLineNumbers}
+                    highlighted={highlighted}
+                  />
+                );
+              }
+
+              const gapId = `${fi}-${block.key}`;
+              const isGapExpanded = !!expandedGaps[gapId];
+              if (!isGapExpanded) {
+                return (
+                  <div key={gapId} className="diff-gap-row">
+                    <button
+                      type="button"
+                      className="diff-gap-btn"
+                      onClick={() => {
+                        setExpandedGaps((prev) => ({ ...prev, [gapId]: true }));
+                      }}
+                    >
+                      Show {block.lines.length} unchanged line{block.lines.length === 1 ? "" : "s"}
+                    </button>
+                  </div>
+                );
+              }
+
+              return (
+                <div key={gapId} className="diff-gap-expanded">
+                  {block.lines.map((line) => (
+                    <DiffLineRow
+                      key={`${gapId}-${line.oldLineNo}-${line.newLineNo}`}
+                      line={line}
+                      showLineNumbers={showLineNumbers}
+                      highlightedHtml={getLineHtml(line, highlighted)}
+                    />
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
     </div>
   );
 

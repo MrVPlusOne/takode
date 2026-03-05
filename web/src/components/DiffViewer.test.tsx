@@ -167,4 +167,44 @@ diff --git a/b.ts b/b.ts
     rerender(<DiffViewer unifiedDiff={diff} />);
     expect(container.querySelector(".diff-line-add")).toBeTruthy();
   });
+
+  it("applies syntax highlighting when file language can be inferred", () => {
+    const { container } = render(
+      <DiffViewer
+        oldText={"const value = 1;\nconst unchanged = true;"}
+        newText={"const value = 2;\nconst unchanged = true;"}
+        fileName="src/example.ts"
+        mode="full"
+      />,
+    );
+
+    expect(container.querySelector(".hljs-keyword")).toBeTruthy();
+  });
+
+  it("shows expandable hidden context between distant hunks", () => {
+    const oldLines = Array.from({ length: 40 }, (_, i) => `const line${i + 1} = ${i + 1};`);
+    const newLines = [...oldLines];
+    newLines[2] = "const line3 = 300;";
+    newLines[35] = "const line36 = 3600;";
+
+    render(
+      <DiffViewer
+        oldText={oldLines.join("\n")}
+        newText={newLines.join("\n")}
+        fileName="src/expandable.ts"
+        mode="full"
+      />,
+    );
+
+    expect(screen.queryByText("const line20 = 20;")).toBeNull();
+
+    const [expandButton] = screen.getAllByRole("button", { name: /Show \d+ unchanged lines/ });
+    fireEvent.click(expandButton);
+
+    const expandedLineMatches = screen.getAllByText((_, element) => {
+      if (!element?.classList.contains("diff-line")) return false;
+      return element.textContent?.includes("const line20 = 20;") ?? false;
+    });
+    expect(expandedLineMatches.length).toBeGreaterThan(0);
+  });
 });

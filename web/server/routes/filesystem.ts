@@ -183,6 +183,7 @@ export function createFilesystemRoutes(ctx: RouteContext) {
     if (!filePath) return c.json({ error: "path required" }, 400);
     const base = c.req.query("base");
     if (!base) return c.json({ error: "base branch required" }, 400);
+    const includeContents = c.req.query("includeContents") === "1";
     const absPath = resolve(filePath);
     try {
       const repoRoot = await execAsync("git rev-parse --show-toplevel", dirname(absPath));
@@ -205,7 +206,51 @@ export function createFilesystemRoutes(ctx: RouteContext) {
         }
       }
 
-      return c.json({ path: absPath, diff, baseBranch: base });
+      let oldText: string | undefined;
+      let newText: string | undefined;
+
+      if (includeContents) {
+        const escapedRelPath = relPath.replace(/[\\`"$]/g, "\\$&");
+
+        try {
+          const baseContent = await execCaptureStdoutAsync(
+            `git show ${base}:"${escapedRelPath}"`,
+            repoRoot,
+          );
+          if (Buffer.byteLength(baseContent, "utf-8") <= 1024 * 1024) {
+            oldText = baseContent.replace(/\r\n/g, "\n");
+          }
+        } catch {
+          // File may not exist on base branch (e.g. untracked/new file).
+        }
+
+        try {
+          const fileInfo = await stat(absPath);
+          // Avoid sending very large files into the browser diff renderer.
+          if (fileInfo.size <= 1024 * 1024) {
+            const currentContent = await readFile(absPath, "utf-8");
+            newText = currentContent.replace(/\r\n/g, "\n");
+          }
+        } catch {
+          // File may not exist in working tree (e.g. deleted file).
+        }
+
+        // If only one side is available for a mixed add+del patch, we cannot
+        // reconstruct a trustworthy full-file diff view. Fall back to unified.
+        const hasAdds = diff.split("\n").some((line) => line.startsWith("+") && !line.startsWith("+++"));
+        const hasDels = diff.split("\n").some((line) => line.startsWith("-") && !line.startsWith("---"));
+        if ((oldText === undefined || newText === undefined) && hasAdds && hasDels) {
+          oldText = undefined;
+          newText = undefined;
+        }
+      }
+
+      return c.json({
+        path: absPath,
+        diff,
+        baseBranch: base,
+        ...(includeContents ? { oldText, newText } : {}),
+      });
     } catch {
       return c.json({ path: absPath, diff: "" });
     }

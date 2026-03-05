@@ -26,6 +26,12 @@ interface FileStats {
   deletions: number;
 }
 
+interface DiffFileData {
+  diff: string;
+  oldText?: string;
+  newText?: string;
+}
+
 /**
  * Thin wrapper that reads cwd and conditionally renders the real panel.
  * This avoids calling hooks after an early return (React Rules of Hooks).
@@ -67,7 +73,7 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
   const fetchedFilesRef = useRef<Set<string>>(new Set());
 
   // Multi-file diff state
-  const [allDiffs, setAllDiffs] = useState<Map<string, string>>(new Map());
+  const [allDiffs, setAllDiffs] = useState<Map<string, DiffFileData>>(new Map());
   const [allDiffsLoading, setAllDiffsLoading] = useState(false);
 
   // File picker dropdown open state
@@ -193,9 +199,15 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
         const batch = newFiles.slice(i, i + BATCH_SIZE);
         const results = await Promise.all(
           batch.map(({ abs }) =>
-            api.getFileDiff(abs, effectiveBranch).then((res) => {
-              return { abs, diff: res.diff, stats: countDiffStats(res.diff) };
-            }).catch(() => ({ abs, diff: "", stats: { additions: 0, deletions: 0 } })),
+            api.getFileDiff(abs, effectiveBranch, { includeContents: true }).then((res) => {
+              return {
+                abs,
+                diff: res.diff,
+                oldText: res.oldText,
+                newText: res.newText,
+                stats: countDiffStats(res.diff),
+              };
+            }).catch(() => ({ abs, diff: "", oldText: undefined, newText: undefined, stats: { additions: 0, deletions: 0 } })),
           ),
         );
         if (cancelled) return;
@@ -209,8 +221,12 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
         });
         setAllDiffs((prev) => {
           const next = new Map(prev);
-          for (const { abs, diff } of results) {
-            next.set(abs, diff);
+          for (const result of results) {
+            next.set(result.abs, {
+              diff: result.diff,
+              oldText: result.oldText,
+              newText: result.newText,
+            });
           }
           return next;
         });
@@ -469,8 +485,9 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
         ) : (
           <div className="p-3 sm:p-4 flex flex-col gap-4">
             {visibleChangedFiles.map(({ abs, rel }) => {
-              const diff = allDiffs.get(abs);
+              const diffData = allDiffs.get(abs);
               const stats = fileStats.get(abs);
+              const hasFullSource = diffData?.oldText !== undefined || diffData?.newText !== undefined;
               return (
                 <div
                   key={abs}
@@ -481,7 +498,9 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
                   }}
                 >
                   <DiffViewer
-                    unifiedDiff={diff ?? ""}
+                    oldText={hasFullSource ? diffData?.oldText : undefined}
+                    newText={hasFullSource ? diffData?.newText : undefined}
+                    unifiedDiff={hasFullSource ? undefined : (diffData?.diff ?? "")}
                     fileName={stats ? `${rel}  +${stats.additions} -${stats.deletions}` : rel}
                     mode="full"
                     showLineNumbers={showLineNumbers}

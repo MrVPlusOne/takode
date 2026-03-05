@@ -408,11 +408,35 @@ select {
   border-radius: 2px;
   padding: 0 1px;
 }
+.diff-gap-row {
+  display: flex;
+  justify-content: center;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border-top: 1px solid var(--color-cc-border);
+  border-bottom: 1px solid var(--color-cc-border);
+}
+.diff-gap-btn {
+  border: 1px solid var(--color-cc-border);
+  background: var(--color-cc-bg);
+  color: var(--color-cc-muted);
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.diff-gap-btn:hover {
+  color: var(--color-cc-fg);
+  background: var(--color-cc-hover);
+}
 .dark .diff-word-add {
   background: rgba(72, 187, 120, 0.2);
 }
 .dark .diff-word-del {
   background: rgba(252, 129, 129, 0.2);
+}
+.dark .diff-gap-row {
+  background: rgba(0, 0, 0, 0.12);
 }
 .diff-toolbar {
   position: sticky;

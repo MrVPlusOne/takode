@@ -300,6 +300,17 @@ describe("getFileDiff", () => {
     expect(url).toBe(`/api/fs/diff?path=${encodeURIComponent("/repo/file.ts")}`);
     expect(result).toEqual(diffData);
   });
+
+  it("supports base branch and includeContents query options", async () => {
+    const diffData = { path: "/repo/file.ts", diff: "+new line\n-old line", oldText: "old", newText: "new" };
+    mockFetch.mockResolvedValueOnce(mockResponse(diffData));
+
+    const result = await api.getFileDiff("/repo/file.ts", "main", { includeContents: true });
+
+    const [url] = mockFetch.mock.calls[0];
+    expect(url).toBe(`/api/fs/diff?path=${encodeURIComponent("/repo/file.ts")}&base=main&includeContents=1`);
+    expect(result).toEqual(diffData);
+  });
 });
 
 // ===========================================================================
