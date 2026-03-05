@@ -345,7 +345,7 @@ describe("Sidebar", () => {
     expect(screen.getByText("myapp")).toBeInTheDocument();
   });
 
-  it("session items show git branch when available", () => {
+  it("session items do not show git branch text when available", () => {
     const session = makeSession("s1", { git_branch: "feature/awesome" });
     const sdk = makeSdkSession("s1");
     mockState = createMockState({
@@ -354,7 +354,7 @@ describe("Sidebar", () => {
     });
 
     render(<Sidebar />);
-    expect(screen.getByText("feature/awesome")).toBeInTheDocument();
+    expect(screen.queryByText("feature/awesome")).not.toBeInTheDocument();
   });
 
   it("session items show container badge when is_containerized is true", () => {
@@ -383,7 +383,7 @@ describe("Sidebar", () => {
 
     render(<Sidebar />);
     // The component renders "3↑" and "2↓" using HTML entities in a stats row
-    const sessionButton = screen.getByText("main").closest("button")!;
+    const sessionButton = screen.getByText("claude-sonnet-4-5-20250929").closest("button")!;
     expect(sessionButton.textContent).toContain("3");
     expect(sessionButton.textContent).toContain("2");
   });
@@ -424,7 +424,8 @@ describe("Sidebar", () => {
     });
 
     render(<Sidebar />);
-    const sessionButton = screen.getByText("jiayi-wt-9954").closest("button")!;
+    const sessionButton = screen.getByText("claude-sonnet-4-5-20250929").closest("button")!;
+    expect(screen.getByText("wt")).toBeInTheDocument();
     expect(sessionButton.textContent).toContain("6↓");
     expect(sessionButton.textContent).toContain("+167");
     expect(sessionButton.textContent).toContain("-858");
@@ -751,7 +752,7 @@ describe("Sidebar", () => {
     expect(screen.getByText("2")).toBeInTheDocument();
   });
 
-  it("session shows git branch from sdkInfo when bridgeState is unavailable", () => {
+  it("session keeps git stats but hides git branch text when bridgeState is unavailable", () => {
     // No bridgeState — only sdkInfo (REST API) data available.
     // Line stats come from server via sdkInfo (single source of truth).
     const sdk = makeSdkSession("s1", {
@@ -767,15 +768,15 @@ describe("Sidebar", () => {
     });
 
     render(<Sidebar />);
-    expect(screen.getByText("feature/from-rest")).toBeInTheDocument();
-    const sessionButton = screen.getByText("feature/from-rest").closest("button")!;
+    expect(screen.queryByText("feature/from-rest")).not.toBeInTheDocument();
+    const sessionButton = screen.getByText("+100").closest("button")!;
     expect(sessionButton.textContent).toContain("5");
     expect(sessionButton.textContent).toContain("2");
     expect(sessionButton.textContent).toContain("+100");
     expect(sessionButton.textContent).toContain("-20");
   });
 
-  it("session prefers bridgeState git data over sdkInfo", () => {
+  it("session prefers bridgeState git stats over sdkInfo", () => {
     const session = makeSession("s1", {
       git_branch: "from-bridge",
       git_ahead: 1,
@@ -790,9 +791,12 @@ describe("Sidebar", () => {
     });
 
     render(<Sidebar />);
-    // Bridge data should win over REST API data
-    expect(screen.getByText("from-bridge")).toBeInTheDocument();
+    // Bridge stats should win over REST API stats
+    expect(screen.queryByText("from-bridge")).not.toBeInTheDocument();
     expect(screen.queryByText("from-rest")).not.toBeInTheDocument();
+    const sessionButton = screen.getByText("1↑").closest("button")!;
+    expect(sessionButton.textContent).toContain("1");
+    expect(sessionButton.textContent).not.toContain("99");
   });
 
   it("codex session shows Codex icon when bridgeState is missing", () => {

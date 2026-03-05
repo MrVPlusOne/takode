@@ -5,6 +5,7 @@ import "@testing-library/jest-dom";
 
 interface MockStoreState {
   sessions: Map<string, {
+    session_id?: string;
     cwd?: string;
     model?: string;
     backend_type?: "claude" | "codex";
@@ -29,6 +30,7 @@ function resetStore(taskHistory: Array<{ title: string; source?: "quest"; questI
   storeState = {
     sessions: new Map([
       ["s1", {
+        session_id: "s1",
         cwd: "/repo",
         model: "gpt-5.3-codex",
         backend_type: "codex",
@@ -133,5 +135,30 @@ describe("SessionInfoPopover", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("renders git branch and diff stats near the top below the path", () => {
+    resetStore([{ title: "Task one" }]);
+    const session = storeState.sessions.get("s1");
+    if (!session) throw new Error("missing session fixture");
+    session.git_branch = "jiayi-wt-5788";
+    session.is_worktree = true;
+    session.git_ahead = 1;
+    session.git_behind = 5;
+    session.total_lines_added = 69;
+    session.total_lines_removed = 13;
+    render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
+
+    const pathLine = screen.getByTitle("/repo");
+    const branch = screen.getByText("jiayi-wt-5788");
+    const tasksLabel = screen.getByText("Tasks");
+
+    expect(branch.textContent).toContain("jiayi-wt-5788");
+    expect(screen.getByText("1↑")).toBeInTheDocument();
+    expect(screen.getByText("5↓")).toBeInTheDocument();
+    expect(screen.getByText("+69")).toBeInTheDocument();
+    expect(screen.getByText("-13")).toBeInTheDocument();
+    expect(pathLine.compareDocumentPosition(branch) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(branch.compareDocumentPosition(tasksLabel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
