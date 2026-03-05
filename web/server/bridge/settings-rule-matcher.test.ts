@@ -309,6 +309,10 @@ describe("isDangerousFirstToken", () => {
     expect(isDangerousFirstToken("cat /etc/hosts")).toBe(false);
   });
 
+  it("blocks ssh (can execute arbitrary remote commands)", () => {
+    expect(isDangerousFirstToken("ssh evil-host 'rm -rf /'")).toBe(true);
+  });
+
   it("handles absolute path to dangerous binary", () => {
     // The implementation strips the path and checks the basename
     expect(isDangerousFirstToken("/usr/bin/python3 script.py")).toBe(true);

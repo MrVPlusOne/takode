@@ -27,7 +27,7 @@ export interface ParsedToolRule {
 const DANGEROUS_FIRST_TOKENS = new Set([
   "bash", "sh", "zsh", "fish", "csh", "tcsh", "ksh", "dash",
   "python", "python3", "node", "ruby", "perl", "php", "lua",
-  "eval", "exec", "source",
+  "eval", "exec", "source", "ssh",
 ]);
 
 const WRITE_COMMANDS = new Set([
