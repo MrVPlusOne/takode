@@ -365,6 +365,22 @@ export function SessionItem({
 
           {/* Content */}
           <div className="flex-1 min-w-0">
+            {/* Row 0: Leader/herd tag — above the title for prominence */}
+            {!isEditing && (s.isOrchestrator || (!s.isOrchestrator && !!s.herdedBy)) && (
+              <div className="mb-0.5">
+                {s.isOrchestrator && (
+                  <span className="text-[9px] font-medium px-1.5 rounded-full leading-[16px] shrink-0 text-amber-500 bg-amber-500/10" title="Orchestrator session">
+                    leader
+                  </span>
+                )}
+                {!s.isOrchestrator && !!s.herdedBy && (
+                  <span className="text-[9px] font-medium px-1.5 rounded-full leading-[16px] shrink-0 text-amber-400 bg-amber-500/10" title="Herded by an orchestrator">
+                    herd
+                  </span>
+                )}
+              </div>
+            )}
+
             {/* Row 1: Name only — full width for title */}
             <div className="flex items-center gap-1.5">
               {isEditing ? (
@@ -415,7 +431,7 @@ export function SessionItem({
               : <SessionPreviewRow sessionId={s.id} userPreview={sessionPreview} />
             )}
 
-            {/* Row 3: Metadata — backend, permissions, branch, badges */}
+            {/* Row 3: Metadata — backend, permissions, badges, #N, wt, git stats (all compact, one line) */}
             {!isEditing && (
               <div className="flex items-center gap-1 mt-0.5 text-[10.5px] text-cc-muted leading-tight">
                 <img
@@ -449,62 +465,33 @@ export function SessionItem({
                     Cron
                   </span>
                 )}
-                {s.isOrchestrator && (
-                  <span className="text-[9px] font-medium px-1.5 rounded-full leading-[16px] shrink-0 text-amber-500 bg-amber-500/10" title="Orchestrator session">
-                    leader
-                  </span>
-                )}
-                {!s.isOrchestrator && !!s.herdedBy && (
-                  <span className="text-[9px] font-medium px-1.5 rounded-full leading-[16px] shrink-0 text-amber-400 bg-amber-500/10" title="Herded by an orchestrator">
-                    herd
-                  </span>
-                )}
                 {s.sessionNum != null && (
                   <span className="text-[9px] font-mono text-cc-muted/60 shrink-0">#{s.sessionNum}</span>
                 )}
-                {s.gitBranch && (
-                  <>
-                    {s.isWorktree ? (
-                      <svg viewBox="0 0 16 16" fill="currentColor" className="w-2.5 h-2.5 shrink-0 opacity-50">
-                        <path d="M5 3.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm0 2.122a2.25 2.25 0 10-1.5 0v5.256a2.25 2.25 0 101.5 0V5.372zM4.25 12a.75.75 0 100 1.5.75.75 0 000-1.5zm7.5-9.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122V7A2.5 2.5 0 0110 9.5H6a1 1 0 000 2h4a2.5 2.5 0 012.5 2.5v.628a2.25 2.25 0 11-1.5 0V14a1 1 0 00-1-1H6a2.5 2.5 0 01-2.5-2.5V10a2.5 2.5 0 012.5-2.5h4a1 1 0 001-1V5.372a2.25 2.25 0 01-1.5-2.122z" />
-                      </svg>
-                    ) : (
-                      <svg viewBox="0 0 16 16" fill="currentColor" className="w-2.5 h-2.5 shrink-0 opacity-50">
-                        <path d="M11.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.116.862a2.25 2.25 0 10-.862.862A4.48 4.48 0 007.25 7.5h-1.5A2.25 2.25 0 003.5 9.75v.318a2.25 2.25 0 101.5 0V9.75a.75.75 0 01.75-.75h1.5a5.98 5.98 0 003.884-1.435A2.25 2.25 0 109.634 3.362zM4.25 12a.75.75 0 100 1.5.75.75 0 000-1.5z" />
-                      </svg>
-                    )}
-                    {s.isWorktree && (
-                      <span
-                        className={`text-[9px] px-1 rounded shrink-0 ${
-                          archived && s.worktreeExists === false
-                            ? "bg-cc-muted/10 text-cc-muted"
-                            : "bg-cc-primary/10 text-cc-primary"
-                        }`}
-                        title={
-                          archived && s.worktreeExists !== undefined
-                            ? s.worktreeExists
-                              ? s.worktreeDirty ? "Worktree preserved (uncommitted changes)" : "Worktree preserved"
-                              : "Worktree deleted"
-                            : undefined
-                        }
-                      >wt</span>
-                    )}
-                  </>
+                {s.isWorktree && (
+                  <span
+                    className={`text-[9px] px-1 rounded shrink-0 ${
+                      archived && s.worktreeExists === false
+                        ? "bg-cc-muted/10 text-cc-muted"
+                        : "bg-cc-primary/10 text-cc-primary"
+                    }`}
+                    title={
+                      archived && s.worktreeExists !== undefined
+                        ? s.worktreeExists
+                          ? s.worktreeDirty ? "Worktree preserved (uncommitted changes)" : "Worktree preserved"
+                          : "Worktree deleted"
+                        : undefined
+                    }
+                  >wt</span>
                 )}
-              </div>
-            )}
-
-            {/* Row 3: Git stats (conditional) */}
-            {(hasBranchDivergence || hasLineDiff) && (
-              <div className="flex items-center gap-1.5 mt-px text-[10px] text-cc-muted">
                 {hasBranchDivergence && (
-                  <span className="flex items-center gap-0.5">
+                  <span className="flex items-center gap-0.5 text-[10px] shrink-0">
                     {s.gitAhead > 0 && <span className="text-green-500">{s.gitAhead}&#8593;</span>}
                     {s.gitBehind > 0 && <span className="text-cc-warning">{s.gitBehind}&#8595;</span>}
                   </span>
                 )}
                 {hasLineDiff && (
-                  <span className="flex items-center gap-1 shrink-0">
+                  <span className="flex items-center gap-0.5 text-[10px] shrink-0">
                     <span className="text-green-500">+{s.linesAdded}</span>
                     <span className="text-red-400">-{s.linesRemoved}</span>
                   </span>
