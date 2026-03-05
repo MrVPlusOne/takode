@@ -384,6 +384,16 @@ describe("Composer mode toggle", () => {
     });
   });
 
+  it("prefers server uiMode over stale permissionMode for the mode toggle label", () => {
+    // Regression: SDK/session replay can transiently report a stale CLI mode
+    // while server uiMode is already authoritative.
+    setupMockStore({ session: { permissionMode: "acceptEdits", uiMode: "plan" } });
+    render(<Composer sessionId="s1" />);
+
+    const toggleBtn = screen.getByTitle("Plan mode: agent creates a plan before executing (Shift+Tab to toggle)");
+    expect(toggleBtn).toBeTruthy();
+  });
+
   it("mode toggle is disabled when CLI is not connected", () => {
     setupMockStore({ isConnected: false, session: { permissionMode: "acceptEdits" } });
     render(<Composer sessionId="s1" />);

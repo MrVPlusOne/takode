@@ -267,7 +267,11 @@ export function Composer({ sessionId }: { sessionId: string }) {
     if (typeof explicit === "boolean") return explicit;
     return isCodex ? deriveCodexAskPermission(currentMode) : true;
   });
-  const uiMode = isCodex ? deriveCodexUiMode(currentMode) : deriveUiMode(currentMode);
+  // Prefer the server-provided UI mode when available. permissionMode can be
+  // stale during backend transitions (e.g., SDK init/status replay) while uiMode
+  // is the authoritative virtual mode for the composer toggle.
+  const uiMode = sessionData?.uiMode
+    ?? (isCodex ? deriveCodexUiMode(currentMode) : deriveUiMode(currentMode));
   const isPlan = uiMode === "plan";
   const codexReasoningEffort = sessionData?.codex_reasoning_effort || "";
   const codexModelOptions = dynamicCodexModels || getModelsForBackend("codex");
