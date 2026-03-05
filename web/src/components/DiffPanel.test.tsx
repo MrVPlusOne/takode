@@ -157,6 +157,33 @@ describe("DiffPanel", () => {
     expect(select).toBeTruthy();
   });
 
+  it("clears loading state when an in-flight diff request is superseded", async () => {
+    // Simulate a request that never resolves, then force effectiveBranch to become null.
+    // The panel should clear loading instead of being stuck forever.
+    mockApi.getFileDiff.mockImplementation(() => new Promise(() => {}));
+    mockApi.getRepoInfo.mockRejectedValue(new Error("no repo info"));
+
+    resetStore({
+      sessions: new Map([["s1", { cwd: "/repo", git_default_branch: "main" }]]),
+      changedFiles: new Map([["s1", new Set(["/repo/src/app.ts"])]]),
+      diffPanelSelectedFile: new Map([["s1", "/repo/src/app.ts"]]),
+    });
+
+    const { rerender } = render(<DiffPanel sessionId="s1" />);
+
+    await waitFor(() => {
+      expect(mockApi.getFileDiff).toHaveBeenCalledTimes(1);
+    });
+
+    // Remove branch defaults so effectiveBranch is null on re-render.
+    storeState.sessions = new Map([["s1", { cwd: "/repo" }]]);
+    rerender(<DiffPanel sessionId="s1" />);
+
+    await waitFor(() => {
+      expect(screen.getByText("No changes")).toBeInTheDocument();
+    });
+  });
+
   it("hides files with zero changes once stats are loaded", async () => {
     // Files that were touched by tool calls but have no actual diff against the base branch
     // should be filtered out once their stats are fetched (empty diff → +0/-0).

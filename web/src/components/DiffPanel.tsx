@@ -5,6 +5,23 @@ import { DiffViewer } from "./DiffViewer.js";
 import { YarnBallSpinner } from "./CatIcons.js";
 
 const LINE_NUMBERS_KEY = "cc-diff-line-numbers";
+const DIFF_REQUEST_TIMEOUT_MS = 15000;
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("diff request timed out")), timeoutMs);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
 
 /** Count additions and deletions from a unified diff string */
 function countDiffStats(diff: string): { additions: number; deletions: number } {
@@ -75,6 +92,7 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
   // Multi-file diff state
   const [allDiffs, setAllDiffs] = useState<Map<string, DiffFileData>>(new Map());
   const [allDiffsLoading, setAllDiffsLoading] = useState(false);
+  const diffLoadVersionRef = useRef(0);
 
   // File picker dropdown open state
   const [filePickerOpen, setFilePickerOpen] = useState(false);
@@ -187,56 +205,69 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
 
   // Fetch diffs for ALL changed files
   useEffect(() => {
-    if (!effectiveBranch || relativeChangedFiles.length === 0) return;
+    const loadVersion = ++diffLoadVersionRef.current;
+    const isCurrentLoad = () => diffLoadVersionRef.current === loadVersion;
+
+    if (!effectiveBranch || relativeChangedFiles.length === 0) {
+      setAllDiffsLoading(false);
+      return;
+    }
     const newFiles = relativeChangedFiles.filter((f) => !fetchedFilesRef.current.has(f.abs));
-    if (newFiles.length === 0) return;
+    if (newFiles.length === 0) {
+      setAllDiffsLoading(false);
+      return;
+    }
 
     let cancelled = false;
     setAllDiffsLoading(true);
     const BATCH_SIZE = 12;
     void (async () => {
-      for (let i = 0; i < newFiles.length; i += BATCH_SIZE) {
-        const batch = newFiles.slice(i, i + BATCH_SIZE);
-        const results = await Promise.all(
-          batch.map(({ abs }) =>
-            api.getFileDiff(abs, effectiveBranch, { includeContents: true }).then((res) => {
-              return {
-                abs,
-                diff: res.diff,
-                oldText: res.oldText,
-                newText: res.newText,
-                stats: countDiffStats(res.diff),
-              };
-            }).catch(() => ({ abs, diff: "", oldText: undefined, newText: undefined, stats: { additions: 0, deletions: 0 } })),
-          ),
-        );
-        if (cancelled) return;
-        setFileStats((prev) => {
-          const next = new Map(prev);
-          for (const { abs, stats } of results) {
-            next.set(abs, stats);
-            fetchedFilesRef.current.add(abs);
-          }
-          return next;
-        });
-        setAllDiffs((prev) => {
-          const next = new Map(prev);
-          for (const result of results) {
-            next.set(result.abs, {
-              diff: result.diff,
-              oldText: result.oldText,
-              newText: result.newText,
-            });
-          }
-          return next;
-        });
+      try {
+        for (let i = 0; i < newFiles.length; i += BATCH_SIZE) {
+          const batch = newFiles.slice(i, i + BATCH_SIZE);
+          const results = await Promise.all(
+            batch.map(({ abs }) =>
+              withTimeout(
+                api.getFileDiff(abs, effectiveBranch, { includeContents: true }),
+                DIFF_REQUEST_TIMEOUT_MS,
+              ).then((res) => {
+                return {
+                  abs,
+                  diff: res.diff,
+                  oldText: res.oldText,
+                  newText: res.newText,
+                  stats: countDiffStats(res.diff),
+                };
+              }).catch(() => ({ abs, diff: "", oldText: undefined, newText: undefined, stats: { additions: 0, deletions: 0 } })),
+            ),
+          );
+          if (cancelled || !isCurrentLoad()) return;
+          setFileStats((prev) => {
+            const next = new Map(prev);
+            for (const { abs, stats } of results) {
+              next.set(abs, stats);
+              fetchedFilesRef.current.add(abs);
+            }
+            return next;
+          });
+          setAllDiffs((prev) => {
+            const next = new Map(prev);
+            for (const result of results) {
+              next.set(result.abs, {
+                diff: result.diff,
+                oldText: result.oldText,
+                newText: result.newText,
+              });
+            }
+            return next;
+          });
+        }
+      } finally {
+        if (!cancelled && isCurrentLoad()) {
+          setAllDiffsLoading(false);
+        }
       }
-      if (!cancelled) {
-        setAllDiffsLoading(false);
-      }
-    })().catch(() => {
-      if (!cancelled) setAllDiffsLoading(false);
-    });
+    })();
     return () => { cancelled = true; };
   }, [relativeChangedFiles, effectiveBranch]);
 
