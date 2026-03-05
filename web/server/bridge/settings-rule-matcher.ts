@@ -106,6 +106,16 @@ export function splitShellCommand(command: string): string[] {
       continue;
     }
 
+    // Shell comments: # at the start or after whitespace (outside quotes)
+    // means everything until end-of-line is a comment. Since Bash tool calls
+    // are single-line, we can stop processing entirely.
+    if (ch === "#" && !inSingleQuote && !inDoubleQuote && !inBacktick && parenDepth === 0) {
+      const prev = i > 0 ? command[i - 1] : " ";
+      if (prev === " " || prev === "\t" || i === 0) {
+        break; // rest of command is a comment
+      }
+    }
+
     // Quote tracking
     if (ch === "'" && !inDoubleQuote && !inBacktick && parenDepth === 0) {
       inSingleQuote = !inSingleQuote;

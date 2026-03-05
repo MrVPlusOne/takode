@@ -137,6 +137,25 @@ describe("splitShellCommand", () => {
   it("returns whole command on unclosed quote (conservative)", () => {
     expect(splitShellCommand("echo 'unclosed")).toEqual(["echo 'unclosed"]);
   });
+
+  it("strips trailing shell comments", () => {
+    expect(splitShellCommand("grep foo bar.txt # search for foo")).toEqual(["grep foo bar.txt"]);
+  });
+
+  it("does not strip # inside quoted strings", () => {
+    expect(splitShellCommand("echo 'hello # world'")).toEqual(["echo 'hello # world'"]);
+    expect(splitShellCommand('echo "hello # world"')).toEqual(['echo "hello # world"']);
+  });
+
+  it("strips comment after operator (prevents false split on comment content)", () => {
+    // Without comment handling, the && inside the comment would cause a false split
+    expect(splitShellCommand("ls -la # this && that")).toEqual(["ls -la"]);
+  });
+
+  it("does not treat # mid-word as a comment", () => {
+    // echo foo#bar — the # is not preceded by whitespace, not a comment
+    expect(splitShellCommand("echo foo#bar")).toEqual(["echo foo#bar"]);
+  });
 });
 
 // ─── matchesBashRule ────────────────────────────────────────────────────────
