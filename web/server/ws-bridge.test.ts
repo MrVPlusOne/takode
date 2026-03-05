@@ -7731,8 +7731,8 @@ describe("Codex user_message takode events", () => {
 
 describe("Codex image transport", () => {
   // Prefer local image paths for Codex turn/start to avoid persisting large
-  // data: URLs in thread history. If local paths are unavailable, fall back to
-  // compressed inline base64 payloads.
+  // data: URLs in thread history. Transport JPEG paths are preferred, with
+  // fallback to original stored file paths.
   //
   // NOTE: handleBrowserMessage does NOT await routeBrowserMessage (fire-and-forget),
   // so tests need a microtask flush after the call for async image operations.
@@ -7775,13 +7775,14 @@ describe("Codex image transport", () => {
     expect(mockImageStore.compressForTransport).not.toHaveBeenCalled();
   });
 
-  it("falls back to compressed inline images when local path lookup fails", async () => {
+  it("falls back to original stored paths when transport path lookup fails", async () => {
     const adapter = makeCodexAdapterMock();
 
     // Mock imageStore where transport path lookup fails.
     const mockImageStore = {
       store: vi.fn().mockResolvedValue({ imageId: "img-1", media_type: "image/png" }),
       getTransportPath: vi.fn().mockResolvedValue(null),
+      getOriginalPath: vi.fn().mockResolvedValue("/tmp/companion-images/img-1.orig.png"),
       compressForTransport: vi.fn().mockResolvedValue({
         base64: "compressed-fallback-data",
         mediaType: "image/jpeg",
@@ -7800,14 +7801,59 @@ describe("Codex image transport", () => {
     }));
     await flush();
 
-    // Adapter receives compressed inline data and no local_images.
+    // Adapter receives local_images and no inline image payload.
     const sentMsg = adapter.sendBrowserMessage.mock.calls[0][0];
     const expectedPath = join(homedir(), ".companion", "images", "s1", "img-1.orig.png");
     expect(sentMsg.content).toContain(`Attachment 1: ${expectedPath}`);
-    expect(mockImageStore.compressForTransport).toHaveBeenCalledWith("small-data", "image/png", undefined);
-    expect(sentMsg.images[0].data).toBe("compressed-fallback-data");
-    expect(sentMsg.images[0].media_type).toBe("image/jpeg");
-    expect(sentMsg.local_images).toBeUndefined();
+    expect(sentMsg.local_images).toEqual(["/tmp/companion-images/img-1.orig.png"]);
+    expect(sentMsg.images).toBeUndefined();
+    expect(mockImageStore.compressForTransport).not.toHaveBeenCalled();
+  });
+
+  it("sends all Codex image attachments as ordered local paths for multi-image messages", async () => {
+    const adapter = makeCodexAdapterMock();
+
+    const mockImageStore = {
+      store: vi
+        .fn()
+        .mockResolvedValueOnce({ imageId: "img-1", media_type: "image/png" })
+        .mockResolvedValueOnce({ imageId: "img-2", media_type: "image/png" }),
+      getTransportPath: vi
+        .fn()
+        .mockResolvedValueOnce("/tmp/companion-images/img-1.transport.jpeg")
+        .mockResolvedValueOnce("/tmp/companion-images/img-2.transport.jpeg"),
+      compressForTransport: vi.fn().mockResolvedValue({
+        base64: "compressed-fallback-data",
+        mediaType: "image/jpeg",
+      }),
+    };
+    bridge.setImageStore(mockImageStore as any);
+    bridge.attachCodexAdapter("s1", adapter as any);
+
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "user_message",
+      content: "compare these images",
+      images: [
+        { media_type: "image/png", data: "image-one-data" },
+        { media_type: "image/png", data: "image-two-data" },
+      ],
+    }));
+    await flush();
+
+    const sentMsg = adapter.sendBrowserMessage.mock.calls[0][0];
+    const expectedPath1 = join(homedir(), ".companion", "images", "s1", "img-1.orig.png");
+    const expectedPath2 = join(homedir(), ".companion", "images", "s1", "img-2.orig.png");
+    expect(sentMsg.content).toContain(`Attachment 1: ${expectedPath1}`);
+    expect(sentMsg.content).toContain(`Attachment 2: ${expectedPath2}`);
+    expect(sentMsg.local_images).toEqual([
+      "/tmp/companion-images/img-1.transport.jpeg",
+      "/tmp/companion-images/img-2.transport.jpeg",
+    ]);
+    expect(sentMsg.images).toBeUndefined();
+    expect(mockImageStore.compressForTransport).not.toHaveBeenCalled();
   });
 
   it("skips compression when imageStore is not set", async () => {

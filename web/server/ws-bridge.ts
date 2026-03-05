@@ -4798,8 +4798,7 @@ export class WsBridge {
       }
 
       // Prefer local image paths for Codex user turns so thread history stores
-      // compact local references instead of large data: URLs. If any path can't
-      // be resolved, fall back to compressed inline base64 payloads.
+      // compact local references instead of large data: URLs.
       let adapterMsg: BrowserOutgoingMessage = msg;
       if (msg.type === "user_message" && msg.images?.length) {
         // Append image file path annotation so the agent can see/reference images.
@@ -4812,35 +4811,39 @@ export class WsBridge {
         // Start with the annotated content
         adapterMsg = { ...msg, content: annotatedContent } as BrowserOutgoingMessage;
 
-        let localImagePaths: string[] | undefined;
-
         // local_images (file paths on disk) only works for Codex which has a
         // native localImage content type. The Claude SDK doesn't support file
-        // paths — it needs base64 image data. For SDK sessions, skip the
-        // local_images optimization and always use compressed base64.
+        // paths and still needs base64 image data.
         if (session.backendType === "codex" && this.imageStore && userImageRefs?.length === msg.images.length) {
           const paths: string[] = [];
           const imageStoreForCodex = this.imageStore as ImageStore & {
             getTransportPath?: (sessionId: string, imageId: string) => Promise<string | null>;
+            getOriginalPath?: (sessionId: string, imageId: string) => Promise<string | null>;
           };
           for (const ref of userImageRefs) {
             const transportPath = imageStoreForCodex.getTransportPath
               ? await imageStoreForCodex.getTransportPath(session.id, ref.imageId)
               : null;
-            if (!transportPath) {
-              paths.length = 0;
-              break;
+            if (transportPath) {
+              paths.push(transportPath);
+              continue;
             }
-            paths.push(transportPath);
+            const originalPath = imageStoreForCodex.getOriginalPath
+              ? await imageStoreForCodex.getOriginalPath(session.id, ref.imageId)
+              : null;
+            if (originalPath) {
+              paths.push(originalPath);
+              continue;
+            }
+            // Last-resort deterministic fallback — if store() succeeded, this
+            // should exist on disk and avoids large inline data payloads.
+            const [derivedPath] = deriveAttachmentPaths(session.id, [ref]);
+            paths.push(derivedPath);
           }
-          if (paths.length === msg.images.length) localImagePaths = paths;
-        }
-
-        if (localImagePaths?.length) {
-          const localMsg = { ...adapterMsg, local_images: localImagePaths } as BrowserOutgoingMessage;
+          const localMsg = { ...adapterMsg, local_images: paths } as BrowserOutgoingMessage;
           delete (localMsg as { images?: unknown }).images;
           adapterMsg = localMsg;
-        } else if (this.imageStore) {
+        } else if (this.imageStore && session.backendType === "claude-sdk") {
           // SDK sessions can handle larger payloads (~1MB) than Codex (~500KB)
           const maxChars = session.backendType === "claude-sdk" ? 1_000_000 : undefined;
           const compressedImages: { media_type: string; data: string }[] = [];
