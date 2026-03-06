@@ -9,6 +9,9 @@
 
 import type { BrowserIncomingMessage, ContentBlock, SessionTaskEntry } from "./session-types.js";
 import type { TranscriptionConfig } from "./settings-manager.js";
+import { appendFile, mkdir } from "node:fs/promises";
+import { join } from "node:path";
+import { homedir } from "node:os";
 
 // ─── Tunable limits ─────────────────────────────────────────────────────────
 
@@ -655,7 +658,51 @@ export function addTranscriptionLogEntry(entry: Omit<TranscriptionLogEntry, "id"
   if (transcriptionLog.length > MAX_LOG_ENTRIES) {
     transcriptionLog.splice(0, transcriptionLog.length - MAX_LOG_ENTRIES);
   }
+  // Persist to JSONL file (fire-and-forget, non-blocking)
+  persistLogEntry(full);
   return full;
+}
+
+// ─── Persistent JSONL file logging ──────────────────────────────────────────
+// Follows the same buffered async pattern as server-logger.ts and recorder.ts.
+// Entries survive server restarts for offline analysis of enhancer effectiveness.
+
+const LOG_DIR = join(homedir(), ".companion", "logs");
+const LOG_FILE = join(LOG_DIR, "transcription.jsonl");
+const FLUSH_INTERVAL_MS = 200;
+
+let logBuffer: string[] = [];
+let logFlushTimer: ReturnType<typeof setTimeout> | null = null;
+let logFlushing = false;
+let logDirReady = false;
+
+function persistLogEntry(entry: TranscriptionLogEntry): void {
+  logBuffer.push(JSON.stringify(entry) + "\n");
+  scheduleLogFlush();
+}
+
+function scheduleLogFlush(): void {
+  if (logFlushTimer || logFlushing) return;
+  logFlushTimer = setTimeout(flushLog, FLUSH_INTERVAL_MS);
+}
+
+async function flushLog(): Promise<void> {
+  logFlushTimer = null;
+  if (logFlushing || logBuffer.length === 0) return;
+  logFlushing = true;
+  const data = logBuffer.join("");
+  logBuffer = [];
+  try {
+    if (!logDirReady) {
+      await mkdir(LOG_DIR, { recursive: true });
+      logDirReady = true;
+    }
+    await appendFile(LOG_FILE, data);
+  } catch {
+    // Silently ignore write errors (disk full, NFS unavailable, etc.)
+  }
+  logFlushing = false;
+  if (logBuffer.length > 0) scheduleLogFlush();
 }
 
 /** List all log entries (lightweight: no sttPrompt, system prompt, or user message). Newest first. */
