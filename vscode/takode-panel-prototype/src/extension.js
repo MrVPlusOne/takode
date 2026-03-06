@@ -1,10 +1,25 @@
 "use strict";
 
 const vscode = require("vscode");
-const { buildPanelHtml, DEFAULT_BASE_URL, normalizeBaseUrl } = require("./panel");
+const { buildPanelHtml, normalizeBaseUrl } = require("./panel");
 const { buildSelectionPayload } = require("./editor-context");
 
-const VIEW_TYPE = "takode.panelPrototype";
+const PANEL_SPECS = {
+  production: {
+    kind: "production",
+    viewType: "takode.panelPrototype",
+    title: "Takode",
+    configKey: "productionBaseUrl",
+    defaultBaseUrl: "http://localhost:3456",
+  },
+  dev: {
+    kind: "dev",
+    viewType: "takode.panelPrototype.dev",
+    title: "Takode (Dev)",
+    configKey: "devBaseUrl",
+    defaultBaseUrl: "http://localhost:5174",
+  },
+};
 
 let lastSelectionPayload = null;
 let outputChannel;
@@ -30,19 +45,24 @@ function getNonce() {
   return value;
 }
 
-function getConfiguredBaseUrl() {
+function getPanelSpec(kind) {
+  return PANEL_SPECS[kind] || PANEL_SPECS.production;
+}
+
+function getConfiguredBaseUrl(kind) {
+  const panelSpec = getPanelSpec(kind);
   const configured = vscode.workspace
     .getConfiguration()
-    .get("takodePrototype.baseUrl", DEFAULT_BASE_URL);
+    .get(`takodePrototype.${panelSpec.configKey}`, panelSpec.defaultBaseUrl);
 
   try {
     return normalizeBaseUrl(configured);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     void vscode.window.showErrorMessage(
-      `Invalid Takode URL "${configured}". Falling back to ${DEFAULT_BASE_URL}. ${message}`,
+      `Invalid Takode URL "${configured}". Falling back to ${panelSpec.defaultBaseUrl}. ${message}`,
     );
-    return normalizeBaseUrl(DEFAULT_BASE_URL);
+    return normalizeBaseUrl(panelSpec.defaultBaseUrl);
   }
 }
 
@@ -67,9 +87,10 @@ function getPortMappings(baseUrl) {
   return [{ webviewPort: port, extensionHostPort: port }];
 }
 
-function renderPanel(panel, baseUrl) {
-  panel.title = "Takode";
-  logDebug("renderPanel", { baseUrl });
+function renderPanel(panel, kind, baseUrl) {
+  const panelSpec = getPanelSpec(kind);
+  panel.title = panelSpec.title;
+  logDebug("renderPanel", { kind, baseUrl });
   panel.webview.html = buildPanelHtml({
     baseUrl,
     cspSource: panel.webview.cspSource,
@@ -148,15 +169,15 @@ function refreshSelectionContext(editor = vscode.window.activeTextEditor) {
   return lastSelectionPayload;
 }
 
-function attachPanel(panel, state) {
-  const initialBaseUrl = getConfiguredBaseUrl();
+function attachPanel(panel, kind) {
+  const initialBaseUrl = getConfiguredBaseUrl(kind);
 
   panel.webview.options = {
     enableScripts: true,
     portMapping: getPortMappings(initialBaseUrl),
   };
 
-  renderPanel(panel, initialBaseUrl);
+  renderPanel(panel, kind, initialBaseUrl);
 
   panel.webview.onDidReceiveMessage((message) => {
     if (!message || typeof message !== "object") {
@@ -191,20 +212,22 @@ function attachPanel(panel, state) {
 }
 
 function activate(context) {
-  let panelRef;
+  const panelsByKind = new Map();
   outputChannel = vscode.window.createOutputChannel("Takode Prototype");
   context.subscriptions.push(outputChannel);
   logDebug("activate");
 
-  const showPanel = () => {
-    if (panelRef) {
-      panelRef.reveal(vscode.ViewColumn.Beside);
-      return panelRef;
+  const showPanel = (kind) => {
+    const existingPanel = panelsByKind.get(kind);
+    if (existingPanel) {
+      existingPanel.reveal(vscode.ViewColumn.Beside);
+      return existingPanel;
     }
 
-    panelRef = vscode.window.createWebviewPanel(
-      VIEW_TYPE,
-      "Takode",
+    const panelSpec = getPanelSpec(kind);
+    const panel = vscode.window.createWebviewPanel(
+      panelSpec.viewType,
+      panelSpec.title,
       vscode.ViewColumn.Beside,
       {
         enableScripts: true,
@@ -212,27 +235,38 @@ function activate(context) {
       },
     );
 
-    attachPanel(panelRef);
+    attachPanel(panel, kind);
+    panelsByKind.set(kind, panel);
 
-    panelRef.onDidDispose(() => {
-      panelRef = undefined;
+    panel.onDidDispose(() => {
+      if (panelsByKind.get(kind) === panel) {
+        panelsByKind.delete(kind);
+      }
     });
 
-    return panelRef;
+    return panel;
   };
 
   context.subscriptions.push(
     vscode.commands.registerCommand("takodePrototype.openPanel", () => {
-      showPanel();
+      showPanel("production");
+    }),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("takodePrototype.openDevPanel", () => {
+      showPanel("dev");
     }),
   );
 
   context.subscriptions.push(
     vscode.commands.registerCommand("takodePrototype.reloadPanel", () => {
-      const panel = showPanel();
       logDebug("command reloadPanel");
-      panel.webview.postMessage({ type: "reload" });
-      pushSelectionContext(panel);
+      const panels = panelsByKind.size > 0 ? [...panelsByKind.values()] : [showPanel("production")];
+      for (const panel of panels) {
+        panel.webview.postMessage({ type: "reload" });
+        pushSelectionContext(panel);
+      }
     }),
   );
 
@@ -246,7 +280,9 @@ function activate(context) {
     vscode.window.onDidChangeActiveTextEditor((editor) => {
       logDebug("event onDidChangeActiveTextEditor", { editor: editor ? getPathLabel(editor) : null });
       refreshSelectionContext(editor);
-      pushSelectionContext(panelRef);
+      for (const panel of panelsByKind.values()) {
+        pushSelectionContext(panel);
+      }
     }),
   );
 
@@ -257,33 +293,41 @@ function activate(context) {
         isEmpty: event.selections.every((selection) => selection.isEmpty),
       });
       refreshSelectionContext(event.textEditor);
-      pushSelectionContext(panelRef);
+      for (const panel of panelsByKind.values()) {
+        pushSelectionContext(panel);
+      }
     }),
   );
 
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((event) => {
-      if (!event.affectsConfiguration("takodePrototype") || !panelRef) {
+      if (!event.affectsConfiguration("takodePrototype")) {
         return;
       }
 
-      renderPanel(panelRef, getConfiguredBaseUrl());
-      pushSelectionContext(panelRef);
+      for (const [kind, panel] of panelsByKind.entries()) {
+        renderPanel(panel, kind, getConfiguredBaseUrl(kind));
+        pushSelectionContext(panel);
+      }
     }),
   );
 
   if (typeof vscode.window.registerWebviewPanelSerializer === "function") {
-    context.subscriptions.push(
-      vscode.window.registerWebviewPanelSerializer(VIEW_TYPE, {
-        async deserializeWebviewPanel(webviewPanel, state) {
-          panelRef = webviewPanel;
-          attachPanel(webviewPanel, state);
-          webviewPanel.onDidDispose(() => {
-            panelRef = undefined;
-          });
-        },
-      }),
-    );
+    for (const panelSpec of Object.values(PANEL_SPECS)) {
+      context.subscriptions.push(
+        vscode.window.registerWebviewPanelSerializer(panelSpec.viewType, {
+          async deserializeWebviewPanel(webviewPanel) {
+            attachPanel(webviewPanel, panelSpec.kind);
+            panelsByKind.set(panelSpec.kind, webviewPanel);
+            webviewPanel.onDidDispose(() => {
+              if (panelsByKind.get(panelSpec.kind) === webviewPanel) {
+                panelsByKind.delete(panelSpec.kind);
+              }
+            });
+          },
+        }),
+      );
+    }
   }
 }
 
