@@ -2324,9 +2324,43 @@ export class WsBridge {
         }
       }
 
-      // Handle permission requests
+      // Handle permission requests — route through same pipeline as SDK/WS sessions.
+      // Auto-approved results are sent directly back to the Codex adapter.
       if (outgoing?.type === "permission_request") {
         const perm = outgoing.request;
+
+        const applyResult = (result: PermissionPipelineResult): void => {
+          if (result.kind === "mode_auto_approved" || result.kind === "settings_rule_approved") {
+            // Send approval directly back to the Codex adapter
+            if (session.codexAdapter) {
+              session.codexAdapter.sendBrowserMessage({
+                type: "permission_response",
+                request_id: result.request.request_id,
+                behavior: "allow",
+                updated_input: result.request.input,
+              } as any);
+            }
+            // Broadcast approval to browsers for UI consistency
+            const approvedMsg: BrowserIncomingMessage = {
+              type: "permission_approved",
+              id: `approval-${result.request.request_id}`,
+              request_id: result.request.request_id,
+              tool_name: result.request.tool_name,
+              tool_use_id: result.request.tool_use_id,
+              summary: getApprovalSummary(result.request.tool_name, result.request.input),
+              timestamp: Date.now(),
+            };
+            session.messageHistory.push(approvedMsg);
+            this.broadcastToBrowsers(session, approvedMsg);
+            this.persistSession(session);
+            return;
+          }
+
+          if (result.kind === "queued_for_llm_auto_approval") {
+            this.tryLlmAutoApproval(session, result.request.request_id, result.request, result.autoApprovalConfig);
+          }
+        };
+
         const maybeResult = handlePermissionRequestPipeline(
           session,
           perm,
@@ -2345,17 +2379,25 @@ export class WsBridge {
               summary: request.description || request.tool_name,
               ...this.buildPermissionPreview(request),
             }),
+            schedulePermissionNotification: (targetSession, request) => {
+              if (!this.pushoverNotifier) return;
+              const eventType = request.tool_name === "AskUserQuestion" ? "question" as const : "permission" as const;
+              const detail = request.tool_name + (request.description ? `: ${request.description}` : "");
+              this.pushoverNotifier.scheduleNotification(targetSession.id, eventType, detail, request.request_id);
+            },
           },
           {
             activityReason: "codex_permission_request",
-            enableModeAutoApprove: false,
-            enableLlmAutoApproval: false,
           },
         );
         if (maybeResult instanceof Promise) {
-          void maybeResult.catch((err) => {
+          void maybeResult.then((result) => {
+            applyResult(result);
+          }).catch((err) => {
             console.error(`[ws-bridge] Failed to process Codex permission_request for session ${sessionTag(session.id)}:`, err);
           });
+        } else {
+          applyResult(maybeResult);
         }
         outgoing = null;
       }
@@ -4088,6 +4130,13 @@ export class WsBridge {
         // Route approval through the correct backend
         if (session.backendType === "claude-sdk" && session.claudeSdkAdapter) {
           session.claudeSdkAdapter.sendBrowserMessage({
+            type: "permission_response",
+            request_id: requestId,
+            behavior: "allow",
+            updated_input: perm.input,
+          } as any);
+        } else if (session.backendType === "codex" && session.codexAdapter) {
+          session.codexAdapter.sendBrowserMessage({
             type: "permission_response",
             request_id: requestId,
             behavior: "allow",

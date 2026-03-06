@@ -199,12 +199,12 @@ export function handlePermissionRequest<S extends PermissionPipelineSession>(
   }
 
   // Tier 2: Settings.json rule matching — fast static check against user allow rules.
-  // Only for SDK sessions where the CLI's built-in rule engine is bypassed by
-  // --permission-prompt-tool stdio. WebSocket sessions already have CLI-side checking,
-  // and Codex sessions use a different permission model entirely.
+  // For SDK sessions, the CLI's built-in rule engine is bypassed by --permission-prompt-tool
+  // stdio. For Codex sessions, there is no CLI-side rule engine at all.
+  // WebSocket sessions already have CLI-side checking so they skip this tier.
   // Also skip tools that can never be auto-approved (they'd just return null anyway).
   const settingsRuleEnabled = options.enableSettingsRuleApprove !== false
-    && _backend === "claude-sdk"
+    && (_backend === "claude-sdk" || _backend === "codex")
     && !NEVER_AUTO_APPROVE.has(toolName);
   // DEBUG — remove after confirming settings rule matcher is being called
   console.log(`[permission-pipeline] Tier 2 check: backend=${_backend}, settingsRuleEnabled=${settingsRuleEnabled}, tool=${toolName}, session=${session.id.slice(0, 8)}`);

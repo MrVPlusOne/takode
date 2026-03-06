@@ -7273,7 +7273,6 @@ describe("Codex runtime settings updates", () => {
 // was never responded to before the process was killed via relaunch.
 describe("Codex permission mode switch with pending approvals", () => {
   it("auto-approves pending permissions when switching to bypassPermissions", async () => {
-    vi.useFakeTimers();
     const sid = "s-mode-switch";
     const browser = makeBrowserSocket(sid);
     const adapter = makeCodexAdapterMock();
@@ -7299,9 +7298,15 @@ describe("Codex permission mode switch with pending approvals", () => {
         input: { command: "rm -rf node_modules" },
       },
     });
+    // Flush async permission pipeline — settings rule check reads from disk
+    await new Promise(r => setTimeout(r, 50));
     const session = bridge.getSession(sid)!;
     expect(session.pendingPermissions.has("perm-stuck")).toBe(true);
     browser.send.mockClear();
+
+    // Switch to bypassPermissions (auto-approve mode)
+    // Use fake timers only for the relaunch delay
+    vi.useFakeTimers();
 
     // Switch to bypassPermissions (auto-approve mode)
     await bridge.handleBrowserMessage(browser, JSON.stringify({
@@ -7341,12 +7346,12 @@ describe("Codex permission mode switch with pending approvals", () => {
   });
 
   it("cancels pending permissions when switching to a non-bypass mode", async () => {
-    vi.useFakeTimers();
     const sid = "s-mode-cancel";
     const browser = makeBrowserSocket(sid);
     const adapter = makeCodexAdapterMock();
     const relaunchCb = vi.fn();
-    const launcherInfo = { permissionMode: "bypassPermissions" };
+    // Start in suggest mode (permissions go to pending_human, not auto-approved)
+    const launcherInfo = { permissionMode: "suggest" };
     const launcherMock = {
       touchActivity: vi.fn(),
       getSession: vi.fn(() => launcherInfo),
@@ -7357,7 +7362,7 @@ describe("Codex permission mode switch with pending approvals", () => {
     bridge.attachCodexAdapter(sid, adapter as any);
     bridge.handleBrowserOpen(browser, sid);
 
-    // Simulate a pending permission
+    // Simulate a pending permission (use a command that won't match settings rules)
     adapter.emitBrowserMessage({
       type: "permission_request",
       request: {
@@ -7367,11 +7372,15 @@ describe("Codex permission mode switch with pending approvals", () => {
         input: { file: "test.ts" },
       },
     });
+    // Flush async permission pipeline — settings rule check reads from disk
+    await new Promise(r => setTimeout(r, 50));
     const session = bridge.getSession(sid)!;
     expect(session.pendingPermissions.has("perm-cancel")).toBe(true);
     browser.send.mockClear();
 
     // Switch to suggest mode — pending permissions should be denied/cancelled
+    // Use fake timers only for the relaunch delay
+    vi.useFakeTimers();
     await bridge.handleBrowserMessage(browser, JSON.stringify({
       type: "set_permission_mode",
       mode: "suggest",
@@ -8030,7 +8039,7 @@ describe("Codex permission_request emits herd event", () => {
   // Regression: Codex permission requests were stored and broadcast to browsers
   // but never emitted as takode herd events, so orchestrators never learned
   // that a herded worker was blocked waiting for approval.
-  it("emits takode permission_request event when Codex adapter sends permission_request", () => {
+  it("emits takode permission_request event when Codex adapter sends permission_request", async () => {
     const adapter = makeCodexAdapterMock();
     bridge.attachCodexAdapter("s1", adapter as any);
 
@@ -8045,6 +8054,7 @@ describe("Codex permission_request emits herd event", () => {
         input: { command: "rm -rf node_modules" },
       },
     });
+    await new Promise(r => setTimeout(r, 50)); // flush async permission pipeline (settings rule check reads from disk)
 
     // Verify herd event was emitted with correct data
     expect(spy).toHaveBeenCalledWith("s1", "permission_request", expect.objectContaining({
@@ -8060,7 +8070,7 @@ describe("Codex permission_request emits herd event", () => {
     spy.mockRestore();
   });
 
-  it("uses tool_name as summary fallback when description is missing", () => {
+  it("uses tool_name as summary fallback when description is missing", async () => {
     const adapter = makeCodexAdapterMock();
     bridge.attachCodexAdapter("s1", adapter as any);
 
@@ -8071,9 +8081,11 @@ describe("Codex permission_request emits herd event", () => {
       request: {
         request_id: "perm-2",
         tool_name: "Write",
-        input: { file_path: "/tmp/test.txt" },
+        // Use a path that won't match any settings.json allow rules (e.g. Write(/tmp/**))
+        input: { file_path: "/home/user/project/test.txt" },
       },
     });
+    await new Promise(r => setTimeout(r, 50)); // flush async permission pipeline (settings rule check reads from disk)
 
     expect(spy).toHaveBeenCalledWith("s1", "permission_request", expect.objectContaining({
       tool_name: "Write",
