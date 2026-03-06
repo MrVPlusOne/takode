@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 import { exec as execCb } from "node:child_process";
 import { promisify } from "node:util";
 import {
@@ -274,6 +274,22 @@ export interface LaunchOptions {
   resumeCliSessionId?: string;
   /** Plugin directories to load for SDK sessions (maps to --plugin-dir CLI flags). */
   pluginDirs?: string[];
+  /** Extra instructions appended to the system prompt (e.g., orchestrator guardrails). */
+  extraInstructions?: string;
+}
+
+// ─── Session auth file (centralized under ~/.companion/) ────────────────────
+
+/**
+ * Compute the path to the session-auth file for a given working directory.
+ * Uses a SHA-256 hash of the absolute cwd to create a unique, path-safe
+ * filename under ~/.companion/session-auth/. This keeps all auth state out
+ * of the user's repo while remaining discoverable by CLI tools that know
+ * their cwd.
+ */
+export function getSessionAuthPath(cwd: string): string {
+  const hash = createHash("sha256").update(resolve(cwd)).digest("hex").slice(0, 16);
+  return join(homedir(), ".companion", "session-auth", `${hash}.json`);
 }
 
 // ─── Companion instruction injection (system prompt) ────────────────────────
@@ -286,6 +302,7 @@ export interface LaunchOptions {
  */
 function buildCompanionInstructions(opts?: {
   worktree?: { branch: string; repoRoot: string; parentBranch?: string };
+  extraInstructions?: string;
 }): string {
   const parts: string[] = [];
 
@@ -343,6 +360,10 @@ Do NOT report the sync as complete until ALL of the following are true:
   parts.push(`## Link Syntax
 
 When mentioning quests, use \`[q-42](quest:q-42)\`. When referencing files, use \`[src/app.ts:42](file:/absolute/path/to/src/app.ts:42)\`. When referencing sessions, use \`[#5](session:5)\`.`);
+
+  if (opts?.extraInstructions) {
+    parts.push(opts.extraInstructions);
+  }
 
   return parts.join("\n\n");
 }
@@ -1000,17 +1021,18 @@ export class CliLauncher {
     args.push("-p", "");
 
     // Inject Companion-specific instructions via system prompt (link syntax,
-    // worktree branch guardrails, sync workflow). This replaces the old approach
-    // of writing .claude/CLAUDE.md files into worktree directories.
-    const companionInstructions = buildCompanionInstructions(
-      info.isWorktree && info.branch ? {
+    // worktree branch guardrails, orchestrator guardrails, sync workflow).
+    // This replaces the old approach of writing files into the user's repo.
+    const companionInstructions = buildCompanionInstructions({
+      ...(info.isWorktree && info.branch ? {
         worktree: {
           branch: info.actualBranch || info.branch,
           repoRoot: info.repoRoot || "",
           parentBranch: info.actualBranch && info.actualBranch !== info.branch ? info.branch : undefined,
         },
-      } : undefined,
-    );
+      } : {}),
+      extraInstructions: options.extraInstructions,
+    });
     if (companionInstructions) {
       args.push("--append-system-prompt", companionInstructions);
     }
@@ -1145,15 +1167,16 @@ export class CliLauncher {
     options: LaunchOptions,
   ): Promise<void> {
     const { ClaudeSdkAdapter } = await import("./claude-sdk-adapter.js");
-    const sdkInstructions = buildCompanionInstructions(
-      info.isWorktree && info.branch ? {
+    const sdkInstructions = buildCompanionInstructions({
+      ...(info.isWorktree && info.branch ? {
         worktree: {
           branch: info.actualBranch || info.branch,
           repoRoot: info.repoRoot || "",
           parentBranch: info.actualBranch && info.actualBranch !== info.branch ? info.branch : undefined,
         },
-      } : undefined,
-    );
+      } : {}),
+      extraInstructions: options.extraInstructions,
+    });
     const adapter = new ClaudeSdkAdapter(sessionId, {
       model: options.model,
       cwd: info.cwd,
@@ -1372,15 +1395,16 @@ export class CliLauncher {
 
     // Create the CodexAdapter which handles JSON-RPC and message translation
     // Pass the raw permission mode — the adapter maps it to Codex's approval policy
-    const codexInstructions = buildCompanionInstructions(
-      info.isWorktree && info.branch ? {
+    const codexInstructions = buildCompanionInstructions({
+      ...(info.isWorktree && info.branch ? {
         worktree: {
           branch: info.actualBranch || info.branch,
           repoRoot: info.repoRoot || "",
           parentBranch: info.actualBranch && info.actualBranch !== info.branch ? info.branch : undefined,
         },
-      } : undefined,
-    );
+      } : {}),
+      extraInstructions: options.extraInstructions,
+    });
     const adapter = new CodexAdapter(proc, sessionId, {
       model: options.model,
       cwd: info.cwd,
@@ -1474,16 +1498,12 @@ export class CliLauncher {
   }
 
   /**
-   * Inject orchestrator identity and instructions into .claude/CLAUDE.md.
-   * Uses marker-based injection (same pattern as worktree guardrails).
-   * Called before CLI launch when body.role === "orchestrator".
+   * Return orchestrator identity and instructions for system prompt injection.
+   * Previously wrote to .claude/CLAUDE.md; now returned as a string and
+   * injected via system prompt (--append-system-prompt / developer_instructions).
    */
-  async injectOrchestratorGuardrails(cwd: string, port: number): Promise<void> {
-    const ORCH_START = "<!-- ORCHESTRATOR_GUARDRAILS_START -->";
-    const ORCH_END = "<!-- ORCHESTRATOR_GUARDRAILS_END -->";
-
-    const guardrails = `${ORCH_START}
-# Takode — Cross-Session Orchestration
+  getOrchestratorGuardrails(port: number): string {
+    const guardrails = `# Takode — Cross-Session Orchestration
 
 You are an **orchestrator agent**. You coordinate multiple worker sessions, monitor their progress, and decide when to intervene, send follow-up instructions, or notify the human.
 
@@ -1831,32 +1851,9 @@ When deciding which worker to assign a task to, follow these principles:
 
 ### 7. Sync Before Verify
 - Always sync a worker's changes to the main repo before marking a quest as \`needs_verification\` — the user tests from the main repo.
-- Sync → push → then transition quest status.
-${ORCH_END}`;
+- Sync → push → then transition quest status.`;
 
-    const claudeDir = join(cwd, ".claude");
-    const claudeMdPath = join(claudeDir, "CLAUDE.md");
-
-    await mkdir(claudeDir, { recursive: true });
-
-    try {
-      const existing = await readFile(claudeMdPath, "utf-8");
-      // Replace existing orchestrator guardrails or append
-      const startIdx = existing.indexOf(ORCH_START);
-      const endIdx = existing.indexOf(ORCH_END);
-      if (startIdx >= 0 && endIdx >= 0) {
-        const before = existing.slice(0, startIdx);
-        const after = existing.slice(endIdx + ORCH_END.length);
-        await writeFile(claudeMdPath, before.trimEnd() + "\n\n" + guardrails + "\n" + after.trimStart());
-      } else {
-        await writeFile(claudeMdPath, existing.trimEnd() + "\n\n" + guardrails + "\n");
-      }
-    } catch {
-      // File doesn't exist — create with just guardrails
-      await writeFile(claudeMdPath, guardrails + "\n");
-    }
-
-    console.log(`[cli-launcher] Injected orchestrator guardrails into ${claudeMdPath}`);
+    return guardrails;
   }
 
   /**
@@ -2248,15 +2245,15 @@ ${ORCH_END}`;
   }
 
   /**
-   * Write a session-auth file to the session's working directory.
-   * This allows takode/quest CLIs to authenticate when env vars are missing
-   * (e.g., after CLI relaunch fails to pass them).
+   * Write a session-auth file to ~/.companion/session-auth/.
+   * Keyed by a hash of the working directory so CLI tools can discover
+   * session credentials without needing env vars, and without writing
+   * anything into the user's repo.
    */
   private async writeSessionAuthFile(cwd: string, sessionId: string, authToken: string, port: number): Promise<void> {
-    const companionDir = join(cwd, ".companion");
-    const authFilePath = join(companionDir, "session-auth.json");
+    const authFilePath = getSessionAuthPath(cwd);
     try {
-      await mkdir(companionDir, { recursive: true });
+      await mkdir(join(homedir(), ".companion", "session-auth"), { recursive: true });
       const data = JSON.stringify({ sessionId, authToken, port }, null, 2);
       await writeFile(authFilePath, data, { mode: 0o600 });
     } catch (err) {

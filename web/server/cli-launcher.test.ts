@@ -6,10 +6,14 @@ import { homedir, tmpdir } from "node:os";
 // ─── Hoisted mocks ──────────────────────────────────────────────────────────
 
 // Mock randomUUID and randomBytes so session IDs and auth tokens are deterministic
-vi.mock("node:crypto", () => ({
-  randomUUID: () => "test-session-id",
-  randomBytes: (n: number) => ({ toString: () => "a".repeat(n * 2) }),
-}));
+vi.mock("node:crypto", async (importOriginal) => {
+  const actual = (await importOriginal()) as any;
+  return {
+    ...actual,
+    randomUUID: () => "test-session-id",
+    randomBytes: (n: number) => ({ toString: () => "a".repeat(n * 2) }),
+  };
+});
 
 // Mock child_process.exec to prevent actual git commands from running in tests
 const mockExec = vi.hoisted(() => vi.fn((_cmd: string, _opts: any, cb: any) => {
@@ -275,12 +279,15 @@ describe("launch", () => {
     expect(launcher.verifySessionAuthToken("test-session-id", options.env.COMPANION_AUTH_TOKEN)).toBe(true);
   });
 
-  it("writes session-auth to backend-agnostic .companion/session-auth.json", async () => {
+  it("writes session-auth to centralized ~/.companion/session-auth/ directory", async () => {
     mockResolveBinary.mockReturnValue("/opt/fake/codex");
     mockSpawn.mockReturnValueOnce(createMockCodexProc());
     await launcher.launch({ backendType: "codex", cwd: "/tmp/project" });
 
-    const expectedPath = "/tmp/project/.companion/session-auth.json";
+    // The auth file is written to ~/.companion/session-auth/<hash>.json
+    // where hash is sha256("/tmp/project").slice(0, 16)
+    const { getSessionAuthPath } = await import("./cli-launcher.js");
+    const expectedPath = getSessionAuthPath("/tmp/project");
     const deadline = Date.now() + 1000;
     while (!mockWriteFile.mock.calls.some((call) => call[0] === expectedPath)) {
       if (Date.now() > deadline) throw new Error("Timed out waiting for session-auth write");
@@ -289,7 +296,11 @@ describe("launch", () => {
 
     const writeCall = mockWriteFile.mock.calls.find((call) => call[0] === expectedPath);
     expect(writeCall).toBeDefined();
-    expect(mockMkdir).toHaveBeenCalledWith("/tmp/project/.companion", { recursive: true });
+    // Should create the ~/.companion/session-auth/ directory, not {cwd}/.companion/
+    expect(mockMkdir).toHaveBeenCalledWith(
+      join(homedir(), ".companion", "session-auth"),
+      { recursive: true },
+    );
     expect(writeCall?.[2]).toEqual({ mode: 0o600 });
 
     const payload = JSON.parse(String(writeCall?.[1])) as {
@@ -1634,18 +1645,14 @@ describe("symlinkProjectSettings", () => {
   // instead of file-based injection. See q-124.
 });
 
-describe("injectOrchestratorGuardrails", () => {
-  it("documents the session markdown link format for chat references", async () => {
-    const cwd = "/tmp/main-repo/orchestrator";
-    await launcher.injectOrchestratorGuardrails(cwd, 3456);
-
-    const claudeWrite = mockWriteFileSync.mock.calls.find(
-      (c: any[]) => String(c[0]).endsWith("/.claude/CLAUDE.md"),
-    );
-    expect(claudeWrite).toBeDefined();
-    const content = String(claudeWrite![1]);
-    expect(content).toContain("[#N](session:N)");
-    expect(content).toContain("[#5](session:5)");
+describe("getOrchestratorGuardrails", () => {
+  it("returns guardrails string with session link format for chat references", () => {
+    // getOrchestratorGuardrails now returns a string instead of writing to a file.
+    // Orchestrator instructions are injected via system prompt (extraInstructions).
+    const guardrails = launcher.getOrchestratorGuardrails(3456);
+    expect(guardrails).toContain("Takode — Cross-Session Orchestration");
+    expect(guardrails).toContain("[#N](session:N)");
+    expect(guardrails).toContain("[#5](session:5)");
   });
 });
 

@@ -4,11 +4,18 @@ import { createServer } from "node:http";
 import type { IncomingMessage } from "node:http";
 import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, unlinkSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { join, resolve } from "node:path";
+import { tmpdir, homedir } from "node:os";
 
 type JsonObject = Record<string, unknown>;
+
+/** Compute centralized auth path — must match getSessionAuthPath() in cli-launcher.ts */
+function centralAuthPath(cwd: string): string {
+  const hash = createHash("sha256").update(resolve(cwd)).digest("hex").slice(0, 16);
+  return join(homedir(), ".companion", "session-auth", `${hash}.json`);
+}
 
 function readJson(req: IncomingMessage): Promise<JsonObject> {
   return new Promise((resolve) => {
@@ -48,12 +55,12 @@ async function runTakode(
 }
 
 describe("takode auth fallback", () => {
-  it("uses .companion/session-auth.json when env credentials are missing", async () => {
+  it("uses centralized ~/.companion/session-auth/ when env credentials are missing", async () => {
     const tmp = mkdtempSync(join(tmpdir(), "takode-auth-fallback-"));
-    const companionDir = join(tmp, ".companion");
-    mkdirSync(companionDir, { recursive: true });
+    const authPath = centralAuthPath(tmp);
+    mkdirSync(join(homedir(), ".companion", "session-auth"), { recursive: true });
     writeFileSync(
-      join(companionDir, "session-auth.json"),
+      authPath,
       JSON.stringify({ sessionId: "leader-file", authToken: "file-token", port: 9999 }),
       "utf-8",
     );
@@ -96,13 +103,14 @@ describe("takode auth fallback", () => {
     } finally {
       server.close();
       rmSync(tmp, { recursive: true, force: true });
+      try { unlinkSync(authPath); } catch {}
     }
   });
 
-  it("uses .companion/session-auth.json port when no explicit port env or flag is provided", async () => {
+  it("uses centralized session-auth port when no explicit port env or flag is provided", async () => {
     const tmp = mkdtempSync(join(tmpdir(), "takode-auth-port-fallback-"));
-    const companionDir = join(tmp, ".companion");
-    mkdirSync(companionDir, { recursive: true });
+    const authPath = centralAuthPath(tmp);
+    mkdirSync(join(homedir(), ".companion", "session-auth"), { recursive: true });
 
     const seenHeaders: Record<string, string | string[] | undefined>[] = [];
     const server = createServer((req, res) => {
@@ -125,7 +133,7 @@ describe("takode auth fallback", () => {
     const port = (server.address() as AddressInfo).port;
 
     writeFileSync(
-      join(companionDir, "session-auth.json"),
+      authPath,
       JSON.stringify({ sessionId: "leader-port-file", authToken: "file-port-token", port }),
       "utf-8",
     );
@@ -150,6 +158,7 @@ describe("takode auth fallback", () => {
     } finally {
       server.close();
       rmSync(tmp, { recursive: true, force: true });
+      try { unlinkSync(authPath); } catch {}
     }
   });
 });

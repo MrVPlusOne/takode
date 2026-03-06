@@ -566,9 +566,10 @@ export function createSessionsRoutes(ctx: RouteContext) {
     const codexReasoningEffort = backend === "codex" && typeof body.codexReasoningEffort === "string"
       ? (body.codexReasoningEffort.trim() || undefined)
       : undefined;
-    if (isOrchestrator && cwd) {
-      await launcher.injectOrchestratorGuardrails(cwd, launcher.getPort());
-    }
+    // Orchestrator guardrails are injected via system prompt, not file writes
+    const orchestratorGuardrails = isOrchestrator
+      ? launcher.getOrchestratorGuardrails(launcher.getPort())
+      : undefined;
 
     const initialCwd = cwd || process.cwd();
     const binarySettings = getSettings();
@@ -591,6 +592,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
       containerName,
       containerImage,
       worktreeInfo,
+      extraInstructions: orchestratorGuardrails,
     };
 
     return {

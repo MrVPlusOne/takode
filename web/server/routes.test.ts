@@ -173,7 +173,7 @@ function createMockLauncher() {
     setArchived: vi.fn(),
     updateWorktree: vi.fn(),
     removeSession: vi.fn(),
-    injectOrchestratorGuardrails: vi.fn(async () => {}),
+    getOrchestratorGuardrails: vi.fn(() => "# Takode — Cross-Session Orchestration\n..."),
     getPort: vi.fn(() => 3456),
     verifySessionAuthToken: vi.fn(() => true),
     herdSessions: vi.fn(() => ({ herded: [], notFound: [], conflicts: [] })),

@@ -48,7 +48,9 @@ import { applyQuestListFilters } from "../server/quest-list-filters.js";
 import { getName } from "../server/session-names.js";
 import { readFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { basename, extname, join, resolve } from "node:path";
+import { homedir } from "node:os";
 
 const DEFAULT_PORT = 3456;
 const COMPANION_SESSION_ID_HEADER = "x-companion-session-id";
@@ -150,10 +152,33 @@ function getCredentials(): CompanionCredentials | null {
     };
   }
 
+  // Primary: centralized auth file under ~/.companion/session-auth/
+  const cwd = process.cwd();
+  const hash = createHash("sha256").update(resolve(cwd)).digest("hex").slice(0, 16);
+  const centralPath = join(homedir(), ".companion", "session-auth", `${hash}.json`);
+  try {
+    const data = JSON.parse(readFileSync(centralPath, "utf-8")) as {
+      sessionId?: unknown;
+      authToken?: unknown;
+      port?: unknown;
+    };
+    if (typeof data.sessionId === "string" && data.sessionId && typeof data.authToken === "string" && data.authToken) {
+      const filePort = typeof data.port === "number" ? data.port : Number(data.port);
+      return {
+        sessionId: data.sessionId,
+        authToken: data.authToken,
+        ...(Number.isFinite(filePort) && filePort > 0 ? { port: filePort } : {}),
+      };
+    }
+  } catch {
+    // Fall through to legacy candidates
+  }
+
+  // Legacy fallback: auth files in the user's repo (for backwards compatibility)
   const candidates = [
-    join(process.cwd(), ".companion", "session-auth.json"), // current, backend-agnostic
-    join(process.cwd(), ".codex", "session-auth.json"), // legacy Codex-specific fallback
-    join(process.cwd(), ".claude", "session-auth.json"), // legacy Claude-specific fallback
+    join(cwd, ".companion", "session-auth.json"),
+    join(cwd, ".codex", "session-auth.json"),
+    join(cwd, ".claude", "session-auth.json"),
   ];
   for (const authFile of candidates) {
     try {
@@ -562,7 +587,7 @@ async function cmdCreate(): Promise<void> {
       ? (() => {
         const port = companionPort;
         if (!port) {
-          die("Companion server port not found. Set COMPANION_PORT or use .companion/session-auth.json.");
+          die("Companion server port not found. Set COMPANION_PORT env var.");
         }
         return Promise.all(imagePaths.map((p) => uploadQuestImage(port, p)));
       })()
@@ -594,7 +619,7 @@ async function cmdClaim(): Promise<void> {
   const sessionId = option("session") || currentSessionId;
   if (!sessionId && !companionPort) {
     die(
-      "No session identity. Pass --session <id> or run from a Companion session with .companion/session-auth.json.",
+      "No session identity. Pass --session <id> or run from a Companion session.",
     );
   }
 
@@ -630,7 +655,7 @@ async function cmdClaim(): Promise<void> {
   // Fallback: direct filesystem claim (no session name integration)
   if (!sessionId) {
     die(
-      "No session identity. Pass --session <id> or run from a Companion session with .companion/session-auth.json.",
+      "No session identity. Pass --session <id> or run from a Companion session.",
     );
   }
   try {
@@ -973,7 +998,7 @@ async function cmdFeedback(): Promise<void> {
 
   const port = companionPort;
   if (!port) {
-    die("Companion server port not found. Set COMPANION_PORT or use .companion/session-auth.json.");
+    die("Companion server port not found. Set COMPANION_PORT env var.");
   }
 
   try {
@@ -1019,7 +1044,7 @@ async function cmdAddress(): Promise<void> {
 
   const port = companionPort;
   if (!port) {
-    die("Companion server port not found. Set COMPANION_PORT or use .companion/session-auth.json.");
+    die("Companion server port not found. Set COMPANION_PORT env var.");
   }
 
   try {

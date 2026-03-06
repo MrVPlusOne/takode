@@ -5,14 +5,11 @@
  */
 
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { createHash } from "node:crypto";
+import { join, resolve } from "node:path";
+import { homedir } from "node:os";
 
 const DEFAULT_PORT = 3456;
-const SESSION_AUTH_CANDIDATES = [
-  ".companion/session-auth.json", // current, backend-agnostic
-  ".codex/session-auth.json", // legacy Codex-specific fallback
-  ".claude/session-auth.json", // legacy Claude-specific fallback
-];
 
 type SessionAuthFileData = {
   sessionId: string;
@@ -20,8 +17,38 @@ type SessionAuthFileData = {
   port?: number;
 };
 
+/**
+ * Compute the centralized auth file path for a given cwd.
+ * Must match getSessionAuthPath() in cli-launcher.ts.
+ */
+function getCentralAuthPath(cwd: string): string {
+  const hash = createHash("sha256").update(resolve(cwd)).digest("hex").slice(0, 16);
+  return join(homedir(), ".companion", "session-auth", `${hash}.json`);
+}
+
 function getSessionAuthFileData(): SessionAuthFileData | null {
-  for (const relPath of SESSION_AUTH_CANDIDATES) {
+  // Primary: centralized auth file under ~/.companion/session-auth/
+  const centralPath = getCentralAuthPath(process.cwd());
+  try {
+    const data = JSON.parse(readFileSync(centralPath, "utf-8"));
+    if (typeof data.sessionId === "string" && data.sessionId.trim() &&
+        typeof data.authToken === "string" && data.authToken.trim()) {
+      const parsedPort = typeof data.port === "number" && Number.isFinite(data.port) && data.port > 0
+        ? data.port
+        : undefined;
+      return { sessionId: data.sessionId, authToken: data.authToken, ...(parsedPort ? { port: parsedPort } : {}) };
+    }
+  } catch {
+    // Fall through to legacy candidates
+  }
+
+  // Legacy fallback: auth files in the user's repo (for backwards compatibility)
+  const legacyCandidates = [
+    ".companion/session-auth.json",
+    ".codex/session-auth.json",
+    ".claude/session-auth.json",
+  ];
+  for (const relPath of legacyCandidates) {
     const authFile = join(process.cwd(), relPath);
     try {
       const data = JSON.parse(readFileSync(authFile, "utf-8"));

@@ -35,7 +35,7 @@ managing sessions/settings, and orchestrating/working quests.
 1. User runs `companion ...` / `takode ...` / `quest ...`.
 2. `cli.ts` is the top-level dispatcher for Takode runtime commands.
 3. Management/orchestration commands call server APIs on `localhost`.
-4. Takode/Quest commands use session auth context from env or `.companion/session-auth.json`.
+4. Takode/Quest commands use session auth context from env vars or `~/.companion/session-auth/`.
 
 ## Notes
 
@@ -60,7 +60,7 @@ managing sessions/settings, and orchestrating/working quests.
 ## Auth and environment conventions
 
 - Session auth is read from env (`COMPANION_SESSION_ID`, `COMPANION_AUTH_TOKEN`) or
-  local metadata files such as `.companion/session-auth.json`.
+  centralized auth files at `~/.companion/session-auth/<cwd-hash>.json`.
 - Port defaults to `3456` unless overridden by `--port` or env.
 - Most commands assume a local Takode server is available on `localhost`.
 

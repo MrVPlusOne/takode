@@ -4,11 +4,19 @@ import { createServer } from "node:http";
 import type { IncomingMessage } from "node:http";
 import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, unlinkSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { join, resolve } from "node:path";
+import { tmpdir, homedir } from "node:os";
 
 type JsonObject = Record<string, unknown>;
+
+/** Compute centralized auth path — must match getSessionAuthPath() in cli-launcher.ts.
+ * Uses explicit home parameter since tests override HOME for the child process. */
+function centralAuthPath(cwd: string, home?: string): string {
+  const hash = createHash("sha256").update(resolve(cwd)).digest("hex").slice(0, 16);
+  return join(home || homedir(), ".companion", "session-auth", `${hash}.json`);
+}
 
 function readJson(req: IncomingMessage): Promise<JsonObject> {
   return new Promise((resolve) => {
@@ -48,10 +56,12 @@ async function runQuest(
 }
 
 describe("quest CLI auth fallback", () => {
-  it("uses .companion/session-auth.json for claim when env vars are missing", async () => {
+  it("uses centralized ~/.companion/session-auth/ for claim when env vars are missing", async () => {
     const tmp = mkdtempSync(join(tmpdir(), "quest-auth-claim-"));
-    const companionDir = join(tmp, ".companion");
-    mkdirSync(companionDir, { recursive: true });
+    // With HOME=tmp, centralAuthPath(tmp, tmp) = join(tmp, ".companion", "session-auth", hash(tmp) + ".json")
+    const authDir = join(tmp, ".companion", "session-auth");
+    mkdirSync(authDir, { recursive: true });
+    const authPath = centralAuthPath(tmp, tmp);
 
     const seenHeaders: Record<string, string | string[] | undefined>[] = [];
     const seenBodies: JsonObject[] = [];
@@ -76,7 +86,7 @@ describe("quest CLI auth fallback", () => {
     const port = (server.address() as AddressInfo).port;
 
     writeFileSync(
-      join(companionDir, "session-auth.json"),
+      authPath,
       JSON.stringify({ sessionId: "session-file", authToken: "file-token", port }),
       "utf-8",
     );
@@ -105,10 +115,11 @@ describe("quest CLI auth fallback", () => {
     }
   });
 
-  it("uses .companion/session-auth.json for agent feedback when env vars are missing", async () => {
+  it("uses centralized ~/.companion/session-auth/ for agent feedback when env vars are missing", async () => {
     const tmp = mkdtempSync(join(tmpdir(), "quest-auth-feedback-"));
-    const companionDir = join(tmp, ".companion");
-    mkdirSync(companionDir, { recursive: true });
+    const authDir = join(tmp, ".companion", "session-auth");
+    mkdirSync(authDir, { recursive: true });
+    const authPath = centralAuthPath(tmp, tmp);
 
     const seenHeaders: Record<string, string | string[] | undefined>[] = [];
     const seenBodies: JsonObject[] = [];
@@ -133,7 +144,7 @@ describe("quest CLI auth fallback", () => {
     const port = (server.address() as AddressInfo).port;
 
     writeFileSync(
-      join(companionDir, "session-auth.json"),
+      authPath,
       JSON.stringify({ sessionId: "session-file", authToken: "file-token", port }),
       "utf-8",
     );
@@ -268,8 +279,9 @@ describe("quest CLI create image attachments", () => {
 describe("quest CLI verification inbox commands", () => {
   it("uses verification/read endpoint for quest later", async () => {
     const tmp = mkdtempSync(join(tmpdir(), "quest-verification-read-"));
-    const companionDir = join(tmp, ".companion");
-    mkdirSync(companionDir, { recursive: true });
+    const authDir = join(tmp, ".companion", "session-auth");
+    mkdirSync(authDir, { recursive: true });
+    const authPath = centralAuthPath(tmp, tmp);
 
     const seenHeaders: Record<string, string | string[] | undefined>[] = [];
     const seenPaths: string[] = [];
@@ -295,7 +307,7 @@ describe("quest CLI verification inbox commands", () => {
     const port = (server.address() as AddressInfo).port;
 
     writeFileSync(
-      join(companionDir, "session-auth.json"),
+      authPath,
       JSON.stringify({ sessionId: "session-file", authToken: "file-token", port }),
       "utf-8",
     );
@@ -329,8 +341,9 @@ describe("quest CLI verification inbox commands", () => {
 
   it("uses verification/inbox endpoint for quest inbox", async () => {
     const tmp = mkdtempSync(join(tmpdir(), "quest-verification-inbox-"));
-    const companionDir = join(tmp, ".companion");
-    mkdirSync(companionDir, { recursive: true });
+    const authDir = join(tmp, ".companion", "session-auth");
+    mkdirSync(authDir, { recursive: true });
+    const authPath = centralAuthPath(tmp, tmp);
 
     const seenHeaders: Record<string, string | string[] | undefined>[] = [];
     const seenPaths: string[] = [];
@@ -356,7 +369,7 @@ describe("quest CLI verification inbox commands", () => {
     const port = (server.address() as AddressInfo).port;
 
     writeFileSync(
-      join(companionDir, "session-auth.json"),
+      authPath,
       JSON.stringify({ sessionId: "session-file", authToken: "file-token", port }),
       "utf-8",
     );
