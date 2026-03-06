@@ -28,6 +28,12 @@ function getHealthUrl(baseUrl) {
   return new URL("/api/health", baseUrl).toString();
 }
 
+function getEmbeddedAppUrl(baseUrl) {
+  const url = new URL(baseUrl);
+  url.searchParams.set("takodeHost", "vscode");
+  return url.toString();
+}
+
 function escapeHtml(value) {
   return String(value)
     .replace(/&/g, "&amp;")
@@ -39,6 +45,7 @@ function escapeHtml(value) {
 
 function buildPanelHtml({ baseUrl, cspSource, nonce }) {
   const healthUrl = getHealthUrl(baseUrl);
+  const embeddedAppUrl = getEmbeddedAppUrl(baseUrl);
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -205,6 +212,7 @@ function buildPanelHtml({ baseUrl, cspSource, nonce }) {
     <script nonce="${nonce}">
       const vscode = acquireVsCodeApi();
       const baseUrl = ${JSON.stringify(baseUrl)};
+      const embeddedAppUrl = ${JSON.stringify(embeddedAppUrl)};
       const healthUrl = ${JSON.stringify(healthUrl)};
       const frame = document.getElementById("takode-frame");
       const loading = document.getElementById("loading");
@@ -273,8 +281,8 @@ function buildPanelHtml({ baseUrl, cspSource, nonce }) {
         frameHasLoaded = false;
         loading.classList.remove("hidden");
         error.classList.add("hidden");
-        frame.src = baseUrl;
-        debug("loadFrame", { baseUrl });
+        frame.src = embeddedAppUrl;
+        debug("loadFrame", { baseUrl, embeddedAppUrl });
         void ping();
       }
 
@@ -336,6 +344,7 @@ function buildPanelHtml({ baseUrl, cspSource, nonce }) {
 module.exports = {
   DEFAULT_BASE_URL,
   buildPanelHtml,
+  getEmbeddedAppUrl,
   getHealthUrl,
   normalizeBaseUrl,
 };

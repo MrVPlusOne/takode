@@ -18,6 +18,27 @@ function getSelectedLineCount(selectedText) {
   return Math.max(1, withoutTrailingNewline.split("\n").length);
 }
 
+function getInclusiveEndLine(input) {
+  if (!input || input.isEmpty) {
+    return input?.startLine || 0;
+  }
+  if (typeof input.endLine !== "number" || input.endLine < input.startLine) {
+    return input.startLine;
+  }
+  // VS Code reports full-line selections as ending at character 0 on the next line.
+  if (input.endLine > input.startLine && input.endCharacter === 1) {
+    return input.endLine - 1;
+  }
+  return input.endLine;
+}
+
+function getSelectedLineCountFromRange(input) {
+  if (!input || input.isEmpty) {
+    return 0;
+  }
+  return Math.max(1, getInclusiveEndLine(input) - input.startLine + 1);
+}
+
 function formatSelectionContext(input) {
   if (!input || !input.pathLabel) {
     return "No active editor";
@@ -28,8 +49,7 @@ function formatSelectionContext(input) {
     return `${pathLabel}:${input.startLine}`;
   }
 
-  const lineCount = getSelectedLineCount(input.selectedText);
-  const endLine = input.startLine + Math.max(0, lineCount - 1);
+  const endLine = getInclusiveEndLine(input);
   if (input.startLine === endLine) {
     return `${pathLabel}:${input.startLine}`;
   }
@@ -44,8 +64,7 @@ function formatSelectionLocation(input) {
   if (input.isEmpty) {
     return "";
   }
-  const lineCount = getSelectedLineCount(input.selectedText);
-  const endLine = input.startLine + Math.max(0, lineCount - 1);
+  const endLine = getInclusiveEndLine(input);
   if (input.startLine === endLine) {
     return `${input.pathLabel}:${input.startLine}`;
   }
@@ -59,9 +78,9 @@ function buildSelectionPayload(input) {
   if (input.isEmpty) {
     return null;
   }
-  const lineCount = getSelectedLineCount(input.selectedText);
+  const lineCount = getSelectedLineCountFromRange(input);
   if (!lineCount) return null;
-  const endLine = input.startLine + Math.max(0, lineCount - 1);
+  const endLine = getInclusiveEndLine(input);
   return {
     relativePath: input.pathLabel,
     displayPath: getDisplayPathLabel(input.pathLabel),
@@ -75,5 +94,7 @@ module.exports = {
   buildSelectionPayload,
   formatSelectionContext,
   formatSelectionLocation,
+  getInclusiveEndLine,
+  getSelectedLineCountFromRange,
   getSelectedLineCount,
 };

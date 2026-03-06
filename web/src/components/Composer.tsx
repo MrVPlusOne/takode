@@ -238,17 +238,19 @@ export function Composer({ sessionId }: { sessionId: string }) {
     toggleRecording();
   }, [isRecording, text, toggleRecording]);
 
-  // Mobile detection via media query (matches Tailwind's sm: breakpoint)
-  const [isMobile, setIsMobile] = useState(() => {
+  // Narrow layout detection via media query (matches Tailwind's sm: breakpoint).
+  // This controls layout only; keyboard behavior is tied to actual touch devices.
+  const [isNarrowLayout, setIsNarrowLayout] = useState(() => {
     if (typeof window === "undefined") return false;
     try { return !window.matchMedia("(min-width: 640px)").matches; }
     catch { return false; }
   });
+  const usesTouchKeyboard = isTouchDevice();
   useEffect(() => {
     let mql: MediaQueryList;
     try { mql = window.matchMedia("(min-width: 640px)"); }
     catch { return; }
-    const handler = (e: MediaQueryListEvent) => setIsMobile(!e.matches);
+    const handler = (e: MediaQueryListEvent) => setIsNarrowLayout(!e.matches);
     mql.addEventListener("change", handler);
     return () => mql.removeEventListener("change", handler);
   }, []);
@@ -735,7 +737,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
     }
     // Desktop: Enter sends, Shift+Enter inserts newline.
     // Mobile: Enter always inserts newline (users tap the Send button).
-    if (e.key === "Enter" && !e.shiftKey && !isMobile) {
+    if (e.key === "Enter" && !e.shiftKey && !usesTouchKeyboard) {
       e.preventDefault();
       handleSend();
     }
@@ -846,21 +848,21 @@ export function Composer({ sessionId }: { sessionId: string }) {
   const canSend = (text.trim().length > 0 || images.length > 0) && isConnected;
 
   // Mobile collapsible composer — collapse when empty (no text, no images), regardless of streaming
-  const isCollapsed = isMobile && !composerExpanded && !text.trim() && images.length === 0;
+  const isCollapsed = isNarrowLayout && !composerExpanded && !text.trim() && images.length === 0;
 
   // Auto-collapse when composer becomes empty (after send clears text)
   useEffect(() => {
-    if (!isMobile) return;
+    if (!isNarrowLayout) return;
     if (!text.trim() && images.length === 0) {
       const timer = setTimeout(() => setComposerExpanded(false), 300);
       return () => clearTimeout(timer);
     }
-  }, [isMobile, text, images.length]);
+  }, [isNarrowLayout, text, images.length]);
 
   // Collapse on tap outside the composer when empty
   const composerRootRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (!isMobile || isCollapsed) return;
+    if (!isNarrowLayout || isCollapsed) return;
     const handler = (e: MouseEvent | TouchEvent) => {
       if (!text.trim() && images.length === 0 && composerRootRef.current && !composerRootRef.current.contains(e.target as Node)) {
         setComposerExpanded(false);
@@ -872,7 +874,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
       document.removeEventListener("mousedown", handler);
       document.removeEventListener("touchstart", handler);
     };
-  }, [isMobile, isCollapsed, text, images.length]);
+  }, [isNarrowLayout, isCollapsed, text, images.length]);
 
   const expandComposer = useCallback(() => {
     textareaRef.current?.focus(); // synchronous focus triggers mobile virtual keyboard

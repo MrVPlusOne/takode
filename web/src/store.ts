@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type { SessionState, PermissionRequest, ChatMessage, SdkSessionInfo, TaskItem, McpServerDetail, ToolResultPreview, SessionTaskEntry, QuestmasterTask } from "./types.js";
 import { api, type PRStatusResponse, type CreationProgressEvent, type CreateSessionOpts } from "./api.js";
 import type { VsCodeSelectionContext } from "./utils/vscode-context.js";
+import { isEmbeddedInVsCode } from "./utils/embed-context.js";
 
 // ─── Pending Session (client-only, pre-creation) ────────────────────────────
 
@@ -379,6 +380,9 @@ function getInitialZoomLevel(): number {
   if (stored !== null) {
     const val = parseFloat(stored);
     if (!isNaN(val) && val >= 0.2 && val <= 4.0) return val;
+  }
+  if (isEmbeddedInVsCode()) {
+    return 0.8;
   }
   return 0.9;
 }

@@ -5,10 +5,17 @@ const assert = require("node:assert/strict");
 const {
   DEFAULT_BASE_URL,
   buildPanelHtml,
+  getEmbeddedAppUrl,
   getHealthUrl,
   normalizeBaseUrl,
 } = require("../src/panel");
-const { formatSelectionContext, getSelectedLineCount } = require("../src/editor-context");
+const {
+  buildSelectionPayload,
+  formatSelectionContext,
+  getInclusiveEndLine,
+  getSelectedLineCount,
+  getSelectedLineCountFromRange,
+} = require("../src/editor-context");
 
 test("normalizeBaseUrl falls back to the default localhost URL", () => {
   assert.equal(normalizeBaseUrl(""), DEFAULT_BASE_URL + "/");
@@ -32,6 +39,13 @@ test("getHealthUrl always points at the Takode root health endpoint", () => {
   );
 });
 
+test("getEmbeddedAppUrl marks the iframe session as a VS Code host", () => {
+  assert.equal(
+    getEmbeddedAppUrl("http://localhost:5174/#/session/demo"),
+    "http://localhost:5174/?takodeHost=vscode#/session/demo",
+  );
+});
+
 test("buildPanelHtml embeds the Takode iframe URL and the health probe target", () => {
   const html = buildPanelHtml({
     baseUrl: "http://127.0.0.1:5174/",
@@ -44,6 +58,7 @@ test("buildPanelHtml embeds the Takode iframe URL and the health probe target", 
   // when the local server is missing or restarted.
   assert.match(html, /<iframe[\s\S]*id="takode-frame"/);
   assert.match(html, /"http:\/\/127\.0\.0\.1:5174\/"/);
+  assert.match(html, /"http:\/\/127\.0\.0\.1:5174\/\?takodeHost=vscode"/);
   assert.match(html, /"http:\/\/127\.0\.0\.1:5174\/api\/health"/);
   assert.match(html, /takode:vscode-context/);
   assert.match(html, /takode:vscode-ready/);
@@ -75,12 +90,32 @@ test("formatSelectionContext renders the selection range and preview text", () =
       isEmpty: false,
       selectedText: "selected\ntext",
     }),
-    "Composer.tsx:12-13",
+    "Composer.tsx:12-14",
+  );
+});
+
+test("buildSelectionPayload counts full-line selections using VS Code range semantics", () => {
+  assert.deepEqual(
+    buildSelectionPayload({
+      pathLabel: "web/src/App.tsx",
+      startLine: 42,
+      startCharacter: 1,
+      endLine: 45,
+      endCharacter: 1,
+      isEmpty: false,
+      selectedText: "line 42\nline 43\nline 44\n",
+    }),
+    {
+      relativePath: "web/src/App.tsx",
+      displayPath: "App.tsx",
+      startLine: 42,
+      endLine: 44,
+      lineCount: 3,
+    },
   );
 });
 
 test("buildSelectionPayload returns null for an empty selection", () => {
-  const { buildSelectionPayload } = require("../src/editor-context");
   assert.equal(
     buildSelectionPayload({
       pathLabel: "web/src/App.tsx",
@@ -95,4 +130,28 @@ test("buildSelectionPayload returns null for an empty selection", () => {
 
 test("getSelectedLineCount ignores a trailing newline in full-line selections", () => {
   assert.equal(getSelectedLineCount("line one\nline two\n"), 2);
+});
+
+test("getInclusiveEndLine treats end-of-next-line selections as inclusive of the prior line", () => {
+  assert.equal(
+    getInclusiveEndLine({
+      startLine: 10,
+      endLine: 13,
+      endCharacter: 1,
+      isEmpty: false,
+    }),
+    12,
+  );
+});
+
+test("getSelectedLineCountFromRange uses the normalized inclusive end line", () => {
+  assert.equal(
+    getSelectedLineCountFromRange({
+      startLine: 10,
+      endLine: 13,
+      endCharacter: 1,
+      isEmpty: false,
+    }),
+    3,
+  );
 });

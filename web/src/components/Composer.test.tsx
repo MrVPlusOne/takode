@@ -7,12 +7,22 @@ import type { SessionState } from "../../server/session-types.js";
 // Polyfill scrollIntoView for jsdom
 Element.prototype.scrollIntoView = vi.fn();
 
-// Polyfill matchMedia for jsdom — default to desktop (min-width: 640px matches)
-// so the Composer renders its full expanded view in tests
+const mediaState = {
+  narrowLayout: false,
+  touchDevice: false,
+};
+
+// Polyfill matchMedia for jsdom. Layout width and touch capability are controlled
+// independently so keyboard behavior can be tested on narrow desktop layouts.
 Object.defineProperty(window, "matchMedia", {
   writable: true,
   value: vi.fn().mockImplementation((query: string) => ({
-    matches: query === "(min-width: 640px)",
+    matches:
+      query === "(min-width: 640px)"
+        ? !mediaState.narrowLayout
+        : query === "(hover: none) and (pointer: coarse)"
+          ? mediaState.touchDevice
+          : false,
     media: query,
     onchange: null,
     addListener: vi.fn(),
@@ -170,6 +180,8 @@ function setupMockStore(overrides: {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mediaState.narrowLayout = false;
+  mediaState.touchDevice = false;
   setupMockStore();
 });
 
@@ -249,6 +261,21 @@ describe("Composer sending messages", () => {
     fireEvent.keyDown(textarea, { key: "Enter", shiftKey: true });
 
     expect(mockSendToSession).not.toHaveBeenCalled();
+  });
+
+  it("pressing Enter still sends on narrow desktop layouts", () => {
+    mediaState.narrowLayout = true;
+    mediaState.touchDevice = false;
+    const { container } = render(<Composer sessionId="s1" />);
+    const textarea = container.querySelector("textarea")!;
+
+    fireEvent.change(textarea, { target: { value: "send from side panel" } });
+    fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
+
+    expect(mockSendToSession).toHaveBeenCalledWith("s1", expect.objectContaining({
+      type: "user_message",
+      content: "send from side panel",
+    }));
   });
 
   it("clicking the send button sends the message", () => {
