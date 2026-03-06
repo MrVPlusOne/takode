@@ -14,24 +14,30 @@ function summarizeText(text, maxLength = 120) {
   return `${collapsed.slice(0, Math.max(0, maxLength - 3))}...`;
 }
 
+function getDisplayPathLabel(pathLabel) {
+  const value = String(pathLabel || "").trim();
+  if (!value) {
+    return "";
+  }
+  const parts = value.split(/[\\/]/);
+  return parts[parts.length - 1] || value;
+}
+
 function formatSelectionContext(input) {
   if (!input || !input.pathLabel) {
     return "No active editor";
   }
 
-  const start = `${input.startLine}:${input.startCharacter}`;
+  const pathLabel = getDisplayPathLabel(input.pathLabel);
   if (input.isEmpty) {
-    const preview = summarizeText(input.lineText, 90);
-    return preview
-      ? `Cursor: ${input.pathLabel}:${start}  ${preview}`
-      : `Cursor: ${input.pathLabel}:${start}`;
+    return `${pathLabel}:${input.startLine}:${input.startCharacter}`;
   }
 
-  const end = `${input.endLine}:${input.endCharacter}`;
-  const preview = summarizeText(input.selectedText, 90);
-  return preview
-    ? `Selection: ${input.pathLabel}:${start}-${end}  ${preview}`
-    : `Selection: ${input.pathLabel}:${start}-${end}`;
+  if (input.startLine === input.endLine) {
+    return `${pathLabel}:${input.startLine}:${input.startCharacter}-${input.endCharacter}`;
+  }
+
+  return `${pathLabel}:${input.startLine}:${input.startCharacter}-${input.endLine}:${input.endCharacter}`;
 }
 
 function formatSelectionLocation(input) {

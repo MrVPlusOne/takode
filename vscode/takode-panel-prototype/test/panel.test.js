@@ -60,7 +60,7 @@ test("formatSelectionContext renders an inline cursor label when the selection i
       isEmpty: true,
       lineText: "const route = useMemo(() => parseHash(hash), [hash]);",
     }),
-    "Cursor: web/src/App.tsx:42:7  const route = useMemo(() => parseHash(hash), [hash]);",
+    "App.tsx:42:7",
   );
 });
 
@@ -75,7 +75,7 @@ test("formatSelectionContext renders the selection range and preview text", () =
       isEmpty: false,
       selectedText: "selected\ntext",
     }),
-    "Selection: web/src/Composer.tsx:12:3-14:9  selected text",
+    "Composer.tsx:12:3-14:9",
   );
 });
 
@@ -90,7 +90,7 @@ test("buildSelectionPayload includes both the UI label and the appended message 
       lineText: "const route = useMemo(() => parseHash(hash), [hash]);",
     }),
     {
-      label: "Cursor: web/src/App.tsx:42:7  const route = useMemo(() => parseHash(hash), [hash]);",
+      label: "App.tsx:42:7",
       messageSuffix: "[user cursor in VSCode: web/src/App.tsx:42:7] (this may or may not be relevant)",
     },
   );

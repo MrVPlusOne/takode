@@ -493,7 +493,7 @@ describe("Composer VS Code context", () => {
   it("renders the current VS Code selection line when context is available", () => {
     setupMockStore({
       vscodeSelectionContext: {
-        label: "Selection: web/src/Composer.tsx:12:3-14:9  selected text",
+        label: "Composer.tsx:12:3-14:9",
         messageSuffix: "[user cursor in VSCode: web/src/Composer.tsx:12:3-14:9] (this may or may not be relevant)",
         updatedAt: 1,
       },
@@ -501,14 +501,14 @@ describe("Composer VS Code context", () => {
     render(<Composer sessionId="s1" />);
 
     expect(screen.getByText("VS Code")).toBeTruthy();
-    expect(screen.getByText(/Selection: web\/src\/Composer\.tsx:12:3-14:9/)).toBeTruthy();
+    expect(screen.getByText(/Composer\.tsx:12:3-14:9/)).toBeTruthy();
     expect(screen.getByTitle("VS Code context will be appended to outgoing user messages")).toBeTruthy();
   });
 
   it("toggles VS Code context attachment without hiding the live preview", () => {
     setupMockStore({
       vscodeSelectionContext: {
-        label: "Cursor: web/src/App.tsx:42:7  const route = useMemo(...)",
+        label: "App.tsx:42:7",
         messageSuffix: "[user cursor in VSCode: web/src/App.tsx:42:7] (this may or may not be relevant)",
         updatedAt: 1,
       },
@@ -519,7 +519,7 @@ describe("Composer VS Code context", () => {
     fireEvent.click(screen.getByTitle("VS Code context will be appended to outgoing user messages"));
 
     expect(mockSetVsCodeContextAttachEnabled).toHaveBeenCalledWith(false);
-    expect(screen.getByText(/Cursor: web\/src\/App\.tsx:42:7/)).toBeTruthy();
+    expect(screen.getByText(/App\.tsx:42:7/)).toBeTruthy();
   });
 });
 

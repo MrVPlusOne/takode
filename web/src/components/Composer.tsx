@@ -1137,20 +1137,22 @@ export function Composer({ sessionId }: { sessionId: string }) {
           </div>
 
           {vscodeSelectionContext && (
-            <div className="flex items-center justify-between gap-2 px-4 pb-1 text-[11px]">
-              <div className="min-w-0 flex items-center gap-2 text-cc-muted">
-                <span className="shrink-0 inline-flex items-center rounded-full border border-amber-500/20 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-amber-300/90">
+            <div className="flex items-center justify-between gap-2 px-4 pb-1 text-[10px]">
+              <div className="min-w-0 flex items-center gap-2 text-cc-muted/90">
+                <span className="shrink-0 inline-flex items-center rounded-md border border-cc-border bg-cc-hover/70 px-1.5 py-0.5 text-[10px] font-medium text-cc-muted">
                   VS Code
                 </span>
-                <span className="truncate">{vscodeSelectionContext.label}</span>
+                <span className="truncate font-mono-code text-[10px] text-cc-muted/80">
+                  {vscodeSelectionContext.label}
+                </span>
               </div>
               <button
                 type="button"
                 onClick={() => useStore.getState().setVsCodeContextAttachEnabled(!vscodeContextAttachEnabled)}
-                className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors cursor-pointer ${
+                className={`shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-medium transition-colors cursor-pointer ${
                   vscodeContextAttachEnabled
-                    ? "bg-cc-primary/15 text-cc-primary hover:bg-cc-primary/25"
-                    : "bg-cc-hover text-cc-muted hover:text-cc-fg"
+                    ? "bg-cc-primary/12 text-cc-primary hover:bg-cc-primary/20"
+                    : "bg-cc-hover/70 text-cc-muted hover:text-cc-fg"
                 }`}
                 title={
                   vscodeContextAttachEnabled
