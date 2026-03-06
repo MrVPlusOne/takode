@@ -533,7 +533,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
 
   async function handleSend() {
     const msg = text.trim();
-    if (!msg || !isConnected) return;
+    if ((!msg && images.length === 0) || !isConnected) return;
 
     // Auto-answer pending AskUserQuestion if user types a response.
     // The typed text becomes the "Other..." answer for each question.
@@ -830,7 +830,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
 
   const sessionStatus = useStore((s) => s.sessionStatus);
   const isRunning = sessionStatus.get(sessionId) === "running";
-  const canSend = text.trim().length > 0 && isConnected;
+  const canSend = (text.trim().length > 0 || images.length > 0) && isConnected;
 
   // Mobile collapsible composer — collapse when empty (no text, no images), regardless of streaming
   const isCollapsed = isMobile && !composerExpanded && !text.trim() && images.length === 0;
