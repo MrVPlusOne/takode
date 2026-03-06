@@ -125,6 +125,11 @@ function attachPanel(panel, state) {
       return;
     }
 
+    if (message.type === "readyForSelectionContext") {
+      pushSelectionContext(panel);
+      return;
+    }
+
     if (message.type === "info" && typeof message.text === "string") {
       void vscode.window.showInformationMessage(message.text);
     }

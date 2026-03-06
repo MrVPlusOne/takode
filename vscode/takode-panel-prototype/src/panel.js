@@ -226,6 +226,10 @@ function buildPanelHtml({ baseUrl, cspSource, nonce }) {
         error.classList.toggle("hidden", lastHealthOk);
       }
 
+      function requestLatestSelectionContext() {
+        vscode.postMessage({ type: "readyForSelectionContext" });
+      }
+
       function pushSelectionContextToFrame() {
         if (!frame.contentWindow) {
           return;
@@ -267,6 +271,7 @@ function buildPanelHtml({ baseUrl, cspSource, nonce }) {
         pushSelectionContextToFrame();
         setTimeout(pushSelectionContextToFrame, 250);
         setTimeout(pushSelectionContextToFrame, 1000);
+        requestLatestSelectionContext();
       });
 
       retryButton.addEventListener("click", () => {
@@ -287,6 +292,7 @@ function buildPanelHtml({ baseUrl, cspSource, nonce }) {
           event.data.source === "takode-vscode-prototype" &&
           event.data.type === "takode:vscode-ready"
         ) {
+          requestLatestSelectionContext();
           pushSelectionContextToFrame();
           return;
         }
@@ -303,6 +309,7 @@ function buildPanelHtml({ baseUrl, cspSource, nonce }) {
       });
 
       loadFrame();
+      requestLatestSelectionContext();
       setInterval(() => void ping(), 10000);
     </script>
   </body>
