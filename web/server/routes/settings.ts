@@ -22,7 +22,10 @@ export function createSettingsRoutes(ctx: RouteContext) {
       (s) => s.state !== "exited" && wsBridge.isSessionBusy(s.sessionId),
     );
     if (busySessions.length > 0) {
-      const names = busySessions.map((s) => s.name || s.sessionId.slice(0, 8));
+      const names = busySessions.map((s) => {
+        const num = launcher.getSessionNum(s.sessionId);
+        return s.name || (num != null ? `#${num}` : s.sessionId.slice(0, 8));
+      });
       return c.json({
         error: `Cannot restart while ${busySessions.length} session(s) are running. Please stop them first: ${names.join(", ")}`,
       }, 409);
