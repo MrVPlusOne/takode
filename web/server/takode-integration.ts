@@ -1,37 +1,19 @@
 import { writeFileSync, mkdirSync, chmodSync } from "node:fs";
-import { readFile } from "node:fs/promises";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { homedir } from "node:os";
 
 const COMPANION_BIN_DIR = join(homedir(), ".companion", "bin");
-const CLAUDE_SKILL_DIR = join(homedir(), ".claude", "skills", "takode-orchestration");
-const CODEX_SKILL_DIR = join(homedir(), ".codex", "skills", "takode-orchestration");
-const TEMPLATE_PATH = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "templates",
-  "orchestrator-guardrails.md",
-);
-
-let orchestrationSkillTemplate: string | null = null;
-
-async function getOrchestrationSkillTemplate(): Promise<string> {
-  if (orchestrationSkillTemplate !== null) return orchestrationSkillTemplate;
-  orchestrationSkillTemplate = await readFile(TEMPLATE_PATH, "utf-8");
-  return orchestrationSkillTemplate;
-}
 
 /**
- * Set up Takode orchestration CLI integration on server startup:
- * 1. Write a wrapper script at ~/.companion/bin/takode
- * 2. Write an agent skill for both Claude and Codex skill homes
+ * Set up Takode CLI integration on server startup.
+ * Writes a wrapper script at ~/.companion/bin/takode so agents can invoke
+ * the takode CLI from any session. The skill documentation itself lives in
+ * the repo at .claude/skills/takode-orchestration/SKILL.md (auto-discovered
+ * by Claude Code for any session working on this codebase).
  */
 export async function ensureTakodeIntegration(packageRoot: string): Promise<void> {
   writeWrapperScript(packageRoot);
-  const skillContent = await getOrchestrationSkillTemplate();
-  writeAgentSkill(CLAUDE_SKILL_DIR, skillContent);
-  writeAgentSkill(CODEX_SKILL_DIR, skillContent);
-  console.log("[takode-integration] CLI wrapper and agent skill installed");
+  console.log("[takode-integration] CLI wrapper installed");
 }
 
 function writeWrapperScript(packageRoot: string): void {
@@ -56,10 +38,4 @@ exit 127
 
   writeFileSync(wrapperPath, wrapper, "utf-8"); // sync-ok: takode setup, not called during message handling
   chmodSync(wrapperPath, 0o755); // sync-ok: takode setup, not called during message handling
-}
-
-function writeAgentSkill(skillDir: string, content: string): void {
-  mkdirSync(skillDir, { recursive: true });
-  const skillPath = join(skillDir, "SKILL.md");
-  writeFileSync(skillPath, content, "utf-8"); // sync-ok: takode setup, not called during message handling
 }
