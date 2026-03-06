@@ -41,6 +41,19 @@ takode search auth
 takode search jwt --all
 ```
 
+### `takode info <session> [--json]`
+
+Show detailed session metadata: identity, backend, working directory, git state, worktree info, quest claim, metrics, and timestamps.
+
+```bash
+takode info 1
+takode info 1 --json
+```
+
+Human-readable output shows a structured overview with sections for identity (UUID, CLI session ID, PID), backend (type, model, version, permissions), working directory, git state (branch, ahead/behind, diff stats), roles, quest claim, metrics (turns, cost, context usage), MCP servers, and timestamps.
+
+Use `--json` for programmatic access to all fields.
+
 ### `takode tasks <session> [--json]`
 
 Show the task outline (table of contents) for a session's conversation history.
@@ -79,11 +92,12 @@ takode peek 1 --detail --turns 3
 #### Navigation workflow
 
 ```
-1. takode tasks 1              → Table of contents: tasks with msg ranges
-2. takode peek 1               → Overview: collapsed turns + expanded last turn
-3. takode peek 1 --task 3      → Browse task 3's messages
-4. takode peek 1 --from 800    → Browse messages [800]-[830] in detail
-5. takode read 1 815           → Full content of message 815
+1. takode info 1               → Session metadata: backend, git, quest, metrics
+2. takode tasks 1              → Table of contents: tasks with msg ranges
+3. takode peek 1               → Overview: collapsed turns + expanded last turn
+4. takode peek 1 --task 3      → Browse task 3's messages
+5. takode peek 1 --from 800    → Browse messages [800]-[830] in detail
+6. takode read 1 815           → Full content of message 815
 ```
 
 ### `takode read <session> <msg-id> [--offset N] [--limit N] [--json]`

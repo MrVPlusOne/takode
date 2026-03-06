@@ -69,6 +69,55 @@ export function createTakodeRoutes(ctx: RouteContext) {
     return c.json(enriched);
   });
 
+  // ─── Takode: Session Info ──────────────────────────────────
+
+  api.get("/sessions/:id/info", async (c) => {
+    const auth = authenticateTakodeCaller(c);
+    if ("response" in auth) return auth.response;
+
+    const sessionId = resolveId(c.req.param("id"));
+    if (!sessionId) return c.json({ error: "Session not found" }, 404);
+
+    const session = launcher.getSession(sessionId);
+    if (!session) return c.json({ error: "Session not found" }, 404);
+
+    const bridgeStates = wsBridge.getAllSessions();
+    const bridge = bridgeStates.find((s) => s.session_id === sessionId);
+    const names = sessionNames.getAllNames();
+    const { sessionAuthToken: _token, ...safeSession } = session;
+
+    return c.json({
+      ...safeSession,
+      sessionNum: launcher.getSessionNum(sessionId) ?? null,
+      name: names[sessionId] ?? session.name ?? null,
+      cliConnected: wsBridge.isBackendConnected(sessionId),
+      isGenerating: wsBridge.isSessionBusy(sessionId),
+      // Bridge-derived state
+      gitBranch: bridge?.git_branch || null,
+      gitHeadSha: bridge?.git_head_sha || null,
+      gitDefaultBranch: bridge?.git_default_branch || null,
+      gitAhead: bridge?.git_ahead || 0,
+      gitBehind: bridge?.git_behind || 0,
+      totalLinesAdded: bridge?.total_lines_added || 0,
+      totalLinesRemoved: bridge?.total_lines_removed || 0,
+      totalCostUsd: bridge?.total_cost_usd || 0,
+      numTurns: bridge?.num_turns || 0,
+      contextUsedPercent: bridge?.context_used_percent || 0,
+      isCompacting: bridge?.is_compacting || false,
+      permissionMode: bridge?.permissionMode || session.permissionMode || null,
+      tools: bridge?.tools || [],
+      mcpServers: bridge?.mcp_servers || [],
+      claudeCodeVersion: bridge?.claude_code_version || null,
+      claimedQuestId: bridge?.claimedQuestId ?? null,
+      claimedQuestTitle: bridge?.claimedQuestTitle ?? null,
+      claimedQuestStatus: bridge?.claimedQuestStatus ?? null,
+      uiMode: bridge?.uiMode ?? null,
+      ...(wsBridge.getSessionAttentionState(sessionId) ?? {}),
+      taskHistory: wsBridge.getSessionTaskHistory(sessionId),
+      keywords: wsBridge.getSessionKeywords(sessionId),
+    });
+  });
+
   // ─── Takode: Message Peek & Read ────────────────────────────
 
   api.get("/sessions/:id/messages", (c) => {

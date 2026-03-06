@@ -452,6 +452,203 @@ function printSessionLine(s: {
   console.log(`        ${cwdLabel}${branch}${gitDelta}${diffStats}${wt}  ${activity}${preview}`);
 }
 
+// ─── Info handler ────────────────────────────────────────────────────────────
+
+async function handleInfo(base: string, args: string[]): Promise<void> {
+  const sessionRef = args[0];
+  if (!sessionRef) err("Usage: takode info <session> [--json]");
+
+  const flags = parseFlags(args.slice(1));
+  const jsonMode = flags.json === true;
+
+  const data = await apiGet(base, `/sessions/${encodeURIComponent(sessionRef)}/info`) as {
+    sessionId: string;
+    sessionNum?: number | null;
+    name?: string | null;
+    state: string;
+    backendType?: string;
+    model?: string;
+    cwd: string;
+    createdAt: number;
+    lastActivityAt?: number;
+    cliSessionId?: string;
+    pid?: number;
+    exitCode?: number | null;
+    archived?: boolean;
+    archivedAt?: number;
+    cliConnected: boolean;
+    isGenerating: boolean;
+    isOrchestrator?: boolean;
+    isAssistant?: boolean;
+    herdedBy?: string;
+    isWorktree?: boolean;
+    repoRoot?: string;
+    branch?: string;
+    actualBranch?: string;
+    envSlug?: string;
+    cronJobId?: string;
+    cronJobName?: string;
+    containerId?: string;
+    containerName?: string;
+    containerImage?: string;
+    // Bridge-derived
+    gitBranch?: string | null;
+    gitHeadSha?: string | null;
+    gitDefaultBranch?: string | null;
+    gitAhead?: number;
+    gitBehind?: number;
+    totalLinesAdded?: number;
+    totalLinesRemoved?: number;
+    totalCostUsd?: number;
+    numTurns?: number;
+    contextUsedPercent?: number;
+    isCompacting?: boolean;
+    permissionMode?: string | null;
+    tools?: string[];
+    mcpServers?: Array<{ name: string; status: string }>;
+    claudeCodeVersion?: string | null;
+    claimedQuestId?: string | null;
+    claimedQuestTitle?: string | null;
+    claimedQuestStatus?: string | null;
+    uiMode?: string | null;
+    attentionReason?: string | null;
+    lastReadAt?: number;
+    taskHistory?: Array<{ title: string; startedAt: number }>;
+    keywords?: string[];
+  };
+
+  if (jsonMode) {
+    console.log(JSON.stringify(data, null, 2));
+    return;
+  }
+
+  // ── Header ──
+  const num = data.sessionNum != null ? `#${data.sessionNum}` : "";
+  const name = data.name || "(unnamed)";
+  const statusIcon = data.cliConnected
+    ? (data.state === "running" ? "●" : "○")
+    : (data.archived ? "⊘" : "✗");
+  const statusLabel = data.cliConnected
+    ? (data.isGenerating ? "running (generating)" : data.state)
+    : (data.archived ? "archived" : "disconnected");
+  console.log(`${num} ${name}  ${statusIcon} ${statusLabel}`);
+  console.log("─".repeat(60));
+
+  // ── Identity ──
+  console.log(`  UUID           ${data.sessionId}`);
+  if (data.cliSessionId) console.log(`  CLI Session    ${data.cliSessionId}`);
+  if (data.pid) console.log(`  PID            ${data.pid}`);
+
+  // ── Backend ──
+  const backend = data.backendType || "claude";
+  const model = data.model || "unknown";
+  console.log(`  Backend        ${backend}  model: ${model}`);
+  if (data.claudeCodeVersion) console.log(`  CLI Version    ${data.claudeCodeVersion}`);
+  if (data.permissionMode) console.log(`  Permissions    ${data.permissionMode}`);
+  if (data.uiMode) console.log(`  UI Mode        ${data.uiMode}`);
+
+  // ── Working directory ──
+  console.log(`  CWD            ${data.cwd}`);
+  if (data.repoRoot && data.repoRoot !== data.cwd) {
+    console.log(`  Repo Root      ${data.repoRoot}`);
+  }
+
+  // ── Worktree / Container ──
+  if (data.isWorktree) {
+    console.log(`  Worktree       yes`);
+    if (data.branch) console.log(`  WT Branch      ${data.branch}`);
+    if (data.actualBranch && data.actualBranch !== data.branch) {
+      console.log(`  Actual Branch  ${data.actualBranch}`);
+    }
+  }
+  if (data.containerId) {
+    console.log(`  Container      ${data.containerName || data.containerId}`);
+    if (data.containerImage) console.log(`  Image          ${data.containerImage}`);
+  }
+
+  // ── Git ──
+  const gitBranch = data.gitBranch || data.branch;
+  if (gitBranch) {
+    const ahead = data.gitAhead ? `${data.gitAhead}↑` : "";
+    const behind = data.gitBehind ? `${data.gitBehind}↓` : "";
+    const delta = [ahead, behind].filter(Boolean).join(" ");
+    console.log(`  Git Branch     ${gitBranch}${delta ? `  ${delta}` : ""}`);
+  }
+  if (data.gitHeadSha) console.log(`  HEAD           ${data.gitHeadSha.slice(0, 12)}`);
+  if (data.gitDefaultBranch) console.log(`  Default Branch ${data.gitDefaultBranch}`);
+
+  const added = data.totalLinesAdded || 0;
+  const removed = data.totalLinesRemoved || 0;
+  if (added || removed) {
+    console.log(`  Diff Stats     +${added} -${removed}`);
+  }
+
+  // ── Roles ──
+  const roles: string[] = [];
+  if (data.isOrchestrator) roles.push("orchestrator");
+  if (data.isAssistant) roles.push("assistant");
+  if (data.herdedBy) roles.push(`herded`);
+  if (roles.length > 0) console.log(`  Roles          ${roles.join(", ")}`);
+  if (data.herdedBy) console.log(`  Herded By      ${data.herdedBy}`);
+
+  // ── Quest ──
+  if (data.claimedQuestId) {
+    const questLine = `${data.claimedQuestId}${data.claimedQuestStatus ? ` (${data.claimedQuestStatus})` : ""}`;
+    console.log(`  Quest          ${questLine}`);
+    if (data.claimedQuestTitle) console.log(`                 ${data.claimedQuestTitle}`);
+  }
+
+  // ── Cron ──
+  if (data.cronJobId) {
+    console.log(`  Cron Job       ${data.cronJobName || data.cronJobId}`);
+  }
+
+  // ── Env ──
+  if (data.envSlug) console.log(`  Env Profile    ${data.envSlug}`);
+
+  // ── Metrics ──
+  const turns = data.numTurns || 0;
+  const cost = data.totalCostUsd || 0;
+  const context = data.contextUsedPercent || 0;
+  if (turns || cost || context) {
+    console.log("");
+    console.log(`  Turns          ${turns}`);
+    if (cost > 0) console.log(`  Cost           $${cost.toFixed(4)}`);
+    console.log(`  Context Used   ${context}%${data.isCompacting ? " (compacting)" : ""}`);
+  }
+
+  // ── MCP Servers ──
+  if (data.mcpServers && data.mcpServers.length > 0) {
+    console.log("");
+    console.log(`  MCP Servers    ${data.mcpServers.map(s => `${s.name} (${s.status})`).join(", ")}`);
+  }
+
+  // ── Tools ──
+  if (data.tools && data.tools.length > 0) {
+    console.log(`  Tools          ${data.tools.length} available`);
+  }
+
+  // ── Attention ──
+  if (data.attentionReason) {
+    console.log(`  Attention      ⚠ ${data.attentionReason}`);
+  }
+
+  // ── Timestamps ──
+  console.log("");
+  console.log(`  Created        ${formatDate(data.createdAt)} ${formatTime(data.createdAt)}`);
+  if (data.lastActivityAt) {
+    console.log(`  Last Activity  ${formatRelativeTime(data.lastActivityAt)} (${formatTime(data.lastActivityAt)})`);
+  }
+  if (data.archived && data.archivedAt) {
+    console.log(`  Archived       ${formatDate(data.archivedAt)} ${formatTime(data.archivedAt)}`);
+  }
+
+  // ── Keywords ──
+  if (data.keywords && data.keywords.length > 0) {
+    console.log(`  Keywords       ${data.keywords.join(", ")}`);
+  }
+}
+
 // ─── Tasks handler ───────────────────────────────────────────────────────────
 
 async function handleTasks(base: string, args: string[]): Promise<void> {
@@ -1481,6 +1678,7 @@ Usage: takode <command> [options]
 Commands:
   list     List sessions (herded only for leaders, --active for all, --all includes archived)
   search   Search sessions via server-side ranking (name/task/path/message, etc.)
+  info     Show detailed metadata for a session
   spawn    Create and auto-herd new worker sessions
   tasks    Show task outline of a session (table of contents)
   peek     View session activity (smart overview by default)
@@ -1507,6 +1705,8 @@ Examples:
   takode list --all
   takode search "auth"
   takode search "jwt" --all
+  takode info 1
+  takode info 1 --json
   takode spawn --backend claude-sdk --count 2
   takode spawn --backend codex --count 3 --message "Check flaky tests"
   takode tasks 1
@@ -1534,6 +1734,7 @@ try {
   const requiresAuth = new Set([
     "list",
     "search",
+    "info",
     "spawn",
     "tasks",
     "peek",
@@ -1558,6 +1759,9 @@ try {
       break;
     case "search":
       await handleSearch(base, args);
+      break;
+    case "info":
+      await handleInfo(base, args);
       break;
     case "spawn":
       await handleSpawn(base, args);
