@@ -1082,19 +1082,24 @@ export class WsBridge {
     session.state.claimedQuestId = quest?.id;
     session.state.claimedQuestTitle = quest?.title;
     session.state.claimedQuestStatus = quest?.status;
-    // Cancel in-flight namer calls before broadcasting so no stale result
-    // can arrive after the quest name update reaches browsers.
-    if (quest?.title && this.onSessionNamedByQuest) {
+    // Only cancel in-flight namer calls and take over session naming when the
+    // quest is actively being worked on (in_progress). When it transitions
+    // away (needs_verification, done), let the auto-namer resume so it can
+    // track subsequent agent actions.
+    const isQuestActive = quest?.title && quest?.status === "in_progress";
+    if (isQuestActive && this.onSessionNamedByQuest) {
       this.onSessionNamedByQuest(sessionId, quest.title);
     }
     this.broadcastToBrowsers(session, {
       type: "session_quest_claimed",
       quest,
     } as BrowserIncomingMessage);
-    // When a quest is set, also broadcast a session_name_update with source "quest"
-    // so ALL paths (REST claim, Codex Bash detection, transitions) consistently
-    // update the session name and the browser's questNamedSessions guard.
-    if (quest?.title) {
+    // When a quest is actively in_progress, broadcast a session_name_update
+    // with source "quest" so ALL paths (REST claim, Codex Bash detection,
+    // transitions) consistently update the session name and the browser's
+    // questNamedSessions guard. Skip this for non-active statuses so the
+    // auto-namer can resume.
+    if (isQuestActive) {
       this.broadcastNameUpdate(sessionId, quest.title, "quest");
     }
     this.persistSession(session);

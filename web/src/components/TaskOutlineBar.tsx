@@ -5,6 +5,7 @@ export function TaskOutlineBar({ sessionId }: { sessionId: string }) {
   const taskHistory = useStore((s) => s.sessionTaskHistory.get(sessionId));
   const requestScrollToTurn = useStore((s) => s.requestScrollToTurn);
   const activeTaskTurnId = useStore((s) => s.activeTaskTurnId.get(sessionId));
+  const session = useStore((s) => s.sessions.get(sessionId));
   const scrollRef = useRef<HTMLDivElement>(null);
   const activeChipRef = useRef<HTMLButtonElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
@@ -55,8 +56,18 @@ export function TaskOutlineBar({ sessionId }: { sessionId: string }) {
         className="flex gap-1.5 px-3 py-1.5 overflow-x-auto scrollbar-hide"
       >
         {taskHistory?.map((task, i) => {
-          const isActive = task.triggerMessageId === activeTaskTurnId;
+          const isScrollActive = task.triggerMessageId === activeTaskTurnId;
           const isQuest = task.source === "quest";
+          // Quest pills should only highlight as active when the quest is
+          // still in_progress for this session. Once a quest transitions to
+          // needs_verification/done (or the session moves to a different
+          // quest), the pill should appear inactive so the timeline doesn't
+          // show stale "active" quests.
+          const isQuestStale = isQuest && (
+            session?.claimedQuestId !== task.questId ||
+            session?.claimedQuestStatus !== "in_progress"
+          );
+          const isActive = isScrollActive && !isQuestStale;
           return (
             <button
               key={`${task.triggerMessageId}-${i}`}

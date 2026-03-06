@@ -914,8 +914,11 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
         claimedQuestTitle: data.quest?.title ?? undefined,
         claimedQuestStatus: data.quest?.status ?? undefined,
       });
-      if (data.quest?.id && data.quest?.title) {
-        // Override session name with quest title and mark as quest-named.
+      if (data.quest?.id && data.quest?.title && data.quest?.status === "in_progress") {
+        // Override session name with quest title and mark as quest-named
+        // only while the quest is actively in_progress. Once it transitions
+        // away (needs_verification, done), clear the guard so the auto-namer
+        // can resume tracking subsequent agent actions.
         store.setSessionName(sessionId, data.quest.title);
         store.markRecentlyRenamed(sessionId);
         store.markQuestNamed(sessionId);
