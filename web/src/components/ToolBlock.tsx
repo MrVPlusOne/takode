@@ -305,6 +305,17 @@ function ToolResultSection({
     }
   }
 
+  // Suppress the result section for successful Edit/Write calls — the diff
+  // already shows the edit succeeded, and the "file has been updated" message
+  // is redundant. Only show the result section when the edit failed.
+  if (
+    preview
+    && !preview.is_error
+    && (toolName === "Edit" || toolName === "Write")
+  ) {
+    return null;
+  }
+
   if (!preview) {
     if (!progress) return null;
     return (
