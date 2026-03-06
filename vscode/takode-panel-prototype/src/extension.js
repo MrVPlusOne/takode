@@ -104,14 +104,7 @@ function pushSelectionContext(panel) {
 }
 
 function attachPanel(panel, state) {
-  let initialBaseUrl = getConfiguredBaseUrl();
-  if (state && typeof state.baseUrl === "string") {
-    try {
-      initialBaseUrl = normalizeBaseUrl(state.baseUrl);
-    } catch {
-      initialBaseUrl = getConfiguredBaseUrl();
-    }
-  }
+  const initialBaseUrl = getConfiguredBaseUrl();
 
   panel.webview.options = {
     enableScripts: true,

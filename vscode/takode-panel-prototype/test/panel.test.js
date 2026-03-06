@@ -46,6 +46,8 @@ test("buildPanelHtml embeds the Takode iframe URL and the health probe target", 
   assert.match(html, /"http:\/\/127\.0\.0\.1:5174\/"/);
   assert.match(html, /"http:\/\/127\.0\.0\.1:5174\/api\/health"/);
   assert.match(html, /takode:vscode-context/);
+  assert.match(html, /takode:vscode-ready/);
+  assert.match(html, /postMessage\([\s\S]*"\*"\)/);
   assert.doesNotMatch(html, /selection-label/);
 });
 

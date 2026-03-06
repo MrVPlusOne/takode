@@ -19,7 +19,10 @@ import { SessionCreationView } from "./components/SessionCreationView.js";
 import { NewSessionModal } from "./components/NewSessionModal.js";
 import { QuestmasterPage } from "./components/QuestmasterPage.js";
 import { isPendingId } from "./utils/pending-creation.js";
-import { isVsCodeSelectionContextPayload } from "./utils/vscode-context.js";
+import {
+  announceVsCodeReady,
+  maybeReadVsCodeSelectionContext,
+} from "./utils/vscode-context.js";
 
 function useHash() {
   return useSyncExternalStore(
@@ -53,25 +56,22 @@ export default function App() {
 
   useEffect(() => {
     function handleParentMessage(event: MessageEvent) {
-      const data = event.data as Record<string, unknown> | null;
-      if (!data || data.source !== "takode-vscode-prototype" || data.type !== "takode:vscode-context") {
+      const context = maybeReadVsCodeSelectionContext(event.data);
+      if (typeof context === "undefined") {
         return;
       }
-      const payload = data.payload;
-      if (payload === null) {
+      if (context === null) {
         useStore.getState().setVsCodeSelectionContext(null);
         return;
       }
-      if (!isVsCodeSelectionContextPayload(payload)) {
-        return;
-      }
       useStore.getState().setVsCodeSelectionContext({
-        ...payload,
+        ...context,
         updatedAt: Date.now(),
       });
     }
 
     window.addEventListener("message", handleParentMessage);
+    announceVsCodeReady();
     return () => window.removeEventListener("message", handleParentMessage);
   }, []);
 

@@ -39,7 +39,6 @@ function escapeHtml(value) {
 
 function buildPanelHtml({ baseUrl, cspSource, nonce }) {
   const healthUrl = getHealthUrl(baseUrl);
-  const frameOrigin = new URL(baseUrl).origin;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -207,7 +206,6 @@ function buildPanelHtml({ baseUrl, cspSource, nonce }) {
       const vscode = acquireVsCodeApi();
       const baseUrl = ${JSON.stringify(baseUrl)};
       const healthUrl = ${JSON.stringify(healthUrl)};
-      const frameOrigin = ${JSON.stringify(frameOrigin)};
       const frame = document.getElementById("takode-frame");
       const loading = document.getElementById("loading");
       const error = document.getElementById("error");
@@ -236,7 +234,7 @@ function buildPanelHtml({ baseUrl, cspSource, nonce }) {
           source: "takode-vscode-prototype",
           type: "takode:vscode-context",
           payload: latestSelectionPayload,
-        }, frameOrigin);
+        }, "*");
       }
 
       async function ping() {
@@ -267,6 +265,8 @@ function buildPanelHtml({ baseUrl, cspSource, nonce }) {
         frameHasLoaded = true;
         updateOverlay();
         pushSelectionContextToFrame();
+        setTimeout(pushSelectionContextToFrame, 250);
+        setTimeout(pushSelectionContextToFrame, 1000);
       });
 
       retryButton.addEventListener("click", () => {
@@ -279,6 +279,15 @@ function buildPanelHtml({ baseUrl, cspSource, nonce }) {
 
       window.addEventListener("message", (event) => {
         if (!event.data) {
+          return;
+        }
+
+        if (
+          event.source === frame.contentWindow &&
+          event.data.source === "takode-vscode-prototype" &&
+          event.data.type === "takode:vscode-ready"
+        ) {
+          pushSelectionContextToFrame();
           return;
         }
 
