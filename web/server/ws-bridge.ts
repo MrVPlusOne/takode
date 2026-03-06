@@ -4693,6 +4693,20 @@ export class WsBridge {
         const pending = session.pendingPermissions.get(requestId);
         if (pending) {
           session.pendingPermissions.delete(requestId);
+
+          // Forward the response to the SDK adapter so it can resolve the
+          // canUseTool Promise that the CLI is blocking on. Without this,
+          // the CLI hangs forever waiting for a response that never arrives.
+          if (session.claudeSdkAdapter) {
+            session.claudeSdkAdapter.sendBrowserMessage({
+              type: "permission_response",
+              request_id: requestId,
+              behavior,
+              updated_input: behavior === "allow" ? ((msg as any).updated_input || pending.input) : undefined,
+              message: behavior !== "allow" ? ((msg as any).message || "Denied by user") : undefined,
+            } as any);
+          }
+
           this.onSessionActivityStateChanged(session.id, "sdk_permission_response");
           this.pushoverNotifier?.cancelPermission(session.id, requestId);
           this.clearActionAttentionIfNoPermissions(session);
