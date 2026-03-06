@@ -18,6 +18,7 @@ import { Lightbox } from "./Lightbox.js";
 import { CatPawAvatar } from "./CatIcons.js";
 import { useVoiceInput } from "../hooks/useVoiceInput.js";
 import { api } from "../api.js";
+import { appendVsCodeContext } from "../utils/vscode-context.js";
 
 function PaperPlaneIcon({ className = "w-4 h-4" }: { className?: string }) {
   return (
@@ -270,6 +271,8 @@ export function Composer({ sessionId }: { sessionId: string }) {
   const sdkSession = useStore((s) => s.sdkSessions?.find((x) => x.sessionId === sessionId));
   const diffLinesAdded = sessionData?.total_lines_added ?? sdkSession?.totalLinesAdded ?? 0;
   const diffLinesRemoved = sessionData?.total_lines_removed ?? sdkSession?.totalLinesRemoved ?? 0;
+  const vscodeSelectionContext = useStore((s) => s.vscodeSelectionContext);
+  const vscodeContextAttachEnabled = useStore((s) => s.vscodeContextAttachEnabled);
 
   const isConnected = cliConnected.get(sessionId) ?? false;
   const currentMode = sessionData?.permissionMode || "acceptEdits";
@@ -592,7 +595,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
 
     const sent = sendToSession(sessionId, {
       type: "user_message",
-      content: msg,
+      content: appendVsCodeContext(msg, vscodeSelectionContext, vscodeContextAttachEnabled),
       session_id: sessionId,
       images: images.length > 0 ? images.map((img) => ({ media_type: img.mediaType, data: img.base64 })) : undefined,
     });
@@ -1132,6 +1135,33 @@ export function Composer({ sessionId }: { sessionId: string }) {
               </div>
             )}
           </div>
+
+          {vscodeSelectionContext && (
+            <div className="flex items-center justify-between gap-2 px-4 pb-1 text-[11px]">
+              <div className="min-w-0 flex items-center gap-2 text-cc-muted">
+                <span className="shrink-0 inline-flex items-center rounded-full border border-amber-500/20 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-amber-300/90">
+                  VS Code
+                </span>
+                <span className="truncate">{vscodeSelectionContext.label}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => useStore.getState().setVsCodeContextAttachEnabled(!vscodeContextAttachEnabled)}
+                className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors cursor-pointer ${
+                  vscodeContextAttachEnabled
+                    ? "bg-cc-primary/15 text-cc-primary hover:bg-cc-primary/25"
+                    : "bg-cc-hover text-cc-muted hover:text-cc-fg"
+                }`}
+                title={
+                  vscodeContextAttachEnabled
+                    ? "VS Code context will be appended to outgoing user messages"
+                    : "VS Code context is visible here but will not be appended to outgoing user messages"
+                }
+              >
+                {vscodeContextAttachEnabled ? "Attach on" : "Attach off"}
+              </button>
+            </div>
+          )}
 
           {/* Git branch + model + lines info */}
           {(sessionData?.git_branch || sessionData?.model) && (

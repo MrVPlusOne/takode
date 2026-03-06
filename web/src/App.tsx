@@ -19,6 +19,7 @@ import { SessionCreationView } from "./components/SessionCreationView.js";
 import { NewSessionModal } from "./components/NewSessionModal.js";
 import { QuestmasterPage } from "./components/QuestmasterPage.js";
 import { isPendingId } from "./utils/pending-creation.js";
+import { isVsCodeSelectionContextPayload } from "./utils/vscode-context.js";
 
 function useHash() {
   return useSyncExternalStore(
@@ -49,6 +50,30 @@ export default function App() {
   useEffect(() => {
     document.documentElement.classList.toggle("dark", darkMode);
   }, [darkMode]);
+
+  useEffect(() => {
+    function handleParentMessage(event: MessageEvent) {
+      const data = event.data as Record<string, unknown> | null;
+      if (!data || data.source !== "takode-vscode-prototype" || data.type !== "takode:vscode-context") {
+        return;
+      }
+      const payload = data.payload;
+      if (payload === null) {
+        useStore.getState().setVsCodeSelectionContext(null);
+        return;
+      }
+      if (!isVsCodeSelectionContextPayload(payload)) {
+        return;
+      }
+      useStore.getState().setVsCodeSelectionContext({
+        ...payload,
+        updatedAt: Date.now(),
+      });
+    }
+
+    window.addEventListener("message", handleParentMessage);
+    return () => window.removeEventListener("message", handleParentMessage);
+  }, []);
 
   // Poll server health every 10s. Require 2+ consecutive failures before marking unreachable.
   useEffect(() => {
