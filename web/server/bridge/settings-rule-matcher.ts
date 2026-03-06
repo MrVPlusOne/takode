@@ -83,16 +83,22 @@ export function parseToolRule(rule: string): ParsedToolRule | null {
 
 // ─── Shell Command Splitting (via shell-quote) ──────────────────────────────
 
-/** Operators that separate independent commands in a shell pipeline. */
-const SHELL_SPLIT_OPS = new Set(["&&", "||", ";", "|"]);
+/** Operators that separate independent commands (NOT pipes — pipes are data flow). */
+const COMMAND_SPLIT_OPS = new Set(["&&", "||", ";"]);
+
+/** All operators including pipes — used for security scanning of every segment. */
+const ALL_SPLIT_OPS = new Set(["&&", "||", ";", "|"]);
 
 /**
- * Split a Bash command on shell operators (&&, ||, ;, |) while respecting
- * quoting and comments. Delegates to the `shell-quote` package for correct
- * tokenization — handles single/double quotes, backticks, $(), escapes,
- * heredocs, and comments out of the box.
+ * Split a Bash command on shell operators while respecting quoting and
+ * comments. Delegates to `shell-quote` for tokenization.
+ *
+ * @param splitOps — which operators to split on (default: all including pipes).
+ *   Use `COMMAND_SPLIT_OPS` for rule matching (keeps pipes as part of the
+ *   command so `Bash(ls *)` matches `ls foo | head`), and `ALL_SPLIT_OPS`
+ *   for security scanning (inspects every pipe segment independently).
  */
-export function splitShellCommand(command: string): string[] {
+export function splitShellCommand(command: string, splitOps = ALL_SPLIT_OPS): string[] {
   let tokens: ReturnType<typeof parse>;
   try {
     tokens = parse(command);
@@ -109,7 +115,7 @@ export function splitShellCommand(command: string): string[] {
     if (typeof token === "string") {
       current.push(token);
     } else if (token && typeof token === "object") {
-      if ("op" in token && SHELL_SPLIT_OPS.has(token.op)) {
+      if ("op" in token && splitOps.has(token.op)) {
         // Operator token — flush current subcommand
         if (current.length > 0) {
           parts.push(current.join(" "));
@@ -296,7 +302,9 @@ export async function loadAllowRules(cwd?: string): Promise<ParsedToolRule[]> {
  * Check if a tool use should be auto-approved based on settings.json allow rules.
  * Returns matched rule description, or null if no match.
  *
- * For Bash: splits compound commands and requires ALL subcommands to match.
+ * For Bash: uses two passes — security guards scan every pipe segment, but
+ * rule matching keeps pipes intact (matching CLI behavior where `Bash(ls *)`
+ * matches `ls foo | head`). Independent commands (&&, ||, ;) must each match.
  */
 export async function shouldSettingsRuleApprove(
   toolName: string,
@@ -328,17 +336,24 @@ export async function shouldSettingsRuleApprove(
   if (isSensitiveBashCommand(command)) return null;
   if (hasDangerousShellConstructs(command)) return null;
 
-  const subcommands = splitShellCommand(command);
+  // Security pass: split on ALL operators (including pipes) to inspect every
+  // segment for dangerous tokens and constructs.
+  const allSegments = splitShellCommand(command, ALL_SPLIT_OPS);
 
-  for (const sub of subcommands) {
+  for (const sub of allSegments) {
     if (isDangerousFirstToken(sub)) return null;
     if (hasDangerousShellConstructs(sub)) return null;
     if (isSensitiveBashCommand(sub)) return null;
   }
 
-  if (hasCdAndWritePattern(subcommands)) return null;
+  if (hasCdAndWritePattern(allSegments)) return null;
 
-  // Every subcommand must match at least one Bash rule
+  // Rule matching pass: only split on independent-command operators (&&, ||, ;).
+  // Pipes are NOT split — they stay as part of the command string, matching
+  // CLI behavior where `Bash(ls *)` matches `ls foo | head`.
+  const subcommands = splitShellCommand(command, COMMAND_SPLIT_OPS);
+
+  // Every independent command must match at least one Bash rule
   const matchedRules: string[] = [];
   for (const sub of subcommands) {
     let matched = false;

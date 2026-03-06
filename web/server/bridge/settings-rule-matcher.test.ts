@@ -115,6 +115,12 @@ describe("splitShellCommand", () => {
     expect(splitShellCommand("cat file | grep foo")).toEqual(["cat file", "grep foo"]);
   });
 
+  it("splits on | with COMMAND_SPLIT_OPS keeps pipe intact", () => {
+    // When using COMMAND_SPLIT_OPS (no pipes), the pipe stays as part of the command
+    const COMMAND_SPLIT_OPS = new Set(["&&", "||", ";"]);
+    expect(splitShellCommand("cat file | grep foo", COMMAND_SPLIT_OPS)).toEqual(["cat file | grep foo"]);
+  });
+
   // Quoting prevents splitting (shell-quote returns unquoted tokens)
   it("does NOT split inside single-quoted strings", () => {
     const result = splitShellCommand("echo 'a && b'");
@@ -144,9 +150,15 @@ describe("splitShellCommand", () => {
     expect(splitShellCommand("")).toEqual([]);
   });
 
-  it("handles multiple operators in sequence", () => {
+  it("handles multiple operators in sequence (default splits all)", () => {
     const result = splitShellCommand("a && b | c && d");
     expect(result).toEqual(["a", "b", "c", "d"]);
+  });
+
+  it("handles multiple operators with COMMAND_SPLIT_OPS (pipes preserved)", () => {
+    const COMMAND_SPLIT_OPS = new Set(["&&", "||", ";"]);
+    const result = splitShellCommand("a && b | c && d", COMMAND_SPLIT_OPS);
+    expect(result).toEqual(["a", "b | c", "d"]);
   });
 });
 
@@ -381,18 +393,47 @@ describe("shouldSettingsRuleApprove", () => {
     expect(result).toBeNull();
   });
 
-  it("approves compound pipe when all subcommands match", async () => {
+  it("approves piped command when first command matches (pipes stay intact)", async () => {
+    // `ls foo | head` matches `Bash(ls *)` because pipes are not split for rule matching
+    setupRules(["Bash(ls *)"]);
+    const result = await shouldSettingsRuleApprove("Bash", {
+      command: "ls ~/.companion/codex-home/ 2>/dev/null | head",
+    });
+    expect(result).toBe("Bash(ls *)");
+  });
+
+  it("approves pipe chain when first command matches rule", async () => {
+    // The pipe target (grep) doesn't need its own rule — it's just data flow
+    setupRules(["Bash(cat *)"]);
+    const result = await shouldSettingsRuleApprove("Bash", {
+      command: "cat file | grep foo",
+    });
+    expect(result).toBe("Bash(cat *)");
+  });
+
+  it("approves pipe chain when both have rules (reports first match)", async () => {
     setupRules(["Bash(cat *)", "Bash(grep *)"]);
     const result = await shouldSettingsRuleApprove("Bash", {
       command: "cat file | grep foo",
     });
-    expect(result).toBe("Bash(cat *) + Bash(grep *)");
+    // Only the first-command's rule is reported since pipes stay intact
+    expect(result).toBe("Bash(cat *)");
   });
 
   it("rejects commands with dangerous first token", async () => {
     setupRules(["Bash(*)"]);
     const result = await shouldSettingsRuleApprove("Bash", {
       command: "python3 -c 'import os; os.system(\"rm -rf /\")'",
+    });
+    expect(result).toBeNull();
+  });
+
+  it("rejects pipe chain when pipe target has dangerous first token", async () => {
+    // Even though pipes aren't split for rule matching, security guards still
+    // scan every pipe segment — python in a pipe target is still dangerous
+    setupRules(["Bash(cat *)"]);
+    const result = await shouldSettingsRuleApprove("Bash", {
+      command: "cat file | python3 -c 'import os'",
     });
     expect(result).toBeNull();
   });
