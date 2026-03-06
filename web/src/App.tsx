@@ -21,8 +21,15 @@ import { QuestmasterPage } from "./components/QuestmasterPage.js";
 import { isPendingId } from "./utils/pending-creation.js";
 import {
   announceVsCodeReady,
+  type VsCodeSelectionContextPayload,
   maybeReadVsCodeSelectionContext,
 } from "./utils/vscode-context.js";
+
+type TakodeDebugWindow = Window & typeof globalThis & {
+  __TAKODE_VSCODE_CONTEXT__?: VsCodeSelectionContextPayload | null;
+  __TAKODE_SET_VSCODE_CONTEXT__?: (payload: VsCodeSelectionContextPayload | null) => void;
+  __TAKODE_CLEAR_VSCODE_CONTEXT__?: () => void;
+};
 
 function useHash() {
   return useSyncExternalStore(
@@ -55,24 +62,48 @@ export default function App() {
   }, [darkMode]);
 
   useEffect(() => {
+    const debugWindow = window as TakodeDebugWindow;
+    const applyVsCodeContext = (context: VsCodeSelectionContextPayload | null) => {
+      debugWindow.__TAKODE_VSCODE_CONTEXT__ = context;
+      useStore.getState().setVsCodeSelectionContext(
+        context
+          ? {
+            ...context,
+            updatedAt: Date.now(),
+          }
+          : null,
+      );
+    };
+
+    debugWindow.__TAKODE_SET_VSCODE_CONTEXT__ = (payload) => {
+      console.debug("[takode:vscode] debug set context", payload);
+      applyVsCodeContext(payload);
+    };
+    debugWindow.__TAKODE_CLEAR_VSCODE_CONTEXT__ = () => {
+      console.debug("[takode:vscode] debug clear context");
+      applyVsCodeContext(null);
+    };
+
     function handleParentMessage(event: MessageEvent) {
       const context = maybeReadVsCodeSelectionContext(event.data);
       if (typeof context === "undefined") {
         return;
       }
+      console.debug("[takode:vscode] received context", context);
       if (context === null) {
-        useStore.getState().setVsCodeSelectionContext(null);
+        applyVsCodeContext(null);
         return;
       }
-      useStore.getState().setVsCodeSelectionContext({
-        ...context,
-        updatedAt: Date.now(),
-      });
+      applyVsCodeContext(context);
     }
 
     window.addEventListener("message", handleParentMessage);
     announceVsCodeReady();
-    return () => window.removeEventListener("message", handleParentMessage);
+    return () => {
+      delete debugWindow.__TAKODE_SET_VSCODE_CONTEXT__;
+      delete debugWindow.__TAKODE_CLEAR_VSCODE_CONTEXT__;
+      window.removeEventListener("message", handleParentMessage);
+    };
   }, []);
 
   // Poll server health every 10s. Require 2+ consecutive failures before marking unreachable.
