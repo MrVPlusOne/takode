@@ -304,6 +304,80 @@ export function createFilesystemRoutes(ctx: RouteContext) {
     }
   });
 
+  /**
+   * List files changed between the working tree and a base ref.
+   * Uses `git diff -M --name-status` which properly detects additions,
+   * modifications, deletions, AND renames (with the -M flag).
+   *
+   * Returns an array of { path, status } where status is one of:
+   *   A = added, M = modified, D = deleted, R = renamed (includes oldPath)
+   */
+  api.get("/fs/diff-files", async (c) => {
+    const cwd = c.req.query("cwd");
+    if (!cwd) return c.json({ error: "cwd required" }, 400);
+    const base = c.req.query("base");
+    if (!base) return c.json({ error: "base ref required" }, 400);
+
+    const repoRoot = resolve(cwd);
+    try {
+      // -M enables rename detection; --no-optional-locks avoids NFS lock contention
+      const raw = await execCaptureStdoutAsync(
+        `git --no-optional-locks diff -M --name-status ${base}`,
+        repoRoot,
+      );
+
+      // Also pick up untracked files (new files not yet committed)
+      const untrackedRaw = await execCaptureStdoutAsync(
+        `git --no-optional-locks ls-files --others --exclude-standard`,
+        repoRoot,
+      ).catch(() => "");
+
+      const files: Array<{
+        path: string;
+        status: "A" | "M" | "D" | "R";
+        oldPath?: string;
+      }> = [];
+
+      for (const line of raw.split("\n")) {
+        if (!line.trim()) continue;
+        const parts = line.split("\t");
+        const statusCode = parts[0];
+
+        if (statusCode === "D") {
+          files.push({ path: `${repoRoot}/${parts[1]}`, status: "D" });
+        } else if (statusCode.startsWith("R")) {
+          // Rename: "R100\toldpath\tnewpath" (R with similarity percentage)
+          files.push({
+            path: `${repoRoot}/${parts[2]}`,
+            status: "R",
+            oldPath: `${repoRoot}/${parts[1]}`,
+          });
+        } else if (statusCode === "A") {
+          files.push({ path: `${repoRoot}/${parts[1]}`, status: "A" });
+        } else if (statusCode === "M") {
+          files.push({ path: `${repoRoot}/${parts[1]}`, status: "M" });
+        }
+        // Other status codes (C=copy, T=type-change, etc.) treated as modifications
+        else if (parts[1]) {
+          files.push({ path: `${repoRoot}/${parts[1]}`, status: "M" });
+        }
+      }
+
+      // Add untracked files as additions
+      for (const line of untrackedRaw.split("\n")) {
+        if (!line.trim()) continue;
+        const absPath = `${repoRoot}/${line.trim()}`;
+        if (!files.some((f) => f.path === absPath)) {
+          files.push({ path: absPath, status: "A" });
+        }
+      }
+
+      return c.json({ files, repoRoot, base });
+    } catch {
+      return c.json({ files: [], repoRoot, base });
+    }
+  });
+
   /** Find Claude config files for a project (CLAUDE.md + .claude/settings*.json) */
   api.get("/fs/claude-md", async (c) => {
     const cwd = c.req.query("cwd");

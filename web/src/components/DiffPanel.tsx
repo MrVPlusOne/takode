@@ -153,6 +153,10 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
   const branchesFetched = useRef(false);
 
   const changedFiles = useMemo(() => changedFilesSet ?? new Set<string>(), [changedFilesSet]);
+
+  // Git-based changed files (authoritative — includes deletions, renames)
+  const [gitDiffFiles, setGitDiffFiles] = useState<Array<{ path: string; status: "A" | "M" | "D" | "R"; oldPath?: string }>>([]);
+
   const branchOptions = useMemo(() => {
     const options = new Set(availableBranches);
     if (serverDefaultBranch) options.add(serverDefaultBranch);
@@ -161,17 +165,37 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
   }, [availableBranches, serverDefaultBranch, serverBaseBranch]);
 
   const relativeChangedFiles = useMemo(() => {
-    if (!changedFiles.size || !repoRoot) return [];
+    if (!repoRoot) return [];
     const rootPrefix = `${repoRoot}/`;
-    return [...changedFiles]
-      .filter((fp) => fp === repoRoot || fp.startsWith(rootPrefix))
-      .map((fp) => ({ abs: fp, rel: fp.startsWith(repoRoot + "/") ? fp.slice(repoRoot.length + 1) : fp }))
-      .sort((a, b) => a.rel.localeCompare(b.rel));
-  }, [changedFiles, repoRoot]);
+
+    // Start with git-based files (authoritative: includes deletes, renames)
+    const seen = new Set<string>();
+    const result: Array<{ abs: string; rel: string; status?: "A" | "M" | "D" | "R"; oldPath?: string }> = [];
+    for (const gf of gitDiffFiles) {
+      if (gf.path.startsWith(rootPrefix) || gf.path === repoRoot) {
+        const rel = gf.path.startsWith(rootPrefix) ? gf.path.slice(rootPrefix.length) : gf.path;
+        result.push({ abs: gf.path, rel, status: gf.status, oldPath: gf.oldPath });
+        seen.add(gf.path);
+      }
+    }
+
+    // Merge tool-observed files that git didn't report (e.g., unsaved changes)
+    for (const fp of changedFiles) {
+      if (seen.has(fp)) continue;
+      if (fp === repoRoot || fp.startsWith(rootPrefix)) {
+        const rel = fp.startsWith(rootPrefix) ? fp.slice(rootPrefix.length) : fp;
+        result.push({ abs: fp, rel });
+      }
+    }
+
+    return result.sort((a, b) => a.rel.localeCompare(b.rel));
+  }, [changedFiles, gitDiffFiles, repoRoot]);
 
   const visibleChangedFiles = useMemo(() => {
     if (fileStats.size === 0) return relativeChangedFiles;
     return relativeChangedFiles.filter((f) => {
+      // Always show git-reported files (deletions, renames, etc.)
+      if (f.status) return true;
       const stats = fileStats.get(f.abs);
       return !stats || stats.additions > 0 || stats.deletions > 0;
     });
@@ -193,6 +217,20 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
       setRecentCommits(res.commits);
     }).catch(() => {});
   }, [cwd, serverDefaultBranch]);
+
+  // Fetch git-based changed files when base branch changes.
+  // This gives us the authoritative list including deletions and renames.
+  useEffect(() => {
+    if (!repoRoot || !effectiveBranch) {
+      setGitDiffFiles([]);
+      return;
+    }
+    api.getDiffFiles(repoRoot, effectiveBranch).then((res) => {
+      setGitDiffFiles(res.files);
+    }).catch(() => {
+      setGitDiffFiles([]);
+    });
+  }, [repoRoot, effectiveBranch]);
 
   const handleBaseBranchChange = useCallback((value: string | null) => {
     setBaseBranch(value);
@@ -465,7 +503,7 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
             </button>
             {filePickerOpen && (
               <div className="absolute right-0 top-full mt-1 z-50 bg-cc-card border border-cc-border rounded-lg shadow-lg py-1 min-w-[200px] max-w-[340px] max-h-[300px] overflow-y-auto">
-                {visibleChangedFiles.map(({ abs, rel }) => (
+                {visibleChangedFiles.map(({ abs, rel, status, oldPath }) => (
                   <button
                     key={abs}
                     onClick={() => handleFileSelect(abs)}
@@ -474,6 +512,12 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
                     }`}
                   >
                     <span className="truncate flex-1">{rel}</span>
+                    {status === "D" && (
+                      <span className="text-[9px] font-bold text-red-400 shrink-0 border border-red-400/30 rounded px-1">DEL</span>
+                    )}
+                    {status === "R" && (
+                      <span className="text-[9px] font-bold text-yellow-400 shrink-0 border border-yellow-400/30 rounded px-1" title={oldPath ? `Renamed from ${oldPath}` : "Renamed"}>REN</span>
+                    )}
                     {fileStats.has(abs) && (
                       <span className="text-[10px] font-mono-code shrink-0 flex items-center gap-1">
                         <span className="text-green-500">+{fileStats.get(abs)!.additions}</span>
@@ -515,10 +559,16 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
           </div>
         ) : (
           <div className="p-3 sm:p-4 flex flex-col gap-4">
-            {visibleChangedFiles.map(({ abs, rel }) => {
+            {visibleChangedFiles.map(({ abs, rel, status, oldPath }) => {
               const diffData = allDiffs.get(abs);
               const stats = fileStats.get(abs);
               const hasFullSource = diffData?.oldText !== undefined || diffData?.newText !== undefined;
+              const displayName = status === "R" && oldPath
+                ? `${oldPath.split("/").pop()} → ${rel}`
+                : rel;
+              const statusLabel = status === "D" ? " (deleted)"
+                : status === "R" ? " (renamed)"
+                : "";
               return (
                 <div
                   key={abs}
@@ -532,8 +582,8 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
                     oldText={hasFullSource ? diffData?.oldText : undefined}
                     newText={hasFullSource ? diffData?.newText : undefined}
                     unifiedDiff={hasFullSource ? undefined : (diffData?.diff ?? "")}
-                    fileName={rel}
-                    fileStatsLabel={stats ? `+${stats.additions} -${stats.deletions}` : undefined}
+                    fileName={displayName}
+                    fileStatsLabel={stats ? `+${stats.additions} -${stats.deletions}${statusLabel}` : (statusLabel ? statusLabel.trim() : undefined)}
                     mode="full"
                     showLineNumbers={showLineNumbers}
                   />

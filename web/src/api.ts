@@ -802,6 +802,10 @@ export const api = {
       "/fs/diff-stats",
       { files, repoRoot, base: base || undefined },
     ),
+  getDiffFiles: (cwd: string, base: string) =>
+    get<{ files: Array<{ path: string; status: "A" | "M" | "D" | "R"; oldPath?: string }>; repoRoot: string; base: string }>(
+      `/fs/diff-files?cwd=${encodeURIComponent(cwd)}&base=${encodeURIComponent(base)}`,
+    ),
   getClaudeMdFiles: (cwd: string) =>
     get<{ cwd: string; files: { path: string; content: string; writable?: boolean }[] }>(
       `/fs/claude-md?cwd=${encodeURIComponent(cwd)}`,

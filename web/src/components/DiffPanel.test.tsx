@@ -10,6 +10,7 @@ const mockApi = {
   getRepoInfo: vi.fn().mockResolvedValue({ repoRoot: "/repo", repoName: "repo", currentBranch: "main", defaultBranch: "main", isWorktree: false }),
   setDiffBase: vi.fn().mockResolvedValue({ ok: true }),
   getRecentCommits: vi.fn().mockResolvedValue({ commits: [] }),
+  getDiffFiles: vi.fn().mockResolvedValue({ files: [], repoRoot: "/repo", base: "main" }),
 };
 
 vi.mock("../api.js", () => ({
@@ -19,6 +20,7 @@ vi.mock("../api.js", () => ({
     getRepoInfo: (...args: unknown[]) => mockApi.getRepoInfo(...args),
     setDiffBase: (...args: unknown[]) => mockApi.setDiffBase(...args),
     getRecentCommits: (...args: unknown[]) => mockApi.getRecentCommits(...args),
+    getDiffFiles: (...args: unknown[]) => mockApi.getDiffFiles(...args),
   },
 }));
 
