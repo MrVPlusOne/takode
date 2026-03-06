@@ -33,8 +33,9 @@ const ENHANCEMENT_TIMEOUT_MS = 30_000;
 /** If enhanced text is this many times longer than raw, discard as hallucination. */
 const HALLUCINATION_LENGTH_RATIO = 3;
 
-/** Minimum word count to attempt enhancement (very short utterances don't benefit). */
-const MIN_WORDS_FOR_ENHANCEMENT = 3;
+/** Minimum word count to attempt enhancement. Short utterances (single sentences)
+ *  don't benefit from the enhancer — skip to avoid added latency. */
+const MIN_WORDS_FOR_ENHANCEMENT = 10;
 
 /** Max total characters for the STT prompt.
  *  Conservative limit: gpt-4o-mini-transcribe accepts up to ~1024 tokens in the
