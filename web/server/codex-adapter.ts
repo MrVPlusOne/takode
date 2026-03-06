@@ -863,7 +863,8 @@ export class CodexAdapter
   }
 
   private isMissingRolloutError(err: unknown): boolean {
-    return String(err).toLowerCase().includes("no rollout found");
+    const message = String(err).toLowerCase();
+    return message.includes("no rollout found") || message.includes("empty session file");
   }
 
   // ── Initialization ──────────────────────────────────────────────────────

@@ -1586,6 +1586,41 @@ describe("CodexAdapter", () => {
     expect(messages.some((m) => m.type === "session_init")).toBe(true);
   });
 
+  it("falls back to thread/start when thread/resume fails with empty session file", async () => {
+    const messages: BrowserIncomingMessage[] = [];
+    const errors: string[] = [];
+    const mock = createMockProcess();
+
+    const adapter = new CodexAdapter(mock.proc as never, "test-session", {
+      model: "gpt-5.3-codex",
+      cwd: "/workspace",
+      threadId: "thr_empty_123",
+    });
+    adapter.onBrowserMessage((msg) => messages.push(msg));
+    adapter.onInitError((err) => errors.push(err));
+
+    await tick();
+
+    mock.stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
+    await tick();
+
+    mock.stdout.push(JSON.stringify({
+      id: 2,
+      error: { code: -1, message: "failed to load rollout rollout_abc: empty session file" },
+    }) + "\n");
+    await tick();
+
+    mock.stdout.push(JSON.stringify({ id: 3, result: { thread: { id: "thr_new_456" } } }) + "\n");
+    await tick();
+
+    const allWritten = mock.stdin.chunks.join("");
+    expect(allWritten).toContain('"method":"thread/resume"');
+    expect(allWritten).toContain('"threadId":"thr_empty_123"');
+    expect(allWritten).toContain('"method":"thread/start"');
+    expect(errors).toHaveLength(0);
+    expect(messages.some((m) => m.type === "session_init")).toBe(true);
+  });
+
   // ── Backfill tool_use when item/started is missing ──────────────────────────
 
   it("backfills tool_use when item/completed arrives without item/started", async () => {
