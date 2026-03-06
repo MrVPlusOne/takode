@@ -562,6 +562,15 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
             {visibleChangedFiles.map(({ abs, rel, status, oldPath }) => {
               const diffData = allDiffs.get(abs);
               const stats = fileStats.get(abs);
+
+              // Once diffs have been fetched, skip files with no displayable content.
+              // This hides empty cards for pure renames (no content change), or deleted
+              // files whose diff is empty. These files still appear in the file picker
+              // dropdown with DEL/REN badges.
+              if (diffData && !diffData.diff.trim() && diffData.oldText === undefined && diffData.newText === undefined) {
+                return null;
+              }
+
               const hasFullSource = diffData?.oldText !== undefined || diffData?.newText !== undefined;
               const displayName = status === "R" && oldPath
                 ? `${oldPath.split("/").pop()} → ${rel}`
