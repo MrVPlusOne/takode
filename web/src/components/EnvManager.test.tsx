@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, fireEvent, waitFor, within } from "@testing-library/react";
 
 const mockListEnvs = vi.fn();
 const mockGetContainerStatus = vi.fn();
@@ -40,17 +40,18 @@ beforeEach(() => {
 
 describe("EnvManager existing env edit", () => {
   it("shows Docker controls and persists baseImage update", async () => {
-    render(<EnvManager embedded />);
+    const view = render(<EnvManager embedded />);
+    const scope = within(view.container);
 
-    await screen.findByText("Companion");
-    fireEvent.click(screen.getByText("Edit"));
+    await scope.findByText("Companion");
+    fireEvent.click(scope.getByRole("button", { name: "Edit" }));
 
     // Docker controls are visible in existing env edit mode.
-    const baseImageSelect = screen.getAllByRole("combobox")[0] as HTMLSelectElement;
+    const baseImageSelect = scope.getAllByRole("combobox")[0] as HTMLSelectElement;
     expect(baseImageSelect.value).toBe("");
     fireEvent.change(baseImageSelect, { target: { value: "companion-dev:latest" } });
 
-    fireEvent.click(screen.getByText("Save"));
+    fireEvent.click(scope.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
       expect(mockUpdateEnv).toHaveBeenCalledWith(

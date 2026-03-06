@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 
 interface MockStoreState {
@@ -82,10 +82,11 @@ describe("ChatView archived banner", () => {
       sdkSessions: [{ sessionId: "s1", archived: true }],
     });
 
-    render(<ChatView sessionId="s1" />);
+    const view = render(<ChatView sessionId="s1" />);
+    const scope = within(view.container);
 
-    expect(screen.getByText("This session is archived.")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Unarchive" }));
+    expect(scope.getByText("This session is archived.")).toBeInTheDocument();
+    fireEvent.click(scope.getByRole("button", { name: "Unarchive" }));
     expect(mockUnarchiveSession).toHaveBeenCalledWith("s1");
   });
 
@@ -96,7 +97,8 @@ describe("ChatView archived banner", () => {
       sdkSessions: [{ sessionId: "s1", archived: false }],
     });
 
-    render(<ChatView sessionId="s1" />);
-    expect(screen.queryByText("This session is archived.")).not.toBeInTheDocument();
+    const view = render(<ChatView sessionId="s1" />);
+    const scope = within(view.container);
+    expect(scope.queryByText("This session is archived.")).not.toBeInTheDocument();
   });
 });

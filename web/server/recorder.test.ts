@@ -452,7 +452,15 @@ describe("cleanup / rotation", () => {
       recordingsDir: tempDir,
       maxLines: 10,
     });
-    await new Promise((r) => setTimeout(r, 50));
+
+    const deadline = Date.now() + 1000;
+    while (Date.now() < deadline) {
+      const remaining = readDirSafe(tempDir);
+      if (remaining.length === 1 && remaining[0]?.includes("new_claude")) {
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 10));
+    }
 
     const remaining = readDirSafe(tempDir);
     expect(remaining.length).toBe(1);

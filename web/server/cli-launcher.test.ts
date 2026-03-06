@@ -32,7 +32,12 @@ vi.mock("node:child_process", async (importOriginal) => {
 // Mock path-resolver for binary resolution
 const mockResolveBinary = vi.hoisted(() => vi.fn((_name: string): string | null => "/usr/bin/claude"));
 const mockGetEnrichedPath = vi.hoisted(() => vi.fn(() => "/usr/bin:/usr/local/bin"));
-vi.mock("./path-resolver.js", () => ({ resolveBinary: mockResolveBinary, getEnrichedPath: mockGetEnrichedPath }));
+const mockCaptureUserShellEnv = vi.hoisted(() => vi.fn((): Record<string, string> => ({})));
+vi.mock("./path-resolver.js", () => ({
+  resolveBinary: mockResolveBinary,
+  getEnrichedPath: mockGetEnrichedPath,
+  captureUserShellEnv: mockCaptureUserShellEnv,
+}));
 
 // Mock container-manager for container validation in relaunch
 const mockIsContainerAlive = vi.hoisted(() => vi.fn((): "running" | "stopped" | "missing" => "running"));
@@ -243,6 +248,8 @@ beforeEach(() => {
   launcher.setStore(store);
   mockSpawn.mockReturnValue(createMockProc());
   mockResolveBinary.mockReturnValue("/usr/bin/claude");
+  mockGetEnrichedPath.mockReturnValue("/usr/bin:/usr/local/bin");
+  mockCaptureUserShellEnv.mockReturnValue({});
 });
 
 afterEach(() => {
