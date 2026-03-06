@@ -206,8 +206,11 @@ export function handlePermissionRequest<S extends PermissionPipelineSession>(
   const settingsRuleEnabled = options.enableSettingsRuleApprove !== false
     && _backend === "claude-sdk"
     && !NEVER_AUTO_APPROVE.has(toolName);
+  // DEBUG — remove after confirming settings rule matcher is being called
+  console.log(`[permission-pipeline] Tier 2 check: backend=${_backend}, settingsRuleEnabled=${settingsRuleEnabled}, tool=${toolName}, session=${session.id.slice(0, 8)}`);
   if (settingsRuleEnabled) {
     return shouldSettingsRuleApprove(toolName, input, session.state.cwd).then((matchedRule) => {
+      console.log(`[permission-pipeline] Settings rule result: ${matchedRule ?? "NO MATCH"} for ${toolName}(${toolName === "Bash" ? String(input.command ?? "").slice(0, 80) : String(input.file_path ?? "").slice(0, 80)})`);
       if (matchedRule) {
         return { kind: "settings_rule_approved" as const, request: perm, matchedRule };
       }
