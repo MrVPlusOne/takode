@@ -170,6 +170,18 @@ export function Composer({ sessionId }: { sessionId: string }) {
   const [dynamicCodexModels, setDynamicCodexModels] = useState<ModelOption[] | null>(null);
   const [sendPressing, setSendPressing] = useState(false);
   const [composerExpanded, setComposerExpanded] = useState(false);
+
+  // @ mention file search state
+  const [mentionMenuOpen, setMentionMenuOpen] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState("");
+  const [mentionIndex, setMentionIndex] = useState(0);
+  const [mentionResults, setMentionResults] = useState<Array<{ relativePath: string; absolutePath: string; fileName: string }>>([]);
+  const [mentionLoading, setMentionLoading] = useState(false);
+  // Tracks the cursor position of the `@` that triggered the menu
+  const mentionAnchorRef = useRef<number>(-1);
+  const mentionAbortRef = useRef<AbortController | null>(null);
+  const mentionDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mentionMenuRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -343,6 +355,147 @@ export function Composer({ sessionId }: { sessionId: string }) {
     }
   }, [slashMenuIndex, slashMenuOpen]);
 
+  // ─── @ mention file search ─────────────────────────────────────
+
+  // Derive the search root from session state (repo_root preferred, cwd fallback)
+  const mentionSearchRoot = useMemo(() => {
+    const cwd = sessionData?.cwd;
+    const repoRoot = sessionData?.repo_root;
+    if (repoRoot && cwd?.startsWith(repoRoot + "/")) return repoRoot;
+    return cwd || repoRoot || null;
+  }, [sessionData?.cwd, sessionData?.repo_root]);
+
+  // Detect `@` at cursor position and extract query for file search.
+  // Called from handleInput — scans backward from cursor to find `@`.
+  const detectMentionQuery = useCallback((inputText: string, cursorPos: number) => {
+    // Scan backward from cursor to find an unescaped `@` that starts a mention
+    let atPos = -1;
+    for (let i = cursorPos - 1; i >= 0; i--) {
+      const ch = inputText[i];
+      // Stop at whitespace, newline — the `@` must be at word boundary or start
+      if (ch === " " || ch === "\n" || ch === "\t") break;
+      if (ch === "@") {
+        // Must be at start of text or preceded by whitespace
+        if (i === 0 || /\s/.test(inputText[i - 1])) {
+          atPos = i;
+        }
+        break;
+      }
+    }
+
+    if (atPos === -1) {
+      if (mentionMenuOpen) {
+        setMentionMenuOpen(false);
+        setMentionResults([]);
+      }
+      return;
+    }
+
+    const query = inputText.slice(atPos + 1, cursorPos);
+    mentionAnchorRef.current = atPos;
+    setMentionQuery(query);
+
+    // Show menu immediately (with hint), but only search after 3+ chars
+    if (!mentionMenuOpen) {
+      setMentionMenuOpen(true);
+      setMentionIndex(0);
+    }
+
+    if (query.length < 3) {
+      // Cancel any in-flight search
+      mentionAbortRef.current?.abort();
+      if (mentionDebounceRef.current) clearTimeout(mentionDebounceRef.current);
+      setMentionResults([]);
+      setMentionLoading(false);
+      return;
+    }
+
+    // Debounced search — 150ms
+    if (mentionDebounceRef.current) clearTimeout(mentionDebounceRef.current);
+    mentionAbortRef.current?.abort();
+
+    setMentionLoading(true);
+    mentionDebounceRef.current = setTimeout(async () => {
+      if (!mentionSearchRoot) {
+        setMentionLoading(false);
+        return;
+      }
+      const controller = new AbortController();
+      mentionAbortRef.current = controller;
+      try {
+        const { results } = await api.searchFiles(mentionSearchRoot, query, controller.signal);
+        if (!controller.signal.aborted) {
+          setMentionResults(results);
+          setMentionIndex(0);
+          setMentionLoading(false);
+        }
+      } catch (e: unknown) {
+        if (e instanceof DOMException && e.name === "AbortError") return;
+        if (!controller.signal.aborted) {
+          setMentionResults([]);
+          setMentionLoading(false);
+        }
+      }
+    }, 150);
+  }, [mentionMenuOpen, mentionSearchRoot]);
+
+  // Close mention menu on outside click
+  useEffect(() => {
+    if (!mentionMenuOpen) return;
+    function handlePointerDown(e: PointerEvent) {
+      if (mentionMenuRef.current && !mentionMenuRef.current.contains(e.target as Node)) {
+        setMentionMenuOpen(false);
+      }
+    }
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [mentionMenuOpen]);
+
+  // Keep mention index in bounds
+  useEffect(() => {
+    if (mentionIndex >= mentionResults.length) {
+      setMentionIndex(Math.max(0, mentionResults.length - 1));
+    }
+  }, [mentionResults.length, mentionIndex]);
+
+  // Scroll selected mention item into view
+  useEffect(() => {
+    if (!mentionMenuRef.current || !mentionMenuOpen) return;
+    const items = mentionMenuRef.current.querySelectorAll("[data-mention-index]");
+    const selected = items[mentionIndex];
+    if (selected) {
+      selected.scrollIntoView({ block: "nearest" });
+    }
+  }, [mentionIndex, mentionMenuOpen]);
+
+  // Clean up debounce/abort on unmount
+  useEffect(() => {
+    return () => {
+      if (mentionDebounceRef.current) clearTimeout(mentionDebounceRef.current);
+      mentionAbortRef.current?.abort();
+    };
+  }, []);
+
+  const selectMention = useCallback((result: { relativePath: string }) => {
+    const anchor = mentionAnchorRef.current;
+    if (anchor === -1) return;
+    const cursorPos = textareaRef.current?.selectionStart ?? text.length;
+    // Replace @query with @relativePath
+    const before = text.slice(0, anchor);
+    const after = text.slice(cursorPos);
+    const inserted = `@${result.relativePath} `;
+    setText(before + inserted + after);
+    setMentionMenuOpen(false);
+    setMentionResults([]);
+    mentionAnchorRef.current = -1;
+    // Restore cursor position after the inserted path
+    requestAnimationFrame(() => {
+      const newPos = anchor + inserted.length;
+      textareaRef.current?.setSelectionRange(newPos, newPos);
+      textareaRef.current?.focus();
+    });
+  }, [text, setText]);
+
   // Close mode dropdown on outside click
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -375,7 +528,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
     textareaRef.current?.focus();
   }, []);
 
-  function handleSend() {
+  async function handleSend() {
     const msg = text.trim();
     if (!msg || !isConnected) return;
 
@@ -437,9 +590,61 @@ export function Composer({ sessionId }: { sessionId: string }) {
       }
     }
 
+    // Resolve @ file mentions: parse @path and @path:line-line patterns,
+    // read file contents, and prepend as context to the user message.
+    let finalContent = msg;
+    const mentionPattern = /(?:^|\s)@([\w./-]+(?::(\d+)(?:-(\d+))?)?)(?=\s|$)/g;
+    const mentions: Array<{ fullMatch: string; path: string; startLine?: number; endLine?: number }> = [];
+    let m;
+    while ((m = mentionPattern.exec(msg)) !== null) {
+      const raw = m[1];
+      // Split path from optional :line-line suffix
+      const colonIdx = raw.lastIndexOf(":");
+      let filePath = raw;
+      let startLine: number | undefined;
+      let endLine: number | undefined;
+      if (colonIdx > 0) {
+        const lineSpec = raw.slice(colonIdx + 1);
+        const lineMatch = lineSpec.match(/^(\d+)(?:-(\d+))?$/);
+        if (lineMatch) {
+          filePath = raw.slice(0, colonIdx);
+          startLine = parseInt(lineMatch[1], 10);
+          endLine = lineMatch[2] ? parseInt(lineMatch[2], 10) : startLine;
+        }
+      }
+      // Resolve relative paths against the session's search root
+      const absPath = filePath.startsWith("/") ? filePath : (mentionSearchRoot ? `${mentionSearchRoot}/${filePath}` : filePath);
+      mentions.push({ fullMatch: m[0], path: absPath, startLine, endLine });
+    }
+
+    if (mentions.length > 0) {
+      try {
+        const { resolved } = await api.resolveMentions(
+          mentions.map((mt) => ({ path: mt.path, startLine: mt.startLine, endLine: mt.endLine })),
+        );
+        // Build context blocks for successfully resolved files
+        const contextParts: string[] = [];
+        for (let i = 0; i < resolved.length; i++) {
+          const r = resolved[i];
+          const mt = mentions[i];
+          if (r.content != null) {
+            const lineInfo = mt.startLine
+              ? `:${mt.startLine}${mt.endLine && mt.endLine !== mt.startLine ? `-${mt.endLine}` : ""}`
+              : "";
+            contextParts.push(`<file path="${r.path}${lineInfo}">\n${r.content}\n</file>`);
+          }
+        }
+        if (contextParts.length > 0) {
+          finalContent = contextParts.join("\n\n") + "\n\n" + msg;
+        }
+      } catch {
+        // If resolution fails, send the raw message — don't block the user
+      }
+    }
+
     const sent = sendToSession(sessionId, {
       type: "user_message",
-      content: msg,
+      content: finalContent,
       session_id: sessionId,
       images: images.length > 0 ? images.map((img) => ({ media_type: img.mediaType, data: img.base64 })) : undefined,
     });
@@ -450,6 +655,8 @@ export function Composer({ sessionId }: { sessionId: string }) {
     // (server-authoritative model — browsers never add user messages locally)
     useStore.getState().clearComposerDraft(sessionId);
     setSlashMenuOpen(false);
+    setMentionMenuOpen(false);
+    setMentionResults([]);
 
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
@@ -527,6 +734,36 @@ export function Composer({ sessionId }: { sessionId: string }) {
       }
     }
 
+    // @ mention menu navigation
+    if (mentionMenuOpen && mentionResults.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setMentionIndex((i) => (i + 1) % mentionResults.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setMentionIndex((i) => (i - 1 + mentionResults.length) % mentionResults.length);
+        return;
+      }
+      if (e.key === "Tab" && !e.shiftKey) {
+        e.preventDefault();
+        selectMention(mentionResults[mentionIndex]);
+        return;
+      }
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        selectMention(mentionResults[mentionIndex]);
+        return;
+      }
+    }
+    if (mentionMenuOpen && e.key === "Escape") {
+      e.preventDefault();
+      setMentionMenuOpen(false);
+      setMentionResults([]);
+      return;
+    }
+
     if (e.key === "Tab" && e.shiftKey) {
       e.preventDefault();
       cycleMode();
@@ -542,10 +779,14 @@ export function Composer({ sessionId }: { sessionId: string }) {
 
   function handleInput(e: React.ChangeEvent<HTMLTextAreaElement>) {
     isUserInput.current = true;
-    setText(e.target.value);
+    const newText = e.target.value;
+    const cursorPos = e.target.selectionStart;
+    setText(newText);
     const ta = e.target;
     ta.style.height = "auto";
     ta.style.height = Math.min(ta.scrollHeight, 200) + "px";
+    // Trigger @ mention detection at current cursor position
+    detectMentionQuery(newText, cursorPos);
   }
 
   function handleInterrupt() {
@@ -830,6 +1071,56 @@ export function Composer({ sessionId }: { sessionId: string }) {
             </div>
           )}
 
+          {/* @ mention file search menu */}
+          {mentionMenuOpen && !slashMenuOpen && (
+            <div
+              ref={mentionMenuRef}
+              className="absolute left-2 right-2 bottom-full mb-1 max-h-[240px] overflow-y-auto bg-cc-card border border-cc-border rounded-[10px] shadow-lg z-20 py-1"
+            >
+              {mentionQuery.length < 3 ? (
+                <div className="px-3 py-2.5 text-[12px] text-cc-muted flex items-center gap-2">
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5 shrink-0 opacity-50">
+                    <circle cx="6.5" cy="6.5" r="4.5" />
+                    <path d="M10 10l4 4" strokeLinecap="round" />
+                  </svg>
+                  Type at least 3 characters to search files...
+                </div>
+              ) : mentionLoading && mentionResults.length === 0 ? (
+                <div className="px-3 py-2.5 text-[12px] text-cc-muted flex items-center gap-2">
+                  <span className="w-3 h-3 border-2 border-cc-muted/30 border-t-cc-muted rounded-full animate-spin shrink-0" />
+                  Searching...
+                </div>
+              ) : mentionResults.length === 0 ? (
+                <div className="px-3 py-2.5 text-[12px] text-cc-muted">
+                  No files found for "{mentionQuery}"
+                </div>
+              ) : (
+                mentionResults.map((result, i) => (
+                  <button
+                    key={result.relativePath}
+                    data-mention-index={i}
+                    onClick={() => selectMention(result)}
+                    className={`w-full px-3 py-1.5 text-left flex items-center gap-2.5 transition-colors cursor-pointer ${
+                      i === mentionIndex
+                        ? "bg-cc-hover"
+                        : "hover:bg-cc-hover/50"
+                    }`}
+                  >
+                    <span className="flex items-center justify-center w-6 h-6 rounded-md bg-cc-hover text-cc-muted shrink-0">
+                      <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5 opacity-60">
+                        <path d="M3 1.5A1.5 1.5 0 014.5 0h4.586a1.5 1.5 0 011.06.44l2.415 2.414A1.5 1.5 0 0113 3.914V14.5a1.5 1.5 0 01-1.5 1.5h-7A1.5 1.5 0 013 14.5v-13z" />
+                      </svg>
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <span className="text-[13px] font-medium text-cc-fg">{result.fileName}</span>
+                      <span className="ml-2 text-[11px] text-cc-muted truncate">{result.relativePath}</span>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+
           {/* Voice recording / transcribing indicator */}
           {isRecording && (
             <div className="flex items-center gap-2 px-4 pt-2 text-[11px] text-red-500">
@@ -873,7 +1164,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
                   ? "Type your answer..."
                   : pendingPlanPerm
                     ? "Type to reject plan and send new instructions..."
-                    : "Type a message... (/ for commands)"
+                    : "Type a message... (/ for commands, @ for files)"
               }
               rows={1}
               className={`w-full px-4 pt-3 pb-1 text-base sm:text-sm bg-transparent resize-none focus:outline-none font-sans-ui placeholder:text-cc-muted disabled:opacity-50 overflow-y-auto ${

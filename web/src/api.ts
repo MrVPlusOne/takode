@@ -15,8 +15,8 @@ async function post<T = unknown>(path: string, body?: object): Promise<T> {
   return res.json();
 }
 
-async function get<T = unknown>(path: string): Promise<T> {
-  const res = await fetch(`${BASE}${path}`);
+async function get<T = unknown>(path: string, signal?: AbortSignal): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, signal ? { signal } : undefined);
   if (!res.ok) {
     throw new Error(res.statusText);
   }
@@ -766,6 +766,17 @@ export const api = {
     post<{ url: string }>(
       `/sessions/${encodeURIComponent(sessionId)}/editor/start`,
     ),
+
+  // File search for @ mentions
+  searchFiles: (root: string, query: string, signal?: AbortSignal) =>
+    get<{
+      results: Array<{ relativePath: string; absolutePath: string; fileName: string }>;
+      root: string;
+    }>(`/fs/search?root=${encodeURIComponent(root)}&q=${encodeURIComponent(query)}`, signal),
+  resolveMentions: (mentions: Array<{ path: string; startLine?: number; endLine?: number }>) =>
+    post<{
+      resolved: Array<{ path: string; content?: string; totalLines?: number; error?: string }>;
+    }>("/fs/resolve-mentions", { mentions }),
 
   // Editor filesystem
   getFileTree: (path: string) =>

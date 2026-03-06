@@ -1,10 +1,15 @@
 import { Hono } from "hono";
 import { readFile, writeFile, stat, readdir } from "node:fs/promises";
-import { resolve, join, dirname, extname } from "node:path";
+import { resolve, join, dirname, extname, relative } from "node:path";
 import { homedir } from "node:os";
+import { exec as execCb } from "node:child_process";
+import { promisify } from "node:util";
 import { ensureAssistantWorkspace, ASSISTANT_DIR } from "../assistant-workspace.js";
 import { expandTilde } from "../path-resolver.js";
+import { getRipgrepPath } from "../ripgrep.js";
 import type { RouteContext } from "./context.js";
+
+const execPromise = promisify(execCb);
 
 export function createFilesystemRoutes(ctx: RouteContext) {
   const api = new Hono();
@@ -358,6 +363,97 @@ export function createFilesystemRoutes(ctx: RouteContext) {
     }
   });
 
+
+  // ─── File search for @ mentions ─────────────────────────────────
+
+  /**
+   * Fast file search using ripgrep's --files mode + case-insensitive substring filter.
+   * Respects .gitignore by default. Returns relative paths sorted by relevance:
+   * filename matches first, then by path length (shorter = more likely what user wants).
+   */
+  api.get("/fs/search", async (c) => {
+    const query = c.req.query("q")?.trim();
+    const root = c.req.query("root");
+    if (!root) return c.json({ error: "root required" }, 400);
+    if (!query || query.length < 1) return c.json({ results: [] });
+
+    const searchRoot = resolve(root);
+    const rgPath = await getRipgrepPath();
+
+    try {
+      // rg --files lists all non-ignored files, piped through head to cap at 5000.
+      // Then we filter by case-insensitive substring match on the relative path.
+      // This is fast even on large repos: rg's file listing is ~10-50ms, filtering is trivial.
+      const { stdout } = await execPromise(
+        `"${rgPath}" --files --no-messages --hidden --glob '!.git' 2>/dev/null | head -5000`,
+        { cwd: searchRoot, timeout: 5000 },
+      );
+
+      const queryLower = query.toLowerCase();
+      const files = stdout.split("\n").filter(Boolean);
+      const matches: Array<{ path: string; name: string; score: number }> = [];
+
+      for (const relPath of files) {
+        const lower = relPath.toLowerCase();
+        if (!lower.includes(queryLower)) continue;
+
+        // Score: prefer filename matches over directory-only matches,
+        // then shorter paths over longer ones
+        const name = relPath.split("/").pop() || relPath;
+        const nameMatch = name.toLowerCase().includes(queryLower);
+        const score = (nameMatch ? 0 : 1000) + relPath.length;
+
+        matches.push({ path: relPath, name, score });
+      }
+
+      matches.sort((a, b) => a.score - b.score);
+
+      const results = matches.slice(0, 15).map((m) => ({
+        relativePath: m.path,
+        absolutePath: join(searchRoot, m.path),
+        fileName: m.name,
+      }));
+
+      return c.json({ results, root: searchRoot });
+    } catch {
+      // rg failed or timed out — return empty results gracefully
+      return c.json({ results: [], root: searchRoot });
+    }
+  });
+
+  /**
+   * Resolve @ mentions: reads file contents (optionally a line range) for each mentioned path.
+   * Used by the Composer to inject file context before sending a user message.
+   */
+  api.post("/fs/resolve-mentions", async (c) => {
+    const body = await c.req.json<{ mentions: Array<{ path: string; startLine?: number; endLine?: number }> }>().catch(() => null);
+    if (!body?.mentions?.length) return c.json({ error: "mentions[] required" }, 400);
+
+    const resolved = await Promise.all(
+      body.mentions.map(async (m) => {
+        const absPath = resolve(m.path);
+        try {
+          const info = await stat(absPath);
+          if (info.size > 2 * 1024 * 1024) {
+            return { path: absPath, error: "File too large (>2MB)" };
+          }
+          const full = await readFile(absPath, "utf-8");
+          let content = full;
+          if (m.startLine != null || m.endLine != null) {
+            const lines = full.split("\n");
+            const start = Math.max(0, (m.startLine ?? 1) - 1);
+            const end = m.endLine ?? lines.length;
+            content = lines.slice(start, end).join("\n");
+          }
+          return { path: absPath, content, totalLines: full.split("\n").length };
+        } catch (e: unknown) {
+          return { path: absPath, error: e instanceof Error ? e.message : "Cannot read file" };
+        }
+      }),
+    );
+
+    return c.json({ resolved });
+  });
 
   return api;
 }
