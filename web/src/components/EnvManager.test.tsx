@@ -42,16 +42,20 @@ describe("EnvManager existing env edit", () => {
   it("shows Docker controls and persists baseImage update", async () => {
     const view = render(<EnvManager embedded />);
     const scope = within(view.container);
+    const profilesSection = scope.getByRole("heading", { name: "Profiles" }).closest("section");
+    expect(profilesSection).not.toBeNull();
+    const profiles = within(profilesSection as HTMLElement);
 
-    await scope.findByText("Companion");
-    fireEvent.click(scope.getByRole("button", { name: "Edit" }));
+    await profiles.findByText("Companion");
+    fireEvent.click(profiles.getByRole("button", { name: "Edit" }));
+    await profiles.findByRole("button", { name: "Save" });
 
     // Docker controls are visible in existing env edit mode.
-    const baseImageSelect = scope.getAllByRole("combobox")[0] as HTMLSelectElement;
+    const baseImageSelect = profiles.getByRole("combobox") as HTMLSelectElement;
     expect(baseImageSelect.value).toBe("");
     fireEvent.change(baseImageSelect, { target: { value: "companion-dev:latest" } });
 
-    fireEvent.click(scope.getByRole("button", { name: "Save" }));
+    fireEvent.click(profiles.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
       expect(mockUpdateEnv).toHaveBeenCalledWith(
