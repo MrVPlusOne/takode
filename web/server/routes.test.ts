@@ -1337,6 +1337,75 @@ describe("GET /api/health", () => {
   });
 });
 
+// ─── Transcription ──────────────────────────────────────────────────────────
+
+describe("POST /api/transcribe", () => {
+  it("normalizes mislabeled recorder uploads before calling OpenAI", async () => {
+    vi.mocked(settingsManager.getSettings).mockReturnValue({
+      serverName: "",
+      serverId: "",
+      pushoverUserKey: "",
+      pushoverApiToken: "",
+      pushoverDelaySeconds: 30,
+      pushoverEnabled: true,
+      pushoverBaseUrl: "",
+      claudeBinary: "",
+      codexBinary: "",
+      maxKeepAlive: 0,
+      autoApprovalEnabled: false,
+      autoApprovalModel: "haiku",
+      autoApprovalMaxConcurrency: 4,
+      autoApprovalTimeoutSeconds: 45,
+      namerConfig: { backend: "claude" },
+      autoNamerEnabled: true,
+      transcriptionConfig: {
+        apiKey: "transcription-secret",
+        baseUrl: "https://api.openai.com/v1",
+        enhancementEnabled: false,
+        enhancementModel: "gpt-5-mini",
+      },
+      editorConfig: { editor: "none" },
+      updatedAt: 123,
+    });
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ text: "transcribed text" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    const form = new FormData();
+    form.append(
+      "audio",
+      new File(
+        [
+          new Uint8Array([
+            0x00, 0x00, 0x00, 0x18,
+            0x66, 0x74, 0x79, 0x70,
+            0x4d, 0x34, 0x41, 0x20,
+          ]),
+        ],
+        "recording.webm",
+        { type: "audio/webm" },
+      ),
+    );
+    form.append("backend", "openai");
+
+    const res = await app.request("/api/transcribe", { method: "POST", body: form });
+
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("\"text\":\"transcribed text\"");
+    expect(fetch).toHaveBeenCalledOnce();
+
+    const [, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    const outboundForm = init.body as FormData;
+    const uploadedFile = outboundForm.get("file");
+    expect(uploadedFile).toBeInstanceOf(File);
+    expect((uploadedFile as File).type).toBe("audio/mp4");
+    expect((uploadedFile as File).name).toBe("recording.mp4");
+  });
+});
+
 // ─── Settings ────────────────────────────────────────────────────────────────
 
 describe("GET /api/settings", () => {

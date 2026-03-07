@@ -31,6 +31,21 @@ export interface UseVoiceInputReturn {
   toggleRecording: () => void;
 }
 
+const DEFAULT_RECORDING_MIME_TYPE = "audio/webm";
+
+export function resolveRecordedMimeType(
+  recorderMimeType: string | null | undefined,
+  chunks: Blob[],
+): string {
+  const candidates = [recorderMimeType, ...chunks.map((chunk) => chunk.type)];
+  for (const candidate of candidates) {
+    if (typeof candidate !== "string") continue;
+    const trimmed = candidate.trim();
+    if (trimmed) return trimmed;
+  }
+  return DEFAULT_RECORDING_MIME_TYPE;
+}
+
 interface VoiceInputSupport {
   isSupported: boolean;
   unsupportedReason: VoiceInputUnsupportedReason | null;
@@ -203,7 +218,8 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
         setIsRecording(false);
 
         if (chunksRef.current.length > 0) {
-          const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+          const mimeType = resolveRecordedMimeType(recorder.mimeType, chunksRef.current);
+          const blob = new Blob(chunksRef.current, { type: mimeType });
           chunksRef.current = [];
           optionsRef.current.onAudioReady?.(blob);
         }

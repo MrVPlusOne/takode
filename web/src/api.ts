@@ -2,6 +2,28 @@ import type { SdkSessionInfo } from "./types.js";
 
 const BASE = "/api";
 
+export function resolveAudioUploadFilename(audioType: string): string {
+  const normalizedAudioType = audioType.split(";")[0]?.trim().toLowerCase();
+  switch (normalizedAudioType) {
+    case "audio/mp4":
+    case "video/mp4":
+      return "recording.mp4";
+    case "audio/ogg":
+    case "video/ogg":
+      return "recording.ogg";
+    case "audio/wav":
+    case "audio/x-wav":
+      return "recording.wav";
+    case "audio/mpeg":
+    case "audio/mp3":
+      return "recording.mp3";
+    case "audio/flac":
+      return "recording.flac";
+    default:
+      return "recording.webm";
+  }
+}
+
 async function post<T = unknown>(path: string, body?: object): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method: "POST",
@@ -825,8 +847,9 @@ export const api = {
       onPhase?: (phase: "transcribing" | "enhancing") => void;
     },
   ): Promise<{ text: string; rawText?: string; backend: string; enhanced: boolean }> => {
+    const audioFileName = resolveAudioUploadFilename(audio.type);
     const form = new FormData();
-    form.append("audio", audio, "recording.webm");
+    form.append("audio", audio, audioFileName);
     if (options?.backend) form.append("backend", options.backend);
     if (options?.sessionId) form.append("sessionId", options.sessionId);
     if (options?.composerBefore) form.append("composerBefore", options.composerBefore);

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { api } from "./api.js";
+import { api, resolveAudioUploadFilename } from "./api.js";
 
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
@@ -204,6 +204,19 @@ describe("listDirs", () => {
 
     const [url] = mockFetch.mock.calls[0];
     expect(url).toBe("/api/fs/list");
+  });
+});
+
+// ===========================================================================
+// resolveAudioUploadFilename
+// ===========================================================================
+describe("resolveAudioUploadFilename", () => {
+  it("preserves mp4 uploads for Safari-style recorder blobs", () => {
+    expect(resolveAudioUploadFilename("audio/mp4;codecs=mp4a.40.2")).toBe("recording.mp4");
+  });
+
+  it("keeps webm as the default fallback", () => {
+    expect(resolveAudioUploadFilename("")).toBe("recording.webm");
   });
 });
 

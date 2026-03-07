@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { streamSSE, type SSEStreamingApi } from "hono/streaming";
-import { transcribeWithGemini, transcribeWithOpenai, getAvailableBackends, getTranscriptionStatus, resolveOpenAIKey } from "../transcription.js";
+import { transcribeWithGemini, transcribeWithOpenai, getAvailableBackends, getTranscriptionStatus, resolveAudioUploadFormat, resolveOpenAIKey } from "../transcription.js";
 import { enhanceTranscript, buildSttPrompt, addTranscriptionLogEntry } from "../transcription-enhancer.js";
 import * as sessionNames from "../session-names.js";
 import { getSettings } from "../settings-manager.js";
@@ -52,7 +52,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
     }
 
     const buf = Buffer.from(await audioFile.arrayBuffer());
-    const mimeType = audioFile.type || "audio/webm";
+    const uploadFormat = resolveAudioUploadFormat(buf, audioFile.type, audioFile.name);
 
     // Stream SSE events so the client can show phase transitions (Transcribing → Enhancing)
     return streamSSE(c, async (stream: SSEStreamingApi) => {
@@ -84,7 +84,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
             await stream.writeSSE({ event: "error", data: JSON.stringify({ error: "GOOGLE_API_KEY not set in environment" }) });
             return;
           }
-          rawText = await transcribeWithGemini(buf, mimeType, apiKey);
+          rawText = await transcribeWithGemini(buf, uploadFormat.mimeType, apiKey);
           sttModel = "gemini";
         } else if (backend === "openai") {
           const apiKey = resolveOpenAIKey();
@@ -92,7 +92,13 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
             await stream.writeSSE({ event: "error", data: JSON.stringify({ error: "No OpenAI API key configured. Set it in Settings → Voice Transcription, or set OPENAI_API_KEY in your environment." }) });
             return;
           }
-          rawText = await transcribeWithOpenai(buf, mimeType, apiKey, sttPrompt || undefined);
+          rawText = await transcribeWithOpenai(
+            buf,
+            uploadFormat.mimeType,
+            apiKey,
+            sttPrompt || undefined,
+            audioFile.name,
+          );
           sttModel = "gpt-4o-mini-transcribe";
         } else {
           await stream.writeSSE({ event: "error", data: JSON.stringify({ error: `Unknown backend: ${backend}` }) });

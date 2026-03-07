@@ -7,6 +7,118 @@
 
 import { getSettings } from "./settings-manager.js";
 
+type AudioUploadFormat = {
+  mimeType: string;
+  extension: string;
+};
+
+function normalizeMimeType(mimeType: string | null | undefined): string {
+  return mimeType?.split(";")[0]?.trim().toLowerCase() || "";
+}
+
+function inferMimeTypeFromFilename(fileName: string | null | undefined): string | null {
+  const lower = fileName?.trim().toLowerCase() || "";
+  if (!lower) return null;
+  if (lower.endsWith(".m4a")) return "audio/mp4";
+  if (lower.endsWith(".mp4")) return "audio/mp4";
+  if (lower.endsWith(".webm")) return "audio/webm";
+  if (lower.endsWith(".ogg")) return "audio/ogg";
+  if (lower.endsWith(".wav")) return "audio/wav";
+  if (lower.endsWith(".mp3") || lower.endsWith(".mpga")) return "audio/mpeg";
+  if (lower.endsWith(".flac")) return "audio/flac";
+  return null;
+}
+
+function inferMimeTypeFromBuffer(audioBuffer: Buffer): string | null {
+  if (audioBuffer.length >= 12 && audioBuffer.subarray(4, 8).toString("ascii") === "ftyp") {
+    return "audio/mp4";
+  }
+  if (
+    audioBuffer.length >= 4
+    && audioBuffer[0] === 0x1a
+    && audioBuffer[1] === 0x45
+    && audioBuffer[2] === 0xdf
+    && audioBuffer[3] === 0xa3
+  ) {
+    return "audio/webm";
+  }
+  if (audioBuffer.length >= 4 && audioBuffer.subarray(0, 4).toString("ascii") === "OggS") {
+    return "audio/ogg";
+  }
+  if (audioBuffer.length >= 4 && audioBuffer.subarray(0, 4).toString("ascii") === "fLaC") {
+    return "audio/flac";
+  }
+  if (
+    audioBuffer.length >= 12
+    && audioBuffer.subarray(0, 4).toString("ascii") === "RIFF"
+    && audioBuffer.subarray(8, 12).toString("ascii") === "WAVE"
+  ) {
+    return "audio/wav";
+  }
+  if (audioBuffer.length >= 3 && audioBuffer.subarray(0, 3).toString("ascii") === "ID3") {
+    return "audio/mpeg";
+  }
+  if (audioBuffer.length >= 2 && audioBuffer[0] === 0xff && (audioBuffer[1] & 0xe0) === 0xe0) {
+    return "audio/mpeg";
+  }
+  return null;
+}
+
+export function resolveAudioUploadFormat(
+  audioBuffer: Buffer,
+  mimeType: string | null | undefined,
+  fileName?: string | null,
+): AudioUploadFormat {
+  const normalizedMimeType = normalizeMimeType(mimeType);
+  const normalized = (() => {
+    switch (normalizedMimeType) {
+      case "audio/webm":
+      case "video/webm":
+        return "audio/webm";
+      case "audio/ogg":
+      case "video/ogg":
+        return "audio/ogg";
+      case "audio/mp4":
+      case "video/mp4":
+      case "audio/m4a":
+      case "audio/x-m4a":
+        return "audio/mp4";
+      case "audio/wav":
+      case "audio/x-wav":
+        return "audio/wav";
+      case "audio/flac":
+        return "audio/flac";
+      case "audio/mpeg":
+      case "audio/mp3":
+      case "audio/mpga":
+        return "audio/mpeg";
+      default:
+        return "";
+    }
+  })();
+  const sniffed = inferMimeTypeFromBuffer(audioBuffer);
+  const fromFilename = inferMimeTypeFromFilename(fileName);
+  const resolvedMimeType = sniffed || normalized || fromFilename || "audio/webm";
+  const wantsM4a = typeof fileName === "string" && fileName.trim().toLowerCase().endsWith(".m4a");
+  const extension = (() => {
+    switch (resolvedMimeType) {
+      case "audio/mp4":
+        return wantsM4a ? "m4a" : "mp4";
+      case "audio/ogg":
+        return "ogg";
+      case "audio/wav":
+        return "wav";
+      case "audio/flac":
+        return "flac";
+      case "audio/mpeg":
+        return "mp3";
+      default:
+        return "webm";
+    }
+  })();
+  return { mimeType: resolvedMimeType, extension };
+}
+
 /**
  * Transcribe audio using Google Gemini API (inline base64 audio).
  * Uses gemini-2.0-flash for fast, cost-effective transcription.
@@ -71,25 +183,16 @@ export async function transcribeWithOpenai(
   mimeType: string,
   apiKey: string,
   sttPrompt?: string,
+  fileName?: string,
 ): Promise<string> {
-  // Map MIME type to a file extension accepted by OpenAI's transcription endpoint
-  const extMap: Record<string, string> = {
-    "audio/webm": "webm",
-    "audio/ogg": "ogg",
-    "audio/mp4": "mp4",
-    "audio/mpeg": "mp3",
-    "audio/wav": "wav",
-    "audio/x-wav": "wav",
-    "audio/flac": "flac",
-  };
-  const ext = extMap[mimeType] || "webm";
+  const format = resolveAudioUploadFormat(audioBuffer, mimeType, fileName);
 
   const form = new FormData();
   form.append("model", "gpt-4o-mini-transcribe");
   form.append(
     "file",
-    new Blob([new Uint8Array(audioBuffer)], { type: mimeType }),
-    `recording.${ext}`,
+    new Blob([new Uint8Array(audioBuffer)], { type: format.mimeType }),
+    `recording.${format.extension}`,
   );
   if (sttPrompt) {
     form.append("prompt", sttPrompt);

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { getVoiceInputSupport, normalizeMeterLevel } from "./useVoiceInput.js";
+import { getVoiceInputSupport, normalizeMeterLevel, resolveRecordedMimeType } from "./useVoiceInput.js";
 
 beforeEach(() => {
   Object.defineProperty(window, "isSecureContext", {
@@ -60,5 +60,22 @@ describe("getVoiceInputSupport", () => {
       unsupportedReason: null,
       unsupportedMessage: null,
     });
+  });
+});
+
+describe("resolveRecordedMimeType", () => {
+  it("prefers the recorder mime type when the browser provides one", () => {
+    const chunks = [new Blob(["data"], { type: "audio/webm" })];
+    expect(resolveRecordedMimeType("audio/mp4", chunks)).toBe("audio/mp4");
+  });
+
+  it("falls back to the first chunk mime type when recorder.mimeType is empty", () => {
+    const chunks = [new Blob(["data"], { type: "audio/ogg" })];
+    expect(resolveRecordedMimeType("", chunks)).toBe("audio/ogg");
+  });
+
+  it("defaults to audio/webm when no type is available anywhere", () => {
+    const chunks = [new Blob(["data"])];
+    expect(resolveRecordedMimeType("", chunks)).toBe("audio/webm");
   });
 });
