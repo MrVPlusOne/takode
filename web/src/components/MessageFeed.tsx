@@ -588,6 +588,13 @@ function parseSubagentResultText(raw: string): string {
   }
 }
 
+function getCommittedCodexStreamingText(raw: string): string {
+  if (!raw) return "";
+  const lastNewline = raw.lastIndexOf("\n");
+  if (lastNewline < 0) return "";
+  return raw.slice(0, lastNewline + 1);
+}
+
 const SubagentBatchContainer = memo(function SubagentBatchContainer({
   batch,
   sessionId,
@@ -633,7 +640,7 @@ const SubagentContainer = memo(function SubagentContainer({
 
   // Read the subagent's final result from the toolResults store
   const resultPreview = useStore((s) => s.toolResults.get(sessionId)?.get(group.taskToolUseId));
-  const streamingText = useStore((s) =>
+  const rawStreamingText = useStore((s) =>
     s.streamingByParentToolUseId.get(sessionId)?.get(group.taskToolUseId) || ""
   );
   const progressElapsedSeconds = useStore((s) =>
@@ -643,6 +650,10 @@ const SubagentContainer = memo(function SubagentContainer({
     s.toolStartTimestamps.get(sessionId)?.get(group.taskToolUseId)
   );
   const isCodexSession = useStore((s) => s.sessions.get(sessionId)?.backend_type === "codex");
+  const streamingText = useMemo(
+    () => isCodexSession ? getCommittedCodexStreamingText(rawStreamingText) : rawStreamingText,
+    [isCodexSession, rawStreamingText],
+  );
 
   // Read background agent notification
   const bgNotif = useStore((s) =>
@@ -657,10 +668,10 @@ const SubagentContainer = memo(function SubagentContainer({
   const isAbandoned = !isEffectivelyComplete && sessionStatus !== "running";
 
   useEffect(() => {
-    if (streamingText && !open) {
+    if (rawStreamingText && !open) {
       setOpen(true);
     }
-  }, [streamingText, open]);
+  }, [rawStreamingText, open]);
 
   // Get the last visible entry for a compact preview (fallback when no result)
   const lastEntry = group.children[group.children.length - 1];
@@ -767,12 +778,12 @@ const SubagentContainer = memo(function SubagentContainer({
           )}
 
           {/* Child activities */}
-          {(childCount > 0 || streamingText) && (
+          {(childCount > 0 || rawStreamingText) && (
             <div className="px-3 py-2 space-y-3">
               {childCount > 0 && (
                 <FeedEntries entries={group.children} sessionId={sessionId} minuteBoundaryLabels={minuteBoundaryLabels} />
               )}
-              {streamingText && (
+              {rawStreamingText && (
                 <div className="rounded-[8px] border border-cc-border/50 bg-cc-hover/20 px-3 py-2">
                   {isCodexSession ? (
                     <div className="text-[13px] text-cc-fg">
@@ -816,7 +827,7 @@ const SubagentContainer = memo(function SubagentContainer({
           )}
 
           {/* No children yet indicator */}
-          {childCount === 0 && !streamingText && !isEffectivelyComplete && !isAbandoned && (
+          {childCount === 0 && !rawStreamingText && !isEffectivelyComplete && !isAbandoned && (
             <div className="px-3 py-2 flex items-center gap-1.5 text-[11px] text-cc-muted">
               <YarnBallSpinner className="w-3.5 h-3.5" />
               <span>{group.isBackground ? "Running in background..." : "Agent starting..."}</span>
@@ -913,74 +924,18 @@ function SubagentResult({ preview, parsedText, sessionId, toolUseId }: {
 
 const FeedFooter = memo(function FeedFooter({ sessionId }: { sessionId: string }) {
   const toolProgress = useStore((s) => s.toolProgress.get(sessionId));
-  const streamingText = useStore((s) => s.streaming.get(sessionId));
+  const rawStreamingText = useStore((s) => s.streaming.get(sessionId));
   const sessionStatus = useStore((s) => s.sessionStatus.get(sessionId));
   const isCodexSession = useStore((s) => s.sessions.get(sessionId)?.backend_type === "codex");
-  const [codexStreamingText, setCodexStreamingText] = useState("");
-  const codexPendingTextRef = useRef("");
-  const codexFlushTimerRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    if (!isCodexSession) {
-      if (codexFlushTimerRef.current !== null) {
-        window.clearTimeout(codexFlushTimerRef.current);
-        codexFlushTimerRef.current = null;
-      }
-      codexPendingTextRef.current = "";
-      if (codexStreamingText) setCodexStreamingText("");
-      return;
-    }
-
-    const next = streamingText || "";
-    codexPendingTextRef.current = next;
-
-    if (!next) {
-      if (codexFlushTimerRef.current !== null) {
-        window.clearTimeout(codexFlushTimerRef.current);
-        codexFlushTimerRef.current = null;
-      }
-      if (codexStreamingText) setCodexStreamingText("");
-      return;
-    }
-
-    // First chunk should show immediately.
-    if (!codexStreamingText) {
-      setCodexStreamingText(next);
-      return;
-    }
-
-    // Flush whole lines immediately; otherwise throttle markdown re-renders.
-    if (next.endsWith("\n")) {
-      if (codexFlushTimerRef.current !== null) {
-        window.clearTimeout(codexFlushTimerRef.current);
-        codexFlushTimerRef.current = null;
-      }
-      if (codexStreamingText !== next) setCodexStreamingText(next);
-      return;
-    }
-
-    if (codexFlushTimerRef.current !== null) return;
-    codexFlushTimerRef.current = window.setTimeout(() => {
-      codexFlushTimerRef.current = null;
-      setCodexStreamingText((prev) => (
-        prev === codexPendingTextRef.current ? prev : codexPendingTextRef.current
-      ));
-    }, 120);
-  }, [isCodexSession, streamingText, codexStreamingText]);
-
-  useEffect(() => {
-    return () => {
-      if (codexFlushTimerRef.current !== null) {
-        window.clearTimeout(codexFlushTimerRef.current);
-        codexFlushTimerRef.current = null;
-      }
-    };
-  }, []);
+  const streamingText = useMemo(
+    () => isCodexSession ? getCommittedCodexStreamingText(rawStreamingText || "") : (rawStreamingText || ""),
+    [isCodexSession, rawStreamingText],
+  );
 
   return (
     <>
       {/* Compaction indicator — shown prominently in the feed when agent is compacting context */}
-      {sessionStatus === "compacting" && !streamingText && (
+      {sessionStatus === "compacting" && !rawStreamingText && (
         <div className="flex items-center gap-2 text-[12px] text-cc-muted font-mono-code pl-9 py-1 animate-[fadeSlideIn_0.2s_ease-out]">
           <YarnBallDot className="text-cc-primary animate-pulse" />
           <span>Compacting conversation...</span>
@@ -988,7 +943,7 @@ const FeedFooter = memo(function FeedFooter({ sessionId }: { sessionId: string }
       )}
 
       {/* Tool progress indicator — skip Task tools since SubagentContainers show their own progress */}
-      {toolProgress && toolProgress.size > 0 && !streamingText && !isCodexSession && (() => {
+      {toolProgress && toolProgress.size > 0 && !rawStreamingText && !isCodexSession && (() => {
         const nonTaskProgress = Array.from(toolProgress.values()).filter((p) => !isSubagentToolName(p.toolName));
         if (nonTaskProgress.length === 0) return null;
         return (
@@ -1006,14 +961,14 @@ const FeedFooter = memo(function FeedFooter({ sessionId }: { sessionId: string }
       })()}
 
       {/* Streaming indicator */}
-      {streamingText && (
+      {rawStreamingText && (
         <div className="animate-[fadeSlideIn_0.2s_ease-out]">
           <div className="flex items-start gap-3">
             <PawTrailAvatar isStreaming />
             <div className="flex-1 min-w-0">
               {isCodexSession ? (
                 <div>
-                  <MarkdownContent text={codexStreamingText || streamingText} />
+                  <MarkdownContent text={streamingText} />
                   <span className="inline-block w-0.5 h-4 bg-cc-primary ml-0.5 align-middle -translate-y-[2px] animate-[pulse-dot_0.8s_ease-in-out_infinite]" />
                 </div>
               ) : (

@@ -392,14 +392,34 @@ describe("MessageFeed - streaming text", () => {
     setStoreMessages(sid, [
       makeMessage({ id: "u1", role: "user", content: "Hello" }),
     ]);
-    setStoreStreaming(sid, "Codex is streaming");
+    setStoreStreaming(sid, "Codex is streaming\nStill hidden");
     setStoreSessionBackend(sid, "codex");
 
     const { container } = render(<MessageFeed sessionId={sid} />);
 
-    expect(screen.getByText("Codex is streaming")).toBeTruthy();
-    expect(screen.getByTestId("markdown")).toBeTruthy();
+    expect(screen.getByTestId("markdown").textContent).toContain("Codex is streaming");
+    expect(screen.queryByText("Still hidden")).toBeNull();
     expect(container.querySelector("pre.font-mono-code")).toBeNull();
+  });
+
+  it("withholds partial codex lines until a newline commits them", () => {
+    const sid = "test-streaming-codex-partial";
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Hello" }),
+    ]);
+    setStoreStreaming(sid, "Uncommitted partial");
+    setStoreSessionBackend(sid, "codex");
+
+    const { unmount } = render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByTestId("markdown").textContent).toBe("");
+    expect(screen.queryByText("Uncommitted partial")).toBeNull();
+
+    unmount();
+    setStoreStreaming(sid, "Uncommitted partial\n");
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByTestId("markdown").textContent).toContain("Uncommitted partial");
   });
 
   it("keeps serif streaming typography for claude sessions", () => {
@@ -719,13 +739,47 @@ describe("MessageFeed - subagent grouping", () => {
     ]);
     setStoreSessionBackend(sid, "codex");
     setStoreStatus(sid, "running");
-    setStoreParentStreaming(sid, { "task-streaming": "Streaming from the subagent" });
+    setStoreParentStreaming(sid, { "task-streaming": "Streaming from the subagent\nStill hidden" });
 
     render(<MessageFeed sessionId={sid} />);
 
     expect(screen.getByText("Inspect event routing")).toBeTruthy();
-    expect(screen.getByText("Streaming from the subagent")).toBeTruthy();
+    expect(screen.getByTestId("markdown").textContent).toContain("Streaming from the subagent");
+    expect(screen.queryByText("Still hidden")).toBeNull();
     expect(screen.queryByText("Agent starting...")).toBeNull();
+  });
+
+  it("withholds partial codex subagent lines until a newline commits them", () => {
+    const sid = "test-subagent-streaming-partial";
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "a1",
+        role: "assistant",
+        content: "",
+        contentBlocks: [
+          {
+            type: "tool_use",
+            id: "task-streaming-partial",
+            name: "Agent",
+            input: { description: "Inspect event routing", subagent_type: "explorer" },
+          },
+        ],
+      }),
+    ]);
+    setStoreSessionBackend(sid, "codex");
+    setStoreStatus(sid, "running");
+    setStoreParentStreaming(sid, { "task-streaming-partial": "Hidden partial" });
+
+    const { unmount } = render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.queryByText("Hidden partial")).toBeNull();
+    expect(screen.getByTestId("markdown").textContent).toBe("");
+
+    unmount();
+    setStoreParentStreaming(sid, { "task-streaming-partial": "Hidden partial\n" });
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByTestId("markdown").textContent).toContain("Hidden partial");
   });
 
   it("shows a live subagent timer while the task tool is running", () => {
