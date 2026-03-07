@@ -1996,6 +1996,16 @@ export class WsBridge {
     return `[user selection in VSCode: ${selection.relativePath} lines ${selection.startLine}-${selection.endLine}] (this may or may not be relevant)`;
   }
 
+  private buildPendingCodexRecoveryUserText(msg: BrowserOutgoingMessage): string {
+    if (msg.type !== "user_message") return "";
+    const parts: string[] = [];
+    if (msg.content) parts.push(msg.content);
+    if (msg.vscodeSelection) {
+      parts.push(this.formatVsCodeSelectionPrompt(msg.vscodeSelection));
+    }
+    return parts.join("\n");
+  }
+
   private maybeInjectLeaderAddressingReminder(
     session: Session,
     addressing: LeaderAssistantAddressing,
@@ -5198,7 +5208,7 @@ export class WsBridge {
         session.pendingCodexTurnRecovery = {
           adapterMsg,
           userMessageId: codexUserMessageId || `user-recovery-${Date.now()}`,
-          userContent: msg.content || "",
+          userContent: this.buildPendingCodexRecoveryUserText(adapterMsg),
           turnId: null,
           disconnectedAt: null,
           resumeConfirmedAt: null,

@@ -4879,6 +4879,69 @@ describe("Codex retries user message when turn is stale after disconnect", () =>
     expect(retried.content).toBe("implement the feature and run tests");
   });
 
+  it("retries image user message when resumed turn is inProgress but thread is idle", async () => {
+    const sid = "s-stale-image-retry";
+    const adapter1 = makeCodexAdapterMock();
+    const mockImageStore = {
+      store: vi.fn().mockResolvedValue({ imageId: "img-1", media_type: "image/png" }),
+      getTransportPath: vi.fn().mockResolvedValue("/tmp/companion-images/img-1.transport.jpeg"),
+    };
+    bridge.setImageStore(mockImageStore as any);
+    bridge.attachCodexAdapter(sid, adapter1 as any);
+
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+
+    await bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "user_message",
+      content: "implement the fix from this screenshot",
+      images: [{ media_type: "image/png", data: "image-bytes" }],
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    adapter1.emitDisconnect("turn-compact-image");
+
+    const adapter2 = makeCodexAdapterMock();
+    adapter2.sendBrowserMessage.mockReturnValue(true);
+    bridge.attachCodexAdapter(sid, adapter2 as any);
+    adapter2.emitSessionMeta({
+      cliSessionId: "thread-stale-image",
+      model: "gpt-5.3-codex",
+      cwd: "/repo",
+      resumeSnapshot: {
+        threadId: "thread-stale-image",
+        turnCount: 6,
+        threadStatus: "idle",
+        lastTurn: {
+          id: "turn-compact-image",
+          status: "inProgress",
+          error: null,
+          items: [
+            { type: "userMessage", content: [{ type: "text", text: "implement the fix from this screenshot" }] },
+            { type: "contextCompaction", id: "compact-1" },
+          ],
+        },
+      },
+    });
+
+    expect(adapter2.sendBrowserMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "user_message",
+        content: expect.stringContaining("implement the fix from this screenshot"),
+        local_images: ["/tmp/companion-images/img-1.transport.jpeg"],
+      }),
+    );
+    const retried = adapter2.sendBrowserMessage.mock.calls[0][0] as any;
+    expect(retried.images).toBeUndefined();
+
+    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    const retrySkipError = calls.find((c: any) =>
+      c.type === "error"
+      && typeof c.message === "string"
+      && c.message.includes("non-text tool activity"));
+    expect(retrySkipError).toBeUndefined();
+  });
+
   it("recovers agent messages before retrying stale turn", async () => {
     // When the last turn has agent messages not yet in history, they should
     // be recovered first. If recovery succeeds, no retry is needed.
@@ -7533,6 +7596,77 @@ describe("Codex resumed-turn recovery", () => {
 
     expect(adapter2.sendBrowserMessage).toHaveBeenCalledWith(
       expect.objectContaining({ type: "user_message", content: "resume without last turn" }),
+    );
+  });
+
+  it("retries image turns when resume matching must use the annotated user text", async () => {
+    const sid = "s-image-retry";
+    const adapter1 = makeCodexAdapterMock();
+    const mockImageStore = {
+      store: vi.fn().mockResolvedValue({ imageId: "img-1", media_type: "image/png" }),
+      getTransportPath: vi.fn().mockResolvedValue("/tmp/companion-images/img-1.transport.jpeg"),
+    };
+    bridge.setImageStore(mockImageStore as any);
+    bridge.attachCodexAdapter(sid, adapter1 as any);
+
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+
+    await bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "user_message",
+      content: "describe this screenshot",
+      images: [{ media_type: "image/png", data: "image-bytes" }],
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const expectedPath = join(homedir(), ".companion", "images", sid, "img-1.orig.png");
+    expect(bridge.getSession(sid)?.pendingCodexTurnRecovery?.userContent).toBe(
+      "describe this screenshot\n"
+      + "[📎 Inline image file paths (same order as images above):\n"
+      + `Attachment 1: ${expectedPath}]`,
+    );
+
+    // Reproduce the transport-drop window where turn/start disconnects before
+    // Codex returns a turn ID, so resume matching has to fall back to text.
+    adapter1.emitDisconnect(null);
+
+    const adapter2 = makeCodexAdapterMock();
+    adapter2.sendBrowserMessage.mockReturnValue(true);
+    bridge.attachCodexAdapter(sid, adapter2 as any);
+
+    adapter2.emitSessionMeta({
+      cliSessionId: "thread-image",
+      model: "gpt-5.3-codex",
+      cwd: "/repo",
+      resumeSnapshot: {
+        threadId: "thread-image",
+        turnCount: 7,
+        lastTurn: {
+          id: "turn-image",
+          status: "completed",
+          error: null,
+          items: [
+            {
+              type: "userMessage",
+              content: [{
+                type: "text",
+                text:
+                  "describe this screenshot\n"
+                  + "[📎 Inline image file paths (same order as images above):\n"
+                  + `Attachment 1: ${expectedPath}]`,
+              }],
+            },
+          ],
+        },
+      },
+    });
+
+    expect(adapter2.sendBrowserMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "user_message",
+        content: expect.stringContaining("describe this screenshot"),
+        local_images: ["/tmp/companion-images/img-1.transport.jpeg"],
+      }),
     );
   });
 
