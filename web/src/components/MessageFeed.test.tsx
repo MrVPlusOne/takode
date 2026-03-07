@@ -603,7 +603,8 @@ describe("MessageFeed - tool-only message detection", () => {
     render(<MessageFeed sessionId={sid} />);
 
     expect(screen.getByText("Read File")).toBeTruthy();
-    expect(screen.getByText("Terminal")).toBeTruthy();
+    expect(screen.queryByText("Terminal")).toBeNull();
+    expect(screen.getByText("ls")).toBeTruthy();
   });
 
   it("does not treat assistant messages with text as tool-only", () => {

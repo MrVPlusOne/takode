@@ -224,7 +224,7 @@ describe("ToolBlock", () => {
         toolUseId="tool-1"
       />
     );
-    expect(screen.getByText("Terminal")).toBeTruthy();
+    expect(screen.queryByText("Terminal")).toBeNull();
     // Preview text appears in the header button area
     const previewSpan = screen.getByText("echo hello");
     expect(previewSpan).toBeTruthy();
@@ -254,6 +254,18 @@ describe("ToolBlock", () => {
 
     expect(screen.queryByText("Terminal")).toBeNull();
     expect(screen.getByText("echo hello")).toBeTruthy();
+  });
+
+  it("keeps standalone bash rows labelless when there is no preview", () => {
+    render(
+      <ToolBlock
+        name="Bash"
+        input={{}}
+        toolUseId="tool-bash-no-preview"
+      />
+    );
+
+    expect(screen.queryByText("Terminal")).toBeNull();
   });
 
   it("is collapsed by default (does not show details)", () => {

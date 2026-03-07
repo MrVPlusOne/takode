@@ -435,9 +435,8 @@ describe("MessageBubble - assistant messages", () => {
     });
     render(<MessageBubble message={msg} />);
 
-    // ToolBlock renders with the label "Terminal" for Bash
-    expect(screen.getByText("Terminal")).toBeTruthy();
-    // And the preview should show the command
+    // Bash rows render as preview-only command entries.
+    expect(screen.queryByText("Terminal")).toBeNull();
     expect(screen.getByText("pwd")).toBeTruthy();
   });
 
@@ -732,7 +731,8 @@ describe("MessageBubble - content block grouping", () => {
 
     // Both labels should appear separately
     expect(screen.getByText("Read File")).toBeTruthy();
-    expect(screen.getByText("Terminal")).toBeTruthy();
+    expect(screen.queryByText("Terminal")).toBeNull();
+    expect(screen.getByText("ls")).toBeTruthy();
   });
 
   it("renders a single tool_use without group count badge", () => {
@@ -745,8 +745,8 @@ describe("MessageBubble - content block grouping", () => {
     });
     render(<MessageBubble message={msg} />);
 
-    // Should render Terminal label but no count badge
-    expect(screen.getByText("Terminal")).toBeTruthy();
+    expect(screen.queryByText("Terminal")).toBeNull();
+    expect(screen.getByText("echo hi")).toBeTruthy();
     expect(screen.queryByText("1")).toBeNull();
   });
 

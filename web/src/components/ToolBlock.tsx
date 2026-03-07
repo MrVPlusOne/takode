@@ -153,7 +153,7 @@ export const ToolBlock = memo(function ToolBlock({
 
   // Extract the most useful preview
   const preview = getPreview(name, input);
-  const showPreviewOnly = hideLabel && Boolean(preview);
+  const hideHeaderLabel = hideLabel || name === "Bash";
 
   // TodoWrite: flat inline view with status icon + active task + count
   if (name === "TodoWrite" && Array.isArray((input as Record<string, unknown>).todos)) {
@@ -175,9 +175,9 @@ export const ToolBlock = memo(function ToolBlock({
           <path d="M6 4l4 4-4 4" />
         </svg>
         <ToolIcon type={iconType} />
-        {!showPreviewOnly && <span className="text-xs font-medium text-cc-fg">{label}</span>}
+        {!hideHeaderLabel && <span className="text-xs font-medium text-cc-fg">{label}</span>}
         {preview && (
-          <span className={`text-xs truncate flex-1 font-mono-code ${showPreviewOnly ? "text-cc-fg/90" : "text-cc-muted"}`}>
+          <span className={`text-xs truncate flex-1 font-mono-code ${hideHeaderLabel ? "text-cc-fg/90" : "text-cc-muted"}`}>
             {preview}
           </span>
         )}
