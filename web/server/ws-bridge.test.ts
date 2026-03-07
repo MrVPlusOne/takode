@@ -8651,6 +8651,87 @@ describe("Codex user_message takode events", () => {
     spy.mockRestore();
   });
 
+  it("does not mark turn_end as interrupted when a queued follow-up arrives but the current codex result completes normally", async () => {
+    const sid = "worker-codex-2b";
+    const browser = makeBrowserSocket(sid);
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter as any);
+    bridge.handleBrowserOpen(browser, sid);
+
+    const spy = vi.spyOn(bridge, "emitTakodeEvent");
+
+    bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "user_message",
+      content: "Run the full test suite",
+    }));
+
+    bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "user_message",
+      content: "Then summarize only the failures",
+    }));
+
+    adapter.emitBrowserMessage({
+      type: "result",
+      data: {
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result: "completed original turn before follow-up started",
+        duration_ms: 320,
+        duration_api_ms: 320,
+        num_turns: 1,
+        total_cost_usd: 0,
+        stop_reason: "completed",
+        usage: {
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+        },
+        uuid: "codex-result-completed-1",
+        session_id: sid,
+      },
+    });
+
+    adapter.emitBrowserMessage({
+      type: "result",
+      data: {
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result: "completed follow-up turn",
+        duration_ms: 180,
+        duration_api_ms: 180,
+        num_turns: 2,
+        total_cost_usd: 0,
+        stop_reason: "completed",
+        usage: {
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+        },
+        uuid: "codex-result-completed-2",
+        session_id: sid,
+      },
+    });
+
+    await Promise.resolve();
+
+    const turnEndCalls = spy.mock.calls.filter(
+      ([eventSid, eventType]) => eventSid === sid && eventType === "turn_end",
+    );
+    expect(turnEndCalls).toHaveLength(2);
+    expect(turnEndCalls[0]?.[2]).toEqual(expect.not.objectContaining({
+      interrupted: true,
+    }));
+    expect(turnEndCalls[1]?.[2]).toEqual(expect.not.objectContaining({
+      interrupted: true,
+    }));
+
+    spy.mockRestore();
+  });
+
   it("emits both interrupted and resumed turn_end events after correction, with herd delivery for each", async () => {
     vi.useFakeTimers();
     const leaderId = "orch-correction";
@@ -8785,6 +8866,150 @@ describe("Codex user_message takode events", () => {
       expect(workerTurnEndCalls[0]?.[2]).toEqual(expect.objectContaining({
         interrupted: true,
         interrupt_source: "leader",
+      }));
+      expect(workerTurnEndCalls[1]?.[2]).toEqual(expect.not.objectContaining({
+        interrupted: true,
+      }));
+
+      const herdDeliveries = herdInjectSpy.mock.calls.filter(
+        ([sid, _content, source]) => sid === leaderId && source?.sessionId === "herd-events",
+      );
+      expect(herdDeliveries).toHaveLength(2);
+    } finally {
+      dispatcher.destroy();
+      eventSpy.mockRestore();
+      herdInjectSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not mark leader correction turn_end as interrupted when the current codex turn completes before the queued follow-up begins", async () => {
+    vi.useFakeTimers();
+    const leaderId = "orch-correction-no-interrupt";
+    const workerId = "worker-correction-no-interrupt";
+    const launcherSessions = new Map<string, any>([
+      [leaderId, { sessionId: leaderId, isOrchestrator: true, backendType: "claude", cwd: "/test" }],
+      [workerId, { sessionId: workerId, herdedBy: leaderId, backendType: "codex", cwd: "/test" }],
+    ]);
+
+    const launcherMock = {
+      touchActivity: vi.fn(),
+      getSession: vi.fn((id: string) => launcherSessions.get(id)),
+      getHerdedSessions: vi.fn((id: string) => (id === leaderId ? [{ sessionId: workerId }] : [])),
+      getSessionNum: vi.fn((id: string) => (id === leaderId ? 1 : 2)),
+    };
+    bridge.setLauncher(launcherMock as any);
+
+    const dispatcher = new HerdEventDispatcher(bridge as any, launcherMock as any);
+    bridge.setHerdEventDispatcher(dispatcher);
+    dispatcher.setupForOrchestrator(leaderId);
+
+    const leaderCli = makeCliSocket(leaderId);
+    bridge.handleCLIOpen(leaderCli, leaderId);
+    bridge.handleCLIMessage(leaderCli, makeInitMsg({ session_id: "cli-orch-correction-no-interrupt" }));
+
+    const workerBrowser = makeBrowserSocket(workerId);
+    const workerAdapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(workerId, workerAdapter as any);
+    bridge.handleBrowserOpen(workerBrowser, workerId);
+
+    const eventSpy = vi.spyOn(bridge, "emitTakodeEvent");
+    const herdInjectSpy = vi.spyOn(bridge, "injectUserMessage");
+
+    bridge.handleBrowserMessage(workerBrowser, JSON.stringify({
+      type: "user_message",
+      content: "Implement the baseline version",
+    }));
+    await Promise.resolve();
+
+    bridge.handleBrowserMessage(workerBrowser, JSON.stringify({
+      type: "user_message",
+      content: "Correction: also include validation",
+      agentSource: { sessionId: leaderId, sessionLabel: "#1 leader" },
+    }));
+    await Promise.resolve();
+
+    workerAdapter.emitBrowserMessage({
+      type: "result",
+      data: {
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result: "completed original turn before correction follow-up started",
+        duration_ms: 220,
+        duration_api_ms: 220,
+        num_turns: 1,
+        total_cost_usd: 0,
+        stop_reason: "completed",
+        usage: {
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+        },
+        uuid: "worker-correction-no-interrupt-result-1",
+        session_id: workerId,
+      },
+    });
+    await Promise.resolve();
+
+    vi.advanceTimersByTime(600);
+    await Promise.resolve();
+
+    bridge.handleCLIMessage(leaderCli, JSON.stringify({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      result: "ack",
+      duration_ms: 100,
+      duration_api_ms: 100,
+      num_turns: 1,
+      total_cost_usd: 0,
+      stop_reason: "end_turn",
+      usage: {
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+      },
+      uuid: "leader-herd-ack-no-interrupt-1",
+      session_id: leaderId,
+    }));
+    await Promise.resolve();
+
+    workerAdapter.emitBrowserMessage({
+      type: "result",
+      data: {
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result: "completed correction follow-up turn",
+        duration_ms: 410,
+        duration_api_ms: 410,
+        num_turns: 2,
+        total_cost_usd: 0,
+        stop_reason: "completed",
+        usage: {
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+        },
+        uuid: "worker-correction-no-interrupt-result-2",
+        session_id: workerId,
+      },
+    });
+    await Promise.resolve();
+    vi.advanceTimersByTime(600);
+    await Promise.resolve();
+
+    try {
+      const workerTurnEndCalls = eventSpy.mock.calls.filter(
+        ([sid, eventType]) => sid === workerId && eventType === "turn_end",
+      );
+      expect(workerTurnEndCalls).toHaveLength(2);
+      expect(workerTurnEndCalls[0]?.[2]).toEqual(expect.not.objectContaining({
+        interrupted: true,
       }));
       expect(workerTurnEndCalls[1]?.[2]).toEqual(expect.not.objectContaining({
         interrupted: true,

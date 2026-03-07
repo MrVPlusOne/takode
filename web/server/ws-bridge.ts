@@ -302,6 +302,9 @@ interface Session {
   queuedTurnReasons: string[];
   /** User message history IDs per queued follow-up turn. */
   queuedTurnUserMessageIds: number[][];
+  /** Interrupt sources aligned with queued follow-up turns.
+   *  A queued follow-up does not prove the active turn was interrupted. */
+  queuedTurnInterruptSources: (InterruptSource | null)[];
   /** Whether system.init has been received since the last CLI connect.
    *  False during --resume replay — messages sent before init are dropped by CLI. */
   cliInitReceived: boolean;
@@ -1493,6 +1496,7 @@ export class WsBridge {
         queuedTurnStarts: 0,
         queuedTurnReasons: [],
         queuedTurnUserMessageIds: [],
+        queuedTurnInterruptSources: [],
         cliInitReceived: false,
         lastCliMessageAt: 0,
         lastCliPingAt: 0,
@@ -1866,6 +1870,7 @@ export class WsBridge {
         queuedTurnStarts: 0,
         queuedTurnReasons: [],
         queuedTurnUserMessageIds: [],
+        queuedTurnInterruptSources: [],
         cliInitReceived: false,
         lastCliMessageAt: 0,
         lastCliPingAt: 0,
@@ -3841,6 +3846,13 @@ export class WsBridge {
         ? Math.max(0, Date.now() - session.generationStartedAt)
         : undefined;
 
+    const stopReason = typeof msg.stop_reason === "string" ? msg.stop_reason.toLowerCase() : "";
+    const resultInterrupted = stopReason.includes("interrupt") || stopReason.includes("cancel");
+    if (resultInterrupted && !session.interruptedDuringTurn && session.queuedTurnStarts > 0) {
+      const queuedInterruptSource = session.queuedTurnInterruptSources[0] ?? "user";
+      this.markTurnInterrupted(session, queuedInterruptSource);
+    }
+
     const turnTriggerSource = this.getCurrentTurnTriggerSource(session);
     this.setGenerating(session, false, "result");
     this.finalizeOrphanedTerminalToolsOnResult(session, msg);
@@ -5506,15 +5518,13 @@ export class WsBridge {
 
       const wasGenerating = session.isGenerating;
       if (source === "adapter") {
-        // Codex auto-interrupts active turns before dispatching the next user turn.
-        if (session.backendType === "codex" && wasGenerating) {
-          const interruptSource: InterruptSource = msg.agentSource
-            ? (this.isSystemSourceTag(msg.agentSource) ? "system" : "leader")
-            : "user";
-          this.markTurnInterrupted(session, interruptSource);
-        }
-
-        const target = this.markRunningFromUserDispatch(session, "user_message");
+        const interruptSource =
+          session.backendType === "codex" && wasGenerating
+            ? (msg.agentSource
+                ? (this.isSystemSourceTag(msg.agentSource) ? "system" : "leader")
+                : "user")
+            : null;
+        const target = this.markRunningFromUserDispatch(session, "user_message", interruptSource);
         // Queue follow-up user messages onto the next turn when dispatching while running.
         this.trackUserMessageForTurn(session, userMsgHistoryIdx, target);
       }
@@ -6500,8 +6510,17 @@ export class WsBridge {
    * dispatched, then roll back after a safety timeout if no backend output
    * arrives. This closes the idle-race window between dispatch and first token.
    */
-  private markRunningFromUserDispatch(session: Session, reason: string): UserDispatchTurnTarget {
-    return markRunningFromUserDispatchLifecycle(this.getGenerationLifecycleDeps(), session, reason);
+  private markRunningFromUserDispatch(
+    session: Session,
+    reason: string,
+    queuedInterruptSource: InterruptSource | null = null,
+  ): UserDispatchTurnTarget {
+    return markRunningFromUserDispatchLifecycle(
+      this.getGenerationLifecycleDeps(),
+      session,
+      reason,
+      queuedInterruptSource,
+    );
   }
 
   private trackUserMessageForTurn(

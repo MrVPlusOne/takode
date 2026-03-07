@@ -16,6 +16,7 @@ export interface GenerationLifecycleSession {
   queuedTurnStarts: number;
   queuedTurnReasons: string[];
   queuedTurnUserMessageIds: number[][];
+  queuedTurnInterruptSources: (InterruptSource | null)[];
   optimisticRunningTimer: ReturnType<typeof setTimeout> | null;
   lastUserMessage?: string;
   state: {
@@ -79,6 +80,7 @@ export function markRunningFromUserDispatch<S extends GenerationLifecycleSession
   deps: GenerationLifecycleDeps<S>,
   session: S,
   reason: string,
+  queuedInterruptSource: InterruptSource | null = null,
 ): UserDispatchTurnTarget {
   const wasGenerating = session.isGenerating;
   restartOptimisticRunningTimer(deps, session, reason);
@@ -86,6 +88,7 @@ export function markRunningFromUserDispatch<S extends GenerationLifecycleSession
     session.queuedTurnStarts += 1;
     session.queuedTurnReasons.push(reason);
     session.queuedTurnUserMessageIds.push([]);
+    session.queuedTurnInterruptSources.push(queuedInterruptSource);
     deps.persistSession(session);
     return "queued";
   }
@@ -165,6 +168,7 @@ export function setGenerating<S extends GenerationLifecycleSession>(
       session.queuedTurnStarts -= 1;
       const nextReason = session.queuedTurnReasons.shift() ?? "queued_user_message";
       const nextUserMessageIds = session.queuedTurnUserMessageIds.shift() ?? [];
+      session.queuedTurnInterruptSources.shift();
 
       session.isGenerating = true;
       session.generationStartedAt = Date.now();
