@@ -49,7 +49,7 @@ describe("settings-manager", () => {
       autoApprovalTimeoutSeconds: 45,
       namerConfig: { backend: "claude" },
       autoNamerEnabled: true,
-      transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-5-mini" },
+      transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", customVocabulary: "", enhancementEnabled: true, enhancementModel: "gpt-5-mini" },
       editorConfig: { editor: "none" },
       updatedAt: 0,
     });
@@ -182,6 +182,7 @@ describe("settings-manager", () => {
     expect(loaded.transcriptionConfig).toEqual({
       apiKey: "legacy-transcription-secret",
       baseUrl: "https://example.invalid/v1",
+      customVocabulary: "",
       enhancementEnabled: false,
       enhancementModel: "gpt-4o-mini",
     });
@@ -227,7 +228,7 @@ describe("settings-manager", () => {
       autoApprovalTimeoutSeconds: 45,
       namerConfig: { backend: "claude" },
       autoNamerEnabled: true,
-      transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-5-mini" },
+      transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", customVocabulary: "", enhancementEnabled: true, enhancementModel: "gpt-5-mini" },
       editorConfig: { editor: "none" },
       updatedAt: 0,
     });
