@@ -2305,6 +2305,7 @@ export class WsBridge {
           for (const block of toolResults) {
             this.reconcileCodexQuestToolResult(session, block);
           }
+          const completedToolStartTimes = this.collectCompletedToolStartTimes(session, toolResults);
           const previews = this.buildToolResultPreviews(session, toolResults);
           if (previews.length > 0) {
             const previewMsg: BrowserIncomingMessage = {
@@ -2314,6 +2315,7 @@ export class WsBridge {
             session.messageHistory.push(previewMsg);
             this.broadcastToBrowsers(session, previewMsg);
             this.persistSession(session);
+            this.finalizeSupersededCodexTerminalTools(session, completedToolStartTimes);
           }
 
           // Preserve non-tool_result content blocks (text/tool_use/thinking).
@@ -4400,6 +4402,7 @@ export class WsBridge {
     if (!Array.isArray(content)) return;
 
     const toolResults = content.filter((b): b is Extract<ContentBlock, { type: "tool_result" }> => b.type === "tool_result");
+    const completedToolStartTimes = this.collectCompletedToolStartTimes(session, toolResults);
     const previews = this.buildToolResultPreviews(session, toolResults);
 
     if (previews.length === 0) return;
@@ -4411,6 +4414,7 @@ export class WsBridge {
     session.messageHistory.push(browserMsg);
     this.broadcastToBrowsers(session, browserMsg);
     this.persistSession(session);
+    this.finalizeSupersededCodexTerminalTools(session, completedToolStartTimes);
   }
 
   private clearCodexToolResultWatchdog(session: Session, toolUseId: string): void {
@@ -4425,6 +4429,20 @@ export class WsBridge {
       clearTimeout(timer);
     }
     session.codexToolResultWatchdogs.clear();
+  }
+
+  private collectCompletedToolStartTimes(
+    session: Session,
+    toolResults: Array<Extract<ContentBlock, { type: "tool_result" }>>,
+  ): number[] {
+    const completedToolStartTimes: number[] = [];
+    for (const block of toolResults) {
+      const startedAt = session.toolStartTimes.get(block.tool_use_id);
+      if (typeof startedAt === "number" && Number.isFinite(startedAt)) {
+        completedToolStartTimes.push(startedAt);
+      }
+    }
+    return completedToolStartTimes;
   }
 
   private emitSyntheticToolResultPreview(
@@ -4468,6 +4486,25 @@ export class WsBridge {
     console.warn(
       `[ws-bridge] Synthesized tool_result_preview for orphaned tool ${toolUseId} in session ${sessionTag(session.id)} (${reason})`,
     );
+  }
+
+  private finalizeSupersededCodexTerminalTools(session: Session, completedToolStartTimes: number[]): void {
+    if (session.backendType !== "codex") return;
+    if (completedToolStartTimes.length === 0) return;
+
+    const newestCompletedToolStart = Math.max(...completedToolStartTimes);
+    for (const [toolUseId, startedAt] of [...session.toolStartTimes.entries()]) {
+      if (!(startedAt < newestCompletedToolStart)) continue;
+      const toolName = this.findToolUseNameInHistory(session, toolUseId);
+      if (toolName !== "Bash") continue;
+      this.emitSyntheticToolResultPreview(
+        session,
+        toolUseId,
+        "Terminal command did not deliver a final result after a later tool completed.",
+        false,
+        "superseded_by_later_completed_tool",
+      );
+    }
   }
 
   private findToolUseNameInHistory(session: Session, toolUseId: string): string | null {

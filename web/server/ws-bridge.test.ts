@@ -7509,6 +7509,150 @@ describe("Codex resumed-turn recovery", () => {
     }
   });
 
+  it("does not finalize older connected bash tools until a later tool actually completes", async () => {
+    vi.useFakeTimers();
+    try {
+      const sid = "s-connected-tool-stays-open";
+      const adapter = makeCodexAdapterMock();
+      bridge.attachCodexAdapter(sid, adapter as any);
+
+      const browser = makeBrowserSocket(sid);
+      bridge.handleBrowserOpen(browser, sid);
+      browser.send.mockClear();
+
+      await bridge.handleBrowserMessage(browser, JSON.stringify({
+        type: "user_message",
+        content: "run two commands",
+      }));
+
+      adapter.emitBrowserMessage({
+        type: "assistant",
+        message: {
+          id: "assistant-old-running",
+          type: "message",
+          role: "assistant",
+          model: "gpt-5.4",
+          content: [{ type: "tool_use", id: "cmd_old_running", name: "Bash", input: { command: "sleep 30" } }],
+          stop_reason: "tool_use",
+          usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        },
+        parent_tool_use_id: null,
+        timestamp: Date.now(),
+      });
+
+      vi.advanceTimersByTime(1000);
+
+      adapter.emitBrowserMessage({
+        type: "assistant",
+        message: {
+          id: "assistant-new-running",
+          type: "message",
+          role: "assistant",
+          model: "gpt-5.4",
+          content: [{ type: "tool_use", id: "cmd_new_running", name: "Bash", input: { command: "pwd" } }],
+          stop_reason: "tool_use",
+          usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        },
+        parent_tool_use_id: null,
+        timestamp: Date.now(),
+      });
+
+      const session = bridge.getSession(sid)!;
+      expect(session.toolStartTimes.has("cmd_old_running")).toBe(true);
+      expect(session.toolStartTimes.has("cmd_new_running")).toBe(true);
+
+      const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+      const stalePreview = calls.find((c: any) =>
+        c.type === "tool_result_preview" && Array.isArray(c.previews) && c.previews.some((p: any) => p.tool_use_id === "cmd_old_running"));
+      expect(stalePreview).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("finalizes older connected bash tools once a later tool completes", async () => {
+    vi.useFakeTimers();
+    try {
+      const sid = "s-connected-tool-superseded";
+      const adapter = makeCodexAdapterMock();
+      bridge.attachCodexAdapter(sid, adapter as any);
+
+      const browser = makeBrowserSocket(sid);
+      bridge.handleBrowserOpen(browser, sid);
+      browser.send.mockClear();
+
+      await bridge.handleBrowserMessage(browser, JSON.stringify({
+        type: "user_message",
+        content: "run two commands",
+      }));
+
+      adapter.emitBrowserMessage({
+        type: "assistant",
+        message: {
+          id: "assistant-old",
+          type: "message",
+          role: "assistant",
+          model: "gpt-5.4",
+          content: [{ type: "tool_use", id: "cmd_old", name: "Bash", input: { command: "git status --short" } }],
+          stop_reason: "tool_use",
+          usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        },
+        parent_tool_use_id: null,
+        timestamp: Date.now(),
+      });
+
+      vi.advanceTimersByTime(1000);
+
+      adapter.emitBrowserMessage({
+        type: "assistant",
+        message: {
+          id: "assistant-new",
+          type: "message",
+          role: "assistant",
+          model: "gpt-5.4",
+          content: [{ type: "tool_use", id: "cmd_new", name: "Bash", input: { command: "pwd" } }],
+          stop_reason: "tool_use",
+          usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        },
+        parent_tool_use_id: null,
+        timestamp: Date.now(),
+      });
+
+      browser.send.mockClear();
+      vi.advanceTimersByTime(1000);
+
+      adapter.emitBrowserMessage({
+        type: "assistant",
+        message: {
+          id: "assistant-new-result",
+          type: "message",
+          role: "assistant",
+          model: "gpt-5.4",
+          content: [{ type: "tool_result", tool_use_id: "cmd_new", content: "/repo\n", is_error: false }],
+          stop_reason: null,
+          usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        },
+        parent_tool_use_id: null,
+        timestamp: Date.now(),
+      });
+
+      const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+      const newPreview = calls.find((c: any) =>
+        c.type === "tool_result_preview" && Array.isArray(c.previews) && c.previews.some((p: any) => p.tool_use_id === "cmd_new"));
+      const stalePreview = calls.find((c: any) =>
+        c.type === "tool_result_preview" && Array.isArray(c.previews) && c.previews.some((p: any) => p.tool_use_id === "cmd_old"));
+
+      expect(newPreview).toBeDefined();
+      expect(stalePreview).toBeDefined();
+      expect(stalePreview.previews[0].is_error).toBe(false);
+      expect(stalePreview.previews[0].content).toContain("later tool completed");
+      expect(bridge.getSession(sid)?.toolStartTimes.has("cmd_old")).toBe(false);
+      expect(bridge.getSession(sid)?.toolStartTimes.has("cmd_new")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("result finalizes silent bash tools so they do not stay running forever", async () => {
     const sid = "s-result-silent-terminal";
     const adapter = makeCodexAdapterMock();
