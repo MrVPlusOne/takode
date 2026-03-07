@@ -2867,6 +2867,14 @@ describe("Persistence", () => {
         { type: "user_message", content: "Hello", timestamp: 1000 },
       ],
       pendingMessages: [],
+      pendingCodexTurnRecovery: {
+        adapterMsg: { type: "user_message", content: "Hello" },
+        userMessageId: "restored-user-1",
+        userContent: "Hello",
+        turnId: "turn-restored-1",
+        disconnectedAt: 1700000000000,
+        resumeConfirmedAt: null,
+      },
       pendingPermissions: [],
       processedClientMessageIds: ["restored-client-1"],
     });
@@ -2883,6 +2891,14 @@ describe("Persistence", () => {
     expect(session!.messageHistory).toHaveLength(1);
     expect(session!.backendSocket).toBeNull();
     expect(session!.browserSockets.size).toBe(0);
+    expect(session!.pendingCodexTurnRecovery).toEqual({
+      adapterMsg: { type: "user_message", content: "Hello" },
+      userMessageId: "restored-user-1",
+      userContent: "Hello",
+      turnId: "turn-restored-1",
+      disconnectedAt: 1700000000000,
+      resumeConfirmedAt: null,
+    });
     expect(session!.processedClientMessageIdSet.has("restored-client-1")).toBe(true);
   });
 
@@ -3078,6 +3094,37 @@ describe("Persistence", () => {
       content: "test persist",
     }));
     expect(saveSpy).toHaveBeenCalled();
+  });
+
+  it("persistSession: includes pending Codex turn recovery after user dispatch", async () => {
+    const saveSpy = vi.spyOn(store, "save");
+    const sid = "persist-codex-recovery";
+    const adapter = makeCodexAdapterMock();
+    adapter.sendBrowserMessage.mockReturnValue(true);
+    bridge.attachCodexAdapter(sid, adapter as any);
+
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+
+    await bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "user_message",
+      content: "persist this retry context",
+    }));
+
+    // This guards the restart path: a user turn that disconnects immediately
+    // after dispatch still needs its recovery state on disk.
+    const persistedWithRecovery = saveSpy.mock.calls
+      .map(([arg]) => arg)
+      .find((call) => call.id === sid && call.pendingCodexTurnRecovery);
+
+    expect(persistedWithRecovery?.pendingCodexTurnRecovery).toEqual({
+      adapterMsg: { type: "user_message", content: "persist this retry context" },
+      userMessageId: expect.any(String),
+      userContent: "persist this retry context",
+      turnId: null,
+      disconnectedAt: null,
+      resumeConfirmedAt: null,
+    });
   });
 });
 
@@ -7597,6 +7644,50 @@ describe("Codex resumed-turn recovery", () => {
     expect(adapter2.sendBrowserMessage).toHaveBeenCalledWith(
       expect.objectContaining({ type: "user_message", content: "resume without last turn" }),
     );
+  });
+
+  it("retries stale idle-thread resumes even when disconnect happened before turn id was recorded", async () => {
+    const sid = "s-missing-turn-id";
+    const adapter1 = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter1 as any);
+
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    browser.send.mockClear();
+
+    await bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "user_message",
+      content: "retry the orphaned dispatch",
+    }));
+
+    // Reproduce the session-140 race: Codex accepted turn/start, but the
+    // transport closed before the adapter captured the returned turn id.
+    adapter1.emitDisconnect(null);
+
+    const adapter2 = makeCodexAdapterMock();
+    adapter2.sendBrowserMessage.mockReturnValue(true);
+    bridge.attachCodexAdapter(sid, adapter2 as any);
+    adapter2.emitSessionMeta({
+      cliSessionId: "thread-orphaned",
+      model: "gpt-5.4",
+      cwd: "/repo",
+      resumeSnapshot: {
+        threadId: "thread-orphaned",
+        threadStatus: "idle",
+        turnCount: 8,
+        lastTurn: {
+          id: "turn-orphaned",
+          status: "inProgress",
+          error: null,
+          items: [],
+        },
+      },
+    });
+
+    expect(adapter2.sendBrowserMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "user_message", content: "retry the orphaned dispatch" }),
+    );
+    expect(bridge.getSession(sid)?.pendingCodexTurnRecovery?.turnId).toBeNull();
   });
 
   it("retries image turns when resume matching must use the annotated user text", async () => {

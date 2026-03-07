@@ -227,10 +227,54 @@ Current hot spots on `jiayi`:
 - Why this was different from prior attempts:
   - earlier fixes focused on transport shape (`local_images` vs inline data),
     stale-turn ordering, replay dedup, or reconnect flushing
-  - this case failed later in resume reconciliation because the comparison key
-    did not match the real dispatched prompt text
-  - it is therefore a recovery-state bug, not a new regression in image upload
-    or compaction ordering
+- this case failed later in resume reconciliation because the comparison key
+  did not match the real dispatched prompt text
+- it is therefore a recovery-state bug, not a new regression in image upload
+  or compaction ordering
+
+### 13. `turn/start` can succeed but recovery still loses the turn identity
+
+- Investigation date: `2026-03-07`
+- Concrete case:
+  - session `140`
+  - session id `4db7762d-0df0-499c-863f-fc345ac1d743`
+  - recording:
+    `/tmp/companion-recordings/4db7762d-0df0-499c-863f-fc345ac1d743_codex_2026-03-07T05-48-05.146Z_a7912e.jsonl`
+- Symptom:
+  - user sent a post-restart message
+  - server dispatched `turn/start`
+  - Codex returned a new turn id
+  - transport closed about `6ms` later
+  - relaunch resumed the thread as `idle`, but the last turn still claimed
+    `inProgress`
+  - the user message was never replayed, so the session looked idle and stuck
+- Important detail from the resume snapshot:
+  - `thread.status = idle`
+  - `lastTurn.status = inProgress`
+  - `lastTurn.items = []`
+- Why prior fixes did not catch it:
+  - `pendingCodexTurnRecovery` was present, but the bridge had no reliable turn
+    match key:
+    - the disconnect landed in the window after Codex accepted `turn/start`
+      but before the adapter had recorded `currentTurnId`
+    - the resumed stale turn had no user item text to compare against
+  - existing reconciliation logic only retried unmatched turns when:
+    - the pending turn id mismatched, or
+    - resumed user text matched, or
+    - a later stale-turn branch ran after the match gate
+  - with `pending.turnId = null` and `lastTurn.items = []`, the bridge returned
+    early and skipped the retry entirely
+- Related persistence gap found during the same investigation:
+  - `pendingCodexTurnRecovery` was not being written by `persistSession()`
+  - `restoreFromDisk()` also reset it to `null`
+  - that means restart-time replay can lose the only recovery state needed to
+    retry the user message
+- Practical lesson:
+  - a resumed stale turn with `thread idle + lastTurn inProgress + no items`
+    should be treated as retry-safe even when the original `turn/start` id was
+    never recorded locally
+  - recovery state for Codex replay must survive persistence, not just stay in
+    memory
 
 ## Current status on `jiayi`
 
@@ -263,6 +307,10 @@ report rather than assuming an old root cause has regressed.
 - the next recurrence (`a716078`) was not another transport regression; the
   remaining gap was that resume matching still keyed off pre-dispatch browser
   text instead of the annotated prompt actually sent to Codex.
+- the `2026-03-07` session-140 investigation found another gap:
+  reconciliation could still miss a retry if disconnect happened after Codex
+  accepted `turn/start` but before the adapter stored the turn id locally, and
+  persistence did not preserve `pendingCodexTurnRecovery`.
 - `q-154` appears only partially closed: the queue/relaunch path has been fixed
   in several places, but historical feedback says some pre-existing exited
   sessions still ignored new messages after restart.
@@ -284,6 +332,10 @@ report rather than assuming an old root cause has regressed.
     Codex turn starts
   - pending recovery state has to track the dispatched text, not just the
     original browser text
+- Do not assume unmatched resume snapshots are always unsafe.
+  - if the resumed thread is idle, the last turn still says `inProgress`, and
+    the last turn has no items at all, that is a retry-safe stale-turn shape
+    even when `pending.turnId` was never captured
 - Do not run recovered-message synthesis before checking whether the resumed turn
   is definitely stale.
 - Do not trust assistant item IDs during compaction replay.
@@ -314,6 +366,8 @@ When the next report arrives, work this checklist in order:
 3. Inspect the reconnect state machine.
    - Look at `pendingMessages`.
    - Look at `pendingCodexTurnRecovery`.
+   - Confirm whether `pendingCodexTurnRecovery.turnId` was ever captured or
+     lost in the narrow post-`turn/start` disconnect window.
    - Look at resumed `threadStatus`, `lastTurn.status`, and `lastTurn.items`.
    - Check whether stale-turn retry happened before recovery/synthesis.
 

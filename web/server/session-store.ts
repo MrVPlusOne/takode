@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import type {
   SessionState,
   BrowserIncomingMessage,
+  BrowserOutgoingMessage,
   PermissionRequest,
   BufferedBrowserEvent,
   SessionTaskEntry,
@@ -65,6 +66,14 @@ export interface PersistedSession {
   state: SessionState;
   messageHistory: BrowserIncomingMessage[];
   pendingMessages: string[];
+  pendingCodexTurnRecovery?: {
+    adapterMsg: BrowserOutgoingMessage;
+    userMessageId: string;
+    userContent: string;
+    turnId: string | null;
+    disconnectedAt: number | null;
+    resumeConfirmedAt: number | null;
+  } | null;
   pendingPermissions: [string, PermissionRequest][];
   eventBuffer?: BufferedBrowserEvent[];
   nextEventSeq?: number;

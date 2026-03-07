@@ -1468,7 +1468,7 @@ export class WsBridge {
         pendingControlRequests: new Map(),
         messageHistory: p.messageHistory || [],
         pendingMessages: p.pendingMessages || [],
-        pendingCodexTurnRecovery: null,
+        pendingCodexTurnRecovery: p.pendingCodexTurnRecovery ?? null,
         nextEventSeq: p.nextEventSeq && p.nextEventSeq > 0 ? p.nextEventSeq : 1,
         eventBuffer: Array.isArray(p.eventBuffer) ? p.eventBuffer : [],
         lastAckSeq: typeof p.lastAckSeq === "number" ? p.lastAckSeq : 0,
@@ -1559,6 +1559,7 @@ export class WsBridge {
       state: session.state,
       messageHistory: session.messageHistory,
       pendingMessages: session.pendingMessages,
+      pendingCodexTurnRecovery: session.pendingCodexTurnRecovery,
       pendingPermissions: Array.from(session.pendingPermissions.entries()),
       eventBuffer: session.eventBuffer,
       nextEventSeq: session.nextEventSeq,
@@ -1581,6 +1582,7 @@ export class WsBridge {
       state: session.state,
       messageHistory: session.messageHistory,
       pendingMessages: session.pendingMessages,
+      pendingCodexTurnRecovery: session.pendingCodexTurnRecovery,
       pendingPermissions: Array.from(session.pendingPermissions.entries()),
       eventBuffer: session.eventBuffer,
       nextEventSeq: session.nextEventSeq,
@@ -5225,6 +5227,7 @@ export class WsBridge {
           disconnectedAt: null,
           resumeConfirmedAt: null,
         };
+        this.persistSession(session);
       }
 
       const adapter = session.codexAdapter || session.claudeSdkAdapter;
@@ -6280,6 +6283,19 @@ export class WsBridge {
     const matchesTurnId = !!pending.turnId && pending.turnId === lastTurn.id;
     const matchesText = !!pendingText && pendingText === resumedUserText;
     if (!matchesTurnId && !matchesText) {
+      if (
+        !pending.turnId
+        && lastTurn.status === "inProgress"
+        && snapshot.threadStatus === "idle"
+        && lastTurn.items.length === 0
+      ) {
+        console.log(
+          `[ws-bridge] Resumed Codex turn ${lastTurn.id} for session ${sessionTag(session.id)} ` +
+          "lost local turn identity after turn/start; thread is idle and turn has no items, retrying user message",
+        );
+        this.retryPendingCodexTurn(session, pending);
+        return;
+      }
       if (pending.turnId && pending.turnId !== lastTurn.id) {
         console.log(
           `[ws-bridge] Resumed Codex turn ${lastTurn.id} for session ${sessionTag(session.id)} does not match pending turn ${pending.turnId}; retrying message`,
