@@ -603,7 +603,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
               <option value="none">None</option>
             </select>
             <p className="mt-1.5 text-xs text-cc-muted">
-              Used for clickable <code className="font-mono">file:</code> links in chat messages.
+              Used for clickable <code className="font-mono">file:</code> links in chat messages, including repo-root-relative paths.
             </p>
           </div>
 

@@ -129,6 +129,36 @@ describe("MarkdownContent quest links", () => {
     openSpy.mockRestore();
   });
 
+  it("resolves repo-root-relative file: links against the active session repo root", async () => {
+    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode" } });
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+
+    useStore.setState((state) => ({
+      ...state,
+      currentSessionId: "s1",
+      sessions: new Map([[
+        "s1",
+        {
+          session_id: "s1",
+          cwd: "/repo",
+          repo_root: "/repo",
+        } as never,
+      ]]),
+    }));
+
+    render(<MarkdownContent text="[TopBar.tsx](file:web/src/components/TopBar.tsx:162)" />);
+    fireEvent.click(screen.getByRole("link", { name: "TopBar.tsx" }));
+
+    await waitFor(() => {
+      expect(openSpy).toHaveBeenCalledWith(
+        "vscode://file//repo/web/src/components/TopBar.tsx:162:1",
+        "_blank",
+        "noopener,noreferrer",
+      );
+    });
+    openSpy.mockRestore();
+  });
+
   it("does not launch an editor for file: links when editor preference is none", async () => {
     mockGetSettings.mockResolvedValue({ editorConfig: { editor: "none" } });
     const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
@@ -158,6 +188,42 @@ describe("MarkdownContent quest links", () => {
           absolutePath: "/tmp/project/app.ts",
           line: 7,
           column: 3,
+        },
+      },
+      "*",
+    );
+    expect(mockGetSettings).not.toHaveBeenCalled();
+    postMessageSpy.mockRestore();
+  });
+
+  it("routes repo-root-relative file links through the VS Code embed bridge", () => {
+    window.history.replaceState({}, "", "/?takodeHost=vscode");
+    const postMessageSpy = vi.spyOn(window.parent, "postMessage");
+
+    useStore.setState((state) => ({
+      ...state,
+      currentSessionId: "s1",
+      sessions: new Map([[
+        "s1",
+        {
+          session_id: "s1",
+          cwd: "/repo",
+          repo_root: "/repo",
+        } as never,
+      ]]),
+    }));
+
+    render(<MarkdownContent text="[TopBar.tsx](file:web/src/components/TopBar.tsx:162:4)" />);
+    fireEvent.click(screen.getByRole("link", { name: "TopBar.tsx" }));
+
+    expect(postMessageSpy).toHaveBeenCalledWith(
+      {
+        source: "takode-vscode-prototype",
+        type: "takode:open-file",
+        payload: {
+          absolutePath: "/repo/web/src/components/TopBar.tsx",
+          line: 162,
+          column: 4,
         },
       },
       "*",

@@ -42,9 +42,76 @@ function parseSessionNumFromHref(href?: string): number | null {
 }
 
 interface FileLinkTarget {
+  path: string;
+  line: number;
+  column: number;
+  isRelative: boolean;
+}
+
+interface ResolvedFileLinkTarget {
   absolutePath: string;
   line: number;
   column: number;
+}
+
+function isAbsoluteFilePath(path: string): boolean {
+  return path.startsWith("/")
+    || /^\/[A-Za-z]:\//.test(path)
+    || /^[A-Za-z]:[\\/]/.test(path);
+}
+
+function normalizeRepoRelativePath(path: string): string | null {
+  const normalized = path.replace(/\\/g, "/").replace(/^\.\//, "");
+  if (!normalized) return null;
+
+  const parts = normalized.split("/");
+  const safeParts: string[] = [];
+  for (const part of parts) {
+    if (!part || part === ".") continue;
+    if (part === "..") return null;
+    safeParts.push(part);
+  }
+
+  return safeParts.length > 0 ? safeParts.join("/") : null;
+}
+
+function resolveFileLinkTarget(target: FileLinkTarget, repoRoot: string | null): ResolvedFileLinkTarget | null {
+  if (!target.isRelative) {
+    return {
+      absolutePath: target.path,
+      line: target.line,
+      column: target.column,
+    };
+  }
+
+  const normalizedRelativePath = normalizeRepoRelativePath(target.path);
+  if (!normalizedRelativePath || !repoRoot) return null;
+
+  const separator = repoRoot.includes("\\") ? "\\" : "/";
+  const normalizedRepoRoot = repoRoot.replace(/[\\/]+$/, "");
+  const relativePath = separator === "\\"
+    ? normalizedRelativePath.replace(/\//g, "\\")
+    : normalizedRelativePath;
+
+  return {
+    absolutePath: `${normalizedRepoRoot}${separator}${relativePath}`,
+    line: target.line,
+    column: target.column,
+  };
+}
+
+function getFileLinkRepoRoot(
+  sessionId: string | undefined,
+  currentSessionId: string | null,
+  sessions: Map<string, { cwd?: string; repo_root?: string }>,
+  sdkSessions: Array<{ sessionId: string; cwd?: string; repoRoot?: string }>,
+): string | null {
+  const activeSessionId = sessionId ?? currentSessionId;
+  if (!activeSessionId) return null;
+
+  const bridgeState = sessions.get(activeSessionId);
+  const sdkState = sdkSessions.find((session) => session.sessionId === activeSessionId);
+  return bridgeState?.repo_root || sdkState?.repoRoot || bridgeState?.cwd || sdkState?.cwd || null;
 }
 
 function parseFileLinkFromHref(href?: string): FileLinkTarget | null {
@@ -85,16 +152,13 @@ function parseFileLinkFromHref(href?: string): FileLinkTarget | null {
     }
   }
 
-  const isAbsolute =
-    path.startsWith("/")
-    || /^\/[A-Za-z]:\//.test(path)
-    || /^[A-Za-z]:[\\/]/.test(path);
-  if (!isAbsolute || line < 1 || column < 1) return null;
+  const isAbsolute = isAbsoluteFilePath(path);
+  if (line < 1 || column < 1) return null;
 
-  return { absolutePath: path, line, column };
+  return { path, line, column, isRelative: !isAbsolute };
 }
 
-function buildEditorUri(target: FileLinkTarget, editor: EditorKind): string | null {
+function buildEditorUri(target: ResolvedFileLinkTarget, editor: EditorKind): string | null {
   if (editor === "none") return null;
   const scheme = editor === "cursor" ? "cursor" : "vscode";
   return `${scheme}://file/${encodeURI(target.absolutePath)}:${target.line}:${target.column}`;
@@ -115,7 +179,15 @@ function transformMarkdownUrl(url: string): string {
   return url;
 }
 
-export function MarkdownContent({ text, size = "default" }: { text: string; size?: "default" | "sm" }) {
+export function MarkdownContent({
+  text,
+  size = "default",
+  sessionId,
+}: {
+  text: string;
+  size?: "default" | "sm";
+  sessionId?: string;
+}) {
   const sizeClass = size === "sm"
     ? "text-xs"
     : "text-[14px] sm:text-[15px]";
@@ -173,7 +245,7 @@ export function MarkdownContent({ text, size = "default" }: { text: string; size
             const fileTarget = parseFileLinkFromHref(href);
             if (fileTarget) {
               return (
-                <FileMarkdownLink target={fileTarget}>
+                <FileMarkdownLink target={fileTarget} sessionId={sessionId}>
                   {children}
                 </FileMarkdownLink>
               );
@@ -433,10 +505,31 @@ function SessionMarkdownLink({ sessionNum, children }: { sessionNum: number; chi
   );
 }
 
-function FileMarkdownLink({ target, children }: { target: FileLinkTarget; children: ReactNode }) {
+function FileMarkdownLink({
+  target,
+  sessionId,
+  children,
+}: {
+  target: FileLinkTarget;
+  sessionId?: string;
+  children: ReactNode;
+}) {
+  const currentSessionId = useStore((s) => s.currentSessionId);
+  const sessions = useStore((s) => s.sessions);
+  const sdkSessions = useStore((s) => s.sdkSessions);
+  const repoRoot = useMemo(
+    () => getFileLinkRepoRoot(sessionId, currentSessionId, sessions, sdkSessions),
+    [currentSessionId, sdkSessions, sessionId, sessions],
+  );
+  const resolvedTarget = useMemo(
+    () => resolveFileLinkTarget(target, repoRoot),
+    [repoRoot, target],
+  );
+
   const onClick = useCallback(async (e: MouseEvent<HTMLAnchorElement>) => {
     e.preventDefault();
-    if (openFileInEmbeddedVsCode(target)) {
+    if (!resolvedTarget) return;
+    if (openFileInEmbeddedVsCode(resolvedTarget)) {
       return;
     }
     let settings;
@@ -445,17 +538,22 @@ function FileMarkdownLink({ target, children }: { target: FileLinkTarget; childr
     } catch {
       return;
     }
-    const uri = buildEditorUri(target, settings.editorConfig?.editor ?? "none");
+    const uri = buildEditorUri(resolvedTarget, settings.editorConfig?.editor ?? "none");
     if (!uri) return;
     window.open(uri, "_blank", "noopener,noreferrer");
-  }, [target]);
+  }, [resolvedTarget]);
+
+  const href = `file:${target.path}:${target.line}:${target.column}`;
+  const title = resolvedTarget
+    ? `${target.path}:${target.line}:${target.column}`
+    : `${target.path}:${target.line}:${target.column} (unable to resolve repo-relative path)`;
 
   return (
     <a
-      href={`file:${target.absolutePath}:${target.line}:${target.column}`}
+      href={href}
       onClick={(e) => { void onClick(e); }}
-      className="text-cc-primary hover:underline"
-      title={`${target.absolutePath}:${target.line}:${target.column}`}
+      className={resolvedTarget ? "text-cc-primary hover:underline" : "text-cc-muted"}
+      title={title}
     >
       {children}
     </a>

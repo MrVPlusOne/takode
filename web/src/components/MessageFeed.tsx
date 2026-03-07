@@ -820,7 +820,7 @@ const SubagentContainer = memo(function SubagentContainer({
                     <div className="rounded-[8px] border border-cc-border/50 bg-cc-hover/20 px-3 py-2">
                       {isCodexSession ? (
                         <div className="text-[13px] text-cc-fg">
-                          <MarkdownContent text={streamingText} />
+                          <MarkdownContent text={streamingText} sessionId={sessionId} />
                           <span className="inline-block w-0.5 h-4 bg-cc-primary ml-0.5 align-middle -translate-y-[2px] animate-[pulse-dot_0.8s_ease-in-out_infinite]" />
                         </div>
                       ) : (
@@ -950,7 +950,7 @@ function SubagentResult({ preview, parsedText, sessionId, toolUseId }: {
         </div>
       )}
       <div className="text-sm max-h-96 overflow-y-auto">
-        <MarkdownContent text={displayText} />
+        <MarkdownContent text={displayText} sessionId={sessionId} />
       </div>
     </div>
   );
@@ -1005,7 +1005,7 @@ const FeedFooter = memo(function FeedFooter({ sessionId }: { sessionId: string }
             <div className="flex-1 min-w-0">
               {isCodexSession ? (
                 <div>
-                  <MarkdownContent text={streamingText} />
+                  <MarkdownContent text={streamingText} sessionId={sessionId} />
                   <span className="inline-block w-0.5 h-4 bg-cc-primary ml-0.5 align-middle -translate-y-[2px] animate-[pulse-dot_0.8s_ease-in-out_infinite]" />
                 </div>
               ) : (

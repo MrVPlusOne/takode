@@ -135,7 +135,7 @@ export const MessageBubble = memo(function MessageBubble({
     }
     // Expandable compact marker
     if (message.id.startsWith("compact-boundary-")) {
-      return <CompactMarker message={message} />;
+      return <CompactMarker message={message} sessionId={sessionId} />;
     }
     return (
       <div className="flex items-center gap-3 py-1">
@@ -559,7 +559,7 @@ function AssistantMessage({ message, sessionId, showTimestamp }: { message: Chat
           className={`flex-1 min-w-0 pr-6 ${userAddressedBodyClass}`}
         >
           {userAddressed && <LeaderUserAddressedMarker />}
-          <MarkdownContent text={displayMessage.content} />
+          <MarkdownContent text={displayMessage.content} sessionId={sessionId} />
           {showTimestamp && <MessageTimestamp timestamp={displayMessage.timestamp} turnDurationMs={displayMessage.turnDurationMs} />}
         </div>
         <CopyMessageButton message={displayMessage} contentRef={contentRef} />
@@ -576,7 +576,7 @@ function AssistantMessage({ message, sessionId, showTimestamp }: { message: Chat
         className={`flex-1 min-w-0 space-y-3 pr-6 ${userAddressedBodyClass}`}
       >
         {userAddressed && <LeaderUserAddressedMarker />}
-        {shouldRenderContentFallback && <MarkdownContent text={displayMessage.content} />}
+        {shouldRenderContentFallback && <MarkdownContent text={displayMessage.content} sessionId={sessionId} />}
         {grouped.map((group, i) => {
           if (group.kind === "content") {
             return <ContentBlockRenderer key={i} block={group.block} sessionId={sessionId} />;
@@ -698,7 +698,7 @@ function AutoApprovedChip({ content, reason }: { content: string; reason?: strin
   );
 }
 
-function CompactMarker({ message }: { message: ChatMessage }) {
+function CompactMarker({ message, sessionId }: { message: ChatMessage; sessionId?: string }) {
   const [expanded, setExpanded] = useState(false);
   const hasSummary = message.content && message.content !== "Conversation compacted";
 
@@ -730,7 +730,7 @@ function CompactMarker({ message }: { message: ChatMessage }) {
       </div>
       {expanded && hasSummary && (
         <div className="mt-2 mx-4 max-h-96 overflow-y-auto rounded-lg border border-cc-border bg-cc-card p-3">
-          <MarkdownContent text={message.content} />
+          <MarkdownContent text={message.content} sessionId={sessionId} />
         </div>
       )}
     </div>
@@ -741,7 +741,7 @@ function ContentBlockRenderer({ block, sessionId }: { block: ContentBlock; sessi
   const isCodex = useStore((s) => sessionId ? s.sessions.get(sessionId)?.backend_type === "codex" : false);
 
   if (block.type === "text") {
-    return <MarkdownContent text={block.text} />;
+    return <MarkdownContent text={block.text} sessionId={sessionId} />;
   }
 
   if (block.type === "thinking") {
