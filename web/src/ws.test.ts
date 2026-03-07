@@ -403,6 +403,32 @@ describe("handleMessage: assistant", () => {
     expect(msgs[0].leaderUserAddressed).toBe(true);
   });
 
+  it("clears only parented streaming for matching subagent assistant messages", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    useStore.getState().setStreaming("s1", "top level");
+    useStore.getState().setStreaming("s1", "child partial", "agent-1");
+
+    fireMessage({
+      type: "assistant",
+      message: {
+        id: "msg-subagent-1",
+        type: "message",
+        role: "assistant",
+        model: "gpt-5",
+        content: [{ type: "text", text: "Child final" }],
+        stop_reason: "end_turn",
+        usage: { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: "agent-1",
+    });
+
+    const state = useStore.getState();
+    expect(state.streaming.get("s1")).toBe("top level");
+    expect(state.streamingByParentToolUseId.has("s1")).toBe(false);
+  });
+
   it("updates timestamp when an existing assistant message is re-broadcast with newer data", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
@@ -714,6 +740,26 @@ describe("handleMessage: stream_event content_block_delta", () => {
     });
 
     expect(useStore.getState().streaming.get("s1")).toBe("Hello world");
+  });
+
+  it("routes parented streaming text into the matching subagent buffer", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    fireMessage({
+      type: "stream_event",
+      event: { type: "content_block_delta", delta: { type: "text_delta", text: "Nested " } },
+      parent_tool_use_id: "agent-1",
+    });
+    fireMessage({
+      type: "stream_event",
+      event: { type: "content_block_delta", delta: { type: "text_delta", text: "output" } },
+      parent_tool_use_id: "agent-1",
+    });
+
+    const state = useStore.getState();
+    expect(state.streaming.has("s1")).toBe(false);
+    expect(state.streamingByParentToolUseId.get("s1")?.get("agent-1")).toBe("Nested output");
   });
 });
 

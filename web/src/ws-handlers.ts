@@ -335,7 +335,7 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       } else {
         store.appendMessage(sessionId, chatMsg);
       }
-      store.setStreaming(sessionId, null);
+      store.setStreaming(sessionId, null, data.parent_tool_use_id);
       // Clear progress only for completed tools (tool_result blocks), not all tools.
       // Blanket clear would cause flickering during concurrent tool execution.
       if (msg.content?.length) {
@@ -386,8 +386,11 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
         if (evt.type === "content_block_delta") {
           const delta = evt.delta as Record<string, unknown> | undefined;
           if (delta?.type === "text_delta" && typeof delta.text === "string") {
-            const current = store.streaming.get(sessionId) || "";
-            store.setStreaming(sessionId, current + delta.text);
+            const parentToolUseId = data.parent_tool_use_id;
+            const current = parentToolUseId
+              ? (store.streamingByParentToolUseId.get(sessionId)?.get(parentToolUseId) || "")
+              : (store.streaming.get(sessionId) || "");
+            store.setStreaming(sessionId, current + delta.text, parentToolUseId);
           }
         }
 

@@ -201,7 +201,11 @@ export function createTakodeRoutes(ctx: RouteContext) {
     const history = wsBridge.getMessageHistory(sessionId);
     if (!history) return c.json({ error: "Session not found in bridge" }, 404);
 
-    const result = buildReadResponse(history, idx, { offset, limit }, sessionId);
+    const result = buildReadResponse(history, idx, {
+      offset,
+      limit,
+      getToolResult: (toolUseId) => wsBridge.getToolResult(sessionId, toolUseId),
+    }, sessionId);
     if (!result) {
       return c.json(
         { error: `Message index ${idx} out of range (0-${history.length - 1})` },

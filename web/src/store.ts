@@ -33,6 +33,8 @@ interface AppState {
 
   // Streaming partial text per session
   streaming: Map<string, string>;
+  // Streaming partial text for parented messages (session -> parent tool use id -> text)
+  streamingByParentToolUseId: Map<string, Map<string, string>>;
 
   // Streaming stats: start time + output tokens
   streamingStartedAt: Map<string, number>;
@@ -200,7 +202,7 @@ interface AppState {
   /** Update quest title in all quest_claimed/quest_submitted messages for a quest. */
   updateQuestTitleInMessages: (sessionId: string, questId: string, newTitle: string) => void;
   updateLastAssistantMessage: (sessionId: string, updater: (msg: ChatMessage) => ChatMessage) => void;
-  setStreaming: (sessionId: string, text: string | null) => void;
+  setStreaming: (sessionId: string, text: string | null, parentToolUseId?: string | null) => void;
   setStreamingStats: (sessionId: string, stats: { startedAt?: number; outputTokens?: number } | null) => void;
   /** Clear all streaming/generation transient state for a session in one batch */
   clearStreamingState: (sessionId: string) => void;
@@ -410,6 +412,7 @@ export const useStore = create<AppState>((set) => ({
   currentSessionId: getInitialSessionId(),
   messages: new Map(),
   streaming: new Map(),
+  streamingByParentToolUseId: new Map(),
   streamingStartedAt: new Map(),
   streamingOutputTokens: new Map(),
   streamingPausedDuration: new Map(),
@@ -613,6 +616,8 @@ export const useStore = create<AppState>((set) => ({
       messages.delete(sessionId);
       const streaming = new Map(s.streaming);
       streaming.delete(sessionId);
+      const streamingByParentToolUseId = new Map(s.streamingByParentToolUseId);
+      streamingByParentToolUseId.delete(sessionId);
       const streamingStartedAt = new Map(s.streamingStartedAt);
       streamingStartedAt.delete(sessionId);
       const streamingOutputTokens = new Map(s.streamingOutputTokens);
@@ -694,6 +699,7 @@ export const useStore = create<AppState>((set) => ({
         sessions,
         messages,
         streaming,
+        streamingByParentToolUseId,
         streamingStartedAt,
         streamingOutputTokens,
         streamingPausedDuration,
@@ -811,8 +817,23 @@ export const useStore = create<AppState>((set) => ({
       return { messages };
     }),
 
-  setStreaming: (sessionId, text) =>
+  setStreaming: (sessionId, text, parentToolUseId) =>
     set((s) => {
+      if (parentToolUseId) {
+        const streamingByParentToolUseId = new Map(s.streamingByParentToolUseId);
+        const sessionStreaming = new Map(streamingByParentToolUseId.get(sessionId) || []);
+        if (text === null) {
+          sessionStreaming.delete(parentToolUseId);
+        } else {
+          sessionStreaming.set(parentToolUseId, text);
+        }
+        if (sessionStreaming.size === 0) {
+          streamingByParentToolUseId.delete(sessionId);
+        } else {
+          streamingByParentToolUseId.set(sessionId, sessionStreaming);
+        }
+        return { streamingByParentToolUseId };
+      }
       const streaming = new Map(s.streaming);
       if (text === null) {
         streaming.delete(sessionId);
@@ -846,6 +867,8 @@ export const useStore = create<AppState>((set) => ({
     set((s) => {
       const streaming = new Map(s.streaming);
       streaming.delete(sessionId);
+      const streamingByParentToolUseId = new Map(s.streamingByParentToolUseId);
+      streamingByParentToolUseId.delete(sessionId);
       const streamingStartedAt = new Map(s.streamingStartedAt);
       streamingStartedAt.delete(sessionId);
       const streamingOutputTokens = new Map(s.streamingOutputTokens);
@@ -854,7 +877,14 @@ export const useStore = create<AppState>((set) => ({
       streamingPausedDuration.delete(sessionId);
       const streamingPauseStartedAt = new Map(s.streamingPauseStartedAt);
       streamingPauseStartedAt.delete(sessionId);
-      return { streaming, streamingStartedAt, streamingOutputTokens, streamingPausedDuration, streamingPauseStartedAt };
+      return {
+        streaming,
+        streamingByParentToolUseId,
+        streamingStartedAt,
+        streamingOutputTokens,
+        streamingPausedDuration,
+        streamingPauseStartedAt,
+      };
     }),
 
   addPermission: (sessionId, perm) =>
@@ -1480,6 +1510,7 @@ export const useStore = create<AppState>((set) => ({
       currentSessionId: null,
       messages: new Map(),
       streaming: new Map(),
+      streamingByParentToolUseId: new Map(),
       streamingStartedAt: new Map(),
       streamingOutputTokens: new Map(),
       streamingPausedDuration: new Map(),

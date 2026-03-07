@@ -633,12 +633,16 @@ const SubagentContainer = memo(function SubagentContainer({
 
   // Read the subagent's final result from the toolResults store
   const resultPreview = useStore((s) => s.toolResults.get(sessionId)?.get(group.taskToolUseId));
+  const streamingText = useStore((s) =>
+    s.streamingByParentToolUseId.get(sessionId)?.get(group.taskToolUseId) || ""
+  );
   const progressElapsedSeconds = useStore((s) =>
     s.toolProgress.get(sessionId)?.get(group.taskToolUseId)?.elapsedSeconds
   );
   const startTimestamp = useStore((s) =>
     s.toolStartTimestamps.get(sessionId)?.get(group.taskToolUseId)
   );
+  const isCodexSession = useStore((s) => s.sessions.get(sessionId)?.backend_type === "codex");
 
   // Read background agent notification
   const bgNotif = useStore((s) =>
@@ -651,6 +655,12 @@ const SubagentContainer = memo(function SubagentContainer({
   const sessionStatus = useStore((s) => s.sessionStatus.get(sessionId));
   const isEffectivelyComplete = resultPreview != null || bgNotif != null;
   const isAbandoned = !isEffectivelyComplete && sessionStatus !== "running";
+
+  useEffect(() => {
+    if (streamingText && !open) {
+      setOpen(true);
+    }
+  }, [streamingText, open]);
 
   // Get the last visible entry for a compact preview (fallback when no result)
   const lastEntry = group.children[group.children.length - 1];
@@ -682,8 +692,12 @@ const SubagentContainer = memo(function SubagentContainer({
       const text = parsedResultPreview.trim();
       return text.length > 120 ? text.slice(0, 120) + "..." : text;
     }
+    if (streamingText) {
+      const text = streamingText.trim();
+      return text.length > 120 ? text.slice(0, 120) + "..." : text;
+    }
     return lastPreview;
-  }, [parsedResultPreview, lastPreview]);
+  }, [parsedResultPreview, streamingText, lastPreview]);
 
   const card = (
     <div className="border border-cc-border rounded-[10px] overflow-hidden bg-cc-card">
@@ -753,9 +767,26 @@ const SubagentContainer = memo(function SubagentContainer({
           )}
 
           {/* Child activities */}
-          {childCount > 0 && (
+          {(childCount > 0 || streamingText) && (
             <div className="px-3 py-2 space-y-3">
-              <FeedEntries entries={group.children} sessionId={sessionId} minuteBoundaryLabels={minuteBoundaryLabels} />
+              {childCount > 0 && (
+                <FeedEntries entries={group.children} sessionId={sessionId} minuteBoundaryLabels={minuteBoundaryLabels} />
+              )}
+              {streamingText && (
+                <div className="rounded-[8px] border border-cc-border/50 bg-cc-hover/20 px-3 py-2">
+                  {isCodexSession ? (
+                    <div className="text-[13px] text-cc-fg">
+                      <MarkdownContent text={streamingText} />
+                      <span className="inline-block w-0.5 h-4 bg-cc-primary ml-0.5 align-middle -translate-y-[2px] animate-[pulse-dot_0.8s_ease-in-out_infinite]" />
+                    </div>
+                  ) : (
+                    <pre className="font-serif-assistant text-[14px] text-cc-fg whitespace-pre-wrap break-words leading-relaxed">
+                      {streamingText}
+                      <span className="inline-block w-0.5 h-4 bg-cc-primary ml-0.5 align-middle animate-[pulse-dot_0.8s_ease-in-out_infinite]" />
+                    </pre>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -785,7 +816,7 @@ const SubagentContainer = memo(function SubagentContainer({
           )}
 
           {/* No children yet indicator */}
-          {childCount === 0 && !isEffectivelyComplete && !isAbandoned && (
+          {childCount === 0 && !streamingText && !isEffectivelyComplete && !isAbandoned && (
             <div className="px-3 py-2 flex items-center gap-1.5 text-[11px] text-cc-muted">
               <YarnBallSpinner className="w-3.5 h-3.5" />
               <span>{group.isBackground ? "Running in background..." : "Agent starting..."}</span>

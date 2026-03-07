@@ -35,6 +35,7 @@ vi.mock("../store.js", () => {
     const state = {
       messages: mockStoreValues.messages ?? new Map(),
       streaming: mockStoreValues.streaming ?? new Map(),
+      streamingByParentToolUseId: mockStoreValues.streamingByParentToolUseId ?? new Map(),
       streamingStartedAt: mockStoreValues.streamingStartedAt ?? new Map(),
       streamingOutputTokens: mockStoreValues.streamingOutputTokens ?? new Map(),
       streamingPausedDuration: mockStoreValues.streamingPausedDuration ?? new Map(),
@@ -99,6 +100,12 @@ function setStoreStreaming(sessionId: string, text: string | undefined) {
   const map = new Map();
   if (text !== undefined) map.set(sessionId, text);
   mockStoreValues.streaming = map;
+}
+
+function setStoreParentStreaming(sessionId: string, entries: Record<string, string>) {
+  const map = new Map();
+  map.set(sessionId, new Map(Object.entries(entries)));
+  mockStoreValues.streamingByParentToolUseId = map;
 }
 
 function setStoreStatus(sessionId: string, status: string | null) {
@@ -184,6 +191,7 @@ function resetStore() {
   mockCollapseAllTurnActivity.mockReset();
   mockStoreValues.messages = new Map();
   mockStoreValues.streaming = new Map();
+  mockStoreValues.streamingByParentToolUseId = new Map();
   mockStoreValues.streamingStartedAt = new Map();
   mockStoreValues.streamingOutputTokens = new Map();
   mockStoreValues.streamingPausedDuration = new Map();
@@ -690,6 +698,34 @@ describe("MessageFeed - subagent grouping", () => {
     // Since there are no children and no result, the "Agent starting..." indicator
     // should be visible when expanded
     expect(screen.getByText("Agent starting...")).toBeTruthy();
+  });
+
+  it("renders live parented streaming inside the subagent card instead of the top-level streaming bubble", () => {
+    const sid = "test-subagent-streaming";
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "a1",
+        role: "assistant",
+        content: "",
+        contentBlocks: [
+          {
+            type: "tool_use",
+            id: "task-streaming",
+            name: "Agent",
+            input: { description: "Inspect event routing", subagent_type: "explorer" },
+          },
+        ],
+      }),
+    ]);
+    setStoreSessionBackend(sid, "codex");
+    setStoreStatus(sid, "running");
+    setStoreParentStreaming(sid, { "task-streaming": "Streaming from the subagent" });
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByText("Inspect event routing")).toBeTruthy();
+    expect(screen.getByText("Streaming from the subagent")).toBeTruthy();
+    expect(screen.queryByText("Agent starting...")).toBeNull();
   });
 
   it("shows a live subagent timer while the task tool is running", () => {

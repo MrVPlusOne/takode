@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
+  buildPeekDefault,
+  buildPeekRange,
   buildPeekResponse,
   buildReadResponse,
   buildToolSummary,
@@ -23,6 +25,7 @@ function assistantMsg(
   textContent: string,
   ts: number,
   toolUses?: { name: string; input: Record<string, unknown> }[],
+  parentToolUseId: string | null = null,
 ): BrowserIncomingMessage {
   const content: unknown[] = [{ type: "text" as const, text: textContent }];
   if (toolUses) {
@@ -41,8 +44,23 @@ function assistantMsg(
       stop_reason: "end_turn",
       usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
     },
-    parent_tool_use_id: null,
+    parent_tool_use_id: parentToolUseId,
     timestamp: ts,
+  } as BrowserIncomingMessage;
+}
+
+function toolResultPreview(toolUseId: string, content: string): BrowserIncomingMessage {
+  return {
+    type: "tool_result_preview",
+    previews: [
+      {
+        tool_use_id: toolUseId,
+        content,
+        is_error: false,
+        total_size: content.length,
+        is_truncated: false,
+      },
+    ],
   } as BrowserIncomingMessage;
 }
 
@@ -351,6 +369,73 @@ describe("buildPeekResponse", () => {
     expect(result[0].messages[1].idx).toBe(2); // assistant (skipped stream_event at 1)
     expect(result[0].messages[2].idx).toBe(4); // result (skipped tool_progress at 3)
   });
+
+  it("collapses subagent child chatter into the parent assistant preview", () => {
+    const subagentResult = JSON.stringify([
+      { type: "text", text: "Final agent answer" },
+      { type: "text", text: "agentId: worker-1" },
+    ]);
+    const history: BrowserIncomingMessage[] = [
+      userMsg("Investigate the bug", 1000),
+      assistantMsg("", 2000, [
+        { name: "Agent", input: { prompt: "Look into the websocket bug" } },
+      ]),
+      assistantMsg("streaming child detail", 2500, undefined, "tu-Agent"),
+      toolResultPreview("tu-Agent", subagentResult),
+      resultMsg(3000),
+    ];
+
+    const result = buildPeekResponse(history, { turns: 1 });
+    expect(result[0].messages).toHaveLength(3);
+    expect(result[0].messages[1].type).toBe("assistant");
+    expect(result[0].messages[1].content).toBe("Final agent answer");
+    expect(result[0].messages[1].tools).toBeUndefined();
+    expect(result[0].messages.some((msg) => msg.content.includes("streaming child detail"))).toBe(false);
+  });
+});
+
+describe("buildPeekDefault", () => {
+  it("uses the subagent final result as the collapsed turn preview", () => {
+    const subagentResult = JSON.stringify([
+      { type: "text", text: "Subagent finished the audit" },
+      { type: "text", text: "<usage>tokens</usage>" },
+    ]);
+    const history: BrowserIncomingMessage[] = [
+      userMsg("Turn 1", 1000),
+      assistantMsg("", 2000, [{ name: "Agent", input: { prompt: "Audit the websocket path" } }]),
+      assistantMsg("child detail", 2500, undefined, "tu-Agent"),
+      toolResultPreview("tu-Agent", subagentResult),
+      resultMsg(3000),
+      userMsg("Turn 2", 6000),
+      assistantMsg("Done with follow-up", 7000),
+      resultMsg(1000),
+    ];
+
+    const result = buildPeekDefault(history);
+    expect(result.collapsedTurns).toHaveLength(1);
+    expect(result.collapsedTurns[0].resultPreview).toBe("Subagent finished the audit");
+  });
+});
+
+describe("buildPeekRange", () => {
+  it("shows the subagent result preview and hides child messages in range mode", () => {
+    const subagentResult = JSON.stringify([
+      { type: "text", text: "Range preview from child agent" },
+    ]);
+    const history: BrowserIncomingMessage[] = [
+      userMsg("Range turn", 1000),
+      assistantMsg("", 2000, [{ name: "Task", input: { prompt: "Check one narrow thing" } }]),
+      assistantMsg("child detail", 2300, undefined, "tu-Task"),
+      toolResultPreview("tu-Task", subagentResult),
+      resultMsg(500),
+    ];
+
+    const result = buildPeekRange(history, 0, 10);
+    expect(result.messages).toHaveLength(3);
+    expect(result.messages[1].content).toBe("Range preview from child agent");
+    expect(result.messages[1].toolCounts).toBeUndefined();
+    expect(result.messages.some((msg) => msg.content.includes("child detail"))).toBe(false);
+  });
 });
 
 // ─── buildReadResponse ────────────────────────────────────────────────────────
@@ -472,5 +557,27 @@ describe("buildReadResponse", () => {
     const result = buildReadResponse(history, 0)!;
     expect(result.offset).toBe(0);
     expect(result.limit).toBe(200);
+  });
+
+  it("expands a parent subagent message to the full stored tool result", () => {
+    const preview = JSON.stringify([{ type: "text", text: "Short preview" }]);
+    const full = JSON.stringify([
+      { type: "text", text: "Full subagent answer" },
+      { type: "text", text: "agentId: worker-2" },
+    ]);
+    const history: BrowserIncomingMessage[] = [
+      assistantMsg("", 1000, [{ name: "Agent", input: { prompt: "Write the summary" } }]),
+      toolResultPreview("tu-Agent", preview),
+    ];
+
+    const result = buildReadResponse(history, 0, {
+      getToolResult: (toolUseId) => toolUseId === "tu-Agent"
+        ? { content: full, is_error: false }
+        : null,
+    })!;
+
+    expect(result.content).toBe("Full subagent answer");
+    expect(result.content).not.toContain("[Tool: Agent]");
+    expect(result.content).not.toContain("agentId:");
   });
 });

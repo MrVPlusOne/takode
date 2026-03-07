@@ -6,7 +6,7 @@
  * needing the full WebSocket firehose.
  */
 
-import type { BrowserIncomingMessage, CLIResultMessage, ContentBlock } from "./session-types.js";
+import type { BrowserIncomingMessage, CLIResultMessage, ContentBlock, ToolResultPreview } from "./session-types.js";
 import type { ImageRef } from "./image-store.js";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -171,6 +171,150 @@ export function buildToolSummary(name: string, input: Record<string, unknown>): 
       return "";
     }
   }
+}
+
+function isSubagentToolName(name: string): boolean {
+  return name === "Task" || name === "Agent";
+}
+
+function extractToolResultPreviewIndex(messageHistory: BrowserIncomingMessage[]): Map<string, ToolResultPreview> {
+  const previews = new Map<string, ToolResultPreview>();
+  for (const msg of messageHistory) {
+    if (msg.type !== "tool_result_preview") continue;
+    for (const preview of msg.previews) {
+      previews.set(preview.tool_use_id, preview);
+    }
+  }
+  return previews;
+}
+
+function extractSubagentToolUseIds(messageHistory: BrowserIncomingMessage[]): Set<string> {
+  const ids = new Set<string>();
+  for (const msg of messageHistory) {
+    if (msg.type !== "assistant" || !msg.message?.content) continue;
+    for (const block of msg.message.content) {
+      if (block.type === "tool_use" && isSubagentToolName(block.name)) {
+        ids.add(block.id);
+      }
+    }
+  }
+  return ids;
+}
+
+function extractSubagentPreviewText(
+  blocks: ContentBlock[],
+  toolResultPreviews: Map<string, ToolResultPreview>,
+  maxLen: number,
+): string {
+  const lines = blocks
+    .filter((block): block is Extract<ContentBlock, { type: "tool_use" }> => block.type === "tool_use" && isSubagentToolName(block.name))
+    .map((block) => {
+      const raw = toolResultPreviews.get(block.id)?.content?.trim() || "";
+      if (!raw) return "";
+      const parsed = parseSubagentResultText(raw).trim();
+      return parsed || raw;
+    })
+    .filter(Boolean)
+    .map((text) => truncate(text, maxLen));
+  return lines.join("\n");
+}
+
+function parseSubagentResultText(raw: string): string {
+  try {
+    const blocks = JSON.parse(raw);
+    if (!Array.isArray(blocks)) return raw;
+    const texts: string[] = [];
+    for (const block of blocks) {
+      if (block?.type === "text" && typeof block.text === "string") {
+        if (/^agentId:|^<usage>/i.test(block.text.trim())) continue;
+        texts.push(block.text);
+      }
+    }
+    return texts.length > 0 ? texts.join("\n") : raw;
+  } catch {
+    return raw;
+  }
+}
+
+function buildSubagentIndexes(messageHistory: BrowserIncomingMessage[]): {
+  subagentToolUseIds: Set<string>;
+  toolResultPreviews: Map<string, ToolResultPreview>;
+} {
+  return {
+    subagentToolUseIds: extractSubagentToolUseIds(messageHistory),
+    toolResultPreviews: extractToolResultPreviewIndex(messageHistory),
+  };
+}
+
+function extractSubagentReadText(
+  blocks: ContentBlock[],
+  toolResultPreviews: Map<string, ToolResultPreview>,
+  getToolResult?: (toolUseId: string) => { content: string; is_error: boolean } | null,
+): string {
+  const subagentBlocks = blocks.filter(
+    (block): block is Extract<ContentBlock, { type: "tool_use" }> => block.type === "tool_use" && isSubagentToolName(block.name),
+  );
+  if (subagentBlocks.length === 0) return "";
+
+  const multiple = subagentBlocks.length > 1;
+  return subagentBlocks
+    .map((block, index) => {
+      const fullResult = getToolResult?.(block.id);
+      const raw = fullResult?.content || toolResultPreviews.get(block.id)?.content || "";
+      if (!raw.trim()) return "";
+      const parsed = parseSubagentResultText(raw).trim() || raw.trim();
+      if (!parsed) return "";
+      if (!multiple) return parsed;
+      const summary = buildToolSummary(block.name, block.input);
+      const header = summary ? `[Subagent ${index + 1}: ${summary}]` : `[Subagent ${index + 1}]`;
+      return `${header}\n${parsed}`;
+    })
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function extractAssistantReadText(
+  blocks: ContentBlock[],
+  toolResultPreviews: Map<string, ToolResultPreview>,
+  getToolResult?: (toolUseId: string) => { content: string; is_error: boolean } | null,
+): string {
+  const parts: string[] = [];
+  for (const block of blocks) {
+    if (block.type === "text") {
+      if (block.text) parts.push(block.text);
+      continue;
+    }
+    if (block.type === "tool_use") {
+      if (isSubagentToolName(block.name)) {
+        const resultText = extractSubagentReadText([block], toolResultPreviews, getToolResult);
+        parts.push(resultText || stringifyToolUse(block));
+      } else {
+        parts.push(stringifyToolUse(block));
+      }
+      continue;
+    }
+    if (block.type === "tool_result") {
+      parts.push(stringifyToolResult(block));
+    }
+  }
+  return parts.join("\n\n");
+}
+
+function deriveTurnResultPreview(
+  peekMessages: TakodePeekMessage[],
+  resultMessage: BrowserIncomingMessage | null,
+  contentLimit: number,
+): string {
+  const assistantPreview = [...peekMessages]
+    .reverse()
+    .find((msg) => msg.type === "assistant" && msg.content.trim())
+    ?.content
+    .trim();
+  if (assistantPreview) return truncate(assistantPreview, contentLimit);
+  if (resultMessage?.type === "result") {
+    return truncate((resultMessage.data as CLIResultMessage).result || "", contentLimit);
+  }
+  return "";
 }
 
 // ─── Message Text Extraction ──────────────────────────────────────────────────
@@ -380,9 +524,21 @@ function buildTurnMessages(
   messageHistory: BrowserIncomingMessage[],
   turn: TurnBoundary,
   contentLimit: number,
-  opts: { full?: boolean; endedAt?: number | null; sessionId?: string } = {},
+  opts: {
+    full?: boolean;
+    endedAt?: number | null;
+    sessionId?: string;
+    subagentToolUseIds?: Set<string>;
+    toolResultPreviews?: Map<string, ToolResultPreview>;
+  } = {},
 ): TakodePeekMessage[] {
-  const { full = false, endedAt = null, sessionId } = opts;
+  const {
+    full = false,
+    endedAt = null,
+    sessionId,
+    subagentToolUseIds = new Set<string>(),
+    toolResultPreviews = new Map<string, ToolResultPreview>(),
+  } = opts;
   const startMsg = messageHistory[turn.startIdx];
   const startedAt = extractTimestamp(startMsg);
 
@@ -393,6 +549,13 @@ function buildTurnMessages(
   for (let i = turn.startIdx; i <= endBound; i++) {
     const msg = messageHistory[i];
     if (!isPeekable(msg)) continue;
+    if (
+      msg.type === "assistant"
+      && msg.parent_tool_use_id
+      && subagentToolUseIds.has(msg.parent_tool_use_id)
+    ) {
+      continue;
+    }
 
     let ts = extractTimestamp(msg);
     // Result messages have no timestamp — use endedAt or last known timestamp
@@ -404,6 +567,9 @@ function buildTurnMessages(
     let rawText: string;
     if (msg.type === "assistant" && msg.message?.content) {
       rawText = extractTextFromBlocks(msg.message.content);
+      if (!rawText.trim()) {
+        rawText = extractSubagentPreviewText(msg.message.content, toolResultPreviews, contentLimit);
+      }
     } else {
       rawText = extractFullText(msg, sessionId);
     }
@@ -431,14 +597,20 @@ function buildTurnMessages(
     if (msg.type === "assistant" && msg.message?.content) {
       const toolBlocks = extractToolUseBlocks(msg.message.content);
       if (toolBlocks.length > 0) {
-        peekMsg.tools = toolBlocks.map((block) => {
-          const blockIdx = msg.message.content.indexOf(block);
-          return {
-            idx: blockIdx >= 0 ? blockIdx : 0,
-            name: block.name,
-            summary: buildToolSummary(block.name, block.input),
-          };
+        const visibleToolBlocks = toolBlocks.filter((block) => {
+          if (!isSubagentToolName(block.name)) return true;
+          return !toolResultPreviews.has(block.id);
         });
+        if (visibleToolBlocks.length > 0) {
+          peekMsg.tools = visibleToolBlocks.map((block) => {
+            const blockIdx = msg.message.content.indexOf(block);
+            return {
+              idx: blockIdx >= 0 ? blockIdx : 0,
+              name: block.name,
+              summary: buildToolSummary(block.name, block.input),
+            };
+          });
+        }
       }
     }
 
@@ -468,6 +640,7 @@ export function buildPeekResponse(
 ): TakodePeekTurn[] {
   const { turns: turnCount = 1, since = 0, full = false } = options;
   const contentLimit = 120;
+  const { subagentToolUseIds, toolResultPreviews } = buildSubagentIndexes(messageHistory);
 
   const allTurns = findTurnBoundaries(messageHistory);
 
@@ -495,7 +668,13 @@ export function buildPeekResponse(
       ? (durationMs && startedAt ? startedAt + durationMs : null)
       : null;
 
-    const peekMessages = buildTurnMessages(messageHistory, turn, contentLimit, { full, endedAt, sessionId });
+    const peekMessages = buildTurnMessages(messageHistory, turn, contentLimit, {
+      full,
+      endedAt,
+      sessionId,
+      subagentToolUseIds,
+      toolResultPreviews,
+    });
 
     return {
       turnNum: allTurns.indexOf(turn),
@@ -518,6 +697,7 @@ export function buildPeekDefault(
 ): PeekDefaultResponse {
   const { collapsedCount = 5, expandLimit = 10 } = options;
   const contentLimit = 120;
+  const { subagentToolUseIds, toolResultPreviews } = buildSubagentIndexes(messageHistory);
 
   const allTurns = findTurnBoundaries(messageHistory);
   const totalTurns = allTurns.length;
@@ -551,23 +731,13 @@ export function buildPeekDefault(
     // Success from result
     const success = endMsg?.type === "result" ? !(endMsg.data as CLIResultMessage).is_error : null;
 
-    // Result preview: use result text or last assistant text
-    let resultPreview = "";
-    if (endMsg?.type === "result") {
-      const data = endMsg.data as CLIResultMessage;
-      resultPreview = truncate(data.result || "", contentLimit);
-    }
-    if (!resultPreview) {
-      // Fall back to last assistant text in this turn
-      const endBound = turn.endIdx >= 0 ? turn.endIdx : messageHistory.length - 1;
-      for (let i = endBound; i >= turn.startIdx; i--) {
-        const msg = messageHistory[i];
-        if (msg.type === "assistant" && msg.message?.content) {
-          const text = extractTextFromBlocks(msg.message.content).trim();
-          if (text) { resultPreview = truncate(text, contentLimit); break; }
-        }
-      }
-    }
+    const peekMessages = buildTurnMessages(messageHistory, turn, contentLimit, {
+      endedAt,
+      sessionId,
+      subagentToolUseIds,
+      toolResultPreviews,
+    });
+    const resultPreview = deriveTurnResultPreview(peekMessages, endMsg, contentLimit);
 
     // User preview
     const userPreview = startMsg.type === "user_message"
@@ -598,7 +768,12 @@ export function buildPeekDefault(
     : null;
   const endedAt = durationMs && startedAt ? startedAt + durationMs : null;
 
-  const expandedMessages = buildTurnMessages(messageHistory, lastTurn, contentLimit, { endedAt, sessionId });
+  const expandedMessages = buildTurnMessages(messageHistory, lastTurn, contentLimit, {
+    endedAt,
+    sessionId,
+    subagentToolUseIds,
+    toolResultPreviews,
+  });
   const lastTurnStats = computeTurnStats(messageHistory, lastTurn.startIdx, lastTurn.endIdx);
 
   // Apply expandLimit — keep only the last N messages, track omitted count
@@ -638,6 +813,7 @@ export function buildPeekRange(
 
   const contentLimit = 120;
   const allTurns = findTurnBoundaries(messageHistory);
+  const { subagentToolUseIds, toolResultPreviews } = buildSubagentIndexes(messageHistory);
 
   // Collect peekable messages starting from `from`, up to `count` peekable messages
   const messages: TakodePeekMessage[] = [];
@@ -648,6 +824,13 @@ export function buildPeekRange(
     scanEnd = i;
     const msg = messageHistory[i];
     if (!isPeekable(msg)) continue;
+    if (
+      msg.type === "assistant"
+      && msg.parent_tool_use_id
+      && subagentToolUseIds.has(msg.parent_tool_use_id)
+    ) {
+      continue;
+    }
 
     let ts = extractTimestamp(msg);
     if (ts === 0) ts = lastKnownTs;
@@ -656,6 +839,9 @@ export function buildPeekRange(
     let rawText: string;
     if (msg.type === "assistant" && msg.message?.content) {
       rawText = extractTextFromBlocks(msg.message.content);
+      if (!rawText.trim()) {
+        rawText = extractSubagentPreviewText(msg.message.content, toolResultPreviews, contentLimit);
+      }
     } else {
       rawText = extractFullText(msg, sessionId);
     }
@@ -680,9 +866,12 @@ export function buildPeekRange(
       if (toolBlocks.length > 0) {
         const counts: Record<string, number> = {};
         for (const block of toolBlocks) {
+          if (isSubagentToolName(block.name) && toolResultPreviews.has(block.id)) continue;
           counts[block.name] = (counts[block.name] || 0) + 1;
         }
-        peekMsg.toolCounts = counts;
+        if (Object.keys(counts).length > 0) {
+          peekMsg.toolCounts = counts;
+        }
       }
     }
 
@@ -721,6 +910,8 @@ export interface ReadOptions {
   offset?: number;
   /** Max lines to return (default: 200) */
   limit?: number;
+  /** Optional full tool_result lookup for expanding sub-agent results. */
+  getToolResult?: (toolUseId: string) => { content: string; is_error: boolean } | null;
 }
 
 /**
@@ -737,10 +928,13 @@ export function buildReadResponse(
 ): TakodeReadResponse | null {
   if (idx < 0 || idx >= messageHistory.length) return null;
 
-  const { offset = 0, limit = 200 } = options;
+  const { offset = 0, limit = 200, getToolResult } = options;
   const msg = messageHistory[idx];
+  const { toolResultPreviews } = buildSubagentIndexes(messageHistory);
 
-  const fullText = extractFullText(msg, sessionId);
+  const fullText = msg.type === "assistant" && msg.message?.content
+    ? extractAssistantReadText(msg.message.content, toolResultPreviews, getToolResult)
+    : extractFullText(msg, sessionId);
   const lines = fullText.split("\n");
   const paginatedLines = lines.slice(offset, offset + limit);
   let ts = extractTimestamp(msg);
