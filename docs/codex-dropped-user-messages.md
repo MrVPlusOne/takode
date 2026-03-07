@@ -208,6 +208,30 @@ Current hot spots on `jiayi`:
     replay the user's message
 - This is the latest major iteration in the timeline as of `2026-03-07`
 
+### 12. Resume matching must use the dispatched user text
+
+- Commit: `a716078` (`fix(codex): recover annotated image turns on resume`)
+- Symptom:
+  - image-bearing Codex turns could still appear dropped if the transport died
+    before `turn/start` returned a turn ID
+  - on resume, the bridge had to match by user text, but the stored pending text
+    was the original browser text rather than the text actually sent to Codex
+- What changed:
+  - `ws-bridge` now stores pending recovery text from the dispatched adapter
+    payload, including the attachment-path annotation and any VSCode selection
+    prompt that Codex will actually see
+  - regression coverage now includes:
+    - image-turn retry when resume matching must fall back to annotated text
+    - image-turn retry when a resumed turn is stale (`lastTurn.status =
+      inProgress`, `threadStatus = idle`)
+- Why this was different from prior attempts:
+  - earlier fixes focused on transport shape (`local_images` vs inline data),
+    stale-turn ordering, replay dedup, or reconnect flushing
+  - this case failed later in resume reconciliation because the comparison key
+    did not match the real dispatched prompt text
+  - it is therefore a recovery-state bug, not a new regression in image upload
+    or compaction ordering
+
 ## Current status on `jiayi`
 
 The repo now has meaningful defenses for several known sub-cases:
@@ -218,6 +242,8 @@ The repo now has meaningful defenses for several known sub-cases:
 - some replayed assistant messages are deduped
 - compaction replay has additional dedup coverage
 - stale-turn retry after compaction runs before partial recovery
+- resume text matching now uses the actual Codex-bound user text for annotated
+  image turns and VSCode-selection turns
 
 Despite that, the broader bug family is still considered unresolved because the
 same external symptom keeps surfacing through new edge cases. The next real fix
@@ -234,6 +260,9 @@ report rather than assuming an old root cause has regressed.
 - reconnect-only replay handling was later extended for compaction (`469d583`).
 - resume recovery logic was later reordered by `6f99742` because recovering
   partial output from a stale idle-thread turn could suppress the needed retry.
+- the next recurrence (`a716078`) was not another transport regression; the
+  remaining gap was that resume matching still keyed off pre-dispatch browser
+  text instead of the annotated prompt actually sent to Codex.
 - `q-154` appears only partially closed: the queue/relaunch path has been fixed
   in several places, but historical feedback says some pre-existing exited
   sessions still ignored new messages after restart.
@@ -250,6 +279,11 @@ report rather than assuming an old root cause has regressed.
   - reasoning-only and compaction-only resumed items have already proven to be retry-safe.
 - Do not restore `currentTurnId` from `lastTurn.status = inProgress` without
   checking `threadStatus`.
+- Do not compare resumed user text against only the raw browser prompt.
+  - image path annotations and VSCode selection prompts are appended before the
+    Codex turn starts
+  - pending recovery state has to track the dispatched text, not just the
+    original browser text
 - Do not run recovered-message synthesis before checking whether the resumed turn
   is definitely stale.
 - Do not trust assistant item IDs during compaction replay.
