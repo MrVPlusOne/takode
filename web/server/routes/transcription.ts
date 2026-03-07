@@ -73,6 +73,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
             composerBefore: composerBefore,
             composerAfter: composerAfter,
             messageHistory: wsBridge.getMessageHistory(sessionId),
+            customVocabulary: getSettings().transcriptionConfig.customVocabulary || undefined,
           });
         }
 

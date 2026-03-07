@@ -318,6 +318,7 @@ export interface TranscriptionConfig {
   baseUrl: string;
   enhancementEnabled: boolean;
   enhancementModel: string;
+  customVocabulary?: string;
 }
 
 export type EditorKind = "vscode" | "cursor" | "none";

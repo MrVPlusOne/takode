@@ -58,6 +58,8 @@ export interface TranscriptionConfig {
   enhancementEnabled: boolean;
   /** Model to use for enhancement (e.g. "gpt-5-mini", "gpt-4o") */
   enhancementModel: string;
+  /** Comma-separated custom vocabulary terms for STT recognition (e.g. "Takode, LiteLLM, worktree") */
+  customVocabulary?: string;
 }
 
 export type EditorKind = "vscode" | "cursor" | "none";
@@ -104,7 +106,7 @@ let settings: CompanionSettings = {
   autoApprovalTimeoutSeconds: 45,
   namerConfig: { backend: "claude" },
   autoNamerEnabled: true,
-  transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-5-mini" },
+  transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-5-mini", customVocabulary: "" },
   editorConfig: { editor: "none" },
   updatedAt: 0,
 };
@@ -166,9 +168,10 @@ function normalizeTranscriptionConfig(raw: Record<string, unknown> | null | unde
       baseUrl: typeof c.baseUrl === "string" ? c.baseUrl : "https://api.openai.com/v1",
       enhancementEnabled: typeof c.enhancementEnabled === "boolean" ? c.enhancementEnabled : true,
       enhancementModel: typeof c.enhancementModel === "string" ? c.enhancementModel : "gpt-5-mini",
+      customVocabulary: typeof c.customVocabulary === "string" ? c.customVocabulary : "",
     };
   }
-  return { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-5-mini" };
+  return { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-5-mini", customVocabulary: "" };
 }
 
 function normalizeEditorConfig(raw: Record<string, unknown> | null | undefined): EditorConfig {

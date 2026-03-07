@@ -106,6 +106,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
   const [transcriptionBaseUrl, setTranscriptionBaseUrl] = useState("");
   const [transcriptionModel, setTranscriptionModel] = useState("");
   const [transcriptionEnhancement, setTranscriptionEnhancement] = useState(false);
+  const [transcriptionVocabulary, setTranscriptionVocabulary] = useState("");
   const [transcriptionSaving, setTranscriptionSaving] = useState(false);
   const [transcriptionSaved, setTranscriptionSaved] = useState(false);
   const [transcriptionError, setTranscriptionError] = useState("");
@@ -158,6 +159,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
           setTranscriptionBaseUrl(s.transcriptionConfig.baseUrl || "");
           setTranscriptionModel(s.transcriptionConfig.enhancementModel || "");
           setTranscriptionEnhancement(s.transcriptionConfig.enhancementEnabled ?? false);
+          setTranscriptionVocabulary(s.transcriptionConfig.customVocabulary || "");
         }
         setEditorChoice(s.editorConfig?.editor ?? "none");
       })
@@ -1399,6 +1401,22 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
               />
               Enable Enhancement
             </label>
+            <div>
+              <label className="block text-xs font-medium text-cc-muted mb-1.5" htmlFor="transcription-vocabulary">
+                Custom Vocabulary
+              </label>
+              <input
+                id="transcription-vocabulary"
+                type="text"
+                value={transcriptionVocabulary}
+                onChange={(e) => setTranscriptionVocabulary(e.target.value)}
+                placeholder="Takode, LiteLLM, worktree, mai-agents"
+                className="w-full px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/60 font-mono"
+              />
+              <p className="mt-1 text-xs text-cc-muted">
+                Comma-separated terms the STT model frequently mishears. Injected as vocabulary hints.
+              </p>
+            </div>
           </div>
 
           {transcriptionError && (
@@ -1426,6 +1444,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
                     baseUrl: transcriptionBaseUrl,
                     enhancementEnabled: transcriptionEnhancement,
                     enhancementModel: transcriptionModel,
+                    customVocabulary: transcriptionVocabulary,
                   };
                   await api.updateSettings({ transcriptionConfig: config });
                   setTranscriptionSaved(true);
