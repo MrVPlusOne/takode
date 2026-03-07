@@ -643,6 +643,32 @@ describe("launch", () => {
     expect(cmdAndArgs).toContain("model_reasoning_effort=high");
   });
 
+  it("enables Codex native multi-agent support in per-session config", async () => {
+    mockResolveBinary.mockReturnValue("/opt/fake/codex");
+    mockSpawn.mockReturnValueOnce(createMockCodexProc());
+
+    const customHome = mkdtempSync(join(tmpdir(), "codex-home-test-"));
+    const sessionHome = join(customHome, "test-session-id");
+    const configPath = join(sessionHome, "config.toml");
+    const { readFileSync: realReadFileSync } = require("node:fs");
+
+    try {
+      await launcher.launch({
+        backendType: "codex",
+        cwd: "/tmp/project",
+        codexSandbox: "workspace-write",
+        codexHome: customHome,
+      });
+      await waitForSpawnCalls(1);
+
+      const updatedConfig = realReadFileSync(configPath, "utf-8");
+      expect(updatedConfig).toContain("[features]");
+      expect(updatedConfig).toContain("multi_agent = true");
+    } finally {
+      rmSync(customHome, { recursive: true, force: true });
+    }
+  });
+
   it("preserves Companion/Takode env vars in Codex shell policy for orchestrators", async () => {
     mockResolveBinary.mockReturnValue("/opt/fake/codex");
     mockSpawn.mockReturnValueOnce(createMockCodexProc());
@@ -656,6 +682,10 @@ describe("launch", () => {
       configPath,
       [
         "sandbox_mode = \"workspace-write\"",
+        "",
+        "[features]",
+        "multi_agent = false",
+        "other_feature = false",
         "",
         "[shell_environment_policy]",
         "inherit = \"core\"",
@@ -688,6 +718,10 @@ describe("launch", () => {
       expect(options.env.COMPANION_SESSION_ID).toBe("test-session-id");
 
       const updatedConfig = realReadFileSync(configPath, "utf-8");
+      expect(updatedConfig).toContain("[features]");
+      expect(updatedConfig).toContain("multi_agent = true");
+      expect(updatedConfig).not.toContain("multi_agent = false");
+      expect(updatedConfig).toContain("other_feature = false");
       expect(updatedConfig).toContain("\"PATH\"");
       expect(updatedConfig).toContain("\"HOME\"");
       expect(updatedConfig).toContain("\"COMPANION_SERVER_ID\"");

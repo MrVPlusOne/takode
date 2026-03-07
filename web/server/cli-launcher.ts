@@ -73,6 +73,9 @@ function resolveCodexSandbox(
 
 const SHELL_ENV_POLICY_SECTION = "shell_environment_policy";
 const SHELL_ENV_POLICY_HEADER = `[${SHELL_ENV_POLICY_SECTION}]`;
+const CODEX_FEATURES_SECTION = "features";
+const CODEX_FEATURES_HEADER = `[${CODEX_FEATURES_SECTION}]`;
+const CODEX_MULTI_AGENT_FEATURE = "multi_agent";
 
 function mergeUniqueStrings(existing: string[], additions: string[]): string[] {
   const merged = [...existing];
@@ -98,6 +101,10 @@ function renderIncludeOnlyArray(vars: string[]): string[] {
     ...vars.map((v) => `    "${v}",`),
     "]",
   ];
+}
+
+function escapeRegExp(input: string): string {
+  return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function upsertShellEnvironmentIncludeOnly(configToml: string, requiredVars: string[]): string {
@@ -154,6 +161,49 @@ function upsertShellEnvironmentIncludeOnly(configToml: string, requiredVars: str
   const replacement = renderIncludeOnlyArray(mergedVars);
   const out = [...lines];
   out.splice(includeStart, includeEnd - includeStart + 1, ...replacement);
+  return out.join("\n") + (endsWithNewline ? "\n" : "");
+}
+
+function upsertBooleanSettingInSection(
+  configToml: string,
+  sectionHeader: string,
+  key: string,
+  value: boolean,
+): string {
+  const endsWithNewline = configToml.endsWith("\n");
+  const lines = configToml.split("\n");
+  if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+
+  const sectionStart = lines.findIndex((line) =>
+    line.trim().toLowerCase() === sectionHeader.toLowerCase(),
+  );
+  const renderedLine = `${key} = ${value ? "true" : "false"}`;
+
+  if (sectionStart === -1) {
+    const out = [...lines];
+    if (out.length > 0 && out[out.length - 1].trim() !== "") out.push("");
+    out.push(sectionHeader);
+    out.push(renderedLine);
+    return out.join("\n") + (endsWithNewline || configToml.length === 0 ? "\n" : "");
+  }
+
+  let sectionEnd = lines.length;
+  for (let i = sectionStart + 1; i < lines.length; i++) {
+    if (/^\s*\[[^\]]+\]\s*$/.test(lines[i])) {
+      sectionEnd = i;
+      break;
+    }
+  }
+
+  const keyPattern = new RegExp(`^\\s*${escapeRegExp(key)}\\s*=`);
+  const keyIndex = lines.findIndex((line, index) => index > sectionStart && index < sectionEnd && keyPattern.test(line));
+
+  const out = [...lines];
+  if (keyIndex === -1) {
+    out.splice(sectionStart + 1, 0, renderedLine);
+  } else {
+    out[keyIndex] = renderedLine;
+  }
   return out.join("\n") + (endsWithNewline ? "\n" : "");
 }
 
@@ -1628,11 +1678,10 @@ export class CliLauncher {
   }
 
   /**
-   * Codex can restrict shell env inheritance via config.toml.
-   * Ensure Companion/Takode vars remain available to tools for this session.
+   * Ensure per-session Codex config includes Companion shell env access and
+   * experimental multi-agent support for fresh/relaunched sessions.
    */
-  private async ensureCodexShellEnvVars(codexHome: string, envVars: string[]): Promise<void> {
-    if (envVars.length === 0) return;
+  private async ensureCodexSessionConfig(codexHome: string, envVars: string[]): Promise<void> {
     const configPath = join(codexHome, "config.toml");
     let current = "";
     try {
@@ -1640,7 +1689,15 @@ export class CliLauncher {
     } catch {
       // No existing config is fine; we'll create one.
     }
-    const next = upsertShellEnvironmentIncludeOnly(current, envVars);
+    let next = upsertBooleanSettingInSection(
+      current,
+      CODEX_FEATURES_HEADER,
+      CODEX_MULTI_AGENT_FEATURE,
+      true,
+    );
+    if (envVars.length > 0) {
+      next = upsertShellEnvironmentIncludeOnly(next, envVars);
+    }
     if (next !== current) {
       await writeFile(configPath, next, "utf-8");
     }
@@ -1682,7 +1739,7 @@ export class CliLauncher {
     );
     if (!isContainerized) {
       await this.prepareCodexHome(codexHome);
-      await this.ensureCodexShellEnvVars(codexHome, shellEnvVars);
+      await this.ensureCodexSessionConfig(codexHome, shellEnvVars);
     }
 
     let spawnCmd: string[];
