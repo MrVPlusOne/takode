@@ -6327,6 +6327,37 @@ export class WsBridge {
     return text.trim().replace(/\s+/g, " ");
   }
 
+  private normalizeCodexRecoveredAssistantText(text: string): string {
+    return text.trim().replace(/\s+/g, " ");
+  }
+
+  private findMatchingRecoveredCodexAssistant(
+    session: Session,
+    text: string,
+  ): Extract<BrowserIncomingMessage, { type: "assistant" }> | null {
+    const normalizedText = this.normalizeCodexRecoveredAssistantText(text);
+    if (!normalizedText) return null;
+
+    let scannedAssistants = 0;
+    for (let i = session.messageHistory.length - 1; i >= 0; i--) {
+      const entry = session.messageHistory[i];
+      if (entry.type !== "assistant") continue;
+      scannedAssistants += 1;
+      if (scannedAssistants > WsBridge.CODEX_ASSISTANT_REPLAY_SCAN_LIMIT) break;
+
+      const existing = entry as Extract<BrowserIncomingMessage, { type: "assistant" }>;
+      if (existing.parent_tool_use_id !== null) continue;
+      const textBlocks = existing.message.content.filter((block) => block.type === "text");
+      if (textBlocks.length !== 1) continue;
+
+      const existingText = this.normalizeCodexRecoveredAssistantText(textBlocks[0].text || "");
+      if (!existingText) continue;
+      if (existingText === normalizedText) return existing;
+    }
+
+    return null;
+  }
+
   private retryPendingCodexTurn(session: Session, pending: PendingCodexTurnRecovery): void {
     const nextPending: PendingCodexTurnRecovery = {
       ...pending,
@@ -6353,7 +6384,7 @@ export class WsBridge {
     turn: CodexResumeTurnSnapshot,
     pending: PendingCodexTurnRecovery,
   ): number {
-    let recovered = 0;
+    let matchedOrRecovered = 0;
     const baseTs = pending.disconnectedAt ?? Date.now();
 
     for (let i = 0; i < turn.items.length; i++) {
@@ -6367,7 +6398,18 @@ export class WsBridge {
       const alreadyExists = session.messageHistory.some((m) => (
         m.type === "assistant" && m.message?.id === assistantId
       ));
-      if (alreadyExists) continue;
+      if (alreadyExists) {
+        matchedOrRecovered++;
+        continue;
+      }
+
+      // Codex compaction/replay snapshots can rewrite historical assistant item
+      // ids as generic "item-N" values. Match by text for those cases so the
+      // already-rendered assistant commentary is not emitted again.
+      if (/^item-\d+$/.test(itemId) && this.findMatchingRecoveredCodexAssistant(session, text)) {
+        matchedOrRecovered++;
+        continue;
+      }
 
       const assistant: BrowserIncomingMessage = {
         type: "assistant",
@@ -6393,10 +6435,10 @@ export class WsBridge {
       };
       session.messageHistory.push(assistant);
       this.broadcastToBrowsers(session, assistant);
-      recovered++;
+      matchedOrRecovered++;
     }
 
-    return recovered;
+    return matchedOrRecovered;
   }
 
   /**

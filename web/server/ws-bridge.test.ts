@@ -7009,6 +7009,101 @@ describe("Codex resumed-turn recovery", () => {
     expect(browser.send).not.toHaveBeenCalled();
   });
 
+  it("deduplicates compaction-style resumed assistant snapshots with generic item ids", async () => {
+    const sid = "s-compaction-replay-dedup";
+    const adapter1 = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter1 as any);
+
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    browser.send.mockClear();
+
+    await bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "user_message",
+      content: "keep going after compaction",
+    }));
+
+    adapter1.emitBrowserMessage({
+      type: "assistant",
+      message: {
+        id: "codex-agent-msg_original_a",
+        type: "message",
+        role: "assistant",
+        model: "gpt-5.4",
+        content: [{ type: "text", text: "First commentary before compaction" }],
+        stop_reason: "end_turn",
+        usage: {
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+        },
+      },
+      parent_tool_use_id: null,
+      timestamp: Date.now(),
+    });
+    adapter1.emitBrowserMessage({
+      type: "assistant",
+      message: {
+        id: "codex-agent-msg_original_b",
+        type: "message",
+        role: "assistant",
+        model: "gpt-5.4",
+        content: [{ type: "text", text: "Second commentary before compaction" }],
+        stop_reason: "end_turn",
+        usage: {
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+        },
+      },
+      parent_tool_use_id: null,
+      timestamp: Date.now() + 1,
+    });
+
+    adapter1.emitDisconnect("turn-compaction");
+
+    const adapter2 = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter2 as any);
+    browser.send.mockClear();
+
+    adapter2.emitSessionMeta({
+      cliSessionId: "thread-compaction",
+      model: "gpt-5.4",
+      cwd: "/repo",
+      resumeSnapshot: {
+        threadId: "thread-compaction",
+        turnCount: 14,
+        lastTurn: {
+          id: "turn-compaction",
+          status: "inProgress",
+          error: null,
+          items: [
+            { type: "userMessage", id: "item-25", content: [{ type: "text", text: "keep going after compaction" }] },
+            { type: "agentMessage", id: "item-26", text: "First commentary before compaction" },
+            { type: "agentMessage", id: "item-27", text: "Second commentary before compaction" },
+          ],
+        },
+      },
+    });
+
+    const session = bridge.getSession(sid)!;
+    expect(session.pendingCodexTurnRecovery).toBeNull();
+    expect(session.messageHistory.filter((msg: any) =>
+      msg.type === "assistant"
+      && msg.message?.content?.[0]?.type === "text"
+      && msg.message.content[0].text === "First commentary before compaction")).toHaveLength(1);
+    expect(session.messageHistory.filter((msg: any) =>
+      msg.type === "assistant"
+      && msg.message?.content?.[0]?.type === "text"
+      && msg.message.content[0].text === "Second commentary before compaction")).toHaveLength(1);
+    const assistantCalls = browser.send.mock.calls
+      .map(([arg]: [string]) => JSON.parse(arg))
+      .filter((msg: any) => msg.type === "assistant");
+    expect(assistantCalls).toHaveLength(0);
+  });
+
   it("retries the user message when resumed turn has only user input", async () => {
     const sid = "s1";
     const adapter1 = makeCodexAdapterMock();
