@@ -22,7 +22,10 @@ export async function getRipgrepPath(): Promise<string> {
 async function resolveFromSdk(): Promise<string | null> {
   try {
     const require = createRequire(import.meta.url);
-    const sdkEntry = require.resolve("@anthropic-ai/claude-agent-sdk/cli.js");
+    // Resolve the package root via its exported entrypoint. The internal
+    // cli.js file exists on disk but is not exported, so resolving it directly
+    // can fail under modern package "exports" rules.
+    const sdkEntry = require.resolve("@anthropic-ai/claude-agent-sdk");
     const pkgRoot = dirname(sdkEntry);
     const arch = process.arch;         // 'x64' | 'arm64'
     const platform = process.platform; // 'linux' | 'darwin' | 'win32'
