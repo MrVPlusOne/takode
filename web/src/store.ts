@@ -53,7 +53,7 @@ interface AppState {
   // Whether the CLI has ever connected for this session (to distinguish "starting" from "disconnected")
   cliEverConnected: Map<string, boolean>;
   // Reason the CLI disconnected (e.g. "idle_limit" when killed by idle manager)
-  cliDisconnectReason: Map<string, "idle_limit" | null>;
+  cliDisconnectReason: Map<string, "idle_limit" | "broken" | null>;
 
   // Session status
   sessionStatus: Map<string, "idle" | "running" | "compacting" | "reverting" | null>;
@@ -293,7 +293,7 @@ interface AppState {
   setConnectionStatus: (sessionId: string, status: "connecting" | "connected" | "disconnected") => void;
   setCliConnected: (sessionId: string, connected: boolean) => void;
   setCliEverConnected: (sessionId: string) => void;
-  setCliDisconnectReason: (sessionId: string, reason: "idle_limit" | null) => void;
+  setCliDisconnectReason: (sessionId: string, reason: "idle_limit" | "broken" | null) => void;
   setSessionStatus: (sessionId: string, status: "idle" | "running" | "compacting" | "reverting" | null) => void;
   setSessionStuck: (sessionId: string, stuck: boolean) => void;
 

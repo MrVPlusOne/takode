@@ -28,7 +28,7 @@ Most real fixes have touched the same few places:
 - `web/server/ws-bridge.ts`
   - image upload/path conversion before adapter dispatch
   - `pendingMessages`
-  - `pendingCodexTurnRecovery`
+  - `pendingCodexTurns`
   - `reconcileCodexResumedTurn()`
   - `retryPendingCodexTurn()`
   - `isDuplicateCodexAssistantReplay()`
@@ -276,6 +276,68 @@ Current hot spots on `jiayi`:
   - recovery state for Codex replay must survive persistence, not just stay in
     memory
 
+### 14. Session 140 exposed a broader broken-session lifecycle bug
+
+- Investigation date: `2026-03-07`
+- Concrete case:
+  - session `140`
+  - session id `4db7762d-0df0-499c-863f-fc345ac1d743`
+  - recording:
+    `/tmp/companion-recordings/4db7762d-0df0-499c-863f-fc345ac1d743_codex_2026-03-07T10-36-31.245Z_989d8b.jsonl`
+- What was different:
+  - this was not another plain "pending turn was not retried" bug
+  - the inline-image turn definitely reached Codex and Codex acknowledged
+    `turn/start`
+  - the transport then died immediately
+  - auto-relaunch failed during initialization (`Transport closed`)
+  - later user messages were still allowed into a fake local generation path
+    and expired via `user_message_timeout`
+- Additional divergence found in the same incident:
+  - launcher state said the Codex session had exited
+  - the old Codex app-server pid was still alive
+  - bridge state, launcher state, and actual process state had drifted apart
+- Root design smell:
+  - delivery semantics for outbound user turns were still spread across too many
+    partially authoritative layers:
+    browser websocket, bridge state, adapter state, subprocess state,
+    relaunch/resume logic, image annotation, and herd-injected user messages
+  - the bridge still inferred too much after disconnect instead of treating
+    outbound turn lifecycle as first-class state
+- Design simplification introduced after session 140:
+  - backend health is now explicit in session state:
+    `initializing | resuming | connected | disconnected | broken`
+  - Codex is no longer treated as connected merely because an adapter object is
+    attached; `backend_connected` is sent only after `session_meta`
+  - queued Codex messages are no longer flushed on adapter attach; they flush
+    only after confirmed `session_meta`, so resume reconciliation runs first
+  - Codex user turns now have one authoritative persisted queue:
+    `pendingCodexTurns`
+    - the head entry is the only turn the bridge may dispatch or reconcile
+    - later user turns stay in the same queue instead of being split across
+      recovery state and raw `pendingMessages`
+    - queue entries carry richer outbound-turn state:
+      `historyIndex`, `status`, `dispatchCount`, timestamps, `turnTarget`,
+      `turnId`, and `lastError`
+  - the bridge marks a fresh Codex turn as running only after explicit
+    `turn/start` acknowledgement (`onTurnStarted`), not merely because
+    `sendBrowserMessage()` accepted the payload
+  - Codex init failure is now first-class:
+    - adapter detaches
+    - session backend state becomes `broken`
+    - the head outbound turn is marked `blocked_broken_session`
+    - later user messages are queued/blocked instead of entering fake-running
+      timeout churn
+  - launcher relaunch/init failure now tries to terminate the known pid even if
+    it only exists in persisted launcher state, reducing silent orphan drift
+- Why this differs from earlier fixes:
+  - earlier fixes mostly patched one replay/retry heuristic at a time
+  - this change narrows the state machine by separating:
+    - backend health
+    - outbound turn delivery/ack state
+    - generation lifecycle
+  - the main goal is to stop dead/broken sessions from masquerading as normal
+    running turns
+
 ## Current status on `jiayi`
 
 The repo now has meaningful defenses for several known sub-cases:
@@ -294,6 +356,21 @@ same external symptom keeps surfacing through new edge cases. The next real fix
 should start by identifying which class of failure is happening in the new
 report rather than assuming an old root cause has regressed.
 
+Newer protections added after session 140:
+
+- Codex backend state is explicit and browser-visible
+- Codex init failure leaves the session `broken`, not fake-idle
+- later user messages to a broken Codex session stay queued/blocked and remain
+  visibly pending instead of timing out locally
+- Codex user turns now have one authoritative queue (`pendingCodexTurns`)
+- raw `pendingMessages` is no longer a second authority for Codex user turns
+- queue flush to a newly attached Codex adapter waits for `session_meta`
+- persisted stale pids are terminated during relaunch/init failure handling
+- migration from legacy raw queued Codex user messages into `pendingCodexTurns`
+  is persisted immediately
+- replayed assistant/tool artifacts from a resumed `inProgress` turn no longer
+  complete the queue head or unblock the next queued user message early
+
 ## What was attempted, revised, or effectively superseded
 
 - `q-61` active-turn interrupt/requeue fix was necessary but not sufficient.
@@ -310,10 +387,93 @@ report rather than assuming an old root cause has regressed.
 - the `2026-03-07` session-140 investigation found another gap:
   reconciliation could still miss a retry if disconnect happened after Codex
   accepted `turn/start` but before the adapter stored the turn id locally, and
-  persistence did not preserve `pendingCodexTurnRecovery`.
+  persistence did not preserve Codex outbound-turn state reliably enough
+- the follow-up fix for session 140 also found a separate lifecycle bug:
+  a broken Codex session could still look connected enough for later user
+  messages to start local running state and expire via timeout
+- the queue-first redesign then needed two follow-up correctness fixes:
+  - migration of raw queued Codex `user_message` payloads into
+    `pendingCodexTurns` had to persist immediately, even when dispatch was
+    blocked by an already-active head turn
+  - resume reconciliation had to stop treating replayed assistant/tool
+    artifacts from a resumed `inProgress` turn as proof that the head turn was
+    complete
 - `q-154` appears only partially closed: the queue/relaunch path has been fixed
   in several places, but historical feedback says some pre-existing exited
   sessions still ignored new messages after restart.
+
+### 15. Queue-first redesign replaced recovery heuristics with one authoritative outbound-turn model
+
+- Investigation date: `2026-03-07`
+- Trigger:
+  - session `140` showed that a "dropped message" could really be a
+    broken-session lifecycle bug spanning dispatch, disconnect, relaunch,
+    init failure, and later user turns
+- What changed:
+  - `pendingCodexTurnRecovery` stopped being the primary authority
+  - Codex outbound user turns now live in one persisted queue:
+    `pendingCodexTurns`
+  - the queue head is authoritative across:
+    - queued
+    - dispatched
+    - backend-acknowledged
+    - blocked broken-session recovery
+  - backend health was separated from generation state:
+    `initializing | resuming | connected | disconnected | broken`
+  - queued Codex traffic stopped flushing on adapter attach and now waits for
+    `session_meta`, so resume reconciliation runs before new turn dispatch
+  - fresh Codex turns stopped entering running state on optimistic send; they
+    now wait for explicit `turn/start` acknowledgement
+- Why it was a simplification:
+  - one queue became the source of truth for outbound Codex user turns
+  - broken-session behavior became explicit instead of falling through generic
+    local-running timeout heuristics
+  - reconnect/relaunch logic no longer had to infer as much from detached
+    adapter state and raw `pendingMessages`
+- Practical debugging impact:
+  - when debugging a modern Codex delivery bug, start from the head of
+    `pendingCodexTurns`, not from older references to
+    `pendingCodexTurnRecovery`
+
+### 16. Queue-first redesign needed two follow-up correctness fixes
+
+- Investigation date: `2026-03-07`
+- Symptom class:
+  - the design was simpler, but two helper paths still violated the new
+    authoritative-turn contract
+- Fix A: persist migrated queued user turns immediately
+  - path:
+    `flushQueuedMessagesToCodexAdapter()`
+  - problem:
+    - a legacy raw Codex `user_message` could still be sitting in
+      `pendingMessages`
+    - the bridge would migrate it into `pendingCodexTurns`
+    - if the queue head was already active, dispatch of the migrated turn was
+      blocked and the function could return without persisting the migration
+    - crash/restart in that window could lose the migrated turn
+  - change:
+    - migration to `pendingCodexTurns` now persists immediately before any early
+      return
+- Fix B: resumed `inProgress` replay must not complete the queue head
+  - path:
+    `reconcileCodexResumedTurn()`
+  - problem:
+    - a resumed Codex turn could replay assistant/tool artifacts from the head
+      turn while still honestly reporting `lastTurn.status = inProgress`
+    - the bridge recovered those artifacts, completed the head turn, and could
+      dispatch the next queued user message too early
+  - change:
+    - recovered browser-visible artifacts are still allowed
+    - but if the resumed turn is still `inProgress`, the head queue entry stays
+      `backend_acknowledged` and remains authoritative until a terminal status
+      arrives
+- Why these matter:
+  - both fixes preserve the "one authoritative outbound turn" contract instead
+    of reintroducing split authority through helper paths
+- Regression coverage added:
+  - queued-turn migration must persist before blocked dispatch returns
+  - resumed `inProgress` turn with replayed assistant items must not advance the
+    queue until terminal completion
 
 ## Common pitfalls
 
@@ -336,8 +496,21 @@ report rather than assuming an old root cause has regressed.
   - if the resumed thread is idle, the last turn still says `inProgress`, and
     the last turn has no items at all, that is a retry-safe stale-turn shape
     even when `pending.turnId` was never captured
+- Do not treat "adapter attached" as equivalent to "backend connected".
+  - for Codex, adapter attach happens before `session_meta`
+  - if queued messages flush before `session_meta`, resume reconciliation can be
+    bypassed and the same user turn can be sent twice
+- Do not let broken-session user messaging depend on the relaunch callback.
+  - even if relaunch wiring is unavailable or delayed, the browser still needs a
+    clear blocked/queued error instead of silent timeout behavior
 - Do not run recovered-message synthesis before checking whether the resumed turn
   is definitely stale.
+- Do not treat replayed assistant/tool artifacts from a resumed `inProgress`
+  turn as proof that the head outbound turn has completed.
+  - recovery of browser-visible artifacts is allowed
+  - queue advancement is not
+- Do not migrate Codex `user_message` entries out of raw `pendingMessages`
+  without persisting the new `pendingCodexTurns` state before returning.
 - Do not trust assistant item IDs during compaction replay.
   - compaction can rewrite historical items to generic `item-N` forms
 - Do not diagnose only from the UI.
@@ -365,11 +538,15 @@ When the next report arrives, work this checklist in order:
 
 3. Inspect the reconnect state machine.
    - Look at `pendingMessages`.
-   - Look at `pendingCodexTurnRecovery`.
-   - Confirm whether `pendingCodexTurnRecovery.turnId` was ever captured or
-     lost in the narrow post-`turn/start` disconnect window.
+   - Look at `pendingCodexTurns` and identify the head turn.
+   - Look at `session.state.backend_state` and `backend_error`.
+   - Confirm whether the head outbound turn `turnId` was ever captured or lost
+     in the narrow post-`turn/start` disconnect window.
    - Look at resumed `threadStatus`, `lastTurn.status`, and `lastTurn.items`.
    - Check whether stale-turn retry happened before recovery/synthesis.
+   - Check whether the bridge ever marked the backend `broken` after init
+     failure, or whether later messages were still allowed into local running
+     state.
 
 4. Separate true message loss from UI-only aftermath.
    - A message may have been delivered, but replay duplication or orphaned tool
@@ -383,21 +560,29 @@ When the next report arrives, work this checklist in order:
 6. Keep the fix narrow.
    - This area regresses easily because image transport, queueing, relaunch,
      resume recovery, replay dedup, and compaction all touch the same state.
+   - But prefer reducing state-machine ambiguity over adding another
+     one-off retry heuristic.
 
 ## Specific code points to inspect first
 
 - `web/server/ws-bridge.ts`
   - image-path conversion and Codex dispatch
+  - backend state transitions (`initializing`, `resuming`, `connected`,
+    `disconnected`, `broken`)
   - `pendingMessages`
-  - `pendingCodexTurnRecovery`
+  - `pendingCodexTurns`
   - `reconcileCodexResumedTurn()`
   - `retryPendingCodexTurn()`
   - `isDuplicateCodexAssistantReplay()`
 - `web/server/codex-adapter.ts`
   - `handleOutgoingUserMessage()`
+  - `onTurnStarted()` / `turn/start` acknowledgement timing
   - `thread/resume` current-turn restoration
   - `handleThreadStatusChanged()`
   - interrupt/wait behavior
+- `web/server/cli-launcher.ts`
+  - relaunch stale-pid termination
+  - Codex init-error cleanup
 
 ## Quests worth reading before another fix
 

@@ -24,6 +24,8 @@ export function ChatView({ sessionId }: { sessionId: string }) {
   const connStatus = useStore(
     (s) => s.connectionStatus.get(sessionId) ?? "disconnected"
   );
+  const backendState = useStore((s) => s.sessions.get(sessionId)?.backend_state ?? "disconnected");
+  const backendError = useStore((s) => s.sessions.get(sessionId)?.backend_error ?? null);
   const cliConnected = useStore((s) => s.cliConnected.get(sessionId) ?? false);
   const cliEverConnected = useStore((s) => s.cliEverConnected.get(sessionId) ?? false);
   const cliDisconnectReason = useStore((s) => s.cliDisconnectReason.get(sessionId) ?? null);
@@ -57,23 +59,48 @@ export function ChatView({ sessionId }: { sessionId: string }) {
     prevOtherPermsCount.current = otherPerms.length;
   }, [otherPerms.length]);
 
+  const showStartingBanner =
+    connStatus === "connected"
+    && !cliConnected
+    && backendState !== "broken"
+    && (
+      backendState === "initializing"
+      || backendState === "resuming"
+      || !cliEverConnected
+    );
+
   return (
     <div className="flex flex-col h-full min-h-0">
-      {/* CLI starting banner (CLI has never connected yet — still spawning) */}
-      {connStatus === "connected" && !cliConnected && !cliEverConnected && (
+      {/* CLI starting / resuming banner */}
+      {showStartingBanner && (
         <div className="px-4 py-2 bg-cc-border/30 border-b border-cc-border text-center flex items-center justify-center gap-2">
           <svg className="animate-spin h-3 w-3 text-cc-text-secondary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
           </svg>
           <span className="text-xs text-cc-text-secondary font-medium">
-            Starting session...
+            {backendState === "resuming" || cliEverConnected ? "Reconnecting session..." : "Starting session..."}
           </span>
         </div>
       )}
 
+      {/* Broken session banner */}
+      {connStatus === "connected" && !cliConnected && backendState === "broken" && (
+        <div className="px-4 py-2 bg-cc-warning/10 border-b border-cc-warning/20 text-center flex items-center justify-center gap-3">
+          <span className="text-xs text-cc-warning font-medium">
+            {backendError || "CLI failed to recover. Relaunch to resume queued messages."}
+          </span>
+          <button
+            onClick={() => api.relaunchSession(sessionId).catch(console.error)}
+            className="text-xs font-medium px-3 py-1 rounded-md bg-cc-warning/20 hover:bg-cc-warning/30 text-cc-warning transition-colors cursor-pointer"
+          >
+            Relaunch
+          </button>
+        </div>
+      )}
+
       {/* CLI disconnected banner (CLI was connected before but dropped) */}
-      {connStatus === "connected" && !cliConnected && cliEverConnected && (
+      {connStatus === "connected" && !cliConnected && cliEverConnected && backendState !== "broken" && backendState !== "initializing" && backendState !== "resuming" && (
         <div className={`px-4 py-2 border-b text-center flex items-center justify-center gap-3 ${
           cliDisconnectReason === "idle_limit"
             ? "bg-cc-border/30 border-cc-border"

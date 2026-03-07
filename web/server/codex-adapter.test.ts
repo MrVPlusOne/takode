@@ -3787,6 +3787,71 @@ describe("onTurnStartFailed callback", () => {
   });
 });
 
+describe("onTurnStarted callback", () => {
+  // The bridge relies on turn/start acknowledgement before it marks a Codex
+  // user turn as running. These tests lock that callback to both the normal
+  // and legacy-collaborationMode fallback paths.
+
+  let proc: ReturnType<typeof createMockProcess>["proc"];
+  let stdout: MockReadableStream;
+
+  beforeEach(() => {
+    const mock = createMockProcess();
+    proc = mock.proc;
+    stdout = mock.stdout;
+  });
+
+  async function initAdapter(): Promise<CodexAdapter> {
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini", cwd: "/tmp" });
+    await tick();
+    stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
+    await tick();
+    stdout.push(JSON.stringify({ id: 2, result: { thread: { id: "thr_123" } } }) + "\n");
+    await tick();
+    return adapter;
+  }
+
+  it("fires onTurnStarted when turn/start succeeds", async () => {
+    const adapter = await initAdapter();
+    const startedCb = vi.fn();
+    adapter.onTurnStarted(startedCb);
+
+    adapter.sendBrowserMessage({ type: "user_message", content: "start turn" } as BrowserOutgoingMessage);
+    await tick();
+
+    stdout.push(JSON.stringify({ id: 3, result: {} }) + "\n");
+    stdout.push(JSON.stringify({ id: 4, result: { turn: { id: "turn_1" } } }) + "\n");
+    await tick();
+
+    expect(startedCb).toHaveBeenCalledOnce();
+    expect(startedCb).toHaveBeenCalledWith("turn_1");
+  });
+
+  it("fires onTurnStarted after retrying without collaborationMode", async () => {
+    const adapter = await initAdapter();
+    const startedCb = vi.fn();
+    adapter.onTurnStarted(startedCb);
+
+    adapter.sendBrowserMessage({ type: "user_message", content: "legacy server" } as BrowserOutgoingMessage);
+    await tick();
+
+    // First turn/start fails because older Codex builds reject collaborationMode.
+    stdout.push(JSON.stringify({ id: 3, result: {} }) + "\n");
+    stdout.push(JSON.stringify({
+      id: 4,
+      error: { code: -32602, message: "Unknown field: collaborationMode" },
+    }) + "\n");
+    await tick();
+
+    // Retry without collaborationMode succeeds.
+    stdout.push(JSON.stringify({ id: 5, result: { turn: { id: "turn_legacy" } } }) + "\n");
+    await tick();
+
+    expect(startedCb).toHaveBeenCalledOnce();
+    expect(startedCb).toHaveBeenCalledWith("turn_legacy");
+  });
+});
+
 describe("interrupt before new turn/start", () => {
   // Sending turn/start while a turn is already in progress causes Codex to
   // error or crash. The adapter must interrupt the running turn first and

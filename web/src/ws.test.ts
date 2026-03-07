@@ -1147,6 +1147,20 @@ describe("handleMessage: backend_disconnected/connected", () => {
     expect(useStore.getState().cliConnected.get("s1")).toBe(true);
   });
 
+  it("preserves a broken disconnect reason for explicit relaunch UI", () => {
+    // Broken Codex sessions should surface a durable reason instead of
+    // looking like a generic transient disconnect.
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+    fireMessage({ type: "backend_connected" });
+
+    fireMessage({ type: "backend_disconnected", reason: "broken" });
+    vi.advanceTimersByTime(300);
+
+    expect(useStore.getState().cliConnected.get("s1")).toBe(false);
+    expect(useStore.getState().cliDisconnectReason.get("s1")).toBe("broken");
+  });
+
   it("coalesces fast disconnect/reconnect without showing disconnected state", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
@@ -2337,6 +2351,28 @@ describe("handleMessage: state_snapshot", () => {
     expect(useStore.getState().cliConnected.get("s1")).toBe(true);
     expect(useStore.getState().cliEverConnected.get("s1")).toBe(true);
     expect(useStore.getState().askPermission.get("s1")).toBe(false);
+  });
+
+  it("stores backendState and backendError from the authoritative snapshot", () => {
+    // The browser should trust the server snapshot for broken/recovering
+    // backend health rather than inferring it from transient local state.
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    fireMessage({
+      type: "state_snapshot",
+      sessionStatus: null,
+      permissionMode: "default",
+      backendConnected: false,
+      backendState: "broken",
+      backendError: "Codex initialization failed: Transport closed",
+      uiMode: null,
+      askPermission: true,
+    });
+
+    const session = useStore.getState().sessions.get("s1");
+    expect(session?.backend_state).toBe("broken");
+    expect(session?.backend_error).toBe("Codex initialization failed: Transport closed");
   });
 
   it("sets backendConnected to false and sessionStatus to null when CLI is disconnected", () => {

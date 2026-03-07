@@ -25,6 +25,10 @@ export interface TurnStartFailedAwareAdapter {
   onTurnStartFailed(cb: (msg: BrowserOutgoingMessage) => void): void;
 }
 
+export interface TurnStartedAwareAdapter {
+  onTurnStarted(cb: (turnId: string) => void): void;
+}
+
 export interface CurrentTurnIdAwareAdapter {
   getCurrentTurnId(): string | null;
 }

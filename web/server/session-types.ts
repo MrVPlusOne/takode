@@ -308,7 +308,7 @@ export type BrowserIncomingMessageBase =
   | { type: "permissions_cleared" }
   | { type: "auth_status"; isAuthenticating: boolean; output: string[]; error?: string }
   | { type: "error"; message: string }
-  | { type: "backend_disconnected"; reason?: "idle_limit" }
+  | { type: "backend_disconnected"; reason?: "idle_limit" | "broken" }
   | { type: "backend_connected" }
   | { type: "user_message"; content: string; timestamp: number; id?: string; cliUuid?: string; images?: import("./image-store.js").ImageRef[]; agentSource?: { sessionId: string; sessionLabel?: string }; vscodeSelection?: VsCodeSelectionMetadata }
   | { type: "message_history"; messages: BrowserIncomingMessage[] }
@@ -330,7 +330,19 @@ export type BrowserIncomingMessageBase =
   | { type: "permission_needs_attention"; request_id: string; timestamp: number; reason?: string }
   | { type: "leader_group_idle"; leader_session_id: string; leader_label: string; member_count: number; idle_for_ms: number; timestamp: number }
   | { type: "permission_evaluating_status"; request_id: string; evaluating: "queued" | "evaluating"; timestamp: number }
-  | { type: "state_snapshot"; sessionStatus: string | null; permissionMode: string; backendConnected: boolean; uiMode: string | null; askPermission: boolean; lastReadAt?: number; attentionReason?: "action" | "error" | "review" | null; generationStartedAt?: number | null }
+  | {
+    type: "state_snapshot";
+    sessionStatus: string | null;
+    permissionMode: string;
+    backendConnected: boolean;
+    backendState?: SessionState["backend_state"];
+    backendError?: string | null;
+    uiMode: string | null;
+    askPermission: boolean;
+    lastReadAt?: number;
+    attentionReason?: "action" | "error" | "review" | null;
+    generationStartedAt?: number | null;
+  }
   | { type: "session_stuck" }
   | { type: "session_unstuck" }
   | { type: "quest_list_updated" }
@@ -362,9 +374,37 @@ export function isClaudeFamily(backend: BackendType): boolean {
   return backend === "claude" || backend === "claude-sdk";
 }
 
+export type CodexOutboundTurnStatus =
+  | "queued"
+  | "dispatched"
+  | "backend_acknowledged"
+  | "completed"
+  | "blocked_broken_session";
+
+export interface CodexOutboundTurn {
+  adapterMsg: BrowserOutgoingMessage;
+  userMessageId: string;
+  userContent: string;
+  historyIndex: number;
+  status: CodexOutboundTurnStatus;
+  dispatchCount: number;
+  createdAt: number;
+  updatedAt: number;
+  acknowledgedAt: number | null;
+  turnTarget: "current" | "queued" | null;
+  lastError: string | null;
+  turnId: string | null;
+  disconnectedAt: number | null;
+  resumeConfirmedAt: number | null;
+}
+
 export interface SessionState {
   session_id: string;
   backend_type?: BackendType;
+  /** Server-authored backend lifecycle state. */
+  backend_state?: "initializing" | "resuming" | "connected" | "disconnected" | "broken";
+  /** Server-authored backend failure detail for disconnected/broken states. */
+  backend_error?: string | null;
   model: string;
   cwd: string;
   tools: string[];

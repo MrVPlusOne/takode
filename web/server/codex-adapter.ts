@@ -25,6 +25,7 @@ import type {
   BackendAdapter,
   CurrentTurnIdAwareAdapter,
   RateLimitsAwareAdapter,
+  TurnStartedAwareAdapter,
   TurnStartFailedAwareAdapter,
 } from "./bridge/adapter-interface.js";
 import { getDefaultModelForBackend } from "../shared/backend-defaults.js";
@@ -591,6 +592,7 @@ class JsonRpcTransport {
 export class CodexAdapter
   implements
     BackendAdapter<CodexSessionMeta>,
+    TurnStartedAwareAdapter,
     TurnStartFailedAwareAdapter,
     CurrentTurnIdAwareAdapter,
     RateLimitsAwareAdapter {
@@ -604,6 +606,7 @@ export class CodexAdapter
   private disconnectCb: (() => void) | null = null;
   private initErrorCb: ((error: string) => void) | null = null;
   private turnStartFailedCb: ((msg: BrowserOutgoingMessage) => void) | null = null;
+  private turnStartedCb: ((turnId: string) => void) | null = null;
 
   // State
   private threadId: string | null = null;
@@ -864,6 +867,10 @@ export class CodexAdapter
     this.turnStartFailedCb = cb;
   }
 
+  onTurnStarted(cb: (turnId: string) => void): void {
+    this.turnStartedCb = cb;
+  }
+
   isConnected(): boolean {
     return this.connected;
   }
@@ -912,7 +919,6 @@ export class CodexAdapter
       // Step 2: Send initialized notification
       await this.transport.notify("initialized", {});
 
-      this.connected = true;
       this.initialized = true;
 
       // Step 3: Start or resume a thread
@@ -962,6 +968,8 @@ export class CodexAdapter
         }) as { thread: { id: string } };
         this.threadId = threadResult.thread.id;
       }
+
+      this.connected = true;
 
       // Notify session metadata
       this.sessionMetaCb?.({
@@ -1123,6 +1131,7 @@ export class CodexAdapter
     try {
       const result = await this.transport.call("turn/start", turnStartParams) as { turn: { id: string } };
       this.currentTurnId = result.turn.id;
+      this.turnStartedCb?.(result.turn.id);
     } catch (err) {
       // Older Codex builds may reject collaborationMode. If so, retry once
       // without it and remember to skip it for future turns.
@@ -1135,6 +1144,7 @@ export class CodexAdapter
         try {
           const retry = await this.transport.call("turn/start", turnStartParams) as { turn: { id: string } };
           this.currentTurnId = retry.turn.id;
+          this.turnStartedCb?.(retry.turn.id);
           return;
         } catch (retryErr) {
           const requeued = this.handleTurnStartDispatchFailure(msg);

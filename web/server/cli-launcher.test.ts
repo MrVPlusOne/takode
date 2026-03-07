@@ -1290,6 +1290,91 @@ describe("relaunch", () => {
     expect(session?.state).toBe("exited");
     expect(session?.exitCode).toBe(1);
   });
+
+  it("kills a persisted stale pid during Codex relaunch even when no subprocess is tracked", async () => {
+    // Simulates session-140-style launcher drift where the persisted launcher
+    // state still points at an old Codex pid but this server instance has no
+    // Subprocess handle for it.
+    store.saveLauncher([
+      {
+        sessionId: "stale-codex",
+        pid: 33333,
+        state: "connected" as const,
+        backendType: "codex" as const,
+        cwd: "/tmp/project",
+        createdAt: Date.now(),
+        cliSessionId: "thread-stale",
+        codexSandbox: "workspace-write" as const,
+      },
+    ]);
+    await store.flushAll();
+
+    let pidAlive = true;
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(((
+      pid: number,
+      signal?: string | number,
+    ) => {
+      if (pid !== 33333) return true;
+      if (signal === 0) {
+        if (pidAlive) return true;
+        throw Object.assign(new Error("ESRCH"), { code: "ESRCH" });
+      }
+      if (signal === "SIGTERM") {
+        pidAlive = false;
+        return true;
+      }
+      return true;
+    }) as any);
+
+    mockSpawn.mockReturnValueOnce(createMockCodexProc(44444));
+    const recovered = await launcher.restoreFromDisk();
+    expect(recovered).toBe(1);
+
+    const result = await launcher.relaunch("stale-codex");
+    expect(result).toEqual({ ok: true });
+    expect(killSpy).toHaveBeenCalledWith(33333, "SIGTERM");
+    expect(mockSpawn).toHaveBeenCalledTimes(1);
+
+    killSpy.mockRestore();
+  });
+
+  it("does not escalate persisted stale pids to SIGKILL without a tracked subprocess", async () => {
+    // Persisted PIDs can be recycled by the OS. We still send SIGTERM for
+    // cleanup, but SIGKILL is reserved for live Subprocess handles that we
+    // know belong to this launcher instance.
+    store.saveLauncher([
+      {
+        sessionId: "stubborn-codex",
+        pid: 44444,
+        state: "connected" as const,
+        backendType: "codex" as const,
+        cwd: "/tmp/project",
+        createdAt: Date.now(),
+        cliSessionId: "thread-stubborn",
+        codexSandbox: "workspace-write" as const,
+      },
+    ]);
+    await store.flushAll();
+
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(((
+      pid: number,
+      signal?: string | number,
+    ) => {
+      if (pid !== 44444) return true;
+      if (signal === 0) return true;
+      return true;
+    }) as any);
+
+    mockSpawn.mockReturnValueOnce(createMockCodexProc(55555));
+    await launcher.restoreFromDisk();
+
+    const result = await launcher.relaunch("stubborn-codex");
+    expect(result).toEqual({ ok: true });
+    expect(killSpy).toHaveBeenCalledWith(44444, "SIGTERM");
+    expect(killSpy).not.toHaveBeenCalledWith(44444, "SIGKILL");
+
+    killSpy.mockRestore();
+  });
 });
 
 // ─── persistence ─────────────────────────────────────────────────────────────

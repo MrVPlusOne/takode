@@ -118,14 +118,22 @@ describe("saveSync / load", () => {
     const session = makeSession("s2", {
       messageHistory: [{ type: "error", message: "test error" }],
       pendingMessages: ["msg1", "msg2"],
-      pendingCodexTurnRecovery: {
+      pendingCodexTurns: [{
         adapterMsg: { type: "user_message", content: "retry persisted turn" },
         userMessageId: "user-persisted-1",
         userContent: "retry persisted turn",
+        historyIndex: 0,
+        status: "backend_acknowledged",
+        dispatchCount: 1,
+        createdAt: 1700000000000,
+        updatedAt: 1700000001000,
+        acknowledgedAt: 1700000000500,
+        turnTarget: "current",
+        lastError: null,
         turnId: "turn-persisted-1",
         disconnectedAt: 1700000000000,
         resumeConfirmedAt: null,
-      },
+      }],
       pendingPermissions: [
         [
           "req-1",
@@ -155,7 +163,7 @@ describe("saveSync / load", () => {
     expect(loaded!.archived).toBe(true);
     expect(loaded!.pendingPermissions).toHaveLength(1);
     expect(loaded!.pendingMessages).toEqual(["msg1", "msg2"]);
-    expect(loaded!.pendingCodexTurnRecovery).toEqual(session.pendingCodexTurnRecovery);
+    expect(loaded!.pendingCodexTurns).toEqual(session.pendingCodexTurns);
     expect(loaded!.eventBuffer).toEqual([{ seq: 1, message: { type: "backend_connected" } }]);
     expect(loaded!.nextEventSeq).toBe(2);
     expect(loaded!.lastAckSeq).toBe(1);

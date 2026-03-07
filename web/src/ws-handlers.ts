@@ -23,7 +23,7 @@ function clearPendingCliDisconnect(sessionId: string): void {
   pendingCliDisconnectTimers.delete(sessionId);
 }
 
-function applyCliDisconnected(sessionId: string, reason: "idle_limit" | null): void {
+function applyCliDisconnected(sessionId: string, reason: "idle_limit" | "broken" | null): void {
   const store = useStore.getState();
   store.setCliConnected(sessionId, false);
   store.setCliDisconnectReason(sessionId, reason);
@@ -744,6 +744,12 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       // Authoritative state from server — overrides any stale transient state
       store.setSessionStatus(sessionId, data.sessionStatus as "idle" | "running" | "compacting" | "reverting" | null);
       store.setCliConnected(sessionId, data.backendConnected);
+      if (data.backendState !== undefined || data.backendError !== undefined) {
+        store.updateSession(sessionId, {
+          ...(data.backendState !== undefined ? { backend_state: data.backendState } : {}),
+          ...(data.backendError !== undefined ? { backend_error: data.backendError } : {}),
+        });
+      }
       if (data.backendConnected) store.setCliEverConnected(sessionId);
       if (data.askPermission !== undefined) {
         store.setAskPermission(sessionId, data.askPermission);

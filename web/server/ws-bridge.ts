@@ -39,6 +39,7 @@ import type {
   McpServerDetail,
   McpServerConfig,
   SessionTaskEntry,
+  CodexOutboundTurn,
   TakodeEvent,
   TakodeEventDataByType,
   TakodeEventFor,
@@ -80,6 +81,7 @@ import type {
   BackendAdapter,
   CurrentTurnIdAwareAdapter,
   RateLimitsAwareAdapter,
+  TurnStartedAwareAdapter,
   TurnStartFailedAwareAdapter,
 } from "./bridge/adapter-interface.js";
 
@@ -216,19 +218,11 @@ interface PendingControlRequest {
   resolve: (response: unknown) => void;
 }
 
-interface PendingCodexTurnRecovery {
-  adapterMsg: BrowserOutgoingMessage;
-  userMessageId: string;
-  userContent: string;
-  turnId: string | null;
-  disconnectedAt: number | null;
-  resumeConfirmedAt: number | null;
-}
-
 type LeaderAssistantAddressing = "not_leader" | "user" | "self" | "missing";
 type TurnTriggerSource = "user" | "leader" | "system" | "unknown";
 type InterruptSource = GenerationInterruptSource;
 type CodexBridgeAdapter = BackendAdapter<CodexSessionMeta>
+  & TurnStartedAwareAdapter
   & TurnStartFailedAwareAdapter
   & CurrentTurnIdAwareAdapter
   & RateLimitsAwareAdapter;
@@ -248,8 +242,8 @@ interface Session {
   messageHistory: BrowserIncomingMessage[];
   /** Messages queued while waiting for CLI to connect */
   pendingMessages: string[];
-  /** Last in-flight Codex user turn that may need replay/recovery after disconnect. */
-  pendingCodexTurnRecovery: PendingCodexTurnRecovery | null;
+  /** Authoritative Codex outbound user-turn queue (persisted across disconnect/relaunch). */
+  pendingCodexTurns: CodexOutboundTurn[];
   /** Monotonic sequence for broadcast events */
   nextEventSeq: number;
   /** Recent broadcast events for reconnect replay */
@@ -402,6 +396,8 @@ function makeDefaultState(sessionId: string, backendType: BackendType = "claude"
   return {
     session_id: sessionId,
     backend_type: backendType,
+    backend_state: "disconnected",
+    backend_error: null,
     model: "",
     cwd: "",
     tools: [],
@@ -1462,6 +1458,9 @@ export class WsBridge {
     let count = 0;
     for (const p of persisted) {
       if (this.sessions.has(p.id)) continue; // don't overwrite live sessions
+      const restoredCodexTurns = Array.isArray(p.pendingCodexTurns)
+        ? p.pendingCodexTurns.map((turn) => this.normalizePersistedCodexTurn(turn))
+        : [];
       const session: Session = {
         id: p.id,
         backendType: p.state.backend_type || "claude",
@@ -1474,7 +1473,7 @@ export class WsBridge {
         pendingControlRequests: new Map(),
         messageHistory: p.messageHistory || [],
         pendingMessages: p.pendingMessages || [],
-        pendingCodexTurnRecovery: p.pendingCodexTurnRecovery ?? null,
+        pendingCodexTurns: restoredCodexTurns,
         nextEventSeq: p.nextEventSeq && p.nextEventSeq > 0 ? p.nextEventSeq : 1,
         eventBuffer: Array.isArray(p.eventBuffer) ? p.eventBuffer : [],
         lastAckSeq: typeof p.lastAckSeq === "number" ? p.lastAckSeq : 0,
@@ -1522,6 +1521,8 @@ export class WsBridge {
         cliResumingClearTimer: null,
       };
       session.state.backend_type = session.backendType;
+      session.state.backend_state = session.state.backend_state ?? "disconnected";
+      session.state.backend_error = session.state.backend_error ?? null;
 
       // Recover from server restart: any permissions left in "evaluating" state
       // have no running LLM subprocess. Transition them to normal pending.
@@ -1565,7 +1566,7 @@ export class WsBridge {
       state: session.state,
       messageHistory: session.messageHistory,
       pendingMessages: session.pendingMessages,
-      pendingCodexTurnRecovery: session.pendingCodexTurnRecovery,
+      pendingCodexTurns: session.pendingCodexTurns,
       pendingPermissions: Array.from(session.pendingPermissions.entries()),
       eventBuffer: session.eventBuffer,
       nextEventSeq: session.nextEventSeq,
@@ -1588,7 +1589,7 @@ export class WsBridge {
       state: session.state,
       messageHistory: session.messageHistory,
       pendingMessages: session.pendingMessages,
-      pendingCodexTurnRecovery: session.pendingCodexTurnRecovery,
+      pendingCodexTurns: session.pendingCodexTurns,
       pendingPermissions: Array.from(session.pendingPermissions.entries()),
       eventBuffer: session.eventBuffer,
       nextEventSeq: session.nextEventSeq,
@@ -1852,7 +1853,7 @@ export class WsBridge {
         pendingControlRequests: new Map(),
         messageHistory: [],
         pendingMessages: [],
-        pendingCodexTurnRecovery: null,
+        pendingCodexTurns: [],
         nextEventSeq: 1,
         eventBuffer: [],
         lastAckSeq: 0,
@@ -2019,6 +2020,22 @@ export class WsBridge {
     return parts.join("\n");
   }
 
+  private normalizePersistedCodexTurn(turn: CodexOutboundTurn, now = Date.now()): CodexOutboundTurn {
+    return {
+      ...turn,
+      historyIndex: turn.historyIndex ?? -1,
+      status: turn.status ?? "queued",
+      dispatchCount: turn.dispatchCount ?? 0,
+      createdAt: turn.createdAt ?? now,
+      updatedAt: turn.updatedAt ?? now,
+      acknowledgedAt: turn.acknowledgedAt ?? null,
+      // turnTarget is runtime lifecycle wiring; do not trust persisted values
+      // across restart/recovery boundaries.
+      turnTarget: null,
+      lastError: turn.lastError ?? null,
+    };
+  }
+
   private maybeInjectLeaderAddressingReminder(
     session: Session,
     addressing: LeaderAssistantAddressing,
@@ -2181,6 +2198,123 @@ export class WsBridge {
     return !!(session.backendSocket || session.codexAdapter || session.claudeSdkAdapter);
   }
 
+  private deriveBackendState(session: Session): NonNullable<SessionState["backend_state"]> {
+    if (session.state.backend_state === "broken") return "broken";
+    if (this.backendConnected(session)) return "connected";
+    if (session.state.backend_state === "initializing" || session.state.backend_state === "resuming") {
+      return session.state.backend_state;
+    }
+    return "disconnected";
+  }
+
+  private setBackendState(
+    session: Session,
+    backendState: NonNullable<SessionState["backend_state"]>,
+    backendError: string | null = null,
+  ): void {
+    const changed =
+      session.state.backend_state !== backendState
+      || session.state.backend_error !== backendError;
+    session.state.backend_state = backendState;
+    session.state.backend_error = backendError;
+    if (!changed) return;
+    this.broadcastToBrowsers(session, {
+      type: "session_update",
+      session: {
+        backend_state: backendState,
+        backend_error: backendError,
+      },
+    });
+  }
+
+  private getCodexHeadTurn(session: Session): CodexOutboundTurn | null {
+    return session.pendingCodexTurns[0] ?? null;
+  }
+
+  private getCodexTurnAwaitingAck(session: Session): CodexOutboundTurn | null {
+    const head = this.getCodexHeadTurn(session);
+    return head?.status === "dispatched" ? head : null;
+  }
+
+  private getCodexTurnInRecovery(session: Session): CodexOutboundTurn | null {
+    const head = this.getCodexHeadTurn(session);
+    if (!head) return null;
+    if (
+      head.status === "backend_acknowledged"
+      || head.status === "blocked_broken_session"
+      || head.status === "dispatched"
+    ) {
+      return head;
+    }
+    return null;
+  }
+
+  private enqueueCodexTurn(session: Session, turn: CodexOutboundTurn): CodexOutboundTurn {
+    session.pendingCodexTurns.push(turn);
+    return turn;
+  }
+
+  private removeCompletedCodexTurns(session: Session): boolean {
+    let removed = 0;
+    while (session.pendingCodexTurns[0]?.status === "completed") {
+      session.pendingCodexTurns.shift();
+      removed++;
+    }
+    return removed > 0;
+  }
+
+  private completeCodexTurn(session: Session, turn: CodexOutboundTurn | null, updatedAt = Date.now()): boolean {
+    if (!turn) return false;
+    turn.status = "completed";
+    turn.updatedAt = updatedAt;
+    return this.removeCompletedCodexTurns(session);
+  }
+
+  private dispatchQueuedCodexTurns(session: Session, reason: string): void {
+    const adapter = session.codexAdapter;
+    if (!adapter) return;
+    if (session.codexAdapter !== adapter) return;
+    if (session.state.backend_state !== "connected" || !adapter.isConnected()) return;
+
+    const head = this.getCodexHeadTurn(session);
+    if (!head) return;
+    if (head.status === "blocked_broken_session") {
+      head.status = "queued";
+      head.updatedAt = Date.now();
+      head.lastError = null;
+      head.turnId = null;
+      head.acknowledgedAt = null;
+      head.disconnectedAt = null;
+      head.resumeConfirmedAt = null;
+    }
+    if (head.status === "backend_acknowledged" || head.status === "dispatched") return;
+
+    const now = Date.now();
+    const accepted = adapter.sendBrowserMessage(head.adapterMsg);
+    if (!accepted) {
+      head.status = "queued";
+      head.updatedAt = now;
+      head.lastError = `Codex adapter rejected outbound turn during ${reason}.`;
+      this.persistSession(session);
+      return;
+    }
+
+    head.status = "dispatched";
+    head.dispatchCount += 1;
+    head.updatedAt = now;
+    head.lastError = null;
+    this.persistSession(session);
+    console.log(
+      `[ws-bridge] Dispatched queued Codex turn for session ${sessionTag(session.id)} (${reason}, attempt ${head.dispatchCount})`,
+    );
+  }
+
+  private maybeFlushQueuedCodexMessages(session: Session, reason: string): void {
+    const adapter = session.codexAdapter;
+    if (!adapter) return;
+    this.flushQueuedMessagesToCodexAdapter(session, adapter, reason);
+  }
+
   isBackendConnected(sessionId: string): boolean {
     const session = this.sessions.get(sessionId);
     if (!session) return false;
@@ -2243,7 +2377,17 @@ export class WsBridge {
     const session = this.getOrCreateSession(sessionId, "codex");
     session.backendType = "codex";
     session.state.backend_type = "codex";
+    if (session.codexAdapter && session.codexAdapter !== adapter) {
+      session.codexAdapter.disconnect().catch(() => {});
+    }
     session.codexAdapter = adapter;
+    const launcherInfo = this.launcher?.getSession(session.id);
+    const backendState =
+      launcherInfo?.cliSessionId || session.pendingCodexTurns.length > 0 || session.pendingMessages.length > 0
+        ? "resuming"
+        : "initializing";
+    this.setBackendState(session, backendState, null);
+    this.persistSession(session);
 
     // Mark session as initialized immediately when the Codex adapter attaches.
     // Mirrors the SDK path (attachClaudeSdkAdapter). Without this,
@@ -2261,6 +2405,7 @@ export class WsBridge {
 
     // Forward translated messages to browsers
     adapter.onBrowserMessage((msg) => {
+      if (session.codexAdapter !== adapter) return;
       // Track Codex CLI activity for idle management and stuck detection
       this.launcher?.touchActivity(session.id);
       session.lastCliMessageAt = Date.now();
@@ -2382,10 +2527,12 @@ export class WsBridge {
       } else if (outgoing?.type === "result") {
         session.consecutiveAdapterFailures = 0;
         session.lastAdapterFailureAt = null;
-        session.pendingCodexTurnRecovery = null;
+        this.completeCodexTurn(session, this.getCodexHeadTurn(session), Date.now());
         // Route through the unified result handler so Codex gets the same
         // post-turn state refresh (git + diff stats + attention) as Claude.
         this.handleResultMessage(session, outgoing.data);
+        this.dispatchQueuedCodexTurns(session, "codex_turn_completed");
+        this.maybeFlushQueuedCodexMessages(session, "codex_turn_completed_non_user");
         return;
       }
 
@@ -2481,12 +2628,14 @@ export class WsBridge {
 
     // Handle session metadata updates
     adapter.onSessionMeta((meta) => {
+      if (session.codexAdapter !== adapter) return;
       if (meta.cliSessionId && this.onCLISessionId) {
         this.onCLISessionId(session.id, meta.cliSessionId);
       }
       if (meta.resumeSnapshot) {
         this.reconcileCodexResumedTurn(session, meta.resumeSnapshot);
       }
+      this.setBackendState(session, "connected", null);
       if (meta.model) {
         session.state.model = meta.model;
         this.broadcastToBrowsers(session, {
@@ -2496,18 +2645,58 @@ export class WsBridge {
       }
       if (meta.cwd) session.state.cwd = meta.cwd;
       session.state.backend_type = "codex";
+      this.dispatchQueuedCodexTurns(session, "session_meta");
+      this.flushQueuedMessagesToCodexAdapter(session, adapter, "session_meta");
+      this.broadcastToBrowsers(session, { type: "backend_connected" });
       this.refreshGitInfoThenRecomputeDiff(session, { broadcastUpdate: true, notifyPoller: true });
+      this.persistSession(session);
+    });
+
+    adapter.onTurnStarted((turnId) => {
+      if (session.codexAdapter !== adapter) return;
+      const pending = this.getCodexTurnAwaitingAck(session);
+      if (!pending) return;
+      pending.turnId = turnId;
+      pending.status = "backend_acknowledged";
+      pending.acknowledgedAt = Date.now();
+      pending.updatedAt = pending.acknowledgedAt;
+      if (pending.turnTarget === null) {
+        const target = this.markRunningFromUserDispatch(session, "codex_turn_started");
+        pending.turnTarget = target;
+        this.trackUserMessageForTurn(session, pending.historyIndex, target);
+      }
+      this.persistSession(session);
+    });
+
+    adapter.onInitError((error) => {
+      if (session.codexAdapter !== adapter) return;
+      console.error(`[ws-bridge] Codex adapter init failed for session ${sessionTag(sessionId)}: ${error}`);
+      session.codexAdapter = null;
+      const pending = this.getCodexTurnInRecovery(session);
+      if (pending) {
+        pending.status = "blocked_broken_session";
+        pending.lastError = error;
+        pending.updatedAt = Date.now();
+      }
+      this.setBackendState(session, "broken", error);
+      this.setAttention(session, "error");
+      this.setGenerating(session, false, "codex_init_error");
+      this.broadcastToBrowsers(session, { type: "backend_disconnected", reason: "broken" });
+      this.broadcastToBrowsers(session, { type: "status_change", status: null });
       this.persistSession(session);
     });
 
     // Handle disconnect
     adapter.onDisconnect(() => {
+      if (session.codexAdapter !== adapter) return;
       const wasGenerating = session.isGenerating;
       const disconnectedTurnId = adapter.getCurrentTurnId ? adapter.getCurrentTurnId() : null;
-      if (session.pendingCodexTurnRecovery) {
-        session.pendingCodexTurnRecovery.turnId = disconnectedTurnId;
-        session.pendingCodexTurnRecovery.disconnectedAt = Date.now();
-        session.pendingCodexTurnRecovery.resumeConfirmedAt = null;
+      const pending = this.getCodexTurnInRecovery(session);
+      if (pending) {
+        pending.turnId = disconnectedTurnId;
+        pending.disconnectedAt = Date.now();
+        pending.resumeConfirmedAt = null;
+        pending.updatedAt = pending.disconnectedAt;
       }
       const now = Date.now();
       const intentionalRelaunch = session.intentionalCodexRelaunchUntil !== null
@@ -2524,6 +2713,7 @@ export class WsBridge {
       this.onSessionActivityStateChanged(session.id, "codex_disconnect_permissions_cleared");
       session.pendingQuestCommands.clear();
       session.codexAdapter = null;
+      this.setBackendState(session, "disconnected", null);
       if (!intentionalRelaunch) {
         if (
           session.lastAdapterFailureAt !== null
@@ -2536,6 +2726,7 @@ export class WsBridge {
       }
       this.markTurnInterrupted(session, "system");
       this.setGenerating(session, false, "codex_disconnect");
+      this.broadcastToBrowsers(session, { type: "status_change", status: null });
       this.scheduleCodexToolResultWatchdogs(session, "codex_disconnect");
       this.persistSession(session);
       const idleKilled = this.launcher?.getSession(sessionId)?.killedByIdleManager;
@@ -2580,13 +2771,24 @@ export class WsBridge {
     adapter.onTurnStartFailed((msg) => {
       console.log(`[ws-bridge] Turn start failed for session ${sessionTag(sessionId)}, re-queuing ${msg.type}`);
       if (msg.type === "user_message") {
-        // turn/start never made it to Codex — standard pending queue handles retry.
-        session.pendingCodexTurnRecovery = null;
-      }
-      const raw = JSON.stringify(msg);
-      const alreadyQueued = session.pendingMessages.some((queued) => queued === raw);
-      if (!alreadyQueued) {
-        session.pendingMessages.push(raw);
+        const pending = this.getCodexTurnAwaitingAck(session)
+          ?? session.pendingCodexTurns.find((turn) =>
+            turn.adapterMsg.type === "user_message"
+            && JSON.stringify(turn.adapterMsg) === JSON.stringify(msg)
+            && turn.status !== "completed");
+        if (pending) {
+          pending.status = "queued";
+          pending.turnId = null;
+          pending.updatedAt = Date.now();
+          pending.lastError = "turn/start failed before acknowledgement";
+        }
+        this.dispatchQueuedCodexTurns(session, "turn_start_failed");
+      } else {
+        const raw = JSON.stringify(msg);
+        const alreadyQueued = session.pendingMessages.some((queued) => queued === raw);
+        if (!alreadyQueued) {
+          session.pendingMessages.push(raw);
+        }
       }
 
       // If this callback came from a stale adapter after reconnect, immediately
@@ -2594,35 +2796,64 @@ export class WsBridge {
       // stranded in session.pendingMessages.
       const activeAdapter = session.codexAdapter;
       if (activeAdapter && activeAdapter !== adapter) {
+        this.dispatchQueuedCodexTurns(session, "stale_adapter_turn_start_failed");
         this.flushQueuedMessagesToCodexAdapter(session, activeAdapter, "stale_adapter_turn_start_failed");
       }
     });
 
-    // Flush any messages queued while waiting for the adapter
-    this.flushQueuedMessagesToCodexAdapter(session, adapter, "adapter_attach");
-
-    // Notify browsers that the backend is connected
-    this.broadcastToBrowsers(session, { type: "backend_connected" });
     console.log(`[ws-bridge] Codex adapter attached for session ${sessionTag(sessionId)}`);
   }
 
   private flushQueuedMessagesToCodexAdapter(session: Session, adapter: CodexBridgeAdapter, reason: string): void {
     if (session.pendingMessages.length === 0) return;
-    console.log(
-      `[ws-bridge] Flushing ${session.pendingMessages.length} queued message(s) to Codex adapter for session ${sessionTag(session.id)} (${reason})`,
-    );
+    if (session.codexAdapter !== adapter) return;
+    if (session.state.backend_state !== "connected") {
+      console.log(
+        `[ws-bridge] Deferring flush of ${session.pendingMessages.length} queued message(s) for session ${sessionTag(session.id)} until Codex session is connected (${reason})`,
+      );
+      return;
+    }
     const queued = session.pendingMessages.splice(0);
+    const stillQueued: string[] = [];
+    const sendNow: BrowserOutgoingMessage[] = [];
     for (const raw of queued) {
       try {
         const msg = JSON.parse(raw) as BrowserOutgoingMessage;
         if (msg.type === "user_message") {
-          this.markRunningFromUserDispatch(session, "queued_user_message_dispatch");
+          console.warn(
+            `[ws-bridge] Unexpected raw queued Codex user_message for session ${sessionTag(session.id)}; ` +
+            "Codex user turns should only exist in pendingCodexTurns.",
+          );
+          stillQueued.push(raw);
+          continue;
         }
-        adapter.sendBrowserMessage(msg);
+        sendNow.push(msg);
       } catch {
         console.warn(`[ws-bridge] Failed to parse queued message for Codex: ${raw.substring(0, 100)}`);
+        stillQueued.push(raw);
       }
     }
+    session.pendingMessages = stillQueued;
+    if (sendNow.length === 0) {
+      if (stillQueued.length > 0) {
+        console.log(
+          `[ws-bridge] Deferring ${stillQueued.length} queued non-user message(s) for session ${sessionTag(session.id)} (${reason})`,
+        );
+      }
+      this.dispatchQueuedCodexTurns(session, `${reason}_after_pending_message_scan`);
+      return;
+    }
+    console.log(
+      `[ws-bridge] Flushing ${sendNow.length} queued message(s) to Codex adapter for session ${sessionTag(session.id)} (${reason})`,
+    );
+    for (const msg of sendNow) {
+      try {
+        adapter.sendBrowserMessage(msg);
+      } catch {
+        console.warn(`[ws-bridge] Failed to flush queued message for Codex session ${sessionTag(session.id)}`);
+      }
+    }
+    this.dispatchQueuedCodexTurns(session, `${reason}_after_non_user_flush`);
   }
 
   /** Attach a Claude SDK adapter (stdio transport) for a session.
@@ -3182,7 +3413,14 @@ export class WsBridge {
         }
       }
     } else {
-      this.sendToBrowser(ws, { type: "backend_connected" });
+      if (this.backendConnected(session)) {
+        this.sendToBrowser(ws, { type: "backend_connected" });
+      } else {
+        this.sendToBrowser(ws, {
+          type: "backend_disconnected",
+          ...(session.state.backend_state === "broken" ? { reason: "broken" as const } : {}),
+        });
+      }
     }
   }
 
@@ -4668,7 +4906,7 @@ export class WsBridge {
   private shouldDeferCodexToolResultWatchdog(session: Session, toolUseId: string): boolean {
     if (!session.codexAdapter?.isConnected()) return false;
 
-    const pending = session.pendingCodexTurnRecovery;
+    const pending = this.getCodexTurnInRecovery(session);
     if (!pending) return true;
     if (pending.resumeConfirmedAt == null) return true;
     if (pending.disconnectedAt == null) return true;
@@ -4684,7 +4922,7 @@ export class WsBridge {
   private synthesizeCodexToolResultsFromResumedTurn(
     session: Session,
     turn: CodexResumeTurnSnapshot,
-    pending: PendingCodexTurnRecovery,
+    pending: CodexOutboundTurn,
   ): number {
     const turnStatus = typeof turn.status === "string" ? turn.status : null;
     if (!turnStatus || turnStatus === "inProgress") return 0;
@@ -5061,15 +5299,15 @@ export class WsBridge {
 
       let userImageRefs: import("./image-store.js").ImageRef[] | undefined;
       let codexUserMessageId: string | null = null;
+      let ingested: {
+        timestamp: number;
+        historyEntry: Extract<BrowserIncomingMessage, { type: "user_message" }>;
+        historyIndex: number;
+        imageRefs?: import("./image-store.js").ImageRef[];
+        wasGenerating: boolean;
+      } | undefined;
 
       if (msg.type === "user_message") {
-        let ingested: {
-          timestamp: number;
-          historyEntry: Extract<BrowserIncomingMessage, { type: "user_message" }>;
-          historyIndex: number;
-          imageRefs?: import("./image-store.js").ImageRef[];
-          wasGenerating: boolean;
-        };
         try {
           const maybeIngested = this.ingestUserMessage(session, msg, "adapter");
           ingested = maybeIngested instanceof Promise ? await maybeIngested : maybeIngested;
@@ -5222,41 +5460,93 @@ export class WsBridge {
         }
       }
 
-      // Track the in-flight Codex user turn so we can reconcile/resume
-      // correctly if the transport drops right after turn/start.
-      if (msg.type === "user_message") {
-        session.pendingCodexTurnRecovery = {
+      let pendingTurnTarget: UserDispatchTurnTarget | null = null;
+      if (msg.type === "user_message" && ingested?.wasGenerating) {
+        const interruptSource =
+          msg.agentSource
+            ? (this.isSystemSourceTag(msg.agentSource) ? "system" : "leader")
+            : "user";
+        pendingTurnTarget = this.markRunningFromUserDispatch(session, "user_message", interruptSource);
+        this.trackUserMessageForTurn(session, ingested.historyIndex, pendingTurnTarget);
+      }
+
+      if (session.backendType === "codex" && msg.type === "user_message") {
+        const now = Date.now();
+        const isHead = session.pendingCodexTurns.length === 0;
+        const pending = this.enqueueCodexTurn(session, {
           adapterMsg,
-          userMessageId: codexUserMessageId || `user-recovery-${Date.now()}`,
+          userMessageId: codexUserMessageId || `user-recovery-${now}`,
           userContent: this.buildPendingCodexRecoveryUserText(adapterMsg),
+          historyIndex: ingested?.historyIndex ?? -1,
+          status: session.state.backend_state === "broken" && isHead ? "blocked_broken_session" : "queued",
+          dispatchCount: 0,
+          createdAt: now,
+          updatedAt: now,
+          acknowledgedAt: null,
+          turnTarget: pendingTurnTarget,
+          lastError: session.state.backend_state === "broken" && isHead
+            ? (session.state.backend_error || "Codex session needs relaunch before queued messages can run.")
+            : null,
           turnId: null,
           disconnectedAt: null,
           resumeConfirmedAt: null,
-        };
+        });
+        if (session.state.backend_state === "broken") {
+          this.broadcastToBrowsers(session, {
+            type: "error",
+            message: "Codex session is broken. Your message was queued and will run after relaunch.",
+          });
+        }
+        this.dispatchQueuedCodexTurns(session, "browser_user_message");
         this.persistSession(session);
+
+        if (!session.codexAdapter) {
+          console.log(`[ws-bridge] Codex adapter not yet attached for session ${sessionTag(session.id)}, queued user_message`);
+          if (this.onCLIRelaunchNeeded) {
+            const launcherInfo = this.launcher?.getSession(session.id);
+            if (
+              session.state.backend_state !== "broken"
+              && launcherInfo
+              && launcherInfo.state === "exited"
+              && !launcherInfo.killedByIdleManager
+            ) {
+              session.consecutiveAdapterFailures = 0;
+              console.log(`[ws-bridge] User message queued for exited ${session.backendType} session ${sessionTag(session.id)}, requesting relaunch`);
+              this.onCLIRelaunchNeeded(session.id);
+            }
+          }
+        }
+        return;
       }
 
       const adapter = session.codexAdapter || session.claudeSdkAdapter;
-      if (adapter) {
-        adapter.sendBrowserMessage(adapterMsg);
-      } else {
-        // Adapter not yet attached — queue for when it's ready.
-        console.log(`[ws-bridge] Adapter not yet attached for session ${sessionTag(session.id)}, queuing ${msg.type}`);
-        session.pendingMessages.push(JSON.stringify(adapterMsg));
+      const raw = JSON.stringify(adapterMsg);
+      const queueAdapterMessage = () => {
+        const alreadyQueued = session.pendingMessages.some((queued) => queued === raw);
+        if (!alreadyQueued) {
+          session.pendingMessages.push(raw);
+        }
+      };
 
-        // If the backend process has exited (e.g. Codex exits after each turn),
-        // trigger a relaunch so the queued message gets processed. Without this,
-        // messages sent to idle Codex sessions sit in the queue forever.
-        // Reset consecutiveAdapterFailures since an explicit user message is a
-        // legitimate relaunch trigger, not a crash loop.
+      if (adapter) {
+        const accepted = adapter.sendBrowserMessage(adapterMsg);
+        if (!accepted) {
+          queueAdapterMessage();
+        }
+        this.persistSession(session);
+      } else {
+        console.log(`[ws-bridge] Adapter not yet attached for session ${sessionTag(session.id)}, queuing ${msg.type}`);
+        queueAdapterMessage();
+
         if (msg.type === "user_message" && this.onCLIRelaunchNeeded) {
           const launcherInfo = this.launcher?.getSession(session.id);
-          if (launcherInfo && launcherInfo.state === "exited" && !launcherInfo.killedByIdleManager) {
+          if (session.state.backend_state !== "broken" && launcherInfo && launcherInfo.state === "exited" && !launcherInfo.killedByIdleManager) {
             session.consecutiveAdapterFailures = 0;
             console.log(`[ws-bridge] User message queued for exited ${session.backendType} session ${sessionTag(session.id)}, requesting relaunch`);
             this.onCLIRelaunchNeeded(session.id);
           }
         }
+        this.persistSession(session);
       }
       return;
     }
@@ -5526,18 +5816,6 @@ export class WsBridge {
       });
 
       const wasGenerating = session.isGenerating;
-      if (source === "adapter") {
-        const interruptSource =
-          session.backendType === "codex" && wasGenerating
-            ? (msg.agentSource
-                ? (this.isSystemSourceTag(msg.agentSource) ? "system" : "leader")
-                : "user")
-            : null;
-        const target = this.markRunningFromUserDispatch(session, "user_message", interruptSource);
-        // Queue follow-up user messages onto the next turn when dispatching while running.
-        this.trackUserMessageForTurn(session, userMsgHistoryIdx, target);
-      }
-
       return {
         timestamp: ts,
         historyEntry: userHistoryEntry,
@@ -6270,7 +6548,7 @@ export class WsBridge {
   }
 
   private reconcileCodexResumedTurn(session: Session, snapshot: CodexResumeSnapshot): void {
-    const pending = session.pendingCodexTurnRecovery;
+    const pending = this.getCodexTurnInRecovery(session);
     const lastTurn = snapshot.lastTurn;
     if (!pending) return;
 
@@ -6335,20 +6613,41 @@ export class WsBridge {
     }
 
     const recovered = this.recoverAgentMessagesFromResumedTurn(session, lastTurn, pending);
-    if (recovered > 0) {
-      session.consecutiveAdapterFailures = 0;
-      session.lastAdapterFailureAt = null;
-      session.pendingCodexTurnRecovery = null;
+    const synthesizedToolResults = this.synthesizeCodexToolResultsFromResumedTurn(session, lastTurn, pending);
+    if (lastTurn.status === "inProgress") {
+      if (recovered > 0 || synthesizedToolResults > 0) {
+        session.consecutiveAdapterFailures = 0;
+        session.lastAdapterFailureAt = null;
+      }
+      // Thread is still active — keep the authoritative outbound turn at the
+      // head of the queue even if Codex replayed assistant/tool items during
+      // resume. Those replay artifacts are browser-visible, but the user turn
+      // is not complete until Codex reports a terminal turn status.
+      pending.status = "backend_acknowledged";
+      pending.turnId = lastTurn.id;
+      pending.resumeConfirmedAt = Date.now();
+      pending.updatedAt = pending.resumeConfirmedAt;
       this.persistSession(session);
       return;
     }
 
-    const synthesizedToolResults = this.synthesizeCodexToolResultsFromResumedTurn(session, lastTurn, pending);
+    if (recovered > 0) {
+      session.consecutiveAdapterFailures = 0;
+      session.lastAdapterFailureAt = null;
+      this.completeCodexTurn(session, pending);
+      this.persistSession(session);
+      this.dispatchQueuedCodexTurns(session, "codex_resume_recovered_messages");
+      this.maybeFlushQueuedCodexMessages(session, "codex_resume_recovered_messages");
+      return;
+    }
+
     if (synthesizedToolResults > 0) {
       session.consecutiveAdapterFailures = 0;
       session.lastAdapterFailureAt = null;
-      session.pendingCodexTurnRecovery = null;
+      this.completeCodexTurn(session, pending);
       this.persistSession(session);
+      this.dispatchQueuedCodexTurns(session, "codex_resume_synthesized_results");
+      this.maybeFlushQueuedCodexMessages(session, "codex_resume_synthesized_results");
       return;
     }
 
@@ -6360,18 +6659,9 @@ export class WsBridge {
       return;
     }
 
-    if (lastTurn.status === "inProgress") {
-      // Thread is still active — keep waiting for turn completion
-      session.pendingCodexTurnRecovery = {
-        ...pending,
-        turnId: lastTurn.id,
-        resumeConfirmedAt: Date.now(),
-      };
-      this.persistSession(session);
-      return;
-    }
-
-    session.pendingCodexTurnRecovery = null;
+    this.completeCodexTurn(session, pending);
+    this.dispatchQueuedCodexTurns(session, "codex_resume_non_retryable");
+    this.maybeFlushQueuedCodexMessages(session, "codex_resume_non_retryable");
     console.warn(
       `[ws-bridge] Resumed Codex turn ${lastTurn.id} for session ${sessionTag(session.id)} has non-user items but no recoverable agentMessage text; skipping auto-retry to avoid duplicate side effects`,
     );
@@ -6444,31 +6734,23 @@ export class WsBridge {
     return null;
   }
 
-  private retryPendingCodexTurn(session: Session, pending: PendingCodexTurnRecovery): void {
-    const nextPending: PendingCodexTurnRecovery = {
-      ...pending,
-      turnId: null,
-      disconnectedAt: null,
-      resumeConfirmedAt: null,
-    };
-    session.pendingCodexTurnRecovery = nextPending;
-    this.markRunningFromUserDispatch(session, "codex_resume_retry");
-
-    if (session.codexAdapter) {
-      const ok = session.codexAdapter.sendBrowserMessage(pending.adapterMsg);
-      if (!ok) {
-        session.pendingMessages.push(JSON.stringify(pending.adapterMsg));
-      }
-    } else {
-      session.pendingMessages.push(JSON.stringify(pending.adapterMsg));
-    }
+  private retryPendingCodexTurn(session: Session, pending: CodexOutboundTurn): void {
+    pending.status = session.state.backend_state === "broken" ? "blocked_broken_session" : "queued";
+    pending.updatedAt = Date.now();
+    pending.acknowledgedAt = null;
+    pending.lastError = null;
+    pending.turnTarget = null;
+    pending.turnId = null;
+    pending.disconnectedAt = null;
+    pending.resumeConfirmedAt = null;
+    this.dispatchQueuedCodexTurns(session, "codex_retry_pending_turn");
     this.persistSession(session);
   }
 
   private recoverAgentMessagesFromResumedTurn(
     session: Session,
     turn: CodexResumeTurnSnapshot,
-    pending: PendingCodexTurnRecovery,
+    pending: CodexOutboundTurn,
   ): number {
     let matchedOrRecovered = 0;
     const baseTs = pending.disconnectedAt ?? Date.now();
@@ -6696,8 +6978,7 @@ export class WsBridge {
   /** Derive current session status from explicit runtime state. */
   private deriveSessionStatus(session: Session): string | null {
     if (session.state.is_compacting) return "compacting";
-    const hasBackend = !!(session.backendSocket || session.codexAdapter || session.claudeSdkAdapter);
-    if (!hasBackend) return null;
+    if (!this.backendConnected(session)) return null;
     if (session.isGenerating) return "running";
     return "idle";
   }
@@ -6708,7 +6989,9 @@ export class WsBridge {
       type: "state_snapshot",
       sessionStatus: this.deriveSessionStatus(session),
       permissionMode: session.state.permissionMode,
-      backendConnected: !!(session.backendSocket || session.codexAdapter || session.claudeSdkAdapter),
+      backendConnected: this.backendConnected(session),
+      backendState: this.deriveBackendState(session),
+      backendError: session.state.backend_error ?? null,
       uiMode: session.state.uiMode ?? null,
       askPermission: session.state.askPermission ?? true,
       lastReadAt: session.lastReadAt,

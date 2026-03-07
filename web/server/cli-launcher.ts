@@ -37,6 +37,33 @@ async function fileExists(path: string): Promise<boolean> {
   try { await access(path); return true; } catch { return false; }
 }
 
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function waitForProcessExit(pid: number, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!isProcessAlive(pid)) return true;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  return !isProcessAlive(pid);
+}
+
+async function readProcessCmdline(pid: number): Promise<string | null> {
+  try {
+    const raw = await readFile(`/proc/${pid}/cmdline`, "utf8");
+    return raw.replace(/\0/g, " ").trim() || null;
+  } catch {
+    return null;
+  }
+}
+
 function sanitizeSpawnArgsForLog(args: string[]): string {
   const secretKeyPattern = /(token|key|secret|password)/i;
   const out = [...args];
@@ -876,6 +903,48 @@ export class CliLauncher {
     this.envResolver = fn;
   }
 
+  private async terminateKnownProcess(
+    sessionId: string,
+    pid: number | undefined,
+    proc?: Subprocess,
+    reason?: string,
+  ): Promise<void> {
+    if (!pid) return;
+
+    try {
+      if (proc) {
+        proc.kill("SIGTERM");
+      } else {
+        process.kill(pid, "SIGTERM");
+      }
+    } catch {}
+
+    const exitedGracefully = proc
+      ? await Promise.race([
+        proc.exited.then(() => true).catch(() => true),
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 2000)),
+      ])
+      : await waitForProcessExit(pid, 2000);
+    if (exitedGracefully) return;
+
+    console.warn(
+      `[cli-launcher] Process ${pid} for session ${sessionTag(sessionId)} did not exit after SIGTERM`
+      + `${reason ? ` (${reason})` : ""}; escalating to SIGKILL`,
+    );
+    if (!proc) {
+      const cmdline = await readProcessCmdline(pid);
+      console.warn(
+        `[cli-launcher] Refusing SIGKILL for untracked persisted pid ${pid} on session ${sessionTag(sessionId)}`
+        + `${cmdline ? ` (still running: ${cmdline})` : ""}`,
+      );
+      return;
+    }
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {}
+    await waitForProcessExit(pid, 1000);
+  }
+
   // ─── Integer session ID management ─────────────────────────────────────────
 
   /** Assign a monotonic integer ID to a session. */
@@ -1192,17 +1261,11 @@ export class CliLauncher {
     // Kill old process if still alive
     const oldProc = this.processes.get(sessionId);
     if (oldProc) {
-      try {
-        oldProc.kill("SIGTERM");
-        await Promise.race([
-          oldProc.exited,
-          new Promise((r) => setTimeout(r, 2000)),
-        ]);
-      } catch {}
+      await this.terminateKnownProcess(sessionId, oldProc.pid, oldProc, "relaunch");
       this.processes.delete(sessionId);
     } else if (info.pid) {
       // Process from a previous server instance — kill by PID
-      try { process.kill(info.pid, "SIGTERM"); } catch {}
+      await this.terminateKnownProcess(sessionId, info.pid, undefined, "relaunch");
     }
 
     // Pre-flight validation for containerized sessions
@@ -1887,6 +1950,13 @@ export class CliLauncher {
         session.exitCode = 1;
         session.cliSessionId = undefined;
       }
+      if (this.processes.get(sessionId) === proc) {
+        this.processes.delete(sessionId);
+      }
+      void this.terminateKnownProcess(sessionId, proc.pid, proc, "codex_init_error")
+        .catch((err) => {
+          console.error(`[cli-launcher] Failed to terminate broken Codex process for session ${sessionTag(sessionId)}:`, err);
+        });
       this.persistState();
     });
 

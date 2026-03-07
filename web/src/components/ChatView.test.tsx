@@ -5,20 +5,23 @@ import "@testing-library/jest-dom";
 interface MockStoreState {
   pendingPermissions: Map<string, Map<string, { tool_name?: string; request_id?: string }>>;
   connectionStatus: Map<string, "connecting" | "connected" | "disconnected">;
+  sessions: Map<string, { backend_state?: "initializing" | "resuming" | "connected" | "disconnected" | "broken"; backend_error?: string | null }>;
   cliConnected: Map<string, boolean>;
   cliEverConnected: Map<string, boolean>;
-  cliDisconnectReason: Map<string, "idle_limit" | null>;
+  cliDisconnectReason: Map<string, "idle_limit" | "broken" | null>;
   sessionStatus: Map<string, "idle" | "running" | "compacting" | "reverting" | null>;
   sdkSessions: Array<{ sessionId: string; archived?: boolean }>;
 }
 
 let mockState: MockStoreState;
 const mockUnarchiveSession = vi.fn().mockResolvedValue({});
+const mockRelaunchSession = vi.fn().mockResolvedValue({});
 
 function resetStore(overrides: Partial<MockStoreState> = {}) {
   mockState = {
     pendingPermissions: new Map(),
     connectionStatus: new Map([["s1", "connected"]]),
+    sessions: new Map([["s1", { backend_state: "connected", backend_error: null }]]),
     cliConnected: new Map([["s1", true]]),
     cliEverConnected: new Map([["s1", true]]),
     cliDisconnectReason: new Map([["s1", null]]),
@@ -34,7 +37,7 @@ vi.mock("../store.js", () => ({
 
 vi.mock("../api.js", () => ({
   api: {
-    relaunchSession: vi.fn().mockResolvedValue({}),
+    relaunchSession: (...args: unknown[]) => mockRelaunchSession(...args),
     unarchiveSession: (...args: unknown[]) => mockUnarchiveSession(...args),
   },
 }));
@@ -72,6 +75,7 @@ import { ChatView } from "./ChatView.js";
 beforeEach(() => {
   resetStore();
   mockUnarchiveSession.mockClear();
+  mockRelaunchSession.mockClear();
 });
 
 describe("ChatView archived banner", () => {
@@ -100,5 +104,39 @@ describe("ChatView archived banner", () => {
     const view = render(<ChatView sessionId="s1" />);
     const scope = within(view.container);
     expect(scope.queryByText("This session is archived.")).not.toBeInTheDocument();
+  });
+});
+
+describe("ChatView backend banners", () => {
+  it("shows the startup banner for a freshly launched session even without explicit backend_state", () => {
+    // Claude/SDK sessions do not always populate backend_state during startup,
+    // so the banner still needs to key off the first-connect path.
+    resetStore({
+      sessions: new Map([["s1", { backend_state: "disconnected", backend_error: null }]]),
+      cliConnected: new Map([["s1", false]]),
+      cliEverConnected: new Map(),
+    });
+
+    const view = render(<ChatView sessionId="s1" />);
+    const scope = within(view.container);
+    expect(scope.getByText("Starting session...")).toBeInTheDocument();
+  });
+
+  it("shows the broken-session banner and relaunch action", () => {
+    // Broken Codex sessions should stay visibly broken until the user relaunches,
+    // rather than falling back to the generic disconnected banner.
+    resetStore({
+      sessions: new Map([["s1", { backend_state: "broken", backend_error: "Codex initialization failed: Transport closed" }]]),
+      cliConnected: new Map([["s1", false]]),
+      cliEverConnected: new Map([["s1", true]]),
+      cliDisconnectReason: new Map([["s1", "broken"]]),
+      sessionStatus: new Map([["s1", null]]),
+    });
+
+    const view = render(<ChatView sessionId="s1" />);
+    const scope = within(view.container);
+    expect(scope.getByText("Codex initialization failed: Transport closed")).toBeInTheDocument();
+    fireEvent.click(scope.getByRole("button", { name: "Relaunch" }));
+    expect(mockRelaunchSession).toHaveBeenCalledWith("s1");
   });
 });

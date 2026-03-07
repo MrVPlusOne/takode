@@ -98,6 +98,8 @@ Quest and recording references that repeatedly came up:
 | 2026-03-06 | `q-183` | `00544d2` | Stale-turn guard on `thread/resume`, `thread/status/changed` clears stale `currentTurnId`, replay dedup window fixed | Reconnect snapshots could still be stale enough to need earlier retry ordering |
 | 2026-03-07 | `q-190` | `469d583` | Extended replay dedup for compaction-triggered assistant replays | Compaction still had stale-turn ordering risk |
 | 2026-03-07 | adjacent | `6f99742` | Retry stale user turn before recovery/synthesis after compaction disconnect; also reasserted compaction is not a turn boundary | Latest major stabilization, but `q-200` exists because false/unexpected `turn_end` reports still persist |
+| 2026-03-07 | adjacent | queue-first redesign | Codex outbound turns moved to one authoritative `pendingCodexTurns` queue, backend health became explicit, and new turns only entered running after `turn/start` ack | Reduced fake-running / fake-idle churn, but resume reconciliation still needed a later guard for replayed `inProgress` turns |
+| 2026-03-07 | adjacent | resume follow-up guard | Replayed assistant/tool artifacts from a resumed `inProgress` turn no longer complete the head outbound turn or unblock the next queued turn | This specifically closes one remaining path where stale resume handling could masquerade as a real turn boundary |
 
 ## Prior attempts, superseded fixes, and dead ends
 
@@ -152,6 +154,10 @@ What the repo now defends against:
 - stale `currentTurnId` restoration on reconnect is guarded
 - compaction replay has dedicated dedup coverage
 - stale-turn retry after compaction runs earlier than it used to
+- broken Codex sessions no longer masquerade as normal running turns after
+  relaunch/init failure
+- replayed artifacts from a resumed `inProgress` turn no longer complete the
+  authoritative outbound turn early
 
 What is still true:
 
@@ -202,6 +208,9 @@ What is still true:
   checking thread-level status.
 - Do not run recovery/synthesis before deciding whether the resumed turn is
   definitively stale.
+- Do not let replayed assistant/tool artifacts from a resumed `inProgress`
+  turn clear the authoritative outbound turn.
+  - that can incorrectly advance the queue and create a fake turn boundary
 - Do not clear `cliResuming` on the first replayed `system.init`.
 - Do not diagnose only from the chat feed.
   - replay duplication, stuck tool previews, and stale idle/running state can

@@ -27,6 +27,9 @@ import { buildHerdGroupBadgeThemes, getHerdGroupLeaderId } from "../utils/herd-g
 // ─── Mock Data ──────────────────────────────────────────────────────────────
 
 const MOCK_SESSION_ID = "playground-session";
+const PLAYGROUND_STARTING_SESSION_ID = "playground-chat-starting";
+const PLAYGROUND_RESUMING_SESSION_ID = "playground-chat-resuming";
+const PLAYGROUND_BROKEN_SESSION_ID = "playground-chat-broken";
 const PLAYGROUND_SESSION_ROWS: Array<{ session: SidebarSessionItem; sessionName: string; preview: string }> = [
   {
     session: {
@@ -841,17 +844,23 @@ export function Playground() {
     const store = useStore.getState();
     const snapshot = useStore.getState();
     const sessionId = MOCK_SESSION_ID;
-
-    const prevSession = snapshot.sessions.get(sessionId);
-    const prevMessages = snapshot.messages.get(sessionId);
-    const prevPerms = snapshot.pendingPermissions.get(sessionId);
-    const prevConn = snapshot.connectionStatus.get(sessionId);
-    const prevCli = snapshot.cliConnected.get(sessionId);
-    const prevCliEver = snapshot.cliEverConnected.get(sessionId);
-    const prevStatus = snapshot.sessionStatus.get(sessionId);
-    const prevStreaming = snapshot.streaming.get(sessionId);
-    const prevStreamingStartedAt = snapshot.streamingStartedAt.get(sessionId);
-    const prevStreamingOutputTokens = snapshot.streamingOutputTokens.get(sessionId);
+    const demoSessionIds = [
+      sessionId,
+      PLAYGROUND_STARTING_SESSION_ID,
+      PLAYGROUND_RESUMING_SESSION_ID,
+      PLAYGROUND_BROKEN_SESSION_ID,
+    ];
+    const prevSessions = new Map(demoSessionIds.map((id) => [id, snapshot.sessions.get(id)]));
+    const prevMessages = new Map(demoSessionIds.map((id) => [id, snapshot.messages.get(id)]));
+    const prevPerms = new Map(demoSessionIds.map((id) => [id, snapshot.pendingPermissions.get(id)]));
+    const prevConn = new Map(demoSessionIds.map((id) => [id, snapshot.connectionStatus.get(id)]));
+    const prevCli = new Map(demoSessionIds.map((id) => [id, snapshot.cliConnected.get(id)]));
+    const prevCliEver = new Map(demoSessionIds.map((id) => [id, snapshot.cliEverConnected.get(id)]));
+    const prevCliDisconnectReason = new Map(demoSessionIds.map((id) => [id, snapshot.cliDisconnectReason.get(id)]));
+    const prevStatus = new Map(demoSessionIds.map((id) => [id, snapshot.sessionStatus.get(id)]));
+    const prevStreaming = new Map(demoSessionIds.map((id) => [id, snapshot.streaming.get(id)]));
+    const prevStreamingStartedAt = new Map(demoSessionIds.map((id) => [id, snapshot.streamingStartedAt.get(id)]));
+    const prevStreamingOutputTokens = new Map(demoSessionIds.map((id) => [id, snapshot.streamingOutputTokens.get(id)]));
 
     const session: SessionState = {
       session_id: sessionId,
@@ -955,6 +964,45 @@ export function Playground() {
       outputDelta: "Merged 256/512 files\n",
     });
 
+    // Additional ChatView states used by the chat-flow Playground coverage.
+    store.addSession({
+      ...session,
+      session_id: PLAYGROUND_STARTING_SESSION_ID,
+      backend_type: "claude-sdk",
+      backend_state: "initializing",
+      backend_error: null,
+    });
+    store.setConnectionStatus(PLAYGROUND_STARTING_SESSION_ID, "connected");
+    store.setCliConnected(PLAYGROUND_STARTING_SESSION_ID, false);
+    store.setSessionStatus(PLAYGROUND_STARTING_SESSION_ID, null);
+
+    store.addSession({
+      ...session,
+      session_id: PLAYGROUND_RESUMING_SESSION_ID,
+      backend_type: "codex",
+      backend_state: "resuming",
+      backend_error: null,
+      model: "gpt-5.3-codex",
+    });
+    store.setConnectionStatus(PLAYGROUND_RESUMING_SESSION_ID, "connected");
+    store.setCliConnected(PLAYGROUND_RESUMING_SESSION_ID, false);
+    store.setCliEverConnected(PLAYGROUND_RESUMING_SESSION_ID);
+    store.setSessionStatus(PLAYGROUND_RESUMING_SESSION_ID, null);
+
+    store.addSession({
+      ...session,
+      session_id: PLAYGROUND_BROKEN_SESSION_ID,
+      backend_type: "codex",
+      backend_state: "broken",
+      backend_error: "Codex initialization failed: Transport closed",
+      model: "gpt-5.3-codex",
+    });
+    store.setConnectionStatus(PLAYGROUND_BROKEN_SESSION_ID, "connected");
+    store.setCliConnected(PLAYGROUND_BROKEN_SESSION_ID, false);
+    store.setCliEverConnected(PLAYGROUND_BROKEN_SESSION_ID);
+    store.setCliDisconnectReason(PLAYGROUND_BROKEN_SESSION_ID, "broken");
+    store.setSessionStatus(PLAYGROUND_BROKEN_SESSION_ID, null);
+
     return () => {
       useStore.setState((s) => {
         const sessions = new Map(s.sessions);
@@ -967,17 +1015,33 @@ export function Playground() {
         const streaming = new Map(s.streaming);
         const streamingStartedAt = new Map(s.streamingStartedAt);
         const streamingOutputTokens = new Map(s.streamingOutputTokens);
+        const cliDisconnectReason = new Map(s.cliDisconnectReason);
 
-        if (prevSession) sessions.set(sessionId, prevSession); else sessions.delete(sessionId);
-        if (prevMessages) messages.set(sessionId, prevMessages); else messages.delete(sessionId);
-        if (prevPerms) pendingPermissions.set(sessionId, prevPerms); else pendingPermissions.delete(sessionId);
-        if (prevConn) connectionStatus.set(sessionId, prevConn); else connectionStatus.delete(sessionId);
-        if (typeof prevCli === "boolean") cliConnected.set(sessionId, prevCli); else cliConnected.delete(sessionId);
-        if (typeof prevCliEver === "boolean") cliEverConnected.set(sessionId, prevCliEver); else cliEverConnected.delete(sessionId);
-        if (prevStatus) sessionStatus.set(sessionId, prevStatus); else sessionStatus.delete(sessionId);
-        if (typeof prevStreaming === "string") streaming.set(sessionId, prevStreaming); else streaming.delete(sessionId);
-        if (typeof prevStreamingStartedAt === "number") streamingStartedAt.set(sessionId, prevStreamingStartedAt); else streamingStartedAt.delete(sessionId);
-        if (typeof prevStreamingOutputTokens === "number") streamingOutputTokens.set(sessionId, prevStreamingOutputTokens); else streamingOutputTokens.delete(sessionId);
+        for (const demoId of demoSessionIds) {
+          const prevSession = prevSessions.get(demoId);
+          const prevMessageList = prevMessages.get(demoId);
+          const prevPermissionMap = prevPerms.get(demoId);
+          const prevConnection = prevConn.get(demoId);
+          const prevCliConnected = prevCli.get(demoId);
+          const prevCliSeen = prevCliEver.get(demoId);
+          const prevDisconnectReason = prevCliDisconnectReason.get(demoId);
+          const prevSessionState = prevStatus.get(demoId);
+          const prevStream = prevStreaming.get(demoId);
+          const prevStreamStarted = prevStreamingStartedAt.get(demoId);
+          const prevStreamTokens = prevStreamingOutputTokens.get(demoId);
+
+          if (prevSession) sessions.set(demoId, prevSession); else sessions.delete(demoId);
+          if (prevMessageList) messages.set(demoId, prevMessageList); else messages.delete(demoId);
+          if (prevPermissionMap) pendingPermissions.set(demoId, prevPermissionMap); else pendingPermissions.delete(demoId);
+          if (prevConnection) connectionStatus.set(demoId, prevConnection); else connectionStatus.delete(demoId);
+          if (typeof prevCliConnected === "boolean") cliConnected.set(demoId, prevCliConnected); else cliConnected.delete(demoId);
+          if (typeof prevCliSeen === "boolean") cliEverConnected.set(demoId, prevCliSeen); else cliEverConnected.delete(demoId);
+          if (prevDisconnectReason !== undefined) cliDisconnectReason.set(demoId, prevDisconnectReason); else cliDisconnectReason.delete(demoId);
+          if (prevSessionState) sessionStatus.set(demoId, prevSessionState); else sessionStatus.delete(demoId);
+          if (typeof prevStream === "string") streaming.set(demoId, prevStream); else streaming.delete(demoId);
+          if (typeof prevStreamStarted === "number") streamingStartedAt.set(demoId, prevStreamStarted); else streamingStartedAt.delete(demoId);
+          if (typeof prevStreamTokens === "number") streamingOutputTokens.set(demoId, prevStreamTokens); else streamingOutputTokens.delete(demoId);
+        }
 
         return {
           sessions,
@@ -986,6 +1050,7 @@ export function Playground() {
           connectionStatus,
           cliConnected,
           cliEverConnected,
+          cliDisconnectReason,
           sessionStatus,
           streaming,
           streamingStartedAt,
@@ -1084,6 +1149,26 @@ export function Playground() {
         <Section title="Real Chat Stack" description="Integrated ChatView using real MessageFeed + PermissionBanner + Composer components">
           <div data-testid="playground-real-chat-stack" className="max-w-3xl border border-cc-border rounded-xl overflow-hidden bg-cc-card h-[620px]">
             <ChatView sessionId={MOCK_SESSION_ID} />
+          </div>
+        </Section>
+
+        <Section title="ChatView Recovery States" description="Startup, resume, and broken-session banners shown by ChatView before the main message feed is usable.">
+          <div className="space-y-4">
+            <Card label="Fresh session starting">
+              <div className="border border-cc-border rounded-xl overflow-hidden bg-cc-card h-[260px]">
+                <ChatView sessionId={PLAYGROUND_STARTING_SESSION_ID} />
+              </div>
+            </Card>
+            <Card label="Codex session resuming">
+              <div className="border border-cc-border rounded-xl overflow-hidden bg-cc-card h-[260px]">
+                <ChatView sessionId={PLAYGROUND_RESUMING_SESSION_ID} />
+              </div>
+            </Card>
+            <Card label="Broken session relaunch banner">
+              <div className="border border-cc-border rounded-xl overflow-hidden bg-cc-card h-[260px]">
+                <ChatView sessionId={PLAYGROUND_BROKEN_SESSION_ID} />
+              </div>
+            </Card>
           </div>
         </Section>
 
