@@ -51,6 +51,11 @@ Claude Code / Codex backends
 make dev
 ```
 
+Tailscale HTTPS helper:
+```bash
+./scripts/tailscale-serve.sh both
+```
+
 Manual:
 ```bash
 cd web
@@ -68,6 +73,7 @@ bun run test
 ## Docs
 - Protocol reverse engineering: [`WEBSOCKET_PROTOCOL_REVERSED.md`](WEBSOCKET_PROTOCOL_REVERSED.md)
 - Contributor and architecture guide: [`CLAUDE.md`](CLAUDE.md)
+- Tailscale HTTPS prod/dev setup: [`docs/tailscale-serve.md`](docs/tailscale-serve.md)
 
 ## License
 MIT
