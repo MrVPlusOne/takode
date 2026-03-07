@@ -254,6 +254,15 @@ function err(message: string): never {
   process.exit(1);
 }
 
+async function readStdinText(): Promise<string> {
+  process.stdin.setEncoding("utf8");
+  let data = "";
+  for await (const chunk of process.stdin) {
+    data += chunk;
+  }
+  return data;
+}
+
 /** Parse --key value pairs from argv. Supports --flag (boolean true). */
 function parseFlags(argv: string[]): Record<string, string | boolean> {
   const flags: Record<string, string | boolean> = {};
@@ -1278,14 +1287,28 @@ async function handleRead(base: string, args: string[]): Promise<void> {
 
 async function handleSend(base: string, args: string[]): Promise<void> {
   const sessionRef = args[0];
-  const content = args.slice(1).join(" ");
+  const usage = "Usage: takode send <session> <message> [--correction] [--json]\n       takode send <session> --stdin [--correction] [--json]";
+  const flags = parseFlags(args.slice(1));
+  assertKnownFlags(flags, new Set(["json", "correction", "stdin"]), usage);
 
-  // Strip flags from content
-  const cleanContent = content.replace(/\s*--json\s*/, "").replace(/\s*--correction\s*/, "").trim();
-  const jsonMode = args.includes("--json");
-  const isCorrection = args.includes("--correction");
+  const jsonMode = flags.json === true;
+  const isCorrection = flags.correction === true;
+  const useStdin = flags.stdin === true;
 
-  if (!sessionRef || !cleanContent) err("Usage: takode send <session> <message> [--correction]");
+  const messageParts = args.slice(1).filter(
+    (arg) => arg !== "--json" && arg !== "--correction" && arg !== "--stdin",
+  );
+
+  if (!sessionRef) err(usage);
+  if (useStdin && messageParts.length > 0) {
+    err("Cannot combine --stdin with a positional message.");
+  }
+
+  const cleanContent = useStdin
+    ? await readStdinText()
+    : messageParts.join(" ");
+
+  if (!cleanContent.trim()) err(usage);
 
   // Guard: orchestrators can only send to herded sessions
   const callerSessionId = getCredentials()?.sessionId;
@@ -1907,6 +1930,7 @@ Examples:
   takode peek 1 --detail --turns 3
   takode read 1 42
   takode send 2 "Please add tests for the edge cases"
+  printf 'Line 1\\nLine 2 with $HOME and \`code\`\\n' | takode send 2 --stdin
 `);
 }
 

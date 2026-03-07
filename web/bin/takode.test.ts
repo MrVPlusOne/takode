@@ -32,6 +32,7 @@ async function runTakode(
   args: string[],
   env: Record<string, string | undefined>,
   cwd = process.cwd(),
+  stdin?: string,
 ): Promise<{
   status: number | null;
   stdout: string;
@@ -41,8 +42,14 @@ async function runTakode(
   const child = spawn(process.execPath, [takodePath, ...args], {
     env,
     cwd,
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ["pipe", "pipe", "pipe"],
   });
+
+  if (stdin !== undefined) {
+    child.stdin?.end(stdin);
+  } else {
+    child.stdin?.end();
+  }
 
   let stdout = "";
   let stderr = "";
@@ -254,6 +261,143 @@ describe("takode auth fallback", () => {
     } finally {
       server.close();
       rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("takode send", () => {
+  it("keeps the positional message form for short manual sends", async () => {
+    const messageCalls: Array<{ id: string; body: JsonObject }> = [];
+    const server = createServer(async (req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-send", isOrchestrator: true }));
+        return;
+      }
+      if (method === "GET" && url === "/api/sessions/worker-send") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "worker-send", sessionNum: 7, name: "Worker Send", isGenerating: false }));
+        return;
+      }
+      if (method === "GET" && url === "/api/sessions/leader-send/herd") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify([{ sessionId: "worker-send" }]));
+        return;
+      }
+      if (method === "GET" && url === "/api/takode/sessions") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify([{ sessionId: "leader-send", sessionNum: 1, name: "Leader Send" }]));
+        return;
+      }
+      if (method === "POST" && url === "/api/sessions/worker-send/message") {
+        messageCalls.push({ id: "worker-send", body: await readJson(req) });
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true, sessionId: "worker-send" }));
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    try {
+      const result = await runTakode(
+        ["send", "worker-send", "Please", "add", "tests", "--port", String(port)],
+        {
+          ...process.env,
+          COMPANION_SESSION_ID: "leader-send",
+          COMPANION_AUTH_TOKEN: "auth-send",
+        },
+      );
+
+      expect(result.status).toBe(0);
+      expect(messageCalls).toEqual([
+        {
+          id: "worker-send",
+          body: {
+            content: "Please add tests",
+            agentSource: { sessionId: "leader-send", sessionLabel: "#1 Leader Send" },
+          },
+        },
+      ]);
+    } finally {
+      server.close();
+    }
+  });
+
+  it("reads multiline shell-sensitive content from --stdin without mangling it", async () => {
+    const messageCalls: Array<{ id: string; body: JsonObject }> = [];
+    const server = createServer(async (req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-stdin", isOrchestrator: true }));
+        return;
+      }
+      if (method === "GET" && url === "/api/sessions/worker-stdin") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "worker-stdin", sessionNum: 9, name: "Worker Stdin", isGenerating: false }));
+        return;
+      }
+      if (method === "GET" && url === "/api/sessions/leader-stdin/herd") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify([{ sessionId: "worker-stdin" }]));
+        return;
+      }
+      if (method === "GET" && url === "/api/takode/sessions") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify([{ sessionId: "leader-stdin", sessionNum: 2, name: "Leader Stdin" }]));
+        return;
+      }
+      if (method === "POST" && url === "/api/sessions/worker-stdin/message") {
+        messageCalls.push({ id: "worker-stdin", body: await readJson(req) });
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true, sessionId: "worker-stdin" }));
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+    const stdinMessage = "First line with $HOME\nSecond line with `code`\n";
+
+    try {
+      const result = await runTakode(
+        ["send", "worker-stdin", "--stdin", "--port", String(port)],
+        {
+          ...process.env,
+          COMPANION_SESSION_ID: "leader-stdin",
+          COMPANION_AUTH_TOKEN: "auth-stdin",
+        },
+        process.cwd(),
+        stdinMessage,
+      );
+
+      expect(result.status).toBe(0);
+      expect(messageCalls).toEqual([
+        {
+          id: "worker-stdin",
+          body: {
+            content: stdinMessage,
+            agentSource: { sessionId: "leader-stdin", sessionLabel: "#2 Leader Stdin" },
+          },
+        },
+      ]);
+    } finally {
+      server.close();
     }
   });
 });
