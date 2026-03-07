@@ -1035,6 +1035,12 @@ export class WsBridge {
       for (const session of this.sessions.values()) {
         if (!session.isGenerating || !session.generationStartedAt) continue;
 
+        // Don't flag sessions that haven't been generating long enough.
+        // lastCliMessageAt / lastCliPingAt may be stale from a previous turn,
+        // so without this guard, a freshly-started generation triggers a false
+        // "stuck" that self-clears on the next cycle once real CLI output arrives.
+        if (now - session.generationStartedAt < STUCK_THRESHOLD_MS) continue;
+
         // Check whether the CLI has been active recently — either a real
         // message or a keep_alive ping within the threshold. This is more
         // robust than comparing to generationStartedAt because it detects

@@ -758,6 +758,7 @@ describe("CLI handlers", () => {
     const cancelMsg = calls.find((c: any) => c.type === "permission_cancelled");
     expect(cancelMsg).toBeDefined();
     expect(cancelMsg.request_id).toBe("req-1");
+    vi.clearAllTimers();
     vi.useRealTimers();
   });
 });
@@ -864,6 +865,7 @@ describe("Seamless CLI reconnect preserves isGenerating", () => {
     bridge.handleCLIOpen(cli2, "s1");
     expect(session.seamlessReconnect).toBe(false); // NOT a seamless reconnect
 
+    vi.clearAllTimers();
     vi.useRealTimers();
   });
 });
@@ -4111,6 +4113,7 @@ describe("MCP control messages", () => {
     expect(sent.type).toBe("control_request");
     expect(sent.request.subtype).toBe("mcp_set_servers");
     expect(sent.request.servers).toEqual(servers);
+    vi.clearAllTimers();
     vi.useRealTimers();
   });
 });
@@ -4670,6 +4673,7 @@ describe("compaction_finished herd event", () => {
     expect(compactionCalls).toHaveLength(0);
 
     spy.mockRestore();
+    vi.clearAllTimers();
     vi.useRealTimers();
   });
 });
@@ -8573,6 +8577,7 @@ describe("Codex permission mode switch with pending approvals", () => {
     vi.advanceTimersByTime(150);
     expect(relaunchCb).toHaveBeenCalledWith(sid);
 
+    vi.clearAllTimers();
     vi.useRealTimers();
   });
 });
@@ -9705,6 +9710,119 @@ describe("cliResuming debounce prevents false compaction events on --resume repl
     vi.advanceTimersByTime(600);
     expect(session.cliResuming).toBe(false); // now cleared
 
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  });
+});
+
+// ─── Stuck session watchdog ─────────────────────────────────────────────────
+
+describe("stuck session watchdog", () => {
+  it("does not flag a freshly-started generation with stale lastCliMessageAt", () => {
+    vi.useFakeTimers();
+    const sid = "s-stuck-false-positive";
+    const cli = makeCliSocket(sid);
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    bridge.handleCLIOpen(cli, sid);
+    bridge.handleCLIMessage(cli, makeInitMsg());
+
+    const session = bridge.getSession(sid)!;
+
+    // Simulate a previous turn that ended 5 minutes ago
+    session.lastCliMessageAt = Date.now() - 300_000;
+    session.lastCliPingAt = Date.now() - 300_000;
+
+    // Start a new generation (user sends a message)
+    session.isGenerating = true;
+    session.generationStartedAt = Date.now();
+    session.stuckNotifiedAt = null;
+
+    // Start the watchdog
+    bridge.startStuckSessionWatchdog();
+
+    // Advance past the 30s check interval
+    vi.advanceTimersByTime(31_000);
+
+    // Should NOT have sent session_stuck — generation just started
+    const sentMessages = browser.send.mock.calls.map((c: any) => JSON.parse(c[0]));
+    const stuckMessages = sentMessages.filter((m: any) => m.type === "session_stuck");
+    expect(stuckMessages).toHaveLength(0);
+
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  });
+
+  it("flags a session stuck after generating for longer than the threshold with no CLI activity", () => {
+    vi.useFakeTimers();
+    const sid = "s-stuck-real";
+    const cli = makeCliSocket(sid);
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    bridge.handleCLIOpen(cli, sid);
+    bridge.handleCLIMessage(cli, makeInitMsg());
+
+    const session = bridge.getSession(sid)!;
+
+    // Generation started 3 minutes ago, no CLI activity since
+    const threeMinAgo = Date.now() - 180_000;
+    session.isGenerating = true;
+    session.generationStartedAt = threeMinAgo;
+    session.lastCliMessageAt = threeMinAgo;
+    session.lastCliPingAt = threeMinAgo;
+    session.stuckNotifiedAt = null;
+
+    bridge.startStuckSessionWatchdog();
+
+    // Advance past the check interval
+    vi.advanceTimersByTime(31_000);
+
+    const sentMessages = browser.send.mock.calls.map((c: any) => JSON.parse(c[0]));
+    const stuckMessages = sentMessages.filter((m: any) => m.type === "session_stuck");
+    expect(stuckMessages).toHaveLength(1);
+
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  });
+
+  it("sends session_unstuck when CLI activity resumes", () => {
+    vi.useFakeTimers();
+    const sid = "s-stuck-recover";
+    const cli = makeCliSocket(sid);
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    bridge.handleCLIOpen(cli, sid);
+    bridge.handleCLIMessage(cli, makeInitMsg());
+
+    const session = bridge.getSession(sid)!;
+
+    // Session has been generating for 3 minutes with no activity
+    const threeMinAgo = Date.now() - 180_000;
+    session.isGenerating = true;
+    session.generationStartedAt = threeMinAgo;
+    session.lastCliMessageAt = threeMinAgo;
+    session.lastCliPingAt = threeMinAgo;
+    session.stuckNotifiedAt = null;
+
+    bridge.startStuckSessionWatchdog();
+
+    // First tick: should fire session_stuck
+    vi.advanceTimersByTime(31_000);
+    expect(session.stuckNotifiedAt).not.toBeNull();
+
+    // Simulate CLI activity resuming
+    session.lastCliMessageAt = Date.now();
+
+    // Second tick: should fire session_unstuck
+    browser.send.mockClear();
+    vi.advanceTimersByTime(30_000);
+
+    const sentMessages = browser.send.mock.calls.map((c: any) => JSON.parse(c[0]));
+    const unstuckMessages = sentMessages.filter((m: any) => m.type === "session_unstuck");
+    expect(unstuckMessages).toHaveLength(1);
+    expect(session.stuckNotifiedAt).toBeNull();
+
+    vi.clearAllTimers();
     vi.useRealTimers();
   });
 });
