@@ -306,11 +306,19 @@ export function createFilesystemRoutes(ctx: RouteContext) {
 
   /**
    * List files changed between the working tree and a base ref.
-   * Uses `git diff -M --name-status` which properly detects additions,
-   * modifications, deletions, AND renames (with the -M flag).
+   * Uses `git diff --name-status` to detect additions, modifications,
+   * and deletions. Rename detection (-M) is intentionally omitted — it
+   * requires git to compute content similarity scores, which triggers
+   * full file reads over NFS and can block for 30+ seconds on large repos.
+   * Renames appear as separate A + D entries; the UI handles this gracefully.
+   *
+   * Untracked file listing (git ls-files --others) is also omitted because
+   * it walks the entire working tree — another expensive NFS scan. New files
+   * are already tracked via tool-call observations (Write/Edit events) on
+   * the frontend, so they appear in the file list without git.
    *
    * Returns an array of { path, status } where status is one of:
-   *   A = added, M = modified, D = deleted, R = renamed (includes oldPath)
+   *   A = added, M = modified, D = deleted
    */
   api.get("/fs/diff-files", async (c) => {
     const cwd = c.req.query("cwd");
@@ -320,17 +328,12 @@ export function createFilesystemRoutes(ctx: RouteContext) {
 
     const repoRoot = resolve(cwd);
     try {
-      // -M enables rename detection; --no-optional-locks avoids NFS lock contention
+      // --no-optional-locks avoids NFS lock contention on .git/index.lock
+      // No -M flag: rename detection is too expensive on NFS (reads full file contents)
       const raw = await execCaptureStdoutAsync(
-        `git --no-optional-locks diff -M --name-status ${base}`,
+        `git --no-optional-locks diff --name-status ${base}`,
         repoRoot,
       );
-
-      // Also pick up untracked files (new files not yet committed)
-      const untrackedRaw = await execCaptureStdoutAsync(
-        `git --no-optional-locks ls-files --others --exclude-standard`,
-        repoRoot,
-      ).catch(() => "");
 
       const files: Array<{
         path: string;
@@ -345,30 +348,12 @@ export function createFilesystemRoutes(ctx: RouteContext) {
 
         if (statusCode === "D") {
           files.push({ path: `${repoRoot}/${parts[1]}`, status: "D" });
-        } else if (statusCode.startsWith("R")) {
-          // Rename: "R100\toldpath\tnewpath" (R with similarity percentage)
-          files.push({
-            path: `${repoRoot}/${parts[2]}`,
-            status: "R",
-            oldPath: `${repoRoot}/${parts[1]}`,
-          });
         } else if (statusCode === "A") {
           files.push({ path: `${repoRoot}/${parts[1]}`, status: "A" });
         } else if (statusCode === "M") {
           files.push({ path: `${repoRoot}/${parts[1]}`, status: "M" });
-        }
-        // Other status codes (C=copy, T=type-change, etc.) treated as modifications
-        else if (parts[1]) {
+        } else if (parts[1]) {
           files.push({ path: `${repoRoot}/${parts[1]}`, status: "M" });
-        }
-      }
-
-      // Add untracked files as additions
-      for (const line of untrackedRaw.split("\n")) {
-        if (!line.trim()) continue;
-        const absPath = `${repoRoot}/${line.trim()}`;
-        if (!files.some((f) => f.path === absPath)) {
-          files.push({ path: absPath, status: "A" });
         }
       }
 
