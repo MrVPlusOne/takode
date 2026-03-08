@@ -454,6 +454,13 @@ interface TurnBoundary {
   endIdx: number;
 }
 
+function isSyntheticStopTail(msg: BrowserIncomingMessage): boolean {
+  if (msg.type !== "user_message") return false;
+  if (!msg.id?.startsWith("stop-")) return false;
+  if (!msg.agentSource?.sessionId) return false;
+  return msg.content.startsWith("Session stopped by leader #");
+}
+
 /**
  * Find turn boundaries by scanning messageHistory.
  * A turn starts with a top-level user_message and ends with a result message.
@@ -465,6 +472,7 @@ function findTurnBoundaries(messages: BrowserIncomingMessage[]): TurnBoundary[] 
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i];
     if (msg.type === "user_message") {
+      if (isSyntheticStopTail(msg)) continue;
       // If there's a previous turn without a result, close it
       if (currentStart >= 0) {
         turns.push({ startIdx: currentStart, endIdx: -1 });

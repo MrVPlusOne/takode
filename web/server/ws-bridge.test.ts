@@ -1783,6 +1783,54 @@ describe("CLI message routing", () => {
     expect(typeof assistantRebroadcast.turn_duration_ms).toBe("number");
   });
 
+  it("result: reconciles stale running state when a replayed duplicate result arrives", () => {
+    const session = bridge.getSession("s1")!;
+    session.messageHistory.push({
+      type: "result",
+      data: {
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result: "Done!",
+        duration_ms: 2500,
+        duration_api_ms: 2000,
+        num_turns: 1,
+        total_cost_usd: 0.01,
+        stop_reason: "end_turn",
+        usage: { input_tokens: 50, output_tokens: 20, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        uuid: "uuid-replayed-result",
+        session_id: "s1",
+      },
+    } as any);
+    session.isGenerating = true;
+    session.generationStartedAt = Date.now() - 180_000;
+    session.stuckNotifiedAt = Date.now() - 30_000;
+    browser.send.mockClear();
+
+    bridge.handleCLIMessage(cli, JSON.stringify({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      result: "Done!",
+      duration_ms: 2500,
+      duration_api_ms: 2000,
+      num_turns: 1,
+      total_cost_usd: 0.01,
+      stop_reason: "end_turn",
+      usage: { input_tokens: 50, output_tokens: 20, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      uuid: "uuid-replayed-result",
+      session_id: "s1",
+    }));
+
+    expect(session.isGenerating).toBe(false);
+    expect(session.generationStartedAt).toBeNull();
+    expect(session.stuckNotifiedAt).toBeNull();
+    expect(session.messageHistory.filter((m: any) => m.type === "result")).toHaveLength(1);
+
+    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    expect(calls).toContainEqual(expect.objectContaining({ type: "status_change", status: "idle" }));
+  });
+
   it("result: suppresses review attention for leader turns without @to(user) response", () => {
     bridge.setLauncher({
       touchActivity: vi.fn(),

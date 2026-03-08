@@ -185,6 +185,38 @@ export function promoteNextQueuedTurn<S extends GenerationLifecycleSession>(
   return true;
 }
 
+export function reconcileTerminalResultState<S extends GenerationLifecycleSession>(
+  deps: GenerationLifecycleDeps<S>,
+  session: S,
+  reason: string,
+): { endedTurn: boolean; clearedResidualState: boolean } {
+  clearOptimisticRunningTimer(session);
+  if (session.isGenerating) {
+    setGenerating(deps, session, false, reason);
+    return { endedTurn: true, clearedResidualState: true };
+  }
+
+  const hadResidualState =
+    session.generationStartedAt !== null
+    || session.stuckNotifiedAt !== null
+    || session.interruptedDuringTurn
+    || session.interruptSourceDuringTurn !== null
+    || session.compactedDuringTurn
+    || session.userMessageIdsThisTurn.length > 0;
+  if (!hadResidualState) {
+    return { endedTurn: false, clearedResidualState: false };
+  }
+
+  session.generationStartedAt = null;
+  session.stuckNotifiedAt = null;
+  session.interruptedDuringTurn = false;
+  session.interruptSourceDuringTurn = null;
+  session.compactedDuringTurn = false;
+  session.userMessageIdsThisTurn = [];
+  deps.onSessionActivityStateChanged(session.id, `generating:${reason}:reconciled`);
+  return { endedTurn: false, clearedResidualState: true };
+}
+
 export function setGenerating<S extends GenerationLifecycleSession>(
   deps: GenerationLifecycleDeps<S>,
   session: S,

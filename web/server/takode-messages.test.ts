@@ -415,6 +415,27 @@ describe("buildPeekDefault", () => {
     expect(result.collapsedTurns).toHaveLength(1);
     expect(result.collapsedTurns[0].resultPreview).toBe("Subagent finished the audit");
   });
+
+  it("ignores a trailing injected stop message instead of treating it as a running turn", () => {
+    const history: BrowserIncomingMessage[] = [
+      userMsg("Investigate the bug", 1000),
+      assistantMsg("Final diagnosis", 2000),
+      resultMsg(3000),
+      {
+        type: "user_message",
+        content: "Session stopped by leader #158 Debug stuck worker session",
+        timestamp: 5000,
+        id: "stop-5000",
+        agentSource: { sessionId: "leader-158", sessionLabel: "#158 Debug stuck worker session" },
+      } as BrowserIncomingMessage,
+    ];
+
+    const result = buildPeekDefault(history);
+    expect(result.totalTurns).toBe(1);
+    expect(result.expandedTurn?.startedAt).toBe(1000);
+    expect(result.expandedTurn?.endedAt).toBe(4000);
+    expect(result.expandedTurn?.messages.at(-1)?.type).toBe("result");
+  });
 });
 
 describe("buildPeekRange", () => {

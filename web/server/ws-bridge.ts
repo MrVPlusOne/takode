@@ -77,6 +77,7 @@ import {
   markRunningFromUserDispatch as markRunningFromUserDispatchLifecycle,
   markTurnInterrupted as markTurnInterruptedLifecycle,
   promoteNextQueuedTurn as promoteNextQueuedTurnLifecycle,
+  reconcileTerminalResultState as reconcileTerminalResultStateLifecycle,
   replaceQueuedTurnLifecycleEntries as replaceQueuedTurnLifecycleEntriesLifecycle,
   setGenerating as setGeneratingLifecycle,
   type InterruptSource as GenerationInterruptSource,
@@ -4337,11 +4338,24 @@ export class WsBridge {
   private handleResultMessage(session: Session, msg: CLIResultMessage) {
     // Dedup: CLI replays result messages on --resume. Skip if already in history
     // to avoid re-triggering attention/notifications for old completions.
+    // Still reconcile lifecycle drift so a replayed terminal result can clear
+    // stale running/stuck state after reconnect.
     if (msg.uuid) {
       const alreadyInHistory = session.messageHistory.some(
         (m) => m.type === "result" && (m as { data?: { uuid?: string } }).data?.uuid === msg.uuid,
       );
-      if (alreadyInHistory) return;
+      if (alreadyInHistory) {
+        const reconciled = reconcileTerminalResultStateLifecycle(
+          this.getGenerationLifecycleDeps(),
+          session,
+          "result_replay",
+        );
+        if (reconciled.clearedResidualState) {
+          this.broadcastToBrowsers(session, { type: "status_change", status: "idle" });
+          this.persistSession(session);
+        }
+        return;
+      }
     }
 
     // Update session cost/turns
@@ -4389,7 +4403,7 @@ export class WsBridge {
     }
 
     const turnTriggerSource = this.getCurrentTurnTriggerSource(session);
-    this.setGenerating(session, false, "result");
+    reconcileTerminalResultStateLifecycle(this.getGenerationLifecycleDeps(), session, "result");
     this.finalizeOrphanedTerminalToolsOnResult(session, msg);
     // Turn completed — the user message was processed. Clear the re-queue
     // tracker so we don't re-send it on a subsequent disconnect.
