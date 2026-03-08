@@ -54,9 +54,6 @@ handleIncomingMessage = createWsMessageHandler({
       actual_full_hash: details.actualFullHash,
     });
   },
-  requestFullHistorySync: (sessionId) => {
-    transport.requestFullHistorySync(sessionId);
-  },
 });
 
 export { resolveSessionFilePath };

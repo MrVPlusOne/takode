@@ -6017,7 +6017,7 @@ export class WsBridge {
     if (normalizedKnownFrozenCount > frozenPrefix.renderedCount) {
       console.warn(
         `[history-sync] Invalid known_frozen_count=${normalizedKnownFrozenCount} ` +
-        `for session ${sessionTag(session.id)} authoritativeFrozen=${frozenPrefix.renderedCount}; falling back to full history`,
+        `for session ${sessionTag(session.id)} authoritativeFrozen=${frozenPrefix.renderedCount}; refusing sync`,
       );
       return false;
     }
@@ -6030,7 +6030,7 @@ export class WsBridge {
         console.warn(
           `[history-sync] Frozen prefix hash mismatch for session ${sessionTag(session.id)} ` +
           `(count=${normalizedKnownFrozenCount}) expected=${expectedPrefix.hash} actual=${knownFrozenHash}; ` +
-          `falling back to full history`,
+          `refusing sync`,
         );
         return false;
       }
@@ -6094,11 +6094,8 @@ export class WsBridge {
     // This is the single source of truth for initial state delivery (previously
     // also done in handleBrowserOpen, causing double delivery).
     if (lastAckSeq === 0) {
-      if (session.messageHistory.length > 0 && !this.sendHistorySync(session, ws, knownFrozenCount, knownFrozenHash)) {
-        this.sendToBrowser(ws, {
-          type: "message_history",
-          messages: session.messageHistory,
-        });
+      if (session.messageHistory.length > 0) {
+        this.sendHistorySync(session, ws, knownFrozenCount, knownFrozenHash);
       }
       // Also replay any buffered events so transient messages (stream_event,
       // tool_progress, status_change, etc.) are caught up
@@ -6125,13 +6122,11 @@ export class WsBridge {
       if (hasGap || hasMissedHistoryBacked) {
         // Gap in buffer coverage OR missed history-backed events: send
         // authoritative history state so the browser can rebuild its feed.
-        // Prefer frozen-delta + hot-tail sync, but fall back to a full reset
-        // when the client cannot safely reuse its frozen prefix.
-        if (session.messageHistory.length > 0 && !this.sendHistorySync(session, ws, knownFrozenCount, knownFrozenHash)) {
-          this.sendToBrowser(ws, {
-            type: "message_history",
-            messages: session.messageHistory,
-          });
+        // Prefer frozen-delta + hot-tail sync. If the client cannot safely
+        // reuse its frozen prefix, refuse sync instead of resending the full
+        // conversation payload.
+        if (session.messageHistory.length > 0) {
+          this.sendHistorySync(session, ws, knownFrozenCount, knownFrozenHash);
         }
         const transientMissed = missedEvents
           .filter((evt) => !this.isHistoryBackedEvent(evt.message));

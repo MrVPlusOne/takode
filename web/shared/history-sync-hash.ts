@@ -74,22 +74,41 @@ function normalizeErrorText(msg: Extract<BrowserIncomingMessage, { type: "result
 }
 
 function comparableEntryFromChatMessage(message: ChatMessage): ComparableHistoryEntry {
+  if (message.role === "system") {
+    return {
+      id: message.id,
+      role: "system",
+      content: message.content,
+      ...(message.variant ? { variant: message.variant } : {}),
+      ...(message.metadata ? { metadata: message.metadata } : {}),
+      timestamp: null,
+    };
+  }
+
+  if (message.role === "user") {
+    return {
+      id: message.id,
+      role: "user",
+      content: message.content,
+      ...(message.images ? { images: message.images } : {}),
+      ...(message.metadata ? { metadata: message.metadata } : {}),
+      ...(message.agentSource ? { agentSource: message.agentSource } : {}),
+      timestamp: message.timestamp,
+    };
+  }
+
   return {
     id: message.id,
-    role: message.role,
+    role: "assistant",
     content: message.content,
     contentBlocks: message.contentBlocks,
-    images: message.images,
-    metadata: message.metadata,
-    agentSource: message.agentSource,
     parentToolUseId: message.parentToolUseId ?? null,
     model: message.model,
     stopReason: message.stopReason ?? null,
     turnDurationMs: message.turnDurationMs,
-    variant: message.variant,
     cliUuid: message.cliUuid,
     leaderUserAddressed: message.leaderUserAddressed,
-    timestamp: message.role === "system" ? null : message.timestamp,
+    timestamp: message.timestamp,
   };
 }
 
@@ -136,7 +155,7 @@ function forEachComparableHistoryEntry(
     if (!message) continue;
     if (message.type === "user_message") {
       visitor({
-        id: message.id,
+        id: message.id || `hist-user-${historyIndex}`,
         role: "user",
         content: message.content,
         images: message.images,

@@ -14,7 +14,6 @@ const CLI_DISCONNECT_DEBOUNCE_MS = 250;
 
 export interface WsMessageHandlerDeps {
   disconnectSession: (sessionId: string) => void;
-  requestFullHistorySync: (sessionId: string) => void;
   reportHistorySyncMismatch: (
     sessionId: string,
     details: {
@@ -262,7 +261,7 @@ function normalizeHistoryMessages(
     const historyIndex = startIndex + i;
     if (histMsg.type === "user_message") {
       chatMessages.push({
-        id: histMsg.id || nextId(),
+        id: histMsg.id || `hist-user-${historyIndex}`,
         role: "user",
         content: histMsg.content,
         timestamp: histMsg.timestamp,
@@ -396,7 +395,6 @@ function verifyHistorySync(
     expectedFullHash: data.expected_full_hash,
     actualFullHash,
   });
-  deps.requestFullHistorySync(sessionId);
 }
 
 function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, deps: WsMessageHandlerDeps) {

@@ -1279,7 +1279,8 @@ describe("Browser handlers", () => {
     expect(replay.events[0].message.type).toBe("stream_event");
   });
 
-  it("session_subscribe: falls back to message_history when known_frozen_count is invalid", () => {
+  it("session_subscribe: refuses sync without sending full history when known_frozen_count is invalid", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const cli = makeCliSocket("s1");
     bridge.handleCLIOpen(cli, "s1");
 
@@ -1330,15 +1331,17 @@ describe("Browser handlers", () => {
     }));
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    const historyMsg = calls.find((c: any) => c.type === "message_history");
-    expect(historyMsg).toBeDefined();
-    expect(historyMsg.messages.some((m: any) => m.type === "assistant")).toBe(true);
+    expect(calls.some((c: any) => c.type === "message_history")).toBe(false);
+    expect(calls.some((c: any) => c.type === "history_sync")).toBe(false);
     const replayMsg = calls.find((c: any) => c.type === "event_replay");
     expect(replayMsg).toBeDefined();
     expect(replayMsg.events.some((e: any) => e.message.type === "stream_event")).toBe(true);
+    expect(calls.some((c: any) => c.type === "state_snapshot")).toBe(true);
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
   });
 
-  it("session_subscribe: falls back to message_history when known_frozen_hash mismatches", () => {
+  it("session_subscribe: refuses sync without sending full history when known_frozen_hash mismatches", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const cli = makeCliSocket("s1");
     bridge.handleCLIOpen(cli, "s1");
@@ -1390,8 +1393,9 @@ describe("Browser handlers", () => {
     }));
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    expect(calls.some((c: any) => c.type === "message_history")).toBe(true);
+    expect(calls.some((c: any) => c.type === "message_history")).toBe(false);
     expect(calls.some((c: any) => c.type === "history_sync")).toBe(false);
+    expect(calls.some((c: any) => c.type === "state_snapshot")).toBe(true);
     expect(warnSpy).toHaveBeenCalled();
     warnSpy.mockRestore();
   });

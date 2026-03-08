@@ -1687,7 +1687,7 @@ describe("handleMessage: history_sync", () => {
     expect(useStore.getState().messageFrozenCounts.get("s1")).toBe(1);
   });
 
-  it("logs and requests a full resync when runtime hash verification fails", () => {
+  it("logs and reports mismatch without requesting a full resync when runtime hash verification fails", () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
@@ -1708,7 +1708,7 @@ describe("handleMessage: history_sync", () => {
 
     expect(errorSpy).toHaveBeenCalled();
     const outgoing = lastWs.send.mock.calls.map((call) => JSON.parse(call[0] as string));
-    expect(outgoing).toHaveLength(2);
+    expect(outgoing).toHaveLength(1);
     expect(outgoing[0]).toMatchObject({
       type: "history_sync_mismatch",
       frozen_count: 1,
@@ -1717,11 +1717,6 @@ describe("handleMessage: history_sync", () => {
     });
     expect(outgoing[0].actual_frozen_hash).toEqual(expect.any(String));
     expect(outgoing[0].actual_full_hash).toEqual(expect.any(String));
-    expect(outgoing[1]).toEqual({
-      type: "session_subscribe",
-      last_seq: 0,
-      known_frozen_count: 0,
-    });
     errorSpy.mockRestore();
   });
 });
