@@ -1143,6 +1143,7 @@ export function MessageFeed({ sessionId }: { sessionId: string }) {
   const isNearBottom = useRef(savedScrollPos ? savedScrollPos.isAtBottom : true);
   const didMountRef = useRef(false);
   const lastSentUserMessageIdRef = useRef<string | null>(null);
+  const lastRunwayScrollAppliedUserMessageIdRef = useRef<string | null>(null);
   const [bottomRunwayHeight, setBottomRunwayHeight] = useState(
     0,
   );
@@ -1153,6 +1154,7 @@ export function MessageFeed({ sessionId }: { sessionId: string }) {
   const loadingMore = useRef(false);
   const visibleCount = useStore((s) => s.feedVisibleCount.get(sessionId) ?? FEED_PAGE_SIZE);
   const restoredSessionIdRef = useRef<string | null>(null);
+  const sessionStatus = useStore((s) => s.sessionStatus.get(sessionId));
 
   const findVisibleTurnAnchor = useCallback((container: HTMLDivElement) => {
     const containerRect = container.getBoundingClientRect();
@@ -1194,6 +1196,14 @@ export function MessageFeed({ sessionId }: { sessionId: string }) {
   const hasMore = totalTurns > visibleCount;
   const visibleTurns = hasMore ? turns.slice(totalTurns - visibleCount) : turns;
   const isTopLevelStreaming = Boolean(streamingText);
+  const newestMessage = messages[messages.length - 1];
+  const trailingUserTurnId = newestMessage?.role === "user"
+    ? visibleTurns[visibleTurns.length - 1]?.id ?? null
+    : null;
+  const shouldUsePendingUserRunway = !isTopLevelStreaming &&
+    sessionStatus === "running" &&
+    newestMessage?.role === "user" &&
+    trailingUserTurnId != null;
   // Collapsible turn IDs: all turns with agent content are collapsible (including the last).
   // Stats and text preview recompute as new messages stream in.
   const collapsibleTurnIds = useMemo(() =>
@@ -1212,7 +1222,7 @@ export function MessageFeed({ sessionId }: { sessionId: string }) {
 
   const updateBottomRunwayHeight = useCallback(() => {
     const el = containerRef.current;
-    if (!el || !isTopLevelStreaming) {
+    if (!el || (!isTopLevelStreaming && !shouldUsePendingUserRunway)) {
       setBottomRunwayHeight((prev) => (prev === 0 ? prev : 0));
       return;
     }
@@ -1224,7 +1234,13 @@ export function MessageFeed({ sessionId }: { sessionId: string }) {
         (typeof window === "undefined" ? 0 : window.innerHeight),
       ),
     );
-    const lastRenderableMessage = el.querySelector<HTMLElement>('[data-feed-streaming-message="true"]');
+    const lastRenderableMessage = isTopLevelStreaming
+      ? el.querySelector<HTMLElement>('[data-feed-streaming-message="true"]')
+      : (
+          trailingUserTurnId
+            ? el.querySelector<HTMLElement>(`[data-turn-id="${escapeSelectorValue(trailingUserTurnId)}"]`)
+            : null
+        );
     const bottomMarker = bottomRef.current;
     if (!lastRenderableMessage || !bottomMarker || viewportHeight === 0) {
       setBottomRunwayHeight((prev) => (prev === 0 ? prev : 0));
@@ -1242,7 +1258,7 @@ export function MessageFeed({ sessionId }: { sessionId: string }) {
     );
     const nextHeight = Math.max(desiredRunway, preserveVisibleRunway);
     setBottomRunwayHeight((prev) => (prev === nextHeight ? prev : nextHeight));
-  }, [isTopLevelStreaming]);
+  }, [isTopLevelStreaming, shouldUsePendingUserRunway, trailingUserTurnId]);
 
   const isNearContentBottom = useCallback(() => {
     const container = containerRef.current;
@@ -1369,19 +1385,29 @@ export function MessageFeed({ sessionId }: { sessionId: string }) {
   useEffect(() => {
     if (!didMountRef.current) {
       didMountRef.current = true;
-      lastSentUserMessageIdRef.current = messages[messages.length - 1]?.role === "user"
-        ? messages[messages.length - 1]?.id
+      lastSentUserMessageIdRef.current = newestMessage?.role === "user"
+        ? newestMessage?.id
         : null;
+      lastRunwayScrollAppliedUserMessageIdRef.current = lastSentUserMessageIdRef.current;
       return;
     }
-    const newestMessage = messages[messages.length - 1];
     if (newestMessage?.role !== "user") return;
     if (newestMessage.id === lastSentUserMessageIdRef.current) return;
     lastSentUserMessageIdRef.current = newestMessage.id;
+    lastRunwayScrollAppliedUserMessageIdRef.current = null;
     requestAnimationFrame(() => {
       scrollToContentBottom("smooth");
     });
   }, [messages, scrollToContentBottom]);
+
+  useEffect(() => {
+    if (!shouldUsePendingUserRunway || newestMessage?.role !== "user") return;
+    if (lastRunwayScrollAppliedUserMessageIdRef.current === newestMessage.id) return;
+    lastRunwayScrollAppliedUserMessageIdRef.current = newestMessage.id;
+    requestAnimationFrame(() => {
+      scrollToContentBottom("smooth");
+    });
+  }, [newestMessage, scrollToContentBottom, shouldUsePendingUserRunway]);
 
   const scrollToBottom = useCallback(() => {
     scrollToContentBottom("smooth");
