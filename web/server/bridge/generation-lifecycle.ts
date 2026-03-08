@@ -39,6 +39,11 @@ export interface GenerationLifecycleDeps<S extends GenerationLifecycleSession> {
 }
 
 export type UserDispatchTurnTarget = "current" | "queued";
+export interface QueuedTurnLifecycleEntry {
+  reason: string;
+  userMessageIds: number[];
+  interruptSource: InterruptSource | null;
+}
 
 export function markTurnInterrupted<S extends GenerationLifecycleSession>(session: S, source: InterruptSource): void {
   if (!session.isGenerating) return;
@@ -115,6 +120,71 @@ export function trackUserMessageForTurn<S extends GenerationLifecycleSession>(
   session.userMessageIdsThisTurn.push(historyIndex);
 }
 
+export function getQueuedTurnLifecycleEntries<S extends GenerationLifecycleSession>(
+  session: S,
+): QueuedTurnLifecycleEntry[] {
+  const count = Math.max(
+    session.queuedTurnStarts,
+    session.queuedTurnReasons.length,
+    session.queuedTurnUserMessageIds.length,
+    session.queuedTurnInterruptSources.length,
+  );
+  return Array.from({ length: count }, (_, idx) => ({
+    reason: session.queuedTurnReasons[idx] ?? "queued_user_message",
+    userMessageIds: [...(session.queuedTurnUserMessageIds[idx] ?? [])],
+    interruptSource: session.queuedTurnInterruptSources[idx] ?? null,
+  }));
+}
+
+export function replaceQueuedTurnLifecycleEntries<S extends GenerationLifecycleSession>(
+  session: S,
+  entries: QueuedTurnLifecycleEntry[],
+): void {
+  session.queuedTurnStarts = entries.length;
+  session.queuedTurnReasons = entries.map((entry) => entry.reason);
+  session.queuedTurnUserMessageIds = entries.map((entry) => [...entry.userMessageIds]);
+  session.queuedTurnInterruptSources = entries.map((entry) => entry.interruptSource);
+}
+
+function startQueuedTurn<S extends GenerationLifecycleSession>(
+  deps: GenerationLifecycleDeps<S>,
+  session: S,
+  entry: QueuedTurnLifecycleEntry,
+  suffix = "queued",
+): void {
+  const turnReason = `${entry.reason}:${suffix}`;
+  session.isGenerating = true;
+  session.generationStartedAt = Date.now();
+  session.stuckNotifiedAt = null;
+  session.questStatusAtTurnStart = session.state.claimedQuestStatus ?? null;
+  session.messageCountAtTurnStart = session.messageHistory.length;
+  session.interruptedDuringTurn = false;
+  session.interruptSourceDuringTurn = null;
+  session.compactedDuringTurn = false;
+  session.userMessageIdsThisTurn = [...entry.userMessageIds];
+  console.log(`[ws-bridge] Generation started for session ${sessionTag(session.id)} (${turnReason})`);
+  deps.recordGenerationStarted?.(session, turnReason);
+  deps.emitTakodeEvent(session.id, "turn_start", {
+    reason: turnReason,
+    userMessage: session.lastUserMessage?.slice(0, 120),
+  });
+  deps.broadcastStatus(session, "running");
+  deps.onSessionActivityStateChanged(session.id, `generating:${turnReason}`);
+}
+
+export function promoteNextQueuedTurn<S extends GenerationLifecycleSession>(
+  deps: GenerationLifecycleDeps<S>,
+  session: S,
+  suffix = "queued",
+): boolean {
+  const entries = getQueuedTurnLifecycleEntries(session);
+  const nextEntry = entries.shift();
+  if (!nextEntry) return false;
+  replaceQueuedTurnLifecycleEntries(session, entries);
+  startQueuedTurn(deps, session, nextEntry, suffix);
+  return true;
+}
+
 export function setGenerating<S extends GenerationLifecycleSession>(
   deps: GenerationLifecycleDeps<S>,
   session: S,
@@ -164,30 +234,7 @@ export function setGenerating<S extends GenerationLifecycleSession>(
 
     deps.onOrchestratorTurnEnd?.(session.id);
 
-    if (reason === "result" && session.queuedTurnStarts > 0) {
-      session.queuedTurnStarts -= 1;
-      const nextReason = session.queuedTurnReasons.shift() ?? "queued_user_message";
-      const nextUserMessageIds = session.queuedTurnUserMessageIds.shift() ?? [];
-      session.queuedTurnInterruptSources.shift();
-
-      session.isGenerating = true;
-      session.generationStartedAt = Date.now();
-      session.stuckNotifiedAt = null;
-      session.questStatusAtTurnStart = session.state.claimedQuestStatus ?? null;
-      session.messageCountAtTurnStart = session.messageHistory.length;
-      session.interruptedDuringTurn = false;
-      session.interruptSourceDuringTurn = null;
-      session.compactedDuringTurn = false;
-      session.userMessageIdsThisTurn = [...nextUserMessageIds];
-      console.log(`[ws-bridge] Generation started for session ${sessionTag(session.id)} (${nextReason}:queued)`);
-      deps.recordGenerationStarted?.(session, `${nextReason}:queued`);
-      deps.emitTakodeEvent(session.id, "turn_start", {
-        reason: `${nextReason}:queued`,
-        userMessage: session.lastUserMessage?.slice(0, 120),
-      });
-      deps.broadcastStatus(session, "running");
-      deps.onSessionActivityStateChanged(session.id, `generating:${nextReason}:queued`);
-    }
+    if (reason === "result") promoteNextQueuedTurn(deps, session);
   }
   deps.onSessionActivityStateChanged(session.id, `generating:${reason}`);
 }

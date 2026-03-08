@@ -73,8 +73,11 @@ import {
 import { detectQuestEvent, type QuestLifecycleStatus } from "./bridge/quest-detector.js";
 import {
   clearOptimisticRunningTimer as clearOptimisticRunningTimerLifecycle,
+  getQueuedTurnLifecycleEntries as getQueuedTurnLifecycleEntriesLifecycle,
   markRunningFromUserDispatch as markRunningFromUserDispatchLifecycle,
   markTurnInterrupted as markTurnInterruptedLifecycle,
+  promoteNextQueuedTurn as promoteNextQueuedTurnLifecycle,
+  replaceQueuedTurnLifecycleEntries as replaceQueuedTurnLifecycleEntriesLifecycle,
   setGenerating as setGeneratingLifecycle,
   type InterruptSource as GenerationInterruptSource,
   type UserDispatchTurnTarget,
@@ -2679,6 +2682,9 @@ export class WsBridge {
       pending.status = "backend_acknowledged";
       pending.acknowledgedAt = Date.now();
       pending.updatedAt = pending.acknowledgedAt;
+      if (pending.turnTarget === "queued" && !session.isGenerating) {
+        this.rearmRecoveredQueuedHeadTurn(session, pending, "codex_turn_started_recovered");
+      }
       if (pending.turnTarget === null) {
         const target = this.markRunningFromUserDispatch(session, "codex_turn_started");
         pending.turnTarget = target;
@@ -6915,6 +6921,7 @@ export class WsBridge {
       pending.turnId = lastTurn.id;
       pending.resumeConfirmedAt = Date.now();
       pending.updatedAt = pending.resumeConfirmedAt;
+      this.rearmRecoveredQueuedHeadTurn(session, pending, "codex_resume_in_progress");
       this.persistSession(session);
       return;
     }
@@ -6923,6 +6930,7 @@ export class WsBridge {
       session.consecutiveAdapterFailures = 0;
       session.lastAdapterFailureAt = null;
       this.completeCodexTurn(session, pending);
+      this.reconcileRecoveredQueuedTurnLifecycle(session, "codex_resume_recovered_messages");
       this.persistSession(session);
       this.dispatchQueuedCodexTurns(session, "codex_resume_recovered_messages");
       this.maybeFlushQueuedCodexMessages(session, "codex_resume_recovered_messages");
@@ -6933,6 +6941,7 @@ export class WsBridge {
       session.consecutiveAdapterFailures = 0;
       session.lastAdapterFailureAt = null;
       this.completeCodexTurn(session, pending);
+      this.reconcileRecoveredQueuedTurnLifecycle(session, "codex_resume_synthesized_results");
       this.persistSession(session);
       this.dispatchQueuedCodexTurns(session, "codex_resume_synthesized_results");
       this.maybeFlushQueuedCodexMessages(session, "codex_resume_synthesized_results");
@@ -6948,6 +6957,7 @@ export class WsBridge {
     }
 
     this.completeCodexTurn(session, pending);
+    this.reconcileRecoveredQueuedTurnLifecycle(session, "codex_resume_non_retryable");
     this.dispatchQueuedCodexTurns(session, "codex_resume_non_retryable");
     this.maybeFlushQueuedCodexMessages(session, "codex_resume_non_retryable");
     console.warn(
@@ -6995,6 +7005,80 @@ export class WsBridge {
     return text.trim().replace(/\s+/g, " ");
   }
 
+  private reconcileRecoveredQueuedTurnLifecycle(
+    session: Session,
+    reason: string,
+    options: { releasedHeadQueuedTurn?: boolean } = {},
+  ): void {
+    const previousEntries = getQueuedTurnLifecycleEntriesLifecycle(session);
+    const nextEntries = previousEntries.map((entry) => ({
+      reason: entry.reason,
+      userMessageIds: [...entry.userMessageIds],
+      interruptSource: entry.interruptSource,
+    }));
+    let clearedQueuedHead = false;
+
+    if (options.releasedHeadQueuedTurn && nextEntries.length > 0) {
+      nextEntries.shift();
+    }
+
+    const liveTurns = session.pendingCodexTurns.filter((turn) => turn.status !== "completed");
+    if (!session.isGenerating && liveTurns[0]?.turnTarget === "queued") {
+      liveTurns[0].turnTarget = null;
+      clearedQueuedHead = true;
+      if (nextEntries.length > 0) {
+        nextEntries.shift();
+      }
+    }
+
+    const rebuiltEntries = liveTurns
+      .filter((turn) => turn.turnTarget === "queued")
+      .map((turn, idx) => ({
+        reason: nextEntries[idx]?.reason ?? "queued_user_message",
+        userMessageIds: nextEntries[idx]?.userMessageIds ?? (turn.historyIndex >= 0 ? [turn.historyIndex] : []),
+        interruptSource: nextEntries[idx]?.interruptSource ?? null,
+      }));
+
+    const lifecycleChanged =
+      JSON.stringify(previousEntries) !== JSON.stringify(rebuiltEntries)
+      || clearedQueuedHead
+      || options.releasedHeadQueuedTurn === true;
+    if (!lifecycleChanged) return;
+
+    replaceQueuedTurnLifecycleEntriesLifecycle(session, rebuiltEntries);
+    console.log(
+      `[ws-bridge] Reconciled queued-turn lifecycle for session ${sessionTag(session.id)} ` +
+      `(${reason}, queued=${rebuiltEntries.length}${clearedQueuedHead ? ", cleared_head" : ""})`,
+    );
+  }
+
+  private rearmRecoveredQueuedHeadTurn(
+    session: Session,
+    pending: CodexOutboundTurn,
+    reason: string,
+  ): void {
+    if (pending.turnTarget !== "queued" || session.isGenerating) return;
+
+    if (promoteNextQueuedTurnLifecycle(this.getGenerationLifecycleDeps(), session)) {
+      pending.turnTarget = "current";
+      console.log(
+        `[ws-bridge] Re-armed recovered queued Codex turn for session ${sessionTag(session.id)} ` +
+        `(${reason}, via_lifecycle_promotion)`,
+      );
+      return;
+    }
+
+    const target = this.markRunningFromUserDispatch(session, reason);
+    pending.turnTarget = target;
+    if (pending.historyIndex >= 0) {
+      this.trackUserMessageForTurn(session, pending.historyIndex, target);
+    }
+    console.log(
+      `[ws-bridge] Re-armed recovered queued Codex turn for session ${sessionTag(session.id)} ` +
+      `(${reason}, via_running_guard)`,
+    );
+  }
+
   private findMatchingRecoveredCodexAssistant(
     session: Session,
     text: string,
@@ -7023,6 +7107,7 @@ export class WsBridge {
   }
 
   private retryPendingCodexTurn(session: Session, pending: CodexOutboundTurn): void {
+    const releasedHeadQueuedTurn = pending.turnTarget === "queued";
     pending.status = session.state.backend_state === "broken" ? "blocked_broken_session" : "queued";
     pending.updatedAt = Date.now();
     pending.acknowledgedAt = null;
@@ -7031,6 +7116,7 @@ export class WsBridge {
     pending.turnId = null;
     pending.disconnectedAt = null;
     pending.resumeConfirmedAt = null;
+    this.reconcileRecoveredQueuedTurnLifecycle(session, "codex_retry_pending_turn", { releasedHeadQueuedTurn });
     this.dispatchQueuedCodexTurns(session, "codex_retry_pending_turn");
     this.persistSession(session);
   }

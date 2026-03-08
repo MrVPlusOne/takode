@@ -8149,6 +8149,127 @@ describe("Codex resumed-turn recovery", () => {
     );
   });
 
+  it("re-arms resumed in-progress queued follow-up turns after disconnect", async () => {
+    const sid = "s-rearm-resumed-followup";
+    const adapter1 = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter1 as any);
+    emitCodexSessionReady(adapter1, { cliSessionId: "thread-rearm-resumed-followup" });
+
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    browser.send.mockClear();
+
+    const eventSpy = vi.spyOn(bridge, "emitTakodeEvent");
+
+    await bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "user_message",
+      content: "Draft the first pass",
+    }));
+    adapter1.emitTurnStarted("turn-rearm-resumed-followup-1");
+
+    await bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "user_message",
+      content: "Then add the reconnect details",
+    }));
+
+    adapter1.emitBrowserMessage({
+      type: "result",
+      data: {
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result: "completed the first pass",
+        duration_ms: 100,
+        duration_api_ms: 100,
+        num_turns: 1,
+        total_cost_usd: 0,
+        stop_reason: "completed",
+        usage: {
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+        },
+        uuid: "rearm-resumed-followup-result-1",
+        session_id: sid,
+      },
+    });
+    await Promise.resolve();
+
+    const promotedSession = bridge.getSession(sid)!;
+    expect(getPendingCodexTurn(promotedSession)).toMatchObject({
+      userContent: "Then add the reconnect details",
+      turnTarget: "queued",
+    });
+    expect(promotedSession.isGenerating).toBe(true);
+
+    adapter1.emitDisconnect("turn-rearm-resumed-followup-2");
+
+    const adapter2 = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter2 as any);
+    adapter2.emitSessionMeta({
+      cliSessionId: "thread-rearm-resumed-followup",
+      model: "gpt-5.4",
+      cwd: "/repo",
+      resumeSnapshot: {
+        threadId: "thread-rearm-resumed-followup",
+        turnCount: 12,
+        lastTurn: {
+          id: "turn-rearm-resumed-followup-2",
+          status: "inProgress",
+          error: null,
+          items: [
+            { type: "userMessage", content: [{ type: "text", text: "Then add the reconnect details" }] },
+            { type: "agentMessage", id: "item-rearm-followup", text: "Recovering the reconnect details" },
+          ],
+        },
+      },
+    });
+
+    const resumedSession = bridge.getSession(sid)!;
+    expect(resumedSession.isGenerating).toBe(true);
+    expect(getPendingCodexTurn(resumedSession)).toMatchObject({
+      userContent: "Then add the reconnect details",
+      status: "backend_acknowledged",
+      turnId: "turn-rearm-resumed-followup-2",
+      turnTarget: "current",
+    });
+
+    adapter2.emitBrowserMessage({
+      type: "result",
+      data: {
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result: "completed the reconnect details",
+        duration_ms: 150,
+        duration_api_ms: 150,
+        num_turns: 2,
+        total_cost_usd: 0,
+        stop_reason: "completed",
+        usage: {
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+        },
+        uuid: "rearm-resumed-followup-result-2",
+        session_id: sid,
+      },
+    });
+    await Promise.resolve();
+
+    const turnEndCalls = eventSpy.mock.calls.filter(
+      ([eventSid, eventType]) => eventSid === sid && eventType === "turn_end",
+    );
+    expect(turnEndCalls).toHaveLength(3);
+    expect(turnEndCalls[2]?.[2]).toEqual(expect.not.objectContaining({
+      interrupted: true,
+    }));
+
+    eventSpy.mockRestore();
+  });
+
   it("retries the user message when resumed turn has only user input", async () => {
     const sid = "s1";
     const adapter1 = makeCodexAdapterMock();
@@ -9610,6 +9731,165 @@ describe("Codex user_message takode events", () => {
       expect(workerTurnEndCalls[0]?.[2]).toEqual(expect.objectContaining({
         interrupted: true,
         interrupt_source: "leader",
+      }));
+      expect(workerTurnEndCalls[1]?.[2]).toEqual(expect.not.objectContaining({
+        interrupted: true,
+      }));
+
+      const herdDeliveries = herdInjectSpy.mock.calls.filter(
+        ([sid, _content, source]) => sid === leaderId && source?.sessionId === "herd-events",
+      );
+      expect(herdDeliveries).toHaveLength(2);
+    } finally {
+      dispatcher.destroy();
+      eventSpy.mockRestore();
+      herdInjectSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps both turn_end events deliverable after correction when reconnect happens before follow-up start", async () => {
+    vi.useFakeTimers();
+    const leaderId = "orch-correction-reconnect";
+    const workerId = "worker-correction-reconnect";
+    const launcherSessions = new Map<string, any>([
+      [leaderId, { sessionId: leaderId, isOrchestrator: true, backendType: "claude", cwd: "/test" }],
+      [workerId, { sessionId: workerId, herdedBy: leaderId, backendType: "codex", cwd: "/test" }],
+    ]);
+
+    const launcherMock = {
+      touchActivity: vi.fn(),
+      getSession: vi.fn((id: string) => launcherSessions.get(id)),
+      getHerdedSessions: vi.fn((id: string) => (id === leaderId ? [{ sessionId: workerId }] : [])),
+      getSessionNum: vi.fn((id: string) => (id === leaderId ? 1 : 2)),
+    };
+    bridge.setLauncher(launcherMock as any);
+
+    const dispatcher = new HerdEventDispatcher(bridge as any, launcherMock as any);
+    bridge.setHerdEventDispatcher(dispatcher);
+    dispatcher.setupForOrchestrator(leaderId);
+
+    const leaderCli = makeCliSocket(leaderId);
+    bridge.handleCLIOpen(leaderCli, leaderId);
+    bridge.handleCLIMessage(leaderCli, makeInitMsg({ session_id: "cli-orch-correction-reconnect" }));
+
+    const workerBrowser = makeBrowserSocket(workerId);
+    const workerAdapter1 = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(workerId, workerAdapter1 as any);
+    emitCodexSessionReady(workerAdapter1, { cliSessionId: "thread-worker-correction-reconnect" });
+    bridge.handleBrowserOpen(workerBrowser, workerId);
+
+    const eventSpy = vi.spyOn(bridge, "emitTakodeEvent");
+    const herdInjectSpy = vi.spyOn(bridge, "injectUserMessage");
+
+    bridge.handleBrowserMessage(workerBrowser, JSON.stringify({
+      type: "user_message",
+      content: "Implement the first version",
+    }));
+    await Promise.resolve();
+    workerAdapter1.emitTurnStarted("turn-worker-correction-reconnect-1");
+
+    bridge.handleBrowserMessage(workerBrowser, JSON.stringify({
+      type: "user_message",
+      content: "Correction: include edge-case handling",
+      agentSource: { sessionId: leaderId, sessionLabel: "#1 leader" },
+    }));
+    await Promise.resolve();
+
+    workerAdapter1.emitDisconnect("turn-worker-correction-reconnect-1");
+    await Promise.resolve();
+
+    vi.advanceTimersByTime(600);
+    await Promise.resolve();
+
+    bridge.handleCLIMessage(leaderCli, JSON.stringify({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      result: "ack",
+      duration_ms: 100,
+      duration_api_ms: 100,
+      num_turns: 1,
+      total_cost_usd: 0,
+      stop_reason: "end_turn",
+      usage: {
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+      },
+      uuid: "leader-herd-ack-reconnect-1",
+      session_id: leaderId,
+    }));
+    await Promise.resolve();
+
+    const workerAdapter2 = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(workerId, workerAdapter2 as any);
+    workerAdapter2.emitSessionMeta({
+      cliSessionId: "thread-worker-correction-reconnect",
+      model: "gpt-5.4",
+      cwd: "/test",
+      resumeSnapshot: {
+        threadId: "thread-worker-correction-reconnect",
+        turnCount: 9,
+        lastTurn: {
+          id: "turn-worker-correction-reconnect-1",
+          status: "completed",
+          error: null,
+          items: [
+            { type: "userMessage", content: [{ type: "text", text: "Implement the first version" }] },
+            { type: "agentMessage", id: "item-reconnect-recovered", text: "Recovered interrupted work" },
+          ],
+        },
+      },
+    });
+
+    const resumedSession = bridge.getSession(workerId)!;
+    expect(getPendingCodexTurn(resumedSession)).toMatchObject({
+      userContent: "Correction: include edge-case handling",
+      status: "dispatched",
+      turnTarget: null,
+    });
+    expect(resumedSession.queuedTurnStarts).toBe(0);
+    expect(resumedSession.queuedTurnReasons).toEqual([]);
+    expect(resumedSession.queuedTurnUserMessageIds).toEqual([]);
+    expect(resumedSession.queuedTurnInterruptSources).toEqual([]);
+
+    workerAdapter2.emitTurnStarted("turn-worker-correction-reconnect-2");
+    workerAdapter2.emitBrowserMessage({
+      type: "result",
+      data: {
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result: "completed after reconnect",
+        duration_ms: 450,
+        duration_api_ms: 450,
+        num_turns: 2,
+        total_cost_usd: 0,
+        stop_reason: "completed",
+        usage: {
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+        },
+        uuid: "worker-correction-reconnect-result-2",
+        session_id: workerId,
+      },
+    });
+    await Promise.resolve();
+    vi.advanceTimersByTime(600);
+    await Promise.resolve();
+
+    try {
+      const workerTurnEndCalls = eventSpy.mock.calls.filter(
+        ([sid, eventType]) => sid === workerId && eventType === "turn_end",
+      );
+      expect(workerTurnEndCalls).toHaveLength(2);
+      expect(workerTurnEndCalls[0]?.[2]).toEqual(expect.objectContaining({
+        interrupted: true,
+        interrupt_source: "system",
       }));
       expect(workerTurnEndCalls[1]?.[2]).toEqual(expect.not.objectContaining({
         interrupted: true,
