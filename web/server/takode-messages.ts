@@ -104,6 +104,12 @@ export interface PeekRangeResponse {
   turnBoundaries: { turnNum: number; startIdx: number; endIdx: number }[];
 }
 
+export interface BuildPeekRangeOptions {
+  from?: number;
+  until?: number;
+  count?: number;
+}
+
 export interface TakodeReadResponse {
   idx: number;
   type: string;
@@ -807,38 +813,90 @@ export function buildPeekDefault(
 }
 
 /**
- * Build a "range" peek response: messages around a specific index,
- * with turn boundary annotations for context.
+ * Build a "range" peek response using inclusive raw-history bounds.
  */
 export function buildPeekRange(
   messageHistory: BrowserIncomingMessage[],
-  from: number,
-  count: number = 30,
+  options: BuildPeekRangeOptions = {},
   sessionId?: string,
 ): PeekRangeResponse {
   const totalMessages = messageHistory.length;
-  const clampedFrom = Math.max(0, Math.min(from, totalMessages - 1));
+  if (totalMessages === 0) {
+    return {
+      mode: "range",
+      totalMessages,
+      from: 0,
+      to: 0,
+      messages: [],
+      turnBoundaries: [],
+    };
+  }
+
+  const count = Number.isFinite(options.count) ? Math.max(1, Math.trunc(options.count as number)) : 30;
 
   const contentLimit = 120;
   const allTurns = findTurnBoundaries(messageHistory);
   const { subagentToolUseIds, toolResultPreviews } = buildSubagentIndexes(messageHistory);
 
-  // Collect peekable messages starting from `from`, up to `count` peekable messages
-  const messages: TakodePeekMessage[] = [];
-  let lastKnownTs = 0;
-  let scanEnd = clampedFrom; // track how far we actually scanned
-
-  for (let i = clampedFrom; i < totalMessages && messages.length < count; i++) {
-    scanEnd = i;
-    const msg = messageHistory[i];
-    if (!isPeekable(msg)) continue;
+  const isVisibleRangeMessage = (msg: BrowserIncomingMessage): boolean => {
+    if (!isPeekable(msg)) return false;
     if (
       msg.type === "assistant"
       && msg.parent_tool_use_id
       && subagentToolUseIds.has(msg.parent_tool_use_id)
     ) {
-      continue;
+      return false;
     }
+    return true;
+  };
+
+  const clampRangeIndex = (idx: number): number => Math.max(0, Math.min(idx, totalMessages - 1));
+
+  const hasFrom = Number.isFinite(options.from);
+  const hasUntil = Number.isFinite(options.until);
+  const resolvedFrom = hasFrom ? clampRangeIndex(options.from as number) : undefined;
+  const resolvedUntil = hasUntil ? clampRangeIndex(options.until as number) : undefined;
+
+  const selectedIndexes: number[] = [];
+  let rangeFrom = resolvedFrom ?? 0;
+  let rangeTo = resolvedUntil ?? (totalMessages - 1);
+
+  if (resolvedFrom !== undefined && resolvedUntil !== undefined) {
+    rangeFrom = Math.min(resolvedFrom, resolvedUntil);
+    rangeTo = Math.max(resolvedFrom, resolvedUntil);
+    for (let i = rangeFrom; i <= rangeTo; i++) {
+      const msg = messageHistory[i];
+      if (isVisibleRangeMessage(msg)) selectedIndexes.push(i);
+    }
+  } else if (resolvedFrom !== undefined) {
+    rangeFrom = resolvedFrom;
+    rangeTo = resolvedFrom;
+    for (let i = resolvedFrom; i < totalMessages && selectedIndexes.length < count; i++) {
+      rangeTo = i;
+      const msg = messageHistory[i];
+      if (isVisibleRangeMessage(msg)) selectedIndexes.push(i);
+    }
+  } else if (resolvedUntil !== undefined) {
+    rangeFrom = resolvedUntil;
+    rangeTo = resolvedUntil;
+    for (let i = resolvedUntil; i >= 0 && selectedIndexes.length < count; i--) {
+      rangeFrom = i;
+      const msg = messageHistory[i];
+      if (isVisibleRangeMessage(msg)) selectedIndexes.push(i);
+    }
+    selectedIndexes.reverse();
+  } else {
+    for (let i = 0; i < totalMessages && selectedIndexes.length < count; i++) {
+      rangeTo = i;
+      const msg = messageHistory[i];
+      if (isVisibleRangeMessage(msg)) selectedIndexes.push(i);
+    }
+  }
+
+  const messages: TakodePeekMessage[] = [];
+  let lastKnownTs = 0;
+  for (const i of selectedIndexes) {
+    const msg = messageHistory[i];
 
     let ts = extractTimestamp(msg);
     if (ts === 0) ts = lastKnownTs;
@@ -895,7 +953,7 @@ export function buildPeekRange(
   const turnBoundaries = allTurns
     .filter(t => {
       const tEnd = t.endIdx >= 0 ? t.endIdx : totalMessages - 1;
-      return t.startIdx <= scanEnd && tEnd >= clampedFrom;
+      return t.startIdx <= rangeTo && tEnd >= rangeFrom;
     })
     .map(t => ({
       turnNum: allTurns.indexOf(t),
@@ -906,8 +964,8 @@ export function buildPeekRange(
   return {
     mode: "range",
     totalMessages,
-    from: clampedFrom,
-    to: scanEnd,
+    from: rangeFrom,
+    to: rangeTo,
     messages,
     turnBoundaries,
   };

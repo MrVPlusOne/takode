@@ -552,7 +552,7 @@ Use the message ranges with \`takode peek <session> --from <msg-id>\` to browse 
 
 **Tip:** Run \`takode tasks\` first when investigating an unfamiliar session — it gives you a high-level map of what the ${copy.tasksSubject} has been working on, organized by task boundaries.
 
-### \`takode peek <session> [--from N] [--count N] [--detail --turns N] [--json]\`
+### \`takode peek <session> [--from N] [--until N] [--count N] [--detail --turns N] [--json]\`
 
 View session activity with progressive detail. Three modes:
 
@@ -570,13 +570,13 @@ Output includes:
 
 **Range browsing** (paged history):
 \`\`\`bash
-# Browse messages starting at index 500
-takode peek 1 --from 500
+# The default peek already shows the tail of the conversation
+takode peek 1
 
-# Browse 50 messages from index 500
-takode peek 1 --from 500 --count 50
+# Then page backward from the earliest message shown on the previous page
+takode peek 1 --until 842 --count 30
 \`\`\`
-Shows ~30 messages around the given index with full detail and turn boundaries. Output includes prev/next hints for continued browsing. Use this to navigate backwards through a session's history.
+Use plain \`takode peek <session>\` for the latest-turn tail view. Use \`--from N\` as an inclusive start bound for forward browsing, and \`--until N\` as an inclusive end bound for backward browsing. With one bound plus \`--count\`, \`peek\` pages in that direction while still rendering the selected messages in chronological order. Because \`--until\` is inclusive, you can reuse the earliest message ID from the previous page and get a one-message overlap for continuity. Output includes prev/next hints for continued browsing.
 
 **Detail mode** (legacy full detail):
 \`\`\`bash
@@ -590,7 +590,7 @@ takode peek 1 --detail --turns 3
 1. takode tasks 1              → Table of contents: tasks with msg ranges
 2. takode peek 1               → Overview: collapsed turns + expanded last turn
 3. takode peek 1 --task 3      → Browse task 3's messages
-4. takode peek 1 --from 800    → Browse messages [800]-[830] in detail
+4. takode peek 1 --until 842 --count 30  → Browse backward from the current tail page
 5. takode read 1 815           → Full content of message 815
 \`\`\`
 

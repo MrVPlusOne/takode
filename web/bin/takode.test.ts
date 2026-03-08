@@ -385,6 +385,68 @@ describe("takode access control", () => {
     }
   });
 
+  it("passes inclusive backward peek paging through to the server", async () => {
+    const requestUrls: string[] = [];
+    const server = createServer((req, res) => {
+      requestUrls.push(req.url || "");
+      const method = req.method || "";
+      const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "worker-peek-until", isOrchestrator: false }));
+        return;
+      }
+      if (method === "GET" && url === "/api/sessions/153/messages?count=2&until=4") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({
+          sessionId: "session-153",
+          sessionNum: 153,
+          sessionName: "Worker Peek",
+          status: "idle",
+          quest: null,
+          mode: "range",
+          totalMessages: 5,
+          from: 3,
+          to: 4,
+          messages: [
+            { idx: 3, type: "assistant", content: "done", ts: 1_700_000_000_000 },
+            { idx: 4, type: "result", content: "ok", ts: 1_700_000_000_500, success: true },
+          ],
+          turnBoundaries: [{ turnNum: 1, startIdx: 2, endIdx: 4 }],
+        }));
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    try {
+      const result = await runTakode(["peek", "153", "--until", "4", "--count", "2", "--json", "--port", String(port)], {
+        ...process.env,
+        COMPANION_SESSION_ID: "worker-peek-until",
+        COMPANION_AUTH_TOKEN: "auth-worker-peek-until",
+      });
+
+      expect(result.status).toBe(0);
+      expect(JSON.parse(result.stdout)).toEqual(expect.objectContaining({
+        mode: "range",
+        from: 3,
+        to: 4,
+      }));
+      expect(requestUrls).toEqual([
+        "/api/takode/me",
+        "/api/sessions/153/messages?count=2&until=4",
+      ]);
+    } finally {
+      server.close();
+    }
+  });
+
   it("keeps herd messaging restricted to orchestrator sessions", async () => {
     const requestUrls: string[] = [];
     const server = createServer((req, res) => {

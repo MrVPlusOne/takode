@@ -330,6 +330,31 @@ function resolveStringFlag(
   return trimmed;
 }
 
+function parseIntegerFlag(
+  flags: Record<string, string | boolean>,
+  key: string,
+  label: string,
+): number | undefined {
+  const value = resolveStringFlag(flags, key, label);
+  if (value === undefined) return undefined;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed)) err(`--${key} must be an integer.`);
+  return parsed;
+}
+
+function parsePositiveIntegerFlag(
+  flags: Record<string, string | boolean>,
+  key: string,
+  label: string,
+  fallback: number,
+): number {
+  const value = resolveStringFlag(flags, key, label);
+  if (value === undefined) return fallback;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) err(`--${key} must be a positive integer.`);
+  return parsed;
+}
+
 type TakodeSessionInfo = {
   sessionId: string;
   sessionNum?: number | null;
@@ -1075,7 +1100,7 @@ function printPeekDefault(d: PeekDefaultResponse, sessionRef: string): void {
   }
 
   // Hint
-  console.log(`Hint: takode peek ${safeSessionRef} --from <msg-id> to browse history | takode read ${safeSessionRef} <msg-id> for full message`);
+  console.log(`Hint: takode peek ${safeSessionRef} for the latest activity | takode peek ${safeSessionRef} --until <msg-id> --count 30 or --from <msg-id> to browse history | takode read ${safeSessionRef} <msg-id> for full message`);
 }
 
 function printPeekRange(d: PeekRangeResponse, sessionRef: string, count: number): void {
@@ -1144,12 +1169,13 @@ function printPeekRange(d: PeekRangeResponse, sessionRef: string, count: number)
 
   // Navigation hints
   const hints: string[] = [];
-  if (d.from > 0) {
-    const prevFrom = Math.max(0, d.from - count);
-    hints.push(`Prev: takode peek ${safeSessionRef} --from ${prevFrom}`);
+  const firstShown = d.messages[0]?.idx ?? d.from;
+  const lastShown = d.messages[d.messages.length - 1]?.idx ?? d.to;
+  if (firstShown > 0) {
+    hints.push(`Prev: takode peek ${safeSessionRef} --until ${firstShown} --count ${count}`);
   }
-  if (d.to < d.totalMessages - 1) {
-    hints.push(`Next: takode peek ${safeSessionRef} --from ${d.to + 1}`);
+  if (lastShown < d.totalMessages - 1) {
+    hints.push(`Next: takode peek ${safeSessionRef} --from ${lastShown + 1} --count ${count}`);
   }
   if (hints.length > 0) {
     console.log(hints.join("  |  "));
@@ -1181,14 +1207,19 @@ function printPeekDetail(d: PeekDetailResponse): void {
 
 async function handlePeek(base: string, args: string[]): Promise<void> {
   const sessionRef = args[0];
-  if (!sessionRef) err("Usage: takode peek <session> [--from N] [--task N] [--detail] [--turns N] [--json]");
+  if (!sessionRef) err("Usage: takode peek <session> [--from N] [--until N] [--count N] [--task N] [--detail] [--turns N] [--json]");
   const safeSessionRef = formatInlineText(sessionRef);
 
   const flags = parseFlags(args.slice(1));
   const jsonMode = flags.json === true;
-  const taskNum = flags.task !== undefined ? Number(flags.task) : undefined;
-  const fromIdx = flags.from !== undefined ? Number(flags.from) : undefined;
+  const taskNum = parseIntegerFlag(flags, "task", "task number");
+  const fromIdx = parseIntegerFlag(flags, "from", "message index");
+  const untilIdx = parseIntegerFlag(flags, "until", "message index");
+  const count = parsePositiveIntegerFlag(flags, "count", "message count", 30);
   const detail = flags.detail === true;
+
+  if (fromIdx !== undefined && fromIdx < 0) err("--from must be a non-negative integer.");
+  if (untilIdx !== undefined && untilIdx < 0) err("--until must be a non-negative integer.");
 
   // Resolve --task N to a message range via the tasks endpoint
   if (taskNum !== undefined) {
@@ -1198,7 +1229,6 @@ async function handlePeek(base: string, args: string[]): Promise<void> {
     const task = tasksData.tasks.find(t => t.taskNum === taskNum);
     if (!task) err(`Task #${taskNum} not found. Use "takode tasks ${safeSessionRef}" to see available tasks.`);
 
-    const count = Number(flags.count) || 30;
     const params = new URLSearchParams({ from: String(task.startIdx), count: String(count) });
     const path = `/sessions/${encodeURIComponent(sessionRef)}/messages?${params}`;
     const data = await apiGet(base, path);
@@ -1213,10 +1243,11 @@ async function handlePeek(base: string, args: string[]): Promise<void> {
   // Determine mode and build query params
   let path: string;
 
-  if (fromIdx !== undefined) {
+  if (fromIdx !== undefined || untilIdx !== undefined) {
     // Range mode
-    const count = Number(flags.count) || 30;
-    const params = new URLSearchParams({ from: String(fromIdx), count: String(count) });
+    const params = new URLSearchParams({ count: String(count) });
+    if (fromIdx !== undefined) params.set("from", String(fromIdx));
+    if (untilIdx !== undefined) params.set("until", String(untilIdx));
     path = `/sessions/${encodeURIComponent(sessionRef)}/messages?${params}`;
 
     const data = await apiGet(base, path);
@@ -1927,7 +1958,7 @@ Commands:
 Peek modes:
   takode peek 1                    Smart overview (collapsed turns + expanded last turn)
   takode peek 1 --from 500         Browse messages starting at index 500
-  takode peek 1 --from 500 --count 50  Browse 50 messages from index 500
+  takode peek 1 --until 530 --count 50  Browse backward ending at message 530 (inclusive)
   takode peek 1 --detail --turns 3 Full detail on last 3 turns
 
 Global options:
@@ -1946,6 +1977,7 @@ Examples:
   takode tasks 1
   takode peek 1
   takode peek 1 --from 200
+  takode peek 1 --until 530 --count 30
   takode peek 1 --detail --turns 3
   takode read 1 42
   takode send 2 "Please add tests for the edge cases"

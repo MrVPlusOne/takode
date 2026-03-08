@@ -451,11 +451,46 @@ describe("buildPeekRange", () => {
       resultMsg(500),
     ];
 
-    const result = buildPeekRange(history, 0, 10);
+    const result = buildPeekRange(history, { from: 0, count: 10 });
     expect(result.messages).toHaveLength(3);
     expect(result.messages[1].content).toBe("Range preview from child agent");
     expect(result.messages[1].toolCounts).toBeUndefined();
     expect(result.messages.some((msg) => msg.content.includes("child detail"))).toBe(false);
+  });
+
+  it("supports inclusive backward paging via until while keeping chronological order", () => {
+    const history: BrowserIncomingMessage[] = [
+      userMsg("Turn 1", 1000),
+      assistantMsg("Answer 1", 2000),
+      resultMsg(500),
+      userMsg("Turn 2", 4000),
+      assistantMsg("Answer 2", 5000),
+      resultMsg(500),
+    ];
+
+    const result = buildPeekRange(history, { until: 4, count: 3 });
+    expect(result.from).toBe(2);
+    expect(result.to).toBe(4);
+    expect(result.messages.map((msg) => msg.idx)).toEqual([2, 3, 4]);
+
+    const previousPage = buildPeekRange(history, { until: result.messages[0].idx, count: 3 });
+    expect(previousPage.messages.map((msg) => msg.idx)).toEqual([0, 1, 2]);
+  });
+
+  it("accepts from/until as an inclusive explicit range", () => {
+    const history: BrowserIncomingMessage[] = [
+      userMsg("Turn 1", 1000),
+      assistantMsg("Answer 1", 2000),
+      resultMsg(500),
+      userMsg("Turn 2", 4000),
+      assistantMsg("Answer 2", 5000),
+      resultMsg(500),
+    ];
+
+    const result = buildPeekRange(history, { from: 2, until: 4 });
+    expect(result.from).toBe(2);
+    expect(result.to).toBe(4);
+    expect(result.messages.map((msg) => msg.idx)).toEqual([2, 3, 4]);
   });
 });
 

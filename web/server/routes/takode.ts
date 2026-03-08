@@ -169,13 +169,16 @@ export function createTakodeRoutes(ctx: RouteContext) {
 
     // ── Mode detection ──
     const fromParam = c.req.query("from");
+    const untilParam = c.req.query("until");
     const detail = c.req.query("detail") === "true";
 
-    if (fromParam !== undefined) {
-      // Range browsing mode: show messages around a specific index
-      const from = parseInt(fromParam, 10);
+    if (fromParam !== undefined || untilParam !== undefined) {
+      // Range browsing mode: page forward from `from`, backward from `until`,
+      // or browse an explicit inclusive range when both are present.
+      const from = fromParam !== undefined ? parseInt(fromParam, 10) : undefined;
+      const until = untilParam !== undefined ? parseInt(untilParam, 10) : undefined;
       const count = parseInt(c.req.query("count") ?? "30", 10);
-      return c.json({ ...base, ...buildPeekRange(history, from, count, sessionId) });
+      return c.json({ ...base, ...buildPeekRange(history, { from, until, count }, sessionId) });
     }
 
     if (detail) {
