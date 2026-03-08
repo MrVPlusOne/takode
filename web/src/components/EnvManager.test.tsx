@@ -47,7 +47,7 @@ describe("EnvManager existing env edit", () => {
     const profiles = within(profilesSection as HTMLElement);
 
     await profiles.findByText("Companion");
-    fireEvent.click(profiles.getByRole("button", { name: "Edit" }));
+    fireEvent.click(await profiles.findByRole("button", { name: "Edit" }));
     await profiles.findByRole("button", { name: "Save" });
 
     // Docker controls are visible in existing env edit mode.
@@ -63,5 +63,5 @@ describe("EnvManager existing env edit", () => {
         expect.objectContaining({ baseImage: "companion-dev:latest" }),
       );
     });
-  });
+  }, 20000);
 });

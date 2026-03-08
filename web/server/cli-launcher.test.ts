@@ -1798,12 +1798,18 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("[#N](session:N)");
     expect(guardrails).toContain("[#5](session:5)");
     expect(guardrails).toContain("sub-agent");
+    expect(guardrails).toContain("After your own context compaction, refresh worker state before dispatching.");
+    expect(guardrails).toContain("Prefer reusing an idle existing worker over spawning a new one.");
+    expect(guardrails).toContain("Only use `takode spawn` when no suitable worker exists or when you explicitly need isolation.");
   });
 
   it("returns Codex guardrails without Claude-only or sub-agent guidance", () => {
     const guardrails = launcher.getOrchestratorGuardrails(3456, "codex");
     expect(guardrails).toContain("leader session");
     expect(guardrails).toContain("Delegate larger work to a herded worker session");
+    expect(guardrails).toContain("After your own context compaction, refresh worker state before dispatching.");
+    expect(guardrails).toContain("Prefer reusing an idle existing worker over spawning a new one.");
+    expect(guardrails).toContain("Only use `takode spawn` when no suitable worker exists or when you explicitly need isolation.");
     expect(guardrails).not.toContain("CLAUDE.md");
     expect(guardrails).not.toContain("sub-agent");
     expect(guardrails).not.toMatch(/\bagent\b/i);
