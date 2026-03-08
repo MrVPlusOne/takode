@@ -129,10 +129,11 @@ Your only job is to apply the instruction to the current composer text and retur
 
 Output format:
 
-When the draft contains 2+ sentences or distinct points, preserve or produce compact bullet format.
-Use - for top-level bullets, * for sub-bullets.
-Keep top-level bullets SHORT (one line). Move supporting details, context, and reasoning into * sub-bullets.
-Do NOT insert empty lines between bullets.
+When the draft contains 2+ sentences or distinct points, preserve or produce compact structured format.
+Top-level points are plain text lines with NO bullet marker and NO indentation.
+Sub-points use "  - " (two-space indent + minus), placed under their parent.
+Keep top-level lines SHORT (one line). Move supporting details into sub-points.
+Do NOT insert empty lines between lines.
 
 Rules:
 - Return ONLY the fully edited composer text

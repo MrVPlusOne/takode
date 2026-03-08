@@ -372,9 +372,9 @@ describe("buildEnhancementPrompt", () => {
 });
 
 describe("buildVoiceEditPrompt", () => {
-  it("keeps the same bullet-format contract in voice edit mode", () => {
-    expect(VOICE_EDIT_SYSTEM_PROMPT).toContain("Use - for top-level bullets, * for sub-bullets.");
-    expect(VOICE_EDIT_SYSTEM_PROMPT).toContain("Do NOT insert empty lines between bullets.");
+  it("keeps the same format contract in voice edit mode", () => {
+    expect(VOICE_EDIT_SYSTEM_PROMPT).toContain("Top-level points are plain text lines");
+    expect(VOICE_EDIT_SYSTEM_PROMPT).toContain("Do NOT insert empty lines between lines.");
     expect(VOICE_EDIT_SYSTEM_PROMPT).toContain("Preserve the draft's existing formatting constraints");
   });
 
