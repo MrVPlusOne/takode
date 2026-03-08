@@ -85,9 +85,10 @@ export function createSettingsRoutes(ctx: RouteContext) {
 
   function parseEditorConfigFromBody(ec: Record<string, unknown>): EditorConfig {
     const editor = ec.editor;
-    if (editor === "vscode" || editor === "cursor" || editor === "none") {
+    if (editor === "vscode-local" || editor === "vscode-remote" || editor === "cursor" || editor === "none") {
       return { editor };
     }
+    if (editor === "vscode") return { editor: "vscode-local" };
     return { editor: "none" };
   }
 
@@ -177,8 +178,15 @@ export function createSettingsRoutes(ctx: RouteContext) {
         return c.json({ error: "editorConfig must be an object" }, 400);
       }
       const ec = body.editorConfig as Record<string, unknown>;
-      if (ec.editor !== undefined && ec.editor !== "vscode" && ec.editor !== "cursor" && ec.editor !== "none") {
-        return c.json({ error: 'editorConfig.editor must be "vscode", "cursor", or "none"' }, 400);
+      if (
+        ec.editor !== undefined
+        && ec.editor !== "vscode"
+        && ec.editor !== "vscode-local"
+        && ec.editor !== "vscode-remote"
+        && ec.editor !== "cursor"
+        && ec.editor !== "none"
+      ) {
+        return c.json({ error: 'editorConfig.editor must be "vscode-local", "vscode-remote", "cursor", or "none"' }, 400);
       }
     }
 

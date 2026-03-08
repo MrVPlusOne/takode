@@ -2646,6 +2646,85 @@ describe("Browser message routing", () => {
     });
   });
 
+  it("registers VSCode windows and prefers the workspace root that contains the target file", async () => {
+    bridge.upsertVsCodeWindowState({
+      sourceId: "window-a",
+      sourceType: "vscode-window",
+      sourceLabel: "Repo A",
+      workspaceRoots: ["/repo-a"],
+      updatedAt: 100,
+      lastActivityAt: 100,
+    });
+    bridge.upsertVsCodeWindowState({
+      sourceId: "window-b",
+      sourceType: "vscode-window",
+      sourceLabel: "Repo B",
+      workspaceRoots: ["/repo-b", "/repo-b/packages/app"],
+      updatedAt: 200,
+      lastActivityAt: 200,
+    });
+
+    const requestPromise = bridge.requestVsCodeOpenFile({
+      absolutePath: "/repo-b/packages/app/src/main.ts",
+      line: 14,
+      column: 2,
+    });
+
+    const commands = bridge.pollVsCodeOpenFileCommands("window-b");
+    expect(commands).toHaveLength(1);
+    expect(commands[0]).toEqual({
+      commandId: expect.any(String),
+      sourceId: "window-b",
+      target: {
+        absolutePath: "/repo-b/packages/app/src/main.ts",
+        line: 14,
+        column: 2,
+      },
+      createdAt: expect.any(Number),
+    });
+    expect(bridge.pollVsCodeOpenFileCommands("window-a")).toEqual([]);
+
+    expect(bridge.resolveVsCodeOpenFileResult("window-b", commands[0].commandId, { ok: true })).toBe(true);
+    await expect(requestPromise).resolves.toEqual({
+      sourceId: "window-b",
+      commandId: commands[0].commandId,
+    });
+  });
+
+  it("requestVsCodeOpenFile: falls back to the most recent active window when no workspace root matches", async () => {
+    bridge.upsertVsCodeWindowState({
+      sourceId: "window-a",
+      sourceType: "vscode-window",
+      workspaceRoots: ["/repo-a"],
+      updatedAt: 100,
+      lastActivityAt: 100,
+    });
+    bridge.upsertVsCodeWindowState({
+      sourceId: "window-b",
+      sourceType: "vscode-window",
+      workspaceRoots: ["/repo-b"],
+      updatedAt: 200,
+      lastActivityAt: 250,
+    });
+
+    const requestPromise = bridge.requestVsCodeOpenFile({
+      absolutePath: "/outside/shared/file.ts",
+    });
+    const commands = bridge.pollVsCodeOpenFileCommands("window-b");
+    expect(commands).toHaveLength(1);
+    bridge.resolveVsCodeOpenFileResult("window-b", commands[0].commandId, { ok: true });
+    await expect(requestPromise).resolves.toEqual({
+      sourceId: "window-b",
+      commandId: commands[0].commandId,
+    });
+  });
+
+  it("requestVsCodeOpenFile: returns a clear error when no active VSCode windows are registered", async () => {
+    await expect(bridge.requestVsCodeOpenFile({
+      absolutePath: "/repo/src/app.ts",
+    })).rejects.toThrow("No running VS Code was detected on this machine.");
+  });
+
   it("user_message with images: emits error and does not send when imageStore is not set", () => {
     browser.send.mockClear();
 

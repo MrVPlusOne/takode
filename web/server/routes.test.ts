@@ -191,6 +191,7 @@ function createMockLauncher() {
 function createMockBridge() {
   return {
     _vscodeSelectionState: null as any,
+    _vscodeWindows: [] as any[],
     closeSession: vi.fn(),
     getSession: vi.fn(() => null),
     getOrCreateSession: vi.fn(),
@@ -210,6 +211,22 @@ function createMockBridge() {
     broadcastNameUpdate: vi.fn(),
     getVsCodeSelectionState: vi.fn(function (this: any) { return this._vscodeSelectionState; }),
     updateVsCodeSelectionState: vi.fn(function (this: any, state: any) { this._vscodeSelectionState = state; return true; }),
+    getVsCodeWindowStates: vi.fn(function (this: any) { return this._vscodeWindows; }),
+    upsertVsCodeWindowState: vi.fn(function (this: any, state: any) {
+      const next = {
+        ...state,
+        workspaceRoots: [...(state.workspaceRoots ?? [])],
+        lastSeenAt: 9999,
+      };
+      this._vscodeWindows = [
+        ...this._vscodeWindows.filter((window: any) => window.sourceId !== state.sourceId),
+        next,
+      ];
+      return next;
+    }),
+    pollVsCodeOpenFileCommands: vi.fn(() => []),
+    resolveVsCodeOpenFileResult: vi.fn(() => true),
+    requestVsCodeOpenFile: vi.fn(async () => ({ sourceId: "window-a", commandId: "cmd-1" })),
     updateSessionOrder: vi.fn((_groupKey: string, _orderedIds: string[]) => ({})),
     broadcastSessionOrderUpdate: vi.fn(),
     updateGroupOrder: vi.fn((_orderedGroupKeys: string[]) => []),
@@ -1464,6 +1481,276 @@ describe("POST /api/vscode/selection", () => {
   });
 });
 
+describe("POST /api/vscode/windows", () => {
+  it("registers a running VSCode window with workspace roots", async () => {
+    const res = await app.request("/api/vscode/windows", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sourceId: "window-a",
+        sourceType: "vscode-window",
+        sourceLabel: "Repo A",
+        workspaceRoots: ["/repo", "/repo/packages/app"],
+        updatedAt: 5000,
+        lastActivityAt: 4900,
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(bridge.upsertVsCodeWindowState).toHaveBeenCalledWith({
+      sourceId: "window-a",
+      sourceType: "vscode-window",
+      sourceLabel: "Repo A",
+      workspaceRoots: ["/repo", "/repo/packages/app"],
+      updatedAt: 5000,
+      lastActivityAt: 4900,
+    });
+    expect(await res.json()).toEqual({
+      ok: true,
+      window: {
+        sourceId: "window-a",
+        sourceType: "vscode-window",
+        sourceLabel: "Repo A",
+        workspaceRoots: ["/repo", "/repo/packages/app"],
+        updatedAt: 5000,
+        lastActivityAt: 4900,
+        lastSeenAt: 9999,
+      },
+    });
+  });
+});
+
+describe("GET /api/vscode/windows", () => {
+  it("lists registered VSCode windows", async () => {
+    bridge._vscodeWindows = [{
+      sourceId: "window-a",
+      sourceType: "vscode-window",
+      sourceLabel: "Repo A",
+      workspaceRoots: ["/repo"],
+      updatedAt: 5000,
+      lastActivityAt: 4900,
+      lastSeenAt: 9999,
+    }];
+
+    const res = await app.request("/api/vscode/windows", { method: "GET" });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      windows: bridge._vscodeWindows,
+    });
+  });
+});
+
+describe("GET /api/vscode/windows/:sourceId/commands", () => {
+  it("returns queued remote open-file commands for a VSCode window", async () => {
+    bridge.pollVsCodeOpenFileCommands.mockReturnValue([{
+      commandId: "cmd-1",
+      sourceId: "window-a",
+      target: {
+        absolutePath: "/repo/src/app.ts",
+        line: 12,
+        column: 3,
+      },
+      createdAt: 6000,
+    }]);
+
+    const res = await app.request("/api/vscode/windows/window-a/commands", { method: "GET" });
+
+    expect(res.status).toBe(200);
+    expect(bridge.pollVsCodeOpenFileCommands).toHaveBeenCalledWith("window-a");
+    expect(await res.json()).toEqual({
+      commands: [{
+        commandId: "cmd-1",
+        sourceId: "window-a",
+        target: {
+          absolutePath: "/repo/src/app.ts",
+          line: 12,
+          column: 3,
+        },
+        createdAt: 6000,
+      }],
+    });
+  });
+});
+
+describe("POST /api/vscode/windows/:sourceId/commands/:commandId/result", () => {
+  it("accepts remote open-file results from the VSCode extension", async () => {
+    const res = await app.request("/api/vscode/windows/window-a/commands/cmd-1/result", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ok: true }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(bridge.resolveVsCodeOpenFileResult).toHaveBeenCalledWith("window-a", "cmd-1", { ok: true });
+    expect(await res.json()).toEqual({ ok: true });
+  });
+});
+
+describe("POST /api/vscode/open-file", () => {
+  it("dispatches remote file-open requests through the authoritative VSCode channel", async () => {
+    bridge.requestVsCodeOpenFile.mockResolvedValue({
+      sourceId: "window-a",
+      commandId: "cmd-1",
+    });
+
+    const res = await app.request("/api/vscode/open-file", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        absolutePath: "/repo/src/app.ts",
+        line: 12,
+        column: 3,
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(bridge.requestVsCodeOpenFile).toHaveBeenCalledWith({
+      absolutePath: "/repo/src/app.ts",
+      line: 12,
+      column: 3,
+    });
+    expect(await res.json()).toEqual({
+      ok: true,
+      sourceId: "window-a",
+      commandId: "cmd-1",
+    });
+  });
+
+  it("returns a clear error when no running VSCode window is available", async () => {
+    bridge.requestVsCodeOpenFile.mockRejectedValue(new Error("No running VSCode was detected on this machine."));
+
+    const res = await app.request("/api/vscode/open-file", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        absolutePath: "/repo/src/app.ts",
+      }),
+    });
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({
+      error: "No running VSCode was detected on this machine.",
+    });
+  });
+});
+
+describe("POST /api/vscode/windows", () => {
+  it("registers a running VSCode window", async () => {
+    const res = await app.request("/api/vscode/windows", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sourceId: "window-a",
+        sourceType: "vscode-window",
+        sourceLabel: "Workspace A",
+        updatedAt: 4000,
+        lastActivityAt: 3999,
+        workspaceRoots: ["/repo", "/repo/packages/pkg-a"],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(bridge.upsertVsCodeWindowState).toHaveBeenCalledWith({
+      sourceId: "window-a",
+      sourceType: "vscode-window",
+      sourceLabel: "Workspace A",
+      updatedAt: 4000,
+      lastActivityAt: 3999,
+      workspaceRoots: ["/repo", "/repo/packages/pkg-a"],
+    });
+  });
+});
+
+describe("GET /api/vscode/windows/:sourceId/commands", () => {
+  it("returns queued open-file commands for a VSCode window", async () => {
+    bridge.pollVsCodeOpenFileCommands.mockReturnValue([{
+      commandId: "cmd-1",
+      sourceId: "window-a",
+      createdAt: 5000,
+      target: {
+        absolutePath: "/repo/src/app.ts",
+        line: 12,
+        column: 3,
+      },
+    }]);
+
+    const res = await app.request("/api/vscode/windows/window-a/commands", { method: "GET" });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      commands: [{
+        commandId: "cmd-1",
+        sourceId: "window-a",
+        createdAt: 5000,
+        target: {
+          absolutePath: "/repo/src/app.ts",
+          line: 12,
+          column: 3,
+        },
+      }],
+    });
+  });
+});
+
+describe("POST /api/vscode/windows/:sourceId/commands/:commandId/result", () => {
+  it("accepts extension-host open-file command results", async () => {
+    const res = await app.request("/api/vscode/windows/window-a/commands/cmd-1/result", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ok: true }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(bridge.resolveVsCodeOpenFileResult).toHaveBeenCalledWith("window-a", "cmd-1", { ok: true });
+  });
+});
+
+describe("POST /api/vscode/open-file", () => {
+  it("dispatches a remote open-file request through the authoritative VSCode channel", async () => {
+    bridge.requestVsCodeOpenFile.mockResolvedValue({ sourceId: "window-a", commandId: "cmd-1" });
+
+    const res = await app.request("/api/vscode/open-file", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        absolutePath: "/repo/src/app.ts",
+        line: 12,
+        column: 3,
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(bridge.requestVsCodeOpenFile).toHaveBeenCalledWith({
+      absolutePath: "/repo/src/app.ts",
+      line: 12,
+      column: 3,
+    });
+    expect(await res.json()).toEqual({
+      ok: true,
+      sourceId: "window-a",
+      commandId: "cmd-1",
+    });
+  });
+
+  it("returns a clear conflict when no running VSCode window is available", async () => {
+    bridge.requestVsCodeOpenFile.mockRejectedValue(new Error("No running VSCode was detected on this machine."));
+
+    const res = await app.request("/api/vscode/open-file", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        absolutePath: "/repo/src/app.ts",
+      }),
+    });
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({
+      error: "No running VSCode was detected on this machine.",
+    });
+  });
+});
+
 // ─── Transcription ──────────────────────────────────────────────────────────
 
 describe("POST /api/transcribe", () => {
@@ -2156,7 +2443,7 @@ describe("PUT /api/settings", () => {
 
     expect(res.status).toBe(400);
     const json = await res.json();
-    expect(json).toEqual({ error: 'editorConfig.editor must be "vscode", "cursor", or "none"' });
+    expect(json).toEqual({ error: 'editorConfig.editor must be "vscode-local", "vscode-remote", "cursor", or "none"' });
   });
 });
 

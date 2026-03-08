@@ -9,24 +9,43 @@ function normalizeBaseUrlForApi(baseUrl) {
   return url.toString();
 }
 
-function getSelectionApiUrl(baseUrl) {
+function buildApiUrl(baseUrl, suffix) {
   const url = new URL(normalizeBaseUrlForApi(baseUrl));
   const prefix = url.pathname.replace(/\/$/, "");
-  url.pathname = `${prefix}/api/vscode/selection`;
+  url.pathname = `${prefix}${suffix}`;
   return url.toString();
 }
 
-function dedupeBaseUrls(baseUrls) {
+function getSelectionApiUrl(baseUrl) {
+  return buildApiUrl(baseUrl, "/api/vscode/selection");
+}
+
+function getVsCodeWindowsApiUrl(baseUrl) {
+  return buildApiUrl(baseUrl, "/api/vscode/windows");
+}
+
+function getVsCodeWindowCommandsApiUrl(baseUrl, sourceId) {
+  return buildApiUrl(baseUrl, `/api/vscode/windows/${encodeURIComponent(sourceId)}/commands`);
+}
+
+function getVsCodeCommandResultApiUrl(baseUrl, sourceId, commandId) {
+  return buildApiUrl(
+    baseUrl,
+    `/api/vscode/windows/${encodeURIComponent(sourceId)}/commands/${encodeURIComponent(commandId)}/result`,
+  );
+}
+
+function dedupeApiUrls(baseUrls, buildUrl) {
   const out = [];
   const seen = new Set();
   for (const baseUrl of baseUrls || []) {
     if (typeof baseUrl !== "string" || !baseUrl) {
       continue;
     }
-    const apiUrl = getSelectionApiUrl(baseUrl);
+    const apiUrl = buildUrl(baseUrl);
     if (seen.has(apiUrl)) continue;
     seen.add(apiUrl);
-    out.push(apiUrl);
+    out.push({ baseUrl, apiUrl });
   }
   return out;
 }
@@ -48,7 +67,20 @@ function buildSelectionSyncPayload(selection, sourceInfo, updatedAt = Date.now()
   };
 }
 
-function getPublishFingerprint(selection, sourceInfo, apiUrls) {
+function buildWindowStatePayload(windowState, sourceInfo, updatedAt = Date.now()) {
+  return {
+    sourceId: sourceInfo.sourceId,
+    sourceType: sourceInfo.sourceType,
+    ...(sourceInfo.sourceLabel ? { sourceLabel: sourceInfo.sourceLabel } : {}),
+    workspaceRoots: Array.isArray(windowState.workspaceRoots)
+      ? windowState.workspaceRoots.filter((root) => typeof root === "string" && root)
+      : [],
+    updatedAt,
+    lastActivityAt: Number.isFinite(windowState.lastActivityAt) ? windowState.lastActivityAt : updatedAt,
+  };
+}
+
+function getSelectionFingerprint(selection, sourceInfo, urls) {
   return JSON.stringify({
     selection: selection
       ? {
@@ -61,7 +93,26 @@ function getPublishFingerprint(selection, sourceInfo, apiUrls) {
     sourceId: sourceInfo.sourceId,
     sourceType: sourceInfo.sourceType,
     sourceLabel: sourceInfo.sourceLabel || null,
-    apiUrls,
+    urls: urls.map(({ apiUrl }) => apiUrl),
+  });
+}
+
+function getWindowFingerprint(windowState, sourceInfo, urls) {
+  return JSON.stringify({
+    sourceId: sourceInfo.sourceId,
+    sourceType: sourceInfo.sourceType,
+    sourceLabel: sourceInfo.sourceLabel || null,
+    workspaceRoots: Array.isArray(windowState.workspaceRoots) ? [...windowState.workspaceRoots] : [],
+    urls: urls.map(({ apiUrl }) => apiUrl),
+  });
+}
+
+async function postJson(fetchImpl, apiUrl, payload) {
+  return fetchImpl(apiUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
 }
 
@@ -69,33 +120,31 @@ function createSelectionSyncManager({
   fetchImpl = fetch,
   getBaseUrls,
   getSourceInfo,
+  getWorkspaceRoots = () => [],
+  openFile = async () => {},
   logDebug = () => {},
 }) {
-  let lastFingerprint = null;
+  let lastSelectionFingerprint = null;
+  let lastWindowFingerprint = null;
 
   async function publishSelection(selection, options = {}) {
     const sourceInfo = getSourceInfo();
-    const apiUrls = dedupeBaseUrls(getBaseUrls());
-    const fingerprint = getPublishFingerprint(selection, sourceInfo, apiUrls);
-    if (!options.force && fingerprint === lastFingerprint) {
+    const urls = dedupeApiUrls(getBaseUrls(), getSelectionApiUrl);
+    const fingerprint = getSelectionFingerprint(selection, sourceInfo, urls);
+    if (!options.force && fingerprint === lastSelectionFingerprint) {
       return false;
     }
-    lastFingerprint = fingerprint;
+    lastSelectionFingerprint = fingerprint;
 
-    if (apiUrls.length === 0) {
+    if (urls.length === 0) {
       logDebug("selectionSync skipped: no configured base URLs");
       return false;
     }
 
     const payload = buildSelectionSyncPayload(selection, sourceInfo, Date.now());
-    await Promise.all(apiUrls.map(async (apiUrl) => {
+    await Promise.all(urls.map(async ({ apiUrl }) => {
       try {
-        const response = await fetchImpl(apiUrl, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(payload),
-          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-        });
+        const response = await postJson(fetchImpl, apiUrl, payload);
         if (!response.ok) {
           logDebug("selectionSync publish failed", { apiUrl, status: response.status });
         }
@@ -108,15 +157,93 @@ function createSelectionSyncManager({
     return true;
   }
 
+  async function publishWindow(options = {}) {
+    const sourceInfo = getSourceInfo();
+    const urls = dedupeApiUrls(getBaseUrls(), getVsCodeWindowsApiUrl);
+    const windowState = {
+      workspaceRoots: getWorkspaceRoots(),
+      lastActivityAt: Number.isFinite(options.lastActivityAt) ? options.lastActivityAt : Date.now(),
+    };
+    const fingerprint = getWindowFingerprint(windowState, sourceInfo, urls);
+    if (!options.force && fingerprint === lastWindowFingerprint) {
+      return false;
+    }
+    lastWindowFingerprint = fingerprint;
+
+    if (urls.length === 0) {
+      logDebug("windowSync skipped: no configured base URLs");
+      return false;
+    }
+
+    const payload = buildWindowStatePayload(windowState, sourceInfo, Date.now());
+    await Promise.all(urls.map(async ({ apiUrl }) => {
+      try {
+        const response = await postJson(fetchImpl, apiUrl, payload);
+        if (!response.ok) {
+          logDebug("windowSync publish failed", { apiUrl, status: response.status });
+        }
+      } catch (error) {
+        const text = error instanceof Error ? error.message : String(error);
+        logDebug("windowSync publish error", { apiUrl, error: text });
+      }
+    }));
+
+    return true;
+  }
+
+  async function pollCommands() {
+    const sourceInfo = getSourceInfo();
+    const urls = dedupeApiUrls(
+      getBaseUrls(),
+      (baseUrl) => getVsCodeWindowCommandsApiUrl(baseUrl, sourceInfo.sourceId),
+    );
+    for (const { baseUrl, apiUrl } of urls) {
+      try {
+        const response = await fetchImpl(apiUrl, {
+          method: "GET",
+          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        });
+        if (!response.ok) {
+          logDebug("windowSync poll failed", { apiUrl, status: response.status });
+          continue;
+        }
+        const body = await response.json().catch(() => ({ commands: [] }));
+        const commands = Array.isArray(body?.commands) ? body.commands : [];
+        for (const command of commands) {
+          const resultUrl = getVsCodeCommandResultApiUrl(baseUrl, sourceInfo.sourceId, command.commandId);
+          try {
+            await openFile(command.target);
+            await postJson(fetchImpl, resultUrl, { ok: true });
+            await publishWindow({ force: true, lastActivityAt: Date.now() });
+          } catch (error) {
+            const text = error instanceof Error ? error.message : String(error);
+            await postJson(fetchImpl, resultUrl, { ok: false, error: text });
+            await publishWindow({ force: true, lastActivityAt: Date.now() });
+          }
+        }
+      } catch (error) {
+        const text = error instanceof Error ? error.message : String(error);
+        logDebug("windowSync poll error", { apiUrl, error: text });
+      }
+    }
+  }
+
   return {
     publishSelection,
+    publishWindow,
+    pollCommands,
     buildSelectionSyncPayload: (selection) => buildSelectionSyncPayload(selection, getSourceInfo(), Date.now()),
+    buildWindowStatePayload: (windowState) => buildWindowStatePayload(windowState, getSourceInfo(), Date.now()),
   };
 }
 
 module.exports = {
   REQUEST_TIMEOUT_MS,
   getSelectionApiUrl,
+  getVsCodeWindowsApiUrl,
+  getVsCodeWindowCommandsApiUrl,
+  getVsCodeCommandResultApiUrl,
   buildSelectionSyncPayload,
+  buildWindowStatePayload,
   createSelectionSyncManager,
 };

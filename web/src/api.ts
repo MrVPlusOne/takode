@@ -321,10 +321,22 @@ export interface TranscriptionConfig {
   customVocabulary?: string;
 }
 
-export type EditorKind = "vscode" | "cursor" | "none";
+export type EditorKind = "vscode-local" | "vscode-remote" | "cursor" | "none";
 
 export interface EditorConfig {
   editor: EditorKind;
+}
+
+export interface VsCodeRemoteOpenFileTarget {
+  absolutePath: string;
+  line?: number;
+  column?: number;
+}
+
+export interface VsCodeRemoteOpenFileResponse {
+  ok: true;
+  sourceId: string;
+  commandId: string;
 }
 
 // ─── Auto-Approval Types ─────────────────────────────────────────────────────
@@ -706,6 +718,9 @@ export const api = {
 
   // Server control
   restartServer: () => post<{ ok: boolean }>("/server/restart", {}),
+
+  openVsCodeRemoteFile: (target: VsCodeRemoteOpenFileTarget) =>
+    post<VsCodeRemoteOpenFileResponse>("/vscode/open-file", target),
 
   // Settings
   getSettings: () => get<AppSettings>("/settings"),

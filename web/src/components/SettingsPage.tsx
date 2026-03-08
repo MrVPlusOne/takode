@@ -598,12 +598,13 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
               onChange={(e) => onChangeEditor(e.target.value as EditorKind)}
               className="w-full px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/60"
             >
-              <option value="vscode">VS Code</option>
+              <option value="vscode-local">VSCode (local)</option>
+              <option value="vscode-remote">VSCode (remote)</option>
               <option value="cursor">Cursor</option>
               <option value="none">None</option>
             </select>
             <p className="mt-1.5 text-xs text-cc-muted">
-              Used for clickable <code className="font-mono">file:</code> links in chat messages, including repo-root-relative paths.
+              Used for clickable <code className="font-mono">file:</code> links in chat messages. Choose remote to open files through the Takode server's VSCode extension on that machine.
             </p>
           </div>
 

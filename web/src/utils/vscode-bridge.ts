@@ -1,4 +1,4 @@
-import { api } from "../api.js";
+import { api, type EditorKind } from "../api.js";
 import { isEmbeddedInVsCode } from "./embed-context.js";
 
 export const VSCODE_BRIDGE_SOURCE = "takode-vscode-prototype";
@@ -8,6 +8,11 @@ export interface VsCodeOpenFileTarget {
   absolutePath: string;
   line?: number;
   column?: number;
+}
+
+export function buildLocalEditorUri(target: VsCodeOpenFileTarget, editor: "vscode-local" | "cursor"): string {
+  const scheme = editor === "cursor" ? "cursor" : "vscode";
+  return `${scheme}://file/${encodeURI(target.absolutePath)}:${Math.max(1, target.line ?? 1)}:${Math.max(1, target.column ?? 1)}`;
 }
 
 function isAbsolutePath(path: string): boolean {
@@ -50,17 +55,42 @@ export function openFileInEmbeddedVsCode(target: VsCodeOpenFileTarget): boolean 
   }
 }
 
+export function showEditorOpenError(message: string): void {
+  if (typeof window !== "undefined" && typeof window.alert === "function") {
+    window.alert(message);
+  }
+}
+
+export async function openFileWithEditorPreference(target: VsCodeOpenFileTarget, editor: EditorKind): Promise<boolean> {
+  if (editor === "none") {
+    return false;
+  }
+
+  if (editor === "vscode-remote") {
+    await api.openVsCodeRemoteFile(target);
+    return true;
+  }
+
+  if (editor === "vscode-local" && openFileInEmbeddedVsCode(target)) {
+    return true;
+  }
+
+  const uri = buildLocalEditorUri(target, editor === "cursor" ? "cursor" : "vscode-local");
+  window.open(uri, "_blank", "noopener,noreferrer");
+  return true;
+}
+
 export async function ensureVsCodeEditorPreference(): Promise<void> {
   if (!isEmbeddedInVsCode()) {
     return;
   }
 
   const settings = await api.getSettings();
-  if (settings.editorConfig?.editor === "vscode") {
+  if (settings.editorConfig?.editor === "vscode-remote") {
     return;
   }
 
   await api.updateSettings({
-    editorConfig: { editor: "vscode" },
+    editorConfig: { editor: "vscode-remote" },
   });
 }

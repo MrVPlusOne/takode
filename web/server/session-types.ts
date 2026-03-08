@@ -255,6 +255,29 @@ export interface VsCodeSelectionState {
   sourceLabel?: string;
 }
 
+export interface VsCodeWindowState {
+  sourceId: string;
+  sourceType: "vscode-window";
+  sourceLabel?: string;
+  workspaceRoots: string[];
+  updatedAt: number;
+  lastActivityAt: number;
+  lastSeenAt: number;
+}
+
+export interface VsCodeOpenFileTarget {
+  absolutePath: string;
+  line: number;
+  column: number;
+}
+
+export interface VsCodeOpenFileCommand {
+  commandId: string;
+  sourceId: string;
+  target: VsCodeOpenFileTarget;
+  createdAt: number;
+}
+
 // ─── Browser Message Types (browser <-> bridge) ──────────────────────────────
 
 /** Messages the browser sends to the bridge */

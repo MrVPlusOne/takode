@@ -24,6 +24,7 @@ const PANEL_SPECS = {
 
 let lastSelectionPayload = null;
 let outputChannel;
+let lastWindowActivityAt = Date.now();
 
 function getBackgroundSelectionContext(editor = vscode.window.activeTextEditor) {
   return editor ? getSelectionContext(editor) : null;
@@ -37,6 +38,12 @@ function getSelectionSourceInfo() {
     sourceType: "vscode-window",
     sourceLabel: vscode.workspace.name || undefined,
   };
+}
+
+function getWorkspaceRoots() {
+  return (vscode.workspace.workspaceFolders || [])
+    .map((folder) => folder.uri?.fsPath || "")
+    .filter((path) => typeof path === "string" && path.length > 0);
 }
 
 function logDebug(message, details) {
@@ -185,6 +192,7 @@ async function openFileInPanelEditor(request) {
     return;
   }
 
+  lastWindowActivityAt = Date.now();
   const line = Math.max(1, Number(request.line) || 1);
   const column = Math.max(1, Number(request.column) || 1);
   const uri = vscode.Uri.file(request.absolutePath);
@@ -204,6 +212,7 @@ function refreshSelectionContext(editor = vscode.window.activeTextEditor) {
     logDebug("refreshSelectionContext", { editor: null, payload: lastSelectionPayload });
     return lastSelectionPayload;
   }
+  lastWindowActivityAt = Date.now();
   lastSelectionPayload = getSelectionContext(editor);
   logDebug("refreshSelectionContext", {
     editor: getPathLabel(editor),
@@ -275,6 +284,8 @@ function activate(context) {
     fetchImpl: fetch,
     getBaseUrls: () => Object.values(PANEL_SPECS).map((spec) => getConfiguredBaseUrl(spec.kind)),
     getSourceInfo: getSelectionSourceInfo,
+    getWorkspaceRoots,
+    openFile: openFileInPanelEditor,
     logDebug,
   });
 
@@ -340,7 +351,9 @@ function activate(context) {
   context.subscriptions.push(
     vscode.window.onDidChangeActiveTextEditor((editor) => {
       logDebug("event onDidChangeActiveTextEditor", { editor: editor ? getPathLabel(editor) : null });
+      lastWindowActivityAt = Date.now();
       void selectionSync.publishSelection(getBackgroundSelectionContext(editor));
+      void selectionSync.publishWindow({ lastActivityAt: lastWindowActivityAt });
       refreshSelectionContext(editor);
       for (const panel of panelsByKind.values()) {
         pushSelectionContext(panel);
@@ -354,11 +367,20 @@ function activate(context) {
         editor: getPathLabel(event.textEditor),
         isEmpty: event.selections.every((selection) => selection.isEmpty),
       });
+      lastWindowActivityAt = Date.now();
       void selectionSync.publishSelection(getBackgroundSelectionContext(event.textEditor));
+      void selectionSync.publishWindow({ lastActivityAt: lastWindowActivityAt });
       refreshSelectionContext(event.textEditor);
       for (const panel of panelsByKind.values()) {
         pushSelectionContext(panel);
       }
+    }),
+  );
+
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      logDebug("event onDidChangeWorkspaceFolders", { workspaceRoots: getWorkspaceRoots() });
+      void selectionSync.publishWindow({ force: true, lastActivityAt: lastWindowActivityAt });
     }),
   );
 
@@ -379,10 +401,22 @@ function activate(context) {
         pushSelectionContext(panel);
       }
       void selectionSync.publishSelection(getBackgroundSelectionContext(), { force: true });
+      void selectionSync.publishWindow({ force: true, lastActivityAt: lastWindowActivityAt });
     }),
   );
 
   void selectionSync.publishSelection(getBackgroundSelectionContext(), { force: true });
+  void selectionSync.publishWindow({ force: true, lastActivityAt: lastWindowActivityAt });
+  void selectionSync.pollCommands();
+
+  const pollInterval = setInterval(() => {
+    void selectionSync.pollCommands();
+  }, 2000);
+  context.subscriptions.push({
+    dispose() {
+      clearInterval(pollInterval);
+    },
+  });
 
   if (typeof vscode.window.registerWebviewPanelSerializer === "function") {
     for (const panelSpec of Object.values(PANEL_SPECS)) {

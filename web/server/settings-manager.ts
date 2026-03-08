@@ -62,7 +62,7 @@ export interface TranscriptionConfig {
   customVocabulary?: string;
 }
 
-export type EditorKind = "vscode" | "cursor" | "none";
+export type EditorKind = "vscode-local" | "vscode-remote" | "cursor" | "none";
 
 export interface EditorConfig {
   editor: EditorKind;
@@ -179,8 +179,11 @@ function normalizeEditorConfig(raw: Record<string, unknown> | null | undefined):
   if (cfg && typeof cfg === "object" && !Array.isArray(cfg)) {
     const c = cfg as Record<string, unknown>;
     const editor = c.editor;
-    if (editor === "vscode" || editor === "cursor" || editor === "none") {
+    if (editor === "vscode-local" || editor === "vscode-remote" || editor === "cursor" || editor === "none") {
       return { editor };
+    }
+    if (editor === "vscode") {
+      return { editor: "vscode-local" };
     }
   }
   return { editor: "none" };

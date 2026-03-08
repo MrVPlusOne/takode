@@ -41,6 +41,8 @@ import type {
   SessionTaskEntry,
   CodexOutboundTurn,
   VsCodeSelectionState,
+  VsCodeWindowState,
+  VsCodeOpenFileCommand,
   TakodeEvent,
   TakodeEventDataByType,
   TakodeEventFor,
@@ -688,6 +690,19 @@ export class WsBridge {
   private recentCliDisconnects: number[] = [];
   /** Machine-global latest VSCode selection seen by the server. */
   private vscodeSelectionState: VsCodeSelectionState | null = null;
+  /** Machine-global registry of running VSCode windows on this server machine. */
+  private vscodeWindows = new Map<string, VsCodeWindowState>();
+  /** Pending remote open-file commands keyed by VSCode window sourceId. */
+  private vscodeOpenFileQueues = new Map<string, VsCodeOpenFileCommand[]>();
+  /** In-flight browser requests waiting for extension-host open-file results. */
+  private pendingVsCodeOpenResults = new Map<string, {
+    resolve: () => void;
+    reject: (error: Error) => void;
+    timeout: ReturnType<typeof setTimeout>;
+  }>();
+
+  private static readonly VSCODE_WINDOW_STALE_MS = 30_000;
+  private static readonly VSCODE_OPEN_FILE_TIMEOUT_MS = 8_000;
 
   // ── Takode orchestration event emitter ───────────────────────────────────
   private takodeSubscribers = new Set<TakodeEventSubscriber>();
@@ -3574,8 +3589,195 @@ export class WsBridge {
       ...nextState,
       selection: nextState.selection ? { ...nextState.selection } : null,
     };
+    if (nextState.sourceType === "vscode-window") {
+      const currentWindow = this.vscodeWindows.get(nextState.sourceId);
+      if (currentWindow) {
+        currentWindow.lastSeenAt = Date.now();
+        currentWindow.lastActivityAt = Math.max(currentWindow.lastActivityAt, nextState.updatedAt);
+        currentWindow.updatedAt = Math.max(currentWindow.updatedAt, nextState.updatedAt);
+      }
+    }
     this.broadcastVsCodeSelectionState();
     return true;
+  }
+
+  private cloneVsCodeWindowState(window: VsCodeWindowState): VsCodeWindowState {
+    return {
+      ...window,
+      workspaceRoots: [...window.workspaceRoots],
+    };
+  }
+
+  private normalizePathForVsCodeMatch(path: string): string {
+    return path.replace(/\\/g, "/").replace(/\/+$/, "");
+  }
+
+  private getVsCodeWindowRootMatchLength(window: VsCodeWindowState, absolutePath: string): number {
+    const normalizedPath = this.normalizePathForVsCodeMatch(absolutePath);
+    let best = -1;
+    for (const root of window.workspaceRoots) {
+      const normalizedRoot = this.normalizePathForVsCodeMatch(root);
+      if (!normalizedRoot) continue;
+      if (normalizedPath === normalizedRoot || normalizedPath.startsWith(`${normalizedRoot}/`)) {
+        best = Math.max(best, normalizedRoot.length);
+      }
+    }
+    return best;
+  }
+
+  private getActiveVsCodeWindows(now = Date.now()): VsCodeWindowState[] {
+    const active: VsCodeWindowState[] = [];
+    for (const window of this.vscodeWindows.values()) {
+      if (now - window.lastSeenAt <= WsBridge.VSCODE_WINDOW_STALE_MS) {
+        active.push(window);
+      }
+    }
+    return active;
+  }
+
+  private selectVsCodeWindowForFile(absolutePath: string): VsCodeWindowState | null {
+    const candidates = this.getActiveVsCodeWindows();
+    if (candidates.length === 0) return null;
+
+    const ranked = candidates.map((window) => ({
+      window,
+      rootMatchLength: this.getVsCodeWindowRootMatchLength(window, absolutePath),
+    }));
+
+    ranked.sort((a, b) => {
+      const aContains = a.rootMatchLength >= 0 ? 1 : 0;
+      const bContains = b.rootMatchLength >= 0 ? 1 : 0;
+      if (aContains !== bContains) return bContains - aContains;
+      if (a.rootMatchLength !== b.rootMatchLength) return b.rootMatchLength - a.rootMatchLength;
+      if (a.window.lastActivityAt !== b.window.lastActivityAt) {
+        return b.window.lastActivityAt - a.window.lastActivityAt;
+      }
+      if (a.window.updatedAt !== b.window.updatedAt) {
+        return b.window.updatedAt - a.window.updatedAt;
+      }
+      return a.window.sourceId.localeCompare(b.window.sourceId);
+    });
+
+    return ranked[0]?.window ?? null;
+  }
+
+  private getVsCodeOpenQueue(sourceId: string): VsCodeOpenFileCommand[] {
+    let queue = this.vscodeOpenFileQueues.get(sourceId);
+    if (!queue) {
+      queue = [];
+      this.vscodeOpenFileQueues.set(sourceId, queue);
+    }
+    return queue;
+  }
+
+  getVsCodeWindowStates(): VsCodeWindowState[] {
+    return this.getActiveVsCodeWindows()
+      .map((window) => this.cloneVsCodeWindowState(window))
+      .sort((a, b) => {
+        if (a.lastActivityAt !== b.lastActivityAt) return b.lastActivityAt - a.lastActivityAt;
+        if (a.updatedAt !== b.updatedAt) return b.updatedAt - a.updatedAt;
+        return a.sourceId.localeCompare(b.sourceId);
+      });
+  }
+
+  upsertVsCodeWindowState(nextState: Omit<VsCodeWindowState, "lastSeenAt">): VsCodeWindowState {
+    const current = this.vscodeWindows.get(nextState.sourceId);
+    if (
+      current
+      && nextState.updatedAt < current.updatedAt
+    ) {
+      return this.cloneVsCodeWindowState(current);
+    }
+
+    const now = Date.now();
+    const normalized: VsCodeWindowState = {
+      sourceId: nextState.sourceId,
+      sourceType: "vscode-window",
+      workspaceRoots: [...new Set(nextState.workspaceRoots
+        .filter((root) => typeof root === "string" && root.trim().length > 0)
+        .map((root) => {
+          const normalizedRoot = resolve(root).replace(/\\/g, "/");
+          return normalizedRoot === "/" ? normalizedRoot : normalizedRoot.replace(/\/+$/, "");
+        }))],
+      updatedAt: nextState.updatedAt,
+      lastActivityAt: nextState.lastActivityAt,
+      lastSeenAt: now,
+      ...(nextState.sourceLabel ? { sourceLabel: nextState.sourceLabel } : {}),
+    };
+    this.vscodeWindows.set(normalized.sourceId, normalized);
+    return this.cloneVsCodeWindowState(normalized);
+  }
+
+  touchVsCodeWindow(sourceId: string): VsCodeWindowState | null {
+    const current = this.vscodeWindows.get(sourceId);
+    if (!current) return null;
+    current.lastSeenAt = Date.now();
+    return this.cloneVsCodeWindowState(current);
+  }
+
+  pollVsCodeOpenFileCommands(sourceId: string, limit = 1): VsCodeOpenFileCommand[] {
+    this.touchVsCodeWindow(sourceId);
+    const queue = this.vscodeOpenFileQueues.get(sourceId);
+    if (!queue || queue.length === 0) return [];
+    return queue.splice(0, Math.max(1, limit)).map((command) => ({
+      ...command,
+      target: { ...command.target },
+    }));
+  }
+
+  resolveVsCodeOpenFileResult(
+    sourceId: string,
+    commandId: string,
+    result: { ok: boolean; error?: string },
+  ): boolean {
+    const pending = this.pendingVsCodeOpenResults.get(commandId);
+    if (!pending) return false;
+    this.pendingVsCodeOpenResults.delete(commandId);
+    clearTimeout(pending.timeout);
+    this.touchVsCodeWindow(sourceId);
+    if (result.ok) {
+      pending.resolve();
+    } else {
+      pending.reject(new Error(result.error?.trim() || "VS Code failed to open the requested file."));
+    }
+    return true;
+  }
+
+  async requestVsCodeOpenFile(
+    target: { absolutePath: string; line?: number; column?: number },
+    options?: { timeoutMs?: number },
+  ): Promise<{ sourceId: string; commandId: string }> {
+    const sourceWindow = this.selectVsCodeWindowForFile(target.absolutePath);
+    if (!sourceWindow) {
+      throw new Error("No running VS Code was detected on this machine.");
+    }
+
+    const command: VsCodeOpenFileCommand = {
+      commandId: randomUUID(),
+      sourceId: sourceWindow.sourceId,
+      target: {
+        absolutePath: target.absolutePath,
+        line: Math.max(1, target.line ?? 1),
+        column: Math.max(1, target.column ?? 1),
+      },
+      createdAt: Date.now(),
+    };
+    this.getVsCodeOpenQueue(sourceWindow.sourceId).push(command);
+
+    const timeoutMs = options?.timeoutMs ?? WsBridge.VSCODE_OPEN_FILE_TIMEOUT_MS;
+    const completion = new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.pendingVsCodeOpenResults.delete(command.commandId);
+        reject(new Error("Timed out waiting for VSCode on this machine to open the file."));
+      }, timeoutMs);
+      this.pendingVsCodeOpenResults.set(command.commandId, { resolve, reject, timeout });
+    });
+
+    await completion;
+    return {
+      sourceId: sourceWindow.sourceId,
+      commandId: command.commandId,
+    };
   }
 
   // ── CLI message routing ─────────────────────────────────────────────────

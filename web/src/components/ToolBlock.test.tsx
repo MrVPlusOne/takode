@@ -1,7 +1,22 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { ToolBlock, ToolIcon, getToolIcon, getToolLabel, getPreview, formatDuration } from "./ToolBlock.js";
 import { useStore } from "../store.js";
+import { api } from "../api.js";
+
+vi.mock("../api.js", () => ({
+  api: {
+    getSettings: vi.fn(),
+    getFsImageUrl: vi.fn((path: string) => `/api/fs/image?path=${encodeURIComponent(path)}`),
+    openVsCodeRemoteFile: vi.fn(),
+  },
+}));
+
+beforeEach(() => {
+  vi.mocked(api.getSettings).mockReset();
+  vi.mocked(api.openVsCodeRemoteFile).mockReset();
+  vi.mocked(api.getSettings).mockResolvedValue({ editorConfig: { editor: "vscode-local" } } as Awaited<ReturnType<typeof api.getSettings>>);
+});
 
 // ─── getToolIcon ─────────────────────────────────────────────────────────────
 
@@ -423,7 +438,7 @@ describe("ToolBlock", () => {
     expect(container.querySelector(".diff-line-add")).toBeTruthy();
   });
 
-  it("shows an Open File action for embedded VS Code diffs and jumps to the first changed line", () => {
+  it("shows an Open File action for local VSCode diffs and jumps to the first changed line", async () => {
     window.history.replaceState({}, "", "/?takodeHost=vscode");
     const postMessageSpy = vi.spyOn(window.parent, "postMessage");
 
@@ -454,21 +469,63 @@ describe("ToolBlock", () => {
     fireEvent.click(screen.getByRole("button", { name: /Edit Filesrc\/app\.ts/ }));
     fireEvent.click(screen.getByRole("button", { name: "Open File" }));
 
-    expect(postMessageSpy).toHaveBeenCalledWith(
-      {
-        source: "takode-vscode-prototype",
-        type: "takode:open-file",
-        payload: {
-          absolutePath: "/home/user/src/app.ts",
-          line: 12,
-          column: 1,
+    await waitFor(() => {
+      expect(postMessageSpy).toHaveBeenCalledWith(
+        {
+          source: "takode-vscode-prototype",
+          type: "takode:open-file",
+          payload: {
+            absolutePath: "/home/user/src/app.ts",
+            line: 12,
+            column: 1,
+          },
         },
-      },
-      "*",
-    );
+        "*",
+      );
+    });
 
     postMessageSpy.mockRestore();
     window.history.replaceState({}, "", "/");
+  });
+
+  it("routes diff Open File through remote VSCode when configured", async () => {
+    vi.mocked(api.getSettings).mockResolvedValue({ editorConfig: { editor: "vscode-remote" } } as Awaited<ReturnType<typeof api.getSettings>>);
+    vi.mocked(api.openVsCodeRemoteFile).mockResolvedValue({ ok: true, sourceId: "window-a", commandId: "cmd-1" } as Awaited<ReturnType<typeof api.openVsCodeRemoteFile>>);
+
+    render(
+      <ToolBlock
+        name="Edit"
+        input={{
+          file_path: "/home/user/src/app.ts",
+          changes: [
+            {
+              path: "/home/user/src/app.ts",
+              kind: "modify",
+              diff: [
+                "diff --git a/src/app.ts b/src/app.ts",
+                "--- a/src/app.ts",
+                "+++ b/src/app.ts",
+                "@@ -10,2 +12,3 @@",
+                "-const x = 1;",
+                "+const x = 2;",
+              ].join("\n"),
+            },
+          ],
+        }}
+        toolUseId="tool-7-remote-open"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Edit Filesrc\/app\.ts/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Open File" }));
+
+    await waitFor(() => {
+      expect(api.openVsCodeRemoteFile).toHaveBeenCalledWith({
+        absolutePath: "/home/user/src/app.ts",
+        line: 12,
+        column: 1,
+      });
+    });
   });
 
   it("renders Edit diff when changes use unified_diff field", () => {

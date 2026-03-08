@@ -8,8 +8,7 @@ import { CopyFormatButton } from "./CopyFormatButton.js";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
 import { parseEditToolInput, parseWriteToolInput } from "../utils/tool-rendering.js";
-import { isEmbeddedInVsCode } from "../utils/embed-context.js";
-import { openFileInEmbeddedVsCode, resolveEmbeddedVsCodePath } from "../utils/vscode-bridge.js";
+import { openFileWithEditorPreference, resolveEmbeddedVsCodePath, showEditorOpenError } from "../utils/vscode-bridge.js";
 
 const TOOL_ICONS: Record<string, string> = {
   Bash: "terminal",
@@ -477,7 +476,7 @@ function getFirstChangedLineFromEditPayload(parsed: ReturnType<typeof parseEditT
   return 1;
 }
 
-function EmbeddedDiffOpenFileButton({
+function DiffOpenFileButton({
   filePath,
   sessionId,
   line,
@@ -490,22 +489,26 @@ function EmbeddedDiffOpenFileButton({
     if (!sessionId) return null;
     return s.sessions.get(sessionId)?.cwd ?? s.sdkSessions.find((sdk) => sdk.sessionId === sessionId)?.cwd ?? null;
   });
-  const isEmbedded = isEmbeddedInVsCode();
   const absolutePath = resolveEmbeddedVsCodePath(filePath, sessionCwd);
-  if (!isEmbedded || !absolutePath) return null;
+  if (!absolutePath) return null;
 
   return (
     <button
       type="button"
       className="diff-file-action-btn"
-      onClick={() => {
-        openFileInEmbeddedVsCode({
-          absolutePath,
-          line,
-          column: 1,
-        });
+      onClick={async () => {
+        try {
+          const settings = await api.getSettings();
+          await openFileWithEditorPreference({
+            absolutePath,
+            line,
+            column: 1,
+          }, settings.editorConfig?.editor ?? "none");
+        } catch (error) {
+          showEditorOpenError(error instanceof Error ? error.message : String(error));
+        }
       }}
-      title="Open this file in VS Code"
+      title="Open this file in the configured editor"
     >
       Open File
     </button>
@@ -543,7 +546,7 @@ function EditToolDetail({ input, sessionId }: { input: Record<string, unknown>; 
     changes,
     unifiedDiff,
   } = parseEditToolInput(input);
-  const openFileButton = <EmbeddedDiffOpenFileButton filePath={filePath} sessionId={sessionId} line={getFirstChangedLineFromEditPayload({ filePath, oldText: oldStr, newText: newStr, changes, unifiedDiff })} />;
+  const openFileButton = <DiffOpenFileButton filePath={filePath} sessionId={sessionId} line={getFirstChangedLineFromEditPayload({ filePath, oldText: oldStr, newText: newStr, changes, unifiedDiff })} />;
 
   if (!oldStr && !newStr && unifiedDiff) {
     return <DiffViewer unifiedDiff={unifiedDiff} fileName={filePath} mode="full" headerActions={openFileButton} />;
@@ -582,7 +585,7 @@ function EditToolDetail({ input, sessionId }: { input: Record<string, unknown>; 
 
 function WriteToolDetail({ input, sessionId }: { input: Record<string, unknown>; sessionId?: string }) {
   const { filePath, content } = parseWriteToolInput(input);
-  const openFileButton = <EmbeddedDiffOpenFileButton filePath={filePath} sessionId={sessionId} line={1} />;
+  const openFileButton = <DiffOpenFileButton filePath={filePath} sessionId={sessionId} line={1} />;
 
   return <DiffViewer newText={content} fileName={filePath} mode="full" headerActions={openFileButton} />;
 }

@@ -284,6 +284,142 @@ export function createSystemRoutes(ctx: RouteContext) {
     });
   });
 
+  api.get("/vscode/windows", (c) => {
+    return c.json({
+      windows: wsBridge.getVsCodeWindowStates(),
+    });
+  });
+
+  api.post("/vscode/windows", async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: "Invalid JSON body" }, 400);
+    }
+
+    const record = body && typeof body === "object" ? body as Record<string, unknown> : null;
+    if (!record) {
+      return c.json({ error: "Invalid VSCode window payload" }, 400);
+    }
+
+    const sourceId = record.sourceId;
+    const sourceType = record.sourceType;
+    const sourceLabel = record.sourceLabel;
+    const updatedAt = record.updatedAt;
+    const lastActivityAt = record.lastActivityAt;
+    const workspaceRoots = record.workspaceRoots;
+
+    if (typeof sourceId !== "string" || sourceId.trim().length === 0 || !Number.isFinite(updatedAt)) {
+      return c.json({ error: "sourceId and updatedAt are required" }, 400);
+    }
+    if (sourceType !== "vscode-window") {
+      return c.json({ error: 'sourceType must be "vscode-window"' }, 400);
+    }
+    if (sourceLabel !== undefined && typeof sourceLabel !== "string") {
+      return c.json({ error: "sourceLabel must be a string when provided" }, 400);
+    }
+    if (!Array.isArray(workspaceRoots) || workspaceRoots.some((root) => typeof root !== "string")) {
+      return c.json({ error: "workspaceRoots must be an array of strings" }, 400);
+    }
+    if (lastActivityAt !== undefined && !Number.isFinite(lastActivityAt)) {
+      return c.json({ error: "lastActivityAt must be a number when provided" }, 400);
+    }
+
+    const window = wsBridge.upsertVsCodeWindowState({
+      sourceId,
+      sourceType,
+      ...(typeof sourceLabel === "string" ? { sourceLabel } : {}),
+      workspaceRoots: workspaceRoots as string[],
+      updatedAt: Number(updatedAt),
+      lastActivityAt: Number.isFinite(lastActivityAt) ? Number(lastActivityAt) : Number(updatedAt),
+    });
+
+    return c.json({
+      ok: true,
+      window,
+    });
+  });
+
+  api.get("/vscode/windows/:sourceId/commands", (c) => {
+    const sourceId = c.req.param("sourceId");
+    const commands = wsBridge.pollVsCodeOpenFileCommands(sourceId);
+    return c.json({ commands });
+  });
+
+  api.post("/vscode/windows/:sourceId/commands/:commandId/result", async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: "Invalid JSON body" }, 400);
+    }
+
+    const record = body && typeof body === "object" ? body as Record<string, unknown> : null;
+    if (!record) {
+      return c.json({ error: "Invalid VSCode command result payload" }, 400);
+    }
+    if (typeof record.ok !== "boolean") {
+      return c.json({ error: "ok must be a boolean" }, 400);
+    }
+    if (record.error !== undefined && typeof record.error !== "string") {
+      return c.json({ error: "error must be a string when provided" }, 400);
+    }
+
+    const handled = wsBridge.resolveVsCodeOpenFileResult(
+      c.req.param("sourceId"),
+      c.req.param("commandId"),
+      {
+        ok: record.ok,
+        ...(typeof record.error === "string" ? { error: record.error } : {}),
+      },
+    );
+    if (!handled) {
+      return c.json({ error: "VSCode open-file command not found" }, 404);
+    }
+    return c.json({ ok: true });
+  });
+
+  api.post("/vscode/open-file", async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: "Invalid JSON body" }, 400);
+    }
+
+    const record = body && typeof body === "object" ? body as Record<string, unknown> : null;
+    if (!record) {
+      return c.json({ error: "Invalid open-file payload" }, 400);
+    }
+
+    const absolutePath = record.absolutePath;
+    const line = record.line;
+    const column = record.column;
+    if (typeof absolutePath !== "string" || absolutePath.trim().length === 0) {
+      return c.json({ error: "absolutePath is required" }, 400);
+    }
+    if (line !== undefined && !Number.isFinite(line)) {
+      return c.json({ error: "line must be a number when provided" }, 400);
+    }
+    if (column !== undefined && !Number.isFinite(column)) {
+      return c.json({ error: "column must be a number when provided" }, 400);
+    }
+
+    try {
+      const dispatched = await wsBridge.requestVsCodeOpenFile({
+        absolutePath,
+        ...(Number.isFinite(line) ? { line: Number(line) } : {}),
+        ...(Number.isFinite(column) ? { column: Number(column) } : {}),
+      });
+      return c.json({ ok: true, ...dispatched });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const status = /No running VS ?Code/i.test(message) ? 409 : 504;
+      return c.json({ error: message }, status as 409 | 504);
+    }
+  });
+
   // ─── Performance Tracing ─────────────────────────────────────────────
   if (perfTracer) {
     api.get("/perf/summary", (c) => c.json(perfTracer.getSummary()));

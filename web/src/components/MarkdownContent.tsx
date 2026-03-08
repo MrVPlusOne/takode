@@ -1,7 +1,7 @@
 import { useRef, useCallback, useMemo, useState, useEffect, type ComponentProps, type MouseEvent, type ReactNode } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { api, type EditorKind } from "../api.js";
+import { api } from "../api.js";
 import { useStore, countUserPermissions } from "../store.js";
 import { navigateToSession, sessionHash } from "../utils/routing.js";
 import { SessionHoverCard } from "./SessionHoverCard.js";
@@ -10,7 +10,7 @@ import type { SessionItem as SessionItemType } from "../utils/project-grouping.j
 import { CodeCopyButton } from "./CodeCopyButton.js";
 import { withQuestIdInHash } from "../utils/routing.js";
 import { highlightCode } from "../utils/syntax-highlighting.js";
-import { openFileInEmbeddedVsCode } from "../utils/vscode-bridge.js";
+import { openFileWithEditorPreference, showEditorOpenError } from "../utils/vscode-bridge.js";
 
 function parseQuestIdFromHref(href?: string): string | null {
   if (!href) return null;
@@ -156,12 +156,6 @@ function parseFileLinkFromHref(href?: string): FileLinkTarget | null {
   if (line < 1 || column < 1) return null;
 
   return { path, line, column, isRelative: !isAbsolute };
-}
-
-function buildEditorUri(target: ResolvedFileLinkTarget, editor: EditorKind): string | null {
-  if (editor === "none") return null;
-  const scheme = editor === "cursor" ? "cursor" : "vscode";
-  return `${scheme}://file/${encodeURI(target.absolutePath)}:${target.line}:${target.column}`;
 }
 
 function transformMarkdownUrl(url: string): string {
@@ -529,18 +523,17 @@ function FileMarkdownLink({
   const onClick = useCallback(async (e: MouseEvent<HTMLAnchorElement>) => {
     e.preventDefault();
     if (!resolvedTarget) return;
-    if (openFileInEmbeddedVsCode(resolvedTarget)) {
-      return;
-    }
     let settings;
     try {
       settings = await api.getSettings();
     } catch {
       return;
     }
-    const uri = buildEditorUri(resolvedTarget, settings.editorConfig?.editor ?? "none");
-    if (!uri) return;
-    window.open(uri, "_blank", "noopener,noreferrer");
+    try {
+      await openFileWithEditorPreference(resolvedTarget, settings.editorConfig?.editor ?? "none");
+    } catch (error) {
+      showEditorOpenError(error instanceof Error ? error.message : String(error));
+    }
   }, [resolvedTarget]);
 
   const href = `file:${target.path}:${target.line}:${target.column}`;

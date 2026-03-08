@@ -3,10 +3,12 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { useStore } from "../store.js";
 
 const mockGetSettings = vi.fn();
+const mockOpenVsCodeRemoteFile = vi.fn();
 
 vi.mock("../api.js", () => ({
   api: {
     getSettings: (...args: unknown[]) => mockGetSettings(...args),
+    openVsCodeRemoteFile: (...args: unknown[]) => mockOpenVsCodeRemoteFile(...args),
   },
 }));
 
@@ -18,6 +20,7 @@ describe("MarkdownContent quest links", () => {
     window.location.hash = "#/session/s1";
     useStore.getState().reset();
     mockGetSettings.mockReset();
+    mockOpenVsCodeRemoteFile.mockReset();
     mockGetSettings.mockResolvedValue({ editorConfig: { editor: "none" } });
   });
 
@@ -113,7 +116,7 @@ describe("MarkdownContent quest links", () => {
   });
 
   it("opens file: links in VS Code using configured editor preference", async () => {
-    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode" } });
+    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-local" } });
     const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
 
     render(<MarkdownContent text="[app.ts](file:/tmp/project/app.ts:42)" />);
@@ -130,7 +133,7 @@ describe("MarkdownContent quest links", () => {
   });
 
   it("resolves repo-root-relative file: links against the active session repo root", async () => {
-    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode" } });
+    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-local" } });
     const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
 
     useStore.setState((state) => ({
@@ -173,32 +176,27 @@ describe("MarkdownContent quest links", () => {
     openSpy.mockRestore();
   });
 
-  it("routes file links through the VS Code embed bridge when running inside the panel", () => {
+  it("routes file links through the authoritative remote VSCode path when configured", async () => {
     window.history.replaceState({}, "", "/?takodeHost=vscode");
-    const postMessageSpy = vi.spyOn(window.parent, "postMessage");
+    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-remote" } });
+    mockOpenVsCodeRemoteFile.mockResolvedValue({ ok: true, sourceId: "window-a", commandId: "cmd-1" });
 
     render(<MarkdownContent text="[app.ts](file:/tmp/project/app.ts:7:3)" />);
     fireEvent.click(screen.getByRole("link", { name: "app.ts" }));
 
-    expect(postMessageSpy).toHaveBeenCalledWith(
-      {
-        source: "takode-vscode-prototype",
-        type: "takode:open-file",
-        payload: {
-          absolutePath: "/tmp/project/app.ts",
-          line: 7,
-          column: 3,
-        },
-      },
-      "*",
-    );
-    expect(mockGetSettings).not.toHaveBeenCalled();
-    postMessageSpy.mockRestore();
+    await waitFor(() => {
+      expect(mockOpenVsCodeRemoteFile).toHaveBeenCalledWith({
+        absolutePath: "/tmp/project/app.ts",
+        line: 7,
+        column: 3,
+      });
+    });
   });
 
-  it("routes repo-root-relative file links through the VS Code embed bridge", () => {
+  it("routes repo-root-relative file links through the authoritative remote VSCode path", async () => {
     window.history.replaceState({}, "", "/?takodeHost=vscode");
-    const postMessageSpy = vi.spyOn(window.parent, "postMessage");
+    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-remote" } });
+    mockOpenVsCodeRemoteFile.mockResolvedValue({ ok: true, sourceId: "window-a", commandId: "cmd-2" });
 
     useStore.setState((state) => ({
       ...state,
@@ -216,19 +214,26 @@ describe("MarkdownContent quest links", () => {
     render(<MarkdownContent text="[TopBar.tsx](file:web/src/components/TopBar.tsx:162:4)" />);
     fireEvent.click(screen.getByRole("link", { name: "TopBar.tsx" }));
 
-    expect(postMessageSpy).toHaveBeenCalledWith(
-      {
-        source: "takode-vscode-prototype",
-        type: "takode:open-file",
-        payload: {
-          absolutePath: "/repo/web/src/components/TopBar.tsx",
-          line: 162,
-          column: 4,
-        },
-      },
-      "*",
-    );
-    expect(mockGetSettings).not.toHaveBeenCalled();
-    postMessageSpy.mockRestore();
+    await waitFor(() => {
+      expect(mockOpenVsCodeRemoteFile).toHaveBeenCalledWith({
+        absolutePath: "/repo/web/src/components/TopBar.tsx",
+        line: 162,
+        column: 4,
+      });
+    });
+  });
+
+  it("shows the remote VSCode error when the server reports no running VSCode window", async () => {
+    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-remote" } });
+    mockOpenVsCodeRemoteFile.mockRejectedValue(new Error("No running VSCode was detected on this machine."));
+    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
+
+    render(<MarkdownContent text="[app.ts](file:/tmp/project/app.ts:7:3)" />);
+    fireEvent.click(screen.getByRole("link", { name: "app.ts" }));
+
+    await waitFor(() => {
+      expect(alertSpy).toHaveBeenCalledWith("No running VSCode was detected on this machine.");
+    });
+    alertSpy.mockRestore();
   });
 });

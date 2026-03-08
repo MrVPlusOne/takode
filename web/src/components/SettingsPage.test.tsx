@@ -195,7 +195,7 @@ describe("SettingsPage", () => {
       claudeBinary: "",
       codexBinary: "",
       maxKeepAlive: 0,
-      editorConfig: { editor: "vscode" },
+      editorConfig: { editor: "vscode-local" },
     });
     mockApi.updateSettings.mockResolvedValue({
       serverName: "",
