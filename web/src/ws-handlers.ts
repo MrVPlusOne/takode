@@ -3,6 +3,7 @@ import { api } from "./api.js";
 import type { BrowserIncomingMessage, ContentBlock, ChatMessage, TaskItem } from "./types.js";
 import { generateUniqueSessionName } from "./utils/names.js";
 import { playNotificationSound } from "./utils/notification-sound.js";
+import { computeChatMessagesSyncHash } from "../shared/history-sync-hash.js";
 
 const taskCounters = new Map<string, number>();
 const pendingCliDisconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -13,6 +14,7 @@ const CLI_DISCONNECT_DEBOUNCE_MS = 250;
 
 export interface WsMessageHandlerDeps {
   disconnectSession: (sessionId: string) => void;
+  requestFullHistorySync: (sessionId: string) => void;
 }
 
 function clearPendingCliDisconnect(sessionId: string): void {
@@ -357,6 +359,27 @@ function resetAuthoritativeHistoryState(sessionId: string): void {
   const store = useStore.getState();
   store.clearPermissions(sessionId);
   store.clearAutoExpandedTurns(sessionId);
+}
+
+function verifyHistorySync(
+  sessionId: string,
+  messages: ChatMessage[],
+  frozenCount: number,
+  data: Extract<BrowserIncomingMessage, { type: "history_sync" }>,
+  deps: WsMessageHandlerDeps,
+): void {
+  const normalizedFrozenCount = Math.max(0, Math.min(frozenCount, messages.length));
+  const actualFrozenHash = computeChatMessagesSyncHash(messages.slice(0, normalizedFrozenCount));
+  const actualFullHash = computeChatMessagesSyncHash(messages);
+  if (actualFrozenHash === data.expected_frozen_hash && actualFullHash === data.expected_full_hash) {
+    return;
+  }
+  console.error(
+    `[history-sync] hash mismatch for ${sessionId.slice(0, 8)}: ` +
+    `frozen expected=${data.expected_frozen_hash} actual=${actualFrozenHash}; ` +
+    `full expected=${data.expected_full_hash} actual=${actualFullHash}`,
+  );
+  deps.requestFullHistorySync(sessionId);
 }
 
 function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, deps: WsMessageHandlerDeps) {
@@ -1169,6 +1192,7 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       processedToolUseIds.delete(sessionId);
       taskCounters.delete(sessionId);
       updateSessionPreviewFromHistory(sessionId, [...data.frozen_delta, ...data.hot_messages]);
+      verifyHistorySync(sessionId, mergedMessages, nextFrozenCount, data, deps);
       break;
     }
   }

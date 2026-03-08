@@ -1338,6 +1338,64 @@ describe("Browser handlers", () => {
     expect(replayMsg.events.some((e: any) => e.message.type === "stream_event")).toBe(true);
   });
 
+  it("session_subscribe: falls back to message_history when known_frozen_hash mismatches", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const cli = makeCliSocket("s1");
+    bridge.handleCLIOpen(cli, "s1");
+    bridge.handleCLIMessage(cli, JSON.stringify({
+      type: "user_message",
+      content: "hello",
+      timestamp: 1000,
+      session_id: "s1",
+      uuid: "u1",
+    }));
+    bridge.handleCLIMessage(cli, JSON.stringify({
+      type: "assistant",
+      message: {
+        id: "hist-1",
+        type: "message",
+        role: "assistant",
+        model: "claude-sonnet-4-5-20250929",
+        content: [{ type: "text", text: "from history" }],
+        stop_reason: "end_turn",
+        usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+      uuid: "hist-u1",
+      session_id: "s1",
+    }));
+    bridge.handleCLIMessage(cli, JSON.stringify({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      duration_ms: 1,
+      duration_api_ms: 1,
+      num_turns: 1,
+      total_cost_usd: 0,
+      usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      session_id: "s1",
+      uuid: "res-1",
+      stop_reason: "end_turn",
+    }));
+
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+    browser.send.mockClear();
+
+    bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "session_subscribe",
+      last_seq: 0,
+      known_frozen_count: 2,
+      known_frozen_hash: "deadbeef",
+    }));
+
+    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    expect(calls.some((c: any) => c.type === "message_history")).toBe(true);
+    expect(calls.some((c: any) => c.type === "history_sync")).toBe(false);
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
   it("session_subscribe no-gap: sends history_sync when history-backed events were missed", () => {
     // Simulates a mobile browser that disconnected while the session was generating,
     // then reconnects. The event buffer covers the gap (no gap), but the browser

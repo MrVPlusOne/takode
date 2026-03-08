@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import type { SessionState, PermissionRequest, ContentBlock } from "./types.js";
+import { computeChatMessagesSyncHash } from "../shared/history-sync-hash.js";
 
 // Mock the names utility before any imports
 vi.mock("./utils/names.js", () => ({
@@ -140,7 +141,7 @@ describe("connectSession", () => {
     expect(lastWs).toBe(first);
   });
 
-  it("sends session_subscribe with last_seq and known_frozen_count on open when store has messages", () => {
+  it("sends session_subscribe with last_seq, known_frozen_count, and known_frozen_hash on open when store has messages", () => {
     // Simulate a WebSocket reconnect (not a page refresh): store already has
     // messages, so we use the cached last_seq from localStorage
     localStorage.setItem("companion:last-seq:s1", "12");
@@ -162,9 +163,19 @@ describe("connectSession", () => {
 
     lastWs.onopen?.(new Event("open"));
 
-    expect(lastWs.send).toHaveBeenCalledWith(
-      JSON.stringify({ type: "session_subscribe", last_seq: 12, known_frozen_count: 1 }),
-    );
+    expect(lastWs.send).toHaveBeenCalledWith(JSON.stringify({
+      type: "session_subscribe",
+      last_seq: 12,
+      known_frozen_count: 1,
+      known_frozen_hash: computeChatMessagesSyncHash([
+        {
+          id: "msg-existing",
+          role: "user",
+          content: "existing message",
+          timestamp: 1000,
+        },
+      ]),
+    }));
   });
 
   // Regression test: after a full page refresh, the Zustand store is empty but
@@ -1631,6 +1642,15 @@ describe("handleMessage: history_sync", () => {
         { type: "user_message", id: "hot-2", content: "new hot user", timestamp: 4000 },
       ],
       frozen_count: 2,
+      expected_frozen_hash: computeChatMessagesSyncHash([
+        { id: "frozen-1", role: "user", content: "old frozen", timestamp: 1000 },
+        { id: "frozen-2", role: "assistant", content: "new frozen reply", timestamp: 3000 },
+      ]),
+      expected_full_hash: computeChatMessagesSyncHash([
+        { id: "frozen-1", role: "user", content: "old frozen", timestamp: 1000 },
+        { id: "frozen-2", role: "assistant", content: "new frozen reply", timestamp: 3000 },
+        { id: "hot-2", role: "user", content: "new hot user", timestamp: 4000 },
+      ]),
     });
 
     const msgs = useStore.getState().messages.get("s1")!;
@@ -1654,11 +1674,45 @@ describe("handleMessage: history_sync", () => {
       frozen_delta: [],
       hot_messages: [],
       frozen_count: 1,
+      expected_frozen_hash: computeChatMessagesSyncHash([
+        { id: "frozen-1", role: "user", content: "old frozen", timestamp: 1000 },
+      ]),
+      expected_full_hash: computeChatMessagesSyncHash([
+        { id: "frozen-1", role: "user", content: "old frozen", timestamp: 1000 },
+      ]),
     });
 
     const msgs = useStore.getState().messages.get("s1")!;
     expect(msgs.map((m) => m.id)).toEqual(["frozen-1"]);
     expect(useStore.getState().messageFrozenCounts.get("s1")).toBe(1);
+  });
+
+  it("logs and requests a full resync when runtime hash verification fails", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+    useStore.getState().setMessages("s1", [
+      { id: "frozen-1", role: "user", content: "old frozen", timestamp: 1000 },
+    ], { frozenCount: 1 });
+    lastWs.send.mockClear();
+
+    fireMessage({
+      type: "history_sync",
+      frozen_base_count: 1,
+      frozen_delta: [],
+      hot_messages: [],
+      frozen_count: 1,
+      expected_frozen_hash: "deadbeef",
+      expected_full_hash: "deadbeef",
+    });
+
+    expect(errorSpy).toHaveBeenCalled();
+    expect(lastWs.send).toHaveBeenCalledWith(JSON.stringify({
+      type: "session_subscribe",
+      last_seq: 0,
+      known_frozen_count: 0,
+    }));
+    errorSpy.mockRestore();
   });
 });
 

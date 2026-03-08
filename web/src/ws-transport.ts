@@ -37,6 +37,7 @@ type SequencedIncomingMessage = BrowserIncomingMessage & {
 export interface WsTransportCallbacks {
   hasLocalMessages: (sessionId: string) => boolean;
   getKnownFrozenCount: (sessionId: string) => number;
+  getKnownFrozenHash: (sessionId: string) => string | undefined;
   onMessage: (sessionId: string, data: BrowserIncomingMessage) => void;
   onConnecting?: (sessionId: string) => void;
   onConnected?: (sessionId: string) => void;
@@ -52,6 +53,7 @@ export interface WsTransport {
   waitForConnection: (sessionId: string) => Promise<void>;
   sendToSession: (sessionId: string, msg: BrowserOutgoingMessage) => boolean;
   sendGlobalMessage: (msg: BrowserOutgoingMessage, preferredSessionId?: string | null) => boolean;
+  requestFullHistorySync: (sessionId: string) => boolean;
   hasSocket: (sessionId: string) => boolean;
   closeAllForUnload: () => void;
 }
@@ -104,6 +106,22 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
     if (ws?.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: "session_ack", last_seq: seq }));
     }
+  }
+
+  function sendSessionSubscribe(sessionId: string, forceFullHistory = false): boolean {
+    const ws = sockets.get(sessionId);
+    if (ws?.readyState !== WebSocket.OPEN) return false;
+    const hasLocalMessages = !forceFullHistory && callbacks.hasLocalMessages(sessionId);
+    const lastSeq = hasLocalMessages ? getLastSeq(sessionId) : 0;
+    const knownFrozenCount = hasLocalMessages ? callbacks.getKnownFrozenCount(sessionId) : 0;
+    const knownFrozenHash = hasLocalMessages ? callbacks.getKnownFrozenHash(sessionId) : undefined;
+    ws.send(JSON.stringify({
+      type: "session_subscribe",
+      last_seq: lastSeq,
+      known_frozen_count: Math.max(0, Math.floor(knownFrozenCount)),
+      ...(knownFrozenHash ? { known_frozen_hash: knownFrozenHash } : {}),
+    }));
+    return true;
   }
 
   function nextClientMsgId(): string {
@@ -174,15 +192,7 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
       callbacks.onConnected?.(sessionId);
       reconnectAttempts.delete(sessionId);
 
-      const lastSeq = callbacks.hasLocalMessages(sessionId) ? getLastSeq(sessionId) : 0;
-      const knownFrozenCount = callbacks.hasLocalMessages(sessionId)
-        ? callbacks.getKnownFrozenCount(sessionId)
-        : 0;
-      ws.send(JSON.stringify({
-        type: "session_subscribe",
-        last_seq: lastSeq,
-        known_frozen_count: Math.max(0, Math.floor(knownFrozenCount)),
-      }));
+      sendSessionSubscribe(sessionId);
 
       const timer = reconnectTimers.get(sessionId);
       if (timer) {
@@ -257,6 +267,10 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
         connectSession(session.sessionId);
       }
     }
+  }
+
+  function requestFullHistorySync(sessionId: string): boolean {
+    return sendSessionSubscribe(sessionId, true);
   }
 
   function waitForConnection(sessionId: string): Promise<void> {
@@ -352,6 +366,7 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
     waitForConnection,
     sendToSession,
     sendGlobalMessage,
+    requestFullHistorySync,
     hasSocket,
     closeAllForUnload,
   };

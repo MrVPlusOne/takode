@@ -4,6 +4,7 @@ import { exec as execCb } from "node:child_process";
 import { promisify } from "node:util";
 import { GIT_CMD_TIMEOUT } from "./constants.js";
 import { getDefaultModelForBackend } from "../shared/backend-defaults.js";
+import { computeHistoryMessagesSyncHash, computeHistoryPrefixSyncHash } from "../shared/history-sync-hash.js";
 
 const execPromise = promisify(execCb);
 
@@ -5497,7 +5498,7 @@ export class WsBridge {
     ws?: ServerWebSocket<SocketData>,
   ) {
     if (msg.type === "session_subscribe") {
-      this.handleSessionSubscribe(session, ws, msg.last_seq, msg.known_frozen_count);
+      this.handleSessionSubscribe(session, ws, msg.last_seq, msg.known_frozen_count, msg.known_frozen_hash);
       return;
     }
 
@@ -5996,22 +5997,43 @@ export class WsBridge {
     session: Session,
     ws: ServerWebSocket<SocketData>,
     knownFrozenCount: number,
+    knownFrozenHash?: string,
   ): boolean {
     const normalizedKnownFrozenCount = this.normalizeKnownFrozenCount(knownFrozenCount);
     this.clampFrozenCount(session);
     const frozenCount = session.frozenCount;
-    if (normalizedKnownFrozenCount > frozenCount) {
+    const frozenHistory = session.messageHistory.slice(0, frozenCount);
+    const frozenPrefix = computeHistoryMessagesSyncHash(frozenHistory);
+    if (normalizedKnownFrozenCount > frozenPrefix.renderedCount) {
+      console.warn(
+        `[history-sync] Invalid known_frozen_count=${normalizedKnownFrozenCount} ` +
+        `for session ${sessionTag(session.id)} authoritativeFrozen=${frozenPrefix.renderedCount}; falling back to full history`,
+      );
       return false;
     }
     if (session.messageHistory.length === 0) {
       return true;
     }
+    if (normalizedKnownFrozenCount > 0 && typeof knownFrozenHash === "string") {
+      const expectedPrefix = computeHistoryPrefixSyncHash(frozenHistory, normalizedKnownFrozenCount);
+      if (expectedPrefix.hash !== knownFrozenHash) {
+        console.warn(
+          `[history-sync] Frozen prefix hash mismatch for session ${sessionTag(session.id)} ` +
+          `(count=${normalizedKnownFrozenCount}) expected=${expectedPrefix.hash} actual=${knownFrozenHash}; ` +
+          `falling back to full history`,
+        );
+        return false;
+      }
+    }
+    const fullHistory = computeHistoryMessagesSyncHash(session.messageHistory);
     this.sendToBrowser(ws, {
       type: "history_sync",
       frozen_base_count: normalizedKnownFrozenCount,
       frozen_delta: session.messageHistory.slice(normalizedKnownFrozenCount, frozenCount),
       hot_messages: session.messageHistory.slice(frozenCount),
       frozen_count: frozenCount,
+      expected_frozen_hash: frozenPrefix.hash,
+      expected_full_hash: fullHistory.hash,
     });
     return true;
   }
@@ -6021,6 +6043,7 @@ export class WsBridge {
     ws: ServerWebSocket<SocketData> | undefined,
     lastSeq: number,
     knownFrozenCount = 0,
+    knownFrozenHash?: string,
   ) {
     if (!ws) return;
     const data = ws.data as BrowserSocketData;
@@ -6061,7 +6084,7 @@ export class WsBridge {
     // This is the single source of truth for initial state delivery (previously
     // also done in handleBrowserOpen, causing double delivery).
     if (lastAckSeq === 0) {
-      if (session.messageHistory.length > 0 && !this.sendHistorySync(session, ws, knownFrozenCount)) {
+      if (session.messageHistory.length > 0 && !this.sendHistorySync(session, ws, knownFrozenCount, knownFrozenHash)) {
         this.sendToBrowser(ws, {
           type: "message_history",
           messages: session.messageHistory,
@@ -6094,7 +6117,7 @@ export class WsBridge {
         // authoritative history state so the browser can rebuild its feed.
         // Prefer frozen-delta + hot-tail sync, but fall back to a full reset
         // when the client cannot safely reuse its frozen prefix.
-        if (session.messageHistory.length > 0 && !this.sendHistorySync(session, ws, knownFrozenCount)) {
+        if (session.messageHistory.length > 0 && !this.sendHistorySync(session, ws, knownFrozenCount, knownFrozenHash)) {
           this.sendToBrowser(ws, {
             type: "message_history",
             messages: session.messageHistory,

@@ -2,6 +2,7 @@ import { useStore } from "./store.js";
 import type { BrowserIncomingMessage, BrowserOutgoingMessage, McpServerConfig, SdkSessionInfo } from "./types.js";
 import { createWsTransport } from "./ws-transport.js";
 import { createWsMessageHandler, resolveSessionFilePath } from "./ws-handlers.js";
+import { computeChatMessagesSyncHash } from "../shared/history-sync-hash.js";
 
 let handleIncomingMessage: ((sessionId: string, data: BrowserIncomingMessage) => void) | null = null;
 
@@ -12,6 +13,13 @@ const transport = createWsTransport({
   },
   getKnownFrozenCount: (sessionId) => {
     return useStore.getState().messageFrozenCounts.get(sessionId) ?? 0;
+  },
+  getKnownFrozenHash: (sessionId) => {
+    const store = useStore.getState();
+    const messages = store.messages.get(sessionId) ?? [];
+    const frozenCount = Math.max(0, Math.min(store.messageFrozenCounts.get(sessionId) ?? 0, messages.length));
+    if (frozenCount <= 0) return undefined;
+    return computeChatMessagesSyncHash(messages.slice(0, frozenCount));
   },
   onConnecting: (sessionId) => {
     useStore.getState().setConnectionStatus(sessionId, "connecting");
@@ -35,6 +43,9 @@ const transport = createWsTransport({
 handleIncomingMessage = createWsMessageHandler({
   disconnectSession: (sessionId) => {
     transport.disconnectSession(sessionId);
+  },
+  requestFullHistorySync: (sessionId) => {
+    transport.requestFullHistorySync(sessionId);
   },
 });
 
