@@ -65,6 +65,7 @@
     }
   },
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "package:vsix": "mkdir -p ../../build/vsix && npx @vscode/vsce package --allow-missing-repository --out ../../build/vsix/takode-panel-prototype-$npm_package_version.vsix"
   }
 }

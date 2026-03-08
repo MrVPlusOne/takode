@@ -63,6 +63,27 @@ Examples:
 
 Then reload the editor window and run `Takode: Open Panel`.
 
+## Package a VSIX
+
+To build an installable VSIX into the repo's dedicated artifact directory:
+
+```bash
+cd /home/jiayiwei/companion/vscode/takode-panel-prototype
+npm run package:vsix
+```
+
+That writes the package to:
+
+```bash
+/home/jiayiwei/companion/build/vsix/takode-panel-prototype-0.0.15.vsix
+```
+
+Install it with:
+
+```bash
+code --install-extension /home/jiayiwei/companion/build/vsix/takode-panel-prototype-0.0.15.vsix
+```
+
 ## Settings
 
 - `takodePrototype.baseUrl`

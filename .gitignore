@@ -11,6 +11,7 @@ web/dist/
 web/.env.local
 .dev-*.pid
 .dev-*.log
+build/vsix/
 e2e_tests/screenshots/
 .mcp-cmd.json
 .claude/settings.json
