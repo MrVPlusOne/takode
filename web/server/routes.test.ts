@@ -190,6 +190,7 @@ function createMockLauncher() {
 
 function createMockBridge() {
   return {
+    _vscodeSelectionState: null as any,
     closeSession: vi.fn(),
     getSession: vi.fn(() => null),
     getOrCreateSession: vi.fn(),
@@ -207,6 +208,8 @@ function createMockBridge() {
     broadcastToSession: vi.fn(),
     broadcastGlobal: vi.fn(),
     broadcastNameUpdate: vi.fn(),
+    getVsCodeSelectionState: vi.fn(function (this: any) { return this._vscodeSelectionState; }),
+    updateVsCodeSelectionState: vi.fn(function (this: any, state: any) { this._vscodeSelectionState = state; return true; }),
     updateSessionOrder: vi.fn((_groupKey: string, _orderedIds: string[]) => ({})),
     broadcastSessionOrderUpdate: vi.fn(),
     updateGroupOrder: vi.fn((_orderedGroupKeys: string[]) => []),
@@ -1334,6 +1337,130 @@ describe("GET /api/health", () => {
     expect(json.ok).toBe(true);
     expect(json.timestamp).toBeGreaterThanOrEqual(before);
     expect(json.timestamp).toBeLessThanOrEqual(after);
+  });
+});
+
+describe("GET /api/vscode/selection", () => {
+  it("returns the current authoritative global VSCode selection state", async () => {
+    bridge._vscodeSelectionState = {
+      selection: {
+        absolutePath: "/repo/src/app.ts",
+        startLine: 4,
+        endLine: 8,
+        lineCount: 5,
+      },
+      updatedAt: 1234,
+      sourceId: "window-a",
+      sourceType: "vscode-window",
+      sourceLabel: "VS Code",
+    };
+
+    const res = await app.request("/api/vscode/selection", { method: "GET" });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      state: {
+        selection: {
+          absolutePath: "/repo/src/app.ts",
+          startLine: 4,
+          endLine: 8,
+          lineCount: 5,
+        },
+        updatedAt: 1234,
+        sourceId: "window-a",
+        sourceType: "vscode-window",
+        sourceLabel: "VS Code",
+      },
+    });
+  });
+});
+
+describe("POST /api/vscode/selection", () => {
+  it("updates the authoritative global VSCode selection state", async () => {
+    const res = await app.request("/api/vscode/selection", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        selection: {
+          absolutePath: "/repo/src/app.ts",
+          startLine: 10,
+          endLine: 12,
+          lineCount: 3,
+        },
+        updatedAt: 2000,
+        sourceId: "window-a",
+        sourceType: "vscode-window",
+        sourceLabel: "VS Code A",
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(bridge.updateVsCodeSelectionState).toHaveBeenCalledWith({
+      selection: {
+        absolutePath: "/repo/src/app.ts",
+        startLine: 10,
+        endLine: 12,
+        lineCount: 3,
+      },
+      updatedAt: 2000,
+      sourceId: "window-a",
+      sourceType: "vscode-window",
+      sourceLabel: "VS Code A",
+    });
+    expect(await res.json()).toEqual({
+      ok: true,
+      state: {
+        selection: {
+          absolutePath: "/repo/src/app.ts",
+          startLine: 10,
+          endLine: 12,
+          lineCount: 3,
+        },
+        updatedAt: 2000,
+        sourceId: "window-a",
+        sourceType: "vscode-window",
+        sourceLabel: "VS Code A",
+      },
+    });
+  });
+
+  it("accepts explicit clears", async () => {
+    const res = await app.request("/api/vscode/selection", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        selection: null,
+        updatedAt: 3000,
+        sourceId: "window-b",
+        sourceType: "vscode-window",
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(bridge.updateVsCodeSelectionState).toHaveBeenCalledWith({
+      selection: null,
+      updatedAt: 3000,
+      sourceId: "window-b",
+      sourceType: "vscode-window",
+    });
+  });
+
+  it("validates the payload", async () => {
+    const res = await app.request("/api/vscode/selection", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        selection: { absolutePath: "/repo/src/app.ts" },
+        updatedAt: "later",
+        sourceId: "",
+        sourceType: "desktop",
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: "updatedAt and sourceId are required",
+    });
   });
 });
 

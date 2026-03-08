@@ -950,6 +950,49 @@ describe("Browser handlers", () => {
     });
   });
 
+  it("handleBrowserOpen: sends the latest global VSCode selection state", () => {
+    bridge.getOrCreateSession("s1");
+    const seedBrowser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(seedBrowser, "s1");
+    seedBrowser.send.mockClear();
+
+    bridge.handleBrowserMessage(seedBrowser, JSON.stringify({
+      type: "vscode_selection_update",
+      selection: {
+        absolutePath: "/repo/src/app.ts",
+        startLine: 4,
+        endLine: 8,
+        lineCount: 5,
+      },
+      updatedAt: 100,
+      sourceId: "window-a",
+      sourceType: "vscode-window",
+      sourceLabel: "VS Code A",
+      client_msg_id: "selection-seed",
+    }));
+
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    const selectionMsg = calls.find((m: any) => m.type === "vscode_selection_state");
+    expect(selectionMsg).toEqual({
+      type: "vscode_selection_state",
+      state: {
+        selection: {
+          absolutePath: "/repo/src/app.ts",
+          startLine: 4,
+          endLine: 8,
+          lineCount: 5,
+        },
+        updatedAt: 100,
+        sourceId: "window-a",
+        sourceType: "vscode-window",
+        sourceLabel: "VS Code A",
+      },
+    });
+  });
+
   it("handleBrowserOpen: refreshes git branch asynchronously and notifies poller", async () => {
     // resolveGitInfo is now async (fire-and-forget), so session_init sends current state
     // and the git branch is updated asynchronously after the initial snapshot.
@@ -2503,6 +2546,104 @@ describe("Browser message routing", () => {
     const session = bridge.getSession("s1")!;
     const userMessages = session.messageHistory.filter((m) => m.type === "user_message");
     expect(userMessages).toHaveLength(1);
+  });
+
+  it("vscode_selection_update: broadcasts the latest global selection to browsers across sessions", () => {
+    bridge.getOrCreateSession("s2");
+    const otherBrowser = makeBrowserSocket("s2");
+    bridge.handleBrowserOpen(otherBrowser, "s2");
+    otherBrowser.send.mockClear();
+
+    bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "vscode_selection_update",
+      selection: {
+        absolutePath: "/repo/src/app.ts",
+        startLine: 10,
+        endLine: 12,
+        lineCount: 3,
+      },
+      updatedAt: 200,
+      sourceId: "window-a",
+      sourceType: "vscode-window",
+      sourceLabel: "VS Code A",
+      client_msg_id: "selection-1",
+    }));
+
+    const sessionOneCalls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    const sessionTwoCalls = otherBrowser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    for (const calls of [sessionOneCalls, sessionTwoCalls]) {
+      expect(calls).toContainEqual({
+        type: "vscode_selection_state",
+        state: {
+          selection: {
+            absolutePath: "/repo/src/app.ts",
+            startLine: 10,
+            endLine: 12,
+            lineCount: 3,
+          },
+          updatedAt: 200,
+          sourceId: "window-a",
+          sourceType: "vscode-window",
+          sourceLabel: "VS Code A",
+        },
+      });
+    }
+  });
+
+  it("vscode_selection_update: ignores stale updates and keeps inspectable clears", () => {
+    bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "vscode_selection_update",
+      selection: {
+        absolutePath: "/repo/src/app.ts",
+        startLine: 10,
+        endLine: 12,
+        lineCount: 3,
+      },
+      updatedAt: 200,
+      sourceId: "window-b",
+      sourceType: "vscode-window",
+      sourceLabel: "VS Code B",
+      client_msg_id: "selection-2",
+    }));
+    browser.send.mockClear();
+
+    bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "vscode_selection_update",
+      selection: {
+        absolutePath: "/repo/src/older.ts",
+        startLine: 1,
+        endLine: 1,
+        lineCount: 1,
+      },
+      updatedAt: 150,
+      sourceId: "window-a",
+      sourceType: "vscode-window",
+      sourceLabel: "Older",
+      client_msg_id: "selection-3",
+    }));
+    expect(browser.send).not.toHaveBeenCalled();
+
+    bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "vscode_selection_update",
+      selection: null,
+      updatedAt: 250,
+      sourceId: "window-c",
+      sourceType: "vscode-window",
+      sourceLabel: "VS Code C",
+      client_msg_id: "selection-4",
+    }));
+
+    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    expect(calls).toContainEqual({
+      type: "vscode_selection_state",
+      state: {
+        selection: null,
+        updatedAt: 250,
+        sourceId: "window-c",
+        sourceType: "vscode-window",
+        sourceLabel: "VS Code C",
+      },
+    });
   });
 
   it("user_message with images: emits error and does not send when imageStore is not set", () => {

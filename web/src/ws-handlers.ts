@@ -296,6 +296,11 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       break;
     }
 
+    case "vscode_selection_state": {
+      store.setVsCodeSelectionContext(data.state);
+      break;
+    }
+
     case "assistant": {
       const msg = data.message;
       const textContent = extractTextFromBlocks(msg.content);

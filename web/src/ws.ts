@@ -64,6 +64,13 @@ export function sendToSession(sessionId: string, msg: BrowserOutgoingMessage): b
   return transport.sendToSession(sessionId, msg);
 }
 
+export function sendVsCodeSelectionUpdate(
+  update: Extract<BrowserOutgoingMessage, { type: "vscode_selection_update" }>,
+): boolean {
+  const preferredSessionId = useStore.getState().currentSessionId;
+  return transport.sendGlobalMessage(update, preferredSessionId);
+}
+
 export function sendMcpGetStatus(sessionId: string) {
   sendToSession(sessionId, { type: "mcp_get_status" });
 }

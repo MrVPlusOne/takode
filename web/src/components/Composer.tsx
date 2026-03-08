@@ -286,7 +286,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
   const sdkSession = useStore((s) => s.sdkSessions?.find((x) => x.sessionId === sessionId));
   const diffLinesAdded = sessionData?.total_lines_added ?? sdkSession?.totalLinesAdded ?? 0;
   const diffLinesRemoved = sessionData?.total_lines_removed ?? sdkSession?.totalLinesRemoved ?? 0;
-  const vscodeSelectionContext = useStore((s) => s.vscodeSelectionContext);
+  const vscodeSelectionState = useStore((s) => s.vscodeSelectionContext);
 
   const isConnected = cliConnected.get(sessionId) ?? false;
   const currentMode = sessionData?.permissionMode || "acceptEdits";
@@ -305,8 +305,8 @@ export function Composer({ sessionId }: { sessionId: string }) {
   const codexReasoningEffort = sessionData?.codex_reasoning_effort || "";
   const codexModelOptions = dynamicCodexModels || getModelsForBackend("codex");
   const sessionSelectionRoot = getVsCodeSelectionSessionRoot(sessionData?.repo_root, sessionData?.cwd);
-  const vscodeSelectionPayload: VsCodeSelectionContextPayload | null = vscodeSelectionContext
-    ? resolveVsCodeSelectionForSession(vscodeSelectionContext, sessionSelectionRoot)
+  const vscodeSelectionPayload: VsCodeSelectionContextPayload | null = vscodeSelectionState?.selection
+    ? resolveVsCodeSelectionForSession(vscodeSelectionState.selection, sessionSelectionRoot)
     : null;
 
   useEffect(() => {

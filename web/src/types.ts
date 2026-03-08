@@ -11,6 +11,7 @@ import type {
   ToolResultPreview,
   SessionTaskEntry,
   VsCodeSelectionMetadata,
+  VsCodeSelectionState,
 } from "../server/session-types.js";
 import { assertNever, isClaudeFamily } from "../server/session-types.js";
 import type { ImageRef } from "../server/image-store.js";
@@ -25,7 +26,7 @@ import type {
   QuestTransitionInput,
 } from "../server/quest-types.js";
 
-export type { SessionState, PermissionRequest, ContentBlock, BrowserIncomingMessage, BrowserOutgoingMessage, BackendType, McpServerDetail, McpServerConfig, CreationProgressEvent, ToolResultPreview, SessionTaskEntry, ImageRef, VsCodeSelectionMetadata };
+export type { SessionState, PermissionRequest, ContentBlock, BrowserIncomingMessage, BrowserOutgoingMessage, BackendType, McpServerDetail, McpServerConfig, CreationProgressEvent, ToolResultPreview, SessionTaskEntry, ImageRef, VsCodeSelectionMetadata, VsCodeSelectionState };
 export { assertNever, isClaudeFamily };
 export type { QuestmasterTask, QuestStatus, QuestVerificationItem, QuestFeedbackEntry, QuestImage, QuestCreateInput, QuestPatchInput, QuestTransitionInput };
 

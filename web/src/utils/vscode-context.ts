@@ -1,3 +1,5 @@
+import type { VsCodeSelectionState } from "../types.js";
+
 export interface VsCodeSelectionContextPayload {
   absolutePath: string;
   relativePath: string;
@@ -10,6 +12,11 @@ export interface VsCodeSelectionContextPayload {
 export interface VsCodeSelectionContext extends VsCodeSelectionContextPayload {
   updatedAt: number;
 }
+
+type VsCodeSelectionLike =
+  | VsCodeSelectionContext
+  | VsCodeSelectionContextPayload
+  | NonNullable<VsCodeSelectionState["selection"]>;
 
 export const VSCODE_CONTEXT_SOURCE = "takode-vscode-prototype";
 export const VSCODE_CONTEXT_MESSAGE_TYPE = "takode:vscode-context";
@@ -42,11 +49,14 @@ export function getVsCodeSelectionSessionRoot(repoRoot?: string | null, cwd?: st
 }
 
 export function resolveVsCodeSelectionForSession(
-  context: VsCodeSelectionContext | VsCodeSelectionContextPayload,
+  context: VsCodeSelectionLike,
   sessionRoot: string | null,
 ): VsCodeSelectionContextPayload {
   const normalizedAbsolutePath = normalizePath(context.absolutePath);
   const normalizedSessionRoot = sessionRoot ? normalizePath(sessionRoot) : "";
+  const displayPath = "displayPath" in context && typeof context.displayPath === "string" && context.displayPath.trim().length > 0
+    ? context.displayPath
+    : normalizedAbsolutePath.split("/").filter(Boolean).pop() || normalizedAbsolutePath;
   const sharedFields = {
     absolutePath: normalizedAbsolutePath,
     startLine: context.startLine,
@@ -66,7 +76,7 @@ export function resolveVsCodeSelectionForSession(
   return {
     ...sharedFields,
     relativePath: repoRelativePath,
-    displayPath: context.displayPath,
+    displayPath,
   };
 }
 

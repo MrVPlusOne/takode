@@ -40,6 +40,7 @@ import type {
   McpServerConfig,
   SessionTaskEntry,
   CodexOutboundTurn,
+  VsCodeSelectionState,
   TakodeEvent,
   TakodeEventDataByType,
   TakodeEventFor,
@@ -645,6 +646,7 @@ export class WsBridge {
   private static readonly PROCESSED_CLIENT_MSG_ID_LIMIT = 1000;
   private static readonly IDEMPOTENT_BROWSER_MESSAGE_TYPES = new Set<string>([
     "user_message",
+    "vscode_selection_update",
     "permission_response",
     "interrupt",
     "set_model",
@@ -684,6 +686,8 @@ export class WsBridge {
   private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
   /** Track recent CLI disconnects to detect mass disconnect events. */
   private recentCliDisconnects: number[] = [];
+  /** Machine-global latest VSCode selection seen by the server. */
+  private vscodeSelectionState: VsCodeSelectionState | null = null;
 
   // ── Takode orchestration event emitter ───────────────────────────────────
   private takodeSubscribers = new Set<TakodeEventSubscriber>();
@@ -3379,6 +3383,7 @@ export class WsBridge {
       type: "group_order_update",
       groupOrder: this.getGroupOrderState(),
     });
+    this.sendVsCodeSelectionState(ws);
 
     // History replay and pending permissions are sent by handleSessionSubscribe
     // (triggered when the browser sends session_subscribe after onopen).
@@ -3495,6 +3500,82 @@ export class WsBridge {
     session.browserSockets.delete(ws);
     const hasBackend = this.backendConnected(session);
     console.log(`[ws-bridge] Browser disconnected for session ${sessionTag(sessionId)} (${session.browserSockets.size} remaining, backend=${hasBackend ? "alive" : "dead"}) | code=${code ?? "?"} reason=${JSON.stringify(reason || "")}`);
+  }
+
+  private shouldAcceptVsCodeSelectionUpdate(next: VsCodeSelectionState): boolean {
+    const current = this.vscodeSelectionState;
+    if (!current) return true;
+    if (next.updatedAt !== current.updatedAt) {
+      return next.updatedAt > current.updatedAt;
+    }
+    if (next.sourceId !== current.sourceId) {
+      return next.sourceId > current.sourceId;
+    }
+    return true;
+  }
+
+  private sendVsCodeSelectionState(ws: ServerWebSocket<SocketData>): void {
+    this.sendToBrowser(ws, {
+      type: "vscode_selection_state",
+      state: this.vscodeSelectionState,
+    });
+  }
+
+  private broadcastVsCodeSelectionState(): void {
+    const msg: Extract<BrowserIncomingMessage, { type: "vscode_selection_state" }> = {
+      type: "vscode_selection_state",
+      state: this.vscodeSelectionState,
+    };
+    for (const session of this.sessions.values()) {
+      for (const ws of session.browserSockets) {
+        this.sendToBrowser(ws, msg);
+      }
+    }
+  }
+
+  private handleVsCodeSelectionUpdate(
+    msg: Extract<BrowserOutgoingMessage, { type: "vscode_selection_update" }>,
+  ): boolean {
+    const nextState: VsCodeSelectionState = {
+      selection: msg.selection
+        ? {
+          absolutePath: msg.selection.absolutePath,
+          startLine: msg.selection.startLine,
+          endLine: msg.selection.endLine,
+          lineCount: msg.selection.lineCount,
+        }
+        : null,
+      updatedAt: msg.updatedAt,
+      sourceId: msg.sourceId,
+      sourceType: msg.sourceType,
+      ...(msg.sourceLabel ? { sourceLabel: msg.sourceLabel } : {}),
+    };
+
+    return this.updateVsCodeSelectionState(nextState);
+  }
+
+  getVsCodeSelectionState(): VsCodeSelectionState | null {
+    return this.vscodeSelectionState
+      ? {
+        ...this.vscodeSelectionState,
+        selection: this.vscodeSelectionState.selection
+          ? { ...this.vscodeSelectionState.selection }
+          : null,
+      }
+      : null;
+  }
+
+  updateVsCodeSelectionState(nextState: VsCodeSelectionState): boolean {
+    if (!this.shouldAcceptVsCodeSelectionUpdate(nextState)) {
+      return false;
+    }
+
+    this.vscodeSelectionState = {
+      ...nextState,
+      selection: nextState.selection ? { ...nextState.selection } : null,
+    };
+    this.broadcastVsCodeSelectionState();
+    return true;
   }
 
   // ── CLI message routing ─────────────────────────────────────────────────
@@ -5200,8 +5281,13 @@ export class WsBridge {
         "set_model", "set_permission_mode", "set_codex_reasoning_effort",
       ]);
       if (activityTypes.has(msg.type)) {
-        this.launcher.touchActivity(session.id);
+      this.launcher.touchActivity(session.id);
       }
+    }
+
+    if (msg.type === "vscode_selection_update") {
+      this.handleVsCodeSelectionUpdate(msg);
+      return;
     }
 
     // Image turns require backend image-store persistence so we can provide

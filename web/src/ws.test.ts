@@ -284,6 +284,68 @@ describe("handleMessage: session_update", () => {
   });
 });
 
+// ===========================================================================
+// handleMessage: vscode_selection_state
+// ===========================================================================
+describe("handleMessage: vscode_selection_state", () => {
+  it("stores the authoritative selection state from the server", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    fireMessage({
+      type: "vscode_selection_state",
+      state: {
+        selection: {
+          absolutePath: "/home/user/web/src/App.tsx",
+          startLine: 12,
+          endLine: 14,
+          lineCount: 3,
+        },
+        updatedAt: 1234,
+        sourceId: "vscode:window-1",
+        sourceType: "vscode-window",
+        sourceLabel: "VS Code",
+      },
+    });
+
+    expect(useStore.getState().vscodeSelectionContext).toEqual({
+      selection: {
+        absolutePath: "/home/user/web/src/App.tsx",
+        startLine: 12,
+        endLine: 14,
+        lineCount: 3,
+      },
+      updatedAt: 1234,
+      sourceId: "vscode:window-1",
+      sourceType: "vscode-window",
+      sourceLabel: "VS Code",
+    });
+  });
+
+  it("clears the authoritative selection state when the server sends null", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+    useStore.getState().setVsCodeSelectionContext({
+      selection: {
+        absolutePath: "/home/user/web/src/App.tsx",
+        startLine: 12,
+        endLine: 14,
+        lineCount: 3,
+      },
+      updatedAt: 1234,
+      sourceId: "vscode:window-1",
+      sourceType: "vscode-window",
+    });
+
+    fireMessage({
+      type: "vscode_selection_state",
+      state: null,
+    });
+
+    expect(useStore.getState().vscodeSelectionContext).toBeNull();
+  });
+});
+
 describe("handleMessage: event_replay", () => {
   it("replays sequenced stream events and stores latest seq", () => {
     wsModule.connectSession("s1");
@@ -2574,6 +2636,57 @@ describe("agentSource propagation", () => {
     const msgs = useStore.getState().messages.get("s1")!;
     expect(msgs).toHaveLength(1);
     expect(msgs[0].agentSource).toBeUndefined();
+  });
+
+  it("does not treat user message metadata as the authoritative VS Code selection state", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+    useStore.getState().setVsCodeSelectionContext({
+      selection: {
+        absolutePath: "/home/user/existing.ts",
+        startLine: 1,
+        endLine: 1,
+        lineCount: 1,
+      },
+      updatedAt: 100,
+      sourceId: "vscode:window-existing",
+      sourceType: "vscode-window",
+    });
+
+    fireMessage({
+      type: "user_message",
+      content: "check this file",
+      timestamp: 1234,
+      vscodeSelection: {
+        absolutePath: "/home/user/web/src/App.tsx",
+        relativePath: "web/src/App.tsx",
+        displayPath: "App.tsx",
+        startLine: 42,
+        endLine: 44,
+        lineCount: 3,
+      },
+    });
+
+    const state = useStore.getState();
+    expect(state.vscodeSelectionContext).toEqual({
+      selection: {
+        absolutePath: "/home/user/existing.ts",
+        startLine: 1,
+        endLine: 1,
+        lineCount: 1,
+      },
+      updatedAt: 100,
+      sourceId: "vscode:window-existing",
+      sourceType: "vscode-window",
+    });
+    expect(state.messages.get("s1")?.[0].metadata?.vscodeSelection).toEqual({
+      absolutePath: "/home/user/web/src/App.tsx",
+      relativePath: "web/src/App.tsx",
+      displayPath: "App.tsx",
+      startLine: 42,
+      endLine: 44,
+      lineCount: 3,
+    });
   });
 
   /** message_history replay should also preserve agentSource on user messages. */

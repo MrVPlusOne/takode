@@ -240,6 +240,21 @@ export interface VsCodeSelectionMetadata {
   lineCount: number;
 }
 
+export interface VsCodeSelectionSnapshot {
+  absolutePath: string;
+  startLine: number;
+  endLine: number;
+  lineCount: number;
+}
+
+export interface VsCodeSelectionState {
+  selection: VsCodeSelectionSnapshot | null;
+  updatedAt: number;
+  sourceId: string;
+  sourceType: "browser-panel" | "vscode-window";
+  sourceLabel?: string;
+}
+
 // ─── Browser Message Types (browser <-> bridge) ──────────────────────────────
 
 /** Messages the browser sends to the bridge */
@@ -258,6 +273,15 @@ export type BrowserOutgoingMessage =
     client_msg_id?: string;
     /** Present when the message was injected programmatically (e.g. via takode CLI or cron). */
     agentSource?: { sessionId: string; sessionLabel?: string };
+  }
+  | {
+    type: "vscode_selection_update";
+    selection: VsCodeSelectionSnapshot | null;
+    updatedAt: number;
+    sourceId: string;
+    sourceType: "browser-panel" | "vscode-window";
+    sourceLabel?: string;
+    client_msg_id?: string;
   }
   | { type: "permission_response"; request_id: string; behavior: "allow" | "deny"; updated_input?: Record<string, unknown>; updated_permissions?: PermissionUpdate[]; message?: string; client_msg_id?: string }
   | { type: "session_subscribe"; last_seq: number }
@@ -310,6 +334,7 @@ export type BrowserIncomingMessageBase =
   | { type: "error"; message: string }
   | { type: "backend_disconnected"; reason?: "idle_limit" | "broken" }
   | { type: "backend_connected" }
+  | { type: "vscode_selection_state"; state: VsCodeSelectionState | null }
   | { type: "user_message"; content: string; timestamp: number; id?: string; cliUuid?: string; images?: import("./image-store.js").ImageRef[]; agentSource?: { sessionId: string; sessionLabel?: string }; vscodeSelection?: VsCodeSelectionMetadata }
   | { type: "message_history"; messages: BrowserIncomingMessage[] }
   | { type: "event_replay"; events: BufferedBrowserEvent[] }

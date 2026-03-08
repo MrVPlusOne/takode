@@ -112,13 +112,16 @@ function setupMockStore(overrides: {
   zoomLevel?: number;
   sdkSessionTotals?: { added: number; removed: number };
   vscodeSelectionContext?: {
-    absolutePath: string;
-    relativePath: string;
-    displayPath: string;
-    startLine: number;
-    endLine: number;
-    lineCount: number;
+    selection: {
+      absolutePath: string;
+      startLine: number;
+      endLine: number;
+      lineCount: number;
+    } | null;
     updatedAt: number;
+    sourceId: string;
+    sourceType?: "browser-panel" | "vscode-window";
+    sourceLabel?: string;
   } | null;
 } = {}) {
   const {
@@ -391,13 +394,15 @@ describe("Composer sending messages", () => {
   it("sends VS Code selection metadata separately from the visible user message", () => {
     setupMockStore({
       vscodeSelectionContext: {
-        absolutePath: "/test/web/src/App.tsx",
-        relativePath: "web/src/App.tsx",
-        displayPath: "App.tsx",
-        startLine: 42,
-        endLine: 44,
-        lineCount: 3,
+        selection: {
+          absolutePath: "/test/web/src/App.tsx",
+          startLine: 42,
+          endLine: 44,
+          lineCount: 3,
+        },
         updatedAt: 1,
+        sourceId: "vscode:window-1",
+        sourceType: "vscode-window",
       },
     });
     const { container } = render(<Composer sessionId="s1" />);
@@ -421,7 +426,14 @@ describe("Composer sending messages", () => {
   });
 
   it("does not send VS Code metadata when there is no selection", () => {
-    setupMockStore({ vscodeSelectionContext: null });
+    setupMockStore({
+      vscodeSelectionContext: {
+        selection: null,
+        updatedAt: 2,
+        sourceId: "vscode:window-1",
+        sourceType: "vscode-window",
+      },
+    });
     const { container } = render(<Composer sessionId="s1" />);
     const textarea = container.querySelector("textarea")!;
 
@@ -442,13 +454,15 @@ describe("Composer sending messages", () => {
         repo_root: "/test/project-a",
       },
       vscodeSelectionContext: {
-        absolutePath: "/test/project-b/src/Other.ts",
-        relativePath: "project-b/src/Other.ts",
-        displayPath: "Other.ts",
-        startLine: 7,
-        endLine: 9,
-        lineCount: 3,
+        selection: {
+          absolutePath: "/test/project-b/src/Other.ts",
+          startLine: 7,
+          endLine: 9,
+          lineCount: 3,
+        },
         updatedAt: 1,
+        sourceId: "vscode:window-2",
+        sourceType: "vscode-window",
       },
     });
     const { container } = render(<Composer sessionId="s1" />);
@@ -657,13 +671,15 @@ describe("Composer VS Code context", () => {
   it("renders the current VS Code selection line when context is available", () => {
     setupMockStore({
       vscodeSelectionContext: {
-        absolutePath: "/test/web/src/components/Composer.tsx",
-        relativePath: "web/src/components/Composer.tsx",
-        displayPath: "Composer.tsx",
-        startLine: 12,
-        endLine: 14,
-        lineCount: 3,
+        selection: {
+          absolutePath: "/test/web/src/components/Composer.tsx",
+          startLine: 12,
+          endLine: 14,
+          lineCount: 3,
+        },
         updatedAt: 1,
+        sourceId: "vscode:window-3",
+        sourceType: "vscode-window",
       },
     });
     render(<Composer sessionId="s1" />);

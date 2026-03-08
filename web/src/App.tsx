@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { useStore } from "./store.js";
-import { connectSession } from "./ws.js";
+import { connectSession, sendVsCodeSelectionUpdate } from "./ws.js";
 import { api, checkHealth } from "./api.js";
 
 import { parseHash, navigateToSession, navigateToMostRecentSession } from "./utils/routing.js";
@@ -67,16 +67,27 @@ export default function App() {
 
   useEffect(() => {
     const debugWindow = window as TakodeDebugWindow;
+    const selectionSourceId = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? `browser:${crypto.randomUUID()}`
+      : `browser:${Date.now()}`;
     const applyVsCodeContext = (context: VsCodeSelectionContextPayload | null) => {
       debugWindow.__TAKODE_VSCODE_CONTEXT__ = context;
-      useStore.getState().setVsCodeSelectionContext(
-        context
+      const updatedAt = Date.now();
+      sendVsCodeSelectionUpdate({
+        type: "vscode_selection_update",
+        selection: context
           ? {
-            ...context,
-            updatedAt: Date.now(),
+            absolutePath: context.absolutePath,
+            startLine: context.startLine,
+            endLine: context.endLine,
+            lineCount: context.lineCount,
           }
           : null,
-      );
+        updatedAt,
+        sourceId: selectionSourceId,
+        sourceType: "browser-panel",
+        sourceLabel: "embedded-browser",
+      });
     };
 
     debugWindow.__TAKODE_SET_VSCODE_CONTEXT__ = (payload) => {

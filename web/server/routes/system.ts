@@ -203,6 +203,87 @@ export function createSystemRoutes(ctx: RouteContext) {
 
   api.get("/health", (c) => c.json({ ok: true, timestamp: Date.now() }));
 
+  api.get("/vscode/selection", (c) => {
+    return c.json({
+      state: wsBridge.getVsCodeSelectionState(),
+    });
+  });
+
+  api.post("/vscode/selection", async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: "Invalid JSON body" }, 400);
+    }
+
+    const record = body && typeof body === "object" ? body as Record<string, unknown> : null;
+    if (!record) {
+      return c.json({ error: "Invalid selection payload" }, 400);
+    }
+
+    const selectionRecord =
+      record.selection === null
+        ? null
+        : (record.selection && typeof record.selection === "object"
+          ? record.selection as Record<string, unknown>
+          : undefined);
+    const updatedAt = record.updatedAt;
+    const sourceId = record.sourceId;
+    const sourceType = record.sourceType;
+    const sourceLabel = record.sourceLabel;
+
+    if (!Number.isFinite(updatedAt) || typeof sourceId !== "string" || sourceId.trim().length === 0) {
+      return c.json({ error: "updatedAt and sourceId are required" }, 400);
+    }
+    if (sourceType !== "browser-panel" && sourceType !== "vscode-window") {
+      return c.json({ error: 'sourceType must be "browser-panel" or "vscode-window"' }, 400);
+    }
+    if (sourceLabel !== undefined && typeof sourceLabel !== "string") {
+      return c.json({ error: "sourceLabel must be a string when provided" }, 400);
+    }
+
+    if (selectionRecord === undefined) {
+      return c.json({ error: "selection must be an object or null" }, 400);
+    }
+
+    if (selectionRecord !== null) {
+      const absolutePath = selectionRecord.absolutePath;
+      const startLine = selectionRecord.startLine;
+      const endLine = selectionRecord.endLine;
+      const lineCount = selectionRecord.lineCount;
+      if (
+        typeof absolutePath !== "string"
+        || absolutePath.trim().length === 0
+        || !Number.isFinite(startLine)
+        || !Number.isFinite(endLine)
+        || !Number.isFinite(lineCount)
+      ) {
+        return c.json({ error: "selection must include absolutePath, startLine, endLine, and lineCount" }, 400);
+      }
+    }
+
+    wsBridge.updateVsCodeSelectionState({
+      selection: selectionRecord === null
+        ? null
+        : {
+          absolutePath: selectionRecord.absolutePath as string,
+          startLine: Number(selectionRecord.startLine),
+          endLine: Number(selectionRecord.endLine),
+          lineCount: Number(selectionRecord.lineCount),
+        },
+      updatedAt: Number(updatedAt),
+      sourceId,
+      sourceType,
+      ...(typeof sourceLabel === "string" ? { sourceLabel } : {}),
+    });
+
+    return c.json({
+      ok: true,
+      state: wsBridge.getVsCodeSelectionState(),
+    });
+  });
+
   // ─── Performance Tracing ─────────────────────────────────────────────
   if (perfTracer) {
     api.get("/perf/summary", (c) => c.json(perfTracer.getSummary()));

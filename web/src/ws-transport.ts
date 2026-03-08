@@ -10,6 +10,7 @@ const BASE_RECONNECT_DELAY_MS = 2_000;
 
 const IDEMPOTENT_OUTGOING_TYPES = new Set<BrowserOutgoingMessage["type"]>([
   "user_message",
+  "vscode_selection_update",
   "permission_response",
   "interrupt",
   "set_model",
@@ -49,6 +50,7 @@ export interface WsTransport {
   connectAllSessions: (sessions: SdkSessionInfo[]) => void;
   waitForConnection: (sessionId: string) => Promise<void>;
   sendToSession: (sessionId: string, msg: BrowserOutgoingMessage) => boolean;
+  sendGlobalMessage: (msg: BrowserOutgoingMessage, preferredSessionId?: string | null) => boolean;
   hasSocket: (sessionId: string) => boolean;
   closeAllForUnload: () => void;
 }
@@ -273,6 +275,7 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
     if (IDEMPOTENT_OUTGOING_TYPES.has(msg.type)) {
       switch (msg.type) {
         case "user_message":
+        case "vscode_selection_update":
         case "permission_response":
         case "interrupt":
         case "set_model":
@@ -293,6 +296,21 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
     if (ws?.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify(outgoing));
       return true;
+    }
+
+    return false;
+  }
+
+  function sendGlobalMessage(msg: BrowserOutgoingMessage, preferredSessionId?: string | null): boolean {
+    if (preferredSessionId && sendToSession(preferredSessionId, msg)) {
+      return true;
+    }
+
+    for (const [sessionId] of sockets) {
+      if (preferredSessionId && sessionId === preferredSessionId) continue;
+      if (sendToSession(sessionId, msg)) {
+        return true;
+      }
     }
 
     return false;
@@ -325,6 +343,7 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
     connectAllSessions,
     waitForConnection,
     sendToSession,
+    sendGlobalMessage,
     hasSocket,
     closeAllForUnload,
   };

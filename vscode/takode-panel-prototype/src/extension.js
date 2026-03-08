@@ -3,6 +3,7 @@
 const vscode = require("vscode");
 const { buildPanelHtml, normalizeBaseUrl } = require("./panel");
 const { buildSelectionPayload } = require("./editor-context");
+const { createSelectionSyncManager } = require("./selection-sync");
 
 const PANEL_SPECS = {
   production: {
@@ -23,6 +24,20 @@ const PANEL_SPECS = {
 
 let lastSelectionPayload = null;
 let outputChannel;
+
+function getBackgroundSelectionContext(editor = vscode.window.activeTextEditor) {
+  return editor ? getSelectionContext(editor) : null;
+}
+
+function getSelectionSourceInfo() {
+  const rawSessionId = typeof vscode.env.sessionId === "string" ? vscode.env.sessionId.trim() : "";
+  const sourceId = rawSessionId ? `vscode-window:${rawSessionId}` : `vscode-window:${process.pid}`;
+  return {
+    sourceId,
+    sourceType: "vscode-window",
+    sourceLabel: vscode.workspace.name || undefined,
+  };
+}
 
 function logDebug(message, details) {
   if (!outputChannel) {
@@ -256,6 +271,13 @@ function activate(context) {
   context.subscriptions.push(outputChannel);
   logDebug("activate");
 
+  const selectionSync = createSelectionSyncManager({
+    fetchImpl: fetch,
+    getBaseUrls: () => Object.values(PANEL_SPECS).map((spec) => getConfiguredBaseUrl(spec.kind)),
+    getSourceInfo: getSelectionSourceInfo,
+    logDebug,
+  });
+
   const showPanel = (kind) => {
     const existingPanel = panelsByKind.get(kind);
     if (existingPanel) {
@@ -318,6 +340,7 @@ function activate(context) {
   context.subscriptions.push(
     vscode.window.onDidChangeActiveTextEditor((editor) => {
       logDebug("event onDidChangeActiveTextEditor", { editor: editor ? getPathLabel(editor) : null });
+      void selectionSync.publishSelection(getBackgroundSelectionContext(editor));
       refreshSelectionContext(editor);
       for (const panel of panelsByKind.values()) {
         pushSelectionContext(panel);
@@ -331,6 +354,7 @@ function activate(context) {
         editor: getPathLabel(event.textEditor),
         isEmpty: event.selections.every((selection) => selection.isEmpty),
       });
+      void selectionSync.publishSelection(getBackgroundSelectionContext(event.textEditor));
       refreshSelectionContext(event.textEditor);
       for (const panel of panelsByKind.values()) {
         pushSelectionContext(panel);
@@ -354,8 +378,11 @@ function activate(context) {
         });
         pushSelectionContext(panel);
       }
+      void selectionSync.publishSelection(getBackgroundSelectionContext(), { force: true });
     }),
   );
+
+  void selectionSync.publishSelection(getBackgroundSelectionContext(), { force: true });
 
   if (typeof vscode.window.registerWebviewPanelSerializer === "function") {
     for (const panelSpec of Object.values(PANEL_SPECS)) {
@@ -381,4 +408,6 @@ function deactivate() {}
 module.exports = {
   activate,
   deactivate,
+  getBackgroundSelectionContext,
+  getSelectionSourceInfo,
 };

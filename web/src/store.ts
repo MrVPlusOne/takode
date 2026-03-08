@@ -1,7 +1,6 @@
 import { create } from "zustand";
-import type { SessionState, PermissionRequest, ChatMessage, SdkSessionInfo, TaskItem, McpServerDetail, ToolResultPreview, SessionTaskEntry, QuestmasterTask } from "./types.js";
+import type { SessionState, PermissionRequest, ChatMessage, SdkSessionInfo, TaskItem, McpServerDetail, ToolResultPreview, SessionTaskEntry, QuestmasterTask, VsCodeSelectionState } from "./types.js";
 import { api, type PRStatusResponse, type CreationProgressEvent, type CreateSessionOpts } from "./api.js";
-import type { VsCodeSelectionContext } from "./utils/vscode-context.js";
 import { isEmbeddedInVsCode } from "./utils/embed-context.js";
 import { isDesktopShellLayout } from "./utils/layout.js";
 
@@ -168,7 +167,7 @@ interface AppState {
   showNewSessionModal: boolean;
   activeTab: "chat" | "diff";
   diffPanelSelectedFile: Map<string, string>;
-  vscodeSelectionContext: VsCodeSelectionContext | null;
+  vscodeSelectionContext: VsCodeSelectionState | null;
 
   // Actions
   setDarkMode: (v: boolean) => void;
@@ -185,7 +184,7 @@ interface AppState {
   setReorderMode: (v: boolean) => void;
   setTaskPanelOpen: (open: boolean) => void;
   setShowNewSessionModal: (open: boolean) => void;
-  setVsCodeSelectionContext: (context: VsCodeSelectionContext | null) => void;
+  setVsCodeSelectionContext: (context: VsCodeSelectionState | null) => void;
   newSession: () => void;
 
   // Session actions
