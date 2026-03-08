@@ -126,11 +126,19 @@ You will receive the user's current composer text and a spoken edit instruction 
 
 Your only job is to apply the instruction to the current composer text and return the FULL updated composer text.
 
+Output format:
+
+When the draft contains 2+ sentences or distinct points, preserve or produce compact bullet format.
+Use - for top-level bullets, * for sub-bullets.
+Keep top-level bullets SHORT (one line). Move supporting details, context, and reasoning into * sub-bullets.
+Do NOT insert empty lines between bullets.
+
 Rules:
 - Return ONLY the fully edited composer text
 - Do NOT explain what you changed
 - Do NOT wrap the result in markdown fences
 - Preserve the user's existing meaning, structure, tone, and technical details unless the instruction changes them
+- Preserve the draft's existing formatting constraints unless the spoken instruction explicitly changes them
 - Apply the spoken instruction literally and conservatively
 - Never invent new facts, file paths, commands, or requirements that were not already present in the draft or the instruction`;
 
@@ -424,6 +432,7 @@ export function buildSttPrompt(input: SttPromptInput): string {
 
   // ── Phase 1: Build metadata sections with metaBudget ──────────────────
   const metaParts: string[] = [];
+  let draftSection = "";
   let metaRemaining = metaBudget;
 
   const addMeta = (text: string): boolean => {
@@ -437,6 +446,16 @@ export function buildSttPrompt(input: SttPromptInput): string {
     metaParts.push(text);
     metaRemaining -= text.length + 1;
     return metaRemaining > 0;
+  };
+
+  const addDraftSection = (draftText: string): void => {
+    const trimmed = draftText.trim();
+    if (!trimmed || metaRemaining <= 0) return;
+    const overhead = "<DRAFT>\n\n</DRAFT>".length;
+    const maxDraftChars = Math.min(1000, Math.max(0, metaRemaining - overhead - 1));
+    if (maxDraftChars <= 0) return;
+    draftSection = `<DRAFT>\n${trunc(trimmed, maxDraftChars)}\n</DRAFT>`;
+    metaRemaining = Math.max(0, metaRemaining - draftSection.length - 1);
   };
 
   // 1. Task titles — highest density vocabulary (file names, features, libraries)
@@ -466,7 +485,7 @@ export function buildSttPrompt(input: SttPromptInput): string {
 
   // 4. Composer text
   if (input.mode === "edit" && input.composerText && metaRemaining > 0) {
-    addMeta("Current draft: " + trunc(input.composerText.trim(), 1000));
+    addDraftSection(input.composerText);
   } else if ((input.composerBefore || input.composerAfter) && metaRemaining > 0) {
     const before = input.composerBefore ? trunc(input.composerBefore.trim(), 500) + " " : "";
     const after = input.composerAfter ? " " + trunc(input.composerAfter.trim(), 500) : "";
@@ -583,6 +602,11 @@ export function buildSttPrompt(input: SttPromptInput): string {
       sections.push(`[${entry.role.toLowerCase()}]\n    ${indented}`);
     }
     sections.push("</VOCABULARY_REFERENCE>");
+    sections.push("");
+  }
+
+  if (draftSection) {
+    sections.push(draftSection);
     sections.push("");
   }
 

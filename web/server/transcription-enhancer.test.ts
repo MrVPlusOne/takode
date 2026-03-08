@@ -11,6 +11,7 @@ import {
 } from "./transcription-enhancer.js";
 
 const {
+  VOICE_EDIT_SYSTEM_PROMPT,
   trunc,
   extractAssistantText,
   isSystemNoise,
@@ -371,6 +372,12 @@ describe("buildEnhancementPrompt", () => {
 });
 
 describe("buildVoiceEditPrompt", () => {
+  it("keeps the same bullet-format contract in voice edit mode", () => {
+    expect(VOICE_EDIT_SYSTEM_PROMPT).toContain("Use - for top-level bullets, * for sub-bullets.");
+    expect(VOICE_EDIT_SYSTEM_PROMPT).toContain("Do NOT insert empty lines between bullets.");
+    expect(VOICE_EDIT_SYSTEM_PROMPT).toContain("Preserve the draft's existing formatting constraints");
+  });
+
   it("includes the current composer text and edit instruction in dedicated XML blocks", () => {
     const prompt = buildVoiceEditPrompt("shorten the first paragraph", "Long draft text", "");
     expect(prompt).toContain("<CURRENT_COMPOSER_TEXT>");
@@ -537,14 +544,20 @@ describe("buildSttPrompt", () => {
     expect(prompt).toContain("Composer: [CURSOR] and add tests");
   });
 
-  it("uses current draft wording and edit-specific closing instruction in voice-edit mode", () => {
+  it("places the current draft in a tagged block after the conversation context in voice-edit mode", () => {
     const prompt = buildSttPrompt({
       mode: "edit",
       composerText: "Please rewrite this update into short bullets.",
       sessionName: "Voice edit session",
+      messageHistory: [
+        userMsg("Please clean up this update"),
+        assistantMsg("Share the draft and I'll tighten it."),
+      ],
     });
-    expect(prompt).toContain("Current draft: Please rewrite this update into short bullets.");
+    expect(prompt).toContain("<DRAFT>\nPlease rewrite this update into short bullets.\n</DRAFT>");
+    expect(prompt).toContain("</VOCABULARY_REFERENCE>\n\n<DRAFT>");
     expect(prompt).toContain("spoken edit instruction");
+    expect(prompt).not.toContain("Current draft:");
     expect(prompt).not.toContain("Composer: [CURSOR]");
   });
 

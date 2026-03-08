@@ -87,7 +87,7 @@ function parsePatchToHunks(oldText: string, newText: string): DiffHunk[] {
   const patch = Diff.structuredPatch("", "", oldText, newText, "", "", { context: 3 });
   return patch.hunks.map((hunk) => {
     const header = `@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`;
-    const lines: DiffLine[] = [];
+    const rawLines: DiffLine[] = [];
     let oldLine = hunk.oldStart;
     let newLine = hunk.newStart;
 
@@ -95,13 +95,15 @@ function parsePatchToHunks(oldText: string, newText: string): DiffHunk[] {
       const prefix = raw[0];
       const content = raw.slice(1);
       if (prefix === "-") {
-        lines.push({ type: "del", content, oldLineNo: oldLine++ });
+        rawLines.push({ type: "del", content, oldLineNo: oldLine++ });
       } else if (prefix === "+") {
-        lines.push({ type: "add", content, newLineNo: newLine++ });
+        rawLines.push({ type: "add", content, newLineNo: newLine++ });
       } else {
-        lines.push({ type: "context", content, oldLineNo: oldLine++, newLineNo: newLine++ });
+        rawLines.push({ type: "context", content, oldLineNo: oldLine++, newLineNo: newLine++ });
       }
     }
+
+    const lines = normalizeAdjacentChangeBlocks(rawLines);
 
     // Compute word-level diffs for adjacent del/add pairs.
     addWordHighlights(lines);
@@ -196,11 +198,79 @@ function parseUnifiedDiffToFiles(diffStr: string, fallbackFileName = ""): Parsed
   // Add word highlights.
   for (const file of files) {
     for (const hunk of file.hunks) {
+      hunk.lines = normalizeAdjacentChangeBlocks(hunk.lines);
       addWordHighlights(hunk.lines);
     }
   }
 
   return files;
+}
+
+function normalizeAdjacentChangeBlocks(lines: DiffLine[]): DiffLine[] {
+  const normalized: DiffLine[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const delStart = i;
+    while (i < lines.length && lines[i].type === "del") i++;
+    const delEnd = i;
+
+    const addStart = i;
+    while (i < lines.length && lines[i].type === "add") i++;
+    const addEnd = i;
+
+    const delBlock = lines.slice(delStart, delEnd);
+    const addBlock = lines.slice(addStart, addEnd);
+
+    if (delBlock.length > 0 && addBlock.length > 0) {
+      const lineDiff = Diff.diffArrays(
+        delBlock.map((line) => line.content),
+        addBlock.map((line) => line.content),
+      );
+      let delIdx = 0;
+      let addIdx = 0;
+
+      for (const part of lineDiff) {
+        if (part.removed) {
+          for (let j = 0; j < part.value.length; j++) {
+            normalized.push(delBlock[delIdx++]);
+          }
+          continue;
+        }
+        if (part.added) {
+          for (let j = 0; j < part.value.length; j++) {
+            normalized.push(addBlock[addIdx++]);
+          }
+          continue;
+        }
+        for (let j = 0; j < part.value.length; j++) {
+          const oldLine = delBlock[delIdx++];
+          const newLine = addBlock[addIdx++];
+          normalized.push({
+            type: "context",
+            content: newLine.content,
+            oldLineNo: oldLine.oldLineNo,
+            newLineNo: newLine.newLineNo,
+          });
+        }
+      }
+      continue;
+    }
+
+    if (delBlock.length > 0) {
+      normalized.push(...delBlock);
+      continue;
+    }
+    if (addBlock.length > 0) {
+      normalized.push(...addBlock);
+      continue;
+    }
+
+    normalized.push(lines[i]);
+    i++;
+  }
+
+  return normalized;
 }
 
 /** Add word-level diff highlights to adjacent del/add line pairs. */

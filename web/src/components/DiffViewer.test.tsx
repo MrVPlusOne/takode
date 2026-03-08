@@ -145,6 +145,29 @@ index 1234567..abcdefg 100644
     expect(wordDels.length).toBeGreaterThan(0);
   });
 
+  it("collapses redundant delete/add lines when the same prose lines appear on both sides of a changed block", () => {
+    const proseDiff = `@@ -1,6 +1,7 @@
+- Keep bullet-format instructions in voice edit mode
+- The prompt-enhancer prompt dropped the existing bullet point format description
+- Voice editing should preserve the same bullet point format instructions
+- Output should still follow bullet point format instead of turning into plain sentences
+- Wrap lines in the composer diff
+- Long lines in the diff should wrap to the next line
+- This should be consistent with normal composer behavior
++ Keep bullet-format instructions in voice edit mode
++ The prompt-enhancer prompt dropped the existing bullet point format description
++ Voice editing should preserve the same bullet point format instructions
++ Output should still follow bullet point format instead of turning into plain sentences
++ Wrap lines in the composer diff
++ Long lines in the diff should wrap to the next line
++ This should be consistent with normal composer behavior`;
+    const { container } = render(<DiffViewer unifiedDiff={proseDiff} fileName="draft.md" />);
+
+    expect(container.querySelectorAll(".diff-line-add")).toHaveLength(0);
+    expect(container.querySelectorAll(".diff-line-del")).toHaveLength(0);
+    expect(screen.getAllByText("Keep bullet-format instructions in voice edit mode").length).toBeGreaterThan(0);
+  });
+
   it("renders file path with directory in muted style", () => {
     render(
       <DiffViewer
