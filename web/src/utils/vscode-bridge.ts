@@ -8,6 +8,7 @@ export interface VsCodeOpenFileTarget {
   absolutePath: string;
   line?: number;
   column?: number;
+  endLine?: number;
 }
 
 export function buildLocalEditorUri(target: VsCodeOpenFileTarget, editor: "vscode-local" | "cursor"): string {
@@ -45,6 +46,7 @@ export function openFileInEmbeddedVsCode(target: VsCodeOpenFileTarget): boolean 
           absolutePath: target.absolutePath,
           line: Math.max(1, target.line ?? 1),
           column: Math.max(1, target.column ?? 1),
+          ...(Number.isFinite(target.endLine) ? { endLine: Math.max(1, Number(target.endLine)) } : {}),
         },
       },
       "*",

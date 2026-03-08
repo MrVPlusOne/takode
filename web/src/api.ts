@@ -331,6 +331,7 @@ export interface VsCodeRemoteOpenFileTarget {
   absolutePath: string;
   line?: number;
   column?: number;
+  endLine?: number;
 }
 
 export interface VsCodeRemoteOpenFileResponse {

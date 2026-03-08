@@ -132,6 +132,23 @@ describe("MarkdownContent quest links", () => {
     openSpy.mockRestore();
   });
 
+  it("opens file: line-range links at the range start for local VS Code URIs", async () => {
+    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-local" } });
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+
+    render(<MarkdownContent text="[CLAUDE.md:53-54](file:/tmp/project/CLAUDE.md:53-54)" />);
+    fireEvent.click(screen.getByRole("link", { name: "CLAUDE.md:53-54" }));
+
+    await waitFor(() => {
+      expect(openSpy).toHaveBeenCalledWith(
+        "vscode://file//tmp/project/CLAUDE.md:53:1",
+        "_blank",
+        "noopener,noreferrer",
+      );
+    });
+    openSpy.mockRestore();
+  });
+
   it("resolves repo-root-relative file: links against the active session repo root", async () => {
     mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-local" } });
     const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
@@ -189,6 +206,24 @@ describe("MarkdownContent quest links", () => {
         absolutePath: "/tmp/project/app.ts",
         line: 7,
         column: 3,
+      });
+    });
+  });
+
+  it("routes file line ranges through the authoritative remote VSCode path", async () => {
+    window.history.replaceState({}, "", "/?takodeHost=vscode");
+    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-remote" } });
+    mockOpenVsCodeRemoteFile.mockResolvedValue({ ok: true, sourceId: "window-a", commandId: "cmd-range" });
+
+    render(<MarkdownContent text="[CLAUDE.md:53-54](file:/tmp/project/CLAUDE.md:53-54)" />);
+    fireEvent.click(screen.getByRole("link", { name: "CLAUDE.md:53-54" }));
+
+    await waitFor(() => {
+      expect(mockOpenVsCodeRemoteFile).toHaveBeenCalledWith({
+        absolutePath: "/tmp/project/CLAUDE.md",
+        line: 53,
+        column: 1,
+        endLine: 54,
       });
     });
   });

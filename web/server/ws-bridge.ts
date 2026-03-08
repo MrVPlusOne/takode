@@ -3751,7 +3751,7 @@ export class WsBridge {
   }
 
   async requestVsCodeOpenFile(
-    target: { absolutePath: string; line?: number; column?: number },
+    target: { absolutePath: string; line?: number; column?: number; endLine?: number },
     options?: { timeoutMs?: number },
   ): Promise<{ sourceId: string; commandId: string }> {
     const sourceWindow = this.selectVsCodeWindowForFile(target.absolutePath);
@@ -3766,6 +3766,7 @@ export class WsBridge {
         absolutePath: target.absolutePath,
         line: Math.max(1, target.line ?? 1),
         column: Math.max(1, target.column ?? 1),
+        ...(Number.isFinite(target.endLine) ? { endLine: Math.max(Math.max(1, target.line ?? 1), Number(target.endLine)) } : {}),
       },
       createdAt: Date.now(),
     };

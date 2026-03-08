@@ -269,6 +269,7 @@ export interface VsCodeOpenFileTarget {
   absolutePath: string;
   line: number;
   column: number;
+  endLine?: number;
 }
 
 export interface VsCodeOpenFileCommand {

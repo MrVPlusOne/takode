@@ -427,7 +427,7 @@ If you are working on a quest from this worktree session, do **NOT** transition 
   // Link syntax — always included (useful for all sessions)
   parts.push(`## Link Syntax
 
-When mentioning quests, use \`[q-42](quest:q-42)\`. When referencing files, prefer short labels and repo-root-relative file links like \`[app.ts:42](file:src/app.ts:42)\`; absolute \`file:\` links also work. When referencing sessions, use \`[#5](session:5)\`.`);
+When mentioning quests, use \`[q-42](quest:q-42)\`. When referencing files, prefer short labels and repo-root-relative clickable file links like \`[app.ts:42](file:src/app.ts:42)\`. Supported file-link suffixes are \`:line\`, \`:line:column\`, and line ranges like \`:53-54\` (example: \`[app.ts:53-54](file:src/app.ts:53-54)\`). Absolute \`file:\` links also work. When referencing sessions, use \`[#5](session:5)\`.`);
 
   if (opts?.extraInstructions) {
     parts.push(opts.extraInstructions);
@@ -748,7 +748,7 @@ quest feedback q-42 --text "Auth implementation looks good, but needs rate limit
 \`\`\`
 
 - When mentioning quests in chat, always use clickable quest links: \`[q-42](quest:q-42)\` (not plain \`q-42\`).
-- When referencing files for the user, prefer short labels and repo-root-relative clickable file links: \`[app.ts:42](file:src/app.ts:42)\`. Absolute \`file:\` links also work.
+- When referencing files for the user, prefer short labels and repo-root-relative clickable file links: \`[app.ts:42](file:src/app.ts:42)\`. Supported file-link suffixes are \`:line\`, \`:line:column\`, and line ranges like \`:53-54\` (example: \`[app.ts:53-54](file:src/app.ts:53-54)\`). Absolute \`file:\` links also work.
 
 ## Session Identification
 

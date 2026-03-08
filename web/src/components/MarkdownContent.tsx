@@ -45,6 +45,7 @@ interface FileLinkTarget {
   path: string;
   line: number;
   column: number;
+  endLine?: number;
   isRelative: boolean;
 }
 
@@ -52,6 +53,7 @@ interface ResolvedFileLinkTarget {
   absolutePath: string;
   line: number;
   column: number;
+  endLine?: number;
 }
 
 function isAbsoluteFilePath(path: string): boolean {
@@ -81,6 +83,7 @@ function resolveFileLinkTarget(target: FileLinkTarget, repoRoot: string | null):
       absolutePath: target.path,
       line: target.line,
       column: target.column,
+      ...(Number.isFinite(target.endLine) ? { endLine: Number(target.endLine) } : {}),
     };
   }
 
@@ -97,7 +100,18 @@ function resolveFileLinkTarget(target: FileLinkTarget, repoRoot: string | null):
     absolutePath: `${normalizedRepoRoot}${separator}${relativePath}`,
     line: target.line,
     column: target.column,
+    ...(Number.isFinite(target.endLine) ? { endLine: Number(target.endLine) } : {}),
   };
+}
+
+function formatFileLinkLocation(target: Pick<FileLinkTarget, "line" | "column" | "endLine">): string {
+  if (Number.isFinite(target.endLine) && Number(target.endLine) >= target.line) {
+    return `:${target.line}-${Number(target.endLine)}`;
+  }
+  if (target.column > 1) {
+    return `:${target.line}:${target.column}`;
+  }
+  return `:${target.line}`;
 }
 
 function getFileLinkRepoRoot(
@@ -138,24 +152,33 @@ function parseFileLinkFromHref(href?: string): FileLinkTarget | null {
   let path = decoded;
   let line = 1;
   let column = 1;
+  let endLine: number | undefined;
 
-  const lineColMatch = decoded.match(/^(.*):(\d+):(\d+)$/);
-  if (lineColMatch) {
-    path = lineColMatch[1];
-    line = Number.parseInt(lineColMatch[2], 10);
-    column = Number.parseInt(lineColMatch[3], 10);
+  const lineRangeMatch = decoded.match(/^(.*):(\d+)-(\d+)$/);
+  if (lineRangeMatch) {
+    path = lineRangeMatch[1];
+    line = Number.parseInt(lineRangeMatch[2], 10);
+    endLine = Number.parseInt(lineRangeMatch[3], 10);
   } else {
-    const lineOnlyMatch = decoded.match(/^(.*):(\d+)$/);
-    if (lineOnlyMatch) {
-      path = lineOnlyMatch[1];
-      line = Number.parseInt(lineOnlyMatch[2], 10);
+    const lineColMatch = decoded.match(/^(.*):(\d+):(\d+)$/);
+    if (lineColMatch) {
+      path = lineColMatch[1];
+      line = Number.parseInt(lineColMatch[2], 10);
+      column = Number.parseInt(lineColMatch[3], 10);
+    } else {
+      const lineOnlyMatch = decoded.match(/^(.*):(\d+)$/);
+      if (lineOnlyMatch) {
+        path = lineOnlyMatch[1];
+        line = Number.parseInt(lineOnlyMatch[2], 10);
+      }
     }
   }
 
   const isAbsolute = isAbsoluteFilePath(path);
   if (line < 1 || column < 1) return null;
+  if (Number.isFinite(endLine) && Number(endLine) < line) return null;
 
-  return { path, line, column, isRelative: !isAbsolute };
+  return { path, line, column, ...(Number.isFinite(endLine) ? { endLine: Number(endLine) } : {}), isRelative: !isAbsolute };
 }
 
 function transformMarkdownUrl(url: string): string {
@@ -536,10 +559,11 @@ function FileMarkdownLink({
     }
   }, [resolvedTarget]);
 
-  const href = `file:${target.path}:${target.line}:${target.column}`;
+  const locationSuffix = formatFileLinkLocation(target);
+  const href = `file:${target.path}${locationSuffix}`;
   const title = resolvedTarget
-    ? `${target.path}:${target.line}:${target.column}`
-    : `${target.path}:${target.line}:${target.column} (unable to resolve repo-relative path)`;
+    ? `${target.path}${locationSuffix}`
+    : `${target.path}${locationSuffix} (unable to resolve repo-relative path)`;
 
   return (
     <a

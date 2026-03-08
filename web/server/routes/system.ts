@@ -396,6 +396,7 @@ export function createSystemRoutes(ctx: RouteContext) {
     const absolutePath = record.absolutePath;
     const line = record.line;
     const column = record.column;
+    const endLine = record.endLine;
     if (typeof absolutePath !== "string" || absolutePath.trim().length === 0) {
       return c.json({ error: "absolutePath is required" }, 400);
     }
@@ -405,12 +406,19 @@ export function createSystemRoutes(ctx: RouteContext) {
     if (column !== undefined && !Number.isFinite(column)) {
       return c.json({ error: "column must be a number when provided" }, 400);
     }
+    if (endLine !== undefined && !Number.isFinite(endLine)) {
+      return c.json({ error: "endLine must be a number when provided" }, 400);
+    }
+    if (Number.isFinite(line) && Number.isFinite(endLine) && Number(endLine) < Number(line)) {
+      return c.json({ error: "endLine must be greater than or equal to line" }, 400);
+    }
 
     try {
       const dispatched = await wsBridge.requestVsCodeOpenFile({
         absolutePath,
         ...(Number.isFinite(line) ? { line: Number(line) } : {}),
         ...(Number.isFinite(column) ? { column: Number(column) } : {}),
+        ...(Number.isFinite(endLine) ? { endLine: Number(endLine) } : {}),
       });
       return c.json({ ok: true, ...dispatched });
     } catch (error) {

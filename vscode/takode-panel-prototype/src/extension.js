@@ -203,9 +203,15 @@ async function openFileInPanelEditor(request) {
     preserveFocus: false,
     viewColumn: vscode.ViewColumn.Active,
   });
-  const position = new vscode.Position(line - 1, column - 1);
-  editor.selection = new vscode.Selection(position, position);
-  editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
+  const startPosition = new vscode.Position(line - 1, column - 1);
+  const requestedEndLine = Number.isFinite(request.endLine) ? Math.max(line, Number(request.endLine)) : line;
+  const endLineIndex = Math.min(document.lineCount - 1, requestedEndLine - 1);
+  const endPosition = requestedEndLine > line
+    ? document.lineAt(endLineIndex).range.end
+    : startPosition;
+  const range = new vscode.Range(startPosition, endPosition);
+  editor.selection = new vscode.Selection(range.start, range.end);
+  editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
 }
 
 function refreshSelectionContext(editor = vscode.window.activeTextEditor) {

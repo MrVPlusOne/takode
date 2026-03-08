@@ -64,6 +64,7 @@ test("buildPanelHtml embeds the Takode iframe URL and the health probe target", 
   assert.match(html, /takode:vscode-context/);
   assert.match(html, /takode:vscode-ready/);
   assert.match(html, /takode:open-file/);
+  assert.match(html, /endLine: event\.data\.payload\.endLine/);
   assert.match(html, /postMessage\([\s\S]*"\*"\)/);
   assert.doesNotMatch(html, /selection-label/);
 });

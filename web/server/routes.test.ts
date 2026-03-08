@@ -1617,6 +1617,35 @@ describe("POST /api/vscode/open-file", () => {
     });
   });
 
+  it("accepts line-range targets for remote open-file requests", async () => {
+    bridge.requestVsCodeOpenFile.mockResolvedValue({
+      sourceId: "window-a",
+      commandId: "cmd-range",
+    });
+
+    const res = await app.request("/api/vscode/open-file", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        absolutePath: "/repo/CLAUDE.md",
+        line: 53,
+        endLine: 54,
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(bridge.requestVsCodeOpenFile).toHaveBeenCalledWith({
+      absolutePath: "/repo/CLAUDE.md",
+      line: 53,
+      endLine: 54,
+    });
+    expect(await res.json()).toEqual({
+      ok: true,
+      sourceId: "window-a",
+      commandId: "cmd-range",
+    });
+  });
+
   it("returns a clear error when no running VSCode window is available", async () => {
     bridge.requestVsCodeOpenFile.mockRejectedValue(new Error("No running VSCode was detected on this machine."));
 

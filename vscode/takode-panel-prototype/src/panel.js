@@ -359,6 +359,7 @@ function buildPanelHtml({ baseUrl, resolvedBaseUrl = baseUrl, cspSource, nonce }
             absolutePath: event.data.payload.absolutePath,
             line: event.data.payload.line,
             column: event.data.payload.column,
+            endLine: event.data.payload.endLine,
           });
           return;
         }

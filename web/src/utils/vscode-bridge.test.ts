@@ -37,7 +37,7 @@ describe("vscode-bridge", () => {
     window.history.replaceState({}, "", "/?takodeHost=vscode");
     const postMessageSpy = vi.spyOn(window.parent, "postMessage");
 
-    expect(openFileInEmbeddedVsCode({ absolutePath: "/workspace/project/src/app.ts", line: 42, column: 3 })).toBe(true);
+    expect(openFileInEmbeddedVsCode({ absolutePath: "/workspace/project/src/app.ts", line: 42, column: 3, endLine: 44 })).toBe(true);
     expect(postMessageSpy).toHaveBeenCalledWith(
       {
         source: "takode-vscode-prototype",
@@ -46,6 +46,7 @@ describe("vscode-bridge", () => {
           absolutePath: "/workspace/project/src/app.ts",
           line: 42,
           column: 3,
+          endLine: 44,
         },
       },
       "*",
@@ -63,6 +64,9 @@ describe("vscode-bridge", () => {
     expect(buildLocalEditorUri({ absolutePath: "/workspace/project/src/app.ts", line: 42, column: 3 }, "vscode-local")).toBe(
       "vscode://file//workspace/project/src/app.ts:42:3",
     );
+    expect(buildLocalEditorUri({ absolutePath: "/workspace/project/src/app.ts", line: 42, endLine: 44 }, "vscode-local")).toBe(
+      "vscode://file//workspace/project/src/app.ts:42:1",
+    );
     expect(buildLocalEditorUri({ absolutePath: "/workspace/project/src/app.ts" }, "cursor")).toBe(
       "cursor://file//workspace/project/src/app.ts:1:1",
     );
@@ -70,7 +74,7 @@ describe("vscode-bridge", () => {
 
   it("routes remote editor opens through the server API", async () => {
     await openFileWithEditorPreference(
-      { absolutePath: "/workspace/project/src/app.ts", line: 42, column: 3 },
+      { absolutePath: "/workspace/project/src/app.ts", line: 42, column: 3, endLine: 44 },
       "vscode-remote",
     );
 
@@ -78,6 +82,7 @@ describe("vscode-bridge", () => {
       absolutePath: "/workspace/project/src/app.ts",
       line: 42,
       column: 3,
+      endLine: 44,
     });
   });
 
@@ -86,7 +91,7 @@ describe("vscode-bridge", () => {
     const postMessageSpy = vi.spyOn(window.parent, "postMessage");
 
     await openFileWithEditorPreference(
-      { absolutePath: "/workspace/project/src/app.ts", line: 42, column: 3 },
+      { absolutePath: "/workspace/project/src/app.ts", line: 42, column: 3, endLine: 44 },
       "vscode-local",
     );
 
@@ -98,6 +103,7 @@ describe("vscode-bridge", () => {
           absolutePath: "/workspace/project/src/app.ts",
           line: 42,
           column: 3,
+          endLine: 44,
         },
       },
       "*",
