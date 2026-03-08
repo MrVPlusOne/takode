@@ -563,6 +563,44 @@ describe("POST /api/sessions/create", () => {
     );
   });
 
+  it("creates worker worktrees from the main repo root when cwd is already a worktree", async () => {
+    vi.mocked(gitUtils.getRepoInfo).mockReturnValue({
+      repoRoot: "/repo",
+      repoName: "companion",
+      currentBranch: "jiayi-wt-2775",
+      defaultBranch: "jiayi",
+      isWorktree: true,
+    });
+    vi.mocked(gitUtils.ensureWorktree).mockReturnValue({
+      worktreePath: "/home/.companion/worktrees/companion/jiayi-wt-9326",
+      branch: "jiayi-wt-2775",
+      actualBranch: "jiayi-wt-9326",
+      isNew: true,
+    });
+
+    const res = await app.request("/api/sessions/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        cwd: "/home/.companion/worktrees/companion/jiayi-wt-2775",
+        useWorktree: true,
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(gitUtils.ensureWorktree).toHaveBeenCalledWith("/repo", "jiayi-wt-2775", {
+      baseBranch: "jiayi",
+      createBranch: undefined,
+      forceNew: true,
+    });
+    expect(tracker.addMapping).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repoRoot: "/repo",
+        worktreePath: "/home/.companion/worktrees/companion/jiayi-wt-9326",
+      }),
+    );
+  });
+
   it("returns 400 when useWorktree is enabled without cwd", async () => {
     const res = await app.request("/api/sessions/create", {
       method: "POST",
@@ -870,6 +908,28 @@ describe("GET /api/sessions", () => {
       gitBehind: 0,
       totalLinesAdded: 0,
       totalLinesRemoved: 0,
+    });
+  });
+
+  it("reports generating sessions as running when the bridge is active", async () => {
+    launcher.listSessions.mockReturnValue([
+      { sessionId: "s1", state: "connected", cwd: "/a" },
+    ]);
+    vi.mocked(sessionNames.getAllNames).mockReturnValue({});
+    bridge.getAllSessions.mockReturnValue([
+      { session_id: "s1" },
+    ]);
+    bridge.getSession.mockReturnValue({ isGenerating: true } as any);
+    bridge.isBackendConnected.mockReturnValue(true);
+
+    const res = await app.request("/api/sessions", { method: "GET" });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json[0]).toMatchObject({
+      sessionId: "s1",
+      state: "running",
+      cliConnected: true,
     });
   });
 

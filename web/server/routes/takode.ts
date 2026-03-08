@@ -33,9 +33,13 @@ export function createTakodeRoutes(ctx: RouteContext) {
     return Promise.all(pool.map(async (s) => {
       try {
         const bridge = bridgeMap.get(s.sessionId);
+        const bridgeSession = wsBridge.getSession(s.sessionId);
         const { sessionAuthToken: _token, ...safeSession } = s;
+        const cliConnected = wsBridge.isBackendConnected(s.sessionId);
+        const effectiveState = cliConnected && bridgeSession?.isGenerating ? "running" : safeSession.state;
         return {
           ...safeSession,
+          state: effectiveState,
           sessionNum: launcher.getSessionNum(s.sessionId) ?? null,
           name: names[s.sessionId] ?? s.name,
           gitBranch: bridge?.git_branch || "",
@@ -44,7 +48,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
           totalLinesAdded: bridge?.total_lines_added || 0,
           totalLinesRemoved: bridge?.total_lines_removed || 0,
           lastMessagePreview: wsBridge.getLastUserMessage(s.sessionId) || "",
-          cliConnected: wsBridge.isBackendConnected(s.sessionId),
+          cliConnected,
           taskHistory: wsBridge.getSessionTaskHistory(s.sessionId),
           keywords: wsBridge.getSessionKeywords(s.sessionId),
           claimedQuestId: bridge?.claimedQuestId ?? null,

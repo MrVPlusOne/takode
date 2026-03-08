@@ -842,16 +842,19 @@ export function createSessionsRoutes(ctx: RouteContext) {
     return Promise.all(pool.map(async (s) => {
       try {
         const bridge = bridgeMap.get(s.sessionId);
+        const bridgeSession = wsBridge.getSession(s.sessionId);
+        const { sessionAuthToken: _token, ...safeSession } = s;
+        const cliConnected = wsBridge.isBackendConnected(s.sessionId);
+        const effectiveState = cliConnected && bridgeSession?.isGenerating ? "running" : safeSession.state;
         let gitAhead = bridge?.git_ahead || 0;
         let gitBehind = bridge?.git_behind || 0;
         // Ahead/behind counts come from the bridge's cached git info (refreshed
         // lazily on CLI connect, not on every sidebar poll). Previously this ran
         // a `git rev-list` per worktree session on every /api/sessions request,
         // causing 800-1300ms latency on NFS.
-        // Strip sessionAuthToken — never expose to browser clients
-        const { sessionAuthToken: _token, ...safeSession } = s;
         return {
           ...safeSession,
+          state: effectiveState,
           sessionNum: launcher.getSessionNum(s.sessionId) ?? null,
           name: names[s.sessionId] ?? s.name,
           gitBranch: bridge?.git_branch || "",
@@ -860,7 +863,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
           totalLinesAdded: bridge?.total_lines_added || 0,
           totalLinesRemoved: bridge?.total_lines_removed || 0,
           lastMessagePreview: wsBridge.getLastUserMessage(s.sessionId) || "",
-          cliConnected: wsBridge.isBackendConnected(s.sessionId),
+          cliConnected,
           taskHistory: wsBridge.getSessionTaskHistory(s.sessionId),
           keywords: wsBridge.getSessionKeywords(s.sessionId),
           claimedQuestId: bridge?.claimedQuestId ?? null,
@@ -895,8 +898,8 @@ export function createSessionsRoutes(ctx: RouteContext) {
       return;
     }
     if (!info.cwd || !info.cwd.trim()) return;
-    const inferred = await execCaptureStdoutAsync("git --no-optional-locks rev-parse --show-toplevel", info.cwd);
-    if (inferred) info.repoRoot = inferred;
+    const inferred = await gitUtils.getRepoInfoAsync(info.cwd);
+    if (inferred?.repoRoot) info.repoRoot = inferred.repoRoot;
   };
 
   api.get("/sessions", async (c) => {

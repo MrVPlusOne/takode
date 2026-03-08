@@ -2,7 +2,7 @@ import { execSync, exec as execCb } from "node:child_process";
 import { promisify } from "node:util";
 import { existsSync, mkdirSync } from "node:fs";
 import { access } from "node:fs/promises";
-import { join, basename } from "node:path";
+import { join, basename, resolve } from "node:path";
 import { homedir } from "node:os";
 import { GIT_CMD_TIMEOUT } from "./constants.js";
 
@@ -161,12 +161,18 @@ export async function resolveDefaultBranchAsync(repoRoot: string, currentBranch?
 
 /** Async version of getRepoInfo. Non-blocking for route handlers. */
 export async function getRepoInfoAsync(cwd: string): Promise<GitRepoInfo | null> {
-  const repoRoot = await gitSafeAsync("rev-parse --show-toplevel", cwd);
-  if (!repoRoot) return null;
+  const toplevel = await gitSafeAsync("rev-parse --show-toplevel", cwd);
+  if (!toplevel) return null;
 
   const currentBranch = await gitSafeAsync("rev-parse --abbrev-ref HEAD", cwd) || "HEAD";
   const gitDir = await gitSafeAsync("rev-parse --git-dir", cwd) || "";
   const isWorktree = gitDir.includes("/worktrees/");
+  const commonDir = isWorktree
+    ? await gitSafeAsync("rev-parse --git-common-dir", cwd)
+    : null;
+  const repoRoot = isWorktree && commonDir
+    ? resolve(cwd, commonDir, "..")
+    : toplevel;
   const defaultBranch = await resolveDefaultBranchAsync(repoRoot, currentBranch);
 
   return {
@@ -312,13 +318,19 @@ export async function gitPullAsync(cwd: string): Promise<{ success: boolean; out
 export { listWorktreesAsync };
 
 export function getRepoInfo(cwd: string): GitRepoInfo | null {
-  const repoRoot = gitSafe("rev-parse --show-toplevel", cwd);
-  if (!repoRoot) return null;
+  const toplevel = gitSafe("rev-parse --show-toplevel", cwd);
+  if (!toplevel) return null;
 
   const currentBranch = gitSafe("rev-parse --abbrev-ref HEAD", cwd) || "HEAD";
   const gitDir = gitSafe("rev-parse --git-dir", cwd) || "";
   // A linked worktree's .git dir is inside the main repo's .git/worktrees/
   const isWorktree = gitDir.includes("/worktrees/");
+  const commonDir = isWorktree
+    ? gitSafe("rev-parse --git-common-dir", cwd)
+    : null;
+  const repoRoot = isWorktree && commonDir
+    ? resolve(cwd, commonDir, "..")
+    : toplevel;
 
   const defaultBranch = resolveDefaultBranch(repoRoot, currentBranch);
 

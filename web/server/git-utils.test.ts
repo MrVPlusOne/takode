@@ -124,12 +124,14 @@ describe("getRepoInfo", () => {
       "rev-parse --show-toplevel": "/fake/home/.companion/worktrees/proj/feat--x",
       "rev-parse --abbrev-ref HEAD": "feat/x",
       "rev-parse --git-dir": "/home/user/proj/.git/worktrees/feat--x",
+      "rev-parse --git-common-dir": "/home/user/proj/.git",
       "symbolic-ref refs/remotes/origin/HEAD": "refs/remotes/origin/main",
     });
 
     const result = gitUtils.getRepoInfo("/fake/home/.companion/worktrees/proj/feat--x");
     expect(result).not.toBeNull();
     expect(result!.isWorktree).toBe(true);
+    expect(result!.repoRoot).toBe("/home/user/proj");
   });
 
   it("falls back to 'HEAD' when branch detection fails", () => {
