@@ -1819,6 +1819,55 @@ describe("CLI message routing", () => {
     expect(reminderCountAfter).toBe(reminderCountBefore);
   });
 
+  it("assistant: does not inject reminder after direct leader interrupt", () => {
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      getSession: vi.fn(() => ({ isOrchestrator: true })),
+    } as any);
+
+    bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "user_message",
+      content: "start work",
+    }));
+
+    bridge.handleCLIMessage(cli, JSON.stringify({
+      type: "assistant",
+      message: {
+        id: "msg-missing-tag-interrupted",
+        type: "message",
+        role: "assistant",
+        model: "claude-sonnet-4-5-20250929",
+        content: [{ type: "text", text: "Half-finished leader response without suffix." }],
+        stop_reason: "end_turn",
+        usage: { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+      session_id: "s1",
+    }));
+
+    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "interrupt" }));
+
+    bridge.handleCLIMessage(cli, JSON.stringify({
+      type: "result",
+      subtype: "success",
+      result: "",
+      is_error: false,
+      stop_reason: "interrupted",
+      total_cost_usd: 0.01,
+      num_turns: 1,
+      session_id: "s1",
+    }));
+
+    const reminderSend = cli.send.mock.calls
+      .map(([payload]: [string]) => JSON.parse(String(payload).trim()))
+      .find((payload: any) => payload.type === "user" && String(payload.message?.content).includes("As a leader session"));
+    expect(reminderSend).toBeUndefined();
+
+    const session = bridge.getSession("s1")!;
+    const injectedUser = session.messageHistory.findLast((m: any) => m.type === "user_message") as any;
+    expect(injectedUser?.content).toBe("start work");
+  });
+
   it("assistant: treats tool-only leader messages as internal without reminder", () => {
     bridge.setLauncher({
       touchActivity: vi.fn(),

@@ -2079,6 +2079,7 @@ export class WsBridge {
     session: Session,
     addressing: LeaderAssistantAddressing,
     turnTriggerSource: TurnTriggerSource,
+    turnWasInterrupted: boolean,
   ): boolean {
     if (addressing !== "missing") return false;
     // Never chain reminders off system-injected reminder turns; this avoids
@@ -2088,7 +2089,7 @@ export class WsBridge {
     // to finish its response (and add the @to() tag). Without this guard, the nudge
     // injects a new user message that triggers another turn, making it impossible to
     // actually stop a leader session.
-    if (session.interruptedDuringTurn) return false;
+    if (turnWasInterrupted) return false;
     this.injectUserMessage(session.id, WsBridge.LEADER_TAG_ENFORCEMENT_REMINDER, WsBridge.LEADER_TAG_SYSTEM_SOURCE);
     return true;
   }
@@ -4448,6 +4449,7 @@ export class WsBridge {
       const queuedInterruptSource = session.queuedTurnInterruptSources[0] ?? "user";
       this.markTurnInterrupted(session, queuedInterruptSource);
     }
+    const turnWasInterrupted = session.interruptedDuringTurn || resultInterrupted;
 
     const turnTriggerSource = this.getCurrentTurnTriggerSource(session);
     reconcileTerminalResultStateLifecycle(this.getGenerationLifecycleDeps(), session, "result");
@@ -4502,7 +4504,7 @@ export class WsBridge {
     ) as (BrowserIncomingMessage & { type: "assistant"; message: { content: ContentBlock[] } }) | undefined;
     if (latestTopLevelAssistant) {
       const addressing = this.classifyLeaderAssistantAddressing(session, latestTopLevelAssistant.message.content);
-      this.maybeInjectLeaderAddressingReminder(session, addressing, turnTriggerSource);
+      this.maybeInjectLeaderAddressingReminder(session, addressing, turnTriggerSource, turnWasInterrupted);
     }
 
     // Set attention only when this turn should surface to the human.
