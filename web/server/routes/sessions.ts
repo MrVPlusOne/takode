@@ -19,6 +19,7 @@ import { hasContainerCodexAuth } from "../codex-container-auth.js";
 import { getSettings } from "../settings-manager.js";
 import { searchSessionDocuments, type SessionSearchDocument } from "../session-search.js";
 import { ensureAssistantWorkspace, ASSISTANT_DIR } from "../assistant-workspace.js";
+import { trafficStats } from "../traffic-stats.js";
 import { generateUniqueSessionName } from "../../src/utils/names.js";
 import { GIT_CMD_TIMEOUT } from "../constants.js";
 import { getDefaultModelForBackend } from "../../shared/backend-defaults.js";
@@ -1470,6 +1471,13 @@ export function createSessionsRoutes(ctx: RouteContext) {
     if (!result) {
       return c.json({ error: "Tool result not found" }, 404);
     }
+
+    trafficStats.recordToolResultFetch({
+      sessionId,
+      toolUseId,
+      payloadBytes: Buffer.byteLength(JSON.stringify(result), "utf8"),
+      isError: result.is_error,
+    });
 
     return c.json(result);
   });

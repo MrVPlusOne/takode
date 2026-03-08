@@ -26,6 +26,7 @@ export interface TrafficStatsSnapshot {
   totals: TrafficTotals;
   buckets: TrafficBucketSnapshot[];
   sessions: Record<string, TrafficSessionSnapshot>;
+  toolResultFetches: ToolResultFetchSnapshot;
 }
 
 export interface TrafficRecord {
@@ -37,9 +38,45 @@ export interface TrafficRecord {
   fanout?: number;
 }
 
+export interface ToolResultFetchRecord {
+  sessionId: string;
+  toolUseId: string;
+  payloadBytes: number;
+  isError: boolean;
+}
+
+export interface ToolResultFetchTotals {
+  requests: number;
+  repeatedRequests: number;
+  payloadBytes: number;
+  errorRequests: number;
+}
+
+export interface ToolResultFetchEntrySnapshot extends ToolResultFetchTotals {
+  sessionId: string;
+  toolUseId: string;
+  lastFetchedAt: number;
+  maxPayloadBytes: number;
+}
+
+export interface ToolResultFetchSessionSnapshot extends ToolResultFetchTotals {
+  tools: ToolResultFetchEntrySnapshot[];
+}
+
+export interface ToolResultFetchSnapshot {
+  totals: ToolResultFetchTotals;
+  sessions: Record<string, ToolResultFetchSessionSnapshot>;
+  topRepeated: ToolResultFetchEntrySnapshot[];
+}
+
 interface TrafficBucket extends TrafficTotals {
   fanoutSum: number;
   maxFanout: number;
+}
+
+interface ToolResultFetchEntry extends ToolResultFetchTotals {
+  lastFetchedAt: number;
+  maxPayloadBytes: number;
 }
 
 function createTotals(): TrafficTotals {
@@ -48,6 +85,14 @@ function createTotals(): TrafficTotals {
 
 function createBucket(): TrafficBucket {
   return { ...createTotals(), fanoutSum: 0, maxFanout: 0 };
+}
+
+function createToolResultFetchTotals(): ToolResultFetchTotals {
+  return { requests: 0, repeatedRequests: 0, payloadBytes: 0, errorRequests: 0 };
+}
+
+function createToolResultFetchEntry(): ToolResultFetchEntry {
+  return { ...createToolResultFetchTotals(), lastFetchedAt: 0, maxPayloadBytes: 0 };
 }
 
 function bucketKey(channel: TrafficChannel, direction: TrafficDirection, messageType: string): string {
@@ -93,6 +138,8 @@ export class TrafficStatsCollector {
   private buckets = new Map<string, TrafficBucket>();
   private sessionTotals = new Map<string, TrafficTotals>();
   private sessionBuckets = new Map<string, Map<string, TrafficBucket>>();
+  private toolResultFetchTotals: ToolResultFetchTotals = createToolResultFetchTotals();
+  private toolResultFetchesBySession = new Map<string, Map<string, ToolResultFetchEntry>>();
 
   record(event: TrafficRecord): void {
     const payloadBytes = Math.max(0, Math.floor(event.payloadBytes));
@@ -122,6 +169,26 @@ export class TrafficStatsCollector {
     this.sessionBuckets.set(event.sessionId, perSessionBuckets);
   }
 
+  recordToolResultFetch(event: ToolResultFetchRecord): void {
+    const payloadBytes = Math.max(0, Math.floor(event.payloadBytes));
+    const sessionEntries = this.toolResultFetchesBySession.get(event.sessionId) ?? new Map<string, ToolResultFetchEntry>();
+    const existing = sessionEntries.get(event.toolUseId) ?? createToolResultFetchEntry();
+
+    existing.requests += 1;
+    if (existing.requests > 1) existing.repeatedRequests += 1;
+    existing.payloadBytes += payloadBytes;
+    if (event.isError) existing.errorRequests += 1;
+    existing.lastFetchedAt = Date.now();
+    existing.maxPayloadBytes = Math.max(existing.maxPayloadBytes, payloadBytes);
+    sessionEntries.set(event.toolUseId, existing);
+    this.toolResultFetchesBySession.set(event.sessionId, sessionEntries);
+
+    this.toolResultFetchTotals.requests += 1;
+    if (existing.requests > 1) this.toolResultFetchTotals.repeatedRequests += 1;
+    this.toolResultFetchTotals.payloadBytes += payloadBytes;
+    if (event.isError) this.toolResultFetchTotals.errorRequests += 1;
+  }
+
   snapshot(): TrafficStatsSnapshot {
     const capturedAt = Date.now();
     const buckets = this.serializeBuckets(this.buckets);
@@ -138,6 +205,7 @@ export class TrafficStatsCollector {
       totals: { ...this.totals },
       buckets,
       sessions,
+      toolResultFetches: this.serializeToolResultFetches(),
     };
   }
 
@@ -147,6 +215,8 @@ export class TrafficStatsCollector {
     this.buckets.clear();
     this.sessionTotals.clear();
     this.sessionBuckets.clear();
+    this.toolResultFetchTotals = createToolResultFetchTotals();
+    this.toolResultFetchesBySession.clear();
   }
 
   private serializeBuckets(source: Map<string, TrafficBucket>): TrafficBucketSnapshot[] {
@@ -174,6 +244,53 @@ export class TrafficStatsCollector {
       if (a.direction !== b.direction) return a.direction.localeCompare(b.direction);
       return a.messageType.localeCompare(b.messageType);
     });
+  }
+
+  private serializeToolResultFetches(): ToolResultFetchSnapshot {
+    const sessions: Record<string, ToolResultFetchSessionSnapshot> = {};
+    const allTools: ToolResultFetchEntrySnapshot[] = [];
+
+    for (const [sessionId, entries] of this.toolResultFetchesBySession) {
+      const tools: ToolResultFetchEntrySnapshot[] = [];
+      const totals = createToolResultFetchTotals();
+      for (const [toolUseId, entry] of entries) {
+        const snapshot: ToolResultFetchEntrySnapshot = {
+          sessionId,
+          toolUseId,
+          requests: entry.requests,
+          repeatedRequests: entry.repeatedRequests,
+          payloadBytes: entry.payloadBytes,
+          errorRequests: entry.errorRequests,
+          lastFetchedAt: entry.lastFetchedAt,
+          maxPayloadBytes: entry.maxPayloadBytes,
+        };
+        tools.push(snapshot);
+        allTools.push(snapshot);
+        totals.requests += entry.requests;
+        totals.repeatedRequests += entry.repeatedRequests;
+        totals.payloadBytes += entry.payloadBytes;
+        totals.errorRequests += entry.errorRequests;
+      }
+      tools.sort((a, b) => {
+        if (b.repeatedRequests !== a.repeatedRequests) return b.repeatedRequests - a.repeatedRequests;
+        if (b.payloadBytes !== a.payloadBytes) return b.payloadBytes - a.payloadBytes;
+        return a.toolUseId.localeCompare(b.toolUseId);
+      });
+      sessions[sessionId] = { ...totals, tools };
+    }
+
+    allTools.sort((a, b) => {
+      if (b.repeatedRequests !== a.repeatedRequests) return b.repeatedRequests - a.repeatedRequests;
+      if (b.payloadBytes !== a.payloadBytes) return b.payloadBytes - a.payloadBytes;
+      if (a.sessionId !== b.sessionId) return a.sessionId.localeCompare(b.sessionId);
+      return a.toolUseId.localeCompare(b.toolUseId);
+    });
+
+    return {
+      totals: { ...this.toolResultFetchTotals },
+      sessions,
+      topRepeated: allTools.slice(0, 20),
+    };
   }
 }
 

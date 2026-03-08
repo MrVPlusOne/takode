@@ -78,6 +78,76 @@ describe("TrafficStatsCollector", () => {
       payloadBytes: 25,
       wireBytes: 25,
     });
+    expect(snapshot.toolResultFetches).toEqual({
+      totals: { requests: 0, repeatedRequests: 0, payloadBytes: 0, errorRequests: 0 },
+      sessions: {},
+      topRepeated: [],
+    });
+  });
+
+  it("tracks tool result fetch bytes and repeated downloads per tool", () => {
+    const stats = new TrafficStatsCollector();
+
+    stats.recordToolResultFetch({
+      sessionId: "s1",
+      toolUseId: "tu-1",
+      payloadBytes: 1200,
+      isError: false,
+    });
+    stats.recordToolResultFetch({
+      sessionId: "s1",
+      toolUseId: "tu-1",
+      payloadBytes: 1200,
+      isError: false,
+    });
+    stats.recordToolResultFetch({
+      sessionId: "s1",
+      toolUseId: "tu-2",
+      payloadBytes: 300,
+      isError: true,
+    });
+
+    const snapshot = stats.snapshot();
+    expect(snapshot.toolResultFetches.totals).toEqual({
+      requests: 3,
+      repeatedRequests: 1,
+      payloadBytes: 2700,
+      errorRequests: 1,
+    });
+    expect(snapshot.toolResultFetches.sessions.s1).toMatchObject({
+      requests: 3,
+      repeatedRequests: 1,
+      payloadBytes: 2700,
+      errorRequests: 1,
+    });
+    expect(snapshot.toolResultFetches.sessions.s1?.tools).toEqual([
+      {
+        sessionId: "s1",
+        toolUseId: "tu-1",
+        requests: 2,
+        repeatedRequests: 1,
+        payloadBytes: 2400,
+        errorRequests: 0,
+        lastFetchedAt: expect.any(Number),
+        maxPayloadBytes: 1200,
+      },
+      {
+        sessionId: "s1",
+        toolUseId: "tu-2",
+        requests: 1,
+        repeatedRequests: 0,
+        payloadBytes: 300,
+        errorRequests: 1,
+        lastFetchedAt: expect.any(Number),
+        maxPayloadBytes: 300,
+      },
+    ]);
+    expect(snapshot.toolResultFetches.topRepeated[0]).toMatchObject({
+      sessionId: "s1",
+      toolUseId: "tu-1",
+      repeatedRequests: 1,
+      payloadBytes: 2400,
+    });
   });
 
   it("resets back to an empty snapshot", () => {
@@ -99,6 +169,11 @@ describe("TrafficStatsCollector", () => {
       totals: { messages: 0, payloadBytes: 0, wireBytes: 0 },
       buckets: [],
       sessions: {},
+      toolResultFetches: {
+        totals: { requests: 0, repeatedRequests: 0, payloadBytes: 0, errorRequests: 0 },
+        sessions: {},
+        topRepeated: [],
+      },
     });
     expect(stats.snapshot().windowStartedAt).toBeGreaterThanOrEqual(firstWindowStartedAt);
   });

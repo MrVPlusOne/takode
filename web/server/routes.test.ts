@@ -148,6 +148,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { access, readFile, stat } from "node:fs/promises";
 import { buildOrchestratorSystemPrompt, createRoutes } from "./routes.js";
 import { _resetModelCache } from "./routes/system.js";
+import { trafficStats } from "./traffic-stats.js";
 import * as envManager from "./env-manager.js";
 import * as gitUtils from "./git-utils.js";
 import * as questStore from "./quest-store.js";
@@ -239,6 +240,7 @@ function createMockBridge() {
     getSessionTaskHistory: vi.fn(() => []),
     getSessionKeywords: vi.fn(() => []),
     getMessageHistory: vi.fn(() => []),
+    getToolResult: vi.fn(() => null),
     markSessionRead: vi.fn(() => true),
     markSessionUnread: vi.fn(() => true),
     markAllSessionsRead: vi.fn(),
@@ -253,6 +255,11 @@ function createMockBridge() {
       totals: { messages: 1, payloadBytes: 10, wireBytes: 10 },
       buckets: [],
       sessions: {},
+      toolResultFetches: {
+        totals: { requests: 0, repeatedRequests: 0, payloadBytes: 0, errorRequests: 0 },
+        sessions: {},
+        topRepeated: [],
+      },
     })),
     resetTrafficStats: vi.fn(),
   } as any;
@@ -293,6 +300,7 @@ let recorder: ReturnType<typeof createMockRecorder>;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  trafficStats.reset();
   // Reset the LiteLLM model cache so each test starts clean.
   _resetModelCache();
   // Stub global fetch to prevent LiteLLM proxy calls in tests.
@@ -1447,6 +1455,11 @@ describe("GET /api/traffic/stats", () => {
         totals: { messages: 1, payloadBytes: 10, wireBytes: 10 },
         buckets: [],
         sessions: {},
+        toolResultFetches: {
+          totals: { requests: 0, repeatedRequests: 0, payloadBytes: 0, errorRequests: 0 },
+          sessions: {},
+          topRepeated: [],
+        },
       },
       recording: {
         available: true,
@@ -1472,8 +1485,48 @@ describe("POST /api/traffic/stats/reset", () => {
         totals: { messages: 1, payloadBytes: 10, wireBytes: 10 },
         buckets: [],
         sessions: {},
+        toolResultFetches: {
+          totals: { requests: 0, repeatedRequests: 0, payloadBytes: 0, errorRequests: 0 },
+          sessions: {},
+          topRepeated: [],
+        },
       },
     });
+  });
+});
+
+describe("GET /api/sessions/:id/tool-result/:toolUseId", () => {
+  it("records bytes and repeated fetches for lazy full tool results", async () => {
+    bridge.getToolResult.mockReturnValue({
+      content: "full terminal output",
+      is_error: false,
+    });
+
+    const first = await app.request("/api/sessions/session-1/tool-result/tu-1", { method: "GET" });
+    const second = await app.request("/api/sessions/session-1/tool-result/tu-1", { method: "GET" });
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+
+    const snapshot = trafficStats.snapshot();
+    expect(snapshot.toolResultFetches.totals).toEqual({
+      requests: 2,
+      repeatedRequests: 1,
+      payloadBytes: Buffer.byteLength(JSON.stringify({ content: "full terminal output", is_error: false }), "utf8") * 2,
+      errorRequests: 0,
+    });
+    expect(snapshot.toolResultFetches.sessions["session-1"]?.tools).toEqual([
+      {
+        sessionId: "session-1",
+        toolUseId: "tu-1",
+        requests: 2,
+        repeatedRequests: 1,
+        payloadBytes: Buffer.byteLength(JSON.stringify({ content: "full terminal output", is_error: false }), "utf8") * 2,
+        errorRequests: 0,
+        lastFetchedAt: expect.any(Number),
+        maxPayloadBytes: Buffer.byteLength(JSON.stringify({ content: "full terminal output", is_error: false }), "utf8"),
+      },
+    ]);
   });
 });
 
