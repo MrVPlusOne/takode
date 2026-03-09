@@ -438,7 +438,9 @@ function activate(context) {
   });
 
   const heartbeatInterval = setInterval(() => {
-    void selectionSync.publishSelection(getBackgroundSelectionContext(), { force: true });
+    // Selection: no force — only republish if the fingerprint actually changed.
+    // Force-publishing creates timestamp churn that makes the browser badge flicker.
+    void selectionSync.publishSelection(getBackgroundSelectionContext());
     void selectionSync.publishWindow({ force: true, lastActivityAt: lastWindowActivityAt });
   }, SELECTION_SYNC_HEARTBEAT_MS);
   context.subscriptions.push({
