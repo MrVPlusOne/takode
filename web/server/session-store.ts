@@ -167,6 +167,56 @@ export class SessionStore {
     return 0;
   }
 
+  private static toolResultPreviewReplayKey(message: BrowserIncomingMessage): string | null {
+    if (message.type !== "tool_result_preview" || !Array.isArray(message.previews) || message.previews.length === 0) {
+      return null;
+    }
+    return JSON.stringify(
+      message.previews.map((preview) => ({
+        tool_use_id: preview.tool_use_id,
+        content: preview.content,
+        is_error: preview.is_error,
+        total_size: preview.total_size,
+        is_truncated: preview.is_truncated,
+      })),
+    );
+  }
+
+  private trimDuplicateReplayPreviewTail(messages: BrowserIncomingMessage[]): {
+    messages: BrowserIncomingMessage[];
+    removedCount: number;
+  } {
+    let suffixStart = messages.length;
+    while (suffixStart > 0 && messages[suffixStart - 1]?.type === "tool_result_preview") {
+      suffixStart--;
+    }
+    if (suffixStart === messages.length) return { messages, removedCount: 0 };
+
+    const seen = new Set<string>();
+    for (let i = 0; i < suffixStart; i++) {
+      const key = SessionStore.toolResultPreviewReplayKey(messages[i]);
+      if (key) seen.add(key);
+    }
+
+    const cleaned = messages.slice(0, suffixStart);
+    let removedCount = 0;
+    for (let i = suffixStart; i < messages.length; i++) {
+      const key = SessionStore.toolResultPreviewReplayKey(messages[i]);
+      if (!key) {
+        cleaned.push(messages[i]);
+        continue;
+      }
+      if (seen.has(key)) {
+        removedCount++;
+        continue;
+      }
+      seen.add(key);
+      cleaned.push(messages[i]);
+    }
+
+    return removedCount > 0 ? { messages: cleaned, removedCount } : { messages, removedCount: 0 };
+  }
+
   /**
    * Append newly frozen messages and tool results to the JSONL frozen log.
    * Creates the file with a version header if it doesn't exist yet.
@@ -319,6 +369,15 @@ export class SessionStore {
    * current turn goes to the hot JSON file (O(current turn), typically <1ms).
    */
   saveSync(session: PersistedSession): void {
+    const cleanedHistory = this.trimDuplicateReplayPreviewTail(session.messageHistory);
+    if (cleanedHistory.removedCount > 0) {
+      session.messageHistory = cleanedHistory.messages;
+      console.warn(
+        `[session-store] Trimmed ${cleanedHistory.removedCount} duplicate replay-generated tool_result_preview messages ` +
+        `from hot tail while saving session ${session.id.slice(0, 8)}`,
+      );
+    }
+
     const messages = session.messageHistory;
     const allToolResults = session.toolResults ?? [];
 
@@ -461,12 +520,34 @@ export class SessionStore {
       ...hotTailToolResults,
     ];
 
+    const mergedHistory = [...frozen.messages, ...hotTail];
+    const cleanedHistory = this.trimDuplicateReplayPreviewTail(mergedHistory);
+    const cleanedHotTail = cleanedHistory.messages.slice(actualFrozenMsgs);
+
+    if (cleanedHistory.removedCount > 0) {
+      console.warn(
+        `[session-store] Repaired ${cleanedHistory.removedCount} duplicate replay-generated tool_result_preview messages ` +
+        `from persisted hot tail for session ${sessionId.slice(0, 8)}`,
+      );
+      this.writeHotJson(
+        {
+          ...hot,
+          messageHistory: cleanedHistory.messages,
+          toolResults: mergedToolResults,
+        },
+        cleanedHotTail,
+        hotTailToolResults,
+        actualFrozenMsgs,
+        frozen.toolResults.length,
+      );
+    }
+
     this.frozenCounts.set(sessionId, actualFrozenMsgs);
     this.frozenToolResultCounts.set(sessionId, frozen.toolResults.length);
 
     return {
       ...hot,
-      messageHistory: [...frozen.messages, ...hotTail],
+      messageHistory: cleanedHistory.messages,
       toolResults: mergedToolResults,
       _frozenCount: actualFrozenMsgs,
       _frozenToolResultCount: frozen.toolResults.length,

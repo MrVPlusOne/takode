@@ -75,6 +75,19 @@ function makeToolResults(turnIndex: number): NonNullable<PersistedSession["toolR
   ];
 }
 
+function makeToolResultPreviewMessage(toolUseId: string, content = `Preview for ${toolUseId}`): PersistedSession["messageHistory"][number] {
+  return {
+    type: "tool_result_preview",
+    previews: [{
+      tool_use_id: toolUseId,
+      content,
+      is_error: false,
+      total_size: content.length,
+      is_truncated: false,
+    }],
+  } as PersistedSession["messageHistory"][number];
+}
+
 beforeEach(() => {
   tempDir = mkdtempSync(join(tmpdir(), "ss-test-"));
   store = new SessionStore(tempDir);
@@ -551,6 +564,86 @@ describe("append-only frozen history", () => {
     expect(loaded!.messageHistory).toHaveLength(6);
     expect((loaded!.messageHistory[0] as { content: string }).content).toBe("Turn 1 question");
     expect((loaded!.messageHistory[3] as { content: string }).content).toBe("Turn 2 question");
+  });
+
+  it("repairs duplicate replay-generated tool_result_preview hot tails on load and rewrites the hot JSON", async () => {
+    const frozenTurn = makeTurnMessages(1);
+    const repeatedPreview = makeToolResultPreviewMessage("tu-replayed", "Replay-generated preview");
+    const uniquePreview = makeToolResultPreviewMessage("tu-unique", "Latest preview");
+
+    const session = makeSession("repair-preview-tail", {
+      messageHistory: [...frozenTurn, repeatedPreview, uniquePreview],
+      toolResults: makeToolResults(1),
+    });
+    store.saveSync(session);
+    await store.flushAll();
+
+    const hotPath = join(tempDir, "repair-preview-tail.json");
+    const hotRaw = JSON.parse(readFileSync(hotPath, "utf-8"));
+    hotRaw.messageHistory = [
+      repeatedPreview,
+      uniquePreview,
+      repeatedPreview,
+      uniquePreview,
+      repeatedPreview,
+      uniquePreview,
+    ];
+    writeFileSync(hotPath, JSON.stringify(hotRaw), "utf-8");
+
+    const freshStore = new SessionStore(tempDir);
+    const loaded = await freshStore.load("repair-preview-tail");
+    expect(loaded).not.toBeNull();
+    expect(loaded!.messageHistory).toEqual([...frozenTurn, repeatedPreview, uniquePreview]);
+
+    await freshStore.flushAll();
+    const repairedHotRaw = JSON.parse(readFileSync(hotPath, "utf-8"));
+    expect(repairedHotRaw.messageHistory).toEqual([repeatedPreview, uniquePreview]);
+    expect(repairedHotRaw.messageHistory).toHaveLength(2);
+  });
+
+  it("does not trim unique in-progress tool_result_preview tails while saving", async () => {
+    const session = makeSession("keep-unique-preview-tail", {
+      messageHistory: [
+        makeToolResultPreviewMessage("tu-a", "First unique preview"),
+        makeToolResultPreviewMessage("tu-b", "Second unique preview"),
+      ],
+    });
+
+    store.saveSync(session);
+    await store.flushAll();
+
+    expect(session.messageHistory).toEqual([
+      makeToolResultPreviewMessage("tu-a", "First unique preview"),
+      makeToolResultPreviewMessage("tu-b", "Second unique preview"),
+    ]);
+
+    const loaded = await store.load("keep-unique-preview-tail");
+    expect(loaded!.messageHistory).toEqual([
+      makeToolResultPreviewMessage("tu-a", "First unique preview"),
+      makeToolResultPreviewMessage("tu-b", "Second unique preview"),
+    ]);
+  });
+
+  it("trims duplicate replay-generated tool_result_preview tails from already-loaded sessions on save", async () => {
+    const repeatedPreview = makeToolResultPreviewMessage("tu-replayed", "Replay-generated preview");
+    const uniquePreview = makeToolResultPreviewMessage("tu-unique", "Latest preview");
+    const session = makeSession("trim-loaded-preview-tail", {
+      messageHistory: [
+        repeatedPreview,
+        uniquePreview,
+        repeatedPreview,
+        uniquePreview,
+        repeatedPreview,
+      ],
+    });
+
+    store.saveSync(session);
+    await store.flushAll();
+
+    expect(session.messageHistory).toEqual([repeatedPreview, uniquePreview]);
+
+    const loaded = await store.load("trim-loaded-preview-tail");
+    expect(loaded!.messageHistory).toEqual([repeatedPreview, uniquePreview]);
   });
 
   it("handles corrupt/truncated JSONL lines gracefully", async () => {
