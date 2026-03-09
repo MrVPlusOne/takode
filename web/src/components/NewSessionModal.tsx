@@ -172,10 +172,17 @@ export function NewSessionModal({ open, onClose }: { open: boolean; onClose: () 
     api.getBackendModels(backend).then((models) => {
       if (models.length > 0) {
         const options = toModelOptions(models);
-        setDynamicModels(options);
-        if (!options.some((m) => m.value === model)) {
-          setModel(options[0].value);
-          scopedSetItem(`cc-model-${backend}`, options[0].value);
+        // Always prepend the "Default" option (value="") so users can use
+        // whatever model is configured in settings.json / cloud config.
+        const staticModels = getModelsForBackend(backend);
+        const defaultOpt = staticModels.find((m) => m.value === "");
+        const withDefault = defaultOpt
+          ? [defaultOpt, ...options.filter((m) => m.value !== "")]
+          : options;
+        setDynamicModels(withDefault);
+        if (!withDefault.some((m) => m.value === model)) {
+          setModel(withDefault[0].value);
+          scopedSetItem(`cc-model-${backend}`, withDefault[0].value);
         }
       }
     }).catch(() => {});
