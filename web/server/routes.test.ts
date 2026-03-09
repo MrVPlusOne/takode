@@ -2098,7 +2098,8 @@ describe("POST /api/transcribe", () => {
     const [, enhanceInit] = vi.mocked(fetch).mock.calls[1] as [string, RequestInit];
     const enhanceBody = JSON.parse(String(enhanceInit.body));
     expect(enhanceBody.messages[0].content).toContain("VOICE EDITOR");
-    expect(enhanceBody.messages[0].content).toContain("Use - for top-level bullets, * for sub-bullets.");
+    expect(enhanceBody.messages[0].content).toContain("Top-level points are plain text lines");
+    expect(enhanceBody.messages[0].content).toContain('Sub-points use "  - "');
     expect(enhanceBody.messages[1].content).toContain("<CURRENT_COMPOSER_TEXT>");
     expect(enhanceBody.messages[1].content).toContain("<EDIT_INSTRUCTION>");
   });
