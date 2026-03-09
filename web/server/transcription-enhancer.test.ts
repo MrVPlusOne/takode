@@ -305,19 +305,6 @@ describe("buildEnhancementPrompt", () => {
     expect(prompt).toContain("<TRANSCRIPT>");
   });
 
-  it("includes composer text in COMPOSER_CONTEXT XML block", () => {
-    const prompt = buildEnhancementPrompt("fix the bug", "", {
-      composerBefore: "Please update",
-      composerAfter: "in the auth module",
-    });
-    expect(prompt).toContain("<COMPOSER_CONTEXT>");
-    expect(prompt).toContain("Text before cursor: Please update");
-    expect(prompt).toContain("Text after cursor: in the auth module");
-    expect(prompt).toContain("</COMPOSER_CONTEXT>");
-    // Composer context is its own block, not inside SESSION_CONTEXT
-    expect(prompt).not.toContain("<SESSION_CONTEXT>");
-  });
-
   it("includes task titles in SESSION_CONTEXT", () => {
     const prompt = buildEnhancementPrompt("fix the bug", "", {
       taskTitles: ["Fix WsBridge reconnect", "Add voice transcription"],
@@ -351,23 +338,18 @@ describe("buildEnhancementPrompt", () => {
 
   it("includes all context blocks in correct order", () => {
     const prompt = buildEnhancementPrompt("fix it", "User: Fix the bug", {
-      composerBefore: "Update the",
-      composerAfter: "module",
       taskTitles: ["Fix auth"],
       sessionName: "Debug session",
     });
     expect(prompt).toContain("<CONVERSATION_CONTEXT>");
-    expect(prompt).toContain("<COMPOSER_CONTEXT>");
     expect(prompt).toContain("<SESSION_CONTEXT>");
     expect(prompt).toContain("<TRANSCRIPT>");
-    // Verify order: conversation → composer → session → transcript
-    const convIdx = prompt.indexOf("<CONVERSATION_CONTEXT>");
-    const compIdx = prompt.indexOf("<COMPOSER_CONTEXT>");
+    // Verify order: session → conversation → transcript
     const sessIdx = prompt.indexOf("<SESSION_CONTEXT>");
+    const convIdx = prompt.indexOf("<CONVERSATION_CONTEXT>");
     const transIdx = prompt.indexOf("<TRANSCRIPT>");
-    expect(convIdx).toBeLessThan(compIdx);
-    expect(compIdx).toBeLessThan(sessIdx);
-    expect(sessIdx).toBeLessThan(transIdx);
+    expect(sessIdx).toBeLessThan(convIdx);
+    expect(convIdx).toBeLessThan(transIdx);
   });
 });
 
@@ -526,24 +508,6 @@ describe("buildSttPrompt", () => {
     expect(prompt).toContain("Session: " + "A".repeat(100) + "...");
   });
 
-  it("includes composer context with [CURSOR] marker", () => {
-    const prompt = buildSttPrompt({
-      composerBefore: "Fix the bug in",
-      composerAfter: "and add tests",
-    });
-    expect(prompt).toContain("Composer: Fix the bug in [CURSOR] and add tests");
-  });
-
-  it("includes only composerBefore with [CURSOR] when composerAfter is empty", () => {
-    const prompt = buildSttPrompt({ composerBefore: "Implement the" });
-    expect(prompt).toContain("Composer: Implement the [CURSOR]");
-  });
-
-  it("includes only composerAfter with [CURSOR] when composerBefore is empty", () => {
-    const prompt = buildSttPrompt({ composerAfter: "and add tests" });
-    expect(prompt).toContain("Composer: [CURSOR] and add tests");
-  });
-
   it("places the current draft in a tagged block after the conversation context in voice-edit mode", () => {
     const prompt = buildSttPrompt({
       mode: "edit",
@@ -578,12 +542,11 @@ describe("buildSttPrompt", () => {
     expect(prompt).not.toContain(" | ");
   });
 
-  it("fills in priority order: tasks > session > sessions > composer > conversation", () => {
+  it("fills in priority order: tasks > session > sessions > conversation", () => {
     const prompt = buildSttPrompt({
       taskHistory: [makeTask("Fix auth bug")],
       sessionName: "Debug session",
       activeSessionNames: ["Other session"],
-      composerBefore: "Add a test for",
       messageHistory: [userMsg("Some earlier message")],
     });
     // Extract inner content (between guard instruction and closing directive)
@@ -593,7 +556,6 @@ describe("buildSttPrompt", () => {
     expect(lines[0]).toMatch(/^Tasks: .*Fix auth bug/);
     expect(lines[1]).toBe("Session: Debug session");
     expect(lines[2]).toBe("Sessions: Other session");
-    expect(lines[3]).toContain("Add a test for");
     // Conversation is wrapped in <VOCABULARY_REFERENCE> tags
     expect(prompt).toContain("<VOCABULARY_REFERENCE>");
     expect(prompt).toContain("</VOCABULARY_REFERENCE>");
@@ -604,7 +566,6 @@ describe("buildSttPrompt", () => {
     const prompt = buildSttPrompt({
       taskHistory: [makeTask("A".repeat(100))],
       sessionName: "B".repeat(100),
-      composerBefore: "C".repeat(100),
       messageHistory: [
         userMsg("D".repeat(500)),
         userMsg("E".repeat(500)),

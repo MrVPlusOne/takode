@@ -290,10 +290,6 @@ export interface EnhancementContextInput {
   mode?: "dictation" | "edit";
   /** Full current composer text (used by voice-edit mode). */
   composerText?: string;
-  /** Text before the cursor in the composer. */
-  composerBefore?: string;
-  /** Text after the cursor in the composer. */
-  composerAfter?: string;
   /** Task titles from the session auto-namer. */
   taskTitles?: string[];
   /** Session display name. */
@@ -304,7 +300,7 @@ export interface EnhancementContextInput {
 
 /**
  * Build the full user message for the enhancement LLM call.
- * Wraps conversation context, supplementary context, and transcript in XML tags.
+ * Sections ordered broadest → narrowest: session metadata → conversation → transcript.
  */
 export function buildEnhancementPrompt(
   rawTranscript: string,
@@ -313,43 +309,32 @@ export function buildEnhancementPrompt(
 ): string {
   const parts: string[] = [];
 
-  if (conversationContext) {
-    parts.push(`<CONVERSATION_CONTEXT>\nRecent conversation in this coding session:\n\n${conversationContext}\n</CONVERSATION_CONTEXT>`);
-    parts.push("");
-  }
-
-  // Composer context — shows where the voice text will be inserted
-  if (extra?.composerBefore || extra?.composerAfter) {
-    const composerLines: string[] = [];
-    if (extra.composerBefore) composerLines.push(`Text before cursor: ${trunc(extra.composerBefore.trim(), 500)}`);
-    if (extra.composerAfter) composerLines.push(`Text after cursor: ${trunc(extra.composerAfter.trim(), 500)}`);
-    parts.push(`<COMPOSER_CONTEXT>\n${composerLines.join("\n")}\n</COMPOSER_CONTEXT>`);
-    parts.push("");
-  }
-
-  // Supplementary context — vocabulary and domain knowledge
+  // 1. Session metadata (broadest context — vocabulary and domain knowledge)
   const supplementary: string[] = [];
-
   if (extra?.taskTitles && extra.taskTitles.length > 0) {
     supplementary.push(`Session tasks: ${extra.taskTitles.join("; ")}`);
   }
-
   if (extra?.sessionName) {
     supplementary.push(`Current session: ${extra.sessionName}`);
   }
-
   if (extra?.activeSessionNames && extra.activeSessionNames.length > 0) {
     supplementary.push(`Other active sessions: ${extra.activeSessionNames.join("; ")}`);
   }
-
   if (supplementary.length > 0) {
     parts.push(`<SESSION_CONTEXT>\n${supplementary.join("\n")}\n</SESSION_CONTEXT>`);
     parts.push("");
   }
 
+  // 2. Conversation context (recent turns for domain context)
+  if (conversationContext) {
+    parts.push(`<CONVERSATION_CONTEXT>\nRecent conversation in this coding session:\n\n${conversationContext}\n</CONVERSATION_CONTEXT>`);
+    parts.push("");
+  }
+
+  // 3. Transcript (narrowest — the raw audio to enhance)
   parts.push(`<TRANSCRIPT>\n${rawTranscript}\n</TRANSCRIPT>`);
 
-  // Format reminder — reinforces the system prompt's format requirement
+  // 4. Format reminder (last — recency bias)
   parts.push("\nRemember: for 2+ sentences, use plain text lines for top-level points (no bullet marker) and indented \"  - \" for sub-points. Keep top-level lines short; put details in sub-points.");
 
   return parts.join("\n");
@@ -363,15 +348,7 @@ export function buildVoiceEditPrompt(
 ): string {
   const parts: string[] = [];
 
-  parts.push(`<CURRENT_COMPOSER_TEXT>\n${currentComposerText}\n</CURRENT_COMPOSER_TEXT>`);
-  parts.push("");
-  parts.push(`<EDIT_INSTRUCTION>\n${instructionText}\n</EDIT_INSTRUCTION>`);
-
-  if (conversationContext) {
-    parts.push("");
-    parts.push(`<CONVERSATION_CONTEXT>\nRecent conversation in this coding session:\n\n${conversationContext}\n</CONVERSATION_CONTEXT>`);
-  }
-
+  // 1. Session metadata (broadest context)
   const supplementary: string[] = [];
   if (extra?.taskTitles && extra.taskTitles.length > 0) {
     supplementary.push(`Session tasks: ${extra.taskTitles.join("; ")}`);
@@ -382,11 +359,23 @@ export function buildVoiceEditPrompt(
   if (extra?.activeSessionNames && extra.activeSessionNames.length > 0) {
     supplementary.push(`Other active sessions: ${extra.activeSessionNames.join("; ")}`);
   }
-
   if (supplementary.length > 0) {
-    parts.push("");
     parts.push(`<SESSION_CONTEXT>\n${supplementary.join("\n")}\n</SESSION_CONTEXT>`);
+    parts.push("");
   }
+
+  // 2. Conversation context (recent turns)
+  if (conversationContext) {
+    parts.push(`<CONVERSATION_CONTEXT>\nRecent conversation in this coding session:\n\n${conversationContext}\n</CONVERSATION_CONTEXT>`);
+    parts.push("");
+  }
+
+  // 3. Current composer text (what the user is editing)
+  parts.push(`<CURRENT_COMPOSER_TEXT>\n${currentComposerText}\n</CURRENT_COMPOSER_TEXT>`);
+  parts.push("");
+
+  // 4. Edit instruction (narrowest — the spoken command to apply)
+  parts.push(`<EDIT_INSTRUCTION>\n${instructionText}\n</EDIT_INSTRUCTION>`);
 
   return parts.join("\n");
 }
@@ -404,10 +393,6 @@ export interface SttPromptInput {
   sessionName?: string;
   /** Names of other active sessions (vocabulary from the user's workspace). */
   activeSessionNames?: string[];
-  /** Text before the cursor in the composer (for mid-prompt voice insertion). */
-  composerBefore?: string;
-  /** Text after the cursor in the composer. */
-  composerAfter?: string;
   /** Full message history for extracting recent user messages. */
   messageHistory?: BrowserIncomingMessage[] | null;
   /** Comma-separated custom vocabulary terms from user settings. */
@@ -485,13 +470,9 @@ export function buildSttPrompt(input: SttPromptInput): string {
     addMeta("Sessions: " + truncated.join(", "));
   }
 
-  // 4. Composer text
+  // 4. Composer text (voice-edit mode only — provides vocabulary from the draft)
   if (input.mode === "edit" && input.composerText && metaRemaining > 0) {
     addDraftSection(input.composerText);
-  } else if ((input.composerBefore || input.composerAfter) && metaRemaining > 0) {
-    const before = input.composerBefore ? trunc(input.composerBefore.trim(), 500) + " " : "";
-    const after = input.composerAfter ? " " + trunc(input.composerAfter.trim(), 500) : "";
-    addMeta(`Composer: ${before}[CURSOR]${after}`);
   }
 
   // 5. Custom vocabulary terms from user settings
@@ -737,7 +718,7 @@ export async function enhanceTranscript(
   const conversationContext = history ? buildTranscriptionContext(history) : "";
 
   // Check if we have any meaningful context at all
-  const hasExtra = !!(extra?.composerText || extra?.composerBefore || extra?.composerAfter || extra?.taskTitles?.length || extra?.sessionName || extra?.activeSessionNames?.length);
+  const hasExtra = !!(extra?.composerText || extra?.taskTitles?.length || extra?.sessionName || extra?.activeSessionNames?.length);
   if (!conversationContext && !hasExtra) {
     return { text: rawText, enhanced: false, _debug: { model, systemPrompt: DICTATION_SYSTEM_PROMPT, userMessage: "", enhancedText: null, durationMs: 0, skipReason: "no context" } };
   }

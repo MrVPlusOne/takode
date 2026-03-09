@@ -40,8 +40,6 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
     const sessionId = typeof body["sessionId"] === "string" ? body["sessionId"] : undefined;
     const mode = body["mode"] === "edit" ? "edit" : "dictation";
     const composerText = typeof body["composerText"] === "string" ? body["composerText"] : undefined;
-    const composerBefore = typeof body["composerBefore"] === "string" ? body["composerBefore"] : undefined;
-    const composerAfter = typeof body["composerAfter"] === "string" ? body["composerAfter"] : undefined;
     const requestedBackend = typeof body["backend"] === "string" ? body["backend"] : undefined;
     const { default: defaultBackend } = getAvailableBackends();
     const backend = requestedBackend || defaultBackend;
@@ -85,8 +83,6 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
             sessionName: sessionNames.getName(sessionId),
             activeSessionNames: recentOtherNames.length > 0 ? recentOtherNames : undefined,
             composerText: mode === "edit" ? composerText : undefined,
-            composerBefore: composerBefore,
-            composerAfter: composerAfter,
             messageHistory: wsBridge.getMessageHistory(sessionId),
             customVocabulary: getSettings().transcriptionConfig.customVocabulary || undefined,
           });
@@ -193,8 +189,6 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
 
           const result = await enhanceTranscript(rawText, history, settings.transcriptionConfig, enhancementKey!, {
             mode,
-            composerBefore: composerBefore,
-            composerAfter: composerAfter,
             taskTitles: taskHistory.map((t) => t.title),
             sessionName: sessionNames.getName(sessionId!),
             activeSessionNames: enhOtherNames.length > 0 ? enhOtherNames : undefined,

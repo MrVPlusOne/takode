@@ -261,17 +261,12 @@ export function Composer({ sessionId }: { sessionId: string }) {
             instructionText: instructionText || rawText || "",
           });
         } else {
-          const { before, after } = preRecordingTextRef.current;
           const { text: transcript } = await api.transcribe(blob, {
             mode: "dictation",
             sessionId,
-            composerBefore: before || undefined,
-            composerAfter: after || undefined,
             onPhase: (phase) => setTranscriptionPhase(phase),
           });
-          const separator = before && !before.endsWith(" ") && !before.endsWith("\n") ? " " : "";
-          const afterSep = after && !after.startsWith(" ") && !after.startsWith("\n") ? " " : "";
-          setText(before + separator + transcript + afterSep + after);
+          setText(transcript);
           setVoiceEditProposal(null);
         }
       } catch (err) {

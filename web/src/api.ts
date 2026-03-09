@@ -873,8 +873,6 @@ export const api = {
       mode?: VoiceTranscriptionMode;
       sessionId?: string;
       composerText?: string;
-      composerBefore?: string;
-      composerAfter?: string;
       /** Called when transcription phase changes (e.g. "enhancing" after STT completes) */
       onPhase?: (phase: VoiceTranscriptionPhase) => void;
     },
@@ -886,8 +884,6 @@ export const api = {
     if (options?.mode) form.append("mode", options.mode);
     if (options?.sessionId) form.append("sessionId", options.sessionId);
     if (options?.composerText !== undefined) form.append("composerText", options.composerText);
-    if (options?.composerBefore) form.append("composerBefore", options.composerBefore);
-    if (options?.composerAfter) form.append("composerAfter", options.composerAfter);
     const res = await fetch(`${BASE}/transcribe`, { method: "POST", body: form });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: res.statusText }));
