@@ -118,6 +118,7 @@ function setStoreFeedScrollPosition(
     isAtBottom: boolean;
     anchorTurnId?: string | null;
     anchorOffsetTop?: number;
+    lastSeenContentBottom?: number | null;
   },
 ) {
   const map = new Map();
@@ -1049,6 +1050,184 @@ describe("MessageFeed - streaming text", () => {
     fireEvent.click(screen.getByLabelText("Jump to latest"));
 
     expect(mockScrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "end" });
+  });
+
+  it("shows the latest indicator immediately when a restored session progressed below the last seen content bottom", () => {
+    const sid = "test-latest-pill-on-session-restore";
+    const user = makeMessage({ id: "u1", role: "user", content: "Question" });
+    const assistant = makeMessage({ id: "a1", role: "assistant", content: "Answer" });
+    const freshAssistant = makeMessage({ id: "a2", role: "assistant", content: "Fresh content below" });
+    setStoreMessages(sid, [user, assistant, freshAssistant]);
+    setStoreFeedScrollPosition(sid, {
+      scrollTop: 200,
+      scrollHeight: 1200,
+      isAtBottom: false,
+      lastSeenContentBottom: 1180,
+    });
+    const originalClientHeight = Object.getOwnPropertyDescriptor(HTMLDivElement.prototype, "clientHeight");
+    const originalScrollHeight = Object.getOwnPropertyDescriptor(HTMLDivElement.prototype, "scrollHeight");
+    const originalScrollTop = Object.getOwnPropertyDescriptor(HTMLDivElement.prototype, "scrollTop");
+    const originalGetBoundingClientRect = Element.prototype.getBoundingClientRect;
+
+    Object.defineProperty(HTMLDivElement.prototype, "clientHeight", {
+      configurable: true,
+      get() {
+        return this.classList.contains("overflow-y-auto") ? 600 : 0;
+      },
+    });
+    Object.defineProperty(HTMLDivElement.prototype, "scrollHeight", {
+      configurable: true,
+      get() {
+        return this.classList.contains("overflow-y-auto") ? 1600 : 0;
+      },
+    });
+    Object.defineProperty(HTMLDivElement.prototype, "scrollTop", {
+      configurable: true,
+      get() {
+        return this.classList.contains("overflow-y-auto") ? 200 : 0;
+      },
+      set() {},
+    });
+    Element.prototype.getBoundingClientRect = function () {
+      if (this instanceof HTMLElement && this.classList.contains("overflow-y-auto")) {
+        return {
+          x: 0,
+          y: 100,
+          top: 100,
+          bottom: 700,
+          left: 0,
+          right: 0,
+          width: 0,
+          height: 600,
+          toJSON: () => ({}),
+        };
+      }
+      if (this instanceof HTMLElement && this.dataset.turnId === "u1") {
+        return {
+          x: 0,
+          y: 240,
+          top: 240,
+          bottom: 320,
+          left: 0,
+          right: 0,
+          width: 0,
+          height: 80,
+          toJSON: () => ({}),
+        };
+      }
+      if (this instanceof HTMLElement && this.dataset.turnId === "a2") {
+        return {
+          x: 0,
+          y: 1180,
+          top: 1180,
+          bottom: 1380,
+          left: 0,
+          right: 0,
+          width: 0,
+          height: 200,
+          toJSON: () => ({}),
+        };
+      }
+      if (
+        this instanceof HTMLElement
+        && this.nextElementSibling instanceof HTMLElement
+        && this.nextElementSibling.dataset.testid === "feed-bottom-runway"
+      ) {
+        return {
+          x: 0,
+          y: 1380,
+          top: 1380,
+          bottom: 1380,
+          left: 0,
+          right: 0,
+          width: 0,
+          height: 0,
+          toJSON: () => ({}),
+        };
+      }
+      return originalGetBoundingClientRect.call(this);
+    };
+
+    try {
+      render(<MessageFeed sessionId={sid} />);
+      expect(screen.getByLabelText("Jump to latest")).toBeTruthy();
+      expect(screen.getByText("New content below")).toBeTruthy();
+    } finally {
+      if (originalClientHeight) {
+        Object.defineProperty(HTMLDivElement.prototype, "clientHeight", originalClientHeight);
+      } else {
+        delete (HTMLDivElement.prototype as { clientHeight?: unknown }).clientHeight;
+      }
+      if (originalScrollHeight) {
+        Object.defineProperty(HTMLDivElement.prototype, "scrollHeight", originalScrollHeight);
+      } else {
+        delete (HTMLDivElement.prototype as { scrollHeight?: unknown }).scrollHeight;
+      }
+      if (originalScrollTop) {
+        Object.defineProperty(HTMLDivElement.prototype, "scrollTop", originalScrollTop);
+      } else {
+        delete (HTMLDivElement.prototype as { scrollTop?: unknown }).scrollTop;
+      }
+      Element.prototype.getBoundingClientRect = originalGetBoundingClientRect;
+    }
+  });
+
+  it("does not show the latest indicator on restore when the session has not progressed beyond the saved seen bottom", () => {
+    const sid = "test-no-latest-pill-without-new-growth";
+    const user = makeMessage({ id: "u1", role: "user", content: "Question" });
+    const assistant = makeMessage({ id: "a1", role: "assistant", content: "Answer" });
+    setStoreMessages(sid, [user, assistant]);
+    setStoreFeedScrollPosition(sid, {
+      scrollTop: 200,
+      scrollHeight: 1200,
+      isAtBottom: false,
+      lastSeenContentBottom: 1380,
+    });
+
+    const { container } = render(<MessageFeed sessionId={sid} />);
+    const scrollContainer = container.querySelector(".overflow-y-auto") as HTMLDivElement;
+    const runway = screen.getByTestId("feed-bottom-runway") as HTMLDivElement;
+    const bottomMarker = runway.previousElementSibling as HTMLDivElement;
+
+    Object.defineProperty(scrollContainer, "clientHeight", {
+      configurable: true,
+      value: 600,
+    });
+    Object.defineProperty(scrollContainer, "scrollHeight", {
+      configurable: true,
+      value: 1600,
+    });
+    Object.defineProperty(scrollContainer, "scrollTop", {
+      configurable: true,
+      writable: true,
+      value: 200,
+    });
+    scrollContainer.getBoundingClientRect = () => ({
+      x: 0,
+      y: 100,
+      top: 100,
+      bottom: 700,
+      left: 0,
+      right: 0,
+      width: 0,
+      height: 600,
+      toJSON: () => ({}),
+    });
+    bottomMarker.getBoundingClientRect = () => ({
+      x: 0,
+      y: 1380,
+      top: 1380,
+      bottom: 1380,
+      left: 0,
+      right: 0,
+      width: 0,
+      height: 0,
+      toJSON: () => ({}),
+    });
+
+    fireEvent.scroll(scrollContainer);
+
+    expect(screen.queryByLabelText("Jump to latest")).toBeNull();
   });
 
   it("restores the saved streaming anchor across session switches even when the saved state was near bottom", () => {

@@ -112,6 +112,10 @@ The practical rule is:
 - do not show it just because there was already older hidden content below
 - show it only after the real content bottom grows beyond the last bottom the
   user had already seen while they are away from bottom
+- when restoring a session, compare against the last real content bottom the
+  user had seen before leaving that session; if the session has progressed
+  below that saved bottom and the restored viewport is away from bottom, show
+  the indicator immediately
 - render it in the bottom status rail above the composer so it shares space with
   running-state text instead of stacking a second overlay over the feed
 - clicking it should use the same real-content-bottom behavior as the manual
