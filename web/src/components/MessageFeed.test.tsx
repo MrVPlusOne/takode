@@ -808,6 +808,40 @@ describe("MessageFeed - streaming text", () => {
     expect(mockScrollTo).not.toHaveBeenCalled();
   });
 
+  it("keeps the Go to bottom button aligned to the real content bottom", () => {
+    const sid = "test-go-to-bottom-real-content";
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Question" }),
+      makeMessage({ id: "a1", role: "assistant", content: "Answer" }),
+    ]);
+
+    const { container } = render(<MessageFeed sessionId={sid} />);
+    const scrollContainer = container.querySelector(".overflow-y-auto") as HTMLDivElement;
+
+    Object.defineProperty(scrollContainer, "clientHeight", {
+      configurable: true,
+      value: 600,
+    });
+    Object.defineProperty(scrollContainer, "scrollHeight", {
+      configurable: true,
+      value: 1600,
+    });
+    Object.defineProperty(scrollContainer, "scrollTop", {
+      configurable: true,
+      writable: true,
+      value: 0,
+    });
+
+    fireEvent.scroll(scrollContainer);
+    mockScrollIntoView.mockClear();
+    mockScrollTo.mockClear();
+
+    fireEvent.click(screen.getByLabelText("Go to bottom"));
+
+    expect(mockScrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "end" });
+    expect(mockScrollTo).not.toHaveBeenCalled();
+  });
+
   it("restores the saved streaming anchor across session switches even when the saved state was near bottom", () => {
     const sid = "test-streaming-anchor-restore";
     const firstUser = makeMessage({ id: "u1", role: "user", content: "First question" });

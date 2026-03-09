@@ -75,11 +75,14 @@ If the user wants to follow the latest content live, they must do so manually.
 The existing jump-to-bottom/latest control remains the manual way to follow new
 content.
 
-That control should scroll to the maximum currently allowed bottom position for
-the newest user turn.
+That control should scroll to the real content bottom, not the persistent
+user-anchored runway target.
 
-In practice, that means the stable user-anchored bottom position, excluding any
-temporary anti-clamp spacer.
+In practice, that means:
+
+- align the last rendered message with the bottom of the viewport
+- ignore the extra user-anchored runway when the user explicitly asks to go to
+  bottom
 
 ### 5. Session restore
 

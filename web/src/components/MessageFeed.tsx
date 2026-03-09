@@ -1410,8 +1410,8 @@ export function MessageFeed({ sessionId }: { sessionId: string }) {
   }, [messages, scrollToAllowedBottom]);
 
   const scrollToBottom = useCallback(() => {
-    scrollToAllowedBottom("smooth");
-  }, [scrollToAllowedBottom]);
+    scrollToContentBottom("smooth");
+  }, [scrollToContentBottom]);
 
   // Scroll-to-turn: triggered from the Session Tasks panel
   const scrollToTurnId = useStore((s) => s.scrollToTurnId.get(sessionId));
