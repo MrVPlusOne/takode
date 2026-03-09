@@ -1244,6 +1244,15 @@ export function MessageFeed({
     return null;
   }, []);
 
+  const getRealContentBottom = useCallback(() => {
+    const container = containerRef.current;
+    const bottomMarker = bottomRef.current;
+    if (!container || !bottomMarker) return null;
+    const containerRect = container.getBoundingClientRect();
+    const bottomRect = bottomMarker.getBoundingClientRect();
+    return Math.max(0, Math.round(bottomRect.bottom - containerRect.top + container.scrollTop));
+  }, []);
+
   // Save scroll position on unmount. Uses useLayoutEffect so the cleanup runs
   // in the layout phase — BEFORE the new component's effects try to restore,
   // avoiding the race where useEffect cleanup runs too late.
@@ -1258,10 +1267,11 @@ export function MessageFeed({
           isAtBottom: isNearBottom.current,
           anchorTurnId: anchor?.turnId ?? null,
           anchorOffsetTop: anchor?.offsetTop,
+          lastSeenContentBottom: lastSeenContentBottomRef.current ?? getRealContentBottom(),
         });
       }
     };
-  }, [findVisibleTurnAnchor, sessionId]);
+  }, [findVisibleTurnAnchor, getRealContentBottom, sessionId]);
 
   const { turns } = useFeedModel(messages, {
     leaderMode: isLeaderSession,
@@ -1331,15 +1341,6 @@ export function MessageFeed({
     const nextHeight = Math.max(desiredRunway, preserveVisibleRunway);
     setBottomRunwayHeight((prev) => (prev === nextHeight ? prev : nextHeight));
   }, [lastUserTurnId]);
-
-  const getRealContentBottom = useCallback(() => {
-    const container = containerRef.current;
-    const bottomMarker = bottomRef.current;
-    if (!container || !bottomMarker) return null;
-    const containerRect = container.getBoundingClientRect();
-    const bottomRect = bottomMarker.getBoundingClientRect();
-    return Math.max(0, Math.round(bottomRect.bottom - containerRect.top + container.scrollTop));
-  }, []);
 
   const isNearContentBottom = useCallback(() => {
     const container = containerRef.current;
@@ -1493,10 +1494,10 @@ export function MessageFeed({
   }, [isTopLevelStreaming, messages.length, restoreTurnAnchor, scrollToAllowedBottom, sessionId, streamingText]);
 
   useEffect(() => {
-    didTrackContentRef.current = false;
-    lastSeenContentBottomRef.current = null;
+    didTrackContentRef.current = savedScrollPos?.lastSeenContentBottom != null;
+    lastSeenContentBottomRef.current = savedScrollPos?.lastSeenContentBottom ?? null;
     setShowLatestPill(false);
-  }, [sessionId]);
+  }, [savedScrollPos?.lastSeenContentBottom, sessionId]);
 
   useEffect(() => {
     const realContentBottom = getRealContentBottom();
