@@ -720,11 +720,10 @@ const SubagentContainer = memo(function SubagentContainer({
 }) {
   const [open, setOpen] = useState(false);
   const [promptOpen, setPromptOpen] = useState(false);
-  const [activitiesOpen, setActivitiesOpen] = useState(true);
-  const [resultOpen, setResultOpen] = useState(true);
+  const [activitiesOpen, setActivitiesOpen] = useState(false);
+  const [resultOpen, setResultOpen] = useState(false);
   const [bgOutput, setBgOutput] = useState<string | null>(null);
   const headerRef = useRef<HTMLButtonElement>(null);
-  const previousHadStreamingRef = useRef(false);
   const label = group.description || "Subagent";
   const agentType = group.agentType;
   const childCount = group.children.length;
@@ -758,15 +757,6 @@ const SubagentContainer = memo(function SubagentContainer({
   const sessionStatus = useStore((s) => s.sessionStatus.get(sessionId));
   const isEffectivelyComplete = resultPreview != null || bgNotif != null;
   const isAbandoned = !isEffectivelyComplete && sessionStatus !== "running";
-
-  useEffect(() => {
-    const hasStreaming = rawStreamingText.length > 0;
-    if (hasStreaming && !previousHadStreamingRef.current) {
-      setOpen(true);
-      setActivitiesOpen(true);
-    }
-    previousHadStreamingRef.current = hasStreaming;
-  }, [rawStreamingText]);
 
   // Get the last visible entry for a compact preview (fallback when no result)
   const lastEntry = group.children[group.children.length - 1];

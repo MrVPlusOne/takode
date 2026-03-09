@@ -1869,6 +1869,8 @@ describe("MessageFeed - subagent grouping", () => {
     render(<MessageFeed sessionId={sid} />);
 
     expect(screen.getByText("Inspect event routing")).toBeTruthy();
+    fireEvent.click(screen.getByText("Inspect event routing"));
+    fireEvent.click(screen.getByText("Activities"));
     expect(screen.getByTestId("markdown").textContent).toContain("Streaming from the subagent");
     expect(screen.queryByText("Still hidden")).toBeNull();
     expect(screen.queryByText("Agent starting...")).toBeNull();
@@ -1897,6 +1899,8 @@ describe("MessageFeed - subagent grouping", () => {
 
     const { unmount } = render(<MessageFeed sessionId={sid} />);
 
+    fireEvent.click(screen.getByText("Inspect event routing"));
+    fireEvent.click(screen.getByText("Activities"));
     expect(screen.queryByText("Hidden partial")).toBeNull();
     expect(screen.getByTestId("markdown").textContent).toBe("");
 
@@ -1904,6 +1908,8 @@ describe("MessageFeed - subagent grouping", () => {
     setStoreParentStreaming(sid, { "task-streaming-partial": "Hidden partial\n" });
     render(<MessageFeed sessionId={sid} />);
 
+    fireEvent.click(screen.getByText("Inspect event routing"));
+    fireEvent.click(screen.getByText("Activities"));
     expect(screen.getByTestId("markdown").textContent).toContain("Hidden partial");
   });
 
@@ -2093,19 +2099,58 @@ describe("MessageFeed - subagent grouping", () => {
     expect(screen.getByText("Activities")).toBeTruthy();
     expect(screen.getByText("Result")).toBeTruthy();
     expect(screen.queryByText("Trace the auth middleware path")).toBeNull();
-    expect(screen.getByText("Checked middleware entrypoint")).toBeTruthy();
-    expect(screen.getByText("Final auth summary")).toBeTruthy();
+    expect(screen.queryByText("Checked middleware entrypoint")).toBeNull();
+    expect(screen.queryByText("Final auth summary")).toBeNull();
 
     fireEvent.click(screen.getByText("Activities"));
-    expect(screen.queryByText("Checked middleware entrypoint")).toBeNull();
-    expect(screen.getByText("Final auth summary")).toBeTruthy();
+    expect(screen.getByText("Checked middleware entrypoint")).toBeTruthy();
+    expect(screen.queryByText("Final auth summary")).toBeNull();
 
     fireEvent.click(screen.getByText("Result"));
-    expect(screen.queryByText("Final auth summary")).toBeNull();
+    expect(screen.getByText("Final auth summary")).toBeTruthy();
 
     fireEvent.click(screen.getByText("Prompt"));
     expect(screen.getByText("Trace the auth middleware path")).toBeTruthy();
-    expect(screen.queryByText("Checked middleware entrypoint")).toBeNull();
+    expect(screen.getByText("Checked middleware entrypoint")).toBeTruthy();
+  });
+
+  it("keeps the Activities section collapsed while new subagent activity streams in", () => {
+    const sid = "test-subagent-activities-stay-collapsed";
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "a1",
+        role: "assistant",
+        content: "",
+        contentBlocks: [
+          {
+            type: "tool_use",
+            id: "task-collapse-stream",
+            name: "Task",
+            input: { description: "Inspect event routing", subagent_type: "Explore" },
+          },
+        ],
+      }),
+      makeMessage({
+        id: "child-collapse-stream",
+        role: "assistant",
+        content: "Initial child activity",
+        parentToolUseId: "task-collapse-stream",
+        contentBlocks: [{ type: "text", text: "Initial child activity" }],
+      }),
+    ]);
+    setStoreSessionBackend(sid, "codex");
+    setStoreStatus(sid, "running");
+
+    const { rerender } = render(<MessageFeed sessionId={sid} />);
+
+    fireEvent.click(screen.getByText("Inspect event routing"));
+    expect(screen.queryByText("Initial child activity")).toBeNull();
+
+    setStoreParentStreaming(sid, { "task-collapse-stream": "Streaming from the subagent\n" });
+    rerender(<MessageFeed sessionId={sid} />);
+
+    expect(screen.queryByText("Initial child activity")).toBeNull();
+    expect(screen.queryByText("Streaming from the subagent")).toBeNull();
   });
 
   it("does not render Task tool_use as ToolBlock in mixed message with text and Task", () => {
@@ -2179,6 +2224,7 @@ describe("MessageFeed - subagent grouping", () => {
     render(<MessageFeed sessionId={sid} />);
 
     fireEvent.click(screen.getByText("Inspect docs"));
+    fireEvent.click(screen.getByText("Activities"));
 
     expect(screen.getByText("Let me inspect README first.")).toBeTruthy();
     expect(screen.getByText("Read File")).toBeTruthy();

@@ -2783,8 +2783,8 @@ function PlaygroundSubagentGroup({
 }) {
   const [open, setOpen] = useState(true);
   const [promptOpen, setPromptOpen] = useState(false);
-  const [activitiesOpen, setActivitiesOpen] = useState(true);
-  const [resultOpen, setResultOpen] = useState(true);
+  const [activitiesOpen, setActivitiesOpen] = useState(false);
+  const [resultOpen, setResultOpen] = useState(false);
   const [liveSeconds, setLiveSeconds] = useState<number | null>(null);
 
   useEffect(() => {
