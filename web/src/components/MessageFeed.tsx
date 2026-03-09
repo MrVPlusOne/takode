@@ -1214,6 +1214,7 @@ export function MessageFeed({
   const didTrackContentRef = useRef(false);
   const lastSentUserMessageIdRef = useRef<string | null>(null);
   const stableAllowedBottomRef = useRef<number | null>(null);
+  const lastSeenContentBottomRef = useRef<number | null>(null);
   const [bottomRunwayHeight, setBottomRunwayHeight] = useState(
     0,
   );
@@ -1273,6 +1274,7 @@ export function MessageFeed({
   const visibleTurns = hasMore ? turns.slice(totalTurns - visibleCount) : turns;
   const isTopLevelStreaming = Boolean(streamingText);
   const newestMessage = messages[messages.length - 1];
+  const shouldAllowRunway = Boolean(streamingText) || sessionStatus === "running" || newestMessage?.role === "user";
   const lastUserTurnId = [...visibleTurns]
     .reverse()
     .find((turn) => isUserBoundaryEntry(turn.userEntry))?.id ?? null;
@@ -1318,20 +1320,33 @@ export function MessageFeed({
     const containerRect = el.getBoundingClientRect();
     const bottomRect = bottomMarker.getBoundingClientRect();
     const contentSinceLastMessage = Math.max(0, bottomRect.bottom - messageRect.top);
-    const desiredRunway = Math.max(0, Math.round(viewportHeight - contentSinceLastMessage));
+    const desiredRunway = shouldAllowRunway
+      ? Math.max(0, Math.round(viewportHeight - contentSinceLastMessage))
+      : 0;
     const stableAllowedBottom = Math.max(
       0,
       Math.round(messageRect.top - containerRect.top + el.scrollTop),
     );
     const realContentBottom = Math.max(0, Math.round(bottomRect.bottom - containerRect.top + el.scrollTop));
-    const preserveVisibleRunway = Math.max(
-      0,
-      Math.round(el.scrollTop + viewportHeight - realContentBottom),
-    );
+    const preserveVisibleRunway = shouldAllowRunway
+      ? Math.max(
+        0,
+        Math.round(el.scrollTop + viewportHeight - realContentBottom),
+      )
+      : 0;
     stableAllowedBottomRef.current = stableAllowedBottom;
     const nextHeight = Math.max(desiredRunway, preserveVisibleRunway);
     setBottomRunwayHeight((prev) => (prev === nextHeight ? prev : nextHeight));
-  }, [lastUserTurnId]);
+  }, [lastUserTurnId, shouldAllowRunway]);
+
+  const getRealContentBottom = useCallback(() => {
+    const container = containerRef.current;
+    const bottomMarker = bottomRef.current;
+    if (!container || !bottomMarker) return null;
+    const containerRect = container.getBoundingClientRect();
+    const bottomRect = bottomMarker.getBoundingClientRect();
+    return Math.max(0, Math.round(bottomRect.bottom - containerRect.top + container.scrollTop));
+  }, []);
 
   const isNearContentBottom = useCallback(() => {
     const container = containerRef.current;
@@ -1339,15 +1354,23 @@ export function MessageFeed({
     return container.scrollHeight - container.scrollTop - container.clientHeight < 120;
   }, []);
 
+  const hasRealContentBelowViewport = useCallback(() => {
+    const container = containerRef.current;
+    const realContentBottom = getRealContentBottom();
+    if (!container || realContentBottom == null) return false;
+    return realContentBottom > container.scrollTop + container.clientHeight + 8;
+  }, [getRealContentBottom]);
+
   const scrollToContentBottom = useCallback((behavior: ScrollBehavior) => {
     const bottomMarker = bottomRef.current;
     if (bottomMarker) {
       bottomMarker.scrollIntoView({ behavior, block: "end" });
     }
     isNearBottom.current = true;
+    lastSeenContentBottomRef.current = getRealContentBottom();
     setShowScrollButton(false);
     setShowLatestPill(false);
-  }, []);
+  }, [getRealContentBottom]);
 
   const scrollToAllowedBottom = useCallback((behavior: ScrollBehavior) => {
     const container = containerRef.current;
@@ -1360,12 +1383,13 @@ export function MessageFeed({
       );
       container.scrollTo({ top: targetTop, behavior });
       isNearBottom.current = true;
+      lastSeenContentBottomRef.current = getRealContentBottom();
       setShowScrollButton(false);
       setShowLatestPill(false);
       return;
     }
     scrollToContentBottom(behavior);
-  }, [scrollToContentBottom]);
+  }, [getRealContentBottom, scrollToContentBottom]);
 
   const restoreTurnAnchor = useCallback((anchorTurnId: string, anchorOffsetTop = 0) => {
     const container = containerRef.current;
@@ -1429,6 +1453,7 @@ export function MessageFeed({
     const nearBottom = isNearContentBottom();
     isNearBottom.current = nearBottom;
     if (nearBottom) {
+      lastSeenContentBottomRef.current = getRealContentBottom();
       setShowLatestPill(false);
     }
     // Only trigger a re-render when the button state actually changes
@@ -1476,22 +1501,37 @@ export function MessageFeed({
 
   useEffect(() => {
     didTrackContentRef.current = false;
+    lastSeenContentBottomRef.current = null;
     setShowLatestPill(false);
   }, [sessionId]);
 
   useEffect(() => {
+    const realContentBottom = getRealContentBottom();
     if (!didTrackContentRef.current) {
       didTrackContentRef.current = true;
+      lastSeenContentBottomRef.current = realContentBottom;
       return;
     }
     if (isNearBottom.current) {
+      lastSeenContentBottomRef.current = realContentBottom;
       setShowLatestPill(false);
       return;
     }
-    setShowLatestPill(true);
-  }, [messages.length, newestMessage?.id, streamingText]);
+    if (realContentBottom == null || !hasRealContentBelowViewport()) {
+      lastSeenContentBottomRef.current = realContentBottom;
+      setShowLatestPill(false);
+      return;
+    }
+    const baseline = lastSeenContentBottomRef.current;
+    if (baseline == null) {
+      lastSeenContentBottomRef.current = realContentBottom;
+      setShowLatestPill(false);
+      return;
+    }
+    setShowLatestPill(realContentBottom > baseline + 8);
+  }, [getRealContentBottom, hasRealContentBelowViewport, messages.length, newestMessage?.id, streamingText]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!didMountRef.current) {
       didMountRef.current = true;
       lastSentUserMessageIdRef.current = newestMessage?.role === "user"
@@ -1502,10 +1542,21 @@ export function MessageFeed({
     if (newestMessage?.role !== "user") return;
     if (newestMessage.id === lastSentUserMessageIdRef.current) return;
     lastSentUserMessageIdRef.current = newestMessage.id;
-    requestAnimationFrame(() => {
+    scrollToContentBottom("auto");
+    const rafId = requestAnimationFrame(() => {
+      const container = containerRef.current;
+      if (!container) return;
+      const stableTargetTop = stableAllowedBottomRef.current;
+      const maxScrollableTop = Math.max(0, container.scrollHeight - container.clientHeight);
+      const targetTop = Math.min(
+        stableTargetTop == null ? maxScrollableTop : Math.max(0, stableTargetTop),
+        maxScrollableTop,
+      );
+      if (Math.abs(container.scrollTop - targetTop) <= 4) return;
       scrollToAllowedBottom("smooth");
     });
-  }, [messages, scrollToAllowedBottom]);
+    return () => cancelAnimationFrame(rafId);
+  }, [messages, newestMessage?.id, newestMessage?.role, scrollToAllowedBottom, scrollToContentBottom]);
 
   const scrollToBottom = useCallback(() => {
     scrollToContentBottom("smooth");

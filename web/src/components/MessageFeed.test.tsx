@@ -433,7 +433,7 @@ describe("MessageFeed - streaming text", () => {
     expect((screen.getByTestId("feed-bottom-runway") as HTMLDivElement).style.height).toBe("0px");
   });
 
-  it("adds persistent runway using the newest user turn as the anchor even when idle", () => {
+  it("adds runway using the newest user turn as the anchor when that turn is still the latest message", () => {
     const sid = "test-bottom-runway-user-anchor";
     setStoreMessages(sid, [makeMessage({ id: "u1", role: "user", content: "Question" })]);
 
@@ -578,11 +578,12 @@ describe("MessageFeed - streaming text", () => {
     expect(runway.style.height).toBe("0px");
   });
 
-  it("does not shrink the user-anchored runway enough to clamp the current scroll position upward", () => {
+  it("does not shrink the active user-anchored runway enough to clamp the current scroll position upward", () => {
     const sid = "test-bottom-runway-no-clamp";
     const user = makeMessage({ id: "u1", role: "user", content: "Question" });
     const assistant = makeMessage({ id: "a1", role: "assistant", content: "Answer" });
     setStoreMessages(sid, [user, assistant]);
+    setStoreStatus(sid, "running");
 
     const { container, rerender } = render(<MessageFeed sessionId={sid} />);
     const scrollContainer = container.querySelector(".overflow-y-auto") as HTMLDivElement;
@@ -641,7 +642,7 @@ describe("MessageFeed - streaming text", () => {
     expect(runway.style.height).toBe("260px");
   });
 
-  it("scrolls to the stable user-anchored bottom once after appending a new user message", () => {
+  it("jumps to the real bottom region and then aligns to the stable user-anchored target after appending a new user message", () => {
     const sid = "test-scroll-new-user-message";
     const firstUser = makeMessage({ id: "u1", role: "user", content: "First question" });
     const firstAssistant = makeMessage({ id: "a1", role: "assistant", content: "First answer" });
@@ -716,6 +717,7 @@ describe("MessageFeed - streaming text", () => {
       ]);
       rerender(<MessageFeed sessionId={sid} />);
 
+      expect(mockScrollIntoView).toHaveBeenCalledWith({ behavior: "auto", block: "end" });
       expect(mockScrollTo).toHaveBeenCalledWith({ top: 1000, behavior: "smooth" });
       expect(screen.queryByLabelText("Go to bottom")).toBeNull();
     } finally {
@@ -723,7 +725,7 @@ describe("MessageFeed - streaming text", () => {
     }
   });
 
-  it("uses the stable user-anchored bottom for send-time scrolling instead of the temporary anti-clamp spacer", () => {
+  it("uses the stable user-anchored target for the short alignment step instead of the temporary anti-clamp spacer", () => {
     const sid = "test-scroll-new-user-message-stable-bottom";
     const firstUser = makeMessage({ id: "u1", role: "user", content: "First question" });
     const firstAssistant = makeMessage({ id: "a1", role: "assistant", content: "First answer" });
@@ -797,6 +799,7 @@ describe("MessageFeed - streaming text", () => {
       rerender(<MessageFeed sessionId={sid} />);
 
       expect(runway.style.height).toBe("260px");
+      expect(mockScrollIntoView).toHaveBeenCalledWith({ behavior: "auto", block: "end" });
       expect(mockScrollTo).toHaveBeenLastCalledWith({ top: 420, behavior: "smooth" });
     } finally {
       Element.prototype.getBoundingClientRect = originalGetBoundingClientRect;
@@ -877,6 +880,9 @@ describe("MessageFeed - streaming text", () => {
 
     const { container, rerender } = render(<MessageFeed sessionId={sid} />);
     const scrollContainer = container.querySelector(".overflow-y-auto") as HTMLDivElement;
+    const runway = screen.getByTestId("feed-bottom-runway") as HTMLDivElement;
+    const bottomMarker = runway.previousElementSibling as HTMLDivElement;
+    let bottomPosition = 1200;
 
     Object.defineProperty(scrollContainer, "clientHeight", {
       configurable: true,
@@ -891,10 +897,33 @@ describe("MessageFeed - streaming text", () => {
       writable: true,
       value: 0,
     });
+    scrollContainer.getBoundingClientRect = () => ({
+      x: 0,
+      y: 100,
+      top: 100,
+      bottom: 700,
+      left: 0,
+      right: 0,
+      width: 0,
+      height: 600,
+      toJSON: () => ({}),
+    });
+    bottomMarker.getBoundingClientRect = () => ({
+      x: 0,
+      y: bottomPosition,
+      top: bottomPosition,
+      bottom: bottomPosition,
+      left: 0,
+      right: 0,
+      width: 0,
+      height: 0,
+      toJSON: () => ({}),
+    });
 
     fireEvent.scroll(scrollContainer);
     expect(screen.queryByLabelText("Jump to latest")).toBeNull();
 
+    bottomPosition = 1280;
     setStoreMessages(sid, [
       user,
       assistant,
@@ -914,6 +943,9 @@ describe("MessageFeed - streaming text", () => {
 
     const { container, rerender } = render(<MessageFeed sessionId={sid} />);
     const scrollContainer = container.querySelector(".overflow-y-auto") as HTMLDivElement;
+    const runway = screen.getByTestId("feed-bottom-runway") as HTMLDivElement;
+    const bottomMarker = runway.previousElementSibling as HTMLDivElement;
+    let bottomPosition = 1200;
 
     Object.defineProperty(scrollContainer, "clientHeight", {
       configurable: true,
@@ -928,8 +960,31 @@ describe("MessageFeed - streaming text", () => {
       writable: true,
       value: 0,
     });
+    scrollContainer.getBoundingClientRect = () => ({
+      x: 0,
+      y: 100,
+      top: 100,
+      bottom: 700,
+      left: 0,
+      right: 0,
+      width: 0,
+      height: 600,
+      toJSON: () => ({}),
+    });
+    bottomMarker.getBoundingClientRect = () => ({
+      x: 0,
+      y: bottomPosition,
+      top: bottomPosition,
+      bottom: bottomPosition,
+      left: 0,
+      right: 0,
+      width: 0,
+      height: 0,
+      toJSON: () => ({}),
+    });
 
     fireEvent.scroll(scrollContainer);
+    bottomPosition = 1280;
     setStoreMessages(sid, [
       user,
       assistant,
