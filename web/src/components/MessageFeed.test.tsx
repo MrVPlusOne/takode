@@ -2200,6 +2200,74 @@ describe("MessageFeed - Codex terminal chips", () => {
 
     expect(mockScrollIntoView).toHaveBeenCalledTimes(1);
   });
+
+  it("dismisses a live subagent chip locally while keeping the inline card", () => {
+    const sid = "test-live-subagent-dismiss";
+    setStoreSessionBackend(sid, "claude");
+    setStoreStatus(sid, "running");
+    setStoreMessages(sid, [
+      makeMessage({ id: "u-sub-dismiss", role: "user", content: "Inspect event routing" }),
+      makeMessage({
+        id: "a-sub-dismiss",
+        role: "assistant",
+        content: "",
+        contentBlocks: [
+          {
+            type: "tool_use",
+            id: "task-live-dismiss",
+            name: "Task",
+            input: { description: "Inspect event routing", subagent_type: "explorer" },
+          },
+        ],
+      }),
+    ]);
+    setStoreToolStartTimestamps(sid, {
+      "task-live-dismiss": Date.now() - 8_000,
+    });
+
+    const { container } = render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByTestId("live-subagent-chip")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("live-subagent-chip-dismiss"));
+
+    expect(screen.queryByTestId("live-subagent-chip")).toBeNull();
+    expect(container.querySelector('[data-feed-block-id="subagent:task-live-dismiss"]')).toBeTruthy();
+  });
+
+  it("re-shows a dismissed live subagent chip when fresh activity arrives", () => {
+    const sid = "test-live-subagent-dismiss-refresh";
+    setStoreSessionBackend(sid, "claude");
+    setStoreStatus(sid, "running");
+    setStoreMessages(sid, [
+      makeMessage({ id: "u-sub-refresh", role: "user", content: "Inspect event routing" }),
+      makeMessage({
+        id: "a-sub-refresh",
+        role: "assistant",
+        content: "",
+        contentBlocks: [
+          {
+            type: "tool_use",
+            id: "task-live-refresh",
+            name: "Task",
+            input: { description: "Inspect event routing", subagent_type: "explorer" },
+          },
+        ],
+      }),
+    ]);
+    setStoreToolStartTimestamps(sid, {
+      "task-live-refresh": Date.now() - 8_000,
+    });
+
+    const { rerender } = render(<MessageFeed sessionId={sid} />);
+
+    fireEvent.click(screen.getByTestId("live-subagent-chip-dismiss"));
+    expect(screen.queryByTestId("live-subagent-chip")).toBeNull();
+
+    setStoreParentStreaming(sid, { "task-live-refresh": "New child output arrived\n" });
+    rerender(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByTestId("live-subagent-chip")).toBeTruthy();
+  });
 });
 
 // ─── getToolOnlyName behavior (tested via grouping) ──────────────────────────

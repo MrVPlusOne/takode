@@ -387,6 +387,7 @@ interface LiveSubagentEntry {
   turnId: string;
   startTimestamp?: number;
   progressElapsedSeconds?: number;
+  freshnessToken: string;
 }
 
 function getLiveActivityStartedAt(
@@ -437,9 +438,45 @@ function collectLiveSubagentEntries(
     outputFile?: string;
     summary?: string;
   }>,
+  parentStreamingByToolUseId?: Map<string, string>,
 ): LiveSubagentEntry[] {
   const entries: LiveSubagentEntry[] = [];
   const seen = new Set<string>();
+
+  const getEntrySignature = (feedEntries: FeedEntry[]): { count: number; lastKey: string } => {
+    let count = 0;
+    let lastKey = "";
+    for (const feedEntry of feedEntries) {
+      if (feedEntry.kind === "message") {
+        count++;
+        lastKey = feedEntry.msg.id;
+        continue;
+      }
+      if (feedEntry.kind === "tool_msg_group") {
+        count += Math.max(1, feedEntry.items.length);
+        lastKey = feedEntry.firstId || feedEntry.items[feedEntry.items.length - 1]?.id || feedEntry.toolName;
+        continue;
+      }
+      if (feedEntry.kind === "subagent") {
+        count++;
+        lastKey = feedEntry.taskToolUseId;
+        const child = getEntrySignature(feedEntry.children);
+        count += child.count;
+        if (child.lastKey) lastKey = child.lastKey;
+        continue;
+      }
+      if (feedEntry.kind === "subagent_batch") {
+        for (const subagent of feedEntry.subagents) {
+          count++;
+          lastKey = subagent.taskToolUseId;
+          const child = getEntrySignature(subagent.children);
+          count += child.count;
+          if (child.lastKey) lastKey = child.lastKey;
+        }
+      }
+    }
+    return { count, lastKey };
+  };
 
   const visitEntries = (feedEntries: FeedEntry[], turnId: string) => {
     for (const entry of feedEntries) {
@@ -450,6 +487,8 @@ function collectLiveSubagentEntries(
         const isAbandoned = !isEffectivelyComplete && sessionStatus !== "running";
         if (!isEffectivelyComplete && !isAbandoned && !seen.has(entry.taskToolUseId)) {
           seen.add(entry.taskToolUseId);
+          const childSignature = getEntrySignature(entry.children);
+          const rawStreamingText = parentStreamingByToolUseId?.get(entry.taskToolUseId) || "";
           entries.push({
             taskToolUseId: entry.taskToolUseId,
             label: entry.description || "Subagent",
@@ -458,6 +497,7 @@ function collectLiveSubagentEntries(
             turnId,
             startTimestamp: toolStartTimestamps?.get(entry.taskToolUseId),
             progressElapsedSeconds: toolProgress?.get(entry.taskToolUseId)?.elapsedSeconds,
+            freshnessToken: `${childSignature.count}:${childSignature.lastKey}:${rawStreamingText.length}`,
           });
         }
         visitEntries(entry.children, turnId);
@@ -588,12 +628,14 @@ function LiveActivityRail({
   selectedToolUseId,
   onSelect,
   onSelectSubagent,
+  onDismissSubagent,
 }: {
   terminals: CodexTerminalEntry[];
   subagents: LiveSubagentEntry[];
   selectedToolUseId: string | null;
   onSelect: (toolUseId: string) => void;
   onSelectSubagent: (taskToolUseId: string, turnId: string) => void;
+  onDismissSubagent: (taskToolUseId: string, freshnessToken: string) => void;
 }) {
   const visibleEntries = [
     ...terminals.map((terminal) => ({
@@ -650,33 +692,49 @@ function LiveActivityRail({
 
             const subagent = entry.subagent;
             return (
-              <button
+              <div
                 key={subagent.taskToolUseId}
-                type="button"
-                onClick={() => onSelectSubagent(subagent.taskToolUseId, subagent.turnId)}
-                data-testid="live-subagent-chip"
-                className="flex shrink-0 items-center gap-1.5 rounded-full border border-cc-border bg-cc-card px-2.5 py-1.5 text-left text-cc-fg transition-colors hover:bg-cc-hover cursor-pointer"
-                title={subagent.label}
-                aria-label={`Jump to live subagent ${subagent.label}`}
+                className="flex shrink-0 items-center gap-1 rounded-full border border-cc-border bg-cc-card pr-1 text-cc-fg"
               >
-                <ToolIcon type="agent" />
-                <span className="min-w-0 flex-1 truncate text-xs">{subagent.label}</span>
-                {subagent.agentType && (
-                  <span className="shrink-0 rounded-full bg-cc-hover px-1.5 py-0.5 text-[10px] text-cc-muted">
-                    {subagent.agentType}
-                  </span>
-                )}
-                {subagent.isBackground && (
-                  <span className="shrink-0 rounded-full bg-cc-hover px-1.5 py-0.5 text-[10px] text-cc-muted">
-                    bg
-                  </span>
-                )}
-                <LiveDurationBadge
-                  progressElapsedSeconds={subagent.progressElapsedSeconds}
-                  startTimestamp={subagent.startTimestamp}
-                  isComplete={false}
-                />
-              </button>
+                <button
+                  type="button"
+                  onClick={() => onSelectSubagent(subagent.taskToolUseId, subagent.turnId)}
+                  data-testid="live-subagent-chip"
+                  className="flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1.5 text-left text-cc-fg transition-colors hover:bg-cc-hover cursor-pointer"
+                  title={subagent.label}
+                  aria-label={`Jump to live subagent ${subagent.label}`}
+                >
+                  <ToolIcon type="agent" />
+                  <span className="min-w-0 flex-1 truncate text-xs">{subagent.label}</span>
+                  {subagent.agentType && (
+                    <span className="shrink-0 rounded-full bg-cc-hover px-1.5 py-0.5 text-[10px] text-cc-muted">
+                      {subagent.agentType}
+                    </span>
+                  )}
+                  {subagent.isBackground && (
+                    <span className="shrink-0 rounded-full bg-cc-hover px-1.5 py-0.5 text-[10px] text-cc-muted">
+                      bg
+                    </span>
+                  )}
+                  <LiveDurationBadge
+                    progressElapsedSeconds={subagent.progressElapsedSeconds}
+                    startTimestamp={subagent.startTimestamp}
+                    isComplete={false}
+                  />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onDismissSubagent(subagent.taskToolUseId, subagent.freshnessToken)}
+                  data-testid="live-subagent-chip-dismiss"
+                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg cursor-pointer"
+                  aria-label={`Dismiss live subagent ${subagent.label}`}
+                  title="Dismiss"
+                >
+                  <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-3 w-3">
+                    <path d="M3 3l6 6M9 3L3 9" strokeLinecap="round" />
+                  </svg>
+                </button>
+              </div>
             );
           })}
         </div>
@@ -1926,6 +1984,7 @@ export function MessageFeed({
   const toolStartTimestamps = useStore((s) => s.toolStartTimestamps.get(sessionId));
   const backgroundAgentNotifs = useStore((s) => s.backgroundAgentNotifs.get(sessionId));
   const currentSessionStatus = useStore((s) => s.sessionStatus.get(sessionId) ?? null);
+  const parentStreamingByToolUseId = useStore((s) => s.streamingByParentToolUseId.get(sessionId));
   const isLeaderSession = useStore((s) => s.sdkSessions.some((session) => session.sessionId === sessionId && session.isOrchestrator === true));
   const shouldBottomAlignNextUserMessage = useStore((s) => s.bottomAlignNextUserMessage.has(sessionId));
   const pawCounter = useRef<import("./PawTrail.js").PawCounterState>({ next: 0, cache: new Map() });
@@ -1951,6 +2010,7 @@ export function MessageFeed({
   const [floatingStatusHeight, setFloatingStatusHeight] = useState(0);
   const [sectionWindowStart, setSectionWindowStart] = useState<number | null>(null);
   const [selectedCodexTerminalId, setSelectedCodexTerminalId] = useState<string | null>(null);
+  const [dismissedSubagentChips, setDismissedSubagentChips] = useState<Map<string, string>>(new Map());
   const [liveActivityRailVersion, setLiveActivityRailVersion] = useState(0);
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const isTouch = useMemo(() => isTouchDevice(), []);
@@ -1981,8 +2041,9 @@ export function MessageFeed({
       toolProgress,
       toolStartTimestamps,
       backgroundAgentNotifs,
+      parentStreamingByToolUseId,
     ),
-    [backgroundAgentNotifs, currentSessionStatus, toolProgress, toolResults, toolStartTimestamps, turns],
+    [backgroundAgentNotifs, currentSessionStatus, parentStreamingByToolUseId, toolProgress, toolResults, toolStartTimestamps, turns],
   );
   const activeCodexTerminalEntries = useMemo(
     () => codexTerminalEntries.filter((entry) => entry.result == null),
@@ -1990,8 +2051,11 @@ export function MessageFeed({
   );
   const visibleLiveSubagentEntries = useMemo(() => {
     const now = Date.now();
-    return activeLiveSubagentEntries.filter((entry) => getLiveSubagentRevealAt(entry, now) <= now);
-  }, [activeLiveSubagentEntries, liveActivityRailVersion]);
+    return activeLiveSubagentEntries.filter((entry) =>
+      getLiveSubagentRevealAt(entry, now) <= now
+      && dismissedSubagentChips.get(entry.taskToolUseId) !== entry.freshnessToken
+    );
+  }, [activeLiveSubagentEntries, dismissedSubagentChips, liveActivityRailVersion]);
   const visibleCodexTerminalRailEntries = useMemo(() => {
     const now = Date.now();
     return activeCodexTerminalEntries.filter((entry) => getCodexTerminalRevealAt(entry, now) <= now);
@@ -3012,6 +3076,13 @@ export function MessageFeed({
             onSelect={setSelectedCodexTerminalId}
             onSelectSubagent={(taskToolUseId, turnId) => {
               scrollToFeedBlock(getSubagentFeedBlockId(taskToolUseId), turnId);
+            }}
+            onDismissSubagent={(taskToolUseId, freshnessToken) => {
+              setDismissedSubagentChips((prev) => {
+                const next = new Map(prev);
+                next.set(taskToolUseId, freshnessToken);
+                return next;
+              });
             }}
           />
         )}
