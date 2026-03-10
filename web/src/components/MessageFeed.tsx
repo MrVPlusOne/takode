@@ -25,6 +25,8 @@ import {
 const DEFAULT_VISIBLE_SECTION_COUNT = 3;
 const FEED_SECTION_TURN_COUNT = 50;
 const LIVE_ACTIVITY_RAIL_DWELL_MS = 5_000;
+const FEED_EXTRA_SCROLL_SLACK_PX = 24;
+const FLOATING_STATUS_SPACER_MARGIN_PX = 12;
 
 function formatElapsed(ms: number): string {
   const secs = Math.floor(ms / 1000);
@@ -159,10 +161,14 @@ export function ElapsedTimer({
   sessionId,
   latestIndicatorVisible = false,
   onJumpToLatest,
+  variant = "bar",
+  onVisibleHeightChange,
 }: {
   sessionId: string;
   latestIndicatorVisible?: boolean;
   onJumpToLatest?: () => void;
+  variant?: "bar" | "floating";
+  onVisibleHeightChange?: (height: number) => void;
 }) {
   const streamingStartedAt = useStore((s) => s.streamingStartedAt.get(sessionId));
   const streamingOutputTokens = useStore((s) => s.streamingOutputTokens.get(sessionId));
@@ -171,6 +177,7 @@ export function ElapsedTimer({
   const sessionStatus = useStore((s) => s.sessionStatus.get(sessionId));
   const isStuck = useStore((s) => s.sessionStuck.get(sessionId) ?? false);
   const [elapsed, setElapsed] = useState(0);
+  const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!streamingStartedAt && sessionStatus !== "running") {
@@ -188,6 +195,24 @@ export function ElapsedTimer({
   }, [streamingStartedAt, sessionStatus, streamingPausedDuration, streamingPauseStartedAt]);
 
   const showTimer = sessionStatus === "running" && elapsed > 0;
+  useLayoutEffect(() => {
+    if (!onVisibleHeightChange) return;
+    if (!showTimer) {
+      onVisibleHeightChange(0);
+      return;
+    }
+    const root = rootRef.current;
+    if (!root) return;
+    const reportHeight = () => {
+      onVisibleHeightChange(Math.ceil(root.getBoundingClientRect().height));
+    };
+    reportHeight();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(reportHeight);
+    observer.observe(root);
+    return () => observer.disconnect();
+  }, [onVisibleHeightChange, showTimer, streamingOutputTokens, variant]);
+
   if (!showTimer) return null;
 
   const handleRelaunch = () => {
@@ -197,8 +222,32 @@ export function ElapsedTimer({
   const label = isStuck ? 'Session may be stuck' : streamingPauseStartedAt ? 'Napping...' : 'Purring...';
   const dotColor = isStuck ? 'text-amber-400' : streamingPauseStartedAt ? 'text-amber-400' : 'text-cc-primary animate-pulse';
 
+  if (variant === "floating") {
+    return (
+      <div
+        ref={rootRef}
+        className="pointer-events-auto inline-flex max-w-[min(20rem,calc(100vw-5rem))] items-center gap-1.5 rounded-full border border-cc-border bg-cc-card/95 px-3 py-1.5 text-[11px] text-cc-muted font-mono-code shadow-lg backdrop-blur-sm"
+      >
+        <YarnBallDot className={dotColor} />
+        <span className="truncate">{label}</span>
+        <span className="text-cc-muted/60">{formatElapsed(elapsed)}</span>
+        {(streamingOutputTokens ?? 0) > 0 && (
+          <span className="hidden sm:inline truncate text-cc-muted/80">↓ {formatTokens(streamingOutputTokens!)}</span>
+        )}
+        {isStuck && (
+          <button
+            onClick={handleRelaunch}
+            className="ml-1 text-amber-400 hover:text-amber-300 underline cursor-pointer"
+          >
+            Relaunch
+          </button>
+        )}
+      </div>
+    );
+  }
+
   return (
-    <div className="shrink-0 flex items-center gap-1.5 border-t border-cc-border bg-cc-card px-3 sm:px-4 py-1.5 text-[11px] text-cc-muted font-mono-code">
+    <div ref={rootRef} className="shrink-0 flex items-center gap-1.5 border-t border-cc-border bg-cc-card px-3 sm:px-4 py-1.5 text-[11px] text-cc-muted font-mono-code">
       <YarnBallDot className={dotColor} />
       <span>{label}</span>
       <span className="text-cc-muted/60">(</span>
@@ -230,6 +279,24 @@ export function ElapsedTimer({
           <span className="truncate">New content below</span>
         </button>
       )}
+    </div>
+  );
+}
+
+function FeedStatusPill({
+  sessionId,
+  onVisibleHeightChange,
+}: {
+  sessionId: string;
+  onVisibleHeightChange?: (height: number) => void;
+}) {
+  return (
+    <div className="pointer-events-none absolute bottom-3 left-3 z-10 sm:bottom-4 sm:left-4">
+      <ElapsedTimer
+        sessionId={sessionId}
+        variant="floating"
+        onVisibleHeightChange={onVisibleHeightChange}
+      />
     </div>
   );
 }
@@ -1849,6 +1916,7 @@ export function MessageFeed({
   const backgroundAgentNotifs = useStore((s) => s.backgroundAgentNotifs.get(sessionId));
   const currentSessionStatus = useStore((s) => s.sessionStatus.get(sessionId) ?? null);
   const isLeaderSession = useStore((s) => s.sdkSessions.some((session) => session.sessionId === sessionId && session.isOrchestrator === true));
+  const shouldBottomAlignNextUserMessage = useStore((s) => s.bottomAlignNextUserMessage.has(sessionId));
   const pawCounter = useRef<import("./PawTrail.js").PawCounterState>({ next: 0, cache: new Map() });
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRootRef = useRef<HTMLDivElement>(null);
@@ -1868,6 +1936,7 @@ export function MessageFeed({
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [showLatestPill, setShowLatestPill] = useState(false);
   const [isScrolling, setIsScrolling] = useState(false);
+  const [floatingStatusHeight, setFloatingStatusHeight] = useState(0);
   const [sectionWindowStart, setSectionWindowStart] = useState<number | null>(null);
   const [selectedCodexTerminalId, setSelectedCodexTerminalId] = useState<string | null>(null);
   const [liveActivityRailVersion, setLiveActivityRailVersion] = useState(0);
@@ -1922,6 +1991,11 @@ export function MessageFeed({
   const selectedCodexTerminal = useMemo(
     () => codexTerminalEntries.find((entry) => entry.toolUseId === selectedCodexTerminalId) ?? null,
     [codexTerminalEntries, selectedCodexTerminalId],
+  );
+  const latestMessage = messages[messages.length - 1] ?? null;
+  const feedEndScrollSlack = Math.max(
+    FEED_EXTRA_SCROLL_SLACK_PX,
+    floatingStatusHeight > 0 ? floatingStatusHeight + FLOATING_STATUS_SPACER_MARGIN_PX : 0,
   );
 
   useEffect(() => {
@@ -1994,12 +2068,6 @@ export function MessageFeed({
     };
   }, []);
 
-  const getRealContentBottom = useCallback(() => {
-    const container = containerRef.current;
-    if (!container) return null;
-    return Math.max(0, Math.round(container.scrollHeight));
-  }, []);
-
   const markProgrammaticScroll = useCallback((top: number) => {
     programmaticScrollTargetRef.current = top;
   }, []);
@@ -2034,6 +2102,26 @@ export function MessageFeed({
     }
     return container.scrollHeight;
   }, []);
+
+  const getRealContentBottom = useCallback(() => {
+    const container = containerRef.current;
+    const contentRoot = contentRootRef.current;
+    if (!container) return null;
+    const fallbackBottom = Math.max(0, Math.round(container.scrollHeight - feedEndScrollSlack));
+    if (!contentRoot) return fallbackBottom;
+    const blocks = contentRoot.querySelectorAll<HTMLElement>("[data-feed-block-id]");
+    if (blocks.length === 0) {
+      return fallbackBottom;
+    }
+    let maxBottom = 0;
+    for (const block of blocks) {
+      maxBottom = Math.max(maxBottom, getFeedBlockBottom(container, block));
+    }
+    if (maxBottom >= container.scrollHeight - 1) {
+      return fallbackBottom;
+    }
+    return Math.max(0, Math.min(fallbackBottom, Math.round(maxBottom)));
+  }, [feedEndScrollSlack, getFeedBlockBottom]);
 
   const getLowestFeedBlockBottom = useCallback((blockIds: Iterable<string>, fallbackToLatestBlock = false) => {
     const container = containerRef.current;
@@ -2262,9 +2350,12 @@ export function MessageFeed({
       const container = containerRef.current;
       if (!container) return;
       autoFollowEnabledRef.current = true;
-      scrollContainerTo(container.scrollHeight, behavior);
+      const realContentBottom = getRealContentBottom() ?? container.scrollHeight;
+      const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
+      const targetTop = Math.max(0, Math.min(maxScrollTop, Math.ceil(realContentBottom - container.clientHeight)));
+      scrollContainerTo(targetTop, behavior);
       isNearBottom.current = true;
-      lastSeenContentBottomRef.current = getRealContentBottom();
+      lastSeenContentBottomRef.current = realContentBottom;
       lastObservedContentBottomRef.current = lastSeenContentBottomRef.current;
       setShowScrollButton(false);
       setShowLatestPill(false);
@@ -2288,9 +2379,12 @@ export function MessageFeed({
     requestAnimationFrame(() => {
       const container = containerRef.current;
       if (!container) return;
-      scrollContainerTo(container.scrollHeight, behavior);
+      const realContentBottom = getRealContentBottom() ?? container.scrollHeight;
+      const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
+      const targetTop = Math.max(0, Math.min(maxScrollTop, Math.ceil(realContentBottom - container.clientHeight)));
+      scrollContainerTo(targetTop, behavior);
     });
-  }, [scrollContainerTo, sectionWindowStart, totalSections]);
+  }, [getRealContentBottom, scrollContainerTo, sectionWindowStart, totalSections]);
 
   const flushAutoFollow = useCallback(() => {
     const container = containerRef.current;
@@ -2324,11 +2418,17 @@ export function MessageFeed({
 
     const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
     const targetTop = Math.max(0, Math.min(maxScrollTop, Math.ceil(lowestBottom - container.clientHeight)));
-    if (Math.abs(container.scrollTop - targetTop) > 1) {
-      setContainerScrollTop(targetTop);
+    // A long-lived subagent can keep mutating above newer bottom content. While
+    // auto-follow is enabled, never let those older updates yank the viewport
+    // upward; only move farther down toward the latest active content.
+    const currentTop = Math.max(0, Math.min(maxScrollTop, container.scrollTop));
+    const nextTargetTop = Math.max(currentTop, targetTop);
+    if (Math.abs(container.scrollTop - nextTargetTop) > 1) {
+      setContainerScrollTop(nextTargetTop);
     }
-    isNearBottom.current = container.scrollHeight - targetTop - container.clientHeight < 120;
-    lastSeenContentBottomRef.current = getRealContentBottom();
+    const realContentBottom = getRealContentBottom() ?? container.scrollHeight;
+    isNearBottom.current = realContentBottom - nextTargetTop - container.clientHeight < 120;
+    lastSeenContentBottomRef.current = realContentBottom;
     lastObservedContentBottomRef.current = lastSeenContentBottomRef.current;
     setShowScrollButton(false);
     setShowLatestPill(false);
@@ -2393,7 +2493,8 @@ export function MessageFeed({
     const el = containerRef.current;
     if (!el) return;
     const currentScrollTop = el.scrollTop;
-    const nearBottom = el.scrollHeight - currentScrollTop - el.clientHeight < 120;
+    const realContentBottom = getRealContentBottom() ?? el.scrollHeight;
+    const nearBottom = realContentBottom - currentScrollTop - el.clientHeight < 120;
     const isProgrammaticScroll = programmaticScrollTargetRef.current != null
       && Math.abs(currentScrollTop - programmaticScrollTargetRef.current) <= 2;
     if (isProgrammaticScroll) {
@@ -2411,7 +2512,7 @@ export function MessageFeed({
     }
     isNearBottom.current = nearBottom;
     if (autoFollowEnabledRef.current && nearBottom) {
-      lastSeenContentBottomRef.current = getRealContentBottom();
+      lastSeenContentBottomRef.current = realContentBottom;
       lastObservedContentBottomRef.current = lastSeenContentBottomRef.current;
       setShowLatestPill(false);
       resetVisibleSectionsToLatest("auto");
@@ -2499,6 +2600,45 @@ export function MessageFeed({
     return () => onJumpToLatestReady?.(null);
   }, [onJumpToLatestReady, scrollToBottom]);
 
+  useLayoutEffect(() => {
+    if (!shouldBottomAlignNextUserMessage) return;
+    if (!latestMessage || latestMessage.role !== "user") return;
+
+    const alignLatestUserMessage = () => {
+      const container = containerRef.current;
+      if (!container) return;
+      const target = container.querySelector<HTMLElement>(`[data-message-id="${escapeSelectorValue(latestMessage.id)}"]`);
+      if (!target) return;
+      const messageBottom = getFeedBlockBottom(container, target);
+      const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
+      const targetTop = Math.max(0, Math.min(maxScrollTop, Math.ceil(messageBottom - container.clientHeight)));
+      autoFollowEnabledRef.current = true;
+      isNearBottom.current = true;
+      setContainerScrollTop(targetTop);
+      lastSeenContentBottomRef.current = getRealContentBottom();
+      lastObservedContentBottomRef.current = lastSeenContentBottomRef.current;
+      setShowScrollButton(false);
+      setShowLatestPill(false);
+      useStore.getState().clearBottomAlignOnNextUserMessage(sessionId);
+    };
+
+    if (sectionWindowStart != null && totalSections > DEFAULT_VISIBLE_SECTION_COUNT) {
+      setSectionWindowStart(null);
+      requestAnimationFrame(alignLatestUserMessage);
+      return;
+    }
+    alignLatestUserMessage();
+  }, [
+    getFeedBlockBottom,
+    getRealContentBottom,
+    latestMessage,
+    sectionWindowStart,
+    sessionId,
+    setContainerScrollTop,
+    shouldBottomAlignNextUserMessage,
+    totalSections,
+  ]);
+
   useEffect(() => {
     if (showConversationLoading) return;
     if (!toolProgress || toolProgress.size === 0) return;
@@ -2566,9 +2706,12 @@ export function MessageFeed({
     const previous = lastViewportAnchorRef.current;
     if (previous && previous.signature !== collapseLayoutSignature) {
       if (previous.wasAutoFollowing) {
-        setContainerScrollTop(container.scrollHeight);
+        const realContentBottom = getRealContentBottom() ?? container.scrollHeight;
+        const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
+        const targetTop = Math.max(0, Math.min(maxScrollTop, Math.ceil(realContentBottom - container.clientHeight)));
+        setContainerScrollTop(targetTop);
         isNearBottom.current = true;
-        lastSeenContentBottomRef.current = getRealContentBottom();
+        lastSeenContentBottomRef.current = realContentBottom;
         lastObservedContentBottomRef.current = lastSeenContentBottomRef.current;
         setShowScrollButton(false);
         setShowLatestPill(false);
@@ -2824,10 +2967,18 @@ export function MessageFeed({
               </div>
             )}
             <FeedFooter sessionId={sessionId} />
+            <div
+              aria-hidden="true"
+              className="pointer-events-none"
+              data-feed-end-slack="true"
+              style={{ height: `${feedEndScrollSlack}px` }}
+            />
           </div>
           </PawCounterContext.Provider>
           </PawScrollProvider>
         </div>
+
+        <FeedStatusPill sessionId={sessionId} onVisibleHeightChange={setFloatingStatusHeight} />
 
         {(visibleCodexTerminalRailEntries.length > 0 || visibleLiveSubagentEntries.length > 0) && (
           <LiveActivityRail

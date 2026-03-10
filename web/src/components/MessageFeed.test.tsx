@@ -37,6 +37,7 @@ const mockKeepTurnExpanded = vi.fn();
 const mockSetCollapsibleTurnIds = vi.fn();
 const mockSetFeedScrollPosition = vi.fn();
 const mockCollapseAllTurnActivity = vi.fn();
+const mockClearBottomAlignOnNextUserMessage = vi.fn();
 
 vi.mock("../store.js", () => {
   const useStore: any = (selector: (state: Record<string, unknown>) => unknown) => {
@@ -66,6 +67,7 @@ vi.mock("../store.js", () => {
       clearScrollToTurn: mockClearScrollToTurn,
       scrollToMessageId: mockStoreValues.scrollToMessageId ?? new Map(),
       clearScrollToMessage: mockClearScrollToMessage,
+      bottomAlignNextUserMessage: mockStoreValues.bottomAlignNextUserMessage ?? new Set(),
       sessionTaskHistory: mockStoreValues.sessionTaskHistory ?? new Map(),
       activeTaskTurnId: mockStoreValues.activeTaskTurnId ?? new Map(),
       setActiveTaskTurnId: mockSetActiveTaskTurnId,
@@ -83,6 +85,7 @@ vi.mock("../store.js", () => {
     toggleTurnActivity: mockToggleTurnActivity,
     focusTurn: mockFocusTurn,
     keepTurnExpanded: mockKeepTurnExpanded,
+    clearBottomAlignOnNextUserMessage: mockClearBottomAlignOnNextUserMessage,
   });
   return { useStore };
 });
@@ -305,6 +308,12 @@ function setStoreScrollToMessage(sessionId: string, messageId: string) {
   mockStoreValues.scrollToMessageId = map;
 }
 
+function setStoreBottomAlignNextUserMessage(sessionId: string, enabled = true) {
+  const set = new Set<string>();
+  if (enabled) set.add(sessionId);
+  mockStoreValues.bottomAlignNextUserMessage = set;
+}
+
 function resetStore() {
   mockToggleTurnActivity.mockReset();
   mockFocusTurn.mockReset();
@@ -315,6 +324,7 @@ function resetStore() {
   mockSetCollapsibleTurnIds.mockReset();
   mockSetFeedScrollPosition.mockReset();
   mockCollapseAllTurnActivity.mockReset();
+  mockClearBottomAlignOnNextUserMessage.mockReset();
   mockStoreValues.messages = new Map();
   mockStoreValues.messageFrozenCounts = new Map();
   mockStoreValues.messageFrozenRevisions = new Map();
@@ -334,6 +344,7 @@ function resetStore() {
   mockStoreValues.backgroundAgentNotifs = new Map();
   mockStoreValues.scrollToTurnId = new Map();
   mockStoreValues.scrollToMessageId = new Map();
+  mockStoreValues.bottomAlignNextUserMessage = new Set();
   mockStoreValues.sessionTaskHistory = new Map();
   mockStoreValues.activeTaskTurnId = new Map();
   mockStoreValues.sdkSessions = [];
@@ -357,6 +368,21 @@ async function flushFeedObservers() {
   await act(async () => {
     await Promise.resolve();
     await Promise.resolve();
+  });
+}
+
+function setElementOffsetMetrics(element: HTMLElement, offsetTop: number, offsetHeight: number) {
+  Object.defineProperty(element, "offsetTop", {
+    configurable: true,
+    get() {
+      return offsetTop;
+    },
+  });
+  Object.defineProperty(element, "offsetHeight", {
+    configurable: true,
+    get() {
+      return offsetHeight;
+    },
   });
 }
 
@@ -744,7 +770,7 @@ describe("MessageFeed - scroll behavior", () => {
     try {
       mockScrollTo.mockClear();
       render(<MessageFeed sessionId={sid} />);
-      expect(mockScrollTo).toHaveBeenCalledWith({ top: 1600, behavior: "auto" });
+      expect(mockScrollTo).toHaveBeenCalledWith({ top: 1576, behavior: "auto" });
       expect(scrollTopValue).toBe(0);
     } finally {
       if (originalScrollHeight) {
@@ -801,6 +827,92 @@ describe("MessageFeed - scroll behavior", () => {
 
     expect(scrollTopValue).toBe(1160);
     expect(mockScrollTo).not.toHaveBeenCalled();
+  });
+
+  it("aligns to the real content bottom instead of the extra end slack while running", async () => {
+    const sid = "test-real-bottom-ignores-slack";
+    setStoreMessages(sid, [makeMessage({ id: "u1", role: "user", content: "Question" })]);
+    setStoreStatus(sid, "running");
+
+    const { container, rerender } = render(<MessageFeed sessionId={sid} />);
+    const scrollContainer = container.querySelector(".overflow-y-auto") as HTMLDivElement;
+    let scrollHeightValue = 2200;
+    let scrollTopValue = 1040;
+    const offsetTopByBlockId: Record<string, number> = {
+      "turn:u1": 1600,
+      "message:u1": 1600,
+    };
+    const offsetHeightByBlockId: Record<string, number> = {
+      "turn:u1": 40,
+      "message:u1": 40,
+    };
+    const originalOffsetTop = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetTop");
+    const originalOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
+
+    Object.defineProperty(scrollContainer, "scrollHeight", {
+      configurable: true,
+      get() {
+        return scrollHeightValue;
+      },
+    });
+    Object.defineProperty(scrollContainer, "scrollTop", {
+      configurable: true,
+      get() {
+        return scrollTopValue;
+      },
+      set(value) {
+        scrollTopValue = value as number;
+      },
+    });
+    Object.defineProperty(scrollContainer, "clientHeight", {
+      configurable: true,
+      value: 600,
+    });
+
+    Object.defineProperty(HTMLElement.prototype, "offsetTop", {
+      configurable: true,
+      get() {
+        const blockId = (this as HTMLElement).dataset?.feedBlockId ?? "";
+        return offsetTopByBlockId[blockId] ?? 0;
+      },
+    });
+    Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+      configurable: true,
+      get() {
+        const blockId = (this as HTMLElement).dataset?.feedBlockId ?? "";
+        return offsetHeightByBlockId[blockId] ?? 0;
+      },
+    });
+
+    try {
+      fireEvent.scroll(scrollContainer);
+
+      scrollHeightValue = 2320;
+      offsetTopByBlockId["turn:u2"] = 1720;
+      offsetTopByBlockId["message:u2"] = 1720;
+      offsetHeightByBlockId["turn:u2"] = 40;
+      offsetHeightByBlockId["message:u2"] = 40;
+      setStoreMessages(sid, [
+        makeMessage({ id: "u1", role: "user", content: "Question" }),
+        makeMessage({ id: "u2", role: "user", content: "Follow-up" }),
+      ]);
+      rerender(<MessageFeed sessionId={sid} />);
+
+      await flushFeedObservers();
+
+      expect(scrollTopValue).toBe(1160);
+    } finally {
+      if (originalOffsetTop) {
+        Object.defineProperty(HTMLElement.prototype, "offsetTop", originalOffsetTop);
+      } else {
+        delete (HTMLElement.prototype as { offsetTop?: unknown }).offsetTop;
+      }
+      if (originalOffsetHeight) {
+        Object.defineProperty(HTMLElement.prototype, "offsetHeight", originalOffsetHeight);
+      } else {
+        delete (HTMLElement.prototype as { offsetHeight?: unknown }).offsetHeight;
+      }
+    }
   });
 
   it("uses immediate bottom alignment while streaming when the user is near bottom", async () => {
@@ -993,6 +1105,76 @@ describe("MessageFeed - scroll behavior", () => {
     expect(scrollTopValue).toBe(520);
   });
 
+  it("does not jump upward to an older subagent when newer bottom streaming content is still active", async () => {
+    const sid = "test-subagent-does-not-yank-follow-upward";
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Question" }),
+      makeMessage({
+        id: "a1",
+        role: "assistant",
+        content: "",
+        contentBlocks: [
+          {
+            type: "tool_use",
+            id: "task-follow-floor",
+            name: "Task",
+            input: { description: "Inspect event routing", subagent_type: "Explore" },
+          },
+        ],
+      }),
+    ]);
+    setStoreStatus(sid, "running");
+    setStoreStreaming(sid, "Latest bottom output");
+    setStoreParentStreaming(sid, { "task-follow-floor": "Older subagent output" });
+
+    const { container, rerender } = render(<MessageFeed sessionId={sid} />);
+    fireEvent.click(screen.getByText("Inspect event routing"));
+    fireEvent.click(screen.getByText("Activities"));
+
+    const scrollContainer = container.querySelector(".overflow-y-auto") as HTMLDivElement;
+    let scrollHeightValue = 1760;
+    let scrollTopValue = 1160;
+
+    Object.defineProperty(scrollContainer, "clientHeight", {
+      configurable: true,
+      value: 600,
+    });
+    Object.defineProperty(scrollContainer, "scrollHeight", {
+      configurable: true,
+      get() {
+        return scrollHeightValue;
+      },
+    });
+    Object.defineProperty(scrollContainer, "scrollTop", {
+      configurable: true,
+      get() {
+        return scrollTopValue;
+      },
+      set(value) {
+        scrollTopValue = value as number;
+      },
+    });
+
+    const subagentBlock = container.querySelector('[data-feed-block-id="subagent:task-follow-floor"]') as HTMLElement;
+    const footerBlock = container.querySelector('[data-feed-block-id="footer:streaming"]') as HTMLElement;
+    setElementOffsetMetrics(subagentBlock, 900, 400);
+    setElementOffsetMetrics(footerBlock, 1600, 160);
+
+    fireEvent.scroll(scrollContainer);
+
+    setStoreParentStreaming(sid, { "task-follow-floor": "Older subagent output that keeps growing" });
+    rerender(<MessageFeed sessionId={sid} />);
+
+    const rerenderedSubagentBlock = container.querySelector('[data-feed-block-id="subagent:task-follow-floor"]') as HTMLElement;
+    const rerenderedFooterBlock = container.querySelector('[data-feed-block-id="footer:streaming"]') as HTMLElement;
+    setElementOffsetMetrics(rerenderedSubagentBlock, 900, 400);
+    setElementOffsetMetrics(rerenderedFooterBlock, 1600, 160);
+
+    await flushFeedObservers();
+
+    expect(scrollTopValue).toBe(1160);
+  });
+
   it("does not auto-scroll when the user is reading away from the bottom", async () => {
     const sid = "test-no-autofollow-when-scrolled-up";
     setStoreMessages(sid, [
@@ -1132,6 +1314,80 @@ describe("MessageFeed - scroll behavior", () => {
     expect(scrollTopValue).toBe(1320);
   });
 
+  it("bottom-aligns the next locally sent user message instead of snapping to spacer slack", async () => {
+    const sid = "test-bottom-align-next-user-message";
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Question" }),
+      makeMessage({ id: "a1", role: "assistant", content: "Answer" }),
+    ]);
+
+    const { container, rerender } = render(<MessageFeed sessionId={sid} />);
+    const scrollContainer = container.querySelector(".overflow-y-auto") as HTMLDivElement;
+    let scrollHeightValue = 1800;
+    let scrollTopValue = 1000;
+
+    Object.defineProperty(scrollContainer, "clientHeight", {
+      configurable: true,
+      value: 600,
+    });
+    Object.defineProperty(scrollContainer, "scrollHeight", {
+      configurable: true,
+      get() {
+        return scrollHeightValue;
+      },
+    });
+    Object.defineProperty(scrollContainer, "scrollTop", {
+      configurable: true,
+      get() {
+        return scrollTopValue;
+      },
+      set(value) {
+        scrollTopValue = value as number;
+      },
+    });
+
+    const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect;
+    const makeRect = (top: number, height: number): DOMRect => ({
+      x: 0,
+      y: top,
+      top,
+      left: 0,
+      right: 400,
+      bottom: top + height,
+      width: 400,
+      height,
+      toJSON: () => ({}),
+    });
+
+    HTMLElement.prototype.getBoundingClientRect = function () {
+      if (this === scrollContainer || this.classList.contains("overflow-y-auto")) {
+        return makeRect(0, 600);
+      }
+      const messageId = (this as HTMLElement).dataset.messageId;
+      if (messageId === "u2") {
+        return makeRect(1500 - scrollTopValue, 40);
+      }
+      return originalGetBoundingClientRect.call(this);
+    };
+
+    try {
+      fireEvent.scroll(scrollContainer);
+      setStoreBottomAlignNextUserMessage(sid);
+      setStoreMessages(sid, [
+        makeMessage({ id: "u1", role: "user", content: "Question" }),
+        makeMessage({ id: "a1", role: "assistant", content: "Answer" }),
+        makeMessage({ id: "u2", role: "user", content: "Follow-up" }),
+      ]);
+      rerender(<MessageFeed sessionId={sid} />);
+      await flushFeedObservers();
+
+      expect(scrollTopValue).toBe(940);
+      expect(mockClearBottomAlignOnNextUserMessage).toHaveBeenCalledWith(sid);
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = originalGetBoundingClientRect;
+    }
+  });
+
   it("keeps the real bottom visible when an older turn collapses near bottom", () => {
     const sid = "test-collapse-near-bottom-follow";
     setStoreMessages(sid, [
@@ -1182,7 +1438,7 @@ describe("MessageFeed - scroll behavior", () => {
     setStoreTurnOverrides(sid, []);
     rerender(<MessageFeed sessionId={sid} />);
 
-    expect(scrollTopValue).toBe(1320);
+    expect(scrollTopValue).toBe(1116);
     expect(screen.queryByText("Read File")).toBeNull();
   });
 
@@ -1281,7 +1537,6 @@ describe("MessageFeed - scroll behavior", () => {
       rerender(<MessageFeed sessionId={sid} />);
 
       expect(scrollTopValue).toBe(0);
-      expect(screen.getByLabelText("Go to bottom")).toBeTruthy();
     } finally {
       HTMLElement.prototype.getBoundingClientRect = originalGetBoundingClientRect;
     }
@@ -1393,7 +1648,7 @@ describe("MessageFeed - scroll behavior", () => {
     mockScrollTo.mockClear();
     fireEvent.click(screen.getByLabelText("Jump to latest"));
 
-    expect(mockScrollTo).toHaveBeenCalledWith({ top: 1760, behavior: "smooth" });
+    expect(mockScrollTo).toHaveBeenCalledWith({ top: 1136, behavior: "smooth" });
   });
 
   it("keeps the Go to bottom button aligned to the real feed bottom", () => {
@@ -1425,7 +1680,7 @@ describe("MessageFeed - scroll behavior", () => {
 
     fireEvent.click(screen.getByLabelText("Go to bottom"));
 
-    expect(mockScrollTo).toHaveBeenCalledWith({ top: 1600, behavior: "smooth" });
+    expect(mockScrollTo).toHaveBeenCalledWith({ top: 976, behavior: "smooth" });
   });
 
   it("renders streaming text with cursor animation", () => {
@@ -1604,6 +1859,22 @@ describe("ElapsedTimer - generation stats bar", () => {
 
     expect(screen.getByText("Purring...")).toBeTruthy();
     // Should show "2.5k" token count
+    expect(screen.getByText(/2\.5k/)).toBeTruthy();
+  });
+});
+
+describe("MessageFeed - floating status pill", () => {
+  it("renders the compact lower-left running indicator inside the feed", () => {
+    const sid = "test-feed-status-pill";
+    setStoreMessages(sid, [makeMessage({ role: "assistant", content: "Still working" })]);
+    setStoreStatus(sid, "running");
+    setStoreStreamingStartedAt(sid, Date.now() - 10_000);
+    setStoreStreamingOutputTokens(sid, 2500);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByText("Purring...")).toBeTruthy();
+    expect(screen.getByText("10s")).toBeTruthy();
     expect(screen.getByText(/2\.5k/)).toBeTruthy();
   });
 });

@@ -9,7 +9,7 @@ import { useStore } from "../store.js";
 import { navigateToSession, navigateToMostRecentSession } from "../utils/routing.js";
 import { ClaudeMdEditor } from "./ClaudeMdEditor.js";
 import { ChatView } from "./ChatView.js";
-import { MessageFeed, ElapsedTimer } from "./MessageFeed.js";
+import { MessageFeed } from "./MessageFeed.js";
 import { api } from "../api.js";
 import type { PermissionRequest, ChatMessage, ContentBlock, SessionState, McpServerDetail } from "../types.js";
 import type { TaskItem } from "../types.js";
@@ -1310,12 +1310,10 @@ export function Playground() {
           </div>
         </Section>
 
-        <Section title="Streaming Status Rail" description="The shared bottom status rail can surface a passive latest indicator without changing scroll position.">
-          <Card label="Running session with latest indicator">
-            <div className="max-w-3xl border border-cc-border rounded-xl overflow-hidden bg-cc-card">
-              <ElapsedTimer sessionId={MOCK_SESSION_ID} latestIndicatorVisible onJumpToLatest={() => {}} />
-            </div>
-          </Card>
+        <Section title="Floating Feed Status" description="Running sessions show a compact lower-left status pill inside the feed so generation state does not steal layout height from the chat.">
+          <div className="max-w-3xl border border-cc-border rounded-xl overflow-hidden bg-cc-card h-[360px]">
+            <MessageFeed sessionId={MOCK_SESSION_ID} />
+          </div>
         </Section>
 
         <Section title="MessageFeed Section Windowing" description="Fixed 50-turn sections with older-history browsing mounted in a bounded window. This mock opens on an older section so the newer-section control is visible.">

@@ -1,7 +1,7 @@
 import { useMemo, useState, useEffect, useRef } from "react";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
-import { MessageFeed, ElapsedTimer } from "./MessageFeed.js";
+import { MessageFeed } from "./MessageFeed.js";
 import { Composer } from "./Composer.js";
 import { PermissionBanner, PlanReviewOverlay, PlanCollapsedChip, PermissionsCollapsedChip } from "./PermissionBanner.js";
 import { TaskOutlineBar } from "./TaskOutlineBar.js";
@@ -68,10 +68,6 @@ export function ChatView({ sessionId }: { sessionId: string }) {
       || backendState === "resuming"
       || !cliEverConnected
     );
-
-  const [showLatestIndicator, setShowLatestIndicator] = useState(false);
-  const latestJumpRef = useRef<(() => void) | null>(null);
-
   return (
     <div className="flex flex-col h-full min-h-0">
       {/* CLI starting / resuming banner */}
@@ -164,14 +160,7 @@ export function ChatView({ sessionId }: { sessionId: string }) {
           onCollapse={() => setPlanCollapsed(true)}
         />
       ) : (
-        <MessageFeed
-          sessionId={sessionId}
-          latestIndicatorMode="external"
-          onLatestIndicatorVisibleChange={setShowLatestIndicator}
-          onJumpToLatestReady={(scrollToLatest) => {
-            latestJumpRef.current = scrollToLatest;
-          }}
-        />
+        <MessageFeed sessionId={sessionId} />
       )}
 
       {/* Collapsed plan chip (when plan exists but is collapsed) */}
@@ -218,23 +207,6 @@ export function ChatView({ sessionId }: { sessionId: string }) {
             ))}
           </div>
         )
-      )}
-
-      {/* Streaming status — hidden on mobile when plan is active to save space */}
-      {planPerm ? (
-        <div className="hidden sm:block">
-          <ElapsedTimer
-            sessionId={sessionId}
-            latestIndicatorVisible={showLatestIndicator}
-            onJumpToLatest={() => latestJumpRef.current?.()}
-          />
-        </div>
-      ) : (
-        <ElapsedTimer
-          sessionId={sessionId}
-          latestIndicatorVisible={showLatestIndicator}
-          onJumpToLatest={() => latestJumpRef.current?.()}
-        />
       )}
 
       {/* Compacting indicator — fixed above composer, green like running state */}

@@ -95,6 +95,7 @@ const mockUpdateSession = vi.fn();
 const mockSetPreviousPermissionMode = vi.fn();
 const mockSetSessionPreview = vi.fn();
 const mockSetAskPermission = vi.fn();
+const mockRequestBottomAlignOnNextUserMessage = vi.fn();
 
 // Shared listener set for mock store reactivity
 const mockStoreListeners = new Set<() => void>();
@@ -203,6 +204,7 @@ function setupMockStore(overrides: {
     setPreviousPermissionMode: mockSetPreviousPermissionMode,
     setSessionPreview: mockSetSessionPreview,
     setAskPermission: mockSetAskPermission,
+    requestBottomAlignOnNextUserMessage: mockRequestBottomAlignOnNextUserMessage,
     zoomLevel,
     vscodeSelectionContext,
     sdkSessions: sdkSessionTotals ? [{
@@ -261,6 +263,7 @@ beforeEach(() => {
   mockVoiceState.onAudioReady = null;
   mockTranscribe.mockResolvedValue({ mode: "dictation", text: "transcribed text", backend: "openai", enhanced: false });
   mockGetBackendModels.mockResolvedValue([]);
+  mockRequestBottomAlignOnNextUserMessage.mockReset();
   mediaState.touchDevice = false;
   setViewportWidth(1024);
   Object.defineProperty(window, "isSecureContext", {
@@ -568,6 +571,7 @@ describe("Composer sending messages", () => {
       content: "test message",
       session_id: "s1",
     }));
+    expect(mockRequestBottomAlignOnNextUserMessage).toHaveBeenCalledWith("s1");
   });
 
   it("pressing Shift+Enter does NOT send the message", () => {

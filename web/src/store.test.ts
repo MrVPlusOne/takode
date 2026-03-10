@@ -461,6 +461,16 @@ describe("Streaming", () => {
   });
 });
 
+describe("Bottom-align next user message", () => {
+  it("tracks and clears a one-shot bottom-align request per session", () => {
+    useStore.getState().requestBottomAlignOnNextUserMessage("s1");
+    expect(useStore.getState().bottomAlignNextUserMessage.has("s1")).toBe(true);
+
+    useStore.getState().clearBottomAlignOnNextUserMessage("s1");
+    expect(useStore.getState().bottomAlignNextUserMessage.has("s1")).toBe(false);
+  });
+});
+
 // ─── Permissions ────────────────────────────────────────────────────────────
 
 describe("Permissions", () => {

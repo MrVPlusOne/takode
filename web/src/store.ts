@@ -99,6 +99,9 @@ interface AppState {
   // Scroll-to-message request per session (session → message ID to scroll to).
   // Unlike scrollToTurnId, this also collapses all other turns except the target and last.
   scrollToMessageId: Map<string, string | null>;
+  // Local-only hint: the next authoritative user message echoed back for this
+  // session should be bottom-aligned in the feed.
+  bottomAlignNextUserMessage: Set<string>;
   // Currently visible task turn ID per session (set by MessageFeed IntersectionObserver)
   activeTaskTurnId: Map<string, string | null>;
   // Active task preview per session (from TodoWrite/TaskCreate/TaskUpdate in_progress items)
@@ -255,6 +258,8 @@ interface AppState {
   clearScrollToTurn: (sessionId: string) => void;
   requestScrollToMessage: (sessionId: string, messageId: string) => void;
   clearScrollToMessage: (sessionId: string) => void;
+  requestBottomAlignOnNextUserMessage: (sessionId: string) => void;
+  clearBottomAlignOnNextUserMessage: (sessionId: string) => void;
   setActiveTaskTurnId: (sessionId: string, turnId: string | null) => void;
 
   // PR status action
@@ -445,6 +450,7 @@ export const useStore = create<AppState>((set) => ({
   sessionKeywords: new Map(),
   scrollToTurnId: new Map(),
   scrollToMessageId: new Map(),
+  bottomAlignNextUserMessage: new Set(),
   activeTaskTurnId: new Map(),
   sessionTaskPreview: new Map(),
   prStatus: new Map(),
@@ -1297,6 +1303,22 @@ export const useStore = create<AppState>((set) => ({
       return { scrollToMessageId };
     }),
 
+  requestBottomAlignOnNextUserMessage: (sessionId) =>
+    set((s) => {
+      if (s.bottomAlignNextUserMessage.has(sessionId)) return s;
+      const bottomAlignNextUserMessage = new Set(s.bottomAlignNextUserMessage);
+      bottomAlignNextUserMessage.add(sessionId);
+      return { bottomAlignNextUserMessage };
+    }),
+
+  clearBottomAlignOnNextUserMessage: (sessionId) =>
+    set((s) => {
+      if (!s.bottomAlignNextUserMessage.has(sessionId)) return s;
+      const bottomAlignNextUserMessage = new Set(s.bottomAlignNextUserMessage);
+      bottomAlignNextUserMessage.delete(sessionId);
+      return { bottomAlignNextUserMessage };
+    }),
+
   setActiveTaskTurnId: (sessionId, turnId) =>
     set((s) => {
       const prev = s.activeTaskTurnId.get(sessionId);
@@ -1652,6 +1674,7 @@ export const useStore = create<AppState>((set) => ({
       sessionKeywords: new Map(),
       scrollToTurnId: new Map(),
       scrollToMessageId: new Map(),
+      bottomAlignNextUserMessage: new Set(),
       activeTaskTurnId: new Map(),
       sessionTaskPreview: new Map(),
       mcpServers: new Map(),

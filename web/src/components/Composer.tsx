@@ -698,6 +698,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
 
     // User message will appear in the feed when the server broadcasts it back
     // (server-authoritative model — browsers never add user messages locally)
+    useStore.getState().requestBottomAlignOnNextUserMessage(sessionId);
     useStore.getState().clearComposerDraft(sessionId);
     setSlashMenuOpen(false);
     setMentionMenuOpen(false);
