@@ -186,6 +186,32 @@ describe("WriteDisplay", () => {
     expect(container.querySelector(".diff-line-add")).toBeTruthy();
     expect(screen.getByText("big.ts")).toBeTruthy();
   });
+
+  it("renders diff view from Codex create patches when content is missing", () => {
+    const { container } = render(
+      <PermissionBanner
+        permission={makePermission({
+          tool_name: "Write",
+          input: {
+            file_path: "/src/output.ts",
+            changes: [{
+              path: "/src/output.ts",
+              kind: "create",
+              diff: [
+                "+export default 42;",
+                "+export const created = true;",
+              ].join("\n"),
+            }],
+          },
+        })}
+        sessionId="s1"
+      />,
+    );
+
+    expect(screen.getByText("output.ts")).toBeTruthy();
+    expect(container.querySelector(".diff-line-add")).toBeTruthy();
+    expect(screen.queryByText("No changes")).toBeNull();
+  });
 });
 
 // ─── ReadDisplay ─────────────────────────────────────────────────────────────

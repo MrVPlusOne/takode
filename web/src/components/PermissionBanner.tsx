@@ -1091,7 +1091,29 @@ function EditDisplay({ input }: { input: Record<string, unknown> }) {
 }
 
 function WriteDisplay({ input }: { input: Record<string, unknown> }) {
-  const { filePath, content } = parseWriteToolInput(input);
+  const { filePath, content, changes, unifiedDiff } = parseWriteToolInput(input);
+
+  if (!content && unifiedDiff) {
+    return (
+      <DiffViewer
+        unifiedDiff={unifiedDiff}
+        fileName={filePath}
+        mode="full"
+      />
+    );
+  }
+
+  if (!content && changes.length > 0) {
+    return (
+      <div className="text-xs text-cc-muted font-mono-code bg-cc-code-bg/30 rounded-lg px-3 py-2 space-y-1">
+        {changes.map((change, i) => (
+          <div key={`${typeof change.path === "string" ? change.path : "file"}-${i}`}>
+            {(typeof change.kind === "string" ? change.kind : "create")}: {typeof change.path === "string" ? change.path : (filePath || "(unknown file)")}
+          </div>
+        ))}
+      </div>
+    );
+  }
 
   return (
     <DiffViewer

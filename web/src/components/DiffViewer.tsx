@@ -217,6 +217,11 @@ function parseUnifiedDiffToFiles(diffStr: string, fallbackFileName = ""): Parsed
     files.push(currentFile);
   }
 
+  if (files.length === 0) {
+    const rawFallback = parseRawChangeLinesToFiles(diffStr, fallbackFileName);
+    if (rawFallback.length > 0) return rawFallback;
+  }
+
   // Add word highlights.
   for (const file of files) {
     for (const hunk of file.hunks) {
@@ -226,6 +231,49 @@ function parseUnifiedDiffToFiles(diffStr: string, fallbackFileName = ""): Parsed
   }
 
   return files;
+}
+
+function parseRawChangeLinesToFiles(diffStr: string, fallbackFileName = ""): ParsedFileDiff[] {
+  const lines: DiffLine[] = [];
+  let oldLine = 1;
+  let newLine = 1;
+
+  for (const line of diffStr.replace(/\r\n?/g, "\n").split("\n")) {
+    if (line === "\\ No newline at end of file") continue;
+
+    if (line.startsWith("+")) {
+      lines.push({ type: "add", content: line.slice(1), newLineNo: newLine++ });
+      continue;
+    }
+
+    if (line.startsWith("-")) {
+      lines.push({ type: "del", content: line.slice(1), oldLineNo: oldLine++ });
+      continue;
+    }
+
+    if (line.startsWith(" ")) {
+      lines.push({ type: "context", content: line.slice(1), oldLineNo: oldLine++, newLineNo: newLine++ });
+    }
+  }
+
+  if (!lines.some((line) => line.type === "add" || line.type === "del")) {
+    return [];
+  }
+
+  const normalized = normalizeAdjacentChangeBlocks(lines);
+  addWordHighlights(normalized);
+
+  return [{
+    fileName: fallbackFileName,
+    hunks: [{
+      header: "",
+      oldStart: 1,
+      oldLines: Math.max(0, oldLine - 1),
+      newStart: 1,
+      newLines: Math.max(0, newLine - 1),
+      lines: normalized,
+    }],
+  }];
 }
 
 function normalizeAdjacentChangeBlocks(lines: DiffLine[]): DiffLine[] {

@@ -671,7 +671,43 @@ function EditToolDetail({ input, sessionId }: { input: Record<string, unknown>; 
 }
 
 function WriteToolDetail({ input, sessionId }: { input: Record<string, unknown>; sessionId?: string }) {
-  const { filePath, content } = parseWriteToolInput(input);
+  const { filePath, content, changes, unifiedDiff } = parseWriteToolInput(input);
+
+  if (!content && unifiedDiff) {
+    return (
+      <DiffViewer
+        unifiedDiff={unifiedDiff}
+        fileName={filePath}
+        mode="full"
+        renderHeaderActions={(diffFilePath) => (
+          <DiffOpenFileButton filePath={diffFilePath} sessionId={sessionId} line={1} />
+        )}
+      />
+    );
+  }
+
+  if (!content && changes.length > 0) {
+    return (
+      <div className="space-y-1.5">
+        <div className="text-[10px] text-cc-muted uppercase tracking-wider">Applied changes</div>
+        <div className="space-y-1">
+          {changes.map((change, i) => (
+            <div
+              key={`${typeof change.path === "string" ? change.path : "file"}-${i}`}
+              className="flex items-center justify-between gap-3 rounded-md border border-cc-border/70 px-2 py-1.5"
+            >
+              <span className="min-w-0 text-[11px] text-cc-muted font-mono-code">
+                {(typeof change.kind === "string" ? change.kind : "create")}: {typeof change.path === "string" ? change.path : (filePath || "(unknown file)")}
+              </span>
+              {typeof change.path === "string" && (
+                <DiffOpenFileButton filePath={change.path} sessionId={sessionId} line={1} />
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <DiffViewer

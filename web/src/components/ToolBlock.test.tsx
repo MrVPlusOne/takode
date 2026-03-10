@@ -438,6 +438,61 @@ describe("ToolBlock", () => {
     expect(container.querySelector(".diff-line-add")).toBeTruthy();
   });
 
+  it("renders Write diffs from Codex change patches when content is absent", () => {
+    const { container } = render(
+      <ToolBlock
+        name="Write"
+        input={{
+          file_path: "/home/user/src/new-file.ts",
+          changes: [
+            {
+              path: "/home/user/src/new-file.ts",
+              kind: "create",
+              diff: [
+                "+export const answer = 42;",
+                "+export const question = 'life';",
+              ].join("\n"),
+            },
+          ],
+        }}
+        toolUseId="tool-7c-codex-write"
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Write Filesrc\/new-file\.ts/ }));
+    expect(screen.getByText("new-file.ts")).toBeTruthy();
+    expect(container.querySelector(".diff-line-add")).toBeTruthy();
+    expect(screen.queryByText("No changes")).toBeNull();
+  });
+
+  it("renders Edit diffs for Codex create patches without unified diff headers", () => {
+    const { container } = render(
+      <ToolBlock
+        name="Edit"
+        input={{
+          file_path: "/home/user/plans/design.md",
+          changes: [
+            {
+              path: "/home/user/plans/design.md",
+              kind: "create",
+              diff: [
+                "+# Design",
+                "+",
+                "+Draft content",
+              ].join("\n"),
+            },
+          ],
+        }}
+        toolUseId="tool-7c-codex-edit"
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Edit Fileplans\/design\.md/ }));
+    expect(screen.getByText("design.md")).toBeTruthy();
+    expect(container.querySelector(".diff-line-add")).toBeTruthy();
+    expect(screen.queryByText("No changes")).toBeNull();
+  });
+
   it("shows an Open File action for local VSCode diffs and jumps to the first changed line", async () => {
     window.history.replaceState({}, "", "/?takodeHost=vscode");
     const postMessageSpy = vi.spyOn(window.parent, "postMessage");
