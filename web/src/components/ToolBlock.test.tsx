@@ -528,6 +528,84 @@ describe("ToolBlock", () => {
     });
   });
 
+  it("renders one Open File action per edited file and targets the correct file", async () => {
+    window.history.replaceState({}, "", "/?takodeHost=vscode");
+    const postMessageSpy = vi.spyOn(window.parent, "postMessage");
+    const previousSdkSessions = useStore.getState().sdkSessions;
+    useStore.setState({
+      sdkSessions: [
+        {
+          sessionId: "tool-multi-open",
+          state: "connected",
+          cwd: "/home/user/project",
+          createdAt: Date.now(),
+        },
+      ],
+    });
+
+    render(
+      <ToolBlock
+        name="Edit"
+        input={{
+          changes: [
+            {
+              path: "src/a.ts",
+              kind: "modify",
+              diff: [
+                "diff --git a/src/a.ts b/src/a.ts",
+                "--- a/src/a.ts",
+                "+++ b/src/a.ts",
+                "@@ -4,2 +7,2 @@",
+                "-const a = 1;",
+                "+const a = 2;",
+              ].join("\n"),
+            },
+            {
+              path: "src/b.ts",
+              kind: "modify",
+              diff: [
+                "diff --git a/src/b.ts b/src/b.ts",
+                "--- a/src/b.ts",
+                "+++ b/src/b.ts",
+                "@@ -10,2 +14,2 @@",
+                "-const b = 1;",
+                "+const b = 2;",
+              ].join("\n"),
+            },
+          ],
+        }}
+        toolUseId="tool-7-multi-open"
+        sessionId="tool-multi-open"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Edit File/ }));
+
+    const openButtons = screen.getAllByRole("button", { name: "Open File" });
+    expect(openButtons).toHaveLength(2);
+
+    fireEvent.click(openButtons[1]);
+
+    await waitFor(() => {
+      expect(postMessageSpy).toHaveBeenCalledWith(
+        {
+          source: "takode-vscode-prototype",
+          type: "takode:open-file",
+          payload: {
+            absolutePath: "/home/user/project/src/b.ts",
+            line: 14,
+            column: 1,
+          },
+        },
+        "*",
+      );
+    });
+
+    useStore.setState({ sdkSessions: previousSdkSessions });
+    postMessageSpy.mockRestore();
+    window.history.replaceState({}, "", "/");
+  });
+
   it("renders Edit diff when changes use unified_diff field", () => {
     const { container } = render(
       <ToolBlock

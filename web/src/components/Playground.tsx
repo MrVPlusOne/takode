@@ -1407,6 +1407,39 @@ export function Playground() {
             <ToolBlock name="Read" input={{ file_path: "/Users/stan/Dev/project/src/index.ts", offset: 10, limit: 50 }} toolUseId="tb-2" sessionId={MOCK_SESSION_ID} />
             <ToolBlock name="Edit" input={{ file_path: "src/utils.ts", old_string: "const x = 1;", new_string: "const x = 2;", replace_all: true }} toolUseId="tb-3" sessionId={MOCK_SESSION_ID} />
             <ToolBlock name="Edit" input={{ file_path: "src/utils.ts", changes: [{ path: "src/utils.ts", kind: "modify", unified_diff: "@@ -1 +1 @@\n-const x = 1;\n+const x = 2;" }] }} toolUseId="tb-3b" sessionId={MOCK_SESSION_ID} />
+            <ToolBlock
+              name="Edit"
+              input={{
+                changes: [
+                  {
+                    path: "src/cluster-workflow.ts",
+                    kind: "modify",
+                    diff: [
+                      "diff --git a/src/cluster-workflow.ts b/src/cluster-workflow.ts",
+                      "--- a/src/cluster-workflow.ts",
+                      "+++ b/src/cluster-workflow.ts",
+                      "@@ -35,3 +35,3 @@",
+                      "-ssh alias-one",
+                      "+ssh -o ClearAllForwardings=yes alias-one",
+                    ].join("\n"),
+                  },
+                  {
+                    path: "src/ssh-health.ts",
+                    kind: "modify",
+                    diff: [
+                      "diff --git a/src/ssh-health.ts b/src/ssh-health.ts",
+                      "--- a/src/ssh-health.ts",
+                      "+++ b/src/ssh-health.ts",
+                      "@@ -12,3 +12,3 @@",
+                      "-output=$(ssh \"$alias\")",
+                      "+output=$(ssh -o ClearAllForwardings=yes \"$alias\")",
+                    ].join("\n"),
+                  },
+                ],
+              }}
+              toolUseId="tb-3c"
+              sessionId={MOCK_SESSION_ID}
+            />
             <ToolBlock name="Write" input={{ file_path: "src/new-file.ts", content: 'export const hello = "world";\n' }} toolUseId="tb-4" sessionId={MOCK_SESSION_ID} />
             <ToolBlock name="Glob" input={{ pattern: "**/*.tsx", path: "/Users/stan/Dev/project/src" }} toolUseId="tb-5" sessionId={MOCK_SESSION_ID} />
             <ToolBlock name="Grep" input={{ pattern: "useEffect", path: "src/", glob: "*.tsx", output_mode: "content", context: 3, head_limit: 20 }} toolUseId="tb-6" sessionId={MOCK_SESSION_ID} />

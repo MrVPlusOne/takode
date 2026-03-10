@@ -26,6 +26,8 @@ export interface DiffViewerProps {
   expandButtonLabel?: string;
   /** Optional actions rendered in the file header. */
   headerActions?: ReactNode;
+  /** Optional callback for rendering file-specific header actions. */
+  renderHeaderActions?: (fileName: string) => ReactNode;
 }
 
 interface DiffLine {
@@ -514,6 +516,7 @@ export function DiffViewer({
   showLineNumbers: showLineNumbersProp,
   expandButtonLabel = "Expand",
   headerActions,
+  renderHeaderActions,
 }: DiffViewerProps) {
   const isCompact = mode === "compact";
   const showLineNumbers = showLineNumbersProp ?? false;
@@ -593,13 +596,17 @@ export function DiffViewer({
       )}
       {data.map((file, fi) => {
         const blocks = buildRenderBlocks(file.hunks, oldSourceLines, newSourceLines);
+        const resolvedFileName = file.fileName || fileName || "";
+        const resolvedHeaderActions = renderHeaderActions
+          ? renderHeaderActions(resolvedFileName)
+          : headerActions;
         return (
           <div key={fi} className="diff-file">
-            {(file.fileName || fileName) && (
+            {resolvedFileName && (
               <FileHeader
-                fileName={file.fileName || fileName || ""}
+                fileName={resolvedFileName}
                 fileStatsLabel={data.length === 1 ? fileStatsLabel : undefined}
-                headerActions={headerActions}
+                headerActions={resolvedHeaderActions}
               />
             )}
             {blocks.map((block) => {
@@ -700,6 +707,7 @@ export function DiffViewer({
                 mode="full"
                 showLineNumbers
                 headerActions={headerActions}
+                renderHeaderActions={renderHeaderActions}
               />
             </div>
           </div>

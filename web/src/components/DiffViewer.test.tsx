@@ -81,6 +81,31 @@ index 1234567..abcdefg 100644
     expect(screen.getByText("file.ts")).toBeTruthy();
   });
 
+  it("renders file-specific header actions for multi-file diffs", () => {
+    const multiDiff = `diff --git a/src/a.ts b/src/a.ts
+--- a/src/a.ts
++++ b/src/a.ts
+@@ -1 +1 @@
+-const a = 1;
++const a = 2;
+diff --git a/src/b.ts b/src/b.ts
+--- a/src/b.ts
++++ b/src/b.ts
+@@ -1 +1 @@
+-const b = 1;
++const b = 2;`;
+
+    render(
+      <DiffViewer
+        unifiedDiff={multiDiff}
+        renderHeaderActions={(fileName) => <button type="button">Open {fileName}</button>}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Open src/a.ts" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Open src/b.ts" })).toBeTruthy();
+  });
+
   it("renders full mode with line numbers when explicitly enabled", () => {
     const { container } = render(
       <DiffViewer

@@ -7,7 +7,7 @@ import { CollapseFooter } from "./CollapseFooter.js";
 import { CopyFormatButton } from "./CopyFormatButton.js";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
-import { parseEditToolInput, parseWriteToolInput } from "../utils/tool-rendering.js";
+import { getChangePatch, parseEditToolInput, parseWriteToolInput } from "../utils/tool-rendering.js";
 import { openFileWithEditorPreference, resolveEmbeddedVsCodePath, showEditorOpenError } from "../utils/vscode-bridge.js";
 
 const TOOL_ICONS: Record<string, string> = {
@@ -465,8 +465,12 @@ function ToolDetail({ name, input, sessionId }: { name: string; input: Record<st
 
 // ─── Per-tool detail components ─────────────────────────────────────────────
 
-function getFirstChangedLineFromEditPayload(parsed: ReturnType<typeof parseEditToolInput>): number {
-  const firstHunkMatch = parsed.unifiedDiff.match(/^@@\s+-\d+(?:,\d+)?\s+\+(\d+)(?:,\d+)?\s+@@/m);
+function normalizeDiffFilePath(filePath: string): string {
+  return filePath.trim().replace(/\\/g, "/").replace(/^\.\/+/, "").replace(/^(?:[ab]\/)+/, "");
+}
+
+function getFirstChangedLineFromPatch(diffText: string): number {
+  const firstHunkMatch = diffText.match(/^@@\s+-\d+(?:,\d+)?\s+\+(\d+)(?:,\d+)?\s+@@/m);
   if (firstHunkMatch) {
     const nextLine = Number.parseInt(firstHunkMatch[1], 10);
     if (Number.isFinite(nextLine) && nextLine > 0) {
@@ -474,6 +478,65 @@ function getFirstChangedLineFromEditPayload(parsed: ReturnType<typeof parseEditT
     }
   }
   return 1;
+}
+
+function getFirstChangedLineFromEditPayload(parsed: ReturnType<typeof parseEditToolInput>): number {
+  return getFirstChangedLineFromPatch(parsed.unifiedDiff);
+}
+
+function changePathMatchesDiffFile(change: Record<string, unknown>, filePath: string): boolean {
+  const normalizedTarget = normalizeDiffFilePath(filePath);
+  if (!normalizedTarget) return false;
+
+  const rawChangePath = typeof change.path === "string" ? change.path : "";
+  const normalizedChangePath = normalizeDiffFilePath(rawChangePath);
+  if (
+    normalizedChangePath
+    && (
+      normalizedChangePath === normalizedTarget
+      || normalizedChangePath.endsWith(`/${normalizedTarget}`)
+      || normalizedTarget.endsWith(`/${normalizedChangePath}`)
+    )
+  ) {
+    return true;
+  }
+
+  const patch = getChangePatch(change);
+  if (!patch) return false;
+  const escapedPath = normalizedTarget.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^\\+\\+\\+\\s+(?:b/)?${escapedPath}$`, "m").test(patch);
+}
+
+function getFirstChangedLineForEditFile(
+  parsed: ReturnType<typeof parseEditToolInput>,
+  filePath: string,
+): number {
+  const matchingChange = parsed.changes.find((change) => changePathMatchesDiffFile(change, filePath));
+  if (matchingChange) {
+    return getFirstChangedLineFromPatch(getChangePatch(matchingChange));
+  }
+
+  if (parsed.filePath && changePathMatchesDiffFile({ path: parsed.filePath }, filePath)) {
+    return getFirstChangedLineFromEditPayload(parsed);
+  }
+
+  return 1;
+}
+
+function getOpenFilePathForEditFile(
+  parsed: ReturnType<typeof parseEditToolInput>,
+  filePath: string,
+): string {
+  const matchingChange = parsed.changes.find((change) => changePathMatchesDiffFile(change, filePath));
+  if (matchingChange && typeof matchingChange.path === "string" && matchingChange.path.trim()) {
+    return matchingChange.path;
+  }
+
+  if (parsed.filePath && changePathMatchesDiffFile({ path: parsed.filePath }, filePath)) {
+    return parsed.filePath;
+  }
+
+  return filePath || parsed.filePath;
 }
 
 function DiffOpenFileButton({
@@ -539,31 +602,46 @@ function BashDetail({ input }: { input: Record<string, unknown> }) {
 }
 
 function EditToolDetail({ input, sessionId }: { input: Record<string, unknown>; sessionId?: string }) {
+  const parsed = parseEditToolInput(input);
   const {
     filePath,
     oldText: oldStr,
     newText: newStr,
     changes,
     unifiedDiff,
-  } = parseEditToolInput(input);
-  const openFileButton = <DiffOpenFileButton filePath={filePath} sessionId={sessionId} line={getFirstChangedLineFromEditPayload({ filePath, oldText: oldStr, newText: newStr, changes, unifiedDiff })} />;
+  } = parsed;
+  const renderOpenFileButton = (targetFilePath: string, line: number) => (
+    <DiffOpenFileButton filePath={targetFilePath} sessionId={sessionId} line={line} />
+  );
 
   if (!oldStr && !newStr && unifiedDiff) {
-    return <DiffViewer unifiedDiff={unifiedDiff} fileName={filePath} mode="full" headerActions={openFileButton} />;
+    return (
+      <DiffViewer
+        unifiedDiff={unifiedDiff}
+        fileName={filePath}
+        mode="full"
+        renderHeaderActions={(diffFilePath) => renderOpenFileButton(
+          getOpenFilePathForEditFile(parsed, diffFilePath),
+          getFirstChangedLineForEditFile(parsed, diffFilePath),
+        )}
+      />
+    );
   }
 
   if (!oldStr && !newStr && changes.length > 0) {
     return (
       <div className="space-y-1.5">
-        {openFileButton}
         <div className="text-[10px] text-cc-muted uppercase tracking-wider">Applied changes</div>
         <div className="space-y-1">
           {changes.map((change, i) => (
             <div
               key={`${typeof change.path === "string" ? change.path : "file"}-${i}`}
-              className="text-[11px] text-cc-muted font-mono-code"
+              className="flex items-center justify-between gap-3 rounded-md border border-cc-border/70 px-2 py-1.5"
             >
-              {(typeof change.kind === "string" ? change.kind : "modify")}: {typeof change.path === "string" ? change.path : (filePath || "(unknown file)")}
+              <span className="min-w-0 text-[11px] text-cc-muted font-mono-code">
+                {(typeof change.kind === "string" ? change.kind : "modify")}: {typeof change.path === "string" ? change.path : (filePath || "(unknown file)")}
+              </span>
+              {typeof change.path === "string" && renderOpenFileButton(change.path, getFirstChangedLineForEditFile(parsed, change.path))}
             </div>
           ))}
         </div>
@@ -578,16 +656,33 @@ function EditToolDetail({ input, sessionId }: { input: Record<string, unknown>; 
           replace all
         </span>
       )}
-      <DiffViewer oldText={oldStr} newText={newStr} fileName={filePath} mode="full" headerActions={openFileButton} />
+      <DiffViewer
+        oldText={oldStr}
+        newText={newStr}
+        fileName={filePath}
+        mode="full"
+        renderHeaderActions={(diffFilePath) => renderOpenFileButton(
+          getOpenFilePathForEditFile(parsed, diffFilePath),
+          getFirstChangedLineForEditFile(parsed, diffFilePath),
+        )}
+      />
     </div>
   );
 }
 
 function WriteToolDetail({ input, sessionId }: { input: Record<string, unknown>; sessionId?: string }) {
   const { filePath, content } = parseWriteToolInput(input);
-  const openFileButton = <DiffOpenFileButton filePath={filePath} sessionId={sessionId} line={1} />;
 
-  return <DiffViewer newText={content} fileName={filePath} mode="full" headerActions={openFileButton} />;
+  return (
+    <DiffViewer
+      newText={content}
+      fileName={filePath}
+      mode="full"
+      renderHeaderActions={(diffFilePath) => (
+        <DiffOpenFileButton filePath={diffFilePath} sessionId={sessionId} line={1} />
+      )}
+    />
+  );
 }
 
 function ReadToolDetail({ input }: { input: Record<string, unknown> }) {
