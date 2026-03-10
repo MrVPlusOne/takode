@@ -2234,12 +2234,12 @@ describe("handleMessage: tool_progress", () => {
 // handleMessage: tool_result_preview
 // ===========================================================================
 describe("handleMessage: tool_result_preview", () => {
-  it("stores preview and clears in-progress tool output for completed tools", () => {
+  it("stores preview and clears in-progress tool output for completed non-terminal tools", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
 
     useStore.getState().setToolProgress("s1", "tu-live", {
-      toolName: "Bash",
+      toolName: "Read",
       elapsedSeconds: 9,
       outputDelta: "still running\n",
     });
@@ -2261,6 +2261,35 @@ describe("handleMessage: tool_result_preview", () => {
     expect(preview?.content).toBe("done");
     const progress = useStore.getState().toolProgress.get("s1");
     expect(progress?.has("tu-live")).toBe(false);
+  });
+
+  it("retains completed Codex Bash output so the inline card can show the captured transcript", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "codex" } });
+
+    useStore.getState().setToolProgress("s1", "tu-live", {
+      toolName: "Bash",
+      elapsedSeconds: 9,
+      outputDelta: "still running\n",
+    });
+
+    fireMessage({
+      type: "tool_result_preview",
+      previews: [
+        {
+          tool_use_id: "tu-live",
+          content: "Terminal command completed, but no output was captured.",
+          is_error: false,
+          total_size: 53,
+          is_truncated: false,
+        },
+      ],
+    });
+
+    const preview = useStore.getState().toolResults.get("s1")?.get("tu-live");
+    expect(preview?.content).toContain("no output was captured");
+    const progress = useStore.getState().toolProgress.get("s1");
+    expect(progress?.get("tu-live")?.output).toBe("still running\n");
   });
 });
 

@@ -815,9 +815,16 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
 
     case "tool_result_preview": {
       for (const preview of data.previews) {
+        const retainedProgress = store.toolProgress.get(sessionId)?.get(preview.tool_use_id);
+        const shouldRetainTerminalTranscript =
+          store.sessions.get(sessionId)?.backend_type === "codex"
+          && retainedProgress?.toolName === "Bash";
         store.setToolResult(sessionId, preview.tool_use_id, preview);
-        // Tool completed — clear live progress/output for this tool call.
-        store.clearToolProgress(sessionId, preview.tool_use_id);
+        // Preserve completed Codex Bash output so the inline card can keep the
+        // captured transcript after the live terminal chip disappears.
+        if (!shouldRetainTerminalTranscript) {
+          store.clearToolProgress(sessionId, preview.tool_use_id);
+        }
       }
       break;
     }

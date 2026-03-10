@@ -151,6 +151,12 @@ export const ToolBlock = memo(function ToolBlock({
   const headerRef = useRef<HTMLButtonElement>(null);
   const iconType = getToolIcon(name);
   const label = getToolLabel(name);
+  const resultPreview = useStore((s) => sessionId ? s.toolResults.get(sessionId)?.get(toolUseId) : undefined);
+  const retainedProgress = useStore((s) => sessionId ? s.toolProgress.get(sessionId)?.get(toolUseId) : undefined);
+  const showCompletedLiveBadge =
+    name === "Bash"
+    && !!resultPreview
+    && retainedProgress?.toolName === "Bash";
 
   // Extract the most useful preview
   const preview = getPreview(name, input);
@@ -180,6 +186,11 @@ export const ToolBlock = memo(function ToolBlock({
         {preview && (
           <span className={`text-xs truncate flex-1 font-mono-code ${hideHeaderLabel ? "text-cc-fg/90" : "text-cc-muted"}`}>
             {preview}
+          </span>
+        )}
+        {showCompletedLiveBadge && (
+          <span className="shrink-0 rounded-full bg-cc-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-cc-primary">
+            live
           </span>
         )}
         {sessionId && <ToolDurationBadge toolUseId={toolUseId} sessionId={sessionId} />}
@@ -278,6 +289,12 @@ function extractImagePathForPreview(toolName: string, input: Record<string, unkn
   return null;
 }
 
+function shouldPreferLiveTerminalTranscript(content: string): boolean {
+  const trimmed = content.trim();
+  if (!trimmed) return true;
+  return /terminal command (completed|failed|was interrupted).*?(no output was captured|before the final tool result was delivered)/i.test(trimmed);
+}
+
 function ToolResultSection({
   toolUseId,
   sessionId,
@@ -296,6 +313,14 @@ function ToolResultSection({
   const [fullContent, setFullContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const liveOutput = progress?.output || "";
+  const isCompletedLiveTerminal =
+    toolName === "Bash"
+    && progress?.toolName === "Bash";
+  const shouldUseLiveTranscriptFallback =
+    !!preview
+    && isCompletedLiveTerminal
+    && liveOutput.length > 0
+    && shouldPreferLiveTerminalTranscript(preview.content);
 
   // Suppress the result section for web search when the result just echoes the
   // query or is a generic placeholder — the query is already shown in ToolDetail.
@@ -368,8 +393,13 @@ function ToolResultSection({
     );
   }
 
-  const displayContent = fullContent ?? preview.content;
-  const showExpandButton = preview.is_truncated && fullContent === null;
+  const displayContent = shouldUseLiveTranscriptFallback
+    ? liveOutput
+    : (fullContent ?? preview.content);
+  const showExpandButton =
+    !shouldUseLiveTranscriptFallback
+    && preview.is_truncated
+    && fullContent === null;
 
   const fetchFull = async () => {
     setLoading(true);
@@ -389,6 +419,14 @@ function ToolResultSection({
         <span className="text-[10px] font-medium text-cc-muted uppercase tracking-wider">Result</span>
         {preview.is_error && (
           <span className="text-[10px] px-1.5 py-0.5 rounded bg-cc-error/10 text-cc-error font-medium">error</span>
+        )}
+        {isCompletedLiveTerminal && (
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-cc-primary/10 text-cc-primary font-medium">
+            previously live
+          </span>
+        )}
+        {shouldUseLiveTranscriptFallback && (
+          <span className="text-[10px] text-cc-muted">showing captured transcript</span>
         )}
         {preview.is_truncated && fullContent === null && (
           <span className="text-[10px] text-cc-muted">{formatBytes(preview.total_size)}</span>

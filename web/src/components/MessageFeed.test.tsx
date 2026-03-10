@@ -1380,6 +1380,8 @@ describe("MessageFeed - Codex terminal chips", () => {
 
     render(<MessageFeed sessionId={sid} />);
 
+    expect(screen.getByTestId("codex-live-terminal-band")).toBeTruthy();
+    expect(screen.getByText("Live terminals")).toBeTruthy();
     expect(screen.getByTestId("codex-live-terminal-chip").textContent).toContain("bun test src/ws-bridge.test.ts");
     expect(screen.getByText("Live terminal in chip")).toBeTruthy();
     expect(screen.queryByText("Live output")).toBeNull();
@@ -1436,6 +1438,45 @@ describe("MessageFeed - Codex terminal chips", () => {
     expect(screen.queryByTestId("codex-live-terminal-chip")).toBeNull();
     expect(screen.queryByText("Live terminal in chip")).toBeNull();
     expect(screen.getByText("bun run test")).toBeTruthy();
+  });
+
+  it("keeps a completed live terminal transcript visible in the inline Bash card", () => {
+    const sid = "test-codex-live-transcript";
+    setStoreSessionBackend(sid, "codex");
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "codex-live-4",
+        role: "assistant",
+        content: "",
+        contentBlocks: [
+          { type: "tool_use", id: "tu-live-4", name: "Bash", input: { command: "find . -name '*.ts'" } },
+        ],
+      }),
+    ]);
+    setStoreToolProgress(sid, [{
+      toolUseId: "tu-live-4",
+      toolName: "Bash",
+      elapsedSeconds: 14,
+      output: "src/store.ts\nsrc/ws-handlers.ts\n",
+    }]);
+    setStoreToolResults(sid, {
+      "tu-live-4": {
+        content: "Terminal command completed, but no output was captured.",
+        is_truncated: false,
+        duration_seconds: 14.1,
+      },
+    });
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.queryByTestId("codex-live-terminal-band")).toBeNull();
+    expect(screen.getByText("live")).toBeTruthy();
+
+    fireEvent.click(screen.getByText("find . -name '*.ts'"));
+
+    expect(screen.getByText("previously live")).toBeTruthy();
+    expect(screen.getByText("showing captured transcript")).toBeTruthy();
+    expect(screen.getByText(/src\/store\.ts[\s\S]*src\/ws-handlers\.ts/)).toBeTruthy();
   });
 });
 

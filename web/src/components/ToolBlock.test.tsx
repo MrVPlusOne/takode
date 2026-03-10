@@ -896,6 +896,48 @@ describe("ToolBlock", () => {
 
     useStore.setState({ toolProgress: new Map(), toolResults: new Map() });
   });
+
+  it("keeps the captured transcript when a completed Codex Bash result is empty", () => {
+    const toolProgress = new Map();
+    const sessionProgress = new Map();
+    sessionProgress.set("tu-live-complete", {
+      toolName: "Bash",
+      elapsedSeconds: 14,
+      output: "src/store.ts\nsrc/ws-handlers.ts\n",
+    });
+    toolProgress.set("live-session", sessionProgress);
+
+    const toolResults = new Map();
+    const sessionResults = new Map();
+    sessionResults.set("tu-live-complete", {
+      tool_use_id: "tu-live-complete",
+      content: "Terminal command completed, but no output was captured.",
+      is_error: false,
+      total_size: 53,
+      is_truncated: false,
+      duration_seconds: 14.1,
+    });
+    toolResults.set("live-session", sessionResults);
+
+    useStore.setState({ toolProgress, toolResults });
+
+    render(
+      <ToolBlock
+        name="Bash"
+        input={{ command: "find src -name '*.ts'" }}
+        toolUseId="tu-live-complete"
+        sessionId="live-session"
+      />
+    );
+
+    expect(screen.getByText("live")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button"));
+    expect(screen.getByText("previously live")).toBeTruthy();
+    expect(screen.getByText("showing captured transcript")).toBeTruthy();
+    expect(screen.getByText(/src\/store\.ts[\s\S]*src\/ws-handlers\.ts/)).toBeTruthy();
+
+    useStore.setState({ toolProgress: new Map(), toolResults: new Map() });
+  });
 });
 
 // ─── formatDuration ─────────────────────────────────────────────────────────

@@ -373,38 +373,50 @@ function CodexTerminalChips({
   if (visibleTerminals.length === 0) return null;
 
   return (
-    <div className="pointer-events-none absolute bottom-3 left-3 z-20 flex max-w-[calc(100%-1.5rem)] flex-col gap-2 sm:bottom-4 sm:left-4 sm:max-w-sm">
-      {visibleTerminals.map((terminal) => {
-        const isSelected = selectedToolUseId === terminal.toolUseId;
-        return (
-          <button
-            key={terminal.toolUseId}
-            type="button"
-            onClick={() => onSelect(terminal.toolUseId)}
-            data-testid="codex-live-terminal-chip"
-            className={`pointer-events-auto flex items-center gap-2 rounded-full border px-3 py-2 text-left shadow-lg backdrop-blur-sm transition-colors cursor-pointer ${
-              isSelected
-                ? "border-cc-primary/40 bg-cc-card text-cc-fg"
-                : "border-cc-border bg-cc-card/95 text-cc-fg hover:bg-cc-hover"
-            }`}
-            title={terminal.preview}
-            aria-label={`Open live terminal for ${terminal.preview}`}
-          >
-            <ToolIcon type="terminal" />
-            <span className="min-w-0 flex-1 truncate text-xs font-mono-code">{terminal.preview}</span>
-            <LiveDurationBadge
-              progressElapsedSeconds={terminal.progress?.elapsedSeconds}
-              startTimestamp={terminal.startTimestamp}
-              isComplete={false}
-            />
-          </button>
-        );
-      })}
-      {overflowCount > 0 && (
-        <div className="pointer-events-auto self-start rounded-full border border-cc-border bg-cc-card/95 px-3 py-1.5 text-[11px] text-cc-muted shadow-lg backdrop-blur-sm">
-          +{overflowCount} more live terminal{overflowCount !== 1 ? "s" : ""}
+    <div data-testid="codex-live-terminal-band" className="border-t border-cc-border/80 bg-cc-bg/95 px-3 py-2 backdrop-blur-sm sm:px-4">
+      <div className="mx-auto flex max-w-3xl flex-col gap-2">
+        <div className="flex items-center gap-2">
+          <ToolIcon type="terminal" />
+          <span className="text-xs font-medium text-cc-fg">Live terminals</span>
+          <span className="rounded-full bg-cc-hover px-1.5 py-0.5 text-[10px] font-medium text-cc-muted">
+            {terminals.length}
+          </span>
+          <span className="text-[11px] text-cc-muted">Inspect without covering the chat</span>
         </div>
-      )}
+        <div className="flex flex-wrap gap-2">
+          {visibleTerminals.map((terminal) => {
+            const isSelected = selectedToolUseId === terminal.toolUseId;
+            return (
+              <button
+                key={terminal.toolUseId}
+                type="button"
+                onClick={() => onSelect(terminal.toolUseId)}
+                data-testid="codex-live-terminal-chip"
+                className={`flex min-w-0 items-center gap-2 rounded-full border px-3 py-2 text-left transition-colors cursor-pointer ${
+                  isSelected
+                    ? "border-cc-primary/40 bg-cc-card text-cc-fg"
+                    : "border-cc-border bg-cc-card text-cc-fg hover:bg-cc-hover"
+                }`}
+                title={terminal.preview}
+                aria-label={`Open live terminal for ${terminal.preview}`}
+              >
+                <ToolIcon type="terminal" />
+                <span className="min-w-0 flex-1 truncate text-xs font-mono-code">{terminal.preview}</span>
+                <LiveDurationBadge
+                  progressElapsedSeconds={terminal.progress?.elapsedSeconds}
+                  startTimestamp={terminal.startTimestamp}
+                  isComplete={false}
+                />
+              </button>
+            );
+          })}
+          {overflowCount > 0 && (
+            <div className="self-start rounded-full border border-cc-border bg-cc-card px-3 py-1.5 text-[11px] text-cc-muted">
+              +{overflowCount} more live terminal{overflowCount !== 1 ? "s" : ""}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -426,7 +438,7 @@ function CodexTerminalInspector({
     : "bg-cc-primary/10 text-cc-primary";
 
   return (
-    <div className="pointer-events-none absolute inset-x-3 bottom-20 z-20 flex justify-start sm:inset-x-auto sm:bottom-4 sm:left-4">
+    <div className="pointer-events-none absolute inset-x-3 bottom-4 z-20 flex justify-start sm:inset-x-auto sm:left-4">
       <div data-testid="codex-terminal-inspector" className="pointer-events-auto w-full max-w-[min(32rem,100%)] rounded-2xl border border-cc-border bg-cc-bg/98 shadow-2xl backdrop-blur-sm">
         <div className="flex items-center gap-2 border-b border-cc-border px-4 py-3">
           <ToolIcon type="terminal" />
@@ -2289,174 +2301,175 @@ export function MessageFeed({
   }
 
   return (
-    <div className="flex-1 min-h-0 relative overflow-hidden">
-      <div
-        ref={containerRef}
-        onScroll={handleScroll}
-        className="h-full overflow-y-auto px-3 sm:px-4 py-4 sm:py-6"
-        style={{ overscrollBehavior: 'contain' }}
-      >
-        <PawScrollProvider scrollRef={containerRef}>
-        <PawCounterContext.Provider value={pawCounter}>
-        <div className="max-w-3xl mx-auto space-y-3 sm:space-y-5">
-          {hasOlderSections && (
-            <div className="flex justify-center pb-2">
-              <button
-                type="button"
-                onClick={handleLoadOlderSection}
-                className="inline-flex items-center gap-1.5 rounded-full border border-cc-border bg-cc-card px-3 py-1.5 text-xs text-cc-muted transition-colors hover:bg-cc-hover cursor-pointer"
-              >
-                <YarnBallSpinner className="h-3 w-3 text-cc-muted" />
-                Load older section
-              </button>
-            </div>
-          )}
-          <TurnEntries
-            sections={visibleSections}
-            sessionId={sessionId}
-            leaderMode={isLeaderSession}
-            isCodexSession={isCodexSession}
-            activeCodexTerminalIds={activeCodexTerminalIds}
-            onOpenCodexTerminal={setSelectedCodexTerminalId}
-            turnStates={turnStates}
-            toggleTurn={toggleTurn}
-          />
-          {hasNewerSections && (
-            <div className="flex justify-center pt-1">
-              <button
-                type="button"
-                onClick={handleLoadNewerSection}
-                className="inline-flex items-center gap-1.5 rounded-full border border-cc-border bg-cc-card px-3 py-1.5 text-xs text-cc-muted transition-colors hover:bg-cc-hover cursor-pointer"
-              >
-                <YarnBallSpinner className="h-3 w-3 text-cc-muted" />
-                Load newer section
-              </button>
-            </div>
-          )}
-          <FeedFooter sessionId={sessionId} />
+    <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+      <div className="relative flex-1 min-h-0 overflow-hidden">
+        <div
+          ref={containerRef}
+          onScroll={handleScroll}
+          className="h-full overflow-y-auto px-3 sm:px-4 py-4 sm:py-6"
+          style={{ overscrollBehavior: "contain" }}
+        >
+          <PawScrollProvider scrollRef={containerRef}>
+          <PawCounterContext.Provider value={pawCounter}>
+          <div className="max-w-3xl mx-auto space-y-3 sm:space-y-5">
+            {hasOlderSections && (
+              <div className="flex justify-center pb-2">
+                <button
+                  type="button"
+                  onClick={handleLoadOlderSection}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-cc-border bg-cc-card px-3 py-1.5 text-xs text-cc-muted transition-colors hover:bg-cc-hover cursor-pointer"
+                >
+                  <YarnBallSpinner className="h-3 w-3 text-cc-muted" />
+                  Load older section
+                </button>
+              </div>
+            )}
+            <TurnEntries
+              sections={visibleSections}
+              sessionId={sessionId}
+              leaderMode={isLeaderSession}
+              isCodexSession={isCodexSession}
+              activeCodexTerminalIds={activeCodexTerminalIds}
+              onOpenCodexTerminal={setSelectedCodexTerminalId}
+              turnStates={turnStates}
+              toggleTurn={toggleTurn}
+            />
+            {hasNewerSections && (
+              <div className="flex justify-center pt-1">
+                <button
+                  type="button"
+                  onClick={handleLoadNewerSection}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-cc-border bg-cc-card px-3 py-1.5 text-xs text-cc-muted transition-colors hover:bg-cc-hover cursor-pointer"
+                >
+                  <YarnBallSpinner className="h-3 w-3 text-cc-muted" />
+                  Load newer section
+                </button>
+              </div>
+            )}
+            <FeedFooter sessionId={sessionId} />
+          </div>
+          </PawCounterContext.Provider>
+          </PawScrollProvider>
         </div>
-        </PawCounterContext.Provider>
-        </PawScrollProvider>
+
+        {isCodexSession && selectedCodexTerminal && (
+          <CodexTerminalInspector
+            sessionId={sessionId}
+            terminal={selectedCodexTerminal}
+            onClose={() => setSelectedCodexTerminalId(null)}
+          />
+        )}
+
+        {showLatestPill && latestIndicatorMode !== "external" && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-3 z-10 flex justify-center px-3 sm:px-4">
+            <button
+              type="button"
+              onClick={handleScrollToBottomClick}
+              className="pointer-events-auto inline-flex max-w-full items-center gap-2 rounded-full border border-cc-primary/25 bg-cc-card/95 px-4 py-2 text-sm font-medium text-cc-fg shadow-lg backdrop-blur-sm transition-colors hover:bg-cc-hover cursor-pointer"
+              title="Jump to latest"
+              aria-label="Jump to latest"
+            >
+              <span className="inline-flex h-2 w-2 shrink-0 rounded-full bg-cc-primary animate-pulse" />
+              <span className="truncate">New content below</span>
+            </button>
+          </div>
+        )}
+
+        {/* Navigation FABs — desktop: top, prev/next, bottom; mobile: top/bottom only, auto-hide */}
+        {showScrollButton && (
+          <div className={`absolute bottom-3 right-3 z-10 flex flex-col transition-opacity duration-300 ${
+            isTouch
+              ? `gap-1.5 ${isScrolling ? "opacity-60" : "opacity-0 pointer-events-none"}`
+              : "gap-4"
+          }`}>
+            {/* Go to top */}
+            <button
+              onClick={() => containerRef.current?.scrollTo({ top: 0, behavior: "smooth" })}
+              className="w-8 h-8 rounded-full bg-cc-card border border-cc-border shadow-lg flex items-center justify-center text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-all cursor-pointer"
+              title="Go to top"
+              aria-label="Go to top"
+            >
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
+                <path d="M4 8l4-4 4 4" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M4 12h8" strokeLinecap="round" />
+              </svg>
+            </button>
+            {/* Prev/next user message — desktop only */}
+            {!isTouch && (
+              <div className="flex flex-col gap-1.5">
+                <button
+                  onClick={() => {
+                    const el = containerRef.current;
+                    if (!el) return;
+                    const containerRect = el.getBoundingClientRect();
+                    const turns = el.querySelectorAll("[data-user-turn]");
+                    for (let i = turns.length - 1; i >= 0; i--) {
+                      const t = turns[i] as HTMLElement;
+                      const tTop = t.getBoundingClientRect().top - containerRect.top;
+                      if (tTop < -5) {
+                        t.scrollIntoView({ block: "start", behavior: "smooth" });
+                        return;
+                      }
+                    }
+                  }}
+                  className="w-8 h-8 rounded-full bg-cc-card border border-cc-border shadow-lg flex items-center justify-center text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-all cursor-pointer"
+                  title="Previous user message"
+                  aria-label="Previous user message"
+                >
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
+                    <path d="M4 7l4-4 4 4" strokeLinecap="round" strokeLinejoin="round" />
+                    <path d="M8 3v10" strokeLinecap="round" />
+                  </svg>
+                </button>
+                <button
+                  onClick={() => {
+                    const el = containerRef.current;
+                    if (!el) return;
+                    const containerRect = el.getBoundingClientRect();
+                    const turns = el.querySelectorAll("[data-user-turn]");
+                    for (let i = 0; i < turns.length; i++) {
+                      const t = turns[i] as HTMLElement;
+                      const tTop = t.getBoundingClientRect().top - containerRect.top;
+                      if (tTop > el.clientHeight * 0.3) {
+                        t.scrollIntoView({ block: "start", behavior: "smooth" });
+                        return;
+                      }
+                    }
+                    scrollToBottom();
+                  }}
+                  className="w-8 h-8 rounded-full bg-cc-card border border-cc-border shadow-lg flex items-center justify-center text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-all cursor-pointer"
+                  title="Next user message"
+                  aria-label="Next user message"
+                >
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
+                    <path d="M4 9l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+                    <path d="M8 3v10" strokeLinecap="round" />
+                  </svg>
+                </button>
+              </div>
+            )}
+            {/* Go to bottom */}
+            <button
+              onClick={handleScrollToBottomClick}
+              className="w-8 h-8 rounded-full bg-cc-card border border-cc-border shadow-lg flex items-center justify-center text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-all cursor-pointer"
+              title="Go to bottom"
+              aria-label="Go to bottom"
+            >
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
+                <path d="M4 8l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M4 4h8" strokeLinecap="round" />
+              </svg>
+            </button>
+          </div>
+        )}
       </div>
 
-      {isCodexSession && (
-        <>
-          <CodexTerminalChips
-            terminals={activeCodexTerminalEntries}
-            selectedToolUseId={selectedCodexTerminalId}
-            onSelect={setSelectedCodexTerminalId}
-          />
-          {selectedCodexTerminal && (
-            <CodexTerminalInspector
-              sessionId={sessionId}
-              terminal={selectedCodexTerminal}
-              onClose={() => setSelectedCodexTerminalId(null)}
-            />
-          )}
-        </>
-      )}
-
-      {showLatestPill && latestIndicatorMode !== "external" && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-3 z-10 flex justify-center px-3 sm:px-4">
-          <button
-            type="button"
-            onClick={handleScrollToBottomClick}
-            className="pointer-events-auto inline-flex max-w-full items-center gap-2 rounded-full border border-cc-primary/25 bg-cc-card/95 px-4 py-2 text-sm font-medium text-cc-fg shadow-lg backdrop-blur-sm transition-colors hover:bg-cc-hover cursor-pointer"
-            title="Jump to latest"
-            aria-label="Jump to latest"
-          >
-            <span className="inline-flex h-2 w-2 shrink-0 rounded-full bg-cc-primary animate-pulse" />
-            <span className="truncate">New content below</span>
-          </button>
-        </div>
-      )}
-
-      {/* Navigation FABs — desktop: top, prev/next, bottom; mobile: top/bottom only, auto-hide */}
-      {showScrollButton && (
-        <div className={`absolute bottom-3 right-3 z-10 flex flex-col transition-opacity duration-300 ${
-          isTouch
-            ? `gap-1.5 ${isScrolling ? "opacity-60" : "opacity-0 pointer-events-none"}`
-            : "gap-4"
-        }`}>
-          {/* Go to top */}
-          <button
-            onClick={() => containerRef.current?.scrollTo({ top: 0, behavior: "smooth" })}
-            className="w-8 h-8 rounded-full bg-cc-card border border-cc-border shadow-lg flex items-center justify-center text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-all cursor-pointer"
-            title="Go to top"
-            aria-label="Go to top"
-          >
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
-              <path d="M4 8l4-4 4 4" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M4 12h8" strokeLinecap="round" />
-            </svg>
-          </button>
-          {/* Prev/next user message — desktop only */}
-          {!isTouch && (
-            <div className="flex flex-col gap-1.5">
-              <button
-                onClick={() => {
-                  const el = containerRef.current;
-                  if (!el) return;
-                  const containerRect = el.getBoundingClientRect();
-                  const turns = el.querySelectorAll("[data-user-turn]");
-                  for (let i = turns.length - 1; i >= 0; i--) {
-                    const t = turns[i] as HTMLElement;
-                    const tTop = t.getBoundingClientRect().top - containerRect.top;
-                    if (tTop < -5) {
-                      t.scrollIntoView({ block: "start", behavior: "smooth" });
-                      return;
-                    }
-                  }
-                }}
-                className="w-8 h-8 rounded-full bg-cc-card border border-cc-border shadow-lg flex items-center justify-center text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-all cursor-pointer"
-                title="Previous user message"
-                aria-label="Previous user message"
-              >
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
-                  <path d="M4 7l4-4 4 4" strokeLinecap="round" strokeLinejoin="round" />
-                  <path d="M8 3v10" strokeLinecap="round" />
-                </svg>
-              </button>
-              <button
-                onClick={() => {
-                  const el = containerRef.current;
-                  if (!el) return;
-                  const containerRect = el.getBoundingClientRect();
-                  const turns = el.querySelectorAll("[data-user-turn]");
-                  for (let i = 0; i < turns.length; i++) {
-                    const t = turns[i] as HTMLElement;
-                    const tTop = t.getBoundingClientRect().top - containerRect.top;
-                    if (tTop > el.clientHeight * 0.3) {
-                      t.scrollIntoView({ block: "start", behavior: "smooth" });
-                      return;
-                    }
-                  }
-                  scrollToBottom();
-                }}
-                className="w-8 h-8 rounded-full bg-cc-card border border-cc-border shadow-lg flex items-center justify-center text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-all cursor-pointer"
-                title="Next user message"
-                aria-label="Next user message"
-              >
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
-                  <path d="M4 9l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
-                  <path d="M8 3v10" strokeLinecap="round" />
-                </svg>
-              </button>
-            </div>
-          )}
-          {/* Go to bottom */}
-          <button
-            onClick={handleScrollToBottomClick}
-            className="w-8 h-8 rounded-full bg-cc-card border border-cc-border shadow-lg flex items-center justify-center text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-all cursor-pointer"
-            title="Go to bottom"
-            aria-label="Go to bottom"
-          >
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
-              <path d="M4 8l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M4 4h8" strokeLinecap="round" />
-            </svg>
-          </button>
-        </div>
+      {isCodexSession && activeCodexTerminalEntries.length > 0 && (
+        <CodexTerminalChips
+          terminals={activeCodexTerminalEntries}
+          selectedToolUseId={selectedCodexTerminalId}
+          onSelect={setSelectedCodexTerminalId}
+        />
       )}
     </div>
   );

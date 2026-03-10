@@ -1003,6 +1003,23 @@ export function Playground() {
           },
         ],
       },
+      {
+        id: "playground-codex-terminal-bash-complete",
+        role: "assistant",
+        content: "",
+        timestamp: Date.now() - 25_000,
+        model: "gpt-5.3-codex",
+        contentBlocks: [
+          {
+            type: "tool_use",
+            id: "playground-codex-complete-bash",
+            name: "Bash",
+            input: {
+              command: "find src -name '*.test.ts' -maxdepth 3",
+            },
+          },
+        ],
+      },
     ]);
     store.setToolStartTimestamps(PLAYGROUND_CODEX_TERMINAL_SESSION_ID, {
       "playground-codex-live-bash": Date.now() - 49_000,
@@ -1021,6 +1038,19 @@ export function Playground() {
       toolName: "Bash",
       elapsedSeconds: 51,
       outputDelta: "  ... waiting on ws reconnect watchdog case ...\n",
+    });
+    store.setToolProgress(PLAYGROUND_CODEX_TERMINAL_SESSION_ID, "playground-codex-complete-bash", {
+      toolName: "Bash",
+      elapsedSeconds: 14,
+      outputDelta: "src/components/MessageFeed.test.tsx\nsrc/components/ToolBlock.test.tsx\n",
+    });
+    store.setToolResult(PLAYGROUND_CODEX_TERMINAL_SESSION_ID, "playground-codex-complete-bash", {
+      tool_use_id: "playground-codex-complete-bash",
+      content: "Terminal command completed, but no output was captured.",
+      is_error: false,
+      total_size: 53,
+      is_truncated: false,
+      duration_seconds: 14.1,
     });
 
     // Mock tool results for ToolResultSection demo
@@ -1300,7 +1330,7 @@ export function Playground() {
           </div>
         </Section>
 
-        <Section title="Codex Terminal Chips" description="Live Codex Bash commands float as temporary terminal chips while the inline feed entry stays compact. When the command completes, the chip disappears and the inline tool card remains as durable history.">
+        <Section title="Codex Terminal Chips" description="Live Codex Bash commands sit in a reserved bottom band so they do not cover chat text. Completed live shells keep a small badge plus the captured transcript in the inline Bash card when the final tool result is empty.">
           <div className="max-w-3xl border border-cc-border rounded-xl overflow-hidden bg-cc-card h-[420px]">
             <MessageFeed sessionId={PLAYGROUND_CODEX_TERMINAL_SESSION_ID} />
           </div>

@@ -2647,15 +2647,6 @@ export class WsBridge {
         return;
       }
 
-      // Diagnostic: log tool_use assistant messages
-      if (outgoing?.type === "assistant") {
-        const content = (outgoing as { message?: { content?: Array<{ type: string }> } }).message?.content;
-        const hasToolUse = content?.some((b) => b.type === "tool_use");
-        if (hasToolUse) {
-          console.log(`[ws-bridge] Broadcasting tool_use assistant to ${session.browserSockets.size} browser(s) for session ${sessionTag(session.id)}`);
-        }
-      }
-
       // Handle permission requests — route through same pipeline as SDK/WS sessions.
       // Auto-approved results are sent directly back to the Codex adapter.
       if (outgoing?.type === "permission_request") {
