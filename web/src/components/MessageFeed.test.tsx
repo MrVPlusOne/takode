@@ -861,6 +861,161 @@ describe("MessageFeed - scroll behavior", () => {
     expect(screen.getByLabelText("Go to bottom")).toBeTruthy();
   });
 
+  it("keeps the real bottom visible when an older turn collapses near bottom", () => {
+    const sid = "test-collapse-near-bottom-follow";
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "First request" }),
+      makeMessage({
+        id: "a1",
+        role: "assistant",
+        content: "",
+        contentBlocks: [
+          { type: "tool_use", id: "tu-collapse", name: "Read", input: { file_path: "/tmp/a.ts" } },
+        ],
+      }),
+      makeMessage({ id: "a2", role: "assistant", content: "First result" }),
+      makeMessage({ id: "u2", role: "user", content: "Follow-up" }),
+      makeMessage({ id: "a3", role: "assistant", content: "Follow-up result" }),
+    ]);
+    setStoreTurnOverrides(sid, [["u1", true]]);
+
+    const { container, rerender } = render(<MessageFeed sessionId={sid} />);
+    const scrollContainer = container.querySelector(".overflow-y-auto") as HTMLDivElement;
+    let scrollTopValue = 1400;
+    let scrollHeightValue = 1600;
+
+    Object.defineProperty(scrollContainer, "clientHeight", {
+      configurable: true,
+      value: 180,
+    });
+    Object.defineProperty(scrollContainer, "scrollHeight", {
+      configurable: true,
+      get() {
+        return scrollHeightValue;
+      },
+    });
+    Object.defineProperty(scrollContainer, "scrollTop", {
+      configurable: true,
+      get() {
+        return scrollTopValue;
+      },
+      set(value) {
+        scrollTopValue = value as number;
+      },
+    });
+
+    fireEvent.scroll(scrollContainer);
+    expect(screen.getByText("Read File")).toBeTruthy();
+
+    scrollHeightValue = 1320;
+    setStoreTurnOverrides(sid, []);
+    rerender(<MessageFeed sessionId={sid} />);
+
+    expect(scrollTopValue).toBe(1320);
+    expect(screen.queryByText("Read File")).toBeNull();
+  });
+
+  it("preserves the current viewport anchor when an older turn collapses away from bottom", () => {
+    const sid = "test-collapse-anchor-restore";
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "First request" }),
+      makeMessage({
+        id: "a1",
+        role: "assistant",
+        content: "",
+        contentBlocks: [
+          { type: "tool_use", id: "tu-anchor", name: "Read", input: { file_path: "/tmp/a.ts" } },
+        ],
+      }),
+      makeMessage({ id: "a2", role: "assistant", content: "First result" }),
+      makeMessage({ id: "u2", role: "user", content: "Second request" }),
+      makeMessage({ id: "a3", role: "assistant", content: "Second result" }),
+    ]);
+    setStoreTurnOverrides(sid, [["u1", true]]);
+
+    const { container, rerender } = render(<MessageFeed sessionId={sid} />);
+    const scrollContainer = container.querySelector(".overflow-y-auto") as HTMLDivElement;
+    let scrollTopValue = 120;
+
+    Object.defineProperty(scrollContainer, "clientHeight", {
+      configurable: true,
+      value: 400,
+    });
+    Object.defineProperty(scrollContainer, "scrollHeight", {
+      configurable: true,
+      value: 1000,
+    });
+    Object.defineProperty(scrollContainer, "scrollTop", {
+      configurable: true,
+      get() {
+        return scrollTopValue;
+      },
+      set(value) {
+        scrollTopValue = value as number;
+      },
+    });
+
+    const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect;
+    const makeRect = (top: number, height: number): DOMRect => ({
+      x: 0,
+      y: top,
+      top,
+      bottom: top + height,
+      left: 0,
+      right: 320,
+      width: 320,
+      height,
+      toJSON() {
+        return {};
+      },
+    } as DOMRect);
+
+    HTMLElement.prototype.getBoundingClientRect = function getBoundingClientRectMock() {
+      const element = this as HTMLElement;
+      if (element === scrollContainer || element.classList.contains("overflow-y-auto")) {
+        return makeRect(0, 400);
+      }
+
+      const firstTurnExpanded = document.body.textContent?.includes("Read File") === true;
+      const baseTopByMessageId: Record<string, number> = {
+        u1: 0,
+        a2: firstTurnExpanded ? 220 : 100,
+        u2: firstTurnExpanded ? 260 : 140,
+        a3: firstTurnExpanded ? 320 : 200,
+      };
+      const baseTopByTurnId: Record<string, { top: number; height: number }> = {
+        u1: { top: 0, height: firstTurnExpanded ? 260 : 140 },
+        u2: { top: firstTurnExpanded ? 260 : 140, height: 120 },
+      };
+
+      const messageId = element.dataset.messageId;
+      if (messageId && baseTopByMessageId[messageId] !== undefined) {
+        return makeRect(baseTopByMessageId[messageId] - scrollTopValue, 40);
+      }
+
+      const turnId = element.dataset.turnId;
+      if (turnId && baseTopByTurnId[turnId] !== undefined) {
+        const turn = baseTopByTurnId[turnId];
+        return makeRect(turn.top - scrollTopValue, turn.height);
+      }
+
+      return makeRect(-1000, 0);
+    };
+
+    try {
+      fireEvent.scroll(scrollContainer);
+      expect(scrollTopValue).toBe(120);
+
+      setStoreTurnOverrides(sid, []);
+      rerender(<MessageFeed sessionId={sid} />);
+
+      expect(scrollTopValue).toBe(0);
+      expect(screen.getByLabelText("Go to bottom")).toBeTruthy();
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = originalGetBoundingClientRect;
+    }
+  });
+
   it("does not render a runway or latest pill by default", () => {
     const sid = "test-no-runway-or-latest-pill";
     setStoreMessages(sid, [
@@ -2244,8 +2399,8 @@ describe("MessageFeed - collapsed turns", () => {
     expect(screen.getByText("npm test")).toBeTruthy();
   });
 
-  it("leader mode keeps the active penultimate turn expanded during streaming despite a stale collapsed override", () => {
-    const sid = "test-leader-streaming-penultimate-forces-expanded";
+  it("leader mode still collapses the older turn when a fresh follow-up arrives", () => {
+    const sid = "test-leader-streaming-penultimate-collapses";
     setStoreSdkSessionRole(sid, { isOrchestrator: true });
     setStoreStatus(sid, "running");
     setStoreMessages(sid, [
@@ -2267,12 +2422,11 @@ describe("MessageFeed - collapsed turns", () => {
       }),
       makeMessage({ id: "u2", role: "user", content: "Follow-up while streaming" }),
     ]);
-    // Override uses "u1" — the turn ID (turns no longer split at @to(user))
-    setStoreTurnOverrides(sid, [["u1", false]]);
 
     render(<MessageFeed sessionId={sid} />);
 
-    expect(screen.getByText("npm test")).toBeTruthy();
+    expect(screen.queryByText("npm test")).toBeNull();
+    expect(screen.getByText(/1 tool/)).toBeTruthy();
   });
 
   it("leader mode shows internal messages when the activity row is expanded", () => {
@@ -2392,8 +2546,8 @@ describe("MessageFeed - collapsed turns", () => {
     expect(screen.queryByText(/message/)).toBeNull();
   });
 
-  it("keeps unfinished non-last turn expanded when a new user message arrives", () => {
-    const sid = "test-unfinished-turn-expanded";
+  it("collapses an older unfinished turn when a new user message arrives", () => {
+    const sid = "test-unfinished-turn-collapses";
     setStoreMessages(sid, [
       makeMessage({ id: "u1", role: "user", content: "First request" }),
       makeMessage({
@@ -2410,13 +2564,12 @@ describe("MessageFeed - collapsed turns", () => {
 
     render(<MessageFeed sessionId={sid} />);
 
-    // Unfinished first turn should stay expanded: render the real tool block,
-    // not just a hidden/collapsed aggregate.
-    expect(screen.getByText("Read File")).toBeTruthy();
+    expect(screen.queryByText("Read File")).toBeNull();
+    expect(screen.getByText(/1 tool/)).toBeTruthy();
   });
 
-  it("keeps penultimate turn expanded while streaming when last turn is user-only", () => {
-    const sid = "test-codex-streaming-penultimate-expanded";
+  it("collapses the penultimate turn while streaming when the latest turn is user-only", () => {
+    const sid = "test-codex-streaming-penultimate-collapsed";
     setStoreStatus(sid, "running");
     setStoreMessages(sid, [
       makeMessage({ id: "u1", role: "user", content: "Primary request" }),
@@ -2434,20 +2587,12 @@ describe("MessageFeed - collapsed turns", () => {
 
     render(<MessageFeed sessionId={sid} />);
 
-    // If penultimate turn were collapsed, only aggregate bar + final text would show.
-    // Expanded state should keep the concrete tool row visible.
-    expect(screen.getByText("Read File")).toBeTruthy();
+    expect(screen.queryByText("Read File")).toBeNull();
+    expect(screen.getByText(/1 tool/)).toBeTruthy();
   });
 
-  /** Regression: when sessionStatus flickers to "idle" after the interrupted turn's
-   *  result arrives, the sticky override from keepTurnExpanded should keep the
-   *  penultimate turn expanded regardless. */
-  it("keeps penultimate turn expanded via sticky override even when session is idle", () => {
-    const sid = "test-sticky-override-idle";
-    // Session is idle (result for interrupted turn already arrived)
-    setStoreStatus(sid, "idle");
-
-    // Set up messages: Turn 1 (in-flight with tool + response), Turn 2 (user follow-up + agent response)
+  it("still respects an explicit override for an older turn after a follow-up", () => {
+    const sid = "test-explicit-override-idle";
     setStoreMessages(sid, [
       makeMessage({ id: "u1", role: "user", content: "Primary request" }),
       makeMessage({
@@ -2462,24 +2607,15 @@ describe("MessageFeed - collapsed turns", () => {
       makeMessage({ id: "u2", role: "user", content: "Follow-up sent during stream" }),
       makeMessage({ id: "a3", role: "assistant", content: "Response to follow-up" }),
     ]);
-
-    // Simulate the sticky override that ws.ts sets when user_message arrives during running
-    const sessionOverrides = new Map<string, boolean>();
-    sessionOverrides.set("u1", true); // keep turn 1 expanded
-    const overrides = new Map<string, Map<string, boolean>>();
-    overrides.set(sid, sessionOverrides);
-    mockStoreValues.turnActivityOverrides = overrides;
+    setStoreTurnOverrides(sid, [["u1", true]]);
 
     render(<MessageFeed sessionId={sid} />);
 
-    // Without the override, turn 1 would collapse since sessionStatus is idle.
-    // The sticky override should keep it expanded, so the tool row is visible.
     expect(screen.getByText("Read File")).toBeTruthy();
   });
 
-  it("does not reopen older non-penultimate turns from stale auto-expanded state", () => {
+  it("ignores stale auto-expanded state for older turns", () => {
     const sid = "test-stale-auto-expanded-turns";
-    setStoreStatus(sid, "idle");
     setStoreMessages(sid, [
       makeMessage({ id: "u1", role: "user", content: "First request" }),
       makeMessage({
@@ -2508,8 +2644,7 @@ describe("MessageFeed - collapsed turns", () => {
 
     render(<MessageFeed sessionId={sid} />);
 
-    // Stale auto-expanded state should not reopen older turns when the session
-    // is revisited. Only the still-relevant penultimate turn may stay expanded.
-    expect(screen.getAllByText("Read File")).toHaveLength(1);
+    expect(screen.queryByText("Read File")).toBeNull();
+    expect(screen.getAllByText(/1 tool/)).toHaveLength(2);
   });
 });

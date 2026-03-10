@@ -611,6 +611,12 @@ interface TurnOffsetIndex {
   offsetTop: number;
 }
 
+interface FeedViewportAnchor {
+  messageId: string | null;
+  turnId: string | null;
+  offsetTop: number;
+}
+
 interface FeedSection {
   id: string;
   turns: Turn[];
@@ -1432,7 +1438,7 @@ const FeedFooter = memo(function FeedFooter({ sessionId }: { sessionId: string }
   );
 });
 
-// ─── Turn list (owns collapse state so MessageFeed doesn't re-render on toggle) ─
+// ─── Turn list (render-only; parent owns collapse state to preserve scroll on reflow) ─
 
 const TurnEntries = memo(function TurnEntries({
   sections,
@@ -1441,6 +1447,8 @@ const TurnEntries = memo(function TurnEntries({
   isCodexSession,
   activeCodexTerminalIds,
   onOpenCodexTerminal,
+  turnStates,
+  toggleTurn,
 }: {
   sections: FeedSection[];
   sessionId: string;
@@ -1448,9 +1456,10 @@ const TurnEntries = memo(function TurnEntries({
   isCodexSession: boolean;
   activeCodexTerminalIds: Set<string>;
   onOpenCodexTerminal: (toolUseId: string) => void;
+  turnStates: ReturnType<typeof useCollapsePolicy>["turnStates"];
+  toggleTurn: ReturnType<typeof useCollapsePolicy>["toggleTurn"];
 }) {
   const turns = useMemo(() => sections.flatMap((section) => section.turns), [sections]);
-  const { turnStates, toggleTurn } = useCollapsePolicy({ sessionId, turns, leaderMode });
   const minuteBoundaryLabels = useMemo(() => {
     const visibleTimedMessages: ChatMessage[] = [];
 
@@ -1624,6 +1633,11 @@ export function MessageFeed({
   const isTouch = useMemo(() => isTouchDevice(), []);
   const taskTurnOffsetsRef = useRef<TurnOffsetIndex[]>([]);
   const restoredSessionIdRef = useRef<string | null>(null);
+  const lastViewportAnchorRef = useRef<{
+    signature: string;
+    wasNearBottom: boolean;
+    anchor: FeedViewportAnchor | null;
+  } | null>(null);
 
   const codexTerminalEntries = useMemo(
     () => isCodexSession
@@ -1663,6 +1677,39 @@ export function MessageFeed({
       }
     }
     return null;
+  }, []);
+
+  const findVisibleFeedAnchor = useCallback((container: HTMLDivElement): FeedViewportAnchor | null => {
+    const containerRect = container.getBoundingClientRect();
+    const findFirstVisible = (selector: string) => {
+      const elements = container.querySelectorAll<HTMLElement>(selector);
+      for (const element of elements) {
+        const rect = element.getBoundingClientRect();
+        if (rect.bottom > containerRect.top && rect.top < containerRect.bottom) {
+          return { element, rect };
+        }
+      }
+      return null;
+    };
+
+    const visibleMessage = findFirstVisible("[data-message-id]");
+    if (visibleMessage) {
+      const turn = visibleMessage.element.closest<HTMLElement>("[data-turn-id]");
+      return {
+        messageId: visibleMessage.element.dataset.messageId ?? null,
+        turnId: turn?.dataset.turnId ?? null,
+        offsetTop: visibleMessage.rect.top - containerRect.top,
+      };
+    }
+
+    const visibleTurn = findFirstVisible("[data-turn-id]");
+    if (!visibleTurn) return null;
+
+    return {
+      messageId: null,
+      turnId: visibleTurn.element.dataset.turnId ?? null,
+      offsetTop: visibleTurn.rect.top - containerRect.top,
+    };
   }, []);
 
   const getRealContentBottom = useCallback(() => {
@@ -1715,6 +1762,15 @@ export function MessageFeed({
   const visibleTurns = useMemo(
     () => visibleSections.flatMap((section) => section.turns),
     [visibleSections],
+  );
+  const { turnStates, toggleTurn } = useCollapsePolicy({
+    sessionId,
+    turns: visibleTurns,
+    leaderMode: isLeaderSession,
+  });
+  const collapseLayoutSignature = useMemo(
+    () => turnStates.map((state) => `${state.turnId}:${state.isActivityExpanded ? "1" : "0"}`).join("|"),
+    [turnStates],
   );
   const showConversationLoading = historyLoading && messages.length === 0 && !streamingText;
   const previousSectionStartIndex = useMemo(
@@ -1773,6 +1829,38 @@ export function MessageFeed({
     container.scrollTop += targetRect.top - containerRect.top - anchorOffsetTop;
     return true;
   }, []);
+
+  const restoreFeedAnchor = useCallback((anchor: FeedViewportAnchor) => {
+    const container = containerRef.current;
+    if (!container) return false;
+
+    const restoreSelector = (selector: string) => {
+      const target = container.querySelector<HTMLElement>(selector);
+      if (!target) return false;
+      const containerRect = container.getBoundingClientRect();
+      const targetRect = target.getBoundingClientRect();
+      container.scrollTop += targetRect.top - containerRect.top - anchor.offsetTop;
+      return true;
+    };
+
+    if (anchor.messageId && restoreSelector(`[data-message-id="${escapeSelectorValue(anchor.messageId)}"]`)) {
+      return true;
+    }
+
+    if (anchor.turnId && restoreSelector(`[data-turn-id="${escapeSelectorValue(anchor.turnId)}"]`)) {
+      return true;
+    }
+
+    return false;
+  }, []);
+
+  const snapshotViewportAnchor = useCallback((container: HTMLDivElement) => {
+    lastViewportAnchorRef.current = {
+      signature: collapseLayoutSignature,
+      wasNearBottom: isNearBottom.current,
+      anchor: findVisibleFeedAnchor(container),
+    };
+  }, [collapseLayoutSignature, findVisibleFeedAnchor]);
 
   const moveSectionWindow = useCallback((nextStartIndex: number | null) => {
     const el = containerRef.current;
@@ -1858,6 +1946,7 @@ export function MessageFeed({
     setIsScrolling(true);
     clearTimeout(scrollTimeoutRef.current);
     scrollTimeoutRef.current = setTimeout(() => setIsScrolling(false), 1500);
+    snapshotViewportAnchor(el);
   }
 
   // Restore scroll position synchronously before the first paint.
@@ -1984,6 +2073,26 @@ export function MessageFeed({
       }
     }
   }, [messages.length, showConversationLoading, streamingText]);
+
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const previous = lastViewportAnchorRef.current;
+    if (previous && previous.signature !== collapseLayoutSignature) {
+      if (previous.wasNearBottom) {
+        container.scrollTop = container.scrollHeight;
+        isNearBottom.current = true;
+        lastSeenContentBottomRef.current = getRealContentBottom();
+        setShowScrollButton(false);
+        setShowLatestPill(false);
+      } else if (previous.anchor && restoreFeedAnchor(previous.anchor)) {
+        isNearBottom.current = false;
+        setShowScrollButton(true);
+      }
+    }
+    snapshotViewportAnchor(container);
+  }, [collapseLayoutSignature, getRealContentBottom, restoreFeedAnchor, snapshotViewportAnchor]);
 
   // Scroll-to-turn: triggered from the Session Tasks panel
   const scrollToTurnId = useStore((s) => s.scrollToTurnId.get(sessionId));
@@ -2209,6 +2318,8 @@ export function MessageFeed({
             isCodexSession={isCodexSession}
             activeCodexTerminalIds={activeCodexTerminalIds}
             onOpenCodexTerminal={setSelectedCodexTerminalId}
+            turnStates={turnStates}
+            toggleTurn={toggleTurn}
           />
           {hasNewerSections && (
             <div className="flex justify-center pt-1">

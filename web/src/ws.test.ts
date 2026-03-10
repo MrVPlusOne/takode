@@ -2947,27 +2947,21 @@ describe("agentSource propagation", () => {
 });
 
 // ===========================================================================
-// mid-stream follow-up: sticky turn expansion override
+// mid-stream follow-up: older turns collapse normally
 // ===========================================================================
 describe("mid-stream follow-up turn expansion", () => {
-  /** When a user_message arrives while the session is running, the in-flight
-   *  turn should get a sticky "expanded" override so it doesn't collapse
-   *  when sessionStatus flickers to "idle" after the interrupted result. */
-  it("tracks transient auto-expansion for the in-flight turn when user_message arrives during running", () => {
+  it("does not auto-expand the in-flight turn when user_message arrives during running", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
 
-    // Simulate an active session with a user message + agent streaming
     fireMessage({
       type: "user_message",
       id: "u1",
       content: "First request",
       timestamp: 1000,
     });
-    // Set session to running (agent is streaming)
     useStore.getState().setSessionStatus("s1", "running");
 
-    // Send a follow-up message while streaming
     fireMessage({
       type: "user_message",
       id: "u2",
@@ -2975,15 +2969,11 @@ describe("mid-stream follow-up turn expansion", () => {
       timestamp: 2000,
     });
 
-    // The auto-expanded turn set should track the in-flight turn (u1).
-    const autoExpandedTurns = useStore.getState().autoExpandedTurnIds.get("s1");
-    expect(autoExpandedTurns).toBeTruthy();
-    expect(autoExpandedTurns!.has("u1")).toBe(true);
-    // Manual overrides should remain untouched.
+    expect(useStore.getState().autoExpandedTurnIds.get("s1")).toBeUndefined();
     expect(useStore.getState().turnActivityOverrides.get("s1")?.get("u1")).toBeUndefined();
   });
 
-  it("does not set override when session is idle", () => {
+  it("still does not auto-expand when session is idle", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
 
@@ -3002,28 +2992,14 @@ describe("mid-stream follow-up turn expansion", () => {
       timestamp: 2000,
     });
 
-    const autoExpandedTurns = useStore.getState().autoExpandedTurnIds.get("s1");
-    expect(autoExpandedTurns?.has("u1")).toBeUndefined();
+    expect(useStore.getState().autoExpandedTurnIds.get("s1")).toBeUndefined();
   });
 
   it("clears transient auto-expansion when message_history replaces the session feed", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
 
-    fireMessage({
-      type: "user_message",
-      id: "u1",
-      content: "First request",
-      timestamp: 1000,
-    });
-    useStore.getState().setSessionStatus("s1", "running");
-    fireMessage({
-      type: "user_message",
-      id: "u2",
-      content: "Follow-up during stream",
-      timestamp: 2000,
-    });
-
+    useStore.getState().keepTurnAutoExpanded("s1", "u1");
     expect(useStore.getState().autoExpandedTurnIds.get("s1")?.has("u1")).toBe(true);
 
     fireMessage({
