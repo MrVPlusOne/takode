@@ -1653,7 +1653,7 @@ describe("MessageFeed - Codex terminal chips", () => {
 
     render(<MessageFeed sessionId={sid} />);
 
-    expect(screen.getByTestId("codex-live-terminal-rail")).toBeTruthy();
+    expect(screen.getByTestId("live-activity-rail")).toBeTruthy();
     expect(screen.getByTestId("codex-live-terminal-chip").textContent).toContain("bun test src/ws-bridge.test.ts");
     expect(screen.getByText("Live terminal")).toBeTruthy();
     expect(screen.queryByText("Live output")).toBeNull();
@@ -1680,14 +1680,14 @@ describe("MessageFeed - Codex terminal chips", () => {
 
       render(<MessageFeed sessionId={sid} />);
 
-      expect(screen.queryByTestId("codex-live-terminal-rail")).toBeNull();
+      expect(screen.queryByTestId("live-activity-rail")).toBeNull();
       expect(screen.getByText("Live terminal")).toBeTruthy();
 
       act(() => {
         vi.advanceTimersByTime(1_000);
       });
 
-      expect(screen.getByTestId("codex-live-terminal-rail")).toBeTruthy();
+      expect(screen.getByTestId("live-activity-rail")).toBeTruthy();
       expect(screen.getByTestId("codex-live-terminal-chip").textContent).toContain("npm run lint");
     } finally {
       vi.useRealTimers();
@@ -1743,7 +1743,7 @@ describe("MessageFeed - Codex terminal chips", () => {
     render(<MessageFeed sessionId={sid} />);
 
     expect(screen.queryByTestId("codex-live-terminal-chip")).toBeNull();
-    expect(screen.queryByTestId("codex-live-terminal-rail")).toBeNull();
+    expect(screen.queryByTestId("live-activity-rail")).toBeNull();
     expect(screen.queryByText("Live terminal")).toBeNull();
     expect(screen.getByText("bun run test")).toBeTruthy();
   });
@@ -1777,7 +1777,7 @@ describe("MessageFeed - Codex terminal chips", () => {
 
     render(<MessageFeed sessionId={sid} />);
 
-    expect(screen.queryByTestId("codex-live-terminal-rail")).toBeNull();
+    expect(screen.queryByTestId("live-activity-rail")).toBeNull();
     expect(screen.getByText("live")).toBeTruthy();
 
     fireEvent.click(screen.getByText("find . -name '*.ts'"));
@@ -1785,6 +1785,122 @@ describe("MessageFeed - Codex terminal chips", () => {
     expect(screen.getByText("previously live")).toBeTruthy();
     expect(screen.getByText("showing captured transcript")).toBeTruthy();
     expect(screen.getByText(/src\/store\.ts[\s\S]*src\/ws-handlers\.ts/)).toBeTruthy();
+  });
+
+  it("renders all live activity chips in a horizontally scrollable rail", () => {
+    const sid = "test-live-activity-horizontal-scroll";
+    setStoreSessionBackend(sid, "codex");
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "codex-live-many",
+        role: "assistant",
+        content: "",
+        contentBlocks: [
+          { type: "tool_use", id: "tu-live-1", name: "Bash", input: { command: "cmd 1" } },
+          { type: "tool_use", id: "tu-live-2", name: "Bash", input: { command: "cmd 2" } },
+          { type: "tool_use", id: "tu-live-3", name: "Bash", input: { command: "cmd 3" } },
+          { type: "tool_use", id: "tu-live-4", name: "Bash", input: { command: "cmd 4" } },
+          { type: "tool_use", id: "tu-live-5", name: "Bash", input: { command: "cmd 5" } },
+          { type: "tool_use", id: "tu-live-6", name: "Bash", input: { command: "cmd 6" } },
+        ],
+      }),
+    ]);
+    setStoreToolProgress(sid, [
+      { toolUseId: "tu-live-1", toolName: "Bash", elapsedSeconds: 10 },
+      { toolUseId: "tu-live-2", toolName: "Bash", elapsedSeconds: 10 },
+      { toolUseId: "tu-live-3", toolName: "Bash", elapsedSeconds: 10 },
+      { toolUseId: "tu-live-4", toolName: "Bash", elapsedSeconds: 10 },
+      { toolUseId: "tu-live-5", toolName: "Bash", elapsedSeconds: 10 },
+      { toolUseId: "tu-live-6", toolName: "Bash", elapsedSeconds: 10 },
+    ]);
+    setStoreToolStartTimestamps(sid, {
+      "tu-live-1": Date.now() - 10_000,
+      "tu-live-2": Date.now() - 10_000,
+      "tu-live-3": Date.now() - 10_000,
+      "tu-live-4": Date.now() - 10_000,
+      "tu-live-5": Date.now() - 10_000,
+      "tu-live-6": Date.now() - 10_000,
+    });
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByTestId("live-activity-rail")).toBeTruthy();
+    expect(screen.getAllByTestId("codex-live-terminal-chip")).toHaveLength(6);
+  });
+
+  it("waits five seconds before showing a live subagent chip", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-03-10T12:00:00.000Z"));
+      const sid = "test-live-subagent-dwell";
+      setStoreSessionBackend(sid, "claude");
+      setStoreStatus(sid, "running");
+      setStoreMessages(sid, [
+        makeMessage({ id: "u-sub-1", role: "user", content: "Investigate the logs" }),
+        makeMessage({
+          id: "a-sub-1",
+          role: "assistant",
+          content: "",
+          contentBlocks: [
+            {
+              type: "tool_use",
+              id: "task-live-dwell",
+              name: "Task",
+              input: { description: "Analyze logs", subagent_type: "Explore" },
+            },
+          ],
+        }),
+      ]);
+      setStoreToolStartTimestamps(sid, {
+        "task-live-dwell": new Date("2026-03-10T11:59:56.000Z").getTime(),
+      });
+
+      render(<MessageFeed sessionId={sid} />);
+
+      expect(screen.queryByTestId("live-activity-rail")).toBeNull();
+
+      act(() => {
+        vi.advanceTimersByTime(1_000);
+      });
+
+      expect(screen.getByTestId("live-activity-rail")).toBeTruthy();
+      expect(screen.getByTestId("live-subagent-chip").textContent).toContain("Analyze logs");
+      expect(screen.getByTestId("live-subagent-chip").textContent).toContain("Explore");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("scrolls to the inline subagent card when clicking a live subagent chip", () => {
+    const sid = "test-live-subagent-scroll";
+    setStoreSessionBackend(sid, "claude");
+    setStoreStatus(sid, "running");
+    setStoreMessages(sid, [
+      makeMessage({ id: "u-sub-2", role: "user", content: "Inspect event routing" }),
+      makeMessage({
+        id: "a-sub-2",
+        role: "assistant",
+        content: "",
+        contentBlocks: [
+          {
+            type: "tool_use",
+            id: "task-live-scroll",
+            name: "Task",
+            input: { description: "Inspect event routing", subagent_type: "explorer" },
+          },
+        ],
+      }),
+    ]);
+    setStoreToolStartTimestamps(sid, {
+      "task-live-scroll": Date.now() - 8_000,
+    });
+
+    render(<MessageFeed sessionId={sid} />);
+
+    mockScrollIntoView.mockClear();
+    fireEvent.click(screen.getByTestId("live-subagent-chip"));
+
+    expect(mockScrollIntoView).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -2118,11 +2234,11 @@ describe("MessageFeed - subagent grouping", () => {
 
       render(<MessageFeed sessionId={sid} />);
 
-      expect(screen.getByText("5.0s")).toBeTruthy();
+      expect(screen.getAllByText("5.0s").length).toBeGreaterThan(0);
       act(() => {
         vi.advanceTimersByTime(2000);
       });
-      expect(screen.getByText("7.0s")).toBeTruthy();
+      expect(screen.getAllByText("7.0s").length).toBeGreaterThan(0);
     } finally {
       vi.useRealTimers();
     }

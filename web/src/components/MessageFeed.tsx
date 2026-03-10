@@ -24,7 +24,7 @@ import {
 
 const DEFAULT_VISIBLE_SECTION_COUNT = 3;
 const FEED_SECTION_TURN_COUNT = 50;
-const CODEX_TERMINAL_RAIL_DWELL_MS = 5_000;
+const LIVE_ACTIVITY_RAIL_DWELL_MS = 5_000;
 
 function formatElapsed(ms: number): string {
   const secs = Math.floor(ms / 1000);
@@ -311,8 +311,104 @@ interface CodexTerminalEntry {
   startTimestamp?: number;
 }
 
-function getCodexTerminalRevealAt(entry: CodexTerminalEntry): number {
-  return (entry.startTimestamp ?? entry.timestamp) + CODEX_TERMINAL_RAIL_DWELL_MS;
+interface LiveSubagentEntry {
+  taskToolUseId: string;
+  label: string;
+  agentType: string;
+  isBackground: boolean;
+  turnId: string;
+  startTimestamp?: number;
+  progressElapsedSeconds?: number;
+}
+
+function getLiveActivityStartedAt(
+  now: number,
+  startTimestamp?: number,
+  progressElapsedSeconds?: number,
+  fallbackTimestamp?: number,
+): number {
+  if (startTimestamp != null) return startTimestamp;
+  if (progressElapsedSeconds != null) return now - (progressElapsedSeconds * 1000);
+  if (fallbackTimestamp != null) return fallbackTimestamp;
+  return now;
+}
+
+function getLiveActivityRevealAt(startedAt: number): number {
+  return startedAt + LIVE_ACTIVITY_RAIL_DWELL_MS;
+}
+
+function getCodexTerminalRevealAt(entry: CodexTerminalEntry, now: number): number {
+  return getLiveActivityRevealAt(
+    getLiveActivityStartedAt(now, entry.startTimestamp, entry.progress?.elapsedSeconds, entry.timestamp),
+  );
+}
+
+function getLiveSubagentRevealAt(entry: LiveSubagentEntry, now: number): number {
+  return getLiveActivityRevealAt(
+    getLiveActivityStartedAt(now, entry.startTimestamp, entry.progressElapsedSeconds),
+  );
+}
+
+function collectLiveSubagentEntries(
+  turns: Turn[],
+  sessionStatus: "idle" | "running" | "compacting" | "reverting" | null,
+  toolResults?: Map<string, {
+    content: string;
+    is_error: boolean;
+    is_truncated: boolean;
+    duration_seconds?: number;
+  }>,
+  toolProgress?: Map<string, {
+    toolName: string;
+    elapsedSeconds: number;
+    output?: string;
+  }>,
+  toolStartTimestamps?: Map<string, number>,
+  backgroundAgentNotifs?: Map<string, {
+    status: string;
+    outputFile?: string;
+    summary?: string;
+  }>,
+): LiveSubagentEntry[] {
+  const entries: LiveSubagentEntry[] = [];
+  const seen = new Set<string>();
+
+  const visitEntries = (feedEntries: FeedEntry[], turnId: string) => {
+    for (const entry of feedEntries) {
+      if (entry.kind === "subagent") {
+        const resultPreview = toolResults?.get(entry.taskToolUseId);
+        const bgNotif = backgroundAgentNotifs?.get(entry.taskToolUseId);
+        const isEffectivelyComplete = resultPreview != null || bgNotif != null;
+        const isAbandoned = !isEffectivelyComplete && sessionStatus !== "running";
+        if (!isEffectivelyComplete && !isAbandoned && !seen.has(entry.taskToolUseId)) {
+          seen.add(entry.taskToolUseId);
+          entries.push({
+            taskToolUseId: entry.taskToolUseId,
+            label: entry.description || "Subagent",
+            agentType: entry.agentType,
+            isBackground: entry.isBackground,
+            turnId,
+            startTimestamp: toolStartTimestamps?.get(entry.taskToolUseId),
+            progressElapsedSeconds: toolProgress?.get(entry.taskToolUseId)?.elapsedSeconds,
+          });
+        }
+        visitEntries(entry.children, turnId);
+        continue;
+      }
+
+      if (entry.kind === "subagent_batch") {
+        for (const subagent of entry.subagents) {
+          visitEntries([subagent], turnId);
+        }
+      }
+    }
+  };
+
+  for (const turn of turns) {
+    visitEntries(turn.allEntries, turn.id);
+  }
+
+  return entries;
 }
 
 function collectCodexTerminalEntries(
@@ -404,62 +500,107 @@ function LiveCodexTerminalStub({
   );
 }
 
-function CodexTerminalRail({
+function LiveActivityRail({
   terminals,
+  subagents,
   selectedToolUseId,
   onSelect,
+  onSelectSubagent,
 }: {
   terminals: CodexTerminalEntry[];
+  subagents: LiveSubagentEntry[];
   selectedToolUseId: string | null;
   onSelect: (toolUseId: string) => void;
+  onSelectSubagent: (taskToolUseId: string, turnId: string) => void;
 }) {
-  const visibleTerminals = terminals.slice(0, 3);
-  const overflowCount = Math.max(0, terminals.length - visibleTerminals.length);
+  const visibleEntries = [
+    ...terminals.map((terminal) => ({
+      kind: "terminal" as const,
+      key: terminal.toolUseId,
+      sortTs: terminal.startTimestamp ?? terminal.timestamp,
+      terminal,
+    })),
+    ...subagents.map((subagent) => ({
+      kind: "subagent" as const,
+      key: subagent.taskToolUseId,
+      sortTs: subagent.startTimestamp ?? 0,
+      subagent,
+    })),
+  ].sort((a, b) => b.sortTs - a.sortTs);
 
-  if (visibleTerminals.length === 0) return null;
+  if (visibleEntries.length === 0) return null;
 
   return (
     <div
-      data-testid="codex-live-terminal-rail"
+      data-testid="live-activity-rail"
       className="pointer-events-none absolute inset-x-3 top-3 z-10 flex justify-center sm:top-4 sm:inset-x-4"
     >
       <div className="pointer-events-auto flex w-full max-w-3xl justify-start">
-        <div className="inline-flex max-w-full flex-wrap items-center gap-2 rounded-2xl border border-cc-border/80 bg-cc-bg/96 px-2.5 py-2 shadow-lg backdrop-blur-sm">
+        <div className="flex max-w-full items-center gap-2 overflow-x-auto scrollbar-hide rounded-2xl border border-cc-border/80 bg-cc-bg/96 px-2.5 py-2 shadow-lg backdrop-blur-sm">
           <span className="inline-flex items-center gap-1.5 rounded-full bg-cc-hover px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-cc-muted">
-            <ToolIcon type="terminal" />
-            Live
+            <ToolIcon type="agent" />
+            Live activity
           </span>
-          {visibleTerminals.map((terminal) => {
-            const isSelected = selectedToolUseId === terminal.toolUseId;
+          {visibleEntries.map((entry) => {
+            if (entry.kind === "terminal") {
+              const terminal = entry.terminal;
+              const isSelected = selectedToolUseId === terminal.toolUseId;
+              return (
+                <button
+                  key={terminal.toolUseId}
+                  type="button"
+                  onClick={() => onSelect(terminal.toolUseId)}
+                  data-testid="codex-live-terminal-chip"
+                  className={`flex shrink-0 items-center gap-2 rounded-full border px-3 py-2 text-left transition-colors cursor-pointer ${
+                    isSelected
+                      ? "border-cc-primary/40 bg-cc-card text-cc-fg"
+                      : "border-cc-border bg-cc-card text-cc-fg hover:bg-cc-hover"
+                  }`}
+                  title={terminal.preview}
+                  aria-label={`Open live terminal for ${terminal.preview}`}
+                >
+                  <ToolIcon type="terminal" />
+                  <span className="min-w-0 flex-1 truncate text-xs font-mono-code">{terminal.preview}</span>
+                  <LiveDurationBadge
+                    progressElapsedSeconds={terminal.progress?.elapsedSeconds}
+                    startTimestamp={terminal.startTimestamp}
+                    isComplete={false}
+                  />
+                </button>
+              );
+            }
+
+            const subagent = entry.subagent;
             return (
               <button
-                key={terminal.toolUseId}
+                key={subagent.taskToolUseId}
                 type="button"
-                onClick={() => onSelect(terminal.toolUseId)}
-                data-testid="codex-live-terminal-chip"
-                className={`flex min-w-0 items-center gap-2 rounded-full border px-3 py-2 text-left transition-colors cursor-pointer ${
-                  isSelected
-                    ? "border-cc-primary/40 bg-cc-card text-cc-fg"
-                    : "border-cc-border bg-cc-card text-cc-fg hover:bg-cc-hover"
-                }`}
-                title={terminal.preview}
-                aria-label={`Open live terminal for ${terminal.preview}`}
+                onClick={() => onSelectSubagent(subagent.taskToolUseId, subagent.turnId)}
+                data-testid="live-subagent-chip"
+                className="flex shrink-0 items-center gap-2 rounded-full border border-cc-border bg-cc-card px-3 py-2 text-left text-cc-fg transition-colors hover:bg-cc-hover cursor-pointer"
+                title={subagent.label}
+                aria-label={`Jump to live subagent ${subagent.label}`}
               >
-                <ToolIcon type="terminal" />
-                <span className="min-w-0 flex-1 truncate text-xs font-mono-code">{terminal.preview}</span>
+                <ToolIcon type="agent" />
+                <span className="min-w-0 flex-1 truncate text-xs">{subagent.label}</span>
+                {subagent.agentType && (
+                  <span className="shrink-0 rounded-full bg-cc-hover px-1.5 py-0.5 text-[10px] text-cc-muted">
+                    {subagent.agentType}
+                  </span>
+                )}
+                {subagent.isBackground && (
+                  <span className="shrink-0 rounded-full bg-cc-hover px-1.5 py-0.5 text-[10px] text-cc-muted">
+                    bg
+                  </span>
+                )}
                 <LiveDurationBadge
-                  progressElapsedSeconds={terminal.progress?.elapsedSeconds}
-                  startTimestamp={terminal.startTimestamp}
+                  progressElapsedSeconds={subagent.progressElapsedSeconds}
+                  startTimestamp={subagent.startTimestamp}
                   isComplete={false}
                 />
               </button>
             );
           })}
-          {overflowCount > 0 && (
-            <div className="self-start rounded-full border border-cc-border bg-cc-card px-3 py-1.5 text-[11px] text-cc-muted">
-              +{overflowCount} more live terminal{overflowCount !== 1 ? "s" : ""}
-            </div>
-          )}
         </div>
       </div>
     </div>
@@ -1705,6 +1846,8 @@ export function MessageFeed({
   const toolProgress = useStore((s) => s.toolProgress.get(sessionId));
   const toolResults = useStore((s) => s.toolResults.get(sessionId));
   const toolStartTimestamps = useStore((s) => s.toolStartTimestamps.get(sessionId));
+  const backgroundAgentNotifs = useStore((s) => s.backgroundAgentNotifs.get(sessionId));
+  const currentSessionStatus = useStore((s) => s.sessionStatus.get(sessionId) ?? null);
   const isLeaderSession = useStore((s) => s.sdkSessions.some((session) => session.sessionId === sessionId && session.isOrchestrator === true));
   const pawCounter = useRef<import("./PawTrail.js").PawCounterState>({ next: 0, cache: new Map() });
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1727,7 +1870,7 @@ export function MessageFeed({
   const [isScrolling, setIsScrolling] = useState(false);
   const [sectionWindowStart, setSectionWindowStart] = useState<number | null>(null);
   const [selectedCodexTerminalId, setSelectedCodexTerminalId] = useState<string | null>(null);
-  const [codexTerminalRailVersion, setCodexTerminalRailVersion] = useState(0);
+  const [liveActivityRailVersion, setLiveActivityRailVersion] = useState(0);
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const isTouch = useMemo(() => isTouchDevice(), []);
   const taskTurnOffsetsRef = useRef<TurnOffsetIndex[]>([]);
@@ -1744,14 +1887,34 @@ export function MessageFeed({
       : [],
     [isCodexSession, messages, toolProgress, toolResults, toolStartTimestamps],
   );
+  const { turns } = useFeedModel(messages, {
+    leaderMode: isLeaderSession,
+    frozenCount,
+    frozenRevision,
+  });
+  const activeLiveSubagentEntries = useMemo(
+    () => collectLiveSubagentEntries(
+      turns,
+      currentSessionStatus,
+      toolResults,
+      toolProgress,
+      toolStartTimestamps,
+      backgroundAgentNotifs,
+    ),
+    [backgroundAgentNotifs, currentSessionStatus, toolProgress, toolResults, toolStartTimestamps, turns],
+  );
   const activeCodexTerminalEntries = useMemo(
     () => codexTerminalEntries.filter((entry) => entry.result == null),
     [codexTerminalEntries],
   );
+  const visibleLiveSubagentEntries = useMemo(() => {
+    const now = Date.now();
+    return activeLiveSubagentEntries.filter((entry) => getLiveSubagentRevealAt(entry, now) <= now);
+  }, [activeLiveSubagentEntries, liveActivityRailVersion]);
   const visibleCodexTerminalRailEntries = useMemo(() => {
     const now = Date.now();
-    return activeCodexTerminalEntries.filter((entry) => getCodexTerminalRevealAt(entry) <= now);
-  }, [activeCodexTerminalEntries, codexTerminalRailVersion]);
+    return activeCodexTerminalEntries.filter((entry) => getCodexTerminalRevealAt(entry, now) <= now);
+  }, [activeCodexTerminalEntries, liveActivityRailVersion]);
   const activeCodexTerminalIds = useMemo(
     () => new Set(activeCodexTerminalEntries.map((entry) => entry.toolUseId)),
     [activeCodexTerminalEntries],
@@ -1768,18 +1931,20 @@ export function MessageFeed({
   }, [codexTerminalEntries, selectedCodexTerminalId]);
 
   useEffect(() => {
-    if (!isCodexSession || activeCodexTerminalEntries.length === 0) return;
+    if (activeCodexTerminalEntries.length === 0 && activeLiveSubagentEntries.length === 0) return;
     const now = Date.now();
-    const pendingRevealTimes = activeCodexTerminalEntries
-      .map((entry) => getCodexTerminalRevealAt(entry))
+    const pendingRevealTimes = [
+      ...activeCodexTerminalEntries.map((entry) => getCodexTerminalRevealAt(entry, now)),
+      ...activeLiveSubagentEntries.map((entry) => getLiveSubagentRevealAt(entry, now)),
+    ]
       .filter((revealAt) => revealAt > now);
     if (pendingRevealTimes.length === 0) return;
     const nextRevealAt = Math.min(...pendingRevealTimes);
     const timeout = setTimeout(() => {
-      setCodexTerminalRailVersion((version) => version + 1);
+      setLiveActivityRailVersion((version) => version + 1);
     }, nextRevealAt - now);
     return () => clearTimeout(timeout);
-  }, [activeCodexTerminalEntries, isCodexSession]);
+  }, [activeCodexTerminalEntries, activeLiveSubagentEntries]);
 
   const findVisibleTurnAnchor = useCallback((container: HTMLDivElement) => {
     const containerRect = container.getBoundingClientRect();
@@ -1911,12 +2076,6 @@ export function MessageFeed({
       }
     };
   }, [findVisibleTurnAnchor, getRealContentBottom, sessionId]);
-
-  const { turns } = useFeedModel(messages, {
-    leaderMode: isLeaderSession,
-    frozenCount,
-    frozenRevision,
-  });
 
   const sections = useMemo(() => buildFeedSections(turns, sectionTurnCount), [sectionTurnCount, turns]);
   const totalSections = sections.length;
@@ -2066,6 +2225,24 @@ export function MessageFeed({
     latestVisibleSectionStartIndex,
     visibleSectionStartIndex,
   ]);
+
+  const scrollToFeedBlock = useCallback((blockId: string, turnId: string) => {
+    const sectionChanged = ensureSectionForTurnVisible(turnId);
+    const scheduleScroll = () => {
+      requestAnimationFrame(() => {
+        const contentRoot = contentRootRef.current;
+        const target = contentRoot?.querySelector<HTMLElement>(
+          `[data-feed-block-id="${escapeSelectorValue(blockId)}"]`,
+        );
+        target?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    };
+    if (sectionChanged) {
+      requestAnimationFrame(scheduleScroll);
+      return;
+    }
+    scheduleScroll();
+  }, [ensureSectionForTurnVisible]);
 
   const handleLoadOlderSection = useCallback(() => {
     if (previousSectionStartIndex == null) return;
@@ -2652,11 +2829,15 @@ export function MessageFeed({
           </PawScrollProvider>
         </div>
 
-        {isCodexSession && visibleCodexTerminalRailEntries.length > 0 && (
-          <CodexTerminalRail
+        {(visibleCodexTerminalRailEntries.length > 0 || visibleLiveSubagentEntries.length > 0) && (
+          <LiveActivityRail
             terminals={visibleCodexTerminalRailEntries}
+            subagents={visibleLiveSubagentEntries}
             selectedToolUseId={selectedCodexTerminalId}
             onSelect={setSelectedCodexTerminalId}
+            onSelectSubagent={(taskToolUseId, turnId) => {
+              scrollToFeedBlock(getSubagentFeedBlockId(taskToolUseId), turnId);
+            }}
           />
         )}
 
