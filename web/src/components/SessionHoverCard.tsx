@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { shortenHome } from "../utils/path-display.js";
 import { useStore } from "../store.js";
 import { navigateToSession } from "../utils/routing.js";
+import { formatContextWindowLabel } from "../utils/token-format.js";
 
 interface SessionHoverCardProps {
   session: SessionItemType;
@@ -114,6 +115,7 @@ export function SessionHoverCard({
   const turns = sessionState?.num_turns ?? 0;
   const cost = sessionState?.total_cost_usd ?? 0;
   const contextPercent = sessionState?.context_used_percent ?? 0;
+  const contextWindow = sessionState?.codex_token_details?.modelContextWindow ?? 0;
   const hasBranchDivergence = s.gitAhead > 0 || s.gitBehind > 0;
   const hasLineDiff = s.linesAdded > 0 || s.linesRemoved > 0;
 
@@ -342,7 +344,7 @@ export function SessionHoverCard({
         )}
 
         {/* Stats row */}
-        {(turns > 0 || cost > 0 || contextPercent > 0 || s.lastActivityAt) && (
+        {(turns > 0 || cost > 0 || contextPercent > 0 || contextWindow > 0 || s.lastActivityAt) && (
           <div className="px-4 py-2 border-t border-cc-border/50">
             <div className="flex items-center gap-2 text-[11px] text-cc-muted">
               {turns > 0 && <span>{turns} {turns === 1 ? "turn" : "turns"}</span>}
@@ -358,9 +360,15 @@ export function SessionHoverCard({
                   <span>{Math.round(contextPercent)}% context</span>
                 </>
               )}
-              {s.lastActivityAt && (
+              {contextWindow > 0 && (
                 <>
                   {(turns > 0 || cost > 0 || contextPercent > 0) && <span className="text-cc-muted/40">&middot;</span>}
+                  <span>{formatContextWindowLabel(contextWindow)}</span>
+                </>
+              )}
+              {s.lastActivityAt && (
+                <>
+                  {(turns > 0 || cost > 0 || contextPercent > 0 || contextWindow > 0) && <span className="text-cc-muted/40">&middot;</span>}
                   <span title={new Date(s.lastActivityAt).toLocaleString()}>active {formatRelativeTime(s.lastActivityAt)}</span>
                 </>
               )}

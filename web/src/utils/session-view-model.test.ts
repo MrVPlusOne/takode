@@ -2,6 +2,14 @@ import { describe, expect, it } from "vitest";
 import type { SessionState, SdkSessionInfo } from "../types.js";
 import { coalesceSessionViewModel, toSessionViewModel } from "./session-view-model.js";
 
+const codexTokenDetails = {
+  inputTokens: 0,
+  outputTokens: 0,
+  cachedInputTokens: 0,
+  reasoningOutputTokens: 0,
+  modelContextWindow: 258_400,
+};
+
 describe("toSessionViewModel", () => {
   it("maps SessionState snake_case fields to camelCase", () => {
     const session = {
@@ -19,6 +27,7 @@ describe("toSessionViewModel", () => {
       total_cost_usd: 1.25,
       num_turns: 3,
       context_used_percent: 42,
+      codex_token_details: codexTokenDetails,
       is_compacting: false,
       git_branch: "jiayi",
       is_worktree: true,
@@ -38,6 +47,7 @@ describe("toSessionViewModel", () => {
     expect(vm.repoRoot).toBe("/repo");
     expect(vm.totalLinesAdded).toBe(10);
     expect(vm.totalCostUsd).toBe(1.25);
+    expect(vm.modelContextWindow).toBe(258_400);
   });
 
   it("maps SdkSessionInfo camelCase fields directly", () => {
@@ -84,6 +94,7 @@ describe("coalesceSessionViewModel", () => {
       total_cost_usd: 0,
       num_turns: 1,
       context_used_percent: 11,
+      codex_token_details: codexTokenDetails,
       is_compacting: false,
       git_branch: "feature",
       is_worktree: false,

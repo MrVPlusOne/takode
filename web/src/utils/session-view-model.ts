@@ -20,6 +20,7 @@ export interface SessionViewModel {
   numTurns?: number;
   totalCostUsd?: number;
   contextUsedPercent?: number;
+  modelContextWindow?: number;
   state?: SdkSessionInfo["state"];
   createdAt?: number;
   cliSessionId?: string;
@@ -56,6 +57,7 @@ export function toSessionViewModel(session: SessionState | SdkSessionInfo): Sess
       numTurns: session.num_turns,
       totalCostUsd: session.total_cost_usd,
       contextUsedPercent: session.context_used_percent,
+      modelContextWindow: session.codex_token_details?.modelContextWindow,
       claimedQuestStatus: session.claimedQuestStatus,
       askPermission: session.askPermission,
     };

@@ -12,6 +12,7 @@ interface MockStoreState {
     num_turns?: number;
     total_cost_usd?: number;
     context_used_percent?: number;
+    codex_token_details?: { modelContextWindow?: number };
     git_branch?: string | null;
     is_worktree?: boolean;
     git_ahead?: number;
@@ -160,5 +161,18 @@ describe("SessionInfoPopover", () => {
     expect(screen.getByText("-13")).toBeInTheDocument();
     expect(pathLine.compareDocumentPosition(branch) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(branch.compareDocumentPosition(tasksLabel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("shows the max context window rounded to whole K tokens", () => {
+    resetStore([]);
+    const session = storeState.sessions.get("s1");
+    if (!session) throw new Error("missing session fixture");
+    session.context_used_percent = 73;
+    session.codex_token_details = { modelContextWindow: 258_400 };
+
+    render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
+
+    expect(screen.getByText("73% context")).toBeInTheDocument();
+    expect(screen.getByText("258 K tokens")).toBeInTheDocument();
   });
 });

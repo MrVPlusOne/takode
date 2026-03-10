@@ -5,6 +5,7 @@ import { shortenHome } from "../utils/path-display.js";
 import { formatModel } from "../utils/backends.js";
 import { coalesceSessionViewModel } from "../utils/session-view-model.js";
 import { navigateTo } from "../utils/navigation.js";
+import { formatContextWindowLabel } from "../utils/token-format.js";
 
 export function SessionInfoPopover({
   sessionId,
@@ -32,6 +33,7 @@ export function SessionInfoPopover({
   const turns = sessionVm?.numTurns ?? 0;
   const cost = sessionVm?.totalCostUsd ?? 0;
   const contextPercent = sessionVm?.contextUsedPercent ?? 0;
+  const contextWindow = sessionVm?.modelContextWindow ?? 0;
 
   // Git
   const gitBranch = sessionVm?.gitBranch ?? null;
@@ -79,7 +81,7 @@ export function SessionInfoPopover({
 
   const backendLabel = backendType === "codex" ? "Codex" : "Claude";
   const hasGit = gitBranch || gitAhead > 0 || gitBehind > 0 || linesAdded > 0 || linesRemoved > 0;
-  const hasStats = turns > 0 || cost > 0 || contextPercent > 0;
+  const hasStats = turns > 0 || cost > 0 || contextPercent > 0 || contextWindow > 0;
   const taskEntries = (taskHistory ?? []).map((task) => ({
     ...task,
     title: task.title.trim(),
@@ -215,6 +217,12 @@ export function SessionInfoPopover({
                 <>
                   {(turns > 0 || cost > 0) && <span className="text-cc-muted/40">&middot;</span>}
                   <span>{Math.round(contextPercent)}% context</span>
+                </>
+              )}
+              {contextWindow > 0 && (
+                <>
+                  {(turns > 0 || cost > 0 || contextPercent > 0) && <span className="text-cc-muted/40">&middot;</span>}
+                  <span>{formatContextWindowLabel(contextWindow)}</span>
                 </>
               )}
             </div>
