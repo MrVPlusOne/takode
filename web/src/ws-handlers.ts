@@ -910,6 +910,10 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       // Authoritative state from server — overrides any stale transient state
       store.setSessionStatus(sessionId, data.sessionStatus as "idle" | "running" | "compacting" | "reverting" | null);
       store.setCliConnected(sessionId, data.backendConnected);
+      // state_snapshot is sent after subscribe replay completes. If no
+      // message_history/history_sync arrived, this was an empty-history
+      // session and the optimistic loading placeholder should be cleared.
+      store.setHistoryLoading(sessionId, false);
       if (data.backendState !== undefined || data.backendError !== undefined) {
         store.updateSession(sessionId, {
           ...(data.backendState !== undefined ? { backend_state: data.backendState } : {}),

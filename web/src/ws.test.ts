@@ -210,6 +210,29 @@ describe("connectSession", () => {
 
     expect(useStore.getState().historyLoading.get("s1")).toBe(true);
   });
+
+  it("clears history loading when subscribe completes with only an empty state snapshot", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    expect(useStore.getState().historyLoading.get("s1")).toBe(true);
+
+    fireMessage({
+      type: "state_snapshot",
+      sessionStatus: "idle",
+      permissionMode: "default",
+      backendConnected: true,
+      backendState: "connected",
+      backendError: null,
+      uiMode: null,
+      askPermission: true,
+      lastReadAt: undefined,
+      attentionReason: undefined,
+      generationStartedAt: null,
+    });
+
+    expect(useStore.getState().historyLoading.has("s1")).toBe(false);
+  });
 });
 
 describe("visibility reconnect", () => {
