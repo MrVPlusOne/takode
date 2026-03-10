@@ -146,4 +146,6 @@ export interface SdkSessionInfo {
   contextUsedPercent?: number;
   /** Last server-reported Codex token details for this session. */
   codexTokenDetails?: SessionState["codex_token_details"];
+  /** Last server-reported Claude token details for this session. */
+  claudeTokenDetails?: SessionState["claude_token_details"];
 }

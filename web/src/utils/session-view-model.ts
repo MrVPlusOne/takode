@@ -57,7 +57,7 @@ export function toSessionViewModel(session: SessionState | SdkSessionInfo): Sess
       numTurns: session.num_turns,
       totalCostUsd: session.total_cost_usd,
       contextUsedPercent: session.context_used_percent,
-      modelContextWindow: session.codex_token_details?.modelContextWindow,
+      modelContextWindow: session.codex_token_details?.modelContextWindow ?? session.claude_token_details?.modelContextWindow,
       claimedQuestStatus: session.claimedQuestStatus,
       askPermission: session.askPermission,
     };
@@ -77,7 +77,7 @@ export function toSessionViewModel(session: SessionState | SdkSessionInfo): Sess
     totalLinesAdded: session.totalLinesAdded,
     totalLinesRemoved: session.totalLinesRemoved,
     contextUsedPercent: session.contextUsedPercent,
-    modelContextWindow: session.codexTokenDetails?.modelContextWindow,
+    modelContextWindow: session.codexTokenDetails?.modelContextWindow ?? session.claudeTokenDetails?.modelContextWindow,
     state: session.state,
     createdAt: session.createdAt,
     cliSessionId: session.cliSessionId,

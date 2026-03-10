@@ -2607,6 +2607,53 @@ describe("CLI message routing", () => {
     expect(state.context_used_percent).toBe(20);
   });
 
+  it("result: stores and broadcasts Claude token details from modelUsage", () => {
+    const session = bridge.getSession("s1")!;
+    session.state.model = "claude-sonnet-4-5-20250929";
+
+    const msg = JSON.stringify({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      duration_ms: 5000,
+      duration_api_ms: 4000,
+      num_turns: 1,
+      total_cost_usd: 0.02,
+      stop_reason: "end_turn",
+      usage: { input_tokens: 3, output_tokens: 12, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      modelUsage: {
+        "claude-sonnet-4-5-20250929": {
+          inputTokens: 254,
+          outputTokens: 77_708,
+          cacheReadInputTokens: 21_737_912,
+          cacheCreationInputTokens: 263_780,
+          contextWindow: 200_000,
+          maxOutputTokens: 16_384,
+          costUSD: 14.46,
+        },
+      },
+      uuid: "uuid-5-token-details",
+      session_id: "s1",
+    });
+
+    bridge.handleCLIMessage(cli, msg);
+
+    expect(session.state.claude_token_details).toEqual({
+      inputTokens: 254,
+      outputTokens: 77_708,
+      cachedInputTokens: 22_001_692,
+      modelContextWindow: 200_000,
+    });
+    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    const tokenUpdate = calls.find((c: any) => c.type === "session_update" && c.session?.claude_token_details);
+    expect(tokenUpdate?.session?.claude_token_details).toEqual({
+      inputTokens: 254,
+      outputTokens: 77_708,
+      cachedInputTokens: 22_001_692,
+      modelContextWindow: 200_000,
+    });
+  });
+
   it("result: uses 1m context window for [1m] model variants even if modelUsage reports 200k", () => {
     const session = bridge.getSession("s1")!;
     session.state.model = "claude-opus-4-6[1m]";

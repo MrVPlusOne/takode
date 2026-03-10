@@ -983,6 +983,40 @@ describe("GET /api/sessions", () => {
     });
   });
 
+  it("includes restored Claude token metadata from bridge state", async () => {
+    launcher.listSessions.mockReturnValue([
+      { sessionId: "s1", state: "connected", cwd: "/a", backendType: "claude" },
+    ]);
+    vi.mocked(sessionNames.getAllNames).mockReturnValue({});
+    bridge.getAllSessions.mockReturnValue([
+      {
+        session_id: "s1",
+        context_used_percent: 41,
+        claude_token_details: {
+          inputTokens: 254,
+          outputTokens: 77708,
+          cachedInputTokens: 22001692,
+          modelContextWindow: 200000,
+        },
+      },
+    ]);
+
+    const res = await app.request("/api/sessions", { method: "GET" });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json[0]).toMatchObject({
+      sessionId: "s1",
+      contextUsedPercent: 41,
+      claudeTokenDetails: {
+        inputTokens: 254,
+        outputTokens: 77708,
+        cachedInputTokens: 22001692,
+        modelContextWindow: 200000,
+      },
+    });
+  });
+
   it("reports generating sessions as running when the bridge is active", async () => {
     launcher.listSessions.mockReturnValue([
       { sessionId: "s1", state: "connected", cwd: "/a" },

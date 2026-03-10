@@ -865,6 +865,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
           totalLinesRemoved: bridge?.total_lines_removed || 0,
           contextUsedPercent: bridge?.context_used_percent || 0,
           ...(bridge?.codex_token_details ? { codexTokenDetails: bridge.codex_token_details } : {}),
+          ...(bridge?.claude_token_details ? { claudeTokenDetails: bridge.claude_token_details } : {}),
           lastMessagePreview: wsBridge.getLastUserMessage(s.sessionId) || "",
           cliConnected,
           taskHistory: wsBridge.getSessionTaskHistory(s.sessionId),

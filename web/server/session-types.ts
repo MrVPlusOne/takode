@@ -506,6 +506,13 @@ export interface SessionState {
     reasoningOutputTokens: number;
     modelContextWindow: number;
   };
+  // Claude/CloudCode token details (forwarded from result.modelUsage)
+  claude_token_details?: {
+    inputTokens: number;
+    outputTokens: number;
+    cachedInputTokens: number;
+    modelContextWindow: number;
+  };
   // Codex-specific rate limits (forwarded from account/rateLimits/updated)
   codex_rate_limits?: {
     primary: { usedPercent: number; windowDurationMins: number; resetsAt: number } | null;

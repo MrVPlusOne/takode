@@ -264,12 +264,27 @@ function formatTokenCount(n: number): string {
   return String(n);
 }
 
+type SessionTokenDetails = {
+  inputTokens: number;
+  outputTokens: number;
+  cachedInputTokens: number;
+  modelContextWindow: number;
+  reasoningOutputTokens?: number;
+};
+
 function CodexTokenDetailsSection({ sessionId }: { sessionId: string }) {
-  const details = useStore((s) => s.sessions.get(sessionId)?.codex_token_details);
+  const details = useStore((s): SessionTokenDetails | null => {
+    const session = s.sessions.get(sessionId);
+    if (session?.codex_token_details) return session.codex_token_details;
+    if (session?.claude_token_details) return session.claude_token_details;
+    const sdkSession = s.sdkSessions.find((item) => item.sessionId === sessionId);
+    return sdkSession?.codexTokenDetails ?? sdkSession?.claudeTokenDetails ?? null;
+  });
   // Use the server-computed context percentage (backend-specific, capped 0-100).
   const contextPct = useStore((s) => s.sessions.get(sessionId)?.context_used_percent ?? 0);
 
   if (!details) return null;
+  const reasoningOutputTokens = details.reasoningOutputTokens ?? 0;
 
   return (
     <div className="shrink-0 px-4 py-3 border-b border-cc-border space-y-2">
@@ -289,10 +304,10 @@ function CodexTokenDetailsSection({ sessionId }: { sessionId: string }) {
             <span className="text-[11px] text-cc-fg tabular-nums font-medium">{formatTokenCount(details.cachedInputTokens)}</span>
           </div>
         )}
-        {details.reasoningOutputTokens > 0 && (
+        {reasoningOutputTokens > 0 && (
           <div className="flex items-center justify-between">
             <span className="text-[11px] text-cc-muted">Reasoning</span>
-            <span className="text-[11px] text-cc-fg tabular-nums font-medium">{formatTokenCount(details.reasoningOutputTokens)}</span>
+            <span className="text-[11px] text-cc-fg tabular-nums font-medium">{formatTokenCount(reasoningOutputTokens)}</span>
           </div>
         )}
       </div>
@@ -475,7 +490,10 @@ function UsageCollapsible({ sessionId, isCodex }: { sessionId: string; isCodex: 
             <CodexTokenDetailsSection sessionId={sessionId} />
           </>
         ) : (
-          <UsageLimitsSection sessionId={sessionId} />
+          <>
+            <UsageLimitsSection sessionId={sessionId} />
+            <CodexTokenDetailsSection sessionId={sessionId} />
+          </>
         )
       )}
     </>

@@ -42,10 +42,18 @@ interface MockStoreState {
     cwd?: string;
     git_branch?: string;
     codex_token_details?: CodexTokenDetails;
+    claude_token_details?: Omit<CodexTokenDetails, "reasoningOutputTokens">;
     codex_rate_limits?: CodexRateLimits;
     context_used_percent?: number;
   }>;
-  sdkSessions: { sessionId: string; backendType?: string; cwd?: string; gitBranch?: string }[];
+  sdkSessions: {
+    sessionId: string;
+    backendType?: string;
+    cwd?: string;
+    gitBranch?: string;
+    codexTokenDetails?: CodexTokenDetails;
+    claudeTokenDetails?: Omit<CodexTokenDetails, "reasoningOutputTokens">;
+  }[];
   taskPanelOpen: boolean;
   setTaskPanelOpen: ReturnType<typeof vi.fn>;
   prStatus: Map<string, { available: boolean; pr?: unknown } | null>;
@@ -252,6 +260,27 @@ describe("CodexTokenDetailsSection", () => {
     expect(screen.getByText("Tokens")).toBeInTheDocument();
     expect(screen.getByText("84.2k")).toBeInTheDocument();
     expect(screen.getByText("12.4k")).toBeInTheDocument();
+  });
+
+  it("renders Claude token details from normalized modelUsage", () => {
+    resetStore({
+      sessions: new Map([["s1", {
+        backend_type: "claude",
+        context_used_percent: 38,
+        claude_token_details: {
+          inputTokens: 12_000,
+          outputTokens: 3_400,
+          cachedInputTokens: 98_000,
+          modelContextWindow: 200_000,
+        },
+      }]]),
+    });
+    render(<CodexTokenDetailsSection sessionId="s1" />);
+    expect(screen.getByText("Tokens")).toBeInTheDocument();
+    expect(screen.getByText("12.0k")).toBeInTheDocument();
+    expect(screen.getByText("3.4k")).toBeInTheDocument();
+    expect(screen.getByText("98.0k")).toBeInTheDocument();
+    expect(screen.queryByText("Reasoning")).not.toBeInTheDocument();
   });
 
   it("shows cached and reasoning rows only when non-zero", () => {

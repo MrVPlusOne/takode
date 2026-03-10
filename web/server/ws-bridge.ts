@@ -645,6 +645,30 @@ function computePreTokenContextUsedPercent(
   return clampPercent(pct);
 }
 
+function extractClaudeTokenDetails(
+  modelUsage: CLIResultMessage["modelUsage"],
+): SessionState["claude_token_details"] | undefined {
+  if (!modelUsage) return undefined;
+  const usage = Object.values(modelUsage).find((entry) => entry && typeof entry === "object");
+  if (!usage) return undefined;
+
+  const inputTokens = Number(usage.inputTokens || 0);
+  const outputTokens = Number(usage.outputTokens || 0);
+  const cachedInputTokens = Number(usage.cacheReadInputTokens || 0) + Number(usage.cacheCreationInputTokens || 0);
+  const modelContextWindow = Number(usage.contextWindow || 0);
+
+  if (inputTokens <= 0 && outputTokens <= 0 && cachedInputTokens <= 0 && modelContextWindow <= 0) {
+    return undefined;
+  }
+
+  return {
+    inputTokens,
+    outputTokens,
+    cachedInputTokens,
+    modelContextWindow,
+  };
+}
+
 // ─── Bridge ───────────────────────────────────────────────────────────────────
 
 export class WsBridge {
@@ -4479,6 +4503,10 @@ export class WsBridge {
     if (typeof nextContextPct === "number") {
       session.state.context_used_percent = nextContextPct;
     }
+    const nextClaudeTokenDetails = extractClaudeTokenDetails(msg.modelUsage);
+    if (nextClaudeTokenDetails) {
+      session.state.claude_token_details = nextClaudeTokenDetails;
+    }
 
     // Re-check git state after each turn (session idle), then recompute diff stats.
     // Chained so git_default_branch is populated before diff computation.
@@ -4492,6 +4520,7 @@ export class WsBridge {
         total_cost_usd: session.state.total_cost_usd,
         num_turns: session.state.num_turns,
         context_used_percent: session.state.context_used_percent,
+        ...(nextClaudeTokenDetails ? { claude_token_details: nextClaudeTokenDetails } : {}),
       },
     });
 
