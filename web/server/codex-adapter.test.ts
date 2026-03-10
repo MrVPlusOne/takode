@@ -566,6 +566,56 @@ describe("CodexAdapter", () => {
     expect(allWritten).toContain("thr_123");
   });
 
+  it("uses thread/compact/start for a plain /compact command", async () => {
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
+
+    await tick();
+    stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
+    await tick();
+    stdout.push(JSON.stringify({ id: 2, result: { thread: { id: "thr_123" } } }) + "\n");
+    await tick();
+
+    stdin.chunks = [];
+
+    adapter.sendBrowserMessage({
+      type: "user_message",
+      content: " /COMPACT ",
+    });
+
+    await tick();
+
+    const lines = stdin.chunks.join("").split("\n").filter(Boolean).map((line) => JSON.parse(line));
+    const compactStart = lines.find((line) => line.method === "thread/compact/start");
+    expect(compactStart).toBeDefined();
+    expect(compactStart.params.threadId).toBe("thr_123");
+    expect(lines.find((line) => line.method === "turn/start")).toBeUndefined();
+  });
+
+  it("keeps /compact as a normal turn when the message carries extra payload", async () => {
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
+
+    await tick();
+    stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
+    await tick();
+    stdout.push(JSON.stringify({ id: 2, result: { thread: { id: "thr_123" } } }) + "\n");
+    await tick();
+
+    stdin.chunks = [];
+
+    adapter.sendBrowserMessage({
+      type: "user_message",
+      content: "/compact",
+      local_images: ["/tmp/proof.png"],
+    });
+
+    await tick();
+
+    const lines = stdin.chunks.join("").split("\n").filter(Boolean).map((line) => JSON.parse(line));
+    const turnStart = lines.find((line) => line.method === "turn/start");
+    expect(turnStart).toBeDefined();
+    expect(lines.find((line) => line.method === "thread/compact/start")).toBeUndefined();
+  });
+
   it("sets collaborationMode=plan on turn/start when approvalMode is plan", async () => {
     const adapter = new CodexAdapter(proc as never, "test-session", {
       model: "gpt-5.3-codex",

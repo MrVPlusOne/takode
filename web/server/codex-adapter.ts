@@ -123,6 +123,10 @@ function unwrapShellWrappedCommand(command: string): string {
   return trimmed;
 }
 
+function isCompactSlashCommand(text: string): boolean {
+  return text.trim().toLowerCase() === "/compact";
+}
+
 function extractCommandAction(commandActions: unknown): string {
   if (!Array.isArray(commandActions)) return "";
   for (const action of commandActions) {
@@ -1088,6 +1092,30 @@ export class CodexAdapter
         `[codex-adapter] Turn ${this.currentTurnId} already in progress for session ${this.sessionId}, interrupting before new turn`,
       );
       await this.interruptAndWaitForTurnEnd();
+    }
+
+    if (
+      isCompactSlashCommand(msg.content)
+      && !msg.images?.length
+      && !msg.local_images?.length
+      && !msg.vscodeSelection
+    ) {
+      try {
+        await this.transport.call("thread/compact/start", {
+          threadId: this.threadId,
+        });
+        return;
+      } catch (err) {
+        const requeued = this.handleTurnStartDispatchFailure(msg);
+        if (requeued && this.isTransportClosedError(err)) {
+          console.warn(
+            `[codex-adapter] thread/compact/start transport closed; message re-queued for session ${this.sessionId}`,
+          );
+          return;
+        }
+        this.emit({ type: "error", message: `Failed to start compaction: ${err}` });
+        return;
+      }
     }
 
     const input: Array<{
