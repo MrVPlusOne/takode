@@ -770,7 +770,7 @@ describe("MessageFeed - scroll behavior", () => {
     try {
       mockScrollTo.mockClear();
       render(<MessageFeed sessionId={sid} />);
-      expect(mockScrollTo).toHaveBeenCalledWith({ top: 1576, behavior: "auto" });
+      expect(mockScrollTo).toHaveBeenCalledWith({ top: 1588, behavior: "auto" });
       expect(scrollTopValue).toBe(0);
     } finally {
       if (originalScrollHeight) {
@@ -1438,7 +1438,7 @@ describe("MessageFeed - scroll behavior", () => {
     setStoreTurnOverrides(sid, []);
     rerender(<MessageFeed sessionId={sid} />);
 
-    expect(scrollTopValue).toBe(1116);
+    expect(scrollTopValue).toBe(1128);
     expect(screen.queryByText("Read File")).toBeNull();
   });
 
@@ -1648,7 +1648,7 @@ describe("MessageFeed - scroll behavior", () => {
     mockScrollTo.mockClear();
     fireEvent.click(screen.getByLabelText("Jump to latest"));
 
-    expect(mockScrollTo).toHaveBeenCalledWith({ top: 1136, behavior: "smooth" });
+    expect(mockScrollTo).toHaveBeenCalledWith({ top: 1148, behavior: "smooth" });
   });
 
   it("keeps the Go to bottom button aligned to the real feed bottom", () => {
@@ -1680,7 +1680,7 @@ describe("MessageFeed - scroll behavior", () => {
 
     fireEvent.click(screen.getByLabelText("Go to bottom"));
 
-    expect(mockScrollTo).toHaveBeenCalledWith({ top: 976, behavior: "smooth" });
+    expect(mockScrollTo).toHaveBeenCalledWith({ top: 988, behavior: "smooth" });
   });
 
   it("renders streaming text with cursor animation", () => {
@@ -1925,7 +1925,7 @@ describe("MessageFeed - Codex terminal chips", () => {
     render(<MessageFeed sessionId={sid} />);
 
     expect(screen.getByTestId("live-activity-rail")).toBeTruthy();
-    expect(screen.getByTestId("codex-live-terminal-chip").textContent).toContain("bun test src/ws-bridge.test.ts");
+    expect(screen.getByTestId("codex-live-terminal-chip").textContent).toContain("bun");
     expect(screen.getByText("Live terminal")).toBeTruthy();
     expect(screen.queryByText("Live output")).toBeNull();
   });
@@ -1959,7 +1959,7 @@ describe("MessageFeed - Codex terminal chips", () => {
       });
 
       expect(screen.getByTestId("live-activity-rail")).toBeTruthy();
-      expect(screen.getByTestId("codex-live-terminal-chip").textContent).toContain("npm run lint");
+      expect(screen.getByTestId("codex-live-terminal-chip").textContent).toContain("npm");
     } finally {
       vi.useRealTimers();
     }
@@ -2097,6 +2097,33 @@ describe("MessageFeed - Codex terminal chips", () => {
 
     expect(screen.getByTestId("live-activity-rail")).toBeTruthy();
     expect(screen.getAllByTestId("codex-live-terminal-chip")).toHaveLength(6);
+  });
+
+  it("shortens path-based terminal chip labels to the executable file name", () => {
+    const sid = "test-live-activity-path-chip";
+    setStoreSessionBackend(sid, "codex");
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "codex-live-path",
+        role: "assistant",
+        content: "",
+        contentBlocks: [
+          {
+            type: "tool_use",
+            id: "tu-live-path",
+            name: "Bash",
+            input: { command: "/Users/test/bin/really-long-tool --flag value" },
+          },
+        ],
+      }),
+    ]);
+    setStoreToolProgress(sid, [{ toolUseId: "tu-live-path", toolName: "Bash", elapsedSeconds: 12 }]);
+    setStoreToolStartTimestamps(sid, { "tu-live-path": Date.now() - 12_000 });
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByTestId("codex-live-terminal-chip").textContent).toContain("really-long-tool");
+    expect(screen.queryByText("Live activity")).toBeNull();
   });
 
   it("waits five seconds before showing a live subagent chip", () => {

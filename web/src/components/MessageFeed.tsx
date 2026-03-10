@@ -25,8 +25,8 @@ import {
 const DEFAULT_VISIBLE_SECTION_COUNT = 3;
 const FEED_SECTION_TURN_COUNT = 50;
 const LIVE_ACTIVITY_RAIL_DWELL_MS = 5_000;
-const FEED_EXTRA_SCROLL_SLACK_PX = 24;
-const FLOATING_STATUS_SPACER_MARGIN_PX = 12;
+const FEED_EXTRA_SCROLL_SLACK_PX = 12;
+const FLOATING_STATUS_SPACER_MARGIN_PX = 4;
 
 function formatElapsed(ms: number): string {
   const secs = Math.floor(ms / 1000);
@@ -226,18 +226,19 @@ export function ElapsedTimer({
     return (
       <div
         ref={rootRef}
-        className="pointer-events-auto inline-flex max-w-[min(20rem,calc(100vw-5rem))] items-center gap-1.5 rounded-full border border-cc-border bg-cc-card/95 px-3 py-1.5 text-[11px] text-cc-muted font-mono-code shadow-lg backdrop-blur-sm"
+        className="pointer-events-auto relative inline-flex max-w-[min(18rem,calc(100vw-2.75rem))] items-center gap-1.5 overflow-hidden rounded-[18px] border border-white/8 bg-[linear-gradient(135deg,rgba(255,255,255,0.08),rgba(255,255,255,0.02))] px-2.5 py-1 text-[11px] text-cc-muted font-mono-code shadow-[0_10px_30px_rgba(0,0,0,0.28)] backdrop-blur-md"
       >
+        <span className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.10),transparent_55%)]" />
         <YarnBallDot className={dotColor} />
-        <span className="truncate">{label}</span>
-        <span className="text-cc-muted/60">{formatElapsed(elapsed)}</span>
+        <span className="relative truncate text-cc-fg/90">{label}</span>
+        <span className="relative text-cc-muted/75">{formatElapsed(elapsed)}</span>
         {(streamingOutputTokens ?? 0) > 0 && (
-          <span className="hidden sm:inline truncate text-cc-muted/80">↓ {formatTokens(streamingOutputTokens!)}</span>
+          <span className="relative hidden sm:inline truncate text-cc-muted/70">↓ {formatTokens(streamingOutputTokens!)}</span>
         )}
         {isStuck && (
           <button
             onClick={handleRelaunch}
-            className="ml-1 text-amber-400 hover:text-amber-300 underline cursor-pointer"
+            className="relative ml-1 text-amber-400 hover:text-amber-300 underline cursor-pointer"
           >
             Relaunch
           </button>
@@ -291,7 +292,7 @@ function FeedStatusPill({
   onVisibleHeightChange?: (height: number) => void;
 }) {
   return (
-    <div className="pointer-events-none absolute bottom-3 left-3 z-10 sm:bottom-4 sm:left-4">
+    <div className="pointer-events-none absolute bottom-2 left-2 z-10 sm:bottom-3 sm:left-3">
       <ElapsedTimer
         sessionId={sessionId}
         variant="floating"
@@ -478,6 +479,20 @@ function collectLiveSubagentEntries(
   return entries;
 }
 
+function getTerminalChipLabel(input: Record<string, unknown>): string {
+  const commandValue = input.command;
+  const command = Array.isArray(commandValue)
+    ? commandValue.map((part) => String(part)).join(" ")
+    : typeof commandValue === "string"
+      ? commandValue
+      : "";
+  const firstToken = command.trim().split(/\s+/)[0] || "";
+  if (!firstToken) return "cmd";
+  const normalized = firstToken.replace(/\\/g, "/");
+  const basename = normalized.split("/").pop() || normalized;
+  return basename || "cmd";
+}
+
 function collectCodexTerminalEntries(
   messages: ChatMessage[],
   toolResults?: Map<string, {
@@ -600,14 +615,10 @@ function LiveActivityRail({
   return (
     <div
       data-testid="live-activity-rail"
-      className="pointer-events-none absolute inset-x-3 top-3 z-10 flex justify-center sm:top-4 sm:inset-x-4"
+      className="pointer-events-none absolute inset-x-2 top-2 z-10 flex justify-center sm:top-3 sm:inset-x-3"
     >
       <div className="pointer-events-auto flex w-full max-w-3xl justify-start">
-        <div className="flex max-w-full items-center gap-2 overflow-x-auto scrollbar-hide rounded-2xl border border-cc-border/80 bg-cc-bg/96 px-2.5 py-2 shadow-lg backdrop-blur-sm">
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-cc-hover px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-cc-muted">
-            <ToolIcon type="agent" />
-            Live activity
-          </span>
+        <div className="flex max-w-full items-center gap-1 overflow-x-auto scrollbar-hide rounded-[18px] border border-cc-border/80 bg-cc-bg/96 px-1.5 py-1 shadow-lg backdrop-blur-sm">
           {visibleEntries.map((entry) => {
             if (entry.kind === "terminal") {
               const terminal = entry.terminal;
@@ -618,7 +629,7 @@ function LiveActivityRail({
                   type="button"
                   onClick={() => onSelect(terminal.toolUseId)}
                   data-testid="codex-live-terminal-chip"
-                  className={`flex shrink-0 items-center gap-2 rounded-full border px-3 py-2 text-left transition-colors cursor-pointer ${
+                  className={`flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-left transition-colors cursor-pointer ${
                     isSelected
                       ? "border-cc-primary/40 bg-cc-card text-cc-fg"
                       : "border-cc-border bg-cc-card text-cc-fg hover:bg-cc-hover"
@@ -627,7 +638,7 @@ function LiveActivityRail({
                   aria-label={`Open live terminal for ${terminal.preview}`}
                 >
                   <ToolIcon type="terminal" />
-                  <span className="min-w-0 flex-1 truncate text-xs font-mono-code">{terminal.preview}</span>
+                  <span className="shrink-0 text-xs font-mono-code">{getTerminalChipLabel(terminal.input)}</span>
                   <LiveDurationBadge
                     progressElapsedSeconds={terminal.progress?.elapsedSeconds}
                     startTimestamp={terminal.startTimestamp}
@@ -644,7 +655,7 @@ function LiveActivityRail({
                 type="button"
                 onClick={() => onSelectSubagent(subagent.taskToolUseId, subagent.turnId)}
                 data-testid="live-subagent-chip"
-                className="flex shrink-0 items-center gap-2 rounded-full border border-cc-border bg-cc-card px-3 py-2 text-left text-cc-fg transition-colors hover:bg-cc-hover cursor-pointer"
+                className="flex shrink-0 items-center gap-1.5 rounded-full border border-cc-border bg-cc-card px-2.5 py-1.5 text-left text-cc-fg transition-colors hover:bg-cc-hover cursor-pointer"
                 title={subagent.label}
                 aria-label={`Jump to live subagent ${subagent.label}`}
               >
