@@ -2069,10 +2069,25 @@ export class CodexAdapter
       this.reasoningTextByItemId.set(itemId, "");
     }
 
-    const delta = params.delta as string | undefined;
+    const delta = typeof params.delta === "string"
+      ? params.delta
+      : typeof params.text === "string"
+        ? params.text
+        : (params.part && typeof params.part === "object" && typeof (params.part as Record<string, unknown>).text === "string")
+          ? (params.part as Record<string, unknown>).text as string
+          : undefined;
     if (delta) {
       const current = this.reasoningTextByItemId.get(itemId) || "";
       this.reasoningTextByItemId.set(itemId, current + delta);
+      this.emit({
+        type: "stream_event",
+        event: {
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "thinking_delta", thinking: delta },
+        },
+        parent_tool_use_id: this.resolveParentToolUseId(params, itemId),
+      });
     }
   }
 

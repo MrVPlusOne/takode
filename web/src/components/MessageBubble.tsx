@@ -840,40 +840,52 @@ function normalizeCodexThinkingSummary(text: string): string {
 
 const CODEX_THINKING_PREVIEW_MAX_CHARS = 80;
 
+export function CodexThinkingInline({
+  text,
+  thinkingTimeMs,
+}: {
+  text: string;
+  thinkingTimeMs?: number;
+}) {
+  const [open, setOpen] = useState(false);
+  const summaryText = normalizeCodexThinkingSummary(text);
+  const isLongSummary = summaryText.length > CODEX_THINKING_PREVIEW_MAX_CHARS;
+  const visibleSummary = isLongSummary && !open
+    ? `${summaryText.slice(0, CODEX_THINKING_PREVIEW_MAX_CHARS).trimEnd()}`
+    : summaryText;
+  const timeSuffix = typeof thinkingTimeMs === "number" ? ` (${formatThinkingSeconds(thinkingTimeMs)} s)` : "";
+
+  return (
+    <div className="flex items-start gap-1.5 text-xs text-cc-muted leading-relaxed py-0.5">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5 text-cc-muted/80 shrink-0 mt-[1px]">
+        <path d="M8 2.5a4 4 0 014 4c0 1.4-.7 2.5-1.7 3.2-.5.3-.8.9-.8 1.5V12H6.5v-.8c0-.6-.3-1.2-.8-1.5A3.9 3.9 0 014 6.5a4 4 0 014-4z" />
+        <path d="M6.2 13.5h3.6M6.7 15h2.6" strokeLinecap="round" />
+      </svg>
+      <p className="whitespace-pre-wrap break-words">
+        {visibleSummary}
+        {timeSuffix}
+        {isLongSummary && (
+          <button
+            type="button"
+            onClick={() => setOpen(!open)}
+            className="inline-flex items-center ml-1 text-cc-muted/80 hover:text-cc-fg transition-colors cursor-pointer align-baseline"
+            aria-label={open ? "Collapse thinking summary" : "Expand thinking summary"}
+            title={open ? "Collapse" : "Expand"}
+          >
+            …
+          </button>
+        )}
+      </p>
+    </div>
+  );
+}
+
 function ThinkingBlock({ text, thinkingTimeMs, isCodex }: { text: string; thinkingTimeMs?: number; isCodex: boolean }) {
   const [open, setOpen] = useState(false);
   const headerRef = useRef<HTMLButtonElement>(null);
 
   if (isCodex) {
-    const summaryText = normalizeCodexThinkingSummary(text);
-    const isLongSummary = summaryText.length > CODEX_THINKING_PREVIEW_MAX_CHARS;
-    const visibleSummary = isLongSummary && !open
-      ? `${summaryText.slice(0, CODEX_THINKING_PREVIEW_MAX_CHARS).trimEnd()}`
-      : summaryText;
-    const timeSuffix = typeof thinkingTimeMs === "number" ? ` (${formatThinkingSeconds(thinkingTimeMs)} s)` : "";
-    return (
-      <div className="flex items-start gap-1.5 text-xs text-cc-muted leading-relaxed py-0.5">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5 text-cc-muted/80 shrink-0 mt-[1px]">
-          <path d="M8 2.5a4 4 0 014 4c0 1.4-.7 2.5-1.7 3.2-.5.3-.8.9-.8 1.5V12H6.5v-.8c0-.6-.3-1.2-.8-1.5A3.9 3.9 0 014 6.5a4 4 0 014-4z" />
-          <path d="M6.2 13.5h3.6M6.7 15h2.6" strokeLinecap="round" />
-        </svg>
-        <p className="whitespace-pre-wrap break-words">
-          {visibleSummary}
-          {timeSuffix}
-          {isLongSummary && (
-            <button
-              type="button"
-              onClick={() => setOpen(!open)}
-              className="inline-flex items-center ml-1 text-cc-muted/80 hover:text-cc-fg transition-colors cursor-pointer align-baseline"
-              aria-label={open ? "Collapse thinking summary" : "Expand thinking summary"}
-              title={open ? "Collapse" : "Expand"}
-            >
-              …
-            </button>
-          )}
-        </p>
-      </div>
-    );
+    return <CodexThinkingInline text={text} thinkingTimeMs={thinkingTimeMs} />;
   }
 
   return (

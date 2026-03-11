@@ -505,6 +505,9 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
         store.appendMessage(sessionId, chatMsg);
       }
       store.setStreaming(sessionId, null, data.parent_tool_use_id);
+      if (msg.content?.some((block) => block.type === "thinking")) {
+        store.setStreamingThinking(sessionId, null, data.parent_tool_use_id);
+      }
       // Clear progress only for completed tools (tool_result blocks), not all tools.
       // Blanket clear would cause flickering during concurrent tool execution.
       if (msg.content?.length) {
@@ -551,6 +554,17 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
           }
         }
 
+        if (evt.type === "content_block_start") {
+          const block = evt.content_block as Record<string, unknown> | undefined;
+          if (block?.type === "thinking") {
+            store.setStreamingThinking(
+              sessionId,
+              typeof block.thinking === "string" ? block.thinking : "",
+              data.parent_tool_use_id,
+            );
+          }
+        }
+
         // content_block_delta → accumulate streaming text
         if (evt.type === "content_block_delta") {
           const delta = evt.delta as Record<string, unknown> | undefined;
@@ -560,6 +574,13 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
               ? (store.streamingByParentToolUseId.get(sessionId)?.get(parentToolUseId) || "")
               : (store.streaming.get(sessionId) || "");
             store.setStreaming(sessionId, current + delta.text, parentToolUseId);
+          }
+          if (delta?.type === "thinking_delta" && typeof delta.thinking === "string") {
+            const parentToolUseId = data.parent_tool_use_id;
+            const current = parentToolUseId
+              ? (store.streamingThinkingByParentToolUseId.get(sessionId)?.get(parentToolUseId) || "")
+              : (store.streamingThinking.get(sessionId) || "");
+            store.setStreamingThinking(sessionId, current + delta.thinking, parentToolUseId);
           }
         }
 

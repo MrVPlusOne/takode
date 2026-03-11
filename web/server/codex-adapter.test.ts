@@ -1643,6 +1643,40 @@ describe("CodexAdapter", () => {
     expect(secondMs).toBeLessThan(firstMs);
   });
 
+  it("emits live reasoning summary deltas as thinking stream events", async () => {
+    const messages: BrowserIncomingMessage[] = [];
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
+    adapter.onBrowserMessage((msg) => messages.push(msg));
+
+    await initializeAdapter(stdout);
+
+    stdout.push(JSON.stringify({
+      method: "item/started",
+      params: { item: { type: "reasoning", id: "r_live", summary: "Inspecting " } },
+    }) + "\n");
+    await tick();
+    stdout.push(JSON.stringify({
+      method: "item/reasoning/summaryTextDelta",
+      params: { itemId: "r_live", delta: "session state" },
+    }) + "\n");
+    await tick();
+
+    expect(messages).toContainEqual(expect.objectContaining({
+      type: "stream_event",
+      event: expect.objectContaining({
+        type: "content_block_start",
+        content_block: expect.objectContaining({ type: "thinking", thinking: "Inspecting " }),
+      }),
+    }));
+    expect(messages).toContainEqual(expect.objectContaining({
+      type: "stream_event",
+      event: expect.objectContaining({
+        type: "content_block_delta",
+        delta: expect.objectContaining({ type: "thinking_delta", thinking: "session state" }),
+      }),
+    }));
+  });
+
   // ── Codex CLI enum values must be kebab-case (v0.99+) ─────────────────
   // Valid sandbox values: "read-only", "workspace-write", "danger-full-access"
   // Valid approvalPolicy values: "never", "untrusted", "on-failure", "on-request"

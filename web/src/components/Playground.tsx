@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { PermissionBanner, PlanReviewOverlay, PlanCollapsedChip, PermissionsCollapsedChip, EvaluatingCollapsedChip } from "./PermissionBanner.js";
-import { MessageBubble } from "./MessageBubble.js";
+import { CodexThinkingInline, MessageBubble } from "./MessageBubble.js";
 import { Lightbox } from "./Lightbox.js";
 import { ToolBlock, getToolIcon, getToolLabel, getPreview, ToolIcon, formatDuration } from "./ToolBlock.js";
 import { DiffViewer } from "./DiffViewer.js";
@@ -2448,6 +2448,16 @@ export function Playground() {
                     I'll start by creating the JWT utility module with sign and verify helpers. Let me first check what dependencies are already installed...
                     <span className="inline-block w-0.5 h-4 bg-cc-primary ml-0.5 align-middle animate-[pulse-dot_0.8s_ease-in-out_infinite]" />
                   </pre>
+                </div>
+              </div>
+            </Card>
+            <Card label="Codex live thinking">
+              <div className="flex items-start gap-3">
+                <div className="w-6 h-6 rounded-full bg-cc-primary/10 flex items-center justify-center shrink-0 mt-0.5 -ml-0.5">
+                  <CatPawLeft className="w-3 h-3 text-cc-primary animate-[paw-walk_0.8s_ease-in-out_infinite]" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <CodexThinkingInline text="Checking how collapsed subagent turns handle parented reasoning." />
                 </div>
               </div>
             </Card>

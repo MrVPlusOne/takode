@@ -48,6 +48,8 @@ vi.mock("../store.js", () => {
       historyLoading: mockStoreValues.historyLoading ?? new Map(),
       streaming: mockStoreValues.streaming ?? new Map(),
       streamingByParentToolUseId: mockStoreValues.streamingByParentToolUseId ?? new Map(),
+      streamingThinking: mockStoreValues.streamingThinking ?? new Map(),
+      streamingThinkingByParentToolUseId: mockStoreValues.streamingThinkingByParentToolUseId ?? new Map(),
       streamingStartedAt: mockStoreValues.streamingStartedAt ?? new Map(),
       streamingOutputTokens: mockStoreValues.streamingOutputTokens ?? new Map(),
       streamingPausedDuration: mockStoreValues.streamingPausedDuration ?? new Map(),
@@ -198,6 +200,12 @@ function setStoreStreaming(sessionId: string, text: string | undefined) {
   mockStoreValues.streaming = map;
 }
 
+function setStoreThinking(sessionId: string, text: string | undefined) {
+  const map = new Map();
+  if (text !== undefined) map.set(sessionId, text);
+  mockStoreValues.streamingThinking = map;
+}
+
 function setStoreHistoryLoading(sessionId: string, loading: boolean) {
   const map = new Map();
   if (loading) map.set(sessionId, true);
@@ -224,6 +232,12 @@ function setStoreParentStreaming(sessionId: string, entries: Record<string, stri
   const map = new Map();
   map.set(sessionId, new Map(Object.entries(entries)));
   mockStoreValues.streamingByParentToolUseId = map;
+}
+
+function setStoreParentThinking(sessionId: string, entries: Record<string, string>) {
+  const map = new Map();
+  map.set(sessionId, new Map(Object.entries(entries)));
+  mockStoreValues.streamingThinkingByParentToolUseId = map;
 }
 
 function setStoreStatus(sessionId: string, status: string | null) {
@@ -1768,6 +1782,19 @@ describe("MessageFeed - scroll behavior", () => {
     expect(container.querySelector("pre.font-mono-code")).toBeNull();
   });
 
+  it("renders live codex thinking when no assistant text is streaming yet", () => {
+    const sid = "test-streaming-codex-thinking";
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Hello" }),
+    ]);
+    setStoreSessionBackend(sid, "codex");
+    setStoreThinking(sid, "Checking session restore flow");
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByText("Checking session restore flow")).toBeTruthy();
+  });
+
   it("withholds partial codex lines until a newline commits them", () => {
     const sid = "test-streaming-codex-partial";
     setStoreMessages(sid, [
@@ -2588,6 +2615,36 @@ describe("MessageFeed - subagent grouping", () => {
     fireEvent.click(screen.getByText("Activities"));
     expect(screen.getByTestId("markdown").textContent).toContain("Streaming from the subagent");
     expect(screen.queryByText("Still hidden")).toBeNull();
+    expect(screen.queryByText("Agent starting...")).toBeNull();
+  });
+
+  it("renders live parented codex thinking inside the subagent card", () => {
+    const sid = "test-subagent-thinking";
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "a1",
+        role: "assistant",
+        content: "",
+        contentBlocks: [
+          {
+            type: "tool_use",
+            id: "task-thinking",
+            name: "Agent",
+            input: { description: "Inspect event routing", subagent_type: "explorer" },
+          },
+        ],
+      }),
+    ]);
+    setStoreSessionBackend(sid, "codex");
+    setStoreStatus(sid, "running");
+    setStoreParentThinking(sid, { "task-thinking": "Summarizing the routing plan" });
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByText("Summarizing the routing plan")).toBeTruthy();
+    fireEvent.click(screen.getByText("Inspect event routing"));
+    fireEvent.click(screen.getByText("Activities"));
+    expect(screen.getAllByText("Summarizing the routing plan").length).toBeGreaterThan(0);
     expect(screen.queryByText("Agent starting...")).toBeNull();
   });
 

@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useMemo, useState, useCallback, memo, type ReactNode } from "react";
 import { useStore } from "../store.js";
-import { MessageBubble } from "./MessageBubble.js";
+import { CodexThinkingInline, MessageBubble } from "./MessageBubble.js";
 import { ToolBlock, getPreview, getToolIcon, getToolLabel, ToolIcon, formatDuration } from "./ToolBlock.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { CollapseFooter, TurnCollapseFooter } from "./CollapseFooter.js";
@@ -1450,6 +1450,9 @@ const SubagentContainer = memo(function SubagentContainer({
   const rawStreamingText = useStore((s) =>
     s.streamingByParentToolUseId.get(sessionId)?.get(group.taskToolUseId) || ""
   );
+  const rawThinkingText = useStore((s) =>
+    s.streamingThinkingByParentToolUseId.get(sessionId)?.get(group.taskToolUseId) || ""
+  );
   const progressElapsedSeconds = useStore((s) =>
     s.toolProgress.get(sessionId)?.get(group.taskToolUseId)?.elapsedSeconds
   );
@@ -1508,8 +1511,12 @@ const SubagentContainer = memo(function SubagentContainer({
       const text = streamingText.trim();
       return text.length > 120 ? text.slice(0, 120) + "..." : text;
     }
+    if (rawThinkingText) {
+      const text = rawThinkingText.trim();
+      return text.length > 120 ? text.slice(0, 120) + "..." : text;
+    }
     return lastPreview;
-  }, [parsedResultPreview, streamingText, lastPreview]);
+  }, [lastPreview, parsedResultPreview, rawThinkingText, streamingText]);
 
   const card = (
     <div
@@ -1574,7 +1581,7 @@ const SubagentContainer = memo(function SubagentContainer({
           )}
 
           {/* Child activities */}
-          {(childCount > 0 || rawStreamingText) && (
+          {(childCount > 0 || rawStreamingText || rawThinkingText) && (
             <div className="border-b border-cc-border/50">
               <SubagentSectionHeader label="Activities" open={activitiesOpen} onToggle={() => setActivitiesOpen(!activitiesOpen)} />
               {activitiesOpen && (
@@ -1588,6 +1595,11 @@ const SubagentContainer = memo(function SubagentContainer({
                       activeCodexTerminalIds={activeCodexTerminalIds}
                       onOpenCodexTerminal={onOpenCodexTerminal}
                     />
+                  )}
+                  {rawThinkingText && (
+                    <div className="rounded-[8px] border border-cc-border/50 bg-cc-hover/20 px-3 py-2">
+                      <CodexThinkingInline text={rawThinkingText} />
+                    </div>
                   )}
                   {rawStreamingText && (
                     <div className="rounded-[8px] border border-cc-border/50 bg-cc-hover/20 px-3 py-2">
@@ -1635,7 +1647,7 @@ const SubagentContainer = memo(function SubagentContainer({
           )}
 
           {/* No children yet indicator */}
-          {childCount === 0 && !rawStreamingText && !isEffectivelyComplete && !isAbandoned && (
+          {childCount === 0 && !rawStreamingText && !rawThinkingText && !isEffectivelyComplete && !isAbandoned && (
             <div className="px-3 py-2 flex items-center gap-1.5 text-[11px] text-cc-muted">
               <YarnBallSpinner className="w-3.5 h-3.5" />
               <span>{group.isBackground ? "Running in background..." : "Agent starting..."}</span>
@@ -1735,6 +1747,7 @@ function SubagentResult({ preview, parsedText, sessionId, toolUseId }: {
 const FeedFooter = memo(function FeedFooter({ sessionId }: { sessionId: string }) {
   const toolProgress = useStore((s) => s.toolProgress.get(sessionId));
   const rawStreamingText = useStore((s) => s.streaming.get(sessionId));
+  const rawThinkingText = useStore((s) => s.streamingThinking.get(sessionId));
   const sessionStatus = useStore((s) => s.sessionStatus.get(sessionId));
   const isCodexSession = useStore((s) => s.sessions.get(sessionId)?.backend_type === "codex");
   const streamingText = useMemo(
@@ -1775,6 +1788,20 @@ const FeedFooter = memo(function FeedFooter({ sessionId }: { sessionId: string }
           </div>
         );
       })()}
+
+      {isCodexSession && !rawStreamingText && rawThinkingText && (
+        <div
+          className="animate-[fadeSlideIn_0.2s_ease-out]"
+          data-feed-block-id={getFooterFeedBlockId("thinking")}
+        >
+          <div className="flex items-start gap-3">
+            <PawTrailAvatar isStreaming />
+            <div className="flex-1 min-w-0">
+              <CodexThinkingInline text={rawThinkingText} />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Streaming indicator */}
       {rawStreamingText && (

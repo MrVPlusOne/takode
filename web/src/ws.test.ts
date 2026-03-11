@@ -916,6 +916,44 @@ describe("handleMessage: stream_event content_block_delta", () => {
     expect(state.streaming.has("s1")).toBe(false);
     expect(state.streamingByParentToolUseId.get("s1")?.get("agent-1")).toBe("Nested output");
   });
+
+  it("accumulates live codex thinking from thinking deltas", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    fireMessage({
+      type: "stream_event",
+      event: { type: "content_block_start", content_block: { type: "thinking", thinking: "Inspecting " } },
+      parent_tool_use_id: null,
+    });
+    fireMessage({
+      type: "stream_event",
+      event: { type: "content_block_delta", delta: { type: "thinking_delta", thinking: "session state" } },
+      parent_tool_use_id: null,
+    });
+
+    expect(useStore.getState().streamingThinking.get("s1")).toBe("Inspecting session state");
+  });
+
+  it("routes parented thinking into the matching subagent buffer", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    fireMessage({
+      type: "stream_event",
+      event: { type: "content_block_start", content_block: { type: "thinking", thinking: "" } },
+      parent_tool_use_id: "agent-1",
+    });
+    fireMessage({
+      type: "stream_event",
+      event: { type: "content_block_delta", delta: { type: "thinking_delta", thinking: "Nested reasoning" } },
+      parent_tool_use_id: "agent-1",
+    });
+
+    const state = useStore.getState();
+    expect(state.streamingThinking.has("s1")).toBe(false);
+    expect(state.streamingThinkingByParentToolUseId.get("s1")?.get("agent-1")).toBe("Nested reasoning");
+  });
 });
 
 // ===========================================================================
