@@ -39,7 +39,7 @@ export function startPendingCreation(pendingId: string): void {
 }
 
 export function queuePendingSession(params: {
-  backend: "claude" | "codex";
+  backend: "claude" | "codex" | "claude-sdk";
   createOpts: CreateSessionOpts;
   cwd?: string | null;
 }): string {

@@ -8,7 +8,7 @@ import { isDesktopShellLayout } from "./utils/layout.js";
 
 export interface PendingSession {
   id: string;                          // "pending-{uuid}"
-  backend: "claude" | "codex";
+  backend: "claude" | "codex" | "claude-sdk";
   createOpts: CreateSessionOpts;       // stored for retry
   progress: CreationProgressEvent[];
   error: string | null;

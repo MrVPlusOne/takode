@@ -8,7 +8,7 @@ import {
   getModesForBackend,
 } from "./backends.js";
 
-export type NewSessionBackend = "claude" | "codex";
+export type NewSessionBackend = "claude" | "codex" | "claude-sdk";
 
 export interface NewSessionDefaults {
   backend: NewSessionBackend;
@@ -27,7 +27,9 @@ const GROUP_DEFAULTS_KEY = "cc-new-session-groups";
 const MAX_GROUP_DEFAULTS = 50;
 
 function normalizeBackend(raw: string | null | undefined): NewSessionBackend {
-  return raw === "codex" ? "codex" : "claude";
+  if (raw === "codex") return "codex";
+  if (raw === "claude-sdk") return "claude-sdk";
+  return "claude";
 }
 
 function normalizeAskPermission(raw: boolean | null | undefined): boolean {

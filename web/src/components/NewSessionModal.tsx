@@ -333,7 +333,7 @@ export function NewSessionModal({ open, onClose, groupKey, groupCwd }: {
     const defaultsGroupKey = (gitRepoInfo?.repoRoot || cwdSnapshot || "").trim();
     if (defaultsGroupKey) {
       saveGroupNewSessionDefaults(defaultsGroupKey, {
-        backend: backend as "claude" | "codex",
+        backend,
         model,
         mode,
         askPermission,
@@ -348,7 +348,7 @@ export function NewSessionModal({ open, onClose, groupKey, groupCwd }: {
     onClose();
     setSending(false);
     queuePendingSession({
-      backend: backend as "claude" | "codex",
+      backend,
       createOpts,
       cwd: cwdSnapshot || null,
     });
