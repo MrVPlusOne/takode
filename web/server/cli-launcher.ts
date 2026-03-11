@@ -857,6 +857,7 @@ export class CliLauncher {
   private recorder: RecorderManager | null = null;
   private onCodexAdapter: ((sessionId: string, adapter: CodexAdapter) => void) | null = null;
   private onClaudeSdkAdapter: ((sessionId: string, adapter: import("./claude-sdk-adapter.js").ClaudeSdkAdapter) => void) | null = null;
+  private onBeforeRelaunch: ((sessionId: string, backendType: BackendType) => void) | null = null;
   private exitHandlers: ((sessionId: string, exitCode: number | null) => void)[] = [];
   private settingsGetter: (() => { claudeBinary: string; codexBinary: string }) | null = null;
   /** Callback to resolve env profile variables by slug (set by server bootstrap). */
@@ -895,6 +896,13 @@ export class CliLauncher {
   /** Register a callback for when a CLI/Codex process exits. */
   onSessionExited(cb: (sessionId: string, exitCode: number | null) => void): void {
     this.exitHandlers.push(cb);
+  }
+
+  /** Register a callback invoked just before relaunch kills the old process.
+   *  Lets ws-bridge mark the disconnect as intentional to prevent redundant
+   *  auto-relaunch requests from the adapter disconnect handler. */
+  onBeforeRelaunchCallback(cb: (sessionId: string, backendType: BackendType) => void): void {
+    this.onBeforeRelaunch = cb;
   }
 
   /** Attach a persistent store for surviving server restarts. */
@@ -1274,6 +1282,13 @@ export class CliLauncher {
 
     // Kill old process if still alive
     const oldProc = this.processes.get(sessionId);
+    // Notify ws-bridge before killing so it can mark the upcoming adapter
+    // disconnect as intentional — prevents the disconnect handler from
+    // requesting a redundant auto-relaunch that races with this one.
+    const bt = info.backendType ?? "claude";
+    if (oldProc || info.pid) {
+      this.onBeforeRelaunch?.(sessionId, bt);
+    }
     if (oldProc) {
       await this.terminateKnownProcess(sessionId, oldProc.pid, oldProc, "relaunch");
       this.processes.delete(sessionId);
@@ -1993,6 +2008,17 @@ export class CliLauncher {
     const spawnedAt = Date.now();
     proc.exited.then((exitCode) => {
       console.log(`[cli-launcher] Codex session ${sessionTag(sessionId)} exited (code=${exitCode})`);
+
+      // Guard against stale exits: if a new process was already spawned
+      // (e.g. during relaunch), this exit belongs to the old process.
+      // Without this guard, the stale handler stomps state to "exited" and
+      // deletes the new process entry — causing zombie sessions where the
+      // adapter is alive but the launcher thinks the session is dead.
+      if (this.processes.get(sessionId) !== proc) {
+        console.log(`[cli-launcher] Ignoring stale Codex exit for session ${sessionTag(sessionId)}`);
+        return;
+      }
+
       const session = this.sessions.get(sessionId);
       if (session) {
         session.state = "exited";

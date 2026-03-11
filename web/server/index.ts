@@ -156,6 +156,18 @@ launcher.onClaudeSdkAdapterCreated((sessionId, adapter) => {
   wsBridge.attachClaudeSdkAdapter(sessionId, adapter);
 });
 
+// Mark upcoming adapter disconnects as intentional before relaunch kills
+// the old process — prevents the disconnect handler from requesting a
+// redundant auto-relaunch that races with the in-progress one.
+launcher.onBeforeRelaunchCallback((sessionId, backendType) => {
+  if (backendType === "codex") {
+    wsBridge.markCodexRelaunchIntentional(sessionId, "relaunch");
+  }
+  // Claude SDK sessions use a different intentional-disconnect mechanism
+  // (the adapter.disconnect() call in attachClaudeSdkAdapter sets
+  // session.codexAdapter = adapter before the old one's callback fires).
+});
+
 // Start watching PRs when git info is resolved for a session
 wsBridge.onSessionGitInfoReadyCallback((sessionId, cwd, branch) => {
   prPoller.watch(sessionId, cwd, branch);

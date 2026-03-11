@@ -7100,6 +7100,16 @@ export class WsBridge {
     }
   }
 
+  /** Mark an upcoming Codex adapter disconnect as intentional (e.g., relaunch).
+   *  This prevents the onDisconnect handler from incrementing failure counters
+   *  and requesting a redundant auto-relaunch that races with the in-progress one. */
+  markCodexRelaunchIntentional(sessionId: string, reason: string): void {
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+    session.intentionalCodexRelaunchUntil = Date.now() + CODEX_INTENTIONAL_RELAUNCH_GUARD_MS;
+    session.intentionalCodexRelaunchReason = reason;
+  }
+
   private requestCodexIntentionalRelaunch(session: Session, reason: string, delayMs = 0): void {
     const guardMs = Math.max(CODEX_INTENTIONAL_RELAUNCH_GUARD_MS, delayMs + 5_000);
     session.intentionalCodexRelaunchUntil = Date.now() + guardMs;

@@ -1390,6 +1390,103 @@ describe("relaunch", () => {
 
     killSpy.mockRestore();
   });
+
+  // Regression: q-16 — old Codex process exit handler stomps new process state.
+  // When relaunch kills the old process and spawns a new one, the old process's
+  // proc.exited handler must not overwrite the new session state to "exited" or
+  // delete the new process entry. This caused zombie sessions that appeared
+  // running in the UI but rejected messages via takode send.
+  it("ignores stale Codex proc.exited after relaunch spawns a new process", async () => {
+    // Create a Codex process with controllable exit
+    let resolveFirstExit: (code: number) => void;
+    const firstProc = {
+      pid: 11111,
+      kill: vi.fn(),
+      exited: new Promise<number>((r) => { resolveFirstExit = r; }),
+      stdin: new WritableStream<Uint8Array>(),
+      stdout: new ReadableStream<Uint8Array>(),
+      stderr: new ReadableStream<Uint8Array>(),
+    };
+    mockSpawn.mockReturnValueOnce(firstProc);
+    await launcher.launch({
+      backendType: "codex",
+      cwd: "/tmp/project",
+      codexSandbox: "workspace-write",
+    });
+
+    // Wait for initial spawn to be consumed
+    const deadline = Date.now() + 2000;
+    while (mockSpawn.mock.calls.length < 1) {
+      if (Date.now() > deadline) throw new Error("Timed out waiting for initial Codex spawn");
+      await new Promise<void>((r) => setTimeout(r, 10));
+    }
+
+    // Prepare second proc for relaunch
+    const secondProc = createMockCodexProc(22222);
+    mockSpawn.mockReturnValueOnce(secondProc);
+
+    // Start relaunch (kills first proc, spawns second)
+    // Resolve the first proc's exit during terminateKnownProcess
+    firstProc.kill.mockImplementation(() => { resolveFirstExit(143); });
+    const result = await launcher.relaunch("test-session-id");
+    expect(result).toEqual({ ok: true });
+
+    // At this point, the new process should be tracked
+    const session = launcher.getSession("test-session-id");
+    expect(session?.state).toBe("connected");
+    expect(session?.pid).toBe(22222);
+
+    // Now simulate the OLD process's stale exit handler firing late
+    // (this happens if the exit promise resolves after relaunch completes).
+    // The old handler MUST be guarded — it should NOT stomp state.
+    resolveFirstExit!(143);
+    await new Promise<void>((r) => setTimeout(r, 50)); // flush microtasks
+
+    // Session should STILL be connected with the new process
+    const afterStaleExit = launcher.getSession("test-session-id");
+    expect(afterStaleExit?.state).toBe("connected");
+    expect(afterStaleExit?.pid).toBe(22222);
+    expect(launcher.isAlive("test-session-id")).toBe(true);
+  });
+
+  // Regression: q-16 — relaunch should notify ws-bridge before killing old
+  // Codex process so the disconnect handler knows it's intentional.
+  it("calls onBeforeRelaunch callback before killing old process", async () => {
+    let resolveFirst: (code: number) => void;
+    const firstProc = {
+      pid: 12345,
+      kill: vi.fn(() => { resolveFirst(0); }),
+      exited: new Promise<number>((r) => { resolveFirst = r; }),
+      stdin: new WritableStream<Uint8Array>(),
+      stdout: new ReadableStream<Uint8Array>(),
+      stderr: new ReadableStream<Uint8Array>(),
+    };
+    mockSpawn.mockReturnValueOnce(firstProc);
+    await launcher.launch({
+      backendType: "codex",
+      cwd: "/tmp/project",
+      codexSandbox: "workspace-write",
+    });
+
+    // Wait for initial spawn
+    const deadline = Date.now() + 2000;
+    while (mockSpawn.mock.calls.length < 1) {
+      if (Date.now() > deadline) throw new Error("Timed out waiting for initial Codex spawn");
+      await new Promise<void>((r) => setTimeout(r, 10));
+    }
+
+    // Register the onBeforeRelaunch callback
+    const beforeRelaunchCb = vi.fn();
+    launcher.onBeforeRelaunchCallback(beforeRelaunchCb);
+
+    mockSpawn.mockReturnValueOnce(createMockCodexProc(54321));
+    await launcher.relaunch("test-session-id");
+
+    // Callback should have been called with session ID and backend type
+    expect(beforeRelaunchCb).toHaveBeenCalledWith("test-session-id", "codex");
+    // And it should have been called BEFORE kill (verify kill was called after)
+    expect(firstProc.kill).toHaveBeenCalled();
+  });
 });
 
 // ─── persistence ─────────────────────────────────────────────────────────────

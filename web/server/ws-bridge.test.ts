@@ -8264,6 +8264,40 @@ describe("Codex disconnect auto-relaunch", () => {
   });
 });
 
+// Regression: q-16 — markCodexRelaunchIntentional prevents the adapter
+// disconnect handler from requesting a redundant auto-relaunch when
+// cli-launcher kills the old process during relaunch().
+describe("markCodexRelaunchIntentional (q-16 double-spawn fix)", () => {
+  it("suppresses auto-relaunch when disconnect is marked intentional before it fires", () => {
+    const sid = "s-mark-intentional";
+    const relaunchCb = vi.fn();
+    bridge.onCLIRelaunchNeededCallback(relaunchCb);
+
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter as any);
+
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    browser.send.mockClear();
+    relaunchCb.mockClear();
+
+    // Mark the upcoming disconnect as intentional (simulating what
+    // cli-launcher.relaunch() does via onBeforeRelaunch callback)
+    bridge.markCodexRelaunchIntentional(sid, "relaunch");
+
+    // Simulate the disconnect from killing the old process
+    adapter.emitDisconnect();
+
+    // The disconnect handler should recognize it as intentional and NOT
+    // request another relaunch
+    expect(relaunchCb).not.toHaveBeenCalled();
+
+    // Failure counter should not have been incremented
+    const session = bridge.getSession(sid)!;
+    expect(session.consecutiveAdapterFailures).toBe(0);
+  });
+});
+
 describe("Codex user-message-driven relaunch for idle sessions", () => {
   it("requests relaunch when user message arrives for exited Codex session", async () => {
     // Scenario: Codex completed a turn, exited (code 0), adapter disconnected.
