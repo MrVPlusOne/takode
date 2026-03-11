@@ -838,21 +838,26 @@ export function createSessionsRoutes(ctx: RouteContext) {
     const sessions = launcher.listSessions();
     const names = sessionNames.getAllNames();
     const bridgeStates = wsBridge.getAllSessions();
-    const bridgeMap = new Map(bridgeStates.map((s) => [s.session_id, s]));
+    const bridgeMap = new Map(bridgeStates.map((state) => [state.session_id, state]));
     const pool = filterFn ? sessions.filter(filterFn) : sessions;
     return Promise.all(pool.map(async (s) => {
       try {
-        const bridge = bridgeMap.get(s.sessionId);
-        const bridgeSession = wsBridge.getSession(s.sessionId);
         const { sessionAuthToken: _token, ...safeSession } = s;
+        const bridgeSession = wsBridge.getSession(s.sessionId);
+        if (bridgeSession?.state?.is_worktree && !safeSession.archived) {
+          await wsBridge.refreshWorktreeGitStateForSnapshot(s.sessionId, {
+            broadcastUpdate: true,
+            notifyPoller: true,
+          });
+        }
+        const bridge = wsBridge.getSession(s.sessionId)?.state ?? bridgeMap.get(s.sessionId);
         const cliConnected = wsBridge.isBackendConnected(s.sessionId);
         const effectiveState = cliConnected && bridgeSession?.isGenerating ? "running" : safeSession.state;
         let gitAhead = bridge?.git_ahead || 0;
         let gitBehind = bridge?.git_behind || 0;
-        // Ahead/behind counts come from the bridge's cached git info (refreshed
-        // lazily on CLI connect, not on every sidebar poll). Previously this ran
-        // a `git rev-list` per worktree session on every /api/sessions request,
-        // causing 800-1300ms latency on NFS.
+        // Worktree sessions are force-refreshed above so external git resets
+        // clear stale +/- stats; non-worktree sessions still use cached bridge
+        // values to avoid expensive git calls on every sidebar poll.
         return {
           ...safeSession,
           state: effectiveState,

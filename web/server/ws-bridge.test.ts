@@ -7033,6 +7033,44 @@ describe("Diff stats computation", () => {
     expect(session.diffStatsDirty).toBe(false);
   });
 
+  it("refreshWorktreeGitStateForSnapshot forces a clean diff recompute after external reset", async () => {
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd.includes("--abbrev-ref HEAD")) return "jiayi-wt-1\n";
+      if (cmd.includes("--git-dir")) return "/repo/.git/worktrees/jiayi-wt-1\n";
+      if (cmd.includes("--show-toplevel")) return "/repo\n";
+      if (cmd.includes("rev-parse HEAD")) return "same-head-sha\n";
+      if (cmd.includes("--left-right --count")) return "0\t0\n";
+      if (cmd.includes("merge-base")) return "same-head-sha\n";
+      if (cmd.includes("diff --numstat")) return "\n";
+      return "";
+    });
+
+    bridge.markWorktree("s1", "/repo", "/tmp/wt", "jiayi");
+    const session = bridge.getSession("s1")!;
+    session.state.cwd = "/tmp/wt";
+    session.state.git_head_sha = "same-head-sha";
+    session.state.diff_base_start_sha = "same-head-sha";
+    session.state.total_lines_added = 777;
+    session.state.total_lines_removed = 55;
+    session.diffStatsDirty = false;
+
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+    (browser.send as any).mockClear();
+
+    await bridge.refreshWorktreeGitStateForSnapshot("s1", { broadcastUpdate: true });
+
+    expect(session.state.total_lines_added).toBe(0);
+    expect(session.state.total_lines_removed).toBe(0);
+    expect(session.diffStatsDirty).toBe(false);
+    expect((browser.send as any).mock.calls.some(([raw]: [string]) => {
+      const msg = JSON.parse(raw);
+      return msg.type === "session_update"
+        && msg.session?.total_lines_added === 0
+        && msg.session?.total_lines_removed === 0;
+    })).toBe(true);
+  });
+
   it("non-read-only tool marks diffStatsDirty; read-only tool does not", () => {
     mockExecSync.mockImplementation((cmd: string) => {
       if (cmd.includes("for-each-ref")) return "";

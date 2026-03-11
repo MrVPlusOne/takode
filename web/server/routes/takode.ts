@@ -28,13 +28,19 @@ export function createTakodeRoutes(ctx: RouteContext) {
     const sessions = launcher.listSessions();
     const names = sessionNames.getAllNames();
     const bridgeStates = wsBridge.getAllSessions();
-    const bridgeMap = new Map(bridgeStates.map((s) => [s.session_id, s]));
+    const bridgeMap = new Map(bridgeStates.map((state) => [state.session_id, state]));
     const pool = filterFn ? sessions.filter(filterFn) : sessions;
     return Promise.all(pool.map(async (s) => {
       try {
-        const bridge = bridgeMap.get(s.sessionId);
-        const bridgeSession = wsBridge.getSession(s.sessionId);
         const { sessionAuthToken: _token, ...safeSession } = s;
+        const bridgeSession = wsBridge.getSession(s.sessionId);
+        if (bridgeSession?.state?.is_worktree && !safeSession.archived) {
+          await wsBridge.refreshWorktreeGitStateForSnapshot(s.sessionId, {
+            broadcastUpdate: true,
+            notifyPoller: true,
+          });
+        }
+        const bridge = wsBridge.getSession(s.sessionId)?.state ?? bridgeMap.get(s.sessionId);
         const cliConnected = wsBridge.isBackendConnected(s.sessionId);
         const effectiveState = cliConnected && bridgeSession?.isGenerating ? "running" : safeSession.state;
         return {
@@ -99,7 +105,14 @@ export function createTakodeRoutes(ctx: RouteContext) {
     if (!session) return c.json({ error: "Session not found" }, 404);
 
     const bridgeStates = wsBridge.getAllSessions();
-    const bridge = bridgeStates.find((s) => s.session_id === sessionId);
+    const bridgeSession = wsBridge.getSession(sessionId);
+    if (bridgeSession?.state?.is_worktree && !session.archived) {
+      await wsBridge.refreshWorktreeGitStateForSnapshot(sessionId, {
+        broadcastUpdate: true,
+        notifyPoller: true,
+      });
+    }
+    const bridge = wsBridge.getSession(sessionId)?.state ?? bridgeStates.find((state) => state.session_id === sessionId);
     const names = sessionNames.getAllNames();
     const { sessionAuthToken: _token, ...safeSession } = session;
 

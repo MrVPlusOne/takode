@@ -197,6 +197,7 @@ function createMockBridge() {
     getSession: vi.fn(() => null),
     getOrCreateSession: vi.fn(),
     getAllSessions: vi.fn(() => []),
+    refreshWorktreeGitStateForSnapshot: vi.fn(async () => null),
     getLastUserMessage: vi.fn(() => undefined),
     isBackendConnected: vi.fn(() => false),
     getCodexRateLimits: vi.fn(() => null),
@@ -1071,6 +1072,46 @@ describe("GET /api/sessions", () => {
       gitBehind: 7,
       totalLinesAdded: 167,
       totalLinesRemoved: 858,
+    });
+  });
+
+  it("refreshes worktree diff totals before returning session rows", async () => {
+    const sessions = [
+      { sessionId: "s1", state: "running", cwd: "/wt/repo", isWorktree: true, archived: false },
+    ];
+    const bridgeSession = {
+      state: {
+        session_id: "s1",
+        is_worktree: true,
+        git_branch: "jiayi-wt-9869",
+        git_ahead: 0,
+        git_behind: 0,
+        total_lines_added: 777,
+        total_lines_removed: 55,
+      },
+      isGenerating: false,
+    };
+    launcher.listSessions.mockReturnValue(sessions);
+    vi.mocked(sessionNames.getAllNames).mockReturnValue({});
+    bridge.getSession.mockReturnValue(bridgeSession as any);
+    bridge.refreshWorktreeGitStateForSnapshot.mockImplementation(async () => {
+      bridgeSession.state.total_lines_added = 0;
+      bridgeSession.state.total_lines_removed = 0;
+      return bridgeSession.state as any;
+    });
+
+    const res = await app.request("/api/sessions", { method: "GET" });
+
+    expect(res.status).toBe(200);
+    expect(bridge.refreshWorktreeGitStateForSnapshot).toHaveBeenCalledWith("s1", {
+      broadcastUpdate: true,
+      notifyPoller: true,
+    });
+    const json = await res.json();
+    expect(json[0]).toMatchObject({
+      sessionId: "s1",
+      totalLinesAdded: 0,
+      totalLinesRemoved: 0,
     });
   });
 

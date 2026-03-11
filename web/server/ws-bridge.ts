@@ -1671,13 +1671,14 @@ export class WsBridge {
 
   private async refreshGitInfo(
     session: Session,
-    options: { broadcastUpdate?: boolean; notifyPoller?: boolean } = {},
+    options: { broadcastUpdate?: boolean; notifyPoller?: boolean; force?: boolean } = {},
   ): Promise<void> {
     // Skip expensive git operations for fully background sessions without a
     // backend connection. Exception: actively viewed worktree sessions still
     // need refresh to re-anchor diff_base_start_sha after sync/rebase/reset.
     if (
-      !session.backendSocket
+      !options.force
+      && !session.backendSocket
       && !session.codexAdapter
       && !(session.state.is_worktree && session.browserSockets.size > 0)
     ) return;
@@ -1725,6 +1726,51 @@ export class WsBridge {
     if (options.notifyPoller && session.state.git_branch && session.state.cwd && this.onGitInfoReady) {
       this.onGitInfoReady(session.id, session.state.cwd, session.state.git_branch);
     }
+  }
+
+  /**
+   * Force-refresh git metadata and diff totals for worktree sessions even when
+   * no agent-side activity marked diffStatsDirty. This covers external git
+   * operations like reset/rebase/sync that change the worktree behind Takode's
+   * back but should still clear stale +/- badges in session snapshots.
+   */
+  async refreshWorktreeGitStateForSnapshot(
+    sessionId: string,
+    options: { broadcastUpdate?: boolean; notifyPoller?: boolean } = {},
+  ): Promise<SessionState | null> {
+    const session = this.sessions.get(sessionId);
+    if (!session) return null;
+    if (!session.state.is_worktree || !session.state.cwd) return session.state;
+
+    const beforeAdded = session.state.total_lines_added;
+    const beforeRemoved = session.state.total_lines_removed;
+
+    await this.refreshGitInfo(session, {
+      broadcastUpdate: options.broadcastUpdate,
+      notifyPoller: options.notifyPoller,
+      force: true,
+    });
+
+    const didRun = await this.computeDiffStatsAsync(session);
+    if (!didRun) return session.state;
+
+    session.diffStatsDirty = false;
+
+    const totalsChanged = beforeAdded !== session.state.total_lines_added
+      || beforeRemoved !== session.state.total_lines_removed;
+    if (totalsChanged && options.broadcastUpdate) {
+      this.broadcastToBrowsers(session, {
+        type: "session_update",
+        session: {
+          total_lines_added: session.state.total_lines_added,
+          total_lines_removed: session.state.total_lines_removed,
+        },
+      });
+    }
+    if (totalsChanged) {
+      this.persistSession(session);
+    }
+    return session.state;
   }
 
   /**
