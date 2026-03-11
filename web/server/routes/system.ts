@@ -136,10 +136,12 @@ function compareClaudeModelIds(a: string, b: string): number {
 
 /**
  * Generate a human-readable label from a model ID.
- *   gpt-5.3-codex      → GPT-5.3 Codex
- *   claude-opus-4-6     → Claude Opus 4.6
- *   opus                → Opus
- *   haiku               → Haiku
+ *   gpt-5.3-codex             → GPT-5.3 Codex
+ *   claude-opus-4-6           → Claude Opus 4.6 [200K]
+ *   claude-opus-4-6[1m]       → Claude Opus 4.6 [1M]
+ *   claude-opus-4-6-20250514  → Claude Opus 4.6 [200K]
+ *   opus                      → Opus
+ *   haiku                     → Haiku
  */
 function modelIdToLabel(id: string): string {
   // Simple aliases
@@ -155,9 +157,18 @@ function modelIdToLabel(id: string): string {
       .join(" ");
   }
 
-  // Claude models: "claude-opus-4-6-fast" → "Claude Opus 4.6 Fast"
+  // Claude models: parse bracket suffix, version, and family
   if (id.startsWith("claude-")) {
-    const parts = id.replace(/^claude-/, "").split("-");
+    // Extract bracket suffix (e.g. "[1m]") before splitting on dashes
+    let contextTag = "";
+    let base = id;
+    const bracketMatch = id.match(/(\[.+\])$/);
+    if (bracketMatch) {
+      contextTag = bracketMatch[1].toUpperCase(); // "[1m]" → "[1M]"
+      base = id.slice(0, -bracketMatch[1].length);
+    }
+
+    const parts = base.replace(/^claude-/, "").split("-");
     const formatted: string[] = ["Claude"];
     let i = 0;
     // Family name (opus, sonnet, haiku)
@@ -165,17 +176,28 @@ function modelIdToLabel(id: string): string {
       formatted.push(parts[i].charAt(0).toUpperCase() + parts[i].slice(1));
       i++;
     }
-    // Version numbers: join consecutive numeric parts with dots
+    // Version numbers: join consecutive short numeric parts with dots
+    // (skip 8+ digit date stamps like 20250514)
     const versionParts: string[] = [];
-    while (i < parts.length && /^\d+$/.test(parts[i])) {
+    while (i < parts.length && /^\d{1,4}$/.test(parts[i])) {
       versionParts.push(parts[i]);
       i++;
     }
     if (versionParts.length > 0) formatted.push(versionParts.join("."));
-    // Remaining parts (e.g., "fast", "1m")
+    // Skip date stamps (8-digit sequences like 20250514)
+    while (i < parts.length && /^\d{5,}$/.test(parts[i])) {
+      i++;
+    }
+    // Remaining parts (e.g., "fast")
     while (i < parts.length) {
       formatted.push(parts[i].charAt(0).toUpperCase() + parts[i].slice(1));
       i++;
+    }
+    // Append context tag: explicit [1M] from bracket, or infer [200K] for standard models
+    if (contextTag) {
+      formatted.push(contextTag);
+    } else {
+      formatted.push("[200K]");
     }
     return formatted.join(" ");
   }

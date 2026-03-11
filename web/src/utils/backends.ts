@@ -43,9 +43,10 @@ export function toModelOptions(models: BackendModelInfo[]): ModelOption[] {
 
 export const CLAUDE_MODELS: ModelOption[] = [
   { value: "", label: "Default", icon: "\u25C6" },
-  { value: "claude-opus-4-6", label: "Opus", icon: "\u2733" },
-  { value: "claude-sonnet-4-5-20250929", label: "Sonnet", icon: "\u25D5" },
-  { value: "claude-haiku-4-5-20251001", label: "Haiku", icon: "\u26A1" },
+  { value: "claude-opus-4-6[1m]", label: "Opus 4.6 [1M]", icon: "\u2733" },
+  { value: "claude-opus-4-6", label: "Opus 4.6 [200K]", icon: "\u2733" },
+  { value: "claude-sonnet-4-5-20250929", label: "Sonnet 4.5 [200K]", icon: "\u25D5" },
+  { value: "claude-haiku-4-5-20251001", label: "Haiku 4.5 [200K]", icon: "\u26A1" },
 ];
 
 export const CODEX_MODELS: ModelOption[] = [
@@ -108,9 +109,38 @@ export function getNextMode(currentMode: string, modes: ModeOption[]): string {
   return modes[(idx + 1) % modes.length].value;
 }
 
-/** Format model ID for display (strip trailing date suffix like -20250929). */
+/**
+ * Format model ID for concise display in the composer button.
+ *
+ * Strips `claude-` prefix and trailing date suffix, joins version
+ * numbers with dots, and preserves bracket suffixes like `[1m]`.
+ *
+ *   "claude-opus-4-6-20250514"     → "opus-4.6"
+ *   "claude-opus-4-6[1m]"          → "opus-4.6[1m]"
+ *   "claude-sonnet-4-5-20250929"   → "sonnet-4.5"
+ *   "gpt-5.4"                      → "gpt-5.4"
+ */
 export function formatModel(model: string): string {
-  return model.replace(/-\d{8}$/, "");
+  // Extract bracket suffix (e.g. "[1m]") before processing
+  let bracket = "";
+  const bracketMatch = model.match(/(\[.+\])$/);
+  if (bracketMatch) {
+    bracket = bracketMatch[1];
+    model = model.slice(0, -bracket.length);
+  }
+  // Strip trailing date suffix and claude- prefix
+  model = model.replace(/-\d{8}$/, "").replace(/^claude-/, "");
+  // Join consecutive numeric dash-segments with dots: "opus-4-6" → "opus-4.6"
+  const parts = model.split("-");
+  const result: string[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    if (/^\d+$/.test(parts[i]) && result.length > 0 && /\d+$/.test(result[result.length - 1])) {
+      result[result.length - 1] += "." + parts[i];
+    } else {
+      result.push(parts[i]);
+    }
+  }
+  return result.join("-") + bracket;
 }
 
 // ─── Claude Code mode mapping ─────────────────────────────────────────────────
