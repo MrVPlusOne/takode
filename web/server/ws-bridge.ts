@@ -3259,8 +3259,12 @@ export class WsBridge {
       if (msg.type === "result") {
         session.consecutiveAdapterFailures = 0;
         session.lastAdapterFailureAt = null;
-        this.setGenerating(session, false, "result");
-        this.broadcastToBrowsers(session, { type: "status_change", status: "idle" });
+        // NOTE: Do NOT call setGenerating(false) here — handleResultMessage
+        // (below) handles the full generation lifecycle through
+        // reconcileTerminalResultState, same as WebSocket sessions.
+        // Calling it here would: (1) promote queued turns prematurely,
+        // (2) clear generationStartedAt before turnDurationMs can be
+        // calculated, (3) emit a duplicate status:idle broadcast.
       }
 
       // Extract tool results from "user" messages (tool_result blocks).
@@ -4766,6 +4770,14 @@ export class WsBridge {
     const turnTriggerSource = this.getCurrentTurnTriggerSource(session);
     reconcileTerminalResultStateLifecycle(this.getGenerationLifecycleDeps(), session, "result");
     this.finalizeOrphanedTerminalToolsOnResult(session, msg);
+    // Broadcast idle status for backends that don't send a separate
+    // system.status message after result (e.g. Claude SDK via Agent SDK).
+    // WebSocket sessions get idle via CLI's system.status {status:null},
+    // but SDK sessions only get result → no status follow-up. Without this,
+    // the UI stays in "running" state after the turn completes.
+    if (!session.isGenerating) {
+      this.broadcastToBrowsers(session, { type: "status_change", status: "idle" });
+    }
     // Turn completed — the user message was processed. Clear the re-queue
     // tracker so we don't re-send it on a subsequent disconnect.
     session.lastOutboundUserNdjson = null;

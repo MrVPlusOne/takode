@@ -11788,3 +11788,109 @@ describe("Claude SDK task_notification forwarding", () => {
     expect((histNotif as any).tool_use_id).toBe("tooluse-abc");
   });
 });
+
+// ─── SDK generation lifecycle on result ──────────────────────────────────────
+
+describe("Claude SDK generation lifecycle on result", () => {
+  it("clears isGenerating via handleResultMessage and broadcasts idle status", () => {
+    // Validates that SDK result messages clear isGenerating through the unified
+    // handleResultMessage path (not a duplicate early setGenerating call) and
+    // broadcast status:idle even though the SDK CLI doesn't send system.status.
+    const sid = "sdk-gen-result";
+    const adapter = makeClaudeSdkAdapterMock();
+    bridge.attachClaudeSdkAdapter(sid, adapter as any);
+
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+
+    // Set up generation state (simulating a turn in progress)
+    const session = bridge.getSession(sid)!;
+    session.isGenerating = true;
+    session.generationStartedAt = Date.now() - 5000;
+    session.cliInitReceived = true;
+
+    browser.send.mockClear();
+
+    // SDK adapter emits a result message (raw CLI format, no .data wrapper)
+    adapter.emitBrowserMessage({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      result: "Done with sub-agents",
+      duration_ms: 5000,
+      duration_api_ms: 4800,
+      num_turns: 1,
+      total_cost_usd: 0.05,
+      stop_reason: "end_turn",
+      usage: { input_tokens: 1000, output_tokens: 500, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      uuid: "sdk-result-1",
+      session_id: sid,
+    });
+
+    // isGenerating should be cleared
+    expect(session.isGenerating).toBe(false);
+
+    // Browser should receive status:idle
+    const sent = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    const statusMsgs = sent.filter((m: any) => m.type === "status_change");
+    expect(statusMsgs.some((m: any) => m.status === "idle")).toBe(true);
+
+    // Browser should also receive the result message (wrapped with .data)
+    const resultMsgs = sent.filter((m: any) => m.type === "result");
+    expect(resultMsgs).toHaveLength(1);
+    expect(resultMsgs[0].data.uuid).toBe("sdk-result-1");
+  });
+
+  it("does not kill queued turns when result arrives for the current turn", async () => {
+    // Regression: the early setGenerating(false) at the top of the SDK
+    // onBrowserMessage handler would promote a queued turn, then
+    // handleResultMessage would immediately kill it. With the fix,
+    // reconcileTerminalResultState handles both the end and promotion
+    // in one atomic operation.
+    const sid = "sdk-gen-queued";
+    const cli = makeCliSocket(sid);
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    bridge.handleCLIOpen(cli, sid);
+    bridge.handleCLIMessage(cli, makeInitMsg());
+
+    const session = bridge.getSession(sid)!;
+
+    // Switch to SDK backend for this session
+    session.backendType = "claude-sdk";
+    const adapter = makeClaudeSdkAdapterMock();
+    bridge.attachClaudeSdkAdapter(sid, adapter as any);
+
+    // Simulate: first turn is running
+    session.isGenerating = true;
+    session.generationStartedAt = Date.now() - 10000;
+    session.userMessageIdsThisTurn = [0];
+
+    // Queue a second turn (user sent another message while generating)
+    session.queuedTurnStarts = 1;
+    session.queuedTurnReasons = ["user_message"];
+    session.queuedTurnUserMessageIds = [[1]];
+    session.queuedTurnInterruptSources = [null];
+
+    // Result arrives for the first turn
+    adapter.emitBrowserMessage({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      result: "First turn done",
+      duration_ms: 10000,
+      duration_api_ms: 9000,
+      num_turns: 1,
+      total_cost_usd: 0.01,
+      stop_reason: "end_turn",
+      usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      uuid: "sdk-result-queued",
+      session_id: sid,
+    });
+
+    // The queued turn should have been promoted (isGenerating back to true)
+    // because reconcileTerminalResultState → setGenerating(false) →
+    // promoteNextQueuedTurn. The queue should now be empty.
+    expect(session.queuedTurnStarts).toBe(0);
+  });
+});
