@@ -8425,6 +8425,70 @@ describe("Codex user-message-driven relaunch for idle sessions", () => {
   });
 });
 
+describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () => {
+  // injectUserMessage is called by the takode send REST endpoint. Before q-15,
+  // the endpoint rejected exited sessions outright. Now it lets the message
+  // queue and relies on injectUserMessage to trigger a relaunch — matching the
+  // browser chat UI behavior.
+
+  it("requests relaunch when injecting a message into an exited Claude session", () => {
+    const sid = "s-inject-claude";
+    const relaunchCb = vi.fn();
+    bridge.onCLIRelaunchNeededCallback(relaunchCb);
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      getSession: vi.fn(() => ({ state: "exited", killedByIdleManager: false })),
+    } as any);
+
+    // Create a Claude session with no backend socket (exited)
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    relaunchCb.mockClear();
+
+    const delivery = bridge.injectUserMessage(sid, "hello from takode send");
+
+    // Message should be queued (not sent) and relaunch requested
+    expect(delivery).toBe("queued");
+    expect(relaunchCb).toHaveBeenCalledWith(sid);
+  });
+
+  it("does not request relaunch when injecting into an idle-killed session", () => {
+    const sid = "s-inject-idle-killed";
+    const relaunchCb = vi.fn();
+    bridge.onCLIRelaunchNeededCallback(relaunchCb);
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      getSession: vi.fn(() => ({ state: "exited", killedByIdleManager: true })),
+    } as any);
+
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    relaunchCb.mockClear();
+
+    bridge.injectUserMessage(sid, "should not relaunch");
+
+    expect(relaunchCb).not.toHaveBeenCalled();
+  });
+
+  it("returns 'sent' and does not relaunch when backend is connected", () => {
+    const sid = "s-inject-connected";
+    const relaunchCb = vi.fn();
+    bridge.onCLIRelaunchNeededCallback(relaunchCb);
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      getSession: vi.fn(() => ({ state: "connected" })),
+    } as any);
+
+    const cliWs = makeCliSocket(sid);
+    bridge.handleCLIOpen(cliWs, sid);
+
+    const delivery = bridge.injectUserMessage(sid, "hello live session");
+
+    expect(delivery).toBe("sent");
+    expect(relaunchCb).not.toHaveBeenCalled();
+  });
+});
+
 describe("Codex broken-session recovery regression", () => {
   it("keeps the acknowledged image turn authoritative and blocks later messages after init failure", async () => {
     const sid = "s-image-init-failure";

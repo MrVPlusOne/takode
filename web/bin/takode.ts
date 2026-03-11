@@ -1438,7 +1438,12 @@ async function handleSend(base: string, args: string[]): Promise<void> {
     return;
   }
 
-  console.log(`[${formatTime(Date.now())}] \u2713 Message sent to session ${formatInlineText(sessionRef)}`);
+  const delivery = (result as { delivery?: string }).delivery;
+  if (delivery === "queued") {
+    console.log(`[${formatTime(Date.now())}] \u2713 Message queued for session ${formatInlineText(sessionRef)} (session restarting)`);
+  } else {
+    console.log(`[${formatTime(Date.now())}] \u2713 Message sent to session ${formatInlineText(sessionRef)}`);
+  }
 }
 
 // ─── Spawn handler ───────────────────────────────────────────────────────────

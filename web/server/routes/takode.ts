@@ -246,7 +246,12 @@ export function createTakodeRoutes(ctx: RouteContext) {
     if (!id) return c.json({ error: "Session not found" }, 404);
     const session = launcher.getSession(id);
     if (!session) return c.json({ error: "Session not found" }, 404);
-    if (!launcher.isAlive(id)) return c.json({ error: "Session is not running" }, 400);
+    // Reject permanently broken sessions but allow exited/disconnected ones —
+    // injectUserMessage will queue the message and trigger a relaunch, matching
+    // the behavior of the browser chat UI.
+    if (session.state === "exited" && session.killedByIdleManager) {
+      return c.json({ error: "Session was stopped by idle manager" }, 400);
+    }
     const body = await c.req.json().catch(() => ({}));
     if (typeof body.content !== "string" || !body.content.trim()) {
       return c.json({ error: "content is required" }, 400);

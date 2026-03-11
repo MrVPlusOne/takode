@@ -3882,6 +3882,26 @@ export class WsBridge {
       content,
       ...(agentSource ? { agentSource } : {}),
     });
+
+    // If the backend is dead, request a relaunch so queued messages will
+    // eventually be flushed.  routeBrowserMessage already handles this for
+    // Codex / Claude SDK (adapter-based) sessions, but the traditional
+    // Claude Code (NDJSON) path only queues without triggering relaunch
+    // because its relaunch normally fires from handleCLIClose or
+    // handleBrowserOpen — neither of which run for REST-injected messages.
+    if (!backendLive && this.onCLIRelaunchNeeded) {
+      const launcherInfo = this.launcher?.getSession(sessionId);
+      if (
+        launcherInfo
+        && launcherInfo.state === "exited"
+        && !launcherInfo.killedByIdleManager
+        && session.state.backend_state !== "broken"
+      ) {
+        console.log(`[ws-bridge] Injected message queued for exited session ${sessionTag(sessionId)}, requesting relaunch`);
+        this.onCLIRelaunchNeeded(sessionId);
+      }
+    }
+
     return backendLive ? "sent" : "queued";
   }
 
