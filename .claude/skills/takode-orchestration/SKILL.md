@@ -117,13 +117,18 @@ Show pending permission requests for a session (questions, plans awaiting approv
 
 These commands require `TAKODE_ROLE=orchestrator`. Non-orchestrator sessions will get a permission error.
 
-### `takode send <session> <message>`
+### `takode send <session> <message> [--correction]`
 
 Send a message to a **herded** worker session (injected as a user message). Requires herding first.
+
+**Syntax:** The session ID must always be the **first** argument after `send`. Flags (`--correction`, `--json`) go **after** the message or at the end. Putting flags before the session ID will cause parse errors.
+
+Use `--correction` to send a steering message to a session that is currently running (without it, sends to running sessions are blocked).
 
 ```bash
 takode herd 2
 takode send 2 "Please also add tests for the edge cases"
+takode send 2 "Actually, skip the auth tests" --correction
 ```
 
 ### `takode herd <session> [<session> ...]`

@@ -1391,7 +1391,7 @@ async function handleSend(base: string, args: string[]): Promise<void> {
         err(
           `Session ${label} is currently working. ` +
           `Queue this task and send it after the session finishes. ` +
-          `Use "takode send --correction" if this is a steering message for the current task.`,
+          `Use "takode send ${sessionRef} <message> --correction" if this is a steering message for the current task.`,
         );
       }
 
