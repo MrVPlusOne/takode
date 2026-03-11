@@ -11907,12 +11907,14 @@ describe("Claude SDK generation lifecycle on result", () => {
     expect(resultMsgs[0].data.uuid).toBe("sdk-result-1");
   });
 
-  it("does not kill queued turns when result arrives for the current turn", async () => {
-    // Regression: the early setGenerating(false) at the top of the SDK
-    // onBrowserMessage handler would promote a queued turn, then
-    // handleResultMessage would immediately kill it. With the fix,
-    // reconcileTerminalResultState handles both the end and promotion
-    // in one atomic operation.
+  it("drains queued turns for SDK sessions since CLI processes messages inline", async () => {
+    // SDK sessions send user messages immediately to the CLI regardless of
+    // queue state. The CLI processes them inline as part of the current turn.
+    // When the result arrives, any "queued" turns are phantom — the CLI
+    // already handled them. The queue must be drained before
+    // reconcileTerminalResultState to prevent promoteNextQueuedTurn from
+    // starting a phantom turn that never gets a result (leaving isGenerating
+    // stuck at true forever).
     const sid = "sdk-gen-queued";
     const cli = makeCliSocket(sid);
     const browser = makeBrowserSocket(sid);
@@ -11954,10 +11956,10 @@ describe("Claude SDK generation lifecycle on result", () => {
       session_id: sid,
     });
 
-    // The queued turn should have been promoted (isGenerating back to true)
-    // because reconcileTerminalResultState → setGenerating(false) →
-    // promoteNextQueuedTurn. The queue should now be empty.
+    // Queue should be fully drained
     expect(session.queuedTurnStarts).toBe(0);
+    // isGenerating should be FALSE — no phantom promoted turn
+    expect(session.isGenerating).toBe(false);
   });
 });
 

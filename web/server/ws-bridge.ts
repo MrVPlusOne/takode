@@ -3280,6 +3280,22 @@ export class WsBridge {
         // Calling it here would: (1) promote queued turns prematurely,
         // (2) clear generationStartedAt before turnDurationMs can be
         // calculated, (3) emit a duplicate status:idle broadcast.
+
+        // Drain queued turns for SDK sessions. Unlike WebSocket/Codex sessions,
+        // SDK sessions receive user messages immediately via adapter.send()
+        // regardless of queue state — the CLI processes them inline as part of
+        // the current turn. So when the result arrives, the "queued" messages
+        // have already been handled by the CLI. If we leave them in the queue,
+        // promoteNextQueuedTurn (called inside setGenerating(false, "result"))
+        // would start a phantom turn that never gets a result, leaving
+        // isGenerating stuck at true forever.
+        if (session.queuedTurnStarts > 0) {
+          console.log(`[ws-bridge] Draining ${session.queuedTurnStarts} queued turn(s) for SDK session ${sessionTag(session.id)} — CLI already processed them inline`);
+          session.queuedTurnStarts = 0;
+          session.queuedTurnReasons = [];
+          session.queuedTurnUserMessageIds = [];
+          session.queuedTurnInterruptSources = [];
+        }
       }
 
       // Extract tool results from "user" messages (tool_result blocks).
