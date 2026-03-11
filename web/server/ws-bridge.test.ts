@@ -8,7 +8,7 @@ vi.mock("node:crypto", () => ({ randomUUID: () => "test-uuid" }));
 import { WsBridge, type SocketData } from "./ws-bridge.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher } from "./herd-event-dispatcher.js";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
 
@@ -7069,6 +7069,42 @@ describe("Diff stats computation", () => {
         && msg.session?.total_lines_added === 0
         && msg.session?.total_lines_removed === 0;
     })).toBe(true);
+  });
+
+  it("refreshWorktreeGitStateForSnapshot skips git work when the worktree fingerprint is unchanged", async () => {
+    const worktreeCwd = join(tempDir, "wt");
+    const worktreeGitDir = join(tempDir, "repo.git", "worktrees", "wt-1");
+    mkdirSync(worktreeCwd, { recursive: true });
+    mkdirSync(worktreeGitDir, { recursive: true });
+    writeFileSync(join(worktreeCwd, ".git"), `gitdir: ${worktreeGitDir}\n`);
+    writeFileSync(join(worktreeGitDir, "HEAD"), "ref: refs/heads/jiayi-wt-1\n");
+    writeFileSync(join(worktreeGitDir, "index"), "index");
+
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd.includes("--abbrev-ref HEAD")) return "jiayi-wt-1\n";
+      if (cmd.includes("--git-dir")) return `${worktreeGitDir}\n`;
+      if (cmd.includes("--git-common-dir")) return `${join(tempDir, "repo.git")}\n`;
+      if (cmd.includes("rev-parse HEAD")) return "same-head-sha\n";
+      if (cmd.includes("--left-right --count")) return "0\t0\n";
+      if (cmd.includes("merge-base")) return "same-head-sha\n";
+      if (cmd.includes("diff --numstat")) return "10\t3\tfile.ts\n";
+      return "";
+    });
+
+    bridge.markWorktree("s1", join(tempDir, "repo"), worktreeCwd, "jiayi");
+    const session = bridge.getSession("s1")!;
+    session.state.cwd = worktreeCwd;
+
+    await bridge.refreshWorktreeGitStateForSnapshot("s1");
+    expect(session.state.total_lines_added).toBe(10);
+    expect(session.state.total_lines_removed).toBe(3);
+
+    mockExecSync.mockClear();
+    await bridge.refreshWorktreeGitStateForSnapshot("s1");
+
+    expect(mockExecSync).not.toHaveBeenCalled();
+    expect(session.state.total_lines_added).toBe(10);
+    expect(session.state.total_lines_removed).toBe(3);
   });
 
   it("non-read-only tool marks diffStatsDirty; read-only tool does not", () => {

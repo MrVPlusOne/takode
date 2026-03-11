@@ -2,6 +2,7 @@ import type { ServerWebSocket } from "bun";
 import { randomUUID } from "node:crypto";
 import { exec as execCb } from "node:child_process";
 import { promisify } from "node:util";
+import { readFile as readFileAsync, stat as statAsync } from "node:fs/promises";
 import { GIT_CMD_TIMEOUT } from "./constants.js";
 import { getDefaultModelForBackend } from "../shared/backend-defaults.js";
 import { computeHistoryMessagesSyncHash, computeHistoryPrefixSyncHash } from "../shared/history-sync-hash.js";
@@ -277,6 +278,8 @@ interface Session {
   assistantAccumulator: Map<string, { contentBlockIds: Set<string> }>;
   /** Wall-clock start times for tool calls (tool_use_id → Date.now()). Transient, not persisted. */
   toolStartTimes: Map<string, number>;
+  /** Cheap fingerprint of linked-worktree metadata used to skip unnecessary git refreshes. */
+  worktreeStateFingerprint: string;
   /** Codex-only watchdog timers for tool calls that started but never produced tool_result. */
   codexToolResultWatchdogs: Map<string, ReturnType<typeof setTimeout>>;
   /** Whether the CLI is actively generating a response (transient, not persisted) */
@@ -550,6 +553,25 @@ async function resolveGitInfo(state: SessionState): Promise<void> {
     state.git_behind = 0;
   }
   state.is_containerized = wasContainerized;
+}
+
+async function readWorktreeStateFingerprint(cwd: string): Promise<string | null> {
+  try {
+    const gitFile = await readFileAsync(join(cwd, ".git"), "utf-8");
+    const match = gitFile.match(/^gitdir:\s*(.+)\s*$/m);
+    if (!match) return null;
+    const gitDir = resolve(cwd, match[1].trim());
+    const [headStat, indexStat] = await Promise.all([
+      statAsync(join(gitDir, "HEAD")).catch(() => null),
+      statAsync(join(gitDir, "index")).catch(() => null),
+    ]);
+    return [
+      headStat ? `${headStat.mtimeMs}:${headStat.size}` : "missing",
+      indexStat ? `${indexStat.mtimeMs}:${indexStat.size}` : "missing",
+    ].join("|");
+  } catch {
+    return null;
+  }
 }
 
 function clampPercent(value: number): number {
@@ -1549,6 +1571,7 @@ export class WsBridge {
         pendingQuestCommands: new Map(),
         assistantAccumulator: new Map(),
         toolStartTimes: new Map(),
+        worktreeStateFingerprint: "",
         codexToolResultWatchdogs: new Map(),
         isGenerating: false,
         generationStartedAt: null,
@@ -1690,6 +1713,9 @@ export class WsBridge {
     const previousHeadSha = session.state.git_head_sha || "";
 
     await resolveGitInfo(session.state);
+    if (!session.state.is_worktree) {
+      session.worktreeStateFingerprint = "";
+    }
     const anchorChanged = await this.updateDiffBaseStartSha(session, previousHeadSha);
     if (anchorChanged) {
       // Force recomputation so +/− totals reflect the rewritten branch baseline.
@@ -1742,6 +1768,12 @@ export class WsBridge {
     if (!session) return null;
     if (!session.state.is_worktree || !session.state.cwd) return session.state;
 
+    const currentFingerprint = await readWorktreeStateFingerprint(session.state.cwd);
+    const previousFingerprint = session.worktreeStateFingerprint.trim();
+    if (currentFingerprint && previousFingerprint && currentFingerprint === previousFingerprint) {
+      return session.state;
+    }
+
     const beforeAdded = session.state.total_lines_added;
     const beforeRemoved = session.state.total_lines_removed;
 
@@ -1755,6 +1787,7 @@ export class WsBridge {
     if (!didRun) return session.state;
 
     session.diffStatsDirty = false;
+    session.worktreeStateFingerprint = currentFingerprint || "";
 
     const totalsChanged = beforeAdded !== session.state.total_lines_added
       || beforeRemoved !== session.state.total_lines_removed;
@@ -1926,6 +1959,9 @@ export class WsBridge {
 
       session.state.total_lines_added = added;
       session.state.total_lines_removed = removed;
+      if (session.state.is_worktree && cwd) {
+        session.worktreeStateFingerprint = await readWorktreeStateFingerprint(cwd) || "";
+      }
       return true;
     } catch {
       // git not available or not a git repo — leave values unchanged
@@ -1977,6 +2013,7 @@ export class WsBridge {
         pendingQuestCommands: new Map(),
         assistantAccumulator: new Map(),
         toolStartTimes: new Map(),
+        worktreeStateFingerprint: "",
         codexToolResultWatchdogs: new Map(),
         isGenerating: false,
         generationStartedAt: null,
