@@ -285,6 +285,7 @@ describe("launch", () => {
     const [, options] = mockSpawn.mock.calls[0];
     expect(options.env.COMPANION_SERVER_ID).toBe("test-server-id");
     expect(options.env.COMPANION_SESSION_ID).toBe("test-session-id");
+    expect(options.env.COMPANION_SESSION_NUMBER).toBeDefined();
     expect(typeof options.env.COMPANION_AUTH_TOKEN).toBe("string");
     expect(options.env.COMPANION_AUTH_TOKEN.length).toBeGreaterThan(0);
     expect(launcher.verifySessionAuthToken("test-session-id", options.env.COMPANION_AUTH_TOKEN)).toBe(true);
@@ -721,6 +722,7 @@ describe("launch", () => {
       expect(cmdAndArgs).toContain("app-server");
       expect(options.env.COMPANION_SERVER_ID).toBe("test-server-id");
       expect(options.env.COMPANION_SESSION_ID).toBe("test-session-id");
+      expect(options.env.COMPANION_SESSION_NUMBER).toBeDefined();
 
       const updatedConfig = realReadFileSync(configPath, "utf-8");
       expect(updatedConfig).toContain("[features]");
@@ -731,6 +733,7 @@ describe("launch", () => {
       expect(updatedConfig).toContain("\"HOME\"");
       expect(updatedConfig).toContain("\"COMPANION_SERVER_ID\"");
       expect(updatedConfig).toContain("\"COMPANION_SESSION_ID\"");
+      expect(updatedConfig).toContain("\"COMPANION_SESSION_NUMBER\"");
       expect(updatedConfig).toContain("\"COMPANION_AUTH_TOKEN\"");
       expect(updatedConfig).toContain("\"COMPANION_PORT\"");
       expect(updatedConfig).toContain("\"TAKODE_ROLE\"");

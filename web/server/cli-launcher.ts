@@ -500,6 +500,7 @@ You are an **orchestrator ${copy.orchestratorRole}**. You coordinate multiple wo
 - \`TAKODE_ROLE=orchestrator\` — confirms you have orchestration privileges
 - \`TAKODE_API_PORT=\${port}\` — the Companion server port (used automatically by the CLI)
 - \`COMPANION_SESSION_ID\` — your own session ID
+- \`COMPANION_SESSION_NUMBER\` — your session number (e.g. "5", "14")
 - The \`takode\` command is available at \`~/.companion/bin/takode\` (or on PATH)
 - Works with both **Claude Code** and **Codex** sessions — the CLI talks to the Companion server, not to any backend directly
 
@@ -1238,6 +1239,7 @@ export class CliLauncher {
       ...options.env,
       COMPANION_SERVER_ID: this.serverId,
       COMPANION_SESSION_ID: sessionId,
+      COMPANION_SESSION_NUMBER: String(info.sessionNum),
       COMPANION_AUTH_TOKEN: sessionAuthToken,
     };
     this.sessionEnvs.set(sessionId, envWithSessionId);
@@ -1370,9 +1372,11 @@ export class CliLauncher {
     // Reconstruct essential env vars from persisted SdkSessionInfo fields
     // and re-resolve the env profile if one was used at creation time.
     if (!runtimeEnv) {
+      const sessionNum = this.getSessionNum(sessionId);
       const reconstructed: Record<string, string> = {
         COMPANION_SERVER_ID: this.serverId,
         COMPANION_SESSION_ID: sessionId,
+        COMPANION_SESSION_NUMBER: sessionNum !== undefined ? String(sessionNum) : "",
         COMPANION_AUTH_TOKEN: sessionAuthToken,
         COMPANION_PORT: String(this.port),
       };
