@@ -11709,6 +11709,45 @@ describe("stuck session watchdog", () => {
     vi.clearAllTimers();
     vi.useRealTimers();
   });
+
+  it("does not flag a session as stuck when async sub-agents have recent tool_progress", () => {
+    // When the main agent spawns async sub-agents, it goes quiet while waiting
+    // for them to complete. Sub-agent tool_progress updates (Agent/Task tool)
+    // should prevent false "stuck" warnings even though lastCliMessageAt is stale.
+    vi.useFakeTimers();
+    const sid = "s-stuck-subagent";
+    const cli = makeCliSocket(sid);
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    bridge.handleCLIOpen(cli, sid);
+    bridge.handleCLIMessage(cli, makeInitMsg());
+
+    const session = bridge.getSession(sid)!;
+
+    // Generation started 3 minutes ago, no direct CLI message since
+    const threeMinAgo = Date.now() - 180_000;
+    session.isGenerating = true;
+    session.generationStartedAt = threeMinAgo;
+    session.lastCliMessageAt = threeMinAgo;
+    session.lastCliPingAt = threeMinAgo;
+    session.stuckNotifiedAt = null;
+
+    // But a sub-agent sent tool_progress 30 seconds ago
+    session.lastSubagentProgressAt = Date.now() - 30_000;
+
+    bridge.startStuckSessionWatchdog();
+
+    vi.advanceTimersByTime(31_000);
+
+    // Should NOT be flagged as stuck — sub-agent is actively running
+    const sentMessages = browser.send.mock.calls.map((c: any) => JSON.parse(c[0]));
+    const stuckMessages = sentMessages.filter((m: any) => m.type === "session_stuck");
+    expect(stuckMessages).toHaveLength(0);
+    expect(session.stuckNotifiedAt).toBeNull();
+
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  });
 });
 
 // ─── SDK task_notification forwarding ────────────────────────────────────────
