@@ -706,6 +706,9 @@ export interface TakodeTurnEndEventData {
   msgRange?: TakodeTurnEndMsgRange;
   questChange?: TakodeTurnEndQuestChange;
   userMsgs?: TakodeTurnEndUserMessages;
+  /** Who triggered this turn: "user" (direct chat), "leader" (orchestrator),
+   *  "system" (internal injection), or "unknown" (no user message tracked). */
+  turn_source?: "user" | "leader" | "system" | "unknown";
 }
 
 export interface TakodeCompactionEventData {

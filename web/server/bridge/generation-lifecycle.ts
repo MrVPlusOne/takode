@@ -36,6 +36,10 @@ export interface GenerationLifecycleDeps<S extends GenerationLifecycleSession> {
   recordGenerationStarted?: (session: S, reason: string) => void;
   recordGenerationEnded?: (session: S, reason: string, elapsedMs: number) => void;
   onOrchestratorTurnEnd?: (sessionId: string) => void;
+  /** Returns who triggered the current turn on a given session. */
+  getCurrentTurnTriggerSource?: (session: S) => "user" | "leader" | "system" | "unknown";
+  /** Returns true if the session is a herded worker (owned by an orchestrator). */
+  isHerdedWorker?: (session: S) => boolean;
 }
 
 export type UserDispatchTurnTarget = "current" | "queued";
@@ -88,7 +92,11 @@ export function markRunningFromUserDispatch<S extends GenerationLifecycleSession
   queuedInterruptSource: InterruptSource | null = null,
 ): UserDispatchTurnTarget {
   const wasGenerating = session.isGenerating;
-  restartOptimisticRunningTimer(deps, session, reason);
+  // Skip the optimistic 30s timeout for herded workers — their turns are
+  // leader-paced and the timeout would spuriously interrupt them.
+  if (!deps.isHerdedWorker?.(session)) {
+    restartOptimisticRunningTimer(deps, session, reason);
+  }
   if (wasGenerating) {
     session.queuedTurnStarts += 1;
     session.queuedTurnReasons.push(reason);
@@ -253,6 +261,7 @@ export function setGenerating<S extends GenerationLifecycleSession>(
     const interrupted = session.interruptedDuringTurn;
     const interruptSource = interrupted ? (session.interruptSourceDuringTurn || "system") : null;
     const compacted = session.compactedDuringTurn;
+    const turnSource = deps.getCurrentTurnTriggerSource?.(session) ?? "unknown";
     session.interruptedDuringTurn = false;
     session.interruptSourceDuringTurn = null;
     session.compactedDuringTurn = false;
@@ -262,6 +271,7 @@ export function setGenerating<S extends GenerationLifecycleSession>(
       ...(interrupted ? { interrupted: true, interrupt_source: interruptSource } : {}),
       ...(compacted ? { compacted: true } : {}),
       ...toolSummary,
+      turn_source: turnSource,
     });
 
     deps.onOrchestratorTurnEnd?.(session.id);

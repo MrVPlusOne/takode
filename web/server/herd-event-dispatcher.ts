@@ -154,6 +154,11 @@ export class HerdEventDispatcher {
   private onWorkerEvent(orchId: string, event: TakodeEvent): void {
     if (!ACTIONABLE_EVENTS.has(event.event)) return;
 
+    // Suppress user-initiated turn_end events — these are from direct user
+    // chat with the worker, not leader-dispatched work. The leader shouldn't
+    // receive noise from turns it didn't initiate.
+    if (event.event === "turn_end" && event.data.turn_source === "user") return;
+
     const inbox = this.inboxes.get(orchId);
     if (!inbox) return;
 

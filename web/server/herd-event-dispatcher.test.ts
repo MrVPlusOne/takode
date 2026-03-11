@@ -403,6 +403,94 @@ describe("HerdEventDispatcher", () => {
 
     dispatcher.destroy();
   });
+
+  it("filters user-initiated turn_end events (turn_source='user')", () => {
+    // User-initiated turns on herded workers should not be delivered to the
+    // leader — they create spurious herd events from work the leader didn't
+    // initiate (q-16 fix).
+    const { bridge, launcher } = createMocks();
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+
+    // User-initiated turn_end (filtered)
+    triggerEvent(makeEvent({ event: "turn_end", data: { duration_ms: 5000, turn_source: "user" } }));
+
+    vi.advanceTimersByTime(600);
+    expect(bridge.injectUserMessage).not.toHaveBeenCalled();
+
+    dispatcher.destroy();
+  });
+
+  it("delivers leader-initiated turn_end events (turn_source='leader')", () => {
+    // Leader-initiated turns should always be delivered.
+    const { bridge, launcher } = createMocks();
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+
+    triggerEvent(makeEvent({ event: "turn_end", data: { duration_ms: 5000, turn_source: "leader" } }));
+
+    vi.advanceTimersByTime(600);
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+
+    dispatcher.destroy();
+  });
+
+  it("delivers turn_end events without turn_source (backwards compatibility)", () => {
+    // Events from older sessions that don't have turn_source should still be
+    // delivered — absence of the field means "don't filter".
+    const { bridge, launcher } = createMocks();
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+
+    triggerEvent(makeEvent({ event: "turn_end", data: { duration_ms: 5000 } }));
+
+    vi.advanceTimersByTime(600);
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+
+    dispatcher.destroy();
+  });
+
+  it("delivers system-initiated turn_end events", () => {
+    // System-initiated turns (e.g. compaction trigger) should be delivered.
+    const { bridge, launcher } = createMocks();
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+
+    triggerEvent(makeEvent({ event: "turn_end", data: { duration_ms: 5000, turn_source: "system" } }));
+
+    vi.advanceTimersByTime(600);
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+
+    dispatcher.destroy();
+  });
+
+  it("only delivers leader-initiated turn_end when batch has both user and leader turns", () => {
+    // Mixed batch: user-initiated should be filtered, leader-initiated should be delivered.
+    const { bridge, launcher } = createMocks();
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+
+    triggerEvent(makeEvent({ id: 1, event: "turn_end", data: { duration_ms: 5000, turn_source: "user" } }));
+    triggerEvent(makeEvent({ id: 2, event: "turn_end", data: { duration_ms: 3000, turn_source: "leader" } }));
+
+    vi.advanceTimersByTime(600);
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+    // The delivered message should only contain 1 event (the leader-initiated one)
+    const content = vi.mocked(bridge.injectUserMessage).mock.calls[0][1];
+    expect(content).toContain("1 event from 1 session");
+
+    dispatcher.destroy();
+  });
 });
 
 // ─── formatHerdEventBatch ───────────────────────────────────────────────────────

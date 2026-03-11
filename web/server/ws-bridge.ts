@@ -8032,6 +8032,8 @@ export class WsBridge {
           this.herdEventDispatcher.onOrchestratorTurnEnd(sessionId);
         }
       },
+      getCurrentTurnTriggerSource: (session: Session) => this.getCurrentTurnTriggerSource(session),
+      isHerdedWorker: (session: Session) => this.isHerdedWorkerSession(session),
     };
   }
 

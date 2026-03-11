@@ -10565,7 +10565,10 @@ describe("Codex user_message takode events", () => {
       const herdDeliveries = herdInjectSpy.mock.calls.filter(
         ([sid, _content, source]) => sid === leaderId && source?.sessionId === "herd-events",
       );
-      expect(herdDeliveries).toHaveLength(2);
+      // Only the leader-initiated turn_end is delivered to the leader.
+      // The first turn_end (user-initiated, turn_source="user") is filtered
+      // by the herd event dispatcher since the leader didn't initiate it.
+      expect(herdDeliveries).toHaveLength(1);
     } finally {
       dispatcher.destroy();
       eventSpy.mockRestore();
@@ -10574,7 +10577,7 @@ describe("Codex user_message takode events", () => {
     }
   });
 
-  it("keeps both turn_end events deliverable after correction when reconnect happens before follow-up start", async () => {
+  it("delivers only leader-initiated turn_end to herd after correction with reconnect before follow-up start", async () => {
     vi.useFakeTimers();
     const leaderId = "orch-correction-reconnect";
     const workerId = "worker-correction-reconnect";
@@ -10724,7 +10727,10 @@ describe("Codex user_message takode events", () => {
       const herdDeliveries = herdInjectSpy.mock.calls.filter(
         ([sid, _content, source]) => sid === leaderId && source?.sessionId === "herd-events",
       );
-      expect(herdDeliveries).toHaveLength(2);
+      // Only the leader-initiated turn_end is delivered to the leader.
+      // The first turn_end (user-initiated, turn_source="user") is filtered
+      // by the herd event dispatcher since the leader didn't initiate it.
+      expect(herdDeliveries).toHaveLength(1);
     } finally {
       dispatcher.destroy();
       eventSpy.mockRestore();
@@ -10870,7 +10876,10 @@ describe("Codex user_message takode events", () => {
       const herdDeliveries = herdInjectSpy.mock.calls.filter(
         ([sid, _content, source]) => sid === leaderId && source?.sessionId === "herd-events",
       );
-      expect(herdDeliveries).toHaveLength(2);
+      // Only the leader-initiated turn_end is delivered to the leader.
+      // The first turn_end (user-initiated, turn_source="user") is filtered
+      // by the herd event dispatcher since the leader didn't initiate it.
+      expect(herdDeliveries).toHaveLength(1);
     } finally {
       dispatcher.destroy();
       eventSpy.mockRestore();
