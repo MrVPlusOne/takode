@@ -218,7 +218,7 @@ export function MarkdownContent({
     : "text-[14px] sm:text-[15px]";
 
   return (
-    <div className={`markdown-body ${sizeClass} text-cc-fg leading-relaxed overflow-hidden`}>
+    <div className={`markdown-body ${sizeClass} text-cc-fg leading-relaxed overflow-hidden break-words`}>
       <Markdown
         remarkPlugins={[remarkGfm]}
         urlTransform={transformMarkdownUrl}
