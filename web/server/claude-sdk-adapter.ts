@@ -169,10 +169,13 @@ export class ClaudeSdkAdapter implements BackendAdapter<ClaudeSdkSessionMeta> {
       sessionOptions.model = this.options.model;
     }
 
-    // bypassPermissions mode: SDK auto-approves everything, no canUseTool needed
-    if (this.options.permissionMode === "bypassPermissions") {
-      delete sessionOptions.canUseTool;
-    }
+    // NOTE: Always provide canUseTool, even in bypassPermissions mode.
+    // The ws-bridge permission pipeline handles mode-based auto-approval
+    // (including bypassPermissions) while still routing interactive tools
+    // (ExitPlanMode, AskUserQuestion) to the browser for user interaction.
+    // Without canUseTool, the CLI handles permissions internally and these
+    // interactive tools fail silently — the user never sees the plan
+    // approval dialog or question form.
 
     // Resolve the claude binary path — use the configured binary or find it on PATH
     if (this.options.claudeBinary) {

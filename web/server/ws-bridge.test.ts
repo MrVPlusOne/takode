@@ -11958,3 +11958,176 @@ describe("Claude SDK generation lifecycle on result", () => {
     expect(session.queuedTurnStarts).toBe(0);
   });
 });
+
+// ─── SDK interactive tool permission routing ─────────────────────────────────
+
+describe("Claude SDK interactive tool permissions", () => {
+  it("broadcasts ExitPlanMode permission_request to browser instead of auto-approving", () => {
+    // Validates that interactive tools (ExitPlanMode, AskUserQuestion) from SDK
+    // sessions are routed to the browser for user interaction, not auto-approved
+    // by the permission pipeline. This requires the canUseTool callback to be
+    // provided even in bypassPermissions mode.
+    const sid = "sdk-plan-perm";
+    const adapter = makeClaudeSdkAdapterMock();
+    bridge.attachClaudeSdkAdapter(sid, adapter as any);
+
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+
+    const session = bridge.getSession(sid)!;
+    session.cliInitReceived = true;
+    session.state.permissionMode = "bypassPermissions";
+    browser.send.mockClear();
+
+    // SDK adapter emits a permission_request for ExitPlanMode
+    adapter.emitBrowserMessage({
+      type: "permission_request",
+      request: {
+        request_id: "perm-exit-plan",
+        tool_name: "ExitPlanMode",
+        input: { allowedPrompts: [] },
+        tool_use_id: "tool-exit-plan",
+        timestamp: Date.now(),
+      },
+    } as any);
+
+    // The permission should be broadcast to the browser (not auto-approved)
+    const sent = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    const permReqs = sent.filter((m: any) => m.type === "permission_request");
+    expect(permReqs).toHaveLength(1);
+    expect(permReqs[0].request.tool_name).toBe("ExitPlanMode");
+    expect(permReqs[0].request.request_id).toBe("perm-exit-plan");
+
+    // It should be in pendingPermissions
+    expect(session.pendingPermissions.has("perm-exit-plan")).toBe(true);
+  });
+
+  it("broadcasts AskUserQuestion permission_request to browser instead of auto-approving", () => {
+    // Same as above but for AskUserQuestion — both are in NEVER_AUTO_APPROVE.
+    const sid = "sdk-ask-perm";
+    const adapter = makeClaudeSdkAdapterMock();
+    bridge.attachClaudeSdkAdapter(sid, adapter as any);
+
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+
+    const session = bridge.getSession(sid)!;
+    session.cliInitReceived = true;
+    session.state.permissionMode = "bypassPermissions";
+    browser.send.mockClear();
+
+    // SDK adapter emits a permission_request for AskUserQuestion
+    adapter.emitBrowserMessage({
+      type: "permission_request",
+      request: {
+        request_id: "perm-ask-user",
+        tool_name: "AskUserQuestion",
+        input: { questions: [{ question: "Which approach?" }] },
+        tool_use_id: "tool-ask-user",
+        timestamp: Date.now(),
+      },
+    } as any);
+
+    const sent = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    const permReqs = sent.filter((m: any) => m.type === "permission_request");
+    expect(permReqs).toHaveLength(1);
+    expect(permReqs[0].request.tool_name).toBe("AskUserQuestion");
+
+    expect(session.pendingPermissions.has("perm-ask-user")).toBe(true);
+  });
+
+  it("auto-approves Bash in bypassPermissions mode via SDK permission pipeline", () => {
+    // Verifies that non-interactive tools are still auto-approved in
+    // bypassPermissions mode through the SDK permission pipeline.
+    const sid = "sdk-bash-bypass";
+    const adapter = makeClaudeSdkAdapterMock();
+    bridge.attachClaudeSdkAdapter(sid, adapter as any);
+
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+
+    const session = bridge.getSession(sid)!;
+    session.cliInitReceived = true;
+    session.state.permissionMode = "bypassPermissions";
+    browser.send.mockClear();
+
+    // SDK adapter emits a permission_request for Bash
+    adapter.emitBrowserMessage({
+      type: "permission_request",
+      request: {
+        request_id: "perm-bash",
+        tool_name: "Bash",
+        input: { command: "ls" },
+        tool_use_id: "tool-bash",
+        timestamp: Date.now(),
+      },
+    } as any);
+
+    // Bash should be auto-approved (NOT broadcast as permission_request to browser)
+    const sent = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    const permReqs = sent.filter((m: any) => m.type === "permission_request");
+    expect(permReqs).toHaveLength(0);
+
+    // Should be auto-approved (recorded as permission_approved)
+    const approvals = sent.filter((m: any) => m.type === "permission_approved");
+    expect(approvals).toHaveLength(1);
+    expect(approvals[0].tool_name).toBe("Bash");
+
+    // Not in pendingPermissions (already resolved)
+    expect(session.pendingPermissions.has("perm-bash")).toBe(false);
+  });
+
+  it("routes SDK permission_response to adapter for ExitPlanMode approval", () => {
+    // End-to-end: ExitPlanMode request → browser shows UI → user approves →
+    // response routed back to SDK adapter.
+    const sid = "sdk-plan-approve";
+    const adapter = makeClaudeSdkAdapterMock();
+    bridge.attachClaudeSdkAdapter(sid, adapter as any);
+
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+
+    const session = bridge.getSession(sid)!;
+    session.cliInitReceived = true;
+    session.state.permissionMode = "plan";
+    browser.send.mockClear();
+
+    // Step 1: SDK emits ExitPlanMode permission request
+    adapter.emitBrowserMessage({
+      type: "permission_request",
+      request: {
+        request_id: "perm-exit-plan-2",
+        tool_name: "ExitPlanMode",
+        input: { allowedPrompts: [] },
+        tool_use_id: "tool-exit-plan-2",
+        timestamp: Date.now(),
+      },
+    } as any);
+
+    expect(session.pendingPermissions.has("perm-exit-plan-2")).toBe(true);
+
+    // Step 2: Browser sends approval
+    adapter.sendBrowserMessage.mockClear();
+    bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "permission_response",
+      request_id: "perm-exit-plan-2",
+      behavior: "allow",
+      updated_input: { allowedPrompts: [] },
+    }));
+
+    // Step 3: Verify response was forwarded to SDK adapter
+    // Note: the response may be sent twice (once by the SDK-specific handler
+    // in routeBrowserMessage, once by the generic adapter dispatch fallthrough).
+    // The adapter's dispatchOutgoing handles dedup — the second call is a no-op.
+    const adapterCalls = adapter.sendBrowserMessage.mock.calls;
+    const permResponses = adapterCalls
+      .map(([arg]: [any]) => arg)
+      .filter((m: any) => m.type === "permission_response");
+    expect(permResponses.length).toBeGreaterThanOrEqual(1);
+    expect(permResponses[0].request_id).toBe("perm-exit-plan-2");
+    expect(permResponses[0].behavior).toBe("allow");
+
+    // Pending should be cleared
+    expect(session.pendingPermissions.has("perm-exit-plan-2")).toBe(false);
+  });
+});
