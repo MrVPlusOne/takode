@@ -368,6 +368,8 @@ export function buildEnhancementPrompt(
   // 4. Mode-specific format reminder (last — recency bias)
   if (enhancementMode === "bullet") {
     parts.push("\nRemember: for 2+ sentences, use plain text lines for top-level points (no bullet marker) and indented \"  - \" for sub-points. Keep top-level lines short; put details in sub-points.");
+  } else {
+    parts.push("\nRemember: output clean prose paragraphs only. No bullet points, no headers, no markdown. Use paragraph breaks at natural topic shifts.");
   }
 
   return parts.join("\n");
