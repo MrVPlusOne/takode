@@ -150,11 +150,33 @@ function getDictationSystemPrompt(mode: "default" | "bullet" | undefined): strin
   return mode === "bullet" ? DICTATION_BULLET_SYSTEM_PROMPT : DICTATION_DEFAULT_SYSTEM_PROMPT;
 }
 
-const VOICE_EDIT_SYSTEM_PROMPT = `You are a VOICE EDITOR for a text composer.
+const VOICE_EDIT_RULES = `Rules:
+- Return ONLY the fully edited composer text
+- Do NOT explain what you changed
+- Do NOT wrap the result in markdown fences
+- Preserve the user's existing meaning, structure, tone, and technical details unless the instruction changes them
+- Preserve the draft's existing formatting constraints unless the spoken instruction explicitly changes them
+- Apply the spoken instruction literally and conservatively
+- Never invent new facts, file paths, commands, or requirements that were not already present in the draft or the instruction`;
+
+const VOICE_EDIT_PREAMBLE = `You are a VOICE EDITOR for a text composer.
 
 You will receive the user's current composer text and a spoken edit instruction that has already been transcribed by STT.
 
-Your only job is to apply the instruction to the current composer text and return the FULL updated composer text.
+Your only job is to apply the instruction to the current composer text and return the FULL updated composer text.`;
+
+/** Voice edit in prose mode — output clean paragraphs. */
+const VOICE_EDIT_DEFAULT_SYSTEM_PROMPT = `${VOICE_EDIT_PREAMBLE}
+
+Output format:
+
+Output clean prose paragraphs.
+Use paragraph breaks where the speaker naturally shifts topics.
+
+${VOICE_EDIT_RULES}`;
+
+/** Voice edit in bullet mode — structured bullet points. */
+const VOICE_EDIT_BULLET_SYSTEM_PROMPT = `${VOICE_EDIT_PREAMBLE}
 
 Output format:
 
@@ -164,14 +186,12 @@ Sub-points use "  - " (two-space indent + minus), placed under their parent.
 Keep top-level lines SHORT (one line). Move supporting details into sub-points.
 Do NOT insert empty lines between lines.
 
-Rules:
-- Return ONLY the fully edited composer text
-- Do NOT explain what you changed
-- Do NOT wrap the result in markdown fences
-- Preserve the user's existing meaning, structure, tone, and technical details unless the instruction changes them
-- Preserve the draft's existing formatting constraints unless the spoken instruction explicitly changes them
-- Apply the spoken instruction literally and conservatively
-- Never invent new facts, file paths, commands, or requirements that were not already present in the draft or the instruction`;
+${VOICE_EDIT_RULES}`;
+
+/** Pick the right voice-edit system prompt based on config mode. */
+function getVoiceEditSystemPrompt(mode: "default" | "bullet" | undefined): string {
+  return mode === "bullet" ? VOICE_EDIT_BULLET_SYSTEM_PROMPT : VOICE_EDIT_DEFAULT_SYSTEM_PROMPT;
+}
 
 // ─── Context extraction ─────────────────────────────────────────────────────
 
@@ -812,15 +832,16 @@ export async function applyVoiceEdit(
   const model = config.enhancementModel || "gpt-5-mini";
   const conversationContext = history ? buildTranscriptionContext(history) : "";
   const prompt = buildVoiceEditPrompt(instructionText, currentComposerText, conversationContext, extra);
+  const systemPrompt = getVoiceEditSystemPrompt(config.enhancementMode);
   const t0 = Date.now();
-  const llmResult = await callEnhancementLLM(prompt, config, apiKey, VOICE_EDIT_SYSTEM_PROMPT);
+  const llmResult = await callEnhancementLLM(prompt, config, apiKey, systemPrompt);
   const durationMs = Date.now() - t0;
 
   if (!llmResult.ok) {
     throw Object.assign(new Error(llmResult.error), {
       _debug: {
         model,
-        systemPrompt: VOICE_EDIT_SYSTEM_PROMPT,
+        systemPrompt,
         userMessage: prompt,
         enhancedText: null,
         durationMs,
@@ -833,7 +854,7 @@ export async function applyVoiceEdit(
     text: llmResult.text,
     _debug: {
       model,
-      systemPrompt: VOICE_EDIT_SYSTEM_PROMPT,
+      systemPrompt,
       userMessage: prompt,
       enhancedText: llmResult.text,
       durationMs,
@@ -949,7 +970,9 @@ export const _testHelpers = {
   DICTATION_DEFAULT_SYSTEM_PROMPT,
   DICTATION_BULLET_SYSTEM_PROMPT,
   getDictationSystemPrompt,
-  VOICE_EDIT_SYSTEM_PROMPT,
+  VOICE_EDIT_DEFAULT_SYSTEM_PROMPT,
+  VOICE_EDIT_BULLET_SYSTEM_PROMPT,
+  getVoiceEditSystemPrompt,
   MAX_TURNS,
   ENHANCER_MSG_START,
   ENHANCER_MSG_STEP,

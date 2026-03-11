@@ -11,7 +11,9 @@ import {
 } from "./transcription-enhancer.js";
 
 const {
-  VOICE_EDIT_SYSTEM_PROMPT,
+  VOICE_EDIT_BULLET_SYSTEM_PROMPT,
+  VOICE_EDIT_DEFAULT_SYSTEM_PROMPT,
+  getVoiceEditSystemPrompt,
   trunc,
   extractAssistantText,
   isSystemNoise,
@@ -354,10 +356,21 @@ describe("buildEnhancementPrompt", () => {
 });
 
 describe("buildVoiceEditPrompt", () => {
-  it("keeps the same format contract in voice edit mode", () => {
-    expect(VOICE_EDIT_SYSTEM_PROMPT).toContain("Top-level points are plain text lines");
-    expect(VOICE_EDIT_SYSTEM_PROMPT).toContain("Do NOT insert empty lines between lines.");
-    expect(VOICE_EDIT_SYSTEM_PROMPT).toContain("Preserve the draft's existing formatting constraints");
+  it("bullet mode voice-edit prompt contains structured format rules", () => {
+    expect(VOICE_EDIT_BULLET_SYSTEM_PROMPT).toContain("Top-level points are plain text lines");
+    expect(VOICE_EDIT_BULLET_SYSTEM_PROMPT).toContain("Do NOT insert empty lines between lines.");
+    expect(VOICE_EDIT_BULLET_SYSTEM_PROMPT).toContain("Preserve the draft's existing formatting constraints");
+  });
+
+  it("default mode voice-edit prompt contains prose format rules", () => {
+    expect(VOICE_EDIT_DEFAULT_SYSTEM_PROMPT).toContain("clean prose paragraphs");
+    expect(VOICE_EDIT_DEFAULT_SYSTEM_PROMPT).toContain("Preserve the draft's existing formatting constraints");
+  });
+
+  it("getVoiceEditSystemPrompt selects the correct prompt", () => {
+    expect(getVoiceEditSystemPrompt("bullet")).toBe(VOICE_EDIT_BULLET_SYSTEM_PROMPT);
+    expect(getVoiceEditSystemPrompt("default")).toBe(VOICE_EDIT_DEFAULT_SYSTEM_PROMPT);
+    expect(getVoiceEditSystemPrompt(undefined)).toBe(VOICE_EDIT_DEFAULT_SYSTEM_PROMPT);
   });
 
   it("includes the current composer text and edit instruction in dedicated XML blocks", () => {
