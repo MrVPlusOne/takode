@@ -649,3 +649,62 @@ describe("formatHerdEventBatch", () => {
     expect(result).toContain("| 2m ago");
   });
 });
+
+// ─── forceFlushPendingEvents ─────────────────────────────────────────────────
+
+describe("forceFlushPendingEvents", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("delivers pending events even when leader is not idle (stuck generation)", () => {
+    // When a leader's isGenerating flag is stuck, the normal flushInbox
+    // path retries forever. forceFlushPendingEvents bypasses the idle
+    // check so the stuck-session watchdog can unblock event delivery
+    // without clearing the generation state (which could break invariants).
+    const { bridge, launcher } = createMocks();
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    // Leader is NOT idle (stuck generating)
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(false);
+    triggerEvent(makeEvent({ event: "turn_end" }));
+
+    // Normal delivery path won't deliver — it retries
+    vi.advanceTimersByTime(600);
+    expect(bridge.injectUserMessage).not.toHaveBeenCalled();
+
+    // Force flush bypasses the idle check
+    const flushed = dispatcher.forceFlushPendingEvents("orch-1");
+    expect(flushed).toBe(1);
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+
+    dispatcher.destroy();
+  });
+
+  it("returns 0 when there are no pending events", () => {
+    const { bridge, launcher } = createMocks();
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    const flushed = dispatcher.forceFlushPendingEvents("orch-1");
+    expect(flushed).toBe(0);
+    expect(bridge.injectUserMessage).not.toHaveBeenCalled();
+
+    dispatcher.destroy();
+  });
+
+  it("returns 0 for unknown orchestrator", () => {
+    const { bridge, launcher } = createMocks();
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+
+    const flushed = dispatcher.forceFlushPendingEvents("nonexistent");
+    expect(flushed).toBe(0);
+
+    dispatcher.destroy();
+  });
+});

@@ -12121,7 +12121,7 @@ describe("Claude SDK interactive tool permissions", () => {
     // The adapter's dispatchOutgoing handles dedup — the second call is a no-op.
     const adapterCalls = adapter.sendBrowserMessage.mock.calls;
     const permResponses = adapterCalls
-      .map(([arg]: [any]) => arg)
+      .map((args: any[]) => args[0])
       .filter((m: any) => m.type === "permission_response");
     expect(permResponses.length).toBeGreaterThanOrEqual(1);
     expect(permResponses[0].request_id).toBe("perm-exit-plan-2");

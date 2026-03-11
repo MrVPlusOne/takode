@@ -252,6 +252,36 @@ export class HerdEventDispatcher {
     this.setupForOrchestrator(orchId);
   }
 
+  /** Force-deliver pending events, bypassing the isSessionIdle() gate.
+   *  Called by the stuck-session watchdog when a leader has been stuck for
+   *  too long — events would otherwise remain stranded indefinitely.
+   *  Returns the number of events delivered (0 if nothing was pending). */
+  forceFlushPendingEvents(orchId: string): number {
+    const inbox = this.inboxes.get(orchId);
+    if (!inbox) return 0;
+    const pending = this.getPendingEntries(inbox);
+    if (pending.length === 0) return 0;
+
+    const events = pending.map(e => e.event);
+    const content = formatHerdEventBatch(events);
+    this.wsBridge.injectUserMessage(orchId, content, HERD_AGENT_SOURCE);
+
+    const lastSeq = pending[pending.length - 1].seq;
+    inbox.inFlightUpTo = lastSeq;
+
+    const now = Date.now();
+    let histIdx = inbox.deliveryHistory.length - pending.length;
+    if (histIdx < 0) histIdx = 0;
+    for (let i = histIdx; i < inbox.deliveryHistory.length; i++) {
+      if (inbox.deliveryHistory[i].status === "pending" || inbox.deliveryHistory[i].status === "redelivered") {
+        inbox.deliveryHistory[i].deliveredAt = now;
+        inbox.deliveryHistory[i].status = "in_flight";
+      }
+    }
+
+    return events.length;
+  }
+
   /** Schedule a debounced flush. Multiple calls within DEBOUNCE_MS batch together. */
   private scheduleDelivery(orchId: string): void {
     const inbox = this.inboxes.get(orchId);

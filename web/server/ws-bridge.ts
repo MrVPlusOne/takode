@@ -747,7 +747,7 @@ export class WsBridge {
   private imageStore: ImageStore | null = null;
   private pushoverNotifier: PushoverNotifier | null = null;
   private launcher: CliLauncher | null = null;
-  private herdEventDispatcher: { onOrchestratorTurnEnd(orchId: string): void; onOrchestratorDisconnect(orchId: string): void; getDiagnostics(orchId: string): Record<string, unknown> } | null = null;
+  private herdEventDispatcher: { onOrchestratorTurnEnd(orchId: string): void; onOrchestratorDisconnect(orchId: string): void; getDiagnostics(orchId: string): Record<string, unknown>; forceFlushPendingEvents?(orchId: string): number } | null = null;
   private perfTracer: PerfTracer | null = null;
   private onCLISessionId: ((sessionId: string, cliSessionId: string) => void) | null = null;
   private onCLIRelaunchNeeded: ((sessionId: string) => void) | null = null;
@@ -1161,6 +1161,21 @@ export class WsBridge {
         console.warn(`[ws-bridge] Session ${session.id} appears stuck (${Math.round(elapsed / 1000)}s generation, ${Math.round(sinceLastActivity / 1000)}s since last CLI activity)`);
         this.recorder?.recordServerEvent(session.id, "stuck_detected", { elapsed, sinceLastActivity }, session.backendType, session.state.cwd);
         this.broadcastToBrowsers(session, { type: "session_stuck" } as BrowserIncomingMessage);
+
+        // Force-deliver pending herd events for orchestrator (leader) sessions.
+        // A stuck leader blocks ALL herd event delivery because
+        // isSessionIdle() requires !isGenerating. Rather than clearing the
+        // generation state (which could break invariants if the CLI is
+        // genuinely still processing), we bypass the idle gate and deliver
+        // events directly. The leader's CLI will handle the injected message
+        // — for SDK sessions, send() interrupts the current turn naturally.
+        const launcherInfo = this.launcher?.getSession(session.id);
+        if (launcherInfo?.isOrchestrator && this.herdEventDispatcher?.forceFlushPendingEvents) {
+          const flushed = this.herdEventDispatcher.forceFlushPendingEvents(session.id);
+          if (flushed > 0) {
+            console.warn(`[ws-bridge] Force-delivered ${flushed} pending herd event(s) to stuck orchestrator session ${session.id}`);
+          }
+        }
       }
     }, CHECK_INTERVAL_MS);
     if (timer.unref) timer.unref();
