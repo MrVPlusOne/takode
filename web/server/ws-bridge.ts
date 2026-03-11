@@ -642,15 +642,15 @@ interface TokenUsage {
 
 /**
  * Compute context fill % from token usage and a context window size.
- * Total tokens in context = input_tokens + cache_creation + cache_read + output_tokens.
- * These fields are mutually exclusive components (input_tokens excludes cached portions).
+ * Context fill = input_tokens + cache_creation + cache_read.
+ * output_tokens are excluded — they are generated tokens, not context occupants.
+ * input_tokens excludes cached portions; the three input fields are mutually exclusive.
  */
 function computeContextUsedPercent(usage: TokenUsage, contextWindow: number): number | undefined {
   const usedInContext =
     Number(usage.input_tokens || 0)
     + Number(usage.cache_creation_input_tokens || 0)
-    + Number(usage.cache_read_input_tokens || 0)
-    + Number(usage.output_tokens || 0);
+    + Number(usage.cache_read_input_tokens || 0);
   if (usedInContext <= 0) return undefined;
 
   const pct = Math.round((usedInContext / contextWindow) * 100);

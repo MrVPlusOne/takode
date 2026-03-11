@@ -31,10 +31,8 @@ export function SessionInfoPopover({
 
   // Stats
   const turns = sessionVm?.numTurns ?? 0;
-  const cost = sessionVm?.totalCostUsd ?? 0;
   const contextPercent = sessionVm?.contextUsedPercent ?? 0;
   const contextWindow = sessionVm?.modelContextWindow ?? 0;
-  const showTurnCostStats = backendType !== "claude" && backendType !== "claude-sdk";
 
   // Git
   const gitBranch = sessionVm?.gitBranch ?? null;
@@ -82,7 +80,7 @@ export function SessionInfoPopover({
 
   const backendLabel = backendType === "codex" ? "Codex" : "Claude";
   const hasGit = gitBranch || gitAhead > 0 || gitBehind > 0 || linesAdded > 0 || linesRemoved > 0;
-  const hasStats = (showTurnCostStats && (turns > 0 || cost > 0)) || contextPercent > 0 || contextWindow > 0;
+  const hasStats = turns > 0 || contextPercent > 0 || contextWindow > 0;
   const taskEntries = (taskHistory ?? []).map((task) => ({
     ...task,
     title: task.title.trim(),
@@ -207,22 +205,16 @@ export function SessionInfoPopover({
         {hasStats && (
           <div className="px-4 py-2 border-t border-cc-border/50">
             <div className="flex items-center gap-2 text-[11px] text-cc-muted">
-              {showTurnCostStats && turns > 0 && <span>{turns} {turns === 1 ? "turn" : "turns"}</span>}
-              {showTurnCostStats && cost > 0 && (
-                <>
-                  {showTurnCostStats && turns > 0 && <span className="text-cc-muted/40">&middot;</span>}
-                  <span>${cost.toFixed(2)}</span>
-                </>
-              )}
+              {turns > 0 && <span>{turns} {turns === 1 ? "turn" : "turns"}</span>}
               {contextPercent > 0 && (
                 <>
-                  {(showTurnCostStats && (turns > 0 || cost > 0)) && <span className="text-cc-muted/40">&middot;</span>}
+                  {turns > 0 && <span className="text-cc-muted/40">&middot;</span>}
                   <span>{Math.round(contextPercent)}% context</span>
                 </>
               )}
               {contextWindow > 0 && (
                 <>
-                  {((showTurnCostStats && (turns > 0 || cost > 0)) || contextPercent > 0) && <span className="text-cc-muted/40">&middot;</span>}
+                  {(turns > 0 || contextPercent > 0) && <span className="text-cc-muted/40">&middot;</span>}
                   <span>{formatContextWindowLabel(contextWindow)}</span>
                 </>
               )}

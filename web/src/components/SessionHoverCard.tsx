@@ -116,8 +116,7 @@ export function SessionHoverCard({
   }));
 
   // Stats from sessionState
-  const turns = sessionState?.num_turns ?? 0;
-  const cost = sessionState?.total_cost_usd ?? 0;
+  const turns = sessionState?.num_turns ?? sdkSessionMeta?.numTurns ?? 0;
   const contextPercent = sessionState?.context_used_percent ?? sdkSessionMeta?.contextUsedPercent ?? 0;
   const contextWindow =
     sessionState?.codex_token_details?.modelContextWindow
@@ -125,7 +124,6 @@ export function SessionHoverCard({
     ?? sdkSessionMeta?.codexTokenDetails?.modelContextWindow
     ?? sdkSessionMeta?.claudeTokenDetails?.modelContextWindow
     ?? 0;
-  const showTurnCostStats = s.backendType !== "claude" && s.backendType !== "claude-sdk";
   const hasBranchDivergence = s.gitAhead > 0 || s.gitBehind > 0;
   const hasLineDiff = s.linesAdded > 0 || s.linesRemoved > 0;
 
@@ -354,31 +352,25 @@ export function SessionHoverCard({
         )}
 
         {/* Stats row */}
-        {((showTurnCostStats && (turns > 0 || cost > 0)) || contextPercent > 0 || contextWindow > 0 || s.lastActivityAt) && (
+        {(turns > 0 || contextPercent > 0 || contextWindow > 0 || s.lastActivityAt) && (
           <div className="px-4 py-2 border-t border-cc-border/50">
             <div className="flex items-center gap-2 text-[11px] text-cc-muted">
-              {showTurnCostStats && turns > 0 && <span>{turns} {turns === 1 ? "turn" : "turns"}</span>}
-              {showTurnCostStats && cost > 0 && (
-                <>
-                  {showTurnCostStats && turns > 0 && <span className="text-cc-muted/40">&middot;</span>}
-                  <span>${cost.toFixed(2)}</span>
-                </>
-              )}
+              {turns > 0 && <span>{turns} {turns === 1 ? "turn" : "turns"}</span>}
               {contextPercent > 0 && (
                 <>
-                  {(showTurnCostStats && (turns > 0 || cost > 0)) && <span className="text-cc-muted/40">&middot;</span>}
+                  {turns > 0 && <span className="text-cc-muted/40">&middot;</span>}
                   <span>{Math.round(contextPercent)}% context</span>
                 </>
               )}
               {contextWindow > 0 && (
                 <>
-                  {((showTurnCostStats && (turns > 0 || cost > 0)) || contextPercent > 0) && <span className="text-cc-muted/40">&middot;</span>}
+                  {(turns > 0 || contextPercent > 0) && <span className="text-cc-muted/40">&middot;</span>}
                   <span>{formatContextWindowLabel(contextWindow)}</span>
                 </>
               )}
               {s.lastActivityAt && (
                 <>
-                  {((showTurnCostStats && (turns > 0 || cost > 0)) || contextPercent > 0 || contextWindow > 0) && <span className="text-cc-muted/40">&middot;</span>}
+                  {(turns > 0 || contextPercent > 0 || contextWindow > 0) && <span className="text-cc-muted/40">&middot;</span>}
                   <span title={new Date(s.lastActivityAt).toLocaleString()}>active {formatRelativeTime(s.lastActivityAt)}</span>
                 </>
               )}

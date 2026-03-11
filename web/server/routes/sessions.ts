@@ -860,6 +860,9 @@ export function createSessionsRoutes(ctx: RouteContext) {
         // values to avoid expensive git calls on every sidebar poll.
         return {
           ...safeSession,
+          // Bridge model (from system.init) is more accurate than launcher model
+          // (creation-time value, often empty for "default").
+          model: bridge?.model || safeSession.model,
           state: effectiveState,
           sessionNum: launcher.getSessionNum(s.sessionId) ?? null,
           name: names[s.sessionId] ?? s.name,
@@ -868,6 +871,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
           gitBehind,
           totalLinesAdded: bridge?.total_lines_added || 0,
           totalLinesRemoved: bridge?.total_lines_removed || 0,
+          numTurns: bridge?.num_turns || 0,
           contextUsedPercent: bridge?.context_used_percent || 0,
           ...(bridge?.codex_token_details ? { codexTokenDetails: bridge.codex_token_details } : {}),
           ...(bridge?.claude_token_details ? { claudeTokenDetails: bridge.claude_token_details } : {}),

@@ -201,7 +201,7 @@ describe("SessionInfoPopover", () => {
     expect(screen.getByText("258 K tokens")).toBeInTheDocument();
   });
 
-  it("shows context stats instead of turns and cost for Claude SDK sessions", () => {
+  it("shows turns, context, and context window for Claude SDK sessions (no cost)", () => {
     resetStore([]);
     const session = storeState.sessions.get("s1");
     if (!session) throw new Error("missing session fixture");
@@ -215,7 +215,9 @@ describe("SessionInfoPopover", () => {
 
     expect(screen.getByText("41% context")).toBeInTheDocument();
     expect(screen.getByText("200 K tokens")).toBeInTheDocument();
-    expect(screen.queryByText("7 turns")).toBeNull();
+    // Turns now shown for all backends
+    expect(screen.getByText("7 turns")).toBeInTheDocument();
+    // Cost is never shown
     expect(screen.queryByText("$1.25")).toBeNull();
   });
 });

@@ -126,7 +126,7 @@ describe("SessionHoverCard", () => {
     }
   });
 
-  it("shows Claude SDK context stats and hides turns and cost", () => {
+  it("shows Claude SDK context stats with turns but no cost", () => {
     const sessionState = {
       session_id: "s1",
       backend_type: "claude-sdk",
@@ -175,7 +175,9 @@ describe("SessionHoverCard", () => {
 
     expect(screen.getByText("41% context")).toBeInTheDocument();
     expect(screen.getByText("200 K tokens")).toBeInTheDocument();
-    expect(screen.queryByText("7 turns")).toBeNull();
+    // Turns now shown for all backends
+    expect(screen.getByText("7 turns")).toBeInTheDocument();
+    // Cost is never shown
     expect(screen.queryByText("$1.25")).toBeNull();
   });
 });

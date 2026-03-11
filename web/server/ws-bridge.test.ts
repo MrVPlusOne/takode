@@ -1798,10 +1798,11 @@ describe("CLI message routing", () => {
 
     bridge.handleCLIMessage(cli, msg);
 
-    // (4000 + 2000 + 5000 + 30000) / 200000 * 100 = 21
-    expect(bridge.getSession("s1")!.state.context_used_percent).toBe(21);
+    // (4000 + 5000 + 30000) / 200000 * 100 = 20
+    // output_tokens (2000) excluded — they are generated, not context occupants
+    expect(bridge.getSession("s1")!.state.context_used_percent).toBe(20);
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    const contextUpdate = calls.find((c: any) => c.type === "session_update" && c.session?.context_used_percent === 21);
+    const contextUpdate = calls.find((c: any) => c.type === "session_update" && c.session?.context_used_percent === 20);
     expect(contextUpdate).toBeDefined();
   });
 
@@ -2842,8 +2843,9 @@ describe("CLI message routing", () => {
     bridge.handleCLIMessage(cli, msg);
 
     const state = bridge.getSession("s1")!.state;
-    // (400000 + 10000 + 15000 + 25000) / 1000000 * 100 = 45
-    expect(state.context_used_percent).toBe(45);
+    // (400000 + 15000 + 25000) / 1000000 * 100 = 44
+    // output_tokens (10000) excluded — they are generated, not context occupants
+    expect(state.context_used_percent).toBe(44);
   });
 
   it("result: keeps previous context_used_percent when usage payload is empty", () => {

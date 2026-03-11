@@ -77,6 +77,7 @@ export function toSessionViewModel(session: SessionState | SdkSessionInfo): Sess
     totalLinesAdded: session.totalLinesAdded,
     totalLinesRemoved: session.totalLinesRemoved,
     contextUsedPercent: session.contextUsedPercent,
+    numTurns: session.numTurns,
     modelContextWindow: session.codexTokenDetails?.modelContextWindow ?? session.claudeTokenDetails?.modelContextWindow,
     state: session.state,
     createdAt: session.createdAt,
