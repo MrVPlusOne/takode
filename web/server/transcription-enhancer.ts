@@ -90,8 +90,7 @@ const SHARED_CLEANING_RULES = `Cleaning rules:
 - Strip verbal filler and false starts — keep only the final, meaningful version
 - Fix misheard technical terms, variable names, file paths, and commands using the context provided
 - Do NOT assume every word is correct — the STT model may mishear words. Correct obvious mishearings that contradict the surrounding context
-- When a word in the transcript sounds similar to a term from the SESSION CONTEXT or CUSTOM VOCABULARY (e.g. "companion" vs "Companion", "bun" vs "Bun", "next" vs "Next.js"), prefer the spelling from those context sources. This is critical for technical terms that speech-to-text often gets wrong
-- Convert spoken numbers to numerals: "five" → "5", "twenty dollars" → "$20", "three hundred" → "300", "point five" → "0.5". Keep ordinals readable: "first" → "1st". Exception: keep "one" or "a" as words when used as articles, not quantities
+- Convert spoken numbers to numerals: "five" → "5", "twenty dollars" → "$20". Exception: keep "one" or "a" as words when used as articles
 - Preserve the speaker's tone — do NOT formalize casual speech or casualize formal speech. If they say "yeah that's kinda broken", don't rewrite it as "The feature is malfunctioning." You're cleaning transcription artifacts, not rewriting their words
 - Preserve ALL technical terms, file paths, variable names, session numbers, quest IDs exactly as spoken
 - Preserve questions the user is asking — do NOT convert questions into instructions. The user may want to discuss before committing to a solution
@@ -109,7 +108,7 @@ Your ONLY job is to clean up a speech-to-text transcript into clean, readable pr
 
 Output format:
 
-Output clean prose paragraphs. No bullet points, no headers, no markdown formatting.
+Output clean prose paragraphs.
 Use paragraph breaks where the speaker naturally shifts topics or pauses between thoughts.
 Keep paragraphs concise — typically 1-4 sentences each.
 If the input is a single short thought, a single sentence is fine. Do not pad.
@@ -369,7 +368,7 @@ export function buildEnhancementPrompt(
   if (enhancementMode === "bullet") {
     parts.push("\nRemember: for 2+ sentences, use plain text lines for top-level points (no bullet marker) and indented \"  - \" for sub-points. Keep top-level lines short; put details in sub-points.");
   } else {
-    parts.push("\nRemember: output clean prose paragraphs only. No bullet points, no headers, no markdown. Use paragraph breaks at natural topic shifts.");
+    parts.push("\nRemember: output clean prose paragraphs. Use paragraph breaks at natural topic shifts.");
   }
 
   return parts.join("\n");
