@@ -1312,6 +1312,24 @@ export class WsBridge {
       && !session.isGenerating;
   }
 
+  /** Wake a leader session that was stopped by idle-manager so it can process
+   *  queued herd events. Clears the killedByIdleManager flag and triggers relaunch.
+   *  Returns true if a relaunch was requested. */
+  wakeIdleKilledSession(sessionId: string): boolean {
+    const launcherInfo = this.launcher?.getSession(sessionId);
+    if (!launcherInfo) return false;
+    if (launcherInfo.state !== "exited" || !launcherInfo.killedByIdleManager) return false;
+
+    // Clear the flag so the relaunch path proceeds
+    launcherInfo.killedByIdleManager = false;
+    console.log(`[ws-bridge] Waking idle-killed session ${sessionTag(sessionId)} for pending herd events`);
+
+    if (this.onCLIRelaunchNeeded) {
+      this.onCLIRelaunchNeeded(sessionId);
+    }
+    return true;
+  }
+
   /** Get diagnostic info for a session's herd event and generation state. */
   getHerdDiagnostics(sessionId: string): Record<string, unknown> | null {
     const session = this.sessions.get(sessionId);

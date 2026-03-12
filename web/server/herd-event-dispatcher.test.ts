@@ -40,6 +40,7 @@ function createMockBridge(): WsBridgeHandle & {
       return "sent" as const;
     }),
     isSessionIdle: vi.fn(() => false),
+    wakeIdleKilledSession: vi.fn(() => false),
     _triggerEvent: (evt: TakodeEvent) => { callback?.(evt); },
     _lastInjected: null,
   };
@@ -60,6 +61,7 @@ function createMocks() {
     }),
     injectUserMessage: vi.fn(() => "sent" as const),
     isSessionIdle: vi.fn(() => false),
+    wakeIdleKilledSession: vi.fn(() => false),
   };
   const launcher: LauncherHandle = {
     getHerdedSessions: vi.fn(() => [{ sessionId: "worker-1" }, { sessionId: "worker-2" }]),
@@ -347,6 +349,79 @@ describe("HerdEventDispatcher", () => {
 
     // Retry flush succeeds
     expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+
+    dispatcher.destroy();
+  });
+
+  it("wakes idle-killed leader when herd event arrives", () => {
+    // When a leader session was stopped by idle-manager (killedByIdleManager=true),
+    // new herd events should wake it up by calling wakeIdleKilledSession.
+    // The leader will be relaunched and events delivered once it reconnects.
+    const { bridge, launcher } = createMocks();
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    // Leader is NOT idle (CLI disconnected, killed by idle manager)
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(false);
+    // wakeIdleKilledSession returns true — the session was idle-killed and relaunch requested
+    vi.mocked(bridge.wakeIdleKilledSession).mockReturnValue(true);
+
+    triggerEvent(makeEvent({ event: "turn_end" }));
+
+    // Should have attempted to wake the session
+    expect(bridge.wakeIdleKilledSession).toHaveBeenCalledWith("orch-1");
+
+    // No immediate injection — events stay pending until CLI reconnects
+    expect(bridge.injectUserMessage).not.toHaveBeenCalled();
+
+    // Events are in the inbox, waiting for the CLI to reconnect and go idle
+    const inbox = dispatcher._getInbox("orch-1");
+    expect(inbox?.entries.length).toBe(1);
+
+    dispatcher.destroy();
+  });
+
+  it("does not wake leader if session was not idle-killed", () => {
+    // When the leader is just busy (generating), wakeIdleKilledSession returns false
+    // and the normal retry path is used instead.
+    const { bridge, launcher } = createMocks();
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(false);
+    vi.mocked(bridge.wakeIdleKilledSession).mockReturnValue(false);
+
+    triggerEvent(makeEvent({ event: "turn_end" }));
+
+    // wakeIdleKilledSession was called but returned false (not idle-killed)
+    expect(bridge.wakeIdleKilledSession).toHaveBeenCalledWith("orch-1");
+
+    // No injection, no wake — events just accumulate for next turnEnd/retry
+    expect(bridge.injectUserMessage).not.toHaveBeenCalled();
+
+    dispatcher.destroy();
+  });
+
+  it("wakes idle-killed leader during flushInbox retry", () => {
+    // Edge case: leader is killed by idle-manager between debounce schedule and flush.
+    // flushInbox should detect the idle-kill and wake the session.
+    const { bridge, launcher } = createMocks();
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    // Leader starts idle → event triggers debounce
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+    triggerEvent(makeEvent({ event: "turn_end" }));
+
+    // Leader gets idle-killed before debounce fires
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(false);
+    vi.mocked(bridge.wakeIdleKilledSession).mockReturnValue(true);
+    vi.advanceTimersByTime(600);
+
+    // flushInbox detected the idle-killed state and woke the session
+    expect(bridge.wakeIdleKilledSession).toHaveBeenCalledWith("orch-1");
+    // No injection (CLI is dead, will deliver after reconnect)
+    expect(bridge.injectUserMessage).not.toHaveBeenCalled();
 
     dispatcher.destroy();
   });

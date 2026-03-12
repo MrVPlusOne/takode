@@ -28,6 +28,10 @@ export interface WsBridgeHandle {
   subscribeTakodeEvents(sessions: Set<string>, cb: (e: TakodeEvent) => void, since?: number): () => void;
   injectUserMessage(sessionId: string, content: string, agentSource?: { sessionId: string; sessionLabel?: string }): "sent" | "queued" | "no_session";
   isSessionIdle(sessionId: string): boolean;
+  /** Wake a session that was stopped by idle-manager. Clears the killedByIdleManager
+   *  flag and triggers a CLI relaunch so the session can process queued events.
+   *  Returns true if a relaunch was requested, false if the session wasn't idle-killed. */
+  wakeIdleKilledSession(sessionId: string): boolean;
 }
 
 export interface LauncherHandle {
@@ -191,6 +195,12 @@ export class HerdEventDispatcher {
     // If orchestrator is idle, schedule delivery
     if (this.wsBridge.isSessionIdle(orchId)) {
       this.scheduleDelivery(orchId);
+    } else if (this.wsBridge.wakeIdleKilledSession(orchId)) {
+      // Leader was stopped by idle-manager — wake it up.
+      // Events stay pending in the inbox; they'll be flushed once the CLI
+      // reconnects and goes idle (via onOrchestratorTurnEnd or the normal
+      // isSessionIdle check in scheduleDelivery).
+      console.log(`[herd-dispatcher] Woke idle-killed leader ${orchId} to deliver ${this.pendingCount(inbox)} pending herd event(s)`);
     }
     // If generating, events accumulate — delivered on next onOrchestratorTurnEnd
   }
@@ -313,10 +323,14 @@ export class HerdEventDispatcher {
 
     // Re-check idle — orchestrator may have started generating during debounce
     if (!this.wsBridge.isSessionIdle(orchId)) {
-      // Leader became busy — schedule a retry instead of silently dropping.
-      // onOrchestratorTurnEnd also triggers delivery, but the retry is a safety
-      // net to ensure events are never permanently stranded.
-      this.scheduleRetry(orchId);
+      // If the leader was idle-killed during the debounce window, wake it.
+      // Otherwise schedule a retry — the leader is busy and will get events
+      // when its turn ends (onOrchestratorTurnEnd) or on the next retry.
+      if (this.wsBridge.wakeIdleKilledSession(orchId)) {
+        console.log(`[herd-dispatcher] Woke idle-killed leader ${orchId} during flush retry`);
+      } else {
+        this.scheduleRetry(orchId);
+      }
       return;
     }
 
