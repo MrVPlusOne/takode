@@ -11961,6 +11961,77 @@ describe("Claude SDK generation lifecycle on result", () => {
     // isGenerating should be FALSE — no phantom promoted turn
     expect(session.isGenerating).toBe(false);
   });
+
+  it("computes context_used_percent from result.usage when assistant usage is all zeros", () => {
+    // SDK sessions have all-zero usage on assistant messages but real per-turn
+    // usage on result messages. The context % computation must fall through
+    // from the zero assistant usage to the result's usage.
+    const sid = "sdk-ctx-pct";
+    const adapter = makeClaudeSdkAdapterMock();
+    bridge.attachClaudeSdkAdapter(sid, adapter as any);
+
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+
+    const session = bridge.getSession(sid)!;
+    session.isGenerating = true;
+    session.generationStartedAt = Date.now() - 5000;
+    session.cliInitReceived = true;
+    session.state.model = "claude-opus-4-6[1m]";
+
+    // Add a top-level assistant message with zero usage (mimics SDK behavior)
+    session.messageHistory.push({
+      type: "assistant",
+      message: {
+        id: "msg-1",
+        type: "message",
+        role: "assistant",
+        content: [{ type: "text", text: "test" }],
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+    } as any);
+
+    browser.send.mockClear();
+
+    // Result with per-turn usage showing 300k/1M context (30%)
+    adapter.emitBrowserMessage({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      result: "Done",
+      duration_ms: 5000,
+      duration_api_ms: 4800,
+      num_turns: 1,
+      total_cost_usd: 0.05,
+      stop_reason: "end_turn",
+      usage: {
+        input_tokens: 200000,
+        output_tokens: 500,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 100000,
+      },
+      modelUsage: {
+        "claude-opus-4-6[1m]": {
+          inputTokens: 200000,
+          outputTokens: 500,
+          cacheReadInputTokens: 100000,
+          cacheCreationInputTokens: 0,
+          contextWindow: 1000000,
+        },
+      },
+      uuid: "sdk-ctx-result",
+      session_id: sid,
+    });
+
+    // context_used_percent should be ~30% (300k / 1M)
+    expect(session.state.context_used_percent).toBe(30);
+
+    // Verify the session_update broadcast includes the context %
+    const sent = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    const update = sent.find((m: any) => m.type === "session_update" && m.session?.context_used_percent != null);
+    expect(update).toBeDefined();
+    expect(update.session.context_used_percent).toBe(30);
+  });
 });
 
 // ─── SDK interactive tool permission routing ─────────────────────────────────

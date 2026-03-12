@@ -660,8 +660,9 @@ function computeContextUsedPercent(usage: TokenUsage, contextWindow: number): nu
 /**
  * Compute context_used_percent from a turn result. Prefers the last assistant
  * message's per-turn usage (accurate context fill for one API call) over the
- * result message's cumulative session-total usage (which grows unbounded and
- * was the source of the inaccuracy bug — see q-86).
+ * result message's per-turn usage. Falls through when the assistant message
+ * has zero usage (e.g. Claude SDK sessions where the CLI sends all-zero usage
+ * on assistant messages but provides real per-turn usage on the result).
  */
 function computeResultContextUsedPercent(
   model: string | undefined,
@@ -674,11 +675,15 @@ function computeResultContextUsedPercent(
   // Prefer per-turn assistant usage — it reflects what actually fit in the
   // context window for the most recent API call.
   if (lastAssistantUsage) {
-    return computeContextUsedPercent(lastAssistantUsage, contextWindow);
+    const pct = computeContextUsedPercent(lastAssistantUsage, contextWindow);
+    // If assistant usage is all zeros (SDK sessions), fall through to
+    // result usage instead of returning undefined.
+    if (pct != null) return pct;
   }
 
-  // Fallback: use the result's usage (cumulative). Still better than nothing
-  // for the first turn or when assistant usage isn't available.
+  // Fallback: use the result's per-turn usage. For SDK sessions this is the
+  // primary source since assistant messages have zero usage. For WebSocket
+  // sessions this is a safety net for the first turn.
   if (!msg.usage) return undefined;
   return computeContextUsedPercent(msg.usage, contextWindow);
 }
