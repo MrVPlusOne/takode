@@ -12,7 +12,10 @@ export class IdleManager {
 
   start(intervalMs = 60_000): void {
     this.stop();
-    this.timer = setInterval(() => this.sweep(), intervalMs);
+    this.timer = setInterval(() => {
+      // Fire-and-forget — sweep is async but the interval doesn't need to wait.
+      void this.sweep();
+    }, intervalMs);
   }
 
   stop(): void {
@@ -27,7 +30,7 @@ export class IdleManager {
    * kill the oldest idle sessions. Never kills busy or archived sessions.
    * Returns the number of sessions killed.
    */
-  sweep(): number {
+  async sweep(): Promise<number> {
     const { maxKeepAlive } = this.getSettings();
     if (maxKeepAlive <= 0) return 0;
 
@@ -59,8 +62,16 @@ export class IdleManager {
       );
       // Mark session so the UI can show a less alarming indicator for idle kills
       s.killedByIdleManager = true;
-      this.launcher.kill(s.sessionId);
-      killed++;
+      // Use bridge.killSession which handles both subprocess kills and SDK
+      // adapter disconnects. Await to verify the kill succeeded.
+      const success = await this.wsBridge.killSession(s.sessionId);
+      if (success) {
+        killed++;
+      } else {
+        console.warn(
+          `[idle-manager] Failed to kill session ${s.sessionId.slice(0, 8)} — session may not exist`,
+        );
+      }
     }
 
     if (killed > 0) {

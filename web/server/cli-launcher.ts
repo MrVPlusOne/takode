@@ -2263,30 +2263,38 @@ export class CliLauncher {
 
   /**
    * Kill a session's CLI process.
+   * For subprocess-based sessions (claude, codex): sends SIGTERM/SIGKILL.
+   * For SDK sessions: marks the session as exited so the bridge will
+   * disconnect the adapter on its next check. Returns true if the session
+   * was found and marked for termination.
    */
   async kill(sessionId: string): Promise<boolean> {
-    const proc = this.processes.get(sessionId);
-    if (!proc) return false;
-
-    proc.kill("SIGTERM");
-
-    // Wait up to 5s for graceful exit, then force kill
-    const exited = await Promise.race([
-      proc.exited.then(() => true),
-      new Promise<false>((resolve) => setTimeout(() => resolve(false), 5_000)),
-    ]);
-
-    if (!exited) {
-      console.log(`[cli-launcher] Force-killing session ${sessionTag(sessionId)}`);
-      proc.kill("SIGKILL");
-    }
-
     const session = this.sessions.get(sessionId);
-    if (session) {
-      session.state = "exited";
-      session.exitCode = -1;
+    if (!session) return false;
+
+    const proc = this.processes.get(sessionId);
+    if (proc) {
+      proc.kill("SIGTERM");
+
+      // Wait up to 5s for graceful exit, then force kill
+      const exited = await Promise.race([
+        proc.exited.then(() => true),
+        new Promise<false>((resolve) => setTimeout(() => resolve(false), 5_000)),
+      ]);
+
+      if (!exited) {
+        console.log(`[cli-launcher] Force-killing session ${sessionTag(sessionId)}`);
+        proc.kill("SIGKILL");
+      }
+
+      this.processes.delete(sessionId);
     }
-    this.processes.delete(sessionId);
+
+    // Mark session as exited regardless of whether a subprocess existed.
+    // SDK sessions don't have a subprocess — they use an in-process adapter
+    // that the bridge will disconnect when it sees state === "exited".
+    session.state = "exited";
+    session.exitCode = -1;
     this.persistState();
     return true;
   }

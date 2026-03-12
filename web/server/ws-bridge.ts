@@ -1579,6 +1579,31 @@ export class WsBridge {
     return session.isGenerating || session.pendingPermissions.size > 0;
   }
 
+  /**
+   * Kill a session by terminating its backend (subprocess or SDK adapter).
+   * Called by the idle manager. Returns true if the session was successfully
+   * terminated. For SDK sessions, this disconnects the in-process adapter
+   * directly (launcher.kill only handles subprocesses).
+   */
+  async killSession(sessionId: string): Promise<boolean> {
+    const session = this.sessions.get(sessionId);
+
+    // Disconnect SDK adapter directly — it's an in-process object, not a
+    // subprocess, so launcher.kill() alone can't stop it.
+    if (session?.claudeSdkAdapter) {
+      try {
+        await session.claudeSdkAdapter.disconnect();
+      } catch {}
+    }
+
+    // Kill subprocess (Claude WS / Codex) or mark SDK session as exited
+    const killed = this.launcher
+      ? await this.launcher.kill(sessionId)
+      : false;
+
+    return killed;
+  }
+
   /** Restore sessions from disk (call once at startup). */
   async restoreFromDisk(): Promise<number> {
     if (!this.store) return 0;
