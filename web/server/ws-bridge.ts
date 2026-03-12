@@ -2199,6 +2199,16 @@ export class WsBridge {
     );
   }
 
+  private hasTaskNotificationReplay(session: Session, taskId: string, toolUseId: string): boolean {
+    return !!this.findHistoryReplayEntry(
+      session,
+      (message): message is BrowserIncomingMessage & { type: "task_notification"; task_id: string; tool_use_id: string } =>
+        message.type === "task_notification"
+          && (message as { task_id?: string }).task_id === taskId
+          && (message as { tool_use_id?: string }).tool_use_id === toolUseId,
+    );
+  }
+
   private hasCompactBoundaryReplay(
     session: Session,
     cliUuid: string | undefined,
@@ -3436,7 +3446,13 @@ export class WsBridge {
 
       // Persist task_notification in messageHistory so sub-agent completion
       // survives reconnects — mirrors the WebSocket path in handleCLISystemMessage.
+      // Deduplicate: CLI resume can replay historical task_notifications.
       if (msg.type === "task_notification") {
+        const taskMsg = msg as { task_id?: string; tool_use_id?: string };
+        if (taskMsg.task_id && taskMsg.tool_use_id
+            && this.hasTaskNotificationReplay(session, taskMsg.task_id, taskMsg.tool_use_id)) {
+          return;
+        }
         session.messageHistory.push(msg);
         this.broadcastToBrowsers(session, msg);
         this.persistSession(session);
@@ -4601,6 +4617,7 @@ export class WsBridge {
     } else if (msg.subtype === "task_notification") {
       // Forward background agent completion notifications to browsers.
       // Persist in messageHistory so completion survives reconnects/page refreshes.
+      // Deduplicate: CLI resume can replay historical task_notifications.
       const browserMsg = {
         type: "task_notification" as const,
         task_id: msg.task_id,
@@ -4609,6 +4626,10 @@ export class WsBridge {
         output_file: msg.output_file,
         summary: msg.summary,
       };
+      if (msg.task_id && msg.tool_use_id
+          && this.hasTaskNotificationReplay(session, msg.task_id, msg.tool_use_id)) {
+        return;
+      }
       session.messageHistory.push(browserMsg);
       this.broadcastToBrowsers(session, browserMsg);
       this.persistSession(session);
