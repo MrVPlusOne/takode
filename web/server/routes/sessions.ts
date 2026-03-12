@@ -16,7 +16,7 @@ import { containerManager, ContainerManager, type ContainerConfig, type Containe
 import type { CreationStepId } from "../session-types.js";
 import { hasContainerClaudeAuth } from "../claude-container-auth.js";
 import { hasContainerCodexAuth } from "../codex-container-auth.js";
-import { getSettings } from "../settings-manager.js";
+import { getSettings, getClaudeUserDefaultModel } from "../settings-manager.js";
 import { searchSessionDocuments, type SessionSearchDocument } from "../session-search.js";
 import { ensureAssistantWorkspace, ASSISTANT_DIR } from "../assistant-workspace.js";
 import { trafficStats } from "../traffic-stats.js";
@@ -568,7 +568,13 @@ export function createSessionsRoutes(ctx: RouteContext) {
     const askPermissionRequested = body.askPermission !== false;
     const initialModeState = resolveInitialModeState(backend, body.permissionMode, askPermissionRequested);
     const requestedModel = typeof body.model === "string" ? body.model.trim() : "";
-    const model = requestedModel || (backend === "codex" ? getDefaultModelForBackend("codex") : undefined);
+    // Resolve model: for Claude backends with no explicit model ("Default" selected),
+    // read the user's ~/.claude/settings.json model and pass it explicitly. Without
+    // this, the CLI subprocess uses project-level settings that may override the
+    // user's intended default model.
+    const model = requestedModel
+      || (backend === "codex" ? getDefaultModelForBackend("codex") : undefined)
+      || ((backend === "claude" || backend === "claude-sdk") ? (await getClaudeUserDefaultModel()) || undefined : undefined);
     const codexReasoningEffort = backend === "codex" && typeof body.codexReasoningEffort === "string"
       ? (body.codexReasoningEffort.trim() || undefined)
       : undefined;

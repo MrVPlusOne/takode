@@ -3,7 +3,7 @@ import {
   readFileSync,
   existsSync,
 } from "node:fs";
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join, dirname, basename, extname } from "node:path";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -446,4 +446,22 @@ export function _resetForTest(customPath?: string): void {
 
 export function _getSecretsPathForTest(customSettingsPath?: string): string {
   return deriveSecretsPath(customSettingsPath || filePath);
+}
+
+/**
+ * Read the user's configured default model from ~/.claude/settings.json.
+ * Returns empty string if the file doesn't exist, isn't valid JSON, or
+ * has no model field. This is the user-level default — project-level
+ * settings may override it in the CLI, which is why session creation
+ * should pass it explicitly when the user selects "Default".
+ */
+export async function getClaudeUserDefaultModel(): Promise<string> {
+  try {
+    const raw = await readFile(join(homedir(), ".claude", "settings.json"), "utf-8");
+    const parsed = JSON.parse(raw);
+    if (typeof parsed.model === "string") return parsed.model;
+  } catch {
+    // File doesn't exist or isn't valid JSON
+  }
+  return "";
 }
