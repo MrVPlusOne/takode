@@ -11227,7 +11227,7 @@ describe("Codex image transport", () => {
 describe("Claude SDK image transport", () => {
   const flush = () => new Promise((r) => setTimeout(r, 20));
 
-  it("appends numbered attachment paths to Claude SDK user message text", async () => {
+  it("strips images and appends SDK Read-tool annotation to Claude SDK user message text", async () => {
     const adapter = makeClaudeSdkAdapterMock();
 
     const mockImageStore = {
@@ -11253,8 +11253,11 @@ describe("Claude SDK image transport", () => {
     expect(adapter.sendBrowserMessage).toHaveBeenCalled();
     const sentMsg = adapter.sendBrowserMessage.mock.calls[0]![0] as any;
     const expectedPath = join(homedir(), ".companion", "images", "s1", "img-1.orig.png");
+    // SDK sessions use the Read-tool annotation instead of embedding images
     expect(sentMsg.content).toContain(`Attachment 1: ${expectedPath}`);
-    expect(sentMsg.images).toEqual([{ media_type: "image/jpeg", data: "compressed-sdk-base64" }]);
+    expect(sentMsg.content).toContain("use the Read tool to view these files");
+    // Images should be stripped — the CLI doesn't support image content blocks via stdin
+    expect(sentMsg.images).toBeUndefined();
   });
 });
 

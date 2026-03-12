@@ -176,6 +176,19 @@ function formatAttachmentPathAnnotation(paths: string[]): string {
   return `\n[📎 Inline image file paths (same order as images above):\n${numbered}]`;
 }
 
+/**
+ * SDK-specific annotation that explicitly instructs Claude to use the Read tool.
+ * The Claude Code CLI doesn't support image content blocks via stdin transport
+ * (only the WebSocket path handles them), so SDK sessions rely on the Read tool.
+ */
+function formatSdkAttachmentPathAnnotation(paths: string[]): string {
+  if (paths.length === 0) return "";
+  const numbered = paths
+    .map((path, idx) => `Attachment ${idx + 1}: ${path}`)
+    .join("\n");
+  return `\n[📎 Image attachments — use the Read tool to view these files:\n${numbered}]`;
+}
+
 function buildPendingCodexImageDrafts(
   images: { media_type: string; data: string }[] | undefined,
 ): PendingCodexInputImageDraft[] | undefined {
@@ -6288,15 +6301,19 @@ export class WsBridge {
             this.notifyImageSendFailure(session, new Error("uploaded images missing from image store"));
             return;
           }
-        } else if (this.imageStore && session.backendType === "claude-sdk") {
-          // SDK sessions can handle larger payloads (~1MB) than Codex (~500KB)
-          const maxChars = session.backendType === "claude-sdk" ? 1_000_000 : undefined;
-          const compressedImages: { media_type: string; data: string }[] = [];
-          for (const img of msg.images) {
-            const { base64, mediaType } = await this.imageStore.compressForTransport(img.data, img.media_type, maxChars);
-            compressedImages.push({ media_type: mediaType, data: base64 });
+        } else if (session.backendType === "claude-sdk") {
+          // SDK sessions: the CLI doesn't support image content blocks via
+          // stdin transport — only the WebSocket path (--sdk-url) handles them.
+          // Strip the images field and rely on the file path annotation in the
+          // text content, which tells Claude to use the Read tool to view the
+          // image from disk.
+          if (userImageRefs?.length) {
+            const paths = deriveAttachmentPaths(session.id, userImageRefs);
+            annotatedContent = (msg.content || "") + formatSdkAttachmentPathAnnotation(paths);
           }
-          adapterMsg = { ...adapterMsg, images: compressedImages } as BrowserOutgoingMessage;
+          const stripped = { ...adapterMsg, content: annotatedContent } as BrowserOutgoingMessage;
+          delete (stripped as { images?: unknown }).images;
+          adapterMsg = stripped;
         }
       }
 
