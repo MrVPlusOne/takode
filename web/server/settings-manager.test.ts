@@ -49,7 +49,7 @@ describe("settings-manager", () => {
       autoApprovalTimeoutSeconds: 45,
       namerConfig: { backend: "claude" },
       autoNamerEnabled: true,
-      transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", customVocabulary: "", enhancementEnabled: true, enhancementModel: "gpt-5-mini" },
+      transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", customVocabulary: "", enhancementEnabled: true, enhancementModel: "gpt-5-mini", sttModel: "gpt-4o-mini-transcribe" },
       editorConfig: { editor: "none" },
       updatedAt: 0,
     });
@@ -144,6 +144,7 @@ describe("settings-manager", () => {
       enhancementEnabled: true,
       enhancementModel: "gpt-5-mini",
       customVocabulary: "Takode, WsBridge, Questmaster",
+      sttModel: "gpt-4o-mini-transcribe",
     });
   });
 
@@ -218,6 +219,7 @@ describe("settings-manager", () => {
       customVocabulary: "",
       enhancementEnabled: false,
       enhancementModel: "gpt-4o-mini",
+      sttModel: "gpt-4o-mini-transcribe",
     });
 
     await _flushForTest();
@@ -261,7 +263,7 @@ describe("settings-manager", () => {
       autoApprovalTimeoutSeconds: 45,
       namerConfig: { backend: "claude" },
       autoNamerEnabled: true,
-      transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", customVocabulary: "", enhancementEnabled: true, enhancementModel: "gpt-5-mini" },
+      transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", customVocabulary: "", enhancementEnabled: true, enhancementModel: "gpt-5-mini", sttModel: "gpt-4o-mini-transcribe" },
       editorConfig: { editor: "none" },
       updatedAt: 0,
     });

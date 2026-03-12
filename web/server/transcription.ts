@@ -184,11 +184,12 @@ export async function transcribeWithOpenai(
   apiKey: string,
   sttPrompt?: string,
   fileName?: string,
+  sttModel: string = "gpt-4o-mini-transcribe",
 ): Promise<string> {
   const format = resolveAudioUploadFormat(audioBuffer, mimeType, fileName);
 
   const form = new FormData();
-  form.append("model", "gpt-4o-mini-transcribe");
+  form.append("model", sttModel);
   form.append(
     "file",
     new Blob([new Uint8Array(audioBuffer)], { type: format.mimeType }),

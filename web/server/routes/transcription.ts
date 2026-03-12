@@ -104,14 +104,16 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
             await stream.writeSSE({ event: "error", data: JSON.stringify({ error: "No OpenAI API key configured. Set it in Settings → Voice Transcription, or set OPENAI_API_KEY in your environment." }) });
             return;
           }
+          const configuredSttModel = getSettings().transcriptionConfig.sttModel || "gpt-4o-mini-transcribe";
           rawText = await transcribeWithOpenai(
             buf,
             uploadFormat.mimeType,
             apiKey,
             sttPrompt || undefined,
             audioFile.name,
+            configuredSttModel,
           );
-          sttModel = "gpt-4o-mini-transcribe";
+          sttModel = configuredSttModel;
         } else {
           await stream.writeSSE({ event: "error", data: JSON.stringify({ error: `Unknown backend: ${backend}` }) });
           return;

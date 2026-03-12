@@ -105,6 +105,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
   const [transcriptionApiKey, setTranscriptionApiKey] = useState("");
   const [transcriptionBaseUrl, setTranscriptionBaseUrl] = useState("");
   const [transcriptionModel, setTranscriptionModel] = useState("");
+  const [sttModel, setSttModel] = useState("gpt-4o-mini-transcribe");
   const [transcriptionEnhancement, setTranscriptionEnhancement] = useState(false);
   const [enhancementMode, setEnhancementMode] = useState<"default" | "bullet">("default");
   const [transcriptionVocabulary, setTranscriptionVocabulary] = useState("");
@@ -159,6 +160,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
           setTranscriptionApiKey(s.transcriptionConfig.apiKey === "***" ? "***" : (s.transcriptionConfig.apiKey || ""));
           setTranscriptionBaseUrl(s.transcriptionConfig.baseUrl || "");
           setTranscriptionModel(s.transcriptionConfig.enhancementModel || "");
+          setSttModel(s.transcriptionConfig.sttModel || "gpt-4o-mini-transcribe");
           setTranscriptionEnhancement(s.transcriptionConfig.enhancementEnabled ?? false);
           setEnhancementMode(s.transcriptionConfig.enhancementMode ?? "default");
           setTranscriptionVocabulary(s.transcriptionConfig.customVocabulary || "");
@@ -1383,6 +1385,21 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
               </p>
             </div>
             <div>
+              <label className="block text-xs font-medium text-cc-muted mb-1.5" htmlFor="stt-model">
+                STT Model
+              </label>
+              <select
+                id="stt-model"
+                value={sttModel}
+                onChange={(e) => setSttModel(e.target.value)}
+                className="w-full px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/60 font-mono"
+              >
+                <option value="gpt-4o-mini-transcribe">gpt-4o-mini-transcribe</option>
+                <option value="gpt-4o-transcribe">gpt-4o-transcribe</option>
+                <option value="gpt-4o-mini-transcribe-2025-12-15">gpt-4o-mini-transcribe-2025-12-15</option>
+              </select>
+            </div>
+            <div>
               <label className="block text-xs font-medium text-cc-muted mb-1.5" htmlFor="transcription-model">
                 Enhancement Model
               </label>
@@ -1483,6 +1500,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
                     enhancementModel: transcriptionModel,
                     customVocabulary: transcriptionVocabulary,
                     enhancementMode,
+                    sttModel: sttModel as TranscriptionConfig["sttModel"],
                   };
                   await api.updateSettings({ transcriptionConfig: config });
                   setTranscriptionSaved(true);

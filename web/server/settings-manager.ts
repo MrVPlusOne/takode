@@ -51,6 +51,14 @@ export interface CompanionSettings {
 /** Enhancement output style: "default" = clean prose paragraphs, "bullet" = structured bullet points. */
 export type EnhancementMode = "default" | "bullet";
 
+/** Available OpenAI STT models. */
+export const STT_MODELS = [
+  "gpt-4o-mini-transcribe",
+  "gpt-4o-transcribe",
+  "gpt-4o-mini-transcribe-2025-12-15",
+] as const;
+export type SttModel = typeof STT_MODELS[number];
+
 /** Configuration for voice transcription (STT + optional LLM enhancement). */
 export interface TranscriptionConfig {
   /** OpenAI-compatible API key (used for both Whisper STT and enhancement) */
@@ -65,6 +73,8 @@ export interface TranscriptionConfig {
   customVocabulary?: string;
   /** Enhancement output style. Optional for backward compat — undefined treated as "default". */
   enhancementMode?: EnhancementMode;
+  /** OpenAI STT model to use for speech-to-text. */
+  sttModel?: SttModel;
 }
 
 export type EditorKind = "vscode-local" | "vscode-remote" | "cursor" | "none";
@@ -111,7 +121,7 @@ let settings: CompanionSettings = {
   autoApprovalTimeoutSeconds: 45,
   namerConfig: { backend: "claude" },
   autoNamerEnabled: true,
-  transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-5-mini", customVocabulary: "", enhancementMode: "default" },
+  transcriptionConfig: { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-5-mini", customVocabulary: "", enhancementMode: "default", sttModel: "gpt-4o-mini-transcribe" },
   editorConfig: { editor: "none" },
   updatedAt: 0,
 };
@@ -168,15 +178,18 @@ function normalizeTranscriptionConfig(raw: Record<string, unknown> | null | unde
   const cfg = raw?.transcriptionConfig;
   if (cfg && typeof cfg === "object" && !Array.isArray(cfg)) {
     const c = cfg as Record<string, unknown>;
+    const rawSttModel = typeof c.sttModel === "string" ? c.sttModel : "";
+    const sttModel = (STT_MODELS as readonly string[]).includes(rawSttModel) ? rawSttModel as SttModel : "gpt-4o-mini-transcribe";
     return {
       apiKey: typeof c.apiKey === "string" ? c.apiKey : "",
       baseUrl: typeof c.baseUrl === "string" ? c.baseUrl : "https://api.openai.com/v1",
       enhancementEnabled: typeof c.enhancementEnabled === "boolean" ? c.enhancementEnabled : true,
       enhancementModel: typeof c.enhancementModel === "string" ? c.enhancementModel : "gpt-5-mini",
       customVocabulary: typeof c.customVocabulary === "string" ? c.customVocabulary : "",
+      sttModel,
     };
   }
-  return { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-5-mini", customVocabulary: "" };
+  return { apiKey: "", baseUrl: "https://api.openai.com/v1", enhancementEnabled: true, enhancementModel: "gpt-5-mini", customVocabulary: "", sttModel: "gpt-4o-mini-transcribe" };
 }
 
 function normalizeEditorConfig(raw: Record<string, unknown> | null | undefined): EditorConfig {
