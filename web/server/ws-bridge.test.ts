@@ -2026,6 +2026,68 @@ describe("CLI message routing", () => {
     expect(injectedUser?.content).toBe("start work");
   });
 
+  it("assistant: does not inject reminder after SDK leader interrupt (stop_reason=end_turn)", () => {
+    // Regression: SDK/Codex sessions route interrupt through the adapter path,
+    // which bypasses handleInterrupt and never sets interruptedDuringTurn.
+    // If the CLI result arrives with stop_reason="end_turn" (race with the
+    // interrupt signal), turnWasInterrupted was false and the reminder fired.
+    const adapter = makeClaudeSdkAdapterMock();
+    adapter.sendBrowserMessage.mockReturnValue(true);
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      getSession: vi.fn(() => ({ isOrchestrator: true })),
+    } as any);
+    bridge.attachClaudeSdkAdapter("s1", adapter as any);
+
+    // Send user message via browser so the session has a user turn
+    bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "user_message",
+      content: "coordinate workers",
+    }));
+
+    // Adapter emits assistant (missing @to tag — would trigger reminder normally)
+    adapter.emitBrowserMessage({
+      type: "assistant",
+      message: {
+        id: "msg-sdk-interrupt",
+        type: "message",
+        role: "assistant",
+        model: "claude-sonnet-4-5-20250929",
+        content: [{ type: "text", text: "Let me start coordinating the team." }],
+        stop_reason: "end_turn",
+        usage: { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+      session_id: "s1",
+    });
+
+    // User interrupts — this goes through the adapter path, not handleInterrupt
+    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "interrupt" }));
+
+    // Result arrives with stop_reason="end_turn" (CLI was already finishing
+    // when the interrupt signal arrived — the harder case where resultInterrupted=false)
+    adapter.emitBrowserMessage({
+      type: "result",
+      data: {
+        type: "result",
+        subtype: "success",
+        result: "",
+        is_error: false,
+        stop_reason: "end_turn",
+        total_cost_usd: 0.01,
+        num_turns: 1,
+        session_id: "s1",
+      },
+    });
+
+    // Verify: no leader tag enforcement reminder was injected
+    const session = bridge.getSession("s1")!;
+    const hasReminder = session.messageHistory.some(
+      (m: any) => m.type === "user_message" && m.content?.includes("As a leader session"),
+    );
+    expect(hasReminder).toBe(false);
+  });
+
   it("assistant: treats tool-only leader messages as internal without reminder", () => {
     bridge.setLauncher({
       touchActivity: vi.fn(),

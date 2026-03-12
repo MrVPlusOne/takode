@@ -6425,6 +6425,15 @@ export class WsBridge {
         return;
       }
 
+      // Mark the turn as interrupted for adapter sessions so the result
+      // handler's turnWasInterrupted guard works correctly. Without this,
+      // SDK/Codex sessions never set interruptedDuringTurn because the
+      // adapter path bypasses handleInterrupt (which only runs for
+      // WebSocket sessions in the switch block below).
+      if (msg.type === "interrupt") {
+        this.markTurnInterrupted(session, msg.interruptSource ?? "user");
+      }
+
       const adapter = session.codexAdapter || session.claudeSdkAdapter;
       const raw = JSON.stringify(adapterMsg);
       const queueAdapterMessage = () => {
