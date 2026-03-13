@@ -156,9 +156,17 @@ function buildEntries(
       continue;
     }
 
-    // Case B: Mixed message (text + Task tool_use) — emit SubagentGroups FIRST,
-    // then the cleaned message. This ensures SubagentContainers appear inline
-    // above the text response rather than being "stuck at the bottom" of the turn.
+    // Case B: Mixed message (text + Task tool_use) — emit the text FIRST,
+    // then the SubagentGroups. This preserves chronological order: the
+    // assistant writes explanatory text before invoking the agent tool.
+    if (entry.kind === "message") {
+      const filteredBlocks = entry.msg.contentBlocks?.filter(
+        (b) => !(b.type === "tool_use" && isSubagentToolName(b.name)),
+      );
+      result.push({ kind: "message", msg: { ...entry.msg, contentBlocks: filteredBlocks } });
+    } else {
+      result.push(entry);
+    }
     for (const taskId of taskIds) {
       const info = taskInfo.get(taskId) || { description: "Subagent", agentType: "", input: {} };
       const children = childrenByParent.get(taskId);
@@ -174,14 +182,6 @@ function buildEntries(
         children: childEntries,
         isBackground: !!info.input?.run_in_background,
       });
-    }
-    if (entry.kind === "message") {
-      const filteredBlocks = entry.msg.contentBlocks?.filter(
-        (b) => !(b.type === "tool_use" && isSubagentToolName(b.name)),
-      );
-      result.push({ kind: "message", msg: { ...entry.msg, contentBlocks: filteredBlocks } });
-    } else {
-      result.push(entry);
     }
   }
 
