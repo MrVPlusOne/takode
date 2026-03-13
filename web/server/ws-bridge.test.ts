@@ -8432,13 +8432,17 @@ describe("Codex user-message-driven relaunch for idle sessions", () => {
     expect(relaunchCb).toHaveBeenCalledWith(sid);
   });
 
-  it("does not request relaunch for exited sessions killed by idle manager", async () => {
+  it("wakes idle-killed Codex sessions by clearing flag and relaunching on user_message", async () => {
+    // When a user sends a message to an idle-killed Codex session, the intent
+    // is to wake it. The killedByIdleManager flag should be cleared and
+    // relaunch triggered (matching the injectUserMessage fix for q-15).
     const sid = "s-idle-killed";
     const relaunchCb = vi.fn();
     bridge.onCLIRelaunchNeededCallback(relaunchCb);
+    const launcherInfo = { state: "exited", killedByIdleManager: true };
     bridge.setLauncher({
       touchActivity: vi.fn(),
-      getSession: vi.fn(() => ({ state: "exited", killedByIdleManager: true })),
+      getSession: vi.fn(() => launcherInfo),
     } as any);
 
     const adapter = makeCodexAdapterMock();
@@ -8457,8 +8461,8 @@ describe("Codex user-message-driven relaunch for idle sessions", () => {
       content: "hello",
     }));
 
-    // Should NOT relaunch — session was intentionally killed by idle manager
-    expect(relaunchCb).not.toHaveBeenCalled();
+    expect(relaunchCb).toHaveBeenCalledWith(sid);
+    expect(launcherInfo.killedByIdleManager).toBe(false);
   });
 
   it("does not request relaunch when adapter is still connected", async () => {
@@ -8517,22 +8521,28 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     expect(relaunchCb).toHaveBeenCalledWith(sid);
   });
 
-  it("does not request relaunch when injecting into an idle-killed session", () => {
+  it("wakes an idle-killed session by clearing flag and requesting relaunch", () => {
+    // When a leader sends a message to an idle-killed worker, the intent is
+    // clear: wake the session. The killedByIdleManager flag should be cleared
+    // and relaunch triggered — matching how wakeIdleKilledSession() works.
     const sid = "s-inject-idle-killed";
     const relaunchCb = vi.fn();
     bridge.onCLIRelaunchNeededCallback(relaunchCb);
+    const launcherInfo = { state: "exited", killedByIdleManager: true };
     bridge.setLauncher({
       touchActivity: vi.fn(),
-      getSession: vi.fn(() => ({ state: "exited", killedByIdleManager: true })),
+      getSession: vi.fn(() => launcherInfo),
     } as any);
 
     const browser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(browser, sid);
     relaunchCb.mockClear();
 
-    bridge.injectUserMessage(sid, "should not relaunch");
+    const delivery = bridge.injectUserMessage(sid, "wake up, worker");
 
-    expect(relaunchCb).not.toHaveBeenCalled();
+    expect(delivery).toBe("queued");
+    expect(relaunchCb).toHaveBeenCalledWith(sid);
+    expect(launcherInfo.killedByIdleManager).toBe(false);
   });
 
   it("returns 'sent' and does not relaunch when backend is connected", () => {
@@ -8551,6 +8561,35 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
 
     expect(delivery).toBe("sent");
     expect(relaunchCb).not.toHaveBeenCalled();
+  });
+
+  it("wakes idle-killed SDK session when browser sends user_message (adapter path)", async () => {
+    // SDK sessions use the adapter code path in routeBrowserMessage.
+    // When the adapter is missing (post-restart, idle-killed), a browser
+    // user_message should clear killedByIdleManager and trigger relaunch.
+    const sid = "s-sdk-idle-wake";
+    const relaunchCb = vi.fn();
+    bridge.onCLIRelaunchNeededCallback(relaunchCb);
+    const launcherInfo = { backendType: "claude-sdk", state: "exited", killedByIdleManager: true };
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      getSession: vi.fn(() => launcherInfo),
+    } as any);
+
+    // Create an SDK session with no adapter (simulates post-restart idle-killed state)
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    const session = bridge.getSession(sid)!;
+    session.backendType = "claude-sdk";
+    relaunchCb.mockClear();
+
+    await bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "user_message",
+      content: "wake up from idle",
+    }));
+
+    expect(relaunchCb).toHaveBeenCalledWith(sid);
+    expect(launcherInfo.killedByIdleManager).toBe(false);
   });
 });
 

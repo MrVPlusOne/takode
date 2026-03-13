@@ -4013,9 +4013,15 @@ export class WsBridge {
       if (
         launcherInfo
         && launcherInfo.state === "exited"
-        && !launcherInfo.killedByIdleManager
         && session.state.backend_state !== "broken"
       ) {
+        // Clear killedByIdleManager so the relaunch callback proceeds.
+        // Sending a message is an explicit intent to wake the session,
+        // matching how wakeIdleKilledSession() works for herd events.
+        if (launcherInfo.killedByIdleManager) {
+          launcherInfo.killedByIdleManager = false;
+          console.log(`[ws-bridge] Clearing idle-killed flag for session ${sessionTag(sessionId)} (message inject)`);
+        }
         console.log(`[ws-bridge] Injected message queued for exited session ${sessionTag(sessionId)}, requesting relaunch`);
         this.onCLIRelaunchNeeded(sessionId);
       }
@@ -6453,8 +6459,11 @@ export class WsBridge {
               session.state.backend_state !== "broken"
               && launcherInfo
               && launcherInfo.state === "exited"
-              && !launcherInfo.killedByIdleManager
             ) {
+              if (launcherInfo.killedByIdleManager) {
+                launcherInfo.killedByIdleManager = false;
+                console.log(`[ws-bridge] Clearing idle-killed flag for session ${sessionTag(session.id)} (codex user_message)`);
+              }
               session.consecutiveAdapterFailures = 0;
               console.log(`[ws-bridge] User message queued for exited ${session.backendType} session ${sessionTag(session.id)}, requesting relaunch`);
               this.onCLIRelaunchNeeded(session.id);
@@ -6499,7 +6508,11 @@ export class WsBridge {
 
         if (msg.type === "user_message" && this.onCLIRelaunchNeeded) {
           const launcherInfo = this.launcher?.getSession(session.id);
-          if (session.state.backend_state !== "broken" && launcherInfo && launcherInfo.state === "exited" && !launcherInfo.killedByIdleManager) {
+          if (session.state.backend_state !== "broken" && launcherInfo && launcherInfo.state === "exited") {
+            if (launcherInfo.killedByIdleManager) {
+              launcherInfo.killedByIdleManager = false;
+              console.log(`[ws-bridge] Clearing idle-killed flag for session ${sessionTag(session.id)} (adapter user_message)`);
+            }
             session.consecutiveAdapterFailures = 0;
             console.log(`[ws-bridge] User message queued for exited ${session.backendType} session ${sessionTag(session.id)}, requesting relaunch`);
             this.onCLIRelaunchNeeded(session.id);
