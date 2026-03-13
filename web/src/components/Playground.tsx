@@ -21,6 +21,7 @@ import { SessionStatusDot } from "./SessionStatusDot.js";
 import { SessionItem } from "./SessionItem.js";
 import type { CreationProgressEvent } from "../types.js";
 import { CatPawAvatar, CatPawLeft, CatPawRight, YarnBallDot, YarnBallSpinner, SleepingCat } from "./CatIcons.js";
+import { HighlightedText } from "./HighlightedText.js";
 import { PawTrailAvatar } from "./PawTrail.js";
 import type { SessionItem as SidebarSessionItem } from "../utils/project-grouping.js";
 import { buildHerdGroupBadgeThemes, getHerdGroupLeaderId } from "../utils/herd-group-theme.js";
@@ -2922,6 +2923,52 @@ export function Playground() {
                   Approved
                 </button>
                 <span className="text-xs text-cc-muted">Button morphs on approval</span>
+              </div>
+            </Card>
+          </div>
+        </Section>
+
+        <Section title="Session Search" description="In-session search highlights matching text in messages. SearchBar drives the interaction; HighlightedText renders per-message match highlights.">
+          <div className="space-y-4 max-w-3xl">
+            <Card label="HighlightedText — Current match (strict)">
+              <div className="p-2 rounded-lg bg-cc-bg text-sm text-cc-fg">
+                <HighlightedText
+                  text="Hello world, this is a test message with hello again"
+                  query="hello"
+                  mode="strict"
+                  isCurrent={true}
+                />
+              </div>
+              <p className="text-[10px] text-cc-muted mt-2">Strict mode, isCurrent=true — bright amber highlights on exact substring matches</p>
+            </Card>
+            <Card label="HighlightedText — Other match (strict)">
+              <div className="p-2 rounded-lg bg-cc-bg text-sm text-cc-fg">
+                <HighlightedText
+                  text="Hello world, this is a test message with hello again"
+                  query="hello"
+                  mode="strict"
+                  isCurrent={false}
+                />
+              </div>
+              <p className="text-[10px] text-cc-muted mt-2">Strict mode, isCurrent=false — subtle amber highlights for non-active matches</p>
+            </Card>
+            <Card label="HighlightedText — Fuzzy mode">
+              <div className="p-2 rounded-lg bg-cc-bg text-sm text-cc-fg">
+                <HighlightedText
+                  text="The quick brown fox jumps"
+                  query="quick fox"
+                  mode="fuzzy"
+                  isCurrent={true}
+                />
+              </div>
+              <p className="text-[10px] text-cc-muted mt-2">Fuzzy mode — each query word highlighted independently ("quick" and "fox")</p>
+            </Card>
+            <Card label="SearchBar states (description)">
+              <div className="space-y-2 text-xs text-cc-muted px-1">
+                <p><span className="font-medium text-cc-fg">Idle:</span> Hidden — activated via ⌘F / Ctrl+F keyboard shortcut</p>
+                <p><span className="font-medium text-cc-fg">Open (no matches):</span> Input field with "0 of 0" counter, up/down navigation arrows disabled</p>
+                <p><span className="font-medium text-cc-fg">Open (with matches):</span> "3 of 12" counter with active navigation arrows, close button (Escape)</p>
+                <p><span className="font-medium text-cc-fg">Mode toggle:</span> Strict (exact substring) ↔ Fuzzy (per-word) via button in the search bar</p>
               </div>
             </Card>
           </div>

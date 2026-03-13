@@ -7,11 +7,29 @@ import { CollapseFooter } from "./CollapseFooter.js";
 import { Lightbox } from "./Lightbox.js";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
 import { getMessageMarkdown, getMessagePlainText, copyRichText, writeClipboardText } from "../utils/copy-utils.js";
-import { useStore } from "../store.js";
+import { useStore, getSessionSearchState } from "../store.js";
 import { formatVsCodeSelectionAttachmentLabel } from "../utils/vscode-context.js";
 import { api } from "../api.js";
 import { PawTrailAvatar, HidePawContext } from "./PawTrail.js";
 import { QuestClaimBlock } from "./QuestClaimBlock.js";
+import { HighlightedText } from "./HighlightedText.js";
+
+/**
+ * Per-message search highlight info, derived from the session search state.
+ * Returns null when no search is active (zero overhead path).
+ */
+function useMessageSearchHighlight(sessionId: string | undefined, messageId: string) {
+  const query = useStore((s) => sessionId ? getSessionSearchState(s, sessionId).query : "");
+  const mode = useStore((s) => sessionId ? getSessionSearchState(s, sessionId).mode : "strict" as const);
+  const isCurrent = useStore((s) => {
+    if (!sessionId) return false;
+    const ss = getSessionSearchState(s, sessionId);
+    if (ss.matches.length === 0 || ss.currentMatchIndex < 0) return false;
+    return ss.matches[ss.currentMatchIndex]?.messageId === messageId;
+  });
+  if (!query.trim()) return null;
+  return { query, mode, isCurrent };
+}
 
 function formatMessageTime(timestamp: number): string {
   const d = new Date(timestamp);
@@ -68,6 +86,9 @@ export const MessageBubble = memo(function MessageBubble({
   sessionId?: string;
   showTimestamp?: boolean;
 }) {
+  // Search highlight state -- must be called unconditionally (hooks can't be after early returns)
+  const searchHighlight = useMessageSearchHighlight(sessionId, message.id);
+
   if (message.role === "system") {
     if (message.variant === "error") {
       const isContextLimit = message.content.toLowerCase().includes("prompt is too long");
@@ -164,13 +185,13 @@ export const MessageBubble = memo(function MessageBubble({
   }
 
   if (message.role === "user") {
-    return <UserMessage message={message} sessionId={sessionId} showTimestamp={showTimestamp} />;
+    return <UserMessage message={message} sessionId={sessionId} showTimestamp={showTimestamp} searchHighlight={searchHighlight} />;
   }
 
   // Assistant message
   return (
     <div className="animate-[fadeSlideIn_0.2s_ease-out]">
-      <AssistantMessage message={message} sessionId={sessionId} showTimestamp={showTimestamp} />
+      <AssistantMessage message={message} sessionId={sessionId} showTimestamp={showTimestamp} searchHighlight={searchHighlight} />
     </div>
   );
 });
@@ -308,7 +329,9 @@ function HerdEventMessage({ message }: { message: ChatMessage; showTimestamp: bo
   );
 }
 
-function UserMessage({ message, sessionId, showTimestamp }: { message: ChatMessage; sessionId?: string; showTimestamp: boolean }) {
+type SearchHighlightInfo = { query: string; mode: "strict" | "fuzzy"; isCurrent: boolean } | null;
+
+function UserMessage({ message, sessionId, showTimestamp, searchHighlight }: { message: ChatMessage; sessionId?: string; showTimestamp: boolean; searchHighlight?: SearchHighlightInfo }) {
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
 
   const isCodex = useStore((s) => s.sessions.get(sessionId ?? "")?.backend_type === "codex");
@@ -356,7 +379,9 @@ function UserMessage({ message, sessionId, showTimestamp }: { message: ChatMessa
         )}
         <CollapsibleContent>
           <pre className="text-[13px] sm:text-[14px] whitespace-pre-wrap break-words font-sans-ui leading-relaxed">
-            {message.content}
+            {searchHighlight
+              ? <HighlightedText text={message.content} query={searchHighlight.query} mode={searchHighlight.mode} isCurrent={searchHighlight.isCurrent} />
+              : message.content}
           </pre>
         </CollapsibleContent>
         {showTimestamp && <MessageTimestamp timestamp={message.timestamp} align="right" />}
@@ -529,7 +554,7 @@ function LeaderUserAddressedMarker() {
   );
 }
 
-function AssistantMessage({ message, sessionId, showTimestamp }: { message: ChatMessage; sessionId?: string; showTimestamp: boolean }) {
+function AssistantMessage({ message, sessionId, showTimestamp, searchHighlight }: { message: ChatMessage; sessionId?: string; showTimestamp: boolean; searchHighlight?: SearchHighlightInfo }) {
   const contentRef = useRef<HTMLDivElement>(null);
   const hidePaw = useContext(HidePawContext);
   const userAddressed = message.leaderUserAddressed === true;
@@ -569,7 +594,7 @@ function AssistantMessage({ message, sessionId, showTimestamp }: { message: Chat
           className={`flex-1 min-w-0 pr-6 ${userAddressedBodyClass}`}
         >
           {userAddressed && <LeaderUserAddressedMarker />}
-          <MarkdownContent text={displayMessage.content} sessionId={sessionId} />
+          <MarkdownContent text={displayMessage.content} sessionId={sessionId} searchHighlight={searchHighlight} />
           {showTimestamp && <MessageTimestamp timestamp={displayMessage.timestamp} turnDurationMs={displayMessage.turnDurationMs} />}
         </div>
         <CopyMessageButton message={displayMessage} contentRef={contentRef} />
@@ -586,10 +611,10 @@ function AssistantMessage({ message, sessionId, showTimestamp }: { message: Chat
         className={`flex-1 min-w-0 space-y-3 pr-6 ${userAddressedBodyClass}`}
       >
         {userAddressed && <LeaderUserAddressedMarker />}
-        {shouldRenderContentFallback && <MarkdownContent text={displayMessage.content} sessionId={sessionId} />}
+        {shouldRenderContentFallback && <MarkdownContent text={displayMessage.content} sessionId={sessionId} searchHighlight={searchHighlight} />}
         {grouped.map((group, i) => {
           if (group.kind === "content") {
-            return <ContentBlockRenderer key={i} block={group.block} sessionId={sessionId} />;
+            return <ContentBlockRenderer key={i} block={group.block} sessionId={sessionId} searchHighlight={searchHighlight} />;
           }
           // Single tool_use renders as before
           if (group.items.length === 1) {
@@ -747,11 +772,11 @@ function CompactMarker({ message, sessionId }: { message: ChatMessage; sessionId
   );
 }
 
-function ContentBlockRenderer({ block, sessionId }: { block: ContentBlock; sessionId?: string }) {
+function ContentBlockRenderer({ block, sessionId, searchHighlight }: { block: ContentBlock; sessionId?: string; searchHighlight?: { query: string; mode: "strict" | "fuzzy"; isCurrent: boolean } | null }) {
   const isCodex = useStore((s) => sessionId ? s.sessions.get(sessionId)?.backend_type === "codex" : false);
 
   if (block.type === "text") {
-    return <MarkdownContent text={block.text} sessionId={sessionId} />;
+    return <MarkdownContent text={block.text} sessionId={sessionId} searchHighlight={searchHighlight} />;
   }
 
   if (block.type === "thinking") {

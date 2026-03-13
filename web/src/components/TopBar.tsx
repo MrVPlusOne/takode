@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useRef, useEffect, useSyncExternalStore } from "react";
-import { useStore, countUserPermissions } from "../store.js";
+import { useStore, countUserPermissions, getSessionSearchState } from "../store.js";
 import { api } from "../api.js";
 import { writeClipboardText } from "../utils/copy-utils.js";
 import { SessionStatusDot, deriveSessionStatus } from "./SessionStatusDot.js";
@@ -327,6 +327,9 @@ export function TopBar() {
             <span className="text-cc-warning font-medium animate-pulse">Reverting...</span>
           )}
 
+          {/* Search toggle */}
+          <SearchToggleButton sessionId={currentSessionId} />
+
           {/* Diffs toggle */}
           <button
             onClick={() => setActiveTab(activeTab === "diff" ? "chat" : "diff")}
@@ -389,5 +392,27 @@ export function TopBar() {
         </button>
       </div>
     </header>
+  );
+}
+
+function SearchToggleButton({ sessionId }: { sessionId: string }) {
+  const isOpen = useStore((s) => getSessionSearchState(s, sessionId).isOpen);
+  const openSearch = useStore((s) => s.openSessionSearch);
+  const closeSearch = useStore((s) => s.closeSessionSearch);
+
+  return (
+    <button
+      onClick={() => isOpen ? closeSearch(sessionId) : openSearch(sessionId)}
+      className={`flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer ${
+        isOpen
+          ? "text-cc-primary bg-cc-active"
+          : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
+      }`}
+      title="Search messages (⌘F)"
+    >
+      <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
+        <path d="M11.742 10.344a6.5 6.5 0 10-1.397 1.398h-.001l3.85 3.85a1 1 0 001.415-1.414l-3.85-3.85-.017.016zm-5.442.156a5 5 0 110-10 5 5 0 010 10z" />
+      </svg>
+    </button>
   );
 }

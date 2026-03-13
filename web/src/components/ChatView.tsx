@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect, useRef } from "react";
-import { useStore } from "../store.js";
+import { useStore, getSessionSearchState } from "../store.js";
 import { api } from "../api.js";
 import { MessageFeed } from "./MessageFeed.js";
 import { Composer } from "./Composer.js";
@@ -7,6 +7,8 @@ import { PermissionBanner, PlanReviewOverlay, PlanCollapsedChip, PermissionsColl
 import { TaskOutlineBar } from "./TaskOutlineBar.js";
 import { TodoStatusLine } from "./TodoStatusLine.js";
 import { YarnBallDot } from "./CatIcons.js";
+import { SearchBar } from "./SearchBar.js";
+import { useSessionSearch } from "../hooks/useSessionSearch.js";
 
 function CompactingIndicator({ sessionId }: { sessionId: string }) {
   const sessionStatus = useStore((s) => s.sessionStatus.get(sessionId));
@@ -30,6 +32,30 @@ export function ChatView({ sessionId }: { sessionId: string }) {
   const cliEverConnected = useStore((s) => s.cliEverConnected.get(sessionId) ?? false);
   const cliDisconnectReason = useStore((s) => s.cliDisconnectReason.get(sessionId) ?? null);
   const isArchived = useStore((s) => s.sdkSessions.find((sdk) => sdk.sessionId === sessionId)?.archived ?? false);
+
+  // Within-session search
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const searchIsOpen = useStore((s) => getSessionSearchState(s, sessionId).isOpen);
+  const openSearch = useStore((s) => s.openSessionSearch);
+  useSessionSearch(sessionId);
+
+  // Global Cmd+F / Ctrl+F handler
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      const isMod = e.metaKey || e.ctrlKey;
+      if (isMod && e.key === "f") {
+        e.preventDefault();
+        if (searchIsOpen) {
+          searchInputRef.current?.focus();
+          searchInputRef.current?.select();
+        } else {
+          openSearch(sessionId);
+        }
+      }
+    }
+    document.addEventListener("keydown", handleKeyDown, { capture: true });
+    return () => document.removeEventListener("keydown", handleKeyDown, { capture: true });
+  }, [sessionId, searchIsOpen, openSearch]);
 
   const perms = useMemo(
     () => (sessionPerms ? Array.from(sessionPerms.values()) : []),
@@ -70,6 +96,9 @@ export function ChatView({ sessionId }: { sessionId: string }) {
     );
   return (
     <div className="flex flex-col h-full min-h-0">
+      {/* Within-session message search bar */}
+      <SearchBar sessionId={sessionId} inputRef={searchInputRef} />
+
       {/* CLI starting / resuming banner */}
       {showStartingBanner && (
         <div className="px-4 py-2 bg-cc-border/30 border-b border-cc-border text-center flex items-center justify-center gap-2">

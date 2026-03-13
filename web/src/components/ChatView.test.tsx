@@ -32,6 +32,21 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
 
 vi.mock("../store.js", () => ({
   useStore: (selector: (s: MockStoreState) => unknown) => selector(mockState),
+  getSessionSearchState: () => ({
+    query: "",
+    isOpen: false,
+    mode: "strict",
+    matches: [],
+    currentMatchIndex: -1,
+  }),
+}));
+
+vi.mock("../hooks/useSessionSearch.js", () => ({
+  useSessionSearch: () => {},
+}));
+
+vi.mock("./SearchBar.js", () => ({
+  SearchBar: () => null,
 }));
 
 vi.mock("../api.js", () => ({

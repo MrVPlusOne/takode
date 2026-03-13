@@ -22,6 +22,33 @@ import { scopedGetItem, scopedSetItem, scopedRemoveItem } from "./utils/scoped-s
 
 const TOOL_PROGRESS_OUTPUT_LIMIT = 12_000;
 
+// ─── Within-Session Search ──────────────────────────────────────────────────
+
+export interface SearchMatch {
+  messageId: string; // ChatMessage.id of a message that contains match(es)
+}
+
+export interface SessionSearchState {
+  query: string;
+  isOpen: boolean;
+  mode: "strict" | "fuzzy";
+  matches: SearchMatch[];
+  currentMatchIndex: number; // index into matches[], -1 if none
+}
+
+const DEFAULT_SEARCH_STATE: SessionSearchState = {
+  query: "",
+  isOpen: false,
+  mode: "strict",
+  matches: [],
+  currentMatchIndex: -1,
+};
+
+/** Read search state for a session, falling back to defaults. */
+export function getSessionSearchState(state: AppState, sessionId: string): SessionSearchState {
+  return state.sessionSearch.get(sessionId) ?? DEFAULT_SEARCH_STATE;
+}
+
 interface AppState {
   // Sessions
   sessions: Map<string, SessionState>;
@@ -101,6 +128,9 @@ interface AppState {
   pendingCodexInputs: Map<string, PendingCodexInput[]>;
   // Accumulated search keywords from the session auto-namer
   sessionKeywords: Map<string, string[]>;
+  // Within-session message search state (per session)
+  sessionSearch: Map<string, SessionSearchState>;
+
   // Scroll-to-turn request per session (session → turn ID to scroll to)
   scrollToTurnId: Map<string, string | null>;
   // Scroll-to-message request per session (session → message ID to scroll to).
@@ -269,6 +299,15 @@ interface AppState {
   clearScrollToTurn: (sessionId: string) => void;
   requestScrollToMessage: (sessionId: string, messageId: string) => void;
   clearScrollToMessage: (sessionId: string) => void;
+
+  // Within-session search actions
+  openSessionSearch: (sessionId: string) => void;
+  closeSessionSearch: (sessionId: string) => void;
+  setSessionSearchQuery: (sessionId: string, query: string) => void;
+  setSessionSearchResults: (sessionId: string, matches: SearchMatch[]) => void;
+  setSessionSearchMode: (sessionId: string, mode: "strict" | "fuzzy") => void;
+  navigateSessionSearch: (sessionId: string, direction: "next" | "prev") => void;
+
   requestBottomAlignOnNextUserMessage: (sessionId: string) => void;
   clearBottomAlignOnNextUserMessage: (sessionId: string) => void;
   setActiveTaskTurnId: (sessionId: string, turnId: string | null) => void;
@@ -462,6 +501,7 @@ export const useStore = create<AppState>((set) => ({
   sessionTaskHistory: new Map(),
   pendingCodexInputs: new Map(),
   sessionKeywords: new Map(),
+  sessionSearch: new Map(),
   scrollToTurnId: new Map(),
   scrollToMessageId: new Map(),
   bottomAlignNextUserMessage: new Set(),
@@ -1370,6 +1410,69 @@ export const useStore = create<AppState>((set) => ({
       return { scrollToMessageId };
     }),
 
+  // ─── Within-session search actions ──────────────────────────────────────────
+
+  openSessionSearch: (sessionId) =>
+    set((s) => {
+      const sessionSearch = new Map(s.sessionSearch);
+      const prev = sessionSearch.get(sessionId) ?? DEFAULT_SEARCH_STATE;
+      sessionSearch.set(sessionId, { ...prev, isOpen: true });
+      return { sessionSearch };
+    }),
+
+  closeSessionSearch: (sessionId) =>
+    set((s) => {
+      const sessionSearch = new Map(s.sessionSearch);
+      sessionSearch.set(sessionId, { ...DEFAULT_SEARCH_STATE });
+      return { sessionSearch };
+    }),
+
+  setSessionSearchQuery: (sessionId, query) =>
+    set((s) => {
+      const sessionSearch = new Map(s.sessionSearch);
+      const prev = sessionSearch.get(sessionId) ?? DEFAULT_SEARCH_STATE;
+      sessionSearch.set(sessionId, { ...prev, query });
+      return { sessionSearch };
+    }),
+
+  setSessionSearchResults: (sessionId, matches) =>
+    set((s) => {
+      const sessionSearch = new Map(s.sessionSearch);
+      const prev = sessionSearch.get(sessionId) ?? DEFAULT_SEARCH_STATE;
+      // Preserve currentMatchIndex if valid, otherwise reset to first match
+      const idx = prev.currentMatchIndex >= 0 && prev.currentMatchIndex < matches.length
+        ? prev.currentMatchIndex
+        : matches.length > 0 ? 0 : -1;
+      sessionSearch.set(sessionId, { ...prev, matches, currentMatchIndex: idx });
+      return { sessionSearch };
+    }),
+
+  setSessionSearchMode: (sessionId, mode) =>
+    set((s) => {
+      const sessionSearch = new Map(s.sessionSearch);
+      const prev = sessionSearch.get(sessionId) ?? DEFAULT_SEARCH_STATE;
+      sessionSearch.set(sessionId, { ...prev, mode });
+      return { sessionSearch };
+    }),
+
+  navigateSessionSearch: (sessionId, direction) => {
+    const s = useStore.getState();
+    const prev = s.sessionSearch.get(sessionId) ?? DEFAULT_SEARCH_STATE;
+    if (prev.matches.length === 0) return;
+    const len = prev.matches.length;
+    const newIdx = direction === "next"
+      ? (prev.currentMatchIndex + 1) % len
+      : (prev.currentMatchIndex - 1 + len) % len;
+    const sessionSearch = new Map(s.sessionSearch);
+    sessionSearch.set(sessionId, { ...prev, currentMatchIndex: newIdx });
+    set({ sessionSearch });
+    // Scroll to the matched message
+    const match = prev.matches[newIdx];
+    if (match) {
+      s.requestScrollToMessage(sessionId, match.messageId);
+    }
+  },
+
   requestBottomAlignOnNextUserMessage: (sessionId) =>
     set((s) => {
       if (s.bottomAlignNextUserMessage.has(sessionId)) return s;
@@ -1742,6 +1845,7 @@ export const useStore = create<AppState>((set) => ({
       sessionTaskHistory: new Map(),
       pendingCodexInputs: new Map(),
       sessionKeywords: new Map(),
+      sessionSearch: new Map(),
       scrollToTurnId: new Map(),
       scrollToMessageId: new Map(),
       bottomAlignNextUserMessage: new Set(),

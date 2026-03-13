@@ -1,4 +1,4 @@
-import { useRef, useCallback, useMemo, useState, useEffect, type ComponentProps, type MouseEvent, type ReactNode } from "react";
+import { useRef, useCallback, useMemo, useState, useEffect, Children, type ComponentProps, type MouseEvent, type ReactNode } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api } from "../api.js";
@@ -11,6 +11,7 @@ import { CodeCopyButton } from "./CodeCopyButton.js";
 import { withQuestIdInHash } from "../utils/routing.js";
 import { highlightCode } from "../utils/syntax-highlighting.js";
 import { openFileWithEditorPreference, showEditorOpenError } from "../utils/vscode-bridge.js";
+import { HighlightedText } from "./HighlightedText.js";
 
 function parseQuestIdFromHref(href?: string): string | null {
   if (!href) return null;
@@ -208,14 +209,38 @@ export function MarkdownContent({
   text,
   size = "default",
   sessionId,
+  searchHighlight,
 }: {
   text: string;
   size?: "default" | "sm";
   sessionId?: string;
+  searchHighlight?: { query: string; mode: "strict" | "fuzzy"; isCurrent: boolean } | null;
 }) {
   const sizeClass = size === "sm"
     ? "text-xs"
     : "text-[14px] sm:text-[15px]";
+
+  // Helper: replaces string children with HighlightedText when search is active
+  const hl = searchHighlight;
+  const highlightChildren = useCallback(
+    (children: ReactNode): ReactNode => {
+      if (!hl || !hl.query) return children;
+      return Children.map(children, (child) => {
+        if (typeof child === "string") {
+          return (
+            <HighlightedText
+              text={child}
+              query={hl.query}
+              mode={hl.mode}
+              isCurrent={hl.isCurrent}
+            />
+          );
+        }
+        return child;
+      });
+    },
+    [hl],
+  );
 
   return (
     <div className={`markdown-body ${sizeClass} text-cc-fg leading-relaxed overflow-hidden break-words`}>
@@ -224,22 +249,22 @@ export function MarkdownContent({
         urlTransform={transformMarkdownUrl}
         components={{
           p: ({ children }) => (
-            <p className="mb-3 last:mb-0">{children}</p>
+            <p className="mb-3 last:mb-0">{highlightChildren(children)}</p>
           ),
           strong: ({ children }) => (
-            <strong className="font-semibold text-cc-fg">{children}</strong>
+            <strong className="font-semibold text-cc-fg">{highlightChildren(children)}</strong>
           ),
           em: ({ children }) => (
-            <em className="italic">{children}</em>
+            <em className="italic">{highlightChildren(children)}</em>
           ),
           h1: ({ children }) => (
-            <h1 className="text-xl font-bold text-cc-fg mt-4 mb-2">{children}</h1>
+            <h1 className="text-xl font-bold text-cc-fg mt-4 mb-2">{highlightChildren(children)}</h1>
           ),
           h2: ({ children }) => (
-            <h2 className="text-lg font-bold text-cc-fg mt-3 mb-2">{children}</h2>
+            <h2 className="text-lg font-bold text-cc-fg mt-3 mb-2">{highlightChildren(children)}</h2>
           ),
           h3: ({ children }) => (
-            <h3 className="text-base font-semibold text-cc-fg mt-3 mb-1">{children}</h3>
+            <h3 className="text-base font-semibold text-cc-fg mt-3 mb-1">{highlightChildren(children)}</h3>
           ),
           ul: ({ children }) => (
             <ul className="list-disc pl-5 mb-3 space-y-1">{children}</ul>
@@ -248,7 +273,7 @@ export function MarkdownContent({
             <ol className="list-decimal pl-5 mb-3 space-y-1">{children}</ol>
           ),
           li: ({ children }) => (
-            <li className="text-cc-fg">{children}</li>
+            <li className="text-cc-fg">{highlightChildren(children)}</li>
           ),
           a: ({ href, children }) => {
             const questId = parseQuestIdFromHref(href);
@@ -300,7 +325,7 @@ export function MarkdownContent({
 
             return (
               <code className="px-1 py-0.5 rounded bg-cc-code-bg/30 text-[13px] font-mono-code text-cc-primary">
-                {children}
+                {highlightChildren(children)}
               </code>
             );
           },
@@ -317,12 +342,12 @@ export function MarkdownContent({
           ),
           th: ({ children }) => (
             <th className="px-3 py-1.5 text-left text-xs font-semibold text-cc-fg border-b border-cc-border">
-              {children}
+              {highlightChildren(children)}
             </th>
           ),
           td: ({ children }) => (
             <td className="px-3 py-1.5 text-xs text-cc-fg border-b border-cc-border">
-              {children}
+              {highlightChildren(children)}
             </td>
           ),
         }}

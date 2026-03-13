@@ -52,6 +52,8 @@ interface MockStoreState {
   quests: { status: string }[];
   refreshQuests: ReturnType<typeof vi.fn>;
   questNamedSessions: Set<string>;
+  openSessionSearch: ReturnType<typeof vi.fn>;
+  closeSessionSearch: ReturnType<typeof vi.fn>;
 }
 
 let storeState: MockStoreState;
@@ -80,6 +82,8 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     quests: [],
     refreshQuests: vi.fn().mockResolvedValue(undefined),
     questNamedSessions: new Set(),
+    openSessionSearch: vi.fn(),
+    closeSessionSearch: vi.fn(),
     ...overrides,
   };
 }
@@ -95,6 +99,13 @@ vi.mock("../store.js", () => ({
     }
     return count;
   },
+  getSessionSearchState: () => ({
+    query: "",
+    isOpen: false,
+    mode: "strict",
+    matches: [],
+    currentMatchIndex: -1,
+  }),
 }));
 
 import { TopBar } from "./TopBar.js";

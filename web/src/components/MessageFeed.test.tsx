@@ -81,6 +81,7 @@ vi.mock("../store.js", () => {
       activeTaskTurnId: mockStoreValues.activeTaskTurnId ?? new Map(),
       setActiveTaskTurnId: mockSetActiveTaskTurnId,
       backgroundAgentNotifs: mockStoreValues.backgroundAgentNotifs ?? new Map(),
+      sessionSearch: mockStoreValues.sessionSearch ?? new Map(),
     };
     return selector(state);
   };
@@ -97,7 +98,12 @@ vi.mock("../store.js", () => {
     clearBottomAlignOnNextUserMessage: mockClearBottomAlignOnNextUserMessage,
     setComposerDraft: mockSetComposerDraft,
   });
-  return { useStore };
+  return {
+    useStore,
+    getSessionSearchState: (state: Record<string, unknown>, _sessionId: string) => {
+      return { query: "", isOpen: false, mode: "strict", matches: [], currentMatchIndex: -1 };
+    },
+  };
 });
 
 import {
