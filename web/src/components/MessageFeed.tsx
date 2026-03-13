@@ -771,16 +771,6 @@ function LiveActivityRail({
                 >
                   <ToolIcon type="agent" />
                   <span className="min-w-0 flex-1 truncate text-xs">{subagent.label}</span>
-                  {subagent.agentType && (
-                    <span className="shrink-0 rounded-full bg-cc-hover px-1.5 py-0.5 text-[10px] text-cc-muted">
-                      {subagent.agentType}
-                    </span>
-                  )}
-                  {subagent.isBackground && (
-                    <span className="shrink-0 rounded-full bg-cc-hover px-1.5 py-0.5 text-[10px] text-cc-muted">
-                      bg
-                    </span>
-                  )}
                   <LiveDurationBadge
                     progressElapsedSeconds={subagent.progressElapsedSeconds}
                     startTimestamp={subagent.startTimestamp}

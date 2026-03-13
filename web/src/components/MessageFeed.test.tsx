@@ -2288,7 +2288,7 @@ describe("MessageFeed - Codex terminal chips", () => {
 
       expect(screen.getByTestId("live-activity-rail")).toBeTruthy();
       expect(screen.getByTestId("live-subagent-chip").textContent).toContain("Analyze logs");
-      expect(screen.getByTestId("live-subagent-chip").textContent).toContain("Explore");
+      // agentType and background tags are intentionally omitted from floating chips to save space
     } finally {
       vi.useRealTimers();
     }
