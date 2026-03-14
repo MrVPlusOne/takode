@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor, within } from "@testing-library/rea
 import "@testing-library/jest-dom";
 
 interface MockStoreState {
+  colorTheme: string;
   darkMode: boolean;
   notificationSound: boolean;
   notificationDesktop: boolean;
@@ -10,6 +11,7 @@ interface MockStoreState {
   zoomLevel: number;
   currentSessionId: string | null;
   sdkSessions: Array<{ sessionId: string; createdAt: number; archived?: boolean; cronJobId?: string }>;
+  setColorTheme: ReturnType<typeof vi.fn>;
   toggleDarkMode: ReturnType<typeof vi.fn>;
   toggleNotificationSound: ReturnType<typeof vi.fn>;
   setNotificationDesktop: ReturnType<typeof vi.fn>;
@@ -22,6 +24,7 @@ let mockState: MockStoreState;
 
 function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreState {
   return {
+    colorTheme: "light",
     darkMode: false,
     notificationSound: true,
     notificationDesktop: false,
@@ -29,6 +32,7 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
     zoomLevel: 1.0,
     currentSessionId: null,
     sdkSessions: [],
+    setColorTheme: vi.fn(),
     toggleDarkMode: vi.fn(),
     toggleNotificationSound: vi.fn(),
     setNotificationDesktop: vi.fn(),
@@ -74,7 +78,14 @@ vi.mock("../api.js", () => ({
 vi.mock("../store.js", () => {
   const useStoreFn = (selector: (state: MockStoreState) => unknown) => selector(mockState);
   useStoreFn.getState = () => mockState;
-  return { useStore: useStoreFn };
+  return {
+    useStore: useStoreFn,
+    COLOR_THEMES: [
+      { id: "light", label: "Light" },
+      { id: "dark", label: "Dark" },
+      { id: "codex-dark", label: "Codex Dark" },
+    ],
+  };
 });
 
 // These panels are tested in their own files; keep SettingsPage tests focused
@@ -197,13 +208,14 @@ describe("SettingsPage", () => {
     expect(mockState.toggleNotificationSound).toHaveBeenCalledTimes(1);
   });
 
-  it("toggles theme from settings", async () => {
-    mockState = createMockState({ darkMode: true });
+  it("cycles theme from settings", async () => {
+    mockState = createMockState({ colorTheme: "light", darkMode: false });
     render(<SettingsPage />);
     await screen.findByText("Notifications");
 
+    // Click the Theme button — should cycle to next theme ("dark")
     fireEvent.click(screen.getByText(/^Theme$/));
-    expect(mockState.toggleDarkMode).toHaveBeenCalledTimes(1);
+    expect(mockState.setColorTheme).toHaveBeenCalledWith("dark");
   });
 
   it("navigates to environments page from settings", async () => {

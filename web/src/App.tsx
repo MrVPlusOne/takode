@@ -41,6 +41,7 @@ function useHash() {
 }
 
 export default function App() {
+  const colorTheme = useStore((s) => s.colorTheme);
   const darkMode = useStore((s) => s.darkMode);
   const zoomLevel = useStore((s) => s.zoomLevel);
   const currentSessionId = useStore((s) => s.currentSessionId);
@@ -62,8 +63,14 @@ export default function App() {
   const isDesktopTaskPanel = isDesktopTaskPanelLayout(zoomLevel);
 
   useEffect(() => {
-    document.documentElement.classList.toggle("dark", darkMode);
-  }, [darkMode]);
+    const el = document.documentElement;
+    el.classList.toggle("dark", darkMode);
+    // Theme-specific class (e.g. "theme-codex-dark") — remove all, then add current
+    el.className = el.className.replace(/\btheme-\S+/g, "").trim();
+    if (colorTheme !== "light" && colorTheme !== "dark") {
+      el.classList.add(`theme-${colorTheme}`);
+    }
+  }, [colorTheme, darkMode]);
 
   useEffect(() => {
     const debugWindow = window as TakodeDebugWindow;

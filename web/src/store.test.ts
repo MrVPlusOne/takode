@@ -596,16 +596,34 @@ describe("recentlyRenamed", () => {
 // ─── UI state ───────────────────────────────────────────────────────────────
 
 describe("UI state", () => {
-  it("toggleDarkMode: flips the value and persists to localStorage", () => {
-    const initial = useStore.getState().darkMode;
+  it("setColorTheme: updates colorTheme, darkMode, and persists to localStorage", () => {
+    useStore.getState().setColorTheme("codex-dark");
+
+    expect(useStore.getState().colorTheme).toBe("codex-dark");
+    expect(useStore.getState().darkMode).toBe(true);
+    expect(localStorage.getItem("cc-color-theme")).toBe("codex-dark");
+    expect(localStorage.getItem("cc-dark-mode")).toBe("true");
+
+    useStore.getState().setColorTheme("light");
+
+    expect(useStore.getState().colorTheme).toBe("light");
+    expect(useStore.getState().darkMode).toBe(false);
+    expect(localStorage.getItem("cc-color-theme")).toBe("light");
+    expect(localStorage.getItem("cc-dark-mode")).toBe("false");
+  });
+
+  it("toggleDarkMode: flips between light and dark, persists to localStorage", () => {
+    useStore.getState().setColorTheme("light");
     useStore.getState().toggleDarkMode();
 
-    expect(useStore.getState().darkMode).toBe(!initial);
-    expect(localStorage.getItem("cc-dark-mode")).toBe(String(!initial));
+    expect(useStore.getState().darkMode).toBe(true);
+    expect(useStore.getState().colorTheme).toBe("dark");
+    expect(localStorage.getItem("cc-dark-mode")).toBe("true");
 
     useStore.getState().toggleDarkMode();
-    expect(useStore.getState().darkMode).toBe(initial);
-    expect(localStorage.getItem("cc-dark-mode")).toBe(String(initial));
+    expect(useStore.getState().darkMode).toBe(false);
+    expect(useStore.getState().colorTheme).toBe("light");
+    expect(localStorage.getItem("cc-dark-mode")).toBe("false");
   });
 
   it("newSession: clears currentSessionId", () => {

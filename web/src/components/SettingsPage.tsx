@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api, checkHealth, type ImportStats, type AutoApprovalConfig, type NamerConfig, type TranscriptionConfig, type EditorKind } from "../api.js";
-import { useStore } from "../store.js";
+import { useStore, COLOR_THEMES } from "../store.js";
 import { NamerDebugPanel } from "./NamerDebugPanel.js";
 import { AutoApprovalDebugPanel } from "./AutoApprovalDebugPanel.js";
 import { TranscriptionDebugPanel } from "./TranscriptionDebugPanel.js";
@@ -19,8 +19,8 @@ interface SettingsPageProps {
 export function SettingsPage({ embedded = false, isActive = true }: SettingsPageProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const darkMode = useStore((s) => s.darkMode);
-  const toggleDarkMode = useStore((s) => s.toggleDarkMode);
+  const colorTheme = useStore((s) => s.colorTheme);
+  const setColorTheme = useStore((s) => s.setColorTheme);
   const zoomLevel = useStore((s) => s.zoomLevel);
   const setZoomLevel = useStore((s) => s.setZoomLevel);
   const notificationSound = useStore((s) => s.notificationSound);
@@ -430,11 +430,15 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
         <CollapsibleSection id="appearance" title="Appearance & Display">
           <button
             type="button"
-            onClick={toggleDarkMode}
+            onClick={() => {
+              const idx = COLOR_THEMES.findIndex((t) => t.id === colorTheme);
+              const next = COLOR_THEMES[(idx + 1) % COLOR_THEMES.length];
+              setColorTheme(next.id);
+            }}
             className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm bg-cc-hover text-cc-fg hover:bg-cc-active transition-colors cursor-pointer"
           >
             <span>Theme</span>
-            <span className="text-xs text-cc-muted">{darkMode ? "Dark" : "Light"}</span>
+            <span className="text-xs text-cc-muted">{COLOR_THEMES.find((t) => t.id === colorTheme)?.label ?? colorTheme}</span>
           </button>
           <div className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm bg-cc-hover text-cc-fg">
             <span>Zoom</span>

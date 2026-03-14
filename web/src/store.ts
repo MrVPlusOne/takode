@@ -4,6 +4,21 @@ import { api, type PRStatusResponse, type CreationProgressEvent, type CreateSess
 import { isEmbeddedInVsCode } from "./utils/embed-context.js";
 import { isDesktopShellLayout } from "./utils/layout.js";
 
+// ─── Color Themes ───────────────────────────────────────────────────────────
+
+/** Available color themes. All non-"light" themes are dark variants. */
+export type ColorTheme = "light" | "dark" | "codex-dark";
+
+export const COLOR_THEMES: { id: ColorTheme; label: string }[] = [
+  { id: "light", label: "Light" },
+  { id: "dark", label: "Dark" },
+  { id: "codex-dark", label: "Codex Dark" },
+];
+
+export function isDarkTheme(theme: ColorTheme): boolean {
+  return theme !== "light";
+}
+
 // ─── Pending Session (client-only, pre-creation) ────────────────────────────
 
 export interface PendingSession {
@@ -200,6 +215,8 @@ interface AppState {
   setServerRestarting: (v: boolean) => void;
 
   // UI
+  colorTheme: ColorTheme;
+  /** Convenience: true when colorTheme is any dark variant */
   darkMode: boolean;
   zoomLevel: number;
   notificationSound: boolean;
@@ -217,6 +234,7 @@ interface AppState {
   vscodeSelectionContext: VsCodeSelectionState | null;
 
   // Actions
+  setColorTheme: (theme: ColorTheme) => void;
   setDarkMode: (v: boolean) => void;
   toggleDarkMode: () => void;
   setZoomLevel: (v: number) => void;
@@ -421,11 +439,18 @@ function getInitialSessionId(): string | null {
   return scopedGetItem("cc-current-session") || null;
 }
 
+function getInitialColorTheme(): ColorTheme {
+  if (typeof window === "undefined") return "dark";
+  const stored = localStorage.getItem("cc-color-theme");
+  if (stored === "light" || stored === "dark" || stored === "codex-dark") return stored;
+  // Migrate from legacy cc-dark-mode
+  const legacyDark = localStorage.getItem("cc-dark-mode");
+  if (legacyDark !== null) return legacyDark === "true" ? "dark" : "light";
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
 function getInitialDarkMode(): boolean {
-  if (typeof window === "undefined") return false;
-  const stored = localStorage.getItem("cc-dark-mode");
-  if (stored !== null) return stored === "true";
-  return window.matchMedia("(prefers-color-scheme: dark)").matches;
+  return isDarkTheme(getInitialColorTheme());
 }
 
 function getInitialNotificationSound(): boolean {
@@ -536,6 +561,7 @@ export const useStore = create<AppState>((set) => ({
   setServerReachable: (reachable) => set({ serverReachable: reachable }),
   serverRestarting: false,
   setServerRestarting: (v) => set({ serverRestarting: v }),
+  colorTheme: getInitialColorTheme(),
   darkMode: getInitialDarkMode(),
   zoomLevel: getInitialZoomLevel(),
   notificationSound: getInitialNotificationSound(),
@@ -590,15 +616,24 @@ export const useStore = create<AppState>((set) => ({
     return { pendingSessions: next };
   }),
 
+  setColorTheme: (theme) => {
+    localStorage.setItem("cc-color-theme", theme);
+    localStorage.setItem("cc-dark-mode", String(isDarkTheme(theme)));
+    set({ colorTheme: theme, darkMode: isDarkTheme(theme) });
+  },
   setDarkMode: (v) => {
+    const theme = v ? "dark" : "light";
+    localStorage.setItem("cc-color-theme", theme);
     localStorage.setItem("cc-dark-mode", String(v));
-    set({ darkMode: v });
+    set({ colorTheme: theme, darkMode: v });
   },
   toggleDarkMode: () =>
     set((s) => {
       const next = !s.darkMode;
+      const theme: ColorTheme = next ? "dark" : "light";
+      localStorage.setItem("cc-color-theme", theme);
       localStorage.setItem("cc-dark-mode", String(next));
-      return { darkMode: next };
+      return { colorTheme: theme, darkMode: next };
     }),
   setZoomLevel: (v) => {
     const clamped = Math.round(Math.max(0.2, Math.min(4.0, v)) * 100) / 100;

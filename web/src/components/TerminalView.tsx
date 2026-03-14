@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
-import { useStore } from "../store.js";
+import { useStore, type ColorTheme } from "../store.js";
 import { api } from "../api.js";
 import {
   connectTerminal,
@@ -17,9 +17,17 @@ interface TerminalViewProps {
   embedded?: boolean;
 }
 
-function getTerminalTheme(dark: boolean) {
+function getTerminalTheme(theme: ColorTheme) {
+  if (theme === "codex-dark") {
+    return {
+      background: "#0d0d0d",
+      foreground: "#ececec",
+      cursor: "#ececec",
+      selectionBackground: "rgba(255, 255, 255, 0.2)",
+    };
+  }
   return {
-    background: dark ? "#141413" : "#1e1e1e",
+    background: theme === "dark" ? "#141413" : "#1e1e1e",
     foreground: "#d4d4d4",
     cursor: "#d4d4d4",
     selectionBackground: "rgba(255, 255, 255, 0.2)",
@@ -30,7 +38,7 @@ export function TerminalView({ cwd, onClose, embedded = false }: TerminalViewPro
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
-  const darkMode = useStore((s) => s.darkMode);
+  const colorTheme = useStore((s) => s.colorTheme);
 
   // Main effect: create xterm + connect to PTY — only depends on cwd
   useEffect(() => {
@@ -43,7 +51,7 @@ export function TerminalView({ cwd, onClose, embedded = false }: TerminalViewPro
       fontSize: 13,
       fontFamily:
         "'SF Mono', 'Monaco', 'Menlo', 'Courier New', monospace",
-      theme: getTerminalTheme(useStore.getState().darkMode),
+      theme: getTerminalTheme(useStore.getState().colorTheme),
     });
 
     const fit = new FitAddon();
@@ -120,16 +128,16 @@ export function TerminalView({ cwd, onClose, embedded = false }: TerminalViewPro
   // Separate effect: update theme without recreating the terminal
   useEffect(() => {
     if (xtermRef.current) {
-      xtermRef.current.options.theme = getTerminalTheme(darkMode);
+      xtermRef.current.options.theme = getTerminalTheme(colorTheme);
     }
-  }, [darkMode]);
+  }, [colorTheme]);
 
   const terminalFrame = (
     <div
       className={`flex flex-col rounded-[14px] shadow-2xl overflow-hidden border border-cc-border ${
         embedded ? "h-full" : "w-[90vw] max-w-4xl h-[70vh]"
       }`}
-      style={{ background: darkMode ? "#141413" : "#1e1e1e" }}
+      style={{ background: colorTheme === "codex-dark" ? "#0d0d0d" : colorTheme === "dark" ? "#141413" : "#1e1e1e" }}
       onClick={(e) => e.stopPropagation()}
     >
       {/* Header */}

@@ -227,6 +227,27 @@ html, body {
   --color-cc-warning: #f6e05e;
 }
 
+/* Codex dark theme — inspired by the ChatGPT/Codex dark UI */
+.dark.theme-codex-dark {
+  --color-cc-bg: #212121;
+  --color-cc-fg: #ececec;
+  --color-cc-card: #2f2f2f;
+  --color-cc-primary: #10a37f;
+  --color-cc-primary-hover: #1ab98f;
+  --color-cc-user-bubble: #303030;
+  --color-cc-border: rgba(255,255,255,0.10);
+  --color-cc-muted: #b4b4b4;
+  --color-cc-sidebar: #171717;
+  --color-cc-input-bg: #303030;
+  --color-cc-code-bg: #0d0d0d;
+  --color-cc-code-fg: #ececec;
+  --color-cc-hover: rgba(255,255,255,0.05);
+  --color-cc-active: rgba(255,255,255,0.08);
+  --color-cc-success: #10a37f;
+  --color-cc-error: #ef4444;
+  --color-cc-warning: #f59e0b;
+}
+
 /* ─── Syntax highlighting tokens (highlight.js) ───────────────────────────── */
 /* Minimal dark theme — matches the app's dark code block background.
    Only colors the tokens highlight.js emits; background comes from Tailwind. */
@@ -378,6 +399,10 @@ select {
 }
 .dark .diff-file-header {
   background: rgba(255,255,255,0.04);
+}
+.dark.theme-codex-dark .diff-hunk-header {
+  color: var(--color-cc-primary);
+  background: rgba(16, 163, 127, 0.06);
 }
 .diff-hunk-header {
   padding: 4px 12px;

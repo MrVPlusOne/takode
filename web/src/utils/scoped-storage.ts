@@ -15,6 +15,7 @@ const SERVER_ID_KEY = "cc-server-id";
 /** Keys that should NEVER be scoped — global user preferences */
 const GLOBAL_KEYS = new Set([
   "cc-dark-mode",
+  "cc-color-theme",
   "cc-zoom-level",
   "cc-notification-sound",
   "cc-notification-desktop",

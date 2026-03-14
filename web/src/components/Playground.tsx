@@ -5,7 +5,7 @@ import { Lightbox } from "./Lightbox.js";
 import { ToolBlock, getToolIcon, getToolLabel, getPreview, ToolIcon, formatDuration } from "./ToolBlock.js";
 import { DiffViewer } from "./DiffViewer.js";
 import { MarkdownContent } from "./MarkdownContent.js";
-import { useStore } from "../store.js";
+import { useStore, COLOR_THEMES, isDarkTheme, type ColorTheme } from "../store.js";
 import { navigateToSession, navigateToMostRecentSession } from "../utils/routing.js";
 import { ClaudeMdEditor } from "./ClaudeMdEditor.js";
 import { ChatView } from "./ChatView.js";
@@ -879,13 +879,21 @@ const MOCK_MCP_SERVERS: McpServerDetail[] = [
 // ─── Playground Component ───────────────────────────────────────────────────
 
 export function Playground() {
-  const [darkMode, setDarkMode] = useState(
-    () => document.documentElement.classList.contains("dark")
+  const [colorTheme, setColorTheme] = useState<ColorTheme>(
+    () => (useStore.getState().colorTheme)
   );
+  const darkMode = isDarkTheme(colorTheme);
 
   useEffect(() => {
-    document.documentElement.classList.toggle("dark", darkMode);
-  }, [darkMode]);
+    const el = document.documentElement;
+    el.classList.toggle("dark", darkMode);
+    el.className = el.className.replace(/\btheme-\S+/g, "").trim();
+    if (colorTheme !== "light" && colorTheme !== "dark") {
+      el.classList.add(`theme-${colorTheme}`);
+    }
+    // Keep the store in sync so other components see the playground override
+    useStore.getState().setColorTheme(colorTheme);
+  }, [colorTheme, darkMode]);
 
   useEffect(() => {
     const store = useStore.getState();
@@ -1310,12 +1318,21 @@ export function Playground() {
             >
               Back to App
             </button>
-            <button
-              onClick={() => setDarkMode(!darkMode)}
-              className="px-3 py-1.5 text-xs font-medium rounded-lg bg-cc-primary/10 hover:bg-cc-primary/20 text-cc-primary border border-cc-primary/20 transition-colors cursor-pointer"
-            >
-              {darkMode ? "Light Mode" : "Dark Mode"}
-            </button>
+            <div className="flex items-center gap-1.5">
+              {COLOR_THEMES.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => setColorTheme(t.id)}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors cursor-pointer ${
+                    colorTheme === t.id
+                      ? "bg-cc-primary/20 text-cc-primary border-cc-primary/30"
+                      : "bg-cc-hover text-cc-muted border-cc-border hover:bg-cc-active hover:text-cc-fg"
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       </header>
