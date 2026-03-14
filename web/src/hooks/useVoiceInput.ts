@@ -28,6 +28,8 @@ export interface UseVoiceInputReturn {
   setError: (e: string | null) => void;
   startRecording: () => void;
   stopRecording: () => void;
+  /** Cancel recording: stops the mic but discards audio without triggering onAudioReady */
+  cancelRecording: () => void;
   toggleRecording: () => void;
 }
 
@@ -117,6 +119,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
+  const cancelledRef = useRef(false);
   const optionsRef = useRef(options);
   optionsRef.current = options;
 
@@ -183,6 +186,13 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
     }
   }, []);
 
+  const cancelRecording = useCallback(() => {
+    if (recorderRef.current && recorderRef.current.state !== "inactive") {
+      cancelledRef.current = true;
+      recorderRef.current.stop();
+    }
+  }, []);
+
   const startRecording = useCallback(async () => {
     if (!support.isSupported) {
       setError(support.unsupportedMessage ?? "Voice input is unavailable.");
@@ -191,6 +201,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
 
     setError(null);
     chunksRef.current = [];
+    cancelledRef.current = false;
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -216,6 +227,13 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
         streamRef.current = null;
         recorderRef.current = null;
         setIsRecording(false);
+
+        // If cancelled, discard audio without triggering transcription
+        if (cancelledRef.current) {
+          chunksRef.current = [];
+          cancelledRef.current = false;
+          return;
+        }
 
         if (chunksRef.current.length > 0) {
           const mimeType = resolveRecordedMimeType(recorder.mimeType, chunksRef.current);
@@ -285,6 +303,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
     setError,
     startRecording,
     stopRecording,
+    cancelRecording,
     toggleRecording,
   };
 }

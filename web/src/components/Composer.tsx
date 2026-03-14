@@ -245,7 +245,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
     transcriptionPhase,
     error: voiceError, volumeLevel, setIsTranscribing, setTranscriptionPhase,
     setError: setVoiceError,
-    toggleRecording,
+    toggleRecording, cancelRecording,
   } = useVoiceInput({
     onAudioReady: async (blob) => {
       setIsTranscribing(true);
@@ -783,9 +783,10 @@ export function Composer({ sessionId }: { sessionId: string }) {
     setTimeout(() => setSendPressing(false), 500);
   }
 
-  // Double-Shift shortcut: toggle voice recording when Shift is pressed
-  // twice within 400ms (JetBrains "Search Everywhere" pattern).
-  // Escape also stops an active recording.
+  // Voice recording keyboard shortcuts:
+  // - Double-Shift (within 400ms): start recording
+  // - Single Shift tap (while recording): finish recording & transcribe
+  // - Escape (while recording): cancel recording & discard audio
   useEffect(() => {
     if (!voiceSupported) return;
     let lastShiftUp = 0;
@@ -793,12 +794,24 @@ export function Composer({ sessionId }: { sessionId: string }) {
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Shift") otherKeyPressed = true;
-      if (e.key === "Escape" && isRecording) handleMicClick();
+      if (e.key === "Escape" && isRecording) {
+        e.preventDefault();
+        cancelRecording();
+      }
     };
     const onKeyUp = (e: KeyboardEvent) => {
       if (e.key !== "Shift") return;
       if (otherKeyPressed) { otherKeyPressed = false; lastShiftUp = 0; return; }
       const now = Date.now();
+
+      if (isRecording) {
+        // While recording, any clean Shift tap finishes recording
+        lastShiftUp = 0;
+        handleMicClick();
+        return;
+      }
+
+      // Not recording: require double-tap to start
       if (now - lastShiftUp < 400) {
         lastShiftUp = 0;
         if (!isConnected || isTranscribing || voiceEditProposal) return;
@@ -814,7 +827,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
       document.removeEventListener("keydown", onKeyDown);
       document.removeEventListener("keyup", onKeyUp);
     };
-  }, [voiceSupported, isRecording, isConnected, isTranscribing, handleMicClick, voiceEditProposal]);
+  }, [voiceSupported, isRecording, isConnected, isTranscribing, handleMicClick, cancelRecording, voiceEditProposal]);
 
   function handleKeyDown(e: React.KeyboardEvent) {
     // Slash menu navigation
