@@ -155,6 +155,8 @@ export interface CliSession {
   gitBranch: string | null;
   lastModified: number;
   sizeBytes: number;
+  /** Which CLI backend produced this session ("claude" or "codex"). */
+  backend?: "claude" | "codex";
 }
 
 export type SessionSearchMatchedField =

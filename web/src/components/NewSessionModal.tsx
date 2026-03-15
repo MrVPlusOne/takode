@@ -454,7 +454,7 @@ export function NewSessionModal({ open, onClose, groupKey, groupCwd }: {
                   />
                 </div>
 
-                {/* Recent CLI sessions list */}
+                {/* Recent CLI sessions list — filtered by selected backend */}
                 <div>
                   <label className="text-[11px] text-cc-muted uppercase tracking-wider mb-1 block">Recent Sessions</label>
                   <div className="max-h-[240px] overflow-y-auto border border-cc-border rounded-lg">
@@ -463,46 +463,51 @@ export function NewSessionModal({ open, onClose, groupKey, groupCwd }: {
                         <YarnBallSpinner className="w-4 h-4 text-cc-muted" />
                         <span className="text-xs text-cc-muted">Loading sessions...</span>
                       </div>
-                    ) : cliSessions.length === 0 ? (
-                      <div className="py-6 text-center text-xs text-cc-muted">
-                        No CLI sessions found
-                      </div>
-                    ) : (
-                      cliSessions.map((s) => (
-                        <button
-                          key={s.id}
-                          onClick={() => {
-                            setSelectedCliSession(s.id);
-                            setManualSessionId("");
-                            if (s.cwd) setCwd(s.cwd);
-                          }}
-                          className={`w-full px-3 py-2 text-left hover:bg-cc-hover transition-colors cursor-pointer border-b border-cc-border last:border-b-0 ${
-                            selectedCliSession === s.id ? "bg-cc-primary/10" : ""
-                          }`}
-                        >
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-medium text-cc-fg truncate">
-                              {s.slug || s.id.slice(0, 8)}
-                            </span>
-                            {s.gitBranch && (
-                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-cc-hover text-cc-muted font-mono-code shrink-0">
-                                {s.gitBranch}
+                    ) : (() => {
+                      const filtered = cliSessions.filter((s) =>
+                        !s.backend || s.backend === backend,
+                      );
+                      return filtered.length === 0 ? (
+                        <div className="py-6 text-center text-xs text-cc-muted">
+                          No {backend === "codex" ? "Codex" : "Claude Code"} CLI sessions found
+                        </div>
+                      ) : (
+                        filtered.map((s) => (
+                          <button
+                            key={s.id}
+                            onClick={() => {
+                              setSelectedCliSession(s.id);
+                              setManualSessionId("");
+                              if (s.cwd) setCwd(s.cwd);
+                            }}
+                            className={`w-full px-3 py-2 text-left hover:bg-cc-hover transition-colors cursor-pointer border-b border-cc-border last:border-b-0 ${
+                              selectedCliSession === s.id ? "bg-cc-primary/10" : ""
+                            }`}
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-medium text-cc-fg truncate">
+                                {s.slug || s.id.slice(0, 8)}
                               </span>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            {s.cwd && (
-                              <span className="text-[10px] text-cc-muted font-mono-code truncate">
-                                {s.cwd}
+                              {s.gitBranch && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-cc-hover text-cc-muted font-mono-code shrink-0">
+                                  {s.gitBranch}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              {s.cwd && (
+                                <span className="text-[10px] text-cc-muted font-mono-code truncate">
+                                  {s.cwd}
+                                </span>
+                              )}
+                              <span className="text-[10px] text-cc-muted ml-auto shrink-0">
+                                {new Date(s.lastModified).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
                               </span>
-                            )}
-                            <span className="text-[10px] text-cc-muted ml-auto shrink-0">
-                              {new Date(s.lastModified).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
-                            </span>
-                          </div>
-                        </button>
-                      ))
-                    )}
+                            </div>
+                          </button>
+                        ))
+                      );
+                    })()}
                   </div>
                 </div>
 
