@@ -238,8 +238,8 @@ export function createSessionsRoutes(ctx: RouteContext) {
     const isOrchestrator = body.role === "orchestrator";
 
     if (body.resumeCliSessionId) {
-      if (backend !== "claude") {
-        throwPreparationError("Resuming CLI sessions is only supported for Claude backend", 400);
+      if (backend !== "claude" && backend !== "codex") {
+        throwPreparationError("Resuming CLI sessions is only supported for Claude and Codex backends", 400);
       }
 
       await emit("resolving_env", "Resolving environment...", "in_progress");
@@ -266,8 +266,9 @@ export function createSessionsRoutes(ctx: RouteContext) {
       const launchOptions: LaunchOptions = {
         cwd: initialCwd,
         claudeBinary: body.claudeBinary || binarySettings.claudeBinary || undefined,
+        codexBinary: body.codexBinary || binarySettings.codexBinary || undefined,
         env: envVars,
-        backendType: "claude",
+        backendType: backend,
         resumeCliSessionId: body.resumeCliSessionId,
         permissionMode: initialModeState.permissionMode,
         askPermission: initialModeState.askPermission,

@@ -392,7 +392,7 @@ export function NewSessionModal({ open, onClose, groupKey, groupCwd }: {
     setError("");
 
     const createOpts = {
-      backend: "claude" as const,
+      backend,
       cwd: cwd || undefined,
       envSlug: selectedEnv || undefined,
       resumeCliSessionId: resumeSessionId,
@@ -402,7 +402,7 @@ export function NewSessionModal({ open, onClose, groupKey, groupCwd }: {
     onClose();
     setSending(false);
     queuePendingSession({
-      backend: "claude",
+      backend,
       createOpts,
       cwd: cwd || null,
     });
@@ -1146,7 +1146,7 @@ export function NewSessionModal({ open, onClose, groupKey, groupCwd }: {
               onClick={() => { setResumeMode(true); setError(""); }}
               className="w-full py-1.5 text-xs text-cc-muted hover:text-cc-fg transition-colors cursor-pointer"
             >
-              Resume from a Claude Code session
+              Resume from an existing CLI session
             </button>
           </div>
           </>
