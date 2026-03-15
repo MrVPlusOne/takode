@@ -6,9 +6,12 @@
  * part of the normal test suite, so violations are caught before code can
  * be synced to main.
  *
- * Escape hatch: add a `// sync-ok` comment on the same line to suppress
- * a violation. Use this ONLY for documented cold-path calls (e.g. mkdirSync
- * in constructors, readFileSync in cached-once ensureLoaded() functions).
+ * Escape hatches:
+ * - `// sync-ok` on the same line or within 2 lines of a sync call suppresses it.
+ *   Use for documented cold-path-only calls (e.g. mkdirSync in constructors).
+ * - `// sync-ok-file` anywhere in the file suppresses ALL sync violations for
+ *   that file. Use only for files that are entirely CLI-only and never imported
+ *   by the server's hot path (e.g. migration.ts, service.ts).
  */
 
 import { readdirSync, readFileSync } from "node:fs";
@@ -51,15 +54,36 @@ const FORBIDDEN_SYNC_CALLS = [
   "execSync",
   "spawnSync",
   "execFileSync",
+  "mkdtempSync",
+  "opendirSync",
+  "openSync",
+  "closeSync",
+  "truncateSync",
 ];
 
 const FORBIDDEN_PATTERN = new RegExp(`\\b(${FORBIDDEN_SYNC_CALLS.join("|")})\\b`);
+
+/** Number of surrounding lines to check for a `// sync-ok` annotation. */
+const SYNC_OK_WINDOW = 2;
 
 interface Violation {
   file: string;
   line: number;
   text: string;
   match: string;
+}
+
+/**
+ * Check whether any line within a window around `lineIndex` contains `// sync-ok`.
+ * This handles formatters that move inline comments to adjacent lines.
+ */
+function hasSyncOkNearby(lines: string[], lineIndex: number): boolean {
+  const start = Math.max(0, lineIndex - SYNC_OK_WINDOW);
+  const end = Math.min(lines.length - 1, lineIndex + SYNC_OK_WINDOW);
+  for (let j = start; j <= end; j++) {
+    if (lines[j].includes("// sync-ok")) return true;
+  }
+  return false;
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
@@ -71,20 +95,33 @@ describe("Architecture Guards", () => {
 
     for (const filePath of files) {
       const content = readFileSync(filePath, "utf-8");
+
+      // File-level opt-out for entirely CLI-only modules
+      if (content.includes("// sync-ok-file")) continue;
+
       const lines = content.split("\n");
+      let inBlockComment = false;
 
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         const trimmed = line.trim();
 
-        // Skip lines with the escape hatch comment (also check next line,
-        // since formatters may move inline comments to a separate line)
-        if (line.includes("// sync-ok")) continue;
-        const nextLine = i + 1 < lines.length ? lines[i + 1] : "";
-        if (nextLine.trim().startsWith("// sync-ok")) continue;
+        // Track multi-line block comments
+        if (inBlockComment) {
+          if (trimmed.includes("*/")) inBlockComment = false;
+          continue;
+        }
+        if (trimmed.startsWith("/*")) {
+          if (!trimmed.includes("*/")) inBlockComment = true;
+          continue;
+        }
 
-        // Skip comments
-        if (trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*")) continue;
+        // Skip lines with the escape hatch comment nearby (handles formatters
+        // that move inline comments to adjacent lines)
+        if (hasSyncOkNearby(lines, i)) continue;
+
+        // Skip single-line comments
+        if (trimmed.startsWith("//") || trimmed.startsWith("*")) continue;
 
         // Skip import/require lines. Imports are multi-line so we track
         // whether we're inside an import block.
@@ -115,7 +152,8 @@ describe("Architecture Guards", () => {
       const report = violations.map((v) => `  ${v.file}:${v.line}: ${v.match}\n    ${v.text}`).join("\n");
       expect.fail(
         `\nSync file/process I/O detected in server code (blocks event loop on NFS):\n\n${report}\n\n` +
-          `Add '// sync-ok' comment if this is a documented cold-path-only call.\n` +
+          `Add '// sync-ok' comment near the call, or '// sync-ok-file' at the top of the file\n` +
+          `if this is a documented cold-path-only module.\n` +
           `See CLAUDE.md "Never use synchronous file I/O" section for async patterns.`,
       );
     }

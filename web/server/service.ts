@@ -1,3 +1,4 @@
+// sync-ok-file: CLI-only service management (install/uninstall/status), never runs in the server process
 import { mkdirSync, writeFileSync, unlinkSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -147,7 +148,7 @@ WantedBy=default.target
 
 function resolveBinPath(): string {
   try {
-    const binPath = execSync("which the-companion", { encoding: "utf-8" }).trim(); // sync-ok: CLI-only service management, never runs in server process
+    const binPath = execSync("which the-companion", { encoding: "utf-8" }).trim();
     if (binPath) return binPath;
   } catch {
     // not found globally
@@ -167,7 +168,7 @@ function resolveBinPath(): string {
 
 function unloadLaunchdService(plistPath: string): void {
   try {
-    execSync(`launchctl unload -w "${plistPath}"`, { stdio: "pipe" }); // sync-ok: CLI-only service management, never runs in server process
+    execSync(`launchctl unload -w "${plistPath}"`, { stdio: "pipe" });
   } catch {
     // Service may already be unloaded — that's fine
   }
@@ -175,14 +176,14 @@ function unloadLaunchdService(plistPath: string): void {
 
 function removePlist(plistPath: string): void {
   try {
-    unlinkSync(plistPath); // sync-ok: CLI-only service management, never runs in server process
+    unlinkSync(plistPath);
   } catch {
     // Already gone
   }
 }
 
 function migrateLegacyInstallIfNeeded(): void {
-  if (!existsSync(OLD_PLIST_PATH)) return; // sync-ok: CLI-only service management, never runs in server process
+  if (!existsSync(OLD_PLIST_PATH)) return;
 
   console.log("Found legacy The Vibe Companion service. Migrating...");
   unloadLaunchdService(OLD_PLIST_PATH);
@@ -190,9 +191,8 @@ function migrateLegacyInstallIfNeeded(): void {
 }
 
 function getInstalledLaunchdService(): { label: string; plistPath: string } | undefined {
-  if (existsSync(PLIST_PATH)) return { label: LABEL, plistPath: PLIST_PATH }; // sync-ok: CLI-only service management, never runs in server process
+  if (existsSync(PLIST_PATH)) return { label: LABEL, plistPath: PLIST_PATH };
   if (existsSync(OLD_PLIST_PATH)) {
-    // sync-ok: CLI-only service management, never runs in server process
     return { label: OLD_LABEL, plistPath: OLD_PLIST_PATH };
   }
   return undefined;
@@ -201,13 +201,12 @@ function getInstalledLaunchdService(): { label: string; plistPath: string } | un
 // ─── Linux helpers ──────────────────────────────────────────────────────────────
 
 function isSystemdUnitInstalled(): boolean {
-  return existsSync(UNIT_PATH); // sync-ok: CLI-only service management, never runs in server process
+  return existsSync(UNIT_PATH);
 }
 
 function systemctlUser(cmd: string): string {
   const uid = typeof process.getuid === "function" ? process.getuid() : 1000;
   return execSync(`systemctl --user ${cmd}`, {
-    // sync-ok: CLI-only service management, never runs in server process
     encoding: "utf-8",
     stdio: ["pipe", "pipe", "pipe"],
     env: {
@@ -232,7 +231,6 @@ async function installDarwin(opts?: { port?: number }): Promise<void> {
   migrateLegacyInstallIfNeeded();
 
   if (existsSync(PLIST_PATH)) {
-    // sync-ok: CLI-only service management, never runs in server process
     console.error("Takode is already installed as a service.");
     console.error("Run 'takode uninstall' first to reinstall.");
     process.exit(1);
@@ -242,23 +240,23 @@ async function installDarwin(opts?: { port?: number }): Promise<void> {
   const port = opts?.port ?? DEFAULT_PORT_PROD;
 
   // Create log directory
-  mkdirSync(LOG_DIR, { recursive: true }); // sync-ok: CLI-only service management, never runs in server process
+  mkdirSync(LOG_DIR, { recursive: true });
 
   // Generate and write plist (capture user's shell PATH at install time)
   const path = getServicePath();
   const plist = generatePlist({ binPath, port, path });
-  mkdirSync(PLIST_DIR, { recursive: true }); // sync-ok: CLI-only service management, never runs in server process
-  writeFileSync(PLIST_PATH, plist, "utf-8"); // sync-ok: CLI-only service management, never runs in server process
+  mkdirSync(PLIST_DIR, { recursive: true });
+  writeFileSync(PLIST_PATH, plist, "utf-8");
 
   // Load the service
   try {
-    execSync(`launchctl load -w "${PLIST_PATH}"`, { stdio: "pipe" }); // sync-ok: CLI-only service management, never runs in server process
+    execSync(`launchctl load -w "${PLIST_PATH}"`, { stdio: "pipe" });
   } catch (err: unknown) {
     console.error("Failed to load the service with launchctl:");
     console.error(err instanceof Error ? err.message : String(err));
     // Clean up the plist on failure
     try {
-      unlinkSync(PLIST_PATH); // sync-ok: CLI-only service management
+      unlinkSync(PLIST_PATH);
     } catch {
       /* ok */
     }
@@ -286,13 +284,13 @@ async function installLinux(opts?: { port?: number }): Promise<void> {
   const port = opts?.port ?? DEFAULT_PORT_PROD;
 
   // Create log directory
-  mkdirSync(LOG_DIR, { recursive: true }); // sync-ok: CLI-only service management, never runs in server process
+  mkdirSync(LOG_DIR, { recursive: true });
 
   // Generate and write systemd unit (capture user's shell PATH at install time)
   const path = getServicePath();
   const unit = generateSystemdUnit({ binPath, port, path });
-  mkdirSync(SYSTEMD_DIR, { recursive: true }); // sync-ok: CLI-only service management, never runs in server process
-  writeFileSync(UNIT_PATH, unit, "utf-8"); // sync-ok: CLI-only service management, never runs in server process
+  mkdirSync(SYSTEMD_DIR, { recursive: true });
+  writeFileSync(UNIT_PATH, unit, "utf-8");
 
   // Reload systemd and enable + start the service
   try {
@@ -303,7 +301,7 @@ async function installLinux(opts?: { port?: number }): Promise<void> {
     console.error(err instanceof Error ? err.message : String(err));
     // Clean up the unit file on failure
     try {
-      unlinkSync(UNIT_PATH); // sync-ok: CLI-only service management
+      unlinkSync(UNIT_PATH);
     } catch {
       /* ok */
     }
@@ -312,7 +310,7 @@ async function installLinux(opts?: { port?: number }): Promise<void> {
 
   // Enable linger so user services survive logout
   try {
-    execSync("loginctl enable-linger", { stdio: ["pipe", "pipe", "pipe"] }); // sync-ok: CLI-only service management, never runs in server process
+    execSync("loginctl enable-linger", { stdio: ["pipe", "pipe", "pipe"] });
   } catch {
     console.warn("Warning: Could not enable linger. The service may stop when you log out.");
     console.warn("  sudo loginctl enable-linger $(whoami)");
@@ -366,7 +364,7 @@ async function uninstallLinux(): Promise<void> {
   }
 
   try {
-    unlinkSync(UNIT_PATH); // sync-ok: CLI-only service management, never runs in server process
+    unlinkSync(UNIT_PATH);
   } catch {
     // Already gone
   }
@@ -405,13 +403,13 @@ async function startDarwin(): Promise<void> {
   const domainTarget = uid !== undefined ? `gui/${uid}/${installedService.label}` : installedService.label;
 
   try {
-    execSync(`launchctl kickstart -k "${domainTarget}"`, { stdio: "pipe" }); // sync-ok: CLI-only service management, never runs in server process
+    execSync(`launchctl kickstart -k "${domainTarget}"`, { stdio: "pipe" });
   } catch {
     try {
-      execSync(`launchctl bootstrap "${domain}" "${installedService.plistPath}"`, { stdio: "pipe" }); // sync-ok: CLI-only service management, never runs in server process
+      execSync(`launchctl bootstrap "${domain}" "${installedService.plistPath}"`, { stdio: "pipe" });
     } catch {
       try {
-        execSync(`launchctl load -w "${installedService.plistPath}"`, { stdio: "pipe" }); // sync-ok: CLI-only service management, never runs in server process
+        execSync(`launchctl load -w "${installedService.plistPath}"`, { stdio: "pipe" });
       } catch (err: unknown) {
         console.error("Failed to start the service with launchctl:");
         console.error(err instanceof Error ? err.message : String(err));
@@ -467,7 +465,7 @@ async function stopDarwin(): Promise<void> {
     const domainTarget = uid !== undefined ? `gui/${uid}/${installedService.label}` : installedService.label;
     // `stop` is not enough with KeepAlive=true: launchd can immediately restart it.
     // Booting out unloads the job from launchd while keeping the plist installed.
-    execSync(`launchctl bootout "${domainTarget}"`, { stdio: "pipe" }); // sync-ok: CLI-only service management, never runs in server process
+    execSync(`launchctl bootout "${domainTarget}"`, { stdio: "pipe" });
   } catch {
     // Fallback for environments where bootout/domain targeting is unavailable.
     unloadLaunchdService(installedService.plistPath);
@@ -515,12 +513,12 @@ async function restartDarwin(): Promise<void> {
   const domainTarget = uid !== undefined ? `gui/${uid}/${installedService.label}` : installedService.label;
 
   try {
-    execSync(`launchctl kickstart -k "${domainTarget}"`, { stdio: "pipe" }); // sync-ok: CLI-only service management, never runs in server process
+    execSync(`launchctl kickstart -k "${domainTarget}"`, { stdio: "pipe" });
   } catch {
     // Fallback for environments where kickstart/domain targeting is unavailable.
     unloadLaunchdService(installedService.plistPath);
     try {
-      execSync(`launchctl load -w "${installedService.plistPath}"`, { stdio: "pipe" }); // sync-ok: CLI-only service management, never runs in server process
+      execSync(`launchctl load -w "${installedService.plistPath}"`, { stdio: "pipe" });
     } catch (err: unknown) {
       console.error("Failed to restart the service with launchctl:");
       console.error(err instanceof Error ? err.message : String(err));
@@ -570,7 +568,6 @@ export function isRunningAsService(): boolean {
     if (!installedService) return false;
     try {
       const output = execSync(`launchctl list "${installedService.label}"`, {
-        // sync-ok: CLI-only service management
         encoding: "utf-8",
         stdio: ["pipe", "pipe", "pipe"],
       });
@@ -605,7 +602,7 @@ export function refreshServiceDefinition(): void {
 
     let port = DEFAULT_PORT_PROD;
     try {
-      const content = readFileSync(installedService.plistPath, "utf-8"); // sync-ok: CLI-only service management, never runs in server process
+      const content = readFileSync(installedService.plistPath, "utf-8");
       const portMatch = content.match(/<key>PORT<\/key>\s*<string>(\d+)<\/string>/);
       if (portMatch) port = Number(portMatch[1]);
     } catch {
@@ -615,13 +612,13 @@ export function refreshServiceDefinition(): void {
     const binPath = resolveBinPath();
     const path = getServicePath();
     const plist = generatePlist({ binPath, port, path });
-    writeFileSync(installedService.plistPath, plist, "utf-8"); // sync-ok: CLI-only service management, never runs in server process
+    writeFileSync(installedService.plistPath, plist, "utf-8");
   } else if (isLinux()) {
     if (!isSystemdUnitInstalled()) return;
 
     let port = DEFAULT_PORT_PROD;
     try {
-      const content = readFileSync(UNIT_PATH, "utf-8"); // sync-ok: CLI-only service management, never runs in server process
+      const content = readFileSync(UNIT_PATH, "utf-8");
       const portMatch = content.match(/Environment=PORT=(\d+)/);
       if (portMatch) port = Number(portMatch[1]);
     } catch {
@@ -631,7 +628,7 @@ export function refreshServiceDefinition(): void {
     const binPath = resolveBinPath();
     const path = getServicePath();
     const unit = generateSystemdUnit({ binPath, port, path });
-    writeFileSync(UNIT_PATH, unit, "utf-8"); // sync-ok: CLI-only service management, never runs in server process
+    writeFileSync(UNIT_PATH, unit, "utf-8");
 
     try {
       systemctlUser("daemon-reload");
@@ -659,7 +656,7 @@ async function statusDarwin(): Promise<ServiceStatus> {
   // Read port from the plist
   let port = DEFAULT_PORT_PROD;
   try {
-    const plistContent = readFileSync(installedService.plistPath, "utf-8"); // sync-ok: CLI-only service management, never runs in server process
+    const plistContent = readFileSync(installedService.plistPath, "utf-8");
     const portMatch = plistContent.match(/<key>PORT<\/key>\s*<string>(\d+)<\/string>/);
     if (portMatch) port = Number(portMatch[1]);
   } catch {
@@ -669,7 +666,6 @@ async function statusDarwin(): Promise<ServiceStatus> {
   // Check if service is running via launchctl
   try {
     const output = execSync(`launchctl list "${installedService.label}"`, {
-      // sync-ok: CLI-only service management
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"],
     });
@@ -696,7 +692,7 @@ async function statusLinux(): Promise<ServiceStatus> {
   // Read port from the unit file
   let port = DEFAULT_PORT_PROD;
   try {
-    const unitContent = readFileSync(UNIT_PATH, "utf-8"); // sync-ok: CLI-only service management, never runs in server process
+    const unitContent = readFileSync(UNIT_PATH, "utf-8");
     const portMatch = unitContent.match(/Environment=PORT=(\d+)/);
     if (portMatch) port = Number(portMatch[1]);
   } catch {
