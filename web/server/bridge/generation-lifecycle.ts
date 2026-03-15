@@ -79,6 +79,15 @@ function restartOptimisticRunningTimer<S extends GenerationLifecycleSession>(
     );
     markTurnInterrupted(current, "system");
     setGenerating(deps, current, false, "user_message_timeout");
+    // Drain any remaining queued turns — if the CLI didn't respond to this
+    // promoted turn, it won't respond to subsequent phantom turns either.
+    const remainingEntries = getQueuedTurnLifecycleEntries(current);
+    if (remainingEntries.length > 0) {
+      console.warn(
+        `[ws-bridge] Draining ${remainingEntries.length} remaining queued turn(s) for session ${sessionTag(current.id)} after timeout`,
+      );
+      replaceQueuedTurnLifecycleEntries(current, []);
+    }
     deps.broadcastStatus(current, "idle");
     deps.persistSession(current);
   }, deps.userMessageRunningTimeoutMs);
@@ -178,6 +187,13 @@ function startQueuedTurn<S extends GenerationLifecycleSession>(
   });
   deps.broadcastStatus(session, "running");
   deps.onSessionActivityStateChanged(session.id, `generating:${turnReason}`);
+  // Safety net: if the CLI doesn't respond to this promoted queued turn within
+  // the timeout, it was likely a phantom turn (user message lost during a
+  // WebSocket token refresh). Without this, phantom queued turns leave
+  // isGenerating=true forever. Skip for herded workers (leader-paced).
+  if (!deps.isHerdedWorker?.(session)) {
+    restartOptimisticRunningTimer(deps, session, turnReason);
+  }
 }
 
 export function promoteNextQueuedTurn<S extends GenerationLifecycleSession>(
