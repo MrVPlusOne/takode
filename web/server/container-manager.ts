@@ -794,7 +794,7 @@ export class ContainerManager {
     } finally {
       // Clean up temp build directory
       try {
-        rmSync(buildDir, { recursive: true, force: true });
+        rmSync(buildDir, { recursive: true, force: true }); // sync-ok: container build cleanup, cold path
       } catch {
         /* ignore */
       } // sync-ok: container management, not called during message handling

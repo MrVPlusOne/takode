@@ -77,8 +77,11 @@ describe("Architecture Guards", () => {
         const line = lines[i];
         const trimmed = line.trim();
 
-        // Skip lines with the escape hatch comment
+        // Skip lines with the escape hatch comment (also check next line,
+        // since formatters may move inline comments to a separate line)
         if (line.includes("// sync-ok")) continue;
+        const nextLine = i + 1 < lines.length ? lines[i + 1] : "";
+        if (nextLine.trim().startsWith("// sync-ok")) continue;
 
         // Skip comments
         if (trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*")) continue;

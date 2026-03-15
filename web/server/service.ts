@@ -258,10 +258,10 @@ async function installDarwin(opts?: { port?: number }): Promise<void> {
     console.error(err instanceof Error ? err.message : String(err));
     // Clean up the plist on failure
     try {
-      unlinkSync(PLIST_PATH);
+      unlinkSync(PLIST_PATH); // sync-ok: CLI-only service management
     } catch {
       /* ok */
-    } // sync-ok: CLI-only service management, never runs in server process
+    }
     process.exit(1);
   }
 
@@ -303,10 +303,10 @@ async function installLinux(opts?: { port?: number }): Promise<void> {
     console.error(err instanceof Error ? err.message : String(err));
     // Clean up the unit file on failure
     try {
-      unlinkSync(UNIT_PATH);
+      unlinkSync(UNIT_PATH); // sync-ok: CLI-only service management
     } catch {
       /* ok */
-    } // sync-ok: CLI-only service management, never runs in server process
+    }
     process.exit(1);
   }
 
@@ -570,7 +570,7 @@ export function isRunningAsService(): boolean {
     if (!installedService) return false;
     try {
       const output = execSync(`launchctl list "${installedService.label}"`, {
-        // sync-ok: CLI-only service management, never runs in server process
+        // sync-ok: CLI-only service management
         encoding: "utf-8",
         stdio: ["pipe", "pipe", "pipe"],
       });
@@ -669,7 +669,7 @@ async function statusDarwin(): Promise<ServiceStatus> {
   // Check if service is running via launchctl
   try {
     const output = execSync(`launchctl list "${installedService.label}"`, {
-      // sync-ok: CLI-only service management, never runs in server process
+      // sync-ok: CLI-only service management
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"],
     });
