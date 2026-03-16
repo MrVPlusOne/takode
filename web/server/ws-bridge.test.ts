@@ -12750,11 +12750,33 @@ describe("SDK disconnect auto-relaunch", () => {
     expect(calls).toContainEqual(expect.objectContaining({ type: "backend_disconnected" }));
   });
 
-  it("sends backend_connected optimistically for non-exited SDK session without adapter", () => {
+  it("sends backend_connected optimistically for SDK session in 'starting' state", () => {
+    // When an SDK relaunch is in progress (state="starting"), the adapter
+    // attaches synchronously during spawnClaudeSdk — send backend_connected
+    // optimistically so the browser doesn't flash a disconnect banner.
     const sid = "s1";
     const relaunchCb = vi.fn();
     bridge.onCLIRelaunchNeededCallback(relaunchCb);
-    // Simulate active relaunch: launcher reports SDK session as connected
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      getSession: vi.fn(() => ({ backendType: "claude-sdk", state: "starting" })),
+    } as any);
+
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+
+    expect(relaunchCb).not.toHaveBeenCalled();
+    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    expect(calls).toContainEqual(expect.objectContaining({ type: "backend_connected" }));
+  });
+
+  it("sends backend_disconnected and triggers relaunch for SDK session in 'connected' state without adapter", () => {
+    // When the SDK adapter has disconnected at runtime, the launcher state
+    // stays "connected" but the adapter is null — the backend is genuinely
+    // dead. The browser must be told it's disconnected and relaunch triggered.
+    const sid = "s1";
+    const relaunchCb = vi.fn();
+    bridge.onCLIRelaunchNeededCallback(relaunchCb);
     bridge.setLauncher({
       touchActivity: vi.fn(),
       getSession: vi.fn(() => ({ backendType: "claude-sdk", state: "connected" })),
@@ -12763,10 +12785,9 @@ describe("SDK disconnect auto-relaunch", () => {
     const browser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(browser, sid);
 
-    // Should NOT trigger relaunch — adapter is being attached during active relaunch
-    expect(relaunchCb).not.toHaveBeenCalled();
+    expect(relaunchCb).toHaveBeenCalledWith(sid);
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    expect(calls).toContainEqual(expect.objectContaining({ type: "backend_connected" }));
+    expect(calls).toContainEqual(expect.objectContaining({ type: "backend_disconnected" }));
   });
 });
 

@@ -4229,15 +4229,17 @@ export class WsBridge {
 
     if (!hasBackendAttached) {
       const launcherInfo = this.launcher?.getSession(sessionId);
-      // For SDK sessions during an active relaunch, the adapter attaches
-      // synchronously so it should be ready within seconds — send backend_connected
-      // optimistically.  However, after a server restart the adapter is gone
-      // (state="exited") and we need to trigger a relaunch just like CLI sessions.
-      if (launcherInfo?.backendType === "claude-sdk" && launcherInfo.state !== "exited") {
-        this.sendToBrowser(ws, { type: "backend_connected" });
-      } else if (launcherInfo?.state === "starting") {
-        // CLI is starting up — don't request relaunch, just notify
-        this.sendToBrowser(ws, { type: "backend_disconnected" });
+      if (launcherInfo?.state === "starting") {
+        // Backend is starting up (relaunch in progress). For SDK sessions the
+        // adapter attaches synchronously during spawnClaudeSdk, so it will be
+        // ready momentarily — send backend_connected optimistically. For CLI/Codex
+        // sessions the WebSocket hasn't connected yet, so report disconnected and
+        // let the caller wait for the real backend_connected event.
+        if (launcherInfo.backendType === "claude-sdk") {
+          this.sendToBrowser(ws, { type: "backend_connected" });
+        } else {
+          this.sendToBrowser(ws, { type: "backend_disconnected" });
+        }
       } else {
         const idleKilled = launcherInfo?.killedByIdleManager;
         this.sendToBrowser(ws, {
