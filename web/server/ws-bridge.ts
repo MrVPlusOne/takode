@@ -393,6 +393,9 @@ interface Session {
   /** Set when the CLI reconnects within the grace period (token refresh, not relaunch).
    *  Consumed by system.init handler to skip force-clearing isGenerating. */
   seamlessReconnect: boolean;
+  /** Set by onBeforeRelaunch — prevents handleCLIOpen from treating the new
+   *  CLI connection as a seamless reconnect (which would preserve stale isGenerating). */
+  relaunchPending: boolean;
   /** High-level task history recognized by the session auto-namer */
   taskHistory: SessionTaskEntry[];
   /** Accumulated search keywords from the session auto-namer */
@@ -1833,6 +1836,7 @@ export class WsBridge {
         disconnectGraceTimer: null,
         disconnectWasGenerating: false,
         seamlessReconnect: false,
+        relaunchPending: false,
         taskHistory: Array.isArray(p.taskHistory) ? p.taskHistory : [],
         keywords: Array.isArray(p.keywords) ? p.keywords : [],
         diffStatsDirty: true,
@@ -2397,6 +2401,7 @@ export class WsBridge {
         disconnectGraceTimer: null,
         disconnectWasGenerating: false,
         seamlessReconnect: false,
+        relaunchPending: false,
         taskHistory: [],
         keywords: [],
         diffStatsDirty: true,
@@ -3884,13 +3889,23 @@ export class WsBridge {
     // Cancel disconnect grace timer if the CLI reconnected within the window.
     // The CLI disconnects every ~5 minutes for token refresh and reconnects in ~13s.
     // If the grace timer is running, this reconnect is seamless — no events emitted.
+    // Exception: if relaunchPending is set, this is a new process from an intentional
+    // relaunch, not a token refresh — don't treat it as seamless so system.init can
+    // force-clear stale isGenerating state.
     if (session.disconnectGraceTimer) {
       clearTimeout(session.disconnectGraceTimer);
       session.disconnectGraceTimer = null;
-      session.seamlessReconnect = true;
-      console.log(
-        `[ws-bridge] CLI reconnected within grace period for session ${sessionTag(sessionId)} (seamless, wasGenerating=${session.disconnectWasGenerating})`,
-      );
+      if (session.relaunchPending) {
+        console.log(
+          `[ws-bridge] CLI connected after relaunch for session ${sessionTag(sessionId)} (not seamless, wasGenerating=${session.disconnectWasGenerating})`,
+        );
+        session.relaunchPending = false;
+      } else {
+        session.seamlessReconnect = true;
+        console.log(
+          `[ws-bridge] CLI reconnected within grace period for session ${sessionTag(sessionId)} (seamless, wasGenerating=${session.disconnectWasGenerating})`,
+        );
+      }
     }
 
     // NOTE: Herd event flush is NOT done here — it's done after system.init
@@ -4839,6 +4854,15 @@ export class WsBridge {
           );
           this.markTurnInterrupted(session, "system");
           this.setGenerating(session, false, "system_init_reset");
+          // Drain stale queued turns — they reference user messages from a
+          // previous CLI process that will never be processed by the new one.
+          const staleEntries = getQueuedTurnLifecycleEntriesLifecycle(session);
+          if (staleEntries.length > 0) {
+            console.log(
+              `[ws-bridge] Draining ${staleEntries.length} stale queued turn(s) on system.init reset for session ${sessionTag(session.id)}`,
+            );
+            replaceQueuedTurnLifecycleEntriesLifecycle(session, []);
+          }
           this.broadcastToBrowsers(session, { type: "status_change", status: "idle" });
         }
       }
@@ -7681,6 +7705,14 @@ export class WsBridge {
     if (!session) return;
     session.intentionalCodexRelaunchUntil = Date.now() + CODEX_INTENTIONAL_RELAUNCH_GUARD_MS;
     session.intentionalCodexRelaunchReason = reason;
+  }
+
+  /** Mark an upcoming relaunch so handleCLIOpen doesn't treat the new CLI
+   *  connection as a seamless reconnect (which would preserve stale isGenerating). */
+  markRelaunchPending(sessionId: string): void {
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+    session.relaunchPending = true;
   }
 
   private requestCodexIntentionalRelaunch(session: Session, reason: string, delayMs = 0): void {

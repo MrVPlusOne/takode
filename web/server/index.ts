@@ -166,6 +166,12 @@ launcher.onBeforeRelaunchCallback((sessionId, backendType) => {
   // Claude SDK sessions use a different intentional-disconnect mechanism
   // (the adapter.disconnect() call in attachClaudeSdkAdapter sets
   // session.codexAdapter = adapter before the old one's callback fires).
+
+  // For all backends: prevent handleCLIOpen from treating the new CLI
+  // connection as a seamless reconnect (token refresh). Without this,
+  // the system.init handler skips force-clearing stale isGenerating state,
+  // leaving phantom queued turns stuck as "running" across relaunches.
+  wsBridge.markRelaunchPending(sessionId);
 });
 
 // Start watching PRs when git info is resolved for a session
