@@ -73,6 +73,8 @@ export class ClaudeSdkAdapter implements BackendAdapter<ClaudeSdkSessionMeta>, P
   private initErrorCb: ((error: string) => void) | null = null;
   private pendingPermissions = new Map<string, PendingPermission>();
   private pendingOutgoing: BrowserOutgoingMessage[] = [];
+  /** Cached MCP servers from the last session_init, used to respond to mcp_get_status. */
+  private cachedMcpServers: Array<{ name: string; status: string }> = [];
 
   constructor(sessionId: string, options: ClaudeSdkAdapterOptions) {
     this.sessionId = sessionId;
@@ -375,6 +377,9 @@ export class ClaudeSdkAdapter implements BackendAdapter<ClaudeSdkSessionMeta>, P
           };
           this.sessionMetaCb?.(meta);
 
+          // Cache MCP servers for later mcp_get_status queries
+          this.cachedMcpServers = msg.mcp_servers || [];
+
           // Forward as session_init
           this.emitBrowserMessage({
             type: "session_init",
@@ -614,6 +619,21 @@ export class ClaudeSdkAdapter implements BackendAdapter<ClaudeSdkSessionMeta>, P
         } else {
           console.warn(`[claude-sdk-adapter] No setModel method available for session ${this.sessionId}`);
         }
+        return true;
+      }
+
+      case "mcp_get_status": {
+        // The Claude Code SDK doesn't expose runtime MCP status queries.
+        // Return the cached server list from the last session_init -- this
+        // gives the browser the same data it received on connect, which is
+        // sufficient for UI display.
+        const servers = this.cachedMcpServers.map((s) => ({
+          name: s.name,
+          status: s.status as "connected" | "failed" | "disabled" | "connecting",
+          config: { type: "unknown" },
+          scope: "user",
+        }));
+        this.emitBrowserMessage({ type: "mcp_status", servers } as any);
         return true;
       }
 
