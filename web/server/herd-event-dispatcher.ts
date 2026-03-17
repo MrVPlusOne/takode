@@ -160,10 +160,11 @@ export class HerdEventDispatcher {
   private onWorkerEvent(orchId: string, event: TakodeEvent): void {
     if (!ACTIONABLE_EVENTS.has(event.event)) return;
 
-    // Suppress user-initiated turn_end events — these are from direct user
-    // chat with the worker, not leader-dispatched work. The leader shouldn't
-    // receive noise from turns it didn't initiate.
-    if (event.event === "turn_end" && event.data.turn_source === "user") return;
+    // Annotate user-initiated turn_end events so the leader can distinguish
+    // them from leader-dispatched work, but still deliver them. The leader
+    // needs visibility into ALL worker state changes to monitor the herd.
+    // Previously these were silently dropped (q-16), which created a blind
+    // spot: the leader never learned about user-triggered task completions.
 
     const inbox = this.inboxes.get(orchId);
     if (!inbox) return;
@@ -455,6 +456,8 @@ function formatSingleEvent(evt: TakodeEvent, nowTs: number): string {
       const resultPreview =
         typeof evt.data.resultPreview === "string" ? ` | "${truncate(evt.data.resultPreview, 60)}"` : "";
       const compacted = evt.data.compacted ? " (compacted)" : "";
+      // Annotate user-initiated turns so the leader knows this wasn't its work
+      const userInitiated = evt.data.turn_source === "user" ? " (user-initiated)" : "";
       const interruptSource = evt.data.interrupt_source ?? null;
       const success = evt.data.interrupted
         ? `interrupted${interruptSource ? ` (by ${interruptSource})` : ""}`
@@ -470,7 +473,7 @@ function formatSingleEvent(evt: TakodeEvent, nowTs: number): string {
       // Quest status change during this turn
       const qc = evt.data.questChange;
       const questStr = qc ? ` | ${qc.questId}: ${qc.from} → ${qc.to}` : "";
-      return `${label} | turn_end | ${success} ${duration}${compacted}${tools}${rangeStr}${userMsgStr}${questStr}${resultPreview}${ageSuffix}`;
+      return `${label} | turn_end | ${success} ${duration}${compacted}${userInitiated}${tools}${rangeStr}${userMsgStr}${questStr}${resultPreview}${ageSuffix}`;
     }
     case "compaction_started": {
       const pct =

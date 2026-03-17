@@ -504,21 +504,24 @@ describe("HerdEventDispatcher", () => {
     dispatcher.destroy();
   });
 
-  it("filters user-initiated turn_end events (turn_source='user')", () => {
-    // User-initiated turns on herded workers should not be delivered to the
-    // leader — they create spurious herd events from work the leader didn't
-    // initiate (q-16 fix).
+  it("delivers user-initiated turn_end events (annotated, not dropped)", () => {
+    // User-initiated turns on herded workers must still be delivered to the
+    // leader so it has full visibility into worker state. Previously these
+    // were silently dropped (q-16), creating a blind spot where the leader
+    // never learned about user-triggered task completions.
     const { bridge, launcher } = createMocks();
     const dispatcher = new HerdEventDispatcher(bridge, launcher);
     dispatcher.setupForOrchestrator("orch-1");
 
     vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
 
-    // User-initiated turn_end (filtered)
     triggerEvent(makeEvent({ event: "turn_end", data: { duration_ms: 5000, turn_source: "user" } }));
 
     vi.advanceTimersByTime(600);
-    expect(bridge.injectUserMessage).not.toHaveBeenCalled();
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+    // The formatted output should annotate it as user-initiated
+    const content = vi.mocked(bridge.injectUserMessage).mock.calls[0][1];
+    expect(content).toContain("(user-initiated)");
 
     dispatcher.destroy();
   });
@@ -572,8 +575,9 @@ describe("HerdEventDispatcher", () => {
     dispatcher.destroy();
   });
 
-  it("only delivers leader-initiated turn_end when batch has both user and leader turns", () => {
-    // Mixed batch: user-initiated should be filtered, leader-initiated should be delivered.
+  it("delivers both user and leader turn_end events in a mixed batch", () => {
+    // Both user-initiated and leader-initiated events should be delivered.
+    // User-initiated events are annotated so the leader can distinguish them.
     const { bridge, launcher } = createMocks();
     const dispatcher = new HerdEventDispatcher(bridge, launcher);
     dispatcher.setupForOrchestrator("orch-1");
@@ -585,9 +589,11 @@ describe("HerdEventDispatcher", () => {
 
     vi.advanceTimersByTime(600);
     expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
-    // The delivered message should only contain 1 event (the leader-initiated one)
     const content = vi.mocked(bridge.injectUserMessage).mock.calls[0][1];
-    expect(content).toContain("1 event from 1 session");
+    // Both events delivered
+    expect(content).toContain("2 events from 1 session");
+    // User-initiated one is annotated
+    expect(content).toContain("(user-initiated)");
 
     dispatcher.destroy();
   });
@@ -678,6 +684,31 @@ describe("formatHerdEventBatch", () => {
     const result = formatHerdEventBatch(events);
     // Should show "(compacted)" after the duration so the leader knows the agent was busy compacting
     expect(result).toContain("30.0s (compacted)");
+  });
+
+  it("formats user-initiated turn_end with (user-initiated) annotation", () => {
+    // User-initiated turns are annotated so the leader can distinguish them
+    // from leader-dispatched work without losing visibility.
+    const events = [
+      makeEvent({
+        event: "turn_end",
+        data: { duration_ms: 5000, turn_source: "user" },
+      }),
+    ];
+    const result = formatHerdEventBatch(events);
+    expect(result).toContain("(user-initiated)");
+    expect(result).toContain("5.0s");
+  });
+
+  it("does not annotate leader-initiated turn_end with (user-initiated)", () => {
+    const events = [
+      makeEvent({
+        event: "turn_end",
+        data: { duration_ms: 5000, turn_source: "leader" },
+      }),
+    ];
+    const result = formatHerdEventBatch(events);
+    expect(result).not.toContain("(user-initiated)");
   });
 
   it("formats compaction_started event with context percentage", () => {

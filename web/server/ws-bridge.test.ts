@@ -11716,10 +11716,10 @@ describe("Codex user_message takode events", () => {
       const herdDeliveries = herdInjectSpy.mock.calls.filter(
         ([sid, _content, source]) => sid === leaderId && source?.sessionId === "herd-events",
       );
-      // Only the leader-initiated turn_end is delivered to the leader.
-      // The first turn_end (user-initiated, turn_source="user") is filtered
-      // by the herd event dispatcher since the leader didn't initiate it.
-      expect(herdDeliveries).toHaveLength(1);
+      // Both turn_end events are delivered to the leader: user-initiated
+      // ones are annotated with "(user-initiated)" so the leader has full
+      // visibility into all worker state changes.
+      expect(herdDeliveries).toHaveLength(2);
     } finally {
       dispatcher.destroy();
       eventSpy.mockRestore();
@@ -11891,10 +11891,10 @@ describe("Codex user_message takode events", () => {
       const herdDeliveries = herdInjectSpy.mock.calls.filter(
         ([sid, _content, source]) => sid === leaderId && source?.sessionId === "herd-events",
       );
-      // Only the leader-initiated turn_end is delivered to the leader.
-      // The first turn_end (user-initiated, turn_source="user") is filtered
-      // by the herd event dispatcher since the leader didn't initiate it.
-      expect(herdDeliveries).toHaveLength(1);
+      // Both turn_end events are delivered to the leader: user-initiated
+      // ones are annotated with "(user-initiated)" so the leader has full
+      // visibility into all worker state changes.
+      expect(herdDeliveries).toHaveLength(2);
     } finally {
       dispatcher.destroy();
       eventSpy.mockRestore();
@@ -12053,10 +12053,10 @@ describe("Codex user_message takode events", () => {
       const herdDeliveries = herdInjectSpy.mock.calls.filter(
         ([sid, _content, source]) => sid === leaderId && source?.sessionId === "herd-events",
       );
-      // Only the leader-initiated turn_end is delivered to the leader.
-      // The first turn_end (user-initiated, turn_source="user") is filtered
-      // by the herd event dispatcher since the leader didn't initiate it.
-      expect(herdDeliveries).toHaveLength(1);
+      // Both turn_end events are delivered to the leader: user-initiated
+      // ones are annotated with "(user-initiated)" so the leader has full
+      // visibility into all worker state changes.
+      expect(herdDeliveries).toHaveLength(2);
     } finally {
       dispatcher.destroy();
       eventSpy.mockRestore();
