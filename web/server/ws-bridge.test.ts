@@ -12792,6 +12792,47 @@ describe("SDK disconnect auto-relaunch", () => {
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     expect(calls).toContainEqual(expect.objectContaining({ type: "backend_disconnected" }));
   });
+
+  it("stops auto-relaunch after max failures without reverting backend type", () => {
+    // Regression: after removing the SDK crash-loop fallback, exceeding
+    // MAX_ADAPTER_RELAUNCH_FAILURES (3) consecutive adapter disconnects should
+    // stop auto-relaunching and broadcast an error, but the session's
+    // backendType must stay "claude-sdk" (not silently revert to "claude").
+    const sid = "s-sdk-no-revert";
+    const relaunchCb = vi.fn();
+    bridge.onCLIRelaunchNeededCallback(relaunchCb);
+
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    browser.send.mockClear();
+    relaunchCb.mockClear();
+
+    // Simulate 4 consecutive adapter attach+disconnect cycles (1 more than the cap of 3).
+    // Each cycle: attach a fresh SDK adapter, then immediately disconnect it.
+    for (let i = 0; i < 4; i++) {
+      const adapter = makeClaudeSdkAdapterMock();
+      bridge.attachClaudeSdkAdapter(sid, adapter as any);
+      adapter.emitDisconnect();
+    }
+
+    // Only the first 3 disconnects should have triggered auto-relaunch;
+    // the 4th exceeds MAX_ADAPTER_RELAUNCH_FAILURES and is suppressed.
+    expect(relaunchCb).toHaveBeenCalledTimes(3);
+
+    // The error message should be broadcast to browsers.
+    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    expect(calls).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        message: expect.stringContaining("Session stopped after 3 consecutive launch failures"),
+      }),
+    );
+
+    // Critical: backendType must remain "claude-sdk" — no silent fallback to "claude".
+    const session = bridge.getSession(sid)!;
+    expect(session.backendType).toBe("claude-sdk");
+    expect(session.state.backend_type).toBe("claude-sdk");
+  });
 });
 
 describe("cliResuming debounce prevents false compaction events on --resume replay", () => {
