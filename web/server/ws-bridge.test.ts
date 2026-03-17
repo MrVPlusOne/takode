@@ -13103,6 +13103,88 @@ describe("stuck session watchdog", () => {
     vi.clearAllTimers();
     vi.useRealTimers();
   });
+
+  it("does not flag a session as stuck when tools are actively running (block=true Bash)", () => {
+    // When a CLI is executing a blocking command (e.g. `sleep 600` with block=true),
+    // there are no tool_progress events or CLI messages. The session has an active
+    // tool in toolStartTimes, which proves the CLI is alive and waiting for the tool.
+    vi.useFakeTimers();
+    const sid = "s-stuck-blocking-tool";
+    const cli = makeCliSocket(sid);
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    bridge.handleCLIOpen(cli, sid);
+    bridge.handleCLIMessage(cli, makeInitMsg());
+
+    const session = bridge.getSession(sid)!;
+
+    // Generation started 5 minutes ago, no CLI activity since
+    const fiveMinAgo = Date.now() - 300_000;
+    session.isGenerating = true;
+    session.generationStartedAt = fiveMinAgo;
+    session.lastCliMessageAt = fiveMinAgo;
+    session.lastCliPingAt = fiveMinAgo;
+    session.lastToolProgressAt = 0;
+    session.stuckNotifiedAt = null;
+
+    // But a tool is actively running (started but no result yet)
+    session.toolStartTimes.set("tool-bash-123", fiveMinAgo);
+
+    bridge.startStuckSessionWatchdog();
+
+    vi.advanceTimersByTime(31_000);
+
+    // Should NOT be flagged as stuck — a tool is actively running
+    const sentMessages = browser.send.mock.calls.map((c: any) => JSON.parse(c[0]));
+    const stuckMessages = sentMessages.filter((m: any) => m.type === "session_stuck");
+    expect(stuckMessages).toHaveLength(0);
+    expect(session.stuckNotifiedAt).toBeNull();
+
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  });
+
+  it("clears stuck flag when a tool starts running on a previously-stuck session", () => {
+    // If a session was flagged as stuck and then a tool starts (toolStartTimes
+    // becomes non-empty), the next watchdog tick should send session_unstuck.
+    vi.useFakeTimers();
+    const sid = "s-stuck-then-tool";
+    const cli = makeCliSocket(sid);
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    bridge.handleCLIOpen(cli, sid);
+    bridge.handleCLIMessage(cli, makeInitMsg());
+
+    const session = bridge.getSession(sid)!;
+
+    const fiveMinAgo = Date.now() - 300_000;
+    session.isGenerating = true;
+    session.generationStartedAt = fiveMinAgo;
+    session.lastCliMessageAt = fiveMinAgo;
+    session.lastCliPingAt = fiveMinAgo;
+    session.lastToolProgressAt = 0;
+    session.stuckNotifiedAt = null;
+
+    bridge.startStuckSessionWatchdog();
+
+    // First tick: no tools running, should fire session_stuck
+    vi.advanceTimersByTime(31_000);
+    expect(session.stuckNotifiedAt).not.toBeNull();
+
+    // Now a tool starts running
+    session.toolStartTimes.set("tool-bash-456", Date.now());
+    browser.send.mockClear();
+
+    // Second tick: should fire session_unstuck because tool is active
+    vi.advanceTimersByTime(30_000);
+    const sentMessages = browser.send.mock.calls.map((c: any) => JSON.parse(c[0]));
+    const unstuckMessages = sentMessages.filter((m: any) => m.type === "session_unstuck");
+    expect(unstuckMessages).toHaveLength(1);
+    expect(session.stuckNotifiedAt).toBeNull();
+
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  });
 });
 
 // ─── SDK task_notification forwarding ────────────────────────────────────────

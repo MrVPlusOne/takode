@@ -1265,6 +1265,18 @@ export class WsBridge {
         // "stuck" that self-clears on the next cycle once real CLI output arrives.
         if (now - session.generationStartedAt < STUCK_THRESHOLD_MS) continue;
 
+        // If tools are actively running (started but no result yet), the
+        // session is not stuck — it's waiting for a blocking command, agent,
+        // or other tool to finish.  This covers long-running `block=true`
+        // Bash commands that produce no output (no tool_progress events).
+        if (session.toolStartTimes.size > 0) {
+          if (session.stuckNotifiedAt) {
+            session.stuckNotifiedAt = null;
+            this.broadcastToBrowsers(session, { type: "session_unstuck" } as BrowserIncomingMessage);
+          }
+          continue;
+        }
+
         // Check whether the CLI has been active recently — either a real
         // message, a keep_alive ping, or sub-agent tool_progress within the
         // threshold. Sub-agent progress prevents false "stuck" warnings when
