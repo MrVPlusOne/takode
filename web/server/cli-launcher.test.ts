@@ -1961,10 +1961,15 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("[#5](session:5)");
     expect(guardrails).toContain("sub-agent");
     expect(guardrails).toContain("After your own context compaction, refresh worker state before dispatching.");
-    expect(guardrails).toContain("Prefer reusing an idle existing worker over spawning a new one.");
-    expect(guardrails).toContain(
-      "Only use `takode spawn` when no suitable worker exists or when you explicitly need isolation.",
-    );
+    // Updated worker reuse policy: prefer fresh workers, only reuse if highly related
+    expect(guardrails).toContain("Only reuse an existing worker if the new work is highly related");
+    expect(guardrails).toContain("When in doubt, spawn a new worker.");
+    // New features: quest requirement, herd size limit, plan-before-execute, /groom, archive
+    expect(guardrails).toContain("Always create a quest for non-trivial work.");
+    expect(guardrails).toContain("Maintain at most 5 sessions in your herd.");
+    expect(guardrails).toContain("Always require a plan before implementation.");
+    expect(guardrails).toContain("require self-review via `/groom`");
+    expect(guardrails).toContain("takode archive");
   });
 
   it("returns Codex guardrails without Claude-only or sub-agent guidance", () => {
@@ -1974,10 +1979,8 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("override any conflicting generic markdown-link or file-reference instructions");
     expect(guardrails).toContain("Do not use plain absolute-path markdown links");
     expect(guardrails).toContain("After your own context compaction, refresh worker state before dispatching.");
-    expect(guardrails).toContain("Prefer reusing an idle existing worker over spawning a new one.");
-    expect(guardrails).toContain(
-      "Only use `takode spawn` when no suitable worker exists or when you explicitly need isolation.",
-    );
+    expect(guardrails).toContain("Only reuse an existing worker if the new work is highly related");
+    expect(guardrails).toContain("When in doubt, spawn a new worker.");
     expect(guardrails).not.toContain("CLAUDE.md");
     expect(guardrails).not.toContain("sub-agent");
     expect(guardrails).not.toMatch(/\bagent\b/i);

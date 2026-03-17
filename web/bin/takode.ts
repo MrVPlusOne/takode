@@ -494,6 +494,7 @@ async function handleList(base: string, args: string[]): Promise<void> {
   const flags = parseFlags(args);
   const showAll = flags.all === true;
   const showActive = flags.active === true;
+  const showTasks = flags.tasks === true;
   const jsonMode = flags.json === true;
 
   const sessions = (await apiGet(base, "/takode/sessions")) as Array<{
@@ -522,6 +523,7 @@ async function handleList(base: string, args: string[]): Promise<void> {
     herdedBy?: string;
     claimedQuestId?: string | null;
     claimedQuestStatus?: string | null;
+    taskHistory?: Array<{ title: string; timestamp: number }>;
   }>;
 
   // 3-mode filter:
@@ -599,6 +601,7 @@ async function handleList(base: string, args: string[]): Promise<void> {
 
     for (const s of projectSessions) {
       printSessionLine(s);
+      if (showTasks) printSessionTasks(s.taskHistory);
       total++;
     }
     console.log("");
@@ -609,6 +612,7 @@ async function handleList(base: string, args: string[]): Promise<void> {
     console.log(`▸ ARCHIVED  ${archived.length}`);
     for (const s of archived) {
       printSessionLine(s);
+      if (showTasks) printSessionTasks(s.taskHistory);
       total++;
     }
     console.log("");
@@ -678,6 +682,22 @@ function printSessionLine(s: {
 
   console.log(`  ${num.padEnd(5)} ${status} ${name}${role}${herd}${backend}${quest}${attention}`);
   console.log(`        ${cwdLabel}${branch}${gitDelta}${diffStats}${wt}  ${activity}${preview}`);
+}
+
+function printSessionTasks(taskHistory?: Array<{ title: string; timestamp: number }>): void {
+  if (!taskHistory || taskHistory.length === 0) return;
+  const maxDisplay = 8;
+  const entries = taskHistory.slice(-maxDisplay);
+  const header =
+    taskHistory.length > maxDisplay
+      ? `       Tasks (showing ${entries.length} of ${taskHistory.length}):`
+      : `       Tasks (${entries.length}):`;
+  console.log(header);
+  for (const t of entries) {
+    const time = formatTimeShort(t.timestamp);
+    const title = truncate(formatInlineText(t.title), 60);
+    console.log(`         ${time}  ${title}`);
+  }
 }
 
 // ─── Info handler ────────────────────────────────────────────────────────────
@@ -1715,6 +1735,32 @@ async function handleStop(base: string, args: string[]): Promise<void> {
   console.log(`[${formatTime(Date.now())}] \u2713 Stopped session ${formatInlineText(sessionRef)}`);
 }
 
+// ─── Archive handler ─────────────────────────────────────────────────────────
+
+async function handleArchive(base: string, args: string[]): Promise<void> {
+  const sessionRef = args.filter((a) => !a.startsWith("--"))[0];
+  const jsonMode = args.includes("--json");
+  if (!sessionRef) err("Usage: takode archive <session>");
+
+  const result = (await apiPost(base, `/sessions/${encodeURIComponent(sessionRef)}/archive`, {})) as {
+    ok: boolean;
+    error?: string;
+  };
+
+  if (jsonMode) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (result.ok) {
+    console.log(`[${formatTime(Date.now())}] \u2713 Archived session ${formatInlineText(sessionRef)}`);
+  } else {
+    console.log(
+      `[${formatTime(Date.now())}] \u2717 Failed to archive session ${formatInlineText(sessionRef)}: ${result.error || "unknown error"}`,
+    );
+  }
+}
+
 // ─── Herd/Unherd handlers ───────────────────────────────────────────────────
 
 async function handleHerd(base: string, args: string[]): Promise<void> {
@@ -2174,6 +2220,7 @@ Commands:
   herd     Herd sessions (e.g. takode herd 5,6,7)
   unherd   Release a session from your herd (e.g. takode unherd 5)
   stop     Gracefully stop a herded session (e.g. takode stop 5)
+  archive  Archive a herded session (e.g. takode archive 5)
   pending  Show pending questions/plans from a herded session
   answer   Answer a pending question or approve/reject a plan
   set-base       Set the diff base branch for a session
@@ -2238,6 +2285,7 @@ try {
     ["herd", { requireOrchestrator: true }],
     ["unherd", { requireOrchestrator: true }],
     ["stop", { requireOrchestrator: true }],
+    ["archive", { requireOrchestrator: true }],
     ["pending", { requireOrchestrator: true }],
     ["answer", { requireOrchestrator: true }],
     ["set-base", {}],
@@ -2267,6 +2315,9 @@ try {
       break;
     case "stop":
       await handleStop(base, args);
+      break;
+    case "archive":
+      await handleArchive(base, args);
       break;
     case "tasks":
       await handleTasks(base, args);
