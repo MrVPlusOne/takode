@@ -333,7 +333,10 @@ export function createSessionsRoutes(ctx: RouteContext) {
       if (!repoInfo) {
         throwPreparationError("Worktree mode requires a git repository", 400, "creating_worktree");
       } else {
-        const targetBranch = body.branch || repoInfo.currentBranch;
+        // When the CWD is already inside a worktree (e.g. a leader spawning a worker),
+        // use the base branch so the new worktree branches off the same parent --
+        // not the leader's worktree branch (which would create a worktree-of-a-worktree).
+        const targetBranch = body.branch || (repoInfo.isWorktree ? repoInfo.defaultBranch : repoInfo.currentBranch);
         if (!targetBranch) {
           throwPreparationError("Unable to determine branch for worktree session", 400, "creating_worktree");
         }

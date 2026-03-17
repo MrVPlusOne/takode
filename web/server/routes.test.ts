@@ -645,7 +645,7 @@ describe("POST /api/sessions/create", () => {
     });
     vi.mocked(gitUtils.ensureWorktree).mockReturnValue({
       worktreePath: "/home/.companion/worktrees/companion/jiayi-wt-9326",
-      branch: "jiayi-wt-2775",
+      branch: "jiayi",
       actualBranch: "jiayi-wt-9326",
       isNew: true,
     });
@@ -660,7 +660,9 @@ describe("POST /api/sessions/create", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(gitUtils.ensureWorktree).toHaveBeenCalledWith("/repo", "jiayi-wt-2775", {
+    // When CWD is already a worktree, should use the base branch (jiayi),
+    // not the worktree branch (jiayi-wt-2775), to avoid worktree-of-a-worktree
+    expect(gitUtils.ensureWorktree).toHaveBeenCalledWith("/repo", "jiayi", {
       baseBranch: "jiayi",
       createBranch: undefined,
       forceNew: true,
