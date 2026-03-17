@@ -1462,7 +1462,7 @@ export class WsBridge {
       isGenerating: session.isGenerating,
       generationStartedAt: session.generationStartedAt,
       queuedTurnStarts: session.queuedTurnStarts,
-      backendConnected: !!(session.backendSocket || session.codexAdapter || session.claudeSdkAdapter),
+      cliConnected: !!(session.backendSocket || session.codexAdapter || session.claudeSdkAdapter),
       cliInitReceived: session.cliInitReceived,
       pendingMessagesCount: session.pendingMessages.length,
       pendingPermissionsCount: session.pendingPermissions.size,

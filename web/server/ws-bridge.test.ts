@@ -13799,3 +13799,35 @@ describe("Cross-session branch invalidation", () => {
     expect(crossSessionUpdates.length).toBe(0);
   });
 });
+
+// ─── getHerdDiagnostics field name consistency ──────────────────────────────
+// Regression: getHerdDiagnostics() returned `backendConnected` but the frontend
+// reads `cliConnected`. Since the type is Record<string, unknown>, TypeScript
+// didn't catch the mismatch, causing the Herd Diagnostics panel to always show
+// "cli disconnected" even when the CLI was active.
+
+describe("getHerdDiagnostics field name consistency", () => {
+  it("returns cliConnected (not backendConnected) when SDK adapter is attached", () => {
+    const sid = "herd-diag-field";
+    const adapter = makeClaudeSdkAdapterMock();
+    bridge.attachClaudeSdkAdapter(sid, adapter as any);
+
+    const diag = bridge.getHerdDiagnostics(sid);
+    expect(diag).not.toBeNull();
+    // Must use "cliConnected" — this is what the frontend reads.
+    expect(diag!.cliConnected).toBe(true);
+    // Must NOT use "backendConnected" — that's the old buggy field name.
+    expect("backendConnected" in diag!).toBe(false);
+  });
+
+  it("returns cliConnected=false when no backend is attached", () => {
+    const sid = "herd-diag-disconnected";
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+
+    const diag = bridge.getHerdDiagnostics(sid);
+    expect(diag).not.toBeNull();
+    expect(diag!.cliConnected).toBe(false);
+    expect("backendConnected" in diag!).toBe(false);
+  });
+});
