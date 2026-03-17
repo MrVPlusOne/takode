@@ -299,6 +299,7 @@ export interface AppSettings {
   autoNamerEnabled: boolean;
   transcriptionConfig: TranscriptionConfig;
   editorConfig: EditorConfig;
+  defaultClaudeBackend: "claude" | "claude-sdk";
   restartSupported: boolean;
   claudeDefaultModel?: string;
 }
@@ -607,6 +608,12 @@ export const api = {
 
   relaunchSession: (sessionId: string) => post(`/sessions/${encodeURIComponent(sessionId)}/relaunch`),
 
+  upgradeTransport: (sessionId: string) =>
+    post<{ ok: boolean; error?: string }>(`/sessions/${encodeURIComponent(sessionId)}/upgrade-transport`),
+
+  downgradeTransport: (sessionId: string) =>
+    post<{ ok: boolean; error?: string }>(`/sessions/${encodeURIComponent(sessionId)}/downgrade-transport`),
+
   forceCompact: (sessionId: string) => post(`/sessions/${encodeURIComponent(sessionId)}/force-compact`),
 
   revertToMessage: (sessionId: string, messageId: string) =>
@@ -723,6 +730,7 @@ export const api = {
     autoNamerEnabled?: boolean;
     transcriptionConfig?: TranscriptionConfig;
     editorConfig?: EditorConfig;
+    defaultClaudeBackend?: "claude" | "claude-sdk";
   }) => put<AppSettings>("/settings", data),
   testBinary: (binary: string) =>
     post<{ ok: boolean; resolvedPath?: string; version?: string }>("/settings/test-binary", { binary }),

@@ -42,6 +42,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
   // CLI binary state
   const [claudeBin, setClaudeBin] = useState("");
   const [codexBin, setCodexBin] = useState("");
+  const [defaultClaudeBackend, setDefaultClaudeBackend] = useState<"claude" | "claude-sdk">("claude");
   const [binSaving, setBinSaving] = useState(false);
   const [binError, setBinError] = useState("");
   const [claudeTest, setClaudeTest] = useState<{
@@ -156,6 +157,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
       .then((s) => {
         setClaudeBin(s.claudeBinary || "");
         setCodexBin(s.codexBinary || "");
+        setDefaultClaudeBackend(s.defaultClaudeBackend || "claude");
         setMaxKeepAlive(s.maxKeepAlive || 0);
         setPoConfigured(s.pushoverConfigured);
         setPoEnabled(s.pushoverEnabled);
@@ -619,6 +621,45 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
                 {codexTest.ok ? `${codexTest.resolvedPath} — ${codexTest.version}` : codexTest.error}
               </p>
             )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1.5">Default Claude Backend</label>
+            <div className="flex items-center bg-cc-hover/50 rounded-lg p-0.5 w-fit">
+              <button
+                type="button"
+                onClick={() => {
+                  setDefaultClaudeBackend("claude");
+                  api.updateSettings({ defaultClaudeBackend: "claude" }).catch(console.error);
+                }}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer select-none ${
+                  defaultClaudeBackend === "claude"
+                    ? "bg-cc-primary/15 text-cc-primary"
+                    : "text-cc-muted hover:text-cc-fg"
+                }`}
+              >
+                WebSocket
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDefaultClaudeBackend("claude-sdk");
+                  api.updateSettings({ defaultClaudeBackend: "claude-sdk" }).catch(console.error);
+                }}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer select-none ${
+                  defaultClaudeBackend === "claude-sdk"
+                    ? "bg-cc-primary/15 text-cc-primary"
+                    : "text-cc-muted hover:text-cc-fg"
+                }`}
+              >
+                SDK
+              </button>
+            </div>
+            <p className="mt-1.5 text-xs text-cc-muted">
+              Transport for new Claude Code sessions. SDK uses the Agent SDK (bills by token usage). WebSocket uses the
+              CLI's native WebSocket protocol (included with Max subscription). Existing sessions are not affected --
+              right-click a session to switch individually.
+            </p>
           </div>
 
           <div>

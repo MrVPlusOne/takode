@@ -58,6 +58,7 @@ describe("settings-manager", () => {
         sttModel: "gpt-4o-mini-transcribe",
       },
       editorConfig: { editor: "none" },
+      defaultClaudeBackend: "claude",
       updatedAt: 0,
     });
   });
@@ -279,6 +280,7 @@ describe("settings-manager", () => {
         sttModel: "gpt-4o-mini-transcribe",
       },
       editorConfig: { editor: "none" },
+      defaultClaudeBackend: "claude",
       updatedAt: 0,
     });
   });

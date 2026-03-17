@@ -121,6 +121,7 @@ vi.mock("./settings-manager.js", () => ({
       enhancementModel: "gpt-5-mini",
     },
     editorConfig: { editor: "none" },
+    defaultClaudeBackend: "claude",
     updatedAt: 0,
   })),
   updateSettings: vi.fn((patch) => ({
@@ -147,6 +148,7 @@ vi.mock("./settings-manager.js", () => ({
       enhancementModel: "gpt-5-mini",
     },
     editorConfig: patch.editorConfig ?? { editor: "none" },
+    defaultClaudeBackend: patch.defaultClaudeBackend ?? "claude",
     updatedAt: Date.now(),
   })),
   getServerName: vi.fn(() => ""),
@@ -2189,6 +2191,7 @@ describe("POST /api/transcribe", () => {
         enhancementModel: "gpt-5-mini",
       },
       editorConfig: { editor: "none" },
+      defaultClaudeBackend: "claude",
       updatedAt: 123,
     });
     vi.mocked(fetch).mockResolvedValueOnce(
@@ -2249,6 +2252,7 @@ describe("POST /api/transcribe", () => {
         customVocabulary: "Takode, WsBridge",
       },
       editorConfig: { editor: "none" },
+      defaultClaudeBackend: "claude",
       updatedAt: 123,
     });
     vi.mocked(sessionNames.getName).mockReturnValue("Voice edit session");
@@ -2338,6 +2342,7 @@ describe("GET /api/settings", () => {
         enhancementModel: "gpt-5-mini",
       },
       editorConfig: { editor: "none" },
+      defaultClaudeBackend: "claude",
       updatedAt: 123,
     });
 
@@ -2366,6 +2371,7 @@ describe("GET /api/settings", () => {
         enhancementModel: "gpt-5-mini",
       },
       editorConfig: { editor: "none" },
+      defaultClaudeBackend: "claude",
       restartSupported: expect.any(Boolean),
       logFile: expect.any(Object), // null or string depending on logger init
       claudeDefaultModel: expect.any(String),
@@ -2397,6 +2403,7 @@ describe("GET /api/settings", () => {
         enhancementModel: "gpt-5-mini",
       },
       editorConfig: { editor: "none" },
+      defaultClaudeBackend: "claude",
       updatedAt: 123,
     });
 
@@ -2425,6 +2432,7 @@ describe("GET /api/settings", () => {
         enhancementModel: "gpt-5-mini",
       },
       editorConfig: { editor: "none" },
+      defaultClaudeBackend: "claude",
       restartSupported: expect.any(Boolean),
       logFile: expect.any(Object), // null or string depending on logger init
       claudeDefaultModel: expect.any(String),
@@ -2457,6 +2465,7 @@ describe("GET /api/settings", () => {
         enhancementModel: "gpt-5-mini",
       },
       editorConfig: { editor: "none" },
+      defaultClaudeBackend: "claude",
       updatedAt: 0,
     });
 
@@ -2498,6 +2507,7 @@ describe("GET /api/settings", () => {
         enhancementModel: "gpt-5-mini",
       },
       editorConfig: { editor: "none" },
+      defaultClaudeBackend: "claude",
       updatedAt: 123,
     });
 
@@ -2548,6 +2558,7 @@ describe("PUT /api/settings", () => {
         enhancementModel: "gpt-5-mini",
       },
       editorConfig: { editor: "none" },
+      defaultClaudeBackend: "claude",
       updatedAt: 456,
     });
 
@@ -2596,6 +2607,7 @@ describe("PUT /api/settings", () => {
         enhancementModel: "gpt-5-mini",
       },
       editorConfig: { editor: "none" },
+      defaultClaudeBackend: "claude",
     });
   });
 
@@ -2624,6 +2636,7 @@ describe("PUT /api/settings", () => {
         enhancementModel: "gpt-5-mini",
       },
       editorConfig: { editor: "none" },
+      defaultClaudeBackend: "claude",
       updatedAt: 789,
     });
 
@@ -2677,6 +2690,7 @@ describe("PUT /api/settings", () => {
         enhancementModel: "gpt-5-mini",
       },
       editorConfig: { editor: "none" },
+      defaultClaudeBackend: "claude",
       updatedAt: Date.now(),
     });
     vi.mocked(settingsManager.getServerName).mockReturnValue("My Backend");
@@ -2795,6 +2809,7 @@ describe("PUT /api/settings", () => {
         enhancementModel: "gpt-5-mini",
       },
       editorConfig: { editor: "none" },
+      defaultClaudeBackend: "claude",
       updatedAt: Date.now(),
     });
 
@@ -2885,6 +2900,7 @@ describe("PUT /api/settings", () => {
         enhancementModel: "gpt-5-mini",
       },
       editorConfig: { editor: "none" },
+      defaultClaudeBackend: "claude",
       updatedAt: Date.now(),
     });
 
@@ -2926,6 +2942,7 @@ describe("PUT /api/settings", () => {
         customVocabulary: "Takode, WsBridge",
       },
       editorConfig: { editor: "none" },
+      defaultClaudeBackend: "claude",
       updatedAt: 123,
     });
     vi.mocked(settingsManager.updateSettings).mockReturnValue({
@@ -2953,6 +2970,7 @@ describe("PUT /api/settings", () => {
         customVocabulary: "Takode, WsBridge, Questmaster",
       },
       editorConfig: { editor: "none" },
+      defaultClaudeBackend: "claude",
       updatedAt: 456,
     });
 
@@ -3019,6 +3037,7 @@ describe("PUT /api/settings", () => {
         enhancementModel: "gpt-5-mini",
       },
       editorConfig: { editor: "cursor" },
+      defaultClaudeBackend: "claude",
       updatedAt: Date.now(),
     });
 
@@ -3066,6 +3085,7 @@ describe("PUT /api/settings", () => {
         enhancementModel: "gpt-4.1-mini",
       },
       editorConfig: { editor: "none" },
+      defaultClaudeBackend: "claude",
       updatedAt: 123,
     });
     vi.mocked(settingsManager.updateSettings).mockReturnValue({
@@ -3097,6 +3117,7 @@ describe("PUT /api/settings", () => {
         enhancementModel: "gpt-4.1-mini",
       },
       editorConfig: { editor: "none" },
+      defaultClaudeBackend: "claude",
       updatedAt: 456,
     });
 

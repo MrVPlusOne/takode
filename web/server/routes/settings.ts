@@ -135,6 +135,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       autoNamerEnabled: settings.autoNamerEnabled,
       transcriptionConfig: maskTranscriptionConfig(settings.transcriptionConfig),
       editorConfig: settings.editorConfig,
+      defaultClaudeBackend: settings.defaultClaudeBackend,
       restartSupported: !!process.env.COMPANION_SUPERVISED,
       logFile: getLogPath(),
       claudeDefaultModel,
@@ -244,6 +245,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       "autoNamerEnabled",
       "transcriptionConfig",
       "editorConfig",
+      "defaultClaudeBackend",
     ];
     if (!knownFields.some((f) => body[f] !== undefined)) {
       return c.json({ error: "At least one settings field is required" }, 400);
@@ -270,6 +272,10 @@ export function createSettingsRoutes(ctx: RouteContext) {
         ? parseTranscriptionConfigFromBody(body.transcriptionConfig)
         : undefined,
       editorConfig: body.editorConfig ? parseEditorConfigFromBody(body.editorConfig) : undefined,
+      defaultClaudeBackend:
+        body.defaultClaudeBackend === "claude" || body.defaultClaudeBackend === "claude-sdk"
+          ? body.defaultClaudeBackend
+          : undefined,
     });
 
     return c.json({
@@ -288,6 +294,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       autoNamerEnabled: settings.autoNamerEnabled,
       transcriptionConfig: maskTranscriptionConfig(settings.transcriptionConfig),
       editorConfig: settings.editorConfig,
+      defaultClaudeBackend: settings.defaultClaudeBackend,
     });
   });
 

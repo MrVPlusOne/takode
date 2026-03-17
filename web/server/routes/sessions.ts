@@ -125,6 +125,13 @@ export function createSessionsRoutes(ctx: RouteContext) {
     return null;
   };
 
+  /** Resolve "claude" to the user's configured default (WebSocket or SDK). */
+  const applyDefaultClaudeBackend = (backend: SessionBackend): SessionBackend => {
+    if (backend !== "claude") return backend;
+    const configured = getSettings().defaultClaudeBackend;
+    return configured === "claude-sdk" ? "claude-sdk" : "claude";
+  };
+
   const throwPreparationError = (message: string, status: SessionPreparationStatus, step?: CreationStepId): never => {
     throw new SessionPreparationError(message, status, step);
   };
@@ -609,7 +616,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
         return c.json({ error: `Invalid backend: ${String(backendRaw)}` }, 400);
       }
 
-      const sessionConfig = await prepareSession(body, backend);
+      const sessionConfig = await prepareSession(body, applyDefaultClaudeBackend(backend));
       const session = await launcher.launch(sessionConfig.launchOptions);
       applySessionPostLaunch(session, sessionConfig);
       return c.json(session);
@@ -652,7 +659,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
           return;
         }
 
-        const sessionConfig = await prepareSession(body, backend, (step, label, status, detail) =>
+        const sessionConfig = await prepareSession(body, applyDefaultClaudeBackend(backend), (step, label, status, detail) =>
           emitProgress(stream, step, label, status, detail),
         );
 
@@ -1257,6 +1264,27 @@ export function createSessionsRoutes(ctx: RouteContext) {
     const bridgeSession = wsBridge.getSession(id);
     if (bridgeSession) {
       bridgeSession.backendType = "claude-sdk";
+    }
+
+    return c.json(result);
+  });
+
+  // ─── Transport Downgrade: SDK → WebSocket ─────────────────────
+  api.post("/sessions/:id/downgrade-transport", async (c) => {
+    const id = resolveId(c.req.param("id"));
+    if (!id) return c.json({ error: "Session not found" }, 404);
+
+    const result = await launcher.downgradeToWebSocket(id);
+    if (!result.ok) {
+      const status = result.error && result.error.includes("not found") ? 404 : 400;
+      return c.json({ error: result.error }, status);
+    }
+
+    // Update the ws-bridge session's backendType so it expects a WebSocket
+    // CLI connection instead of an SDK adapter.
+    const bridgeSession = wsBridge.getSession(id);
+    if (bridgeSession) {
+      bridgeSession.backendType = "claude";
     }
 
     return c.json(result);

@@ -23,6 +23,8 @@ export interface CompanionSettings {
   claudeBinary: string;
   /** Custom Codex CLI binary path or command (empty = auto-detect "codex") */
   codexBinary: string;
+  /** Default backend for new Claude Code sessions: "claude" (WebSocket) or "claude-sdk" (Agent SDK) */
+  defaultClaudeBackend: "claude" | "claude-sdk";
   /** Max number of live CLI processes to keep alive (0 = unlimited) */
   maxKeepAlive: number;
   /** Whether LLM auto-approval is enabled globally (default: false) */
@@ -106,6 +108,7 @@ let settings: CompanionSettings = {
   pushoverBaseUrl: "",
   claudeBinary: "",
   codexBinary: "",
+  defaultClaudeBackend: "claude",
   maxKeepAlive: 0,
   autoApprovalEnabled: false,
   autoApprovalModel: "",
@@ -267,6 +270,10 @@ function normalize(raw: Partial<CompanionSettings> | null | undefined): Companio
     pushoverBaseUrl: typeof raw?.pushoverBaseUrl === "string" ? raw.pushoverBaseUrl : "",
     claudeBinary: typeof raw?.claudeBinary === "string" ? raw.claudeBinary : "",
     codexBinary: typeof raw?.codexBinary === "string" ? raw.codexBinary : "",
+    defaultClaudeBackend:
+      raw?.defaultClaudeBackend === "claude" || raw?.defaultClaudeBackend === "claude-sdk"
+        ? raw.defaultClaudeBackend
+        : "claude",
     maxKeepAlive: typeof raw?.maxKeepAlive === "number" && raw.maxKeepAlive >= 0 ? Math.floor(raw.maxKeepAlive) : 0,
     autoApprovalEnabled: typeof raw?.autoApprovalEnabled === "boolean" ? raw.autoApprovalEnabled : false,
     autoApprovalModel: typeof raw?.autoApprovalModel === "string" ? raw.autoApprovalModel : "",
@@ -364,6 +371,7 @@ export function updateSettings(
       | "pushoverBaseUrl"
       | "claudeBinary"
       | "codexBinary"
+      | "defaultClaudeBackend"
       | "maxKeepAlive"
       | "autoApprovalEnabled"
       | "autoApprovalModel"
