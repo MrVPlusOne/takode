@@ -2344,7 +2344,7 @@ describe("CLI message routing", () => {
       if (cmd.includes("--abbrev-ref HEAD")) return "feat/branch\n";
       if (cmd.includes("--git-dir")) return ".git\n";
       if (cmd.includes("--show-toplevel")) return "/test\n";
-      if (cmd.includes("--left-right --count")) return "0\t0\n";
+      if (cmd.includes("--left-right --count")) return "0\t2\n";
       if (cmd.includes("merge-base")) return "abc123\n";
       if (cmd.includes("diff --numstat")) return "42\t10\tfile.ts\n";
       return "";
@@ -7932,11 +7932,56 @@ describe("Diff stats computation", () => {
     expect(session.state.total_lines_removed).toBe(0);
   });
 
+  it("computeDiffStats: uses merge-base for non-worktree sessions to exclude remote changes", async () => {
+    // Validates the core fix: non-worktree sessions should diff against merge-base,
+    // not the raw branch ref. Without merge-base anchoring, `git diff main` includes
+    // changes the session is BEHIND on (remote commits), inflating the stats.
+    const mergeBaseCalls: string[] = [];
+    const diffCalls: string[] = [];
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd.includes("diff --numstat")) {
+        diffCalls.push(cmd);
+        // Only return stats when diffing against the merge-base SHA (not raw branch ref)
+        if (cmd.includes("abc999def")) return "5\t2\tchanged.ts\n";
+        // If the raw branch ref slips through, return inflated stats (the bug)
+        return "100\t50\tremote-changes.ts\n5\t2\tchanged.ts\n";
+      }
+      if (cmd.includes("merge-base")) {
+        mergeBaseCalls.push(cmd);
+        return "abc999def\n";
+      }
+      return "";
+    });
+
+    const session = bridge.getOrCreateSession("s1");
+    session.state.cwd = "/repo";
+    session.state.diff_base_branch = "origin/main";
+    session.state.is_worktree = false;
+    session.diffStatsDirty = true;
+    (session as any).backendSocket = { send: vi.fn() };
+
+    bridge.recomputeDiffIfDirty(session);
+
+    await vi.waitFor(() => {
+      expect(session.state.total_lines_added).toBe(5);
+      expect(session.state.total_lines_removed).toBe(2);
+    });
+
+    // Verify merge-base was called with the branch ref
+    expect(mergeBaseCalls).toHaveLength(1);
+    expect(mergeBaseCalls[0]).toContain("origin/main");
+    // Verify diff was called with the merge-base SHA, not the raw branch ref
+    expect(diffCalls).toHaveLength(1);
+    expect(diffCalls[0]).toContain("abc999def");
+    expect(diffCalls[0]).not.toContain("origin/main");
+  });
+
   it("recomputeDiffIfDirty: skips when flag is clean, recomputes when dirty", async () => {
     // Session with diff base set up so computeDiffStatsAsync can run
     mockExecSync.mockImplementation((cmd: string) => {
-      if (cmd.includes("--abbrev-ref HEAD")) return "main\n";
-      if (cmd.includes("--git-dir")) return ".git\n";
+      if (cmd.includes("--abbrev-ref HEAD")) return "main-wt-1\n";
+      if (cmd.includes("--git-dir")) return "/repo/.git/worktrees/main-wt-1\n";
+      if (cmd.includes("--git-common-dir")) return "/repo/.git\n";
       if (cmd.includes("--show-toplevel")) return "/repo\n";
       if (cmd.includes("--left-right --count")) return "0\t0\n";
       if (cmd.includes("merge-base")) return "abc123\n";
@@ -7989,7 +8034,7 @@ describe("Diff stats computation", () => {
       if (cmd.includes("--abbrev-ref HEAD")) return "feat/reconnect\n";
       if (cmd.includes("--git-dir")) return ".git\n";
       if (cmd.includes("--show-toplevel")) return "/repo\n";
-      if (cmd.includes("--left-right --count")) return "0\t0\n";
+      if (cmd.includes("--left-right --count")) return "0\t3\n";
       if (cmd.includes("merge-base")) return "abc123\n";
       if (cmd.includes("diff --numstat")) return "6\t2\tsrc/app.ts\n";
       return "";
@@ -8306,7 +8351,7 @@ describe("Codex adapter result handling", () => {
       if (cmd.includes("--abbrev-ref HEAD")) return "feat/codex\n";
       if (cmd.includes("--git-dir")) return ".git\n";
       if (cmd.includes("--show-toplevel")) return "/test\n";
-      if (cmd.includes("--left-right --count")) return "0\t0\n";
+      if (cmd.includes("--left-right --count")) return "0\t2\n";
       if (cmd.includes("merge-base")) return "abc123\n";
       if (cmd.includes("diff --numstat")) return "9\t4\tsrc/main.ts\n";
       if (cmd.includes("for-each-ref")) return "";
@@ -8341,7 +8386,7 @@ describe("Codex adapter result handling", () => {
       if (cmd.includes("--abbrev-ref HEAD")) return "feat/codex\n";
       if (cmd.includes("--git-dir")) return ".git\n";
       if (cmd.includes("--show-toplevel")) return "/test\n";
-      if (cmd.includes("--left-right --count")) return "0\t0\n";
+      if (cmd.includes("--left-right --count")) return "0\t3\n";
       if (cmd.includes("merge-base")) return "abc123\n";
       if (cmd.includes("diff --numstat")) return "12\t4\tsrc/app.ts\n";
       if (cmd.includes("for-each-ref")) return "";

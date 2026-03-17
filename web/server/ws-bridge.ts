@@ -2326,8 +2326,27 @@ export class WsBridge {
         diffBase = (session.state.diff_base_branch || session.state.git_default_branch || "").trim();
       }
       if (!diffBase) return false;
-      const cmd = `git --no-optional-locks diff --numstat ${diffBase}`;
-      // Generous timeout — large repos on NFS can be slow, and this runs in the background
+
+      // For worktree sessions, diffBase is already a fixed SHA anchor (diff_base_start_sha
+      // or git_head_sha), so a direct diff is correct -- it only shows the session's own work.
+      // For non-worktree sessions, diffBase is a branch name that moves, so we must anchor
+      // at the merge-base to only count the session's own commits forward (not remote changes
+      // the session is behind on). This matches GitHub PR diff semantics.
+      let diffRef = diffBase;
+      if (!session.state.is_worktree) {
+        try {
+          const { stdout: mbOut } = await execPromise(
+            `git --no-optional-locks merge-base ${diffBase} HEAD`,
+            { cwd, timeout: GIT_CMD_TIMEOUT },
+          );
+          const mb = mbOut.trim();
+          if (mb) diffRef = mb;
+        } catch {
+          // merge-base unavailable (e.g. unrelated histories) -- fall back to direct diff
+        }
+      }
+      const cmd = `git --no-optional-locks diff --numstat ${diffRef}`;
+      // Generous timeout -- large repos on NFS can be slow, and this runs in the background
       const { stdout } = await execPromise(cmd, { cwd, timeout: GIT_CMD_TIMEOUT });
       const raw = stdout.trim();
 
