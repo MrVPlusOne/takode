@@ -381,15 +381,15 @@ This is a git worktree. The main repository is at: \`${repoRoot}\`
 
 ## Porting Commits to the Main Repo
 
-When asked to port/sync commits from this worktree to the main repository at \`${repoRoot}\`, follow this workflow **exactly**:
+When asked to port, sync, or push commits from this worktree to the main repository (e.g. "sync to main repo", "port to main repo", "push to main repo"), follow this workflow **exactly**:
 
 ### Sync Context (Critical)
 
-Use this context for "sync to main repo" requests in this session:
+Use this context for port/sync/push requests in this session:
 - Base repo checkout: \`${repoRoot}\`
 - Base branch: \`${syncBaseBranch}\`
 
-By default, "sync to main repo" means syncing to the base branch above.
+By default, "sync/port/push to main repo" means syncing to the base branch above.
 Only sync to a different remote branch if the user explicitly names it (for example: \`origin/main\`).
 
 1. **Check the main repo first.** Pull remote changes first: \`git -C ${repoRoot} fetch origin ${syncBaseBranch} && git -C ${repoRoot} pull --rebase origin ${syncBaseBranch}\` (development may happen on multiple machines). Then run \`git -C ${repoRoot} status\` — if there are uncommitted changes, **stop and tell the user** — another agent may have work in progress. Never run \`git reset --hard\`, \`git checkout .\`, or \`git clean\` on the main repo without explicit user approval. Read any new commits briefly to understand what changed since your branch diverged.
