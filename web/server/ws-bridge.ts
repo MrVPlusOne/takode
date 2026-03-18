@@ -3814,6 +3814,75 @@ export class WsBridge {
         return;
       }
 
+      // Intercept compact_boundary from SDK adapter — the adapter forwards the
+      // raw CLI system message (type:"system", subtype:"compact_boundary").
+      // Route through the same logic as the WebSocket path in handleSystemMessage
+      // so a compact_marker is persisted in messageHistory, awaitingCompactSummary
+      // is set, and browsers receive a properly-typed compact_boundary message.
+      if ((msg as any).type === "system" && (msg as any).subtype === "compact_boundary") {
+        const cliUuid = (msg as any).uuid;
+        const meta = (msg as any).compact_metadata;
+
+        // Dedup: CLI replays compact_boundary on --resume
+        if (this.hasCompactBoundaryReplay(session, cliUuid, meta)) return;
+
+        const ts = Date.now();
+        const markerId = `compact-boundary-${ts}`;
+        session.messageHistory.push({
+          type: "compact_marker" as const,
+          timestamp: ts,
+          id: markerId,
+          cliUuid,
+          trigger: meta?.trigger,
+          preTokens: meta?.pre_tokens,
+        });
+        this.freezeHistoryThroughCurrentTail(session);
+        const preTokenContextPct = computePreTokenContextUsedPercent(session.state.model, meta?.pre_tokens);
+        if (typeof preTokenContextPct === "number" && preTokenContextPct !== session.state.context_used_percent) {
+          session.state.context_used_percent = preTokenContextPct;
+          this.broadcastToBrowsers(session, {
+            type: "session_update",
+            session: { context_used_percent: preTokenContextPct },
+          });
+        }
+        session.awaitingCompactSummary = true;
+        session.compactedDuringTurn = true;
+        this.broadcastToBrowsers(session, {
+          type: "compact_boundary",
+          id: markerId,
+          timestamp: ts,
+          trigger: meta?.trigger,
+          preTokens: meta?.pre_tokens,
+        });
+        this.persistSession(session);
+        return;
+      }
+
+      // Intercept user messages that contain the compaction summary — the next
+      // "user" message after compact_boundary carries the summary text.
+      if ((msg as any).type === "user" && session.awaitingCompactSummary) {
+        const content = (msg as any).message?.content;
+        let summaryText: string | undefined;
+        if (typeof content === "string" && content.length > 0) {
+          summaryText = content;
+        } else if (Array.isArray(content)) {
+          const textBlock = content.find((b: any) => b.type === "text") as { type: "text"; text: string } | undefined;
+          summaryText = textBlock?.text;
+        }
+        if (summaryText) {
+          session.awaitingCompactSummary = false;
+          const marker = session.messageHistory.findLast((m) => m.type === "compact_marker");
+          if (marker && marker.type === "compact_marker") {
+            (marker as { summary?: string }).summary = summaryText;
+          }
+          this.broadcastToBrowsers(session, { type: "compact_summary", summary: summaryText });
+          this.persistSession(session);
+          // Don't return — still need to process tool results from user messages
+        } else {
+          session.awaitingCompactSummary = false;
+        }
+      }
+
       // Forward to all browsers + store in history
       this.broadcastToBrowsers(session, msg);
     });
