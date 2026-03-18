@@ -3740,10 +3740,21 @@ export class WsBridge {
             session.state.cwd = launchCwd;
           }
 
+          // Derive uiMode from the CLI's reported permissionMode so the
+          // plan/agent button reflects the CLI's actual state on init.
+          if (session.state.permissionMode) {
+            session.state.uiMode = session.state.permissionMode === "plan" ? "plan" : "agent";
+          }
+
           // Also fix the forwarded message so the browser sees correct IDs/cwd
           initMsg.session = { ...initMsg.session, session_id: companionSessionId, backend_type: "claude-sdk" };
           if (launchCwd) {
             initMsg.session.cwd = launchCwd;
+          }
+          // Include the derived uiMode so the browser's plan/agent button
+          // is correct from the first session_init message.
+          if (session.state.uiMode) {
+            initMsg.session.uiMode = session.state.uiMode;
           }
         }
         // Mark SDK session as initialized — mirrors cliInitReceived for WebSocket
@@ -5670,6 +5681,16 @@ export class WsBridge {
         };
         session.messageHistory.push(approvedMsg);
         this.broadcastToBrowsers(session, approvedMsg);
+
+        // EnterPlanMode auto-approved: sync UI to plan mode so the button
+        // reflects the agent's actual state.
+        if (result.request.tool_name === "EnterPlanMode") {
+          this.handleSetPermissionMode(session, "plan");
+          console.log(
+            `[ws-bridge] EnterPlanMode auto-approved for SDK session ${sessionTag(session.id)}, switching to plan mode`,
+          );
+        }
+
         this.persistSession(session);
         return;
       }
@@ -6638,6 +6659,15 @@ export class WsBridge {
             );
           }
 
+          // EnterPlanMode post-approval: sync UI to plan mode so the button
+          // reflects the agent's actual state.
+          if (behavior === "allow" && pending.tool_name === "EnterPlanMode") {
+            this.handleSetPermissionMode(session, "plan");
+            console.log(
+              `[ws-bridge] EnterPlanMode approved for SDK session ${sessionTag(session.id)}, switching to plan mode`,
+            );
+          }
+
           // ExitPlanMode denial: interrupt the SDK session
           if (behavior === "deny" && pending.tool_name === "ExitPlanMode") {
             if (session.claudeSdkAdapter) {
@@ -7528,6 +7558,17 @@ export class WsBridge {
         this.broadcastToBrowsers(session, { type: "status_change", status: "running" });
         console.log(
           `[ws-bridge] ExitPlanMode approved for session ${sessionTag(session.id)}, switching to ${postPlanMode} (askPermission=${askPerm})`,
+        );
+      }
+
+      // After EnterPlanMode approval, sync the UI to plan mode so the button
+      // reflects the agent's actual state. The CLI already enters plan mode
+      // internally when EnterPlanMode is executed, but the server's uiMode
+      // and permissionMode need to be updated to match.
+      if (pending?.tool_name === "EnterPlanMode") {
+        this.handleSetPermissionMode(session, "plan");
+        console.log(
+          `[ws-bridge] EnterPlanMode approved for session ${sessionTag(session.id)}, switching to plan mode`,
         );
       }
     } else {
