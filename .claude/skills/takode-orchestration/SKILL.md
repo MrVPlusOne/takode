@@ -177,9 +177,13 @@ Commands accept multiple formats:
 
 Prefer integer numbers — they're stable within a server session and easy to type.
 
+## Disconnected Sessions
+
+A `✗ disconnected` session just means its CLI process was killed (usually by the idle manager). The session history, worktree, and quest claim are fully intact. **Do not avoid disconnected sessions** -- if one is the right fit for a task, use it. `takode send` auto-relaunches the CLI before delivering the message, so no extra reconnect step is needed.
+
 ## Tips
 
-- **Use `peek` over `read`** to protect your context window — peek gives truncated summaries.
+- **Use `peek` over `read`** to protect your context window -- peek gives truncated summaries.
 - **Use `--json` for programmatic decisions.** Parse JSON output when you need to branch on event data.
 - **Mixed backends work seamlessly.** The `takode` CLI talks to the Companion server, not to any backend directly.
 - **Coordinate with quests.** Use the `quest` CLI alongside `takode` for task tracking.
