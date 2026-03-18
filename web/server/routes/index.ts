@@ -53,7 +53,12 @@ export function buildOrchestratorSystemPrompt(backend: "claude" | "codex" | "cla
     `**Commands**: \`takode list --active\` to discover sessions. \`takode herd <ids>\` to claim workers. \`takode list\` shows your flock.\n\n` +
     (isCodexLeader
       ? `**Role focus**: Keep your own work to triage, coordination, and short spot checks. Delegate non-trivial implementation, investigation, and verification to worker sessions.\n\nUse the orchestration instructions already loaded in this session as your source of truth. Do not assume Claude-specific tools or files exist.`
-      : `**Role focus**: Keep your own work lightweight and stay responsive to herd events. Delegate larger work to worker sessions.\n\nRead your project's instruction files for full orchestration documentation and workflow guidelines.`)
+      : `**Role focus**: Keep your own work lightweight and stay responsive to herd events. Delegate larger work to worker sessions.\n\nRead your project's instruction files for full orchestration documentation and workflow guidelines.`) +
+    `\n\n**Delegation principle**: Workers are as capable as you. When dispatching work:\n` +
+    `- Point workers to the quest/task (e.g. "Work on q-30") and let them explore the codebase themselves.\n` +
+    `- Only add context the worker can't discover on their own: user clarifications from this conversation, cross-worker coordination notes, or attached screenshots/images they won't have.\n` +
+    `- Do NOT pre-explore code or write detailed implementation specs before dispatching. Over-specifying wastes your time and can mislead workers when your quick analysis is less thorough than what they'd do themselves.\n` +
+    `- Dispatch quickly, then steer as events come in.`
   );
 }
 
