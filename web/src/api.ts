@@ -949,6 +949,14 @@ export const api = {
   getTranscriptionLogs: () => get<TranscriptionLogIndexEntry[]>("/transcription-logs"),
   getTranscriptionLogEntry: (id: number) => get<TranscriptionLogEntry>(`/transcription-logs/${id}`),
 
+  // Enhancement tester (debug tool in Settings)
+  testEnhancement: (text: string, mode: "default" | "bullet", sessionId?: string) =>
+    post<{
+      enhanced: string;
+      wasEnhanced: boolean;
+      debug: { model: string; systemPrompt: string; userMessage: string; durationMs: number; skipReason?: string } | null;
+    }>("/transcription/test-enhance", { text, mode, sessionId }),
+
   // Namer debug logs
   getNamerLogs: () => get<NamerLogIndexEntry[]>("/namer-logs"),
   getNamerLogEntry: (id: number) => get<NamerLogEntry>(`/namer-logs/${id}`),

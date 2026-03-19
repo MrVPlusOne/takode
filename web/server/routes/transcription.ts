@@ -38,6 +38,72 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
       .map((s) => allNames[s.sessionId]);
   }
 
+  // ─── Enhancement tester (debug tool) ───────────────────────────────
+
+  /**
+   * Run the enhancement pipeline on raw text without recording audio.
+   * Used by the Settings page "Enhancement Tester" panel.
+   */
+  api.post("/transcription/test-enhance", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const text = typeof body.text === "string" ? body.text.trim() : "";
+    const mode = body.mode === "bullet" ? "bullet" : "default";
+    const sessionId = typeof body.sessionId === "string" ? body.sessionId : undefined;
+
+    if (!text) {
+      return c.json({ error: "text is required" }, 400);
+    }
+
+    const apiKey = resolveOpenAIKey();
+    if (!apiKey) {
+      return c.json(
+        { error: "No OpenAI API key configured. Set it in Settings → Voice Transcription, or set OPENAI_API_KEY." },
+        400,
+      );
+    }
+
+    const settings = getSettings();
+    // Override config to force enhancement on with the requested mode
+    const config = {
+      ...settings.transcriptionConfig,
+      enhancementEnabled: true,
+      enhancementMode: mode as "default" | "bullet",
+    };
+
+    // Gather session context if available
+    let history = sessionId ? wsBridge.getMessageHistory(sessionId) : null;
+    const extra: Parameters<typeof enhanceTranscript>[4] = { mode: "dictation" };
+    if (sessionId) {
+      const taskHistory = wsBridge.getSessionTaskHistory(sessionId);
+      extra.taskTitles = taskHistory.map((t) => t.title);
+      extra.sessionName = sessionNames.getName(sessionId);
+      const otherNames = getRecentSessionNames(sessionId, 20);
+      if (otherNames.length > 0) extra.activeSessionNames = otherNames;
+    }
+
+    try {
+      const result = await enhanceTranscript(text, history, config, apiKey, extra);
+      return c.json({
+        enhanced: result.text,
+        wasEnhanced: result.enhanced,
+        debug: result._debug
+          ? {
+              model: result._debug.model,
+              systemPrompt: result._debug.systemPrompt,
+              userMessage: result._debug.userMessage,
+              durationMs: result._debug.durationMs,
+              skipReason: result._debug.skipReason,
+            }
+          : null,
+      });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return c.json({ error: `Enhancement failed: ${msg}` }, 500);
+    }
+  });
+
+  // ─── Audio transcription ─────────────────────────────────────────────
+
   api.get("/transcribe/status", (c) => {
     return c.json(getTranscriptionStatus());
   });

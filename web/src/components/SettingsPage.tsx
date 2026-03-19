@@ -12,6 +12,7 @@ import { useStore, COLOR_THEMES } from "../store.js";
 import { NamerDebugPanel } from "./NamerDebugPanel.js";
 import { AutoApprovalDebugPanel } from "./AutoApprovalDebugPanel.js";
 import { TranscriptionDebugPanel } from "./TranscriptionDebugPanel.js";
+import { EnhancementTester } from "./EnhancementTester.js";
 import { CollapsibleSection } from "./CollapsibleSection.js";
 import { FolderPicker } from "./FolderPicker.js";
 
@@ -1683,6 +1684,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
           </div>
 
           <TranscriptionDebugPanel />
+          <EnhancementTester />
         </CollapsibleSection>
 
         {/* ── 9. Server & Diagnostics ──────────────────────────── */}
