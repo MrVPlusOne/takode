@@ -638,7 +638,7 @@ describe("takode send", () => {
 });
 
 describe("takode spawn", () => {
-  it("uses defaults, fetches enriched session info, and includes createdBy for auto-herding", async () => {
+  it("inherits backend from leader session when --backend is not specified", async () => {
     const createBodies: JsonObject[] = [];
     const created = [{ sessionId: "worker-1" }];
     const sessionInfoById: Record<string, JsonObject> = {
@@ -672,7 +672,8 @@ describe("takode spawn", () => {
 
       if (method === "GET" && url === "/api/sessions/leader-1") {
         res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ sessionId: "leader-1", permissionMode: "plan" }));
+        // Leader is a codex session -- spawn should inherit this backend
+        res.end(JSON.stringify({ sessionId: "leader-1", permissionMode: "plan", backendType: "codex" }));
         return;
       }
       if (method === "POST" && url === "/api/sessions/create") {
@@ -705,7 +706,7 @@ describe("takode spawn", () => {
 
     expect(result.status).toBe(0);
     expect(createBodies).toHaveLength(1);
-    // Validates default payload fields for spawn.
+    // Backend is inherited from the leader (codex) when --backend is not specified.
     expect(createBodies[0]).toEqual({
       backend: "codex",
       cwd: process.cwd(),
@@ -874,6 +875,76 @@ describe("takode spawn", () => {
     expect(parsed.leaderPermissionMode).toBe("bypassPermissions");
     expect(parsed.inheritedAskPermission).toBe(false);
     expect(parsed.sessions.map((s) => s.sessionNum)).toEqual([31, 32]);
+  });
+
+  it("claude leader spawns claude workers by default (no --backend needed)", async () => {
+    // Regression test: previously, omitting --backend always defaulted to codex,
+    // even when the leader was a Claude session.
+    const createBodies: JsonObject[] = [];
+    const server = createServer(async (req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-claude", isOrchestrator: true }));
+        return;
+      }
+      if (method === "GET" && url === "/api/sessions/leader-claude") {
+        res.writeHead(200, { "content-type": "application/json" });
+        // Leader is a Claude (WebSocket) session
+        res.end(JSON.stringify({ sessionId: "leader-claude", permissionMode: "plan", backendType: "claude" }));
+        return;
+      }
+      if (method === "POST" && url === "/api/sessions/create") {
+        createBodies.push(await readJson(req));
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "worker-claude" }));
+        return;
+      }
+      if (method === "GET" && url === "/api/sessions/worker-claude/info") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            sessionId: "worker-claude",
+            sessionNum: 50,
+            name: "Claude Worker",
+            state: "running",
+            backendType: "claude",
+            model: "claude-sonnet-4-20250514",
+            cwd: "/tmp/claude-worker",
+            createdAt: Date.now(),
+            cliConnected: true,
+            isGenerating: false,
+            isWorktree: true,
+          }),
+        );
+        return;
+      }
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    // No --backend flag: should inherit "claude" from leader
+    const result = await runTakode(["spawn", "--port", String(port), "--json"], {
+      ...process.env,
+      COMPANION_SESSION_ID: "leader-claude",
+      COMPANION_AUTH_TOKEN: "auth-claude",
+    });
+
+    server.close();
+
+    expect(result.status).toBe(0);
+    expect(createBodies).toHaveLength(1);
+    // Backend inherited from the Claude leader -- NOT defaulting to codex.
+    expect(createBodies[0]).toMatchObject({ backend: "claude" });
+    // No codex-specific fields should be present
+    expect(createBodies[0]).not.toHaveProperty("codexReasoningEffort");
+    expect(createBodies[0]).not.toHaveProperty("codexInternetAccess");
   });
 
   it("passes explicit codex spawn options through and returns the enriched session shape", async () => {

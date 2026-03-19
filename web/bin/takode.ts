@@ -1515,7 +1515,7 @@ const SPAWN_FLAG_USAGE = `Usage: takode spawn [options]
   Create and auto-herd new worker sessions.
 
 Options:
-  --backend <type>             AI backend: "claude", "codex", or "claude-sdk" (default: "codex")
+  --backend <type>             AI backend: "claude", "codex", or "claude-sdk" (default: inherit from leader)
   --cwd <path>                 Working directory (default: current directory)
   --count <n>                  Number of sessions to spawn (default: 1)
   --message <text>             Initial message to send to spawned sessions
@@ -1611,8 +1611,18 @@ async function handleSpawn(base: string, args: string[]): Promise<void> {
   await ensureTakodeAccess(base, { requireOrchestrator: true });
 
   const jsonMode = flags.json === true;
+  const leaderSessionId = getCallerSessionId();
 
-  const backendRaw = typeof flags.backend === "string" ? flags.backend : "codex";
+  // Fetch leader session first -- we need backendType for default resolution
+  // and permissionMode for bypass inheritance.
+  const leader = (await apiGet(base, `/sessions/${encodeURIComponent(leaderSessionId)}`)) as {
+    sessionId: string;
+    permissionMode?: string;
+    backendType?: string;
+  };
+
+  // Inherit backend from leader when --backend is not explicitly provided.
+  const backendRaw = typeof flags.backend === "string" ? flags.backend : (leader.backendType || "claude");
   if (backendRaw !== "claude" && backendRaw !== "codex" && backendRaw !== "claude-sdk") {
     err(`Invalid backend: ${backendRaw}. Expected "claude", "codex", or "claude-sdk".`);
   }
@@ -1637,13 +1647,6 @@ async function handleSpawn(base: string, args: string[]): Promise<void> {
     err("--reasoning-effort is only supported for Codex sessions.");
   }
 
-  const leaderSessionId = getCallerSessionId();
-
-  // Inherit permission behavior from the leader: bypass -> askPermission=false.
-  const leader = (await apiGet(base, `/sessions/${encodeURIComponent(leaderSessionId)}`)) as {
-    sessionId: string;
-    permissionMode?: string;
-  };
   const inheritBypass = leader.permissionMode === "bypassPermissions";
 
   const spawned: TakodeSessionInfo[] = [];
