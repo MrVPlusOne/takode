@@ -3277,6 +3277,63 @@ export function Playground() {
           </div>
         </Section>
 
+        {/* ─── Herd Event Batch Groups ──────────────────────────── */}
+        <Section
+          title="Herd Event Batch Groups"
+          description="Consecutive herd event messages are collapsed into a single expandable group with a time range, reducing vertical noise in leader sessions."
+        >
+          <div className="space-y-4 max-w-3xl">
+            <Card label="Collapsed batch (default state)">
+              <div className="py-2">
+                <button className="flex items-center gap-1.5 text-[11px] text-cc-muted font-mono-code pl-9 py-0.5 cursor-pointer hover:text-cc-fg/70 transition-colors">
+                  <span className="text-amber-500/60 shrink-0">◇</span>
+                  <span>4 herd updates · 11:44 AM – 11:55 AM</span>
+                  <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 text-cc-muted/40 shrink-0">
+                    <path d="M6 4l4 4-4 4" />
+                  </svg>
+                </button>
+              </div>
+            </Card>
+            <Card label="Expanded batch (click to see events)">
+              <div className="py-2">
+                <button className="flex items-center gap-1.5 text-[11px] text-cc-muted font-mono-code pl-9 py-0.5 cursor-pointer hover:text-cc-fg/70 transition-colors">
+                  <span className="text-amber-500/60 shrink-0">◇</span>
+                  <span>4 herd updates · 11:44 AM – 11:55 AM</span>
+                  <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 text-cc-muted/40 shrink-0 rotate-90">
+                    <path d="M6 4l4 4-4 4" />
+                  </svg>
+                </button>
+                <div className="space-y-0">
+                  <div className="flex items-center gap-1.5 text-[11px] text-cc-muted font-mono-code pl-9 py-0.5 leading-snug">
+                    <span className="text-amber-500/60 shrink-0">◇</span>
+                    <span className="truncate">#34 | turn_end | ✓ 56.3s | tools: Read(3), Grep(2) | &quot;Refactored auth middleware&quot;</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-[11px] text-cc-muted font-mono-code pl-9 py-0.5 leading-snug">
+                    <span className="text-amber-500/60 shrink-0">◇</span>
+                    <span className="truncate">#35 | session_archived</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-[11px] text-cc-muted font-mono-code pl-9 py-0.5 leading-snug">
+                    <span className="text-amber-500/60 shrink-0">◇</span>
+                    <span className="truncate">#34 | turn_end | ✓ 12.1s | tools: Edit(1) | &quot;Added tests&quot;</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-[11px] text-cc-muted font-mono-code pl-9 py-0.5 leading-snug">
+                    <span className="text-amber-500/60 shrink-0">◇</span>
+                    <span className="truncate">#36 | session_archived</span>
+                  </div>
+                </div>
+              </div>
+            </Card>
+            <Card label="Single herd event (no batching)">
+              <div className="py-2">
+                <div className="flex items-center gap-1.5 text-[11px] text-cc-muted font-mono-code pl-9 py-0.5 leading-snug">
+                  <span className="text-amber-500/60 shrink-0">◇</span>
+                  <span className="truncate">#34 | turn_end | ✓ 56.3s | tools: Read(3), Grep(2) | &quot;Refactored auth middleware&quot;</span>
+                </div>
+              </div>
+            </Card>
+          </div>
+        </Section>
+
         {/* ─── Diff Viewer ──────────────────────────────── */}
         <Section
           title="Diff Viewer"

@@ -320,7 +320,7 @@ function AgentSourceBadge({ source }: { source: { sessionId: string; sessionLabe
 }
 
 /** Compact inline rendering for herd event summaries — one line per event. */
-function HerdEventMessage({ message }: { message: ChatMessage; showTimestamp: boolean }) {
+export function HerdEventMessage({ message }: { message: ChatMessage; showTimestamp: boolean }) {
   // The content is formatted by formatHerdEventBatch():
   // "N events from N sessions\n\n#34 Worker A | turn_end | ✓ 56.3s\n#35 Worker B | ..."
   // Extract individual event lines (skip the header and blank lines).

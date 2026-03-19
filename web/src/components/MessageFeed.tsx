@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useMemo, useState, useCallback, memo, type ReactNode } from "react";
 import { useStore } from "../store.js";
-import { CodexThinkingInline, MessageBubble } from "./MessageBubble.js";
+import { CodexThinkingInline, HerdEventMessage, MessageBubble } from "./MessageBubble.js";
 import { ToolBlock, getPreview, getToolIcon, getToolLabel, ToolIcon, formatDuration } from "./ToolBlock.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { CollapseFooter, TurnCollapseFooter } from "./CollapseFooter.js";
@@ -110,6 +110,9 @@ function appendTimedMessagesFromEntries(entries: FeedEntry[], out: ChatMessage[]
   for (const entry of entries) {
     if (entry.kind !== "message") continue;
     if (!isTimedChatMessage(entry.msg)) continue;
+    // Herd events manage their own time display (batch group shows a time range).
+    // Exclude them from minute-boundary computation to avoid extra time dividers.
+    if (entry.msg.agentSource?.sessionId === "herd-events") continue;
     out.push(entry.msg);
   }
 }
@@ -1215,6 +1218,75 @@ function ApprovalBatchGroup({ messages }: { messages: ChatMessage[] }) {
   );
 }
 
+function getHerdBatchFeedBlockId(messageId: string): string {
+  return `herd-batch:${messageId}`;
+}
+
+/** Check if a feed entry is a herd event message (injected by the herd event dispatcher). */
+function isHerdEventEntry(entry: FeedEntry): entry is { kind: "message"; msg: ChatMessage } {
+  return entry.kind === "message" && entry.msg.role === "user" && entry.msg.agentSource?.sessionId === "herd-events";
+}
+
+/** Format a time range label for a batch of herd events.
+ *  Same minute: "11:44". Different minutes: "11:44 – 11:55". */
+function formatHerdBatchTimeRange(messages: ChatMessage[]): string {
+  const first = messages[0];
+  const last = messages[messages.length - 1];
+  const fmt = (ts: number) => {
+    const d = new Date(ts);
+    return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  };
+  const firstLabel = fmt(first.timestamp);
+  const lastLabel = fmt(last.timestamp);
+  return firstLabel === lastLabel ? firstLabel : `${firstLabel} – ${lastLabel}`;
+}
+
+/** Collapsed group for consecutive herd event messages — shows "N herd updates · time range"
+ *  with an expand toggle to see individual events with their timestamps. */
+function HerdEventBatchGroup({ messages }: { messages: ChatMessage[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const count = messages.length;
+  const timeRange = formatHerdBatchTimeRange(messages);
+
+  // Count total event lines across all batched messages
+  const totalLines = messages.reduce((sum, msg) => {
+    const lines = msg.content.split("\n").filter((line) => line.trim().length > 0 && line.startsWith("#"));
+    return sum + lines.length;
+  }, 0);
+  const eventCount = totalLines || count;
+
+  return (
+    <div
+      className="animate-[fadeSlideIn_0.2s_ease-out]"
+      data-feed-block-id={getHerdBatchFeedBlockId(messages[0]?.id ?? `count:${count}`)}
+    >
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="flex items-center gap-1.5 text-[11px] text-cc-muted font-mono-code pl-9 py-0.5 cursor-pointer hover:text-cc-fg/70 transition-colors"
+      >
+        <span className="text-amber-500/60 shrink-0">◇</span>
+        <span>
+          {eventCount} herd update{eventCount !== 1 ? "s" : ""} · {timeRange}
+        </span>
+        <svg
+          viewBox="0 0 16 16"
+          fill="currentColor"
+          className={`w-3 h-3 text-cc-muted/40 shrink-0 transition-transform ${expanded ? "rotate-90" : ""}`}
+        >
+          <path d="M6 4l4 4-4 4" />
+        </svg>
+      </button>
+      {expanded && (
+        <div className="space-y-0">
+          {messages.map((msg) => (
+            <HerdEventMessage key={msg.id} message={msg} showTimestamp={false} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const FeedEntries = memo(function FeedEntries({
   entries,
   sessionId,
@@ -1251,6 +1323,21 @@ const FeedEntries = memo(function FeedEntries({
           continue;
         }
         // Single approval — render normally (fall through below)
+      }
+      // Batch consecutive herd event entries (2+ become a collapsed group)
+      if (isHerdEventEntry(entry)) {
+        const batch: ChatMessage[] = [entry.msg];
+        let j = i + 1;
+        while (j < entries.length && isHerdEventEntry(entries[j])) {
+          batch.push((entries[j] as { kind: "message"; msg: ChatMessage }).msg);
+          j++;
+        }
+        if (batch.length >= 2) {
+          result.push(<HerdEventBatchGroup key={`herd-batch:${batch[0].id}`} messages={batch} />);
+          i = j;
+          continue;
+        }
+        // Single herd event — render normally (fall through below)
       }
       if (entry.kind === "tool_msg_group") {
         result.push(
