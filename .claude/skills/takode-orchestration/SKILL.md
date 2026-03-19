@@ -187,3 +187,7 @@ A `✗ disconnected` session just means its CLI process was killed (usually by t
 - **Use `--json` for programmatic decisions.** Parse JSON output when you need to branch on event data.
 - **Mixed backends work seamlessly.** The `takode` CLI talks to the Companion server, not to any backend directly.
 - **Coordinate with quests.** Use the `quest` CLI alongside `takode` for task tracking.
+
+## Archiving Sessions
+
+When your herd exceeds 5 sessions, archive the ones **least likely to be reused**. Archiving doesn't lose anything -- archived sessions' full conversation history remains readable via `takode peek` and `takode read`, and the Takode UI. If you later discover an archived session's context would be valuable, you can have a new worker read that history for context.

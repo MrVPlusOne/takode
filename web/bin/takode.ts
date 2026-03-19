@@ -1741,7 +1741,7 @@ async function handleSpawn(base: string, args: string[]): Promise<void> {
   }
   if (herdWarning) {
     console.log(
-      `\n\u26a0 Herd size is now ${herdWarning.herdSize} (limit: ${herdWarning.limit}). Please archive ${herdWarning.excess} session(s) that are no longer needed.`,
+      `\n\u26a0 Herd size is now ${herdWarning.herdSize} (limit: ${herdWarning.limit}). Please archive ${herdWarning.excess} session(s) least likely to be reused. Archived sessions' history remains readable via takode peek/read.`,
     );
   }
 }
