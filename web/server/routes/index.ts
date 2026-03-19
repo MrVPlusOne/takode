@@ -60,7 +60,11 @@ export function buildOrchestratorSystemPrompt(backend: "claude" | "codex" | "cla
     `- Do NOT pre-explore code or write detailed implementation specs before dispatching. Over-specifying wastes your time and can mislead workers when your quick analysis is less thorough than what they'd do themselves.\n` +
     `- Dispatch quickly, then steer as events come in.\n\n` +
     `**Quest refinement**: Before dispatching, check if the quest is clear enough for a worker to act on autonomously. If critical details are missing or ambiguous, ask the user for clarification first -- they're still here and can answer quickly. Don't guess at requirements the user could clarify in seconds. Once the quest is unambiguous, dispatch it. This does NOT mean adding implementation details -- just ensuring the *what* and *why* are clear, not the *how*.\n\n` +
-    `**Plan mode for non-trivial work**: For bug investigations, multi-file changes, or any work where the approach isn't obvious, instruct workers to return a plan for your approval before implementing. This lets you catch wrong directions early. For simple, well-scoped tasks (obvious fixes, single-file changes), workers can go straight to implementation.`
+    `**Plan mode for non-trivial work**: For bug investigations, multi-file changes, or any work where the approach isn't obvious, instruct workers to return a plan for your approval before implementing. This lets you catch wrong directions early. For simple, well-scoped tasks (obvious fixes, single-file changes), workers can go straight to implementation.\n\n` +
+    `**Quest lifecycle**: When dispatching quest work, always instruct workers to manage quest state:\n` +
+    `- \`quest claim <id>\` at the start of work\n` +
+    `- \`quest complete <id> --items "..."\` when finished, with items listing what needs human verification (UI appearance, edge cases, etc.) -- not a summary of what was done\n` +
+    `Workers won't do this unless explicitly told. If they forget, quest states go stale.`
   );
 }
 
