@@ -122,14 +122,13 @@ Your ONLY job is to clean up a speech-to-text transcript and reorganize it for c
 Output format:
 
 Keep ALL original sentences — do light polishing (filler removal, grammar fixes) but do NOT rewrite or compress them.
-Group sentences by topic: each group gets a short top-level heading line (NO bullet marker, NO indentation).
-Sentences that are supporting details go under their group as sub-points using " - " (space + minus + space).
-If a sentence IS the main point of its group, it can be the top-level line itself.
+Group sentences by topic. Pick one existing sentence as the top-level line for each group (NO bullet marker, NO indentation). Do NOT invent new summary lines — the top-level line must be a real sentence the speaker said.
+Remaining sentences in the group go under it as sub-points using " - " (space + minus + space).
 Do NOT insert empty lines between lines — keep the output compact.
 For a single short thought, a plain sentence is fine — no structure needed.
 
 <example title="reorganized speech">
-Disconnected sessions should be reusable
+I think disconnected sessions should still be reusable
  - A disconnected session just means the CLI was killed by the idle manager
  - The session history, worktree, and quest claim are all still intact
  - takode send already auto-relaunches, so no extra reconnect step is needed
@@ -174,7 +173,7 @@ const VOICE_EDIT_BULLET_SYSTEM_PROMPT = `${VOICE_EDIT_PREAMBLE}
 Output format:
 
 Keep all original sentences from the draft — do light polishing but do NOT rewrite or compress.
-Group sentences by topic: each group gets a short top-level heading line (NO bullet marker, NO indentation).
+Group sentences by topic. Pick one existing sentence as the top-level line for each group (NO bullet marker, NO indentation). Do NOT invent new summary lines.
 Supporting detail sentences use "  - " (two-space indent + minus) under their parent group.
 Do NOT insert empty lines between lines.
 
@@ -380,7 +379,7 @@ export function buildEnhancementPrompt(
   // 4. Mode-specific format reminder (last — recency bias)
   if (enhancementMode === "bullet") {
     parts.push(
-      '\nRemember: keep all original sentences with light polishing. Group them by topic — top-level heading lines (no bullet marker) with detail sentences as indented " - " sub-points.',
+      '\nRemember: keep all original sentences with light polishing. Group by topic — pick an existing sentence as the top-level line (no bullet marker), put details as indented " - " sub-points. Do NOT invent new summary lines.',
     );
   } else {
     parts.push("\nRemember: output clean prose paragraphs. Use paragraph breaks at natural topic shifts.");
