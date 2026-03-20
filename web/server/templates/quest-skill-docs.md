@@ -51,6 +51,7 @@ quest check  <id> <index> [--json]                            Toggle verificatio
 quest feedback <id> --text "..." [--author agent|human] [--image <path>] [--images "p1,p2"] [--json]  Add feedback entry
 quest address <id> <index> [--json]                          Toggle feedback addressed status
 quest delete <id> [--json]                                    Delete quest
+quest resize-image <path> [--max-dim 1920] [--json]           Resize an image to fit within max dimension
 ```
 
 ## ⚠️ Important: Flag Names
@@ -212,6 +213,8 @@ Every quest should have at least one tag. Common patterns: component/area (e.g. 
 
 Quests can have attached images at `~/.companion/questmaster/images/`.
 `quest show` displays file paths. Use the Read tool to view them.
+
+**If the Read tool fails with a dimension error** (e.g. "dimensions exceed the 2000x2000px limit"), resize the image first: `quest resize-image <path>`. New uploads are auto-resized, but older images may exceed the limit.
 
 **Forward user screenshots.** When the user includes screenshots in their message that are relevant to a quest (bug reports, UI feedback, design references), attach them either on creation (`quest create ... --image <path>`) or in follow-up feedback (`quest feedback ... --image <path>`). This gives workers visual context they wouldn't otherwise have.
 

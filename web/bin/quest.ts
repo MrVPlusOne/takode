@@ -25,6 +25,7 @@
  *   feedback   Add a feedback entry to a quest's thread
  *   address    Toggle feedback addressed status
  *   delete     Delete a quest and all versions
+ *   resize-image  Resize an image to fit within a max pixel dimension
  */
 
 import {
@@ -1173,6 +1174,58 @@ async function cmdDelete(): Promise<void> {
   }
 }
 
+async function cmdResizeImage(): Promise<void> {
+  validateFlags(["max-dim", "json"]);
+  const imagePath = positional(0);
+  if (!imagePath) die("Usage: quest resize-image <path> [--max-dim 1920]");
+
+  const maxDimStr = option("max-dim");
+  const maxDim = maxDimStr ? Number(maxDimStr) : 1920;
+  if (!Number.isFinite(maxDim) || maxDim < 1) die("--max-dim must be a positive integer");
+
+  const sharp = (await import("sharp")).default;
+  const { readFile, writeFile } = await import("node:fs/promises");
+
+  let buf: Buffer;
+  try {
+    buf = (await readFile(imagePath)) as Buffer;
+  } catch {
+    die(`Cannot read file: ${imagePath}`);
+  }
+
+  const meta = await sharp(buf).metadata();
+  if (!meta.width || !meta.height) die("Could not read image dimensions");
+
+  if (meta.width <= maxDim && meta.height <= maxDim) {
+    if (jsonOutput) {
+      out({ resized: false, width: meta.width, height: meta.height, path: imagePath });
+    } else {
+      console.log(`Already within ${maxDim}px: ${meta.width}×${meta.height}  ${imagePath}`);
+    }
+    return;
+  }
+
+  const resized = await sharp(buf)
+    .resize({ width: maxDim, height: maxDim, fit: "inside", withoutEnlargement: true })
+    .toBuffer();
+  await writeFile(imagePath, resized);
+  const after = await sharp(resized).metadata();
+
+  if (jsonOutput) {
+    out({
+      resized: true,
+      before: { width: meta.width, height: meta.height, bytes: buf.length },
+      after: { width: after.width, height: after.height, bytes: resized.length },
+      path: imagePath,
+    });
+  } else {
+    console.log(
+      `Resized: ${meta.width}×${meta.height} → ${after.width}×${after.height}  ` +
+      `(${(buf.length / 1024).toFixed(0)}KB → ${(resized.length / 1024).toFixed(0)}KB)  ${imagePath}`,
+    );
+  }
+}
+
 async function cmdTags(): Promise<void> {
   validateFlags(["json"]);
   const quests = await listQuests();
@@ -1228,6 +1281,7 @@ Commands:
   feedback <id> --text "..." [--author agent|human] [--session <sid>] [--image <path>] [--images "p1,p2"] [--json]  Add feedback entry
   address <id> <index> [--json]                          Toggle feedback addressed status
   delete <id> [--json]                                   Delete quest
+  resize-image <path> [--max-dim 1920] [--json]          Resize an image to fit within max dimension
 
 Environment:
   COMPANION_SESSION_ID  Session ID (auto-set by Companion)
@@ -1283,6 +1337,8 @@ async function main(): Promise<void> {
       return cmdAddress();
     case "delete":
       return cmdDelete();
+    case "resize-image":
+      return cmdResizeImage();
     case "help":
     case "--help":
     case "-h":
