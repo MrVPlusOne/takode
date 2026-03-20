@@ -480,6 +480,52 @@ describe("AskUserQuestionDisplay", () => {
     expect(screen.queryByText("Allow")).toBeNull();
     expect(screen.queryByText("Deny")).toBeNull();
   });
+
+  it("includes 'Other' custom text in multi-question submission", () => {
+    // Regression: custom "Other" answers were dropped because customText
+    // wasn't synced into selections until the per-question Send button was
+    // clicked. The global "Submit answers" button only sent selections.
+    const perm = makePermission({
+      tool_name: "AskUserQuestion",
+      input: {
+        questions: [
+          {
+            header: "Q1",
+            question: "Pick a color?",
+            options: [
+              { label: "Red", description: "Warm" },
+              { label: "Blue", description: "Cool" },
+            ],
+          },
+          {
+            header: "Q2",
+            question: "Pick a size?",
+            options: [
+              { label: "Small", description: "Tiny" },
+              { label: "Large", description: "Big" },
+            ],
+          },
+        ],
+      },
+    });
+    render(<PermissionBanner permission={perm} sessionId="s1" />);
+
+    // Answer Q1 with a regular option
+    fireEvent.click(screen.getByText("Red"));
+
+    // Answer Q2 with "Other" custom text
+    const otherButtons = screen.getAllByText("Other...");
+    fireEvent.click(otherButtons[1]); // second question's "Other"
+    const input = screen.getByPlaceholderText("Type your answer...");
+    fireEvent.change(input, { target: { value: "Medium" } });
+
+    // Submit all answers
+    fireEvent.click(screen.getByText("Submit answers"));
+
+    expect(mockSendToSession).toHaveBeenCalledTimes(1);
+    const call = mockSendToSession.mock.calls[0][1];
+    expect(call.updated_input.answers).toEqual({ "0": "Red", "1": "Medium" });
+  });
 });
 
 // ─── Collapse / Expand behavior ─────────────────────────────────────────────

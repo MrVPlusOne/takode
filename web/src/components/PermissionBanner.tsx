@@ -996,11 +996,26 @@ function AskUserQuestionDisplay({
     }
   }
 
+  function handleCustomTextChange(questionIdx: number, text: string) {
+    const key = String(questionIdx);
+    setCustomText((prev) => ({ ...prev, [key]: text }));
+    // Sync into selections live so "Submit answers" always includes the latest custom text
+    if (text.trim()) {
+      setSelections((prev) => ({ ...prev, [key]: text.trim() }));
+    } else {
+      // Clear the selection if text is emptied
+      setSelections((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    }
+  }
+
   function handleCustomSubmit(questionIdx: number) {
     const key = String(questionIdx);
     const text = customText[key]?.trim();
     if (!text) return;
-    setSelections((prev) => ({ ...prev, [key]: text }));
 
     if (questions.length <= 1) {
       onSelect({ [key]: text });
@@ -1075,7 +1090,24 @@ function AskUserQuestionDisplay({
 
                 {/* "Other" option */}
                 <button
-                  onClick={() => setShowCustom((prev) => ({ ...prev, [key]: !prev[key] }))}
+                  onClick={() => {
+                    const willShow = !showCustom[key];
+                    setShowCustom((prev) => ({ ...prev, [key]: willShow }));
+                    if (willShow) {
+                      // Switching to custom: seed selection from existing custom text if any,
+                      // otherwise clear the option-based selection
+                      const existing = customText[key]?.trim();
+                      if (existing) {
+                        setSelections((prev) => ({ ...prev, [key]: existing }));
+                      } else {
+                        setSelections((prev) => {
+                          const next = { ...prev };
+                          delete next[key];
+                          return next;
+                        });
+                      }
+                    }
+                  }}
                   disabled={disabled}
                   className={`w-full text-left px-3 py-2 rounded-lg border transition-all cursor-pointer disabled:opacity-50 ${
                     isCustom
@@ -1096,25 +1128,18 @@ function AskUserQuestionDisplay({
                 </button>
 
                 {isCustom && (
-                  <div className="flex gap-2 pl-6">
+                  <div className="pl-6">
                     <input
                       type="text"
                       value={customText[key] || ""}
-                      onChange={(e) => setCustomText((prev) => ({ ...prev, [key]: e.target.value }))}
+                      onChange={(e) => handleCustomTextChange(i, e.target.value)}
                       onKeyDown={(e) => {
                         if (e.key === "Enter") handleCustomSubmit(i);
                       }}
                       placeholder="Type your answer..."
-                      className="flex-1 px-2.5 py-1.5 text-xs bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg placeholder:text-cc-muted focus:outline-none focus:border-cc-primary/50"
+                      className="w-full px-2.5 py-1.5 text-xs bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg placeholder:text-cc-muted focus:outline-none focus:border-cc-primary/50"
                       autoFocus
                     />
-                    <button
-                      onClick={() => handleCustomSubmit(i)}
-                      disabled={!customText[key]?.trim()}
-                      className="px-3 py-1.5 text-xs font-medium rounded-lg bg-cc-primary hover:bg-cc-primary-hover text-white disabled:opacity-50 transition-colors cursor-pointer"
-                    >
-                      Send
-                    </button>
                   </div>
                 )}
               </div>
