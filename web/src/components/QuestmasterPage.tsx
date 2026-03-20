@@ -610,6 +610,21 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
     }
   }
 
+  async function handleCancel(quest: QuestmasterTask) {
+    setError("");
+    try {
+      const updatedQuest = await api.markQuestDone(quest.questId, { cancelled: true });
+      const currentQuests = useStore.getState().quests;
+      setQuests(
+        currentQuests
+          .map((q) => (q.questId === updatedQuest.questId ? updatedQuest : q))
+          .sort((a, b) => b.createdAt - a.createdAt),
+      );
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   async function handleDelete(questId: string) {
     setError("");
     try {
@@ -2559,19 +2574,34 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
                                                 <span className="w-px h-4 bg-cc-border mx-0.5" />
 
                                                 {/* Status transitions */}
-                                                <select
-                                                  value={quest.status}
-                                                  onChange={(e) =>
-                                                    handleTransition(quest, e.target.value as QuestStatus)
-                                                  }
-                                                  className={`px-2 py-1.5 text-[11px] font-medium rounded-lg cursor-pointer outline-none transition-colors ${cfg.bg} ${cfg.text} border ${cfg.border}`}
-                                                >
-                                                  {ALL_STATUSES.map((s) => (
-                                                    <option key={s} value={s}>
-                                                      {STATUS_CONFIG[s].label}
-                                                    </option>
-                                                  ))}
-                                                </select>
+                                                {(() => {
+                                                  const dropdownCfg = isCancelled
+                                                    ? { bg: "bg-red-500/10", text: "text-red-400", border: "border-red-500/20" }
+                                                    : cfg;
+                                                  return (
+                                                    <select
+                                                      value={isCancelled ? "cancelled" : quest.status}
+                                                      onChange={(e) => {
+                                                        const val = e.target.value;
+                                                        if (val === "cancelled") {
+                                                          handleCancel(quest);
+                                                        } else {
+                                                          handleTransition(quest, val as QuestStatus);
+                                                        }
+                                                      }}
+                                                      className={`px-2 py-1.5 text-[11px] font-medium rounded-lg cursor-pointer outline-none transition-colors ${dropdownCfg.bg} ${dropdownCfg.text} border ${dropdownCfg.border}`}
+                                                    >
+                                                      {ALL_STATUSES.map((s) => (
+                                                        <option key={s} value={s}>
+                                                          {STATUS_CONFIG[s].label}
+                                                        </option>
+                                                      ))}
+                                                      <option key="cancelled" value="cancelled">
+                                                        Cancelled
+                                                      </option>
+                                                    </select>
+                                                  );
+                                                })()}
 
                                                 {/* Separator */}
                                                 <span className="w-px h-4 bg-cc-border mx-0.5" />
