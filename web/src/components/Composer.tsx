@@ -887,7 +887,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
         selectCommand(filteredCommands[slashMenuIndex]);
         return;
       }
-      if (e.key === "Enter" && !e.shiftKey) {
+      if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && e.nativeEvent.keyCode !== 229) {
         e.preventDefault();
         selectCommand(filteredCommands[slashMenuIndex]);
         return;
@@ -916,7 +916,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
         selectMention(mentionResults[mentionIndex]);
         return;
       }
-      if (e.key === "Enter" && !e.shiftKey) {
+      if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && e.nativeEvent.keyCode !== 229) {
         e.preventDefault();
         selectMention(mentionResults[mentionIndex]);
         return;
@@ -936,7 +936,15 @@ export function Composer({ sessionId }: { sessionId: string }) {
     }
     // Desktop: Enter sends, Shift+Enter inserts newline.
     // Mobile: Enter always inserts newline (users tap the Send button).
-    if (e.key === "Enter" && !e.shiftKey && !usesTouchKeyboard) {
+    // Skip during IME composition (e.g. CJK input) -- Enter confirms the
+    // candidate character, not a send intent. keyCode 229 covers older browsers.
+    if (
+      e.key === "Enter" &&
+      !e.shiftKey &&
+      !usesTouchKeyboard &&
+      !e.nativeEvent.isComposing &&
+      e.nativeEvent.keyCode !== 229
+    ) {
       e.preventDefault();
       handleSend();
     }
