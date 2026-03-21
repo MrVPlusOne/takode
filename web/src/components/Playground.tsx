@@ -28,7 +28,7 @@ import { SessionItem } from "./SessionItem.js";
 import type { CreationProgressEvent } from "../types.js";
 import { CatPawAvatar, CatPawLeft, CatPawRight, YarnBallDot, YarnBallSpinner, SleepingCat } from "./CatIcons.js";
 import { HighlightedText } from "./HighlightedText.js";
-import { PawTrailAvatar } from "./PawTrail.js";
+import { PawTrailAvatar, HidePawContext } from "./PawTrail.js";
 import type { SessionItem as SidebarSessionItem } from "../utils/project-grouping.js";
 import { buildHerdGroupBadgeThemes, getHerdGroupLeaderId } from "../utils/herd-group-theme.js";
 
@@ -3274,10 +3274,41 @@ export function Playground() {
                 </button>
               </div>
             </Card>
+            <Card label="Collapsed leader turn — only @to(user) visible">
+              <div className="flex items-start gap-3">
+                <PawTrailAvatar />
+                <div className="flex-1 min-w-0 rounded-xl border border-cc-border/20 bg-cc-card/20 overflow-hidden">
+                  <button className="w-full flex items-center gap-1.5 py-1.5 px-3 border-l-2 border-cc-border/40 bg-cc-hover/10 hover:bg-cc-hover/30 transition-colors cursor-pointer text-[11px] text-cc-muted font-mono-code">
+                    <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 shrink-0 text-cc-muted/60">
+                      <path d="M6 4l4 4-4 4" />
+                    </svg>
+                    <span>3 messages</span>
+                    <span className="text-cc-muted/40">&middot;</span>
+                    <span>6 tools</span>
+                    <span className="text-cc-muted/40">&middot;</span>
+                    <span>3 herd events</span>
+                    <span className="text-cc-muted/40">&middot;</span>
+                    <span>17m 33s</span>
+                  </button>
+                  <div className="px-3 py-2.5">
+                    <HidePawContext.Provider value={true}>
+                      <MessageBubble
+                        message={{
+                          id: "playground-collapsed-touser",
+                          role: "assistant",
+                          content:
+                            "Approved #70's plan for q-43. It's a clean unification: resize once at store time (1920px max). @to(user)",
+                          leaderUserAddressed: true,
+                          timestamp: Date.now() - 60000,
+                        }}
+                      />
+                    </HidePawContext.Provider>
+                  </div>
+                </div>
+              </div>
+            </Card>
           </div>
         </Section>
-
-        {/* ─── Herd Event Batch Groups ──────────────────────────── */}
         <Section
           title="Herd Event Batch Groups"
           description="Consecutive herd event messages are collapsed into a single expandable group with a time range, reducing vertical noise in leader sessions."

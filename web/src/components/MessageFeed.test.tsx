@@ -3149,9 +3149,9 @@ describe("MessageFeed - collapsed turns", () => {
     expect(mockToggleTurnActivity).toHaveBeenCalledWith(sid, "u1", true);
   });
 
-  it("leader mode promotes all non-@to(self) text when turn has @to(user)", () => {
-    // When a turn contains @to(user), all text-bearing assistant messages
-    // without @to(self) are promoted to user-facing in the collapsed view.
+  it("leader mode promotes only @to(user) text, keeps internal monologue collapsed", () => {
+    // When a turn contains @to(user), only leaderUserAddressed messages are
+    // promoted. Unmarked internal text stays in agentEntries (hidden when collapsed).
     const sid = "test-leader-promotion";
     setStoreSdkSessionRole(sid, { isOrchestrator: true });
     setStoreMessages(sid, [
@@ -3179,11 +3179,12 @@ describe("MessageFeed - collapsed turns", () => {
 
     // User message is always visible
     expect(screen.getByText("Kick off orchestration")).toBeTruthy();
-    // All non-@to(self) text entries are promoted and visible
-    expect(screen.getByText("Assigned q-600 to #2")).toBeTruthy();
+    // @to(user) entries are promoted and visible
     expect(screen.getByText("First update from the herd.")).toBeTruthy();
-    expect(screen.getByText("Nudged #2 about test coverage")).toBeTruthy();
     expect(screen.getByText("Second update with progress.")).toBeTruthy();
+    // Unmarked internal text stays collapsed (not promoted)
+    expect(screen.queryByText("Assigned q-600 to #2")).toBeNull();
+    expect(screen.queryByText("Nudged #2 about test coverage")).toBeNull();
     // @to(self) entry is NOT promoted — stays collapsed
     expect(screen.queryByText("Internal coordination")).toBeNull();
   });
@@ -3252,9 +3253,10 @@ describe("MessageFeed - collapsed turns", () => {
     expect(mockToggleTurnActivity).toHaveBeenCalledWith(sid, "u1", true);
   });
 
-  it("leader mode keeps user-addressed and promoted text visible, collapses @to(self)", () => {
-    // Turn 1 (u1→a2): a2 has @to(user), so a1 is promoted (non-@to(self) text).
-    // a_self is explicitly @to(self) — stays collapsed.
+  it("leader mode keeps user-addressed text visible, collapses internal and @to(self)", () => {
+    // Turn 1 (u1→a2): a2 has @to(user) so it's the response.
+    // a1 is unmarked internal text — stays collapsed.
+    // a_self is @to(self) — hidden entirely.
     const sid = "test-leader-collapse";
     setStoreSdkSessionRole(sid, { isOrchestrator: true });
     setStoreMessages(sid, [
@@ -3276,8 +3278,8 @@ describe("MessageFeed - collapsed turns", () => {
     // @to(user) response visible
     expect(screen.getByText("I delegated auth + tests. Waiting for your review.")).toBeTruthy();
     expect(screen.getByTestId("leader-user-addressed-marker")).toBeTruthy();
-    // Promoted: a1 is non-@to(self) text in a turn with @to(user)
-    expect(screen.getByText("Assigned q-127 to #3")).toBeTruthy();
+    // Unmarked internal text stays collapsed (not promoted)
+    expect(screen.queryByText("Assigned q-127 to #3")).toBeNull();
     // @to(self) stays collapsed
     expect(screen.queryByText("internal check")).toBeNull();
     // Last turn (u2→a3) is expanded as last turn

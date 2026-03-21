@@ -447,9 +447,9 @@ function makeTurn(userEntry: FeedEntry | null, entries: FeedEntry[], turnIndex: 
     }
   }
 
-  // Leader mode: when a turn has @to(user), promote all non-@to(self) text
-  // entries from agentEntries so they're visible even when the turn is collapsed.
-  // Also hide @to(self) entries entirely (both collapsed and expanded views).
+  // Leader mode: promote only @to(user) entries so they're visible when collapsed.
+  // Hide @to(self) entries entirely. Non-addressed assistant text stays in agentEntries
+  // (visible expanded, hidden collapsed).
   let promotedEntries: FeedEntry[] = [];
   let selfAddressedCount = 0;
   let allEntries: FeedEntry[] = entries;
@@ -457,12 +457,17 @@ function makeTurn(userEntry: FeedEntry | null, entries: FeedEntry[], turnIndex: 
     const isSelfAddressed = (e: FeedEntry) =>
       e.kind === "message" && e.msg.role === "assistant" && e.msg.content?.trimEnd().endsWith("@to(self)");
 
-    // Collect indices to splice: promote (user-facing text) or hide (@to(self))
+    // Collect indices to splice: promote (@to(user)) or hide (@to(self))
     const toSplice: { i: number; promote: boolean }[] = [];
     for (let i = 0; i < agentEntries.length; i++) {
       const e = agentEntries[i];
       if (e.kind === "message" && e.msg.role === "assistant" && e.msg.content?.trim()) {
-        toSplice.push({ i, promote: !isSelfAddressed(e) });
+        if (isSelfAddressed(e)) {
+          toSplice.push({ i, promote: false });
+        } else if (e.msg.leaderUserAddressed === true) {
+          toSplice.push({ i, promote: true });
+        }
+        // Unmarked internal text: leave in agentEntries (no splice)
       }
     }
     // Single reverse pass keeps indices stable
@@ -498,7 +503,8 @@ function makeTurn(userEntry: FeedEntry | null, entries: FeedEntry[], turnIndex: 
     responseEntry,
     promotedEntries,
     stats: {
-      // Subtract responseEntry, promotedEntries, and hidden @to(self) entries
+      // Subtract responseEntry, promotedEntries (@to(user)), and hidden @to(self) entries;
+      // remaining count reflects unmarked internal messages still in agentEntries.
       messageCount: s.messages - (responseEntry ? 1 : 0) - promotedEntries.length - selfAddressedCount,
       toolCount: s.tools,
       subagentCount: s.subagents,
