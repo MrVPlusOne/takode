@@ -7400,18 +7400,24 @@ export class WsBridge {
         : msg.content;
     }
 
-    // Role-prefix for orchestrator sessions: the CLI sees [User], [Herd], [System], or [Agent] tags
-    // so the orchestrator can distinguish message sources. History/browser keep original content.
+    // Timestamp-tag every user message sent to the CLI so the model knows when
+    // the human typed it. Orchestrator sessions get richer source tags ([User],
+    // [Herd], [System], [Agent]); regular sessions just get [User HH:MM].
+    // History/browser keep original content -- tags are CLI-only.
     const isOrch = this.launcher?.getSession(session.id)?.isOrchestrator;
-    if (isOrch && typeof content === "string") {
+    if (typeof content === "string") {
       const time = new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-      if (this.isSystemSourceTag(msg.agentSource)) {
-        content = `[System ${time}] ${content}`;
-      } else if (msg.agentSource?.sessionId === "herd-events") {
-        content = `[Herd ${time}] ${content}`;
-      } else if (msg.agentSource) {
-        const label = msg.agentSource.sessionLabel || msg.agentSource.sessionId.slice(0, 8);
-        content = `[Agent ${label} ${time}] ${content}`;
+      if (isOrch) {
+        if (this.isSystemSourceTag(msg.agentSource)) {
+          content = `[System ${time}] ${content}`;
+        } else if (msg.agentSource?.sessionId === "herd-events") {
+          content = `[Herd ${time}] ${content}`;
+        } else if (msg.agentSource) {
+          const label = msg.agentSource.sessionLabel || msg.agentSource.sessionId.slice(0, 8);
+          content = `[Agent ${label} ${time}] ${content}`;
+        } else {
+          content = `[User ${time}] ${content}`;
+        }
       } else {
         content = `[User ${time}] ${content}`;
       }

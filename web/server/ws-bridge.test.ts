@@ -604,7 +604,8 @@ describe("CLI handlers", () => {
     expect(userMsg).toBeDefined();
     const parsed = JSON.parse(userMsg!.trim());
     expect(parsed.type).toBe("user");
-    expect(parsed.message.content).toBe("hello queued");
+    // CLI-bound content gets a [User HH:MM] timestamp prefix
+    expect(parsed.message.content).toMatch(/^\[User \d{1,2}:\d{2}\s*[AP]M\] hello queued$/);
   });
 
   it("handleCLIMessage: system.init does not re-flush already-sent messages", () => {
@@ -3474,9 +3475,10 @@ describe("Browser message routing", () => {
     const sent = JSON.parse(sentRaw.trim());
     expect(sent.type).toBe("user");
     expect(sent.message.role).toBe("user");
-    expect(sent.message.content).toBe("What is 2+2?");
+    // CLI-bound content gets a [User HH:MM] timestamp prefix
+    expect(sent.message.content).toMatch(/^\[User \d{1,2}:\d{2}\s*[AP]M\] What is 2\+2\?$/);
 
-    // Should store in history
+    // Should store in history (without the tag -- history preserves original content)
     const session = bridge.getSession("s1")!;
     expect(session.messageHistory).toHaveLength(1);
     expect(session.messageHistory[0].type).toBe("user_message");
@@ -3502,7 +3504,8 @@ describe("Browser message routing", () => {
     expect(session.pendingMessages).toHaveLength(1);
     const queued = JSON.parse(session.pendingMessages[0]);
     expect(queued.type).toBe("user");
-    expect(queued.message.content).toBe("queued message");
+    // CLI-bound content gets a [User HH:MM] timestamp prefix
+    expect(queued.message.content).toMatch(/^\[User \d{1,2}:\d{2}\s*[AP]M\] queued message$/);
   });
 
   it("user_message: deduplicates repeated client_msg_id", () => {
@@ -4845,7 +4848,8 @@ describe("handleBrowserMessage with Buffer", () => {
     const sentRaw = cli.send.mock.calls[0][0] as string;
     const sent = JSON.parse(sentRaw.trim());
     expect(sent.type).toBe("user");
-    expect(sent.message.content).toBe("Hello from buffer");
+    // CLI-bound content gets a [User HH:MM] timestamp prefix
+    expect(sent.message.content).toMatch(/^\[User \d{1,2}:\d{2}\s*[AP]M\] Hello from buffer$/);
   });
 
   it("parses Buffer input and routes interrupt correctly", () => {
