@@ -3524,6 +3524,48 @@ describe("Browser message routing", () => {
     expect(userMessages).toHaveLength(1);
   });
 
+  it("user_message: herded worker gets [Leader HH:MM] for leader-forwarded messages", () => {
+    // Make the session a herded worker
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      getSession: vi.fn(() => ({ herdedBy: "leader-session-1" })),
+    } as any);
+
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "user_message",
+        content: "do the task",
+        agentSource: { sessionId: "leader-session-1", sessionLabel: "Leader" },
+      }),
+    );
+
+    const sentRaw = cli.send.mock.calls[0][0] as string;
+    const sent = JSON.parse(sentRaw.trim());
+    expect(sent.message.content).toMatch(/^\[Leader \d{1,2}:\d{2}\s*[AP]M\] do the task$/);
+  });
+
+  it("user_message: herded worker gets [User HH:MM] for direct human messages", () => {
+    // Make the session a herded worker
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      getSession: vi.fn(() => ({ herdedBy: "leader-session-1" })),
+    } as any);
+
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "user_message",
+        content: "direct nudge",
+        // No agentSource -- message from the human
+      }),
+    );
+
+    const sentRaw = cli.send.mock.calls[0][0] as string;
+    const sent = JSON.parse(sentRaw.trim());
+    expect(sent.message.content).toMatch(/^\[User \d{1,2}:\d{2}\s*[AP]M\] direct nudge$/);
+  });
+
   it("vscode_selection_update: broadcasts the latest global selection to browsers across sessions", () => {
     bridge.getOrCreateSession("s2");
     const otherBrowser = makeBrowserSocket("s2");

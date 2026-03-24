@@ -7419,7 +7419,13 @@ export class WsBridge {
           content = `[User ${time}] ${content}`;
         }
       } else {
-        content = `[User ${time}] ${content}`;
+        // Herded workers: messages forwarded from the leader carry agentSource
+        const isHerded = !!this.launcher?.getSession(session.id)?.herdedBy;
+        if (isHerded && msg.agentSource) {
+          content = `[Leader ${time}] ${content}`;
+        } else {
+          content = `[User ${time}] ${content}`;
+        }
       }
     }
 
