@@ -14,6 +14,7 @@ import { PawTrailAvatar, HidePawContext } from "./PawTrail.js";
 import { QuestClaimBlock } from "./QuestClaimBlock.js";
 import { HighlightedText } from "./HighlightedText.js";
 import { generateReplyPreview } from "../utils/reply-preview.js";
+import { parseReplyContext } from "../utils/reply-context.js";
 
 /**
  * Per-message search highlight info, derived from the session search state.
@@ -353,6 +354,19 @@ export function HerdEventMessage({ message }: { message: ChatMessage; showTimest
 
 type SearchHighlightInfo = { query: string; mode: "strict" | "fuzzy"; isCurrent: boolean } | null;
 
+/** Read-only reply chip shown above user message bubbles when the user replied to a specific assistant message. */
+export function UserReplyChip({ previewText }: { previewText: string }) {
+  return (
+    <div className="flex items-center gap-1.5 mb-1.5 text-[11px] text-cc-muted/80 max-w-full min-w-0">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" className="w-3 h-3 shrink-0 text-cc-primary/60">
+        <path d="M6 3L2 7l4 4" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M2 7h7a4 4 0 014 4v1" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+      <span className="truncate">{previewText}</span>
+    </div>
+  );
+}
+
 function UserMessage({
   message,
   sessionId,
@@ -369,10 +383,15 @@ function UserMessage({
   const isCodex = useStore((s) => s.sessions.get(sessionId ?? "")?.backend_type === "codex");
   const canRevert = !isCodex && !!sessionId;
 
+  // Parse reply-to context from message content (display only -- raw text still goes to assistant)
+  const replyContext = useMemo(() => parseReplyContext(message.content), [message.content]);
+  const displayContent = replyContext ? replyContext.userMessage : message.content;
+
   return (
     <div className="flex justify-end items-start gap-1 group/msg animate-[fadeSlideIn_0.2s_ease-out]">
       <div className="max-w-[85%] sm:max-w-[80%] sm:min-w-[200px] px-3 sm:px-4 py-2.5 rounded-[14px] rounded-br-[4px] bg-cc-user-bubble text-cc-fg">
         {message.agentSource && <AgentSourceBadge source={message.agentSource} />}
+        {replyContext && <UserReplyChip previewText={replyContext.previewText} />}
         {message.metadata?.vscodeSelection && (
           <div className="mb-2 flex">
             <div
@@ -413,13 +432,13 @@ function UserMessage({
           <pre className="text-[13px] sm:text-[14px] whitespace-pre-wrap break-words font-sans-ui leading-relaxed">
             {searchHighlight ? (
               <HighlightedText
-                text={message.content}
+                text={displayContent}
                 query={searchHighlight.query}
                 mode={searchHighlight.mode}
                 isCurrent={searchHighlight.isCurrent}
               />
             ) : (
-              message.content
+              displayContent
             )}
           </pre>
         </CollapsibleContent>

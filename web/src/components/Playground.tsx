@@ -6,7 +6,7 @@ import {
   PermissionsCollapsedChip,
   EvaluatingCollapsedChip,
 } from "./PermissionBanner.js";
-import { CodexThinkingInline, MessageBubble } from "./MessageBubble.js";
+import { CodexThinkingInline, MessageBubble, UserReplyChip } from "./MessageBubble.js";
 import { Lightbox } from "./Lightbox.js";
 import { ToolBlock, getToolIcon, getToolLabel, getPreview, ToolIcon, formatDuration } from "./ToolBlock.js";
 import { DiffViewer } from "./DiffViewer.js";
@@ -2628,6 +2628,45 @@ export function Playground() {
                   onDismiss={() => {}}
                 />
                 <div className="px-4 py-3 text-cc-muted text-sm italic">(Composer textarea would be here)</div>
+              </div>
+            </Card>
+          </div>
+        </Section>
+
+        {/* ─── User Message Reply Chip ──────────────────────────────── */}
+        <Section
+          title="User Message Reply Chip"
+          description="Read-only reply chip rendered above user message bubble text when the user replied to a specific assistant message."
+        >
+          <div className="max-w-3xl">
+            <Card label="Short reply context">
+              <div className="flex justify-end">
+                <div className="max-w-[80%] px-4 py-2.5 rounded-[14px] rounded-br-[4px] bg-cc-user-bubble text-cc-fg">
+                  <UserReplyChip previewText="Here's the implementation plan for the reply feature..." />
+                  <pre className="text-[14px] whitespace-pre-wrap break-words font-sans-ui leading-relaxed">
+                    Can you also add keyboard shortcuts for this?
+                  </pre>
+                </div>
+              </div>
+            </Card>
+            <Card label="Long reply context (truncated)">
+              <div className="flex justify-end">
+                <div className="max-w-[80%] px-4 py-2.5 rounded-[14px] rounded-br-[4px] bg-cc-user-bubble text-cc-fg">
+                  <UserReplyChip previewText="This is a much longer preview text that exceeds the typical display width and should be truncated with CSS to keep the chip compact" />
+                  <pre className="text-[14px] whitespace-pre-wrap break-words font-sans-ui leading-relaxed">
+                    I disagree with this approach. Let me explain why.
+                  </pre>
+                </div>
+              </div>
+            </Card>
+            <Card label="Reply with code in preview">
+              <div className="flex justify-end">
+                <div className="max-w-[80%] px-4 py-2.5 rounded-[14px] rounded-br-[4px] bg-cc-user-bubble text-cc-fg">
+                  <UserReplyChip previewText={'Here\'s the fix: `const result = await fetchData("api/v2")`'} />
+                  <pre className="text-[14px] whitespace-pre-wrap break-words font-sans-ui leading-relaxed">
+                    This doesn't handle the error case. Can you add a try/catch?
+                  </pre>
+                </div>
               </div>
             </Card>
           </div>

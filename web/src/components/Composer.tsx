@@ -28,6 +28,7 @@ import {
   type VsCodeSelectionContextPayload,
 } from "../utils/vscode-context.js";
 import { isNarrowComposerLayout } from "../utils/layout.js";
+import { injectReplyContext } from "../utils/reply-context.js";
 
 function PaperPlaneIcon({ className = "w-4 h-4" }: { className?: string }) {
   return (
@@ -816,7 +817,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
     // Prepend reply context if the user is replying to a specific message
     const currentReplyContext = useStore.getState().replyContexts.get(sessionId);
     const finalContent = currentReplyContext
-      ? `[Replying to: "${currentReplyContext.previewText}"]\n\n${msg}`
+      ? injectReplyContext(currentReplyContext.previewText, msg)
       : msg;
 
     const sent = sendToSession(sessionId, {
