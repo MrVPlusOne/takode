@@ -12568,13 +12568,74 @@ describe("Claude SDK adapter queue handoff", () => {
     expect(delivered).toHaveLength(1);
     expect(delivered[0]).toMatchObject({
       type: "user_message",
-      content: "hello from sdk queue",
     });
+    expect(delivered[0].content).toMatch(/^\[User \d{1,2}:\d{2}\s*[AP]M\] hello from sdk queue$/);
     expect(session.pendingMessages).toHaveLength(0);
   });
-});
 
-// ─── Sensitive path and command guards ───────────────────────────────────────
+  it("tags user_message with [User HH:MM] when sent through SDK adapter path", () => {
+    // Verifies the adapter path (not just handleUserMessage) applies timestamp tags
+    const bridge = new WsBridge();
+    const sid = "sdk-ts-1";
+    bridge.getOrCreateSession(sid);
+    const session = bridge.getSession(sid)!;
+    session.backendType = "claude-sdk";
+
+    const delivered: any[] = [];
+    const adapter = makeClaudeSdkAdapterMock();
+    adapter.sendBrowserMessage.mockImplementation((msg: any) => {
+      delivered.push(msg);
+      return true;
+    });
+    bridge.attachClaudeSdkAdapter(sid, adapter as any);
+
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({ type: "user_message", content: "hello sdk" }),
+    );
+
+    expect(delivered).toHaveLength(1);
+    expect(delivered[0].content).toMatch(/^\[User \d{1,2}:\d{2}\s*[AP]M\] hello sdk$/);
+  });
+
+  it("tags user_message with [Leader HH:MM] in herded SDK session", () => {
+    // Verifies herded workers get [Leader] tag through the adapter path
+    const bridge = new WsBridge();
+    const sid = "sdk-ts-herded";
+    bridge.getOrCreateSession(sid);
+    const session = bridge.getSession(sid)!;
+    session.backendType = "claude-sdk";
+
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      getSession: vi.fn(() => ({ herdedBy: "leader-1" })),
+    } as any);
+
+    const delivered: any[] = [];
+    const adapter = makeClaudeSdkAdapterMock();
+    adapter.sendBrowserMessage.mockImplementation((msg: any) => {
+      delivered.push(msg);
+      return true;
+    });
+    bridge.attachClaudeSdkAdapter(sid, adapter as any);
+
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "user_message",
+        content: "do the task",
+        agentSource: { sessionId: "leader-1", sessionLabel: "Leader" },
+      }),
+    );
+
+    expect(delivered).toHaveLength(1);
+    expect(delivered[0].content).toMatch(/^\[Leader \d{1,2}:\d{2}\s*[AP]M\] do the task$/);
+  });
+});
 // These are private static methods — access via `any` cast for testing.
 
 describe("isSensitiveConfigPath", () => {

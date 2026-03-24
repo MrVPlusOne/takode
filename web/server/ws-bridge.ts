@@ -4467,6 +4467,28 @@ export class WsBridge {
     return agentSource.sessionId === "system" || agentSource.sessionId.startsWith("system:");
   }
 
+  /** Build a `[Source HH:MM] ` prefix for CLI-bound user messages. */
+  private buildTimestampTag(
+    sessionId: string,
+    ts: number,
+    agentSource?: { sessionId: string; sessionLabel?: string },
+  ): string {
+    const time = new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const isOrch = this.launcher?.getSession(sessionId)?.isOrchestrator;
+    if (isOrch) {
+      if (this.isSystemSourceTag(agentSource)) return `[System ${time}] `;
+      if (agentSource?.sessionId === "herd-events") return `[Herd ${time}] `;
+      if (agentSource) {
+        const label = agentSource.sessionLabel || agentSource.sessionId.slice(0, 8);
+        return `[Agent ${label} ${time}] `;
+      }
+      return `[User ${time}] `;
+    }
+    const isHerded = !!this.launcher?.getSession(sessionId)?.herdedBy;
+    if (isHerded && agentSource) return `[Leader ${time}] `;
+    return `[User ${time}] `;
+  }
+
   handleBrowserClose(ws: ServerWebSocket<SocketData>, code?: number, reason?: string) {
     const sessionId = (ws.data as BrowserSocketData).sessionId;
     const session = this.sessions.get(sessionId);
@@ -6955,6 +6977,13 @@ export class WsBridge {
         this.markTurnInterrupted(session, msg.interruptSource ?? "user");
       }
 
+      // Timestamp-tag user messages in the adapter path (SDK/Codex sessions).
+      // Same logic as handleUserMessage but applied to adapterMsg before send.
+      if (msg.type === "user_message" && typeof adapterMsg.content === "string") {
+        const tag = this.buildTimestampTag(session.id, ingested?.timestamp ?? Date.now(), msg.agentSource);
+        adapterMsg = { ...adapterMsg, content: tag + adapterMsg.content };
+      }
+
       const adapter = session.codexAdapter || session.claudeSdkAdapter;
       const raw = JSON.stringify(adapterMsg);
       const queueAdapterMessage = () => {
@@ -7403,30 +7432,10 @@ export class WsBridge {
     // Timestamp-tag every user message sent to the CLI so the model knows when
     // the human typed it. Orchestrator sessions get richer source tags ([User],
     // [Herd], [System], [Agent]); regular sessions just get [User HH:MM].
+    // Herded workers see [Leader HH:MM] for leader-forwarded messages.
     // History/browser keep original content -- tags are CLI-only.
-    const isOrch = this.launcher?.getSession(session.id)?.isOrchestrator;
     if (typeof content === "string") {
-      const time = new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-      if (isOrch) {
-        if (this.isSystemSourceTag(msg.agentSource)) {
-          content = `[System ${time}] ${content}`;
-        } else if (msg.agentSource?.sessionId === "herd-events") {
-          content = `[Herd ${time}] ${content}`;
-        } else if (msg.agentSource) {
-          const label = msg.agentSource.sessionLabel || msg.agentSource.sessionId.slice(0, 8);
-          content = `[Agent ${label} ${time}] ${content}`;
-        } else {
-          content = `[User ${time}] ${content}`;
-        }
-      } else {
-        // Herded workers: messages forwarded from the leader carry agentSource
-        const isHerded = !!this.launcher?.getSession(session.id)?.herdedBy;
-        if (isHerded && msg.agentSource) {
-          content = `[Leader ${time}] ${content}`;
-        } else {
-          content = `[User ${time}] ${content}`;
-        }
-      }
+      content = this.buildTimestampTag(session.id, ts, msg.agentSource) + content;
     }
 
     const ndjson = JSON.stringify({
