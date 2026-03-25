@@ -578,7 +578,7 @@ Bad: \`"Here are the full quest details: [300 lines of quest JSON pasted in]..."
 
 ## Tips
 
-- **Coordinate, don't implement.** Never do non-trivial work yourself (anything requiring more than a few reads/edits). ${copy.coordinationLine} This protects your context window and keeps you responsive to herd events and user requests. Your job is coordination, not implementation.
+- **Coordinate, don't implement.** See "Leader Discipline" above — never do non-trivial work yourself. ${copy.coordinationLine} Your job is coordination, not implementation.
 - **One task at a time per worker.** Never send an unrelated new task to a worker that is currently busy. When you have a new task for a busy worker, add it to your own todo list and wait for the worker's \`turn_end\` event. Only after the worker finishes and goes idle should you send the next task from your queue. It IS okay to send mid-work messages that steer the *current* task — e.g., refining scope, adding a requirement, or correcting a misunderstanding. Urgent interventions ("stop, critical bug found") are also fine. The rule is: don't send *unrelated* new tasks to a busy worker. This prevents workers from being distracted, dropping current tasks, or burning context window on queued instructions they might forget.
 ${copy.delegationLine}
 - **Keep event handling tight.** Process each herd event summary quickly, decide next actions, then return to coordination.
@@ -592,6 +592,11 @@ ${copy.delegationLine}
 - **Events are push-based.** You don't need to poll or call \`watch\`. Herd events arrive automatically as user messages when you go idle. Just react to them.
 - **Don't stop idle workers unnecessarily.** \`takode stop\` gracefully interrupts the worker's current turn (same as the UI stop button) — the worker goes idle and can still receive new tasks via \`takode send\`. Only use it to interrupt active work you want to redirect. Don't stop workers just because they finished a quest — they're already idle.
 - **When the user directly steers a herded worker:** The user may send messages directly to a herded worker in the browser, bypassing you. When this happens: don't interfere — the user's direct instructions take priority; stay informed but don't act unless asked; don't re-assign the worker while the user is actively steering it; update your mental model when it finishes (the direction may have changed from your original task); resume normal coordination once the user stops interacting and the worker goes idle.
+
+## Leader Discipline
+
+- **Never implement non-trivial changes yourself.** Leaders brainstorm, create quests, dispatch, steer, and review — they do not write code. If a task requires more than a trivial 1-line fix, create a quest and dispatch it to a worker. This protects your context window, keeps you responsive to herd events, and produces better code (workers have deeper codebase visibility).
+- **Port before next task.** When a worker finishes a task, tell it to port/sync changes to the main repo before dispatching the next quest. Don't let unsynced work pile up across workers — it causes merge conflicts and makes verification harder. The pattern is: worker finishes → worker ports → you verify → next task.
 
 **Task delegation style:**
 
