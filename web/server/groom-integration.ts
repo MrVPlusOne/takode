@@ -2,8 +2,32 @@ import { mkdirSync, symlinkSync, lstatSync, readlinkSync, unlinkSync, rmSync } f
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
+import { execSync } from "node:child_process";
 
-const REPO_SKILL_DIR = join(dirname(dirname(fileURLToPath(import.meta.url))), ".claude", "skills", "groom");
+/**
+ * Resolve the skill source to the main repository root, not the current worktree.
+ * In a worktree, `import.meta.url` points to an ephemeral path that breaks when
+ * the worktree is removed. `git rev-parse --git-common-dir` gives the main repo's
+ * .git directory, from which we derive a stable root.
+ */
+function resolveMainRepoSkillDir(): string {
+  const localRoot = dirname(dirname(fileURLToPath(import.meta.url)));
+  try {
+    // sync-ok: startup cold path, one-shot git query
+    const gitCommonDir = execSync("git rev-parse --git-common-dir", {
+      cwd: localRoot,
+      encoding: "utf-8",
+    }).trim();
+    // gitCommonDir is either ".git" (main repo) or an absolute path like "/path/to/main/.git"
+    const mainRoot = gitCommonDir === ".git" ? localRoot : dirname(gitCommonDir);
+    return join(mainRoot, ".claude", "skills", "groom");
+  } catch {
+    // Not in a git repo or git unavailable -- fall back to local path
+    return join(localRoot, ".claude", "skills", "groom");
+  }
+}
+
+const REPO_SKILL_DIR = resolveMainRepoSkillDir();
 const CLAUDE_SKILL_DIR = join(homedir(), ".claude", "skills", "groom");
 const CODEX_SKILL_DIR = join(homedir(), ".codex", "skills", "groom");
 
