@@ -354,6 +354,29 @@ export function HerdEventMessage({ message }: { message: ChatMessage; showTimest
 
 type SearchHighlightInfo = { query: string; mode: "strict" | "fuzzy"; isCurrent: boolean } | null;
 
+/** Compact marker rendered after the assistant message content when a notification was anchored to it. */
+export function NotificationMarker({ category }: { category: "needs-input" | "review" }) {
+  const isAction = category === "needs-input";
+  return (
+    <div className={`inline-flex items-center gap-1.5 mt-2 px-2 py-0.5 rounded-full text-[11px] font-medium ${
+      isAction
+        ? "bg-amber-400/15 text-amber-400"
+        : "bg-blue-500/15 text-blue-400"
+    }`}>
+      <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 shrink-0">
+        {isAction ? (
+          // Bell icon for needs-input
+          <path d="M8 1.5A3.5 3.5 0 004.5 5v2.5c0 .78-.26 1.54-.73 2.16L3 10.66V11.5h10v-.84l-.77-1A3.49 3.49 0 0111.5 7.5V5A3.5 3.5 0 008 1.5zM6.5 13a1.5 1.5 0 003 0h-3z" />
+        ) : (
+          // Checkmark-circle icon for review
+          <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm3.03 5.28a.75.75 0 00-1.06-1.06L7 8.19 5.78 6.97a.75.75 0 00-1.06 1.06l1.75 1.75a.75.75 0 001.06 0l3.5-3.5z" />
+        )}
+      </svg>
+      {isAction ? "Needs input" : "Ready for review"}
+    </div>
+  );
+}
+
 /** Read-only reply chip shown above user message bubbles when the user replied to a specific assistant message. */
 export function UserReplyChip({ previewText, messageId }: { previewText: string; messageId?: string }) {
   const handleClick = useCallback(() => {
@@ -678,6 +701,7 @@ function AssistantMessage({
         >
           {userAddressed && <LeaderUserAddressedMarker />}
           <MarkdownContent text={displayMessage.content} sessionId={sessionId} searchHighlight={searchHighlight} />
+          {message.notification && <NotificationMarker category={message.notification.category} />}
           {showTimestamp && (
             <MessageTimestamp timestamp={displayMessage.timestamp} turnDurationMs={displayMessage.turnDurationMs} />
           )}
@@ -718,6 +742,7 @@ function AssistantMessage({
           // Grouped tool_uses
           return <ToolGroupBlock key={i} name={group.name} items={group.items} sessionId={sessionId} />;
         })}
+        {message.notification && <NotificationMarker category={message.notification.category} />}
         {showTimestamp && (
           <MessageTimestamp timestamp={displayMessage.timestamp} turnDurationMs={displayMessage.turnDurationMs} />
         )}

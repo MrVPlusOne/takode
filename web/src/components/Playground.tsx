@@ -6,7 +6,7 @@ import {
   PermissionsCollapsedChip,
   EvaluatingCollapsedChip,
 } from "./PermissionBanner.js";
-import { CodexThinkingInline, MessageBubble, UserReplyChip } from "./MessageBubble.js";
+import { CodexThinkingInline, MessageBubble, UserReplyChip, NotificationMarker } from "./MessageBubble.js";
 import { Lightbox } from "./Lightbox.js";
 import { ToolBlock, getToolIcon, getToolLabel, getPreview, ToolIcon, formatDuration } from "./ToolBlock.js";
 import { DiffViewer } from "./DiffViewer.js";
@@ -2667,6 +2667,28 @@ export function Playground() {
                     This doesn't handle the error case. Can you add a try/catch?
                   </pre>
                 </div>
+              </div>
+            </Card>
+          </div>
+        </Section>
+
+        {/* ─── Notification Marker ──────────────────────────────── */}
+        <Section
+          title="Notification Marker"
+          description="Rendered after assistant message content when a notification was anchored to it via takode notify."
+        >
+          <div className="max-w-3xl">
+            <Card label="needs-input (amber)">
+              <div className="text-cc-fg text-sm">
+                <p className="mb-1">I've finished analyzing the logs. There are two approaches we could take:</p>
+                <p className="text-cc-muted">1. Increase the timeout globally, or 2. Add retry logic per-request.</p>
+                <NotificationMarker category="needs-input" />
+              </div>
+            </Card>
+            <Card label="review (blue)">
+              <div className="text-cc-fg text-sm">
+                <p>All changes have been committed and tests pass. The PR is ready for your review.</p>
+                <NotificationMarker category="review" />
               </div>
             </Card>
           </div>

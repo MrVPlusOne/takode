@@ -409,6 +409,7 @@ export type BrowserIncomingMessageBase =
       tool_start_times?: Record<string, number>;
       turn_duration_ms?: number;
       leader_user_addressed?: boolean;
+      notification?: { category: "needs-input" | "review"; timestamp: number };
     }
   | { type: "stream_event"; event: unknown; parent_tool_use_id: string | null }
   | { type: "result"; data: CLIResultMessage }
@@ -543,7 +544,8 @@ export type BrowserIncomingMessageBase =
       summary?: string;
     }
   | { type: "session_deleted"; session_id: string }
-  | { type: "session_created"; session_id: string };
+  | { type: "session_created"; session_id: string }
+  | { type: "notification_anchored"; messageId: string | null; notification: { category: "needs-input" | "review"; timestamp: number } };
 
 export type BrowserIncomingMessage = BrowserIncomingMessageBase & { seq?: number };
 

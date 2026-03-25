@@ -282,6 +282,9 @@ function normalizeHistoryMessages(
         stopReason: msg.stop_reason,
         cliUuid: (histMsg as Record<string, unknown>).uuid as string | undefined,
         leaderUserAddressed: (histMsg as { leader_user_addressed?: boolean }).leader_user_addressed === true,
+        ...((histMsg as Record<string, unknown>).notification
+          ? { notification: (histMsg as Record<string, unknown>).notification as ChatMessage["notification"] }
+          : {}),
         ...(typeof (histMsg as Record<string, unknown>).turn_duration_ms === "number"
           ? { turnDurationMs: (histMsg as Record<string, unknown>).turn_duration_ms as number }
           : {}),
@@ -506,6 +509,7 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
         turnDurationMs: data.turn_duration_ms,
         cliUuid: (data as Record<string, unknown>).uuid as string | undefined,
         leaderUserAddressed: data.leader_user_addressed === true,
+        ...(data.notification ? { notification: data.notification } : {}),
       };
       // Server accumulates content blocks for same-ID messages (parallel tool calls).
       // If this ID already exists, merge content blocks rather than replace — this
@@ -946,6 +950,18 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
           .catch((err) => {
             console.warn("[ws] Failed to refresh sessions after session_created:", err);
           });
+      }
+      break;
+    }
+
+    case "notification_anchored": {
+      // Stamp the notification onto the matching assistant message in the store
+      // so the chat feed can render a visual marker.
+      const targetId = data.messageId;
+      if (targetId) {
+        store.updateMessage(sessionId, targetId, {
+          notification: data.notification,
+        });
       }
       break;
     }

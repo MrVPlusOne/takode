@@ -2746,7 +2746,7 @@ export class WsBridge {
         type: "notification_anchored",
         messageId: anchoredMessageId,
         notification: { category, timestamp: Date.now() },
-      } as any);
+      });
     }
 
     this.persistSession(session);

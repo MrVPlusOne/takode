@@ -102,6 +102,8 @@ export interface ChatMessage {
   cliUuid?: string;
   /** Leader session assistant message explicitly addressed to the human via @to(user) suffix. */
   leaderUserAddressed?: boolean;
+  /** Notification anchored to this message (set by takode notify). */
+  notification?: { category: "needs-input" | "review"; timestamp: number };
 }
 
 export interface TaskItem {
