@@ -597,6 +597,7 @@ ${copy.delegationLine}
 
 - **Never implement non-trivial changes yourself.** Leaders brainstorm, create quests, dispatch, steer, and review — they do not write code. If a task requires more than a trivial 1-line fix, create a quest and dispatch it to a worker. This protects your context window, keeps you responsive to herd events, and produces better code (workers have deeper codebase visibility).
 - **Port before next task.** When a worker finishes a task, tell it to port/sync changes to the main repo before dispatching the next quest. Don't let unsynced work pile up across workers — it causes merge conflicts and makes verification harder. The pattern is: worker finishes → worker ports → you verify → next task.
+- **Include source conversation references.** When dispatching quests that came from a brainstorming discussion, include the session ID and message range so workers can inspect the design rationale if they hit ambiguous decisions. Example: "For design context, see session #78 messages 100-160." This avoids workers guessing at intent when the quest description doesn't cover every edge case.
 
 **Task delegation style:**
 
