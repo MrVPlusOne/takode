@@ -485,7 +485,9 @@ function formatSingleEvent(evt: TakodeEvent, nowTs: number): string {
     case "permission_request": {
       const tool = evt.data.tool_name || "unknown";
       const summary = typeof evt.data.summary === "string" ? `: ${truncate(evt.data.summary, 60)}` : "";
-      return `${label} | permission_request | ${tool}${summary}${ageSuffix}`;
+      // Annotate user-initiated permission requests so the leader knows to leave them for the user
+      const userInitiated = evt.data.turn_source === "user" ? " (user-initiated)" : "";
+      return `${label} | permission_request${userInitiated} | ${tool}${summary}${ageSuffix}`;
     }
     case "session_error": {
       const error = typeof evt.data.error === "string" ? truncate(evt.data.error, 80) : "unknown error";

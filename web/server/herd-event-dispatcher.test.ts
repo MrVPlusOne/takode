@@ -630,6 +630,30 @@ describe("formatHerdEventBatch", () => {
     expect(result).toContain("Bash: rm -rf node_modules");
   });
 
+  it("formats user-initiated permission_request with (user-initiated) annotation", () => {
+    const events = [
+      makeEvent({
+        event: "permission_request",
+        data: { tool_name: "AskUserQuestion", summary: "Which option?", turn_source: "user" },
+      }),
+    ];
+    const result = formatHerdEventBatch(events);
+    expect(result).toContain("permission_request (user-initiated)");
+    expect(result).toContain("AskUserQuestion");
+  });
+
+  it("does not annotate leader-initiated permission_request with (user-initiated)", () => {
+    const events = [
+      makeEvent({
+        event: "permission_request",
+        data: { tool_name: "Bash", summary: "rm -rf /tmp", turn_source: "leader" },
+      }),
+    ];
+    const result = formatHerdEventBatch(events);
+    expect(result).toContain("permission_request |");
+    expect(result).not.toContain("(user-initiated)");
+  });
+
   it("formats session_error events", () => {
     const events = [
       makeEvent({

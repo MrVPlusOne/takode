@@ -535,14 +535,14 @@ When you receive a \`[Herd]\` message, it contains a compact event table:
 **Event format details:**
 - **turn_end** includes: success/error/interrupted indicator, duration, tool counts, message range \`[from]-[to]\` (use with \`takode peek <session> --from <N>\`), quest status changes, and result preview
 ${copy.userMessageLine}
-- **permission_request** includes: tool name and description (only fires when auto-approval defers to human)
+- **permission_request** includes: tool name and description (only fires when auto-approval defers to human). If marked \`(user-initiated)\`, the user triggered this turn directly — leave the permission for them to handle in the UI
 
 For each event, decide what to do:
 
 - **\`turn_end\` (✓ success)**: Peek at the output (\`takode peek <session> --from <range-start>\`), then send follow-up work or mark as done
 - **\`turn_end\` (✗ error)**: Peek at recent turns, diagnose, send recovery instructions
 - **\`turn_end\` (⊘ interrupted)**: The user stopped this ${copy.interruptedSubject} — check if it needs to be restarted with different instructions
-- **\`permission_request\`**: If it's an \`AskUserQuestion\` or \`ExitPlanMode\`, you can answer it with \`takode answer\` (see below). Tool permissions (\`Bash\`, \`Edit\`, etc.) are human-only — leave those for the UI.
+- **\`permission_request\`**: If it's an \`AskUserQuestion\` or \`ExitPlanMode\`, you can answer it with \`takode answer\` (see below). Tool permissions (\`Bash\`, \`Edit\`, etc.) are human-only — leave those for the UI. **If the event is marked \`(user-initiated)\`, don't answer it** — the user triggered that turn directly and will handle the permission themselves.
 - **\`permission_resolved\`**: A pending permission was approved or denied — the worker is unblocked and running again
 - **\`session_error\`**: The worker hit a fatal error — investigate and decide whether to retry
 - **\`user_message [User]\`**: A human sent a message to a worker — may indicate new instructions or priority changes

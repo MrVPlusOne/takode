@@ -3292,6 +3292,7 @@ export class WsBridge {
                 request_id: request.request_id,
                 summary: request.description || request.tool_name,
                 ...this.buildPermissionPreview(request),
+                turn_source: this.getCurrentTurnTriggerSource(targetSession),
               }),
             schedulePermissionNotification: (targetSession, request) => {
               if (!this.pushoverNotifier) return;
@@ -5618,6 +5619,7 @@ export class WsBridge {
             request_id: perm.request_id,
             summary: perm.description || perm.tool_name,
             ...this.buildPermissionPreview(perm),
+            turn_source: this.getCurrentTurnTriggerSource(targetSession),
           }),
         schedulePermissionNotification: (targetSession, perm) => {
           if (!this.pushoverNotifier) return;
@@ -5739,6 +5741,7 @@ export class WsBridge {
           this.emitTakodeEvent(targetSession.id, "permission_request", {
             tool_name: request.tool_name,
             summary: request.description || request.tool_name,
+            turn_source: this.getCurrentTurnTriggerSource(targetSession),
           }),
         schedulePermissionNotification: (targetSession, request) => {
           if (!this.pushoverNotifier) return;
@@ -5876,6 +5879,7 @@ export class WsBridge {
           request_id: perm.request_id,
           summary: perm.description || perm.tool_name,
           ...this.buildPermissionPreview(perm),
+          turn_source: this.getCurrentTurnTriggerSource(session),
         });
 
         // NOW set attention and schedule notifications
@@ -5917,6 +5921,7 @@ export class WsBridge {
           request_id: perm.request_id,
           summary: perm.description || perm.tool_name,
           ...this.buildPermissionPreview(perm),
+          turn_source: this.getCurrentTurnTriggerSource(session),
         });
         this.setAttention(session, "action");
         this.persistSession(session);

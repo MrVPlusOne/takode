@@ -825,6 +825,8 @@ export interface TakodePermissionRequestEventData {
   question?: string;
   options?: string[];
   planPreview?: string;
+  /** Who triggered the turn containing this permission request. */
+  turn_source?: "user" | "leader" | "system" | "unknown";
 }
 
 export interface TakodePermissionResolvedEventData {
