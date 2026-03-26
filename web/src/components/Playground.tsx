@@ -1849,6 +1849,19 @@ export function Playground() {
               toolUseId="tb-10"
               sessionId={MOCK_SESSION_ID}
             />
+            {/* Takode Notify pills */}
+            <ToolBlock
+              name="Bash"
+              input={{ command: "takode notify needs-input" }}
+              toolUseId="tb-notify-1"
+              sessionId={MOCK_SESSION_ID}
+            />
+            <ToolBlock
+              name="Bash"
+              input={{ command: "takode notify review" }}
+              toolUseId="tb-notify-2"
+              sessionId={MOCK_SESSION_ID}
+            />
             <ToolBlock
               name="NotebookEdit"
               input={{

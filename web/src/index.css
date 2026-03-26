@@ -219,17 +219,17 @@ html, body {
 
 /* Dark mode overrides */
 .dark {
-  --color-cc-bg: #2b2a27;
+  --color-cc-bg: #1e1e1e;
   --color-cc-fg: #eeeeee;
-  --color-cc-card: #1f1e1b;
+  --color-cc-card: #181818;
   --color-cc-primary: #ae5630;
   --color-cc-primary-hover: #c4643a;
-  --color-cc-user-bubble: #393937;
+  --color-cc-user-bubble: #2d2d2d;
   --color-cc-border: rgba(255,255,255,0.08);
-  --color-cc-muted: #8a8780;
-  --color-cc-sidebar: #252422;
-  --color-cc-input-bg: #1f1e1b;
-  --color-cc-code-bg: #141413;
+  --color-cc-muted: #858585;
+  --color-cc-sidebar: #191919;
+  --color-cc-input-bg: #181818;
+  --color-cc-code-bg: #111111;
   --color-cc-code-fg: #d4d4d4;
   --color-cc-hover: rgba(255,255,255,0.04);
   --color-cc-active: rgba(255,255,255,0.07);
