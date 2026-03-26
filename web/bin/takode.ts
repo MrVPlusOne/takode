@@ -1161,7 +1161,7 @@ function printPeekDefault(d: PeekDefaultResponse, sessionRef: string): void {
 
   // Hint
   console.log(
-    `Hint: takode peek ${safeSessionRef} --turn <N> to expand a turn | --from <msg-id> or --until <msg-id> to browse history | takode read ${safeSessionRef} <msg-id> for full message`,
+    `Hint: takode peek ${safeSessionRef} for latest activity | --turn <N> to expand a turn | --from <msg-id> or --until <msg-id> to browse | takode read ${safeSessionRef} <msg-id> for full message`,
   );
 }
 

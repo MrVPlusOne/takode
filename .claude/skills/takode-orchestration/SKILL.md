@@ -64,27 +64,35 @@ takode tasks 1
 
 **Tip:** Run `takode tasks` first when investigating an unfamiliar session — it gives you a high-level map of what the agent has been working on.
 
-### `takode peek <session> [--from N] [--count N] [--detail --turns N] [--task N] [--json]`
+### `takode peek <session> [--from N] [--until N] [--count N] [--turn N] [--task N] [--detail --turns N] [--json]`
 
 View session activity with progressive detail.
 
-**Default mode** (smart overview):
+**Default mode** (smart overview) -- shows collapsed recent turns + expanded last turn:
 ```bash
 takode peek 1
 ```
+Collapsed turns include message ranges like `Turn 5 · [42]-[58] · 14:22-14:25 (3s) · ✓ "Done"`, so you can quickly identify which messages belong to which turn.
 
-**Range browsing** (paged history):
+**Expand a specific turn** -- shows all messages in turn N (0-indexed):
+```bash
+takode peek 1 --turn 5
+```
+Use this when you see an interesting collapsed turn and want its full messages without guessing message IDs.
+
+**Range browsing** (paged history by message index):
 ```bash
 takode peek 1 --from 500
 takode peek 1 --from 500 --count 50
+takode peek 1 --until 500
 ```
 
-**Task browsing**:
+**Task browsing** -- expand messages for a specific task number:
 ```bash
 takode peek 1 --task 3
 ```
 
-**Detail mode**:
+**Detail mode** -- legacy full-detail view of the last N turns:
 ```bash
 takode peek 1 --detail --turns 3
 ```
@@ -95,9 +103,10 @@ takode peek 1 --detail --turns 3
 1. takode info 1               → Session metadata: backend, git, quest, metrics
 2. takode tasks 1              → Table of contents: tasks with msg ranges
 3. takode peek 1               → Overview: collapsed turns + expanded last turn
-4. takode peek 1 --task 3      → Browse task 3's messages
-5. takode peek 1 --from 800    → Browse messages [800]-[830] in detail
-6. takode read 1 815           → Full content of message 815
+4. takode peek 1 --turn 5      → Expand turn 5 (use turn number from step 3)
+5. takode peek 1 --task 3      → Browse task 3's messages
+6. takode peek 1 --from 800    → Browse messages [800]-[830] in detail
+7. takode read 1 815           → Full content of message 815
 ```
 
 ### `takode read <session> <msg-id> [--offset N] [--limit N] [--json]`
