@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useMemo, useState, useCallback, memo, type ReactNode } from "react";
 import { useStore } from "../store.js";
-import { CodexThinkingInline, HerdEventMessage, MessageBubble } from "./MessageBubble.js";
+import { CodexThinkingInline, HerdEventMessage, MessageBubble, isEmptyAssistantMessage } from "./MessageBubble.js";
 import { ToolBlock, getPreview, getToolIcon, getToolLabel, ToolIcon, formatDuration } from "./ToolBlock.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { CollapseFooter, TurnCollapseFooter } from "./CollapseFooter.js";
@@ -1373,6 +1373,8 @@ const FeedEntries = memo(function FeedEntries({
           />,
         );
       } else if (isTimedChatMessage(entry.msg)) {
+        // Skip empty assistant messages entirely so they don't create gaps in space-y layout
+        if (isEmptyAssistantMessage(entry.msg)) continue;
         const markerLabel = minuteBoundaryLabels?.get(entry.msg.id);
         const showTimestamp = entry.msg.role === "assistant" && typeof entry.msg.turnDurationMs === "number";
         result.push(

@@ -16,6 +16,17 @@ import { HighlightedText } from "./HighlightedText.js";
 import { generateReplyPreview } from "../utils/reply-preview.js";
 import { parseReplyContext } from "../utils/reply-context.js";
 
+/** Detect assistant messages with no visible content (empty text, no blocks, no notification).
+ *  Used to skip rendering empty bubbles that would show only a timestamp. */
+export function isEmptyAssistantMessage(msg: ChatMessage): boolean {
+  return (
+    msg.role === "assistant" &&
+    !msg.content?.trim() &&
+    (msg.contentBlocks || []).length === 0 &&
+    !msg.notification
+  );
+}
+
 /**
  * Per-message search highlight info, derived from the session search state.
  * Returns null when no search is active (zero overhead path).
@@ -209,6 +220,14 @@ export const MessageBubble = memo(function MessageBubble({
         searchHighlight={searchHighlight}
       />
     );
+  }
+
+  // Hide empty assistant messages: no text content, no content blocks, no notification.
+  // These are silent turns (e.g. processing a herd event with no visible output) that
+  // would otherwise render as empty bubbles showing only a timestamp.
+  // Safe: streaming messages always have contentBlocks being populated in real-time.
+  if (isEmptyAssistantMessage(message)) {
+    return null;
   }
 
   // Assistant message
