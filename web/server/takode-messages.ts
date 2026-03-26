@@ -487,7 +487,7 @@ function toPeekType(type: string): "user" | "assistant" | "result" | "system" {
 
 // ─── Turn Detection ───────────────────────────────────────────────────────────
 
-interface TurnBoundary {
+export interface TurnBoundary {
   /** Index of the user_message that starts this turn */
   startIdx: number;
   /** Index of the result message that ends this turn, or -1 if still in progress */
@@ -505,7 +505,7 @@ function isSyntheticStopTail(msg: BrowserIncomingMessage): boolean {
  * Find turn boundaries by scanning messageHistory.
  * A turn starts with a top-level user_message and ends with a result message.
  */
-function findTurnBoundaries(messages: BrowserIncomingMessage[]): TurnBoundary[] {
+export function findTurnBoundaries(messages: BrowserIncomingMessage[]): TurnBoundary[] {
   const turns: TurnBoundary[] = [];
   let currentStart = -1;
 

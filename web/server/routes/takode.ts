@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { access as accessAsync } from "node:fs/promises";
 import * as questStore from "../quest-store.js";
 import * as sessionNames from "../session-names.js";
-import { buildPeekResponse, buildPeekDefault, buildPeekRange, buildReadResponse } from "../takode-messages.js";
+import { buildPeekResponse, buildPeekDefault, buildPeekRange, buildReadResponse, findTurnBoundaries } from "../takode-messages.js";
 import type { RouteContext } from "./context.js";
 
 export function createTakodeRoutes(ctx: RouteContext) {
@@ -195,6 +195,23 @@ export function createTakodeRoutes(ctx: RouteContext) {
     const fromParam = c.req.query("from");
     const untilParam = c.req.query("until");
     const detail = c.req.query("detail") === "true";
+    const turnParam = c.req.query("turn");
+
+    // Turn mode: resolve turn number to message range, then use range mode
+    if (turnParam !== undefined) {
+      const turnNum = parseInt(turnParam, 10);
+      if (isNaN(turnNum) || turnNum < 0) return c.json({ error: "turn must be a non-negative integer" }, 400);
+
+      const allTurns = findTurnBoundaries(history);
+      if (turnNum >= allTurns.length) {
+        return c.json({ error: `Turn ${turnNum} not found. Session has ${allTurns.length} turns (0-${allTurns.length - 1}).` }, 404);
+      }
+
+      const turn = allTurns[turnNum];
+      const endIdx = turn.endIdx >= 0 ? turn.endIdx : history.length - 1;
+      const count = endIdx - turn.startIdx + 1;
+      return c.json({ ...base, ...buildPeekRange(history, { from: turn.startIdx, count }, sessionId) });
+    }
 
     if (fromParam !== undefined || untilParam !== undefined) {
       // Range browsing mode: page forward from `from`, backward from `until`,

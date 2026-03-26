@@ -1007,6 +1007,8 @@ function userSourceLabel(msg: PeekMessage): string {
 }
 
 function formatCollapsedTurn(turn: CollapsedTurn): string {
+  const endIdx = turn.endIdx >= 0 ? turn.endIdx : turn.startIdx; // in-progress turns use startIdx as fallback
+  const msgRange = `[${turn.startIdx}]-[${endIdx}]`;
   const startTime = formatTimeShort(turn.startedAt);
   const endTime = turn.endedAt ? formatTimeShort(turn.endedAt) : "running";
   const duration = turn.durationMs ? `${Math.round(turn.durationMs / 1000)}s` : "";
@@ -1020,7 +1022,7 @@ function formatCollapsedTurn(turn: CollapsedTurn): string {
   const icon = turn.success === true ? "✓" : turn.success === false ? "✗" : "…";
   const preview = turn.resultPreview ? ` "${truncate(turn.resultPreview, 60)}"` : "";
 
-  return `Turn ${turn.turnNum} · ${startTime}-${endTime}${durationPart}${statStr} · ${icon}${preview}`;
+  return `Turn ${turn.turnNum} · ${msgRange} · ${startTime}-${endTime}${durationPart}${statStr} · ${icon}${preview}`;
 }
 
 /** Render a list of messages with tree-pipe connectors for tool calls */
@@ -1159,7 +1161,7 @@ function printPeekDefault(d: PeekDefaultResponse, sessionRef: string): void {
 
   // Hint
   console.log(
-    `Hint: takode peek ${safeSessionRef} for the latest activity | takode peek ${safeSessionRef} --until <msg-id> --count 30 or --from <msg-id> to browse history | takode read ${safeSessionRef} <msg-id> for full message`,
+    `Hint: takode peek ${safeSessionRef} --turn <N> to expand a turn | --from <msg-id> or --until <msg-id> to browse history | takode read ${safeSessionRef} <msg-id> for full message`,
   );
 }
 
@@ -1272,12 +1274,13 @@ function printPeekDetail(d: PeekDetailResponse): void {
 async function handlePeek(base: string, args: string[]): Promise<void> {
   const sessionRef = args[0];
   if (!sessionRef)
-    err("Usage: takode peek <session> [--from N] [--until N] [--count N] [--task N] [--detail] [--turns N] [--json]");
+    err("Usage: takode peek <session> [--from N] [--until N] [--count N] [--task N] [--turn N] [--detail] [--turns N] [--json]");
   const safeSessionRef = formatInlineText(sessionRef);
 
   const flags = parseFlags(args.slice(1));
   const jsonMode = flags.json === true;
   const taskNum = parseIntegerFlag(flags, "task", "task number");
+  const turnNum = parseIntegerFlag(flags, "turn", "turn number");
   const fromIdx = parseIntegerFlag(flags, "from", "message index");
   const untilIdx = parseIntegerFlag(flags, "until", "message index");
   const count = parsePositiveIntegerFlag(flags, "count", "message count", 30);
@@ -1285,6 +1288,20 @@ async function handlePeek(base: string, args: string[]): Promise<void> {
 
   if (fromIdx !== undefined && fromIdx < 0) err("--from must be a non-negative integer.");
   if (untilIdx !== undefined && untilIdx < 0) err("--until must be a non-negative integer.");
+  if (turnNum !== undefined && turnNum < 0) err("--turn must be a non-negative integer.");
+
+  // Resolve --turn N to a message range via the server
+  if (turnNum !== undefined) {
+    const params = new URLSearchParams({ turn: String(turnNum) });
+    const path = `/sessions/${encodeURIComponent(sessionRef)}/messages?${params}`;
+    const data = await apiGet(base, path);
+    if (jsonMode) {
+      console.log(JSON.stringify(data, null, 2));
+      return;
+    }
+    printPeekRange(data as PeekRangeResponse, sessionRef, count);
+    return;
+  }
 
   // Resolve --task N to a message range via the tasks endpoint
   if (taskNum !== undefined) {
