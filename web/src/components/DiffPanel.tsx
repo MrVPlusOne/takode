@@ -7,6 +7,11 @@ import { YarnBallSpinner } from "./CatIcons.js";
 const LINE_NUMBERS_KEY = "cc-diff-line-numbers";
 const DIFF_REQUEST_TIMEOUT_MS = 15000;
 
+/** Estimated height (px) for a file diff placeholder before it enters the viewport. */
+const PLACEHOLDER_HEIGHT_PX = 120;
+/** Extra line height (px) per changed line for placeholder height estimation. */
+const LINE_HEIGHT_PX = 20;
+
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error("diff request timed out")), timeoutMs);
@@ -50,6 +55,55 @@ interface DiffFileData {
 }
 
 /**
+ * Lightweight placeholder rendered for files outside the viewport.
+ * Shows the filename and stats badge without mounting the expensive DiffViewer.
+ * Height is estimated from stats so the scroll position stays stable.
+ */
+function DiffPlaceholder({
+  fileName,
+  stats,
+  statusLabel,
+  loading,
+}: {
+  fileName: string;
+  stats?: FileStats;
+  statusLabel: string;
+  loading: boolean;
+}) {
+  const totalLines = stats ? stats.additions + stats.deletions : 0;
+  const estimatedHeight = PLACEHOLDER_HEIGHT_PX + totalLines * LINE_HEIGHT_PX;
+  return (
+    <div
+      className="rounded-lg border border-cc-border bg-cc-card/50 flex flex-col justify-center px-4"
+      style={{ minHeight: `${estimatedHeight}px` }}
+      data-testid="diff-placeholder"
+    >
+      <div className="flex items-center gap-2">
+        <svg
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          className="w-3.5 h-3.5 text-cc-primary shrink-0"
+        >
+          <path d="M9 1H4a1 1 0 00-1 1v12a1 1 0 001 1h8a1 1 0 001-1V5L9 1z" />
+          <polyline points="9 1 9 5 13 5" />
+        </svg>
+        <span className="text-xs text-cc-fg truncate">{fileName}</span>
+        {stats && (
+          <span className="text-[10px] font-mono-code shrink-0 flex items-center gap-1">
+            <span className="text-green-500">+{stats.additions}</span>
+            <span className="text-red-400">-{stats.deletions}</span>
+          </span>
+        )}
+        {statusLabel && <span className="text-[10px] text-cc-muted">{statusLabel.trim()}</span>}
+        {loading && <YarnBallSpinner className="w-3 h-3 text-cc-primary ml-auto" />}
+      </div>
+    </div>
+  );
+}
+
+/**
  * Thin wrapper that reads cwd and conditionally renders the real panel.
  * This avoids calling hooks after an early return (React Rules of Hooks).
  */
@@ -86,11 +140,19 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
     () => useStore.getState().diffFileStats?.get(sessionId) ?? new Map(),
   );
   const fetchedFilesRef = useRef<Set<string>>(new Set());
+  // Tracks files whose full contents (oldText/newText) have been fetched.
+  // Separate from fetchedFilesRef which tracks lightweight diff fetches.
+  const contentFetchedRef = useRef<Set<string>>(new Set());
 
   // Multi-file diff state
   const [allDiffs, setAllDiffs] = useState<Map<string, DiffFileData>>(new Map());
   const [allDiffsLoading, setAllDiffsLoading] = useState(false);
   const diffLoadVersionRef = useRef(0);
+
+  // Refs for scroll-to-file and viewport tracking
+  const fileRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const scrollingToFileRef = useRef(false);
 
   // File picker dropdown open state
   const [filePickerOpen, setFilePickerOpen] = useState(false);
@@ -137,6 +199,7 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
         setSelectedBranch(serverBaseBranch);
       }
       fetchedFilesRef.current.clear();
+      contentFetchedRef.current.clear();
       setFileStats(new Map());
       setAllDiffs(new Map());
     }
@@ -203,6 +266,17 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
     });
   }, [relativeChangedFiles, fileStats]);
 
+  // Track which files are near the viewport for lazy rendering + deferred content fetch.
+  // Files within ~1 viewport height above/below are considered "visible".
+  const [visibleFileSet, setVisibleFileSet] = useState<Set<string>>(() => {
+    // Start with first few files visible so initial render isn't empty
+    const initial = new Set<string>();
+    for (let i = 0; i < Math.min(3, visibleChangedFiles.length); i++) {
+      initial.add(visibleChangedFiles[i].abs);
+    }
+    return initial;
+  });
+
   // Fetch branch list (once per cwd)
   useEffect(() => {
     if (!cwd || branchesFetched.current) return;
@@ -251,6 +325,7 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
       setBaseBranch(value);
       api.setDiffBase(sessionId, value || "").catch(() => {});
       fetchedFilesRef.current.clear();
+      contentFetchedRef.current.clear();
       setFileStats(new Map());
       setAllDiffs(new Map());
       useStore.getState().setDiffFileStats(sessionId, new Map());
@@ -258,7 +333,9 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
     [sessionId],
   );
 
-  // Fetch diffs for ALL changed files
+  // Phase 1: Fetch lightweight diffs (no file contents) for ALL changed files.
+  // This is fast -- just unified diff text + stats. Full file contents are
+  // fetched on-demand only for files visible in the viewport (Phase 2 below).
   useEffect(() => {
     const loadVersion = ++diffLoadVersionRef.current;
     const isCurrentLoad = () => diffLoadVersionRef.current === loadVersion;
@@ -282,21 +359,15 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
           const batch = newFiles.slice(i, i + BATCH_SIZE);
           const results = await Promise.all(
             batch.map(({ abs }) =>
-              withTimeout(api.getFileDiff(abs, effectiveBranch, { includeContents: true }), DIFF_REQUEST_TIMEOUT_MS)
-                .then((res) => {
-                  return {
-                    abs,
-                    diff: res.diff,
-                    oldText: res.oldText,
-                    newText: res.newText,
-                    stats: countDiffStats(res.diff),
-                  };
-                })
+              withTimeout(api.getFileDiff(abs, effectiveBranch), DIFF_REQUEST_TIMEOUT_MS)
+                .then((res) => ({
+                  abs,
+                  diff: res.diff,
+                  stats: countDiffStats(res.diff),
+                }))
                 .catch(() => ({
                   abs,
                   diff: "",
-                  oldText: undefined,
-                  newText: undefined,
                   stats: { additions: 0, deletions: 0 },
                 })),
             ),
@@ -313,11 +384,10 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
           setAllDiffs((prev) => {
             const next = new Map(prev);
             for (const result of results) {
-              next.set(result.abs, {
-                diff: result.diff,
-                oldText: result.oldText,
-                newText: result.newText,
-              });
+              // Only set lightweight diff if we don't already have full contents
+              if (!prev.get(result.abs)?.oldText && !prev.get(result.abs)?.newText) {
+                next.set(result.abs, { diff: result.diff });
+              }
             }
             return next;
           });
@@ -332,6 +402,62 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
       cancelled = true;
     };
   }, [relativeChangedFiles, effectiveBranch]);
+
+  // Phase 2: Fetch full file contents (includeContents) only for files visible
+  // in the viewport. This is the expensive path -- it enables syntax highlighting
+  // and word-level diffs, but we defer it until the user scrolls to the file.
+  useEffect(() => {
+    if (!effectiveBranch || visibleFileSet.size === 0) return;
+
+    const toFetch: string[] = [];
+    for (const abs of visibleFileSet) {
+      if (contentFetchedRef.current.has(abs)) continue;
+      const existing = allDiffs.get(abs);
+      if (existing?.oldText !== undefined || existing?.newText !== undefined) continue;
+      toFetch.push(abs);
+    }
+    if (toFetch.length === 0) return;
+
+    // Mark as fetching immediately to avoid duplicate requests
+    for (const abs of toFetch) contentFetchedRef.current.add(abs);
+
+    let cancelled = false;
+    void (async () => {
+      const results = await Promise.all(
+        toFetch.map((abs) =>
+          withTimeout(api.getFileDiff(abs, effectiveBranch, { includeContents: true }), DIFF_REQUEST_TIMEOUT_MS)
+            .then((res) => ({
+              abs,
+              diff: res.diff,
+              oldText: res.oldText,
+              newText: res.newText,
+            }))
+            .catch(() => {
+              // Remove from fetched set so it can be retried on next scroll
+              contentFetchedRef.current.delete(abs);
+              return null;
+            }),
+        ),
+      );
+      if (cancelled) return;
+      const successful = results.filter((r): r is NonNullable<typeof r> => r !== null);
+      if (successful.length === 0) return;
+      setAllDiffs((prev) => {
+        const next = new Map(prev);
+        for (const result of successful) {
+          next.set(result.abs, {
+            diff: result.diff,
+            oldText: result.oldText,
+            newText: result.newText,
+          });
+        }
+        return next;
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [visibleFileSet, effectiveBranch, allDiffs]);
 
   // Total line stats from server. When server totals are zero but the panel has
   // already fetched full per-file diffs, fall back to locally computed totals
@@ -395,16 +521,19 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
     setSelectedFile(sessionId, visibleChangedFiles[0]?.abs ?? null);
   }, [selectedFile, visibleChangedFiles, sessionId, setSelectedFile]);
 
-  // Refs for scroll-to-file
-  const fileRefs = useRef<Map<string, HTMLDivElement>>(new Map());
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const scrollingToFileRef = useRef(false);
-
   // Scroll to file on picker click
   const handleFileSelect = useCallback(
     (path: string) => {
       setSelectedFile(sessionId, path);
       setFilePickerOpen(false);
+      // Ensure the clicked file renders immediately (not as a placeholder)
+      // even if it hasn't scrolled into the IntersectionObserver margin yet
+      setVisibleFileSet((prev) => {
+        if (prev.has(path)) return prev;
+        const next = new Set(prev);
+        next.add(path);
+        return next;
+      });
       const el = fileRefs.current.get(path);
       if (el) {
         scrollingToFileRef.current = true;
@@ -417,14 +546,18 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
     [sessionId, setSelectedFile],
   );
 
-  // IntersectionObserver: update selected file as user scrolls
+  // IntersectionObserver: update selected file as user scrolls AND track
+  // which files are near the viewport for lazy rendering (Phase 1) and
+  // deferred content fetching (Phase 2).
   useEffect(() => {
     if (visibleChangedFiles.length === 0) return;
     const container = scrollContainerRef.current;
     if (!container) return;
 
     if (typeof IntersectionObserver === "undefined") return;
-    const observer = new IntersectionObserver(
+
+    // Selection observer: tight margin to pick the topmost visible file
+    const selectionObserver = new IntersectionObserver(
       (entries) => {
         if (scrollingToFileRef.current) return;
         let topEntry: IntersectionObserverEntry | null = null;
@@ -443,10 +576,40 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
       { root: container, rootMargin: "0px 0px -70% 0px", threshold: 0 },
     );
 
+    // Visibility observer: generous margin (~1 viewport above and below) to
+    // pre-render and pre-fetch content for files the user is about to scroll to
+    const visibilityObserver = new IntersectionObserver(
+      (entries) => {
+        let changed = false;
+        const updates: Array<[string, boolean]> = [];
+        for (const entry of entries) {
+          const abs = (entry.target as HTMLElement).dataset.filePath;
+          if (!abs) continue;
+          updates.push([abs, entry.isIntersecting]);
+          changed = true;
+        }
+        if (!changed) return;
+        setVisibleFileSet((prev) => {
+          const next = new Set(prev);
+          for (const [abs, isVisible] of updates) {
+            if (isVisible) next.add(abs);
+            else next.delete(abs);
+          }
+          if (next.size === prev.size && [...next].every((k) => prev.has(k))) return prev;
+          return next;
+        });
+      },
+      { root: container, rootMargin: "100% 0px 100% 0px", threshold: 0 },
+    );
+
     for (const [, el] of fileRefs.current) {
-      observer.observe(el);
+      selectionObserver.observe(el);
+      visibilityObserver.observe(el);
     }
-    return () => observer.disconnect();
+    return () => {
+      selectionObserver.disconnect();
+      visibilityObserver.disconnect();
+    };
   }, [visibleChangedFiles, sessionId, setSelectedFile]);
 
   return (
@@ -622,9 +785,10 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
                 return null;
               }
 
-              const hasFullSource = diffData?.oldText !== undefined || diffData?.newText !== undefined;
               const displayName = status === "R" && oldPath ? `${oldPath.split("/").pop()} → ${rel}` : rel;
               const statusLabel = status === "D" ? " (deleted)" : status === "R" ? " (renamed)" : "";
+              const isNearViewport = visibleFileSet.has(abs);
+
               return (
                 <div
                   key={abs}
@@ -634,21 +798,30 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
                     else fileRefs.current.delete(abs);
                   }}
                 >
-                  <DiffViewer
-                    oldText={hasFullSource ? diffData?.oldText : undefined}
-                    newText={hasFullSource ? diffData?.newText : undefined}
-                    unifiedDiff={hasFullSource ? undefined : (diffData?.diff ?? "")}
-                    fileName={displayName}
-                    fileStatsLabel={
-                      stats
-                        ? `+${stats.additions} -${stats.deletions}${statusLabel}`
-                        : statusLabel
-                          ? statusLabel.trim()
-                          : undefined
-                    }
-                    mode="full"
-                    showLineNumbers={showLineNumbers}
-                  />
+                  {isNearViewport ? (
+                    <DiffViewer
+                      oldText={diffData?.oldText}
+                      newText={diffData?.newText}
+                      unifiedDiff={diffData?.oldText !== undefined || diffData?.newText !== undefined ? undefined : (diffData?.diff ?? "")}
+                      fileName={displayName}
+                      fileStatsLabel={
+                        stats
+                          ? `+${stats.additions} -${stats.deletions}${statusLabel}`
+                          : statusLabel
+                            ? statusLabel.trim()
+                            : undefined
+                      }
+                      mode="full"
+                      showLineNumbers={showLineNumbers}
+                    />
+                  ) : (
+                    <DiffPlaceholder
+                      fileName={displayName}
+                      stats={stats}
+                      statusLabel={statusLabel}
+                      loading={!diffData}
+                    />
+                  )}
                 </div>
               );
             })}

@@ -135,6 +135,8 @@ describe("DiffPanel", () => {
 
   it("fetches diff when a file is selected", async () => {
     // Validates that file diffs are fetched and rendered, with the base branch selector in the header.
+    // Phase 1 fetches lightweight diff (no includeContents), then Phase 2 fetches
+    // full contents for files visible in the viewport.
     const diffOutput = `diff --git a/src/app.ts b/src/app.ts
 --- a/src/app.ts
 +++ b/src/app.ts
@@ -155,8 +157,8 @@ describe("DiffPanel", () => {
     const { container } = render(<DiffPanel sessionId="s1" />);
 
     await waitFor(() => {
-      // getFileDiff is called with the resolved base branch (from git_default_branch)
-      expect(mockApi.getFileDiff).toHaveBeenCalledWith("/repo/src/app.ts", "main", { includeContents: true });
+      // Phase 1: lightweight diff fetch (no includeContents)
+      expect(mockApi.getFileDiff).toHaveBeenCalledWith("/repo/src/app.ts", "main");
     });
 
     // DiffViewer should render the diff content (may appear in top bar + DiffViewer header)
@@ -183,7 +185,8 @@ describe("DiffPanel", () => {
     const { rerender } = render(<DiffPanel sessionId="s1" />);
 
     await waitFor(() => {
-      expect(mockApi.getFileDiff).toHaveBeenCalledTimes(1);
+      // Phase 1 lightweight diff fetch should have been attempted at least once
+      expect(mockApi.getFileDiff).toHaveBeenCalled();
     });
 
     // Remove branch defaults so effectiveBranch is null on re-render.
@@ -298,7 +301,8 @@ describe("DiffPanel", () => {
     render(<DiffPanel sessionId="s1" />);
 
     await waitFor(() => {
-      expect(mockApi.getFileDiff).toHaveBeenCalledWith("/repo/src/app.ts", "develop", { includeContents: true });
+      // Phase 1: lightweight diff fetch (no includeContents)
+      expect(mockApi.getFileDiff).toHaveBeenCalledWith("/repo/src/app.ts", "develop");
     });
   });
 
@@ -323,7 +327,8 @@ describe("DiffPanel", () => {
     render(<DiffPanel sessionId="s1" />);
 
     await waitFor(() => {
-      expect(mockApi.getFileDiff).toHaveBeenCalledWith("/repo/src/app.ts", "origin/jiayi", { includeContents: true });
+      // Phase 1: lightweight diff fetch (no includeContents)
+      expect(mockApi.getFileDiff).toHaveBeenCalledWith("/repo/src/app.ts", "origin/jiayi");
     });
 
     const [branchSelect] = screen.getAllByRole("combobox") as HTMLSelectElement[];
@@ -435,5 +440,70 @@ describe("DiffPanel", () => {
       expect(mockApi.setDiffBase).toHaveBeenLastCalledWith("s1", "main");
     });
     expect(branchSelect.value).toBe("main");
+  });
+
+  it("fetches lightweight diffs first without includeContents", async () => {
+    // Phase 1 should fetch diffs without includeContents for all files.
+    // Phase 2 should later fetch with includeContents for visible files.
+    const diffOutput = `diff --git a/src/app.ts b/src/app.ts
+--- a/src/app.ts
++++ b/src/app.ts
+@@ -1 +1,2 @@
+ old
++new`;
+
+    mockApi.getFileDiff.mockResolvedValue({ path: "/repo/src/app.ts", diff: diffOutput, baseBranch: "main" });
+
+    resetStore({
+      sessions: new Map([["s1", { cwd: "/repo", git_default_branch: "main" }]]),
+      changedFiles: new Map([["s1", new Set(["/repo/src/app.ts"])]]),
+    });
+
+    render(<DiffPanel sessionId="s1" />);
+
+    // Phase 1: lightweight diff fetch should happen first (no includeContents)
+    await waitFor(() => {
+      expect(mockApi.getFileDiff).toHaveBeenCalledWith("/repo/src/app.ts", "main");
+    });
+
+    // The first call should NOT have includeContents
+    const firstCallArgs = mockApi.getFileDiff.mock.calls[0];
+    expect(firstCallArgs).toEqual(["/repo/src/app.ts", "main"]);
+  });
+
+  it("renders placeholder for files outside the viewport", async () => {
+    // With many changed files, only the first few (within the initial visibility
+    // set) should render as DiffViewers; the rest should be placeholders.
+    // This validates Phase 1 virtualization.
+    const files = new Set<string>();
+    for (let i = 0; i < 20; i++) {
+      files.add(`/repo/src/file${i}.ts`);
+    }
+
+    // Return a non-empty diff so files aren't filtered out by the zero-change filter
+    mockApi.getFileDiff.mockImplementation((path: string) =>
+      Promise.resolve({
+        path,
+        diff: `--- a/old\n+++ b/new\n@@ -1 +1 @@\n-old\n+new`,
+        baseBranch: "main",
+      }),
+    );
+
+    resetStore({
+      sessions: new Map([["s1", { cwd: "/repo", git_default_branch: "main" }]]),
+      changedFiles: new Map([["s1", files]]),
+    });
+
+    const { container } = render(<DiffPanel sessionId="s1" />);
+
+    // Wait for Phase 1 diffs to resolve and file containers to render
+    await waitFor(() => {
+      expect(container.querySelectorAll("[data-file-path]").length).toBe(20);
+    });
+
+    // Only the first 3 files are in the initial visibility set, so the
+    // remaining 17 should render as placeholders (no IntersectionObserver in jsdom)
+    const placeholders = container.querySelectorAll("[data-testid='diff-placeholder']");
+    expect(placeholders.length).toBe(17);
   });
 });
