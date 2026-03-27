@@ -385,6 +385,8 @@ describe("Codex pending input delivery", () => {
       pendingPermissions: [],
     });
 
+    await store.flushAll(); // ensure fire-and-forget writeFile completes before reading back
+
     const restored = new WsBridge();
     restored.setStore(store);
     await restored.restoreFromDisk();
