@@ -1969,7 +1969,7 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("Always create a quest for non-trivial work.");
     expect(guardrails).toContain("Maintain at most 5 sessions in your herd.");
     expect(guardrails).toContain("Always require a plan before implementation.");
-    expect(guardrails).toContain("require self-review via `/groom`");
+    expect(guardrails).toContain("Require `/groom` for substantial or risky changes.");
     expect(guardrails).toContain("takode archive");
     // Spawn backend default note
     expect(guardrails).toContain("default to your own backend type");
