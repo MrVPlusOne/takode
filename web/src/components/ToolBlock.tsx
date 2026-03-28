@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, memo, Component, type ReactNode, type ErrorInfo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback, memo, Component, type ReactNode, type ErrorInfo } from "react";
 import { isSubagentToolName } from "../types.js";
 import { DiffViewer } from "./DiffViewer.js";
 import { MarkdownContent } from "./MarkdownContent.js";
@@ -198,8 +198,13 @@ export const ToolBlock = memo(function ToolBlock({
   const iconType = getToolIcon(name);
   const label = getToolLabel(name);
   const resultPreview = useStore((s) => (sessionId ? s.toolResults.get(sessionId)?.get(toolUseId) : undefined));
-  const retainedProgress = useStore((s) => (sessionId ? s.toolProgress.get(sessionId)?.get(toolUseId) : undefined));
-  const showCompletedLiveBadge = name === "Bash" && !!resultPreview && retainedProgress?.toolName === "Bash";
+  // Only subscribe to the toolName field (a primitive string) instead of the
+  // entire progress object. This prevents re-renders from progress.output or
+  // progress.elapsedSeconds updates that don't affect the header badge.
+  const retainedProgressToolName = useStore((s) =>
+    sessionId ? s.toolProgress.get(sessionId)?.get(toolUseId)?.toolName : undefined,
+  );
+  const showCompletedLiveBadge = name === "Bash" && !!resultPreview && retainedProgressToolName === "Bash";
 
   // Extract the most useful preview
   const preview = getPreview(name, input);
@@ -639,7 +644,10 @@ function getOpenFilePathForEditFile(parsed: ReturnType<typeof parseEditToolInput
   return filePath || parsed.filePath;
 }
 
-function DiffOpenFileButton({ filePath, sessionId, line }: { filePath: string; sessionId?: string; line: number }) {
+/** Memoized to prevent re-render cascades when used as headerActions in DiffViewer.
+ *  The store selector returns a primitive (string | null) so Zustand's default
+ *  shallow equality check keeps it referentially stable. */
+const DiffOpenFileButton = memo(function DiffOpenFileButton({ filePath, sessionId, line }: { filePath: string; sessionId?: string; line: number }) {
   const sessionCwd = useStore((s) => {
     if (!sessionId) return null;
     return s.sessions.get(sessionId)?.cwd ?? s.sdkSessions.find((sdk) => sdk.sessionId === sessionId)?.cwd ?? null;
@@ -671,7 +679,7 @@ function DiffOpenFileButton({ filePath, sessionId, line }: { filePath: string; s
       Open File
     </button>
   );
-}
+});
 
 function BashDetail({ input }: { input: Record<string, unknown> }) {
   const command = String(input.command || "");
@@ -693,10 +701,23 @@ function BashDetail({ input }: { input: Record<string, unknown> }) {
 }
 
 function EditToolDetail({ input, sessionId }: { input: Record<string, unknown>; sessionId?: string }) {
-  const parsed = parseEditToolInput(input);
+  const parsed = useMemo(() => parseEditToolInput(input), [input]);
   const { filePath, oldText: oldStr, newText: newStr, changes, unifiedDiff } = parsed;
-  const renderOpenFileButton = (targetFilePath: string, line: number) => (
-    <DiffOpenFileButton filePath={targetFilePath} sessionId={sessionId} line={line} />
+
+  // Stable callback for rendering "Open File" buttons in DiffViewer headers.
+  // Without useCallback, a new function reference is created every render, which
+  // causes DiffViewer to re-render (since renderHeaderActions is a prop), which
+  // re-invokes the callback during render, creating new JSX nodes, which can
+  // cascade into React error #185 (maximum update depth exceeded).
+  const renderHeaderActions = useCallback(
+    (diffFilePath: string) => (
+      <DiffOpenFileButton
+        filePath={getOpenFilePathForEditFile(parsed, diffFilePath)}
+        sessionId={sessionId}
+        line={getFirstChangedLineForEditFile(parsed, diffFilePath)}
+      />
+    ),
+    [parsed, sessionId],
   );
 
   if (!oldStr && !newStr && unifiedDiff) {
@@ -705,12 +726,7 @@ function EditToolDetail({ input, sessionId }: { input: Record<string, unknown>; 
         unifiedDiff={unifiedDiff}
         fileName={filePath}
         mode="full"
-        renderHeaderActions={(diffFilePath) =>
-          renderOpenFileButton(
-            getOpenFilePathForEditFile(parsed, diffFilePath),
-            getFirstChangedLineForEditFile(parsed, diffFilePath),
-          )
-        }
+        renderHeaderActions={renderHeaderActions}
       />
     );
   }
@@ -729,8 +745,13 @@ function EditToolDetail({ input, sessionId }: { input: Record<string, unknown>; 
                 {typeof change.kind === "string" ? change.kind : "modify"}:{" "}
                 {typeof change.path === "string" ? change.path : filePath || "(unknown file)"}
               </span>
-              {typeof change.path === "string" &&
-                renderOpenFileButton(change.path, getFirstChangedLineForEditFile(parsed, change.path))}
+              {typeof change.path === "string" && (
+                <DiffOpenFileButton
+                  filePath={change.path}
+                  sessionId={sessionId}
+                  line={getFirstChangedLineForEditFile(parsed, change.path)}
+                />
+              )}
             </div>
           ))}
         </div>
@@ -750,19 +771,21 @@ function EditToolDetail({ input, sessionId }: { input: Record<string, unknown>; 
         newText={newStr}
         fileName={filePath}
         mode="full"
-        renderHeaderActions={(diffFilePath) =>
-          renderOpenFileButton(
-            getOpenFilePathForEditFile(parsed, diffFilePath),
-            getFirstChangedLineForEditFile(parsed, diffFilePath),
-          )
-        }
+        renderHeaderActions={renderHeaderActions}
       />
     </div>
   );
 }
 
 function WriteToolDetail({ input, sessionId }: { input: Record<string, unknown>; sessionId?: string }) {
-  const { filePath, content, changes, unifiedDiff } = parseWriteToolInput(input);
+  const { filePath, content, changes, unifiedDiff } = useMemo(() => parseWriteToolInput(input), [input]);
+
+  const renderHeaderActions = useCallback(
+    (diffFilePath: string) => (
+      <DiffOpenFileButton filePath={diffFilePath} sessionId={sessionId} line={1} />
+    ),
+    [sessionId],
+  );
 
   if (!content && unifiedDiff) {
     return (
@@ -770,9 +793,7 @@ function WriteToolDetail({ input, sessionId }: { input: Record<string, unknown>;
         unifiedDiff={unifiedDiff}
         fileName={filePath}
         mode="full"
-        renderHeaderActions={(diffFilePath) => (
-          <DiffOpenFileButton filePath={diffFilePath} sessionId={sessionId} line={1} />
-        )}
+        renderHeaderActions={renderHeaderActions}
       />
     );
   }
@@ -806,9 +827,7 @@ function WriteToolDetail({ input, sessionId }: { input: Record<string, unknown>;
       newText={content}
       fileName={filePath}
       mode="full"
-      renderHeaderActions={(diffFilePath) => (
-        <DiffOpenFileButton filePath={diffFilePath} sessionId={sessionId} line={1} />
-      )}
+      renderHeaderActions={renderHeaderActions}
     />
   );
 }

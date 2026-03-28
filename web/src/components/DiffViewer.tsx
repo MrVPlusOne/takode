@@ -634,7 +634,11 @@ export function DiffViewer({
   }, [expanded]);
 
   useEffect(() => {
-    setExpandedGaps({});
+    // Reset gap expansion state when the diff content changes.
+    // Uses the functional updater to avoid creating a new object reference
+    // when the state is already empty (prevents unnecessary re-renders that
+    // can cascade into React error #185 in deeply nested component trees).
+    setExpandedGaps((prev) => (Object.keys(prev).length === 0 ? prev : {}));
   }, [oldText, newText, unifiedDiff, fileName]);
 
   if (data.length === 0 || data.every((f) => f.hunks.length === 0)) {
