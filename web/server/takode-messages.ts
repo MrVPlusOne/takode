@@ -1154,34 +1154,49 @@ export interface GrepResponse {
 }
 
 /** Build a snippet centered on the first match occurrence. */
-function buildGrepSnippet(content: string, q: string, maxLen = 120): string {
+function buildGrepSnippet(content: string, re: RegExp, maxLen = 120): string {
   const text = content.replace(/\s+/g, " ").trim();
   if (!text) return "";
   if (text.length <= maxLen) return text;
 
-  const idx = text.toLowerCase().indexOf(q);
-  if (idx < 0) return text.slice(0, maxLen).trimEnd();
+  const m = re.exec(text);
+  if (!m) return text.slice(0, maxLen).trimEnd();
 
-  const contextRadius = Math.floor((maxLen - q.length) / 2);
-  const start = Math.max(0, idx - contextRadius);
+  const matchLen = m[0].length;
+  const contextRadius = Math.floor((maxLen - matchLen) / 2);
+  const start = Math.max(0, m.index - contextRadius);
   const end = Math.min(text.length, start + maxLen);
   return text.slice(start, end).trim();
 }
 
+/** Try to compile a regex; returns null if invalid. */
+function tryCompileRegex(pattern: string): RegExp | null {
+  try {
+    return new RegExp(pattern, "i");
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Search within a session's message history. Case-insensitive substring match on message text.
- * Returns matches with snippets and turn associations.
+ * Search within a session's message history. Supports regex patterns (case-insensitive).
+ * Falls back to literal substring match if the pattern is not valid regex.
+ * Optional `type` filter restricts matches to a specific message type.
  */
 export function grepMessageHistory(
   history: BrowserIncomingMessage[],
   query: string,
-  options: { limit?: number } = {},
+  options: { limit?: number; type?: string } = {},
   sessionId?: string,
 ): GrepResponse {
-  const q = query.trim().toLowerCase();
+  const q = query.trim();
   if (!q) return { totalMatches: 0, matches: [] };
 
+  // Try as regex first, fall back to escaped literal
+  const re = tryCompileRegex(q) ?? new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+
   const limit = Math.max(1, Math.min(options.limit ?? 50, 200));
+  const typeFilter = options.type ? options.type.toLowerCase() : null;
   const allTurns = findTurnBoundaries(history);
 
   // Build turn lookup: message index → turn number
@@ -1201,8 +1216,12 @@ export function grepMessageHistory(
     const msg = history[i];
     if (!isPeekable(msg)) continue;
 
+    // Apply type filter
+    const msgType = toPeekType(msg.type);
+    if (typeFilter && msgType !== typeFilter) continue;
+
     const fullText = extractFullText(msg, sessionId);
-    if (!fullText.toLowerCase().includes(q)) continue;
+    if (!re.test(fullText)) continue;
 
     totalMatches++;
     if (matches.length < limit) {
@@ -1222,7 +1241,7 @@ export function grepMessageHistory(
         idx: i,
         type: toPeekType(msg.type),
         ts,
-        snippet: buildGrepSnippet(fullText, q),
+        snippet: buildGrepSnippet(fullText, re),
         turnNum: turnLookup.get(i) ?? null,
       });
     }

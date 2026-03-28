@@ -1020,9 +1020,25 @@ function formatCollapsedTurn(turn: CollapsedTurn): string {
   const statStr = statParts.length > 0 ? ` · ${statParts.join(" · ")}` : "";
 
   const icon = turn.success === true ? "✓" : turn.success === false ? "✗" : "…";
-  const preview = turn.resultPreview ? ` "${truncate(turn.resultPreview, 60)}"` : "";
 
-  return `Turn ${turn.turnNum} · ${msgRange} · ${startTime}-${endTime}${durationPart}${statStr} · ${icon}${preview}`;
+  const header = `Turn ${turn.turnNum} · ${msgRange} · ${startTime}-${endTime}${durationPart}${statStr} · ${icon}`;
+
+  const sourceLabel = turn.agentSource ? "herd" : "user";
+  const hasUser = !!turn.userPreview;
+  const hasResult = !!turn.resultPreview;
+
+  // Single-message turn or only one side exists: compact format
+  if (!hasUser && !hasResult) return header;
+  if (!hasUser) return `${header}\n  "${truncate(turn.resultPreview, 90)}"`;
+  if (!hasResult) return `${header}\n  ${sourceLabel}: "${truncate(turn.userPreview, 85)}"`;
+
+  // Multi-message turn: show source prompt, ellipsis, and assistant response
+  return [
+    header,
+    `  ${sourceLabel}: "${truncate(turn.userPreview, 85)}"`,
+    `  ...`,
+    `  asst: "${truncate(turn.resultPreview, 85)}"`,
+  ].join("\n");
 }
 
 /** Render a list of messages with tree-pipe connectors for tool calls */
@@ -2309,15 +2325,38 @@ type PeekTurnScanResponse = {
 
 async function handleScan(base: string, args: string[]): Promise<void> {
   const sessionRef = args[0];
-  if (!sessionRef) err("Usage: takode scan <session> [--from N] [--count N] [--json]");
+  if (!sessionRef) err("Usage: takode scan <session> [--from N] [--until N] [--count N] [--json]");
   const safeSessionRef = formatInlineText(sessionRef);
 
   const flags = parseFlags(args.slice(1));
   const jsonMode = flags.json === true;
-  const fromTurn = parseIntegerFlag(flags, "from", "turn number") ?? 0;
+  const explicitFrom = parseIntegerFlag(flags, "from", "turn number");
+  const explicitUntil = parseIntegerFlag(flags, "until", "turn number");
   const turnCount = parsePositiveIntegerFlag(flags, "count", "turn count", 50);
 
-  if (fromTurn < 0) err("--from must be a non-negative integer.");
+  if (explicitFrom !== null && explicitFrom !== undefined && explicitFrom < 0)
+    err("--from must be a non-negative integer.");
+  if (explicitFrom !== null && explicitFrom !== undefined && explicitUntil !== null && explicitUntil !== undefined)
+    err("Cannot use both --from and --until. Use one or the other.");
+
+  // Resolve fromTurn:
+  // --from N        → start at turn N (forward)
+  // --until N       → show `count` turns ending before turn N (backward)
+  // (neither)       → show last `count` turns (backward from end)
+  let fromTurn: number;
+  if (explicitFrom !== null && explicitFrom !== undefined) {
+    fromTurn = explicitFrom;
+  } else if (explicitUntil !== null && explicitUntil !== undefined) {
+    fromTurn = Math.max(0, explicitUntil - turnCount);
+  } else {
+    // Probe total turns to compute backward offset
+    const probeParams = new URLSearchParams({ scan: "turns", fromTurn: "0", turnCount: "0" });
+    const probe = (await apiGet(
+      base,
+      `/sessions/${encodeURIComponent(sessionRef)}/messages?${probeParams}`,
+    )) as PeekTurnScanResponse;
+    fromTurn = Math.max(0, probe.totalTurns - turnCount);
+  }
 
   const params = new URLSearchParams({
     scan: "turns",
@@ -2356,14 +2395,13 @@ async function handleScan(base: string, args: string[]): Promise<void> {
 
   console.log("");
 
-  // Navigation hints
+  // Navigation hints -- "Older" goes toward turn 0, "Newer" goes toward the end
   const hints: string[] = [];
   if (data.fromTurn > 0) {
-    const prevFrom = Math.max(0, data.fromTurn - turnCount);
-    hints.push(`Prev: takode scan ${safeSessionRef} --from ${prevFrom} --count ${turnCount}`);
+    hints.push(`Older: takode scan ${safeSessionRef} --until ${data.fromTurn} --count ${turnCount}`);
   }
   if (data.fromTurn + data.returnedTurns < data.totalTurns) {
-    hints.push(`Next: takode scan ${safeSessionRef} --from ${data.fromTurn + data.returnedTurns} --count ${turnCount}`);
+    hints.push(`Newer: takode scan ${safeSessionRef} --from ${data.fromTurn + data.returnedTurns} --count ${turnCount}`);
   }
   if (hints.length > 0) {
     console.log(hints.join("  |  "));
@@ -2374,21 +2412,45 @@ async function handleScan(base: string, args: string[]): Promise<void> {
 // ─── Grep handler ────────────────────────────────────────────────────────────
 
 async function handleGrep(base: string, args: string[]): Promise<void> {
-  const sessionRef = args.filter((a) => !a.startsWith("--"))[0];
-  if (!sessionRef) err("Usage: takode grep <session> <query> [--count N] [--json]");
+  const sessionRef = args[0];
+  if (!sessionRef) err("Usage: takode grep <session> <pattern> [--type user|assistant|result] [--count N] [--json]");
   const safeSessionRef = formatInlineText(sessionRef);
-
-  // Everything after session ref that isn't a flag = query
-  const nonFlags = args.filter((a) => !a.startsWith("--"));
-  const query = nonFlags.slice(1).join(" ").trim();
 
   const flags = parseFlags(args.slice(1));
   const jsonMode = flags.json === true;
   const limit = parsePositiveIntegerFlag(flags, "count", "result count", 50);
+  const typeFilter = typeof flags.type === "string" ? flags.type : undefined;
 
-  if (!query) err("Usage: takode grep <session> <query> [--count N] [--json]");
+  if (typeFilter && !["user", "assistant", "result"].includes(typeFilter)) {
+    err(`Invalid --type "${typeFilter}". Must be one of: user, assistant, result`);
+  }
+
+  // Build query from non-flag tokens after session ref.
+  // Skip tokens consumed by flags (--key value pairs and --boolean flags).
+  const flagConsumed = new Set<number>();
+  {
+    let i = 1; // skip session ref
+    while (i < args.length) {
+      if (args[i].startsWith("--")) {
+        flagConsumed.add(i);
+        const next = args[i + 1];
+        if (next && !next.startsWith("--")) {
+          flagConsumed.add(i + 1);
+          i += 2;
+        } else {
+          i++;
+        }
+      } else {
+        i++;
+      }
+    }
+  }
+  const query = args.slice(1).filter((_, i) => !flagConsumed.has(i + 1)).join(" ").trim();
+
+  if (!query) err("Usage: takode grep <session> <pattern> [--type user|assistant|result] [--count N] [--json]");
 
   const params = new URLSearchParams({ q: query, limit: String(limit) });
+  if (typeFilter) params.set("type", typeFilter);
   const data = (await apiGet(base, `/sessions/${encodeURIComponent(sessionRef)}/grep?${params}`)) as {
     sessionId: string;
     sessionNum: number;

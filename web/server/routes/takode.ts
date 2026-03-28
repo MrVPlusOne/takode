@@ -296,7 +296,8 @@ export function createTakodeRoutes(ctx: RouteContext) {
     if (!query) return c.json({ error: "Query parameter 'q' is required" }, 400);
 
     const limit = parseInt(c.req.query("limit") ?? "50", 10);
-    const results = grepMessageHistory(history, query, { limit }, sessionId);
+    const type = c.req.query("type") || undefined;
+    const results = grepMessageHistory(history, query, { limit, type }, sessionId);
 
     return c.json({ sessionId, sessionNum: launcher.getSessionNum(sessionId) ?? -1, query, ...results });
   });

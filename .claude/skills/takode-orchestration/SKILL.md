@@ -64,14 +64,23 @@ takode tasks 1
 
 **Tip:** Run `takode tasks` first when investigating an unfamiliar session -- it gives you a high-level map of what the agent has been working on.
 
-### `takode scan <session> [--from N] [--count N] [--json]`
+### `takode scan <session> [--from N] [--until N] [--count N] [--json]`
 
-Scan session turns as collapsed summaries. Like a table of contents for the conversation -- shows each turn's message range, duration, tool count, and result preview. Paginated by turn number (default: 50 turns per page).
+Scan session turns as collapsed summaries. Like a table of contents for the conversation -- shows each turn's trigger (user/herd message), assistant response, message range, duration, and tool count. Scans backward from the end by default (most recent turns first). Paginated by turn number (default: 50 turns per page).
 
 ```bash
-takode scan 1                     # turns 0-49
-takode scan 1 --from 100          # turns 100-149
+takode scan 1                       # last 50 turns (most recent)
+takode scan 1 --from 0              # turns 0-49 (from the beginning)
+takode scan 1 --until 100           # 50 turns ending before turn 100 (turns 50-99)
 takode scan 1 --from 50 --count 20  # turns 50-69
+```
+
+Each turn shows the trigger message and the assistant's response:
+```
+Turn 42 · [821]-[827] · 18:17-18:17 (15s) · 2 tools · ✓
+  user: "check how #89 is doing"
+  ...
+  asst: "#89 has been idle since 2:02 PM..."
 ```
 
 Use this to quickly understand what a session worked on across its entire history without reading every message. Drill into interesting turns with `takode peek <session> --turn <N>`.
@@ -112,16 +121,18 @@ takode peek 1 --detail --turns 3
 #### Navigation workflow
 
 ```
-1. takode info 1               → Session metadata: backend, git, quest, metrics
-2. takode tasks 1              → Table of contents: tasks with msg ranges
-3. takode scan 1               → Turn-level scan: collapsed summaries across the session
-4. takode peek 1               → Overview: collapsed turns + expanded last turn
-5. takode peek 1 --turn 5      → Expand turn 5 (use turn number from scan)
-6. takode peek 1 --task 3      → Browse task 3's messages
-7. takode peek 1 --from 800    → Browse messages [800]-[860] in detail
-8. takode read 1 815           → Full content of message 815
-9. takode grep 1 "query"       → Search within session messages
-10. takode export 1 /tmp/s1.txt → Dump full session for offline analysis
+1. takode info 1                          → Session metadata: backend, git, quest, metrics
+2. takode tasks 1                         → Table of contents: tasks with msg ranges
+3. takode scan 1                          → Turn-level scan (most recent first)
+4. takode scan 1 --from 0                 → Scan from the beginning
+5. takode peek 1                          → Overview: collapsed turns + expanded last turn
+6. takode peek 1 --turn 5                 → Expand turn 5 (use turn number from scan)
+7. takode peek 1 --task 3                 → Browse task 3's messages
+8. takode peek 1 --from 800              → Browse messages [800]-[860] in detail
+9. takode read 1 815                      → Full content of message 815
+10. takode grep 1 "query"                 → Search within session messages (regex)
+11. takode grep 1 "error" --type user     → Search only user messages
+12. takode export 1 /tmp/s1.txt           → Dump full session for offline analysis
 ```
 
 ### `takode read <session> <msg-id> [--offset N] [--limit N] [--json]`
@@ -133,12 +144,15 @@ takode read 1 42
 takode read 1 42 --offset 0 --limit 50
 ```
 
-### `takode grep <session> <query> [--count N] [--json]`
+### `takode grep <session> <pattern> [--type user|assistant|result] [--count N] [--json]`
 
-Search within a session's message history. Case-insensitive substring match on message text. Returns matching messages with snippets, message indices, and turn numbers.
+Search within a session's message history. Supports regex patterns (case-insensitive). Falls back to literal substring if the pattern is invalid regex. Optional `--type` filter restricts matches to a specific message type.
 
 ```bash
 takode grep 1 "authentication"
+takode grep 1 "q-5[0-9]"                    # regex pattern
+takode grep 1 "error" --type user            # only user messages
+takode grep 1 "commit.*synced" --type result  # only result messages
 takode grep 1 "reward hacking" --count 20
 ```
 
