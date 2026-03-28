@@ -253,6 +253,7 @@ A `✗ disconnected` session just means its CLI process was killed (usually by t
 
 - **Use `peek` over `read`** to protect your context window -- peek gives truncated summaries. Drill into specific messages with `read` only when the summary isn't enough. Paginate long messages with `--offset`/`--limit`.
 - **Use `--json` for programmatic decisions.** Parse JSON output when you need to branch on event data.
+- **Verify spawn settings.** After `takode spawn`, check the output to confirm worktree and other settings match your intent. If the spawned worker shouldn't use a worktree (e.g., HQ workers where the repo isn't being edited), use `--no-worktree`. If you see `worktree=yes` unexpectedly, stop and fix before sending tasks.
 - **Mixed backends work seamlessly.** The `takode` CLI talks to the Companion server, not to any backend directly. You can orchestrate both Claude Code and Codex sessions from either backend.
 - **Coordinate with quests.** Use the `quest` CLI alongside `takode` for task tracking. Always create a quest for non-trivial work before dispatching.
 - **Batch related messages.** If you need to send context + instructions to a worker, send it as one message rather than multiple.
