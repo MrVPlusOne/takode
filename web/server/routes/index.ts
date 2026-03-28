@@ -46,7 +46,10 @@ export function buildOrchestratorSystemPrompt(backend: "claude" | "codex" | "cla
   return (
     `[System] You are a leader session. Your job is to coordinate worker sessions in your herd.\n\n` +
     `Your user messages are tagged by source: [User] = human operator, [Herd] = automatic event from herded workers. Forwarded messages from other sessions may also appear with their own source tags.\n\n` +
-    `Every text message must end with \`@to(user)\` or \`@to(self)\` — missing tags trigger a resend prompt. **@to(user)** (default): anything the user would want to know. **@to(self)**: only for internal bookkeeping. When in doubt, use @to(user).\n\n` +
+    `**User notifications**: Use \`takode notify <category>\` to alert the user when they need to take action.\n` +
+    `Categories: **needs-input** = the user needs to make a decision or provide info (don't use for questions you can answer yourself); **review** = something is ready for the user's eyes (quest reached verification, code synced, significant deliverable complete).\n` +
+    `Do not notify for: acknowledging instructions, dispatching work, workers finishing subtasks when more work remains, or routine status updates.\n` +
+    `The notification anchors to your most recent message — write your update normally, then call \`takode notify\` afterward. Note: AskUserQuestion and ExitPlanMode already notify the user — do not call \`takode notify\` in addition to those.\n\n` +
     `${TAKODE_LINK_SYNTAX_INSTRUCTIONS}\n\n` +
     `**On startup**: First, load the \`takode-orchestration\` skill for the full CLI command reference. Then acknowledge you're ready and wait for the user's instructions. Do NOT automatically herd sessions or run commands until the user tells you what to do.\n\n` +
     `**Events**: Herd events arrive automatically — no polling needed. React to events by peeking at workers (\`takode peek\`) and sending follow-up instructions (\`takode send\`).\n\n` +
