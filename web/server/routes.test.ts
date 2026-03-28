@@ -4002,19 +4002,27 @@ describe("buildOrchestratorSystemPrompt", () => {
     expect(prompt).toContain(
       "Delegate non-trivial implementation, investigation, and verification to worker sessions.",
     );
-    expect(prompt).toContain("override any conflicting generic markdown-link or file-reference instructions");
-    expect(prompt).toContain("never write plain");
+    // Link syntax instructions moved to system prompt (cli-launcher.ts) -- no longer in user message
     expect(prompt).not.toContain("CLAUDE.md");
     expect(prompt).not.toContain("sub-agent");
     expect(prompt).not.toContain("[Agent]");
   });
 
-  it("instructs the leader to load the takode-orchestration skill on startup", () => {
-    // Both backends should instruct skill loading on startup
-    const claudePrompt = buildOrchestratorSystemPrompt("claude");
-    const codexPrompt = buildOrchestratorSystemPrompt("codex");
-    expect(claudePrompt).toContain("takode-orchestration");
-    expect(codexPrompt).toContain("takode-orchestration");
+  it("is minimal -- heavy orchestration instructions live in system prompt", () => {
+    // The user message should be short: identity + role + startup instruction.
+    // Detailed orchestration rules (delegation, quest lifecycle, permissions, etc.)
+    // live in the system prompt built by cli-launcher.ts.
+    const prompt = buildOrchestratorSystemPrompt("claude");
+    expect(prompt).toContain("[System] You are a leader session");
+    expect(prompt).toContain("takode-orchestration");
+    expect(prompt).toContain("wait for the user's instructions");
+    // These were moved to system prompt and should NOT appear in user message
+    expect(prompt).not.toContain("Delegation principle");
+    expect(prompt).not.toContain("Quest refinement");
+    expect(prompt).not.toContain("Quest lifecycle");
+    expect(prompt).not.toContain("Permission requests");
+    expect(prompt).not.toContain("@to(user)");
+    expect(prompt).not.toContain("@to(self)");
   });
 
   it("injects the Codex-specific startup prompt for connected leader sessions", async () => {
