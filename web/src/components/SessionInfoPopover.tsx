@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback } from "react";
 import { useStore } from "../store.js";
-import { GitHubPRSection, McpCollapsible, ClaudeMdCollapsible, HerdDiagnosticsSection } from "./TaskPanel.js";
+import { GitHubPRSection, McpCollapsible, ClaudeMdCollapsible, HerdDiagnosticsSection, SystemPromptCollapsible } from "./TaskPanel.js";
 import { shortenHome } from "../utils/path-display.js";
 import { formatModel } from "../utils/backends.js";
 import { coalesceSessionViewModel } from "../utils/session-view-model.js";
@@ -225,10 +225,11 @@ export function SessionInfoPopover({ sessionId, onClose }: { sessionId: string; 
           </div>
         )}
 
-        {/* GitHub PR, MCP, CLAUDE.md */}
+        {/* GitHub PR, MCP, CLAUDE.md, System Prompt */}
         <GitHubPRSection sessionId={sessionId} />
         <McpCollapsible sessionId={sessionId} />
         {cwd && <ClaudeMdCollapsible cwd={cwd} repoRoot={sessionVm?.repoRoot} />}
+        <SystemPromptCollapsible sessionId={sessionId} />
       </div>
     </div>
   );

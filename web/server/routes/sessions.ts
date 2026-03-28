@@ -900,7 +900,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
     return Promise.all(
       pool.map(async (s) => {
         try {
-          const { sessionAuthToken: _token, ...safeSession } = s;
+          const { sessionAuthToken: _token, injectedSystemPrompt: _prompt, ...safeSession } = s;
           const bridgeSession = wsBridge.getSession(s.sessionId);
           if (bridgeSession?.state?.is_worktree && !safeSession.archived) {
             await wsBridge.refreshWorktreeGitStateForSnapshot(s.sessionId, {
@@ -1047,10 +1047,20 @@ export function createSessionsRoutes(ctx: RouteContext) {
     if (!id) return c.json({ error: "Session not found" }, 404);
     const session = launcher.getSession(id);
     if (!session) return c.json({ error: "Session not found" }, 404);
+    const { injectedSystemPrompt: _prompt, ...rest } = session;
     return c.json({
-      ...session,
+      ...rest,
       isGenerating: wsBridge.isSessionBusy(id),
     });
+  });
+
+  // Dedicated endpoint for the injected system prompt (fetched on-demand by Session Info panel)
+  api.get("/sessions/:id/system-prompt", (c) => {
+    const id = resolveId(c.req.param("id"));
+    if (!id) return c.json({ error: "Session not found" }, 404);
+    const session = launcher.getSession(id);
+    if (!session) return c.json({ error: "Session not found" }, 404);
+    return c.json({ prompt: session.injectedSystemPrompt ?? null });
   });
 
   api.patch("/sessions/:id/name", async (c) => {

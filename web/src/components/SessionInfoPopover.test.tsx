@@ -74,6 +74,8 @@ vi.mock("./TaskPanel.js", () => ({
   GitHubPRSection: () => null,
   McpCollapsible: () => null,
   ClaudeMdCollapsible: () => null,
+  HerdDiagnosticsSection: () => null,
+  SystemPromptCollapsible: () => null,
 }));
 
 import { SessionInfoPopover } from "./SessionInfoPopover.js";

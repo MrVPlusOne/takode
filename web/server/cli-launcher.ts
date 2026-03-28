@@ -298,6 +298,8 @@ export interface SdkSessionInfo {
   sessionAuthToken?: string;
   /** One-shot: resume-session-at UUID for revert (cleared after use) */
   resumeAt?: string;
+  /** The Companion-injected system prompt constructed at launch time (for debugging in Session Info). */
+  injectedSystemPrompt?: string;
 
   // Container fields
   /** Docker container ID when session runs inside a container */
@@ -1429,6 +1431,7 @@ export class CliLauncher {
     });
     if (companionInstructions) {
       args.push("--append-system-prompt", companionInstructions);
+      info.injectedSystemPrompt = companionInstructions;
     }
 
     let spawnCmd: string[];
@@ -1579,6 +1582,7 @@ export class CliLauncher {
         : {}),
       extraInstructions: options.extraInstructions,
     });
+    if (sdkInstructions) info.injectedSystemPrompt = sdkInstructions;
     const adapter = new ClaudeSdkAdapter(sessionId, {
       model: options.model,
       cwd: info.cwd,
@@ -1831,6 +1835,7 @@ export class CliLauncher {
         : {}),
       extraInstructions: options.extraInstructions,
     });
+    if (codexInstructions) info.injectedSystemPrompt = codexInstructions;
     const adapter = new CodexAdapter(proc, sessionId, {
       model: options.model,
       cwd: info.cwd,

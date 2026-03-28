@@ -627,6 +627,52 @@ export function ClaudeMdCollapsible({ cwd, repoRoot }: { cwd: string; repoRoot?:
   );
 }
 
+/** Collapsible section showing the Companion-injected system prompt for a session. */
+export function SystemPromptCollapsible({ sessionId }: { sessionId: string }) {
+  const [collapsed, toggle] = usePersistedCollapse("cc-collapse-sysprompt");
+  const [prompt, setPrompt] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (collapsed) return;
+    let cancelled = false;
+    setLoading(true);
+    api
+      .getSessionSystemPrompt(sessionId)
+      .then((res) => {
+        if (!cancelled) setPrompt(res.prompt);
+      })
+      .catch(() => {
+        if (!cancelled) setPrompt(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId, collapsed]);
+
+  return (
+    <>
+      <SectionHeader title="System Prompt" collapsed={collapsed} onToggle={toggle} />
+      {!collapsed && (
+        <div className="px-3 py-2">
+          {loading ? (
+            <span className="text-[11px] text-cc-muted">Loading…</span>
+          ) : prompt ? (
+            <pre className="text-[10px] leading-relaxed text-cc-fg/80 font-mono-code whitespace-pre-wrap break-words max-h-64 overflow-y-auto bg-cc-bg/50 rounded-md p-2 border border-cc-border/30">
+              {prompt}
+            </pre>
+          ) : (
+            <span className="text-[11px] text-cc-muted italic">No system prompt recorded</span>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
 // ─── Task Panel ──────────────────────────────────────────────────────────────
 
 export { CodexRateLimitsSection, CodexTokenDetailsSection };

@@ -665,6 +665,9 @@ export const api = {
   getHerdDiagnostics: (sessionId: string) =>
     get<Record<string, unknown>>(`/sessions/${encodeURIComponent(sessionId)}/herd-diagnostics`),
 
+  getSessionSystemPrompt: (sessionId: string) =>
+    get<{ prompt: string | null }>(`/sessions/${encodeURIComponent(sessionId)}/system-prompt`),
+
   listDirs: (path?: string) => get<DirListResult>(`/fs/list${path ? `?path=${encodeURIComponent(path)}` : ""}`),
 
   getHome: () => get<{ home: string; cwd: string }>("/fs/home"),
