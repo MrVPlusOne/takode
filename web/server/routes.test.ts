@@ -4003,7 +4003,7 @@ describe("buildOrchestratorSystemPrompt", () => {
       "Delegate non-trivial implementation, investigation, and verification to worker sessions.",
     );
     expect(prompt).toContain("override any conflicting generic markdown-link or file-reference instructions");
-    expect(prompt).toContain("Do not use plain absolute-path markdown links");
+    expect(prompt).toContain("never write plain");
     expect(prompt).not.toContain("CLAUDE.md");
     expect(prompt).not.toContain("sub-agent");
     expect(prompt).not.toContain("[Agent]");
