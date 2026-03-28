@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { access as accessAsync } from "node:fs/promises";
 import * as questStore from "../quest-store.js";
 import * as sessionNames from "../session-names.js";
-import { buildPeekResponse, buildPeekDefault, buildPeekRange, buildReadResponse, findTurnBoundaries } from "../takode-messages.js";
+import { buildPeekResponse, buildPeekDefault, buildPeekRange, buildReadResponse, findTurnBoundaries, buildPeekTurnScan, grepMessageHistory, exportSessionAsText } from "../takode-messages.js";
 import type { RouteContext } from "./context.js";
 
 export function createTakodeRoutes(ctx: RouteContext) {
@@ -126,6 +126,12 @@ export function createTakodeRoutes(ctx: RouteContext) {
     const names = sessionNames.getAllNames();
     const { sessionAuthToken: _token, ...safeSession } = session;
 
+    // Compute actual turn count from message history (bridge?.num_turns is the CLI's
+    // internal counter which resets on compaction and doesn't reflect true turn count)
+    const infoHistory = wsBridge.getMessageHistory(sessionId);
+    const actualNumTurns =
+      infoHistory && infoHistory.length > 0 ? findTurnBoundaries(infoHistory).length : (bridge?.num_turns || 0);
+
     return c.json({
       ...safeSession,
       sessionNum: launcher.getSessionNum(sessionId) ?? null,
@@ -142,7 +148,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
       totalLinesAdded: bridge?.total_lines_added || 0,
       totalLinesRemoved: bridge?.total_lines_removed || 0,
       totalCostUsd: bridge?.total_cost_usd || 0,
-      numTurns: bridge?.num_turns || 0,
+      numTurns: actualNumTurns,
       contextUsedPercent: bridge?.context_used_percent || 0,
       isCompacting: bridge?.is_compacting || false,
       permissionMode: resolveReportedPermissionMode(session.permissionMode, bridge?.permissionMode),
@@ -196,6 +202,14 @@ export function createTakodeRoutes(ctx: RouteContext) {
     const untilParam = c.req.query("until");
     const detail = c.req.query("detail") === "true";
     const turnParam = c.req.query("turn");
+    const scanMode = c.req.query("scan");
+
+    // Turn scan mode: paginated collapsed turn summaries (used by `takode scan`)
+    if (scanMode === "turns") {
+      const fromTurn = parseInt(c.req.query("fromTurn") ?? "0", 10);
+      const turnCount = parseInt(c.req.query("turnCount") ?? "50", 10);
+      return c.json({ ...base, ...buildPeekTurnScan(history, { fromTurn, turnCount }, sessionId) });
+    }
 
     // Turn mode: resolve turn number to message range, then use range mode
     if (turnParam !== undefined) {
@@ -218,7 +232,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
       // or browse an explicit inclusive range when both are present.
       const from = fromParam !== undefined ? parseInt(fromParam, 10) : undefined;
       const until = untilParam !== undefined ? parseInt(untilParam, 10) : undefined;
-      const count = parseInt(c.req.query("count") ?? "30", 10);
+      const count = parseInt(c.req.query("count") ?? "60", 10);
       return c.json({ ...base, ...buildPeekRange(history, { from, until, count }, sessionId) });
     }
 
@@ -267,6 +281,39 @@ export function createTakodeRoutes(ctx: RouteContext) {
     }
 
     return c.json(result);
+  });
+
+  // ─── Takode: Grep (within-session search) ────────────────────
+
+  api.get("/sessions/:id/grep", (c) => {
+    const sessionId = resolveId(c.req.param("id"));
+    if (!sessionId) return c.json({ error: "Session not found" }, 404);
+
+    const history = wsBridge.getMessageHistory(sessionId);
+    if (!history) return c.json({ error: "Session not found in bridge" }, 404);
+
+    const query = (c.req.query("q") || "").trim();
+    if (!query) return c.json({ error: "Query parameter 'q' is required" }, 400);
+
+    const limit = parseInt(c.req.query("limit") ?? "50", 10);
+    const results = grepMessageHistory(history, query, { limit }, sessionId);
+
+    return c.json({ sessionId, sessionNum: launcher.getSessionNum(sessionId) ?? -1, query, ...results });
+  });
+
+  // ─── Takode: Export (dump session to text) ───────────────────
+
+  api.get("/sessions/:id/export", (c) => {
+    const sessionId = resolveId(c.req.param("id"));
+    if (!sessionId) return c.json({ error: "Session not found" }, 404);
+
+    const history = wsBridge.getMessageHistory(sessionId);
+    if (!history) return c.json({ error: "Session not found in bridge" }, 404);
+
+    const text = exportSessionAsText(history, sessionId);
+    const totalTurns = findTurnBoundaries(history).length;
+
+    return c.json({ sessionId, totalMessages: history.length, totalTurns, text });
   });
 
   // ─── Cross-session messaging ───────────────────────────────────────

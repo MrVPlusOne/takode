@@ -62,7 +62,19 @@ Show the task outline (table of contents) for a session's conversation history.
 takode tasks 1
 ```
 
-**Tip:** Run `takode tasks` first when investigating an unfamiliar session — it gives you a high-level map of what the agent has been working on.
+**Tip:** Run `takode tasks` first when investigating an unfamiliar session -- it gives you a high-level map of what the agent has been working on.
+
+### `takode scan <session> [--from N] [--count N] [--json]`
+
+Scan session turns as collapsed summaries. Like a table of contents for the conversation -- shows each turn's message range, duration, tool count, and result preview. Paginated by turn number (default: 50 turns per page).
+
+```bash
+takode scan 1                     # turns 0-49
+takode scan 1 --from 100          # turns 100-149
+takode scan 1 --from 50 --count 20  # turns 50-69
+```
+
+Use this to quickly understand what a session worked on across its entire history without reading every message. Drill into interesting turns with `takode peek <session> --turn <N>`.
 
 ### `takode peek <session> [--from N] [--until N] [--count N] [--turn N] [--task N] [--detail --turns N] [--json]`
 
@@ -102,11 +114,14 @@ takode peek 1 --detail --turns 3
 ```
 1. takode info 1               → Session metadata: backend, git, quest, metrics
 2. takode tasks 1              → Table of contents: tasks with msg ranges
-3. takode peek 1               → Overview: collapsed turns + expanded last turn
-4. takode peek 1 --turn 5      → Expand turn 5 (use turn number from step 3)
-5. takode peek 1 --task 3      → Browse task 3's messages
-6. takode peek 1 --from 800    → Browse messages [800]-[830] in detail
-7. takode read 1 815           → Full content of message 815
+3. takode scan 1               → Turn-level scan: collapsed summaries across the session
+4. takode peek 1               → Overview: collapsed turns + expanded last turn
+5. takode peek 1 --turn 5      → Expand turn 5 (use turn number from scan)
+6. takode peek 1 --task 3      → Browse task 3's messages
+7. takode peek 1 --from 800    → Browse messages [800]-[860] in detail
+8. takode read 1 815           → Full content of message 815
+9. takode grep 1 "query"       → Search within session messages
+10. takode export 1 /tmp/s1.txt → Dump full session for offline analysis
 ```
 
 ### `takode read <session> <msg-id> [--offset N] [--limit N] [--json]`
@@ -116,6 +131,25 @@ Read full content of a specific message, with line numbers and pagination.
 ```bash
 takode read 1 42
 takode read 1 42 --offset 0 --limit 50
+```
+
+### `takode grep <session> <query> [--count N] [--json]`
+
+Search within a session's message history. Case-insensitive substring match on message text. Returns matching messages with snippets, message indices, and turn numbers.
+
+```bash
+takode grep 1 "authentication"
+takode grep 1 "reward hacking" --count 20
+```
+
+Each match shows `[msg-id] time type turnNum snippet`. Use `takode read <session> <msg-id>` to see the full message, or `takode peek <session> --turn <N>` for the turn's context.
+
+### `takode export <session> <path>`
+
+Export a session's full conversation history to a text file. The exported file includes turn headers and all message content, suitable for searching with standard tools (grep, etc).
+
+```bash
+takode export 1 /tmp/session-1.txt
 ```
 
 ### `takode notify <category>`

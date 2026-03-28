@@ -1288,7 +1288,7 @@ async function handlePeek(base: string, args: string[]): Promise<void> {
   const turnNum = parseIntegerFlag(flags, "turn", "turn number");
   const fromIdx = parseIntegerFlag(flags, "from", "message index");
   const untilIdx = parseIntegerFlag(flags, "until", "message index");
-  const count = parsePositiveIntegerFlag(flags, "count", "message count", 30);
+  const count = parsePositiveIntegerFlag(flags, "count", "message count", 60);
   const detail = flags.detail === true;
 
   if (fromIdx !== undefined && fromIdx < 0) err("--from must be a non-negative integer.");
@@ -2285,6 +2285,168 @@ async function handleBranch(base: string, args: string[]): Promise<void> {
   }
 }
 
+// ─── Scan handler ────────────────────────────────────────────────────────────
+
+type PeekTurnScanResponse = {
+  sessionId: string;
+  sessionNum: number;
+  sessionName: string;
+  status: string;
+  quest: { id: string; title: string; status: string } | null;
+  mode: "turn_scan";
+  totalTurns: number;
+  totalMessages: number;
+  fromTurn: number;
+  returnedTurns: number;
+  turns: CollapsedTurn[];
+};
+
+async function handleScan(base: string, args: string[]): Promise<void> {
+  const sessionRef = args[0];
+  if (!sessionRef) err("Usage: takode scan <session> [--from N] [--count N] [--json]");
+  const safeSessionRef = formatInlineText(sessionRef);
+
+  const flags = parseFlags(args.slice(1));
+  const jsonMode = flags.json === true;
+  const fromTurn = parseIntegerFlag(flags, "from", "turn number") ?? 0;
+  const turnCount = parsePositiveIntegerFlag(flags, "count", "turn count", 50);
+
+  if (fromTurn < 0) err("--from must be a non-negative integer.");
+
+  const params = new URLSearchParams({
+    scan: "turns",
+    fromTurn: String(fromTurn),
+    turnCount: String(turnCount),
+  });
+  const path = `/sessions/${encodeURIComponent(sessionRef)}/messages?${params}`;
+  const data = (await apiGet(base, path)) as PeekTurnScanResponse;
+
+  if (jsonMode) {
+    console.log(JSON.stringify(data, null, 2));
+    return;
+  }
+
+  printPeekHeader(data);
+  console.log(`${data.totalTurns} turns, ${data.totalMessages} messages`);
+
+  if (data.returnedTurns === 0) {
+    console.log("\nNo turns in this range.");
+    return;
+  }
+
+  const endTurn = data.fromTurn + data.returnedTurns - 1;
+  console.log(`Showing turns ${data.fromTurn}-${endTurn}:`);
+  console.log("");
+
+  let lastDate = "";
+  for (const turn of data.turns) {
+    const turnDate = dateKey(turn.startedAt);
+    if (turnDate !== lastDate) {
+      console.log(`── ${formatDate(turn.startedAt)} ──`);
+      lastDate = turnDate;
+    }
+    console.log(formatCollapsedTurn(turn));
+  }
+
+  console.log("");
+
+  // Navigation hints
+  const hints: string[] = [];
+  if (data.fromTurn > 0) {
+    const prevFrom = Math.max(0, data.fromTurn - turnCount);
+    hints.push(`Prev: takode scan ${safeSessionRef} --from ${prevFrom} --count ${turnCount}`);
+  }
+  if (data.fromTurn + data.returnedTurns < data.totalTurns) {
+    hints.push(`Next: takode scan ${safeSessionRef} --from ${data.fromTurn + data.returnedTurns} --count ${turnCount}`);
+  }
+  if (hints.length > 0) {
+    console.log(hints.join("  |  "));
+  }
+  console.log(`Expand: takode peek ${safeSessionRef} --turn <N>  |  Full message: takode read ${safeSessionRef} <msg-id>`);
+}
+
+// ─── Grep handler ────────────────────────────────────────────────────────────
+
+async function handleGrep(base: string, args: string[]): Promise<void> {
+  const sessionRef = args.filter((a) => !a.startsWith("--"))[0];
+  if (!sessionRef) err("Usage: takode grep <session> <query> [--count N] [--json]");
+  const safeSessionRef = formatInlineText(sessionRef);
+
+  // Everything after session ref that isn't a flag = query
+  const nonFlags = args.filter((a) => !a.startsWith("--"));
+  const query = nonFlags.slice(1).join(" ").trim();
+
+  const flags = parseFlags(args.slice(1));
+  const jsonMode = flags.json === true;
+  const limit = parsePositiveIntegerFlag(flags, "count", "result count", 50);
+
+  if (!query) err("Usage: takode grep <session> <query> [--count N] [--json]");
+
+  const params = new URLSearchParams({ q: query, limit: String(limit) });
+  const data = (await apiGet(base, `/sessions/${encodeURIComponent(sessionRef)}/grep?${params}`)) as {
+    sessionId: string;
+    sessionNum: number;
+    query: string;
+    totalMatches: number;
+    matches: Array<{
+      idx: number;
+      type: string;
+      ts: number;
+      snippet: string;
+      turnNum: number | null;
+    }>;
+  };
+
+  if (jsonMode) {
+    console.log(JSON.stringify(data, null, 2));
+    return;
+  }
+
+  if (data.totalMatches === 0) {
+    console.log(`No matches for "${formatInlineText(query)}" in session #${data.sessionNum}.`);
+    return;
+  }
+
+  const shown = data.matches.length;
+  const total = data.totalMatches;
+  console.log(
+    `${total} match${total === 1 ? "" : "es"} for "${formatInlineText(query)}" in session #${data.sessionNum}${shown < total ? ` (showing first ${shown})` : ""}:`,
+  );
+  console.log("");
+
+  for (const match of data.matches) {
+    const time = formatTimeShort(match.ts);
+    const idx = `[${match.idx}]`;
+    const turnLabel = match.turnNum !== null ? `T${match.turnNum}` : "  ";
+    const typeLabel = match.type.padEnd(6);
+    console.log(`  ${idx.padEnd(7)} ${time}  ${typeLabel} ${turnLabel.padEnd(5)} ${match.snippet}`);
+  }
+
+  console.log("");
+  console.log(
+    `Hint: takode read ${safeSessionRef} <msg-id> for full message | takode peek ${safeSessionRef} --turn <N> for turn context`,
+  );
+}
+
+// ─── Export handler ──────────────────────────────────────────────────────────
+
+async function handleExport(base: string, args: string[]): Promise<void> {
+  const sessionRef = args.filter((a) => !a.startsWith("--"))[0];
+  const filePath = args.filter((a) => !a.startsWith("--"))[1];
+  if (!sessionRef || !filePath) err("Usage: takode export <session> <path>");
+
+  const data = (await apiGet(base, `/sessions/${encodeURIComponent(sessionRef)}/export`)) as {
+    sessionId: string;
+    totalMessages: number;
+    totalTurns: number;
+    text: string;
+  };
+
+  const { writeFile } = await import("node:fs/promises");
+  await writeFile(filePath, data.text, "utf-8");
+  console.log(`Exported ${data.totalMessages} messages (${data.totalTurns} turns) to ${filePath}`);
+}
+
 // ─── Main dispatch ──────────────────────────────────────────────────────────
 
 function printUsage(): void {
@@ -2297,8 +2459,11 @@ Commands:
   info     Show detailed metadata for a session
   spawn    Create and auto-herd new worker sessions
   tasks    Show a session task outline (available to all sessions)
+  scan     Scan session turns (collapsed summaries, paginated)
   peek     View session activity (available to all sessions)
   read     Read a full message (available to all sessions)
+  grep     Search within a session's messages (case-insensitive)
+  export   Export full session history to a text file
   send     Send a message to a herded session
   herd     Herd sessions (e.g. takode herd 5,6,7)
   unherd   Release a session from your herd (e.g. takode unherd 5)
@@ -2331,11 +2496,15 @@ Examples:
   takode spawn --backend claude-sdk --count 2
   takode spawn --backend codex --count 3 --message "Check flaky tests"
   takode tasks 1
+  takode scan 1
+  takode scan 1 --from 50 --count 20
   takode peek 1
   takode peek 1 --from 200
   takode peek 1 --until 530 --count 30
   takode peek 1 --detail --turns 3
   takode read 1 42
+  takode grep 1 "authentication"
+  takode export 1 /tmp/session-1.txt
   takode send 2 "Please add tests for the edge cases"
   printf 'Line 1\\nLine 2 with $HOME and \`code\`\\n' | takode send 2 --stdin
   takode set-base 1 origin/main
@@ -2363,8 +2532,11 @@ try {
     ["search", {}],
     ["info", {}],
     ["tasks", {}],
+    ["scan", {}],
     ["peek", {}],
     ["read", {}],
+    ["grep", {}],
+    ["export", {}],
     ["send", { requireOrchestrator: true }],
     ["herd", { requireOrchestrator: true }],
     ["unherd", { requireOrchestrator: true }],
@@ -2407,11 +2579,20 @@ try {
     case "tasks":
       await handleTasks(base, args);
       break;
+    case "scan":
+      await handleScan(base, args);
+      break;
     case "peek":
       await handlePeek(base, args);
       break;
     case "read":
       await handleRead(base, args);
+      break;
+    case "grep":
+      await handleGrep(base, args);
+      break;
+    case "export":
+      await handleExport(base, args);
       break;
     case "send":
       await handleSend(base, args);

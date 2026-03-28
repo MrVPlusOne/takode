@@ -858,7 +858,7 @@ export function buildPeekRange(
     };
   }
 
-  const count = Number.isFinite(options.count) ? Math.max(1, Math.trunc(options.count as number)) : 30;
+  const count = Number.isFinite(options.count) ? Math.max(1, Math.trunc(options.count as number)) : 60;
 
   const contentLimit = 120;
   const allTurns = findTurnBoundaries(messageHistory);
@@ -1060,4 +1060,226 @@ export function buildReadResponse(
   }
 
   return response;
+}
+
+// ─── Turn Scan ────────────────────────────────────────────────────────────────
+
+export interface PeekTurnScanResponse {
+  mode: "turn_scan";
+  totalTurns: number;
+  totalMessages: number;
+  fromTurn: number;
+  /** Number of turns returned in this page */
+  returnedTurns: number;
+  turns: TakodePeekTurnSummary[];
+}
+
+/**
+ * Build a paginated "turn scan" response: collapsed summaries for a slice of turns.
+ * Used by `takode scan` to give agents a quick overview of what happened across a session.
+ */
+export function buildPeekTurnScan(
+  messageHistory: BrowserIncomingMessage[],
+  options: { fromTurn?: number; turnCount?: number } = {},
+  sessionId?: string,
+): PeekTurnScanResponse {
+  const { fromTurn = 0, turnCount = 50 } = options;
+  const contentLimit = 120;
+  const { subagentToolUseIds, toolResultPreviews } = buildSubagentIndexes(messageHistory);
+
+  const allTurns = findTurnBoundaries(messageHistory);
+  const totalTurns = allTurns.length;
+  const totalMessages = messageHistory.length;
+
+  if (totalTurns === 0 || fromTurn >= totalTurns) {
+    return { mode: "turn_scan", totalTurns, totalMessages, fromTurn, returnedTurns: 0, turns: [] };
+  }
+
+  const endTurn = Math.min(fromTurn + turnCount, totalTurns);
+  const slice = allTurns.slice(fromTurn, endTurn);
+
+  const turns: TakodePeekTurnSummary[] = slice.map((turn, i) => {
+    const turnNum = fromTurn + i;
+    const startMsg = messageHistory[turn.startIdx];
+    const endMsg = turn.endIdx >= 0 ? messageHistory[turn.endIdx] : null;
+    const startedAt = extractTimestamp(startMsg);
+    const durationMs = endMsg?.type === "result" ? ((endMsg.data as CLIResultMessage).duration_ms ?? null) : null;
+    const endedAt = durationMs && startedAt ? startedAt + durationMs : null;
+    const stats = computeTurnStats(messageHistory, turn.startIdx, turn.endIdx);
+    const success = endMsg?.type === "result" ? !(endMsg.data as CLIResultMessage).is_error : null;
+
+    const peekMessages = buildTurnMessages(messageHistory, turn, contentLimit, {
+      endedAt,
+      sessionId,
+      subagentToolUseIds,
+      toolResultPreviews,
+    });
+    const resultPreview = deriveTurnResultPreview(peekMessages, endMsg, contentLimit);
+    const userPreview = startMsg.type === "user_message" ? truncate(startMsg.content || "", 80) : "";
+
+    return {
+      turnNum,
+      startIdx: turn.startIdx,
+      endIdx: turn.endIdx,
+      startedAt,
+      endedAt,
+      durationMs,
+      stats,
+      success,
+      resultPreview,
+      userPreview,
+      ...((startMsg as any).agentSource ? { agentSource: (startMsg as any).agentSource } : {}),
+    };
+  });
+
+  return { mode: "turn_scan", totalTurns, totalMessages, fromTurn, returnedTurns: turns.length, turns };
+}
+
+// ─── Grep (within-session search) ─────────────────────────────────────────────
+
+export interface GrepMatch {
+  /** Message index in history */
+  idx: number;
+  type: "user" | "assistant" | "result" | "system";
+  ts: number;
+  /** Snippet with matched text in context (~120 chars) */
+  snippet: string;
+  /** Which turn this message belongs to */
+  turnNum: number | null;
+}
+
+export interface GrepResponse {
+  totalMatches: number;
+  matches: GrepMatch[];
+}
+
+/** Build a snippet centered on the first match occurrence. */
+function buildGrepSnippet(content: string, q: string, maxLen = 120): string {
+  const text = content.replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  if (text.length <= maxLen) return text;
+
+  const idx = text.toLowerCase().indexOf(q);
+  if (idx < 0) return text.slice(0, maxLen).trimEnd();
+
+  const contextRadius = Math.floor((maxLen - q.length) / 2);
+  const start = Math.max(0, idx - contextRadius);
+  const end = Math.min(text.length, start + maxLen);
+  return text.slice(start, end).trim();
+}
+
+/**
+ * Search within a session's message history. Case-insensitive substring match on message text.
+ * Returns matches with snippets and turn associations.
+ */
+export function grepMessageHistory(
+  history: BrowserIncomingMessage[],
+  query: string,
+  options: { limit?: number } = {},
+  sessionId?: string,
+): GrepResponse {
+  const q = query.trim().toLowerCase();
+  if (!q) return { totalMatches: 0, matches: [] };
+
+  const limit = Math.max(1, Math.min(options.limit ?? 50, 200));
+  const allTurns = findTurnBoundaries(history);
+
+  // Build turn lookup: message index → turn number
+  const turnLookup = new Map<number, number>();
+  for (let t = 0; t < allTurns.length; t++) {
+    const turn = allTurns[t];
+    const endBound = turn.endIdx >= 0 ? turn.endIdx : history.length - 1;
+    for (let i = turn.startIdx; i <= endBound; i++) {
+      turnLookup.set(i, t);
+    }
+  }
+
+  const matches: GrepMatch[] = [];
+  let totalMatches = 0;
+
+  for (let i = 0; i < history.length; i++) {
+    const msg = history[i];
+    if (!isPeekable(msg)) continue;
+
+    const fullText = extractFullText(msg, sessionId);
+    if (!fullText.toLowerCase().includes(q)) continue;
+
+    totalMatches++;
+    if (matches.length < limit) {
+      // Resolve timestamp, with backwards-scan fallback for result messages
+      let ts = extractTimestamp(msg);
+      if (ts === 0 && i > 0) {
+        for (let j = i - 1; j >= 0; j--) {
+          const prevTs = extractTimestamp(history[j]);
+          if (prevTs > 0) {
+            ts = prevTs;
+            break;
+          }
+        }
+      }
+
+      matches.push({
+        idx: i,
+        type: toPeekType(msg.type),
+        ts,
+        snippet: buildGrepSnippet(fullText, q),
+        turnNum: turnLookup.get(i) ?? null,
+      });
+    }
+  }
+
+  return { totalMatches, matches };
+}
+
+// ─── Export (dump session to text) ────────────────────────────────────────────
+
+/**
+ * Export a full session as a plain text file suitable for offline searching.
+ * Format: turn headers + [idx] HH:MM:SS type\ncontent
+ */
+export function exportSessionAsText(history: BrowserIncomingMessage[], sessionId?: string): string {
+  const allTurns = findTurnBoundaries(history);
+  const lines: string[] = [];
+  let activeTurnIdx = -1;
+
+  // Build message-to-turn lookup
+  const turnLookup = new Map<number, number>();
+  for (let t = 0; t < allTurns.length; t++) {
+    const turn = allTurns[t];
+    const endBound = turn.endIdx >= 0 ? turn.endIdx : history.length - 1;
+    for (let i = turn.startIdx; i <= endBound; i++) {
+      turnLookup.set(i, t);
+    }
+  }
+
+  for (let i = 0; i < history.length; i++) {
+    const msg = history[i];
+    if (!isPeekable(msg)) continue;
+
+    const turnNum = turnLookup.get(i);
+    if (turnNum !== undefined && turnNum !== activeTurnIdx) {
+      lines.push(`\n--- Turn ${turnNum} ---`);
+      activeTurnIdx = turnNum;
+    }
+
+    let ts = extractTimestamp(msg);
+    if (ts === 0 && i > 0) {
+      for (let j = i - 1; j >= 0; j--) {
+        const prevTs = extractTimestamp(history[j]);
+        if (prevTs > 0) {
+          ts = prevTs;
+          break;
+        }
+      }
+    }
+    const timeStr = ts ? new Date(ts).toISOString().slice(11, 19) : "??:??:??";
+    const type = toPeekType(msg.type);
+    const text = extractFullText(msg, sessionId);
+
+    lines.push(`[${i}] ${timeStr} ${type}`);
+    if (text) lines.push(text);
+    lines.push("");
+  }
+
+  return lines.join("\n");
 }
