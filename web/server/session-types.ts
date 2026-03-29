@@ -395,30 +395,9 @@ export type BrowserOutgoingMessage =
   | { type: "set_ask_permission"; askPermission: boolean; client_msg_id?: string }
   | { type: "permission_user_viewing"; request_id: string };
 
-/**
- * Quest Journey states. Each state represents a leader action that just happened.
- * The board shows the current state and a next-action hint for the leader.
- */
-export const QUEST_JOURNEY_STATES = [
-  "PLANNED",
-  "DISPATCHED",
-  "PLAN_APPROVED",
-  "SKEPTIC_REVIEWED",
-  "GROOMED",
-  "PORT_REQUESTED",
-] as const;
-
-export type QuestJourneyState = (typeof QUEST_JOURNEY_STATES)[number];
-
-/** Next-action hints for each Quest Journey state. */
-export const QUEST_JOURNEY_HINTS: Record<QuestJourneyState, string> = {
-  PLANNED: "dispatch to a worker",
-  DISPATCHED: "wait for ExitPlanMode, then review plan",
-  PLAN_APPROVED: "wait for turn_end, then spawn skeptic reviewer",
-  SKEPTIC_REVIEWED: "tell worker to run /groom",
-  GROOMED: "request port",
-  PORT_REQUESTED: "wait for port confirmation, then remove from board",
-};
+// Quest Journey state machine -- canonical source in shared/quest-journey.ts
+export { QUEST_JOURNEY_STATES, QUEST_JOURNEY_HINTS } from "../shared/quest-journey.js";
+export type { QuestJourneyState } from "../shared/quest-journey.js";
 
 /** A single row on the leader's work board. */
 export interface BoardRow {

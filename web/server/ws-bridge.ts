@@ -2785,10 +2785,7 @@ export class WsBridge {
       updatedAt: row.updatedAt ?? Date.now(),
     };
     session.board.set(row.questId, merged);
-    const board = this.getBoard(sessionId);
-    this.broadcastToBrowsers(session, { type: "board_updated", board });
-    this.persistSession(session);
-    return board;
+    return this.commitBoard(session);
   }
 
   /** Remove one or more rows from the board by quest ID. Returns the full board. */
@@ -2798,10 +2795,7 @@ export class WsBridge {
     for (const qid of questIds) {
       session.board.delete(qid);
     }
-    const board = this.getBoard(sessionId);
-    this.broadcastToBrowsers(session, { type: "board_updated", board });
-    this.persistSession(session);
-    return board;
+    return this.commitBoard(session);
   }
 
   /** Remove a quest from ALL session boards (used for auto-cleanup on quest completion). */
@@ -2809,9 +2803,7 @@ export class WsBridge {
     for (const session of this.sessions.values()) {
       if (session.board.has(questId)) {
         session.board.delete(questId);
-        const board = this.getBoard(session.id);
-        this.broadcastToBrowsers(session, { type: "board_updated", board });
-        this.persistSession(session);
+        this.commitBoard(session);
       }
     }
   }
@@ -2833,28 +2825,27 @@ export class WsBridge {
     const currentIdx = QUEST_JOURNEY_STATES.indexOf(row.status as QuestJourneyState);
     const previousState = row.status;
 
-    if (currentIdx === -1) {
-      // Not in a recognized state -- advance to PLANNED
-      row.status = QUEST_JOURNEY_STATES[0];
-      row.updatedAt = Date.now();
-      session.board.set(questId, row);
-    } else if (currentIdx >= QUEST_JOURNEY_STATES.length - 1) {
+    if (currentIdx >= QUEST_JOURNEY_STATES.length - 1) {
       // At the final state -- remove from board
       session.board.delete(questId);
-      const board = this.getBoard(sessionId);
-      this.broadcastToBrowsers(session, { type: "board_updated", board });
-      this.persistSession(session);
+      const board = this.commitBoard(session);
       return { board, removed: true, previousState, newState: undefined };
-    } else {
-      row.status = QUEST_JOURNEY_STATES[currentIdx + 1];
-      row.updatedAt = Date.now();
-      session.board.set(questId, row);
     }
 
-    const board = this.getBoard(sessionId);
+    // Advance: unrecognized state resets to PLANNED, otherwise move to next
+    row.status = currentIdx === -1 ? QUEST_JOURNEY_STATES[0] : QUEST_JOURNEY_STATES[currentIdx + 1];
+    row.updatedAt = Date.now();
+    session.board.set(questId, row);
+    const board = this.commitBoard(session);
+    return { board, removed: false, previousState, newState: row.status };
+  }
+
+  /** Get board, broadcast update to browsers, and persist. */
+  private commitBoard(session: Session): BoardRow[] {
+    const board = this.getBoard(session.id);
     this.broadcastToBrowsers(session, { type: "board_updated", board });
     this.persistSession(session);
-    return { board, removed: false, previousState, newState: row.status };
+    return board;
   }
 
   /** Downgrade "action" attention to null when all pending permissions are resolved. */

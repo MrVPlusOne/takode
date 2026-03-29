@@ -14255,4 +14255,116 @@ describe("work board", () => {
     const board = bridge.getBoard("s1");
     expect(board.map((r) => r.questId)).toEqual(["q-1", "q-2", "q-3"]);
   });
+
+  // ─── waitFor field ────────────────────────────────────────────────────────
+
+  it("upsertBoardRow sets waitFor array on row", () => {
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    bridge.upsertBoardRow("s1", { questId: "q-1", waitFor: ["q-2", "q-3"] });
+    const board = bridge.getBoard("s1");
+    expect(board[0].waitFor).toEqual(["q-2", "q-3"]);
+  });
+
+  it("upsertBoardRow clears waitFor when given empty array", () => {
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    // Set initial waitFor
+    bridge.upsertBoardRow("s1", { questId: "q-1", waitFor: ["q-2"] });
+    expect(bridge.getBoard("s1")[0].waitFor).toEqual(["q-2"]);
+
+    // Clear with empty array
+    bridge.upsertBoardRow("s1", { questId: "q-1", waitFor: [] });
+    expect(bridge.getBoard("s1")[0].waitFor).toBeUndefined();
+  });
+
+  it("upsertBoardRow preserves existing waitFor when field is omitted", () => {
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    bridge.upsertBoardRow("s1", { questId: "q-1", waitFor: ["q-2"] });
+    // Update title without touching waitFor
+    bridge.upsertBoardRow("s1", { questId: "q-1", title: "Updated" });
+    const row = bridge.getBoard("s1")[0];
+    expect(row.title).toBe("Updated");
+    expect(row.waitFor).toEqual(["q-2"]);
+  });
+
+  // ─── advanceBoardRow ──────────────────────────────────────────────────────
+
+  it("advanceBoardRow advances from PLANNED to DISPATCHED", () => {
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    bridge.upsertBoardRow("s1", { questId: "q-1", status: "PLANNED" });
+    const result = bridge.advanceBoardRow("s1", "q-1");
+    expect(result).not.toBeNull();
+    expect(result!.removed).toBe(false);
+    expect(result!.previousState).toBe("PLANNED");
+    expect(result!.newState).toBe("DISPATCHED");
+    expect(result!.board[0].status).toBe("DISPATCHED");
+  });
+
+  it("advanceBoardRow walks through all Quest Journey states", () => {
+    // Validates the full state machine progression
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    bridge.upsertBoardRow("s1", { questId: "q-1", status: "PLANNED" });
+
+    const expectedTransitions = [
+      ["PLANNED", "DISPATCHED"],
+      ["DISPATCHED", "PLAN_APPROVED"],
+      ["PLAN_APPROVED", "SKEPTIC_REVIEWED"],
+      ["SKEPTIC_REVIEWED", "GROOMED"],
+      ["GROOMED", "PORT_REQUESTED"],
+    ];
+
+    for (const [from, to] of expectedTransitions) {
+      const result = bridge.advanceBoardRow("s1", "q-1");
+      expect(result!.previousState).toBe(from);
+      expect(result!.newState).toBe(to);
+      expect(result!.removed).toBe(false);
+    }
+
+    // Final advance removes from board
+    const final = bridge.advanceBoardRow("s1", "q-1");
+    expect(final!.removed).toBe(true);
+    expect(final!.previousState).toBe("PORT_REQUESTED");
+    expect(final!.board).toHaveLength(0);
+  });
+
+  it("advanceBoardRow removes row at final state PORT_REQUESTED", () => {
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    bridge.upsertBoardRow("s1", { questId: "q-1", status: "PORT_REQUESTED" });
+    const result = bridge.advanceBoardRow("s1", "q-1");
+    expect(result!.removed).toBe(true);
+    expect(result!.newState).toBeUndefined();
+    expect(result!.board).toHaveLength(0);
+  });
+
+  it("advanceBoardRow sets PLANNED when status is unrecognized", () => {
+    // Handles rows with freeform status text from before Quest Journey
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    bridge.upsertBoardRow("s1", { questId: "q-1", status: "some-legacy-status" });
+    const result = bridge.advanceBoardRow("s1", "q-1");
+    expect(result!.newState).toBe("PLANNED");
+    expect(result!.previousState).toBe("some-legacy-status");
+  });
+
+  it("advanceBoardRow returns null for unknown session", () => {
+    expect(bridge.advanceBoardRow("nonexistent", "q-1")).toBeNull();
+  });
+
+  it("advanceBoardRow returns null for unknown questId", () => {
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+    expect(bridge.advanceBoardRow("s1", "q-999")).toBeNull();
+  });
 });

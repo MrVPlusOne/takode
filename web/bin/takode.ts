@@ -2231,6 +2231,8 @@ async function handleNotify(base: string, args: string[]): Promise<void> {
 
 // ─── Board ─────────────────────────────────────────────────────────────────
 
+import { QUEST_JOURNEY_STATES, QUEST_JOURNEY_HINTS } from "../shared/quest-journey.js";
+
 interface BoardRow {
   questId: string;
   title?: string;
@@ -2240,25 +2242,6 @@ interface BoardRow {
   waitFor?: string[];
   updatedAt: number;
 }
-
-/** Quest Journey state order and next-action hints. */
-const QUEST_JOURNEY_STATES = [
-  "PLANNED",
-  "DISPATCHED",
-  "PLAN_APPROVED",
-  "SKEPTIC_REVIEWED",
-  "GROOMED",
-  "PORT_REQUESTED",
-] as const;
-
-const QUEST_JOURNEY_HINTS: Record<string, string> = {
-  PLANNED: "dispatch to a worker",
-  DISPATCHED: "wait for ExitPlanMode, then review plan",
-  PLAN_APPROVED: "wait for turn_end, then spawn skeptic reviewer",
-  SKEPTIC_REVIEWED: "tell worker to run /groom",
-  GROOMED: "request port",
-  PORT_REQUESTED: "wait for port confirmation, then remove from board",
-};
 
 /** Format board output as JSON with a marker for frontend detection. */
 function formatBoardOutput(board: BoardRow[]): string {
