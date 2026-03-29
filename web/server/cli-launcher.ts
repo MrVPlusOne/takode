@@ -296,6 +296,8 @@ export interface SdkSessionInfo {
   envSlug?: string;
   /** When true, the session auto-namer is suppressed (e.g. temporary reviewer sessions) */
   noAutoName?: boolean;
+  /** Session number of the parent session this reviewer is reviewing (reviewer lifecycle) */
+  reviewerOf?: number;
   /** Server-issued secret used to authenticate privileged REST calls from this session. */
   sessionAuthToken?: string;
   /** One-shot: resume-session-at UUID for revert (cleared after use) */
@@ -569,10 +571,12 @@ When referencing sessions, use session numbers (\`#107\`) which are stable -- na
 
 Reviewer sessions are persistent quality gates for their parent worker:
 
-- Spawn with: \`takode spawn --fixed-name 'Skeptic review of #XX' --no-worktree --message "..."\`
+- Spawn with: \`takode spawn --reviewer <session-number> --message "..."\`
+- The \`--reviewer\` flag automatically: disables worktree creation, sets a fixed name ("Reviewer of #XX"), and tracks the parent relationship
+- Only one reviewer per parent session. To replace, stop the old reviewer first with \`takode stop\`
 - The reviewer persists as long as the parent worker is alive -- reuse it for follow-up reviews and groom compliance checks
 - Reviewer sessions do NOT count toward the 5-session herd limit
-- When the parent worker is archived, delete (not archive) the reviewer session
+- When the parent worker is archived, the reviewer session is automatically stopped and archived
 - See the \`/skeptic-review\` skill for the full spawn template and review criteria
 
 ## Work Board

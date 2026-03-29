@@ -417,7 +417,7 @@ export function SessionItem({
 
           {/* Content */}
           <div className="flex-1 min-w-0">
-            {/* Row 1: Leader/herd tag (inline) + title */}
+            {/* Row 1: Leader/herd/reviewer tag (inline) + title */}
             <div className="flex items-center gap-1.5">
               {!isEditing && s.isOrchestrator && (
                 <span
@@ -430,7 +430,18 @@ export function SessionItem({
                   leader
                 </span>
               )}
-              {!isEditing && !s.isOrchestrator && !!s.herdedBy && (
+              {!isEditing && !s.isOrchestrator && s.reviewerOf !== undefined && (
+                <span
+                  className="text-[9px] font-medium px-1.5 rounded-full leading-[16px] shrink-0 border"
+                  title={`Reviewer of #${s.reviewerOf}`}
+                  data-testid="session-role-badge"
+                  data-herd-group-tone={herdGroupBadgeTheme?.token}
+                  style={roleBadgeStyle}
+                >
+                  reviewer
+                </span>
+              )}
+              {!isEditing && !s.isOrchestrator && s.reviewerOf === undefined && !!s.herdedBy && (
                 <span
                   className="text-[9px] font-medium px-1.5 rounded-full leading-[16px] shrink-0 border"
                   title="Herded by a leader"

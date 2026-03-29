@@ -31,6 +31,7 @@ export interface SessionItem {
   isOrchestrator?: boolean;
   herdedBy?: string;
   sessionNum?: number | null;
+  reviewerOf?: number;
 }
 
 export interface ProjectGroup {
@@ -145,7 +146,56 @@ export function groupSessionsByProject(
     } else {
       group.sessions.sort((a, b) => b.createdAt - a.createdAt);
     }
+    // Post-sort: move reviewer sessions directly after their parent session
+    // so they visually nest under the parent in the sidebar.
+    nestReviewerSessions(group.sessions);
   }
 
   return sorted;
+}
+
+/**
+ * Moves reviewer sessions directly after their parent session (in-place).
+ * Reviewers that have no matching parent in the list stay at their current position.
+ */
+export function nestReviewerSessions(sessions: SessionItem[]): void {
+  // Extract reviewers from the list
+  const reviewers: SessionItem[] = [];
+  const nonReviewers: SessionItem[] = [];
+  for (const s of sessions) {
+    if (s.reviewerOf !== undefined) {
+      reviewers.push(s);
+    } else {
+      nonReviewers.push(s);
+    }
+  }
+  if (reviewers.length === 0) return;
+
+  // Build the result: for each non-reviewer, append its reviewers right after it
+  const reviewersByParent = new Map<number, SessionItem[]>();
+  for (const r of reviewers) {
+    const list = reviewersByParent.get(r.reviewerOf!) || [];
+    list.push(r);
+    reviewersByParent.set(r.reviewerOf!, list);
+  }
+
+  const result: SessionItem[] = [];
+  for (const s of nonReviewers) {
+    result.push(s);
+    if (s.sessionNum !== undefined && s.sessionNum !== null) {
+      const children = reviewersByParent.get(s.sessionNum);
+      if (children) {
+        result.push(...children);
+        reviewersByParent.delete(s.sessionNum);
+      }
+    }
+  }
+  // Append orphaned reviewers at the end
+  for (const [, orphans] of reviewersByParent) {
+    result.push(...orphans);
+  }
+
+  // Replace in-place
+  sessions.length = 0;
+  sessions.push(...result);
 }

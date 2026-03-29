@@ -106,6 +106,8 @@ export function createSessionsRoutes(ctx: RouteContext) {
     createdBy?: unknown;
     noAutoName?: boolean;
     fixedName?: string;
+    /** Session number of the parent worker this reviewer is reviewing */
+    reviewerOf?: number;
     worktreeInfo?: WorktreeSessionInfo;
     containerInfo?: ContainerInfo;
     resumeCliSessionId?: string;
@@ -202,6 +204,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
     }
     if (sessionConfig.envSlug) session.envSlug = sessionConfig.envSlug;
     if (sessionConfig.noAutoName) session.noAutoName = true;
+    if (sessionConfig.reviewerOf !== undefined) session.reviewerOf = sessionConfig.reviewerOf;
 
     if (sessionConfig.isAssistantMode) {
       sessionNames.setName(session.sessionId, "Takode");
@@ -612,6 +615,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
       createdBy: body.createdBy,
       noAutoName: body.noAutoName === true,
       fixedName: typeof body.fixedName === "string" ? body.fixedName.trim() : undefined,
+      reviewerOf: typeof body.reviewerOf === "number" ? body.reviewerOf : undefined,
       worktreeInfo,
       containerInfo,
     };
@@ -1501,6 +1505,29 @@ export function createSessionsRoutes(ctx: RouteContext) {
     const worktreeResult = cleanupWorktree(id, true);
     launcher.setArchived(id, true);
     await sessionStore.setArchived(id, true);
+
+    // Auto-delete reviewer sessions tied to this parent.
+    // Reviewer sessions are temporary quality gates -- when the parent worker is
+    // archived, the reviewer is no longer useful and should be cleaned up.
+    const archivedNum = launcher.getSessionNum(id);
+    if (archivedNum !== undefined) {
+      const allSessions = launcher.listSessions();
+      for (const s of allSessions) {
+        if (s.reviewerOf === archivedNum && !s.archived) {
+          console.log(
+            `[routes] Auto-stopping reviewer session ${s.sessionId} (reviewerOf=#${archivedNum})`,
+          );
+          await launcher.kill(s.sessionId);
+          containerManager.removeContainer(s.sessionId);
+          cleanupWorktree(s.sessionId, true);
+          launcher.setArchived(s.sessionId, true);
+          await sessionStore.setArchived(s.sessionId, true);
+          wsBridge.broadcastGlobal({ type: "session_deleted", session_id: s.sessionId });
+          wsBridge.closeSession(s.sessionId);
+        }
+      }
+    }
+
     return c.json({ ok: true, worktree: worktreeResult });
   });
 

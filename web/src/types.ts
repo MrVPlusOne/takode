@@ -188,4 +188,6 @@ export interface SdkSessionInfo {
   claudeTokenDetails?: SessionState["claude_token_details"];
   /** The Companion-injected system prompt constructed at launch time (for debugging). */
   injectedSystemPrompt?: string;
+  /** Session number of the parent session this reviewer is reviewing (reviewer lifecycle) */
+  reviewerOf?: number;
 }

@@ -522,6 +522,7 @@ async function handleList(base: string, args: string[]): Promise<void> {
     repoRoot?: string;
     isWorktree?: boolean;
     herdedBy?: string;
+    reviewerOf?: number;
     claimedQuestId?: string | null;
     claimedQuestStatus?: string | null;
     taskHistory?: Array<{ title: string; timestamp: number }>;
@@ -600,10 +601,40 @@ async function handleList(base: string, args: string[]): Promise<void> {
       return (b.lastActivityAt || 0) - (a.lastActivityAt || 0);
     });
 
-    for (const s of projectSessions) {
+    // Build a map of parentSessionNum -> reviewer sessions for nesting display
+    const reviewersByParent = new Map<number, typeof projectSessions>();
+    const topLevel = projectSessions.filter((s) => {
+      if (s.reviewerOf !== undefined) {
+        const list = reviewersByParent.get(s.reviewerOf) || [];
+        list.push(s);
+        reviewersByParent.set(s.reviewerOf, list);
+        return false;
+      }
+      return true;
+    });
+
+    for (const s of topLevel) {
       printSessionLine(s);
       if (showTasks) printSessionTasks(s.taskHistory);
       total++;
+      // Print reviewer sessions indented under their parent
+      const reviewers = s.sessionNum !== undefined ? reviewersByParent.get(s.sessionNum) : undefined;
+      if (reviewers) {
+        for (const r of reviewers) {
+          printSessionLine(r, { indent: true });
+          if (showTasks) printSessionTasks(r.taskHistory);
+          total++;
+        }
+        reviewersByParent.delete(s.sessionNum!);
+      }
+    }
+    // Print any orphaned reviewers (parent not in this group)
+    for (const [, orphans] of reviewersByParent) {
+      for (const r of orphans) {
+        printSessionLine(r, { indent: true });
+        if (showTasks) printSessionTasks(r.taskHistory);
+        total++;
+      }
     }
     console.log("");
   }
@@ -611,10 +642,36 @@ async function handleList(base: string, args: string[]): Promise<void> {
   // Archived group
   if (archived.length > 0) {
     console.log(`▸ ARCHIVED  ${archived.length}`);
-    for (const s of archived) {
+    const archivedReviewersByParent = new Map<number, typeof archived>();
+    const archivedTopLevel = archived.filter((s) => {
+      if (s.reviewerOf !== undefined) {
+        const list = archivedReviewersByParent.get(s.reviewerOf) || [];
+        list.push(s);
+        archivedReviewersByParent.set(s.reviewerOf, list);
+        return false;
+      }
+      return true;
+    });
+    for (const s of archivedTopLevel) {
       printSessionLine(s);
       if (showTasks) printSessionTasks(s.taskHistory);
       total++;
+      const reviewers = s.sessionNum !== undefined ? archivedReviewersByParent.get(s.sessionNum) : undefined;
+      if (reviewers) {
+        for (const r of reviewers) {
+          printSessionLine(r, { indent: true });
+          if (showTasks) printSessionTasks(r.taskHistory);
+          total++;
+        }
+        archivedReviewersByParent.delete(s.sessionNum!);
+      }
+    }
+    for (const [, orphans] of archivedReviewersByParent) {
+      for (const r of orphans) {
+        printSessionLine(r, { indent: true });
+        if (showTasks) printSessionTasks(r.taskHistory);
+        total++;
+      }
     }
     console.log("");
   }
@@ -634,6 +691,7 @@ function printSessionLine(s: {
   isOrchestrator?: boolean;
   isAssistant?: boolean;
   herdedBy?: string;
+  reviewerOf?: number;
   model?: string;
   backendType?: string;
   cwd?: string;
@@ -648,10 +706,11 @@ function printSessionLine(s: {
   isWorktree?: boolean;
   claimedQuestId?: string | null;
   claimedQuestStatus?: string | null;
-}): void {
+}, opts?: { indent?: boolean }): void {
+  const prefix = opts?.indent ? "    " : "  ";
   const num = s.sessionNum !== undefined ? `#${s.sessionNum}` : "  ";
   const name = formatInlineText(s.name || "(unnamed)");
-  const role = s.isOrchestrator ? " [leader]" : "";
+  const role = s.isOrchestrator ? " [leader]" : s.reviewerOf !== undefined ? " [reviewer]" : "";
   const herd = s.herdedBy ? " [herd]" : "";
   // Backend type tag: only show for codex (sdk is implied by session details)
   const backend = s.backendType === "codex" ? " [codex]" : "";
@@ -681,8 +740,8 @@ function printSessionLine(s: {
   const activity = s.lastActivityAt ? formatRelativeTime(s.lastActivityAt) : "";
   const preview = s.lastMessagePreview ? `  "${truncate(s.lastMessagePreview, 50)}"` : "";
 
-  console.log(`  ${num.padEnd(5)} ${status} ${name}${role}${herd}${backend}${quest}${attention}`);
-  console.log(`        ${cwdLabel}${branch}${gitDelta}${diffStats}${wt}  ${activity}${preview}`);
+  console.log(`${prefix}${num.padEnd(5)} ${status} ${name}${role}${herd}${backend}${quest}${attention}`);
+  console.log(`${prefix}      ${cwdLabel}${branch}${gitDelta}${diffStats}${wt}  ${activity}${preview}`);
 }
 
 function printSessionTasks(taskHistory?: Array<{ title: string; timestamp: number }>): void {
@@ -1564,12 +1623,14 @@ Options:
   --reasoning-effort <level>   Codex-only: low, medium, or high
   --no-worktree                Disable worktree creation
   --fixed-name <name>          Set a fixed session name (disables auto-naming)
+  --reviewer <session>         Create a reviewer session tied to a parent worker (by session number)
   --json                       Output in JSON format
 
 Examples:
   takode spawn --backend claude-sdk --count 2
   takode spawn --backend codex --model gpt-5.4 --reasoning-effort high --internet
-  takode spawn --count 3 --no-worktree`;
+  takode spawn --count 3 --no-worktree
+  takode spawn --reviewer 42 --message "Review the changes for q-10"`;
 
 const SPAWN_ALLOWED_FLAGS = new Set([
   "backend",
@@ -1585,6 +1646,7 @@ const SPAWN_ALLOWED_FLAGS = new Set([
   "reasoning-effort",
   "no-worktree",
   "fixed-name",
+  "reviewer",
   "json",
   "help",
   "h",
@@ -1680,6 +1742,17 @@ async function handleSpawn(base: string, args: string[]): Promise<void> {
   const internetOverride = resolveBooleanToggleFlag(flags, "internet", "no-internet");
   const reasoningEffort = resolveReasoningEffort(flags);
 
+  // --reviewer <session-number>: create a reviewer session tied to a parent worker
+  const reviewerRaw = flags.reviewer;
+  let reviewerOfNum: number | undefined;
+  if (reviewerRaw !== undefined) {
+    const parsed = Number(String(reviewerRaw).replace(/^#/, ""));
+    if (!Number.isInteger(parsed) || parsed < 0) {
+      err("--reviewer requires a valid session number (e.g. --reviewer 42).");
+    }
+    reviewerOfNum = parsed;
+  }
+
   const countRaw = flags.count;
   const count = countRaw === undefined ? 1 : Number(countRaw);
   if (!Number.isInteger(count) || count < 1) {
@@ -1692,6 +1765,39 @@ async function handleSpawn(base: string, args: string[]): Promise<void> {
     err("--reasoning-effort is only supported for Codex sessions.");
   }
 
+  // Reviewer-specific validations
+  if (reviewerOfNum !== undefined) {
+    if (count > 1) {
+      err("--reviewer cannot be combined with --count > 1. Only one reviewer per parent.");
+    }
+
+    // Check that no existing active reviewer already targets this parent
+    try {
+      const allSessions = (await apiGet(base, "/takode/sessions")) as Array<{
+        sessionId: string;
+        archived?: boolean;
+        reviewerOf?: number;
+        name?: string;
+        sessionNum?: number;
+      }>;
+      const existingReviewer = allSessions.find(
+        (s) => !s.archived && s.reviewerOf === reviewerOfNum,
+      );
+      if (existingReviewer) {
+        const existingLabel = existingReviewer.sessionNum !== undefined
+          ? `#${existingReviewer.sessionNum}`
+          : existingReviewer.sessionId.slice(0, 8);
+        err(
+          `Session #${reviewerOfNum} already has an active reviewer (${existingLabel}). ` +
+          `Stop it first with \`takode stop ${existingLabel}\`.`,
+        );
+      }
+    } catch (e) {
+      // Only re-throw our own errors (from err()); skip API fetch failures
+      if (e instanceof Error && e.message.startsWith("Session #")) throw e;
+    }
+  }
+
   const inheritBypass = leader.permissionMode === "bypassPermissions";
 
   const spawned: TakodeSessionInfo[] = [];
@@ -1699,10 +1805,20 @@ async function handleSpawn(base: string, args: string[]): Promise<void> {
     const createPayload: Record<string, unknown> = {
       backend: backendRaw,
       cwd,
-      useWorktree,
+      useWorktree: reviewerOfNum !== undefined ? false : useWorktree,
       createdBy: leaderSessionId,
     };
-    if (fixedName) {
+
+    // Reviewer sessions: auto-set name and suppress auto-naming
+    if (reviewerOfNum !== undefined) {
+      createPayload.reviewerOf = reviewerOfNum;
+      createPayload.noAutoName = true;
+      if (!fixedName) {
+        createPayload.fixedName = `Reviewer of #${reviewerOfNum}`;
+      } else {
+        createPayload.fixedName = fixedName;
+      }
+    } else if (fixedName) {
       createPayload.noAutoName = true;
       createPayload.fixedName = fixedName;
     }
@@ -1747,8 +1863,12 @@ async function handleSpawn(base: string, args: string[]): Promise<void> {
       sessionId: string;
       archived?: boolean;
       herdedBy?: string;
+      reviewerOf?: number;
     }>;
-    const activeHerded = allSessions.filter((s) => !s.archived && s.herdedBy === leaderSessionId);
+    // Reviewer sessions don't count toward the herd limit
+    const activeHerded = allSessions.filter(
+      (s) => !s.archived && s.herdedBy === leaderSessionId && s.reviewerOf === undefined,
+    );
     if (activeHerded.length > HERD_SIZE_LIMIT) {
       herdWarning = {
         herdSize: activeHerded.length,

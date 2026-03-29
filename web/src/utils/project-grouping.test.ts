@@ -3,6 +3,7 @@ import {
   extractProjectKey,
   extractProjectLabel,
   groupSessionsByProject,
+  nestReviewerSessions,
   type SessionItem,
 } from "./project-grouping.js";
 
@@ -301,5 +302,80 @@ describe("groupSessionsByProject", () => {
     const groups = groupSessionsByProject(sessions);
     expect(groups).toHaveLength(1);
     expect(groups[0].sessions.map((s) => s.id)).toEqual(["s1", "s2", "s3"]);
+  });
+
+  it("nests reviewer sessions directly after their parent within a group", () => {
+    // Worker #10 (oldest) has a reviewer; worker #20 (newest) does not
+    const sessions = [
+      makeItem({ id: "worker-20", cwd: "/a/app", createdAt: 300, sessionNum: 20 }),
+      makeItem({ id: "worker-10", cwd: "/a/app", createdAt: 100, sessionNum: 10 }),
+      makeItem({ id: "reviewer-of-10", cwd: "/a/app", createdAt: 200, sessionNum: 30, reviewerOf: 10 }),
+    ];
+    const groups = groupSessionsByProject(sessions);
+    // Default sort is createdAt desc: worker-20, reviewer-of-10, worker-10
+    // After nesting: worker-20, worker-10, reviewer-of-10
+    expect(groups[0].sessions.map((s) => s.id)).toEqual(["worker-20", "worker-10", "reviewer-of-10"]);
+  });
+});
+
+describe("nestReviewerSessions", () => {
+  it("places reviewer directly after its parent session", () => {
+    const sessions = [
+      makeItem({ id: "s1", sessionNum: 1 }),
+      makeItem({ id: "s2", sessionNum: 2 }),
+      makeItem({ id: "r1", sessionNum: 3, reviewerOf: 1 }),
+    ];
+    nestReviewerSessions(sessions);
+    expect(sessions.map((s) => s.id)).toEqual(["s1", "r1", "s2"]);
+  });
+
+  it("handles multiple reviewers for different parents", () => {
+    const sessions = [
+      makeItem({ id: "s1", sessionNum: 10 }),
+      makeItem({ id: "s2", sessionNum: 20 }),
+      makeItem({ id: "r2", sessionNum: 31, reviewerOf: 20 }),
+      makeItem({ id: "r1", sessionNum: 30, reviewerOf: 10 }),
+    ];
+    nestReviewerSessions(sessions);
+    expect(sessions.map((s) => s.id)).toEqual(["s1", "r1", "s2", "r2"]);
+  });
+
+  it("appends orphaned reviewers at the end when parent is not in list", () => {
+    const sessions = [
+      makeItem({ id: "s1", sessionNum: 1 }),
+      makeItem({ id: "r-orphan", sessionNum: 5, reviewerOf: 99 }),
+    ];
+    nestReviewerSessions(sessions);
+    expect(sessions.map((s) => s.id)).toEqual(["s1", "r-orphan"]);
+  });
+
+  it("is a no-op when there are no reviewer sessions", () => {
+    const sessions = [
+      makeItem({ id: "s1", sessionNum: 1 }),
+      makeItem({ id: "s2", sessionNum: 2 }),
+    ];
+    nestReviewerSessions(sessions);
+    expect(sessions.map((s) => s.id)).toEqual(["s1", "s2"]);
+  });
+
+  it("handles all sessions being reviewers (all orphaned)", () => {
+    const sessions = [
+      makeItem({ id: "r1", sessionNum: 10, reviewerOf: 1 }),
+      makeItem({ id: "r2", sessionNum: 20, reviewerOf: 2 }),
+    ];
+    nestReviewerSessions(sessions);
+    // Both are orphaned, appended in original order
+    expect(sessions.map((s) => s.id)).toEqual(["r1", "r2"]);
+  });
+
+  it("handles sessions without sessionNum gracefully", () => {
+    const sessions = [
+      makeItem({ id: "s1" }), // no sessionNum
+      makeItem({ id: "s2", sessionNum: 5 }),
+      makeItem({ id: "r1", sessionNum: 10, reviewerOf: 5 }),
+    ];
+    nestReviewerSessions(sessions);
+    // r1 should nest after s2 (sessionNum 5), s1 stays in place
+    expect(sessions.map((s) => s.id)).toEqual(["s1", "s2", "r1"]);
   });
 });

@@ -26,7 +26,7 @@ import { SidebarUsageBar } from "./SidebarUsageBar.js";
 import { YarnBallSpinner } from "./CatIcons.js";
 import { deriveSessionStatus } from "./SessionStatusDot.js";
 
-import { groupSessionsByProject, type SessionItem as SessionItemType } from "../utils/project-grouping.js";
+import { groupSessionsByProject, nestReviewerSessions, type SessionItem as SessionItemType } from "../utils/project-grouping.js";
 import { isDesktopShellLayout } from "../utils/layout.js";
 import {
   buildHerdGroupBadgeThemes,
@@ -512,6 +512,7 @@ export function Sidebar() {
         isOrchestrator: sdkInfo?.isOrchestrator || false,
         herdedBy: sdkInfo?.herdedBy,
         sessionNum: sdkInfo?.sessionNum ?? null,
+        reviewerOf: sdkInfo?.reviewerOf,
       };
     })
     .sort((a, b) => b.createdAt - a.createdAt);
@@ -521,6 +522,8 @@ export function Sidebar() {
   const archivedSessions = allSessionList
     .filter((s) => s.archived)
     .sort((a, b) => (b.archivedAt ?? b.createdAt) - (a.archivedAt ?? a.createdAt));
+  // Nest reviewer sessions under their parent in the archived list
+  nestReviewerSessions(archivedSessions);
   const currentSession = currentSessionId ? allSessionList.find((s) => s.id === currentSessionId) : null;
   const logoSrc = currentSession?.backendType === "codex" ? "/logo-codex.svg" : "/logo.png";
   const [showCronSessions, setShowCronSessions] = useState(true);
@@ -969,19 +972,20 @@ export function Sidebar() {
                 {showArchived && (
                   <div className="space-y-2 sm:space-y-0.5 mt-1">
                     {archivedSessions.map((s) => (
-                      <SessionItem
-                        key={s.id}
-                        session={s}
-                        isActive={currentSessionId === s.id}
-                        isArchived
-                        sessionName={sessionNames.get(s.id)}
-                        sessionPreview={sessionPreviews.get(s.id)}
-                        permCount={countUserPermissions(pendingPermissions.get(s.id))}
-                        isRecentlyRenamed={recentlyRenamed.has(s.id)}
-                        herdGroupBadgeTheme={herdGroupBadgeThemes.get(s.id)}
-                        herdHoverHighlight={herdHoverHighlights.get(s.id)}
-                        {...sessionItemProps}
-                      />
+                      <div key={s.id} className={s.reviewerOf !== undefined ? "pl-4" : ""}>
+                        <SessionItem
+                          session={s}
+                          isActive={currentSessionId === s.id}
+                          isArchived
+                          sessionName={sessionNames.get(s.id)}
+                          sessionPreview={sessionPreviews.get(s.id)}
+                          permCount={countUserPermissions(pendingPermissions.get(s.id))}
+                          isRecentlyRenamed={recentlyRenamed.has(s.id)}
+                          herdGroupBadgeTheme={herdGroupBadgeThemes.get(s.id)}
+                          herdHoverHighlight={herdHoverHighlights.get(s.id)}
+                          {...sessionItemProps}
+                        />
+                      </div>
                     ))}
                   </div>
                 )}
