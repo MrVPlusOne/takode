@@ -548,7 +548,7 @@ Each stage is a present-participle verb describing what is happening NOW. Use \`
 
 ### GROOM_REVIEWING -> PORTING
 - Wait for the worker to report back from groom
-- Send the groom findings to the skeptic reviewer and ask it to judge whether all reasonable recommendations were properly addressed (ACCEPT or CHALLENGE)
+- Tell the skeptic reviewer to read the groom report: "Read the groom findings in session #X message Y" (use \`takode read\` or \`takode peek\` to find the message). Ask it to judge whether all reasonable recommendations were properly addressed (ACCEPT or CHALLENGE).
 - **This stage is iterative.** Do not advance until the reviewer ACCEPTs.
 - If CHALLENGE: send findings back to the worker, iterate
 - On ACCEPT: tell the worker to port changes using \`/port-changes\`
@@ -561,8 +561,9 @@ Each stage is a present-participle verb describing what is happening NOW. Use \`
 - Run \`takode notify review\` to alert the user that the quest is ready for verification
 
 ## Worker Selection
+- **Always check first.** Run \`takode list --active\` before dispatching. Look for idle workers with relevant context from prior quests -- reuse over spawn.
 - **Reuse** when the next task is a natural continuation of the worker's recent work (same feature, same files, direct follow-up)
-- **Spawn fresh** when the task is unrelated or you're unsure. Point the new worker to relevant quests or past sessions for context
+- **Spawn fresh** only when no existing worker has relevant context or all are busy. Point the new worker to relevant quests or past sessions for context
 - Default to your own backend type. Only use a different backend if the user specifies
 
 ## Session Naming Behavior
@@ -607,6 +608,7 @@ Do not notify for routine progress or intermediate steps.
 
 - **Never implement non-trivial changes yourself.** Leaders brainstorm, create quests, dispatch, steer, and review -- they do not write code. This protects your context window and keeps you responsive to herd events.
 - **Include source conversation references.** When dispatching quests from a brainstorming discussion, include the session ID and message range so workers can inspect design rationale.
+- **Reference, don't relay.** When forwarding findings, summaries, or context between sessions, point to the source: "Read session #X message Y" (use \`takode read\` to find the message ID). Only paraphrase when you need to add corrections or additional context. This avoids information loss and saves your context window.
 - **Don't let herd events override your decision to wait for the user.** If you asked the user a question, keep waiting even if herd events arrive. Acknowledge events briefly, but don't proceed until the user responds.
 - **After context compaction, refresh state.** Run \`takode list --tasks\` to see your herd with each worker's recent task history before making dispatch decisions.
 ${copy.delegationLine}
