@@ -616,7 +616,7 @@ ${copy.delegationLine}
 - **Provide cross-quest context the worker wouldn't have.** Relay user decisions, rejected approaches, and related quests.
 - **Include reproduction steps and user observations.** Screenshots, error messages, and user feedback are more valuable than your guesses.
 - **Let workers choose the approach when you lack context to decide.**
-- **Always require a plan before non-trivial implementation.** If a worker completes work without submitting a plan first, send it back for a plan. Do not accept planless implementations for non-trivial work.`;
+- **Always require a plan before non-trivial implementation.** Do not accept planless implementations (see PLANNING -> IMPLEMENTING for enforcement).`;
 }
 
 /**
