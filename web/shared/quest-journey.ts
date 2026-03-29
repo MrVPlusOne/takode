@@ -3,26 +3,27 @@
  * Shared between server (session-types.ts) and CLI (takode.ts).
  */
 
-/** Quest Journey states. Each represents a leader action that just happened. */
+/**
+ * Quest Journey stages. Each is a present-participle verb describing
+ * what is happening NOW for this quest on the board.
+ */
 export const QUEST_JOURNEY_STATES = [
-  "PLANNED",
-  "DISPATCHED",
-  "PLAN_APPROVED",
-  "SKEPTIC_REVIEWED",
-  "GROOM_SENT",
-  "GROOMED",
-  "PORT_REQUESTED",
+  "QUEUED",
+  "PLANNING",
+  "IMPLEMENTING",
+  "SKEPTIC_REVIEWING",
+  "GROOM_REVIEWING",
+  "PORTING",
 ] as const;
 
 export type QuestJourneyState = (typeof QUEST_JOURNEY_STATES)[number];
 
-/** Next-action hints for each Quest Journey state. */
+/** Next-action hints for each Quest Journey stage. */
 export const QUEST_JOURNEY_HINTS: Record<QuestJourneyState, string> = {
-  PLANNED: "dispatch to a worker",
-  DISPATCHED: "wait for ExitPlanMode, then review plan",
-  PLAN_APPROVED: "wait for turn_end, then spawn skeptic reviewer",
-  SKEPTIC_REVIEWED: "tell worker to run /groom",
-  GROOM_SENT: "wait for report, then send findings to reviewer",
-  GROOMED: "tell worker to port",
-  PORT_REQUESTED: "wait for port confirmation, then remove from board",
+  QUEUED: "dispatch to a worker",
+  PLANNING: "wait for ExitPlanMode, then review plan",
+  IMPLEMENTING: "wait for turn_end, then spawn skeptic reviewer",
+  SKEPTIC_REVIEWING: "wait for reviewer ACCEPT, then tell worker to run /groom",
+  GROOM_REVIEWING: "wait for reviewer ACCEPT, then tell worker to port",
+  PORTING: "wait for port confirmation, then remove from board",
 };

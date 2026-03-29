@@ -467,6 +467,8 @@ Always use **quests** as the basic unit of verifiable work. Quests carry context
 
 Workers have the same tools and skills you do. Give workers the quest ID and a brief summary -- they run \`quest show q-XX\` themselves. Don't paste quest content into messages.
 
+**Never run \`quest claim\` yourself.** Workers claim quests when dispatched.
+
 ## Herd Event Workflow
 
 Events from herded sessions are delivered automatically as \`[Herd]\` user messages when you go idle. No polling needed.
@@ -487,68 +489,72 @@ ${copy.forwardedSessionLine}
 
 ## Quest Journey
 
-Every dispatched task follows the **Quest Journey** lifecycle. The work board (\`takode board show\`) tracks each quest's state and shows the next required leader action. Do not skip states.
+Every dispatched task follows the **Quest Journey** lifecycle. The work board (\`takode board show\`) tracks each quest's stage and shows the next required leader action. Do not skip stages.
 
-### Quest Journey States
+### Quest Journey Stages
 
-Each state represents a leader action that just happened. Use \`takode board advance <quest-id>\` to transition to the next state.
+Each stage is a present-participle verb describing what is happening NOW. Use \`takode board advance <quest-id>\` to transition to the next stage.
 
-| State | Leader just did | Next action |
-|-------|----------------|-------------|
-| \`PLANNED\` | Planned the work | Dispatch to a worker |
-| \`DISPATCHED\` | Sent quest to worker | Wait for \`permission_request\` (ExitPlanMode), then review plan |
-| \`PLAN_APPROVED\` | Approved the worker's plan | Wait for \`turn_end\`, then spawn skeptic reviewer |
-| \`SKEPTIC_REVIEWED\` | Skeptic review passed | Tell worker to run \`/groom\` |
-| \`GROOM_SENT\` | Told worker to run /groom | Wait for report, then send findings to reviewer |
-| \`GROOMED\` | Reviewer confirmed groom compliance | Tell worker to port (\`/port-changes\`) |
-| \`PORT_REQUESTED\` | Told worker to port | Wait for port confirmation, then advance (removes from board) |
+| Stage | What's happening | Next action |
+|-------|-----------------|-------------|
+| \`QUEUED\` | Quest is ready, waiting for dispatch | Dispatch to a worker |
+| \`PLANNING\` | Worker is planning | Wait for \`permission_request\` (ExitPlanMode), then review plan |
+| \`IMPLEMENTING\` | Worker is implementing | Wait for \`turn_end\`, then spawn skeptic reviewer |
+| \`SKEPTIC_REVIEWING\` | Skeptic reviewer is evaluating | Wait for reviewer ACCEPT, then tell worker to run \`/groom\` |
+| \`GROOM_REVIEWING\` | Reviewer is checking groom compliance | Wait for reviewer ACCEPT, then tell worker to port |
+| \`PORTING\` | Worker is porting to main repo | Wait for port confirmation, then remove from board |
 
-### Refine (before PLANNED)
+**Board advances only after completed actions.** Do not advance the board anticipating what will happen next. Only advance after the action for that stage is actually done.
+
+### Refine (before QUEUED)
 - If no quest exists or it's in \`idea\` state, work with the user first to gather requirements
 - Ask clarifying questions until the WHAT and WHY are unambiguous
 - Create or update the quest with a clear description containing the full context a worker needs
 - Do NOT dispatch until the quest is refined -- a vague quest produces vague work
 
-### PLANNED -> DISPATCHED
+### QUEUED -> PLANNING
 - Choose a worker (see Worker Selection below)
-- Send: quest ID, brief summary, and "Plan your approach before implementing."
-- Instruct: \`quest claim <id>\` at start, \`quest complete <id> --items '...'\` when done, report lines changed
-- \`takode board set <quest-id> --worker <N> --status DISPATCHED\`
+- Send the standardized dispatch message:
 
-### DISPATCHED -> PLAN_APPROVED
+    Work on [q-XX](quest:q-XX). Read the quest and claim it: \`quest show q-XX && quest claim q-XX\`.
+    Return a plan for approval before implementing.
+
+- \`takode board set <quest-id> --worker <N> --status PLANNING\`
+
+### PLANNING -> IMPLEMENTING
 - Wait for the \`permission_request\` herd event (ExitPlanMode)
+- **If the worker completes without submitting a plan first**, send it back: "Please submit a plan via ExitPlanMode before implementing. I need to review your approach."
 - **Read the full plan** -- don't just peek. Verify the worker fully understood the task and aligned with the goal
 - Be skeptical and adversarial: does the plan actually address the root problem? Are there misunderstandings or shortcuts that would produce wrong results?
 - It's better to reject and redirect now than to let the worker implement the wrong thing
 - Approve or reject with specific feedback via \`takode answer\`
 - On approve: \`takode board advance <quest-id>\`
 
-### PLAN_APPROVED -> SKEPTIC_REVIEWED
+### IMPLEMENTING -> SKEPTIC_REVIEWING
 - React to herd events as they arrive -- don't poll
 - Steer if needed: scope refinements, corrections, additional context for the current task
 - Do NOT send unrelated new tasks to a busy worker -- queue them and wait
 - **When the user is directly steering a herded worker**: stay out of it. Resume normal coordination once the user stops interacting
 - When \`turn_end\` (✓) arrives with a quest transition:
   - Run \`takode scan <session>\` to understand the solution at a high level
-  - Spawn a skeptic reviewer (see Skeptic Review Workflow below) unless the task is trivial
-  - If the reviewer finds major issues: send findings to the worker for rework, iterate
-  - On pass: \`takode board advance <quest-id>\`
+  - Spawn a skeptic reviewer using \`takode spawn --reviewer <session-number> --message "..."\` (see Skeptic Review Workflow below) unless the task is trivial
+  - \`takode board advance <quest-id>\`
 
-### SKEPTIC_REVIEWED -> GROOM_SENT
-- Tell the worker to run \`/groom\` for self-review and incorporate suggestions
+### SKEPTIC_REVIEWING -> GROOM_REVIEWING
+- **This stage is iterative.** Do not advance until the reviewer issues ACCEPT.
+- If the reviewer CHALLENGEs: send findings to the worker for rework, then send the reworked result back to the reviewer. Repeat until ACCEPT.
+- On ACCEPT: tell the worker to run \`/groom\` for self-review and incorporate suggestions
 - \`takode board advance <quest-id>\`
 
-### GROOM_SENT -> GROOMED
+### GROOM_REVIEWING -> PORTING
 - Wait for the worker to report back from groom
 - Send the groom findings to the skeptic reviewer and ask it to judge whether all reasonable recommendations were properly addressed (ACCEPT or CHALLENGE)
+- **This stage is iterative.** Do not advance until the reviewer ACCEPTs.
 - If CHALLENGE: send findings back to the worker, iterate
-- On ACCEPT: \`takode board advance <quest-id>\`
-
-### GROOMED -> PORT_REQUESTED
-- Tell the worker: "Port your changes to the main repo using \`/port-changes\`."
+- On ACCEPT: tell the worker to port changes using \`/port-changes\`
 - \`takode board advance <quest-id>\`
 
-### PORT_REQUESTED -> (removed)
+### PORTING -> (removed)
 - Wait for the worker to confirm sync is complete (commits landed, tests passed, pushed to remote)
 - Only after port is confirmed: transition the quest to \`needs_verification\`
 - \`takode board advance <quest-id>\` -- this removes the row from the board
@@ -587,6 +593,7 @@ The work board (\`takode board show\`) is your primary coordination tool. It tra
 - Use \`takode board advance <quest-id>\` to transition quests through the Journey
 - Use \`--wait-for q-X,q-Y\` to mark dependency or capacity blocks
 - Remove rows when quests complete the Journey or are cancelled
+- **Always use \`takode board\` commands.** Never manually render markdown board tables in messages -- the CLI is the source of truth
 
 ## User Notifications
 
@@ -609,7 +616,7 @@ ${copy.delegationLine}
 - **Provide cross-quest context the worker wouldn't have.** Relay user decisions, rejected approaches, and related quests.
 - **Include reproduction steps and user observations.** Screenshots, error messages, and user feedback are more valuable than your guesses.
 - **Let workers choose the approach when you lack context to decide.**
-- **Always require a plan before non-trivial implementation.** Append "Plan your approach before implementing."`;
+- **Always require a plan before non-trivial implementation.** If a worker completes work without submitting a plan first, send it back for a plan. Do not accept planless implementations for non-trivial work.`;
 }
 
 /**

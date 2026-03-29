@@ -247,25 +247,24 @@ takode answer 2 reject "add error handling" # reject with feedback
 
 ### `takode board [show|set|advance|rm]`
 
-Quest Journey work board. Tracks quests through the lifecycle: PLANNED -> DISPATCHED -> PLAN_APPROVED -> SKEPTIC_REVIEWED -> GROOM_SENT -> GROOMED -> PORT_REQUESTED -> (removed). Only available to orchestrator sessions.
+Quest Journey work board. Tracks quests through the lifecycle: QUEUED -> PLANNING -> IMPLEMENTING -> SKEPTIC_REVIEWING -> GROOM_REVIEWING -> PORTING -> (removed). Only available to orchestrator sessions.
 
 ```bash
-takode board show                                                         # Display board with states and next-action hints
+takode board show                                                         # Display board with stages and next-action hints
 takode board set <quest-id> [--worker N] [--status STATE] [--wait-for q-X,q-Y]  # Add or update a row
-takode board advance <quest-id>                                           # Transition to next Quest Journey state
+takode board advance <quest-id>                                           # Transition to next Quest Journey stage
 takode board rm <quest-id> [<quest-id> ...]                               # Remove row(s) manually
 ```
 
-**States** (each = a leader action that just happened):
-- `PLANNED` -- leader planned the work. Next: dispatch to a worker
-- `DISPATCHED` -- leader dispatched to worker. Next: wait for ExitPlanMode, then review plan
-- `PLAN_APPROVED` -- leader approved the plan. Next: wait for turn_end, then spawn skeptic reviewer
-- `SKEPTIC_REVIEWED` -- skeptic review passed. Next: tell worker to run /groom
-- `GROOM_SENT` -- leader told worker to run /groom. Next: wait for report, then send findings to reviewer
-- `GROOMED` -- reviewer confirmed groom compliance. Next: tell worker to port
-- `PORT_REQUESTED` -- leader told worker to port. Next: wait for confirmation, then remove
+**Stages** (each = present-participle describing what's happening now):
+- `QUEUED` -- quest is ready, waiting for dispatch. Next: dispatch to a worker
+- `PLANNING` -- worker is planning. Next: wait for ExitPlanMode, then review plan
+- `IMPLEMENTING` -- worker is implementing. Next: wait for turn_end, then spawn skeptic reviewer
+- `SKEPTIC_REVIEWING` -- skeptic reviewer is evaluating. Next: wait for reviewer ACCEPT, then tell worker to run /groom
+- `GROOM_REVIEWING` -- reviewer is checking groom compliance. Next: wait for reviewer ACCEPT, then tell worker to port
+- `PORTING` -- worker is porting to main repo. Next: wait for port confirmation, then remove
 
-**advance** transitions to the next state automatically. At the final state (PORT_REQUESTED), advance removes the row from the board.
+**advance** transitions to the next stage automatically. At the final stage (PORTING), advance removes the row from the board.
 
 **wait-for** column: list of quest IDs this quest is blocked on. When all entries are resolved (no longer on the board), the actual next action shows instead of "blocked".
 

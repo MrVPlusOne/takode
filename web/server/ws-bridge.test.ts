@@ -14294,33 +14294,32 @@ describe("work board", () => {
 
   // ─── advanceBoardRow ──────────────────────────────────────────────────────
 
-  it("advanceBoardRow advances from PLANNED to DISPATCHED", () => {
+  it("advanceBoardRow advances from QUEUED to PLANNING", () => {
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
 
-    bridge.upsertBoardRow("s1", { questId: "q-1", status: "PLANNED" });
+    bridge.upsertBoardRow("s1", { questId: "q-1", status: "QUEUED" });
     const result = bridge.advanceBoardRow("s1", "q-1");
     expect(result).not.toBeNull();
     expect(result!.removed).toBe(false);
-    expect(result!.previousState).toBe("PLANNED");
-    expect(result!.newState).toBe("DISPATCHED");
-    expect(result!.board[0].status).toBe("DISPATCHED");
+    expect(result!.previousState).toBe("QUEUED");
+    expect(result!.newState).toBe("PLANNING");
+    expect(result!.board[0].status).toBe("PLANNING");
   });
 
-  it("advanceBoardRow walks through all Quest Journey states", () => {
+  it("advanceBoardRow walks through all Quest Journey stages", () => {
     // Validates the full state machine progression
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
 
-    bridge.upsertBoardRow("s1", { questId: "q-1", status: "PLANNED" });
+    bridge.upsertBoardRow("s1", { questId: "q-1", status: "QUEUED" });
 
     const expectedTransitions = [
-      ["PLANNED", "DISPATCHED"],
-      ["DISPATCHED", "PLAN_APPROVED"],
-      ["PLAN_APPROVED", "SKEPTIC_REVIEWED"],
-      ["SKEPTIC_REVIEWED", "GROOM_SENT"],
-      ["GROOM_SENT", "GROOMED"],
-      ["GROOMED", "PORT_REQUESTED"],
+      ["QUEUED", "PLANNING"],
+      ["PLANNING", "IMPLEMENTING"],
+      ["IMPLEMENTING", "SKEPTIC_REVIEWING"],
+      ["SKEPTIC_REVIEWING", "GROOM_REVIEWING"],
+      ["GROOM_REVIEWING", "PORTING"],
     ];
 
     for (const [from, to] of expectedTransitions) {
@@ -14333,29 +14332,29 @@ describe("work board", () => {
     // Final advance removes from board
     const final = bridge.advanceBoardRow("s1", "q-1");
     expect(final!.removed).toBe(true);
-    expect(final!.previousState).toBe("PORT_REQUESTED");
+    expect(final!.previousState).toBe("PORTING");
     expect(final!.board).toHaveLength(0);
   });
 
-  it("advanceBoardRow removes row at final state PORT_REQUESTED", () => {
+  it("advanceBoardRow removes row at final stage PORTING", () => {
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
 
-    bridge.upsertBoardRow("s1", { questId: "q-1", status: "PORT_REQUESTED" });
+    bridge.upsertBoardRow("s1", { questId: "q-1", status: "PORTING" });
     const result = bridge.advanceBoardRow("s1", "q-1");
     expect(result!.removed).toBe(true);
     expect(result!.newState).toBeUndefined();
     expect(result!.board).toHaveLength(0);
   });
 
-  it("advanceBoardRow sets PLANNED when status is unrecognized", () => {
+  it("advanceBoardRow sets QUEUED when status is unrecognized", () => {
     // Handles rows with freeform status text from before Quest Journey
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
 
     bridge.upsertBoardRow("s1", { questId: "q-1", status: "some-legacy-status" });
     const result = bridge.advanceBoardRow("s1", "q-1");
-    expect(result!.newState).toBe("PLANNED");
+    expect(result!.newState).toBe("QUEUED");
     expect(result!.previousState).toBe("some-legacy-status");
   });
 
