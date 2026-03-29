@@ -630,6 +630,21 @@ export function createSessionsRoutes(ctx: RouteContext) {
         return c.json({ error: `Invalid backend: ${String(backendRaw)}` }, 400);
       }
 
+      // Enforce one-reviewer-per-parent at the server level (prevents TOCTOU races
+      // where two concurrent CLI spawn commands both pass the client-side check).
+      if (typeof body.reviewerOf === "number") {
+        const existing = launcher.listSessions().find(
+          (s) => !s.archived && s.reviewerOf === body.reviewerOf,
+        );
+        if (existing) {
+          const label = launcher.getSessionNum(existing.sessionId);
+          return c.json(
+            { error: `Session #${body.reviewerOf} already has an active reviewer${label !== undefined ? ` (#${label})` : ""}` },
+            409,
+          );
+        }
+      }
+
       const sessionConfig = await prepareSession(body, applyDefaultClaudeBackend(backend));
       const session = await launcher.launch(sessionConfig.launchOptions);
       applySessionPostLaunch(session, sessionConfig);
@@ -1506,9 +1521,11 @@ export function createSessionsRoutes(ctx: RouteContext) {
     launcher.setArchived(id, true);
     await sessionStore.setArchived(id, true);
 
-    // Auto-delete reviewer sessions tied to this parent.
+    // Auto-stop reviewer sessions tied to this parent.
     // Reviewer sessions are temporary quality gates -- when the parent worker is
     // archived, the reviewer is no longer useful and should be cleaned up.
+    // listSessions() returns a new array (Array.from), and kill() only mutates
+    // session.state without removing from the sessions map, so iteration is safe.
     const archivedNum = launcher.getSessionNum(id);
     if (archivedNum !== undefined) {
       const allSessions = launcher.listSessions();
@@ -1517,15 +1534,15 @@ export function createSessionsRoutes(ctx: RouteContext) {
           console.log(
             `[routes] Auto-stopping reviewer session ${s.sessionId} (reviewerOf=#${archivedNum})`,
           );
-          // Emit herd event so the leader knows the reviewer was archived
-          if (s.herdedBy) {
-            wsBridge.emitTakodeEvent(s.sessionId, "session_archived", {});
-          }
           await launcher.kill(s.sessionId);
           containerManager.removeContainer(s.sessionId);
           cleanupWorktree(s.sessionId, true);
           launcher.setArchived(s.sessionId, true);
           await sessionStore.setArchived(s.sessionId, true);
+          // Emit after kill so the leader doesn't query a still-alive session
+          if (s.herdedBy) {
+            wsBridge.emitTakodeEvent(s.sessionId, "session_archived", {});
+          }
         }
       }
     }

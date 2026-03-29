@@ -943,6 +943,67 @@ describe("POST /api/sessions/create", () => {
     const json = await res.json();
     expect(json.reviewerOf).toBe(42);
   });
+
+  it("rejects creation when an active reviewer already exists for the same parent (409)", async () => {
+    // Server-side enforcement of one-reviewer-per-parent prevents TOCTOU races
+    // where two concurrent CLI spawn commands both pass the client-side check.
+    launcher.listSessions.mockReturnValue([
+      {
+        sessionId: "existing-reviewer",
+        state: "connected",
+        cwd: "/test",
+        createdAt: Date.now(),
+        reviewerOf: 42,
+        archived: false,
+      },
+    ]);
+    launcher.getSessionNum.mockReturnValue(99);
+
+    const res = await app.request("/api/sessions/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        cwd: "/test",
+        reviewerOf: 42,
+        noAutoName: true,
+        fixedName: "Reviewer of #42",
+      }),
+    });
+
+    expect(res.status).toBe(409);
+    const json = await res.json();
+    expect(json.error).toContain("already has an active reviewer");
+    // Session should NOT have been launched
+    expect(launcher.launch).not.toHaveBeenCalled();
+  });
+
+  it("allows reviewer creation when existing reviewer for same parent is archived", async () => {
+    // Archived reviewers should not block new reviewer creation
+    launcher.listSessions.mockReturnValue([
+      {
+        sessionId: "old-reviewer",
+        state: "exited",
+        cwd: "/test",
+        createdAt: Date.now(),
+        reviewerOf: 42,
+        archived: true, // archived -- should not block
+      },
+    ]);
+
+    const res = await app.request("/api/sessions/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        cwd: "/test",
+        reviewerOf: 42,
+        noAutoName: true,
+        fixedName: "Reviewer of #42",
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(launcher.launch).toHaveBeenCalled();
+  });
 });
 
 describe("GET /api/sessions", () => {
@@ -1574,6 +1635,14 @@ describe("POST /api/sessions/:id/archive", () => {
     expect(sessionStore.setArchived).toHaveBeenCalledWith("reviewer-1", true);
     // Reviewer should emit session_archived (not session_deleted) since it's herded
     expect(bridge.emitTakodeEvent).toHaveBeenCalledWith("reviewer-1", "session_archived", {});
+    // Kill must happen BEFORE emit so the leader doesn't query a still-alive session
+    const killOrder = launcher.kill.mock.invocationCallOrder.find(
+      (_: number, i: number) => launcher.kill.mock.calls[i][0] === "reviewer-1",
+    );
+    const emitOrder = bridge.emitTakodeEvent.mock.invocationCallOrder[0];
+    expect(killOrder).toBeDefined();
+    expect(emitOrder).toBeDefined();
+    expect(killOrder).toBeLessThan(emitOrder!);
     // Unrelated worker should NOT be touched
     expect(launcher.kill).not.toHaveBeenCalledWith("unrelated-worker");
   });

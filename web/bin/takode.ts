@@ -602,77 +602,14 @@ async function handleList(base: string, args: string[]): Promise<void> {
     });
 
     // Build a map of parentSessionNum -> reviewer sessions for nesting display
-    const reviewersByParent = new Map<number, typeof projectSessions>();
-    const topLevel = projectSessions.filter((s) => {
-      if (s.reviewerOf !== undefined) {
-        const list = reviewersByParent.get(s.reviewerOf) || [];
-        list.push(s);
-        reviewersByParent.set(s.reviewerOf, list);
-        return false;
-      }
-      return true;
-    });
-
-    for (const s of topLevel) {
-      printSessionLine(s);
-      if (showTasks) printSessionTasks(s.taskHistory);
-      total++;
-      // Print reviewer sessions indented under their parent
-      const reviewers = s.sessionNum !== undefined ? reviewersByParent.get(s.sessionNum) : undefined;
-      if (reviewers) {
-        for (const r of reviewers) {
-          printSessionLine(r, { indent: true });
-          if (showTasks) printSessionTasks(r.taskHistory);
-          total++;
-        }
-        reviewersByParent.delete(s.sessionNum!);
-      }
-    }
-    // Print any orphaned reviewers (parent not in this group)
-    for (const [, orphans] of reviewersByParent) {
-      for (const r of orphans) {
-        printSessionLine(r, { indent: true });
-        if (showTasks) printSessionTasks(r.taskHistory);
-        total++;
-      }
-    }
+    total += printNestedSessions(projectSessions, showTasks);
     console.log("");
   }
 
   // Archived group
   if (archived.length > 0) {
     console.log(`▸ ARCHIVED  ${archived.length}`);
-    const archivedReviewersByParent = new Map<number, typeof archived>();
-    const archivedTopLevel = archived.filter((s) => {
-      if (s.reviewerOf !== undefined) {
-        const list = archivedReviewersByParent.get(s.reviewerOf) || [];
-        list.push(s);
-        archivedReviewersByParent.set(s.reviewerOf, list);
-        return false;
-      }
-      return true;
-    });
-    for (const s of archivedTopLevel) {
-      printSessionLine(s);
-      if (showTasks) printSessionTasks(s.taskHistory);
-      total++;
-      const reviewers = s.sessionNum !== undefined ? archivedReviewersByParent.get(s.sessionNum) : undefined;
-      if (reviewers) {
-        for (const r of reviewers) {
-          printSessionLine(r, { indent: true });
-          if (showTasks) printSessionTasks(r.taskHistory);
-          total++;
-        }
-        archivedReviewersByParent.delete(s.sessionNum!);
-      }
-    }
-    for (const [, orphans] of archivedReviewersByParent) {
-      for (const r of orphans) {
-        printSessionLine(r, { indent: true });
-        if (showTasks) printSessionTasks(r.taskHistory);
-        total++;
-      }
-    }
+    total += printNestedSessions(archived, showTasks);
     console.log("");
   }
 
@@ -742,6 +679,52 @@ function printSessionLine(s: {
 
   console.log(`${prefix}${num.padEnd(5)} ${status} ${name}${role}${herd}${backend}${quest}${attention}`);
   console.log(`${prefix}      ${cwdLabel}${branch}${gitDelta}${diffStats}${wt}  ${activity}${preview}`);
+}
+
+/**
+ * Print a list of sessions with reviewer sessions indented under their parent.
+ * Returns the number of sessions printed.
+ */
+function printNestedSessions(
+  sessions: Parameters<typeof printSessionLine>[0]
+    & { sessionNum?: number; reviewerOf?: number; taskHistory?: Array<{ title: string; timestamp: number }> }[],
+  showTasks: boolean,
+): number {
+  const reviewersByParent = new Map<number, typeof sessions>();
+  const topLevel = sessions.filter((s) => {
+    if (s.reviewerOf !== undefined) {
+      const list = reviewersByParent.get(s.reviewerOf) || [];
+      list.push(s);
+      reviewersByParent.set(s.reviewerOf, list);
+      return false;
+    }
+    return true;
+  });
+
+  let count = 0;
+  for (const s of topLevel) {
+    printSessionLine(s);
+    if (showTasks) printSessionTasks(s.taskHistory);
+    count++;
+    const reviewers = s.sessionNum !== undefined ? reviewersByParent.get(s.sessionNum) : undefined;
+    if (reviewers) {
+      for (const r of reviewers) {
+        printSessionLine(r, { indent: true });
+        if (showTasks) printSessionTasks(r.taskHistory);
+        count++;
+      }
+      reviewersByParent.delete(s.sessionNum!);
+    }
+  }
+  // Orphaned reviewers (parent not in this list)
+  for (const [, orphans] of reviewersByParent) {
+    for (const r of orphans) {
+      printSessionLine(r, { indent: true });
+      if (showTasks) printSessionTasks(r.taskHistory);
+      count++;
+    }
+  }
+  return count;
 }
 
 function printSessionTasks(taskHistory?: Array<{ title: string; timestamp: number }>): void {
