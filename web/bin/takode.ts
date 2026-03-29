@@ -1029,15 +1029,15 @@ function formatCollapsedTurn(turn: CollapsedTurn): string {
 
   // Single-message turn or only one side exists: compact format
   if (!hasUser && !hasResult) return header;
-  if (!hasUser) return `${header}\n  "${truncate(turn.resultPreview, 90)}"`;
-  if (!hasResult) return `${header}\n  ${sourceLabel}: "${truncate(turn.userPreview, 85)}"`;
+  if (!hasUser) return `${header}\n  "${truncate(turn.resultPreview, 500)}"`;
+  if (!hasResult) return `${header}\n  ${sourceLabel}: "${truncate(turn.userPreview, 500)}"`;
 
   // Multi-message turn: show source prompt, ellipsis, and assistant response
   return [
     header,
-    `  ${sourceLabel}: "${truncate(turn.userPreview, 85)}"`,
+    `  ${sourceLabel}: "${truncate(turn.userPreview, 500)}"`,
     `  ...`,
-    `  asst: "${truncate(turn.resultPreview, 85)}"`,
+    `  asst: "${truncate(turn.resultPreview, 500)}"`,
   ].join("\n");
 }
 
@@ -1052,12 +1052,12 @@ function printExpandedMessages(messages: PeekMessage[]): void {
 
     switch (msg.type) {
       case "user":
-        console.log(`  ${idx.padEnd(7)} ${time}  ${userSourceLabel(msg)}  "${truncate(msg.content, 80)}"`);
+        console.log(`  ${idx.padEnd(7)} ${time}  ${userSourceLabel(msg)}  "${truncate(msg.content, 500)}"`);
         break;
       case "assistant": {
         const text = msg.content.trim();
         if (text) {
-          console.log(`  ${idx.padEnd(7)} ${time}  asst  ${truncate(text, 100)}`);
+          console.log(`  ${idx.padEnd(7)} ${time}  asst  ${truncate(text, 500)}`);
         } else if (msg.tools && msg.tools.length > 0) {
           // No text content -- print idx header so the msg ID is always visible
           console.log(`  ${idx.padEnd(7)} ${time}  asst`);
@@ -1078,14 +1078,14 @@ function printExpandedMessages(messages: PeekMessage[]): void {
         const icon = msg.success ? "✓" : "✗";
         const resultText = msg.content.trim();
         if (resultText) {
-          console.log(`  ${idx.padEnd(7)} ${time}  ${icon} ${truncate(resultText, 100)}`);
+          console.log(`  ${idx.padEnd(7)} ${time}  ${icon} ${truncate(resultText, 500)}`);
         } else {
           console.log(`  ${idx.padEnd(7)} ${time}  ${icon} done`);
         }
         break;
       }
       case "system":
-        console.log(`  ${idx.padEnd(7)} ${time}  sys   ${truncate(msg.content, 100)}`);
+        console.log(`  ${idx.padEnd(7)} ${time}  sys   ${truncate(msg.content, 500)}`);
         break;
     }
   }
@@ -1216,7 +1216,7 @@ function printPeekRange(d: PeekRangeResponse, sessionRef: string, count: number)
 
     switch (msg.type) {
       case "user":
-        console.log(`  ${idx.padEnd(7)} ${time}  ${userSourceLabel(msg)}  "${truncate(msg.content, 80)}"`);
+        console.log(`  ${idx.padEnd(7)} ${time}  ${userSourceLabel(msg)}  "${truncate(msg.content, 500)}"`);
         break;
       case "assistant": {
         const text = msg.content.trim();
@@ -1228,7 +1228,7 @@ function printPeekRange(d: PeekRangeResponse, sessionRef: string, count: number)
             ")"
           : "";
         if (text) {
-          console.log(`  ${idx.padEnd(7)} ${time}  asst  ${truncate(text, 90)}${toolStr}`);
+          console.log(`  ${idx.padEnd(7)} ${time}  asst  ${truncate(text, 500)}${toolStr}`);
         } else if (toolStr) {
           console.log(`  ${idx.padEnd(7)} ${time}  asst ${toolStr}`);
         }
@@ -1238,14 +1238,14 @@ function printPeekRange(d: PeekRangeResponse, sessionRef: string, count: number)
         const icon = msg.success ? "✓" : "✗";
         const resultText = msg.content.trim();
         if (resultText) {
-          console.log(`  ${idx.padEnd(7)} ${time}  ${icon} ${truncate(resultText, 100)}`);
+          console.log(`  ${idx.padEnd(7)} ${time}  ${icon} ${truncate(resultText, 500)}`);
         } else {
           console.log(`  ${idx.padEnd(7)} ${time}  ${icon} done`);
         }
         break;
       }
       case "system":
-        console.log(`  ${idx.padEnd(7)} ${time}  sys   ${truncate(msg.content, 100)}`);
+        console.log(`  ${idx.padEnd(7)} ${time}  sys   ${truncate(msg.content, 500)}`);
         break;
     }
   }
@@ -2173,7 +2173,7 @@ async function handleSearch(base: string, args: string[]): Promise<void> {
       `        field: ${formatInlineText(row.matchedFieldLabel)}  reason: ${formatInlineText(row.matchReason)}`,
     );
     if (row.snippet) {
-      console.log(`        snippet: ${truncate(row.snippet, 120)}`);
+      console.log(`        snippet: ${truncate(row.snippet, 500)}`);
     }
     if (row.messageId) {
       const messageId = formatInlineText(row.messageId);
