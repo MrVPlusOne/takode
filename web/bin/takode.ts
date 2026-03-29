@@ -2827,7 +2827,7 @@ Commands:
   refresh-branch Refresh git branch info for a session after checkout/rebase
   branch         Branch info and management for the current session
   notify         Alert the user (e.g. takode notify review, takode notify needs-input)
-  board          Quest Journey work board (e.g. takode board show, takode board set q-12 --status DISPATCHED)
+  board          Quest Journey work board (e.g. takode board show, takode board set q-12 --status PLANNING)
 
 Peek modes:
   takode peek 1                    Smart overview (collapsed turns + expanded last turn)

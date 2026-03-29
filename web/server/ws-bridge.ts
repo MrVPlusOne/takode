@@ -2809,8 +2809,8 @@ export class WsBridge {
   }
 
   /**
-   * Advance a board row to the next Quest Journey state.
-   * If already at the final state (PORT_REQUESTED), removes the row from the board.
+   * Advance a board row to the next Quest Journey stage.
+   * If already at the final stage (PORTING), removes the row from the board.
    * Returns { board, removed } or null if session/row not found.
    */
   advanceBoardRow(
@@ -2832,7 +2832,7 @@ export class WsBridge {
       return { board, removed: true, previousState, newState: undefined };
     }
 
-    // Advance: unrecognized state resets to PLANNED, otherwise move to next
+    // Advance: unrecognized state resets to QUEUED, otherwise move to next
     row.status = currentIdx === -1 ? QUEST_JOURNEY_STATES[0] : QUEST_JOURNEY_STATES[currentIdx + 1];
     row.updatedAt = Date.now();
     session.board.set(questId, row);
