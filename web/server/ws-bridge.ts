@@ -58,7 +58,8 @@ import type {
   TakodeTurnEndEventData,
   BoardRow,
 } from "./session-types.js";
-import { TOOL_RESULT_PREVIEW_LIMIT, assertNever, formatVsCodeSelectionPrompt } from "./session-types.js";
+import { TOOL_RESULT_PREVIEW_LIMIT, assertNever, formatVsCodeSelectionPrompt, QUEST_JOURNEY_STATES } from "./session-types.js";
+import type { QuestJourneyState } from "./session-types.js";
 import type { SessionStore } from "./session-store.js";
 import type { CodexResumeSnapshot, CodexResumeTurnSnapshot, CodexSessionMeta } from "./codex-adapter.js";
 import type { ClaudeSdkSessionMeta } from "./claude-sdk-adapter.js";
@@ -2779,6 +2780,8 @@ export class WsBridge {
       worker: row.worker ?? existing?.worker,
       workerNum: row.workerNum ?? existing?.workerNum,
       status: row.status ?? existing?.status,
+      // waitFor: explicit undefined clears, explicit array sets, otherwise keep existing
+      waitFor: row.waitFor !== undefined ? (row.waitFor.length > 0 ? row.waitFor : undefined) : existing?.waitFor,
       updatedAt: row.updatedAt ?? Date.now(),
     };
     session.board.set(row.questId, merged);
@@ -2811,6 +2814,47 @@ export class WsBridge {
         this.persistSession(session);
       }
     }
+  }
+
+  /**
+   * Advance a board row to the next Quest Journey state.
+   * If already at the final state (PORT_REQUESTED), removes the row from the board.
+   * Returns { board, removed } or null if session/row not found.
+   */
+  advanceBoardRow(
+    sessionId: string,
+    questId: string,
+  ): { board: BoardRow[]; removed: boolean; previousState?: string; newState?: string } | null {
+    const session = this.sessions.get(sessionId);
+    if (!session) return null;
+    const row = session.board.get(questId);
+    if (!row) return null;
+
+    const currentIdx = QUEST_JOURNEY_STATES.indexOf(row.status as QuestJourneyState);
+    const previousState = row.status;
+
+    if (currentIdx === -1) {
+      // Not in a recognized state -- advance to PLANNED
+      row.status = QUEST_JOURNEY_STATES[0];
+      row.updatedAt = Date.now();
+      session.board.set(questId, row);
+    } else if (currentIdx >= QUEST_JOURNEY_STATES.length - 1) {
+      // At the final state -- remove from board
+      session.board.delete(questId);
+      const board = this.getBoard(sessionId);
+      this.broadcastToBrowsers(session, { type: "board_updated", board });
+      this.persistSession(session);
+      return { board, removed: true, previousState, newState: undefined };
+    } else {
+      row.status = QUEST_JOURNEY_STATES[currentIdx + 1];
+      row.updatedAt = Date.now();
+      session.board.set(questId, row);
+    }
+
+    const board = this.getBoard(sessionId);
+    this.broadcastToBrowsers(session, { type: "board_updated", board });
+    this.persistSession(session);
+    return { board, removed: false, previousState, newState: row.status };
   }
 
   /** Downgrade "action" attention to null when all pending permissions are resolved. */

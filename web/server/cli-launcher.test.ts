@@ -1935,17 +1935,17 @@ describe("symlinkProjectSettings", () => {
   // for Claude, developer_instructions for Codex, appendSystemPrompt for SDK)
   // instead of file-based injection. See q-124.
 
-  it("injects worktree quest sync guardrails into the Claude system prompt", async () => {
+  it("injects worktree porting reference into the Claude system prompt", async () => {
     await launchWorktree();
 
     const [cmdAndArgs] = mockSpawn.mock.calls[0];
     const promptIdx = cmdAndArgs.indexOf("--append-system-prompt");
     expect(promptIdx).toBeGreaterThan(-1);
     const prompt = String(cmdAndArgs[promptIdx + 1] ?? "");
-    expect(prompt).toContain("### Quest Status Rule");
-    expect(prompt).toContain("do **NOT** transition it to `needs_verification`");
-    expect(prompt).toContain("main repo contains the changes");
-    expect(prompt).toContain("branch has been pushed");
+    // Porting instructions now reference the /port-changes skill instead of inline content
+    expect(prompt).toContain("/port-changes");
+    expect(prompt).toContain("Base repo checkout");
+    expect(prompt).toContain("Base branch");
     expect(prompt).toContain("override any conflicting generic markdown-link or file-reference instructions");
     expect(prompt).toContain("never write plain");
   });
@@ -1970,8 +1970,8 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("Create a quest for any non-trivial work");
     expect(guardrails).toContain("Always require a plan before non-trivial implementation.");
     expect(guardrails).toContain("/groom");
-    // Task Dispatch Lifecycle sections
-    expect(guardrails).toContain("Task Dispatch Lifecycle");
+    // Quest Journey lifecycle sections (renamed from Task Dispatch Lifecycle)
+    expect(guardrails).toContain("Quest Journey");
     expect(guardrails).toContain("Skeptic Review Workflow");
     expect(guardrails).toContain("Work Board");
     expect(guardrails).toContain("Session Naming Behavior");
@@ -1990,8 +1990,8 @@ describe("getOrchestratorGuardrails", () => {
     // Worker selection: reuse for related, spawn fresh for unrelated
     expect(guardrails).toContain("Reuse");
     expect(guardrails).toContain("Spawn fresh");
-    // Task Dispatch Lifecycle sections present
-    expect(guardrails).toContain("Task Dispatch Lifecycle");
+    // Quest Journey lifecycle sections present (renamed from Task Dispatch Lifecycle)
+    expect(guardrails).toContain("Quest Journey");
     expect(guardrails).toContain("Skeptic Review Workflow");
     // CLI reference delegated to skill
     expect(guardrails).toContain("takode-orchestration");

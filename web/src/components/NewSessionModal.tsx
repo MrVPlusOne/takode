@@ -853,23 +853,29 @@ export function NewSessionModal({
                     )}
                   </div>
 
-                  {/* Worktree toggle */}
+                  {/* Worktree toggle -- disabled for leader sessions (leaders don't use worktrees) */}
                   {(gitRepoInfo || repoInfoLoading || useWorktree) && (
                     <button
                       onClick={() => {
+                        if (sessionRole === "leader") return;
                         const next = !useWorktree;
                         setUseWorktree(next);
                         scopedSetItem("cc-worktree", String(next));
                       }}
-                      className={`flex items-center gap-1.5 px-2 py-1 text-xs rounded-md transition-colors cursor-pointer ${
-                        useWorktree
-                          ? "bg-cc-primary/15 text-cc-primary font-medium"
-                          : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
+                      disabled={sessionRole === "leader"}
+                      className={`flex items-center gap-1.5 px-2 py-1 text-xs rounded-md transition-colors ${
+                        sessionRole === "leader"
+                          ? "opacity-40 cursor-not-allowed text-cc-muted"
+                          : useWorktree
+                            ? "bg-cc-primary/15 text-cc-primary font-medium cursor-pointer"
+                            : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover cursor-pointer"
                       }`}
                       title={
-                        repoInfoLoading
-                          ? "Worktree metadata is loading"
-                          : "Create an isolated worktree for this session"
+                        sessionRole === "leader"
+                          ? "Leader sessions don't use worktrees"
+                          : repoInfoLoading
+                            ? "Worktree metadata is loading"
+                            : "Create an isolated worktree for this session"
                       }
                     >
                       <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5 opacity-70">
@@ -1046,10 +1052,14 @@ export function NewSessionModal({
                     </div>
                   )}
 
-                  {/* Leader role toggle */}
+                  {/* Leader role toggle -- toggling leader on disables worktree */}
                   <button
                     onClick={() => {
-                      setSessionRole(sessionRole === "leader" ? "worker" : "leader");
+                      const nextRole = sessionRole === "leader" ? "worker" : "leader";
+                      setSessionRole(nextRole);
+                      if (nextRole === "leader") {
+                        setUseWorktree(false);
+                      }
                     }}
                     className={`flex items-center gap-1.5 px-2 py-1 text-xs rounded-md transition-colors cursor-pointer ${
                       sessionRole === "leader"

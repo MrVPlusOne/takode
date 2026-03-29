@@ -2237,37 +2237,74 @@ interface BoardRow {
   worker?: string;
   workerNum?: number;
   status?: string;
+  waitFor?: string[];
   updatedAt: number;
 }
+
+/** Quest Journey state order and next-action hints. */
+const QUEST_JOURNEY_STATES = [
+  "PLANNED",
+  "DISPATCHED",
+  "PLAN_APPROVED",
+  "SKEPTIC_REVIEWED",
+  "GROOMED",
+  "PORT_REQUESTED",
+] as const;
+
+const QUEST_JOURNEY_HINTS: Record<string, string> = {
+  PLANNED: "dispatch to a worker",
+  DISPATCHED: "wait for ExitPlanMode, then review plan",
+  PLAN_APPROVED: "wait for turn_end, then spawn skeptic reviewer",
+  SKEPTIC_REVIEWED: "tell worker to run /groom",
+  GROOMED: "request port",
+  PORT_REQUESTED: "wait for port confirmation, then remove from board",
+};
 
 /** Format board output as JSON with a marker for frontend detection. */
 function formatBoardOutput(board: BoardRow[]): string {
   return JSON.stringify({ __takode_board__: true, board }, null, 2);
 }
 
-/** Print board in a human-readable table (fallback for non-JSON mode). */
-function printBoardText(board: BoardRow[]): void {
+/** Print board in a human-readable table with Quest Journey state and next-action hints. */
+function printBoardText(board: BoardRow[], allBoardRows?: BoardRow[]): void {
   if (board.length === 0) {
     console.log("Board is empty.");
     return;
   }
 
-  // Header
+  // Build a set of active quest IDs on the board (for resolving wait-for status)
+  const activeQuestIds = new Set((allBoardRows || board).map((r) => r.questId));
+
   console.log("");
   const qCol = 8;
-  const tCol = 30;
-  const wCol = 12;
+  const wCol = 8;
+  const sCol = 18;
+  const waitCol = 16;
   console.log(
-    `${"QUEST".padEnd(qCol)} ${"TITLE".padEnd(tCol)} ${"WORKER".padEnd(wCol)} STATUS`,
+    `${"QUEST".padEnd(qCol)} ${"WORKER".padEnd(wCol)} ${"STATE".padEnd(sCol)} ${"WAIT-FOR".padEnd(waitCol)} NEXT ACTION`,
   );
-  console.log("-".repeat(qCol + tCol + wCol + 20));
+  console.log("-".repeat(qCol + wCol + sCol + waitCol + 30));
 
   for (const row of board) {
     const quest = row.questId.padEnd(qCol);
-    const title = (row.title || "").slice(0, tCol - 1).padEnd(tCol);
-    const worker = row.worker ? `#${row.workerNum ?? "?"}`.padEnd(wCol) : "—".padEnd(wCol);
-    const status = row.status || "";
-    console.log(`${quest} ${title} ${worker} ${status}`);
+    const worker = row.worker ? `#${row.workerNum ?? "?"}`.padEnd(wCol) : "--".padEnd(wCol);
+    const state = (row.status || "--").padEnd(sCol);
+
+    // Wait-for column: show blocked deps that are still on the board
+    const waitForEntries = row.waitFor?.filter((wf) => activeQuestIds.has(wf)) || [];
+    const waitForStr = waitForEntries.length > 0 ? waitForEntries.join(", ") : "--";
+    const waitForDisplay = waitForStr.slice(0, waitCol - 1).padEnd(waitCol);
+
+    // Next action hint: if blocked, show "blocked"; otherwise show state hint
+    let nextAction: string;
+    if (waitForEntries.length > 0) {
+      nextAction = `blocked (wait for ${waitForEntries.join(", ")})`;
+    } else {
+      nextAction = QUEST_JOURNEY_HINTS[row.status || ""] || "--";
+      if (nextAction !== "--") nextAction = `-> ${nextAction}`;
+    }
+
+    console.log(`${quest} ${worker} ${state} ${waitForDisplay} ${nextAction}`);
   }
   console.log("");
 }
@@ -2277,7 +2314,7 @@ function outputBoard(board: BoardRow[], jsonMode: boolean): void {
   if (jsonMode) {
     console.log(formatBoardOutput(board));
   } else {
-    printBoardText(board);
+    printBoardText(board, board);
   }
 }
 
@@ -2285,9 +2322,9 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
   const selfId = getCallerSessionId();
   const sub = args[0];
 
-  // No subcommand: display board
-  if (!sub || sub.startsWith("--")) {
-    const flags = parseFlags(args);
+  // No subcommand or "show": display board
+  if (!sub || sub === "show" || sub.startsWith("--")) {
+    const flags = parseFlags(sub === "show" ? args.slice(1) : args);
     const result = (await apiGet(base, `/sessions/${encodeURIComponent(selfId)}/board`)) as { board: BoardRow[] };
     outputBoard(result.board, flags.json === true);
     return;
@@ -2295,12 +2332,16 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
 
   if (sub === "add" || sub === "set") {
     const questId = args[1];
-    if (!questId) err(`Usage: takode board ${sub} <quest-id> [--worker <session>] [--status "..."] [--title "..."] [--json]`);
+    if (!questId) err(`Usage: takode board ${sub} <quest-id> [--worker <session>] [--status "..."] [--title "..."] [--wait-for q-X,q-Y] [--json]`);
     const flags = parseFlags(args.slice(2));
 
     const body: Record<string, unknown> = { questId };
     if (typeof flags.status === "string") body.status = flags.status;
     if (typeof flags.title === "string") body.title = flags.title;
+    if (typeof flags["wait-for"] === "string") {
+      const waitFor = flags["wait-for"].split(",").map((s: string) => s.trim()).filter(Boolean);
+      body.waitFor = waitFor;
+    }
     if (typeof flags.worker === "string") {
       // Resolve worker ref -- use the info endpoint to get session ID and num
       const workerRef = flags.worker;
@@ -2324,6 +2365,25 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
     return;
   }
 
+  if (sub === "advance") {
+    const questId = args[1];
+    if (!questId) err("Usage: takode board advance <quest-id> [--json]");
+    const flags = parseFlags(args.slice(2));
+
+    const result = (await apiPost(
+      base,
+      `/sessions/${encodeURIComponent(selfId)}/board/${encodeURIComponent(questId)}/advance`,
+    )) as { board: BoardRow[]; removed: boolean; previousState?: string; newState?: string };
+
+    if (result.removed) {
+      console.log(`${questId}: removed from board (Quest Journey complete)`);
+    } else if (result.previousState && result.newState) {
+      console.log(`${questId}: ${result.previousState} -> ${result.newState}`);
+    }
+    outputBoard(result.board, flags.json === true);
+    return;
+  }
+
   if (sub === "rm") {
     const questIds = args.slice(1).filter((a) => !a.startsWith("--"));
     if (questIds.length === 0) err("Usage: takode board rm <quest-id> [<quest-id> ...] [--json]");
@@ -2337,7 +2397,7 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
     return;
   }
 
-  err(`Unknown board subcommand: ${sub}\nUsage: takode board [add|set|rm] ...`);
+  err(`Unknown board subcommand: ${sub}\nUsage: takode board [show|set|advance|rm] ...`);
 }
 
 async function handleRefreshBranch(base: string, args: string[]): Promise<void> {
@@ -2680,7 +2740,7 @@ Commands:
   refresh-branch Refresh git branch info for a session after checkout/rebase
   branch         Branch info and management for the current session
   notify         Alert the user (e.g. takode notify review, takode notify needs-input)
-  board          Manage the work board (e.g. takode board, takode board add q-12 --status "implementing")
+  board          Quest Journey work board (e.g. takode board show, takode board set q-12 --status DISPATCHED)
 
 Peek modes:
   takode peek 1                    Smart overview (collapsed turns + expanded last turn)

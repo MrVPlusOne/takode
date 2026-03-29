@@ -245,18 +245,30 @@ takode answer 2 approve                    # approve a plan
 takode answer 2 reject "add error handling" # reject with feedback
 ```
 
-### `takode board [add|set|rm]`
+### `takode board [show|set|advance|rm]`
 
-Manage a work board showing active and queued work. Only available to orchestrator sessions.
+Quest Journey work board. Tracks quests through the lifecycle: PLANNED -> DISPATCHED -> PLAN_APPROVED -> SKEPTIC_REVIEWED -> GROOMED -> PORT_REQUESTED -> (removed). Only available to orchestrator sessions.
 
 ```bash
-takode board                                               # Display current board
-takode board add <quest-id> [--worker N] [--status "..."]  # Add a row
-takode board set <quest-id> [--worker N] [--status "..."]  # Update a row
-takode board rm <quest-id> [<quest-id> ...]                # Remove row(s)
+takode board show                                                         # Display board with states and next-action hints
+takode board set <quest-id> [--worker N] [--status STATE] [--wait-for q-X,q-Y]  # Add or update a row
+takode board advance <quest-id>                                           # Transition to next Quest Journey state
+takode board rm <quest-id> [<quest-id> ...]                               # Remove row(s) manually
 ```
 
-Every command outputs the full board after the operation. The board is stored server-side per leader session and persists across server restarts. Rows are auto-removed when a quest transitions to `needs_verification` or `done`.
+**States** (each = a leader action that just happened):
+- `PLANNED` -- leader planned the work. Next: dispatch to a worker
+- `DISPATCHED` -- leader dispatched to worker. Next: wait for ExitPlanMode, then review plan
+- `PLAN_APPROVED` -- leader approved the plan. Next: wait for turn_end, then spawn skeptic reviewer
+- `SKEPTIC_REVIEWED` -- skeptic review passed. Next: tell worker to run /groom
+- `GROOMED` -- groom compliance confirmed. Next: request port
+- `PORT_REQUESTED` -- leader told worker to port. Next: wait for confirmation, then remove
+
+**advance** transitions to the next state automatically. At the final state (PORT_REQUESTED), advance removes the row from the board.
+
+**wait-for** column: list of quest IDs this quest is blocked on. When all entries are resolved (no longer on the board), the actual next action shows instead of "blocked".
+
+Every command outputs the full board after the operation. The board is stored server-side per leader session and persists across server restarts. Rows are also auto-removed when a quest transitions to `needs_verification` or `done`.
 
 ## Session Identification
 

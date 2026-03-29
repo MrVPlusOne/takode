@@ -750,6 +750,9 @@ export function createTakodeRoutes(ctx: RouteContext) {
       worker: typeof body.worker === "string" ? body.worker : undefined,
       workerNum: typeof body.workerNum === "number" ? body.workerNum : undefined,
       status: typeof body.status === "string" ? body.status : undefined,
+      waitFor: Array.isArray(body.waitFor)
+        ? body.waitFor.filter((s: unknown) => typeof s === "string" && s.trim()).map((s: string) => s.trim())
+        : undefined,
     });
     if (!board) return c.json({ error: "Session not found in bridge" }, 404);
     return c.json({ board });
@@ -771,6 +774,24 @@ export function createTakodeRoutes(ctx: RouteContext) {
     const board = wsBridge.removeBoardRows(id, questIds);
     if (!board) return c.json({ error: "Session not found in bridge" }, 404);
     return c.json({ board });
+  });
+
+  api.post("/sessions/:id/board/:questId/advance", (c) => {
+    const auth = authenticateTakodeCaller(c);
+    if ("response" in auth) return auth.response;
+
+    const id = resolveId(c.req.param("id"));
+    if (!id) return c.json({ error: "Session not found" }, 404);
+    if (id !== auth.callerId) {
+      return c.json({ error: "Can only modify your own board" }, 403);
+    }
+
+    const questId = c.req.param("questId").trim();
+    if (!questId) return c.json({ error: "questId is required" }, 400);
+
+    const result = wsBridge.advanceBoardRow(id, questId);
+    if (!result) return c.json({ error: "Quest not found on board" }, 404);
+    return c.json(result);
   });
 
   return api;

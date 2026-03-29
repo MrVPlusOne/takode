@@ -328,7 +328,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
       throwPreparationError("Invalid branch name", 400, "checkout_branch");
     }
 
-    if (body.useWorktree) {
+    if (body.useWorktree && !isOrchestrator) {
       const worktreeBaseCwd = cwd;
       if (!worktreeBaseCwd) {
         throwPreparationError("Worktree mode requires a cwd", 400, "creating_worktree");

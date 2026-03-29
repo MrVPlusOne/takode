@@ -383,40 +383,13 @@ This is a git worktree. The main repository is at: \`${repoRoot}\`
 3. When committing, commit to \`${branch}\` only
 4. If you need to reference code from another branch, use \`git show other-branch:path/to/file\`
 
-## Porting Commits to the Main Repo
+## Porting Changes
 
-When asked to port, sync, or push commits from this worktree to the main repository (e.g. "sync to main repo", "port to main repo", "push to main repo"), follow this workflow **exactly**:
+Use \`/port-changes\` when asked to port, sync, or push commits to the main repo.
 
-### Sync Context (Critical)
-
-Use this context for port/sync/push requests in this session:
+**Sync context for this session:**
 - Base repo checkout: \`${repoRoot}\`
-- Base branch: \`${syncBaseBranch}\`
-
-By default, "sync/port/push to main repo" means syncing to the base branch above.
-Only sync to a different remote branch if the user explicitly names it (for example: \`origin/main\`).
-
-1. **Check the main repo first.** Pull remote changes first: \`git -C ${repoRoot} fetch origin ${syncBaseBranch} && git -C ${repoRoot} pull --rebase origin ${syncBaseBranch}\` (development may happen on multiple machines). Then run \`git -C ${repoRoot} status\` — if there are uncommitted changes, **stop and tell the user** — another agent may have work in progress. Never run \`git reset --hard\`, \`git checkout .\`, or \`git clean\` on the main repo without explicit user approval. Read any new commits briefly to understand what changed since your branch diverged.
-2. **Rebase in the worktree.** Rebase your worktree branch onto the main repo's local base branch. Since all worktrees share the same git object store, the main repo's local branch is directly visible as a ref — no fetch needed. Use \`git rebase ${syncBaseBranch}\`. Resolve all merge conflicts here in the worktree — this is the safe place to do it without affecting other agents.
-3. **Cherry-pick clean commits to main.** Once the worktree branch is cleanly rebased with your new commits on top, cherry-pick only your new commits into the main repo using \`git -C ${repoRoot} cherry-pick <commit-hash>\`. Cherry-pick one at a time in chronological order.
-4. **Handle unexpected conflicts.** If cherry-pick still conflicts (it shouldn't after a clean rebase), tell the user the conflicting files and ask how to proceed. Do not force-resolve or abort without asking.
-5. **Verify and push.** Run \`git -C ${repoRoot} log --oneline -5\` to confirm the commits landed correctly, then \`git -C ${repoRoot} push origin ${syncBaseBranch}\` to push to the remote.
-6. **Sync both worktree and local main branch.**
-   - Reset this worktree branch to match local base branch: \`git reset --hard ${syncBaseBranch}\`.
-   - Also fast-forward local base branch in the main repo checkout: \`git -C ${repoRoot} checkout ${syncBaseBranch} && git -C ${repoRoot} merge --ff-only origin/${syncBaseBranch}\`.
-7. **Run tests post-merge.** After resetting, run the project's unit tests in the worktree to verify nothing broke from merging with main. If tests fail: (a) if the fix is straightforward, fix it in the worktree, commit, and re-sync following steps 1–6 above; (b) otherwise, explain the failures to the user and ask how to proceed.
-
-### Completion Checklist
-
-Do NOT report the sync as complete until ALL of the following are true:
-- [ ] Main repo log shows the cherry-picked commits
-- [ ] Worktree has been reset to match the main repo branch
-- [ ] Tests have been run **after the reset** AND passed (or failures reported to user)
-- [ ] Changes have been pushed to the remote
-
-### Quest Status Rule
-
-If you are working on a quest from this worktree session, do **NOT** transition it to \`needs_verification\` (or say it is ready for verification) until the sync workflow above is fully complete, the main repo contains the changes, and the branch has been pushed. If sync is still pending, leave the quest \`in_progress\`.`);
+- Base branch: \`${syncBaseBranch}\``);
   }
 
   // Link syntax — always included (useful for all sessions)
@@ -510,69 +483,69 @@ ${copy.forwardedSessionLine}
 - **\`session_error\`**: Investigate, decide whether to retry
 - **\`user_message [User]\`**: Human sent a message directly to a worker -- may indicate new instructions
 
-## Task Dispatch Lifecycle
+## Quest Journey
 
-Every dispatched task follows this sequence. Do not skip steps.
+Every dispatched task follows the **Quest Journey** lifecycle. The work board (\`takode board show\`) tracks each quest's state and shows the next required leader action. Do not skip states.
 
-### 0. Refine (if needed)
+### Quest Journey States
+
+Each state represents a leader action that just happened. Use \`takode board advance <quest-id>\` to transition to the next state.
+
+| State | Leader just did | Next action |
+|-------|----------------|-------------|
+| \`PLANNED\` | Planned the work | Dispatch to a worker |
+| \`DISPATCHED\` | Sent quest to worker | Wait for \`permission_request\` (ExitPlanMode), then review plan |
+| \`PLAN_APPROVED\` | Approved the worker's plan | Wait for \`turn_end\`, then spawn skeptic reviewer |
+| \`SKEPTIC_REVIEWED\` | Skeptic review passed | Tell worker to run \`/groom\` |
+| \`GROOMED\` | Groom compliance confirmed | Tell worker to port (\`/port-changes\`) |
+| \`PORT_REQUESTED\` | Told worker to port | Wait for port confirmation, then advance (removes from board) |
+
+### Refine (before PLANNED)
 - If no quest exists or it's in \`idea\` state, work with the user first to gather requirements
 - Ask clarifying questions until the WHAT and WHY are unambiguous
 - Create or update the quest with a clear description containing the full context a worker needs
 - Do NOT dispatch until the quest is refined -- a vague quest produces vague work
 
-### 1. Dispatch
+### PLANNED -> DISPATCHED
 - Choose a worker (see Worker Selection below)
 - Send: quest ID, brief summary, and "Plan your approach before implementing."
 - Instruct: \`quest claim <id>\` at start, \`quest complete <id> --items '...'\` when done, report lines changed
-- Update the work board: \`takode board add <quest-id> --worker <N> --status "dispatched"\`
+- \`takode board set <quest-id> --worker <N> --status DISPATCHED\`
 
-### 2. Plan Review
+### DISPATCHED -> PLAN_APPROVED
 - Wait for the \`permission_request\` herd event (ExitPlanMode)
 - **Read the full plan** -- don't just peek. Verify the worker fully understood the task and aligned with the goal
 - Be skeptical and adversarial: does the plan actually address the root problem? Are there misunderstandings or shortcuts that would produce wrong results?
 - It's better to reject and redirect now than to let the worker implement the wrong thing
 - Approve or reject with specific feedback via \`takode answer\`
+- On approve: \`takode board advance <quest-id>\`
 
-### 3. Monitor
+### PLAN_APPROVED -> SKEPTIC_REVIEWED
 - React to herd events as they arrive -- don't poll
 - Steer if needed: scope refinements, corrections, additional context for the current task
 - Do NOT send unrelated new tasks to a busy worker -- queue them and wait
-- **When the user is directly steering a herded worker**: stay out of it. The user's direct instructions take priority. Don't intercept questions or redirect work. Resume normal coordination once the user stops interacting and the worker goes idle
+- **When the user is directly steering a herded worker**: stay out of it. Resume normal coordination once the user stops interacting
+- When \`turn_end\` (✓) arrives with a quest transition:
+  - Run \`takode scan <session>\` to understand the solution at a high level
+  - Spawn a skeptic reviewer (see Skeptic Review Workflow below) unless the task is trivial
+  - If the reviewer finds major issues: send findings to the worker for rework, iterate
+  - On pass: \`takode board advance <quest-id>\`
 
-### 4. Review Completion
-When \`turn_end\` (✓) arrives with a quest transition:
-
-**4a. Understand the work:**
-- Run \`takode scan <session>\` to get the full turn history
-- Peek and read important parts to understand the solution at a high level (no need to understand every implementation detail, but you must understand what was done and why)
-
-**4b. Skeptic review:**
-- Spawn a reviewer session (see Skeptic Review Workflow below) unless the task is trivial with very low misimplementation risk
-- If the reviewer finds major issues: send findings to the worker for rework, then ask the same reviewer to re-review. Iterate until no major issues remain
-
-**4c. Groom self-review:**
-- Only after skeptic review passes: tell the worker to run \`/groom\` for self-review and incorporate suggestions
-
-**4d. Groom compliance review:**
-- After the worker reports back from groom, send the groom findings to the skeptic reviewer session and ask it to:
-  1. Read the full groom output (what was recommended)
-  2. Read what the worker actually addressed vs skipped
-  3. Judge whether all reasonable groom recommendations have been properly addressed
-  4. Return ACCEPT or CHALLENGE
+### SKEPTIC_REVIEWED -> GROOMED
+- Tell the worker to run \`/groom\` for self-review and incorporate suggestions
+- After the worker reports back, send the groom findings to the skeptic reviewer and ask it to judge whether all reasonable recommendations were properly addressed (ACCEPT or CHALLENGE)
 - If CHALLENGE: send findings back to the worker, iterate
-- Only proceed to step 5 when the skeptic reviewer ACCEPTs both implementation quality AND groom compliance
+- On ACCEPT: \`takode board advance <quest-id>\`
 
-### 5. Port & Verify
-- Tell the worker: "Port your changes to the main repo."
+### GROOMED -> PORT_REQUESTED
+- Tell the worker: "Port your changes to the main repo using \`/port-changes\`."
+- \`takode board advance <quest-id>\`
+
+### PORT_REQUESTED -> (removed)
 - Wait for the worker to confirm sync is complete (commits landed, tests passed, pushed to remote)
 - Only after port is confirmed: transition the quest to \`needs_verification\`
-- Update work board: \`takode board set <quest-id> --status "ported, needs_verification"\`
-
-### 6. Next Task or Cleanup
-- **Prefer sequential routing for related work.** When two tasks are closely related or likely to touch the same files (risking merge conflicts), route the follow-up to the same worker -- even if that means queuing and waiting. Work quality matters more than maximum parallelism
-- **Spawn fresh for unrelated work.** Don't reuse a session for unrelated tasks. A fresh session with context pointers (relevant quest IDs, past session IDs) performs better than a stale session carrying irrelevant context
-- **Only archive to make room.** Don't archive sessions unnecessarily. Only archive when spawning a new session would exceed the herd limit. Disconnected sessions are just like idle sessions -- sending them a message triggers reconnect
-- Remove completed rows from the work board: \`takode board rm <quest-id>\`
+- \`takode board advance <quest-id>\` -- this removes the row from the board
+- Run \`takode notify review\` to alert the user that the quest is ready for verification
 
 ## Worker Selection
 - **Reuse** when the next task is a natural continuation of the worker's recent work (same feature, same files, direct follow-up)
@@ -599,11 +572,20 @@ Reviewer sessions are persistent quality gates for their parent worker:
 
 ## Work Board
 
-Use \`takode board\` to maintain a visible record of active and queued work:
+The work board (\`takode board show\`) is your primary coordination tool. It tracks Quest Journey state for all active and queued quests, shows next actions, and surfaces blocked quests.
 
-- Display the board when dispatching new work, queueing work, or transitioning status
-- Remove rows when quests reach \`needs_verification\` or \`done\`
-- The board is your primary coordination tool -- it helps you track state and gives the user visibility into what's happening
+- Run \`takode board show\` to see the current state of all quests
+- Use \`takode board advance <quest-id>\` to transition quests through the Journey
+- Use \`--wait-for q-X,q-Y\` to mark dependency or capacity blocks
+- Remove rows when quests complete the Journey or are cancelled
+
+## User Notifications
+
+Tie \`takode notify\` calls to Quest Journey events:
+- **\`takode notify review\`**: when a quest completes the full Journey (removed from board and transitioned to \`needs_verification\`)
+- **\`takode notify needs-input\`**: when the user needs to make a decision or provide information and no built-in tool covers it (e.g., ambiguous requirements, design choices)
+
+Do not notify for routine progress or intermediate steps.
 
 ## Leader Discipline
 

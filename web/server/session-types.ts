@@ -395,6 +395,31 @@ export type BrowserOutgoingMessage =
   | { type: "set_ask_permission"; askPermission: boolean; client_msg_id?: string }
   | { type: "permission_user_viewing"; request_id: string };
 
+/**
+ * Quest Journey states. Each state represents a leader action that just happened.
+ * The board shows the current state and a next-action hint for the leader.
+ */
+export const QUEST_JOURNEY_STATES = [
+  "PLANNED",
+  "DISPATCHED",
+  "PLAN_APPROVED",
+  "SKEPTIC_REVIEWED",
+  "GROOMED",
+  "PORT_REQUESTED",
+] as const;
+
+export type QuestJourneyState = (typeof QUEST_JOURNEY_STATES)[number];
+
+/** Next-action hints for each Quest Journey state. */
+export const QUEST_JOURNEY_HINTS: Record<QuestJourneyState, string> = {
+  PLANNED: "dispatch to a worker",
+  DISPATCHED: "wait for ExitPlanMode, then review plan",
+  PLAN_APPROVED: "wait for turn_end, then spawn skeptic reviewer",
+  SKEPTIC_REVIEWED: "tell worker to run /groom",
+  GROOMED: "request port",
+  PORT_REQUESTED: "wait for port confirmation, then remove from board",
+};
+
 /** A single row on the leader's work board. */
 export interface BoardRow {
   questId: string;
@@ -404,8 +429,10 @@ export interface BoardRow {
   worker?: string;
   /** Session number of the assigned worker (optional, cached for display). */
   workerNum?: number;
-  /** Freeform status text -- the leader writes whatever is most useful. */
+  /** Quest Journey state -- each state = a leader action that just happened. */
   status?: string;
+  /** Quest IDs this quest is blocked on (dependency or capacity). */
+  waitFor?: string[];
   /** Epoch ms when this row was last updated. */
   updatedAt: number;
 }
