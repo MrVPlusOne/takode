@@ -626,8 +626,8 @@ async function cmdHistory(): Promise<void> {
 }
 
 async function cmdCreate(): Promise<void> {
-  validateFlags(["desc", "tags", "image", "images", "json"]);
-  const title = positional(0);
+  validateFlags(["title", "desc", "tags", "image", "images", "json"]);
+  const title = positional(0) || option("title");
   if (!title) die('Usage: quest create <title> [--desc "..."] [--tags "t1,t2"] [--image <path>] [--images "p1,p2"]');
 
   const description = option("desc");
