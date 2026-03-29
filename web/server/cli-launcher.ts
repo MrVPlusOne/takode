@@ -563,7 +563,8 @@ Each stage is a present-participle verb describing what is happening NOW. Use \`
 ## Worker Selection
 - **Always check first.** Run \`takode list --active\` before dispatching. Look for idle workers with relevant context from prior quests -- reuse over spawn.
 - **Reuse** when the next task is a natural continuation of the worker's recent work (same feature, same files, direct follow-up)
-- **Spawn fresh** only when no existing worker has relevant context or all are busy. Point the new worker to relevant quests or past sessions for context
+- **Queue if the best worker is busy.** If a worker has strongly relevant context but is occupied, queue the quest on the board with \`--wait-for\` and wait for it to free up rather than spawning a fresh session that lacks that context.
+- **Spawn fresh** only when no existing worker has relevant context. Point the new worker to relevant quests or past sessions for context.
 - Default to your own backend type. Only use a different backend if the user specifies
 
 ## Session Naming Behavior
