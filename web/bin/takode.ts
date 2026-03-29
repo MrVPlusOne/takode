@@ -1713,7 +1713,7 @@ async function handleSpawn(base: string, args: string[]): Promise<void> {
     err(`Invalid backend: ${backendRaw}. Expected "claude", "codex", or "claude-sdk".`);
   }
 
-  const cwd = typeof flags.cwd === "string" ? flags.cwd : process.cwd();
+  let cwd = typeof flags.cwd === "string" ? flags.cwd : process.cwd();
   const useWorktree = flags["no-worktree"] === true ? false : true;
   const fixedName = typeof flags["fixed-name"] === "string" ? flags["fixed-name"].trim() : "";
   if (flags["fixed-name"] !== undefined && !fixedName) {
@@ -1762,6 +1762,7 @@ async function handleSpawn(base: string, args: string[]): Promise<void> {
         reviewerOf?: number;
         name?: string;
         sessionNum?: number;
+        cwd?: string;
       }>;
       const existingReviewer = allSessions.find(
         (s) => !s.archived && s.reviewerOf === reviewerOfNum,
@@ -1774,6 +1775,15 @@ async function handleSpawn(base: string, args: string[]): Promise<void> {
           `Session #${reviewerOfNum} already has an active reviewer (${existingLabel}). ` +
           `Stop it first with \`takode stop ${existingLabel}\`.`,
         );
+      }
+
+      // Inherit the parent worker's cwd so the reviewer lands in the same
+      // sidebar project group. repoRoot is inferred by the server from cwd.
+      const parentSession = allSessions.find(
+        (s) => s.sessionNum === reviewerOfNum && !s.archived,
+      );
+      if (parentSession?.cwd?.trim() && typeof flags.cwd !== "string") {
+        cwd = parentSession.cwd;
       }
     } catch (e) {
       // Only re-throw our own errors (from err()); skip API fetch failures
