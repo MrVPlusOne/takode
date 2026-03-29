@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import { Lightbox } from "./Lightbox.js";
+import { MarkdownContent } from "./MarkdownContent.js";
 import { getQuestStatusTheme } from "../utils/quest-status-theme.js";
 import type { QuestImage, QuestVerificationItem } from "../types.js";
 
@@ -63,7 +64,7 @@ export function QuestClaimBlock({
           ))}
       </div>
 
-      {quest.description && <p className="text-sm text-cc-fg whitespace-pre-wrap">{quest.description}</p>}
+      {quest.description && <MarkdownContent text={quest.description} size="sm" />}
 
       {quest.verificationItems && quest.verificationItems.length > 0 && (
         <div>
