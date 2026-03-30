@@ -2739,6 +2739,7 @@ export function Playground() {
           <div className="max-w-3xl space-y-4">
             <Card label="Board with items">
               <BoardBlock
+                operation="advanced q-42 to IMPLEMENTING"
                 board={[
                   {
                     questId: "q-42",

@@ -263,9 +263,16 @@ const ToolBlockInner = memo(function ToolBlockInner({
   // Tool result previews are truncated to 300 chars by the server, which breaks
   // JSON parsing for boards with several rows. We fetch the full result if needed.
   const isBoardCommand = name === "Bash" && isTakodeBoardCommand(String(input.command || ""));
-  const boardData = useBoardData(isBoardCommand, sessionId, toolUseId);
-  if (isBoardCommand && boardData) {
-    return <BoardBlock board={boardData} />;
+  const parsedBoard = useBoardData(isBoardCommand, sessionId, toolUseId);
+  if (isBoardCommand && parsedBoard) {
+    return (
+      <BoardBlock
+        board={parsedBoard.board}
+        operation={parsedBoard.operation}
+        toolUseId={toolUseId}
+        sessionId={sessionId ?? undefined}
+      />
+    );
   }
 
   return (
@@ -380,7 +387,11 @@ function isTakodeBoardCommand(command: string): boolean {
  * creating a new object on every render, which would defeat Zustand's
  * Object.is equality check and cause infinite re-renders.
  */
-function useBoardData(isBoardCommand: boolean, sessionId: string | null, toolUseId: string): BoardRowData[] | null {
+function useBoardData(
+  isBoardCommand: boolean,
+  sessionId: string | null,
+  toolUseId: string,
+): ParsedBoardResult | null {
   const previewContent = useStore((s) => {
     if (!isBoardCommand || !sessionId) return undefined;
     return s.toolResults.get(sessionId)?.get(toolUseId)?.content;
@@ -390,7 +401,7 @@ function useBoardData(isBoardCommand: boolean, sessionId: string | null, toolUse
     return s.toolResults.get(sessionId)?.get(toolUseId)?.is_truncated ?? false;
   });
 
-  const [boardData, setBoardData] = useState<BoardRowData[] | null>(null);
+  const [boardData, setBoardData] = useState<ParsedBoardResult | null>(null);
   useEffect(() => {
     if (!isBoardCommand || !sessionId || previewContent === undefined) {
       setBoardData(null);
@@ -425,14 +436,22 @@ function useBoardData(isBoardCommand: boolean, sessionId: string | null, toolUse
  * text table after it (when not in --json mode). We extract the first top-level
  * JSON object via brace counting so the trailing text doesn't break parsing.
  */
-export function parseBoardFromResult(resultContent: string | undefined): BoardRowData[] | null {
+export interface ParsedBoardResult {
+  board: BoardRowData[];
+  operation?: string;
+}
+
+export function parseBoardFromResult(resultContent: string | undefined): ParsedBoardResult | null {
   if (!resultContent) return null;
   const jsonStr = extractFirstJsonObject(resultContent);
   if (!jsonStr) return null;
   try {
     const parsed = JSON.parse(jsonStr);
     if (parsed?.__takode_board__ === true && Array.isArray(parsed.board)) {
-      return parsed.board;
+      return {
+        board: parsed.board,
+        operation: typeof parsed.operation === "string" ? parsed.operation : undefined,
+      };
     }
   } catch {
     // Malformed JSON

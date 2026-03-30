@@ -188,6 +188,10 @@ interface AppState {
   // Tool results (session → tool_use_id → truncated preview)
   toolResults: Map<string, Map<string, ToolResultPreview>>;
 
+  // Latest board tool-use ID per session (for auto-collapsing stale board cards)
+  latestBoardToolUseId: Map<string, string>;
+  setLatestBoardToolUseId: (sessionId: string, toolUseId: string) => void;
+
   // Background agent notifications (task_notification from CLI)
   backgroundAgentNotifs: Map<string, Map<string, { status: string; outputFile?: string; summary?: string }>>;
   setBackgroundAgentNotif: (
@@ -592,6 +596,13 @@ export const useStore = create<AppState>((set) => ({
   mcpServers: new Map(),
   toolProgress: new Map(),
   toolResults: new Map(),
+  latestBoardToolUseId: new Map(),
+  setLatestBoardToolUseId: (sessionId, toolUseId) =>
+    set((s) => {
+      const next = new Map(s.latestBoardToolUseId);
+      next.set(sessionId, toolUseId);
+      return { latestBoardToolUseId: next };
+    }),
   backgroundAgentNotifs: new Map(),
   toolStartTimestamps: new Map(),
   sessionAttention: new Map(),
@@ -1973,6 +1984,7 @@ export const useStore = create<AppState>((set) => ({
       mcpServers: new Map(),
       toolProgress: new Map(),
       toolResults: new Map(),
+      latestBoardToolUseId: new Map(),
       backgroundAgentNotifs: new Map(),
       toolStartTimestamps: new Map(),
       prStatus: new Map(),

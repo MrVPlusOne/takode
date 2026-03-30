@@ -1480,7 +1480,7 @@ describe("parseBoardFromResult", () => {
   it("parses clean board JSON (--json mode)", () => {
     const board = [{ questId: "q-42", title: "Test", updatedAt: 100 }];
     const json = JSON.stringify({ __takode_board__: true, board });
-    expect(parseBoardFromResult(json)).toEqual(board);
+    expect(parseBoardFromResult(json)).toEqual({ board, operation: undefined });
   });
 
   it("parses board JSON followed by text table (non --json mode)", () => {
@@ -1489,7 +1489,7 @@ describe("parseBoardFromResult", () => {
     ];
     const json = JSON.stringify({ __takode_board__: true, board }, null, 2);
     const mixed = json + "\n\nQuest   Title  Worker  State\nq-42    Test   #5      DISPATCHED\n";
-    expect(parseBoardFromResult(mixed)).toEqual(board);
+    expect(parseBoardFromResult(mixed)).toEqual({ board, operation: undefined });
   });
 
   it("returns null if __takode_board__ marker is missing", () => {
@@ -1506,6 +1506,13 @@ describe("parseBoardFromResult", () => {
 
   it("handles empty board array", () => {
     const json = JSON.stringify({ __takode_board__: true, board: [] });
-    expect(parseBoardFromResult(json)).toEqual([]);
+    expect(parseBoardFromResult(json)).toEqual({ board: [], operation: undefined });
+  });
+
+  it("extracts operation string when present", () => {
+    const board = [{ questId: "q-42", title: "Test", updatedAt: 100 }];
+    const json = JSON.stringify({ __takode_board__: true, board, operation: "advanced q-42 to PORTING" });
+    const result = parseBoardFromResult(json);
+    expect(result).toEqual({ board, operation: "advanced q-42 to PORTING" });
   });
 });

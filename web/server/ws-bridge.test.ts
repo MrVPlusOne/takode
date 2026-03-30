@@ -14169,6 +14169,22 @@ describe("work board", () => {
     expect(board![0].status).toBe("waiting for review"); // updated
   });
 
+  it("upsertBoardRow preserves createdAt on update (stable sort key)", () => {
+    // createdAt is set once on first insert and must survive subsequent upserts
+    // so that board sort order remains stable across updates.
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    bridge.upsertBoardRow("s1", { questId: "q-1", title: "First" });
+    const originalCreatedAt = bridge.getBoard("s1")[0].createdAt;
+    expect(originalCreatedAt).toBeGreaterThan(0);
+
+    // Update the row after a brief delay to ensure Date.now() would differ
+    const board = bridge.upsertBoardRow("s1", { questId: "q-1", status: "PLANNING" });
+    expect(board![0].createdAt).toBe(originalCreatedAt); // preserved
+    expect(board![0].updatedAt).toBeGreaterThanOrEqual(originalCreatedAt); // updated
+  });
+
   it("removeBoardRows removes specified rows", () => {
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
@@ -14238,17 +14254,26 @@ describe("work board", () => {
     expect(bridge.removeBoardRows("nonexistent", ["q-1"])).toBeNull();
   });
 
-  it("getBoard returns rows sorted by updatedAt", () => {
+  it("getBoard returns rows sorted by createdAt (stable insertion order)", () => {
+    // Mock Date.now() to return distinct values so sort is deterministic,
+    // independent of runtime speed or timer resolution.
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
 
-    // Add with explicit timestamps to control order
-    bridge.upsertBoardRow("s1", { questId: "q-3", title: "Third", updatedAt: 3000 });
-    bridge.upsertBoardRow("s1", { questId: "q-1", title: "First", updatedAt: 1000 });
-    bridge.upsertBoardRow("s1", { questId: "q-2", title: "Second", updatedAt: 2000 });
+    let clock = 1000;
+    const originalNow = Date.now;
+    Date.now = () => clock++;
 
-    const board = bridge.getBoard("s1");
-    expect(board.map((r) => r.questId)).toEqual(["q-1", "q-2", "q-3"]);
+    try {
+      bridge.upsertBoardRow("s1", { questId: "q-1", title: "First" });
+      bridge.upsertBoardRow("s1", { questId: "q-2", title: "Second" });
+      bridge.upsertBoardRow("s1", { questId: "q-3", title: "Third" });
+
+      const board = bridge.getBoard("s1");
+      expect(board.map((r) => r.questId)).toEqual(["q-1", "q-2", "q-3"]);
+    } finally {
+      Date.now = originalNow;
+    }
   });
 
   // ─── waitFor field ────────────────────────────────────────────────────────

@@ -412,6 +412,8 @@ export interface BoardRow {
   status?: string;
   /** Quest IDs this quest is blocked on (dependency or capacity). */
   waitFor?: string[];
+  /** Epoch ms when this row was first added to the board. Used for stable sort. */
+  createdAt: number;
   /** Epoch ms when this row was last updated. */
   updatedAt: number;
 }

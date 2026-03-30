@@ -2387,12 +2387,13 @@ interface BoardRow {
   workerNum?: number;
   status?: string;
   waitFor?: string[];
+  createdAt: number;
   updatedAt: number;
 }
 
 /** Format board output as JSON with a marker for frontend detection. */
-function formatBoardOutput(board: BoardRow[]): string {
-  return JSON.stringify({ __takode_board__: true, board }, null, 2);
+function formatBoardOutput(board: BoardRow[], operation?: string): string {
+  return JSON.stringify({ __takode_board__: true, board, ...(operation ? { operation } : {}) }, null, 2);
 }
 
 /** Print board in a human-readable table with Quest Journey state and next-action hints. */
@@ -2448,9 +2449,9 @@ function printBoardText(board: BoardRow[], allBoardRows?: BoardRow[]): void {
 }
 
 /** Output board with frontend-detectable JSON marker, plus a human-readable table when not in --json mode. */
-function outputBoard(board: BoardRow[], jsonMode: boolean): void {
+function outputBoard(board: BoardRow[], jsonMode: boolean, operation?: string): void {
   // Always emit the JSON marker so the Companion frontend can detect and render BoardBlock.
-  console.log(formatBoardOutput(board));
+  console.log(formatBoardOutput(board, operation));
   if (!jsonMode) {
     printBoardText(board, board);
   }
@@ -2511,7 +2512,7 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
     const result = (await apiPost(base, `/sessions/${encodeURIComponent(selfId)}/board`, body)) as {
       board: BoardRow[];
     };
-    outputBoard(result.board, flags.json === true);
+    outputBoard(result.board, flags.json === true, `set ${questId}`);
     return;
   }
 
@@ -2525,12 +2526,17 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
       `/sessions/${encodeURIComponent(selfId)}/board/${encodeURIComponent(questId)}/advance`,
     )) as { board: BoardRow[]; removed: boolean; previousState?: string; newState?: string };
 
+    let operation: string;
     if (result.removed) {
       console.log(`${questId}: removed from board (Quest Journey complete)`);
+      operation = `removed ${questId}`;
     } else if (result.previousState && result.newState) {
       console.log(`${questId}: ${result.previousState} -> ${result.newState}`);
+      operation = `advanced ${questId} to ${result.newState}`;
+    } else {
+      operation = `advanced ${questId}`;
     }
-    outputBoard(result.board, flags.json === true);
+    outputBoard(result.board, flags.json === true, operation);
     return;
   }
 
@@ -2542,7 +2548,7 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
     const result = (await apiDelete(base, `/sessions/${encodeURIComponent(selfId)}/board/${questIds.join(",")}`)) as {
       board: BoardRow[];
     };
-    outputBoard(result.board, flags.json === true);
+    outputBoard(result.board, flags.json === true, `removed ${questIds.join(", ")}`);
     return;
   }
 

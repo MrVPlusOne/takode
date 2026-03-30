@@ -15,6 +15,7 @@ export interface BoardRowData {
   workerNum?: number;
   status?: string;
   waitFor?: string[];
+  createdAt?: number;
   updatedAt: number;
 }
 
@@ -210,20 +211,59 @@ function WorkerLink({ sessionId, sessionNum }: { sessionId: string; sessionNum?:
   );
 }
 
+interface BoardBlockProps {
+  board: BoardRowData[];
+  operation?: string;
+  toolUseId?: string;
+  sessionId?: string;
+}
+
 /**
  * Collapsible card that renders the leader's work board.
  * Displayed when a `takode board` CLI command produces output containing
  * `__takode_board__: true` in the Bash tool result.
+ *
+ * Auto-collapse: when a new board renders, it registers as the latest via Zustand.
+ * All BoardBlock instances subscribe to the latest ID -- non-latest boards collapse.
  */
-export const BoardBlock = memo(function BoardBlock({ board }: { board: BoardRowData[] }) {
+export const BoardBlock = memo(function BoardBlock({ board, operation, toolUseId, sessionId }: BoardBlockProps) {
+  // Subscribe to the latest board ID for this session via Zustand (reactive)
+  const latestId = useStore((s) => (sessionId ? s.latestBoardToolUseId.get(sessionId) : undefined));
+  const setLatest = useStore((s) => s.setLatestBoardToolUseId);
+
+  // Determine if this board is the latest (should be expanded)
+  const isLatest = !toolUseId || !latestId || toolUseId === latestId;
+
+  // Track whether the user has manually toggled this board
+  const userToggled = useRef(false);
   const [open, setOpen] = useState(true);
+
+  // Register as the latest board on mount
+  useEffect(() => {
+    if (toolUseId && sessionId) {
+      setLatest(sessionId, toolUseId);
+    }
+  }, [toolUseId, sessionId, setLatest]);
+
+  // Auto-collapse when a newer board takes over (unless user manually toggled)
+  useEffect(() => {
+    if (!userToggled.current) {
+      setOpen(isLatest);
+    }
+  }, [isLatest]);
+
+  const handleToggle = useCallback(() => {
+    userToggled.current = true;
+    setOpen((prev) => !prev);
+  }, []);
+
   const headerRef = useRef<HTMLButtonElement>(null);
 
   return (
     <div className="border border-cc-border rounded-[10px] overflow-hidden bg-cc-card">
       <button
         ref={headerRef}
-        onClick={() => setOpen(!open)}
+        onClick={handleToggle}
         className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-cc-hover transition-colors cursor-pointer"
       >
         <svg
@@ -239,6 +279,7 @@ export const BoardBlock = memo(function BoardBlock({ board }: { board: BoardRowD
           <path d="M4 4h2v5H4zM7 4h2v7H7zM10 4h2v3h-2z" />
         </svg>
         <span className="text-xs font-medium text-cc-fg">Work Board</span>
+        {operation && <span className="text-xs text-cc-muted">-- {operation}</span>}
         <span className="text-xs text-cc-muted ml-auto">
           {board.length} {board.length === 1 ? "item" : "items"}
         </span>
