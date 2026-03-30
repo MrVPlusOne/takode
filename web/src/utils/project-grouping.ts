@@ -91,22 +91,57 @@ export function groupSessionsByProject(
       });
     }
 
-    const group = groups.get(key)!;
-    group.sessions.push(session);
-    // Use the same priority logic as SessionStatusDot so counts match visible dots
-    const visualStatus = deriveSessionStatus({
-      archived: session.archived,
-      permCount: session.permCount,
-      isConnected: session.isConnected,
-      sdkState: session.sdkState,
-      status: session.status,
-      hasUnread: !!sessionAttention?.get(session.id),
-      idleKilled: session.idleKilled,
-    });
-    if (visualStatus === "running" || visualStatus === "compacting") group.runningCount++;
-    else if (visualStatus === "permission") group.permCount++;
-    else if (visualStatus === "completed_unread") group.unreadCount++;
-    group.mostRecentActivity = Math.max(group.mostRecentActivity, session.createdAt);
+    groups.get(key)!.sessions.push(session);
+  }
+
+  // Reassign reviewer sessions to their parent's group so nesting works correctly.
+  // Reviewers may have different CWDs (e.g., no worktree) than their parent worker.
+  const sessionNumToGroup = new Map<number, string>();
+  for (const [key, group] of groups) {
+    for (const s of group.sessions) {
+      if (s.sessionNum != null) sessionNumToGroup.set(s.sessionNum, key);
+    }
+  }
+  for (const [key, group] of groups) {
+    const toRemove: number[] = [];
+    for (let i = 0; i < group.sessions.length; i++) {
+      const s = group.sessions[i];
+      if (s.reviewerOf === undefined) continue;
+      const parentGroupKey = sessionNumToGroup.get(s.reviewerOf);
+      if (parentGroupKey && parentGroupKey !== key) {
+        groups.get(parentGroupKey)!.sessions.push(s);
+        toRemove.push(i);
+      }
+    }
+    for (let i = toRemove.length - 1; i >= 0; i--) {
+      group.sessions.splice(toRemove[i], 1);
+    }
+  }
+  for (const [key, group] of groups) {
+    if (group.sessions.length === 0) groups.delete(key);
+  }
+
+  // Compute aggregate counters after reassignment so they reflect final group membership.
+  for (const [, group] of groups) {
+    group.runningCount = 0;
+    group.permCount = 0;
+    group.unreadCount = 0;
+    group.mostRecentActivity = 0;
+    for (const session of group.sessions) {
+      const visualStatus = deriveSessionStatus({
+        archived: session.archived,
+        permCount: session.permCount,
+        isConnected: session.isConnected,
+        sdkState: session.sdkState,
+        status: session.status,
+        hasUnread: !!sessionAttention?.get(session.id),
+        idleKilled: session.idleKilled,
+      });
+      if (visualStatus === "running" || visualStatus === "compacting") group.runningCount++;
+      else if (visualStatus === "permission") group.permCount++;
+      else if (visualStatus === "completed_unread") group.unreadCount++;
+      group.mostRecentActivity = Math.max(group.mostRecentActivity, session.createdAt);
+    }
   }
 
   // Sort groups by custom group order when available; otherwise alphabetically.

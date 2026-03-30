@@ -316,6 +316,78 @@ describe("groupSessionsByProject", () => {
     // After nesting: worker-20, worker-10, reviewer-of-10
     expect(groups[0].sessions.map((s) => s.id)).toEqual(["worker-20", "worker-10", "reviewer-of-10"]);
   });
+
+  it("reassigns reviewer to parent's group when CWDs differ (e.g., worktree vs main repo)", () => {
+    // Worker is in a worktree, reviewer has the main repo CWD (no worktree).
+    // Without reassignment, they'd end up in different groups.
+    const sessions = [
+      makeItem({
+        id: "worker",
+        cwd: "/home/user/.companion/worktrees/repo/wt-1234",
+        repoRoot: "/home/user/.companion/worktrees/repo/wt-1234",
+        createdAt: 200,
+        sessionNum: 134,
+      }),
+      makeItem({
+        id: "reviewer",
+        cwd: "/home/user/repo",
+        repoRoot: "/home/user/repo",
+        createdAt: 100,
+        sessionNum: 135,
+        reviewerOf: 134,
+      }),
+    ];
+    const groups = groupSessionsByProject(sessions);
+    // Reviewer should be reassigned to the worker's group, not its own
+    expect(groups).toHaveLength(1);
+    expect(groups[0].sessions.map((s) => s.id)).toEqual(["worker", "reviewer"]);
+  });
+
+  it("updates aggregate counters correctly after cross-group reviewer reassignment", () => {
+    // Running reviewer starts in a different group than its parent worker.
+    // After reassignment, the destination group's runningCount must include it
+    // and the source group (if non-empty) must not count it.
+    const sessions = [
+      makeItem({
+        id: "worker",
+        cwd: "/home/user/.companion/worktrees/repo/wt-1",
+        repoRoot: "/home/user/.companion/worktrees/repo/wt-1",
+        createdAt: 300,
+        sessionNum: 10,
+        status: "idle",
+        isConnected: true,
+        sdkState: "connected",
+      }),
+      makeItem({
+        id: "other",
+        cwd: "/home/user/repo",
+        repoRoot: "/home/user/repo",
+        createdAt: 200,
+        sessionNum: 20,
+        status: null,
+      }),
+      makeItem({
+        id: "reviewer",
+        cwd: "/home/user/repo",
+        repoRoot: "/home/user/repo",
+        createdAt: 100,
+        sessionNum: 11,
+        reviewerOf: 10,
+        status: "running",
+        isConnected: true,
+        sdkState: "running",
+      }),
+    ];
+    const groups = groupSessionsByProject(sessions);
+    // Two groups: worktree group (worker + reviewer) and repo group (other)
+    expect(groups).toHaveLength(2);
+    const worktreeGroup = groups.find((g) => g.sessions.some((s) => s.id === "worker"))!;
+    const repoGroup = groups.find((g) => g.sessions.some((s) => s.id === "other"))!;
+    // Reviewer (running) was reassigned to worktree group -- count must reflect it
+    expect(worktreeGroup.runningCount).toBe(1);
+    // Source group lost the reviewer -- must not count it
+    expect(repoGroup.runningCount).toBe(0);
+  });
 });
 
 describe("nestReviewerSessions", () => {
