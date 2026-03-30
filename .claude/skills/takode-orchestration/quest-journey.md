@@ -65,7 +65,7 @@ The `--reviewer` flag automatically:
 
 ### Reviewer Lifecycle
 
-- **One reviewer per parent.** To replace, stop the old reviewer first with `takode stop`.
+- **One reviewer per parent.** To replace, stop the old reviewer first with `takode interrupt`.
 - **Persistent**: reuse the same reviewer for follow-up reviews and groom compliance checks on the same worker
 - **Auto-cleanup**: reviewer is archived when its parent worker is archived
 - **Herd limit exempt**: reviewer sessions do NOT count toward the 5-session herd limit

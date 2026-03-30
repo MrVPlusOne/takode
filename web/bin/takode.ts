@@ -1806,7 +1806,7 @@ async function handleSpawn(base: string, args: string[]): Promise<void> {
             : existingReviewer.sessionId.slice(0, 8);
         err(
           `Session #${reviewerOfNum} already has an active reviewer (${existingLabel}). ` +
-            `Stop it first with \`takode stop ${existingLabel}\`.`,
+            `Stop it first with \`takode interrupt ${existingLabel}\`.`,
         );
       }
 
@@ -1960,16 +1960,16 @@ async function handleRename(base: string, args: string[]): Promise<void> {
   );
 }
 
-// ─── Stop handler ───────────────────────────────────────────────────────────
+// ─── Interrupt handler ──────────────────────────────────────────────────────
 
 async function handleStop(base: string, args: string[]): Promise<void> {
   const sessionRef = args.filter((a) => !a.startsWith("--"))[0];
   const jsonMode = args.includes("--json");
-  if (!sessionRef) err("Usage: takode stop <session>");
+  if (!sessionRef) err("Usage: takode interrupt <session>");
 
   const mySessionId = getCallerSessionId();
 
-  const result = (await apiPost(base, `/sessions/${encodeURIComponent(sessionRef)}/stop`, {
+  const result = (await apiPost(base, `/sessions/${encodeURIComponent(sessionRef)}/interrupt`, {
     callerSessionId: mySessionId,
   })) as { ok: boolean; sessionId?: string; error?: string };
 
@@ -2889,7 +2889,8 @@ Commands:
   rename   Rename a session (e.g. takode rename 5 My Session Name)
   herd     Herd sessions (e.g. takode herd 5,6,7)
   unherd   Release a session from your herd (e.g. takode unherd 5)
-  stop     Gracefully stop a herded session (e.g. takode stop 5)
+  interrupt  Interrupt a worker's current turn (e.g. takode interrupt 5)
+             (alias: stop)
   archive  Archive a herded session (e.g. takode archive 5)
   pending  Show pending questions/plans from a herded session
   answer   Answer a pending question or approve/reject a plan
@@ -2965,7 +2966,8 @@ try {
     ["rename", { requireOrchestrator: true }],
     ["herd", { requireOrchestrator: true }],
     ["unherd", { requireOrchestrator: true }],
-    ["stop", { requireOrchestrator: true }],
+    ["interrupt", { requireOrchestrator: true }],
+    ["stop", { requireOrchestrator: true }], // alias for interrupt
     ["archive", { requireOrchestrator: true }],
     ["pending", { requireOrchestrator: true }],
     ["answer", { requireOrchestrator: true }],
@@ -2996,6 +2998,7 @@ try {
     case "spawn":
       await handleSpawn(base, args);
       break;
+    case "interrupt":
     case "stop":
       await handleStop(base, args);
       break;

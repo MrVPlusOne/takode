@@ -5,7 +5,7 @@ description: "Cross-session orchestration for Takode. Use when you need to inter
 
 # Takode -- Cross-Session CLI Reference
 
-The `takode` CLI lets you interact with other sessions managed by the Companion server. Read-only commands work for all sessions. Mutation commands (send, rename, herd, spawn, stop) require the orchestrator role (`TAKODE_ROLE=orchestrator` env var).
+The `takode` CLI lets you interact with other sessions managed by the Companion server. Read-only commands work for all sessions. Mutation commands (send, rename, herd, spawn, interrupt) require the orchestrator role (`TAKODE_ROLE=orchestrator` env var).
 
 ## Environment
 
@@ -247,12 +247,12 @@ Rename a session.
 takode rename 5 "Auth refactor worker"
 ```
 
-### `takode stop <session>`
+### `takode interrupt <session>`
 
-Gracefully stop a herded worker session (sends SIGTERM).
+Interrupt a worker's current turn (sends SIGTERM). Alias: `takode stop`.
 
 ```bash
-takode stop 2
+takode interrupt 2
 ```
 
 ### `takode answer <session> <response>`
@@ -309,8 +309,8 @@ Maintain at most **5 sessions in your herd**. Before spawning a new worker, chec
 - **Coordinate with quests.** Use the `quest` CLI alongside `takode` for task tracking. Always create a quest for non-trivial work before dispatching.
 - **Board immediately.** When you intend to manage a quest (dispatch, review, port), put it on the work board right away (`takode board set`), even if it's QUEUED with `--wait-for`. The board is the tracking mechanism -- never rely on memory for follow-up dispatch. Exception: if the user only asked you to create/file the quest without dispatching, just create it and wait for their go-ahead.
 - **Batch related messages.** If you need to send context + instructions to a worker, send it as one message rather than multiple.
-- **Don't stop idle workers.** `takode stop` interrupts the worker's current turn. Only use it to redirect active work. Workers that finished a quest are already idle -- don't stop them unnecessarily.
+- **Don't interrupt idle workers.** `takode interrupt` halts the worker's current turn. Only use it to redirect active work. Workers that finished a quest are already idle -- don't interrupt them unnecessarily.
 - **Events are push-based.** Herd events arrive automatically as user messages when you go idle. No polling needed.
 - **One task at a time per worker.** Don't send an unrelated new task to a busy worker. Mid-task steering (scope refinement, corrections, urgent interventions) is fine.
 - **Don't repeat corrections.** Before sending a correction to a busy worker, check if you already sent one in the current turn. If yes, wait for the turn to end and evaluate whether the worker incorporated it.
-- **For urgent mid-turn redirections:** interrupt the worker first (`takode stop`), wait for the interruption herd event, check its conversation to understand where it stopped, then send the corrected instructions as a fresh message.
+- **For urgent mid-turn redirections:** interrupt the worker first (`takode interrupt`), wait for the interruption herd event, check its conversation to understand where it stopped, then send the corrected instructions as a fresh message.

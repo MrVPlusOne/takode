@@ -1189,8 +1189,9 @@ export function createSessionsRoutes(ctx: RouteContext) {
     return c.json({ ok: true });
   });
 
-  // Leader-initiated stop: gracefully stop a herded worker session
-  api.post("/sessions/:id/stop", async (c) => {
+  // Leader-initiated interrupt: halt a herded worker's current turn so the
+  // leader can redirect. "stop" is kept as a backward-compatible alias.
+  const handleInterrupt = async (c: any) => {
     const auth = authenticateTakodeCaller(c, { requireOrchestrator: true });
     if ("response" in auth) return auth.response;
 
@@ -1206,7 +1207,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
     }
     const callerSessionId = auth.callerId;
 
-    // Herd guard: only the herding leader can stop
+    // Herd guard: only the herding leader can interrupt
     const workerInfo = launcher.getSession(id);
     if (!workerInfo) return c.json({ error: "Session not found" }, 404);
     if (!callerSessionId || workerInfo.herdedBy !== callerSessionId) {
@@ -1218,7 +1219,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
     const session = wsBridge.getSession(id);
     await backfillSessionProjectMeta(workerInfo, session);
 
-    // Inject a visible system message into the worker's chat before stopping
+    // Inject a visible system message into the worker's chat before interrupting
     const leaderNum = launcher.getSessionNum(callerSessionId);
     const leaderName = sessionNames.getName(callerSessionId) || callerSessionId.slice(0, 8);
     const stopMsg = `Session stopped by leader #${leaderNum ?? "?"} ${leaderName}`;
@@ -1239,7 +1240,9 @@ export function createSessionsRoutes(ctx: RouteContext) {
     await wsBridge.routeExternalInterrupt(targetSession, "leader");
 
     return c.json({ ok: true, sessionId: id, stoppedBy: callerSessionId });
-  });
+  };
+  api.post("/sessions/:id/interrupt", handleInterrupt);
+  api.post("/sessions/:id/stop", handleInterrupt); // backward compat alias
 
   api.post("/sessions/:id/relaunch", async (c) => {
     const id = resolveId(c.req.param("id"));
