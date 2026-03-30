@@ -628,6 +628,21 @@ describe("formatHerdEventBatch", () => {
     const result = formatHerdEventBatch(events);
     expect(result).toContain("permission_request");
     expect(result).toContain("Bash: rm -rf node_modules");
+    // No msg_index provided -- should not include msg reference
+    expect(result).not.toContain("msg [");
+  });
+
+  it("includes msg [N] reference when msg_index is present in permission_request", () => {
+    const events = [
+      makeEvent({
+        event: "permission_request",
+        data: { tool_name: "ExitPlanMode", summary: "ExitPlanMode", msg_index: 42 },
+      }),
+    ];
+    const result = formatHerdEventBatch(events);
+    expect(result).toContain("permission_request");
+    expect(result).toContain("ExitPlanMode");
+    expect(result).toContain("msg [42]");
   });
 
   it("formats user-initiated permission_request with (user-initiated) annotation", () => {

@@ -487,7 +487,9 @@ function formatSingleEvent(evt: TakodeEvent, nowTs: number): string {
       const summary = typeof evt.data.summary === "string" ? `: ${truncate(evt.data.summary, 60)}` : "";
       // Annotate user-initiated permission requests so the leader knows to leave them for the user
       const userInitiated = evt.data.turn_source === "user" ? " (user-initiated)" : "";
-      return `${label} | permission_request${userInitiated} | ${tool}${summary}${ageSuffix}`;
+      // Include message index so the leader can run `takode read <session> <msg_index>`
+      const msgRef = typeof evt.data.msg_index === "number" ? ` | msg [${evt.data.msg_index}]` : "";
+      return `${label} | permission_request${userInitiated} | ${tool}${summary}${msgRef}${ageSuffix}`;
     }
     case "session_error": {
       const error = typeof evt.data.error === "string" ? truncate(evt.data.error, 80) : "unknown error";

@@ -863,6 +863,8 @@ export interface TakodePermissionRequestEventData {
   planPreview?: string;
   /** Who triggered the turn containing this permission request. */
   turn_source?: "user" | "leader" | "system" | "unknown";
+  /** Index of the last assistant message in messageHistory when the permission was emitted. */
+  msg_index?: number;
 }
 
 export interface TakodePermissionResolvedEventData {

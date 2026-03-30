@@ -3371,6 +3371,7 @@ export class WsBridge {
                 summary: request.description || request.tool_name,
                 ...this.buildPermissionPreview(request),
                 turn_source: this.getCurrentTurnTriggerSource(targetSession),
+                msg_index: this.findLastAssistantMessageIndex(targetSession),
               }),
             schedulePermissionNotification: (targetSession, request) => {
               if (!this.pushoverNotifier) return;
@@ -5669,6 +5670,7 @@ export class WsBridge {
             summary: perm.description || perm.tool_name,
             ...this.buildPermissionPreview(perm),
             turn_source: this.getCurrentTurnTriggerSource(targetSession),
+            msg_index: this.findLastAssistantMessageIndex(targetSession),
           }),
         schedulePermissionNotification: (targetSession, perm) => {
           if (!this.pushoverNotifier) return;
@@ -5791,6 +5793,7 @@ export class WsBridge {
             tool_name: request.tool_name,
             summary: request.description || request.tool_name,
             turn_source: this.getCurrentTurnTriggerSource(targetSession),
+            msg_index: this.findLastAssistantMessageIndex(targetSession),
           }),
         schedulePermissionNotification: (targetSession, request) => {
           if (!this.pushoverNotifier) return;
@@ -5929,6 +5932,7 @@ export class WsBridge {
           summary: perm.description || perm.tool_name,
           ...this.buildPermissionPreview(perm),
           turn_source: this.getCurrentTurnTriggerSource(session),
+          msg_index: this.findLastAssistantMessageIndex(session),
         });
 
         // NOW set attention and schedule notifications
@@ -5971,6 +5975,7 @@ export class WsBridge {
           summary: perm.description || perm.tool_name,
           ...this.buildPermissionPreview(perm),
           turn_source: this.getCurrentTurnTriggerSource(session),
+          msg_index: this.findLastAssistantMessageIndex(session),
         });
         this.setAttention(session, "action");
         this.persistSession(session);
@@ -8879,6 +8884,14 @@ export class WsBridge {
       return plan ? { planPreview: plan } : {};
     }
     return {};
+  }
+
+  /** Find the index of the last assistant message in messageHistory. */
+  private findLastAssistantMessageIndex(session: Session): number | undefined {
+    for (let i = session.messageHistory.length - 1; i >= 0; i--) {
+      if (session.messageHistory[i].type === "assistant") return i;
+    }
+    return undefined;
   }
 
   /** Scan backwards through messageHistory to build a tool usage summary for the last turn. */
