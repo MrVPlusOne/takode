@@ -495,6 +495,7 @@ async function handleList(base: string, args: string[]): Promise<void> {
   const flags = parseFlags(args);
   const showAll = flags.all === true;
   const showActive = flags.active === true;
+  const showHerd = flags.herd === true;
   const showTasks = flags.tasks === true;
   const jsonMode = flags.json === true;
 
@@ -543,6 +544,15 @@ async function handleList(base: string, args: string[]): Promise<void> {
   } else if (showActive) {
     filtered = sessions.filter((s) => !s.archived);
     filterHint = " (use --all to include archived)";
+  } else if (showHerd) {
+    if (!isOrchestrator || !mySessionId) {
+      err("--herd requires an orchestrator session. Only leaders have herded workers.");
+    }
+    filtered = sessions.filter((s) => !s.archived && s.herdedBy === mySessionId);
+    filterHint =
+      filtered.length === 0
+        ? " (no herded sessions -- run `takode list --active` to discover, then `takode herd <ids>`)"
+        : " (herded only)";
   } else if (isOrchestrator && mySessionId) {
     // Default for orchestrators: show only herded sessions (the flock)
     filtered = sessions.filter((s) => !s.archived && s.herdedBy === mySessionId);
@@ -2846,7 +2856,7 @@ function printUsage(): void {
 Usage: takode <command> [options]
 
 Commands:
-  list     List sessions (available to all sessions; herded-only by default for leaders)
+  list     List sessions (--active: all, --herd: herded only, --all: include archived)
   search   Search sessions via server-side ranking (available to all sessions)
   info     Show detailed metadata for a session
   spawn    Create and auto-herd new worker sessions
@@ -2882,6 +2892,7 @@ Global options:
 
 Examples:
   takode list
+  takode list --herd
   takode list --all
   takode search "auth"
   takode search "jwt" --all
