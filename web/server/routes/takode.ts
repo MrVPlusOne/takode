@@ -224,7 +224,8 @@ export function createTakodeRoutes(ctx: RouteContext) {
       const turn = allTurns[turnNum];
       const endIdx = turn.endIdx >= 0 ? turn.endIdx : history.length - 1;
       const count = endIdx - turn.startIdx + 1;
-      return c.json({ ...base, ...buildPeekRange(history, { from: turn.startIdx, count }, sessionId) });
+      const showTools = c.req.query("showTools") === "true";
+      return c.json({ ...base, ...buildPeekRange(history, { from: turn.startIdx, count, showTools }, sessionId) });
     }
 
     if (fromParam !== undefined || untilParam !== undefined) {
@@ -233,7 +234,8 @@ export function createTakodeRoutes(ctx: RouteContext) {
       const from = fromParam !== undefined ? parseInt(fromParam, 10) : undefined;
       const until = untilParam !== undefined ? parseInt(untilParam, 10) : undefined;
       const count = parseInt(c.req.query("count") ?? "60", 10);
-      return c.json({ ...base, ...buildPeekRange(history, { from, until, count }, sessionId) });
+      const showTools = c.req.query("showTools") === "true";
+      return c.json({ ...base, ...buildPeekRange(history, { from, until, count, showTools }, sessionId) });
     }
 
     if (detail) {

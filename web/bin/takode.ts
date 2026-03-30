@@ -1263,17 +1263,30 @@ function printPeekRange(d: PeekRangeResponse, sessionRef: string, count: number)
         break;
       case "assistant": {
         const text = msg.content.trim();
-        const toolStr = msg.toolCounts
-          ? "  (" +
-            Object.entries(msg.toolCounts)
-              .map(([n, c]) => (c > 1 ? `${n}×${c}` : n))
-              .join(", ") +
-            ")"
-          : "";
-        if (text) {
-          console.log(`  ${idx.padEnd(7)} ${time}  asst  ${truncate(text, TAKODE_PEEK_CONTENT_LIMIT)}${toolStr}`);
-        } else if (toolStr) {
-          console.log(`  ${idx.padEnd(7)} ${time}  asst ${toolStr}`);
+        if (msg.tools && msg.tools.length > 0) {
+          // Expanded tool display (--show-tools)
+          if (text) {
+            console.log(`  ${idx.padEnd(7)} ${time}  asst  ${truncate(text, TAKODE_PEEK_CONTENT_LIMIT)}`);
+          } else {
+            console.log(`  ${idx.padEnd(7)} ${time}  asst`);
+          }
+          for (const tool of msg.tools) {
+            console.log(`  ${idx.padEnd(7)}           → ${formatInlineText(tool.name)}: ${truncate(tool.summary, 80)}`);
+          }
+        } else {
+          // Compact tool counts (default)
+          const toolStr = msg.toolCounts
+            ? "  (" +
+              Object.entries(msg.toolCounts)
+                .map(([n, c]) => (c > 1 ? `${n}×${c}` : n))
+                .join(", ") +
+              ")"
+            : "";
+          if (text) {
+            console.log(`  ${idx.padEnd(7)} ${time}  asst  ${truncate(text, TAKODE_PEEK_CONTENT_LIMIT)}${toolStr}`);
+          } else if (toolStr) {
+            console.log(`  ${idx.padEnd(7)} ${time}  asst ${toolStr}`);
+          }
         }
         break;
       }
@@ -1337,12 +1350,13 @@ async function handlePeek(base: string, args: string[]): Promise<void> {
   const sessionRef = args[0];
   if (!sessionRef)
     err(
-      "Usage: takode peek <session> [--from N] [--until N] [--count N] [--task N] [--turn N] [--detail] [--turns N] [--json]",
+      "Usage: takode peek <session> [--from N] [--until N] [--count N] [--task N] [--turn N] [--show-tools] [--detail] [--turns N] [--json]",
     );
   const safeSessionRef = formatInlineText(sessionRef);
 
   const flags = parseFlags(args.slice(1));
   const jsonMode = flags.json === true;
+  const showTools = flags["show-tools"] === true;
   const taskNum = parseIntegerFlag(flags, "task", "task number");
   const turnNum = parseIntegerFlag(flags, "turn", "turn number");
   const fromIdx = parseIntegerFlag(flags, "from", "message index");
@@ -1357,6 +1371,7 @@ async function handlePeek(base: string, args: string[]): Promise<void> {
   // Resolve --turn N to a message range via the server
   if (turnNum !== undefined) {
     const params = new URLSearchParams({ turn: String(turnNum) });
+    if (showTools) params.set("showTools", "true");
     const path = `/sessions/${encodeURIComponent(sessionRef)}/messages?${params}`;
     const data = await apiGet(base, path);
     if (jsonMode) {
@@ -1376,6 +1391,7 @@ async function handlePeek(base: string, args: string[]): Promise<void> {
     if (!task) err(`Task #${taskNum} not found. Use "takode tasks ${safeSessionRef}" to see available tasks.`);
 
     const params = new URLSearchParams({ from: String(task.startIdx), count: String(count) });
+    if (showTools) params.set("showTools", "true");
     const path = `/sessions/${encodeURIComponent(sessionRef)}/messages?${params}`;
     const data = await apiGet(base, path);
     if (jsonMode) {
@@ -1394,6 +1410,7 @@ async function handlePeek(base: string, args: string[]): Promise<void> {
     const params = new URLSearchParams({ count: String(count) });
     if (fromIdx !== undefined) params.set("from", String(fromIdx));
     if (untilIdx !== undefined) params.set("until", String(untilIdx));
+    if (showTools) params.set("showTools", "true");
     path = `/sessions/${encodeURIComponent(sessionRef)}/messages?${params}`;
 
     const data = await apiGet(base, path);

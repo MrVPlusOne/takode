@@ -111,6 +111,8 @@ export interface BuildPeekRangeOptions {
   from?: number;
   until?: number;
   count?: number;
+  /** When true, populate expanded `tools` array instead of compact `toolCounts` */
+  showTools?: boolean;
 }
 
 export interface TakodeReadResponse {
@@ -949,17 +951,31 @@ export function buildPeekRange(
       if (paths) peekMsg.imagePaths = paths;
     }
 
-    // Compact tool counts (not individual tool lines — use `read` for details)
+    // Tool call extraction: expanded (--show-tools) or compact (default)
     if (msg.type === "assistant" && msg.message?.content) {
       const toolBlocks = extractToolUseBlocks(msg.message.content);
       if (toolBlocks.length > 0) {
-        const counts: Record<string, number> = {};
-        for (const block of toolBlocks) {
-          if (isSubagentToolName(block.name) && toolResultPreviews.has(block.id)) continue;
-          counts[block.name] = (counts[block.name] || 0) + 1;
-        }
-        if (Object.keys(counts).length > 0) {
-          peekMsg.toolCounts = counts;
+        const visibleBlocks = toolBlocks.filter((block) => {
+          if (isSubagentToolName(block.name) && toolResultPreviews.has(block.id)) return false;
+          return true;
+        });
+        if (visibleBlocks.length > 0) {
+          if (options.showTools) {
+            peekMsg.tools = visibleBlocks.map((block) => {
+              const blockIdx = msg.message.content.indexOf(block);
+              return {
+                idx: blockIdx >= 0 ? blockIdx : 0,
+                name: block.name,
+                summary: buildToolSummary(block.name, block.input),
+              };
+            });
+          } else {
+            const counts: Record<string, number> = {};
+            for (const block of visibleBlocks) {
+              counts[block.name] = (counts[block.name] || 0) + 1;
+            }
+            peekMsg.toolCounts = counts;
+          }
         }
       }
     }
