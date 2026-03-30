@@ -104,10 +104,7 @@ function WorkerLink({ sessionId, sessionNum }: { sessionId: string; sessionNum?:
   );
 
   // Resolve SDK session info for this worker
-  const sdkInfo = useMemo(
-    () => sdkSessions.find((s) => s.sessionId === sessionId),
-    [sdkSessions, sessionId],
-  );
+  const sdkInfo = useMemo(() => sdkSessions.find((s) => s.sessionId === sessionId), [sdkSessions, sessionId]);
 
   // Assemble the full SessionItem for the hover card
   const sessionItem = useMemo<SessionItemType | null>(() => {
@@ -269,9 +266,7 @@ export const BoardBlock = memo(function BoardBlock({ board }: { board: BoardRowD
                       <td className="px-3 py-1.5 whitespace-nowrap">
                         <QuestLink questId={row.questId} />
                       </td>
-                      <td className="px-3 py-1.5 text-cc-fg max-w-[200px] truncate">
-                        {row.title || "\u2014"}
-                      </td>
+                      <td className="px-3 py-1.5 text-cc-fg max-w-[200px] truncate">{row.title || "\u2014"}</td>
                       <td className="px-3 py-1.5 whitespace-nowrap">
                         {row.worker ? (
                           <WorkerLink sessionId={row.worker} sessionNum={row.workerNum} />
@@ -290,9 +285,7 @@ export const BoardBlock = memo(function BoardBlock({ board }: { board: BoardRowD
                           <span className="text-cc-muted">{"\u2014"}</span>
                         )}
                       </td>
-                      <td className="px-3 py-1.5 text-cc-muted max-w-[250px] truncate">
-                        {row.status || "\u2014"}
-                      </td>
+                      <td className="px-3 py-1.5 text-cc-muted max-w-[250px] truncate">{row.status || "\u2014"}</td>
                     </tr>
                   ))}
                 </tbody>

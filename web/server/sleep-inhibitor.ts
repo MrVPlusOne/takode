@@ -130,9 +130,7 @@ export class SleepInhibitor {
       this.engagedAt = Date.now();
       this.engagedDurationSeconds = durationSeconds;
     } catch (err) {
-      console.warn(
-        `[sleep-inhibitor] caffeinate spawn error: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      console.warn(`[sleep-inhibitor] caffeinate spawn error: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 

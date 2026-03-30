@@ -802,7 +802,11 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
                     <DiffViewer
                       oldText={diffData?.oldText}
                       newText={diffData?.newText}
-                      unifiedDiff={diffData?.oldText !== undefined || diffData?.newText !== undefined ? undefined : (diffData?.diff ?? "")}
+                      unifiedDiff={
+                        diffData?.oldText !== undefined || diffData?.newText !== undefined
+                          ? undefined
+                          : (diffData?.diff ?? "")
+                      }
                       fileName={displayName}
                       fileStatsLabel={
                         stats

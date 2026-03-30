@@ -106,13 +106,11 @@ export function createSettingsRoutes(ctx: RouteContext) {
           ? (tc.sttModel as SttModel)
           : current.sttModel,
       enhancementMode:
-        typeof tc.enhancementMode === "string" &&
-        (tc.enhancementMode === "default" || tc.enhancementMode === "bullet")
+        typeof tc.enhancementMode === "string" && (tc.enhancementMode === "default" || tc.enhancementMode === "bullet")
           ? (tc.enhancementMode as EnhancementMode)
           : current.enhancementMode,
       voiceCaptureMode:
-        typeof tc.voiceCaptureMode === "string" &&
-        (tc.voiceCaptureMode === "edit" || tc.voiceCaptureMode === "append")
+        typeof tc.voiceCaptureMode === "string" && (tc.voiceCaptureMode === "edit" || tc.voiceCaptureMode === "append")
           ? (tc.voiceCaptureMode as "edit" | "append")
           : current.voiceCaptureMode,
     };
@@ -312,8 +310,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
         body.defaultClaudeBackend === "claude" || body.defaultClaudeBackend === "claude-sdk"
           ? body.defaultClaudeBackend
           : undefined,
-      sleepInhibitorEnabled:
-        typeof body.sleepInhibitorEnabled === "boolean" ? body.sleepInhibitorEnabled : undefined,
+      sleepInhibitorEnabled: typeof body.sleepInhibitorEnabled === "boolean" ? body.sleepInhibitorEnabled : undefined,
       sleepInhibitorDurationMinutes:
         typeof body.sleepInhibitorDurationMinutes === "number" ? body.sleepInhibitorDurationMinutes : undefined,
     });

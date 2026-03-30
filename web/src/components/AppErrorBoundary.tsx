@@ -84,9 +84,7 @@ export class AppErrorBoundary extends Component<Props, State> {
             </div>
             {(errorMessage || componentStack) && (
               <details className="mt-4">
-                <summary className="text-xs text-cc-muted cursor-pointer hover:text-cc-fg">
-                  Technical details
-                </summary>
+                <summary className="text-xs text-cc-muted cursor-pointer hover:text-cc-fg">Technical details</summary>
                 <div className="mt-2 rounded-md bg-cc-code-bg border border-cc-border p-3 max-h-64 overflow-y-auto">
                   {errorMessage && (
                     <pre className="text-[11px] font-mono-code text-cc-error whitespace-pre-wrap break-words">

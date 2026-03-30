@@ -961,7 +961,13 @@ export const api = {
     post<{
       enhanced: string;
       wasEnhanced: boolean;
-      debug: { model: string; systemPrompt: string; userMessage: string; durationMs: number; skipReason?: string } | null;
+      debug: {
+        model: string;
+        systemPrompt: string;
+        userMessage: string;
+        durationMs: number;
+        skipReason?: string;
+      } | null;
     }>("/transcription/test-enhance", { text, mode, sessionId }),
 
   // Namer debug logs

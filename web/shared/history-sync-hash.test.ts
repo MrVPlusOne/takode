@@ -53,29 +53,21 @@ describe("history-sync-hash", () => {
   });
 
   it("produces different hashes when messages differ", () => {
-    const history1: BrowserIncomingMessage[] = [
-      { type: "user_message", id: "u1", content: "hello", timestamp: 1000 },
-    ];
+    const history1: BrowserIncomingMessage[] = [{ type: "user_message", id: "u1", content: "hello", timestamp: 1000 }];
     const history2: BrowserIncomingMessage[] = [
       { type: "user_message", id: "u2", content: "goodbye", timestamp: 1000 },
     ];
 
-    expect(computeHistoryMessagesSyncHash(history1).hash).not.toBe(
-      computeHistoryMessagesSyncHash(history2).hash,
-    );
+    expect(computeHistoryMessagesSyncHash(history1).hash).not.toBe(computeHistoryMessagesSyncHash(history2).hash);
   });
 
   it("uses identity-based hashing for messages with stable ids", () => {
-    const history1: BrowserIncomingMessage[] = [
-      { type: "user_message", id: "u1", content: "hello", timestamp: 1000 },
-    ];
+    const history1: BrowserIncomingMessage[] = [{ type: "user_message", id: "u1", content: "hello", timestamp: 1000 }];
     const history2: BrowserIncomingMessage[] = [
       { type: "user_message", id: "u1", content: "goodbye", timestamp: 2000 },
     ];
 
-    expect(computeHistoryMessagesSyncHash(history1).hash).toBe(
-      computeHistoryMessagesSyncHash(history2).hash,
-    );
+    expect(computeHistoryMessagesSyncHash(history1).hash).toBe(computeHistoryMessagesSyncHash(history2).hash);
   });
 
   it("skips non-error result messages", () => {
@@ -101,9 +93,7 @@ describe("history-sync-hash", () => {
       { type: "user_message", id: "u1", content: "hello", timestamp: 1000 },
     ];
 
-    expect(computeHistoryMessagesSyncHash(withSuccess).hash).toBe(
-      computeHistoryMessagesSyncHash(withoutResult).hash,
-    );
+    expect(computeHistoryMessagesSyncHash(withSuccess).hash).toBe(computeHistoryMessagesSyncHash(withoutResult).hash);
     expect(computeHistoryMessagesSyncHash(withSuccess).renderedCount).toBe(1);
   });
 
@@ -121,9 +111,7 @@ describe("history-sync-hash", () => {
       { type: "user_message", id: "u1", content: "hello", timestamp: 1000 },
     ];
 
-    expect(computeHistoryMessagesSyncHash(withNotif).hash).toBe(
-      computeHistoryMessagesSyncHash(withoutNotif).hash,
-    );
+    expect(computeHistoryMessagesSyncHash(withNotif).hash).toBe(computeHistoryMessagesSyncHash(withoutNotif).hash);
   });
 
   it("includes task_notification with summary", () => {

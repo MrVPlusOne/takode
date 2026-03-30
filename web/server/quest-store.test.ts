@@ -1042,7 +1042,9 @@ describe("saveQuestImage", () => {
 
   it("skips resize for SVG images", async () => {
     // SVG is vector -- no pixel dimensions to resize.
-    const svgData = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="3000" height="3000"><rect fill="red" width="3000" height="3000"/></svg>');
+    const svgData = Buffer.from(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="3000" height="3000"><rect fill="red" width="3000" height="3000"/></svg>',
+    );
     const result = await questStore.saveQuestImage("icon.svg", svgData, "image/svg+xml");
     const saved = await readFile(result.path);
     // SVG should be stored verbatim

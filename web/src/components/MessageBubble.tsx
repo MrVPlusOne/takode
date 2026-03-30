@@ -20,10 +20,7 @@ import { parseReplyContext } from "../utils/reply-context.js";
  *  Used to skip rendering empty bubbles that would show only a timestamp. */
 export function isEmptyAssistantMessage(msg: ChatMessage): boolean {
   return (
-    msg.role === "assistant" &&
-    !msg.content?.trim() &&
-    (msg.contentBlocks || []).length === 0 &&
-    !msg.notification
+    msg.role === "assistant" && !msg.content?.trim() && (msg.contentBlocks || []).length === 0 && !msg.notification
   );
 }
 
@@ -377,11 +374,11 @@ type SearchHighlightInfo = { query: string; mode: "strict" | "fuzzy"; isCurrent:
 export function NotificationMarker({ category }: { category: "needs-input" | "review" }) {
   const isAction = category === "needs-input";
   return (
-    <div className={`inline-flex items-center gap-1.5 mt-2 px-2 py-0.5 rounded-full text-[11px] font-medium ${
-      isAction
-        ? "bg-amber-400/15 text-amber-400"
-        : "bg-blue-500/15 text-blue-400"
-    }`}>
+    <div
+      className={`inline-flex items-center gap-1.5 mt-2 px-2 py-0.5 rounded-full text-[11px] font-medium ${
+        isAction ? "bg-amber-400/15 text-amber-400" : "bg-blue-500/15 text-blue-400"
+      }`}
+    >
       <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 shrink-0">
         {isAction ? (
           // Bell icon for needs-input
@@ -415,7 +412,13 @@ export function UserReplyChip({ previewText, messageId }: { previewText: string;
       role={messageId ? "button" : undefined}
       title={messageId ? "Scroll to original message" : undefined}
     >
-      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" className="w-3 h-3 shrink-0 text-cc-primary/60">
+      <svg
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        className="w-3 h-3 shrink-0 text-cc-primary/60"
+      >
         <path d="M6 3L2 7l4 4" strokeLinecap="round" strokeLinejoin="round" />
         <path d="M2 7h7a4 4 0 014 4v1" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
@@ -684,7 +687,9 @@ function AssistantMessage({
   const contentRef = useRef<HTMLDivElement>(null);
   const hidePaw = useContext(HidePawContext);
   const userAddressed = message.leaderUserAddressed === true;
-  const userAddressedBodyClass = userAddressed ? "border-y border-cc-primary/10 bg-cc-primary/[0.03] ml-1 py-2.5 px-2" : "";
+  const userAddressedBodyClass = userAddressed
+    ? "border-y border-cc-primary/10 bg-cc-primary/[0.03] ml-1 py-2.5 px-2"
+    : "";
   const displayMessage = useMemo(() => {
     const strippedContent = stripLeaderAddressSuffix(message.content);
     const originalBlocks = message.contentBlocks || [];
@@ -807,7 +812,13 @@ function ReplyButton({ message, sessionId }: { message: ChatMessage; sessionId: 
       className="p-1 rounded hover:bg-cc-hover transition-all cursor-pointer"
       title="Reply to this message"
     >
-      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" className="w-3.5 h-3.5 text-cc-muted hover:text-cc-fg">
+      <svg
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        className="w-3.5 h-3.5 text-cc-muted hover:text-cc-fg"
+      >
         <path d="M6 3L2 7l4 4" strokeLinecap="round" strokeLinejoin="round" />
         <path d="M2 7h7a4 4 0 014 4v1" strokeLinecap="round" strokeLinejoin="round" />
       </svg>

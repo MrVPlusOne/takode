@@ -2,7 +2,16 @@ import { Hono } from "hono";
 import { access as accessAsync } from "node:fs/promises";
 import * as questStore from "../quest-store.js";
 import * as sessionNames from "../session-names.js";
-import { buildPeekResponse, buildPeekDefault, buildPeekRange, buildReadResponse, findTurnBoundaries, buildPeekTurnScan, grepMessageHistory, exportSessionAsText } from "../takode-messages.js";
+import {
+  buildPeekResponse,
+  buildPeekDefault,
+  buildPeekRange,
+  buildReadResponse,
+  findTurnBoundaries,
+  buildPeekTurnScan,
+  grepMessageHistory,
+  exportSessionAsText,
+} from "../takode-messages.js";
 import type { RouteContext } from "./context.js";
 
 export function createTakodeRoutes(ctx: RouteContext) {
@@ -130,7 +139,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
     // internal counter which resets on compaction and doesn't reflect true turn count)
     const infoHistory = wsBridge.getMessageHistory(sessionId);
     const actualNumTurns =
-      infoHistory && infoHistory.length > 0 ? findTurnBoundaries(infoHistory).length : (bridge?.num_turns || 0);
+      infoHistory && infoHistory.length > 0 ? findTurnBoundaries(infoHistory).length : bridge?.num_turns || 0;
 
     return c.json({
       ...safeSession,
@@ -218,7 +227,10 @@ export function createTakodeRoutes(ctx: RouteContext) {
 
       const allTurns = findTurnBoundaries(history);
       if (turnNum >= allTurns.length) {
-        return c.json({ error: `Turn ${turnNum} not found. Session has ${allTurns.length} turns (0-${allTurns.length - 1}).` }, 404);
+        return c.json(
+          { error: `Turn ${turnNum} not found. Session has ${allTurns.length} turns (0-${allTurns.length - 1}).` },
+          404,
+        );
       }
 
       const turn = allTurns[turnNum];
@@ -770,7 +782,11 @@ export function createTakodeRoutes(ctx: RouteContext) {
       return c.json({ error: "Can only modify your own board" }, 403);
     }
 
-    const questIds = c.req.param("questId").split(",").map((s) => s.trim()).filter(Boolean);
+    const questIds = c.req
+      .param("questId")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
     if (questIds.length === 0) return c.json({ error: "questId is required" }, 400);
 
     const board = wsBridge.removeBoardRows(id, questIds);

@@ -350,10 +350,7 @@ describe("nestReviewerSessions", () => {
   });
 
   it("is a no-op when there are no reviewer sessions", () => {
-    const sessions = [
-      makeItem({ id: "s1", sessionNum: 1 }),
-      makeItem({ id: "s2", sessionNum: 2 }),
-    ];
+    const sessions = [makeItem({ id: "s1", sessionNum: 1 }), makeItem({ id: "s2", sessionNum: 2 })];
     nestReviewerSessions(sessions);
     expect(sessions.map((s) => s.id)).toEqual(["s1", "s2"]);
   });

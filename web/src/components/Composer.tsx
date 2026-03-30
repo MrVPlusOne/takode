@@ -48,7 +48,13 @@ interface ImageAttachment {
 export function ReplyChip({ previewText, onDismiss }: { previewText: string; onDismiss: () => void }) {
   return (
     <div className="flex items-center gap-2 px-4 pt-2 pb-1 text-[12px] text-cc-muted">
-      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" className="w-3 h-3 shrink-0 text-cc-primary">
+      <svg
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        className="w-3 h-3 shrink-0 text-cc-primary"
+      >
         <path d="M6 3L2 7l4 4" strokeLinecap="round" strokeLinejoin="round" />
         <path d="M2 7h7a4 4 0 014 4v1" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
@@ -1511,9 +1517,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
                         api.updateSettings({ transcriptionConfig: { voiceCaptureMode: "edit" } }).catch(() => {});
                       }}
                       className={`px-2 py-0.5 rounded-full text-[10px] font-medium transition-colors ${
-                        voiceCaptureMode === "edit"
-                          ? "bg-cc-primary text-white"
-                          : "text-cc-muted hover:text-cc-fg"
+                        voiceCaptureMode === "edit" ? "bg-cc-primary text-white" : "text-cc-muted hover:text-cc-fg"
                       }`}
                       title="Voice will be interpreted as editing instructions for the existing text"
                     >
@@ -1528,9 +1532,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
                         api.updateSettings({ transcriptionConfig: { voiceCaptureMode: "append" } }).catch(() => {});
                       }}
                       className={`px-2 py-0.5 rounded-full text-[10px] font-medium transition-colors ${
-                        voiceCaptureMode === "append"
-                          ? "bg-cc-primary text-white"
-                          : "text-cc-muted hover:text-cc-fg"
+                        voiceCaptureMode === "append" ? "bg-cc-primary text-white" : "text-cc-muted hover:text-cc-fg"
                       }`}
                       title="Voice will be appended as additional text at the cursor position"
                     >

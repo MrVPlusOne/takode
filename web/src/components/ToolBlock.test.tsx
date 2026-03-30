@@ -1,6 +1,16 @@
 // @vitest-environment jsdom
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { ToolBlock, ToolIcon, getToolIcon, getToolLabel, getPreview, formatDuration, EDIT_BLOCKS_EXPANDED_KEY, extractFirstJsonObject, parseBoardFromResult } from "./ToolBlock.js";
+import {
+  ToolBlock,
+  ToolIcon,
+  getToolIcon,
+  getToolLabel,
+  getPreview,
+  formatDuration,
+  EDIT_BLOCKS_EXPANDED_KEY,
+  extractFirstJsonObject,
+  parseBoardFromResult,
+} from "./ToolBlock.js";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
 
@@ -1326,7 +1336,8 @@ describe("Edit block rendering does not trigger React error #185", () => {
         input={{
           file_path: "/home/user/project/.claude/skills/takode/SKILL.md",
           old_string: "## Navigation\n\n```\n1. info → metadata\n2. scan → summaries\n```\n",
-          new_string: "## Navigation\n\n```\n1. info → metadata\n2. scan → summaries (most recent first)\n3. peek → expanded last turn\n```\n",
+          new_string:
+            "## Navigation\n\n```\n1. info → metadata\n2. scan → summaries (most recent first)\n3. peek → expanded last turn\n```\n",
         }}
         toolUseId="tool-185-regression"
         sessionId="session-185-test"
@@ -1362,16 +1373,18 @@ describe("Edit block rendering does not trigger React error #185", () => {
         name="Edit"
         input={{
           file_path: "/home/user/project/src/main.ts",
-          changes: [{
-            path: "src/main.ts",
-            diff: `--- a/src/main.ts
+          changes: [
+            {
+              path: "src/main.ts",
+              diff: `--- a/src/main.ts
 +++ b/src/main.ts
 @@ -1,3 +1,3 @@
  const x = 1;
 -const y = 2;
 +const y = 3;
  export { x, y };`,
-          }],
+            },
+          ],
         }}
         toolUseId="tool-185-unified-regression"
         sessionId="session-185-unified"
@@ -1471,7 +1484,9 @@ describe("parseBoardFromResult", () => {
   });
 
   it("parses board JSON followed by text table (non --json mode)", () => {
-    const board = [{ questId: "q-42", title: "Test", worker: "abc", workerNum: 5, status: "DISPATCHED", updatedAt: 100 }];
+    const board = [
+      { questId: "q-42", title: "Test", worker: "abc", workerNum: 5, status: "DISPATCHED", updatedAt: 100 },
+    ];
     const json = JSON.stringify({ __takode_board__: true, board }, null, 2);
     const mixed = json + "\n\nQuest   Title  Worker  State\nq-42    Test   #5      DISPATCHED\n";
     expect(parseBoardFromResult(mixed)).toEqual(board);

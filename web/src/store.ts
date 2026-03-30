@@ -283,7 +283,11 @@ interface AppState {
 
   // Message actions
   appendMessage: (sessionId: string, msg: ChatMessage) => void;
-  setMessages: (sessionId: string, msgs: ChatMessage[], options?: { frozenCount?: number; frozenHash?: string }) => void;
+  setMessages: (
+    sessionId: string,
+    msgs: ChatMessage[],
+    options?: { frozenCount?: number; frozenHash?: string },
+  ) => void;
   setHistoryLoading: (sessionId: string, loading: boolean) => void;
   setPendingCodexInputs: (sessionId: string, inputs: PendingCodexInput[]) => void;
   updateMessage: (sessionId: string, msgId: string, updates: Partial<ChatMessage>) => void;

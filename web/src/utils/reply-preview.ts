@@ -8,10 +8,7 @@
  *
  * Caps at ~200 characters with ellipsis.
  */
-export function generateReplyPreview(
-  targetContent: string,
-  otherAssistantContents: string[],
-): string {
+export function generateReplyPreview(targetContent: string, otherAssistantContents: string[]): string {
   const lines = targetContent.split("\n").filter((l) => l.trim().length > 0);
   if (lines.length === 0) return "(empty message)";
 

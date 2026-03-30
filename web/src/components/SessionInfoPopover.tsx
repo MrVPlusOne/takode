@@ -1,6 +1,12 @@
 import { useEffect, useRef, useCallback } from "react";
 import { useStore } from "../store.js";
-import { GitHubPRSection, McpCollapsible, ClaudeMdCollapsible, HerdDiagnosticsSection, SystemPromptCollapsible } from "./TaskPanel.js";
+import {
+  GitHubPRSection,
+  McpCollapsible,
+  ClaudeMdCollapsible,
+  HerdDiagnosticsSection,
+  SystemPromptCollapsible,
+} from "./TaskPanel.js";
 import { shortenHome } from "../utils/path-display.js";
 import { formatModel } from "../utils/backends.js";
 import { coalesceSessionViewModel } from "../utils/session-view-model.js";
@@ -40,7 +46,10 @@ export function SessionInfoPopover({ sessionId, onClose }: { sessionId: string; 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       const targetEl = e.target instanceof Element ? e.target : null;
-      if (targetEl?.closest("[data-claude-md-editor-root='true']") || targetEl?.closest("[data-session-info-modal='true']")) {
+      if (
+        targetEl?.closest("[data-claude-md-editor-root='true']") ||
+        targetEl?.closest("[data-session-info-modal='true']")
+      ) {
         return;
       }
       if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {

@@ -16,9 +16,7 @@ describe("generateReplyPreview", () => {
     // but diverge on the second line.
     const target = "Let me help you with that.\nHere's approach A.\nMore details.";
     const others = ["Let me help you with that.\nHere's approach B.\nOther details."];
-    expect(generateReplyPreview(target, others)).toBe(
-      "Let me help you with that.\nHere's approach A.",
-    );
+    expect(generateReplyPreview(target, others)).toBe("Let me help you with that.\nHere's approach A.");
   });
 
   it("uses all lines as best effort when content is truly duplicated", () => {

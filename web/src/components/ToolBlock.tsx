@@ -1,4 +1,14 @@
-import { useState, useEffect, useRef, useMemo, useCallback, memo, Component, type ReactNode, type ErrorInfo } from "react";
+import {
+  useState,
+  useEffect,
+  useRef,
+  useMemo,
+  useCallback,
+  memo,
+  Component,
+  type ReactNode,
+  type ErrorInfo,
+} from "react";
 import { isSubagentToolName } from "../types.js";
 import { DiffViewer } from "./DiffViewer.js";
 import { MarkdownContent } from "./MarkdownContent.js";
@@ -370,11 +380,7 @@ function isTakodeBoardCommand(command: string): boolean {
  * creating a new object on every render, which would defeat Zustand's
  * Object.is equality check and cause infinite re-renders.
  */
-function useBoardData(
-  isBoardCommand: boolean,
-  sessionId: string | null,
-  toolUseId: string,
-): BoardRowData[] | null {
+function useBoardData(isBoardCommand: boolean, sessionId: string | null, toolUseId: string): BoardRowData[] | null {
   const previewContent = useStore((s) => {
     if (!isBoardCommand || !sessionId) return undefined;
     return s.toolResults.get(sessionId)?.get(toolUseId)?.content;
@@ -396,12 +402,17 @@ function useBoardData(
     }
     // Server truncated the preview -- fetch full result to get complete JSON
     let cancelled = false;
-    api.getToolResult(sessionId, toolUseId).then((full) => {
-      if (!cancelled) setBoardData(parseBoardFromResult(full?.content));
-    }).catch(() => {
-      if (!cancelled) setBoardData(null);
-    });
-    return () => { cancelled = true; };
+    api
+      .getToolResult(sessionId, toolUseId)
+      .then((full) => {
+        if (!cancelled) setBoardData(parseBoardFromResult(full?.content));
+      })
+      .catch(() => {
+        if (!cancelled) setBoardData(null);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [isBoardCommand, sessionId, toolUseId, previewContent, isTruncated]);
 
   return boardData;
@@ -438,12 +449,24 @@ export function extractFirstJsonObject(text: string): string | null {
   let escape = false;
   for (let i = start; i < text.length; i++) {
     const ch = text[i];
-    if (escape) { escape = false; continue; }
-    if (ch === "\\" && inString) { escape = true; continue; }
-    if (ch === '"') { inString = !inString; continue; }
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (ch === "\\" && inString) {
+      escape = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
     if (inString) continue;
     if (ch === "{") depth++;
-    else if (ch === "}") { depth--; if (depth === 0) return text.slice(start, i + 1); }
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) return text.slice(start, i + 1);
+    }
   }
   return null;
 }
@@ -452,11 +475,11 @@ export function extractFirstJsonObject(text: string): string | null {
 function TakodeNotifyPill({ category }: { category: "needs-input" | "review" }) {
   const isAction = category === "needs-input";
   return (
-    <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium ${
-      isAction
-        ? "bg-amber-400/15 text-amber-400"
-        : "bg-blue-500/15 text-blue-400"
-    }`}>
+    <div
+      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium ${
+        isAction ? "bg-amber-400/15 text-amber-400" : "bg-blue-500/15 text-blue-400"
+      }`}
+    >
       <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 shrink-0">
         {isAction ? (
           <path d="M8 1.5A3.5 3.5 0 004.5 5v2.5c0 .78-.26 1.54-.73 2.16L3 10.66V11.5h10v-.84l-.77-1A3.49 3.49 0 0111.5 7.5V5A3.5 3.5 0 008 1.5zM6.5 13a1.5 1.5 0 003 0h-3z" />
@@ -776,7 +799,15 @@ function getOpenFilePathForEditFile(parsed: ReturnType<typeof parseEditToolInput
  *  phase, so any component returned by that callback must NOT subscribe to the
  *  store -- otherwise Zustand notifications during render create an infinite
  *  re-render cascade (React error #185, maximum update depth exceeded). */
-const DiffOpenFileButton = memo(function DiffOpenFileButton({ filePath, cwd, line }: { filePath: string; cwd?: string | null; line: number }) {
+const DiffOpenFileButton = memo(function DiffOpenFileButton({
+  filePath,
+  cwd,
+  line,
+}: {
+  filePath: string;
+  cwd?: string | null;
+  line: number;
+}) {
   const absolutePath = resolveEmbeddedVsCodePath(filePath, cwd);
   if (!absolutePath) return null;
 
@@ -856,12 +887,7 @@ function EditToolDetail({ input, sessionId }: { input: Record<string, unknown>; 
 
   if (!oldStr && !newStr && unifiedDiff) {
     return (
-      <DiffViewer
-        unifiedDiff={unifiedDiff}
-        fileName={filePath}
-        mode="full"
-        renderHeaderActions={renderHeaderActions}
-      />
+      <DiffViewer unifiedDiff={unifiedDiff} fileName={filePath} mode="full" renderHeaderActions={renderHeaderActions} />
     );
   }
 
@@ -921,20 +947,13 @@ function WriteToolDetail({ input, sessionId }: { input: Record<string, unknown>;
   });
 
   const renderHeaderActions = useCallback(
-    (diffFilePath: string) => (
-      <DiffOpenFileButton filePath={diffFilePath} cwd={sessionCwd} line={1} />
-    ),
+    (diffFilePath: string) => <DiffOpenFileButton filePath={diffFilePath} cwd={sessionCwd} line={1} />,
     [sessionCwd],
   );
 
   if (!content && unifiedDiff) {
     return (
-      <DiffViewer
-        unifiedDiff={unifiedDiff}
-        fileName={filePath}
-        mode="full"
-        renderHeaderActions={renderHeaderActions}
-      />
+      <DiffViewer unifiedDiff={unifiedDiff} fileName={filePath} mode="full" renderHeaderActions={renderHeaderActions} />
     );
   }
 
@@ -962,14 +981,7 @@ function WriteToolDetail({ input, sessionId }: { input: Record<string, unknown>;
     );
   }
 
-  return (
-    <DiffViewer
-      newText={content}
-      fileName={filePath}
-      mode="full"
-      renderHeaderActions={renderHeaderActions}
-    />
-  );
+  return <DiffViewer newText={content} fileName={filePath} mode="full" renderHeaderActions={renderHeaderActions} />;
 }
 
 function ReadToolDetail({ input }: { input: Record<string, unknown> }) {

@@ -232,13 +232,19 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
     }
     let cancelled = false;
     const poll = () => {
-      api.getCaffeinateStatus().then((s) => {
-        if (!cancelled) setCaffeinateStatus(s);
-      }).catch(() => {});
+      api
+        .getCaffeinateStatus()
+        .then((s) => {
+          if (!cancelled) setCaffeinateStatus(s);
+        })
+        .catch(() => {});
     };
     poll();
     const id = setInterval(poll, 5_000);
-    return () => { cancelled = true; clearInterval(id); };
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
   }, [sleepInhibitorEnabled]);
 
   // Tick every second to update elapsed/countdown display
@@ -829,8 +835,8 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
               <span className="text-sm font-medium text-cc-fg">Prevent Sleep During Generation</span>
               <p className="mt-0.5 text-xs text-cc-muted">
                 Keep your Mac awake while sessions are actively generating. Applies to this server instance -- all
-                sessions managed by this Takode server share the same setting. Uses macOS caffeinate. No effect on
-                other platforms.
+                sessions managed by this Takode server share the same setting. Uses macOS caffeinate. No effect on other
+                platforms.
               </p>
             </div>
             <button
@@ -849,44 +855,45 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
               </span>
             </button>
 
-            {sleepInhibitorEnabled && (() => {
-              // Use caffeinateTick to keep the display alive (re-renders every second)
-              void caffeinateTick;
-              const now = Date.now();
-              const { active, engagedAt, expiresAt } = caffeinateStatus;
-              const fmtDuration = (ms: number) => {
-                const totalSec = Math.max(0, Math.floor(ms / 1000));
-                const m = Math.floor(totalSec / 60);
-                const s = totalSec % 60;
-                return m > 0 ? `${m}m ${s}s` : `${s}s`;
-              };
-              if (!active || !engagedAt || !expiresAt) {
+            {sleepInhibitorEnabled &&
+              (() => {
+                // Use caffeinateTick to keep the display alive (re-renders every second)
+                void caffeinateTick;
+                const now = Date.now();
+                const { active, engagedAt, expiresAt } = caffeinateStatus;
+                const fmtDuration = (ms: number) => {
+                  const totalSec = Math.max(0, Math.floor(ms / 1000));
+                  const m = Math.floor(totalSec / 60);
+                  const s = totalSec % 60;
+                  return m > 0 ? `${m}m ${s}s` : `${s}s`;
+                };
+                if (!active || !engagedAt || !expiresAt) {
+                  return (
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-cc-hover text-xs text-cc-muted">
+                      <span className="w-2 h-2 rounded-full bg-cc-muted/40 shrink-0" />
+                      <span>Idle -- no sessions generating</span>
+                    </div>
+                  );
+                }
+                const remaining = expiresAt - now;
+                if (remaining <= 0) {
+                  return (
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-cc-hover text-xs text-cc-muted">
+                      <span className="w-2 h-2 rounded-full bg-cc-muted/40 shrink-0" />
+                      <span>Idle -- caffeinate expired</span>
+                    </div>
+                  );
+                }
+                const elapsed = now - engagedAt;
                 return (
-                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-cc-hover text-xs text-cc-muted">
-                    <span className="w-2 h-2 rounded-full bg-cc-muted/40 shrink-0" />
-                    <span>Idle -- no sessions generating</span>
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-cc-hover text-xs text-cc-fg">
+                    <span className="w-2 h-2 rounded-full bg-green-500 shrink-0 animate-pulse" />
+                    <span>
+                      Awake for {fmtDuration(elapsed)} · expires in {fmtDuration(remaining)}
+                    </span>
                   </div>
                 );
-              }
-              const remaining = expiresAt - now;
-              if (remaining <= 0) {
-                return (
-                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-cc-hover text-xs text-cc-muted">
-                    <span className="w-2 h-2 rounded-full bg-cc-muted/40 shrink-0" />
-                    <span>Idle -- caffeinate expired</span>
-                  </div>
-                );
-              }
-              const elapsed = now - engagedAt;
-              return (
-                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-cc-hover text-xs text-cc-fg">
-                  <span className="w-2 h-2 rounded-full bg-green-500 shrink-0 animate-pulse" />
-                  <span>
-                    Awake for {fmtDuration(elapsed)} · expires in {fmtDuration(remaining)}
-                  </span>
-                </div>
-              );
-            })()}
+              })()}
 
             {sleepInhibitorEnabled && (
               <div>

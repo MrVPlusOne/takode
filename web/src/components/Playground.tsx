@@ -2654,10 +2654,7 @@ export function Playground() {
           <div className="max-w-3xl">
             <Card label="Short preview text">
               <div className="bg-cc-input-bg border border-cc-border rounded-[14px] overflow-hidden">
-                <ReplyChip
-                  previewText="Here's the implementation plan for the reply feature..."
-                  onDismiss={() => {}}
-                />
+                <ReplyChip previewText="Here's the implementation plan for the reply feature..." onDismiss={() => {}} />
                 <div className="px-4 py-3 text-cc-muted text-sm italic">(Composer textarea would be here)</div>
               </div>
             </Card>
@@ -2741,11 +2738,34 @@ export function Playground() {
         >
           <div className="max-w-3xl space-y-4">
             <Card label="Board with items">
-              <BoardBlock board={[
-                { questId: "q-42", title: "Fix mobile sidebar overflow", worker: "abc123", workerNum: 5, status: "IMPLEMENTING", updatedAt: Date.now() - 60000 },
-                { questId: "q-55", title: "Add dark mode toggle", worker: "def456", workerNum: 8, status: "QUEUED", waitFor: ["q-42"], updatedAt: Date.now() - 30000 },
-                { questId: "q-61", title: "Optimize DB queries", status: "QUEUED", waitFor: ["q-50", "q-51"], updatedAt: Date.now() },
-              ]} />
+              <BoardBlock
+                board={[
+                  {
+                    questId: "q-42",
+                    title: "Fix mobile sidebar overflow",
+                    worker: "abc123",
+                    workerNum: 5,
+                    status: "IMPLEMENTING",
+                    updatedAt: Date.now() - 60000,
+                  },
+                  {
+                    questId: "q-55",
+                    title: "Add dark mode toggle",
+                    worker: "def456",
+                    workerNum: 8,
+                    status: "QUEUED",
+                    waitFor: ["q-42"],
+                    updatedAt: Date.now() - 30000,
+                  },
+                  {
+                    questId: "q-61",
+                    title: "Optimize DB queries",
+                    status: "QUEUED",
+                    waitFor: ["q-50", "q-51"],
+                    updatedAt: Date.now(),
+                  },
+                ]}
+              />
             </Card>
             <Card label="Empty board">
               <BoardBlock board={[]} />
@@ -3634,7 +3654,9 @@ export function Playground() {
                 <div className="space-y-0">
                   <div className="flex items-center gap-1.5 text-[11px] text-cc-muted font-mono-code pl-9 py-0.5 leading-snug">
                     <span className="text-amber-500/60 shrink-0">◇</span>
-                    <span className="truncate">#34 | turn_end | ✓ 56.3s | tools: Read(3), Grep(2) | &quot;Refactored auth middleware&quot;</span>
+                    <span className="truncate">
+                      #34 | turn_end | ✓ 56.3s | tools: Read(3), Grep(2) | &quot;Refactored auth middleware&quot;
+                    </span>
                   </div>
                   <div className="flex items-center gap-1.5 text-[11px] text-cc-muted font-mono-code pl-9 py-0.5 leading-snug">
                     <span className="text-amber-500/60 shrink-0">◇</span>
@@ -3642,7 +3664,9 @@ export function Playground() {
                   </div>
                   <div className="flex items-center gap-1.5 text-[11px] text-cc-muted font-mono-code pl-9 py-0.5 leading-snug">
                     <span className="text-amber-500/60 shrink-0">◇</span>
-                    <span className="truncate">#34 | turn_end | ✓ 12.1s | tools: Edit(1) | &quot;Added tests&quot;</span>
+                    <span className="truncate">
+                      #34 | turn_end | ✓ 12.1s | tools: Edit(1) | &quot;Added tests&quot;
+                    </span>
                   </div>
                   <div className="flex items-center gap-1.5 text-[11px] text-cc-muted font-mono-code pl-9 py-0.5 leading-snug">
                     <span className="text-amber-500/60 shrink-0">◇</span>
@@ -3655,7 +3679,9 @@ export function Playground() {
               <div className="py-2">
                 <div className="flex items-center gap-1.5 text-[11px] text-cc-muted font-mono-code pl-9 py-0.5 leading-snug">
                   <span className="text-amber-500/60 shrink-0">◇</span>
-                  <span className="truncate">#34 | turn_end | ✓ 56.3s | tools: Read(3), Grep(2) | &quot;Refactored auth middleware&quot;</span>
+                  <span className="truncate">
+                    #34 | turn_end | ✓ 56.3s | tools: Read(3), Grep(2) | &quot;Refactored auth middleware&quot;
+                  </span>
                 </div>
               </div>
             </Card>

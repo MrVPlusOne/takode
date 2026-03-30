@@ -26,7 +26,11 @@ import { SidebarUsageBar } from "./SidebarUsageBar.js";
 import { YarnBallSpinner } from "./CatIcons.js";
 import { deriveSessionStatus } from "./SessionStatusDot.js";
 
-import { groupSessionsByProject, nestReviewerSessions, type SessionItem as SessionItemType } from "../utils/project-grouping.js";
+import {
+  groupSessionsByProject,
+  nestReviewerSessions,
+  type SessionItem as SessionItemType,
+} from "../utils/project-grouping.js";
 import { isDesktopShellLayout } from "../utils/layout.js";
 import {
   buildHerdGroupBadgeThemes,

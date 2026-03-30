@@ -629,31 +629,34 @@ async function handleList(base: string, args: string[]): Promise<void> {
   );
 }
 
-function printSessionLine(s: {
-  sessionNum?: number;
-  name?: string;
-  state: string;
-  cliConnected?: boolean;
-  archived?: boolean;
-  isOrchestrator?: boolean;
-  isAssistant?: boolean;
-  herdedBy?: string;
-  reviewerOf?: number;
-  model?: string;
-  backendType?: string;
-  cwd?: string;
-  gitBranch?: string;
-  gitAhead?: number;
-  gitBehind?: number;
-  totalLinesAdded?: number;
-  totalLinesRemoved?: number;
-  attentionReason?: string;
-  lastActivityAt?: number;
-  lastMessagePreview?: string;
-  isWorktree?: boolean;
-  claimedQuestId?: string | null;
-  claimedQuestStatus?: string | null;
-}, opts?: { indent?: boolean }): void {
+function printSessionLine(
+  s: {
+    sessionNum?: number;
+    name?: string;
+    state: string;
+    cliConnected?: boolean;
+    archived?: boolean;
+    isOrchestrator?: boolean;
+    isAssistant?: boolean;
+    herdedBy?: string;
+    reviewerOf?: number;
+    model?: string;
+    backendType?: string;
+    cwd?: string;
+    gitBranch?: string;
+    gitAhead?: number;
+    gitBehind?: number;
+    totalLinesAdded?: number;
+    totalLinesRemoved?: number;
+    attentionReason?: string;
+    lastActivityAt?: number;
+    lastMessagePreview?: string;
+    isWorktree?: boolean;
+    claimedQuestId?: string | null;
+    claimedQuestStatus?: string | null;
+  },
+  opts?: { indent?: boolean },
+): void {
   const prefix = opts?.indent ? "    " : "  ";
   const num = s.sessionNum !== undefined ? `#${s.sessionNum}` : "  ";
   const name = formatInlineText(s.name || "(unnamed)");
@@ -696,8 +699,8 @@ function printSessionLine(s: {
  * Returns the number of sessions printed.
  */
 function printNestedSessions(
-  sessions: Parameters<typeof printSessionLine>[0]
-    & { sessionNum?: number; reviewerOf?: number; taskHistory?: Array<{ title: string; timestamp: number }> }[],
+  sessions: Parameters<typeof printSessionLine>[0] &
+    { sessionNum?: number; reviewerOf?: number; taskHistory?: Array<{ title: string; timestamp: number }> }[],
   showTasks: boolean,
 ): number {
   const reviewersByParent = new Map<number, typeof sessions>();
@@ -1105,7 +1108,9 @@ function printExpandedMessages(messages: PeekMessage[]): void {
 
     switch (msg.type) {
       case "user":
-        console.log(`  ${idx.padEnd(7)} ${time}  ${userSourceLabel(msg)}  "${truncate(msg.content, TAKODE_PEEK_CONTENT_LIMIT)}"`);
+        console.log(
+          `  ${idx.padEnd(7)} ${time}  ${userSourceLabel(msg)}  "${truncate(msg.content, TAKODE_PEEK_CONTENT_LIMIT)}"`,
+        );
         break;
       case "assistant": {
         const text = msg.content.trim();
@@ -1269,7 +1274,9 @@ function printPeekRange(d: PeekRangeResponse, sessionRef: string, count: number)
 
     switch (msg.type) {
       case "user":
-        console.log(`  ${idx.padEnd(7)} ${time}  ${userSourceLabel(msg)}  "${truncate(msg.content, TAKODE_PEEK_CONTENT_LIMIT)}"`);
+        console.log(
+          `  ${idx.padEnd(7)} ${time}  ${userSourceLabel(msg)}  "${truncate(msg.content, TAKODE_PEEK_CONTENT_LIMIT)}"`,
+        );
         break;
       case "assistant": {
         const text = msg.content.trim();
@@ -1791,24 +1798,21 @@ async function handleSpawn(base: string, args: string[]): Promise<void> {
         sessionNum?: number;
         cwd?: string;
       }>;
-      const existingReviewer = allSessions.find(
-        (s) => !s.archived && s.reviewerOf === reviewerOfNum,
-      );
+      const existingReviewer = allSessions.find((s) => !s.archived && s.reviewerOf === reviewerOfNum);
       if (existingReviewer) {
-        const existingLabel = existingReviewer.sessionNum !== undefined
-          ? `#${existingReviewer.sessionNum}`
-          : existingReviewer.sessionId.slice(0, 8);
+        const existingLabel =
+          existingReviewer.sessionNum !== undefined
+            ? `#${existingReviewer.sessionNum}`
+            : existingReviewer.sessionId.slice(0, 8);
         err(
           `Session #${reviewerOfNum} already has an active reviewer (${existingLabel}). ` +
-          `Stop it first with \`takode stop ${existingLabel}\`.`,
+            `Stop it first with \`takode stop ${existingLabel}\`.`,
         );
       }
 
       // Inherit the parent worker's cwd so the reviewer lands in the same
       // sidebar project group. repoRoot is inferred by the server from cwd.
-      const parentSession = allSessions.find(
-        (s) => s.sessionNum === reviewerOfNum && !s.archived,
-      );
+      const parentSession = allSessions.find((s) => s.sessionNum === reviewerOfNum && !s.archived);
       if (parentSession?.cwd?.trim() && typeof flags.cwd !== "string") {
         cwd = parentSession.cwd;
       }
@@ -1951,7 +1955,9 @@ async function handleRename(base: string, args: string[]): Promise<void> {
     return;
   }
 
-  console.log(`[${formatTime(Date.now())}] ✓ Renamed session ${formatInlineText(sessionRef)} → "${formatInlineText(result.name || name.trim())}"`);
+  console.log(
+    `[${formatTime(Date.now())}] ✓ Renamed session ${formatInlineText(sessionRef)} → "${formatInlineText(result.name || name.trim())}"`,
+  );
 }
 
 // ─── Stop handler ───────────────────────────────────────────────────────────
@@ -2464,14 +2470,20 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
 
   if (sub === "add" || sub === "set") {
     const questId = args[1];
-    if (!questId) err(`Usage: takode board ${sub} <quest-id> [--worker <session>] [--status "..."] [--title "..."] [--wait-for q-X,q-Y] [--json]`);
+    if (!questId)
+      err(
+        `Usage: takode board ${sub} <quest-id> [--worker <session>] [--status "..."] [--title "..."] [--wait-for q-X,q-Y] [--json]`,
+      );
     const flags = parseFlags(args.slice(2));
 
     const body: Record<string, unknown> = { questId };
     if (typeof flags.status === "string") body.status = flags.status;
     if (typeof flags.title === "string") body.title = flags.title;
     if (typeof flags["wait-for"] === "string") {
-      const waitFor = flags["wait-for"].split(",").map((s: string) => s.trim()).filter(Boolean);
+      const waitFor = flags["wait-for"]
+        .split(",")
+        .map((s: string) => s.trim())
+        .filter(Boolean);
       body.waitFor = waitFor;
     }
     if (typeof flags.worker === "string") {
@@ -2527,10 +2539,9 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
     if (questIds.length === 0) err("Usage: takode board rm <quest-id> [<quest-id> ...] [--json]");
     const flags = parseFlags(args.slice(1));
 
-    const result = (await apiDelete(
-      base,
-      `/sessions/${encodeURIComponent(selfId)}/board/${questIds.join(",")}`,
-    )) as { board: BoardRow[] };
+    const result = (await apiDelete(base, `/sessions/${encodeURIComponent(selfId)}/board/${questIds.join(",")}`)) as {
+      board: BoardRow[];
+    };
     outputBoard(result.board, flags.json === true);
     return;
   }
@@ -2735,12 +2746,16 @@ async function handleScan(base: string, args: string[]): Promise<void> {
     hints.push(`Older: takode scan ${safeSessionRef} --until ${data.fromTurn} --count ${turnCount}`);
   }
   if (data.fromTurn + data.returnedTurns < data.totalTurns) {
-    hints.push(`Newer: takode scan ${safeSessionRef} --from ${data.fromTurn + data.returnedTurns} --count ${turnCount}`);
+    hints.push(
+      `Newer: takode scan ${safeSessionRef} --from ${data.fromTurn + data.returnedTurns} --count ${turnCount}`,
+    );
   }
   if (hints.length > 0) {
     console.log(hints.join("  |  "));
   }
-  console.log(`Expand: takode peek ${safeSessionRef} --turn <N>  |  Full message: takode read ${safeSessionRef} <msg-id>`);
+  console.log(
+    `Expand: takode peek ${safeSessionRef} --turn <N>  |  Full message: takode read ${safeSessionRef} <msg-id>`,
+  );
 }
 
 // ─── Grep handler ────────────────────────────────────────────────────────────
@@ -2779,7 +2794,11 @@ async function handleGrep(base: string, args: string[]): Promise<void> {
       }
     }
   }
-  const query = args.slice(1).filter((_, i) => !flagConsumed.has(i + 1)).join(" ").trim();
+  const query = args
+    .slice(1)
+    .filter((_, i) => !flagConsumed.has(i + 1))
+    .join(" ")
+    .trim();
 
   if (!query) err("Usage: takode grep <session> <pattern> [--type user|assistant|result] [--count N] [--json]");
 

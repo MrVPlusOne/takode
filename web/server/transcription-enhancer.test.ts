@@ -417,11 +417,7 @@ describe("buildVoiceAppendPrompt", () => {
   });
 
   it("includes existing draft and new speech in dedicated XML blocks", () => {
-    const prompt = buildVoiceAppendPrompt(
-      "and also fix the sidebar overflow",
-      "Fix the auth bug in middleware.",
-      "",
-    );
+    const prompt = buildVoiceAppendPrompt("and also fix the sidebar overflow", "Fix the auth bug in middleware.", "");
     expect(prompt).toContain("<EXISTING_DRAFT>");
     expect(prompt).toContain("Fix the auth bug in middleware.");
     expect(prompt).toContain("</EXISTING_DRAFT>");
@@ -463,12 +459,9 @@ describe("buildVoiceAppendPrompt", () => {
   });
 
   it("places blocks in correct order: session > conversation > draft > speech", () => {
-    const prompt = buildVoiceAppendPrompt(
-      "new content",
-      "existing content",
-      "[user]\n    context",
-      { sessionName: "Test session" },
-    );
+    const prompt = buildVoiceAppendPrompt("new content", "existing content", "[user]\n    context", {
+      sessionName: "Test session",
+    });
     const sessIdx = prompt.indexOf("<SESSION_CONTEXT>");
     const convIdx = prompt.indexOf("<CONVERSATION_CONTEXT>");
     const draftIdx = prompt.indexOf("<EXISTING_DRAFT>");

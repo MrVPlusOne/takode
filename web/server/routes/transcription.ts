@@ -172,7 +172,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
             taskHistory: wsBridge.getSessionTaskHistory(sessionId),
             sessionName: sessionNames.getName(sessionId),
             activeSessionNames: recentOtherNames.length > 0 ? recentOtherNames : undefined,
-            composerText: (mode === "edit" || mode === "append") ? composerText : undefined,
+            composerText: mode === "edit" || mode === "append" ? composerText : undefined,
             messageHistory: wsBridge.getMessageHistory(sessionId),
             customVocabulary: getSettings().transcriptionConfig.customVocabulary || undefined,
           });
@@ -236,7 +236,13 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
             rawText,
             backend: usedBackend,
             willEnhance: willEnhanceDictation,
-            nextPhase: willRunVoiceEdit ? "editing" : willRunVoiceAppend ? "appending" : willEnhanceDictation ? "enhancing" : null,
+            nextPhase: willRunVoiceEdit
+              ? "editing"
+              : willRunVoiceAppend
+                ? "appending"
+                : willEnhanceDictation
+                  ? "enhancing"
+                  : null,
             mode,
           }),
         });

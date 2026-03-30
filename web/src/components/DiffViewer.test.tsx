@@ -331,16 +331,16 @@ diff --git a/b.ts b/b.ts
       "#### Navigation workflow",
       "",
       "```",
-      '1. takode info 1               \u2192 Session metadata: backend, git, quest, metrics',
-      '2. takode tasks 1              \u2192 Table of contents: tasks with msg ranges',
-      '3. takode scan 1               \u2192 Turn-level scan: collapsed summaries across the session',
-      '4. takode peek 1               \u2192 Overview: collapsed turns + expanded last turn',
-      '5. takode peek 1 --turn 5      \u2192 Expand turn 5 (use turn number from scan)',
-      '6. takode peek 1 --task 3      \u2192 Browse task 3\'s messages',
-      '7. takode peek 1 --from 800    \u2192 Browse messages [800]-[860] in detail',
-      '8. takode read 1 815           \u2192 Full content of message 815',
+      "1. takode info 1               \u2192 Session metadata: backend, git, quest, metrics",
+      "2. takode tasks 1              \u2192 Table of contents: tasks with msg ranges",
+      "3. takode scan 1               \u2192 Turn-level scan: collapsed summaries across the session",
+      "4. takode peek 1               \u2192 Overview: collapsed turns + expanded last turn",
+      "5. takode peek 1 --turn 5      \u2192 Expand turn 5 (use turn number from scan)",
+      "6. takode peek 1 --task 3      \u2192 Browse task 3's messages",
+      "7. takode peek 1 --from 800    \u2192 Browse messages [800]-[860] in detail",
+      "8. takode read 1 815           \u2192 Full content of message 815",
       '9. takode grep 1 "query"       \u2192 Search within session messages',
-      '10. takode export 1 /tmp/s1.txt \u2192 Dump full session for offline analysis',
+      "10. takode export 1 /tmp/s1.txt \u2192 Dump full session for offline analysis",
       "```",
     ].join("\n");
 
@@ -348,18 +348,18 @@ diff --git a/b.ts b/b.ts
       "#### Navigation workflow",
       "",
       "```",
-      '1. takode info 1                          \u2192 Session metadata: backend, git, quest, metrics',
-      '2. takode tasks 1                         \u2192 Table of contents: tasks with msg ranges',
-      '3. takode scan 1                          \u2192 Turn-level scan (most recent first)',
-      '4. takode scan 1 --from 0                 \u2192 Scan from the beginning',
-      '5. takode peek 1                          \u2192 Overview: collapsed turns + expanded last turn',
-      '6. takode peek 1 --turn 5                 \u2192 Expand turn 5 (use turn number from scan)',
-      '7. takode peek 1 --task 3                 \u2192 Browse task 3\'s messages',
-      '8. takode peek 1 --from 800              \u2192 Browse messages [800]-[860] in detail',
-      '9. takode read 1 815                      \u2192 Full content of message 815',
+      "1. takode info 1                          \u2192 Session metadata: backend, git, quest, metrics",
+      "2. takode tasks 1                         \u2192 Table of contents: tasks with msg ranges",
+      "3. takode scan 1                          \u2192 Turn-level scan (most recent first)",
+      "4. takode scan 1 --from 0                 \u2192 Scan from the beginning",
+      "5. takode peek 1                          \u2192 Overview: collapsed turns + expanded last turn",
+      "6. takode peek 1 --turn 5                 \u2192 Expand turn 5 (use turn number from scan)",
+      "7. takode peek 1 --task 3                 \u2192 Browse task 3's messages",
+      "8. takode peek 1 --from 800              \u2192 Browse messages [800]-[860] in detail",
+      "9. takode read 1 815                      \u2192 Full content of message 815",
       '10. takode grep 1 "query"                 \u2192 Search within session messages (regex)',
       '11. takode grep 1 "error" --type user     \u2192 Search only user messages',
-      '12. takode export 1 /tmp/s1.txt           \u2192 Dump full session for offline analysis',
+      "12. takode export 1 /tmp/s1.txt           \u2192 Dump full session for offline analysis",
       "```",
     ].join("\n");
 
@@ -383,9 +383,7 @@ diff --git a/b.ts b/b.ts
 
     // Passing non-string values coerced via String() shouldn't crash.
     // The try/catch in the data useMemo ensures graceful fallback.
-    const { container } = render(
-      <DiffViewer oldText="hello world" newText="hello updated world" fileName="test.md" />,
-    );
+    const { container } = render(<DiffViewer oldText="hello world" newText="hello updated world" fileName="test.md" />);
 
     // Should render normally (this specific input doesn't trigger an error,
     // but validates the render path is intact after adding try/catch guards)

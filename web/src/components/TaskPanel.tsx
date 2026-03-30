@@ -678,9 +678,7 @@ export function SystemPromptCollapsible({ sessionId }: { sessionId: string }) {
           )}
         </div>
       )}
-      {modalOpen && prompt && (
-        <SystemPromptModal prompt={prompt} onClose={() => setModalOpen(false)} />
-      )}
+      {modalOpen && prompt && <SystemPromptModal prompt={prompt} onClose={() => setModalOpen(false)} />}
     </>
   );
 }

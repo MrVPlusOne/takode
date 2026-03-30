@@ -744,7 +744,7 @@ export function buildSttPrompt(input: SttPromptInput): string {
       ? "The audio is a spoken edit instruction for the current draft. TRANSCRIBE THE INSTRUCTION EXACTLY AS SPOKEN. Output ONLY the transcribed instruction text."
       : input.mode === "append"
         ? "The audio is new text to append to the current draft. TRANSCRIBE THE SPEECH EXACTLY AS SPOKEN. Output ONLY the transcribed words."
-      : "TRANSCRIBE THE FOLLOWING AUDIO EXACTLY AS SPOKEN. Output ONLY the transcribed words.",
+        : "TRANSCRIBE THE FOLLOWING AUDIO EXACTLY AS SPOKEN. Output ONLY the transcribed words.",
   );
 
   return sections.join("\n");

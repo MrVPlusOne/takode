@@ -1225,7 +1225,7 @@ async function cmdResizeImage(): Promise<void> {
   } else {
     console.log(
       `Resized: ${meta.width}×${meta.height} → ${after.width}×${after.height}  ` +
-      `(${(buf.length / 1024).toFixed(0)}KB → ${(resized.length / 1024).toFixed(0)}KB)  ${imagePath}`,
+        `(${(buf.length / 1024).toFixed(0)}KB → ${(resized.length / 1024).toFixed(0)}KB)  ${imagePath}`,
     );
   }
 }

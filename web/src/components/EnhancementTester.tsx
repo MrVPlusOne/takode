@@ -56,15 +56,17 @@ export function EnhancementTester() {
 
       {open && (
         <div className="mt-3 space-y-3">
-          <p className="text-xs text-cc-muted">
-            Test the enhancement pipeline on raw text without recording audio.
-          </p>
+          <p className="text-xs text-cc-muted">Test the enhancement pipeline on raw text without recording audio.</p>
 
           {/* Context indicator */}
           <p className="text-xs text-cc-muted">
-            {currentSessionId
-              ? <>Context: <span className="text-cc-fg font-medium">{sessionName || currentSessionId.slice(0, 8)}</span></>
-              : "No active session -- running without conversation context"}
+            {currentSessionId ? (
+              <>
+                Context: <span className="text-cc-fg font-medium">{sessionName || currentSessionId.slice(0, 8)}</span>
+              </>
+            ) : (
+              "No active session -- running without conversation context"
+            )}
           </p>
 
           {/* Raw text input */}
@@ -83,9 +85,7 @@ export function EnhancementTester() {
                 type="button"
                 onClick={() => setMode("default")}
                 className={`px-3 py-1.5 text-xs cursor-pointer transition-colors ${
-                  mode === "default"
-                    ? "bg-cc-primary text-white"
-                    : "bg-cc-input-bg text-cc-muted hover:text-cc-fg"
+                  mode === "default" ? "bg-cc-primary text-white" : "bg-cc-input-bg text-cc-muted hover:text-cc-fg"
                 }`}
               >
                 Prose
@@ -94,9 +94,7 @@ export function EnhancementTester() {
                 type="button"
                 onClick={() => setMode("bullet")}
                 className={`px-3 py-1.5 text-xs cursor-pointer transition-colors ${
-                  mode === "bullet"
-                    ? "bg-cc-primary text-white"
-                    : "bg-cc-input-bg text-cc-muted hover:text-cc-fg"
+                  mode === "bullet" ? "bg-cc-primary text-white" : "bg-cc-input-bg text-cc-muted hover:text-cc-fg"
                 }`}
               >
                 Bullet Points
@@ -127,12 +125,18 @@ export function EnhancementTester() {
               <div className="flex items-center gap-3 text-xs text-cc-muted">
                 {result.debug && (
                   <>
-                    <span>Model: <span className="font-mono text-cc-fg">{result.debug.model}</span></span>
+                    <span>
+                      Model: <span className="font-mono text-cc-fg">{result.debug.model}</span>
+                    </span>
                     <span>{result.debug.durationMs}ms</span>
                   </>
                 )}
                 <span className={result.wasEnhanced ? "text-cc-success" : "text-cc-warning"}>
-                  {result.wasEnhanced ? "enhanced" : result.debug?.skipReason ? `skipped: ${result.debug.skipReason}` : "not enhanced"}
+                  {result.wasEnhanced
+                    ? "enhanced"
+                    : result.debug?.skipReason
+                      ? `skipped: ${result.debug.skipReason}`
+                      : "not enhanced"}
                 </span>
               </div>
 

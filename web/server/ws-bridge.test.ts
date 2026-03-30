@@ -1986,7 +1986,6 @@ describe("CLI message routing", () => {
     expect(contextUpdate).toBeDefined();
   });
 
-
   it("assistant: does not recursively re-inject reminder on system-triggered turns", () => {
     bridge.setLauncher({
       touchActivity: vi.fn(),
@@ -2545,7 +2544,6 @@ describe("CLI message routing", () => {
 
     expect(bridge.getSession("s1")!.attentionReason).toBeNull();
   });
-
 
   it("result: suppresses review attention for herded worker turns triggered by leader messages", async () => {
     bridge.setLauncher({
@@ -8348,7 +8346,6 @@ describe("Codex adapter result handling", () => {
     expect(session.toolResults.get("tool-1")?.content).toContain("Exit code: 2");
   });
 
-
   it("deduplicates replayed Codex assistant messages with identical timestamp and content", () => {
     const browser = makeBrowserSocket("s1");
     const adapter = makeCodexAdapterMock();
@@ -12202,9 +12199,7 @@ describe("Codex image transport", () => {
     // When original path lookup fails, an error should be sent to the browser
     // and no turn should be dispatched to the adapter.
     expect(adapter.sendBrowserMessage).not.toHaveBeenCalled();
-    expect(browser.send).toHaveBeenCalledWith(
-      expect.stringContaining("Image failed to send"),
-    );
+    expect(browser.send).toHaveBeenCalledWith(expect.stringContaining("Image failed to send"));
   });
 
   it("sends all Codex image attachments as ordered local paths for multi-image messages", async () => {
@@ -12387,10 +12382,7 @@ describe("Claude SDK adapter queue handoff", () => {
 
     const browser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(browser, sid);
-    bridge.handleBrowserMessage(
-      browser,
-      JSON.stringify({ type: "user_message", content: "hello sdk" }),
-    );
+    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "hello sdk" }));
 
     expect(delivered).toHaveLength(1);
     expect(delivered[0].content).toMatch(/^\[User \d{1,2}:\d{2}\s*[AP]M\] hello sdk$/);
@@ -13658,7 +13650,8 @@ describe("Cross-session branch invalidation", () => {
       const messages = calls.map((c: unknown[]) => JSON.parse(c[0] as string));
       // Should have received a session_update with refreshed git info
       const gitUpdates = messages.filter(
-        (m: any) => m.type === "session_update" && m.session && ("git_branch" in m.session || "total_lines_added" in m.session),
+        (m: any) =>
+          m.type === "session_update" && m.session && ("git_branch" in m.session || "total_lines_added" in m.session),
       );
       expect(gitUpdates.length).toBeGreaterThanOrEqual(1);
     });
@@ -14137,11 +14130,13 @@ describe("work board", () => {
     expect(board![0].updatedAt).toBeGreaterThan(0);
 
     // Verify broadcast to browser
-    const sent = browser.send.mock.calls.find(
-      (call: any[]) => {
-        try { return JSON.parse(call[0]).type === "board_updated"; } catch { return false; }
-      },
-    );
+    const sent = browser.send.mock.calls.find((call: any[]) => {
+      try {
+        return JSON.parse(call[0]).type === "board_updated";
+      } catch {
+        return false;
+      }
+    });
     expect(sent).toBeTruthy();
     const msg = JSON.parse(sent![0] as string);
     expect(msg.board).toHaveLength(1);

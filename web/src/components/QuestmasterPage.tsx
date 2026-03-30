@@ -2157,7 +2157,11 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
                                               <MarkdownContent
                                                 text={description}
                                                 size="sm"
-                                                searchHighlight={searchText ? { query: searchText, mode: "fuzzy", isCurrent: false } : null}
+                                                searchHighlight={
+                                                  searchText
+                                                    ? { query: searchText, mode: "fuzzy", isCurrent: false }
+                                                    : null
+                                                }
                                               />
                                             )}
 
@@ -2413,10 +2417,7 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
                                                                 </div>
                                                               ) : (
                                                                 <>
-                                                                  <MarkdownContent
-                                                                    text={entry.text}
-                                                                    size="sm"
-                                                                  />
+                                                                  <MarkdownContent text={entry.text} size="sm" />
                                                                   {entry.images && entry.images.length > 0 && (
                                                                     <div className="flex flex-wrap gap-1 mt-1">
                                                                       {entry.images.map((img) => (
@@ -2580,7 +2581,11 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
                                                 {/* Status transitions */}
                                                 {(() => {
                                                   const dropdownCfg = isCancelled
-                                                    ? { bg: "bg-red-500/10", text: "text-red-400", border: "border-red-500/20" }
+                                                    ? {
+                                                        bg: "bg-red-500/10",
+                                                        text: "text-red-400",
+                                                        border: "border-red-500/20",
+                                                      }
                                                     : cfg;
                                                   return (
                                                     <select
@@ -3045,7 +3050,11 @@ function QuestVersionHistory({ questId }: { questId: string }) {
               <span className="text-[10px] text-cc-muted/50 ml-auto">{timeAgo(ver.createdAt)}</span>
             </div>
             <div className="mt-1 text-cc-fg">{ver.title}</div>
-            {description && <div className="mt-0.5"><MarkdownContent text={description} size="sm" /></div>}
+            {description && (
+              <div className="mt-0.5">
+                <MarkdownContent text={description} size="sm" />
+              </div>
+            )}
           </div>
         );
       })}

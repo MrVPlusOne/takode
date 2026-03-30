@@ -633,13 +633,13 @@ export function createSessionsRoutes(ctx: RouteContext) {
       // Enforce one-reviewer-per-parent at the server level (prevents TOCTOU races
       // where two concurrent CLI spawn commands both pass the client-side check).
       if (typeof body.reviewerOf === "number") {
-        const existing = launcher.listSessions().find(
-          (s) => !s.archived && s.reviewerOf === body.reviewerOf,
-        );
+        const existing = launcher.listSessions().find((s) => !s.archived && s.reviewerOf === body.reviewerOf);
         if (existing) {
           const label = launcher.getSessionNum(existing.sessionId);
           return c.json(
-            { error: `Session #${body.reviewerOf} already has an active reviewer${label !== undefined ? ` (#${label})` : ""}` },
+            {
+              error: `Session #${body.reviewerOf} already has an active reviewer${label !== undefined ? ` (#${label})` : ""}`,
+            },
             409,
           );
         }
@@ -688,8 +688,10 @@ export function createSessionsRoutes(ctx: RouteContext) {
           return;
         }
 
-        const sessionConfig = await prepareSession(body, applyDefaultClaudeBackend(backend), (step, label, status, detail) =>
-          emitProgress(stream, step, label, status, detail),
+        const sessionConfig = await prepareSession(
+          body,
+          applyDefaultClaudeBackend(backend),
+          (step, label, status, detail) => emitProgress(stream, step, label, status, detail),
         );
 
         await emitProgress(
@@ -1531,9 +1533,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
       const allSessions = launcher.listSessions();
       for (const s of allSessions) {
         if (s.reviewerOf === archivedNum && !s.archived) {
-          console.log(
-            `[routes] Auto-stopping reviewer session ${s.sessionId} (reviewerOf=#${archivedNum})`,
-          );
+          console.log(`[routes] Auto-stopping reviewer session ${s.sessionId} (reviewerOf=#${archivedNum})`);
           await launcher.kill(s.sessionId);
           containerManager.removeContainer(s.sessionId);
           cleanupWorktree(s.sessionId, true);

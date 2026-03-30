@@ -22,15 +22,11 @@ function mockWsBridge(sessions: Record<string, { isGenerating: boolean }>) {
 
 function mockLauncher(entries: Array<{ sessionId: string; state?: string }>) {
   return {
-    listSessions: () =>
-      entries.map((e) => ({ sessionId: e.sessionId, state: e.state ?? "running" })),
+    listSessions: () => entries.map((e) => ({ sessionId: e.sessionId, state: e.state ?? "running" })),
   } as any;
 }
 
-function defaultSettings(overrides?: {
-  sleepInhibitorEnabled?: boolean;
-  sleepInhibitorDurationMinutes?: number;
-}) {
+function defaultSettings(overrides?: { sleepInhibitorEnabled?: boolean; sleepInhibitorDurationMinutes?: number }) {
   return {
     sleepInhibitorEnabled: false,
     sleepInhibitorDurationMinutes: 5,
@@ -260,11 +256,7 @@ describe("SleepInhibitor", () => {
         s2: { isGenerating: false },
         s3: { isGenerating: true },
       }),
-      launcher: mockLauncher([
-        { sessionId: "s1" },
-        { sessionId: "s2" },
-        { sessionId: "s3" },
-      ]),
+      launcher: mockLauncher([{ sessionId: "s1" }, { sessionId: "s2" }, { sessionId: "s3" }]),
       getSettings: () => defaultSettings({ sleepInhibitorEnabled: true }),
     });
 

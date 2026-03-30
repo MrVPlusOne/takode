@@ -578,7 +578,11 @@ export type BrowserIncomingMessageBase =
     }
   | { type: "session_deleted"; session_id: string }
   | { type: "session_created"; session_id: string }
-  | { type: "notification_anchored"; messageId: string | null; notification: { category: "needs-input" | "review"; timestamp: number } }
+  | {
+      type: "notification_anchored";
+      messageId: string | null;
+      notification: { category: "needs-input" | "review"; timestamp: number };
+    }
   | { type: "board_updated"; board: BoardRow[] };
 
 export type BrowserIncomingMessage = BrowserIncomingMessageBase & { seq?: number };

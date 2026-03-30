@@ -58,7 +58,12 @@ import type {
   TakodeTurnEndEventData,
   BoardRow,
 } from "./session-types.js";
-import { TOOL_RESULT_PREVIEW_LIMIT, assertNever, formatVsCodeSelectionPrompt, QUEST_JOURNEY_STATES } from "./session-types.js";
+import {
+  TOOL_RESULT_PREVIEW_LIMIT,
+  assertNever,
+  formatVsCodeSelectionPrompt,
+  QUEST_JOURNEY_STATES,
+} from "./session-types.js";
 import type { QuestJourneyState } from "./session-types.js";
 import type { SessionStore } from "./session-store.js";
 import type { CodexResumeSnapshot, CodexResumeTurnSnapshot, CodexSessionMeta } from "./codex-adapter.js";
@@ -1866,9 +1871,7 @@ export class WsBridge {
         relaunchPending: false,
         taskHistory: Array.isArray(p.taskHistory) ? p.taskHistory : [],
         keywords: Array.isArray(p.keywords) ? p.keywords : [],
-        board: new Map(
-          Array.isArray(p.board) ? p.board.map((row: BoardRow) => [row.questId, row]) : [],
-        ),
+        board: new Map(Array.isArray(p.board) ? p.board.map((row: BoardRow) => [row.questId, row]) : []),
         diffStatsDirty: true,
         evaluatingAborts: new Map(),
         cliResuming: false,
@@ -2343,10 +2346,10 @@ export class WsBridge {
       let diffRef = diffBase;
       if (!session.state.is_worktree) {
         try {
-          const { stdout: mbOut } = await execPromise(
-            `git --no-optional-locks merge-base ${diffBase} HEAD`,
-            { cwd, timeout: GIT_CMD_TIMEOUT },
-          );
+          const { stdout: mbOut } = await execPromise(`git --no-optional-locks merge-base ${diffBase} HEAD`, {
+            cwd,
+            timeout: GIT_CMD_TIMEOUT,
+          });
           const mb = mbOut.trim();
           if (mb) diffRef = mb;
         } catch {
@@ -2714,7 +2717,10 @@ export class WsBridge {
   }
 
   /** Notify the user by anchoring a notification to the most recent assistant message. */
-  notifyUser(sessionId: string, category: "needs-input" | "review"): { ok: true; anchoredMessageId: string | null } | { ok: false; error: string } {
+  notifyUser(
+    sessionId: string,
+    category: "needs-input" | "review",
+  ): { ok: true; anchoredMessageId: string | null } | { ok: false; error: string } {
     const session = this.sessions.get(sessionId);
     if (!session) return { ok: false, error: "Session not found" };
 
@@ -2731,12 +2737,12 @@ export class WsBridge {
     }
 
     // Set attention
-    const reason = category === "needs-input" ? "action" as const : "review" as const;
+    const reason = category === "needs-input" ? ("action" as const) : ("review" as const);
     this.setAttention(session, reason);
 
     // Fire Pushover
     if (this.pushoverNotifier) {
-      const eventType = category === "needs-input" ? "question" as const : "completed" as const;
+      const eventType = category === "needs-input" ? ("question" as const) : ("completed" as const);
       const detail = category === "needs-input" ? "Needs user input" : "Ready for review";
       this.pushoverNotifier.scheduleNotification(sessionId, eventType, detail);
     }
@@ -2777,7 +2783,7 @@ export class WsBridge {
     const existing = session.board.get(row.questId);
     // Helper: treat "" as a clear signal → undefined, absent field → keep existing
     const merge = <T>(incoming: T | undefined, fallback: T | undefined): T | undefined =>
-      incoming !== undefined ? (incoming || undefined) as T | undefined : fallback;
+      incoming !== undefined ? ((incoming || undefined) as T | undefined) : fallback;
     const clearingWorker = row.worker !== undefined && !row.worker;
     const merged: BoardRow = {
       questId: row.questId,
@@ -7632,9 +7638,7 @@ export class WsBridge {
       // and permissionMode need to be updated to match.
       if (pending?.tool_name === "EnterPlanMode") {
         this.handleSetPermissionMode(session, "plan");
-        console.log(
-          `[ws-bridge] EnterPlanMode approved for session ${sessionTag(session.id)}, switching to plan mode`,
-        );
+        console.log(`[ws-bridge] EnterPlanMode approved for session ${sessionTag(session.id)}, switching to plan mode`);
       }
     } else {
       const ndjson = JSON.stringify({
