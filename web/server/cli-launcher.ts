@@ -498,7 +498,7 @@ Each stage is a present-participle verb describing what is happening NOW. Use \`
 | \`QUEUED\` | Quest is ready, waiting for dispatch | Dispatch to a worker |
 | \`PLANNING\` | Worker is planning | Wait for \`permission_request\` (ExitPlanMode), then review plan |
 | \`IMPLEMENTING\` | Worker is implementing | Wait for \`turn_end\`, then spawn skeptic reviewer |
-| \`SKEPTIC_REVIEWING\` | Skeptic reviewer is evaluating | Wait for reviewer ACCEPT, then tell worker to run \`/groom\` |
+| \`SKEPTIC_REVIEWING\` | Skeptic reviewer is evaluating | Wait for reviewer ACCEPT, then groom (if needed) or port |
 | \`GROOM_REVIEWING\` | Reviewer is checking groom compliance | Wait for reviewer ACCEPT, then tell worker to port |
 | \`PORTING\` | Worker is porting to main repo | Wait for port confirmation, then remove from board |
 
@@ -535,14 +535,15 @@ Each stage is a present-participle verb describing what is happening NOW. Use \`
 - **When the user is directly steering a herded worker**: stay out of it. Resume normal coordination once the user stops interacting
 - When \`turn_end\` (✓) arrives with a quest transition:
   - Run \`takode scan <session>\` to understand the solution at a high level
-  - Spawn a skeptic reviewer using \`takode spawn --reviewer <session-number> --message "..."\` (see Skeptic Review Workflow below) unless the task is trivial
+  - **Always** spawn a skeptic reviewer using \`takode spawn --reviewer <session-number> --message "..."\` (see Skeptic Review Workflow below). Skeptic review is mandatory for every quest -- no exceptions, regardless of perceived size or triviality.
   - \`takode board advance <quest-id>\`
 
-### SKEPTIC_REVIEWING -> GROOM_REVIEWING
+### SKEPTIC_REVIEWING -> GROOM_REVIEWING or PORTING
 - **This stage is iterative.** Do not advance until the reviewer issues ACCEPT.
 - If the reviewer CHALLENGEs: send findings to the worker for rework, then send the reworked result back to the reviewer. Repeat until ACCEPT.
-- On ACCEPT: tell the worker to run \`/groom\` for self-review and incorporate suggestions
-- \`takode board advance <quest-id>\`
+- On ACCEPT, decide whether groom review is needed:
+  - **Groom required** when: (a) the change involves tricky logic, OR (b) total lines changed > 100. Tell the worker to run \`/groom\` for self-review and incorporate suggestions, then \`takode board advance <quest-id>\` (-> GROOM_REVIEWING).
+  - **Skip groom** for straightforward, small changes (<=100 lines, no tricky logic). Tell the worker to port directly using \`/port-changes\`, then \`takode board advance <quest-id>\` twice (-> skip GROOM_REVIEWING -> PORTING).
 
 ### GROOM_REVIEWING -> PORTING
 - Wait for the worker to report back from groom
