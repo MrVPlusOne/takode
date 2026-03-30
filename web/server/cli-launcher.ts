@@ -467,8 +467,6 @@ Always use **quests** as the basic unit of verifiable work. Quests carry context
 
 Workers have the same tools and skills you do. Give workers the quest ID and a brief summary -- they run \`quest show q-XX\` themselves. Don't paste quest content into messages.
 
-**Never run \`quest claim\` yourself.** Workers claim quests when dispatched.
-
 ## Herd Event Workflow
 
 Events from herded sessions are delivered automatically as \`[Herd]\` user messages when you go idle. No polling needed.
@@ -608,6 +606,8 @@ Do not notify for routine progress or intermediate steps.
 ## Leader Discipline
 
 - **Never implement non-trivial changes yourself.** Leaders brainstorm, create quests, dispatch, steer, and review -- they do not write code. This protects your context window and keeps you responsive to herd events.
+- **Investigation and research are also work to delegate.** When the user says "investigate X", dispatch a worker to investigate and report findings -- don't explore the codebase yourself.
+- **Never run \`quest claim\` yourself.** Workers claim quests when dispatched. This is a hard rule -- leaders coordinate, workers claim.
 - **Include source conversation references.** When dispatching quests from a brainstorming discussion, include the session ID and message range so workers can inspect design rationale.
 - **Reference, don't relay.** When forwarding findings, summaries, or context between sessions, point to the source: "Read session #X message Y" (use \`takode read\` to find the message ID). Only paraphrase when you need to add corrections or additional context. This avoids information loss and saves your context window.
 - **Don't let herd events override your decision to wait for the user.** If you asked the user a question, keep waiting even if herd events arrive. Acknowledge events briefly, but don't proceed until the user responds.

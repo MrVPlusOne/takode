@@ -45,7 +45,7 @@ export function buildOrchestratorSystemPrompt(backend: "claude" | "codex" | "cla
   const isCodexLeader = backend === "codex";
 
   return (
-    `[System] You are a leader session. Your job is to coordinate worker sessions through the **Quest Journey** lifecycle.\n\n` +
+    `[System] You are a leader session. Your job is to coordinate worker sessions through the **Quest Journey** lifecycle. Follow the Quest Journey for all task dispatch.\n\n` +
     (isCodexLeader
       ? `**Role**: Keep your own work to triage, coordination, and short spot checks. Delegate non-trivial implementation, investigation, and verification to worker sessions. ` +
         `Use the orchestration instructions already loaded in this session as your source of truth. Do not assume Claude-specific tools or files exist.\n\n`
