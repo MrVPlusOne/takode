@@ -14292,6 +14292,56 @@ describe("work board", () => {
     expect(row.waitFor).toEqual(["q-2"]);
   });
 
+  // ─── field clearing ──────────────────────────────────────────────────────
+
+  it("upsertBoardRow clears worker when given empty string", () => {
+    // Empty string signals "clear this field" -- should remove existing worker
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    bridge.upsertBoardRow("s1", { questId: "q-1", worker: "worker-1", workerNum: 5 });
+    expect(bridge.getBoard("s1")[0].worker).toBe("worker-1");
+
+    bridge.upsertBoardRow("s1", { questId: "q-1", worker: "" });
+    const row = bridge.getBoard("s1")[0];
+    expect(row.worker).toBeUndefined();
+    expect(row.workerNum).toBeUndefined();
+  });
+
+  it("upsertBoardRow preserves worker when field is omitted", () => {
+    // Undefined means "not provided" -- should keep existing value
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    bridge.upsertBoardRow("s1", { questId: "q-1", worker: "worker-1", workerNum: 5 });
+    bridge.upsertBoardRow("s1", { questId: "q-1", title: "Updated" });
+    const row = bridge.getBoard("s1")[0];
+    expect(row.worker).toBe("worker-1");
+    expect(row.workerNum).toBe(5);
+  });
+
+  it("upsertBoardRow clears status when given empty string", () => {
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    bridge.upsertBoardRow("s1", { questId: "q-1", status: "implementing" });
+    expect(bridge.getBoard("s1")[0].status).toBe("implementing");
+
+    bridge.upsertBoardRow("s1", { questId: "q-1", status: "" });
+    expect(bridge.getBoard("s1")[0].status).toBeUndefined();
+  });
+
+  it("upsertBoardRow clears title when given empty string", () => {
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    bridge.upsertBoardRow("s1", { questId: "q-1", title: "Fix sidebar" });
+    expect(bridge.getBoard("s1")[0].title).toBe("Fix sidebar");
+
+    bridge.upsertBoardRow("s1", { questId: "q-1", title: "" });
+    expect(bridge.getBoard("s1")[0].title).toBeUndefined();
+  });
+
   // ─── advanceBoardRow ──────────────────────────────────────────────────────
 
   it("advanceBoardRow advances from QUEUED to PLANNING", () => {

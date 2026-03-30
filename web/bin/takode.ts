@@ -306,7 +306,7 @@ function parseFlags(argv: string[]): Record<string, string | boolean> {
     if (arg.startsWith("--")) {
       const key = arg.slice(2);
       const next = argv[i + 1];
-      if (next && !next.startsWith("--")) {
+      if (next !== undefined && !next.startsWith("--")) {
         flags[key] = next;
         i += 2;
       } else {
@@ -2465,18 +2465,24 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
       body.waitFor = waitFor;
     }
     if (typeof flags.worker === "string") {
-      // Resolve worker ref -- use the info endpoint to get session ID and num
       const workerRef = flags.worker;
-      try {
-        const info = (await apiGet(base, `/sessions/${encodeURIComponent(workerRef)}/info`)) as {
-          sessionId: string;
-          sessionNum: number;
-        };
-        body.worker = info.sessionId;
-        body.workerNum = info.sessionNum;
-      } catch {
-        // Fallback: store the ref as-is
-        body.worker = workerRef;
+      if (!workerRef) {
+        // Empty string means "clear worker assignment"
+        body.worker = "";
+        body.workerNum = null;
+      } else {
+        // Resolve worker ref -- use the info endpoint to get session ID and num
+        try {
+          const info = (await apiGet(base, `/sessions/${encodeURIComponent(workerRef)}/info`)) as {
+            sessionId: string;
+            sessionNum: number;
+          };
+          body.worker = info.sessionId;
+          body.workerNum = info.sessionNum;
+        } catch {
+          // Fallback: store the ref as-is
+          body.worker = workerRef;
+        }
       }
     }
 
@@ -2752,7 +2758,7 @@ async function handleGrep(base: string, args: string[]): Promise<void> {
       if (args[i].startsWith("--")) {
         flagConsumed.add(i);
         const next = args[i + 1];
-        if (next && !next.startsWith("--")) {
+        if (next !== undefined && !next.startsWith("--")) {
           flagConsumed.add(i + 1);
           i += 2;
         } else {

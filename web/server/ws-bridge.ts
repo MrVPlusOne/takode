@@ -2769,18 +2769,23 @@ export class WsBridge {
     return Array.from(session.board.values()).sort((a, b) => a.updatedAt - b.updatedAt);
   }
 
-  /** Add or update a board row. Returns the full board. */
+  /** Add or update a board row. Returns the full board.
+   *  Empty-string values for worker/title/status signal "clear this field". */
   upsertBoardRow(sessionId: string, row: Omit<BoardRow, "updatedAt"> & { updatedAt?: number }): BoardRow[] | null {
     const session = this.sessions.get(sessionId);
     if (!session) return null;
     const existing = session.board.get(row.questId);
+    // Helper: treat "" as a clear signal → undefined, absent field → keep existing
+    const merge = <T>(incoming: T | undefined, fallback: T | undefined): T | undefined =>
+      incoming !== undefined ? (incoming || undefined) as T | undefined : fallback;
+    const clearingWorker = row.worker !== undefined && !row.worker;
     const merged: BoardRow = {
       questId: row.questId,
-      title: row.title ?? existing?.title,
-      worker: row.worker ?? existing?.worker,
-      workerNum: row.workerNum ?? existing?.workerNum,
-      status: row.status ?? existing?.status,
-      // waitFor: explicit undefined clears, explicit array sets, otherwise keep existing
+      title: merge(row.title, existing?.title),
+      worker: merge(row.worker, existing?.worker),
+      workerNum: clearingWorker ? undefined : (row.workerNum ?? existing?.workerNum),
+      status: merge(row.status, existing?.status),
+      // waitFor: explicit empty array clears, undefined keeps existing
       waitFor: row.waitFor !== undefined ? (row.waitFor.length > 0 ? row.waitFor : undefined) : existing?.waitFor,
       updatedAt: row.updatedAt ?? Date.now(),
     };
