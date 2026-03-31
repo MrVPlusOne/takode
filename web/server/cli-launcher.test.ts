@@ -1549,10 +1549,9 @@ describe("relaunch", () => {
     expect(firstProc.kill).toHaveBeenCalled();
   });
 
-  // Regression: q-110 — orchestrator sessions must retain their guardrails
-  // system prompt on relaunch. Previously, extraInstructions was only set
-  // during initial creation (in routes/sessions.ts) and never re-derived
-  // on relaunch, so relaunched leaders lost the full orchestration prompt.
+  // Regression: q-110 — without orchestrator guardrails, relaunched leaders
+  // lose Quest Journey stages, worker selection rules, and skeptic review
+  // workflows, breaking all orchestration coordination.
   it("re-injects orchestrator guardrails into system prompt on relaunch", async () => {
     // Launch as an orchestrator — pass extraInstructions via launch options
     const orchestratorGuardrails = launcher.getOrchestratorGuardrails("claude");
@@ -1624,14 +1623,15 @@ describe("relaunch", () => {
     const result = await launcher.relaunch("test-session-id");
     expect(result).toEqual({ ok: true });
 
-    // The system prompt should NOT contain orchestrator guardrails
+    // The system prompt should still exist (link syntax etc.) but NOT contain
+    // orchestrator guardrails -- assert unconditionally to catch regressions
+    // where the flag disappears entirely.
     const [relaunchCmd] = mockSpawn.mock.calls[1];
     const sysPromptIdx = relaunchCmd.indexOf("--append-system-prompt");
-    if (sysPromptIdx > -1) {
-      const sysPrompt = relaunchCmd[sysPromptIdx + 1] as string;
-      expect(sysPrompt).not.toContain("Quest Journey");
-      expect(sysPrompt).not.toContain("Skeptic Review");
-    }
+    expect(sysPromptIdx).toBeGreaterThan(-1);
+    const sysPrompt = relaunchCmd[sysPromptIdx + 1] as string;
+    expect(sysPrompt).not.toContain("Quest Journey");
+    expect(sysPrompt).not.toContain("Skeptic Review");
   });
 });
 
