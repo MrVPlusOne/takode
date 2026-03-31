@@ -1548,6 +1548,91 @@ describe("relaunch", () => {
     // And it should have been called BEFORE kill (verify kill was called after)
     expect(firstProc.kill).toHaveBeenCalled();
   });
+
+  // Regression: q-110 — orchestrator sessions must retain their guardrails
+  // system prompt on relaunch. Previously, extraInstructions was only set
+  // during initial creation (in routes/sessions.ts) and never re-derived
+  // on relaunch, so relaunched leaders lost the full orchestration prompt.
+  it("re-injects orchestrator guardrails into system prompt on relaunch", async () => {
+    // Launch as an orchestrator — pass extraInstructions via launch options
+    const orchestratorGuardrails = launcher.getOrchestratorGuardrails("claude");
+    let resolveFirst: (code: number) => void;
+    const firstProc = {
+      pid: 12345,
+      kill: vi.fn(() => {
+        resolveFirst(0);
+      }),
+      exited: new Promise<number>((r) => {
+        resolveFirst = r;
+      }),
+      stdout: null,
+      stderr: null,
+    };
+    mockSpawn.mockReturnValueOnce(firstProc);
+
+    const session = await launcher.launch({
+      cwd: "/tmp/project",
+      extraInstructions: orchestratorGuardrails,
+    });
+    session.isOrchestrator = true;
+    launcher.setCLISessionId("test-session-id", "cli-orch-id");
+
+    // Verify initial launch includes guardrails in --append-system-prompt
+    const [initialCmd] = mockSpawn.mock.calls[0];
+    const initialSysPromptIdx = initialCmd.indexOf("--append-system-prompt");
+    expect(initialSysPromptIdx).toBeGreaterThan(-1);
+    const initialSysPrompt = initialCmd[initialSysPromptIdx + 1] as string;
+    expect(initialSysPrompt).toContain("Takode");
+
+    // Relaunch the session
+    const secondProc = createMockProc(54321);
+    mockSpawn.mockReturnValueOnce(secondProc);
+    const result = await launcher.relaunch("test-session-id");
+    expect(result).toEqual({ ok: true });
+
+    // Relaunched CLI must also have --append-system-prompt with guardrails
+    const [relaunchCmd] = mockSpawn.mock.calls[1];
+    const relaunchSysPromptIdx = relaunchCmd.indexOf("--append-system-prompt");
+    expect(relaunchSysPromptIdx).toBeGreaterThan(-1);
+    const relaunchSysPrompt = relaunchCmd[relaunchSysPromptIdx + 1] as string;
+    expect(relaunchSysPrompt).toContain("Takode");
+    expect(relaunchSysPrompt).toContain("Quest Journey");
+    expect(relaunchSysPrompt).toContain("Skeptic Review");
+  });
+
+  it("does not inject orchestrator guardrails for non-orchestrator sessions on relaunch", async () => {
+    let resolveFirst: (code: number) => void;
+    const firstProc = {
+      pid: 12345,
+      kill: vi.fn(() => {
+        resolveFirst(0);
+      }),
+      exited: new Promise<number>((r) => {
+        resolveFirst = r;
+      }),
+      stdout: null,
+      stderr: null,
+    };
+    mockSpawn.mockReturnValueOnce(firstProc);
+
+    await launcher.launch({ cwd: "/tmp/project" });
+    launcher.setCLISessionId("test-session-id", "cli-worker-id");
+
+    // Relaunch a non-orchestrator session
+    const secondProc = createMockProc(54321);
+    mockSpawn.mockReturnValueOnce(secondProc);
+    const result = await launcher.relaunch("test-session-id");
+    expect(result).toEqual({ ok: true });
+
+    // The system prompt should NOT contain orchestrator guardrails
+    const [relaunchCmd] = mockSpawn.mock.calls[1];
+    const sysPromptIdx = relaunchCmd.indexOf("--append-system-prompt");
+    if (sysPromptIdx > -1) {
+      const sysPrompt = relaunchCmd[sysPromptIdx + 1] as string;
+      expect(sysPrompt).not.toContain("Quest Journey");
+      expect(sysPrompt).not.toContain("Skeptic Review");
+    }
+  });
 });
 
 // ─── persistence ─────────────────────────────────────────────────────────────

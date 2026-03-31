@@ -1089,6 +1089,14 @@ export class CliLauncher {
 
     try {
       const bt = info.backendType ?? "claude";
+
+      // Re-derive orchestrator guardrails for relaunched sessions.
+      // extraInstructions is not persisted; regenerate from the isOrchestrator flag
+      // so relaunched leaders retain the full orchestration system prompt.
+      const extraInstructions = info.isOrchestrator
+        ? this.getOrchestratorGuardrails(bt)
+        : undefined;
+
       switch (bt) {
         case "codex":
           await this.spawnCodex(sessionId, info, {
@@ -1104,6 +1112,7 @@ export class CliLauncher {
             containerName: info.containerName,
             containerImage: info.containerImage,
             env: runtimeEnv,
+            extraInstructions,
           });
           break;
         case "claude-sdk":
@@ -1113,6 +1122,7 @@ export class CliLauncher {
             cwd: info.cwd,
             claudeBinary: binSettings.claudeBinary || undefined,
             env: runtimeEnv,
+            extraInstructions,
           });
           break;
         case "claude":
@@ -1126,6 +1136,7 @@ export class CliLauncher {
             containerName: info.containerName,
             containerImage: info.containerImage,
             env: runtimeEnv,
+            extraInstructions,
           });
           break;
         default:
