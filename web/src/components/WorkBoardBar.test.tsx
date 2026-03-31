@@ -66,9 +66,7 @@ vi.mock("../store.js", () => ({
 
 // Mock BoardTable to avoid needing full store for QuestLink/WorkerLink
 vi.mock("./BoardTable.js", () => ({
-  BoardTable: ({ board }: { board: BoardRowData[] }) => (
-    <div data-testid="board-table">{board.length} rows</div>
-  ),
+  BoardTable: ({ board }: { board: BoardRowData[] }) => <div data-testid="board-table">{board.length} rows</div>,
 }));
 
 // Must import after mocks are set up
@@ -166,9 +164,7 @@ describe("WorkBoardBar", () => {
   });
 
   it("shows singular 'item' for a single board row", () => {
-    const singleRow: BoardRowData[] = [
-      { questId: "q-1", status: "QUEUED", updatedAt: 1 },
-    ];
+    const singleRow: BoardRowData[] = [{ questId: "q-1", status: "QUEUED", updatedAt: 1 }];
     resetStore({
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
       sessionBoards: new Map([["s1", singleRow]]),

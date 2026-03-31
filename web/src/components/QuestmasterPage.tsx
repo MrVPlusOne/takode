@@ -19,12 +19,7 @@ import { writeClipboardText } from "../utils/copy-utils.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import type { SessionItem as SessionItemType } from "../utils/project-grouping.js";
 import { QUEST_STATUS_THEME } from "../utils/quest-status-theme.js";
-import {
-  timeAgo,
-  verificationProgress,
-  getQuestOwnerSessionId,
-  CopyableQuestId,
-} from "../utils/quest-helpers.js";
+import { timeAgo, verificationProgress, getQuestOwnerSessionId, CopyableQuestId } from "../utils/quest-helpers.js";
 import type { QuestmasterTask, QuestStatus, QuestVerificationItem, QuestFeedbackEntry, QuestImage } from "../types.js";
 
 // ─── Image paste/upload helpers ────────────────────────────────────────────

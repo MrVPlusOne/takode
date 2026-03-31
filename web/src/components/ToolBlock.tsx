@@ -389,7 +389,7 @@ function isTakodeBoardCommand(command: string): boolean {
  */
 function useBoardData(
   isBoardCommand: boolean,
-  sessionId: string | null,
+  sessionId: string | null | undefined,
   toolUseId: string,
 ): ParsedBoardResult | null {
   const previewContent = useStore((s) => {

@@ -40,7 +40,12 @@ function makeVerificationQuest(overrides?: Partial<QuestmasterTask>): Questmaste
     ],
     feedback: [
       { author: "human", text: "Check iPad mini too", ts: Date.now() - 7200000, addressed: true },
-      { author: "agent", text: "Confirmed working on iPad mini.", ts: Date.now() - 3600000, authorSessionId: "session-abc" },
+      {
+        author: "agent",
+        text: "Confirmed working on iPad mini.",
+        ts: Date.now() - 3600000,
+        authorSessionId: "session-abc",
+      },
     ],
     ...overrides,
   } as QuestmasterTask;
@@ -57,9 +62,7 @@ function makeDoneQuest(): QuestmasterTask {
     createdAt: Date.now() - 172800000,
     completedAt: Date.now() - 3600000,
     notes: "Reduced p99 latency by 40%.",
-    verificationItems: [
-      { text: "Dashboard loads under 2s", checked: true },
-    ],
+    verificationItems: [{ text: "Dashboard loads under 2s", checked: true }],
     claimedAt: Date.now() - 86400000,
   } as QuestmasterTask;
 }
@@ -208,9 +211,7 @@ describe("QuestDetailModal", () => {
 
   it("shows images with clickable thumbnails", () => {
     const quest = makeVerificationQuest({
-      images: [
-        { id: "img-1", filename: "screenshot.png", mimeType: "image/png", path: "/path/to/img-1.png" },
-      ],
+      images: [{ id: "img-1", filename: "screenshot.png", mimeType: "image/png", path: "/path/to/img-1.png" }],
     });
     useStore.setState({ quests: [quest], questOverlayId: "q-42" });
 
@@ -235,9 +236,7 @@ describe("QuestDetailModal", () => {
     // When an image lightbox is open inside the modal, pressing Escape should
     // close the lightbox but keep the quest detail modal visible.
     const quest = makeVerificationQuest({
-      images: [
-        { id: "img-1", filename: "screenshot.png", mimeType: "image/png", path: "/path/to/img-1.png" },
-      ],
+      images: [{ id: "img-1", filename: "screenshot.png", mimeType: "image/png", path: "/path/to/img-1.png" }],
     });
     useStore.setState({ quests: [quest], questOverlayId: "q-42" });
 

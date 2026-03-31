@@ -29,7 +29,7 @@ export function QuestDetailModal() {
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
 
   const quest = useMemo(
-    () => (questOverlayId ? quests.find((q) => q.questId === questOverlayId) ?? null : null),
+    () => (questOverlayId ? (quests.find((q) => q.questId === questOverlayId) ?? null) : null),
     [quests, questOverlayId],
   );
 
@@ -149,7 +149,10 @@ export function QuestDetailModal() {
           {quest.images && quest.images.length > 0 && (
             <div className="flex flex-wrap gap-2">
               {quest.images.map((img: QuestImage) => (
-                <div key={img.id} className="relative group rounded-lg overflow-hidden border border-cc-border bg-cc-input-bg">
+                <div
+                  key={img.id}
+                  className="relative group rounded-lg overflow-hidden border border-cc-border bg-cc-input-bg"
+                >
                   <img
                     src={api.questImageUrl(img.id)}
                     alt={img.filename}
@@ -171,7 +174,12 @@ export function QuestDetailModal() {
               <div className="space-y-0.5">
                 {quest.verificationItems.map((item: QuestVerificationItem, i: number) => (
                   <div key={i} className="flex items-start gap-2 py-1 px-2 rounded-md">
-                    <input type="checkbox" checked={item.checked} readOnly className="mt-0.5 accent-cc-primary pointer-events-none" />
+                    <input
+                      type="checkbox"
+                      checked={item.checked}
+                      readOnly
+                      className="mt-0.5 accent-cc-primary pointer-events-none"
+                    />
                     <span className={`text-xs ${item.checked ? "text-cc-muted line-through" : "text-cc-fg"}`}>
                       {item.text}
                     </span>

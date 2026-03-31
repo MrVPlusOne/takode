@@ -2243,33 +2243,35 @@ export function Playground() {
           <div className="max-w-md">
             <Card label="Session list pills">
               <div className="space-y-1 rounded-xl bg-cc-sidebar p-2">
-                {PLAYGROUND_SESSION_ROWS
-                  .filter(({ session }) => session.reviewerOf === undefined)
-                  .map(({ session, sessionName, preview }, index) => (
-                  <SessionItem
-                    key={session.id}
-                    session={session}
-                    isActive={index === 0}
-                    sessionName={sessionName}
-                    sessionPreview={preview}
-                    permCount={session.permCount}
-                    isRecentlyRenamed={false}
-                    reviewerSession={session.sessionNum != null ? PLAYGROUND_REVIEWER_MAP.get(session.sessionNum) : undefined}
-                    onSelect={() => {}}
-                    onStartRename={() => {}}
-                    onArchive={() => {}}
-                    onUnarchive={() => {}}
-                    onDelete={() => {}}
-                    onClearRecentlyRenamed={() => {}}
-                    editingSessionId={null}
-                    editingName=""
-                    setEditingName={() => {}}
-                    onConfirmRename={() => {}}
-                    onCancelRename={() => {}}
-                    editInputRef={{ current: null }}
-                    herdGroupBadgeTheme={PLAYGROUND_HERD_GROUP_THEMES.get(session.id)}
-                  />
-                ))}
+                {PLAYGROUND_SESSION_ROWS.filter(({ session }) => session.reviewerOf === undefined).map(
+                  ({ session, sessionName, preview }, index) => (
+                    <SessionItem
+                      key={session.id}
+                      session={session}
+                      isActive={index === 0}
+                      sessionName={sessionName}
+                      sessionPreview={preview}
+                      permCount={session.permCount}
+                      isRecentlyRenamed={false}
+                      reviewerSession={
+                        session.sessionNum != null ? PLAYGROUND_REVIEWER_MAP.get(session.sessionNum) : undefined
+                      }
+                      onSelect={() => {}}
+                      onStartRename={() => {}}
+                      onArchive={() => {}}
+                      onUnarchive={() => {}}
+                      onDelete={() => {}}
+                      onClearRecentlyRenamed={() => {}}
+                      editingSessionId={null}
+                      editingName=""
+                      setEditingName={() => {}}
+                      onConfirmRename={() => {}}
+                      onCancelRename={() => {}}
+                      editInputRef={{ current: null }}
+                      herdGroupBadgeTheme={PLAYGROUND_HERD_GROUP_THEMES.get(session.id)}
+                    />
+                  ),
+                )}
               </div>
             </Card>
           </div>
@@ -2853,7 +2855,8 @@ export function Playground() {
                   <WorkBoardBar sessionId="playground-board-bar" />
                 </div>
                 <p className="text-[10px] text-cc-muted">
-                  Click "Seed board data" first, then click the bar to toggle between collapsed summary and expanded table view.
+                  Click "Seed board data" first, then click the bar to toggle between collapsed summary and expanded
+                  table view.
                 </p>
               </div>
             </Card>
@@ -2880,7 +2883,8 @@ export function Playground() {
                           version: 3,
                           title: "Fix mobile sidebar overflow on small screens",
                           status: "needs_verification" as const,
-                          description: "The sidebar overflows on screens narrower than 375px. Need to add `overflow-hidden` and a scrollable wrapper.\n\n## Steps\n1. Add wrapper div\n2. Set max-height\n3. Test on iPhone SE",
+                          description:
+                            "The sidebar overflows on screens narrower than 375px. Need to add `overflow-hidden` and a scrollable wrapper.\n\n## Steps\n1. Add wrapper div\n2. Set max-height\n3. Test on iPhone SE",
                           createdAt: Date.now() - 86400000,
                           updatedAt: Date.now() - 3600000,
                           sessionId: "abc-123",
@@ -2892,9 +2896,24 @@ export function Playground() {
                             { text: "Desktop layout unaffected", checked: true },
                           ],
                           feedback: [
-                            { author: "human" as const, text: "Please also check iPad mini", ts: Date.now() - 7200000, addressed: true },
-                            { author: "agent" as const, text: "Checked on iPad mini -- works correctly with the new wrapper.", ts: Date.now() - 3600000, authorSessionId: "abc-123" },
-                            { author: "human" as const, text: "Looks good! One more: the close button is hard to tap.", ts: Date.now() - 1800000, addressed: false },
+                            {
+                              author: "human" as const,
+                              text: "Please also check iPad mini",
+                              ts: Date.now() - 7200000,
+                              addressed: true,
+                            },
+                            {
+                              author: "agent" as const,
+                              text: "Checked on iPad mini -- works correctly with the new wrapper.",
+                              ts: Date.now() - 3600000,
+                              authorSessionId: "abc-123",
+                            },
+                            {
+                              author: "human" as const,
+                              text: "Looks good! One more: the close button is hard to tap.",
+                              ts: Date.now() - 1800000,
+                              addressed: false,
+                            },
                           ],
                         },
                       ],
