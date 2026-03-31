@@ -210,6 +210,35 @@ beforeEach(() => {
   });
 });
 
+// localDateKey is a private static — access via `any` cast for testing.
+describe("WsBridge.localDateKey", () => {
+  const localDateKey = (ts: number) => (WsBridge as any).localDateKey(ts);
+
+  it("returns YYYY-MM-DD using local date components, not UTC", () => {
+    // Test the core contract: output matches getFullYear/getMonth/getDate
+    // on a Date constructed from the timestamp. Near UTC midnight, local vs
+    // UTC dates diverge for non-UTC timezones.
+    const ts = new Date(2026, 2, 31, 23, 45, 0).getTime(); // Mar 31, 11:45 PM local
+    const d = new Date(ts);
+    const expected = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    expect(localDateKey(ts)).toBe(expected);
+  });
+
+  it("zero-pads month and day", () => {
+    const ts = new Date(2026, 0, 5, 12, 0, 0).getTime(); // Jan 5 local
+    expect(localDateKey(ts)).toBe("2026-01-05");
+  });
+
+  it("handles year boundary (Dec 31 → Jan 1)", () => {
+    const dec31 = new Date(2025, 11, 31, 23, 59, 0).getTime(); // Dec 31 local
+    const jan1 = new Date(2026, 0, 1, 0, 1, 0).getTime(); // Jan 1 local
+    expect(localDateKey(dec31)).toBe("2025-12-31");
+    expect(localDateKey(jan1)).toBe("2026-01-01");
+    // Keys must differ so the date boundary triggers
+    expect(localDateKey(dec31)).not.toBe(localDateKey(jan1));
+  });
+});
+
 describe("traffic accounting", () => {
   it("tracks browser fanout using successful sends only", () => {
     const browser1 = makeBrowserSocket("s1");
@@ -607,7 +636,7 @@ describe("CLI handlers", () => {
     const parsed = JSON.parse(userMsg!.trim());
     expect(parsed.type).toBe("user");
     // CLI-bound content gets a [User HH:MM] timestamp prefix
-    expect(parsed.message.content).toMatch(/^\[User \d{1,2}:\d{2}\s*[AP]M\] hello queued$/);
+    expect(parsed.message.content).toMatch(/^\[User (?:\w{3}, \w{3} \d{1,2} )?\d{1,2}:\d{2}\s*[AP]M\] hello queued$/);
   });
 
   it("handleCLIMessage: system.init does not re-flush already-sent messages", () => {
@@ -3304,7 +3333,7 @@ describe("Browser message routing", () => {
     expect(sent.type).toBe("user");
     expect(sent.message.role).toBe("user");
     // CLI-bound content gets a [User HH:MM] timestamp prefix
-    expect(sent.message.content).toMatch(/^\[User \d{1,2}:\d{2}\s*[AP]M\] What is 2\+2\?$/);
+    expect(sent.message.content).toMatch(/^\[User (?:\w{3}, \w{3} \d{1,2} )?\d{1,2}:\d{2}\s*[AP]M\] What is 2\+2\?$/);
 
     // Should store in history (without the tag -- history preserves original content)
     const session = bridge.getSession("s1")!;
@@ -3333,7 +3362,7 @@ describe("Browser message routing", () => {
     const queued = JSON.parse(session.pendingMessages[0]);
     expect(queued.type).toBe("user");
     // CLI-bound content gets a [User HH:MM] timestamp prefix
-    expect(queued.message.content).toMatch(/^\[User \d{1,2}:\d{2}\s*[AP]M\] queued message$/);
+    expect(queued.message.content).toMatch(/^\[User (?:\w{3}, \w{3} \d{1,2} )?\d{1,2}:\d{2}\s*[AP]M\] queued message$/);
   });
 
   it("user_message: deduplicates repeated client_msg_id", () => {
@@ -3370,7 +3399,7 @@ describe("Browser message routing", () => {
 
     const sentRaw = cli.send.mock.calls[0][0] as string;
     const sent = JSON.parse(sentRaw.trim());
-    expect(sent.message.content).toMatch(/^\[Leader \d{1,2}:\d{2}\s*[AP]M\] do the task$/);
+    expect(sent.message.content).toMatch(/^\[Leader (?:\w{3}, \w{3} \d{1,2} )?\d{1,2}:\d{2}\s*[AP]M\] do the task$/);
   });
 
   it("user_message: herded worker gets [User HH:MM] for direct human messages", () => {
@@ -3391,7 +3420,41 @@ describe("Browser message routing", () => {
 
     const sentRaw = cli.send.mock.calls[0][0] as string;
     const sent = JSON.parse(sentRaw.trim());
-    expect(sent.message.content).toMatch(/^\[User \d{1,2}:\d{2}\s*[AP]M\] direct nudge$/);
+    expect(sent.message.content).toMatch(/^\[User (?:\w{3}, \w{3} \d{1,2} )?\d{1,2}:\d{2}\s*[AP]M\] direct nudge$/);
+  });
+
+  it("user_message: first message includes date, same-day follow-up omits it, different-day includes it again", () => {
+    // First message of a fresh session should include the date
+    // (lastUserMessageDateTag starts as "").
+    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "msg1" }));
+    expect(cli.send).toHaveBeenCalledTimes(1);
+    const firstRaw = cli.send.mock.calls[0][0] as string;
+    const first = JSON.parse(firstRaw.trim());
+    // Date portion: "Mon, Mar 31" (weekday, month, day) must be present
+    expect(first.message.content).toMatch(/^\[User \w{3}, \w{3} \d{1,2} \d{1,2}:\d{2}\s*[AP]M\] msg1$/);
+
+    // Second message on the SAME day should omit the date (time only).
+    cli.send.mockClear();
+    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "msg2" }));
+    expect(cli.send).toHaveBeenCalledTimes(1);
+    const secondRaw = cli.send.mock.calls[0][0] as string;
+    const second = JSON.parse(secondRaw.trim());
+    // Must NOT contain a date prefix -- should be just [User HH:MM AM/PM]
+    expect(second.message.content).toMatch(/^\[User \d{1,2}:\d{2}\s*[AP]M\] msg2$/);
+    // Negative check: no weekday/month in the tag
+    expect(second.message.content).not.toMatch(/\w{3}, \w{3} \d{1,2}/);
+
+    // Third message on a DIFFERENT day should include the date again.
+    // Manually set lastUserMessageDateTag to a past date to simulate a day change.
+    const session = bridge.getSession("s1")!;
+    session.lastUserMessageDateTag = "1999-01-01";
+    cli.send.mockClear();
+    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "msg3" }));
+    expect(cli.send).toHaveBeenCalledTimes(1);
+    const thirdRaw = cli.send.mock.calls[0][0] as string;
+    const third = JSON.parse(thirdRaw.trim());
+    // Date must be present again since the day changed
+    expect(third.message.content).toMatch(/^\[User \w{3}, \w{3} \d{1,2} \d{1,2}:\d{2}\s*[AP]M\] msg3$/);
   });
 
   it("vscode_selection_update: broadcasts the latest global selection to browsers across sessions", () => {
@@ -4719,7 +4782,7 @@ describe("handleBrowserMessage with Buffer", () => {
     const sent = JSON.parse(sentRaw.trim());
     expect(sent.type).toBe("user");
     // CLI-bound content gets a [User HH:MM] timestamp prefix
-    expect(sent.message.content).toMatch(/^\[User \d{1,2}:\d{2}\s*[AP]M\] Hello from buffer$/);
+    expect(sent.message.content).toMatch(/^\[User (?:\w{3}, \w{3} \d{1,2} )?\d{1,2}:\d{2}\s*[AP]M\] Hello from buffer$/);
   });
 
   it("parses Buffer input and routes interrupt correctly", () => {
@@ -12360,7 +12423,7 @@ describe("Claude SDK adapter queue handoff", () => {
     expect(delivered[0]).toMatchObject({
       type: "user_message",
     });
-    expect(delivered[0].content).toMatch(/^\[User \d{1,2}:\d{2}\s*[AP]M\] hello from sdk queue$/);
+    expect(delivered[0].content).toMatch(/^\[User (?:\w{3}, \w{3} \d{1,2} )?\d{1,2}:\d{2}\s*[AP]M\] hello from sdk queue$/);
     expect(session.pendingMessages).toHaveLength(0);
   });
 
@@ -12385,7 +12448,7 @@ describe("Claude SDK adapter queue handoff", () => {
     bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "hello sdk" }));
 
     expect(delivered).toHaveLength(1);
-    expect(delivered[0].content).toMatch(/^\[User \d{1,2}:\d{2}\s*[AP]M\] hello sdk$/);
+    expect(delivered[0].content).toMatch(/^\[User (?:\w{3}, \w{3} \d{1,2} )?\d{1,2}:\d{2}\s*[AP]M\] hello sdk$/);
   });
 
   it("tags user_message with [Leader HH:MM] in herded SDK session", () => {
@@ -12421,7 +12484,7 @@ describe("Claude SDK adapter queue handoff", () => {
     );
 
     expect(delivered).toHaveLength(1);
-    expect(delivered[0].content).toMatch(/^\[Leader \d{1,2}:\d{2}\s*[AP]M\] do the task$/);
+    expect(delivered[0].content).toMatch(/^\[Leader (?:\w{3}, \w{3} \d{1,2} )?\d{1,2}:\d{2}\s*[AP]M\] do the task$/);
   });
 });
 // These are private static methods — access via `any` cast for testing.

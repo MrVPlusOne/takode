@@ -386,6 +386,8 @@ interface Session {
   lastActivityPreview?: string;
   /** Cached truncated content of the last user message (avoids scanning messageHistory) */
   lastUserMessage?: string;
+  /** Calendar date key (YYYY-MM-DD) of the last CLI-bound user message, for date-boundary injection. */
+  lastUserMessageDateTag: string;
   /** Epoch ms when the user last viewed this session (server-authoritative) */
   lastReadAt: number;
   /** Current attention reason: why this session needs the user's attention */
@@ -1864,6 +1866,7 @@ export class WsBridge {
         lastOutboundUserNdjson: null,
         stuckNotifiedAt: null,
         lastReadAt: typeof p.lastReadAt === "number" ? p.lastReadAt : 0,
+        lastUserMessageDateTag: "",
         attentionReason: p.attentionReason ?? null,
         disconnectGraceTimer: null,
         disconnectWasGenerating: false,
@@ -2451,6 +2454,7 @@ export class WsBridge {
         lastOutboundUserNdjson: null,
         stuckNotifiedAt: null,
         lastReadAt: 0,
+        lastUserMessageDateTag: "",
         attentionReason: null,
         disconnectGraceTimer: null,
         disconnectWasGenerating: false,
@@ -4563,26 +4567,44 @@ export class WsBridge {
     return agentSource.sessionId === "system" || agentSource.sessionId.startsWith("system:");
   }
 
-  /** Build a `[Source HH:MM] ` prefix for CLI-bound user messages. */
+  /** Local-timezone date key for date-boundary comparison (e.g. "2026-03-31").
+   *  Uses local date components so boundaries trigger at local midnight, not UTC. */
+  private static localDateKey(ts: number): string {
+    const d = new Date(ts);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
+
+  /** Build a `[Source HH:MM] ` prefix for CLI-bound user messages.
+   *  Includes the calendar date when the day changes (or on first message).
+   *  Updates session.lastUserMessageDateTag internally so callers don't manage state. */
   private buildTimestampTag(
-    sessionId: string,
+    session: Session,
     ts: number,
     agentSource?: { sessionId: string; sessionLabel?: string },
   ): string {
-    const time = new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const d = new Date(ts);
+    const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const dateKey = WsBridge.localDateKey(ts);
+    const includeDate = !session.lastUserMessageDateTag || dateKey !== session.lastUserMessageDateTag;
+    session.lastUserMessageDateTag = dateKey;
+    const dateStr = includeDate
+      ? d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" }) + " "
+      : "";
+    const timeWithDate = dateStr + time;
+    const sessionId = session.id;
     const isOrch = this.launcher?.getSession(sessionId)?.isOrchestrator;
     if (isOrch) {
-      if (this.isSystemSourceTag(agentSource)) return `[System ${time}] `;
-      if (agentSource?.sessionId === "herd-events") return `[Herd ${time}] `;
+      if (this.isSystemSourceTag(agentSource)) return `[System ${timeWithDate}] `;
+      if (agentSource?.sessionId === "herd-events") return `[Herd ${timeWithDate}] `;
       if (agentSource) {
         const label = agentSource.sessionLabel || agentSource.sessionId.slice(0, 8);
-        return `[Agent ${label} ${time}] `;
+        return `[Agent ${label} ${timeWithDate}] `;
       }
-      return `[User ${time}] `;
+      return `[User ${timeWithDate}] `;
     }
     const isHerded = !!this.launcher?.getSession(sessionId)?.herdedBy;
-    if (isHerded && agentSource) return `[Leader ${time}] `;
-    return `[User ${time}] `;
+    if (isHerded && agentSource) return `[Leader ${timeWithDate}] `;
+    return `[User ${timeWithDate}] `;
   }
 
   handleBrowserClose(ws: ServerWebSocket<SocketData>, code?: number, reason?: string) {
@@ -7092,8 +7114,10 @@ export class WsBridge {
 
       // Timestamp-tag user messages in the adapter path (SDK/Codex sessions).
       // Same logic as handleUserMessage but applied to adapterMsg before send.
+      // Date is included only at date boundaries (first message or new calendar day).
       if (msg.type === "user_message" && typeof (adapterMsg as { content?: unknown }).content === "string") {
-        const tag = this.buildTimestampTag(session.id, ingested?.timestamp ?? Date.now(), msg.agentSource);
+        const msgTs = ingested?.timestamp ?? Date.now();
+        const tag = this.buildTimestampTag(session, msgTs, msg.agentSource);
         const typed = adapterMsg as { content: string };
         adapterMsg = { ...adapterMsg, content: tag + typed.content } as BrowserOutgoingMessage;
       }
@@ -7548,8 +7572,9 @@ export class WsBridge {
     // [Herd], [System], [Agent]); regular sessions just get [User HH:MM].
     // Herded workers see [Leader HH:MM] for leader-forwarded messages.
     // History/browser keep original content -- tags are CLI-only.
+    // Date is included only at date boundaries (first message or new calendar day).
     if (typeof content === "string") {
-      content = this.buildTimestampTag(session.id, ts, msg.agentSource) + content;
+      content = this.buildTimestampTag(session, ts, msg.agentSource) + content;
     }
 
     const ndjson = JSON.stringify({
