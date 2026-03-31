@@ -184,6 +184,17 @@ const PLAYGROUND_HERD_GROUP_THEMES = (() => {
   return sessionThemes;
 })();
 
+// Build a reviewer map for the playground: parentSessionNum → reviewer session
+const PLAYGROUND_REVIEWER_MAP = (() => {
+  const map = new Map<number, (typeof PLAYGROUND_SESSION_ROWS)[number]["session"]>();
+  for (const { session } of PLAYGROUND_SESSION_ROWS) {
+    if (session.reviewerOf !== undefined) {
+      map.set(session.reviewerOf, session);
+    }
+  }
+  return map;
+})();
+
 function mockPermission(
   overrides: Partial<PermissionRequest> & { tool_name: string; input: Record<string, unknown> },
 ): PermissionRequest {
@@ -2231,7 +2242,9 @@ export function Playground() {
           <div className="max-w-md">
             <Card label="Session list pills">
               <div className="space-y-1 rounded-xl bg-cc-sidebar p-2">
-                {PLAYGROUND_SESSION_ROWS.map(({ session, sessionName, preview }, index) => (
+                {PLAYGROUND_SESSION_ROWS
+                  .filter(({ session }) => session.reviewerOf === undefined)
+                  .map(({ session, sessionName, preview }, index) => (
                   <SessionItem
                     key={session.id}
                     session={session}
@@ -2240,6 +2253,7 @@ export function Playground() {
                     sessionPreview={preview}
                     permCount={session.permCount}
                     isRecentlyRenamed={false}
+                    reviewerSession={session.sessionNum != null ? PLAYGROUND_REVIEWER_MAP.get(session.sessionNum) : undefined}
                     onSelect={() => {}}
                     onStartRename={() => {}}
                     onArchive={() => {}}

@@ -28,7 +28,6 @@ import { deriveSessionStatus } from "./SessionStatusDot.js";
 
 import {
   groupSessionsByProject,
-  nestReviewerSessions,
   type SessionItem as SessionItemType,
 } from "../utils/project-grouping.js";
 import { isDesktopShellLayout } from "../utils/layout.js";
@@ -521,13 +520,23 @@ export function Sidebar() {
     })
     .sort((a, b) => b.createdAt - a.createdAt);
 
-  const activeSessions = allSessionList.filter((s) => !s.archived && !s.cronJobId);
+  // Map: parentSessionNum → active reviewer SessionItem (for inline badge on parent row)
+  const activeReviewerByParent = useMemo(() => {
+    const map = new Map<number, SessionItemType>();
+    for (const s of allSessionList) {
+      if (s.reviewerOf !== undefined && !s.archived) {
+        map.set(s.reviewerOf, s);
+      }
+    }
+    return map;
+  }, [allSessionList]);
+
+  // Reviewer sessions are hidden from the sidebar; they appear as inline badges on the parent row
+  const activeSessions = allSessionList.filter((s) => !s.archived && !s.cronJobId && s.reviewerOf === undefined);
   const cronSessions = allSessionList.filter((s) => !s.archived && !!s.cronJobId);
   const archivedSessions = allSessionList
-    .filter((s) => s.archived)
+    .filter((s) => s.archived && s.reviewerOf === undefined)
     .sort((a, b) => (b.archivedAt ?? b.createdAt) - (a.archivedAt ?? a.createdAt));
-  // Nest reviewer sessions under their parent in the archived list
-  nestReviewerSessions(archivedSessions);
   const currentSession = currentSessionId ? allSessionList.find((s) => s.id === currentSessionId) : null;
   const logoSrc = currentSession?.backendType === "codex" ? "/logo-codex.svg" : "/logo.png";
   const [showCronSessions, setShowCronSessions] = useState(true);
@@ -911,6 +920,7 @@ export function Sidebar() {
                               : undefined
                           }
                           herdGroupBadgeThemes={herdGroupBadgeThemes}
+                          reviewerByParent={activeReviewerByParent}
                           {...sessionItemProps}
                         />
                       </div>
@@ -950,6 +960,7 @@ export function Sidebar() {
                         isRecentlyRenamed={recentlyRenamed.has(s.id)}
                         herdGroupBadgeTheme={herdGroupBadgeThemes.get(s.id)}
                         herdHoverHighlight={herdHoverHighlights.get(s.id)}
+                        reviewerSession={s.sessionNum != null ? activeReviewerByParent.get(s.sessionNum) : undefined}
                         {...sessionItemProps}
                       />
                     ))}
@@ -976,7 +987,7 @@ export function Sidebar() {
                 {showArchived && (
                   <div className="space-y-2 sm:space-y-0.5 mt-1">
                     {archivedSessions.map((s) => (
-                      <div key={s.id} className={s.reviewerOf !== undefined ? "pl-4" : ""}>
+                      <div key={s.id}>
                         <SessionItem
                           session={s}
                           isActive={currentSessionId === s.id}
@@ -987,6 +998,7 @@ export function Sidebar() {
                           isRecentlyRenamed={recentlyRenamed.has(s.id)}
                           herdGroupBadgeTheme={herdGroupBadgeThemes.get(s.id)}
                           herdHoverHighlight={herdHoverHighlights.get(s.id)}
+                          reviewerSession={s.sessionNum != null ? activeReviewerByParent.get(s.sessionNum) : undefined}
                           {...sessionItemProps}
                         />
                       </div>

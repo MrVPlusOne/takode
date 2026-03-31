@@ -16,6 +16,11 @@ vi.mock("../store.js", () => ({
   useStore: (selector: (state: typeof mockStoreState) => unknown) => selector(mockStoreState),
 }));
 
+const mockNavigateToSession = vi.fn();
+vi.mock("../utils/routing.js", () => ({
+  navigateToSession: (...args: unknown[]) => mockNavigateToSession(...args),
+}));
+
 import { SessionItem } from "./SessionItem.js";
 
 function makeSession(overrides: Partial<SessionItemType> = {}): SessionItemType {
@@ -229,5 +234,80 @@ describe("SessionItem status stripe", () => {
     const stripe = screen.getByTestId("session-status-stripe");
     expect(stripe).toHaveAttribute("data-status", "idle");
     expect(stripe).not.toHaveStyle({ animation: "yarn-glow-breathe 2s ease-in-out infinite" });
+  });
+});
+
+describe("SessionItem reviewer badge", () => {
+  // Tests for the inline reviewer badge that appears on the parent session's
+  // metadata row (Row 3) when an active reviewer session exists. The badge
+  // replaces the old indented reviewer row with a compact clickable indicator.
+
+  beforeEach(() => {
+    mockNavigateToSession.mockReset();
+  });
+
+  it("renders a review badge when reviewerSession is provided", () => {
+    // The parent session (sessionNum: 8) should show a "review" badge when
+    // it has an active reviewer session linked via reviewerOf.
+    const reviewer = makeSession({ id: "reviewer-1", sessionNum: 42, reviewerOf: 8 });
+    renderSessionItem({
+      session: makeSession({ sessionNum: 8 }),
+      reviewerSession: reviewer,
+    });
+
+    const badge = screen.getByTestId("session-reviewer-badge");
+    expect(badge).toBeInTheDocument();
+    expect(badge).toHaveTextContent("review");
+  });
+
+  it("does not render a review badge when reviewerSession is undefined", () => {
+    // Sessions without an active reviewer should not display any badge.
+    renderSessionItem({
+      session: makeSession({ sessionNum: 8 }),
+    });
+
+    expect(screen.queryByTestId("session-reviewer-badge")).not.toBeInTheDocument();
+  });
+
+  it("navigates to the reviewer session on badge click without selecting the parent", () => {
+    // Clicking the badge should open the reviewer session directly via
+    // navigateToSession, not trigger the parent row's onSelect handler.
+    // stopPropagation prevents the click from bubbling to the parent button.
+    const reviewer = makeSession({ id: "reviewer-1", sessionNum: 42, reviewerOf: 8 });
+    const { onSelect } = renderSessionItem({
+      session: makeSession({ sessionNum: 8 }),
+      reviewerSession: reviewer,
+    });
+
+    fireEvent.click(screen.getByTestId("session-reviewer-badge"));
+
+    expect(mockNavigateToSession).toHaveBeenCalledWith("reviewer-1");
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("shows reviewer session number in the title tooltip", () => {
+    // When the reviewer has a sessionNum, the tooltip should include it
+    // (e.g., "Reviewer #42 — click to open").
+    const reviewer = makeSession({ id: "reviewer-1", sessionNum: 42, reviewerOf: 8 });
+    renderSessionItem({
+      session: makeSession({ sessionNum: 8 }),
+      reviewerSession: reviewer,
+    });
+
+    const badge = screen.getByTestId("session-reviewer-badge");
+    expect(badge).toHaveAttribute("title", "Reviewer #42 — click to open");
+  });
+
+  it("omits session number from title when reviewer has no sessionNum", () => {
+    // When the reviewer session has no sessionNum (e.g., null), the tooltip
+    // should gracefully omit it rather than showing "undefined" or "#null".
+    const reviewer = makeSession({ id: "reviewer-1", sessionNum: undefined, reviewerOf: 8 });
+    renderSessionItem({
+      session: makeSession({ sessionNum: 8 }),
+      reviewerSession: reviewer,
+    });
+
+    const badge = screen.getByTestId("session-reviewer-badge");
+    expect(badge).toHaveAttribute("title", "Reviewer — click to open");
   });
 });

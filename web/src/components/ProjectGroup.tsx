@@ -11,7 +11,7 @@ import {
 } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import type { ProjectGroup as ProjectGroupType } from "../utils/project-grouping.js";
+import type { ProjectGroup as ProjectGroupType, SessionItem as SessionItemType } from "../utils/project-grouping.js";
 
 /** Restrict drag movement to vertical axis only */
 const restrictToVerticalAxis: Modifier = ({ transform }) => ({
@@ -56,6 +56,7 @@ interface ProjectGroupProps {
   sessionAttention?: Map<string, "action" | "error" | "review" | null>;
   herdHoverHighlights?: Map<string, "leader" | "worker">;
   herdGroupBadgeThemes?: Map<string, HerdGroupBadgeTheme>;
+  reviewerByParent?: Map<number, SessionItemType>;
   groupDragHandleProps?: {
     listeners?: Record<string, unknown>;
     attributes?: Record<string, unknown>;
@@ -123,6 +124,7 @@ export function ProjectGroup({
   sessionAttention,
   herdHoverHighlights,
   herdGroupBadgeThemes,
+  reviewerByParent,
   groupDragHandleProps,
   groupDragging,
   onMobileReorderHandleActiveChange,
@@ -245,14 +247,13 @@ export function ProjectGroup({
               {group.sessions.map((s) => {
                 const permCount = countUserPermissions(pendingPermissions.get(s.id));
                 const attention = sessionAttention?.get(s.id) ?? null;
-                const isReviewer = s.reviewerOf !== undefined;
+                const reviewerSession = s.sessionNum != null ? reviewerByParent?.get(s.sessionNum) : undefined;
                 return (
                   <SortableSessionItem key={s.id} id={s.id}>
                     {({ setNodeRef, style, listeners, attributes, isDragging }) => (
                       <div
                         ref={setNodeRef}
                         style={style}
-                        className={isReviewer ? "pl-4" : ""}
                         {...(!touchDevice ? { ...listeners, ...attributes } : {})}
                       >
                         <SessionItem
@@ -262,6 +263,7 @@ export function ProjectGroup({
                           sessionPreview={sessionPreviews.get(s.id)}
                           permCount={permCount}
                           isRecentlyRenamed={recentlyRenamed.has(s.id)}
+                          reviewerSession={reviewerSession}
                           onSelect={onSelect}
                           onStartRename={onStartRename}
                           onArchive={onArchive}

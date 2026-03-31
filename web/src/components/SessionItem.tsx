@@ -2,6 +2,7 @@ import { useRef, useCallback, useState, type RefObject } from "react";
 import type { SessionItem as SessionItemType } from "../utils/project-grouping.js";
 import { deriveSessionStatus, type SessionVisualStatus } from "./SessionStatusDot.js";
 import { useStore } from "../store.js";
+import { navigateToSession } from "../utils/routing.js";
 import { getHighlightParts } from "../utils/highlight.js";
 import type { HerdGroupBadgeTheme } from "../utils/herd-group-theme.js";
 
@@ -73,6 +74,8 @@ interface SessionItemProps {
     attributes?: Record<string, unknown>;
   };
   herdGroupBadgeTheme?: HerdGroupBadgeTheme;
+  /** Active reviewer session for this parent -- renders an inline badge. */
+  reviewerSession?: SessionItemType;
   /** Hover-linked herd relationship highlight in sidebar. */
   herdHoverHighlight?: "leader" | "worker";
   /** When set, shows why this session matched a search query (e.g. "keyword: zustand") */
@@ -113,6 +116,7 @@ export function SessionItem({
   onMobileReorderHandleActiveChange,
   dragHandleProps,
   herdGroupBadgeTheme,
+  reviewerSession,
   herdHoverHighlight,
   matchContext,
   matchedField,
@@ -563,6 +567,24 @@ export function SessionItem({
                   >
                     wt
                   </span>
+                )}
+                {reviewerSession && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigateToSession(reviewerSession.id);
+                    }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    title={`Reviewer${reviewerSession.sessionNum != null ? ` #${reviewerSession.sessionNum}` : ""} — click to open`}
+                    className="inline-flex items-center gap-0.5 text-[9px] font-medium px-1.5 rounded-full leading-[16px] shrink-0 text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 transition-colors cursor-pointer border border-blue-500/15"
+                    data-testid="session-reviewer-badge"
+                  >
+                    <svg viewBox="0 0 16 16" fill="currentColor" className="w-2.5 h-2.5">
+                      <path d="M11.742 10.344a6.5 6.5 0 10-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 001.415-1.414l-3.85-3.85a1.007 1.007 0 00-.115-.1zM12 6.5a5.5 5.5 0 11-11 0 5.5 5.5 0 0111 0z" />
+                    </svg>
+                    review
+                  </button>
                 )}
                 {hasBranchDivergence && (
                   <span className="flex items-center gap-0.5 text-[10px] shrink-0">
