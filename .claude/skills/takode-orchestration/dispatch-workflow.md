@@ -10,13 +10,13 @@ takode board show
 
 See current quest state and capacity. Identify quests already in progress and available worker slots.
 
-## 2. List Workers
+## 2. List Your Herd
 
 ```bash
-takode list --active
+takode list
 ```
 
-See all sessions with status, quest claims, last activity. Identify idle workers that might be reusable.
+See your herded sessions with status, quest claims, last activity. Identify idle workers that might be reusable.
 
 ## 3. Evaluate Idle Workers
 
@@ -43,8 +43,10 @@ Ask: is the new quest related to this worker's recent context (same feature area
 **Spawn fresh** when no existing worker has relevant context. Point the new worker to relevant quests or past sessions for context:
 
 ```bash
-takode spawn [--backend <type>] --cwd <dir> --message "<dispatch>"
+takode spawn --message "<dispatch>"
 ```
+
+Sessions use worktrees by default. Only add `--no-worktree` for read-only tasks (HQ lookups, analysis). Don't use `--fixed-name` for regular workers -- they auto-name from their quest.
 
 Default to your own backend type unless the user specifies otherwise.
 
@@ -54,12 +56,14 @@ Maintain at most **5 sessions** in your herd (reviewer sessions don't count). Be
 
 ## 6. Send Standardized Dispatch Message
 
+**Use this exact template. Do not add extra context, file paths, or investigation instructions.**
+
 ```
 Work on [q-XX](quest:q-XX). Read the quest and claim it: `quest show q-XX && quest claim q-XX`.
 Return a plan for approval before implementing.
 ```
 
-Workers have the same tools and skills you do. Give them the quest ID and a brief summary -- they run `quest show q-XX` themselves. Don't paste quest content into messages.
+If the worker needs additional context (related sessions, rejected approaches, user decisions), add it to the quest description before dispatching. Workers have the same tools and skills you do -- they run `quest show q-XX` themselves.
 
 ## 7. Update the Board
 

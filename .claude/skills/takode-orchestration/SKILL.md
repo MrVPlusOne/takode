@@ -32,20 +32,21 @@ Read these files when performing the corresponding operation:
 - **Events are push-based.** Herd events arrive as `[Herd]` user messages when idle. No polling.
 - **Reference, don't relay.** Point to source messages instead of paraphrasing.
 - **One task at a time per worker.** Mid-task steering is fine; unrelated new tasks queue.
-- **Before dispatching any quest, read and follow [dispatch-workflow.md](dispatch-workflow.md).**
+- **Before dispatching any quest, *ALWAYS* read and follow [dispatch-workflow.md](dispatch-workflow.md) step by step.** The dispatch message to the worker must use the standardized template. Do not add extra context, file paths, or investigation instructions -- add any extra information into the quest itself before dispatching.
 
 ## Read-Only Commands
 
 These commands work for any session.
 
-### `takode list [--active] [--all] [--json]`
+### `takode list [--herd] [--active] [--all] [--json]`
 
-List sessions. For leaders, the default view shows only herded sessions (your flock). Use `--active` to see all unarchived sessions, or `--all` to include archived.
+List sessions. Default shows all unarchived sessions. Use `--herd` (or just `takode list` as leader) to see only your herded sessions. Use `--all` to include archived.
 
 ```bash
-takode list
-takode list --active
-takode list --all
+takode list          # leader default: herded sessions only
+takode list --herd   # explicit: herded sessions only
+takode list --active # all unarchived sessions
+takode list --all    # include archived
 ```
 
 Output shows: `#N` session number, status icon, name, role labels, quest status, branch info, last activity.
@@ -229,14 +230,12 @@ takode herd 2 3 5
 
 ### `takode spawn [--backend claude|codex] [--count N] [--message "..."] [--cwd DIR] [--no-worktree] [--fixed-name "..."] [--reviewer <session>] [--json]`
 
-Create worker sessions and auto-herd them to yourself. Use `--fixed-name` to set a stable session name and disable auto-naming. Use `--reviewer <session>` to create a reviewer session linked to a parent worker.
+Create worker sessions and auto-herd them to yourself. **Sessions use worktrees by default** -- only pass `--no-worktree` when the worker won't edit the repo (e.g., HQ lookups, read-only analysis). Use `--fixed-name` only for reviewer sessions (regular workers get auto-named from their quest). Use `--reviewer <session>` to create a reviewer session linked to a parent worker.
 
 ```bash
-takode spawn
+takode spawn                                                    # worktree session (default)
 takode spawn --backend claude --count 3 --cwd ~/repos/app --message "Run tests"
-takode spawn --no-worktree
-takode spawn --fixed-name "Skeptic review of #5" --no-worktree --message "Review this PR"
-takode spawn --reviewer 5 --message "Skeptic review session #5 / quest q-42."
+takode spawn --reviewer 5 --no-worktree --fixed-name "Skeptic review of #5" --message "Review session #5 / quest q-42."
 ```
 
 ### `takode rename <session> <name>`
@@ -288,7 +287,7 @@ Prefer integer numbers -- they're stable within a server session and easy to typ
 
 ## Session Naming
 
-Sessions start with random names. Use `--fixed-name` when spawning to set a permanent name (e.g., reviewer sessions). Auto-rename happens on first message and on turn completion. Quest claiming changes the session name to the quest title and pauses auto-naming while the quest is active.
+Sessions start with random names and auto-rename on first message and turn completion. Quest claiming changes the session name to the quest title and pauses auto-naming while the quest is active. Only use `--fixed-name` for reviewer sessions -- regular workers should rely on auto-naming from their quest.
 
 When referencing sessions, use session numbers (`#107`) which are stable -- names can change.
 
