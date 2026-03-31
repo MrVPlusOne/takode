@@ -8180,17 +8180,10 @@ export class WsBridge {
       if (session.state.claimedQuestId === questId) {
         this.setSessionClaimedQuest(session.id, null);
       }
-      // Auto-remove from all work boards when quest is done
-      this.removeBoardRowFromAll(questId);
       return;
     }
 
     this.setSessionClaimedQuest(session.id, { id: questId, title, status });
-
-    // Auto-remove from all work boards when quest enters verification
-    if (status === "needs_verification") {
-      this.removeBoardRowFromAll(questId);
-    }
 
     if (status !== "in_progress") return;
 
