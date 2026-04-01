@@ -41,8 +41,8 @@ export interface RouteContext {
   ) => RequiredAuthResult;
   authenticateCompanionCallerOptional: (c: import("hono").Context) => OptionalAuthResult;
 
-  execAsync: (command: string, cwd: string) => Promise<string>;
-  execCaptureStdoutAsync: (command: string, cwd: string) => Promise<string>;
+  execAsync: (command: string, cwd: string, opts?: { maxBuffer?: number }) => Promise<string>;
+  execCaptureStdoutAsync: (command: string, cwd: string, opts?: { maxBuffer?: number }) => Promise<string>;
   pathExists: (path: string) => Promise<boolean>;
 
   ROUTES_DIR: string;

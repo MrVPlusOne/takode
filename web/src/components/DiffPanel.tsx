@@ -52,6 +52,7 @@ interface DiffFileData {
   diff: string;
   oldText?: string;
   newText?: string;
+  truncated?: boolean;
 }
 
 /**
@@ -352,7 +353,10 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
 
     let cancelled = false;
     setAllDiffsLoading(true);
-    const BATCH_SIZE = 12;
+    // Keep concurrency low to avoid saturating NFS I/O with parallel git
+    // subprocesses. Higher values (e.g. 12) caused server-wide stalls on
+    // repos mounted over NFS when many files are behind the base branch.
+    const BATCH_SIZE = 4;
     void (async () => {
       try {
         for (let i = 0; i < newFiles.length; i += BATCH_SIZE) {
@@ -363,11 +367,13 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
                 .then((res) => ({
                   abs,
                   diff: res.diff,
+                  truncated: res.truncated,
                   stats: countDiffStats(res.diff),
                 }))
                 .catch(() => ({
                   abs,
                   diff: "",
+                  truncated: false,
                   stats: { additions: 0, deletions: 0 },
                 })),
             ),
@@ -386,7 +392,7 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
             for (const result of results) {
               // Only set lightweight diff if we don't already have full contents
               if (!prev.get(result.abs)?.oldText && !prev.get(result.abs)?.newText) {
-                next.set(result.abs, { diff: result.diff });
+                next.set(result.abs, { diff: result.diff, truncated: result.truncated });
               }
             }
             return next;
@@ -429,6 +435,7 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
             .then((res) => ({
               abs,
               diff: res.diff,
+              truncated: res.truncated,
               oldText: res.oldText,
               newText: res.newText,
             }))
@@ -447,6 +454,7 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
         for (const result of successful) {
           next.set(result.abs, {
             diff: result.diff,
+            truncated: result.truncated,
             oldText: result.oldText,
             newText: result.newText,
           });
@@ -799,25 +807,32 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
                   }}
                 >
                   {isNearViewport ? (
-                    <DiffViewer
-                      oldText={diffData?.oldText}
-                      newText={diffData?.newText}
-                      unifiedDiff={
-                        diffData?.oldText !== undefined || diffData?.newText !== undefined
-                          ? undefined
-                          : (diffData?.diff ?? "")
-                      }
-                      fileName={displayName}
-                      fileStatsLabel={
-                        stats
-                          ? `+${stats.additions} -${stats.deletions}${statusLabel}`
-                          : statusLabel
-                            ? statusLabel.trim()
-                            : undefined
-                      }
-                      mode="full"
-                      showLineNumbers={showLineNumbers}
-                    />
+                    <>
+                      <DiffViewer
+                        oldText={diffData?.oldText}
+                        newText={diffData?.newText}
+                        unifiedDiff={
+                          diffData?.oldText !== undefined || diffData?.newText !== undefined
+                            ? undefined
+                            : (diffData?.diff ?? "")
+                        }
+                        fileName={displayName}
+                        fileStatsLabel={
+                          stats
+                            ? `+${stats.additions} -${stats.deletions}${statusLabel}`
+                            : statusLabel
+                              ? statusLabel.trim()
+                              : undefined
+                        }
+                        mode="full"
+                        showLineNumbers={showLineNumbers}
+                      />
+                      {diffData?.truncated && (
+                        <div className="mt-1 px-3 py-1.5 rounded-b-lg bg-yellow-500/10 border border-yellow-500/20 text-yellow-400 text-[11px] text-center">
+                          Diff truncated (file too large to display in full)
+                        </div>
+                      )}
+                    </>
                   ) : (
                     <DiffPlaceholder
                       fileName={displayName}

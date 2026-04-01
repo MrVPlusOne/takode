@@ -11,6 +11,13 @@ import type { RouteContext } from "./context.js";
 
 const execPromise = promisify(execCb);
 
+/** 10 MB — generous maxBuffer for git diff commands that may produce large output. */
+const DIFF_MAX_BUFFER = 10 * 1024 * 1024;
+/** 512 KB — cap diff text sent to the browser. Larger diffs are truncated. */
+const MAX_DIFF_BYTES = 512 * 1024;
+/** Cap file list returned by diff-files to avoid overwhelming the frontend. */
+const MAX_DIFF_FILES = 500;
+
 export function createFilesystemRoutes(ctx: RouteContext) {
   const api = new Hono();
   const { wsBridge, execAsync, execCaptureStdoutAsync } = ctx;
@@ -179,24 +186,24 @@ export function createFilesystemRoutes(ctx: RouteContext) {
     const includeContents = c.req.query("includeContents") === "1";
     const absPath = resolve(filePath);
     try {
-      const repoRoot = await execAsync("git rev-parse --show-toplevel", dirname(absPath));
+      const repoRoot = await execAsync("git --no-optional-locks rev-parse --show-toplevel", dirname(absPath));
       const relPath =
-        (await execAsync(`git -C "${repoRoot}" ls-files --full-name -- "${absPath}"`, repoRoot)) || absPath;
+        (await execAsync(`git --no-optional-locks -C "${repoRoot}" ls-files --full-name -- "${absPath}"`, repoRoot)) || absPath;
 
       let diff = "";
       try {
         // Compare directly to the selected base ref tip. Using merge-base here
         // makes cherry-picked commits appear as unsynced in the UI.
-        diff = await execCaptureStdoutAsync(`git diff ${base} -- "${relPath}"`, repoRoot);
+        diff = await execCaptureStdoutAsync(`git --no-optional-locks diff "${base}" -- "${relPath}"`, repoRoot, { maxBuffer: DIFF_MAX_BUFFER });
       } catch {
         // Base ref unavailable — leave diff empty
       }
 
       // For untracked files, base-branch diff is empty. Show full file as added.
       if (!diff.trim()) {
-        const untracked = await execAsync(`git ls-files --others --exclude-standard -- "${relPath}"`, repoRoot);
+        const untracked = await execAsync(`git --no-optional-locks ls-files --others --exclude-standard -- "${relPath}"`, repoRoot);
         if (untracked) {
-          diff = await execCaptureStdoutAsync(`git diff --no-index -- /dev/null "${absPath}"`, repoRoot);
+          diff = await execCaptureStdoutAsync(`git --no-optional-locks diff --no-index -- /dev/null "${absPath}"`, repoRoot, { maxBuffer: DIFF_MAX_BUFFER });
         }
       }
 
@@ -207,7 +214,7 @@ export function createFilesystemRoutes(ctx: RouteContext) {
         const escapedRelPath = relPath.replace(/[\\`"$]/g, "\\$&");
 
         try {
-          const baseContent = await execCaptureStdoutAsync(`git show ${base}:"${escapedRelPath}"`, repoRoot);
+          const baseContent = await execCaptureStdoutAsync(`git --no-optional-locks show "${base}":"${escapedRelPath}"`, repoRoot, { maxBuffer: DIFF_MAX_BUFFER });
           if (Buffer.byteLength(baseContent, "utf-8") <= 1024 * 1024) {
             oldText = baseContent.replace(/\r\n/g, "\n");
           }
@@ -236,9 +243,20 @@ export function createFilesystemRoutes(ctx: RouteContext) {
         }
       }
 
+      // Cap diff output sent to the browser to avoid multi-MB payloads.
+      // Use Buffer to truncate by byte length (not character count) since
+      // MAX_DIFF_BYTES is a byte limit. Re-decoding may drop a partial
+      // multi-byte character at the boundary, which is safe for display.
+      let truncated = false;
+      if (Buffer.byteLength(diff, "utf-8") > MAX_DIFF_BYTES) {
+        diff = Buffer.from(diff, "utf-8").subarray(0, MAX_DIFF_BYTES).toString("utf-8");
+        truncated = true;
+      }
+
       return c.json({
         path: absPath,
         diff,
+        truncated,
         baseBranch: base,
         ...(includeContents ? { oldText, newText } : {}),
       });
@@ -265,7 +283,7 @@ export function createFilesystemRoutes(ctx: RouteContext) {
       const rootPrefix = `${repoRoot}/`;
       const relFiles = body.files.map((f) => (f.startsWith(rootPrefix) ? f.slice(rootPrefix.length) : f));
       const fileArgs = relFiles.map((f) => `"${f}"`).join(" ");
-      const raw = await execCaptureStdoutAsync(`git diff --numstat ${body.base} -- ${fileArgs}`, repoRoot);
+      const raw = await execCaptureStdoutAsync(`git --no-optional-locks diff --numstat "${body.base}" -- ${fileArgs}`, repoRoot, { maxBuffer: DIFF_MAX_BUFFER });
 
       const stats: Record<string, { additions: number; deletions: number }> = {};
       for (const line of raw.split("\n")) {
@@ -311,7 +329,7 @@ export function createFilesystemRoutes(ctx: RouteContext) {
     try {
       // --no-optional-locks avoids NFS lock contention on .git/index.lock
       // No -M flag: rename detection is too expensive on NFS (reads full file contents)
-      const raw = await execCaptureStdoutAsync(`git --no-optional-locks diff --name-status ${base}`, repoRoot);
+      const raw = await execCaptureStdoutAsync(`git --no-optional-locks diff --name-status "${base}"`, repoRoot, { maxBuffer: DIFF_MAX_BUFFER });
 
       const files: Array<{
         path: string;
@@ -319,8 +337,13 @@ export function createFilesystemRoutes(ctx: RouteContext) {
         oldPath?: string;
       }> = [];
 
+      let truncated = false;
       for (const line of raw.split("\n")) {
         if (!line.trim()) continue;
+        if (files.length >= MAX_DIFF_FILES) {
+          truncated = true;
+          break;
+        }
         const parts = line.split("\t");
         const statusCode = parts[0];
 
@@ -335,7 +358,7 @@ export function createFilesystemRoutes(ctx: RouteContext) {
         }
       }
 
-      return c.json({ files, repoRoot, base });
+      return c.json({ files, repoRoot, base, truncated });
     } catch {
       return c.json({ files: [], repoRoot, base });
     }

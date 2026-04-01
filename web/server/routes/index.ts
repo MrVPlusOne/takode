@@ -58,15 +58,15 @@ export function buildOrchestratorSystemPrompt(backend: "claude" | "codex" | "cla
 }
 
 /** Non-blocking exec — runs a shell command without stalling the event loop. */
-async function execAsync(command: string, cwd: string): Promise<string> {
-  const { stdout } = await execPromise(command, { cwd, timeout: GIT_CMD_TIMEOUT });
+async function execAsync(command: string, cwd: string, opts?: { maxBuffer?: number }): Promise<string> {
+  const { stdout } = await execPromise(command, { cwd, timeout: GIT_CMD_TIMEOUT, ...(opts?.maxBuffer && { maxBuffer: opts.maxBuffer }) });
   return stdout.trim();
 }
 
 /** Non-blocking version of execCaptureStdout — always returns stdout even on non-zero exit. */
-async function execCaptureStdoutAsync(command: string, cwd: string): Promise<string> {
+async function execCaptureStdoutAsync(command: string, cwd: string, opts?: { maxBuffer?: number }): Promise<string> {
   try {
-    const { stdout } = await execPromise(command, { cwd, timeout: GIT_CMD_TIMEOUT });
+    const { stdout } = await execPromise(command, { cwd, timeout: GIT_CMD_TIMEOUT, ...(opts?.maxBuffer && { maxBuffer: opts.maxBuffer }) });
     return stdout.trim();
   } catch (err: unknown) {
     const maybe = err as { stdout?: string };
