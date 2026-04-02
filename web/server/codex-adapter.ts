@@ -15,6 +15,8 @@ import {
   formatVsCodeSelectionPrompt,
   type BrowserIncomingMessage,
   type BrowserOutgoingMessage,
+  type CodexAppReference,
+  type CodexSkillReference,
   type SessionState,
   type PermissionRequest,
   type CLIResultMessage,
@@ -139,7 +141,23 @@ function normalizeSlashPath(value: string): string {
   return normalized || "/";
 }
 
-function extractCodexSkillNames(result: unknown, sessionCwd?: string): string[] {
+function toCodexMentionSlug(name: string): string {
+  const normalized = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return normalized || "app";
+}
+
+function looksLikeSkillPath(path: string): boolean {
+  return path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path);
+}
+
+function unescapeCodexMentionPath(path: string): string {
+  return path.replace(/\\\)/g, ")").replace(/\\\\/g, "\\").trim();
+}
+
+function extractCodexSkillReferences(result: unknown, sessionCwd?: string): CodexSkillReference[] {
   const root = result && typeof result === "object" ? (result as Record<string, unknown>) : {};
   const rawEntries = Array.isArray(root.data)
     ? root.data
@@ -155,24 +173,111 @@ function extractCodexSkillNames(result: unknown, sessionCwd?: string): string[] 
     : [];
   const sourceEntries = matchingEntries.length > 0 ? matchingEntries : entries;
 
-  const names = new Set<string>();
+  const byName = new Map<string, CodexSkillReference>();
   for (const entry of sourceEntries) {
     const skills = entry.skills;
     if (!Array.isArray(skills)) continue;
     for (const skill of skills) {
       if (typeof skill === "string") {
-        const trimmed = skill.trim();
-        if (trimmed) names.add(trimmed);
+        const name = skill.trim();
+        if (name && !byName.has(name)) {
+          byName.set(name, { name, path: "" });
+        }
         continue;
       }
       if (!skill || typeof skill !== "object") continue;
       const record = skill as Record<string, unknown>;
       if (record.enabled === false) continue;
       const name = typeof record.name === "string" ? record.name.trim() : "";
-      if (name) names.add(name);
+      if (!name) continue;
+      const existing = byName.get(name);
+      if (existing?.path) continue;
+      const path = typeof record.path === "string" ? record.path.trim() : "";
+      const description = typeof record.description === "string" ? record.description.trim() : "";
+      byName.set(name, {
+        name,
+        path,
+        ...(description ? { description } : {}),
+      });
     }
   }
-  return [...names].sort((a, b) => a.localeCompare(b));
+  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function extractCodexAppsPage(result: unknown): { apps: CodexAppReference[]; nextCursor: string | null } {
+  const root = result && typeof result === "object" ? (result as Record<string, unknown>) : {};
+  const rawApps = Array.isArray(root.data)
+    ? root.data
+    : Array.isArray(root.apps)
+      ? root.apps
+      : Array.isArray(result)
+        ? result
+        : [];
+  const apps = new Map<string, CodexAppReference>();
+  for (const app of rawApps) {
+    if (typeof app === "string") {
+      const name = app.trim();
+      if (name && !apps.has(name)) apps.set(name, { id: name, name });
+      continue;
+    }
+    if (!app || typeof app !== "object") continue;
+    const record = app as Record<string, unknown>;
+    if (record.isAccessible === false || record.isEnabled === false) continue;
+    const id = typeof record.id === "string" ? record.id.trim() : "";
+    const name = typeof record.name === "string" ? record.name.trim() : "";
+    if (!id || !name) continue;
+    const description = typeof record.description === "string" ? record.description.trim() : null;
+    apps.set(id, {
+      id,
+      name,
+      ...(description ? { description } : {}),
+    });
+  }
+  const nextCursor = typeof root.nextCursor === "string" && root.nextCursor.trim() ? root.nextCursor.trim() : null;
+  return {
+    apps: [...apps.values()].sort((a, b) => a.name.localeCompare(b.name)),
+    nextCursor,
+  };
+}
+
+function extractCodexMentionInputs(
+  text: string,
+  skillPathByName: Map<string, string>,
+): Array<{ type: "skill" | "mention"; name: string; path: string }> {
+  const mentionInputs: Array<{ type: "skill" | "mention"; name: string; path: string }> = [];
+  const seen = new Set<string>();
+  const pushMention = (type: "skill" | "mention", name: string, path: string) => {
+    const normalizedName = name.trim();
+    const normalizedPath = path.trim();
+    if (!normalizedName || !normalizedPath) return;
+    const key = `${type}:${normalizedName}:${normalizedPath}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    mentionInputs.push({ type, name: normalizedName, path: normalizedPath });
+  };
+
+  const linkPattern = /\[\$([^\]\n]+)\]\(((?:\\\)|[^)\n])*)\)/g;
+  for (const match of text.matchAll(linkPattern)) {
+    const name = match[1]?.trim() ?? "";
+    const path = unescapeCodexMentionPath(match[2] ?? "");
+    if (!name || !path) continue;
+    if (path.startsWith("app://")) {
+      pushMention("mention", toCodexMentionSlug(name), path);
+    } else if (looksLikeSkillPath(path)) {
+      pushMention("skill", name, path);
+    }
+  }
+
+  const plainSkillPattern = /(^|[\s({])\$([A-Za-z0-9][A-Za-z0-9._:-]*)/g;
+  for (const match of text.matchAll(plainSkillPattern)) {
+    const name = match[2]?.trim() ?? "";
+    const path = skillPathByName.get(name) ?? skillPathByName.get(name.toLowerCase());
+    if (name && path) {
+      pushMention("skill", name, path);
+    }
+  }
+
+  return mentionInputs;
 }
 
 function extractCommandAction(commandActions: unknown): string {
@@ -406,6 +511,8 @@ export interface CodexAdapterOptions {
   recorder?: RecorderManager;
   /** Companion instructions injected via developer_instructions in turn/start. */
   instructions?: string;
+  /** Optional stderr/context captured by the launcher for early startup failures. */
+  failureContextProvider?: () => string | null;
 }
 
 export interface CodexResumeTurnSnapshot {
@@ -418,6 +525,7 @@ export interface CodexResumeTurnSnapshot {
 export interface CodexResumeSnapshot {
   threadId: string;
   turnCount: number;
+  turns: CodexResumeTurnSnapshot[];
   lastTurn: CodexResumeTurnSnapshot | null;
   /** Thread-level status from the resume response (e.g. "idle", "active"). */
   threadStatus?: string | null;
@@ -700,6 +808,8 @@ export class CodexAdapter
   private pendingOutgoing: BrowserOutgoingMessage[] = [];
   // Serialize async outgoing dispatch so permission/interrupt/user turns can't overlap.
   private outgoingDispatchChain: Promise<void> = Promise.resolve();
+  // Latest known Codex skill metadata, keyed by skill name for fast `$skill` parsing.
+  private skillPathByName = new Map<string, string>();
 
   // Pending approval requests (Codex sends these as JSON-RPC requests with an id)
   private pendingApprovals = new Map<string, number>(); // request_id -> JSON-RPC id
@@ -855,14 +965,50 @@ export class CodexAdapter
       ...(this.options.cwd ? { cwds: [this.options.cwd] } : {}),
       ...(forceReload ? { forceReload: true } : {}),
     });
-    const skills = extractCodexSkillNames(result, this.options.cwd);
+    const skillMetadata = extractCodexSkillReferences(result, this.options.cwd);
+    this.skillPathByName = new Map();
+    for (const skill of skillMetadata) {
+      const path = skill.path.trim();
+      if (!path) continue;
+      this.skillPathByName.set(skill.name, path);
+      this.skillPathByName.set(skill.name.toLowerCase(), path);
+    }
+    const skills = skillMetadata.map((skill) => skill.name);
+    const apps = await this.refreshApps(forceReload);
     this.emit({
       type: "session_update",
       session: {
         skills,
+        skill_metadata: skillMetadata,
+        apps,
       },
     });
     return skills;
+  }
+
+  private async refreshApps(forceRefetch = false): Promise<CodexAppReference[]> {
+    if (!this.transport.isConnected()) return [];
+    const apps: CodexAppReference[] = [];
+    let cursor: string | null = null;
+
+    try {
+      do {
+        const result = await this.transport.call("app/list", {
+          ...(cursor ? { cursor } : {}),
+          ...(this.threadId ? { threadId: this.threadId } : {}),
+          ...(forceRefetch ? { forceRefetch: true } : {}),
+        });
+        const page = extractCodexAppsPage(result);
+        apps.push(...page.apps);
+        cursor = page.nextCursor;
+      } while (cursor);
+    } catch (err) {
+      console.warn(`[codex-adapter] app/list failed for session ${this.sessionId}:`, err);
+      return [];
+    }
+
+    const deduped = new Map(apps.map((app) => [app.id, app]));
+    return [...deduped.values()].sort((a, b) => a.name.localeCompare(b.name));
   }
 
   sendBrowserMessage(msg: BrowserOutgoingMessage): boolean {
@@ -1087,6 +1233,8 @@ export class CodexAdapter
         agents: [],
         slash_commands: [...CODEX_LOCAL_SLASH_COMMANDS],
         skills: [],
+        skill_metadata: [],
+        apps: [],
         total_cost_usd: 0,
         num_turns: 0,
         context_used_percent: 0,
@@ -1122,7 +1270,7 @@ export class CodexAdapter
         }
       }
     } catch (err) {
-      const errorMsg = `Codex initialization failed: ${err}`;
+      const errorMsg = this.formatInitializationError(err);
       console.error(`[codex-adapter] ${errorMsg}`);
       this.initFailed = true;
       this.connected = false;
@@ -1186,6 +1334,7 @@ export class CodexAdapter
 
     const input: Array<{
       type: string;
+      name?: string;
       text?: string;
       url?: string;
       path?: string;
@@ -1214,6 +1363,7 @@ export class CodexAdapter
 
     // Add text
     input.push({ type: "text", text: msg.content, text_elements: [] });
+    input.push(...extractCodexMentionInputs(msg.content, this.skillPathByName));
     if (msg.vscodeSelection) {
       input.push({ type: "text", text: formatVsCodeSelectionPrompt(msg.vscodeSelection), text_elements: [] });
     }
@@ -1222,7 +1372,7 @@ export class CodexAdapter
     // transport issues — Codex reads JSON-RPC from stdin, so huge lines
     // can cause event loop blocks and process crashes.
     const estimatedChars = input.reduce(
-      (sum, i) => sum + (i.url?.length || 0) + (i.path?.length || 0) + (i.text?.length || 0),
+      (sum, i) => sum + (i.name?.length || 0) + (i.url?.length || 0) + (i.path?.length || 0) + (i.text?.length || 0),
       0,
     );
     if (estimatedChars > 500_000) {
@@ -1684,6 +1834,19 @@ export class CodexAdapter
           break;
         case "account/rateLimits/updated":
           this.updateRateLimits(params);
+          break;
+        case "skills/changed":
+          this.refreshSkills(true).catch((err) => {
+            console.warn(`[codex-adapter] Failed to refresh skills after skills/changed:`, err);
+          });
+          break;
+        case "app/list/updated":
+          this.emit({
+            type: "session_update",
+            session: {
+              apps: extractCodexAppsPage(params).apps,
+            },
+          });
           break;
         case "codex/event/stream_error": {
           const msg = params.msg as { message?: string } | undefined;
@@ -2978,7 +3141,20 @@ export class CodexAdapter
   private buildResumeSnapshot(thread: Record<string, unknown> & { id: string }): CodexResumeSnapshot | null {
     const rawTurns = Array.isArray(thread.turns) ? thread.turns : [];
     const turns = rawTurns.filter((t): t is Record<string, unknown> => !!t && typeof t === "object");
-    const last = turns.length > 0 ? turns[turns.length - 1] : null;
+    const normalizedTurns = turns.map((turn) => {
+      const turnId = typeof turn.id === "string" ? turn.id : "";
+      const status = typeof turn.status === "string" ? turn.status : null;
+      const items = Array.isArray(turn.items)
+        ? turn.items.filter((it): it is Record<string, unknown> => !!it && typeof it === "object")
+        : [];
+      return {
+        id: turnId,
+        status,
+        error: turn.error ?? null,
+        items,
+      } satisfies CodexResumeTurnSnapshot;
+    });
+    const last = normalizedTurns.length > 0 ? normalizedTurns[normalizedTurns.length - 1] : null;
 
     // Extract thread-level status (e.g. {type: "idle"} or {type: "active"})
     const rawStatus = thread.status;
@@ -2993,26 +3169,17 @@ export class CodexAdapter
       return {
         threadId: thread.id,
         turnCount: 0,
+        turns: [],
         lastTurn: null,
         threadStatus,
       };
     }
 
-    const lastId = typeof last.id === "string" ? last.id : "";
-    const status = typeof last.status === "string" ? last.status : null;
-    const items = Array.isArray(last.items)
-      ? last.items.filter((it): it is Record<string, unknown> => !!it && typeof it === "object")
-      : [];
-
     return {
       threadId: thread.id,
-      turnCount: turns.length,
-      lastTurn: {
-        id: lastId,
-        status,
-        error: last.error ?? null,
-        items,
-      },
+      turnCount: normalizedTurns.length,
+      turns: normalizedTurns,
+      lastTurn: last,
       threadStatus,
     };
   }
@@ -3075,6 +3242,16 @@ export class CodexAdapter
 
   private isTransportClosedError(err: unknown): boolean {
     return String(err).toLowerCase().includes("transport closed");
+  }
+
+  private formatInitializationError(err: unknown): string {
+    const detail = err instanceof Error ? err.message : String(err);
+    let message = `Codex initialization failed: ${detail}`;
+    const failureContext = this.options.failureContextProvider?.();
+    if (failureContext && this.isTransportClosedError(err)) {
+      message += `. Stderr: ${failureContext}`;
+    }
+    return message;
   }
 
   private handleTurnStartDispatchFailure(msg: BrowserOutgoingMessage): boolean {

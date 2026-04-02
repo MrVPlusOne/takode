@@ -1,10 +1,24 @@
 import { randomUUID, createHash } from "node:crypto";
 import { exec as execCb } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdir, access, copyFile, cp, readFile, realpath, writeFile, unlink, symlink, lstat } from "node:fs/promises";
+import {
+  mkdir,
+  access,
+  copyFile,
+  cp,
+  readFile,
+  realpath,
+  writeFile,
+  unlink,
+  symlink,
+  lstat,
+  open,
+  readdir,
+  stat,
+} from "node:fs/promises";
 
 const execPromise = promisify(execCb);
-import { join, resolve } from "node:path";
+import { join, resolve, relative, dirname } from "node:path";
 import { homedir } from "node:os";
 import type { Subprocess } from "bun";
 import type { SessionStore } from "./session-store.js";
@@ -14,7 +28,7 @@ import type { RecorderManager } from "./recorder.js";
 import { CodexAdapter } from "./codex-adapter.js";
 import { resolveBinary, getEnrichedPath, captureUserShellEnv, captureUserShellPath } from "./path-resolver.js";
 import { containerManager } from "./container-manager.js";
-import { getLegacyCodexHome, resolveCompanionCodexSessionHome } from "./codex-home.js";
+import { getLegacyCodexHome, resolveCompanionCodexHome, resolveCompanionCodexSessionHome } from "./codex-home.js";
 import { TAKODE_LINK_SYNTAX_INSTRUCTIONS } from "./link-syntax.js";
 import { sessionTag } from "./session-tag.js";
 import { getSessionAuthDir, getSessionAuthPath } from "../shared/session-auth.js";
@@ -94,6 +108,9 @@ const SHELL_ENV_POLICY_HEADER = `[${SHELL_ENV_POLICY_SECTION}]`;
 const CODEX_FEATURES_SECTION = "features";
 const CODEX_FEATURES_HEADER = `[${CODEX_FEATURES_SECTION}]`;
 const CODEX_MULTI_AGENT_FEATURE = "multi_agent";
+const DOTSLASH_SHEBANG = "#!/usr/bin/env dotslash";
+const CODEX_BOOTSTRAP_CACHE_MARKER = 'CACHE_DIR = os.path.expanduser("~/.cache/codex")';
+const NODE_SHEBANG_RE = /^#!.*\bnode(?:\s|$)/;
 
 function mergeUniqueStrings(existing: string[], additions: string[]): string[] {
   const merged = [...existing];
@@ -132,6 +149,22 @@ function mergePathStrings(paths: Array<string | undefined>): string {
     }
   }
   return merged.join(":");
+}
+
+function appendStreamTail(lines: string[], chunk: string, maxLines = 20): void {
+  for (const rawLine of chunk.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    lines.push(line);
+    if (lines.length > maxLines) lines.shift();
+  }
+}
+
+function formatStreamTailForError(lines: string[]): string | null {
+  if (lines.length === 0) return null;
+  const summary = lines.slice(-4).join(" | ");
+  if (!summary) return null;
+  return summary.length > 500 ? `${summary.slice(0, 497)}...` : summary;
 }
 
 function upsertShellEnvironmentIncludeOnly(configToml: string, requiredVars: string[]): string {
@@ -354,6 +387,8 @@ export interface LaunchOptions {
   /** Extra instructions appended to the system prompt (e.g., orchestrator guardrails). */
   extraInstructions?: string;
 }
+
+type HostCodexBinaryKind = "native" | "dotslash" | "bootstrap";
 
 // ─── Companion instruction injection (system prompt) ────────────────────────
 
@@ -1475,11 +1510,203 @@ export class CliLauncher {
     }
   }
 
+  private async readFilePrefix(path: string, maxBytes = 4096): Promise<string> {
+    let handle: Awaited<ReturnType<typeof open>> | null = null;
+    try {
+      handle = await open(path, "r");
+      const buffer = Buffer.alloc(maxBytes);
+      const { bytesRead } = await handle.read(buffer, 0, maxBytes, 0);
+      return buffer.subarray(0, bytesRead).toString("utf-8");
+    } catch {
+      return "";
+    } finally {
+      await handle?.close().catch(() => {});
+    }
+  }
+
+  private async detectHostCodexBinaryKind(path: string): Promise<HostCodexBinaryKind> {
+    const prefix = await this.readFilePrefix(path);
+    if (prefix.startsWith(DOTSLASH_SHEBANG)) return "dotslash";
+    if (prefix.includes(CODEX_BOOTSTRAP_CACHE_MARKER)) return "bootstrap";
+    return "native";
+  }
+
+  private async shouldInvokeCodexWithSiblingNode(path: string): Promise<boolean> {
+    const prefix = await this.readFilePrefix(path, 512);
+    return NODE_SHEBANG_RE.test(prefix);
+  }
+
+  private getLegacyDotslashCacheDirs(): string[] {
+    const dirs = new Set<string>();
+    const explicit = process.env.DOTSLASH_CACHE?.trim();
+    if (explicit) dirs.add(resolve(explicit));
+    if (process.platform === "darwin") {
+      dirs.add(join(homedir(), "Library", "Caches", "dotslash"));
+    }
+    dirs.add(join(homedir(), ".cache", "dotslash"));
+    return [...dirs];
+  }
+
+  private async findLatestCachedCodexArtifact(): Promise<string | null> {
+    const candidates: Array<{ path: string; mtimeMs: number }> = [];
+
+    for (const root of this.getLegacyDotslashCacheDirs()) {
+      let prefixes: string[];
+      try {
+        prefixes = await readdir(root);
+      } catch {
+        continue;
+      }
+
+      for (const prefix of prefixes) {
+        const prefixDir = join(root, prefix);
+        let hashes: string[];
+        try {
+          hashes = await readdir(prefixDir);
+        } catch {
+          continue;
+        }
+
+        for (const hash of hashes) {
+          const artifact = join(prefixDir, hash, "codex");
+          try {
+            const artifactStat = await stat(artifact);
+            if (artifactStat.isFile()) {
+              candidates.push({ path: artifact, mtimeMs: artifactStat.mtimeMs });
+            }
+          } catch {
+            // Not a codex artifact directory.
+          }
+        }
+      }
+    }
+
+    candidates.sort((a, b) => b.mtimeMs - a.mtimeMs);
+    return candidates[0]?.path ?? null;
+  }
+
+  private async prepareDotslashCache(dotslashCache: string): Promise<void> {
+    await mkdir(dotslashCache, { recursive: true });
+
+    let existingEntries: string[] = [];
+    try {
+      existingEntries = await readdir(dotslashCache);
+    } catch {
+      existingEntries = [];
+    }
+    if (existingEntries.length > 0) return;
+
+    for (const sourceRoot of this.getLegacyDotslashCacheDirs()) {
+      if (resolve(sourceRoot) === resolve(dotslashCache)) continue;
+      let sourceEntries: string[];
+      try {
+        sourceEntries = await readdir(sourceRoot);
+      } catch {
+        continue;
+      }
+      if (sourceEntries.length === 0) continue;
+
+      try {
+        for (const entry of sourceEntries) {
+          await cp(join(sourceRoot, entry), join(dotslashCache, entry), {
+            recursive: true,
+            force: false,
+            errorOnExist: false,
+          });
+        }
+        return;
+      } catch (err) {
+        console.warn(`[cli-launcher] Failed to seed DotSlash cache from ${sourceRoot}:`, err);
+      }
+    }
+  }
+
+  private async findLegacyCodexRolloutPath(threadId: string): Promise<string | null> {
+    const sessionsRoot = join(getLegacyCodexHome(), "sessions");
+    const years = await readdir(sessionsRoot).catch(() => []);
+
+    let newest: { path: string; mtimeMs: number } | null = null;
+    for (const year of years) {
+      const yearPath = join(sessionsRoot, year);
+      const months = await readdir(yearPath).catch(() => []);
+      for (const month of months) {
+        const monthPath = join(yearPath, month);
+        const days = await readdir(monthPath).catch(() => []);
+        for (const day of days) {
+          const dayPath = join(monthPath, day);
+          const entries = await readdir(dayPath).catch(() => []);
+          for (const entry of entries) {
+            if (!entry.endsWith(`${threadId}.jsonl`)) continue;
+            const fullPath = join(dayPath, entry);
+            const entryStat = await stat(fullPath).catch(() => null);
+            if (!entryStat?.isFile()) continue;
+            if (!newest || entryStat.mtimeMs > newest.mtimeMs) {
+              newest = { path: fullPath, mtimeMs: entryStat.mtimeMs };
+            }
+          }
+        }
+      }
+    }
+
+    return newest?.path ?? null;
+  }
+
+  private async seedCodexResumeRollout(codexHome: string, threadId?: string): Promise<void> {
+    if (!threadId) return;
+    const rolloutPath = await this.findLegacyCodexRolloutPath(threadId);
+    if (!rolloutPath) return;
+
+    const sessionsRoot = join(getLegacyCodexHome(), "sessions");
+    const relativeRolloutPath = relative(sessionsRoot, rolloutPath);
+    if (!relativeRolloutPath || relativeRolloutPath.startsWith("..")) return;
+
+    const destPath = join(codexHome, "sessions", relativeRolloutPath);
+    await mkdir(dirname(destPath), { recursive: true });
+    await copyFile(rolloutPath, destPath);
+  }
+
+  private async resolveHostCodexLaunchBinary(
+    sessionId: string,
+    binary: string,
+    codexHomeRoot: string,
+  ): Promise<{ binary: string; dotslashCache?: string }> {
+    const kind = await this.detectHostCodexBinaryKind(binary);
+    if (kind === "native") return { binary };
+
+    const cachedArtifact = await this.findLatestCachedCodexArtifact();
+    if (cachedArtifact) {
+      console.log(
+        `[cli-launcher] Using cached Codex artifact for session ${sessionTag(sessionId)}: ${cachedArtifact}`,
+      );
+      return { binary: cachedArtifact };
+    }
+
+    let selectedBinary = binary;
+    if (kind === "bootstrap") {
+      const cachedDotslashFile = join(homedir(), ".cache", "codex", "codex");
+      if (await this.pathExists(cachedDotslashFile)) {
+        selectedBinary = cachedDotslashFile;
+      }
+    }
+
+    const selectedKind = selectedBinary === binary ? kind : await this.detectHostCodexBinaryKind(selectedBinary);
+    if (selectedKind !== "dotslash") {
+      return { binary: selectedBinary };
+    }
+
+    const dotslashCache = join(codexHomeRoot, "dotslash-cache");
+    await this.prepareDotslashCache(dotslashCache);
+    return {
+      binary: selectedBinary,
+      dotslashCache,
+    };
+  }
+
   /**
    * Prepare the Codex home directory with user-level artifacts.
    * Uses async fs operations to avoid blocking the event loop on NFS.
    */
-  private async prepareCodexHome(codexHome: string): Promise<void> {
+  private async prepareCodexHome(codexHome: string, resumeCliSessionId?: string): Promise<void> {
     await mkdir(codexHome, { recursive: true });
 
     const legacyHome = getLegacyCodexHome();
@@ -1494,7 +1721,11 @@ export class CliLauncher {
       try {
         const src = join(legacyHome, name);
         const dest = join(codexHome, name);
-        if (!(await this.pathExists(dest)) && (await this.pathExists(src))) {
+        const srcExists = await this.pathExists(src);
+        if (!srcExists) continue;
+        // Auth is user-scoped, not session-scoped. Always refresh it from the
+        // canonical Codex home so re-login fixes existing Takode sessions.
+        if (name === "auth.json" || !(await this.pathExists(dest))) {
           await copyFile(src, dest);
         }
       } catch (e) {
@@ -1513,6 +1744,12 @@ export class CliLauncher {
       } catch (e) {
         console.warn(`[cli-launcher] Failed to bootstrap ${name}/ from legacy home:`, e);
       }
+    }
+
+    try {
+      await this.seedCodexResumeRollout(codexHome, resumeCliSessionId);
+    } catch (e) {
+      console.warn(`[cli-launcher] Failed to seed resume rollout for ${resumeCliSessionId}:`, e);
     }
   }
 
@@ -1537,6 +1774,7 @@ export class CliLauncher {
 
   private async spawnCodex(sessionId: string, info: SdkSessionInfo, options: LaunchOptions): Promise<void> {
     const isContainerized = !!options.containerId;
+    const codexHomeRoot = resolveCompanionCodexHome(options.codexHome);
 
     let binary = options.codexBinary || "codex";
     if (!isContainerized) {
@@ -1552,6 +1790,13 @@ export class CliLauncher {
       }
     }
 
+    let dotslashCache: string | undefined;
+    if (!isContainerized) {
+      const hostLaunchBinary = await this.resolveHostCodexLaunchBinary(sessionId, binary, codexHomeRoot);
+      binary = hostLaunchBinary.binary;
+      dotslashCache = hostLaunchBinary.dotslashCache;
+    }
+
     const approvalPolicy = mapCodexApprovalPolicy(options.permissionMode, options.askPermission);
     const sandboxMode = resolveCodexSandbox(options.permissionMode, options.codexSandbox);
     // Set process-level defaults so Codex starts in the intended approval mode
@@ -1562,12 +1807,12 @@ export class CliLauncher {
     if (options.codexReasoningEffort) {
       args.push("-c", `model_reasoning_effort=${options.codexReasoningEffort}`);
     }
-    const codexHome = resolveCompanionCodexSessionHome(sessionId, options.codexHome);
+    const codexHome = resolveCompanionCodexSessionHome(sessionId, codexHomeRoot);
     const shellEnvVars = Object.keys(options.env || {}).filter(
       (name) => name.startsWith("COMPANION_") || name.startsWith("TAKODE_"),
     );
     if (!isContainerized) {
-      await this.prepareCodexHome(codexHome);
+      await this.prepareCodexHome(codexHome, options.resumeCliSessionId || info.cliSessionId);
       await this.ensureCodexSessionConfig(codexHome, shellEnvVars);
     }
 
@@ -1617,7 +1862,7 @@ export class CliLauncher {
         enrichedPath,
       ]);
 
-      if (await fileExists(siblingNode)) {
+      if ((await fileExists(siblingNode)) && (await this.shouldInvokeCodexWithSiblingNode(binary))) {
         let codexScript: string;
         try {
           codexScript = await realpath(binary);
@@ -1645,6 +1890,7 @@ export class CliLauncher {
         CLAUDECODE: undefined,
         ...options.env,
         CODEX_HOME: codexHome,
+        ...(dotslashCache ? { DOTSLASH_CACHE: dotslashCache } : {}),
         PATH: spawnPath,
       };
       spawnCwd = info.cwd;
@@ -1678,8 +1924,9 @@ export class CliLauncher {
 
     // Pipe stderr for debugging (stdout is used for JSON-RPC)
     const stderr = proc.stderr;
+    const stderrTail: string[] = [];
     if (stderr && typeof stderr !== "number") {
-      this.pipeStream(sessionId, stderr, "stderr");
+      this.pipeStream(sessionId, stderr, "stderr", stderrTail);
     }
 
     // Create the CodexAdapter which handles JSON-RPC and message translation
@@ -1707,6 +1954,7 @@ export class CliLauncher {
       reasoningEffort: options.codexReasoningEffort,
       recorder: this.recorder ?? undefined,
       instructions: codexInstructions || undefined,
+      failureContextProvider: () => formatStreamTailForError(stderrTail),
     });
 
     // Handle init errors — mark session as exited so UI shows failure.
@@ -2315,6 +2563,7 @@ export class CliLauncher {
     sessionId: string,
     stream: ReadableStream<Uint8Array> | null,
     label: "stdout" | "stderr",
+    tailLines?: string[],
   ): Promise<void> {
     if (!stream) return;
     const reader = stream.getReader();
@@ -2325,6 +2574,7 @@ export class CliLauncher {
         const { done, value } = await reader.read();
         if (done) break;
         const text = decoder.decode(value);
+        if (tailLines) appendStreamTail(tailLines, text);
         if (text.trim()) {
           log(`[session:${sessionId}:${label}] ${text.trimEnd()}`);
         }

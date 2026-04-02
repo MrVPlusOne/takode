@@ -484,6 +484,8 @@ function makeDefaultState(sessionId: string, backendType: BackendType = "claude"
     agents: [],
     slash_commands: [],
     skills: [],
+    skill_metadata: [],
+    apps: [],
     total_cost_usd: 0,
     num_turns: 0,
     context_used_percent: 0,
@@ -833,10 +835,18 @@ export class WsBridge {
     | null = null;
   private onSessionNamedByQuest: ((sessionId: string, title: string) => void) | null = null;
   private userMsgCounter = 0;
-  /** Per-project cache of slash commands & skills so new sessions get them
+  /** Per-project cache of slash commands, skills, and apps so new sessions get them
    *  before the CLI sends system/init (which only arrives after the first
    *  user message). Key is repo_root || cwd. */
-  private slashCommandCache = new Map<string, { slash_commands: string[]; skills: string[] }>();
+  private slashCommandCache = new Map<
+    string,
+    {
+      slash_commands: string[];
+      skills: string[];
+      skill_metadata: NonNullable<SessionState["skill_metadata"]>;
+      apps: NonNullable<SessionState["apps"]>;
+    }
+  >();
   /** Server-authoritative custom session ordering by group key. */
   private sessionOrderByGroup = new Map<string, string[]>();
   /** Server-authoritative ordering for project groups in the sidebar. */
@@ -1199,21 +1209,22 @@ export class WsBridge {
     }
   }
 
-  /** Fill slash_commands/skills from the per-project cache if not yet populated. */
+  /** Fill slash_commands/skills/apps from the per-project cache if not yet populated. */
   private prefillSlashCommands(session: Session): void {
-    if (session.state.slash_commands?.length && session.state.skills?.length) return;
     const projectKey = session.state.repo_root || session.state.cwd;
     const cached = projectKey ? this.slashCommandCache.get(projectKey) : undefined;
     if (cached) {
       if (!session.state.slash_commands?.length) session.state.slash_commands = cached.slash_commands;
       if (!session.state.skills?.length) session.state.skills = cached.skills;
+      if (!session.state.skill_metadata?.length) session.state.skill_metadata = cached.skill_metadata;
+      if (!session.state.apps?.length) session.state.apps = cached.apps;
     }
   }
 
   /**
    * When the slash command cache is populated for a project, push the commands
    * to all other sessions with the same project key that still have empty
-   * slash_commands/skills, so already-connected browsers get them immediately.
+   * slash_commands/skills/apps, so already-connected browsers get them immediately.
    */
   private backfillSlashCommands(projectKey: string, sourceSessionId: string): void {
     const cached = this.slashCommandCache.get(projectKey);
@@ -1229,6 +1240,14 @@ export class WsBridge {
       }
       if (!session.state.skills?.length && cached.skills.length) {
         session.state.skills = cached.skills;
+        changed = true;
+      }
+      if (!session.state.skill_metadata?.length && cached.skill_metadata.length) {
+        session.state.skill_metadata = cached.skill_metadata;
+        changed = true;
+      }
+      if (!session.state.apps?.length && cached.apps.length) {
+        session.state.apps = cached.apps;
         changed = true;
       }
       if (changed && session.browserSockets.size > 0) {
@@ -3214,6 +3233,21 @@ export class WsBridge {
         const sanitized = this.sanitizeCodexSessionPatch(msg.session);
         session.state = { ...session.state, ...sanitized, backend_type: "codex" };
         outgoing = { ...msg, session: sanitized };
+        const projectKey = session.state.repo_root || session.state.cwd;
+        const hasCachedSuggestionPatch =
+          Object.hasOwn(sanitized, "slash_commands") ||
+          Object.hasOwn(sanitized, "skills") ||
+          Object.hasOwn(sanitized, "skill_metadata") ||
+          Object.hasOwn(sanitized, "apps");
+        if (projectKey && hasCachedSuggestionPatch) {
+          this.slashCommandCache.set(projectKey, {
+            slash_commands: session.state.slash_commands ?? [],
+            skills: session.state.skills ?? [],
+            skill_metadata: session.state.skill_metadata ?? [],
+            apps: session.state.apps ?? [],
+          });
+          this.backfillSlashCommands(projectKey, session.id);
+        }
         this.refreshGitInfoThenRecomputeDiff(session, { notifyPoller: true });
         this.persistSession(session);
       } else if (msg.type === "status_change") {
@@ -3437,6 +3471,7 @@ export class WsBridge {
         this.onCLISessionId(session.id, meta.cliSessionId);
       }
       if (meta.resumeSnapshot) {
+        this.hydrateCodexResumedHistory(session, meta.resumeSnapshot);
         this.reconcileCodexResumedTurn(session, meta.resumeSnapshot);
       }
       this.setBackendState(session, "connected", null);
@@ -5059,6 +5094,8 @@ export class WsBridge {
       session.state.agents = msg.agents ?? [];
       session.state.slash_commands = msg.slash_commands ?? [];
       session.state.skills = msg.skills ?? [];
+      session.state.skill_metadata = [];
+      session.state.apps = [];
 
       // Cache slash commands per project so new sessions get them immediately
       const projectKey = session.state.repo_root || session.state.cwd;
@@ -5066,6 +5103,8 @@ export class WsBridge {
         this.slashCommandCache.set(projectKey, {
           slash_commands: msg.slash_commands ?? [],
           skills: msg.skills ?? [],
+          skill_metadata: [],
+          apps: [],
         });
         // Push to other sessions in the same project that don't have commands yet
         this.backfillSlashCommands(projectKey, session.id);
@@ -8704,6 +8743,88 @@ export class WsBridge {
 
   private normalizeCodexRecoveredAssistantText(text: string): string {
     return text.trim().replace(/\s+/g, " ");
+  }
+
+  private hydrateCodexResumedHistory(session: Session, snapshot: CodexResumeSnapshot): number {
+    if (session.messageHistory.length > 0 || session.pendingCodexTurns.length > 0) return 0;
+    if (!Array.isArray(snapshot.turns) || snapshot.turns.length === 0) return 0;
+
+    const totalEntries = snapshot.turns.reduce((count, turn) => {
+      let turnCount = 0;
+      for (const item of turn.items) {
+        if (item.type === "userMessage" || item.type === "agentMessage") {
+          turnCount++;
+        }
+      }
+      return count + turnCount;
+    }, 0);
+    if (totalEntries === 0) return 0;
+
+    let hydrated = 0;
+    let syntheticTimestamp = Math.max(1, Date.now() - totalEntries - 1);
+
+    for (const turn of snapshot.turns) {
+      for (let i = 0; i < turn.items.length; i++) {
+        const item = turn.items[i];
+        if (item.type === "userMessage") {
+          const text = this.extractUserTextFromResumedTurn({ ...turn, items: [item] });
+          if (!text.trim()) continue;
+          const userMessage: Extract<BrowserIncomingMessage, { type: "user_message" }> = {
+            type: "user_message",
+            content: text,
+            timestamp: ++syntheticTimestamp,
+            id: `codex-resume-user-${turn.id || "turn"}-${i}`,
+          };
+          session.messageHistory.push(userMessage);
+          session.lastUserMessage = text.slice(0, 80);
+          this.broadcastToBrowsers(session, userMessage);
+          hydrated++;
+          continue;
+        }
+
+        if (item.type !== "agentMessage") continue;
+        const text = typeof item.text === "string" ? item.text : "";
+        if (!text.trim()) continue;
+        const itemId = typeof item.id === "string" ? item.id : `${turn.id || "turn"}-${i}`;
+        const assistantId = `codex-agent-${itemId}`;
+        const alreadyExists = session.messageHistory.some((msg) => msg.type === "assistant" && msg.message?.id === assistantId);
+        if (alreadyExists) continue;
+
+        const assistant: Extract<BrowserIncomingMessage, { type: "assistant" }> = {
+          type: "assistant",
+          message: {
+            id: assistantId,
+            type: "message",
+            role: "assistant",
+            model: session.state.model || getDefaultModelForBackend("codex"),
+            content: [{ type: "text", text }],
+            stop_reason: null,
+            usage: {
+              input_tokens: 0,
+              output_tokens: 0,
+              cache_creation_input_tokens: 0,
+              cache_read_input_tokens: 0,
+            },
+          },
+          parent_tool_use_id: null,
+          timestamp: ++syntheticTimestamp,
+          ...(this.classifyLeaderAssistantAddressing(session, [{ type: "text", text }]) === "user"
+            ? { leader_user_addressed: true }
+            : {}),
+        };
+        session.messageHistory.push(assistant);
+        this.broadcastToBrowsers(session, assistant);
+        hydrated++;
+      }
+    }
+
+    if (hydrated > 0) {
+      console.log(
+        `[ws-bridge] Hydrated ${hydrated} resumed Codex history message(s) for session ${sessionTag(session.id)} from thread ${snapshot.threadId}`,
+      );
+      this.persistSession(session);
+    }
+    return hydrated;
   }
 
   private reconcileRecoveredQueuedTurnLifecycle(

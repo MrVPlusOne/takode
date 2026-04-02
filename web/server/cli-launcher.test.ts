@@ -94,6 +94,18 @@ const mockAccess = vi.hoisted(() =>
   }),
 );
 const mockReadFile = vi.hoisted(() => vi.fn(async (...args: any[]) => mockReadFileSync(...args)));
+const mockCopyFile = vi.hoisted(() =>
+  vi.fn(async (...args: any[]) => {
+    // no-op for mocked paths
+  }),
+);
+const mockReaddir = vi.hoisted(() => vi.fn(async (..._args: any[]) => []));
+const mockStat = vi.hoisted(() =>
+  vi.fn(async (..._args: any[]) => ({
+    isFile: () => true,
+    mtimeMs: 1,
+  })),
+);
 const mockWriteFile = vi.hoisted(() =>
   vi.fn(async (...args: any[]) => {
     mockWriteFileSync(...args);
@@ -181,6 +193,24 @@ vi.mock("node:fs/promises", async (importOriginal) => {
         return mockReadFile(...args);
       }
       return actual.readFile(...args);
+    },
+    copyFile: async (...args: any[]) => {
+      if ((typeof args[0] === "string" && isMockedPath(args[0])) || (typeof args[1] === "string" && isMockedPath(args[1]))) {
+        return mockCopyFile(...args);
+      }
+      return actual.copyFile(...args);
+    },
+    readdir: async (...args: any[]) => {
+      if (typeof args[0] === "string" && isMockedPath(args[0])) {
+        return mockReaddir(...args);
+      }
+      return actual.readdir(...args);
+    },
+    stat: async (...args: any[]) => {
+      if (typeof args[0] === "string" && isMockedPath(args[0])) {
+        return mockStat(...args);
+      }
+      return actual.stat(...args);
     },
     writeFile: async (...args: any[]) => {
       if (typeof args[0] === "string" && isMockedPath(args[0])) {
@@ -284,6 +314,14 @@ beforeEach(() => {
   mockGetEnrichedPath.mockReturnValue("/usr/bin:/usr/local/bin");
   mockCaptureUserShellPath.mockReturnValue("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin");
   mockCaptureUserShellEnv.mockReturnValue({});
+  mockCopyFile.mockReset();
+  mockReaddir.mockReset();
+  mockStat.mockReset();
+  mockReaddir.mockResolvedValue([]);
+  mockStat.mockResolvedValue({
+    isFile: () => true,
+    mtimeMs: 1,
+  });
 });
 
 afterEach(() => {
@@ -672,6 +710,48 @@ describe("launch", () => {
     expect(cmdAndArgs).toContain("model_reasoning_effort=high");
   });
 
+  it("uses a cached native Codex artifact when the resolved binary is a bootstrap wrapper", async () => {
+    const fixtureRoot = mkdtempSync(join(tmpdir(), "codex-bootstrap-test-"));
+    const wrapperPath = join(fixtureRoot, "codex-wrapper");
+    const cacheRoot = join(fixtureRoot, "dotslash-cache");
+    const artifactDir = join(cacheRoot, "aa", "bb");
+    const artifactPath = join(artifactDir, "codex");
+    const { mkdirSync: realMkdirSync, writeFileSync: realWriteFileSync } = require("node:fs");
+    const originalDotslashCache = process.env.DOTSLASH_CACHE;
+
+    realWriteFileSync(
+      wrapperPath,
+      ['#!/usr/bin/env python3', 'CACHE_DIR = os.path.expanduser("~/.cache/codex")', ""].join("\n"),
+      "utf-8",
+    );
+    realMkdirSync(artifactDir, { recursive: true });
+    realWriteFileSync(artifactPath, "#!/bin/sh\n", "utf-8");
+
+    process.env.DOTSLASH_CACHE = cacheRoot;
+    mockResolveBinary.mockReturnValue(wrapperPath);
+    mockSpawn.mockReturnValueOnce(createMockCodexProc());
+
+    try {
+      await launcher.launch({
+        backendType: "codex",
+        cwd: "/tmp/project",
+        codexSandbox: "workspace-write",
+      });
+      await waitForSpawnCalls(1);
+
+      const [cmdAndArgs, options] = mockSpawn.mock.calls[0];
+      expect(cmdAndArgs[0]).toBe(artifactPath);
+      expect(options.env.DOTSLASH_CACHE).toBe(cacheRoot);
+    } finally {
+      if (originalDotslashCache === undefined) {
+        delete process.env.DOTSLASH_CACHE;
+      } else {
+        process.env.DOTSLASH_CACHE = originalDotslashCache;
+      }
+      rmSync(fixtureRoot, { recursive: true, force: true });
+    }
+  });
+
   it("enables Codex native multi-agent support in per-session config", async () => {
     mockResolveBinary.mockReturnValue("/opt/fake/codex");
     mockSpawn.mockReturnValueOnce(createMockCodexProc());
@@ -698,6 +778,78 @@ describe("launch", () => {
     } finally {
       rmSync(customHome, { recursive: true, force: true });
     }
+  });
+
+  it("refreshes auth.json from the legacy Codex home even when the session copy already exists", async () => {
+    mockResolveBinary.mockReturnValue("/opt/fake/codex");
+    mockSpawn.mockReturnValueOnce(createMockCodexProc());
+
+    const legacyHome = join(homedir(), ".codex");
+    const sessionHome = join(homedir(), ".companion", "codex-home", "test-session-id");
+    const legacyAuth = join(legacyHome, "auth.json");
+    const sessionAuth = join(sessionHome, "auth.json");
+
+    mockExistsSync.mockImplementation((path: string) => {
+      if (path === legacyHome) return true;
+      if (path === legacyAuth) return true;
+      if (path === sessionAuth) return true;
+      return false;
+    });
+
+    await launcher.launch({
+      backendType: "codex",
+      cwd: "/tmp/project",
+      codexSandbox: "workspace-write",
+    });
+    await waitForSpawnCalls(1);
+
+    expect(mockCopyFile).toHaveBeenCalledWith(legacyAuth, sessionAuth);
+  });
+
+  it("seeds the matching Codex rollout file into the session home for external resume", async () => {
+    mockResolveBinary.mockReturnValue("/opt/fake/codex");
+    mockSpawn.mockReturnValueOnce(createMockCodexProc());
+
+    const legacyHome = join(homedir(), ".codex");
+    const sessionsRoot = join(legacyHome, "sessions");
+    const yearPath = join(sessionsRoot, "2026");
+    const monthPath = join(yearPath, "04");
+    const dayPath = join(monthPath, "01");
+    const rolloutName = "rollout-2026-04-01T00-42-45-thread-abc.jsonl";
+    const rolloutPath = join(dayPath, rolloutName);
+    const sessionHome = join(homedir(), ".companion", "codex-home", "test-session-id");
+    const seededRollout = join(sessionHome, "sessions", "2026", "04", "01", rolloutName);
+
+    mockExistsSync.mockImplementation((path: string) => {
+      if (path === legacyHome) return true;
+      return false;
+    });
+    mockReaddir.mockImplementation(async (path: string): Promise<any> => {
+      if (path === sessionsRoot) return ["2026"];
+      if (path === yearPath) return ["04"];
+      if (path === monthPath) return ["01"];
+      if (path === dayPath) return [rolloutName];
+      return [];
+    });
+    mockStat.mockImplementation(async (path: string) => {
+      if (path === rolloutPath) {
+        return {
+          isFile: () => true,
+          mtimeMs: 42,
+        };
+      }
+      throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+    });
+
+    await launcher.launch({
+      backendType: "codex",
+      cwd: "/tmp/project",
+      codexSandbox: "workspace-write",
+      resumeCliSessionId: "thread-abc",
+    });
+    await waitForSpawnCalls(1);
+
+    expect(mockCopyFile).toHaveBeenCalledWith(rolloutPath, seededRollout);
   });
 
   it("preserves Companion/Takode env vars in Codex shell policy for orchestrators", async () => {
@@ -829,6 +981,32 @@ describe("launch", () => {
     expect(cmdAndArgs).toContain("app-server");
 
     // Cleanup
+    rmSync(tmpBinDir, { recursive: true, force: true });
+  });
+
+  it("does not invoke sibling node for a native codex binary", async () => {
+    const tmpBinDir = mkdtempSync(join(tmpdir(), "codex-native-test-"));
+    const fakeCodex = join(tmpBinDir, "codex");
+    const fakeNode = join(tmpBinDir, "node");
+    const { writeFileSync: realWriteFileSync } = require("node:fs");
+
+    realWriteFileSync(fakeCodex, Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 0x07, 0x00, 0x00, 0x01]));
+    realWriteFileSync(fakeNode, "#!/bin/sh\n");
+
+    mockResolveBinary.mockReturnValue(fakeCodex);
+    mockSpawn.mockReturnValueOnce(createMockCodexProc());
+
+    await launcher.launch({
+      backendType: "codex",
+      cwd: "/tmp/project",
+      codexSandbox: "workspace-write",
+    });
+    await waitForSpawnCalls(1);
+
+    const [cmdAndArgs] = mockSpawn.mock.calls[0];
+    expect(cmdAndArgs[0]).toBe(fakeCodex);
+    expect(cmdAndArgs[1]).toBe("-a");
+
     rmSync(tmpBinDir, { recursive: true, force: true });
   });
 

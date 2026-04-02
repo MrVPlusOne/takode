@@ -29,6 +29,18 @@ export interface CLISystemStatusMessage {
   session_id: string;
 }
 
+export interface CodexSkillReference {
+  name: string;
+  path: string;
+  description?: string;
+}
+
+export interface CodexAppReference {
+  id: string;
+  name: string;
+  description?: string | null;
+}
+
 export interface CLISystemCompactBoundaryMessage {
   type: "system";
   subtype: "compact_boundary";
@@ -652,6 +664,10 @@ export interface SessionState {
   agents: string[];
   slash_commands: string[];
   skills: string[];
+  /** Codex skill metadata used for `$` mention insertion. */
+  skill_metadata?: CodexSkillReference[];
+  /** Codex app metadata used for `$` mention insertion. */
+  apps?: CodexAppReference[];
   total_cost_usd: number;
   num_turns: number;
   context_used_percent: number;

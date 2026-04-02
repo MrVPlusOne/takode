@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { CodexAdapter } from "./codex-adapter.js";
-import type { BrowserIncomingMessage, BrowserOutgoingMessage } from "./session-types.js";
+import type { BrowserIncomingMessage, BrowserOutgoingMessage, SessionState } from "./session-types.js";
 import { CODEX_LOCAL_SLASH_COMMANDS } from "../shared/codex-slash-commands.js";
 
 /** Minimal event-loop yield so the ReadableStream reader can process chunks.
@@ -638,19 +638,74 @@ describe("CodexAdapter", () => {
           data: [
             {
               cwd: "/other",
-              skills: [{ name: "other-skill", enabled: true }],
+              skills: [
+                {
+                  name: "other-skill",
+                  path: "/skills/other/SKILL.md",
+                  description: "Other project skill",
+                  enabled: true,
+                },
+              ],
               errors: [],
             },
             {
               cwd: "/home/user/project",
               skills: [
-                { name: "review", enabled: true },
+                {
+                  name: "review",
+                  path: "/skills/review/SKILL.md",
+                  description: "Review code",
+                  enabled: true,
+                },
                 { name: "disabled-skill", enabled: false },
-                { name: "fix", enabled: true },
+                {
+                  name: "fix",
+                  path: "/skills/fix/SKILL.md",
+                  description: "Fix issues",
+                  enabled: true,
+                },
               ],
               errors: [],
             },
           ],
+        },
+      }) + "\n",
+    );
+    await tick();
+
+    const appLines = stdin.chunks
+      .join("")
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+    const appsReq = appLines.find((line) => line.method === "app/list");
+    expect(appsReq).toBeDefined();
+    expect(appsReq.params).toEqual({
+      threadId: "thr_123",
+      forceRefetch: true,
+    });
+
+    stdout.push(
+      JSON.stringify({
+        id: appsReq.id,
+        result: {
+          data: [
+            {
+              id: "connector_google_drive",
+              name: "Google Drive",
+              description: "Search and edit Drive files",
+              isAccessible: true,
+              isEnabled: true,
+            },
+            {
+              id: "connector_disabled",
+              name: "Disabled App",
+              description: "Hidden app",
+              isAccessible: true,
+              isEnabled: false,
+            },
+          ],
+          nextCursor: null,
         },
       }) + "\n",
     );
@@ -659,8 +714,151 @@ describe("CodexAdapter", () => {
     const update = messages.find(
       (msg) =>
         msg.type === "session_update" && Array.isArray((msg as { session?: { skills?: string[] } }).session?.skills),
-    ) as { session: { skills: string[] } } | undefined;
+    ) as { session: Partial<SessionState> } | undefined;
     expect(update?.session.skills).toEqual(["fix", "review"]);
+    expect(update?.session.skill_metadata).toEqual([
+      { name: "fix", path: "/skills/fix/SKILL.md", description: "Fix issues" },
+      { name: "review", path: "/skills/review/SKILL.md", description: "Review code" },
+    ]);
+    expect(update?.session.apps).toEqual([
+      {
+        id: "connector_google_drive",
+        name: "Google Drive",
+        description: "Search and edit Drive files",
+      },
+    ]);
+  });
+
+  it("forwards app/list/updated notifications as session app metadata", async () => {
+    // Validates live app-list changes refresh the composer mention menu without a manual reload.
+    const messages: BrowserIncomingMessage[] = [];
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
+    adapter.onBrowserMessage((msg) => messages.push(msg));
+
+    await tick();
+    stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
+    await tick();
+    stdout.push(JSON.stringify({ id: 2, result: { thread: { id: "thr_123" } } }) + "\n");
+    await tick();
+    stdout.push(JSON.stringify({ id: 3, result: { rateLimits: { primary: null, secondary: null } } }) + "\n");
+    await tick();
+
+    stdout.push(
+      JSON.stringify({
+        method: "app/list/updated",
+        params: {
+          data: [
+            {
+              id: "connector_slack",
+              name: "Slack",
+              description: "Read and send Slack messages",
+              isAccessible: true,
+              isEnabled: true,
+            },
+            {
+              id: "connector_inaccessible",
+              name: "Hidden",
+              description: "Hidden connector",
+              isAccessible: false,
+              isEnabled: true,
+            },
+          ],
+        },
+      }) + "\n",
+    );
+    await tick();
+
+    const appUpdate = messages.find(
+      (msg) => msg.type === "session_update" && Array.isArray((msg as { session?: { apps?: unknown[] } }).session?.apps),
+    ) as { session: Partial<SessionState> } | undefined;
+    expect(appUpdate?.session.apps).toEqual([
+      {
+        id: "connector_slack",
+        name: "Slack",
+        description: "Read and send Slack messages",
+      },
+    ]);
+  });
+
+  it("adds structured skill and app mention inputs to turn/start payloads", async () => {
+    // Validates `$skill` and `[$app](app://...)` mentions are sent as structured
+    // Codex input items in addition to the raw prompt text.
+    const adapter = new CodexAdapter(proc as never, "test-session", {
+      model: "o4-mini",
+      cwd: "/home/user/project",
+    });
+
+    await tick();
+    stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
+    await tick();
+    stdout.push(JSON.stringify({ id: 2, result: { thread: { id: "thr_123" } } }) + "\n");
+    await tick();
+    stdout.push(JSON.stringify({ id: 3, result: { rateLimits: { primary: null, secondary: null } } }) + "\n");
+    await tick();
+
+    const refreshPromise = adapter.refreshSkills(true);
+    await tick();
+    stdout.push(
+      JSON.stringify({
+        id: 4,
+        result: {
+          data: [
+            {
+              cwd: "/home/user/project",
+              skills: [
+                {
+                  name: "review",
+                  path: "/Users/test/.codex/skills/review/SKILL.md",
+                  description: "Review code changes",
+                  enabled: true,
+                },
+              ],
+              errors: [],
+            },
+          ],
+        },
+      }) + "\n",
+    );
+    await tick();
+    stdout.push(
+      JSON.stringify({
+        id: 5,
+        result: { data: [], nextCursor: null },
+      }) + "\n",
+    );
+    await refreshPromise;
+
+    stdin.chunks = [];
+    adapter.sendBrowserMessage({
+      type: "user_message",
+      content: "Use $review and [$Google Drive](app://connector_google_drive)",
+    });
+    await tick();
+
+    const lines = stdin.chunks
+      .join("")
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+    const turnStart = lines.find((line) => line.method === "turn/start");
+    expect(turnStart).toBeDefined();
+    expect(turnStart.params.input).toEqual([
+      {
+        type: "text",
+        text: "Use $review and [$Google Drive](app://connector_google_drive)",
+        text_elements: [],
+      },
+      {
+        type: "mention",
+        name: "google-drive",
+        path: "app://connector_google_drive",
+      },
+      {
+        type: "skill",
+        name: "review",
+        path: "/Users/test/.codex/skills/review/SKILL.md",
+      },
+    ]);
   });
 
   it("sends turn/start when receiving user_message", async () => {
@@ -2088,6 +2286,23 @@ describe("CodexAdapter", () => {
 
     expect(errors.length).toBe(1);
     expect(errors[0]).toContain("initialization failed");
+  });
+
+  it("includes launcher failure context when init transport closes before initialize completes", async () => {
+    const errors: string[] = [];
+    const adapter = new CodexAdapter(proc as never, "test-session", {
+      model: "o4-mini",
+      failureContextProvider: () => "codex bootstrap failed: cache write denied",
+    });
+    adapter.onInitError((err) => errors.push(err));
+
+    await tick();
+    stdout.close();
+    await tick();
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain("Codex initialization failed: Transport closed");
+    expect(errors[0]).toContain("cache write denied");
   });
 
   it("rejects messages and discards queue after init failure", async () => {

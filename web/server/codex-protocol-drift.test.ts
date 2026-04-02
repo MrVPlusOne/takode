@@ -60,6 +60,9 @@ describe("Codex adapter method drift vs upstream protocol snapshot", () => {
       // Observed in live Codex sessions for thread idle/active transitions.
       // Used to clear stale currentTurnId after CLI restart.
       "thread/status/changed",
+      // Observed in newer live Codex app-server sessions when local skill files
+      // change; the pinned snapshot in this repo predates that notification.
+      "skills/changed",
     ]);
 
     const legacyServerRequests = new Set(["item/mcpToolCall/requestApproval"]);

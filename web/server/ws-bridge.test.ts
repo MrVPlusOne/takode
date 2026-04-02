@@ -8296,6 +8296,60 @@ describe("Codex adapter result handling", () => {
     expect(update.session.context_used_percent).toBe(27);
   });
 
+  it("prefills Codex skill/app mention metadata from the per-project cache", () => {
+    // Validates one initialized Codex session seeds `$` mention suggestions for
+    // later sessions in the same project before those sessions refresh from Codex.
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter("s1", adapter as any);
+
+    adapter.emitBrowserMessage({
+      type: "session_init",
+      session: {
+        cwd: "/repo",
+        model: "gpt-5-codex",
+      },
+    });
+    adapter.emitBrowserMessage({
+      type: "session_update",
+      session: {
+        skills: ["review"],
+        skill_metadata: [
+          {
+            name: "review",
+            path: "/Users/test/.codex/skills/review/SKILL.md",
+            description: "Review code changes",
+          },
+        ],
+        apps: [
+          {
+            id: "connector_google_drive",
+            name: "Google Drive",
+            description: "Search and edit Drive files",
+          },
+        ],
+      },
+    });
+
+    bridge.setInitialCwd("s2", "/repo");
+
+    const state = bridge.getSession("s2")!.state;
+    expect(state.skills).toEqual(["review"]);
+    expect(state.skill_metadata).toEqual([
+      {
+        name: "review",
+        path: "/Users/test/.codex/skills/review/SKILL.md",
+        description: "Review code changes",
+      },
+    ]);
+    expect(state.apps).toEqual([
+      {
+        id: "connector_google_drive",
+        name: "Google Drive",
+        description: "Search and edit Drive files",
+      },
+    ]);
+  });
+
   it("recomputes dirty diff stats on codex session_init", async () => {
     const browser = makeBrowserSocket("s1");
     const adapter = makeCodexAdapterMock();
@@ -9730,6 +9784,73 @@ describe("Codex resumed-turn recovery", () => {
       ),
     ).toHaveLength(1);
     expect(browser.send).not.toHaveBeenCalled();
+  });
+
+  it("hydrates prior transcript when resuming an external codex thread", async () => {
+    const sid = "s-external-resume-history";
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter as any);
+
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    browser.send.mockClear();
+
+    adapter.emitSessionMeta({
+      cliSessionId: "thread-history",
+      model: "gpt-5.3-codex",
+      cwd: "/repo",
+      resumeSnapshot: {
+        threadId: "thread-history",
+        turnCount: 2,
+        turns: [
+          {
+            id: "turn-1",
+            status: "completed",
+            error: null,
+            items: [
+              { type: "userMessage", content: [{ type: "text", text: "first question" }] },
+              { type: "agentMessage", id: "item-a1", text: "first answer" },
+            ],
+          },
+          {
+            id: "turn-2",
+            status: "completed",
+            error: null,
+            items: [
+              { type: "userMessage", content: [{ type: "text", text: "second question" }] },
+              { type: "agentMessage", id: "item-a2", text: "second answer" },
+            ],
+          },
+        ],
+        lastTurn: {
+          id: "turn-2",
+          status: "completed",
+          error: null,
+          items: [
+            { type: "userMessage", content: [{ type: "text", text: "second question" }] },
+            { type: "agentMessage", id: "item-a2", text: "second answer" },
+          ],
+        },
+      },
+    });
+
+    const session = bridge.getSession(sid)!;
+    expect(session.messageHistory.map((msg: any) => msg.type)).toEqual([
+      "user_message",
+      "assistant",
+      "user_message",
+      "assistant",
+    ]);
+
+    const browserMessages = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    expect(
+      browserMessages.find((msg: any) => msg.type === "user_message" && msg.content === "first question"),
+    ).toBeDefined();
+    expect(
+      browserMessages.find(
+        (msg: any) => msg.type === "assistant" && msg.message?.content?.[0]?.text === "second answer",
+      ),
+    ).toBeDefined();
   });
 
   it("deduplicates compaction-style resumed assistant snapshots with generic item ids", async () => {
