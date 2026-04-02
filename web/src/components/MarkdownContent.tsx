@@ -62,9 +62,16 @@ interface FileLinkTarget {
 
 interface ResolvedFileLinkTarget {
   absolutePath: string;
+  fallbackAbsolutePath?: string;
   line: number;
   column: number;
   endLine?: number;
+}
+
+interface FileLinkBaseContext {
+  cwd: string | null;
+  repoRoot: string | null;
+  isWorktree: boolean;
 }
 
 function isAbsoluteFilePath(path: string): boolean {
@@ -86,10 +93,55 @@ function normalizeRepoRelativePath(path: string): string | null {
   return safeParts.length > 0 ? safeParts.join("/") : null;
 }
 
-function resolveFileLinkTarget(target: FileLinkTarget, repoRoot: string | null): ResolvedFileLinkTarget | null {
+function normalizePathSeparators(path: string): string {
+  return path.replace(/\\/g, "/");
+}
+
+function getPathBasename(path: string | null): string | null {
+  if (!path) return null;
+  const normalized = normalizePathSeparators(path).replace(/\/+$/, "");
+  const idx = normalized.lastIndexOf("/");
+  return idx >= 0 ? normalized.slice(idx + 1) || null : normalized || null;
+}
+
+function getCurrentFileLinkRoot(base: FileLinkBaseContext): string | null {
+  if (base.isWorktree && base.cwd) return base.cwd;
+  return base.repoRoot || base.cwd;
+}
+
+function parseStaleWorktreePath(
+  targetPath: string,
+): { staleRepoName: string; relativeWithinRepo: string } | null {
+  const normalizedTarget = normalizePathSeparators(targetPath);
+  const match = normalizedTarget.match(/^(.+\/\.companion\/worktrees\/([^/]+)\/[^/]+)(\/.+)$/);
+  if (!match) return null;
+
+  return { staleRepoName: match[2], relativeWithinRepo: match[3] };
+}
+
+function remapStaleWorktreePath(targetPath: string, root: string | null, expectedRepoName: string | null): string | null {
+  if (!root || !expectedRepoName) return null;
+
+  const parsed = parseStaleWorktreePath(targetPath);
+  if (!parsed) return null;
+  const { staleRepoName, relativeWithinRepo } = parsed;
+  if (staleRepoName !== expectedRepoName) return null;
+
+  const normalizedRoot = root.replace(/[\\/]+$/, "");
+  return `${normalizedRoot}${relativeWithinRepo}`;
+}
+
+function resolveFileLinkTarget(target: FileLinkTarget, base: FileLinkBaseContext): ResolvedFileLinkTarget | null {
   if (!target.isRelative) {
+    const currentRoot = getCurrentFileLinkRoot(base);
+    const repoName = getPathBasename(base.repoRoot) || getPathBasename(base.cwd);
+    const remappedAbsolutePath = remapStaleWorktreePath(target.path, currentRoot, repoName);
+    const repoRootFallback = remapStaleWorktreePath(target.path, base.repoRoot, getPathBasename(base.repoRoot));
     return {
-      absolutePath: target.path,
+      absolutePath: remappedAbsolutePath || target.path,
+      ...(repoRootFallback && repoRootFallback !== remappedAbsolutePath && repoRootFallback !== target.path
+        ? { fallbackAbsolutePath: repoRootFallback }
+        : {}),
       line: target.line,
       column: target.column,
       ...(Number.isFinite(target.endLine) ? { endLine: Number(target.endLine) } : {}),
@@ -97,6 +149,7 @@ function resolveFileLinkTarget(target: FileLinkTarget, repoRoot: string | null):
   }
 
   const normalizedRelativePath = normalizeRepoRelativePath(target.path);
+  const repoRoot = getCurrentFileLinkRoot(base);
   if (!normalizedRelativePath || !repoRoot) return null;
 
   const separator = repoRoot.includes("\\") ? "\\" : "/";
@@ -126,9 +179,11 @@ function getFileLinkBasePath(
   currentSessionId: string | null,
   sessions: Map<string, { cwd?: string; repo_root?: string; is_worktree?: boolean }>,
   sdkSessions: Array<{ sessionId: string; cwd?: string; repoRoot?: string; isWorktree?: boolean }>,
-): string | null {
+): FileLinkBaseContext {
   const activeSessionId = sessionId ?? currentSessionId;
-  if (!activeSessionId) return null;
+  if (!activeSessionId) {
+    return { cwd: null, repoRoot: null, isWorktree: false };
+  }
 
   const bridgeState = sessions.get(activeSessionId);
   const sdkState = sdkSessions.find((session) => session.sessionId === activeSessionId);
@@ -136,11 +191,7 @@ function getFileLinkBasePath(
   const repoRoot = bridgeState?.repo_root || sdkState?.repoRoot || null;
   const isWorktree = bridgeState?.is_worktree || sdkState?.isWorktree || false;
 
-  if (isWorktree && sessionCwd) {
-    return sessionCwd;
-  }
-
-  return repoRoot || sessionCwd;
+  return { cwd: sessionCwd, repoRoot, isWorktree };
 }
 
 function parseFileLinkFromHref(href?: string): FileLinkTarget | null {
@@ -557,14 +608,34 @@ function FileMarkdownLink({
     async (e: MouseEvent<HTMLAnchorElement>) => {
       e.preventDefault();
       if (!resolvedTarget) return;
+      let openTarget = resolvedTarget;
       let settings;
       try {
         settings = await api.getSettings();
       } catch {
         return;
       }
+      if (resolvedTarget.fallbackAbsolutePath) {
+        try {
+          await api.readFile(resolvedTarget.absolutePath);
+        } catch {
+          openTarget = {
+            ...resolvedTarget,
+            absolutePath: resolvedTarget.fallbackAbsolutePath,
+          };
+        }
+      }
       try {
-        await openFileWithEditorPreference(resolvedTarget, settings.editorConfig?.editor ?? "none");
+        const { absolutePath, line, column, endLine } = openTarget;
+        await openFileWithEditorPreference(
+          {
+            absolutePath,
+            line,
+            column,
+            ...(Number.isFinite(endLine) ? { endLine } : {}),
+          },
+          settings.editorConfig?.editor ?? "none",
+        );
       } catch (error) {
         showEditorOpenError(error instanceof Error ? error.message : String(error));
       }

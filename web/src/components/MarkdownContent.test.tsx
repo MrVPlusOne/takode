@@ -4,11 +4,13 @@ import { useStore } from "../store.js";
 
 const mockGetSettings = vi.fn();
 const mockOpenVsCodeRemoteFile = vi.fn();
+const mockReadFile = vi.fn();
 
 vi.mock("../api.js", () => ({
   api: {
     getSettings: (...args: unknown[]) => mockGetSettings(...args),
     openVsCodeRemoteFile: (...args: unknown[]) => mockOpenVsCodeRemoteFile(...args),
+    readFile: (...args: unknown[]) => mockReadFile(...args),
   },
 }));
 
@@ -21,7 +23,9 @@ describe("MarkdownContent quest links", () => {
     useStore.getState().reset();
     mockGetSettings.mockReset();
     mockOpenVsCodeRemoteFile.mockReset();
+    mockReadFile.mockReset();
     mockGetSettings.mockResolvedValue({ editorConfig: { editor: "none" } });
+    mockReadFile.mockResolvedValue({ path: "/tmp/file", content: "" });
   });
 
   it("opens quest links as overlay on the current route", () => {
@@ -222,6 +226,42 @@ describe("MarkdownContent quest links", () => {
     openSpy.mockRestore();
   });
 
+  it("remaps stale absolute worktree file links to the current worktree root", async () => {
+    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-local" } });
+    mockReadFile.mockRejectedValue(new Error("ENOENT"));
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+
+    useStore.setState((state) => ({
+      ...state,
+      currentSessionId: "s1",
+      sessions: new Map([
+        [
+          "s1",
+          {
+            session_id: "s1",
+            cwd: "/Users/yuege/.companion/worktrees/openai/master-wt-9326",
+            repo_root: "/Users/yuege/code/openai",
+            is_worktree: true,
+          } as never,
+        ],
+      ]),
+    }));
+
+    render(
+      <MarkdownContent text="[datasets.py](file:/Users/yuege/.companion/worktrees/openai/master-wt-7257/project/vs2s/audio_perception_asr/audio_perception_asr/datasets.py:1:1)" />,
+    );
+    fireEvent.click(screen.getByRole("link", { name: "datasets.py" }));
+
+    await waitFor(() => {
+      expect(openSpy).toHaveBeenCalledWith(
+        "vscode://file//Users/yuege/code/openai/project/vs2s/audio_perception_asr/audio_perception_asr/datasets.py:1:1",
+        "_blank",
+        "noopener,noreferrer",
+      );
+    });
+    openSpy.mockRestore();
+  });
+
   it("does not launch an editor for file: links when editor preference is none", async () => {
     mockGetSettings.mockResolvedValue({ editorConfig: { editor: "none" } });
     const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
@@ -332,6 +372,43 @@ describe("MarkdownContent quest links", () => {
         absolutePath: "/worktrees/repo-branch/web/src/components/TopBar.tsx",
         line: 162,
         column: 4,
+      });
+    });
+  });
+
+  it("routes stale absolute worktree links through remote VSCode using the current worktree root", async () => {
+    window.history.replaceState({}, "", "/?takodeHost=vscode");
+    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-remote" } });
+    mockOpenVsCodeRemoteFile.mockResolvedValue({ ok: true, sourceId: "window-a", commandId: "cmd-stale-worktree" });
+    mockReadFile.mockRejectedValue(new Error("ENOENT"));
+
+    useStore.setState((state) => ({
+      ...state,
+      currentSessionId: "s1",
+      sessions: new Map([
+        [
+          "s1",
+          {
+            session_id: "s1",
+            cwd: "/Users/yuege/.companion/worktrees/openai/master-wt-9326",
+            repo_root: "/Users/yuege/code/openai",
+            is_worktree: true,
+          } as never,
+        ],
+      ]),
+    }));
+
+    render(
+      <MarkdownContent text="[datasets.py](file:/Users/yuege/.companion/worktrees/openai/master-wt-7257/project/vs2s/audio_perception_asr/audio_perception_asr/datasets.py:1:1)" />,
+    );
+    fireEvent.click(screen.getByRole("link", { name: "datasets.py" }));
+
+    await waitFor(() => {
+      expect(mockOpenVsCodeRemoteFile).toHaveBeenCalledWith({
+        absolutePath:
+          "/Users/yuege/code/openai/project/vs2s/audio_perception_asr/audio_perception_asr/datasets.py",
+        line: 1,
+        column: 1,
       });
     });
   });
