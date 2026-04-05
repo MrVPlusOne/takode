@@ -220,14 +220,14 @@ describe("groupSessionsByProject", () => {
     expect(groups[0].sessions.map((s) => s.id)).toEqual(["s1", "s2", "s3", "s4", "s5"]);
   });
 
-  it("tracks mostRecentActivity as max createdAt in group", () => {
+  it("tracks mostRecentActivity using lastActivityAt when available", () => {
     const sessions = [
-      makeItem({ id: "s1", cwd: "/a/app", createdAt: 100 }),
-      makeItem({ id: "s2", cwd: "/a/app", createdAt: 500 }),
-      makeItem({ id: "s3", cwd: "/a/app", createdAt: 300 }),
+      makeItem({ id: "s1", cwd: "/a/app", createdAt: 100, lastActivityAt: 800 }),
+      makeItem({ id: "s2", cwd: "/a/app", createdAt: 500 }), // no lastActivityAt, falls back to createdAt
+      makeItem({ id: "s3", cwd: "/a/app", createdAt: 300, lastActivityAt: 300 }),
     ];
     const groups = groupSessionsByProject(sessions);
-    expect(groups[0].mostRecentActivity).toBe(500);
+    expect(groups[0].mostRecentActivity).toBe(800);
   });
 
   it("returns empty array for empty input", () => {
@@ -387,6 +387,133 @@ describe("groupSessionsByProject", () => {
     expect(worktreeGroup.runningCount).toBe(1);
     // Source group lost the reviewer -- must not count it
     expect(repoGroup.runningCount).toBe(0);
+  });
+});
+
+describe("groupSessionsByProject — activity sort mode", () => {
+  it("sorts sessions by lastActivityAt desc when sortMode is 'activity'", () => {
+    const sessions = [
+      makeItem({ id: "s1", cwd: "/a/app", createdAt: 300, lastActivityAt: 100 }),
+      makeItem({ id: "s2", cwd: "/a/app", createdAt: 100, lastActivityAt: 500 }),
+      makeItem({ id: "s3", cwd: "/a/app", createdAt: 200, lastActivityAt: 300 }),
+    ];
+    const groups = groupSessionsByProject(sessions, undefined, undefined, undefined, "activity");
+    expect(groups[0].sessions.map((s) => s.id)).toEqual(["s2", "s3", "s1"]);
+  });
+
+  it("falls back to createdAt when lastActivityAt is missing in activity mode", () => {
+    const sessions = [
+      makeItem({ id: "s1", cwd: "/a/app", createdAt: 100 }),
+      makeItem({ id: "s2", cwd: "/a/app", createdAt: 300 }),
+    ];
+    const groups = groupSessionsByProject(sessions, undefined, undefined, undefined, "activity");
+    // s2 (createdAt 300) before s1 (createdAt 100) since neither has lastActivityAt
+    expect(groups[0].sessions.map((s) => s.id)).toEqual(["s2", "s1"]);
+  });
+
+  it("sorts correctly with a mix of sessions with and without lastActivityAt", () => {
+    const sessions = [
+      makeItem({ id: "s1", cwd: "/a/app", createdAt: 100, lastActivityAt: 500 }),
+      makeItem({ id: "s2", cwd: "/a/app", createdAt: 600 }), // no lastActivityAt, falls back to createdAt
+      makeItem({ id: "s3", cwd: "/a/app", createdAt: 400, lastActivityAt: 300 }),
+    ];
+    const groups = groupSessionsByProject(sessions, undefined, undefined, undefined, "activity");
+    // s2 uses createdAt 600 as fallback, s1 has activity 500, s3 has activity 300
+    expect(groups[0].sessions.map((s) => s.id)).toEqual(["s2", "s1", "s3"]);
+  });
+
+  it("ignores custom session order when sortMode is 'activity'", () => {
+    const sessions = [
+      makeItem({ id: "s1", cwd: "/a/app", createdAt: 100, lastActivityAt: 500 }),
+      makeItem({ id: "s2", cwd: "/a/app", createdAt: 200, lastActivityAt: 100 }),
+    ];
+    const customOrder = new Map([["/a/app", ["s2", "s1"]]]);
+    const groups = groupSessionsByProject(sessions, undefined, customOrder, undefined, "activity");
+    // Activity mode ignores custom order: s1 (activity 500) before s2 (activity 100)
+    expect(groups[0].sessions.map((s) => s.id)).toEqual(["s1", "s2"]);
+  });
+
+  it("sorts groups by mostRecentActivity desc when sortMode is 'activity'", () => {
+    const sessions = [
+      makeItem({ id: "s1", cwd: "/a/alpha", createdAt: 100, lastActivityAt: 100 }),
+      makeItem({ id: "s2", cwd: "/a/zebra", createdAt: 50, lastActivityAt: 500 }),
+    ];
+    const groups = groupSessionsByProject(sessions, undefined, undefined, undefined, "activity");
+    // zebra group has more recent activity (500) so comes first
+    expect(groups[0].label).toBe("zebra");
+    expect(groups[1].label).toBe("alpha");
+  });
+
+  it("ignores custom group order when sortMode is 'activity'", () => {
+    const sessions = [
+      makeItem({ id: "s1", cwd: "/a/alpha", createdAt: 100, lastActivityAt: 500 }),
+      makeItem({ id: "s2", cwd: "/a/zebra", createdAt: 200, lastActivityAt: 100 }),
+    ];
+    const groups = groupSessionsByProject(
+      sessions,
+      undefined,
+      undefined,
+      ["/a/zebra", "/a/alpha"], // custom group order puts zebra first
+      "activity",
+    );
+    // Activity mode ignores custom group order: alpha (activity 500) first
+    expect(groups[0].label).toBe("alpha");
+  });
+
+  it("still nests reviewers after parent in activity mode", () => {
+    const sessions = [
+      makeItem({ id: "reviewer", cwd: "/a/app", createdAt: 200, lastActivityAt: 500, sessionNum: 20, reviewerOf: 10 }),
+      makeItem({ id: "worker", cwd: "/a/app", createdAt: 100, lastActivityAt: 100, sessionNum: 10 }),
+    ];
+    const groups = groupSessionsByProject(sessions, undefined, undefined, undefined, "activity");
+    // Reviewer should nest after its parent regardless of higher activity time
+    expect(groups[0].sessions.map((s) => s.id)).toEqual(["worker", "reviewer"]);
+  });
+
+  it("reassigns cross-group reviewer and nests correctly in activity mode", () => {
+    // Reviewer has different CWD than parent (worktree scenario) and highest activity.
+    // It should be reassigned to the parent's group and nested after the parent.
+    const sessions = [
+      makeItem({
+        id: "worker",
+        cwd: "/home/user/wt",
+        repoRoot: "/home/user/wt",
+        createdAt: 100,
+        lastActivityAt: 200,
+        sessionNum: 10,
+      }),
+      makeItem({
+        id: "other",
+        cwd: "/home/user/repo",
+        repoRoot: "/home/user/repo",
+        createdAt: 500,
+        lastActivityAt: 100,
+      }),
+      makeItem({
+        id: "reviewer",
+        cwd: "/home/user/repo",
+        repoRoot: "/home/user/repo",
+        createdAt: 300,
+        lastActivityAt: 600,
+        sessionNum: 11,
+        reviewerOf: 10,
+      }),
+    ];
+    const groups = groupSessionsByProject(sessions, undefined, undefined, undefined, "activity");
+    // Reviewer (activity 600) reassigned to worker's group, nesting overrides activity sort
+    const worktreeGroup = groups.find((g) => g.sessions.some((s) => s.id === "worker"))!;
+    expect(worktreeGroup.sessions.map((s) => s.id)).toEqual(["worker", "reviewer"]);
+  });
+
+  it("does not affect default mode when sortMode is omitted", () => {
+    // Verify backward compatibility: omitting sortMode uses createdAt desc
+    const sessions = [
+      makeItem({ id: "s1", cwd: "/a/app", createdAt: 100, lastActivityAt: 500 }),
+      makeItem({ id: "s2", cwd: "/a/app", createdAt: 300, lastActivityAt: 100 }),
+    ];
+    const groups = groupSessionsByProject(sessions);
+    // Default mode sorts by createdAt desc: s2 (300) before s1 (100)
+    expect(groups[0].sessions.map((s) => s.id)).toEqual(["s2", "s1"]);
   });
 });
 

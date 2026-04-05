@@ -256,6 +256,8 @@ interface AppState {
   // Session ID whose info popover is currently open in TopBar.
   sessionInfoOpenSessionId: string | null;
   reorderMode: boolean;
+  sessionSortMode: "created" | "activity";
+  setSessionSortMode: (mode: "created" | "activity") => void;
   taskPanelOpen: boolean;
   /** null = closed; {} = global new session; { groupKey, cwd } = group new session */
   newSessionModalState: { groupKey?: string; cwd?: string } | null;
@@ -653,6 +655,10 @@ export const useStore = create<AppState>((set) => ({
   sidebarOpen: typeof window !== "undefined" ? isDesktopShellLayout(getInitialZoomLevel()) : true,
   sessionInfoOpenSessionId: null,
   reorderMode: false,
+  sessionSortMode:
+    typeof window !== "undefined" && localStorage.getItem("cc-session-sort-mode") === "activity"
+      ? "activity"
+      : "created",
   taskPanelOpen: false,
   newSessionModalState: null,
   questOverlayId: null,
@@ -762,6 +768,10 @@ export const useStore = create<AppState>((set) => ({
   setSidebarOpen: (v) => set({ sidebarOpen: v }),
   setSessionInfoOpenSessionId: (sessionId) => set({ sessionInfoOpenSessionId: sessionId }),
   setReorderMode: (v) => set({ reorderMode: v }),
+  setSessionSortMode: (mode) => {
+    localStorage.setItem("cc-session-sort-mode", mode);
+    set({ sessionSortMode: mode });
+  },
   setTaskPanelOpen: (open) => set({ taskPanelOpen: open }),
   openNewSessionModal: (opts) => set({ newSessionModalState: opts ?? {} }),
   closeNewSessionModal: () => set({ newSessionModalState: null }),

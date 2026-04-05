@@ -64,14 +64,18 @@ export function extractProjectLabel(projectKey: string): string {
 }
 
 /**
- * Groups sessions by project directory, sorts groups by most recent activity,
- * and sorts sessions within each group (running first, then by createdAt desc).
+ * Groups sessions by project directory, sorts groups and sessions within each group.
+ *
+ * sortMode controls ordering:
+ * - "created" (default): custom drag order if set, otherwise createdAt desc
+ * - "activity": lastActivityAt desc, ignoring custom drag orders
  */
 export function groupSessionsByProject(
   sessions: SessionItem[],
   sessionAttention?: Map<string, "action" | "error" | "review" | null>,
   sessionOrder?: Map<string, string[]>,
   groupOrder?: string[],
+  sortMode?: "created" | "activity",
 ): ProjectGroup[] {
   const groups = new Map<string, ProjectGroup>();
 
@@ -140,46 +144,59 @@ export function groupSessionsByProject(
       if (visualStatus === "running" || visualStatus === "compacting") group.runningCount++;
       else if (visualStatus === "permission") group.permCount++;
       else if (visualStatus === "completed_unread") group.unreadCount++;
-      group.mostRecentActivity = Math.max(group.mostRecentActivity, session.createdAt);
+      group.mostRecentActivity = Math.max(
+        group.mostRecentActivity,
+        session.lastActivityAt ?? session.createdAt,
+      );
     }
   }
 
-  // Sort groups by custom group order when available; otherwise alphabetically.
+  // Sort groups: by activity when in activity mode, otherwise by custom order or alphabetically.
   const sorted = Array.from(groups.values());
-  const customGroupOrder = Array.isArray(groupOrder) ? groupOrder : [];
-  if (customGroupOrder.length > 0) {
-    const orderMap = new Map(customGroupOrder.map((groupKey, idx) => [groupKey, idx]));
-    sorted.sort((a, b) => {
-      const aIdx = orderMap.get(a.key);
-      const bIdx = orderMap.get(b.key);
-      // Ordered groups stay in explicit user-defined order.
-      // New/unordered groups appear after ordered groups, sorted by label.
-      if (aIdx === undefined && bIdx === undefined) return a.label.localeCompare(b.label);
-      if (aIdx === undefined) return 1;
-      if (bIdx === undefined) return -1;
-      return aIdx - bIdx;
-    });
+  if (sortMode === "activity") {
+    sorted.sort((a, b) => b.mostRecentActivity - a.mostRecentActivity);
   } else {
-    sorted.sort((a, b) => a.label.localeCompare(b.label));
-  }
-
-  // Within each group, sort sessions by custom order if available, else by createdAt desc
-  for (const group of sorted) {
-    const customOrder = sessionOrder?.get(group.key);
-    if (customOrder && customOrder.length > 0) {
-      const orderMap = new Map(customOrder.map((id, idx) => [id, idx]));
-      group.sessions.sort((a, b) => {
-        const aIdx = orderMap.get(a.id);
-        const bIdx = orderMap.get(b.id);
-        // Sessions in custom order come first, in that order
-        // Sessions not in custom order (newly created) go to the top
-        if (aIdx === undefined && bIdx === undefined) return b.createdAt - a.createdAt;
-        if (aIdx === undefined) return -1; // a is new, goes first
-        if (bIdx === undefined) return 1; // b is new, goes first
+    const customGroupOrder = Array.isArray(groupOrder) ? groupOrder : [];
+    if (customGroupOrder.length > 0) {
+      const orderMap = new Map(customGroupOrder.map((groupKey, idx) => [groupKey, idx]));
+      sorted.sort((a, b) => {
+        const aIdx = orderMap.get(a.key);
+        const bIdx = orderMap.get(b.key);
+        // Ordered groups stay in explicit user-defined order.
+        // New/unordered groups appear after ordered groups, sorted by label.
+        if (aIdx === undefined && bIdx === undefined) return a.label.localeCompare(b.label);
+        if (aIdx === undefined) return 1;
+        if (bIdx === undefined) return -1;
         return aIdx - bIdx;
       });
     } else {
-      group.sessions.sort((a, b) => b.createdAt - a.createdAt);
+      sorted.sort((a, b) => a.label.localeCompare(b.label));
+    }
+  }
+
+  // Sort sessions within each group: by activity or by custom/created order.
+  for (const group of sorted) {
+    if (sortMode === "activity") {
+      group.sessions.sort(
+        (a, b) => (b.lastActivityAt ?? b.createdAt) - (a.lastActivityAt ?? a.createdAt),
+      );
+    } else {
+      const customOrder = sessionOrder?.get(group.key);
+      if (customOrder && customOrder.length > 0) {
+        const orderMap = new Map(customOrder.map((id, idx) => [id, idx]));
+        group.sessions.sort((a, b) => {
+          const aIdx = orderMap.get(a.id);
+          const bIdx = orderMap.get(b.id);
+          // Sessions in custom order come first, in that order
+          // Sessions not in custom order (newly created) go to the top
+          if (aIdx === undefined && bIdx === undefined) return b.createdAt - a.createdAt;
+          if (aIdx === undefined) return -1; // a is new, goes first
+          if (bIdx === undefined) return 1; // b is new, goes first
+          return aIdx - bIdx;
+        });
+      } else {
+        group.sessions.sort((a, b) => b.createdAt - a.createdAt);
+      }
     }
     // Post-sort: move reviewer sessions directly after their parent session
     // so they visually nest under the parent in the sidebar.

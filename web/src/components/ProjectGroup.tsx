@@ -133,6 +133,7 @@ export function ProjectGroup({
   const hasStatus = group.runningCount > 0 || group.permCount > 0 || group.unreadCount > 0;
 
   const reorderMode = useStore((s) => s.reorderMode);
+  const sessionSortMode = useStore((s) => s.sessionSortMode);
   const touchDevice = isTouchDevice();
 
   // Drag-and-drop: always register the sensor so the useMemo dependency array
@@ -237,7 +238,7 @@ export function ProjectGroup({
       {/* Session list — drag-sortable */}
       {!isCollapsed && (
         <DndContext
-          sensors={sensors}
+          sensors={sessionSortMode === "activity" ? undefined : sensors}
           collisionDetection={closestCenter}
           onDragEnd={handleDragEnd}
           modifiers={[restrictToVerticalAxis]}

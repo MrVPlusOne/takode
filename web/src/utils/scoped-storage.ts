@@ -26,6 +26,7 @@ const GLOBAL_KEYS = new Set([
   "cc-collapse-mcp",
   "cc-settings-collapsed",
   "cc-settings-scroll",
+  "cc-session-sort-mode",
 ]);
 
 /** Server-scoped key names (without dynamic suffixes) for migration */

@@ -110,6 +110,8 @@ export function Sidebar() {
   const groupOrder = useStore((s) => s.groupOrder);
   const reorderMode = useStore((s) => s.reorderMode);
   const setReorderMode = useStore((s) => s.setReorderMode);
+  const sessionSortMode = useStore((s) => s.sessionSortMode);
+  const setSessionSortMode = useStore((s) => s.setSessionSortMode);
   const pendingSessions = useStore((s) => s.pendingSessions);
   const diffFileStats = useStore((s) => s.diffFileStats);
   const serverName = useStore((s) => s.serverName);
@@ -540,8 +542,8 @@ export function Sidebar() {
 
   // Group active sessions by project
   const projectGroups = useMemo(
-    () => groupSessionsByProject(activeSessions, sessionAttention, sessionOrder, groupOrder),
-    [activeSessions, sessionAttention, sessionOrder, groupOrder],
+    () => groupSessionsByProject(activeSessions, sessionAttention, sessionOrder, groupOrder, sessionSortMode),
+    [activeSessions, sessionAttention, sessionOrder, groupOrder, sessionSortMode],
   );
   const groupKeys = useMemo(() => projectGroups.map((group) => group.key), [projectGroups]);
   const groupPointerSensor = useSensor(PointerSensor, { activationConstraint: { distance: 8 } });
@@ -621,6 +623,9 @@ export function Sidebar() {
     }
     return results;
   }, [searchQuery, searchResults, allSessionList]);
+
+  // Show sort/reorder controls when the session list is visible and has multiple sessions.
+  const showSortControls = !searchFocused && !searchQuery && !filteredSessions && activeSessions.length > 1;
 
   const herdHoverHighlights = useMemo(() => {
     const highlights = new Map<string, "leader" | "worker">();
@@ -819,8 +824,8 @@ export function Sidebar() {
                 </button>
               )}
             </div>
-            {/* Edit/Done reorder toggle — mobile only (desktop sessions are always draggable) */}
-            {!searchFocused && !searchQuery && !filteredSessions && activeSessions.length > 1 && (
+            {/* Edit/Done reorder toggle — mobile only, hidden in activity sort mode */}
+            {showSortControls && sessionSortMode !== "activity" && (
               <button
                 onClick={() => setReorderMode(!reorderMode)}
                 className={`sm:hidden text-[10px] font-medium px-2.5 py-1 rounded-md transition-colors cursor-pointer shrink-0 ${
@@ -828,6 +833,29 @@ export function Sidebar() {
                 }`}
               >
                 {reorderMode ? "Done" : "Edit"}
+              </button>
+            )}
+            {/* Sort mode toggle — switches between creation time and last activity */}
+            {showSortControls && (
+              <button
+                onClick={() => setSessionSortMode(sessionSortMode === "created" ? "activity" : "created")}
+                title={sessionSortMode === "activity" ? "Sorted by recent activity" : "Sorted by creation time"}
+                className={`text-[10px] font-medium px-1.5 py-1 rounded-md transition-colors cursor-pointer shrink-0 ${
+                  sessionSortMode === "activity"
+                    ? "bg-cc-primary/10 text-cc-primary"
+                    : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
+                }`}
+              >
+                {sessionSortMode === "activity" ? (
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5">
+                    <circle cx="8" cy="8" r="6" />
+                    <path d="M8 5v3l2 2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                ) : (
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5">
+                    <path d="M3 4h10M3 8h7M3 12h4" strokeLinecap="round" />
+                  </svg>
+                )}
               </button>
             )}
           </div>
@@ -885,9 +913,9 @@ export function Sidebar() {
             )}
 
             <DndContext
-              sensors={groupSensors}
+              sensors={sessionSortMode === "activity" ? undefined : groupSensors}
               collisionDetection={closestCenter}
-              onDragEnd={handleGroupDragEnd}
+              onDragEnd={sessionSortMode === "activity" ? undefined : handleGroupDragEnd}
               modifiers={[restrictToVerticalAxis]}
             >
               <SortableContext items={groupKeys} strategy={verticalListSortingStrategy}>
