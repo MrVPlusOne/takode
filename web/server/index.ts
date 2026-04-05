@@ -678,6 +678,8 @@ const server = Bun.serve<SocketData>({
   },
   websocket: {
     idleTimeout: 0, // Disable Bun's idle timeout; we manage liveness via ws.ping heartbeats
+    maxPayloadLength: 64 * 1024 * 1024, // 64MB -- generous limit for large history syncs
+    perMessageDeflate: true, // Compress large payloads (history_sync can be multi-MB JSON)
     open(ws: ServerWebSocket<SocketData>) {
       const data = ws.data;
       if (data.kind === "cli") {

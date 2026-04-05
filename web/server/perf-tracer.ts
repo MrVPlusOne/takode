@@ -134,6 +134,7 @@ export class PerfTracer {
   private periodLagMaxMs = 0;
   private periodHttpSlowCount = 0;
   private periodHttpMaxMs = 0;
+  private periodHttpSlowestPath = "";
   private periodWsSlowCount = 0;
   private periodWsMaxMs = 0;
 
@@ -211,7 +212,10 @@ export class PerfTracer {
     this.totalHttpSlowCount++;
     if (ms > this.totalHttpMaxMs) this.totalHttpMaxMs = ms;
     this.periodHttpSlowCount++;
-    if (ms > this.periodHttpMaxMs) this.periodHttpMaxMs = ms;
+    if (ms > this.periodHttpMaxMs) {
+      this.periodHttpMaxMs = ms;
+      this.periodHttpSlowestPath = `${method} ${path}`;
+    }
   }
 
   recordSlowWsMessage(sessionId: string, dir: "cli" | "browser", msgType: string, ms: number): void {
@@ -275,6 +279,7 @@ export class PerfTracer {
     this.totalWsSlowCount = this.totalWsMaxMs = 0;
     this.periodLagCount = this.periodLagMaxMs = 0;
     this.periodHttpSlowCount = this.periodHttpMaxMs = 0;
+    this.periodHttpSlowestPath = "";
     this.periodWsSlowCount = this.periodWsMaxMs = 0;
     this.startTime = Date.now();
   }
@@ -295,7 +300,8 @@ export class PerfTracer {
       parts.push(`lag: max=${Math.round(this.periodLagMaxMs)}ms count=${this.periodLagCount}`);
     }
     if (this.periodHttpSlowCount > 0) {
-      parts.push(`http: slow=${this.periodHttpSlowCount} max=${Math.round(this.periodHttpMaxMs)}ms`);
+      const detail = this.periodHttpSlowestPath ? ` (${this.periodHttpSlowestPath})` : "";
+      parts.push(`http: slow=${this.periodHttpSlowCount} max=${Math.round(this.periodHttpMaxMs)}ms${detail}`);
     }
     if (this.periodWsSlowCount > 0) {
       parts.push(`ws: slow=${this.periodWsSlowCount} max=${Math.round(this.periodWsMaxMs)}ms`);
@@ -309,6 +315,7 @@ export class PerfTracer {
     // Reset period counters
     this.periodLagCount = this.periodLagMaxMs = 0;
     this.periodHttpSlowCount = this.periodHttpMaxMs = 0;
+    this.periodHttpSlowestPath = "";
     this.periodWsSlowCount = this.periodWsMaxMs = 0;
   }
 }

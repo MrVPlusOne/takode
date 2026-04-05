@@ -10,6 +10,11 @@ import { computeHistoryMessagesSyncHash, computeHistoryPrefixSyncHash } from "..
 const execPromise = promisify(execCb);
 const TOOL_PROGRESS_OUTPUT_LIMIT = 12_000;
 
+/** Yield to the event loop so pending I/O, pings, and other handlers can run. */
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 const GIT_SHA_REF_RE = /^[0-9a-f]{7,40}$/i;
 import { resolve, join } from "node:path";
 import { homedir } from "node:os";
@@ -6661,7 +6666,7 @@ export class WsBridge {
 
   private async routeBrowserMessage(session: Session, msg: BrowserOutgoingMessage, ws?: ServerWebSocket<SocketData>) {
     if (msg.type === "session_subscribe") {
-      this.handleSessionSubscribe(session, ws, msg.last_seq, msg.known_frozen_count, msg.known_frozen_hash);
+      await this.handleSessionSubscribe(session, ws, msg.last_seq, msg.known_frozen_count, msg.known_frozen_hash);
       return;
     }
 
@@ -7251,12 +7256,12 @@ export class WsBridge {
     session.frozenCount = session.messageHistory.length;
   }
 
-  private sendHistorySync(
+  private async sendHistorySync(
     session: Session,
     ws: ServerWebSocket<SocketData>,
     knownFrozenCount: number,
     knownFrozenHash?: string,
-  ): boolean {
+  ): Promise<boolean> {
     const normalizedKnownFrozenCount = this.normalizeKnownFrozenCount(knownFrozenCount);
     this.clampFrozenCount(session);
     const frozenCount = session.frozenCount;
@@ -7283,29 +7288,54 @@ export class WsBridge {
         return false;
       }
     }
-    const fullHistory = computeHistoryMessagesSyncHash(session.messageHistory);
-    const frozenDelta = session.messageHistory.slice(normalizedKnownFrozenCount, frozenCount);
-    const hotMessages = session.messageHistory.slice(frozenCount);
+
+    // Snapshot the full message history before any yields so that hash
+    // computation and array slicing operate on the same data even if new
+    // messages arrive during a yield.
+    const historySnapshot = session.messageHistory.slice();
+    const isLargeHistory = historySnapshot.length > 500;
+
+    // Yield to event loop before expensive hash computation on large histories
+    if (isLargeHistory) await yieldToEventLoop();
+
+    const fullHistory = computeHistoryMessagesSyncHash(historySnapshot);
+    const frozenDelta = historySnapshot.slice(normalizedKnownFrozenCount, frozenCount);
+    const hotMessages = historySnapshot.slice(frozenCount);
+
+    if (isLargeHistory) await yieldToEventLoop();
+
+    // Pre-serialize arrays once -- reused for both traffic stats and the send.
+    // This eliminates the redundant JSON.stringify that previously happened in
+    // both recordHistorySyncBreakdown (for byte counting) and sendToBrowser.
+    const frozenDeltaJson = JSON.stringify(frozenDelta);
+    const hotMessagesJson = JSON.stringify(hotMessages);
+
     trafficStats.recordHistorySyncBreakdown({
       sessionId: session.id,
-      frozenDeltaBytes: Buffer.byteLength(JSON.stringify(frozenDelta), "utf-8"),
-      hotMessagesBytes: Buffer.byteLength(JSON.stringify(hotMessages), "utf-8"),
+      frozenDeltaBytes: Buffer.byteLength(frozenDeltaJson, "utf-8"),
+      hotMessagesBytes: Buffer.byteLength(hotMessagesJson, "utf-8"),
       frozenDeltaMessages: frozenDelta.length,
       hotMessagesCount: hotMessages.length,
     });
-    this.sendToBrowser(ws, {
-      type: "history_sync",
-      frozen_base_count: normalizedKnownFrozenCount,
-      frozen_delta: frozenDelta,
-      hot_messages: hotMessages,
-      frozen_count: frozenCount,
-      expected_frozen_hash: frozenPrefix.hash,
-      expected_full_hash: fullHistory.hash,
-    });
+
+    if (isLargeHistory) await yieldToEventLoop();
+
+    // Build the full payload JSON by splicing pre-serialized arrays, avoiding
+    // a third JSON.stringify of the entire message object.
+    const payloadJson =
+      `{"type":"history_sync"` +
+      `,"frozen_base_count":${normalizedKnownFrozenCount}` +
+      `,"frozen_delta":${frozenDeltaJson}` +
+      `,"hot_messages":${hotMessagesJson}` +
+      `,"frozen_count":${frozenCount}` +
+      `,"expected_frozen_hash":${JSON.stringify(frozenPrefix.hash)}` +
+      `,"expected_full_hash":${JSON.stringify(fullHistory.hash)}}`;
+
+    this.sendToBrowserRaw(ws, payloadJson, "history_sync");
     return true;
   }
 
-  private handleSessionSubscribe(
+  private async handleSessionSubscribe(
     session: Session,
     ws: ServerWebSocket<SocketData> | undefined,
     lastSeq: number,
@@ -7352,7 +7382,7 @@ export class WsBridge {
     // also done in handleBrowserOpen, causing double delivery).
     if (lastAckSeq === 0) {
       if (session.messageHistory.length > 0) {
-        this.sendHistorySync(session, ws, knownFrozenCount, knownFrozenHash);
+        await this.sendHistorySync(session, ws, knownFrozenCount, knownFrozenHash);
       }
       // Also replay any buffered events so transient messages (stream_event,
       // tool_progress, status_change, etc.) are caught up
@@ -7380,7 +7410,7 @@ export class WsBridge {
         // reuse its frozen prefix, refuse sync instead of resending the full
         // conversation payload.
         if (session.messageHistory.length > 0) {
-          this.sendHistorySync(session, ws, knownFrozenCount, knownFrozenHash);
+          await this.sendHistorySync(session, ws, knownFrozenCount, knownFrozenHash);
         }
         const transientMissed = missedEvents.filter((evt) => !this.isHistoryBackedEvent(evt.message));
         if (transientMissed.length > 0) {
@@ -9124,13 +9154,21 @@ export class WsBridge {
         session.browserSockets.delete(ws);
       }
     }
-    trafficStats.record({
-      sessionId: session.id,
-      channel: "browser",
-      direction: "out",
-      messageType: msg.type,
-      payloadBytes: Buffer.byteLength(json, "utf-8"),
-      fanout: successfulFanout,
+    // Defer byte-length computation off the hot send path
+    this.deferBrowserTrafficStats(json, session.id, msg.type, successfulFanout);
+  }
+
+  /** Defer traffic stats recording so Buffer.byteLength runs outside the hot send path. */
+  private deferBrowserTrafficStats(json: string, sessionId: string, messageType: string, fanout: number) {
+    queueMicrotask(() => {
+      trafficStats.record({
+        sessionId,
+        channel: "browser",
+        direction: "out",
+        messageType,
+        payloadBytes: Buffer.byteLength(json, "utf-8"),
+        fanout,
+      });
     });
   }
 
@@ -9138,15 +9176,17 @@ export class WsBridge {
     try {
       const json = JSON.stringify(msg);
       ws.send(json);
-      const sessionId = (ws.data as BrowserSocketData).sessionId;
-      trafficStats.record({
-        sessionId,
-        channel: "browser",
-        direction: "out",
-        messageType: msg.type,
-        payloadBytes: Buffer.byteLength(json, "utf-8"),
-        fanout: 1,
-      });
+      this.deferBrowserTrafficStats(json, (ws.data as BrowserSocketData).sessionId, msg.type, 1);
+    } catch {
+      // Socket will be cleaned up on close
+    }
+  }
+
+  /** Send pre-serialized JSON to a single browser socket, avoiding redundant JSON.stringify. */
+  private sendToBrowserRaw(ws: ServerWebSocket<SocketData>, json: string, messageType: string) {
+    try {
+      ws.send(json);
+      this.deferBrowserTrafficStats(json, (ws.data as BrowserSocketData).sessionId, messageType, 1);
     } catch {
       // Socket will be cleaned up on close
     }

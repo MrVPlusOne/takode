@@ -29,6 +29,16 @@ function makeBrowserSocket(sessionId: string) {
   return createMockSocket({ kind: "browser", sessionId });
 }
 
+/** Flush all pending microtasks and setTimeout(0) callbacks so async sendHistorySync and deferred traffic stats complete. */
+async function flushAsync() {
+  // Flush microtasks (queueMicrotask in traffic stats)
+  await Promise.resolve();
+  // Flush setTimeout(0) (yieldToEventLoop in sendHistorySync)
+  await new Promise((r) => setTimeout(r, 0));
+  // One more microtask pass for any traffic stats queued after the yield
+  await Promise.resolve();
+}
+
 function makeCodexAdapterMock() {
   let onBrowserMessageCb: ((msg: any) => void) | undefined;
   let onSessionMetaCb: ((meta: any) => void) | undefined;
@@ -240,7 +250,7 @@ describe("WsBridge.localDateKey", () => {
 });
 
 describe("traffic accounting", () => {
-  it("tracks browser fanout using successful sends only", () => {
+  it("tracks browser fanout using successful sends only", async () => {
     const browser1 = makeBrowserSocket("s1");
     const browser2 = makeBrowserSocket("s1");
 
@@ -253,6 +263,7 @@ describe("traffic accounting", () => {
     });
 
     bridge.broadcastSessionUpdate("s1", { cwd: "/repo" });
+    await flushAsync(); // traffic stats are now deferred via queueMicrotask
 
     const snapshot = bridge.getTrafficStatsSnapshot();
     const bucket = snapshot.buckets.find(
@@ -1582,7 +1593,7 @@ describe("Browser handlers", () => {
     expect(replay.events[0].message.type).toBe("stream_event");
   });
 
-  it("session_subscribe: refuses sync without sending full history when known_frozen_count is invalid", () => {
+  it("session_subscribe: refuses sync without sending full history when known_frozen_count is invalid", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const cli = makeCliSocket("s1");
     bridge.handleCLIOpen(cli, "s1");
@@ -1644,6 +1655,7 @@ describe("Browser handlers", () => {
         known_frozen_count: 99,
       }),
     );
+    await flushAsync(); // sendHistorySync is async
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     expect(calls.some((c: any) => c.type === "message_history")).toBe(false);
@@ -1656,7 +1668,7 @@ describe("Browser handlers", () => {
     warnSpy.mockRestore();
   });
 
-  it("session_subscribe: refuses sync without sending full history when known_frozen_hash mismatches", () => {
+  it("session_subscribe: refuses sync without sending full history when known_frozen_hash mismatches", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const cli = makeCliSocket("s1");
     bridge.handleCLIOpen(cli, "s1");
@@ -1718,6 +1730,7 @@ describe("Browser handlers", () => {
         known_frozen_hash: "deadbeef",
       }),
     );
+    await flushAsync(); // sendHistorySync is async
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     expect(calls.some((c: any) => c.type === "message_history")).toBe(false);
@@ -1752,7 +1765,7 @@ describe("Browser handlers", () => {
     warnSpy.mockRestore();
   });
 
-  it("session_subscribe no-gap: sends history_sync when history-backed events were missed", () => {
+  it("session_subscribe no-gap: sends history_sync when history-backed events were missed", async () => {
     // Simulates a mobile browser that disconnected while the session was generating,
     // then reconnects. The event buffer covers the gap (no gap), but the browser
     // missed assistant messages that need to be delivered via message_history.
@@ -1802,6 +1815,7 @@ describe("Browser handlers", () => {
         last_seq: 1,
       }),
     );
+    await flushAsync(); // sendHistorySync is async
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     // Should send history_sync because history-backed events were missed
@@ -6636,7 +6650,7 @@ describe("handleSessionSubscribe — no double message_history", () => {
     expect(historyMsgs.length).toBe(0); // message_history NOT sent yet
   });
 
-  it("sends history_sync only after session_subscribe with lastSeq=0", () => {
+  it("sends history_sync only after session_subscribe with lastSeq=0", async () => {
     const cli = makeCliSocket("s1");
     bridge.handleCLIOpen(cli, "s1");
     bridge.handleCLIMessage(cli, makeInitMsg());
@@ -6672,6 +6686,7 @@ describe("handleSessionSubscribe — no double message_history", () => {
         last_seq: 0,
       }),
     );
+    await flushAsync(); // sendHistorySync is async
 
     // Should now receive history_sync + state_snapshot
     const calls = browser.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
@@ -6740,7 +6755,7 @@ describe("state_snapshot", () => {
     expect(typeof snapshots[0].askPermission).toBe("boolean");
   });
 
-  it("state_snapshot is the last message sent during subscribe", () => {
+  it("state_snapshot is the last message sent during subscribe", async () => {
     // Add history so multiple messages are sent
     bridge.handleCLIMessage(
       cli,
@@ -6769,13 +6784,21 @@ describe("state_snapshot", () => {
         last_seq: 0,
       }),
     );
+    await flushAsync(); // sendHistorySync is async
 
     const calls = browser.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
-    // state_snapshot should be the very last message
-    expect(calls[calls.length - 1].type).toBe("state_snapshot");
+    // state_snapshot should be the last message in the subscribe sequence.
+    // Note: async git refresh (refreshGitInfoThenRecomputeDiff) may send a
+    // session_update after state_snapshot once the yield resolves, so we check
+    // that state_snapshot comes after history_sync rather than being the
+    // absolute last message.
+    const historySyncIdx = calls.findIndex((m: any) => m.type === "history_sync");
+    const snapshotIdx = calls.findIndex((m: any) => m.type === "state_snapshot");
+    expect(historySyncIdx).toBeGreaterThanOrEqual(0);
+    expect(snapshotIdx).toBeGreaterThan(historySyncIdx);
   });
 
-  it("reports sessionStatus as 'running' when session is actively generating", () => {
+  it("reports sessionStatus as 'running' when session is actively generating", async () => {
     // Send a user message (sets isGenerating = true) followed by an assistant message (no result)
     bridge.handleBrowserMessage(
       browser,
@@ -6811,13 +6834,14 @@ describe("state_snapshot", () => {
         last_seq: 0,
       }),
     );
+    await flushAsync(); // sendHistorySync is async
 
     const calls = browser.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
     const snapshot = calls.find((m: any) => m.type === "state_snapshot");
     expect(snapshot.sessionStatus).toBe("running");
   });
 
-  it("reports backendConnected as false when CLI is disconnected", () => {
+  it("reports backendConnected as false when CLI is disconnected", async () => {
     bridge.handleCLIClose(cli);
     browser.send.mockClear();
 
@@ -6828,6 +6852,7 @@ describe("state_snapshot", () => {
         last_seq: 0,
       }),
     );
+    await flushAsync(); // sendHistorySync is async
 
     const calls = browser.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
     const snapshot = calls.find((m: any) => m.type === "state_snapshot");
@@ -7183,7 +7208,7 @@ describe("status_change: running on user_message", () => {
     expect(b1UserMsg.id).toBe(b2UserMsg.id);
   });
 
-  it("deriveSessionStatus returns 'running' when user_message sets isGenerating", () => {
+  it("deriveSessionStatus returns 'running' when user_message sets isGenerating", async () => {
     // Send a user message — this sets isGenerating = true
     bridge.handleBrowserMessage(
       browser,
@@ -7198,6 +7223,7 @@ describe("status_change: running on user_message", () => {
     const browser2 = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser2, "s1");
     bridge.handleBrowserMessage(browser2, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+    await flushAsync(); // sendHistorySync is async
 
     const calls = browser2.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
     const snapshot = calls.find((m: any) => m.type === "state_snapshot");
@@ -7205,7 +7231,7 @@ describe("status_change: running on user_message", () => {
     expect(snapshot.sessionStatus).toBe("running");
   });
 
-  it("deriveSessionStatus returns 'idle' after result even if history ends with assistant", () => {
+  it("deriveSessionStatus returns 'idle' after result even if history ends with assistant", async () => {
     // Send a user message (isGenerating = true)
     bridge.handleBrowserMessage(
       browser,
@@ -7245,6 +7271,7 @@ describe("status_change: running on user_message", () => {
     const browser2 = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser2, "s1");
     bridge.handleBrowserMessage(browser2, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+    await flushAsync(); // sendHistorySync is async
 
     const calls = browser2.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
     const snapshot = calls.find((m: any) => m.type === "state_snapshot");
@@ -7252,7 +7279,7 @@ describe("status_change: running on user_message", () => {
     expect(snapshot.sessionStatus).toBe("idle");
   });
 
-  it("deriveSessionStatus returns 'idle' after CLI relaunch (simulating server restart)", () => {
+  it("deriveSessionStatus returns 'idle' after CLI relaunch (simulating server restart)", async () => {
     vi.useFakeTimers();
     // Session was generating when CLI disconnected (interrupted generation)
     bridge.handleBrowserMessage(
@@ -7290,11 +7317,15 @@ describe("status_change: running on user_message", () => {
     bridge.handleCLIMessage(cli2, makeInitMsg());
     browser.send.mockClear();
 
+    // Switch back to real timers before subscribe so async flushes work
+    vi.useRealTimers();
+
     // Reconnect a new browser — should see "idle" not "running"
     // even though history ends with an assistant message
     const browser2 = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser2, "s1");
     bridge.handleBrowserMessage(browser2, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+    await flushAsync(); // sendHistorySync is async
 
     const calls = browser2.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
     const snapshot = calls.find((m: any) => m.type === "state_snapshot");
@@ -7302,7 +7333,6 @@ describe("status_change: running on user_message", () => {
     // Key assertion: after a full relaunch (grace expired), isGenerating is cleared
     expect(snapshot.sessionStatus).toBe("idle");
     expect(snapshot.backendConnected).toBe(true);
-    vi.useRealTimers();
   });
 
   it("state_snapshot includes attention for herded worker sessions when set", () => {
