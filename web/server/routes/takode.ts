@@ -782,8 +782,8 @@ export function createTakodeRoutes(ctx: RouteContext) {
       try {
         const quest = await questStore.getQuest(questId);
         if (quest) title = quest.title;
-      } catch {
-        // Best-effort: if quest store lookup fails, leave title undefined
+      } catch (e) {
+        console.warn(`[routes] Failed to fetch quest title for ${questId}:`, e);
       }
     }
 
@@ -817,6 +817,10 @@ export function createTakodeRoutes(ctx: RouteContext) {
       .map((s) => s.trim())
       .filter(Boolean);
     if (questIds.length === 0) return c.json({ error: "questId is required" }, 400);
+    const invalid = questIds.filter((qid) => !/^q-\d+$/i.test(qid));
+    if (invalid.length > 0) {
+      return c.json({ error: `Invalid quest ID(s): ${invalid.join(", ")} -- must match q-NNN format (e.g., q-1, q-42)` }, 400);
+    }
 
     const board = wsBridge.removeBoardRows(id, questIds);
     if (!board) return c.json({ error: "Session not found in bridge" }, 404);
@@ -835,6 +839,9 @@ export function createTakodeRoutes(ctx: RouteContext) {
 
     const questId = c.req.param("questId").trim();
     if (!questId) return c.json({ error: "questId is required" }, 400);
+    if (!/^q-\d+$/i.test(questId)) {
+      return c.json({ error: "questId must match q-NNN format (e.g., q-1, q-42)" }, 400);
+    }
 
     const result = wsBridge.advanceBoardRow(id, questId);
     if (!result) return c.json({ error: "Quest not found on board" }, 404);
