@@ -248,7 +248,7 @@ takode rename 5 "Auth refactor worker"
 
 ### `takode interrupt <session>`
 
-Interrupt a worker's current turn (sends SIGTERM). Alias: `takode stop`.
+Interrupt a worker's current turn (sends SIGTERM).
 
 **Interrupt ≠ archive.** Interrupting only halts the worker's current turn -- the session stays active, its history and worktree are intact, and you can send it new work immediately. `takode archive` is a completely separate operation that removes the session from your active herd. Never tell the user you "archived" a session when you only interrupted it.
 

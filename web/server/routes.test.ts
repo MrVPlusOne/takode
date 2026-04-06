@@ -5969,7 +5969,7 @@ describe("Takode server-authoritative auth", () => {
     expect(launcher.unherdSession).toHaveBeenCalledWith("orch-1", "worker-1");
   });
 
-  it("preserves repoRoot metadata when stopping a herded session", async () => {
+  it("preserves repoRoot metadata when interrupting a herded session", async () => {
     const sessions = setupTakodeSessions();
     sessions["worker-1"].cwd = "/repo/web";
     sessions["worker-1"].repoRoot = undefined;
@@ -5979,7 +5979,7 @@ describe("Takode server-authoritative auth", () => {
       messageHistory: [],
     });
 
-    const res = await app.request("/api/sessions/worker-1/stop", {
+    const res = await app.request("/api/sessions/worker-1/interrupt", {
       method: "POST",
       headers: authHeaders("orch-1", "tok-1"),
       body: JSON.stringify({ callerSessionId: "orch-1" }),
@@ -6003,7 +6003,7 @@ describe("Takode server-authoritative auth", () => {
       state: { cwd: "/repo/w1" },
     });
 
-    const res = await app.request("/api/sessions/worker-1/stop", {
+    const res = await app.request("/api/sessions/worker-1/interrupt", {
       method: "POST",
       headers: authHeaders("orch-1", "tok-1"),
       body: JSON.stringify({ callerSessionId: "orch-1" }),

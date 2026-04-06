@@ -1200,7 +1200,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
   });
 
   // Leader-initiated interrupt: halt a herded worker's current turn so the
-  // leader can redirect. "stop" is kept as a backward-compatible alias.
+  // leader can redirect.
   const handleInterrupt = async (c: any) => {
     const auth = authenticateTakodeCaller(c, { requireOrchestrator: true });
     if ("response" in auth) return auth.response;
@@ -1221,7 +1221,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
     const workerInfo = launcher.getSession(id);
     if (!workerInfo) return c.json({ error: "Session not found" }, 404);
     if (!callerSessionId || workerInfo.herdedBy !== callerSessionId) {
-      return c.json({ error: "Only the leader who herded this session can stop it" }, 403);
+      return c.json({ error: "Only the leader who herded this session can interrupt it" }, 403);
     }
 
     // Preserve project metadata used for grouping. Some sessions only have repo
@@ -1232,14 +1232,14 @@ export function createSessionsRoutes(ctx: RouteContext) {
     // Inject a visible system message into the worker's chat before interrupting
     const leaderNum = launcher.getSessionNum(callerSessionId);
     const leaderName = sessionNames.getName(callerSessionId) || callerSessionId.slice(0, 8);
-    const stopMsg = `Session stopped by leader #${leaderNum ?? "?"} ${leaderName}`;
+    const interruptMsg = `Session interrupted by leader #${leaderNum ?? "?"} ${leaderName}`;
     const ts = Date.now();
     if (session) {
       const historyEntry = {
         type: "user_message" as const,
-        content: stopMsg,
+        content: interruptMsg,
         timestamp: ts,
-        id: `stop-${ts}`,
+        id: `interrupt-${ts}`,
         agentSource: { sessionId: callerSessionId, sessionLabel: `#${leaderNum ?? "?"} ${leaderName}` },
       };
       session.messageHistory.push(historyEntry as any);
@@ -1249,10 +1249,9 @@ export function createSessionsRoutes(ctx: RouteContext) {
     const targetSession = session || wsBridge.getOrCreateSession(id, workerInfo.backendType || "claude");
     await wsBridge.routeExternalInterrupt(targetSession, "leader");
 
-    return c.json({ ok: true, sessionId: id, stoppedBy: callerSessionId });
+    return c.json({ ok: true, sessionId: id, interruptedBy: callerSessionId });
   };
   api.post("/sessions/:id/interrupt", handleInterrupt);
-  api.post("/sessions/:id/stop", handleInterrupt); // backward compat alias
 
   api.post("/sessions/:id/relaunch", async (c) => {
     const id = resolveId(c.req.param("id"));
