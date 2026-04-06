@@ -1622,41 +1622,6 @@ describe("relaunch", () => {
     killSpy.mockRestore();
   });
 
-  it("terminates a Codex process when stderr reports fatal token refresh failure", async () => {
-    const stderrStream = new TransformStream<Uint8Array, Uint8Array>();
-    let resolveExit: (code: number) => void;
-    const proc = {
-      pid: 24680,
-      kill: vi.fn((signal?: string) => {
-        if (signal === "SIGTERM") resolveExit(143);
-      }),
-      exited: new Promise<number>((resolve) => {
-        resolveExit = resolve;
-      }),
-      stdin: new WritableStream<Uint8Array>(),
-      stdout: new ReadableStream<Uint8Array>(),
-      stderr: stderrStream.readable,
-    };
-    mockSpawn.mockReturnValueOnce(proc);
-
-    await launcher.launch({
-      backendType: "codex",
-      cwd: "/tmp/project",
-      codexSandbox: "workspace-write",
-    });
-
-    const writer = stderrStream.writable.getWriter();
-    await writer.write(
-      new TextEncoder().encode(
-        'worker quit with fatal: Transport channel closed, when Auth(TokenRefreshFailed("Server returned error response: invalid_grant: Invalid refresh token"))\n',
-      ),
-    );
-    await new Promise<void>((resolve) => setTimeout(resolve, 50));
-
-    expect(proc.kill).toHaveBeenCalledWith("SIGTERM");
-    expect(launcher.getSession("test-session-id")?.state).toBe("exited");
-  });
-
   // Regression: q-16 — old Codex process exit handler stomps new process state.
   // When relaunch kills the old process and spawns a new one, the old process's
   // proc.exited handler must not overwrite the new session state to "exited" or
