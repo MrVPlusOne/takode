@@ -56,6 +56,8 @@ interface JsonRpcResponse {
 
 type JsonRpcMessage = JsonRpcRequest | JsonRpcNotification | JsonRpcResponse;
 
+const TURN_START_ACK_TIMEOUT_MS = 60_000;
+
 // Codex item types
 interface CodexItem {
   type: string;
@@ -669,14 +671,28 @@ class JsonRpcTransport {
   }
 
   /** Send a request and wait for the matching response. */
-  async call(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
+  async call(method: string, params: Record<string, unknown> = {}, timeoutMs?: number): Promise<unknown> {
     const id = this.nextId++;
     return new Promise(async (resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      let timeout: ReturnType<typeof setTimeout> | null = null;
+      const settle =
+        <T extends unknown[]>(fn: (...args: T) => void) =>
+        (...args: T) => {
+          if (timeout) clearTimeout(timeout);
+          fn(...args);
+        };
+      this.pending.set(id, { resolve: settle(resolve), reject: settle(reject) });
+      if (timeoutMs && timeoutMs > 0) {
+        timeout = setTimeout(() => {
+          if (!this.pending.delete(id)) return;
+          reject(new Error(`${method} timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+      }
       const request = JSON.stringify({ method, id, params });
       try {
         await this.writeRaw(request + "\n");
       } catch (err) {
+        if (timeout) clearTimeout(timeout);
         this.pending.delete(id);
         reject(err instanceof Error ? err : new Error(String(err)));
       }
@@ -800,6 +816,8 @@ export class CodexAdapter
   private parentToolUseIdByThreadId = new Map<string, string>();
   private parentToolUseIdByItemId = new Map<string, string | null>();
   private pendingSubagentToolUsesByCallId = new Map<string, PendingSubagentToolUse>();
+  private mcpStartupStatusByName = new Map<string, McpServerDetail>();
+  private mcpServersByName = new Map<string, McpServerDetail>();
 
   // Resolve when the current turn ends (used by interruptAndWaitForTurnEnd)
   private turnEndResolvers: Array<() => void> = [];
@@ -1394,7 +1412,9 @@ export class CodexAdapter
     }
 
     try {
-      const result = (await this.transport.call("turn/start", turnStartParams)) as { turn: { id: string } };
+      const result = (await this.transport.call("turn/start", turnStartParams, TURN_START_ACK_TIMEOUT_MS)) as {
+        turn: { id: string };
+      };
       this.currentTurnId = result.turn.id;
       this.turnStartedCb?.(result.turn.id);
     } catch (err) {
@@ -1405,15 +1425,17 @@ export class CodexAdapter
         delete turnStartParams.collaborationMode;
         console.warn(`[codex-adapter] collaborationMode not supported; falling back for session ${this.sessionId}`);
         try {
-          const retry = (await this.transport.call("turn/start", turnStartParams)) as { turn: { id: string } };
+          const retry = (await this.transport.call("turn/start", turnStartParams, TURN_START_ACK_TIMEOUT_MS)) as {
+            turn: { id: string };
+          };
           this.currentTurnId = retry.turn.id;
           this.turnStartedCb?.(retry.turn.id);
           return;
         } catch (retryErr) {
           const requeued = this.handleTurnStartDispatchFailure(msg);
-          if (requeued && this.isTransportClosedError(retryErr)) {
+          if (requeued && this.isRecoverableTurnStartError(retryErr)) {
             console.warn(
-              `[codex-adapter] turn/start transport closed; message re-queued for session ${this.sessionId}`,
+              `[codex-adapter] turn/start did not acknowledge; message re-queued for session ${this.sessionId}: ${retryErr}`,
             );
             return;
           }
@@ -1423,8 +1445,10 @@ export class CodexAdapter
       }
 
       const requeued = this.handleTurnStartDispatchFailure(msg);
-      if (requeued && this.isTransportClosedError(err)) {
-        console.warn(`[codex-adapter] turn/start transport closed; message re-queued for session ${this.sessionId}`);
+      if (requeued && this.isRecoverableTurnStartError(err)) {
+        console.warn(
+          `[codex-adapter] turn/start did not acknowledge; message re-queued for session ${this.sessionId}: ${err}`,
+        );
         return;
       }
       this.emit({ type: "error", message: `Failed to start turn: ${err}` });
@@ -1483,7 +1507,9 @@ export class CodexAdapter
     if (collaborationMode) turnStartParams.collaborationMode = collaborationMode;
 
     try {
-      const result = (await this.transport.call("turn/start", turnStartParams)) as { turn: { id: string } };
+      const result = (await this.transport.call("turn/start", turnStartParams, TURN_START_ACK_TIMEOUT_MS)) as {
+        turn: { id: string };
+      };
       this.currentTurnId = result.turn.id;
       this.turnStartedCb?.(result.turn.id);
     } catch (err) {
@@ -1491,19 +1517,21 @@ export class CodexAdapter
         this.collaborationModeSupported = false;
         delete turnStartParams.collaborationMode;
         try {
-          const retry = (await this.transport.call("turn/start", turnStartParams)) as { turn: { id: string } };
+          const retry = (await this.transport.call("turn/start", turnStartParams, TURN_START_ACK_TIMEOUT_MS)) as {
+            turn: { id: string };
+          };
           this.currentTurnId = retry.turn.id;
           this.turnStartedCb?.(retry.turn.id);
           return;
         } catch (retryErr) {
           const requeued = this.handleTurnStartDispatchFailure(msg);
-          if (requeued && this.isTransportClosedError(retryErr)) return;
+          if (requeued && this.isRecoverableTurnStartError(retryErr)) return;
           this.emit({ type: "error", message: `Failed to start pending Codex batch: ${retryErr}` });
           return;
         }
       }
       const requeued = this.handleTurnStartDispatchFailure(msg);
-      if (requeued && this.isTransportClosedError(err)) return;
+      if (requeued && this.isRecoverableTurnStartError(err)) return;
       this.emit({ type: "error", message: `Failed to start pending Codex batch: ${err}` });
     }
   }
@@ -1646,36 +1674,85 @@ export class CodexAdapter
     });
   }
 
+  private handleMcpStartupStatusUpdated(params: Record<string, unknown>): void {
+    const name = toSafeText(params.name).trim();
+    if (!name) return;
+
+    const rawStatus = toSafeText(params.status).trim();
+    const status: McpServerDetail["status"] =
+      rawStatus === "ready" ? "connected" : rawStatus === "failed" ? "failed" : "connecting";
+    const error = toSafeText(params.error).trim() || undefined;
+
+    const server: McpServerDetail = {
+      name,
+      status,
+      ...(error ? { error } : {}),
+      config: { type: "unknown" },
+      scope: "session",
+      tools: [],
+    };
+
+    this.mcpStartupStatusByName.set(name, server);
+    const existing = this.mcpServersByName.get(name);
+    this.mcpServersByName.set(name, {
+      ...existing,
+      ...server,
+      config: existing?.config ?? server.config,
+      scope: existing?.scope ?? server.scope,
+      tools: existing?.tools ?? server.tools,
+      error,
+    });
+
+    const servers = Array.from(this.mcpServersByName.values()).sort((a, b) => a.name.localeCompare(b.name));
+    this.emit({ type: "mcp_status", servers });
+    this.emit({
+      type: "session_update",
+      session: {
+        mcp_servers: servers.map((server) => ({ name: server.name, status: server.status })),
+      },
+    });
+
+    if (status === "failed") {
+      console.warn(`[codex-adapter] MCP server "${name}" startup failed for session ${this.sessionId}: ${error ?? ""}`);
+    }
+  }
+
   private async handleOutgoingMcpGetStatus(): Promise<void> {
     try {
       const statusEntries = await this.listAllMcpServerStatuses();
       const configMap = await this.readMcpServersConfig();
 
-      const names = new Set<string>([...statusEntries.map((s) => s.name), ...Object.keys(configMap)]);
+      const names = new Set<string>([
+        ...statusEntries.map((s) => s.name),
+        ...Object.keys(configMap),
+        ...this.mcpStartupStatusByName.keys(),
+      ]);
 
       const statusByName = new Map(statusEntries.map((s) => [s.name, s]));
       const servers: McpServerDetail[] = Array.from(names)
         .sort()
         .map((name) => {
           const status = statusByName.get(name);
+          const startupStatus = this.mcpStartupStatusByName.get(name);
           const config = this.toMcpServerConfig(configMap[name]);
           const isEnabled = this.isMcpServerEnabled(configMap[name]);
           const serverStatus: McpServerDetail["status"] = !isEnabled
             ? "disabled"
             : status?.authStatus === "notLoggedIn"
               ? "failed"
-              : "connected";
+              : (startupStatus?.status ?? "connected");
 
           return {
             name,
             status: serverStatus,
-            error: status?.authStatus === "notLoggedIn" ? "MCP server requires login" : undefined,
+            error: status?.authStatus === "notLoggedIn" ? "MCP server requires login" : startupStatus?.error,
             config,
             scope: "user",
             tools: this.mapMcpTools(status?.tools),
           };
         });
 
+      this.mcpServersByName = new Map(servers.map((server) => [server.name, server]));
       this.emit({ type: "mcp_status", servers });
     } catch (err) {
       this.emit({ type: "error", message: `Failed to get MCP status: ${err}` });
@@ -1849,6 +1926,9 @@ export class CodexAdapter
               apps: extractCodexAppsPage(params).apps,
             },
           });
+          break;
+        case "mcpServer/startupStatus/updated":
+          this.handleMcpStartupStatusUpdated(params);
           break;
         case "codex/event/stream_error": {
           const msg = params.msg as { message?: string } | undefined;
@@ -3257,6 +3337,11 @@ export class CodexAdapter
 
   private isTransportClosedError(err: unknown): boolean {
     return String(err).toLowerCase().includes("transport closed");
+  }
+
+  private isRecoverableTurnStartError(err: unknown): boolean {
+    const text = String(err).toLowerCase();
+    return this.isTransportClosedError(err) || text.includes("turn/start timed out");
   }
 
   private formatInitializationError(err: unknown): string {

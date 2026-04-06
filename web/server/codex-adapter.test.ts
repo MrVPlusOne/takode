@@ -4292,6 +4292,50 @@ describe("CodexAdapter", () => {
 
   // ── MCP server management (Codex app-server methods) ───────────────────
 
+  it("surfaces MCP startup failure as failed MCP status without failing Codex init", async () => {
+    const messages: BrowserIncomingMessage[] = [];
+    const initErrors: string[] = [];
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
+    adapter.onBrowserMessage((msg) => messages.push(msg));
+    adapter.onInitError((error) => initErrors.push(error));
+
+    await tick();
+    stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
+    await tick();
+    stdout.push(JSON.stringify({ id: 2, result: { thread: { id: "thr_123" } } }) + "\n");
+    await tick();
+
+    stdout.push(
+      JSON.stringify({
+        method: "mcpServer/startupStatus/updated",
+        params: {
+          name: "notion",
+          status: "failed",
+          error:
+            "MCP client for `notion` failed to start: Auth(TokenRefreshFailed(\"Server returned error response: invalid_grant\"))",
+        },
+      }) + "\n",
+    );
+    await tick();
+
+    expect(initErrors).toHaveLength(0);
+    const mcpStatus = messages.find((m) => m.type === "mcp_status") as
+      | { type: "mcp_status"; servers: Array<{ name: string; status: string; error?: string }> }
+      | undefined;
+    expect(mcpStatus).toBeDefined();
+    expect(mcpStatus!.servers).toContainEqual(
+      expect.objectContaining({
+        name: "notion",
+        status: "failed",
+        error: expect.stringContaining("invalid_grant"),
+      }),
+    );
+    const update = messages.find((m) => m.type === "session_update") as
+      | { type: "session_update"; session: { mcp_servers?: Array<{ name: string; status: string }> } }
+      | undefined;
+    expect(update?.session.mcp_servers).toContainEqual({ name: "notion", status: "failed" });
+  });
+
   it("handles mcp_get_status via mcpServerStatus/list + config/read", async () => {
     const messages: BrowserIncomingMessage[] = [];
     const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
@@ -4356,6 +4400,41 @@ describe("CodexAdapter", () => {
     expect(mcpStatus!.servers.find((s) => s.name === "beta")?.status).toBe("failed");
     expect(mcpStatus!.servers.find((s) => s.name === "beta")?.error).toContain("requires login");
     expect(mcpStatus!.servers.find((s) => s.name === "alpha")?.tools?.length).toBe(1);
+
+    stdout.push(
+      JSON.stringify({
+        method: "mcpServer/startupStatus/updated",
+        params: { name: "alpha", status: "failed", error: "invalid_grant" },
+      }) + "\n",
+    );
+    await tick();
+
+    const statusUpdates = messages.filter((m) => m.type === "mcp_status") as Array<{
+      type: "mcp_status";
+      servers: Array<{ name: string; status: string; error?: string; tools?: unknown[] }>;
+    }>;
+    const latestMcpStatus = statusUpdates[statusUpdates.length - 1];
+    expect(latestMcpStatus.servers.map((s) => s.name).sort()).toEqual(["alpha", "beta"]);
+    expect(latestMcpStatus.servers.find((s) => s.name === "alpha")?.error).toContain("invalid_grant");
+    expect(latestMcpStatus.servers.find((s) => s.name === "alpha")?.tools?.length).toBe(1);
+
+    stdout.push(
+      JSON.stringify({
+        method: "mcpServer/startupStatus/updated",
+        params: { name: "alpha", status: "ready" },
+      }) + "\n",
+    );
+    await tick();
+
+    const readyStatusUpdates = messages.filter((m) => m.type === "mcp_status") as Array<{
+      type: "mcp_status";
+      servers: Array<{ name: string; status: string; error?: string; tools?: unknown[] }>;
+    }>;
+    const readyMcpStatus = readyStatusUpdates[readyStatusUpdates.length - 1];
+    const alpha = readyMcpStatus.servers.find((s) => s.name === "alpha");
+    expect(alpha).toMatchObject({ name: "alpha", status: "connected" });
+    expect(alpha?.error).toBeUndefined();
+    expect(alpha?.tools?.length).toBe(1);
   });
 
   it("handles mcp_toggle by writing config, reloading MCP, and refreshing status", async () => {
@@ -4668,6 +4747,34 @@ describe("onTurnStartFailed callback", () => {
     expect(failedCb).toHaveBeenCalledOnce();
     const startErrors = emitted.filter((m) => m.type === "error" && m.message.includes("Failed to start turn"));
     expect(startErrors).toHaveLength(0);
+  });
+
+  it("re-queues once without emitting an error when turn/start never acknowledges", async () => {
+    const adapter = await initAdapter();
+    vi.useFakeTimers();
+    try {
+      const failedCb = vi.fn();
+      const emitted: BrowserIncomingMessage[] = [];
+      adapter.onBrowserMessage((msg) => emitted.push(msg));
+      adapter.onTurnStartFailed(failedCb);
+
+      adapter.sendBrowserMessage({ type: "user_message", content: "test message" } as BrowserOutgoingMessage);
+      await vi.advanceTimersByTimeAsync(1);
+
+      expect(failedCb).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      await vi.runOnlyPendingTimersAsync();
+
+      expect(failedCb).toHaveBeenCalledOnce();
+      expect(failedCb).toHaveBeenCalledWith(expect.objectContaining({ type: "user_message", content: "test message" }));
+      const turnStartWrites = stdin.chunks.filter((chunk) => chunk.includes('"method":"turn/start"'));
+      expect(turnStartWrites).toHaveLength(1);
+      const startErrors = emitted.filter((m) => m.type === "error" && m.message.includes("Failed to start turn"));
+      expect(startErrors).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("emits a turn/start error when transport closes and no re-queue callback is registered", async () => {

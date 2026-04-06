@@ -63,6 +63,10 @@ describe("Codex adapter method drift vs upstream protocol snapshot", () => {
       // Observed in newer live Codex app-server sessions when local skill files
       // change; the pinned snapshot in this repo predates that notification.
       "skills/changed",
+      // Observed in live Codex app-server startup for optional MCP/app connector
+      // status. Used to surface connector degradation without treating it as
+      // Codex process failure.
+      "mcpServer/startupStatus/updated",
     ]);
 
     const legacyServerRequests = new Set(["item/mcpToolCall/requestApproval"]);

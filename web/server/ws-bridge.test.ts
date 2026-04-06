@@ -9097,6 +9097,55 @@ describe("Codex turn-start failure re-queue", () => {
   });
 });
 
+describe("Codex MCP startup failures", () => {
+  it("keeps an established session connected when optional connector auth fails", () => {
+    const sid = "s-established-mcp-auth-noise";
+    const relaunchCb = vi.fn();
+    bridge.onCLIRelaunchNeededCallback(relaunchCb);
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      getSession: vi.fn(() => ({ backendType: "codex", state: "connected", killedByIdleManager: false })),
+    } as any);
+
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter as any);
+    emitCodexSessionReady(adapter, { cliSessionId: "thread-established-mcp-auth-noise" });
+
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    relaunchCb.mockClear();
+    browser.send.mockClear();
+
+    adapter.emitBrowserMessage({
+      type: "mcp_status",
+      servers: [
+        {
+          name: "notion",
+          status: "failed",
+          error: "Auth(TokenRefreshFailed(\"Server returned error response: invalid_grant\"))",
+          config: { type: "unknown" },
+          scope: "session",
+          tools: [],
+        },
+      ],
+    });
+    adapter.emitBrowserMessage({
+      type: "session_update",
+      session: { mcp_servers: [{ name: "notion", status: "failed" }] },
+    });
+
+    expect(relaunchCb).not.toHaveBeenCalled();
+    const session = bridge.getSession(sid)!;
+    expect(session.codexAdapter).toBe(adapter);
+    expect(session.state.backend_state).toBe("connected");
+
+    const sentTypes = browser.send.mock.calls.map(([raw]: [unknown]) => JSON.parse(String(raw)).type);
+    expect(sentTypes).toContain("mcp_status");
+    expect(sentTypes).toContain("session_update");
+    expect(sentTypes).not.toContain("backend_disconnected");
+  });
+});
+
 describe("Codex disconnect auto-relaunch", () => {
   it("skips disconnect auto-relaunch/failure counting for intentional settings relaunches", async () => {
     vi.useFakeTimers();
@@ -9424,6 +9473,53 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     // Message should be queued (not sent) and relaunch requested
     expect(delivery).toBe("queued");
     expect(relaunchCb).toHaveBeenCalledWith(sid);
+  });
+
+  it("routes pre-attach injected Codex messages through the authoritative Codex turn queue", () => {
+    const sid = "s-inject-codex-starting";
+    const relaunchCb = vi.fn();
+    const launcherInfo = { backendType: "codex", state: "starting", killedByIdleManager: false };
+    bridge.onCLIRelaunchNeededCallback(relaunchCb);
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      getSession: vi.fn(() => launcherInfo),
+    } as any);
+
+    // A browser/opened placeholder can exist before the Codex adapter attaches.
+    // It must be corrected from launcher metadata before injected dispatch
+    // routing, otherwise q44 startup turns fall into raw pendingMessages.
+    const session = bridge.getOrCreateSession(sid);
+    expect(session.backendType).toBe("claude");
+
+    const delivery = bridge.injectUserMessage(sid, "startup dispatch from takode send", {
+      sessionId: "leader-session",
+      sessionLabel: "Leader",
+    });
+
+    expect(delivery).toBe("queued");
+    expect(relaunchCb).not.toHaveBeenCalled();
+    expect(session.backendType).toBe("codex");
+    expect(session.pendingMessages).toHaveLength(0);
+    expect(session.pendingCodexInputs).toHaveLength(1);
+    expect(getPendingCodexTurn(session)).toMatchObject({
+      status: "queued",
+      userContent: "startup dispatch from takode send",
+    });
+
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter as any);
+    emitCodexSessionReady(adapter, { cliSessionId: "thread-startup-dispatch" });
+
+    expect(adapter.sendBrowserMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "codex_start_pending",
+        inputs: [expect.objectContaining({ content: "startup dispatch from takode send" })],
+      }),
+    );
+    expect(getPendingCodexTurn(session)).toMatchObject({
+      status: "dispatched",
+      dispatchCount: 1,
+    });
   });
 
   it("wakes an idle-killed session by clearing flag and requesting relaunch", () => {

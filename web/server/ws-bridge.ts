@@ -3057,6 +3057,19 @@ export class WsBridge {
     return !!(session.backendSocket || session.codexAdapter || session.claudeSdkAdapter);
   }
 
+  private syncBackendTypeFromLauncher(session: Session, reason: string): void {
+    const launcherBackendType = this.launcher?.getSession(session.id)?.backendType;
+    if (!launcherBackendType || launcherBackendType === session.backendType) return;
+    if (this.backendAttached(session)) return;
+
+    console.log(
+      `[ws-bridge] Syncing session ${sessionTag(session.id)} backend ${session.backendType} -> ${launcherBackendType} (${reason})`,
+    );
+    session.backendType = launcherBackendType;
+    session.state.backend_type = launcherBackendType;
+    this.persistSession(session);
+  }
+
   private deriveBackendState(session: Session): NonNullable<SessionState["backend_state"]> {
     if (session.state.backend_state === "broken") return "broken";
     if (this.backendConnected(session)) return "connected";
@@ -4499,6 +4512,7 @@ export class WsBridge {
 
   handleBrowserOpen(ws: ServerWebSocket<SocketData>, sessionId: string) {
     const session = this.getOrCreateSession(sessionId);
+    this.syncBackendTypeFromLauncher(session, "browser_open");
     const browserData = ws.data as BrowserSocketData;
     browserData.subscribed = false;
     browserData.lastAckSeq = 0;
@@ -4589,6 +4603,7 @@ export class WsBridge {
     const sessionId = (ws.data as BrowserSocketData).sessionId;
     const session = this.sessions.get(sessionId);
     if (!session) return;
+    this.syncBackendTypeFromLauncher(session, "browser_message");
 
     // Record raw incoming browser message
     this.recorder?.record(sessionId, "in", data, "browser", session.backendType, session.state.cwd);
@@ -4648,6 +4663,7 @@ export class WsBridge {
       console.error(`[ws-bridge] Cannot inject message: session ${sessionId} not found`);
       return "no_session";
     }
+    this.syncBackendTypeFromLauncher(session, "inject_user_message");
     // Check backend connectivity BEFORE routing — if the backend is dead,
     // routeBrowserMessage will queue the message but the caller should know.
     const backendLive = this.backendConnected(session);
