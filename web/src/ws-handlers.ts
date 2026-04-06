@@ -375,6 +375,24 @@ function resetAuthoritativeHistoryState(sessionId: string): void {
   store.setSessionTaskPreview(sessionId, null);
 }
 
+function reconcilePendingCodexInputsWithMessages(sessionId: string, chatMessages: ChatMessage[]): void {
+  const store = useStore.getState();
+  const pending = store.pendingCodexInputs.get(sessionId);
+  if (!pending || pending.length === 0) return;
+
+  const committedUserIds = new Set(
+    chatMessages
+      .filter((msg) => msg.role === "user" && typeof msg.id === "string" && msg.id.length > 0)
+      .map((msg) => msg.id),
+  );
+  if (committedUserIds.size === 0) return;
+
+  const remaining = pending.filter((input) => !committedUserIds.has(input.id));
+  if (remaining.length !== pending.length) {
+    store.setPendingCodexInputs(sessionId, remaining);
+  }
+}
+
 function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, deps: WsMessageHandlerDeps) {
   const store = useStore.getState();
 
@@ -1234,6 +1252,7 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       resetAuthoritativeHistoryState(sessionId);
       const { chatMessages, frozenCount } = normalizeHistoryMessages(sessionId, data.messages);
       store.setMessages(sessionId, chatMessages, { frozenCount });
+      reconcilePendingCodexInputsWithMessages(sessionId, chatMessages);
       store.setHistoryLoading(sessionId, false);
       if (chatMessages.length > 0) {
         store.setCliEverConnected(sessionId);
@@ -1268,6 +1287,7 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
         frozenCount: nextFrozenCount,
         frozenHash: data.expected_frozen_hash,
       });
+      reconcilePendingCodexInputsWithMessages(sessionId, mergedMessages);
       store.setHistoryLoading(sessionId, false);
       if (mergedMessages.length > 0) {
         store.setCliEverConnected(sessionId);
