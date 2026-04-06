@@ -563,6 +563,8 @@ Tie \`takode notify\` calls to Quest Journey milestones -- see \`leader-operatio
 - **Never implement non-trivial changes yourself.** Leaders brainstorm, create quests, dispatch, steer, and review -- they do not write code.
 - **Investigation and research are also work to delegate.** Dispatch a worker to investigate -- don't explore the codebase yourself.
 - **Never run \`quest claim\` yourself.** Workers claim quests when dispatched.
+- **Disconnected workers (✗) are not dead.** They auto-reconnect when you send them a message. Prefer reusing disconnected workers over spawning fresh sessions.
+- **Always spawn with worktrees.** Never use \`--no-worktree\` unless the user explicitly asks for it. Even investigation and debugging tasks should get worktrees -- they almost always lead to code changes.
 ${copy.delegationLine}
 
 Read \`leader-operations.md\` from the \`takode-orchestration\` skill for the full discipline rules, communication patterns, and task delegation style.`;
@@ -1142,9 +1144,7 @@ export class CliLauncher {
       // Re-derive orchestrator guardrails for relaunched sessions.
       // extraInstructions is not persisted; regenerate from the isOrchestrator flag
       // so relaunched leaders retain the full orchestration system prompt.
-      const extraInstructions = info.isOrchestrator
-        ? this.getOrchestratorGuardrails(bt)
-        : undefined;
+      const extraInstructions = info.isOrchestrator ? this.getOrchestratorGuardrails(bt) : undefined;
 
       switch (bt) {
         case "codex":

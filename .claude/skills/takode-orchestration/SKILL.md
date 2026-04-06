@@ -230,7 +230,7 @@ takode herd 2 3 5
 
 ### `takode spawn [--backend claude|codex] [--count N] [--message "..."] [--cwd DIR] [--no-worktree] [--fixed-name "..."] [--reviewer <session>] [--json]`
 
-Create worker sessions and auto-herd them to yourself. **Sessions use worktrees by default** -- only pass `--no-worktree` when the worker won't edit the repo (e.g., HQ lookups, read-only analysis). Use `--fixed-name` only for reviewer sessions (regular workers get auto-named from their quest). Use `--reviewer <session>` to create a reviewer session linked to a parent worker.
+Create worker sessions and auto-herd them to yourself. **Sessions always use worktrees by default.** Never pass `--no-worktree` unless the user explicitly asks for it or the project's repo instructions require it -- even investigation and debugging tasks should get worktrees since they almost always lead to code changes. Use `--fixed-name` only for reviewer sessions (regular workers get auto-named from their quest). Use `--reviewer <session>` to create a reviewer session linked to a parent worker.
 
 ```bash
 takode spawn                                                    # worktree session (default)
@@ -249,6 +249,8 @@ takode rename 5 "Auth refactor worker"
 ### `takode interrupt <session>`
 
 Interrupt a worker's current turn (sends SIGTERM). Alias: `takode stop`.
+
+**Interrupt ≠ archive.** Interrupting only halts the worker's current turn -- the session stays active, its history and worktree are intact, and you can send it new work immediately. `takode archive` is a completely separate operation that removes the session from your active herd. Never tell the user you "archived" a session when you only interrupted it.
 
 ```bash
 takode interrupt 2
@@ -303,12 +305,13 @@ Maintain at most **5 sessions in your herd**. Before spawning a new worker, chec
 
 - **Use `peek` over `read`** to protect your context window -- peek gives truncated summaries. Drill into specific messages with `read` only when the summary isn't enough. Paginate long messages with `--offset`/`--limit`.
 - **Use `--json` for programmatic decisions.** Parse JSON output when you need to branch on event data.
-- **Verify spawn settings.** After `takode spawn`, check the output to confirm worktree and other settings match your intent. If the spawned worker shouldn't use a worktree (e.g., HQ workers where the repo isn't being edited), use `--no-worktree`. If you see `worktree=yes` unexpectedly, stop and fix before sending tasks.
+- **Verify spawn settings.** After `takode spawn`, check the output to confirm worktree and other settings match your intent. Never use `--no-worktree` unless the user explicitly requests it or the project instructions require it.
 - **Mixed backends work seamlessly.** The `takode` CLI talks to the Companion server, not to any backend directly. You can orchestrate both Claude Code and Codex sessions from either backend.
 - **Coordinate with quests.** Use the `quest` CLI alongside `takode` for task tracking. Always create a quest for non-trivial work before dispatching.
 - **Board immediately.** When you intend to manage a quest (dispatch, review, port), put it on the work board right away (`takode board set`), even if it's QUEUED with `--wait-for`. The board is the tracking mechanism -- never rely on memory for follow-up dispatch. Exception: if the user only asked you to create/file the quest without dispatching, just create it and wait for their go-ahead.
 - **Batch related messages.** If you need to send context + instructions to a worker, send it as one message rather than multiple.
 - **Don't interrupt idle workers.** `takode interrupt` halts the worker's current turn. Only use it to redirect active work. Workers that finished a quest are already idle -- don't interrupt them unnecessarily.
+- **Say "interrupt", not "stop".** When communicating with the user, prefer "interrupt" over "stop" to avoid confusion with archiving. "Interrupted #5" is unambiguous; "stopped #5" could imply the session was shut down.
 - **Events are push-based.** Herd events arrive automatically as user messages when you go idle. No polling needed.
 - **One task at a time per worker.** Don't send an unrelated new task to a busy worker. Mid-task steering (scope refinement, corrections, urgent interventions) is fine.
 - **Don't repeat corrections.** Before sending a correction to a busy worker, check if you already sent one in the current turn. If yes, wait for the turn to end and evaluate whether the worker incorporated it.

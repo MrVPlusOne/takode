@@ -26,7 +26,7 @@ Every user message has a source tag:
 |-------|---------|--------|
 | `turn_end (✓)` | Worker completed successfully | Peek at output, send follow-up or mark done |
 | `turn_end (✗)` | Worker hit an error | Diagnose the issue, send recovery instructions |
-| `turn_end (⊘)` | User stopped the worker | Check if it needs redirection |
+| `turn_end (⊘)` | User interrupted the worker | Check if it needs redirection |
 | `permission_request` | Worker needs approval | Answer `AskUserQuestion`/`ExitPlanMode` with `takode answer`. **Tool permissions are human-only.** If `(user-initiated)`, don't answer -- the user is handling it |
 | `permission_resolved` | Worker was unblocked | No action needed |
 | `session_error` | Session-level error | Investigate, decide whether to retry |
@@ -51,6 +51,18 @@ Every user message has a source tag:
 - **Include reproduction steps and user observations.** Screenshots, error messages, and user feedback are more valuable than your guesses.
 - **Let workers choose the approach when you lack context to decide.**
 - **Always require a plan before non-trivial implementation.** Do not accept planless implementations.
+
+## Session Lifecycle Terminology
+
+Three distinct operations -- never confuse them:
+
+| Command | What it does | Session after |
+|---------|-------------|---------------|
+| `takode interrupt <N>` | Halts the worker's current turn (SIGTERM) | Active, idle, ready for new work |
+| `takode archive <N>` | Removes session from active herd | Archived, history still readable |
+| Disconnect (idle manager) | CLI process killed automatically | Disconnected (`✗`), auto-relaunches on `takode send` |
+
+**Key rule:** When you interrupt a worker, say "interrupted" -- never "archived" or "stopped". "Interrupted" is unambiguous. "Stopped" is misleading because it implies the session is gone.
 
 ## User Notifications
 

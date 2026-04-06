@@ -18,9 +18,9 @@ takode list
 
 See your herded sessions with status, quest claims, last activity. Identify idle workers that might be reusable.
 
-## 3. Evaluate Idle Workers
+## 3. Evaluate Available Workers
 
-For each idle worker, check what quest it last worked on:
+For each idle or disconnected worker, check what quest it last worked on:
 
 ```bash
 takode info <N>
@@ -33,8 +33,11 @@ Ask: is the new quest related to this worker's recent context (same feature area
 | Situation | Action |
 |-----------|--------|
 | Idle worker with relevant context | Reuse -- send dispatch directly |
+| Disconnected worker (✗) with relevant context | Reuse -- send a message to reconnect it |
 | Best worker busy but strongly relevant | Queue with `--wait-for` on the board |
 | No worker has relevant context | Spawn fresh |
+
+**Disconnected ≠ dead.** Workers showing `✗` (disconnected) in `takode list` are NOT dead -- they auto-reconnect when you send them a message via `takode send`. Always prefer reusing a disconnected worker with relevant context over spawning a fresh session. Only archive a disconnected worker if you're sure its context is no longer useful.
 
 **Reuse** when the next task continues the worker's recent work (same feature, same files, direct follow-up). The worker already has the codebase context loaded.
 
@@ -46,7 +49,7 @@ Ask: is the new quest related to this worker's recent context (same feature area
 takode spawn --message "<dispatch>"
 ```
 
-Sessions use worktrees by default. Only add `--no-worktree` for read-only tasks (HQ lookups, analysis). Don't use `--fixed-name` for regular workers -- they auto-name from their quest.
+**Never use `--no-worktree` unless the user explicitly asks for it** or the project's repo instructions require it. All workers get worktrees by default -- including investigation and debugging tasks, since they almost always lead to code changes. Don't use `--fixed-name` for regular workers -- they auto-name from their quest.
 
 Default to your own backend type unless the user specifies otherwise.
 
