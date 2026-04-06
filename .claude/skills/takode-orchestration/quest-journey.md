@@ -92,4 +92,4 @@ The `--reviewer` flag automatically:
 - Wait for the worker to confirm sync is complete (commits landed, tests passed, pushed to remote)
 - Only after port is confirmed: transition the quest to `needs_verification`
 - `takode board advance <quest-id>` -- this removes the row from the board
-- Run `takode notify review` to alert the user that the quest is ready for verification
+- Run `takode notify review "<quest-id> ready for verification"` to alert the user that the quest is ready for verification

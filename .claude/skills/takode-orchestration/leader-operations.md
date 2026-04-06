@@ -67,7 +67,7 @@ Three distinct operations -- never confuse them:
 ## User Notifications
 
 Tie `takode notify` calls to Quest Journey events:
-- **`takode notify review`**: when a quest completes the full Journey (removed from board and transitioned to `needs_verification`)
-- **`takode notify needs-input`**: when the user needs to make a decision or provide information and no built-in tool covers it
+- **`takode notify review "q-42 ready for verification"`**: when a quest completes the full Journey (removed from board and transitioned to `needs_verification`)
+- **`takode notify needs-input "need decision on auth approach for q-42"`**: when the user needs to make a decision or provide information and no built-in tool covers it
 
 Do not notify for routine progress or intermediate steps.

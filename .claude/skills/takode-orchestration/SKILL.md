@@ -187,15 +187,16 @@ Export a session's full conversation history to a text file. The exported file i
 takode export 1 /tmp/session-1.txt
 ```
 
-### `takode notify <category>`
+### `takode notify <category> [summary]`
 
-Alert the user when they need to take action. Available to all sessions (not orchestrator-only). The notification anchors to your most recent assistant message.
+Alert the user when they need to take action. Available to all sessions (not orchestrator-only). The notification anchors to your most recent assistant message. The optional summary describes what specifically needs attention -- use it when the session name alone isn't descriptive enough.
 
 Categories: `needs-input`, `review`
 
 ```bash
-takode notify needs-input    # user needs to decide/answer something
-takode notify review         # something is ready for the user's eyes
+takode notify review "q-42 ready for verification"
+takode notify needs-input "need decision on auth approach for q-42"
+takode notify review                                # falls back to generic message
 ```
 
 ### `takode pending <session>`

@@ -285,6 +285,7 @@ function createMockBridge() {
     subscribeTakodeEvents: vi.fn(() => () => {}),
     routeExternalPermissionResponse: vi.fn(),
     routeExternalInterrupt: vi.fn(async () => {}),
+    notifyUser: vi.fn(() => ({ ok: true, anchoredMessageId: "msg-123" })),
     isSessionBusy: vi.fn(() => false),
     getTrafficStatsSnapshot: vi.fn(() => ({
       windowStartedAt: 1000,
@@ -6016,6 +6017,76 @@ describe("Takode server-authoritative auth", () => {
       "leader",
     );
     expect(launcher.kill).not.toHaveBeenCalled();
+  });
+
+  // ── Notify endpoint ──────────────────────────────────────────────────────
+
+  it("sends notification with category only (backward compat)", async () => {
+    setupTakodeSessions();
+
+    const res = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ category: "review" }),
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json).toEqual({ ok: true, category: "review", anchoredMessageId: "msg-123" });
+    // notifyUser called with category and no summary
+    expect(bridge.notifyUser).toHaveBeenCalledWith("orch-1", "review", undefined);
+  });
+
+  it("passes summary string through to notifyUser", async () => {
+    setupTakodeSessions();
+
+    const res = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ category: "needs-input", summary: "Need decision on auth approach" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(bridge.notifyUser).toHaveBeenCalledWith("orch-1", "needs-input", "Need decision on auth approach");
+  });
+
+  it("treats whitespace-only summary as undefined", async () => {
+    setupTakodeSessions();
+
+    const res = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ category: "review", summary: "   " }),
+    });
+
+    expect(res.status).toBe(200);
+    // Whitespace-only summary should be normalized to undefined
+    expect(bridge.notifyUser).toHaveBeenCalledWith("orch-1", "review", undefined);
+  });
+
+  it("rejects notify with invalid category", async () => {
+    setupTakodeSessions();
+
+    const res = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ category: "invalid" }),
+    });
+
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects cross-session notify calls", async () => {
+    setupTakodeSessions();
+
+    // orch-1 tries to notify as worker-1
+    const res = await app.request("/api/sessions/worker-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ category: "review" }),
+    });
+
+    expect(res.status).toBe(403);
   });
 
   it("blocks spoofed sender identity and accepts authenticated send", async () => {

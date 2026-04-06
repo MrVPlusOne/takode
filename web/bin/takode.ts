@@ -2359,12 +2359,16 @@ async function handleSetBase(base: string, args: string[]): Promise<void> {
 async function handleNotify(base: string, args: string[]): Promise<void> {
   const category = args[0];
   if (!category || (category !== "needs-input" && category !== "review")) {
-    err("Usage: takode notify <category>\nCategories: needs-input, review");
+    err("Usage: takode notify <category> [summary]\nCategories: needs-input, review");
   }
+  const remaining = args.slice(1).filter((a) => !a.startsWith("--"));
+  const summary = remaining.length > 0 ? remaining.join(" ") : undefined;
   const flags = parseFlags(args.slice(1));
   const jsonMode = flags.json === true;
   const selfId = getCallerSessionId();
-  const result = (await apiPost(base, `/sessions/${encodeURIComponent(selfId)}/notify`, { category })) as {
+  const payload: Record<string, unknown> = { category };
+  if (summary) payload.summary = summary;
+  const result = (await apiPost(base, `/sessions/${encodeURIComponent(selfId)}/notify`, payload)) as {
     ok: boolean;
     category: string;
     anchoredMessageId: string | null;
@@ -2902,7 +2906,7 @@ Commands:
   set-base       Set the diff base branch for a session
   refresh-branch Refresh git branch info for a session after checkout/rebase
   branch         Branch info and management for the current session
-  notify         Alert the user (e.g. takode notify review, takode notify needs-input)
+  notify         Alert the user (e.g. takode notify review "ready for verification")
   board          Quest Journey work board (e.g. takode board show, takode board set q-12 --status PLANNING)
 
 Peek modes:

@@ -2767,6 +2767,7 @@ export class WsBridge {
   notifyUser(
     sessionId: string,
     category: "needs-input" | "review",
+    summary?: string,
   ): { ok: true; anchoredMessageId: string | null } | { ok: false; error: string } {
     const session = this.sessions.get(sessionId);
     if (!session) return { ok: false, error: "Session not found" };
@@ -2780,7 +2781,7 @@ export class WsBridge {
 
     // Stamp notification onto the anchored message
     if (lastAssistant) {
-      (lastAssistant as Record<string, unknown>).notification = { category, timestamp: Date.now() };
+      (lastAssistant as Record<string, unknown>).notification = { category, timestamp: Date.now(), ...(summary ? { summary } : {}) };
     }
 
     // Set attention
@@ -2790,7 +2791,7 @@ export class WsBridge {
     // Fire Pushover
     if (this.pushoverNotifier) {
       const eventType = category === "needs-input" ? ("question" as const) : ("completed" as const);
-      const detail = category === "needs-input" ? "Needs user input" : "Ready for review";
+      const detail = summary || (category === "needs-input" ? "Needs user input" : "Ready for review");
       this.pushoverNotifier.scheduleNotification(sessionId, eventType, detail);
     }
 
@@ -2805,7 +2806,7 @@ export class WsBridge {
       this.broadcastToBrowsers(session, {
         type: "notification_anchored",
         messageId: anchoredMessageId,
-        notification: { category, timestamp: Date.now() },
+        notification: { category, timestamp: Date.now(), ...(summary ? { summary } : {}) },
       });
     }
 
