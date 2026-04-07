@@ -417,3 +417,24 @@ describe("SessionItem reviewer badge", () => {
     expect(badge).not.toHaveStyle({ animation: "reviewer-badge-glow 2s ease-in-out infinite" });
   });
 });
+
+describe("SessionItem isDraggable cursor styling", () => {
+  // When isDraggable is true (default), the session button shows a grab cursor
+  // on desktop (sm breakpoint) so users know they can drag to reorder.
+  it("shows grab cursor classes when isDraggable is true (default)", () => {
+    renderSessionItem();
+    const button = screen.getByText("Session").closest("button")!;
+    expect(button.className).toContain("sm:cursor-grab");
+    expect(button.className).toContain("sm:active:cursor-grabbing");
+  });
+
+  // When isDraggable is false (activity sort mode), the grab cursor is removed
+  // to signal that reordering is server-controlled and not user-draggable.
+  it("hides grab cursor classes when isDraggable is false", () => {
+    renderSessionItem({ isDraggable: false });
+    const button = screen.getByText("Session").closest("button")!;
+    expect(button.className).not.toContain("sm:cursor-grab");
+    expect(button.className).not.toContain("sm:active:cursor-grabbing");
+    expect(button.className).toContain("cursor-pointer");
+  });
+});
