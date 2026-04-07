@@ -308,8 +308,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
 
     if (cwd) {
       cwd = resolve(expandTilde(cwd));
-      if (!existsSync(cwd)) {
-        // sync-ok: route handler, not called during message handling
+      if (!(await pathExists(cwd))) {
         throwPreparationError(`Directory does not exist: ${cwd}`, 400, "resolving_env");
       }
     }
@@ -337,7 +336,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
         throwPreparationError("Worktree mode requires a cwd", 400, "creating_worktree");
       }
       await emit("creating_worktree", "Creating worktree...", "in_progress");
-      const repoInfo = gitUtils.getRepoInfo(worktreeBaseCwd as string);
+      const repoInfo = await gitUtils.getRepoInfoAsync(worktreeBaseCwd as string);
       if (!repoInfo) {
         throwPreparationError("Worktree mode requires a git repository", 400, "creating_worktree");
       } else {
@@ -348,7 +347,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
         if (!targetBranch) {
           throwPreparationError("Unable to determine branch for worktree session", 400, "creating_worktree");
         }
-        const result = gitUtils.ensureWorktree(repoInfo.repoRoot, targetBranch, {
+        const result = await gitUtils.ensureWorktreeAsync(repoInfo.repoRoot, targetBranch, {
           baseBranch: repoInfo.defaultBranch,
           createBranch: body.createBranch,
           forceNew: true,
@@ -365,10 +364,10 @@ export function createSessionsRoutes(ctx: RouteContext) {
       }
       await emit("creating_worktree", "Worktree ready", "done");
     } else if (body.branch && cwd) {
-      const repoInfo = gitUtils.getRepoInfo(cwd);
+      const repoInfo = await gitUtils.getRepoInfoAsync(cwd);
       if (repoInfo) {
         await emit("fetching_git", "Fetching from remote...", "in_progress");
-        const fetchResult = gitUtils.gitFetch(repoInfo.repoRoot);
+        const fetchResult = await gitUtils.gitFetchAsync(repoInfo.repoRoot);
         if (!fetchResult.success) {
           console.warn(`[routes] git fetch warning (non-fatal): ${fetchResult.output}`);
           await emit("fetching_git", "Fetch skipped (offline or auth issue)", "done");
@@ -379,7 +378,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
         if (repoInfo.currentBranch !== body.branch) {
           await emit("checkout_branch", `Checking out ${body.branch}...`, "in_progress");
           try {
-            gitUtils.checkoutBranch(repoInfo.repoRoot, body.branch);
+            await gitUtils.checkoutBranchAsync(repoInfo.repoRoot, body.branch);
             await emit("checkout_branch", `On branch ${body.branch}`, "done");
           } catch (err) {
             console.warn(`[routes] git checkout warning (non-fatal, repo may have uncommitted changes): ${err}`);
@@ -388,7 +387,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
         }
 
         await emit("pulling_git", "Pulling latest changes...", "in_progress");
-        const pullResult = gitUtils.gitPull(repoInfo.repoRoot);
+        const pullResult = await gitUtils.gitPullAsync(repoInfo.repoRoot);
         if (!pullResult.success) {
           console.warn(`[routes] git pull warning (non-fatal): ${pullResult.output}`);
         }
@@ -447,8 +446,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
               const dockerfileName =
                 effectiveImage === "the-companion:latest" ? "Dockerfile.the-companion" : "Dockerfile.companion-dev";
               const dockerfilePath = join(WEB_DIR, "docker", dockerfileName);
-              if (!existsSync(dockerfilePath)) {
-                // sync-ok: route handler, not called during message handling
+              if (!(await pathExists(dockerfilePath))) {
                 throwPreparationError(
                   `Docker image ${effectiveImage} is missing, pull failed, and Dockerfile not found at ${dockerfilePath}`,
                   503,

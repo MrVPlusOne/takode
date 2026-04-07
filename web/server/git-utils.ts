@@ -1,7 +1,7 @@
 import { execSync, exec as execCb } from "node:child_process";
 import { promisify } from "node:util";
 import { existsSync, mkdirSync } from "node:fs";
-import { access } from "node:fs/promises";
+import { access, mkdir } from "node:fs/promises";
 import { join, basename, resolve } from "node:path";
 import { homedir } from "node:os";
 import { GIT_CMD_TIMEOUT } from "./constants.js";
@@ -538,6 +538,55 @@ export function ensureWorktree(
   throw new Error(`Branch "${branchName}" does not exist and createBranch is false`);
 }
 
+export async function ensureWorktreeAsync(
+  repoRoot: string,
+  branchName: string,
+  options?: { baseBranch?: string; createBranch?: boolean; forceNew?: boolean },
+): Promise<WorktreeCreateResult> {
+  const repoName = basename(repoRoot);
+
+  const existing = await listWorktreesAsync(repoRoot);
+  const found = existing.find((wt) => wt.branch === branchName);
+
+  if (found && !options?.forceNew && !found.isMainWorktree) {
+    return { worktreePath: found.path, branch: branchName, actualBranch: branchName, isNew: false };
+  }
+
+  await mkdir(join(WORKTREES_BASE, repoName), { recursive: true });
+
+  const createWithUniqueBranch = async (commitish: string, isNew = false): Promise<WorktreeCreateResult> => {
+    const uniqueBranch = await generateUniqueWorktreeBranchAsync(repoRoot, branchName);
+    const targetPath = worktreeDir(repoName, uniqueBranch);
+    await gitAsync(`worktree add -b ${uniqueBranch} "${targetPath}" ${commitish}`, repoRoot);
+    return { worktreePath: targetPath, branch: branchName, actualBranch: uniqueBranch, isNew };
+  };
+
+  if (found) {
+    const commitHash = await gitAsync("rev-parse HEAD", found.path);
+    return createWithUniqueBranch(commitHash);
+  }
+
+  const branchExists = (await gitSafeAsync(`rev-parse --verify refs/heads/${branchName}`, repoRoot)) !== null;
+  const remoteBranchExists =
+    (await gitSafeAsync(`rev-parse --verify refs/remotes/origin/${branchName}`, repoRoot)) !== null;
+
+  if (branchExists) {
+    const commitHash = await gitAsync(`rev-parse refs/heads/${branchName}`, repoRoot);
+    return createWithUniqueBranch(commitHash);
+  }
+
+  if (remoteBranchExists) {
+    return createWithUniqueBranch(`origin/${branchName}`);
+  }
+
+  if (options?.createBranch !== false) {
+    const base = options?.baseBranch || (await resolveDefaultBranchAsync(repoRoot));
+    return createWithUniqueBranch(base, true);
+  }
+
+  throw new Error(`Branch "${branchName}" does not exist and createBranch is false`);
+}
+
 /**
  * Generate a unique branch name for a companion-managed worktree.
  * Pattern: `{branch}-wt-{random4digit}` (e.g. `main-wt-8374`).
@@ -552,6 +601,17 @@ export function generateUniqueWorktreeBranch(repoRoot: string, baseBranch: strin
     }
   }
   // Fallback: use timestamp if all random attempts collide (extremely unlikely)
+  return `${baseBranch}-wt-${Date.now()}`;
+}
+
+export async function generateUniqueWorktreeBranchAsync(repoRoot: string, baseBranch: string): Promise<string> {
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const suffix = Math.floor(1000 + Math.random() * 9000);
+    const candidate = `${baseBranch}-wt-${suffix}`;
+    if ((await gitSafeAsync(`rev-parse --verify refs/heads/${candidate}`, repoRoot)) === null) {
+      return candidate;
+    }
+  }
   return `${baseBranch}-wt-${Date.now()}`;
 }
 
@@ -630,6 +690,10 @@ export function gitPull(cwd: string): { success: boolean; output: string } {
 
 export function checkoutBranch(cwd: string, branchName: string): void {
   git(`checkout ${branchName}`, cwd);
+}
+
+export async function checkoutBranchAsync(cwd: string, branchName: string): Promise<void> {
+  await gitAsync(`checkout ${branchName}`, cwd);
 }
 
 export function getBranchStatus(repoRoot: string, branchName: string): { ahead: number; behind: number } {

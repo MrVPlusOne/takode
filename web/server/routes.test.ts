@@ -67,11 +67,13 @@ vi.mock("./git-utils.js", () => ({
   listWorktrees: vi.fn(() => []),
   listWorktreesAsync: vi.fn(async () => []),
   ensureWorktree: vi.fn(),
+  ensureWorktreeAsync: vi.fn(),
   gitFetch: vi.fn(() => ({ success: true, output: "" })),
   gitFetchAsync: vi.fn(async () => ({ success: true, output: "" })),
   gitPull: vi.fn(() => ({ success: true, output: "" })),
   gitPullAsync: vi.fn(async () => ({ success: true, output: "" })),
   checkoutBranch: vi.fn(),
+  checkoutBranchAsync: vi.fn(async () => {}),
   removeWorktree: vi.fn(),
   isWorktreeDirty: vi.fn(() => false),
   isWorktreeDirtyAsync: vi.fn(async () => false),
@@ -419,7 +421,7 @@ describe("POST /api/sessions/create", () => {
   });
 
   it("fetches and pulls before create when branch matches current branch", async () => {
-    vi.mocked(gitUtils.getRepoInfo).mockReturnValue({
+    vi.mocked(gitUtils.getRepoInfoAsync).mockResolvedValueOnce({
       repoRoot: "/repo",
       repoName: "my-repo",
       currentBranch: "main",
@@ -434,13 +436,16 @@ describe("POST /api/sessions/create", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(gitUtils.gitFetch).toHaveBeenCalledWith("/repo");
-    expect(gitUtils.checkoutBranch).not.toHaveBeenCalled();
-    expect(gitUtils.gitPull).toHaveBeenCalledWith("/repo");
+    expect(gitUtils.getRepoInfo).not.toHaveBeenCalled();
+    expect(gitUtils.gitFetch).not.toHaveBeenCalled();
+    expect(gitUtils.gitPull).not.toHaveBeenCalled();
+    expect(gitUtils.gitFetchAsync).toHaveBeenCalledWith("/repo");
+    expect(gitUtils.checkoutBranchAsync).not.toHaveBeenCalled();
+    expect(gitUtils.gitPullAsync).toHaveBeenCalledWith("/repo");
   });
 
   it("fetches, checks out selected branch, then pulls before create", async () => {
-    vi.mocked(gitUtils.getRepoInfo).mockReturnValue({
+    vi.mocked(gitUtils.getRepoInfoAsync).mockResolvedValueOnce({
       repoRoot: "/repo",
       repoName: "my-repo",
       currentBranch: "develop",
@@ -455,28 +460,30 @@ describe("POST /api/sessions/create", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(gitUtils.gitFetch).toHaveBeenCalledWith("/repo");
-    expect(gitUtils.checkoutBranch).toHaveBeenCalledWith("/repo", "main");
-    expect(gitUtils.gitPull).toHaveBeenCalledWith("/repo");
-    expect(vi.mocked(gitUtils.gitFetch).mock.invocationCallOrder[0]).toBeLessThan(
-      vi.mocked(gitUtils.checkoutBranch).mock.invocationCallOrder[0],
+    expect(gitUtils.getRepoInfo).not.toHaveBeenCalled();
+    expect(gitUtils.checkoutBranch).not.toHaveBeenCalled();
+    expect(gitUtils.gitFetchAsync).toHaveBeenCalledWith("/repo");
+    expect(gitUtils.checkoutBranchAsync).toHaveBeenCalledWith("/repo", "main");
+    expect(gitUtils.gitPullAsync).toHaveBeenCalledWith("/repo");
+    expect(vi.mocked(gitUtils.gitFetchAsync).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(gitUtils.checkoutBranchAsync).mock.invocationCallOrder[0],
     );
-    expect(vi.mocked(gitUtils.checkoutBranch).mock.invocationCallOrder[0]).toBeLessThan(
-      vi.mocked(gitUtils.gitPull).mock.invocationCallOrder[0],
+    expect(vi.mocked(gitUtils.checkoutBranchAsync).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(gitUtils.gitPullAsync).mock.invocationCallOrder[0],
     );
   });
 
   it("proceeds with session creation when fetch fails (non-fatal, same as pull)", async () => {
     // git fetch failure should NOT block session creation — the branch may already exist locally.
     // This matches the existing non-fatal behavior for git pull (see next test).
-    vi.mocked(gitUtils.getRepoInfo).mockReturnValue({
+    vi.mocked(gitUtils.getRepoInfoAsync).mockResolvedValueOnce({
       repoRoot: "/repo",
       repoName: "my-repo",
       currentBranch: "main",
       defaultBranch: "main",
       isWorktree: false,
     });
-    vi.mocked(gitUtils.gitFetch).mockReturnValueOnce({
+    vi.mocked(gitUtils.gitFetchAsync).mockResolvedValueOnce({
       success: false,
       output: "network error",
     });
@@ -488,21 +495,21 @@ describe("POST /api/sessions/create", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(gitUtils.gitFetch).toHaveBeenCalledWith("/repo");
+    expect(gitUtils.gitFetchAsync).toHaveBeenCalledWith("/repo");
     // Pull is still called (fetch failure doesn't abort the pipeline)
-    expect(gitUtils.gitPull).toHaveBeenCalledWith("/repo");
+    expect(gitUtils.gitPullAsync).toHaveBeenCalledWith("/repo");
     expect(launcher.launch).toHaveBeenCalled();
   });
 
   it("proceeds with session creation when pull fails (non-fatal)", async () => {
-    vi.mocked(gitUtils.getRepoInfo).mockReturnValue({
+    vi.mocked(gitUtils.getRepoInfoAsync).mockResolvedValueOnce({
       repoRoot: "/repo",
       repoName: "my-repo",
       currentBranch: "main",
       defaultBranch: "main",
       isWorktree: false,
     });
-    vi.mocked(gitUtils.gitPull).mockReturnValueOnce({
+    vi.mocked(gitUtils.gitPullAsync).mockResolvedValueOnce({
       success: false,
       output: "no tracking information",
     });
@@ -570,14 +577,14 @@ describe("POST /api/sessions/create", () => {
   });
 
   it("sets up a worktree when useWorktree and branch are specified", async () => {
-    vi.mocked(gitUtils.getRepoInfo).mockReturnValue({
+    vi.mocked(gitUtils.getRepoInfoAsync).mockResolvedValueOnce({
       repoRoot: "/repo",
       repoName: "my-repo",
       currentBranch: "main",
       defaultBranch: "main",
       isWorktree: false,
     });
-    vi.mocked(gitUtils.ensureWorktree).mockReturnValue({
+    vi.mocked(gitUtils.ensureWorktreeAsync).mockResolvedValueOnce({
       worktreePath: "/home/.companion/worktrees/my-repo/feat-branch",
       branch: "feat-branch",
       actualBranch: "feat-branch",
@@ -591,8 +598,10 @@ describe("POST /api/sessions/create", () => {
     });
 
     expect(res.status).toBe(200);
+    expect(gitUtils.getRepoInfo).not.toHaveBeenCalled();
+    expect(gitUtils.ensureWorktree).not.toHaveBeenCalled();
     // ensureWorktree should be called with forceNew: true
-    expect(gitUtils.ensureWorktree).toHaveBeenCalledWith("/repo", "feat-branch", {
+    expect(gitUtils.ensureWorktreeAsync).toHaveBeenCalledWith("/repo", "feat-branch", {
       baseBranch: "main",
       createBranch: undefined,
       forceNew: true,
@@ -614,14 +623,14 @@ describe("POST /api/sessions/create", () => {
   });
 
   it("falls back to current branch when useWorktree is enabled but branch is omitted", async () => {
-    vi.mocked(gitUtils.getRepoInfo).mockReturnValue({
+    vi.mocked(gitUtils.getRepoInfoAsync).mockResolvedValueOnce({
       repoRoot: "/repo",
       repoName: "my-repo",
       currentBranch: "main",
       defaultBranch: "main",
       isWorktree: false,
     });
-    vi.mocked(gitUtils.ensureWorktree).mockReturnValue({
+    vi.mocked(gitUtils.ensureWorktreeAsync).mockResolvedValueOnce({
       worktreePath: "/home/.companion/worktrees/my-repo/main",
       branch: "main",
       actualBranch: "main",
@@ -635,7 +644,7 @@ describe("POST /api/sessions/create", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(gitUtils.ensureWorktree).toHaveBeenCalledWith("/repo", "main", {
+    expect(gitUtils.ensureWorktreeAsync).toHaveBeenCalledWith("/repo", "main", {
       baseBranch: "main",
       createBranch: undefined,
       forceNew: true,
@@ -646,14 +655,14 @@ describe("POST /api/sessions/create", () => {
   });
 
   it("creates worker worktrees from the main repo root when cwd is already a worktree", async () => {
-    vi.mocked(gitUtils.getRepoInfo).mockReturnValue({
+    vi.mocked(gitUtils.getRepoInfoAsync).mockResolvedValueOnce({
       repoRoot: "/repo",
       repoName: "companion",
       currentBranch: "jiayi-wt-2775",
       defaultBranch: "jiayi",
       isWorktree: true,
     });
-    vi.mocked(gitUtils.ensureWorktree).mockReturnValue({
+    vi.mocked(gitUtils.ensureWorktreeAsync).mockResolvedValueOnce({
       worktreePath: "/home/.companion/worktrees/companion/jiayi-wt-9326",
       branch: "jiayi",
       actualBranch: "jiayi-wt-9326",
@@ -672,7 +681,7 @@ describe("POST /api/sessions/create", () => {
     expect(res.status).toBe(200);
     // When CWD is already a worktree, should use the base branch (jiayi),
     // not the worktree branch (jiayi-wt-2775), to avoid worktree-of-a-worktree
-    expect(gitUtils.ensureWorktree).toHaveBeenCalledWith("/repo", "jiayi", {
+    expect(gitUtils.ensureWorktreeAsync).toHaveBeenCalledWith("/repo", "jiayi", {
       baseBranch: "jiayi",
       createBranch: undefined,
       forceNew: true,
@@ -694,12 +703,12 @@ describe("POST /api/sessions/create", () => {
 
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: "Worktree mode requires a cwd" });
-    expect(gitUtils.ensureWorktree).not.toHaveBeenCalled();
+    expect(gitUtils.ensureWorktreeAsync).not.toHaveBeenCalled();
     expect(launcher.launch).not.toHaveBeenCalled();
   });
 
   it("returns 400 when useWorktree is enabled outside a git repository", async () => {
-    vi.mocked(gitUtils.getRepoInfo).mockReturnValue(null);
+    vi.mocked(gitUtils.getRepoInfoAsync).mockResolvedValueOnce(null);
 
     const res = await app.request("/api/sessions/create", {
       method: "POST",
@@ -709,7 +718,7 @@ describe("POST /api/sessions/create", () => {
 
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: "Worktree mode requires a git repository" });
-    expect(gitUtils.ensureWorktree).not.toHaveBeenCalled();
+    expect(gitUtils.ensureWorktreeAsync).not.toHaveBeenCalled();
     expect(launcher.launch).not.toHaveBeenCalled();
   });
 
@@ -3583,7 +3592,7 @@ describe("GET /api/git/repo-info", () => {
       defaultBranch: "main",
       isWorktree: false,
     };
-    vi.mocked(gitUtils.getRepoInfoAsync).mockResolvedValue(info);
+    vi.mocked(gitUtils.getRepoInfoAsync).mockResolvedValueOnce(info);
 
     const res = await app.request("/api/git/repo-info?path=/repo", { method: "GET" });
 
@@ -4669,7 +4678,7 @@ describe("POST /api/sessions/create-stream", () => {
 
   it("emits git progress events when branch is specified", async () => {
     // When branch is specified without useWorktree, should emit fetch/checkout/pull events
-    vi.mocked(gitUtils.getRepoInfo).mockReturnValueOnce({
+    vi.mocked(gitUtils.getRepoInfoAsync).mockResolvedValueOnce({
       repoRoot: "/test",
       currentBranch: "main",
       defaultBranch: "main",
@@ -4693,12 +4702,12 @@ describe("POST /api/sessions/create-stream", () => {
   });
 
   it("emits worktree progress events when useWorktree is set", async () => {
-    vi.mocked(gitUtils.getRepoInfo).mockReturnValueOnce({
+    vi.mocked(gitUtils.getRepoInfoAsync).mockResolvedValueOnce({
       repoRoot: "/test",
       currentBranch: "main",
       defaultBranch: "main",
     } as any);
-    vi.mocked(gitUtils.ensureWorktree).mockReturnValueOnce({
+    vi.mocked(gitUtils.ensureWorktreeAsync).mockResolvedValueOnce({
       worktreePath: "/test-wt-123",
       actualBranch: "feat/auth",
       created: true,
@@ -4721,12 +4730,12 @@ describe("POST /api/sessions/create-stream", () => {
   });
 
   it("uses current branch for worktree create-stream when branch is omitted", async () => {
-    vi.mocked(gitUtils.getRepoInfo).mockReturnValueOnce({
+    vi.mocked(gitUtils.getRepoInfoAsync).mockResolvedValueOnce({
       repoRoot: "/test",
       currentBranch: "main",
       defaultBranch: "main",
     } as any);
-    vi.mocked(gitUtils.ensureWorktree).mockReturnValueOnce({
+    vi.mocked(gitUtils.ensureWorktreeAsync).mockResolvedValueOnce({
       worktreePath: "/test-wt-main",
       actualBranch: "main",
       created: true,
@@ -4742,7 +4751,7 @@ describe("POST /api/sessions/create-stream", () => {
     const events = await parseSSE(res);
     const doneEvent = events.find((e) => e.event === "done");
     expect(doneEvent).toBeDefined();
-    expect(gitUtils.ensureWorktree).toHaveBeenCalledWith("/test", "main", {
+    expect(gitUtils.ensureWorktreeAsync).toHaveBeenCalledWith("/test", "main", {
       baseBranch: "main",
       createBranch: undefined,
       forceNew: true,
@@ -4769,7 +4778,7 @@ describe("POST /api/sessions/create-stream", () => {
   });
 
   it("emits creating_worktree error when useWorktree is enabled outside git repo", async () => {
-    vi.mocked(gitUtils.getRepoInfo).mockReturnValueOnce(null);
+    vi.mocked(gitUtils.getRepoInfoAsync).mockResolvedValueOnce(null);
 
     const res = await app.request("/api/sessions/create-stream", {
       method: "POST",
