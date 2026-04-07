@@ -2031,7 +2031,7 @@ describe("CLI message routing", () => {
 
   it("assistant: does not recursively re-inject reminder on system-triggered turns", () => {
     bridge.setLauncher({
-      touchActivity: vi.fn(),
+      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ isOrchestrator: true })),
     } as any);
 
@@ -2089,7 +2089,7 @@ describe("CLI message routing", () => {
 
   it("assistant: does not inject reminder after direct leader interrupt", () => {
     bridge.setLauncher({
-      touchActivity: vi.fn(),
+      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ isOrchestrator: true })),
     } as any);
 
@@ -2155,7 +2155,7 @@ describe("CLI message routing", () => {
     const adapter = makeClaudeSdkAdapterMock();
     adapter.sendBrowserMessage.mockReturnValue(true);
     bridge.setLauncher({
-      touchActivity: vi.fn(),
+      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ isOrchestrator: true })),
     } as any);
     bridge.attachClaudeSdkAdapter("s1", adapter as any);
@@ -2214,7 +2214,7 @@ describe("CLI message routing", () => {
 
   it("assistant: treats tool-only leader messages as internal without reminder", () => {
     bridge.setLauncher({
-      touchActivity: vi.fn(),
+      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ isOrchestrator: true })),
     } as any);
 
@@ -2546,7 +2546,7 @@ describe("CLI message routing", () => {
   // They use `takode notify` explicitly instead of the old @to(user) tag system.
   it("result: suppresses review attention for all leader turns (leaders use takode notify instead)", () => {
     bridge.setLauncher({
-      touchActivity: vi.fn(),
+      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ isOrchestrator: true })),
     } as any);
 
@@ -2590,7 +2590,7 @@ describe("CLI message routing", () => {
 
   it("result: suppresses review attention for herded worker turns triggered by leader messages", async () => {
     bridge.setLauncher({
-      touchActivity: vi.fn(),
+      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ herdedBy: "orch-1" })),
     } as any);
 
@@ -2643,7 +2643,7 @@ describe("CLI message routing", () => {
 
   it("result: keeps user-triggered herded turns unread even with leader follow-up messages", async () => {
     bridge.setLauncher({
-      touchActivity: vi.fn(),
+      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ herdedBy: "orch-1" })),
     } as any);
 
@@ -2734,7 +2734,7 @@ describe("CLI message routing", () => {
       [workerId, { sessionId: workerId, herdedBy: leaderId, backendType: "claude", cwd: "/test" }],
     ]);
     bridge.setLauncher({
-      touchActivity: vi.fn(),
+      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
       getSession: vi.fn((id: string) => launcherSessions.get(id)),
       getHerdedSessions: vi.fn((id: string) => (id === leaderId ? [{ sessionId: workerId }] : [])),
       getSessionNum: vi.fn((id: string) => (id === leaderId ? 7 : undefined)),
@@ -2799,7 +2799,7 @@ describe("CLI message routing", () => {
       [workerId, { sessionId: workerId, herdedBy: leaderId, backendType: "claude", cwd: "/test" }],
     ]);
     bridge.setLauncher({
-      touchActivity: vi.fn(),
+      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
       getSession: vi.fn((id: string) => launcherSessions.get(id)),
       getHerdedSessions: vi.fn((id: string) => (id === leaderId ? [{ sessionId: workerId }] : [])),
       getSessionNum: vi.fn((id: string) => (id === leaderId ? 17 : undefined)),
@@ -2835,7 +2835,7 @@ describe("CLI message routing", () => {
       [workerId, { sessionId: workerId, herdedBy: leaderId, backendType: "claude", cwd: "/test" }],
     ]);
     bridge.setLauncher({
-      touchActivity: vi.fn(),
+      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
       getSession: vi.fn((id: string) => launcherSessions.get(id)),
       getHerdedSessions: vi.fn((id: string) => (id === leaderId ? [{ sessionId: workerId }] : [])),
       getSessionNum: vi.fn((id: string) => (id === leaderId ? 8 : undefined)),
@@ -3177,7 +3177,7 @@ describe("CLI message routing", () => {
 
   it("control_request (can_use_tool): does not set attention for herded worker sessions", async () => {
     bridge.setLauncher({
-      touchActivity: vi.fn(),
+      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ herdedBy: "orch-1" })),
     } as any);
 
@@ -3398,7 +3398,7 @@ describe("Browser message routing", () => {
   it("user_message: herded worker gets [Leader HH:MM] for leader-forwarded messages", () => {
     // Make the session a herded worker
     bridge.setLauncher({
-      touchActivity: vi.fn(),
+      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ herdedBy: "leader-session-1" })),
     } as any);
 
@@ -3419,7 +3419,7 @@ describe("Browser message routing", () => {
   it("user_message: herded worker gets [User HH:MM] for direct human messages", () => {
     // Make the session a herded worker
     bridge.setLauncher({
-      touchActivity: vi.fn(),
+      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ herdedBy: "leader-session-1" })),
     } as any);
 
@@ -7609,7 +7609,7 @@ describe("status_change: running on user_message", () => {
 
   it("state_snapshot includes attention for herded worker sessions when set", () => {
     bridge.setLauncher({
-      touchActivity: vi.fn(),
+      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ herdedBy: "orch-1" })),
     } as any);
 
@@ -9375,7 +9375,7 @@ describe("Codex MCP startup failures", () => {
     const relaunchCb = vi.fn();
     bridge.onCLIRelaunchNeededCallback(relaunchCb);
     bridge.setLauncher({
-      touchActivity: vi.fn(),
+      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ backendType: "codex", state: "connected", killedByIdleManager: false })),
     } as any);
 
@@ -9494,7 +9494,7 @@ describe("Codex disconnect auto-relaunch", () => {
     const relaunchCb = vi.fn();
     bridge.onCLIRelaunchNeededCallback(relaunchCb);
     bridge.setLauncher({
-      touchActivity: vi.fn(),
+      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ killedByIdleManager: true })),
     } as any);
 
@@ -9585,7 +9585,7 @@ describe("Codex user-message-driven relaunch for idle sessions", () => {
     const relaunchCb = vi.fn();
     bridge.onCLIRelaunchNeededCallback(relaunchCb);
     bridge.setLauncher({
-      touchActivity: vi.fn(),
+      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ state: "exited", killedByIdleManager: false })),
     } as any);
 
@@ -9623,7 +9623,7 @@ describe("Codex user-message-driven relaunch for idle sessions", () => {
     const relaunchCb = vi.fn();
     bridge.onCLIRelaunchNeededCallback(relaunchCb);
     bridge.setLauncher({
-      touchActivity: vi.fn(),
+      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ state: "exited", killedByIdleManager: false })),
     } as any);
 
@@ -9661,7 +9661,7 @@ describe("Codex user-message-driven relaunch for idle sessions", () => {
     bridge.onCLIRelaunchNeededCallback(relaunchCb);
     const launcherInfo = { state: "exited", killedByIdleManager: true };
     bridge.setLauncher({
-      touchActivity: vi.fn(),
+      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
       getSession: vi.fn(() => launcherInfo),
     } as any);
 
@@ -9694,7 +9694,7 @@ describe("Codex user-message-driven relaunch for idle sessions", () => {
     const relaunchCb = vi.fn();
     bridge.onCLIRelaunchNeededCallback(relaunchCb);
     bridge.setLauncher({
-      touchActivity: vi.fn(),
+      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ state: "connected" })),
     } as any);
 
@@ -9731,7 +9731,7 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     const relaunchCb = vi.fn();
     bridge.onCLIRelaunchNeededCallback(relaunchCb);
     bridge.setLauncher({
-      touchActivity: vi.fn(),
+      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ state: "exited", killedByIdleManager: false })),
     } as any);
 
@@ -9753,7 +9753,7 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     const launcherInfo = { backendType: "codex", state: "starting", killedByIdleManager: false };
     bridge.onCLIRelaunchNeededCallback(relaunchCb);
     bridge.setLauncher({
-      touchActivity: vi.fn(),
+      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
       getSession: vi.fn(() => launcherInfo),
     } as any);
 
@@ -9803,7 +9803,7 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     bridge.onCLIRelaunchNeededCallback(relaunchCb);
     const launcherInfo = { state: "exited", killedByIdleManager: true };
     bridge.setLauncher({
-      touchActivity: vi.fn(),
+      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
       getSession: vi.fn(() => launcherInfo),
     } as any);
 
@@ -9823,7 +9823,7 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     const relaunchCb = vi.fn();
     bridge.onCLIRelaunchNeededCallback(relaunchCb);
     bridge.setLauncher({
-      touchActivity: vi.fn(),
+      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ state: "connected" })),
     } as any);
 
@@ -9845,7 +9845,7 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     bridge.onCLIRelaunchNeededCallback(relaunchCb);
     const launcherInfo = { backendType: "claude-sdk", state: "exited", killedByIdleManager: true };
     bridge.setLauncher({
-      touchActivity: vi.fn(),
+      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
       getSession: vi.fn(() => launcherInfo),
     } as any);
 
@@ -11536,7 +11536,7 @@ describe("Codex runtime settings updates", () => {
     const relaunchCb = vi.fn();
     const launcherInfo = { model: "gpt-5.4", permissionMode: "plan" };
     const launcherMock = {
-      touchActivity: vi.fn(),
+      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
       getSession: vi.fn(() => launcherInfo),
     };
     bridge.setLauncher(launcherMock as any);
@@ -11576,7 +11576,7 @@ describe("Codex runtime settings updates", () => {
     const relaunchCb = vi.fn();
     const launcherInfo = { model: "gpt-5.4", codexReasoningEffort: undefined };
     const launcherMock = {
-      touchActivity: vi.fn(),
+      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
       getSession: vi.fn(() => launcherInfo),
     };
     bridge.setLauncher(launcherMock as any);
@@ -11607,7 +11607,7 @@ describe("Codex runtime settings updates", () => {
     const relaunchCb = vi.fn();
     const launcherInfo = { permissionMode: "plan", askPermission: true };
     const launcherMock = {
-      touchActivity: vi.fn(),
+      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
       getSession: vi.fn(() => launcherInfo),
     };
     bridge.setLauncher(launcherMock as any);
@@ -11661,7 +11661,7 @@ describe("Codex permission mode switch with pending approvals", () => {
     const relaunchCb = vi.fn();
     const launcherInfo = { permissionMode: "suggest" };
     const launcherMock = {
-      touchActivity: vi.fn(),
+      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
       getSession: vi.fn(() => launcherInfo),
       getSessionNum: vi.fn(() => 1),
     };
@@ -11736,7 +11736,7 @@ describe("Codex permission mode switch with pending approvals", () => {
     // Start in suggest mode (permissions go to pending_human, not auto-approved)
     const launcherInfo = { permissionMode: "suggest" };
     const launcherMock = {
-      touchActivity: vi.fn(),
+      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
       getSession: vi.fn(() => launcherInfo),
       getSessionNum: vi.fn(() => 2),
     };
@@ -11803,7 +11803,7 @@ describe("Codex permission mode switch with pending approvals", () => {
     const relaunchCb = vi.fn();
     const launcherInfo = { permissionMode: "suggest" };
     const launcherMock = {
-      touchActivity: vi.fn(),
+      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
       getSession: vi.fn(() => launcherInfo),
     };
     bridge.setLauncher(launcherMock as any);
@@ -12121,7 +12121,7 @@ describe("Codex user_message takode events", () => {
     ]);
 
     const launcherMock = {
-      touchActivity: vi.fn(),
+      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
       getSession: vi.fn((id: string) => launcherSessions.get(id)),
       getHerdedSessions: vi.fn((id: string) => (id === leaderId ? [{ sessionId: workerId }] : [])),
       getSessionNum: vi.fn((id: string) => (id === leaderId ? 1 : 2)),
@@ -12290,7 +12290,7 @@ describe("Codex user_message takode events", () => {
     ]);
 
     const launcherMock = {
-      touchActivity: vi.fn(),
+      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
       getSession: vi.fn((id: string) => launcherSessions.get(id)),
       getHerdedSessions: vi.fn((id: string) => (id === leaderId ? [{ sessionId: workerId }] : [])),
       getSessionNum: vi.fn((id: string) => (id === leaderId ? 1 : 2)),
@@ -12465,7 +12465,7 @@ describe("Codex user_message takode events", () => {
     ]);
 
     const launcherMock = {
-      touchActivity: vi.fn(),
+      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
       getSession: vi.fn((id: string) => launcherSessions.get(id)),
       getHerdedSessions: vi.fn((id: string) => (id === leaderId ? [{ sessionId: workerId }] : [])),
       getSessionNum: vi.fn((id: string) => (id === leaderId ? 1 : 2)),
@@ -13233,7 +13233,7 @@ describe("Claude SDK adapter queue handoff", () => {
     session.backendType = "claude-sdk";
 
     bridge.setLauncher({
-      touchActivity: vi.fn(),
+      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ herdedBy: "leader-1" })),
     } as any);
 
@@ -13506,7 +13506,7 @@ describe("SDK disconnect auto-relaunch", () => {
     const relaunchCb = vi.fn();
     bridge.onCLIRelaunchNeededCallback(relaunchCb);
     bridge.setLauncher({
-      touchActivity: vi.fn(),
+      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ killedByIdleManager: true })),
     } as any);
 
@@ -13530,7 +13530,7 @@ describe("SDK disconnect auto-relaunch", () => {
     bridge.onCLIRelaunchNeededCallback(relaunchCb);
     // Simulate post-restart: launcher reports SDK session as exited, no adapter attached
     bridge.setLauncher({
-      touchActivity: vi.fn(),
+      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ backendType: "claude-sdk", state: "exited" })),
     } as any);
 
@@ -13552,7 +13552,7 @@ describe("SDK disconnect auto-relaunch", () => {
     const relaunchCb = vi.fn();
     bridge.onCLIRelaunchNeededCallback(relaunchCb);
     bridge.setLauncher({
-      touchActivity: vi.fn(),
+      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ backendType: "claude-sdk", state: "starting" })),
     } as any);
 
@@ -13572,7 +13572,7 @@ describe("SDK disconnect auto-relaunch", () => {
     const relaunchCb = vi.fn();
     bridge.onCLIRelaunchNeededCallback(relaunchCb);
     bridge.setLauncher({
-      touchActivity: vi.fn(),
+      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ backendType: "claude-sdk", state: "connected" })),
     } as any);
 
@@ -14615,7 +14615,7 @@ describe("Cross-session branch invalidation", () => {
   it("archived sessions are excluded from cross-session invalidation", async () => {
     // Set up a launcher mock where session B is archived
     bridge.setLauncher({
-      touchActivity: vi.fn(),
+      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
       getSession: vi.fn((id: string) => {
         if (id === "sB") return { archived: true };
         return { archived: false };
