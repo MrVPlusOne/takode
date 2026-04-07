@@ -371,8 +371,9 @@ export function HerdEventMessage({ message }: { message: ChatMessage; showTimest
 type SearchHighlightInfo = { query: string; mode: "strict" | "fuzzy"; isCurrent: boolean } | null;
 
 /** Compact marker rendered after the assistant message content when a notification was anchored to it. */
-export function NotificationMarker({ category }: { category: "needs-input" | "review" }) {
+export function NotificationMarker({ category, summary }: { category: "needs-input" | "review"; summary?: string }) {
   const isAction = category === "needs-input";
+  const label = summary || (isAction ? "Needs input" : "Ready for review");
   return (
     <div
       className={`inline-flex items-center gap-1.5 mt-2 px-2 py-0.5 rounded-full text-[11px] font-medium ${
@@ -388,7 +389,7 @@ export function NotificationMarker({ category }: { category: "needs-input" | "re
           <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm3.03 5.28a.75.75 0 00-1.06-1.06L7 8.19 5.78 6.97a.75.75 0 00-1.06 1.06l1.75 1.75a.75.75 0 001.06 0l3.5-3.5z" />
         )}
       </svg>
-      {isAction ? "Needs input" : "Ready for review"}
+      {label}
     </div>
   );
 }
@@ -725,7 +726,7 @@ function AssistantMessage({
         >
           {userAddressed && <LeaderUserAddressedMarker />}
           <MarkdownContent text={displayMessage.content} sessionId={sessionId} searchHighlight={searchHighlight} />
-          {message.notification && <NotificationMarker category={message.notification.category} />}
+          {message.notification && <NotificationMarker category={message.notification.category} summary={message.notification.summary} />}
           {showTimestamp && (
             <MessageTimestamp timestamp={displayMessage.timestamp} turnDurationMs={displayMessage.turnDurationMs} />
           )}
@@ -766,7 +767,7 @@ function AssistantMessage({
           // Grouped tool_uses
           return <ToolGroupBlock key={i} name={group.name} items={group.items} sessionId={sessionId} />;
         })}
-        {message.notification && <NotificationMarker category={message.notification.category} />}
+        {message.notification && <NotificationMarker category={message.notification.category} summary={message.notification.summary} />}
         {showTimestamp && (
           <MessageTimestamp timestamp={displayMessage.timestamp} turnDurationMs={displayMessage.turnDurationMs} />
         )}

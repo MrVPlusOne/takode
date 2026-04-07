@@ -35,6 +35,8 @@ interface PendingNotification {
   requestIds: string[];
   /** Tool names for batched permissions (for display) */
   toolNames: string[];
+  /** When true, bypass the lastReadAt suppression check (for explicit user notifications). */
+  skipReadCheck?: boolean;
 }
 
 interface SessionCooldown {
@@ -90,7 +92,13 @@ export class PushoverNotifier {
    * Schedule a notification for a session event.
    * For permissions/questions, multiple rapid-fire events are batched.
    */
-  scheduleNotification(sessionId: string, eventType: PushoverEventType, detail?: string, requestId?: string): void {
+  scheduleNotification(
+    sessionId: string,
+    eventType: PushoverEventType,
+    detail?: string,
+    requestId?: string,
+    options?: { skipReadCheck?: boolean },
+  ): void {
     if (!this.isConfigured()) return;
 
     const isBatchable = eventType === "permission" || eventType === "question";
@@ -134,6 +142,7 @@ export class PushoverNotifier {
       detail,
       requestIds: requestId ? [requestId] : [],
       toolNames: detail ? ([detail.split(":")[0]?.trim()].filter(Boolean) as string[]) : [],
+      skipReadCheck: options?.skipReadCheck,
     };
     this.pending.set(key, pending);
   }
@@ -193,9 +202,12 @@ export class PushoverNotifier {
 
     if (!this.isConfigured()) return;
 
-    // Skip notification if the user has read the session since the event was created
-    const lastRead = this.opts.getLastReadAt(pending.sessionId);
-    if (lastRead >= pending.createdAt) return;
+    // Skip notification if the user has read the session since the event was created,
+    // unless this is an explicit notification (e.g. takode notify) that should always fire.
+    if (!pending.skipReadCheck) {
+      const lastRead = this.opts.getLastReadAt(pending.sessionId);
+      if (lastRead >= pending.createdAt) return;
+    }
 
     if (!this.checkRateLimit(pending.sessionId)) return;
 
