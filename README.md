@@ -30,8 +30,6 @@ make serve
 
 Open <http://localhost:3456>. Create a session, point it at your project, and start chatting.
 
-`make serve` runs the production server with support for self-restart (the server can restart itself to pick up code changes).
-
 ---
 
 ## What You Can Do
@@ -73,7 +71,7 @@ Each session runs in either **agent mode** (the agent executes tools freely) or 
 
 ### 🎙️ Talk to your agents
 
-Click the microphone to dictate a prompt. Takode transcribes and sends it. If transcription fails, your recording is saved so you can retry.
+Click the microphone to dictate a prompt. Takode transcribes and sends it as text. Transcription is conversation-context aware, so it handles technical terms and project-specific names more accurately.
 
 ### 🔔 Get notified when you're needed
 
@@ -106,25 +104,6 @@ You
 ## Works with Both Backends
 
 Takode supports **Claude Code** and **Codex** side by side. Each session can use a different backend. The UI works identically regardless of which CLI is behind it.
-
----
-
-## CLI
-
-Takode includes a CLI for server and session management:
-
-```bash
-takode install        # Install as a background service (launchd / systemd)
-takode start / stop   # Start or stop the background service
-takode status         # Show service status
-takode logs           # Tail service logs
-```
-
-```bash
-takode sessions list  # List all sessions
-takode export         # Export session data to an archive
-takode import         # Import session data from an archive
-```
 
 ---
 
