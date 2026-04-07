@@ -109,9 +109,7 @@ function getCurrentFileLinkRoot(base: FileLinkBaseContext): string | null {
   return base.repoRoot || base.cwd;
 }
 
-function parseStaleWorktreePath(
-  targetPath: string,
-): { staleRepoName: string; relativeWithinRepo: string } | null {
+function parseStaleWorktreePath(targetPath: string): { staleRepoName: string; relativeWithinRepo: string } | null {
   const normalizedTarget = normalizePathSeparators(targetPath);
   const match = normalizedTarget.match(/^(.+\/\.companion\/worktrees\/([^/]+)\/[^/]+)(\/.+)$/);
   if (!match) return null;
@@ -119,7 +117,11 @@ function parseStaleWorktreePath(
   return { staleRepoName: match[2], relativeWithinRepo: match[3] };
 }
 
-function remapStaleWorktreePath(targetPath: string, root: string | null, expectedRepoName: string | null): string | null {
+function remapStaleWorktreePath(
+  targetPath: string,
+  root: string | null,
+  expectedRepoName: string | null,
+): string | null {
   if (!root || !expectedRepoName) return null;
 
   const parsed = parseStaleWorktreePath(targetPath);

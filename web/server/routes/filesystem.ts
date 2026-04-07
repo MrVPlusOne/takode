@@ -188,22 +188,32 @@ export function createFilesystemRoutes(ctx: RouteContext) {
     try {
       const repoRoot = await execAsync("git --no-optional-locks rev-parse --show-toplevel", dirname(absPath));
       const relPath =
-        (await execAsync(`git --no-optional-locks -C "${repoRoot}" ls-files --full-name -- "${absPath}"`, repoRoot)) || absPath;
+        (await execAsync(`git --no-optional-locks -C "${repoRoot}" ls-files --full-name -- "${absPath}"`, repoRoot)) ||
+        absPath;
 
       let diff = "";
       try {
         // Compare directly to the selected base ref tip. Using merge-base here
         // makes cherry-picked commits appear as unsynced in the UI.
-        diff = await execCaptureStdoutAsync(`git --no-optional-locks diff "${base}" -- "${relPath}"`, repoRoot, { maxBuffer: DIFF_MAX_BUFFER });
+        diff = await execCaptureStdoutAsync(`git --no-optional-locks diff "${base}" -- "${relPath}"`, repoRoot, {
+          maxBuffer: DIFF_MAX_BUFFER,
+        });
       } catch {
         // Base ref unavailable — leave diff empty
       }
 
       // For untracked files, base-branch diff is empty. Show full file as added.
       if (!diff.trim()) {
-        const untracked = await execAsync(`git --no-optional-locks ls-files --others --exclude-standard -- "${relPath}"`, repoRoot);
+        const untracked = await execAsync(
+          `git --no-optional-locks ls-files --others --exclude-standard -- "${relPath}"`,
+          repoRoot,
+        );
         if (untracked) {
-          diff = await execCaptureStdoutAsync(`git --no-optional-locks diff --no-index -- /dev/null "${absPath}"`, repoRoot, { maxBuffer: DIFF_MAX_BUFFER });
+          diff = await execCaptureStdoutAsync(
+            `git --no-optional-locks diff --no-index -- /dev/null "${absPath}"`,
+            repoRoot,
+            { maxBuffer: DIFF_MAX_BUFFER },
+          );
         }
       }
 
@@ -214,7 +224,11 @@ export function createFilesystemRoutes(ctx: RouteContext) {
         const escapedRelPath = relPath.replace(/[\\`"$]/g, "\\$&");
 
         try {
-          const baseContent = await execCaptureStdoutAsync(`git --no-optional-locks show "${base}":"${escapedRelPath}"`, repoRoot, { maxBuffer: DIFF_MAX_BUFFER });
+          const baseContent = await execCaptureStdoutAsync(
+            `git --no-optional-locks show "${base}":"${escapedRelPath}"`,
+            repoRoot,
+            { maxBuffer: DIFF_MAX_BUFFER },
+          );
           if (Buffer.byteLength(baseContent, "utf-8") <= 1024 * 1024) {
             oldText = baseContent.replace(/\r\n/g, "\n");
           }
@@ -283,7 +297,11 @@ export function createFilesystemRoutes(ctx: RouteContext) {
       const rootPrefix = `${repoRoot}/`;
       const relFiles = body.files.map((f) => (f.startsWith(rootPrefix) ? f.slice(rootPrefix.length) : f));
       const fileArgs = relFiles.map((f) => `"${f}"`).join(" ");
-      const raw = await execCaptureStdoutAsync(`git --no-optional-locks diff --numstat "${body.base}" -- ${fileArgs}`, repoRoot, { maxBuffer: DIFF_MAX_BUFFER });
+      const raw = await execCaptureStdoutAsync(
+        `git --no-optional-locks diff --numstat "${body.base}" -- ${fileArgs}`,
+        repoRoot,
+        { maxBuffer: DIFF_MAX_BUFFER },
+      );
 
       const stats: Record<string, { additions: number; deletions: number }> = {};
       for (const line of raw.split("\n")) {
@@ -329,7 +347,9 @@ export function createFilesystemRoutes(ctx: RouteContext) {
     try {
       // --no-optional-locks avoids NFS lock contention on .git/index.lock
       // No -M flag: rename detection is too expensive on NFS (reads full file contents)
-      const raw = await execCaptureStdoutAsync(`git --no-optional-locks diff --name-status "${base}"`, repoRoot, { maxBuffer: DIFF_MAX_BUFFER });
+      const raw = await execCaptureStdoutAsync(`git --no-optional-locks diff --name-status "${base}"`, repoRoot, {
+        maxBuffer: DIFF_MAX_BUFFER,
+      });
 
       const files: Array<{
         path: string;

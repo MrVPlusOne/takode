@@ -4796,7 +4796,9 @@ describe("handleBrowserMessage with Buffer", () => {
     const sent = JSON.parse(sentRaw.trim());
     expect(sent.type).toBe("user");
     // CLI-bound content gets a [User HH:MM] timestamp prefix
-    expect(sent.message.content).toMatch(/^\[User (?:\w{3}, \w{3} \d{1,2} )?\d{1,2}:\d{2}\s*[AP]M\] Hello from buffer$/);
+    expect(sent.message.content).toMatch(
+      /^\[User (?:\w{3}, \w{3} \d{1,2} )?\d{1,2}:\d{2}\s*[AP]M\] Hello from buffer$/,
+    );
   });
 
   it("parses Buffer input and routes interrupt correctly", () => {
@@ -12539,8 +12541,7 @@ describe("Codex active-turn steering", () => {
     await Promise.resolve();
 
     const session = bridge.getSession(sid)!;
-    const pendingId = session.pendingCodexInputs.find((input: any) => input.content === "follow-up in future turn")
-      ?.id;
+    const pendingId = session.pendingCodexInputs.find((input: any) => input.content === "follow-up in future turn")?.id;
     expect(pendingId).toBeTruthy();
     if (!pendingId) throw new Error("missing pending Codex input id");
     adapter.emitTurnSteered("turn-follow-up", [pendingId]);
@@ -12923,7 +12924,9 @@ describe("Claude SDK adapter queue handoff", () => {
     expect(delivered[0]).toMatchObject({
       type: "user_message",
     });
-    expect(delivered[0].content).toMatch(/^\[User (?:\w{3}, \w{3} \d{1,2} )?\d{1,2}:\d{2}\s*[AP]M\] hello from sdk queue$/);
+    expect(delivered[0].content).toMatch(
+      /^\[User (?:\w{3}, \w{3} \d{1,2} )?\d{1,2}:\d{2}\s*[AP]M\] hello from sdk queue$/,
+    );
     expect(session.pendingMessages).toHaveLength(0);
   });
 

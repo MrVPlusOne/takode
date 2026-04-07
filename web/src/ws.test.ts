@@ -1863,6 +1863,37 @@ describe("handleMessage: history_sync", () => {
 
     expect(useStore.getState().messageFrozenHashes.get("s1")).toBe("server1234");
   });
+
+  it("clears stale pending Codex inputs when history_sync hot messages include the committed user message", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "codex" } });
+
+    useStore
+      .getState()
+      .setMessages("s1", [{ id: "frozen-1", role: "assistant", content: "older message", timestamp: 500 }], {
+        frozenCount: 1,
+      });
+    useStore.getState().setPendingCodexInputs("s1", [
+      {
+        id: "pending-hot-1",
+        content: "queued hot tail",
+        timestamp: 1000,
+        cancelable: true,
+      } as any,
+    ]);
+
+    fireMessage({
+      type: "history_sync",
+      frozen_base_count: 1,
+      frozen_delta: [],
+      hot_messages: [{ type: "user_message", id: "pending-hot-1", content: "queued hot tail", timestamp: 1000 }],
+      frozen_count: 1,
+      expected_frozen_hash: "frozen-hash",
+      expected_full_hash: "full-hash",
+    });
+
+    expect(useStore.getState().pendingCodexInputs.has("s1")).toBe(false);
+  });
 });
 
 // ===========================================================================

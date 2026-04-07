@@ -2483,8 +2483,7 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
       err(
         `Usage: takode board ${sub} <quest-id> [--worker <session>] [--status "..."] [--title "..."] [--wait-for q-X,q-Y] [--json]`,
       );
-    if (!isValidQuestId(questId))
-      err(`Invalid quest ID "${questId}": must match q-NNN format (e.g., q-1, q-42)`);
+    if (!isValidQuestId(questId)) err(`Invalid quest ID "${questId}": must match q-NNN format (e.g., q-1, q-42)`);
     const flags = parseFlags(args.slice(2));
 
     const body: Record<string, unknown> = { questId };
@@ -2529,8 +2528,7 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
   if (sub === "advance") {
     const questId = args[1];
     if (!questId) err("Usage: takode board advance <quest-id> [--json]");
-    if (!isValidQuestId(questId))
-      err(`Invalid quest ID "${questId}": must match q-NNN format (e.g., q-1, q-42)`);
+    if (!isValidQuestId(questId)) err(`Invalid quest ID "${questId}": must match q-NNN format (e.g., q-1, q-42)`);
     const flags = parseFlags(args.slice(2));
 
     const result = (await apiPost(

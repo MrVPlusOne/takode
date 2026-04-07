@@ -2571,9 +2571,7 @@ export function Playground() {
                     ].map((entry, index) => (
                       <div
                         key={entry.label}
-                        className={`w-full px-3 py-2 flex items-center gap-2.5 ${
-                          index === 0 ? "bg-cc-hover" : ""
-                        }`}
+                        className={`w-full px-3 py-2 flex items-center gap-2.5 ${index === 0 ? "bg-cc-hover" : ""}`}
                       >
                         <span className="flex items-center justify-center w-6 h-6 rounded-md bg-cc-hover text-cc-muted shrink-0">
                           {entry.kind === "app" ? (

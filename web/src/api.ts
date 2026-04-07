@@ -819,7 +819,14 @@ export const api = {
     let url = `/fs/diff?path=${encodeURIComponent(path)}`;
     if (base) url += `&base=${encodeURIComponent(base)}`;
     if (opts?.includeContents) url += "&includeContents=1";
-    return get<{ path: string; diff: string; truncated?: boolean; baseBranch?: string; oldText?: string; newText?: string }>(url);
+    return get<{
+      path: string;
+      diff: string;
+      truncated?: boolean;
+      baseBranch?: string;
+      oldText?: string;
+      newText?: string;
+    }>(url);
   },
   getDiffStats: (files: string[], repoRoot: string, base?: string) =>
     post<{ stats: Record<string, { additions: number; deletions: number }>; baseBranch?: string }>("/fs/diff-stats", {

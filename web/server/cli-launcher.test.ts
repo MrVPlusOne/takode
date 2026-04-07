@@ -195,7 +195,10 @@ vi.mock("node:fs/promises", async (importOriginal) => {
       return actual.readFile(...args);
     },
     copyFile: async (...args: any[]) => {
-      if ((typeof args[0] === "string" && isMockedPath(args[0])) || (typeof args[1] === "string" && isMockedPath(args[1]))) {
+      if (
+        (typeof args[0] === "string" && isMockedPath(args[0])) ||
+        (typeof args[1] === "string" && isMockedPath(args[1]))
+      ) {
         return mockCopyFile(...args);
       }
       return actual.copyFile(...args);
@@ -721,7 +724,7 @@ describe("launch", () => {
 
     realWriteFileSync(
       wrapperPath,
-      ['#!/usr/bin/env python3', 'CACHE_DIR = os.path.expanduser("~/.cache/codex")', ""].join("\n"),
+      ["#!/usr/bin/env python3", 'CACHE_DIR = os.path.expanduser("~/.cache/codex")', ""].join("\n"),
       "utf-8",
     );
     realMkdirSync(artifactDir, { recursive: true });

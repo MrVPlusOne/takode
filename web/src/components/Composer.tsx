@@ -390,7 +390,11 @@ export function Composer({ sessionId }: { sessionId: string }) {
     setTranscriptionPhase("transcribing");
     try {
       if (mode === "edit") {
-        const { text: editedText, instructionText, rawText } = await api.transcribe(blob, {
+        const {
+          text: editedText,
+          instructionText,
+          rawText,
+        } = await api.transcribe(blob, {
           mode: "edit",
           sessionId,
           composerText,

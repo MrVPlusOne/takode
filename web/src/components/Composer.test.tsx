@@ -1343,9 +1343,7 @@ describe("Composer transcription retry", () => {
 
   it("re-saves the blob for another retry when retry also fails", async () => {
     // Both calls fail
-    mockTranscribe
-      .mockRejectedValueOnce(new Error("timeout"))
-      .mockRejectedValueOnce(new Error("still broken"));
+    mockTranscribe.mockRejectedValueOnce(new Error("timeout")).mockRejectedValueOnce(new Error("still broken"));
 
     render(<Composer sessionId="s1" />);
     fireEvent.click(screen.getByLabelText("Voice input"));
@@ -1388,16 +1386,14 @@ describe("Composer transcription retry", () => {
     // Set up a non-empty composer to trigger edit mode
     setupMockStore({ draftText: "Fix the login bug" });
 
-    mockTranscribe
-      .mockRejectedValueOnce(new Error("backend error"))
-      .mockResolvedValueOnce({
-        mode: "edit",
-        text: "Fix the authentication bug in the login flow",
-        rawText: "fix the authentication bug",
-        instructionText: "fix the authentication bug",
-        backend: "openai",
-        enhanced: true,
-      });
+    mockTranscribe.mockRejectedValueOnce(new Error("backend error")).mockResolvedValueOnce({
+      mode: "edit",
+      text: "Fix the authentication bug in the login flow",
+      rawText: "fix the authentication bug",
+      instructionText: "fix the authentication bug",
+      backend: "openai",
+      enhanced: true,
+    });
 
     render(<Composer sessionId="s1" />);
     fireEvent.click(screen.getByLabelText("Voice input"));
@@ -1453,16 +1449,14 @@ describe("Composer transcription retry", () => {
     // Non-empty composer triggers edit mode by default (preferredVoiceModeRef = "edit").
     // Verify the saved composerText survives failure and is re-sent on retry.
     setupMockStore({ draftText: "" });
-    mockTranscribe
-      .mockRejectedValueOnce(new Error("append error"))
-      .mockResolvedValueOnce({
-        mode: "edit",
-        text: "fixed text",
-        rawText: "fix this",
-        instructionText: "fix this",
-        backend: "openai",
-        enhanced: true,
-      });
+    mockTranscribe.mockRejectedValueOnce(new Error("append error")).mockResolvedValueOnce({
+      mode: "edit",
+      text: "fixed text",
+      rawText: "fix this",
+      instructionText: "fix this",
+      backend: "openai",
+      enhanced: true,
+    });
 
     const { container } = render(<Composer sessionId="s1" />);
     const textarea = container.querySelector("textarea") as HTMLTextAreaElement;

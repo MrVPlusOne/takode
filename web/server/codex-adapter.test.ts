@@ -778,7 +778,8 @@ describe("CodexAdapter", () => {
     await tick();
 
     const appUpdate = messages.find(
-      (msg) => msg.type === "session_update" && Array.isArray((msg as { session?: { apps?: unknown[] } }).session?.apps),
+      (msg) =>
+        msg.type === "session_update" && Array.isArray((msg as { session?: { apps?: unknown[] } }).session?.apps),
     ) as { session: Partial<SessionState> } | undefined;
     expect(appUpdate?.session.apps).toEqual([
       {

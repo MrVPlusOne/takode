@@ -405,8 +405,7 @@ describe("MarkdownContent quest links", () => {
 
     await waitFor(() => {
       expect(mockOpenVsCodeRemoteFile).toHaveBeenCalledWith({
-        absolutePath:
-          "/Users/yuege/code/openai/project/vs2s/audio_perception_asr/audio_perception_asr/datasets.py",
+        absolutePath: "/Users/yuege/code/openai/project/vs2s/audio_perception_asr/audio_perception_asr/datasets.py",
         line: 1,
         column: 1,
       });

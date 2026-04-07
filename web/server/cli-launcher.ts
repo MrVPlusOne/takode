@@ -1675,9 +1675,7 @@ export class CliLauncher {
 
     const cachedArtifact = await this.findLatestCachedCodexArtifact();
     if (cachedArtifact) {
-      console.log(
-        `[cli-launcher] Using cached Codex artifact for session ${sessionTag(sessionId)}: ${cachedArtifact}`,
-      );
+      console.log(`[cli-launcher] Using cached Codex artifact for session ${sessionTag(sessionId)}: ${cachedArtifact}`);
       return { binary: cachedArtifact };
     }
 

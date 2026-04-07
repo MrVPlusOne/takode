@@ -12,7 +12,9 @@ vi.mock("./env-manager.js", () => ({
 
 vi.mock("node:child_process", () => {
   const execSyncMock = vi.fn((_cmd?: string) => "" as any);
-  // exec mock: callback-based, delegates to execSync for consistent test behavior
+  // exec mock: callback-based, delegates to execSync for consistent test behavior.
+  // Attaches stdout/stderr to the error object so promisify(exec) can find them,
+  // matching Node's custom exec promisify behavior.
   const execMock = vi.fn((...args: any[]) => {
     const cmd = args[0] as string;
     const callback = typeof args[1] === "function" ? args[1] : args[2];
@@ -20,7 +22,10 @@ vi.mock("node:child_process", () => {
       const result = execSyncMock(cmd);
       if (callback) callback(null, { stdout: result ?? "", stderr: "" });
     } catch (err) {
-      if (callback) callback(err, { stdout: "", stderr: "" });
+      const e = err as any;
+      if (e.stdout === undefined) e.stdout = "";
+      if (e.stderr === undefined) e.stderr = "";
+      if (callback) callback(err, { stdout: e.stdout ?? "", stderr: e.stderr ?? "" });
     }
   });
   return { execSync: execSyncMock, exec: execMock };
@@ -3967,7 +3972,8 @@ line3`;
       if (cmd.includes("rev-parse --show-toplevel")) return "/repo\n";
       if (cmd.includes("ls-files --full-name")) return "file.ts\n";
       if (cmd.includes("merge-base")) throw new Error("should not call merge-base");
-      if (cmd.includes("git diff main")) return diffOutput;
+      // Source quotes the base ref: git diff "main" -- "file.ts"
+      if (cmd.includes('diff "main"')) return diffOutput;
       throw new Error(`Unmocked: ${cmd}`);
     });
 
@@ -3978,7 +3984,7 @@ line3`;
     expect(json.diff).toBe(diffOutput);
     expect(json.path).toContain("file.ts");
     expect(json.baseBranch).toBe("main");
-    expect(vi.mocked(execSync)).toHaveBeenCalledWith(expect.stringContaining("git diff main"));
+    expect(vi.mocked(execSync)).toHaveBeenCalledWith(expect.stringContaining('diff "main"'));
   });
 
   it("returns no-index diff for untracked files", async () => {
@@ -3996,7 +4002,8 @@ index 0000000..e69de29
       if (cmd.includes("rev-parse --show-toplevel")) return "/repo\n";
       if (cmd.includes("ls-files --full-name")) return "new.txt\n";
       if (cmd.includes("merge-base")) throw new Error("should not call merge-base");
-      if (cmd.includes("git diff main")) return "";
+      // Source quotes the base ref: git diff "main" -- "new.txt"
+      if (cmd.includes('diff "main"')) return "";
       if (cmd.includes("ls-files --others --exclude-standard")) return "new.txt\n";
       if (cmd.includes("diff --no-index")) {
         const err = new Error("diff exits with 1 for differences") as Error & { stdout: string };
@@ -4011,7 +4018,7 @@ index 0000000..e69de29
 
     expect(res.status).toBe(200);
     expect(json.diff).toContain("new file mode");
-    expect(vi.mocked(execSync)).toHaveBeenCalledWith(expect.stringContaining("git diff --no-index -- /dev/null"));
+    expect(vi.mocked(execSync)).toHaveBeenCalledWith(expect.stringContaining("diff --no-index -- /dev/null"));
   });
 
   it("returns old/new file contents when includeContents=1", async () => {
@@ -4026,8 +4033,10 @@ index 0000000..e69de29
       if (typeof cmd !== "string") throw new Error("non-string cmd");
       if (cmd.includes("rev-parse --show-toplevel")) return "/repo\n";
       if (cmd.includes("ls-files --full-name")) return "file.ts\n";
-      if (cmd.includes("git diff main")) return diffOutput;
-      if (cmd.includes('git show main:"file.ts"')) return "const value = 1;\n";
+      // Source quotes the base ref: git diff "main" -- "file.ts"
+      if (cmd.includes('diff "main"')) return diffOutput;
+      // Source quotes: git show "main":"file.ts"
+      if (cmd.includes('show "main":"file.ts"')) return "const value = 1;\n";
       throw new Error(`Unmocked: ${cmd}`);
     });
 
@@ -4055,7 +4064,8 @@ index 0000000..e69de29
       if (cmd.includes("rev-parse --show-toplevel")) return "/repo\n";
       if (cmd.includes("ls-files --full-name")) return "file.ts\n";
       if (cmd.includes("merge-base")) throw new Error("should not call merge-base");
-      if (cmd.includes("git diff develop")) return diffOutput;
+      // Source quotes the base ref: git diff "develop" -- "file.ts"
+      if (cmd.includes('diff "develop"')) return diffOutput;
       throw new Error(`Unmocked: ${cmd}`);
     });
 
@@ -4065,7 +4075,7 @@ index 0000000..e69de29
     const json = await res.json();
     expect(json.diff).toBe(diffOutput);
     expect(json.baseBranch).toBe("develop");
-    expect(vi.mocked(execSync)).toHaveBeenCalledWith(expect.stringContaining("git diff develop"));
+    expect(vi.mocked(execSync)).toHaveBeenCalledWith(expect.stringContaining('diff "develop"'));
   });
 
   it("returns empty diff when git command fails", async () => {
@@ -4087,7 +4097,8 @@ describe("POST /api/fs/diff-stats", () => {
     vi.mocked(execSync).mockImplementation((cmd: string) => {
       if (typeof cmd !== "string") throw new Error("non-string cmd");
       if (cmd.includes("merge-base")) throw new Error("should not call merge-base");
-      if (cmd.includes("git diff --numstat jiayi --")) {
+      // Source quotes the base ref: git diff --numstat "jiayi" -- ...
+      if (cmd.includes('diff --numstat "jiayi"')) {
         return "10\t3\tsrc/a.ts\n1\t0\tsrc/b.ts\n";
       }
       throw new Error(`Unmocked: ${cmd}`);
@@ -4197,6 +4208,8 @@ describe("GET /api/backends/:id/models", () => {
       ],
     });
     vi.mocked(access).mockResolvedValue(undefined);
+    // Reset readFile to clear any stale mockResolvedValueOnce from prior tests
+    vi.mocked(readFile).mockReset();
     vi.mocked(readFile).mockResolvedValue(cacheContent);
 
     const res = await app.request("/api/backends/codex/models", { method: "GET" });

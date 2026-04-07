@@ -2817,7 +2817,11 @@ export class WsBridge {
 
     // Stamp notification onto the anchored message
     if (lastAssistant) {
-      (lastAssistant as Record<string, unknown>).notification = { category, timestamp: Date.now(), ...(summary ? { summary } : {}) };
+      (lastAssistant as Record<string, unknown>).notification = {
+        category,
+        timestamp: Date.now(),
+        ...(summary ? { summary } : {}),
+      };
     }
 
     // Set attention
@@ -8884,7 +8888,9 @@ export class WsBridge {
         if (!text.trim()) continue;
         const itemId = typeof item.id === "string" ? item.id : `${turn.id || "turn"}-${i}`;
         const assistantId = `codex-agent-${itemId}`;
-        const alreadyExists = session.messageHistory.some((msg) => msg.type === "assistant" && msg.message?.id === assistantId);
+        const alreadyExists = session.messageHistory.some(
+          (msg) => msg.type === "assistant" && msg.message?.id === assistantId,
+        );
         if (alreadyExists) continue;
 
         const assistant: Extract<BrowserIncomingMessage, { type: "assistant" }> = {

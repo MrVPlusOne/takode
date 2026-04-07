@@ -104,6 +104,7 @@ describe("quest CLI auth fallback", () => {
           COMPANION_SESSION_ID: undefined,
           COMPANION_AUTH_TOKEN: undefined,
           COMPANION_PORT: undefined,
+          TAKODE_ROLE: undefined,
           HOME: tmp,
         },
         tmp,

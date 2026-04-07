@@ -1711,19 +1711,16 @@ describe("takode board quest ID validation", () => {
     server.close();
   });
 
-  it.each(["foo", "123", "q-", "q-abc", "set"])(
-    "board set rejects invalid quest ID: %j",
-    async (badId) => {
-      const result = await runTakode(["board", "set", badId, "--port", String(port)], {
-        ...process.env,
-        COMPANION_SESSION_ID: "leader-1",
-        COMPANION_AUTH_TOKEN: "auth-1",
-      });
+  it.each(["foo", "123", "q-", "q-abc", "set"])("board set rejects invalid quest ID: %j", async (badId) => {
+    const result = await runTakode(["board", "set", badId, "--port", String(port)], {
+      ...process.env,
+      COMPANION_SESSION_ID: "leader-1",
+      COMPANION_AUTH_TOKEN: "auth-1",
+    });
 
-      expect(result.status).toBe(1);
-      expect(result.stderr).toContain("q-NNN");
-    },
-  );
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("q-NNN");
+  });
 
   it("board set rejects missing quest ID with usage hint", async () => {
     const result = await runTakode(["board", "set", "--port", String(port)], {
@@ -1736,31 +1733,25 @@ describe("takode board quest ID validation", () => {
     expect(result.stderr).toContain("Usage");
   });
 
-  it.each(["foo", "123", "q-"])(
-    "board advance rejects invalid quest ID: %j",
-    async (badId) => {
-      const result = await runTakode(["board", "advance", badId, "--port", String(port)], {
-        ...process.env,
-        COMPANION_SESSION_ID: "leader-1",
-        COMPANION_AUTH_TOKEN: "auth-1",
-      });
+  it.each(["foo", "123", "q-"])("board advance rejects invalid quest ID: %j", async (badId) => {
+    const result = await runTakode(["board", "advance", badId, "--port", String(port)], {
+      ...process.env,
+      COMPANION_SESSION_ID: "leader-1",
+      COMPANION_AUTH_TOKEN: "auth-1",
+    });
 
-      expect(result.status).toBe(1);
-      expect(result.stderr).toContain("q-NNN");
-    },
-  );
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("q-NNN");
+  });
 
-  it.each(["foo", "q-abc"])(
-    "board rm rejects invalid quest ID: %j",
-    async (badId) => {
-      const result = await runTakode(["board", "rm", badId, "--port", String(port)], {
-        ...process.env,
-        COMPANION_SESSION_ID: "leader-1",
-        COMPANION_AUTH_TOKEN: "auth-1",
-      });
+  it.each(["foo", "q-abc"])("board rm rejects invalid quest ID: %j", async (badId) => {
+    const result = await runTakode(["board", "rm", badId, "--port", String(port)], {
+      ...process.env,
+      COMPANION_SESSION_ID: "leader-1",
+      COMPANION_AUTH_TOKEN: "auth-1",
+    });
 
-      expect(result.status).toBe(1);
-      expect(result.stderr).toContain("q-NNN");
-    },
-  );
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("q-NNN");
+  });
 });

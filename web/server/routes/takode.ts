@@ -820,7 +820,10 @@ export function createTakodeRoutes(ctx: RouteContext) {
     if (questIds.length === 0) return c.json({ error: "questId is required" }, 400);
     const invalid = questIds.filter((qid) => !isValidQuestId(qid));
     if (invalid.length > 0) {
-      return c.json({ error: `Invalid quest ID(s): ${invalid.join(", ")} -- must match q-NNN format (e.g., q-1, q-42)` }, 400);
+      return c.json(
+        { error: `Invalid quest ID(s): ${invalid.join(", ")} -- must match q-NNN format (e.g., q-1, q-42)` },
+        400,
+      );
     }
 
     const board = wsBridge.removeBoardRows(id, questIds);

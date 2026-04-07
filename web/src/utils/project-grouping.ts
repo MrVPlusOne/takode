@@ -144,10 +144,7 @@ export function groupSessionsByProject(
       if (visualStatus === "running" || visualStatus === "compacting") group.runningCount++;
       else if (visualStatus === "permission") group.permCount++;
       else if (visualStatus === "completed_unread") group.unreadCount++;
-      group.mostRecentActivity = Math.max(
-        group.mostRecentActivity,
-        session.lastActivityAt ?? session.createdAt,
-      );
+      group.mostRecentActivity = Math.max(group.mostRecentActivity, session.lastActivityAt ?? session.createdAt);
     }
   }
 
@@ -177,9 +174,7 @@ export function groupSessionsByProject(
   // Sort sessions within each group: by activity or by custom/created order.
   for (const group of sorted) {
     if (sortMode === "activity") {
-      group.sessions.sort(
-        (a, b) => (b.lastActivityAt ?? b.createdAt) - (a.lastActivityAt ?? a.createdAt),
-      );
+      group.sessions.sort((a, b) => (b.lastActivityAt ?? b.createdAt) - (a.lastActivityAt ?? a.createdAt));
     } else {
       const customOrder = sessionOrder?.get(group.key);
       if (customOrder && customOrder.length > 0) {
