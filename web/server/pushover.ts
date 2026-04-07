@@ -99,7 +99,10 @@ export class PushoverNotifier {
     requestId?: string,
     options?: { skipReadCheck?: boolean },
   ): void {
-    if (!this.isConfigured()) return;
+    if (!this.isConfigured()) {
+      console.log(`[pushover] Skipping ${eventType} for ${sessionId.slice(0, 8)}: not configured`);
+      return;
+    }
 
     const isBatchable = eventType === "permission" || eventType === "question";
     const key = `${sessionId}:${eventType}`;
@@ -206,10 +209,18 @@ export class PushoverNotifier {
     // unless this is an explicit notification (e.g. takode notify) that should always fire.
     if (!pending.skipReadCheck) {
       const lastRead = this.opts.getLastReadAt(pending.sessionId);
-      if (lastRead >= pending.createdAt) return;
+      if (lastRead >= pending.createdAt) {
+        console.log(
+          `[pushover] Suppressed ${pending.eventType} for ${pending.sessionId.slice(0, 8)}: user read session after event was created`,
+        );
+        return;
+      }
     }
 
-    if (!this.checkRateLimit(pending.sessionId)) return;
+    if (!this.checkRateLimit(pending.sessionId)) {
+      console.log(`[pushover] Suppressed ${pending.eventType} for ${pending.sessionId.slice(0, 8)}: rate limited`);
+      return;
+    }
 
     const settings = this.opts.getSettings();
     const { sessionId, eventType } = pending;
@@ -250,6 +261,7 @@ export class PushoverNotifier {
     const message = lines.join("\n");
     const url = this.buildDeepLink(sessionId);
 
+    console.log(`[pushover] Sending ${eventType} notification for ${sessionId.slice(0, 8)}`);
     await this.sendToApi(settings, title, message, EVENT_PRIORITY[eventType], url);
   }
 

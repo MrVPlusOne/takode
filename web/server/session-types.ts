@@ -598,7 +598,7 @@ export type BrowserIncomingMessageBase =
   | {
       type: "notification_anchored";
       messageId: string | null;
-      notification: { category: "needs-input" | "review"; timestamp: number };
+      notification: { category: "needs-input" | "review"; timestamp: number; summary?: string };
     }
   | { type: "board_updated"; board: BoardRow[] };
 
