@@ -2033,6 +2033,41 @@ export function Playground() {
           </div>
         </Section>
 
+        {/* ─── Tool Block Error Boundary States ──────────────── */}
+        <Section
+          title="Tool Block Error Boundary"
+          description="Error boundary states for ToolBlock: transient retry and permanent failure."
+        >
+          <div className="space-y-2 max-w-3xl">
+            <Card label="Outer boundary — retrying (transient)">
+              <div className="text-[11px] text-cc-error/80 bg-cc-error/5 border border-cc-error/20 rounded-[10px] px-3 py-2.5">
+                <span className="font-medium">Failed to render tool block</span>
+                <span className="text-cc-muted ml-1">
+                  (Minified React error #185; visit https://react.dev/errors/185 for the full message.)
+                  {" -- retrying..."}
+                </span>
+              </div>
+            </Card>
+            <Card label="Outer boundary — permanent (after 3 retries)">
+              <div className="text-[11px] text-cc-error/80 bg-cc-error/5 border border-cc-error/20 rounded-[10px] px-3 py-2.5">
+                <span className="font-medium">Failed to render tool block</span>
+                <span className="text-cc-muted ml-1">
+                  (Minified React error #185; visit https://react.dev/errors/185 for the full message.)
+                </span>
+              </div>
+            </Card>
+            <Card label="Inner boundary — retrying (content error)">
+              <div className="text-[11px] text-cc-error/80 bg-cc-error/5 border border-cc-error/20 rounded-md px-3 py-2">
+                <span className="font-medium">Failed to render tool content</span>
+                <span className="text-cc-muted ml-1">
+                  (Cannot read properties of undefined)
+                  {" -- retrying..."}
+                </span>
+              </div>
+            </Card>
+          </div>
+        </Section>
+
         {/* ─── Tool Progress Indicator ──────────────────────── */}
         <Section title="Tool Progress" description="Real-time progress indicator shown while tools are running">
           <div className="space-y-4 max-w-3xl">

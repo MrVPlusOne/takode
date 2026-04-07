@@ -35,9 +35,13 @@ import {
  * in store selectors or hooks that React detects at the component level).
  *
  * Auto-recovery: if the error was transient (e.g. a timing-related re-render
- * storm), the boundary retries rendering after a short delay. After 3 consecutive
- * failures it stays in error state permanently to avoid infinite retry loops.
+ * storm), the boundary retries rendering after a short delay. After MAX_RETRIES
+ * consecutive failures it stays in error state permanently to avoid infinite retry loops.
  */
+
+const ERROR_BOUNDARY_RETRY_DELAY_MS = 2000;
+const ERROR_BOUNDARY_MAX_RETRIES = 3;
+
 class ToolBlockErrorBoundary extends Component<
   { children: ReactNode; toolName: string; variant?: "inner" | "outer" },
   { error: Error | null; retryCount: number }
@@ -56,11 +60,17 @@ class ToolBlockErrorBoundary extends Component<
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error(`[ToolBlock] Render error in ${this.props.toolName}:`, error, info.componentStack);
 
-    // Auto-retry transient errors (up to 3 attempts)
-    if (this.state.retryCount < 3) {
+    // Clear any pending retry before scheduling a new one
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
+
+    // Auto-retry transient errors (up to MAX_RETRIES attempts)
+    if (this.state.retryCount < ERROR_BOUNDARY_MAX_RETRIES) {
       this.retryTimer = setTimeout(() => {
         this.setState((prev) => ({ error: null, retryCount: prev.retryCount + 1 }));
-      }, 2000);
+      }, ERROR_BOUNDARY_RETRY_DELAY_MS);
     }
   }
 
@@ -74,7 +84,7 @@ class ToolBlockErrorBoundary extends Component<
   render() {
     if (this.state.error) {
       const isOuter = this.props.variant === "outer";
-      const isPermanent = this.state.retryCount >= 3;
+      const isPermanent = this.state.retryCount >= ERROR_BOUNDARY_MAX_RETRIES;
       return (
         <div
           className={`text-[11px] text-cc-error/80 bg-cc-error/5 border border-cc-error/20 ${
@@ -84,7 +94,7 @@ class ToolBlockErrorBoundary extends Component<
           <span className="font-medium">Failed to render {isOuter ? "tool block" : "tool content"}</span>
           <span className="text-cc-muted ml-1">
             ({this.state.error.message})
-            {!isPermanent && " — retrying..."}
+            {!isPermanent && " -- retrying..."}
           </span>
         </div>
       );
@@ -624,7 +634,7 @@ function ToolResultSection({
   }
 
   if (!preview) {
-    if (!progressToolName) return null;
+    if (!progressToolName?.trim()) return null;
     return (
       <div className="mt-2 pt-2 border-t border-cc-border/50">
         <div className="flex items-center gap-2 mb-1.5">
