@@ -4084,6 +4084,25 @@ export class WsBridge {
               ? { context_used_percent: session.state.context_used_percent }
               : {}),
           });
+          // Synthesize compact marker for the chat UI — the Agent SDK may not
+          // emit compact_boundary through stream(), so we create the marker here
+          // (same pattern as the Codex path). If compact_boundary does arrive
+          // later, the handler below enriches this marker with metadata instead
+          // of creating a duplicate.
+          const ts = Date.now();
+          const markerId = `compact-boundary-${ts}`;
+          session.messageHistory.push({
+            type: "compact_marker" as const,
+            timestamp: ts,
+            id: markerId,
+          });
+          this.freezeHistoryThroughCurrentTail(session);
+          session.awaitingCompactSummary = true;
+          this.broadcastToBrowsers(session, {
+            type: "compact_boundary",
+            id: markerId,
+            timestamp: ts,
+          });
         }
         if (wasCompacting && newStatus !== "compacting") {
           this.emitTakodeEvent(session.id, "compaction_finished", {
@@ -4099,9 +4118,9 @@ export class WsBridge {
 
       // Intercept compact_boundary from SDK adapter — the adapter forwards the
       // raw CLI system message (type:"system", subtype:"compact_boundary").
-      // Route through the same logic as the WebSocket path in handleSystemMessage
-      // so a compact_marker is persisted in messageHistory, awaitingCompactSummary
-      // is set, and browsers receive a properly-typed compact_boundary message.
+      // If we already synthesized a compact_marker from the earlier status_change,
+      // enrich it with the boundary metadata. Otherwise create a new marker
+      // (fallback for compact_boundary arriving without prior status_change).
       if ((msg as any).type === "system" && (msg as any).subtype === "compact_boundary") {
         const cliUuid = (msg as any).uuid;
         const meta = (msg as any).compact_metadata;
@@ -4109,6 +4128,26 @@ export class WsBridge {
         // Dedup: CLI replays compact_boundary on --resume
         if (this.hasCompactBoundaryReplay(session, cliUuid, meta)) return;
 
+        // Check if the status_change handler already synthesized a marker
+        const existingMarker = session.messageHistory.findLast((m) => m.type === "compact_marker");
+        if (existingMarker && existingMarker.type === "compact_marker" && !existingMarker.cliUuid) {
+          // Enrich the synthesized marker with metadata from compact_boundary
+          (existingMarker as any).cliUuid = cliUuid;
+          (existingMarker as any).trigger = meta?.trigger;
+          (existingMarker as any).preTokens = meta?.pre_tokens;
+          const preTokenContextPct = computePreTokenContextUsedPercent(session.state.model, meta?.pre_tokens);
+          if (typeof preTokenContextPct === "number" && preTokenContextPct !== session.state.context_used_percent) {
+            session.state.context_used_percent = preTokenContextPct;
+            this.broadcastToBrowsers(session, {
+              type: "session_update",
+              session: { context_used_percent: preTokenContextPct },
+            });
+          }
+          this.persistSession(session);
+          return;
+        }
+
+        // No existing marker — create a new one (compact_boundary without prior status_change)
         const ts = Date.now();
         const markerId = `compact-boundary-${ts}`;
         session.messageHistory.push({

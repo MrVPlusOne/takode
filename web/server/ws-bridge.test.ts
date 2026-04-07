@@ -6423,12 +6423,11 @@ describe("Compaction preserves generation state (regression)", () => {
 // ─── SDK compaction handling ────────────────────────────────────────────────
 
 describe("Claude SDK compaction handling", () => {
-  // Claude SDK sessions emit both status_change (compacting) and compact_boundary.
-  // The bridge must: (1) update is_compacting state on status_change so
-  // deriveSessionStatus() returns "compacting" on browser reconnect, (2) create
-  // compact_marker in messageHistory on compact_boundary so the chat UI shows
-  // the compaction divider, (3) emit takode events so orchestrators know when
-  // herded workers are compacting.
+  // The SDK status_change handler synthesizes a compact_marker immediately
+  // (the Agent SDK may not emit compact_boundary through stream()). If
+  // compact_boundary does arrive, the handler enriches the existing marker
+  // with metadata (trigger, preTokens, cliUuid) instead of creating a
+  // duplicate. This mirrors the Codex pattern for resilient UI rendering.
 
   /** Helper: create an SDK adapter mock, attach it, and emit session_init. */
   function initSdkSession(sessionId: string) {
@@ -6495,15 +6494,45 @@ describe("Claude SDK compaction handling", () => {
     expect(finishedCalls).toHaveLength(1);
   });
 
-  it("creates compact_marker when SDK emits compact_boundary", () => {
-    // The compact_marker in messageHistory is what the browser renders as
-    // the "Conversation compacted" divider in the chat feed. The browser
-    // receives the typed compact_boundary message via broadcastToBrowsers.
+  it("synthesizes compact_marker from status_change even without compact_boundary", () => {
+    // The Agent SDK may not yield compact_boundary through stream() — the
+    // status_change handler creates a compact_marker so the chat UI always
+    // shows the "Conversation compacted" divider.
     const adapter = initSdkSession("s1");
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
     browser.send.mockClear();
 
+    adapter.emitBrowserMessage({ type: "status_change", status: "compacting" });
+
+    const session = bridge.getSession("s1")!;
+    const markers = session.messageHistory.filter((m) => m.type === "compact_marker");
+    expect(markers).toHaveLength(1);
+    expect((markers[0] as any).id).toMatch(/^compact-boundary-/);
+
+    // Browser receives compact_boundary broadcast
+    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    const compactMsg = calls.find((m: any) => m.type === "compact_boundary");
+    expect(compactMsg).toBeTruthy();
+    expect(typeof compactMsg.timestamp).toBe("number");
+
+    // awaitingCompactSummary is set so summary capture works
+    expect(session.awaitingCompactSummary).toBe(true);
+  });
+
+  it("compact_boundary enriches existing synthesized marker with metadata", () => {
+    // When compact_boundary arrives after status_change, it should enrich
+    // the already-synthesized marker with trigger/preTokens/cliUuid rather
+    // than creating a duplicate marker.
+    const adapter = initSdkSession("s1");
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+    browser.send.mockClear();
+
+    // status_change creates the initial marker
+    adapter.emitBrowserMessage({ type: "status_change", status: "compacting" });
+
+    // compact_boundary enriches it
     adapter.emitBrowserMessage({
       type: "system",
       subtype: "compact_boundary",
@@ -6513,6 +6542,7 @@ describe("Claude SDK compaction handling", () => {
     });
 
     const session = bridge.getSession("s1")!;
+    // Still only one marker (no duplicate)
     const markers = session.messageHistory.filter((m) => m.type === "compact_marker");
     expect(markers).toHaveLength(1);
     const marker = markers[0] as any;
@@ -6520,11 +6550,6 @@ describe("Claude SDK compaction handling", () => {
     expect(marker.preTokens).toBe(80000);
     expect(marker.cliUuid).toBe("sdk-compact-uuid-1");
     expect(marker.id).toMatch(/^compact-boundary-/);
-
-    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    const compactMsg = calls.find((m: any) => m.type === "compact_boundary");
-    expect(compactMsg).toBeTruthy();
-    expect(typeof compactMsg.timestamp).toBe("number");
   });
 
   it("handles compact_boundary that arrives without prior status_change", () => {
@@ -6560,7 +6585,8 @@ describe("Claude SDK compaction handling", () => {
     // markers in messageHistory (same logic as the WebSocket path).
     const adapter = initSdkSession("s1");
 
-    // First compact_boundary
+    // First: status_change creates synthesized marker, compact_boundary enriches it
+    adapter.emitBrowserMessage({ type: "status_change", status: "compacting" });
     adapter.emitBrowserMessage({
       type: "system",
       subtype: "compact_boundary",
@@ -6569,7 +6595,7 @@ describe("Claude SDK compaction handling", () => {
       session_id: "cli-s1",
     });
 
-    // Replay (same uuid)
+    // Replay (same uuid) — should be deduplicated
     adapter.emitBrowserMessage({
       type: "system",
       subtype: "compact_boundary",
@@ -6583,23 +6609,19 @@ describe("Claude SDK compaction handling", () => {
     expect(markers).toHaveLength(1);
   });
 
-  it("captures compaction summary from user message after compact_boundary", () => {
+  it("captures compaction summary from user message after status_change synthesis", () => {
     // After compacting, the CLI sends a "user" message containing the
     // compaction summary text. The bridge stores this on the compact_marker
     // and broadcasts compact_summary so the browser can update the marker
-    // content from "Conversation compacted" to the full summary.
+    // content from "Conversation compacted" to the full summary. This must
+    // work even without compact_boundary (status_change-only path).
     const adapter = initSdkSession("s1");
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
     browser.send.mockClear();
 
-    adapter.emitBrowserMessage({
-      type: "system",
-      subtype: "compact_boundary",
-      compact_metadata: { trigger: "auto", pre_tokens: 90000 },
-      uuid: "sdk-compact-summary-1",
-      session_id: "cli-s1",
-    });
+    // status_change synthesizes the marker and sets awaitingCompactSummary
+    adapter.emitBrowserMessage({ type: "status_change", status: "compacting" });
 
     const session = bridge.getSession("s1")!;
     expect(session.awaitingCompactSummary).toBe(true);
@@ -6626,10 +6648,11 @@ describe("Claude SDK compaction handling", () => {
     expect(summaryMsg.summary).toBe("Here is a summary of the conversation so far...");
   });
 
-  it("does not duplicate state on re-notification of same compacting status", () => {
+  it("does not duplicate state or markers on re-notification of same compacting status", () => {
     // The SDK or adapter may re-notify the same compacting status. The bridge
     // must be idempotent: is_compacting stays true, compactedDuringTurn stays
-    // true, and no duplicate takode events are emitted.
+    // true, no duplicate takode events are emitted, and only one compact_marker
+    // is created.
     const adapter = initSdkSession("s1");
     const spy = vi.spyOn(bridge, "emitTakodeEvent");
 
@@ -6643,12 +6666,16 @@ describe("Claude SDK compaction handling", () => {
     // Only one compaction_started event (transition guard prevents duplicate)
     const startedCalls = spy.mock.calls.filter(([, event]) => event === "compaction_started");
     expect(startedCalls).toHaveLength(1);
+
+    // Only one compact_marker (second status_change was not a transition)
+    const markers = session.messageHistory.filter((m) => m.type === "compact_marker");
+    expect(markers).toHaveLength(1);
   });
 
-  it("broadcasts status_change to browser for SDK sessions", () => {
+  it("broadcasts both status_change and compact_boundary to browser on SDK compaction", () => {
     // The browser uses status_change to update the session status indicator
-    // (showing "compacting" spinner). This must still be broadcast even
-    // though the bridge now intercepts status_change for state tracking.
+    // (showing "compacting" spinner) AND receives compact_boundary to render
+    // the chat divider. Both must be broadcast from the status_change handler.
     const adapter = initSdkSession("s1");
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
@@ -6658,6 +6685,7 @@ describe("Claude SDK compaction handling", () => {
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     expect(calls).toContainEqual(expect.objectContaining({ type: "status_change", status: "compacting" }));
+    expect(calls.find((m: any) => m.type === "compact_boundary")).toBeTruthy();
   });
 
   it("preserves isGenerating during SDK compaction mid-turn", async () => {
