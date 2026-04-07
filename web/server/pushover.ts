@@ -99,10 +99,7 @@ export class PushoverNotifier {
     requestId?: string,
     options?: { skipReadCheck?: boolean },
   ): void {
-    if (!this.isConfigured()) {
-      console.log(`[pushover] Skipping ${eventType} for ${sessionId.slice(0, 8)}: not configured`);
-      return;
-    }
+    if (!this.isConfigured()) return;
 
     const isBatchable = eventType === "permission" || eventType === "question";
     const key = `${sessionId}:${eventType}`;

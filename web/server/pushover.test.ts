@@ -275,6 +275,38 @@ describe("PushoverNotifier", () => {
     expect(body.get("title")).toBe("Session completed");
   });
 
+  // ── Read suppression ──────────────────────────────────────────────
+
+  it("suppresses notification when user read session after event was created", async () => {
+    // getLastReadAt returns a time after the notification was scheduled,
+    // simulating the user viewing the session during the delay window.
+    const readAt = Date.now() + 15_000;
+    notifier = new PushoverNotifier(
+      makeOpts({
+        getLastReadAt: () => readAt,
+      }),
+    );
+
+    notifier.scheduleNotification("sess-1", "completed");
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("does not suppress notification when skipReadCheck is true even if user read session", async () => {
+    // Even though the user read the session after the event, skipReadCheck
+    // bypasses this suppression -- used by explicit takode notify calls.
+    const readAt = Date.now() + 15_000;
+    notifier = new PushoverNotifier(
+      makeOpts({
+        getLastReadAt: () => readAt,
+      }),
+    );
+
+    notifier.scheduleNotification("sess-1", "completed", undefined, undefined, { skipReadCheck: true });
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   // ── Rate limiting ───────────────────────────────────────────────────
 
   it("enforces per-session cooldown", async () => {
