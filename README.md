@@ -12,6 +12,12 @@
 
 ---
 
+You're juggling five terminal tabs, each running an AI coding agent. One finished ten minutes ago but you missed it. Another is waiting for permission. A third just edited the same file as the fourth.
+
+**Takode gives you one place to see it all** -- and a leader agent that manages the rest of the team for you.
+
+---
+
 ## Quick Start
 
 **Requirements:** [Bun](https://bun.sh) and either [Claude Code](https://docs.anthropic.com/en/docs/claude-code) or [Codex](https://github.com/openai/codex) CLI installed.
@@ -24,13 +30,13 @@ make serve
 
 Open <http://localhost:3456>. Create a session, point it at your project, and start chatting.
 
-`make serve` runs the production server with support for server restarts (the server can restart itself to pick up code changes).
+`make serve` runs the production server with support for self-restart (the server can restart itself to pick up code changes).
 
 ---
 
 ## What You Can Do
 
-### Let a leader coordinate workers
+### 🐑 Let a leader herd workers
 
 This is Takode's signature workflow. One session acts as a **leader** that spawns and manages **worker** sessions:
 
@@ -41,7 +47,7 @@ This is Takode's signature workflow. One session acts as a **leader** that spawn
 
 Workers can't interfere with each other -- each worktree is its own branch. No Docker needed.
 
-### Track work with quests
+### 📋 Track work with quests
 
 Quests are persistent tasks that survive server restarts and span across sessions:
 
@@ -53,26 +59,30 @@ The leader can run a full **Quest Journey** -- dispatching, reviewing with a ske
 
 > Most Takode features -- quests, orchestration, session management, notifications -- are accessible to agents via built-in CLI tools. This is how leader sessions coordinate workers autonomously.
 
-### Run multiple sessions at once
+### 🪟 Run multiple sessions at once
 
 Each session is a full Claude Code or Codex instance with its own conversation, working directory, and git branch. Organize them into sidebar groups by project. Switch between sessions instantly -- multiple browser tabs work too.
 
-### See everything the agent does
+### 🔍 See everything the agent does
 
 Every tool call is visible in the chat: file edits, bash commands, grep searches, file reads. Tool calls are grouped and collapsible, so you can skim the high-level flow or expand any tool block to see exactly what happened. Results stream in real time.
 
-### Two permission modes
+### 🔒 Two permission modes
 
 Each session runs in either **agent mode** (the agent executes tools freely) or **plan mode** (the agent proposes a plan for your approval before making changes). An **ask flag** can be toggled on to require approval for individual tool calls. Permission requests show up as banners -- approve, reject, or add feedback with a click.
 
-### Talk to your agents
+### 🎙️ Talk to your agents
 
 Click the microphone to dictate a prompt. Takode transcribes and sends it. If transcription fails, your recording is saved so you can retry.
 
-### Get notified when you're needed
+### 🔔 Get notified when you're needed
 
 - **In-app badges** with summary text on sessions that need your attention
 - **Pushover notifications** for mobile alerts when you're away from the screen
+
+### 📱 Mobile friendly
+
+Takode works on your phone. Check on your agents, approve permissions, and send messages from anywhere. The responsive UI adapts to small screens so you can stay in the loop without being at your desk.
 
 ---
 
