@@ -18,7 +18,7 @@
 
 ```bash
 git clone https://github.com/MrVPlusOne/takode.git
-cd takode/web && bun install
+cd takode && bun install --cwd web
 make serve
 ```
 
