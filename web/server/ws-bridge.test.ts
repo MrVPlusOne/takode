@@ -6424,53 +6424,52 @@ describe("Compaction preserves generation state (regression)", () => {
 
 describe("Claude SDK compaction handling", () => {
   // Claude SDK sessions emit both status_change (compacting) and compact_boundary.
-  // The bridge must: (1) update is_compacting state on status_change, (2) create
-  // compact_marker in messageHistory on compact_boundary, (3) emit takode events.
+  // The bridge must: (1) update is_compacting state on status_change so
+  // deriveSessionStatus() returns "compacting" on browser reconnect, (2) create
+  // compact_marker in messageHistory on compact_boundary so the chat UI shows
+  // the compaction divider, (3) emit takode events so orchestrators know when
+  // herded workers are compacting.
 
-  it("updates is_compacting state when SDK status_change reports compacting", () => {
+  /** Helper: create an SDK adapter mock, attach it, and emit session_init. */
+  function initSdkSession(sessionId: string) {
     const adapter = makeClaudeSdkAdapterMock();
-    bridge.attachClaudeSdkAdapter("s1", adapter as any);
-    const browser = makeBrowserSocket("s1");
-    bridge.handleBrowserOpen(browser, "s1");
-
-    // SDK adapter emits session_init so the session is initialized
+    bridge.attachClaudeSdkAdapter(sessionId, adapter as any);
     adapter.emitBrowserMessage({
       type: "session_init",
       session: {
-        session_id: "cli-sdk-1",
+        session_id: `cli-${sessionId}`,
         model: "claude-sonnet-4-5-20250929",
         cwd: "/tmp/test",
         tools: [],
         permissionMode: "default",
       },
     });
+    return adapter;
+  }
+
+  it("updates is_compacting state when SDK status_change reports compacting", () => {
+    // is_compacting drives deriveSessionStatus() which populates state_snapshot
+    // on browser reconnect. Without this, reconnecting browsers see "idle"
+    // instead of "compacting" during active compaction.
+    const adapter = initSdkSession("s1");
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
 
     const session = bridge.getSession("s1")!;
     expect(session.state.is_compacting).toBe(false);
 
-    // Simulate status_change to compacting (what the SDK adapter emits)
     adapter.emitBrowserMessage({ type: "status_change", status: "compacting" });
     expect(session.state.is_compacting).toBe(true);
 
-    // Status back to non-compacting
     adapter.emitBrowserMessage({ type: "status_change", status: null });
     expect(session.state.is_compacting).toBe(false);
   });
 
   it("sets compactedDuringTurn when SDK enters compacting state", () => {
-    const adapter = makeClaudeSdkAdapterMock();
-    bridge.attachClaudeSdkAdapter("s1", adapter as any);
-
-    adapter.emitBrowserMessage({
-      type: "session_init",
-      session: {
-        session_id: "cli-sdk-2",
-        model: "claude-sonnet-4-5-20250929",
-        cwd: "/tmp/test",
-        tools: [],
-        permissionMode: "default",
-      },
-    });
+    // compactedDuringTurn is consumed by the herd event system to annotate
+    // turn_end events with "(compacted)" so the orchestrator knows the worker
+    // was busy compacting rather than doing useful work.
+    const adapter = initSdkSession("s1");
 
     const session = bridge.getSession("s1")!;
     expect(session.compactedDuringTurn).toBe(false);
@@ -6480,25 +6479,14 @@ describe("Claude SDK compaction handling", () => {
   });
 
   it("emits compaction_started and compaction_finished takode events for SDK sessions", () => {
-    const adapter = makeClaudeSdkAdapterMock();
-    bridge.attachClaudeSdkAdapter("s1", adapter as any);
-
-    adapter.emitBrowserMessage({
-      type: "session_init",
-      session: {
-        session_id: "cli-sdk-3",
-        model: "claude-sonnet-4-5-20250929",
-        cwd: "/tmp/test",
-        tools: [],
-        permissionMode: "default",
-      },
-    });
+    // Takode orchestrators use these events to track herded worker compaction
+    // state. Without them, the leader has no visibility into SDK workers
+    // spending time on compaction vs. actual work.
+    const adapter = initSdkSession("s1");
 
     const spy = vi.spyOn(bridge, "emitTakodeEvent");
 
-    // Enter compacting
     adapter.emitBrowserMessage({ type: "status_change", status: "compacting" });
-    // Exit compacting
     adapter.emitBrowserMessage({ type: "status_change", status: null });
 
     const startedCalls = spy.mock.calls.filter(([, event]) => event === "compaction_started");
@@ -6508,30 +6496,20 @@ describe("Claude SDK compaction handling", () => {
   });
 
   it("creates compact_marker when SDK emits compact_boundary", () => {
-    const adapter = makeClaudeSdkAdapterMock();
-    bridge.attachClaudeSdkAdapter("s1", adapter as any);
+    // The compact_marker in messageHistory is what the browser renders as
+    // the "Conversation compacted" divider in the chat feed. The browser
+    // receives the typed compact_boundary message via broadcastToBrowsers.
+    const adapter = initSdkSession("s1");
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
-
-    adapter.emitBrowserMessage({
-      type: "session_init",
-      session: {
-        session_id: "cli-sdk-4",
-        model: "claude-sonnet-4-5-20250929",
-        cwd: "/tmp/test",
-        tools: [],
-        permissionMode: "default",
-      },
-    });
     browser.send.mockClear();
 
-    // Simulate compact_boundary (raw system message from SDK)
     adapter.emitBrowserMessage({
       type: "system",
       subtype: "compact_boundary",
       compact_metadata: { trigger: "auto", pre_tokens: 80000 },
       uuid: "sdk-compact-uuid-1",
-      session_id: "cli-sdk-4",
+      session_id: "cli-s1",
     });
 
     const session = bridge.getSession("s1")!;
@@ -6543,44 +6521,89 @@ describe("Claude SDK compaction handling", () => {
     expect(marker.cliUuid).toBe("sdk-compact-uuid-1");
     expect(marker.id).toMatch(/^compact-boundary-/);
 
-    // Verify compact_boundary was broadcast to browser
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     const compactMsg = calls.find((m: any) => m.type === "compact_boundary");
     expect(compactMsg).toBeTruthy();
     expect(typeof compactMsg.timestamp).toBe("number");
   });
 
-  it("captures compaction summary from user message after compact_boundary", () => {
-    const adapter = makeClaudeSdkAdapterMock();
-    bridge.attachClaudeSdkAdapter("s1", adapter as any);
+  it("handles compact_boundary that arrives without prior status_change", () => {
+    // Edge case: the SDK might deliver compact_boundary independently of
+    // status_change, or the messages could arrive out of order. The compact
+    // marker must still be created correctly.
+    const adapter = initSdkSession("s1");
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
-
-    adapter.emitBrowserMessage({
-      type: "session_init",
-      session: {
-        session_id: "cli-sdk-5",
-        model: "claude-sonnet-4-5-20250929",
-        cwd: "/tmp/test",
-        tools: [],
-        permissionMode: "default",
-      },
-    });
     browser.send.mockClear();
 
-    // Compact boundary
+    // compact_boundary WITHOUT any prior status_change(compacting)
+    adapter.emitBrowserMessage({
+      type: "system",
+      subtype: "compact_boundary",
+      compact_metadata: { trigger: "manual", pre_tokens: 60000 },
+      uuid: "sdk-standalone-boundary",
+      session_id: "cli-s1",
+    });
+
+    const session = bridge.getSession("s1")!;
+    const markers = session.messageHistory.filter((m) => m.type === "compact_marker");
+    expect(markers).toHaveLength(1);
+    expect((markers[0] as any).trigger).toBe("manual");
+
+    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    expect(calls.find((m: any) => m.type === "compact_boundary")).toBeTruthy();
+  });
+
+  it("deduplicates replayed compact_boundary by uuid on SDK resume", () => {
+    // On --resume, the SDK replays historical compact_boundary messages.
+    // The bridge must deduplicate by uuid so replay doesn't create duplicate
+    // markers in messageHistory (same logic as the WebSocket path).
+    const adapter = initSdkSession("s1");
+
+    // First compact_boundary
+    adapter.emitBrowserMessage({
+      type: "system",
+      subtype: "compact_boundary",
+      compact_metadata: { trigger: "auto", pre_tokens: 80000 },
+      uuid: "sdk-dedup-uuid",
+      session_id: "cli-s1",
+    });
+
+    // Replay (same uuid)
+    adapter.emitBrowserMessage({
+      type: "system",
+      subtype: "compact_boundary",
+      compact_metadata: { trigger: "auto", pre_tokens: 80000 },
+      uuid: "sdk-dedup-uuid",
+      session_id: "cli-s1",
+    });
+
+    const session = bridge.getSession("s1")!;
+    const markers = session.messageHistory.filter((m) => m.type === "compact_marker");
+    expect(markers).toHaveLength(1);
+  });
+
+  it("captures compaction summary from user message after compact_boundary", () => {
+    // After compacting, the CLI sends a "user" message containing the
+    // compaction summary text. The bridge stores this on the compact_marker
+    // and broadcasts compact_summary so the browser can update the marker
+    // content from "Conversation compacted" to the full summary.
+    const adapter = initSdkSession("s1");
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+    browser.send.mockClear();
+
     adapter.emitBrowserMessage({
       type: "system",
       subtype: "compact_boundary",
       compact_metadata: { trigger: "auto", pre_tokens: 90000 },
       uuid: "sdk-compact-summary-1",
-      session_id: "cli-sdk-5",
+      session_id: "cli-s1",
     });
 
     const session = bridge.getSession("s1")!;
     expect(session.awaitingCompactSummary).toBe(true);
 
-    // User message with compaction summary
     adapter.emitBrowserMessage({
       type: "user",
       message: {
@@ -6589,71 +6612,81 @@ describe("Claude SDK compaction handling", () => {
       },
       parent_tool_use_id: null,
       uuid: "sdk-summary-msg-1",
-      session_id: "cli-sdk-5",
+      session_id: "cli-s1",
     });
 
     expect(session.awaitingCompactSummary).toBe(false);
 
-    // Summary should be stored on the compact_marker
     const marker = session.messageHistory.findLast((m) => m.type === "compact_marker") as any;
     expect(marker?.summary).toBe("Here is a summary of the conversation so far...");
 
-    // compact_summary should be broadcast to browser
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     const summaryMsg = calls.find((m: any) => m.type === "compact_summary");
     expect(summaryMsg).toBeTruthy();
     expect(summaryMsg.summary).toBe("Here is a summary of the conversation so far...");
   });
 
-  it("does not duplicate compact_marker on re-notification of same compacting status", () => {
-    const adapter = makeClaudeSdkAdapterMock();
-    bridge.attachClaudeSdkAdapter("s1", adapter as any);
+  it("does not duplicate state on re-notification of same compacting status", () => {
+    // The SDK or adapter may re-notify the same compacting status. The bridge
+    // must be idempotent: is_compacting stays true, compactedDuringTurn stays
+    // true, and no duplicate takode events are emitted.
+    const adapter = initSdkSession("s1");
+    const spy = vi.spyOn(bridge, "emitTakodeEvent");
 
-    adapter.emitBrowserMessage({
-      type: "session_init",
-      session: {
-        session_id: "cli-sdk-6",
-        model: "claude-sonnet-4-5-20250929",
-        cwd: "/tmp/test",
-        tools: [],
-        permissionMode: "default",
-      },
-    });
-
-    // SDK sessions use compact_boundary for marker creation, not status_change.
-    // Verify that multiple status_change(compacting) don't cause issues.
     adapter.emitBrowserMessage({ type: "status_change", status: "compacting" });
     adapter.emitBrowserMessage({ type: "status_change", status: "compacting" });
 
     const session = bridge.getSession("s1")!;
-    // is_compacting should be true (set on first, no-op on second)
     expect(session.state.is_compacting).toBe(true);
-    // compactedDuringTurn should be true (set on first transition only)
     expect(session.compactedDuringTurn).toBe(true);
+
+    // Only one compaction_started event (transition guard prevents duplicate)
+    const startedCalls = spy.mock.calls.filter(([, event]) => event === "compaction_started");
+    expect(startedCalls).toHaveLength(1);
   });
 
   it("broadcasts status_change to browser for SDK sessions", () => {
-    const adapter = makeClaudeSdkAdapterMock();
-    bridge.attachClaudeSdkAdapter("s1", adapter as any);
+    // The browser uses status_change to update the session status indicator
+    // (showing "compacting" spinner). This must still be broadcast even
+    // though the bridge now intercepts status_change for state tracking.
+    const adapter = initSdkSession("s1");
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
-
-    adapter.emitBrowserMessage({
-      type: "session_init",
-      session: {
-        session_id: "cli-sdk-7",
-        model: "claude-sonnet-4-5-20250929",
-        cwd: "/tmp/test",
-        tools: [],
-        permissionMode: "default",
-      },
-    });
     browser.send.mockClear();
 
     adapter.emitBrowserMessage({ type: "status_change", status: "compacting" });
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     expect(calls).toContainEqual(expect.objectContaining({ type: "status_change", status: "compacting" }));
+  });
+
+  it("preserves isGenerating during SDK compaction mid-turn", async () => {
+    // Compaction is NOT a turn boundary -- the CLI continues its turn after
+    // compacting. isGenerating must stay true throughout so the session
+    // doesn't appear idle while still working.
+    const adapter = initSdkSession("s1");
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    await bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({ type: "user_message", content: "implement feature" }),
+    );
+
+    const session = bridge.getSession("s1")!;
+    // isGenerating is set by the user message dispatch
+    // (SDK adapter mock returns true for sendBrowserMessage by default)
+
+    // SDK enters compaction mid-turn
+    adapter.emitBrowserMessage({ type: "status_change", status: "compacting" });
+    expect(session.state.is_compacting).toBe(true);
+    // isGenerating must NOT be cleared by compaction
+    expect(session.isGenerating).toBe(true);
+
+    // SDK exits compaction, continues turn
+    adapter.emitBrowserMessage({ type: "status_change", status: null });
+    expect(session.state.is_compacting).toBe(false);
+    expect(session.isGenerating).toBe(true);
   });
 });
 
