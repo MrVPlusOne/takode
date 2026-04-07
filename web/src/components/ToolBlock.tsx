@@ -33,14 +33,20 @@ import {
  * Also used as an outer wrapper around the entire ToolBlock component to catch
  * errors that occur outside the expanded section (e.g. infinite re-render loops
  * in store selectors or hooks that React detects at the component level).
+ *
+ * Auto-recovery: if the error was transient (e.g. a timing-related re-render
+ * storm), the boundary retries rendering after a short delay. After 3 consecutive
+ * failures it stays in error state permanently to avoid infinite retry loops.
  */
 class ToolBlockErrorBoundary extends Component<
   { children: ReactNode; toolName: string; variant?: "inner" | "outer" },
-  { error: Error | null }
+  { error: Error | null; retryCount: number }
 > {
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
+
   constructor(props: { children: ReactNode; toolName: string; variant?: "inner" | "outer" }) {
     super(props);
-    this.state = { error: null };
+    this.state = { error: null, retryCount: 0 };
   }
 
   static getDerivedStateFromError(error: Error) {
@@ -49,11 +55,26 @@ class ToolBlockErrorBoundary extends Component<
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error(`[ToolBlock] Render error in ${this.props.toolName}:`, error, info.componentStack);
+
+    // Auto-retry transient errors (up to 3 attempts)
+    if (this.state.retryCount < 3) {
+      this.retryTimer = setTimeout(() => {
+        this.setState((prev) => ({ error: null, retryCount: prev.retryCount + 1 }));
+      }, 2000);
+    }
+  }
+
+  componentWillUnmount() {
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
   }
 
   render() {
     if (this.state.error) {
       const isOuter = this.props.variant === "outer";
+      const isPermanent = this.state.retryCount >= 3;
       return (
         <div
           className={`text-[11px] text-cc-error/80 bg-cc-error/5 border border-cc-error/20 ${
@@ -61,7 +82,10 @@ class ToolBlockErrorBoundary extends Component<
           }`}
         >
           <span className="font-medium">Failed to render {isOuter ? "tool block" : "tool content"}</span>
-          <span className="text-cc-muted ml-1">({this.state.error.message})</span>
+          <span className="text-cc-muted ml-1">
+            ({this.state.error.message})
+            {!isPermanent && " — retrying..."}
+          </span>
         </div>
       );
     }
@@ -143,9 +167,12 @@ export function formatDuration(seconds: number): string {
 /** Live duration badge — shows a counting timer while the tool runs,
  *  then switches to the server-reported ground-truth duration on completion. */
 function ToolDurationBadge({ toolUseId, sessionId }: { toolUseId: string; sessionId: string }) {
-  // Tool result preview (present once the tool has completed)
-  const toolResult = useStore((s) => s.toolResults.get(sessionId)?.get(toolUseId));
-  const finalDuration = toolResult?.duration_seconds;
+  // Subscribe to primitive fields only. Using the full ToolResultPreview object
+  // as a selector return or useEffect dependency causes re-render storms when the
+  // object reference changes (e.g. during history replay), potentially cascading
+  // into React error #185 (maximum update depth exceeded).
+  const finalDuration = useStore((s) => s.toolResults.get(sessionId)?.get(toolUseId)?.duration_seconds);
+  const hasToolResult = useStore((s) => s.toolResults.get(sessionId)?.get(toolUseId) != null);
   const progressElapsedSeconds = useStore((s) => s.toolProgress.get(sessionId)?.get(toolUseId)?.elapsedSeconds);
   // Server start timestamp (from tool_start_times on the assistant message)
   const startTimestamp = useStore((s) => s.toolStartTimestamps.get(sessionId)?.get(toolUseId));
@@ -155,9 +182,9 @@ function ToolDurationBadge({ toolUseId, sessionId }: { toolUseId: string; sessio
 
   useEffect(() => {
     // If we have the final duration or the tool has completed (result exists
-    // but duration_seconds is missing — e.g. server restarted mid-tool and
+    // but duration_seconds is missing -- e.g. server restarted mid-tool and
     // lost the transient start time), no need for a live timer.
-    if (finalDuration != null || toolResult != null) {
+    if (finalDuration != null || hasToolResult) {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
@@ -181,11 +208,11 @@ function ToolDurationBadge({ toolUseId, sessionId }: { toolUseId: string; sessio
         }
       };
     }
-  }, [finalDuration, startTimestamp, toolResult]);
+  }, [finalDuration, startTimestamp, hasToolResult]);
 
   // Show final duration (static) or live timer
   const liveElapsedSeconds = liveSeconds ?? progressElapsedSeconds ?? null;
-  const displaySeconds = finalDuration ?? (toolResult == null ? liveElapsedSeconds : null);
+  const displaySeconds = finalDuration ?? (!hasToolResult ? liveElapsedSeconds : null);
   if (displaySeconds == null) return null;
 
   const isLive = finalDuration == null;
@@ -558,13 +585,21 @@ function ToolResultSection({
   input: Record<string, unknown>;
 }) {
   const preview = useStore((s) => s.toolResults.get(sessionId)?.get(toolUseId));
-  const progress = useStore((s) => s.toolProgress.get(sessionId)?.get(toolUseId));
+  // Subscribe to individual primitive fields instead of the full progress object.
+  // The progress object changes on every output chunk and elapsed-seconds tick,
+  // creating a new reference each time. Subscribing to the whole object would
+  // cause Zustand to trigger a re-render on every update (fails Object.is),
+  // which under load can cascade into React error #185 (maximum update depth).
+  const liveOutput = useStore((s) => s.toolProgress.get(sessionId)?.get(toolUseId)?.output ?? "");
+  const progressToolName = useStore((s) => s.toolProgress.get(sessionId)?.get(toolUseId)?.toolName);
+  const progressOutputTruncated = useStore(
+    (s) => s.toolProgress.get(sessionId)?.get(toolUseId)?.outputTruncated ?? false,
+  );
   const imagePath = extractImagePathForPreview(toolName, input);
   const isReadImage = !!imagePath;
   const [fullContent, setFullContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const liveOutput = progress?.output || "";
-  const isCompletedLiveTerminal = toolName === "Bash" && progress?.toolName === "Bash";
+  const isCompletedLiveTerminal = toolName === "Bash" && progressToolName === "Bash";
   const shouldUseLiveTranscriptFallback =
     !!preview &&
     isCompletedLiveTerminal &&
@@ -589,7 +624,7 @@ function ToolResultSection({
   }
 
   if (!preview) {
-    if (!progress) return null;
+    if (!progressToolName) return null;
     return (
       <div className="mt-2 pt-2 border-t border-cc-border/50">
         <div className="flex items-center gap-2 mb-1.5">
@@ -597,7 +632,7 @@ function ToolResultSection({
           <span className="text-[10px] px-1.5 py-0.5 rounded bg-cc-primary/10 text-cc-primary font-medium">
             running
           </span>
-          {progress.outputTruncated && <span className="text-[10px] text-cc-muted">showing latest 12KB</span>}
+          {progressOutputTruncated && <span className="text-[10px] text-cc-muted">showing latest 12KB</span>}
         </div>
         {liveOutput ? (
           <div className="group/code relative rounded-lg overflow-hidden">
