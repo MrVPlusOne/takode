@@ -927,22 +927,11 @@ export function createSessionsRoutes(ctx: RouteContext) {
         try {
           const { sessionAuthToken: _token, injectedSystemPrompt: _prompt, ...safeSession } = s;
           const bridgeSession = wsBridge.getSession(s.sessionId);
-          if (bridgeSession?.state?.is_worktree && !safeSession.archived) {
-            if (heavyRepoModeEnabled) {
-              void wsBridge
-                .refreshWorktreeGitStateForSnapshot(s.sessionId, {
-                  broadcastUpdate: true,
-                  notifyPoller: true,
-                })
-                .catch((err) => {
-                  console.warn(`[routes] Failed to refresh worktree git state for ${s.sessionId}:`, err);
-                });
-            } else {
-              await wsBridge.refreshWorktreeGitStateForSnapshot(s.sessionId, {
-                broadcastUpdate: true,
-                notifyPoller: true,
-              });
-            }
+          if (bridgeSession?.state?.is_worktree && !safeSession.archived && !heavyRepoModeEnabled) {
+            await wsBridge.refreshWorktreeGitStateForSnapshot(s.sessionId, {
+              broadcastUpdate: true,
+              notifyPoller: true,
+            });
           }
           const bridge = wsBridge.getSession(s.sessionId)?.state ?? bridgeMap.get(s.sessionId);
           const cliConnected = wsBridge.isBackendConnected(s.sessionId);
@@ -1260,12 +1249,12 @@ export function createSessionsRoutes(ctx: RouteContext) {
 
     // Worktree sessions: validate the worktree still exists and isn't used by another session
     if (info.isWorktree && info.repoRoot && info.branch) {
-      const cwdExists = existsSync(info.cwd); // sync-ok: route handler, not called during message handling
+      const cwdExists = await pathExists(info.cwd);
       const usedByOther = worktreeTracker.isWorktreeInUse(info.cwd, id);
 
       if (!cwdExists || usedByOther) {
         // Recreate the worktree at a new unique path
-        const wt = gitUtils.ensureWorktree(info.repoRoot, info.branch, { forceNew: true });
+        const wt = await gitUtils.ensureWorktreeAsync(info.repoRoot, info.branch, { forceNew: true });
         info.cwd = wt.worktreePath;
         info.actualBranch = wt.actualBranch;
         wsBridge.markWorktree(id, info.repoRoot, wt.worktreePath, undefined, info.branch);
@@ -1604,10 +1593,9 @@ export function createSessionsRoutes(ctx: RouteContext) {
     // For worktree sessions: recreate the worktree if it was deleted during archiving
     let worktreeRecreated = false;
     if (info.isWorktree && info.repoRoot && info.branch) {
-      if (!existsSync(info.cwd)) {
-        // sync-ok: route handler, not called during message handling
+      if (!(await pathExists(info.cwd))) {
         try {
-          const result = recreateWorktreeIfMissing(id, info, { launcher, worktreeTracker, wsBridge });
+          const result = await recreateWorktreeIfMissing(id, info, { launcher, worktreeTracker, wsBridge });
           if (result.error) {
             return c.json({ ok: false, error: `Failed to recreate worktree: ${result.error}` }, 500);
           }

@@ -4,7 +4,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { access, mkdir } from "node:fs/promises";
 import { join, basename, resolve } from "node:path";
 import { homedir } from "node:os";
-import { GIT_CMD_TIMEOUT } from "./constants.js";
+import { GIT_CMD_TIMEOUT, SERVER_GIT_CMD } from "./constants.js";
 
 const execPromise = promisify(execCb);
 
@@ -70,7 +70,7 @@ function findUniquePath(basePath: string): string {
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function git(cmd: string, cwd: string): string {
-  return execSync(`git --no-optional-locks ${cmd}`, {
+  return execSync(`${SERVER_GIT_CMD} ${cmd}`, {
     // sync-ok: session setup, not called during message handling
     cwd,
     encoding: "utf-8",
@@ -90,7 +90,7 @@ function gitSafe(cmd: string, cwd: string): string | null {
 // ─── Async helpers (non-blocking — for hot paths) ────────────────────────────
 
 async function gitAsync(cmd: string, cwd: string): Promise<string> {
-  const { stdout } = await execPromise(`git --no-optional-locks ${cmd}`, {
+  const { stdout } = await execPromise(`${SERVER_GIT_CMD} ${cmd}`, {
     cwd,
     encoding: "utf-8",
     timeout: GIT_CMD_TIMEOUT,

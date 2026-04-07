@@ -48,7 +48,7 @@ import { ensureQuestmasterIntegration } from "./quest-integration.js";
 import { ensureTakodeIntegration } from "./takode-integration.js";
 import { ensureSkillSymlinks } from "./skill-symlink.js";
 import { recreateWorktreeIfMissing } from "./migration.js";
-import { existsSync } from "node:fs";
+import { access } from "node:fs/promises";
 import { RelaunchQueue } from "./relaunch-queue.js";
 import {
   shouldAllowUserMessageOverrideOnNameMismatch,
@@ -189,11 +189,12 @@ const relaunchQueue = new RelaunchQueue(async (sessionId) => {
   if (info.killedByIdleManager) return;
 
   // If cwd doesn't exist, try to recreate worktree (e.g. after migration)
-  if (!existsSync(info.cwd)) {
-    // sync-ok: session launch, not called during message handling
+  try {
+    await access(info.cwd);
+  } catch {
     if (info.isWorktree && info.repoRoot && info.branch) {
       try {
-        const wtResult = recreateWorktreeIfMissing(sessionId, info, { launcher, worktreeTracker, wsBridge });
+        const wtResult = await recreateWorktreeIfMissing(sessionId, info, { launcher, worktreeTracker, wsBridge });
         if (wtResult.error) {
           wsBridge.broadcastToSession(sessionId, { type: "error", message: wtResult.error });
           return;

@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { execSync } from "node:child_process";
 import { getLegacyCodexHome } from "./codex-home.js";
+import { SERVER_GIT_CMD } from "./constants.js";
 
 /**
  * Resolve the main repository root, not the current worktree.
@@ -15,7 +16,7 @@ function resolveMainRepoRoot(): string {
   const localRoot = dirname(dirname(fileURLToPath(import.meta.url)));
   try {
     // sync-ok: startup cold path, one-shot git query
-    const gitCommonDir = execSync("git rev-parse --git-common-dir", {
+    const gitCommonDir = execSync(`${SERVER_GIT_CMD} rev-parse --git-common-dir`, {
       cwd: localRoot,
       encoding: "utf-8",
     }).trim();

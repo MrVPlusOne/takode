@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import { ensureAssistantWorkspace, ASSISTANT_DIR } from "../assistant-workspace.js";
 import { expandTilde } from "../path-resolver.js";
 import { getRipgrepPath } from "../ripgrep.js";
+import { SERVER_GIT_CMD } from "../constants.js";
 import type { RouteContext } from "./context.js";
 
 const execPromise = promisify(execCb);
@@ -186,16 +187,16 @@ export function createFilesystemRoutes(ctx: RouteContext) {
     const includeContents = c.req.query("includeContents") === "1";
     const absPath = resolve(filePath);
     try {
-      const repoRoot = await execAsync("git --no-optional-locks rev-parse --show-toplevel", dirname(absPath));
+      const repoRoot = await execAsync(`${SERVER_GIT_CMD} rev-parse --show-toplevel`, dirname(absPath));
       const relPath =
-        (await execAsync(`git --no-optional-locks -C "${repoRoot}" ls-files --full-name -- "${absPath}"`, repoRoot)) ||
+        (await execAsync(`${SERVER_GIT_CMD} -C "${repoRoot}" ls-files --full-name -- "${absPath}"`, repoRoot)) ||
         absPath;
 
       let diff = "";
       try {
         // Compare directly to the selected base ref tip. Using merge-base here
         // makes cherry-picked commits appear as unsynced in the UI.
-        diff = await execCaptureStdoutAsync(`git --no-optional-locks diff "${base}" -- "${relPath}"`, repoRoot, {
+        diff = await execCaptureStdoutAsync(`${SERVER_GIT_CMD} diff "${base}" -- "${relPath}"`, repoRoot, {
           maxBuffer: DIFF_MAX_BUFFER,
         });
       } catch {
@@ -205,12 +206,12 @@ export function createFilesystemRoutes(ctx: RouteContext) {
       // For untracked files, base-branch diff is empty. Show full file as added.
       if (!diff.trim()) {
         const untracked = await execAsync(
-          `git --no-optional-locks ls-files --others --exclude-standard -- "${relPath}"`,
+          `${SERVER_GIT_CMD} ls-files --others --exclude-standard -- "${relPath}"`,
           repoRoot,
         );
         if (untracked) {
           diff = await execCaptureStdoutAsync(
-            `git --no-optional-locks diff --no-index -- /dev/null "${absPath}"`,
+            `${SERVER_GIT_CMD} diff --no-index -- /dev/null "${absPath}"`,
             repoRoot,
             { maxBuffer: DIFF_MAX_BUFFER },
           );
@@ -225,7 +226,7 @@ export function createFilesystemRoutes(ctx: RouteContext) {
 
         try {
           const baseContent = await execCaptureStdoutAsync(
-            `git --no-optional-locks show "${base}":"${escapedRelPath}"`,
+            `${SERVER_GIT_CMD} show "${base}":"${escapedRelPath}"`,
             repoRoot,
             { maxBuffer: DIFF_MAX_BUFFER },
           );
@@ -298,7 +299,7 @@ export function createFilesystemRoutes(ctx: RouteContext) {
       const relFiles = body.files.map((f) => (f.startsWith(rootPrefix) ? f.slice(rootPrefix.length) : f));
       const fileArgs = relFiles.map((f) => `"${f}"`).join(" ");
       const raw = await execCaptureStdoutAsync(
-        `git --no-optional-locks diff --numstat "${body.base}" -- ${fileArgs}`,
+        `${SERVER_GIT_CMD} diff --numstat "${body.base}" -- ${fileArgs}`,
         repoRoot,
         { maxBuffer: DIFF_MAX_BUFFER },
       );
@@ -347,7 +348,7 @@ export function createFilesystemRoutes(ctx: RouteContext) {
     try {
       // --no-optional-locks avoids NFS lock contention on .git/index.lock
       // No -M flag: rename detection is too expensive on NFS (reads full file contents)
-      const raw = await execCaptureStdoutAsync(`git --no-optional-locks diff --name-status "${base}"`, repoRoot, {
+      const raw = await execCaptureStdoutAsync(`${SERVER_GIT_CMD} diff --name-status "${base}"`, repoRoot, {
         maxBuffer: DIFF_MAX_BUFFER,
       });
 

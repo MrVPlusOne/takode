@@ -45,22 +45,11 @@ export function createTakodeRoutes(ctx: RouteContext) {
         try {
           const { sessionAuthToken: _token, ...safeSession } = s;
           const bridgeSession = wsBridge.getSession(s.sessionId);
-          if (bridgeSession?.state?.is_worktree && !safeSession.archived) {
-            if (heavyRepoModeEnabled) {
-              void wsBridge
-                .refreshWorktreeGitStateForSnapshot(s.sessionId, {
-                  broadcastUpdate: true,
-                  notifyPoller: true,
-                })
-                .catch((err) => {
-                  console.warn(`[routes] Failed to refresh worktree git state for ${s.sessionId}:`, err);
-                });
-            } else {
-              await wsBridge.refreshWorktreeGitStateForSnapshot(s.sessionId, {
-                broadcastUpdate: true,
-                notifyPoller: true,
-              });
-            }
+          if (bridgeSession?.state?.is_worktree && !safeSession.archived && !heavyRepoModeEnabled) {
+            await wsBridge.refreshWorktreeGitStateForSnapshot(s.sessionId, {
+              broadcastUpdate: true,
+              notifyPoller: true,
+            });
           }
           const bridge = wsBridge.getSession(s.sessionId)?.state ?? bridgeMap.get(s.sessionId);
           const cliConnected = wsBridge.isBackendConnected(s.sessionId);

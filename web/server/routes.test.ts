@@ -1280,7 +1280,7 @@ describe("GET /api/sessions", () => {
     });
   });
 
-  it("returns cached worktree diff totals immediately in heavy repo mode and refreshes in the background", async () => {
+  it("returns cached worktree diff totals in heavy repo mode without scheduling git refreshes", async () => {
     const defaultSettings = vi.mocked(settingsManager.getSettings).getMockImplementation()?.() as ReturnType<
       typeof settingsManager.getSettings
     >;
@@ -1304,12 +1304,6 @@ describe("GET /api/sessions", () => {
     launcher.listSessions.mockReturnValue(sessions);
     vi.mocked(sessionNames.getAllNames).mockReturnValue({});
     bridge.getSession.mockReturnValue(bridgeSession as any);
-    bridge.refreshWorktreeGitStateForSnapshot.mockImplementation(async () => {
-      await Promise.resolve();
-      bridgeSession.state.total_lines_added = 0;
-      bridgeSession.state.total_lines_removed = 0;
-      return bridgeSession.state as any;
-    });
 
     const res = await app.request("/api/sessions", { method: "GET" });
 
@@ -1322,10 +1316,7 @@ describe("GET /api/sessions", () => {
       totalLinesRemoved: 55,
     });
     await Promise.resolve();
-    expect(bridge.refreshWorktreeGitStateForSnapshot).toHaveBeenCalledWith("s1", {
-      broadcastUpdate: true,
-      notifyPoller: true,
-    });
+    expect(bridge.refreshWorktreeGitStateForSnapshot).not.toHaveBeenCalled();
   });
 
   it("includes worktreeExists for archived worktree sessions", async () => {
@@ -3636,7 +3627,7 @@ describe("POST /api/git/worktree", () => {
       actualBranch: "feat",
       isNew: true,
     };
-    vi.mocked(gitUtils.ensureWorktree).mockReturnValue(result);
+    vi.mocked(gitUtils.ensureWorktreeAsync).mockResolvedValue(result);
     const res = await app.request("/api/git/worktree", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -3645,7 +3636,7 @@ describe("POST /api/git/worktree", () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json).toEqual(result);
-    expect(gitUtils.ensureWorktree).toHaveBeenCalledWith("/repo", "feat", {
+    expect(gitUtils.ensureWorktreeAsync).toHaveBeenCalledWith("/repo", "feat", {
       baseBranch: "main",
     });
   });
@@ -5876,7 +5867,7 @@ describe("Takode server-authoritative auth", () => {
     expect(workerJson).toHaveLength(3);
   });
 
-  it("returns cached takode worktree rows in heavy repo mode and refreshes in the background", async () => {
+  it("returns cached takode worktree rows in heavy repo mode without scheduling git refreshes", async () => {
     const defaultSettings = vi.mocked(settingsManager.getSettings).getMockImplementation()?.() as ReturnType<
       typeof settingsManager.getSettings
     >;
@@ -5898,12 +5889,6 @@ describe("Takode server-authoritative auth", () => {
       isGenerating: false,
     };
     bridge.getSession.mockImplementation((id: string) => (id === "worker-1" ? bridgeSession : null));
-    bridge.refreshWorktreeGitStateForSnapshot.mockImplementation(async () => {
-      await Promise.resolve();
-      bridgeSession.state.total_lines_added = 0;
-      bridgeSession.state.total_lines_removed = 0;
-      return bridgeSession.state as any;
-    });
 
     const res = await app.request("/api/takode/sessions", {
       method: "GET",
@@ -5918,10 +5903,7 @@ describe("Takode server-authoritative auth", () => {
       totalLinesRemoved: 55,
     });
     await Promise.resolve();
-    expect(bridge.refreshWorktreeGitStateForSnapshot).toHaveBeenCalledWith("worker-1", {
-      broadcastUpdate: true,
-      notifyPoller: true,
-    });
+    expect(bridge.refreshWorktreeGitStateForSnapshot).not.toHaveBeenCalled();
   });
 
   it("refreshes takode worktree rows before returning when heavy repo mode is disabled", async () => {

@@ -12,6 +12,7 @@ import {
   renameSync,
 } from "node:fs";
 import { join } from "node:path";
+import { access } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
 import { spawn } from "node:child_process";
 import * as gitUtils from "./git-utils.js";
@@ -465,18 +466,23 @@ export function rewritePathsInFile(filePath: string, oldHome: string, newHome: s
 
 // ─── On-Demand Worktree Recreation ──────────────────────────────────────────
 
-export function recreateWorktreeIfMissing(
+export async function recreateWorktreeIfMissing(
   sessionId: string,
   info: SdkSessionInfo,
   deps: { launcher: CliLauncher; worktreeTracker: WorktreeTracker; wsBridge: WsBridge },
-): { recreated: boolean; error?: string } {
-  if (existsSync(info.cwd)) return { recreated: false };
+): Promise<{ recreated: boolean; error?: string }> {
+  try {
+    await access(info.cwd);
+    return { recreated: false };
+  } catch {
+    // Missing cwd: continue to recreation/error handling below.
+  }
 
   if (!info.isWorktree || !info.repoRoot || !info.branch) {
     return { recreated: false, error: `Working directory not found: ${info.cwd}` };
   }
 
-  const repoInfo = gitUtils.getRepoInfo(info.repoRoot);
+  const repoInfo = await gitUtils.getRepoInfoAsync(info.repoRoot);
   if (!repoInfo) {
     return {
       recreated: false,
@@ -485,7 +491,7 @@ export function recreateWorktreeIfMissing(
   }
 
   const oldCwd = info.cwd;
-  const result = gitUtils.ensureWorktree(repoInfo.repoRoot, info.branch, {
+  const result = await gitUtils.ensureWorktreeAsync(repoInfo.repoRoot, info.branch, {
     baseBranch: repoInfo.defaultBranch,
     createBranch: false,
     forceNew: true,

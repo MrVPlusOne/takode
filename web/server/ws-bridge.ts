@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { exec as execCb } from "node:child_process";
 import { promisify } from "node:util";
 import { readFile as readFileAsync, stat as statAsync } from "node:fs/promises";
-import { GIT_CMD_TIMEOUT } from "./constants.js";
+import { GIT_CMD_TIMEOUT, SERVER_GIT_CMD } from "./constants.js";
 import { getDefaultModelForBackend } from "../shared/backend-defaults.js";
 import { computeHistoryMessagesSyncHash, computeHistoryPrefixSyncHash } from "../shared/history-sync-hash.js";
 
@@ -472,7 +472,7 @@ async function resolveUpstreamRef(state: SessionState): Promise<string | null> {
   if (!state.cwd || !state.git_branch || state.git_branch === "HEAD" || state.is_worktree) return null;
   try {
     const { stdout } = await execPromise(
-      `git rev-parse --abbrev-ref --symbolic-full-name ${state.git_branch}@{upstream} 2>/dev/null`,
+      `${SERVER_GIT_CMD} rev-parse --abbrev-ref --symbolic-full-name ${state.git_branch}@{upstream} 2>/dev/null`,
       { cwd: state.cwd, encoding: "utf-8", timeout: GIT_CMD_TIMEOUT },
     );
     const upstreamRef = stdout.trim();
@@ -525,14 +525,14 @@ async function resolveGitInfo(state: SessionState): Promise<void> {
   // Preserve is_containerized — it's set during session launch, not derived from git
   const wasContainerized = state.is_containerized;
   try {
-    const { stdout: branchOut } = await execPromise("git --no-optional-locks rev-parse --abbrev-ref HEAD 2>/dev/null", {
+    const { stdout: branchOut } = await execPromise(`${SERVER_GIT_CMD} rev-parse --abbrev-ref HEAD 2>/dev/null`, {
       cwd: state.cwd,
       encoding: "utf-8",
       timeout: GIT_CMD_TIMEOUT,
     });
     state.git_branch = branchOut.trim();
     try {
-      const { stdout: headOut } = await execPromise("git --no-optional-locks rev-parse HEAD 2>/dev/null", {
+      const { stdout: headOut } = await execPromise(`${SERVER_GIT_CMD} rev-parse HEAD 2>/dev/null`, {
         cwd: state.cwd,
         encoding: "utf-8",
         timeout: GIT_CMD_TIMEOUT,
@@ -544,7 +544,7 @@ async function resolveGitInfo(state: SessionState): Promise<void> {
 
     // Detect if this is a linked worktree
     try {
-      const { stdout: gitDirOut } = await execPromise("git --no-optional-locks rev-parse --git-dir 2>/dev/null", {
+      const { stdout: gitDirOut } = await execPromise(`${SERVER_GIT_CMD} rev-parse --git-dir 2>/dev/null`, {
         cwd: state.cwd,
         encoding: "utf-8",
         timeout: GIT_CMD_TIMEOUT,
@@ -559,7 +559,7 @@ async function resolveGitInfo(state: SessionState): Promise<void> {
       // Use --git-common-dir to find the real repo root.
       if (state.is_worktree) {
         const { stdout: commonDirOut } = await execPromise(
-          "git --no-optional-locks rev-parse --git-common-dir 2>/dev/null",
+          `${SERVER_GIT_CMD} rev-parse --git-common-dir 2>/dev/null`,
           {
             cwd: state.cwd,
             encoding: "utf-8",
@@ -570,7 +570,7 @@ async function resolveGitInfo(state: SessionState): Promise<void> {
         state.repo_root = resolve(state.cwd, commonDirOut.trim(), "..");
       } else {
         const { stdout: toplevelOut } = await execPromise(
-          "git --no-optional-locks rev-parse --show-toplevel 2>/dev/null",
+          `${SERVER_GIT_CMD} rev-parse --show-toplevel 2>/dev/null`,
           {
             cwd: state.cwd,
             encoding: "utf-8",
@@ -619,7 +619,7 @@ async function resolveGitInfo(state: SessionState): Promise<void> {
     if (ref) {
       try {
         const { stdout: countsOut } = await execPromise(
-          `git --no-optional-locks rev-list --left-right --count ${ref}...HEAD 2>/dev/null`,
+          `${SERVER_GIT_CMD} rev-list --left-right --count ${ref}...HEAD 2>/dev/null`,
           { cwd: state.cwd, encoding: "utf-8", timeout: GIT_CMD_TIMEOUT },
         );
         const [behind, ahead] = countsOut.trim().split(/\s+/).map(Number);
@@ -2211,7 +2211,7 @@ export class WsBridge {
       // with HEAD so clearing commit mode doesn't restore stale baselines.
       if (previousHeadSha && previousHeadSha !== currentHeadSha) {
         try {
-          await execPromise(`git --no-optional-locks merge-base --is-ancestor ${previousHeadSha} ${currentHeadSha}`, {
+          await execPromise(`${SERVER_GIT_CMD} merge-base --is-ancestor ${previousHeadSha} ${currentHeadSha}`, {
             cwd,
             timeout: GIT_CMD_TIMEOUT,
           });
@@ -2226,7 +2226,7 @@ export class WsBridge {
     let nextAnchor = currentHeadSha;
     if (ref) {
       try {
-        const { stdout } = await execPromise(`git --no-optional-locks merge-base ${ref} HEAD`, {
+        const { stdout } = await execPromise(`${SERVER_GIT_CMD} merge-base ${ref} HEAD`, {
           cwd,
           timeout: GIT_CMD_TIMEOUT,
         });
@@ -2441,7 +2441,7 @@ export class WsBridge {
       let diffRef = diffBase;
       if (!session.state.is_worktree) {
         try {
-          const { stdout: mbOut } = await execPromise(`git --no-optional-locks merge-base ${diffBase} HEAD`, {
+          const { stdout: mbOut } = await execPromise(`${SERVER_GIT_CMD} merge-base ${diffBase} HEAD`, {
             cwd,
             timeout: GIT_CMD_TIMEOUT,
           });
@@ -2451,7 +2451,7 @@ export class WsBridge {
           // merge-base unavailable (e.g. unrelated histories) -- fall back to direct diff
         }
       }
-      const cmd = `git --no-optional-locks diff --numstat ${diffRef}`;
+      const cmd = `${SERVER_GIT_CMD} diff --numstat ${diffRef}`;
       // Generous timeout -- large repos on NFS can be slow, and this runs in the background
       const { stdout } = await execPromise(cmd, { cwd, timeout: GIT_CMD_TIMEOUT });
       const raw = stdout.trim();

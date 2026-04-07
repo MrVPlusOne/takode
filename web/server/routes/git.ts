@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { exec as execCb } from "node:child_process";
 import { promisify } from "node:util";
 import * as gitUtils from "../git-utils.js";
-import { GIT_CMD_TIMEOUT } from "../constants.js";
+import { GIT_CMD_TIMEOUT, SERVER_GIT_CMD } from "../constants.js";
 import type { RouteContext } from "./context.js";
 
 export function createGitRoutes(ctx: RouteContext) {
@@ -37,7 +37,7 @@ export function createGitRoutes(ctx: RouteContext) {
     const limitStr = c.req.query("limit");
     const limit = Math.min(Math.max(parseInt(limitStr || "20", 10) || 20, 1), 100);
     try {
-      const raw = await execCaptureStdoutAsync(`git log --format="%H%x00%h%x00%s%x00%ct" -${limit}`, repoRoot);
+      const raw = await execCaptureStdoutAsync(`${SERVER_GIT_CMD} log --format="%H%x00%h%x00%s%x00%ct" -${limit}`, repoRoot);
       const commits = raw
         .split("\n")
         .filter(Boolean)
@@ -68,7 +68,7 @@ export function createGitRoutes(ctx: RouteContext) {
     const body = await c.req.json().catch(() => ({}));
     const { repoRoot, branch, baseBranch, createBranch } = body;
     if (!repoRoot || !branch) return c.json({ error: "repoRoot and branch required" }, 400);
-    const result = gitUtils.ensureWorktree(repoRoot, branch, { baseBranch, createBranch });
+    const result = await gitUtils.ensureWorktreeAsync(repoRoot, branch, { baseBranch, createBranch });
     return c.json(result);
   });
 
@@ -90,7 +90,7 @@ export function createGitRoutes(ctx: RouteContext) {
       git_behind = 0;
     try {
       const { stdout: counts } = await execPromise(
-        "git --no-optional-locks rev-list --left-right --count @{upstream}...HEAD",
+        `${SERVER_GIT_CMD} rev-list --left-right --count @{upstream}...HEAD`,
         {
           cwd,
           encoding: "utf-8",

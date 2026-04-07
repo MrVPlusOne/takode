@@ -758,6 +758,9 @@ describe("ensureWorktreeAsync", () => {
     expect(result.isNew).toBe(false);
     expect(mockMkdirAsync).toHaveBeenCalledWith("/fake/home/.companion/worktrees/repo", { recursive: true });
     expect(mockExecSync).not.toHaveBeenCalled();
+    for (const [cmd] of mockExecCb.mock.calls as Array<[string]>) {
+      expect(cmd).toContain("-c core.fsmonitor=false");
+    }
     const addCall = mockExecCb.mock.calls.find((c: unknown[]) => (c[0] as string).includes("worktree add -b"));
     expect(addCall?.[0]).toMatch(/feat\/local-wt-\d{4}/);
   });

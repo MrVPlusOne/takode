@@ -211,7 +211,7 @@ describe("rewritePathsInDir with JSONL files", () => {
 // ─── recreateWorktreeIfMissing ──────────────────────────────────────────────
 
 describe("recreateWorktreeIfMissing", () => {
-  it("returns recreated: false if cwd exists", () => {
+  it("returns recreated: false if cwd exists", async () => {
     const tempDir = makeTempDir();
     try {
       const info = {
@@ -230,7 +230,7 @@ describe("recreateWorktreeIfMissing", () => {
         wsBridge: { markWorktree: () => {} } as any,
       };
 
-      const result = recreateWorktreeIfMissing("test-session", info, mockDeps);
+      const result = await recreateWorktreeIfMissing("test-session", info, mockDeps);
       expect(result.recreated).toBe(false);
       expect(result.error).toBeUndefined();
     } finally {
@@ -238,7 +238,7 @@ describe("recreateWorktreeIfMissing", () => {
     }
   });
 
-  it("returns error for non-worktree session with missing cwd", () => {
+  it("returns error for non-worktree session with missing cwd", async () => {
     const info = {
       sessionId: "test-session",
       cwd: "/nonexistent/path/that/does/not/exist",
@@ -253,12 +253,12 @@ describe("recreateWorktreeIfMissing", () => {
       wsBridge: { markWorktree: () => {} } as any,
     };
 
-    const result = recreateWorktreeIfMissing("test-session", info, mockDeps);
+    const result = await recreateWorktreeIfMissing("test-session", info, mockDeps);
     expect(result.recreated).toBe(false);
     expect(result.error).toContain("Working directory not found");
   });
 
-  it("returns error when repo root doesn't exist", () => {
+  it("returns error when repo root doesn't exist", async () => {
     const info = {
       sessionId: "test-session",
       cwd: "/nonexistent/worktree/path",
@@ -275,7 +275,7 @@ describe("recreateWorktreeIfMissing", () => {
       wsBridge: { markWorktree: () => {} } as any,
     };
 
-    const result = recreateWorktreeIfMissing("test-session", info, mockDeps);
+    const result = await recreateWorktreeIfMissing("test-session", info, mockDeps);
     expect(result.recreated).toBe(false);
     expect(result.error).toContain("Repository not found");
     expect(result.error).toContain("Please clone it first");

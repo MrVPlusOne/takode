@@ -1028,6 +1028,15 @@ describe("CLI handlers", () => {
       expect(state.git_ahead).toBe(2);
       expect(state.git_behind).toBe(1);
     });
+    const gitCommands = mockExec.mock.calls
+      .map((call: unknown[]) => String(call[0]))
+      .filter((cmd) => cmd.includes("rev-parse"));
+    expect(gitCommands).toContainEqual(
+      expect.stringContaining('git --no-optional-locks -c core.fsmonitor=false rev-parse --abbrev-ref --symbolic-full-name jiayi@{upstream}'),
+    );
+    for (const cmd of gitCommands) {
+      expect(cmd).toContain("-c core.fsmonitor=false");
+    }
   });
 
   it("handleCLIMessage: system.init migrates legacy non-worktree default base from repo default to upstream", async () => {
