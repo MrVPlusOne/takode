@@ -22,7 +22,11 @@ import {
 } from "./session-types.js";
 import type { RecorderManager } from "./recorder.js";
 import { trafficStats } from "./traffic-stats.js";
-import type { BackendAdapter, PendingOutgoingAwareAdapter } from "./bridge/adapter-interface.js";
+import type {
+  BackendAdapter,
+  CompactRequestedAwareAdapter,
+  PendingOutgoingAwareAdapter,
+} from "./bridge/adapter-interface.js";
 
 // ─── SDK internals cache ─────────────────────────────────────────────────────
 // We cache the V4 (ProcessTransport) class reference after the first SDK import
@@ -68,7 +72,9 @@ interface PendingPermission {
 
 // ─── Adapter ────────────────────────────────────────────────────────────────────
 
-export class ClaudeSdkAdapter implements BackendAdapter<ClaudeSdkSessionMeta>, PendingOutgoingAwareAdapter {
+export class ClaudeSdkAdapter
+  implements BackendAdapter<ClaudeSdkSessionMeta>, PendingOutgoingAwareAdapter, CompactRequestedAwareAdapter
+{
   private sessionId: string;
   private options: ClaudeSdkAdapterOptions;
   private sdkSession: any = null; // SDKSession from the Agent SDK
@@ -77,6 +83,7 @@ export class ClaudeSdkAdapter implements BackendAdapter<ClaudeSdkSessionMeta>, P
   private sessionMetaCb: ((meta: ClaudeSdkSessionMeta) => void) | null = null;
   private disconnectCb: (() => void) | null = null;
   private initErrorCb: ((error: string) => void) | null = null;
+  private compactRequestedCb: (() => void) | null = null;
   private pendingPermissions = new Map<string, PendingPermission>();
   private pendingOutgoing: BrowserOutgoingMessage[] = [];
   /** Cached MCP servers from the last session_init, used to respond to mcp_get_status. */
@@ -117,6 +124,10 @@ export class ClaudeSdkAdapter implements BackendAdapter<ClaudeSdkSessionMeta>, P
 
   onInitError(cb: (error: string) => void): void {
     this.initErrorCb = cb;
+  }
+
+  onCompactRequested(cb: () => void): void {
+    this.compactRequestedCb = cb;
   }
 
   isConnected(): boolean {
@@ -523,6 +534,19 @@ export class ClaudeSdkAdapter implements BackendAdapter<ClaudeSdkSessionMeta>, P
         const images = (msg as any).images as { media_type: string; data: string }[] | undefined;
         const vscodeSelection = (msg as any).vscodeSelection as VsCodeSelectionMetadata | undefined;
         if (!content && !images?.length) return true;
+
+        // Intercept /compact -- the Claude Agent SDK has no programmatic
+        // compact API (unlike Codex's thread/compact/start), so signal the
+        // bridge to use the kill+relaunch mechanism instead of sending this
+        // as a regular user message that the CLI would treat as a prompt.
+        if (
+          typeof content === "string" &&
+          content.trim().toLowerCase() === "/compact" &&
+          !images?.length
+        ) {
+          this.compactRequestedCb?.();
+          return true;
+        }
 
         const selectionText = vscodeSelection ? formatVsCodeSelectionPrompt(vscodeSelection) : null;
 

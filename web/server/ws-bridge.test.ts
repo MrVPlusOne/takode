@@ -170,6 +170,7 @@ function makeClaudeSdkAdapterMock() {
   let onSessionMetaCb: ((meta: any) => void) | undefined;
   let onDisconnectCb: (() => void) | undefined;
   let onInitErrorCb: ((error: string) => void) | undefined;
+  let onCompactRequestedCb: (() => void) | undefined;
 
   return {
     onBrowserMessage: vi.fn((cb: (msg: any) => void) => {
@@ -184,6 +185,9 @@ function makeClaudeSdkAdapterMock() {
     onInitError: vi.fn((cb: (error: string) => void) => {
       onInitErrorCb = cb;
     }),
+    onCompactRequested: vi.fn((cb: () => void) => {
+      onCompactRequestedCb = cb;
+    }),
     sendBrowserMessage: vi.fn(),
     drainPendingOutgoing: vi.fn((): any[] => []),
     isConnected: vi.fn(() => true),
@@ -192,6 +196,7 @@ function makeClaudeSdkAdapterMock() {
     emitSessionMeta: (meta: any) => onSessionMetaCb?.(meta),
     emitDisconnect: () => onDisconnectCb?.(),
     emitInitError: (error: string) => onInitErrorCb?.(error),
+    emitCompactRequested: () => onCompactRequestedCb?.(),
   };
 }
 

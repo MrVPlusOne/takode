@@ -104,6 +104,7 @@ import {
 } from "./bridge/generation-lifecycle.js";
 import type {
   BackendAdapter,
+  CompactRequestedAwareAdapter,
   CurrentTurnIdAwareAdapter,
   PendingOutgoingAwareAdapter,
   RateLimitsAwareAdapter,
@@ -298,7 +299,7 @@ type CodexBridgeAdapter = BackendAdapter<CodexSessionMeta> &
   CurrentTurnIdAwareAdapter &
   RateLimitsAwareAdapter &
   Partial<{ refreshSkills: (forceReload?: boolean) => Promise<string[]> }>;
-type ClaudeSdkBridgeAdapter = BackendAdapter<ClaudeSdkSessionMeta>;
+type ClaudeSdkBridgeAdapter = BackendAdapter<ClaudeSdkSessionMeta> & CompactRequestedAwareAdapter;
 
 interface Session {
   id: string;
@@ -4296,6 +4297,25 @@ export class WsBridge {
           type: "error",
           message: `Session stopped after ${MAX_ADAPTER_RELAUNCH_FAILURES} consecutive launch failures. Use the relaunch button to try again.`,
         });
+      }
+    });
+
+    adapter.onCompactRequested(() => {
+      console.log(
+        `[ws-bridge] /compact intercepted for SDK session ${sessionTag(sessionId)}, triggering force-compact`,
+      );
+      const cliSessionId = this.launcher?.getSession(sessionId)?.cliSessionId || "";
+      session.pendingMessages.push(
+        JSON.stringify({
+          type: "user",
+          message: { role: "user", content: "/compact" },
+          parent_tool_use_id: null,
+          session_id: cliSessionId,
+        }),
+      );
+      this.broadcastToBrowsers(session, { type: "status_change", status: "compacting" });
+      if (this.onCLIRelaunchNeeded) {
+        this.onCLIRelaunchNeeded(sessionId);
       }
     });
 
