@@ -6569,7 +6569,8 @@ describe("Claude SDK compaction handling", () => {
   it("handles compact_boundary that arrives without prior status_change", () => {
     // Edge case: the SDK might deliver compact_boundary independently of
     // status_change, or the messages could arrive out of order. The compact
-    // marker must still be created correctly.
+    // marker must still be created correctly, and the browser broadcast must
+    // include the trigger and preTokens metadata fields.
     const adapter = initSdkSession("s1");
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
@@ -6589,8 +6590,12 @@ describe("Claude SDK compaction handling", () => {
     expect(markers).toHaveLength(1);
     expect((markers[0] as any).trigger).toBe("manual");
 
+    // Browser broadcast includes trigger and preTokens metadata
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    expect(calls.find((m: any) => m.type === "compact_boundary")).toBeTruthy();
+    const boundaryMsg = calls.find((m: any) => m.type === "compact_boundary");
+    expect(boundaryMsg).toBeTruthy();
+    expect(boundaryMsg.trigger).toBe("manual");
+    expect(boundaryMsg.preTokens).toBe(60000);
   });
 
   it("deduplicates replayed compact_boundary by uuid on SDK resume", () => {
@@ -6729,6 +6734,130 @@ describe("Claude SDK compaction handling", () => {
     adapter.emitBrowserMessage({ type: "status_change", status: null });
     expect(session.state.is_compacting).toBe(false);
     expect(session.isGenerating).toBe(true);
+  });
+
+  it("handles full auto-compaction lifecycle: status_change → compact_boundary → summary → idle", () => {
+    // Simulates the exact message sequence the CLI emits during automatic
+    // compaction (hitting context limits). Verifies every side-effect fires:
+    // state transitions, marker creation, enrichment, summary capture,
+    // and all browser broadcasts arrive in the expected order.
+    const adapter = initSdkSession("s1");
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+    browser.send.mockClear();
+
+    const spy = vi.spyOn(bridge, "emitTakodeEvent");
+    const session = bridge.getSession("s1")!;
+
+    // Phase 1: CLI signals compaction start
+    adapter.emitBrowserMessage({ type: "status_change", status: "compacting" });
+
+    expect(session.state.is_compacting).toBe(true);
+    // compactedDuringTurn stays true until turn ends (reset in setGenerating),
+    // not at compaction end -- tested in "preserves isGenerating" test above.
+    expect(session.compactedDuringTurn).toBe(true);
+    expect(session.awaitingCompactSummary).toBe(true);
+    const markers1 = session.messageHistory.filter((m) => m.type === "compact_marker");
+    expect(markers1).toHaveLength(1);
+    // Marker synthesized without metadata (no compact_boundary yet)
+    expect((markers1[0] as any).trigger).toBeUndefined();
+
+    // Phase 2: CLI sends compact_boundary with auto-compaction metadata
+    adapter.emitBrowserMessage({
+      type: "system",
+      subtype: "compact_boundary",
+      compact_metadata: { trigger: "auto", pre_tokens: 95000 },
+      uuid: "auto-compact-uuid-1",
+      session_id: "cli-s1",
+    });
+
+    // Marker enriched (still just one)
+    const markers2 = session.messageHistory.filter((m) => m.type === "compact_marker");
+    expect(markers2).toHaveLength(1);
+    const enriched = markers2[0] as any;
+    expect(enriched.trigger).toBe("auto");
+    expect(enriched.preTokens).toBe(95000);
+    expect(enriched.cliUuid).toBe("auto-compact-uuid-1");
+
+    // Phase 3: CLI sends the compaction summary as a user message
+    const summaryText =
+      "This session continues from a previous conversation. " +
+      "The user is building a real-time dashboard with WebSocket support.";
+    adapter.emitBrowserMessage({
+      type: "user",
+      message: { role: "user", content: [{ type: "text", text: summaryText }] },
+      parent_tool_use_id: null,
+      uuid: "auto-compact-summary-1",
+      session_id: "cli-s1",
+    });
+
+    expect(session.awaitingCompactSummary).toBe(false);
+    const finalMarker = session.messageHistory.findLast((m) => m.type === "compact_marker") as any;
+    expect(finalMarker?.summary).toBe(summaryText);
+
+    // Phase 4: CLI signals compaction complete
+    adapter.emitBrowserMessage({ type: "status_change", status: null });
+
+    expect(session.state.is_compacting).toBe(false);
+
+    // Verify takode events
+    const startedCalls = spy.mock.calls.filter(([, event]) => event === "compaction_started");
+    const finishedCalls = spy.mock.calls.filter(([, event]) => event === "compaction_finished");
+    expect(startedCalls).toHaveLength(1);
+    expect(finishedCalls).toHaveLength(1);
+
+    // Verify browser received all expected messages in order
+    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    const types = calls.map((m: any) => m.type);
+    // compact_boundary comes before status_change(compacting) because the bridge
+    // synthesizes the marker first, then falls through to broadcastToBrowsers
+    expect(types).toContain("compact_boundary");
+    expect(types).toContain("status_change");
+    expect(types).toContain("compact_summary");
+    // Verify final status_change(null) was broadcast
+    const finalStatusMsg = calls.filter((m: any) => m.type === "status_change" && m.status === null);
+    expect(finalStatusMsg.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("updates context_used_percent from compact_boundary enrichment", () => {
+    // When compact_boundary enriches an existing marker (created by
+    // status_change), context_used_percent should be updated from the
+    // pre_tokens metadata and broadcast as a session_update. This is the
+    // primary source of context usage info during compaction for SDK sessions.
+    const adapter = initSdkSession("s1");
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    const session = bridge.getSession("s1")!;
+    // Set a known model so computePreTokenContextUsedPercent can resolve
+    // the context window. claude-sonnet-4-5-20250929 has a 200k window.
+    session.state.model = "claude-sonnet-4-5-20250929";
+    session.state.context_used_percent = 0;
+    browser.send.mockClear();
+
+    // status_change creates the synthesized marker
+    adapter.emitBrowserMessage({ type: "status_change", status: "compacting" });
+
+    // compact_boundary enriches it with pre_tokens
+    adapter.emitBrowserMessage({
+      type: "system",
+      subtype: "compact_boundary",
+      compact_metadata: { trigger: "auto", pre_tokens: 180000 },
+      uuid: "ctx-pct-uuid",
+      session_id: "cli-s1",
+    });
+
+    // context_used_percent should have been updated
+    // 180000 / 200000 = 90%
+    expect(session.state.context_used_percent).toBe(90);
+
+    // session_update should have been broadcast
+    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    const sessionUpdate = calls.find(
+      (m: any) => m.type === "session_update" && m.session?.context_used_percent != null,
+    );
+    expect(sessionUpdate).toBeTruthy();
+    expect(sessionUpdate.session.context_used_percent).toBe(90);
   });
 });
 
