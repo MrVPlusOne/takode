@@ -13758,6 +13758,50 @@ describe("SDK disconnect auto-relaunch", () => {
     expect(session.backendType).toBe("claude-sdk");
     expect(session.state.backend_type).toBe("claude-sdk");
   });
+
+  it("queues /compact and requests relaunch when SDK adapter emits compact_requested", () => {
+    // When the SDK adapter intercepts a /compact user message, it fires the
+    // onCompactRequested callback. The bridge should queue /compact as a
+    // pending message (so it's the first thing sent after relaunch), broadcast
+    // "compacting" status to browsers, and trigger a relaunch.
+    const sid = "s-compact";
+    const relaunchCb = vi.fn();
+    bridge.onCLIRelaunchNeededCallback(relaunchCb);
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn(() => ({ cliSessionId: "cli-sess-123" })),
+    } as any);
+
+    const adapter = makeClaudeSdkAdapterMock();
+    bridge.attachClaudeSdkAdapter(sid, adapter as any);
+
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    browser.send.mockClear();
+
+    adapter.emitCompactRequested();
+
+    // Should have triggered relaunch
+    expect(relaunchCb).toHaveBeenCalledWith(sid);
+
+    // Should have broadcast "compacting" status to browsers
+    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    expect(calls).toContainEqual(
+      expect.objectContaining({ type: "status_change", status: "compacting" }),
+    );
+
+    // Should have queued /compact as a pending message for the relaunched CLI
+    const session = bridge.getSession(sid)!;
+    expect(session.pendingMessages.length).toBe(1);
+    const queued = JSON.parse(session.pendingMessages[0]);
+    expect(queued).toEqual({
+      type: "user",
+      message: { role: "user", content: "/compact" },
+      parent_tool_use_id: null,
+      session_id: "cli-sess-123",
+    });
+  });
 });
 
 describe("cliResuming debounce prevents false compaction events on --resume replay", () => {
