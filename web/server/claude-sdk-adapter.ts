@@ -353,8 +353,9 @@ export class ClaudeSdkAdapter
         for await (const msg of this.sdkSession.stream()) {
           this.handleSdkMessage(msg);
         }
-        // Stream ended normally (result received) — session is still alive,
+        // Stream ended normally (result received) -- session is still alive,
         // just waiting for the next send(). Don't disconnect.
+        console.log(`[claude-sdk-adapter] Stream turn ended for session ${this.sessionId}`);
       } catch (err) {
         if (this.connected) {
           const errMsg = err instanceof Error ? `${err.message}\n${err.stack}` : String(err);
