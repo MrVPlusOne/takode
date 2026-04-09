@@ -1,5 +1,5 @@
 import { mkdirSync } from "node:fs";
-import { readdir, readFile, writeFile, unlink, access } from "node:fs/promises";
+import { readdir, readFile, writeFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import type { SessionTimerFile } from "./timer-types.js";
@@ -16,17 +16,6 @@ function filePath(sessionId: string): string {
   return join(TIMER_DIR, `${sessionId}.json`);
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-async function fileExists(path: string): Promise<boolean> {
-  try {
-    await access(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 /** Return an empty timer file for a session (define errors out of existence). */
 function emptyFile(sessionId: string): SessionTimerFile {
   return { sessionId, nextId: 1, timers: [] };
@@ -34,17 +23,21 @@ function emptyFile(sessionId: string): SessionTimerFile {
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
-/** Load all timers for a session. Returns empty file struct if no file. */
+/** Load all timers for a session. Returns empty file struct if no file exists.
+ *  Logs a warning for non-ENOENT errors (corrupt data, permission issues). */
 export async function loadTimers(sessionId: string): Promise<SessionTimerFile> {
   try {
     const raw = await readFile(filePath(sessionId), "utf-8");
     const data = JSON.parse(raw) as SessionTimerFile;
-    // Ensure required fields exist (defensive against corrupt data)
+    // Defensive: ensure required fields exist even if file is partially corrupt
     if (!data.timers || !Array.isArray(data.timers)) return emptyFile(sessionId);
     if (typeof data.nextId !== "number") data.nextId = 1;
     data.sessionId = sessionId;
     return data;
-  } catch {
+  } catch (err: any) {
+    if (err?.code !== "ENOENT") {
+      console.warn(`[timer-store] Failed to load timers for ${sessionId}:`, err);
+    }
     return emptyFile(sessionId);
   }
 }
@@ -54,14 +47,13 @@ export async function saveTimers(data: SessionTimerFile): Promise<void> {
   await writeFile(filePath(data.sessionId), JSON.stringify(data, null, 2), "utf-8");
 }
 
-/** Delete the timer file for a session (on archive/cleanup). */
+/** Delete the timer file for a session (on archive/cleanup).
+ *  No-op if the file doesn't exist. */
 export async function deleteTimers(sessionId: string): Promise<void> {
-  if (await fileExists(filePath(sessionId))) {
-    try {
-      await unlink(filePath(sessionId));
-    } catch {
-      // Ignore -- file may already be deleted
-    }
+  try {
+    await unlink(filePath(sessionId));
+  } catch {
+    // File already deleted or never existed -- not an error
   }
 }
 
@@ -72,7 +64,10 @@ export async function listTimerSessions(): Promise<string[]> {
     return files
       .filter((f) => f.endsWith(".json"))
       .map((f) => f.replace(/\.json$/, ""));
-  } catch {
+  } catch (err: any) {
+    if (err?.code !== "ENOENT") {
+      console.warn("[timer-store] Failed to list timer sessions:", err);
+    }
     return [];
   }
 }

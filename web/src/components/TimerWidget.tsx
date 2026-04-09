@@ -61,8 +61,11 @@ export function TimerWidget({ sessionId }: { sessionId: string }) {
 
   if (timers.length === 0) return null;
 
-  // Sort by nextFireAt ascending (soonest first)
-  const sorted = [...timers].sort((a, b) => a.nextFireAt - b.nextFireAt);
+  // Sort by nextFireAt ascending (soonest first), memoized to avoid re-sorting on tick re-renders
+  const sorted = useMemo(
+    () => [...timers].sort((a, b) => a.nextFireAt - b.nextFireAt),
+    [timers],
+  );
 
   return (
     <div className="shrink-0 border-t border-cc-border bg-cc-bg">

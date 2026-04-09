@@ -1,9 +1,11 @@
 import type { WsBridge } from "./ws-bridge.js";
 import type { SessionTimer, SessionTimerFile, TimerCreateInput } from "./timer-types.js";
+import type { BrowserIncomingMessage } from "./session-types.js";
 import { resolveTimerSchedule } from "./timer-parse.js";
 import * as timerStore from "./timer-store.js";
 
 const SWEEP_INTERVAL_MS = 5_000;
+const MAX_TIMERS_PER_SESSION = 50;
 const LOG_TAG = "[timer-manager]";
 
 export class TimerManager {
@@ -46,7 +48,13 @@ export class TimerManager {
     if (!input.prompt?.trim()) throw new Error("Timer prompt is required");
 
     const schedule = resolveTimerSchedule(input);
+    if (!Number.isFinite(schedule.nextFireAt)) throw new Error("Invalid timer schedule: non-finite fire time");
+
     const file = this.getOrCreateFile(sessionId);
+    if (file.timers.length >= MAX_TIMERS_PER_SESSION) {
+      throw new Error(`Timer limit reached (max ${MAX_TIMERS_PER_SESSION} per session)`);
+    }
+
     const id = `t${file.nextId++}`;
 
     const timer: SessionTimer = {
@@ -82,16 +90,7 @@ export class TimerManager {
     if (idx === -1) return false;
 
     file.timers.splice(idx, 1);
-
-    if (file.timers.length === 0) {
-      this.sessions.delete(sessionId);
-      timerStore.deleteTimers(sessionId).catch((err) => {
-        console.error(`${LOG_TAG} Failed to delete timer file for ${sessionId.slice(0, 8)}:`, err);
-      });
-    } else {
-      this.persistSession(sessionId);
-    }
-
+    this.cleanupOrPersist(sessionId, file);
     this.broadcastTimers(sessionId);
 
     console.log(`${LOG_TAG} Cancelled timer ${timerId} for session ${sessionId.slice(0, 8)}`);
@@ -137,7 +136,7 @@ export class TimerManager {
     const now = Date.now();
 
     for (const [sessionId, file] of this.sessions) {
-      const toRemove: string[] = [];
+      const toRemove = new Set<string>();
       let changed = false;
 
       for (const timer of file.timers) {
@@ -145,39 +144,27 @@ export class TimerManager {
 
         // Timer is due -- fire it
         this.fireTimer(sessionId, timer);
+        timer.lastFiredAt = now;
+        timer.fireCount++;
+        changed = true;
 
-        if (timer.type === "recurring" && timer.intervalMs) {
+        if (timer.type === "recurring" && timer.intervalMs && timer.intervalMs > 0) {
           // Advance past now (catchup: skip missed intervals, fire only once)
           while (timer.nextFireAt <= now) {
             timer.nextFireAt += timer.intervalMs;
           }
-          timer.lastFiredAt = now;
-          timer.fireCount++;
-          changed = true;
         } else {
-          // One-shot (delay or at): remove after firing
-          timer.lastFiredAt = now;
-          timer.fireCount++;
-          toRemove.push(timer.id);
-          changed = true;
+          // One-shot (delay or at), or recurring with corrupt intervalMs: remove after firing
+          toRemove.add(timer.id);
         }
       }
 
-      // Remove fired one-shot timers
-      if (toRemove.length > 0) {
-        file.timers = file.timers.filter((t) => !toRemove.includes(t.id));
-        if (file.timers.length === 0) {
-          this.sessions.delete(sessionId);
-          timerStore.deleteTimers(sessionId).catch((err) => {
-            console.error(`${LOG_TAG} Failed to delete timer file for ${sessionId.slice(0, 8)}:`, err);
-          });
-        }
+      if (toRemove.size > 0) {
+        file.timers = file.timers.filter((t) => !toRemove.has(t.id));
       }
 
       if (changed) {
-        if (this.sessions.has(sessionId)) {
-          this.persistSession(sessionId);
-        }
+        this.cleanupOrPersist(sessionId, file);
         this.broadcastTimers(sessionId);
       }
     }
@@ -200,10 +187,8 @@ export class TimerManager {
   /** Broadcast current timer list for a session to all connected browsers. */
   private broadcastTimers(sessionId: string): void {
     const timers = this.sessions.get(sessionId)?.timers ?? [];
-    this.wsBridge.broadcastToSession(sessionId, {
-      type: "timer_update",
-      timers,
-    } as any);
+    const msg: BrowserIncomingMessage = { type: "timer_update", timers };
+    this.wsBridge.broadcastToSession(sessionId, msg);
   }
 
   // ── Persistence helpers ────────────────────────────────────────────────────
@@ -216,6 +201,18 @@ export class TimerManager {
       this.sessions.set(sessionId, file);
     }
     return file;
+  }
+
+  /** Remove the session from memory + disk if empty, otherwise persist. */
+  private cleanupOrPersist(sessionId: string, file: SessionTimerFile): void {
+    if (file.timers.length === 0) {
+      this.sessions.delete(sessionId);
+      timerStore.deleteTimers(sessionId).catch((err) => {
+        console.error(`${LOG_TAG} Failed to delete timer file for ${sessionId.slice(0, 8)}:`, err);
+      });
+    } else {
+      this.persistSession(sessionId);
+    }
   }
 
   /** Save session timer state to disk (fire-and-forget). */

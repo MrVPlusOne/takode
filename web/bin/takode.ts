@@ -2923,7 +2923,7 @@ async function handleTimer(base: string, args: string[]): Promise<void> {
       };
       const t = result.timer;
       const fireAt = new Date(t.nextFireAt).toLocaleTimeString();
-      console.log(`Created timer ${t.id} (${t.type}): "${t.prompt}" — next fire at ${fireAt}`);
+      console.log(`Created timer ${t.id} (${t.type}): "${t.prompt}" -- next fire at ${fireAt}`);
       break;
     }
     case "list": {

@@ -97,6 +97,17 @@ describe("TimerManager", () => {
         "prompt is required",
       );
     });
+
+    it("rejects when timer limit is reached", async () => {
+      // Create 50 timers (the max)
+      for (let i = 0; i < 50; i++) {
+        await manager.createTimer("session-1", { prompt: `timer ${i}`, in: "30m" });
+      }
+      // The 51st should be rejected
+      await expect(
+        manager.createTimer("session-1", { prompt: "one too many", in: "5m" }),
+      ).rejects.toThrow("Timer limit reached");
+    });
   });
 
   describe("cancelTimer", () => {

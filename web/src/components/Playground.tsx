@@ -3078,8 +3078,6 @@ export function Playground() {
           </div>
         </Section>
 
-        {/* ─── Quest Detail Modal ──────────────────────────────────── */}
-
         {/* ─── Timer Widget ──────────────────────────────────── */}
         <Section
           title="Timer Widget"
