@@ -88,6 +88,7 @@ export function Sidebar() {
   const editInputRef = useRef<HTMLInputElement>(null);
   const [editingServerName, setEditingServerName] = useState(false);
   const [serverNameDraft, setServerNameDraft] = useState("");
+  const [herdLeaderFirstEnabled, setHerdLeaderFirstEnabled] = useState(false);
   const serverNameInputRef = useRef<HTMLInputElement>(null);
   const sessions = useStore((s) => s.sessions);
   const sdkSessions = useStore((s) => s.sdkSessions);
@@ -209,6 +210,7 @@ export function Sidebar() {
       .getSettings()
       .then((s) => {
         if (s.serverName) setServerName(s.serverName);
+        setHerdLeaderFirstEnabled(s.herdLeaderFirstEnabled === true);
         if (s.serverId) {
           const migrated = bootstrapServerId(s.serverId);
           if (migrated) {
@@ -231,6 +233,31 @@ export function Sidebar() {
       })
       .catch(() => {});
   }, []);
+
+  const refreshSidebarSettings = useCallback(async () => {
+    try {
+      const settings = await api.getSettings();
+      setHerdLeaderFirstEnabled(settings.herdLeaderFirstEnabled === true);
+    } catch {
+      // Settings are non-critical for sidebar rendering.
+    }
+  }, []);
+
+  useEffect(() => {
+    function handleFocus() {
+      refreshSidebarSettings();
+    }
+    function handleVisibility() {
+      if (document.visibilityState === "visible") refreshSidebarSettings();
+    }
+
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [refreshSidebarSettings]);
 
   // Update document.title when serverName, attention, or permission counts change.
   // Uses the same deriveSessionStatus logic as the yarn ball indicator (TopBar)
@@ -267,6 +294,15 @@ export function Sidebar() {
     setServerName(trimmed);
     api.updateSettings({ serverName: trimmed }).catch(() => {});
     setEditingServerName(false);
+  }
+
+  function handleToggleHerdLeaderFirst() {
+    const next = !herdLeaderFirstEnabled;
+    setHerdLeaderFirstEnabled(next);
+    api
+      .updateSettings({ herdLeaderFirstEnabled: next })
+      .then((settings) => setHerdLeaderFirstEnabled(settings.herdLeaderFirstEnabled === true))
+      .catch(() => setHerdLeaderFirstEnabled(!next));
   }
 
   function cancelServerNameEdit() {
@@ -554,8 +590,16 @@ export function Sidebar() {
 
   // Group active sessions by project
   const projectGroups = useMemo(
-    () => groupSessionsByProject(activeSessions, sessionAttention, sessionOrder, groupOrder, sessionSortMode),
-    [activeSessions, sessionAttention, sessionOrder, groupOrder, sessionSortMode],
+    () =>
+      groupSessionsByProject(
+        activeSessions,
+        sessionAttention,
+        sessionOrder,
+        groupOrder,
+        sessionSortMode,
+        herdLeaderFirstEnabled,
+      ),
+    [activeSessions, sessionAttention, sessionOrder, groupOrder, sessionSortMode, herdLeaderFirstEnabled],
   );
   // Build tree view groups (herd-centric grouping)
   const treeViewGroups = useMemo(
@@ -922,6 +966,24 @@ export function Sidebar() {
                     <path d="M3 4h10M3 8h10M3 12h10" strokeLinecap="round" />
                   </svg>
                 )}
+              </button>
+            )}
+            {showSortControls && sidebarViewMode === "linear" && (
+              <button
+                onClick={handleToggleHerdLeaderFirst}
+                title={herdLeaderFirstEnabled ? "Herd leaders stay above their workers" : "Keep manual/session order"}
+                aria-label="Toggle leader-first herd order"
+                aria-pressed={herdLeaderFirstEnabled}
+                className={`text-[10px] font-medium px-1.5 py-1 rounded-md transition-colors cursor-pointer shrink-0 ${
+                  herdLeaderFirstEnabled
+                    ? "bg-cc-primary/10 text-cc-primary"
+                    : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
+                }`}
+              >
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5">
+                  <path d="M8 3v10M5 6l3-3 3 3" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M4 12h8" strokeLinecap="round" />
+                </svg>
               </button>
             )}
           </div>

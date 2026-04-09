@@ -65,6 +65,7 @@ describe("settings-manager", () => {
       sleepInhibitorEnabled: false,
       sleepInhibitorDurationMinutes: 5,
       questmasterViewMode: "cards",
+      herdLeaderFirstEnabled: false,
       updatedAt: 0,
     });
   });
@@ -200,6 +201,20 @@ describe("settings-manager", () => {
     expect(getSettings().questmasterViewMode).toBe("compact");
   });
 
+  it("persists herd leader-first preference across reloads", async () => {
+    // Sidebar herd ordering is a server preference so browser tabs share it.
+    updateSettings({ herdLeaderFirstEnabled: true });
+
+    await _flushForTest();
+
+    const savedSettings = JSON.parse(await readFile(settingsPath, "utf-8"));
+    expect(savedSettings.herdLeaderFirstEnabled).toBe(true);
+
+    _resetForTest(settingsPath);
+
+    expect(getSettings().herdLeaderFirstEnabled).toBe(true);
+  });
+
   it("loads existing settings from disk", () => {
     writeFileSync(
       settingsPath,
@@ -331,6 +346,7 @@ describe("settings-manager", () => {
       sleepInhibitorEnabled: false,
       sleepInhibitorDurationMinutes: 5,
       questmasterViewMode: "cards",
+      herdLeaderFirstEnabled: false,
       updatedAt: 0,
     });
   });

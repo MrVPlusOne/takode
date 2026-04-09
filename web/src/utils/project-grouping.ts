@@ -77,6 +77,7 @@ export function groupSessionsByProject(
   sessionOrder?: Map<string, string[]>,
   groupOrder?: string[],
   sortMode?: "created" | "activity",
+  leaderFirstHerds = false,
 ): ProjectGroup[] {
   const groups = new Map<string, ProjectGroup>();
 
@@ -203,9 +204,65 @@ export function groupSessionsByProject(
     // Post-sort: move reviewer sessions directly after their parent session
     // so they visually nest under the parent in the sidebar.
     nestReviewerSessions(group.sessions);
+    if (leaderFirstHerds) {
+      moveHerdLeadersBeforeWorkers(group.sessions);
+    }
   }
 
   return sorted;
+}
+
+/**
+ * Moves each visible herd leader to just before the first worker in that herd.
+ * Does not move unrelated orchestrators, does not reorder workers, and does not
+ * otherwise collapse the sorted/manual session order.
+ */
+export function moveHerdLeadersBeforeWorkers(sessions: SessionItem[]): void {
+  const ids = new Set(sessions.map((s) => s.id));
+  const leaderToFirstWorkerIndex = new Map<string, number>();
+
+  sessions.forEach((session, index) => {
+    const leaderId = session.herdedBy;
+    if (!leaderId || !ids.has(leaderId)) return;
+    const first = leaderToFirstWorkerIndex.get(leaderId);
+    if (first === undefined || index < first) {
+      leaderToFirstWorkerIndex.set(leaderId, index);
+    }
+  });
+
+  if (leaderToFirstWorkerIndex.size === 0) return;
+
+  const leadersToMove = new Map<string, SessionItem>();
+  const withoutMovedLeaders: SessionItem[] = [];
+
+  for (const session of sessions) {
+    if (leaderToFirstWorkerIndex.has(session.id)) {
+      leadersToMove.set(session.id, session);
+    } else {
+      withoutMovedLeaders.push(session);
+    }
+  }
+
+  const result: SessionItem[] = [];
+  const inserted = new Set<string>();
+  for (const session of withoutMovedLeaders) {
+    const leaderId = session.herdedBy;
+    const leader = leaderId ? leadersToMove.get(leaderId) : undefined;
+    if (leader && !inserted.has(leaderId!)) {
+      result.push(leader);
+      inserted.add(leaderId!);
+    }
+    result.push(session);
+  }
+
+  // If a leader had workers only in a filtered-out list mutation edge case,
+  // preserve it rather than dropping it.
+  for (const [leaderId, leader] of leadersToMove) {
+    if (!inserted.has(leaderId)) result.push(leader);
+  }
+
+  sessions.length = 0;
+  sessions.push(...result);
 }
 
 /**

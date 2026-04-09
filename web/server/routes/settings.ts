@@ -163,6 +163,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       sleepInhibitorEnabled: settings.sleepInhibitorEnabled,
       sleepInhibitorDurationMinutes: settings.sleepInhibitorDurationMinutes,
       questmasterViewMode: normalizeQuestmasterViewMode(settings.questmasterViewMode),
+      herdLeaderFirstEnabled: settings.herdLeaderFirstEnabled === true,
       restartSupported: !!process.env.COMPANION_SUPERVISED,
       logFile: getLogPath(),
       claudeDefaultModel,
@@ -276,6 +277,9 @@ export function createSettingsRoutes(ctx: RouteContext) {
     ) {
       return c.json({ error: 'questmasterViewMode must be "cards" or "compact"' }, 400);
     }
+    if (body.herdLeaderFirstEnabled !== undefined && typeof body.herdLeaderFirstEnabled !== "boolean") {
+      return c.json({ error: "herdLeaderFirstEnabled must be a boolean" }, 400);
+    }
 
     // Check that at least one known field is present
     const knownFields = [
@@ -299,6 +303,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       "sleepInhibitorEnabled",
       "sleepInhibitorDurationMinutes",
       "questmasterViewMode",
+      "herdLeaderFirstEnabled",
     ];
     if (!knownFields.some((f) => body[f] !== undefined)) {
       return c.json({ error: "At least one settings field is required" }, 400);
@@ -337,6 +342,8 @@ export function createSettingsRoutes(ctx: RouteContext) {
         body.questmasterViewMode === "cards" || body.questmasterViewMode === "compact"
           ? body.questmasterViewMode
           : undefined,
+      herdLeaderFirstEnabled:
+        typeof body.herdLeaderFirstEnabled === "boolean" ? body.herdLeaderFirstEnabled : undefined,
     });
 
     return c.json({
@@ -360,6 +367,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       sleepInhibitorEnabled: settings.sleepInhibitorEnabled,
       sleepInhibitorDurationMinutes: settings.sleepInhibitorDurationMinutes,
       questmasterViewMode: normalizeQuestmasterViewMode(settings.questmasterViewMode),
+      herdLeaderFirstEnabled: settings.herdLeaderFirstEnabled === true,
     });
   });
 

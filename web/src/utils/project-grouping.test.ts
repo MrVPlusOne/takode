@@ -3,6 +3,7 @@ import {
   extractProjectKey,
   extractProjectLabel,
   groupSessionsByProject,
+  moveHerdLeadersBeforeWorkers,
   nestReviewerSessions,
   type SessionItem,
 } from "./project-grouping.js";
@@ -556,6 +557,91 @@ describe("groupSessionsByProject — activity sort mode", () => {
   });
 });
 
+describe("groupSessionsByProject — leader-first herds", () => {
+  it("keeps existing ordering by default when a worker is newer than its leader", () => {
+    const sessions = [
+      makeItem({ id: "leader", cwd: "/a/app", createdAt: 100, isOrchestrator: true }),
+      makeItem({ id: "worker", cwd: "/a/app", createdAt: 300, herdedBy: "leader" }),
+      makeItem({ id: "unrelated", cwd: "/a/app", createdAt: 200 }),
+    ];
+
+    const groups = groupSessionsByProject(sessions);
+
+    expect(groups[0].sessions.map((s) => s.id)).toEqual(["worker", "unrelated", "leader"]);
+  });
+
+  it("places the leader immediately above its herded workers when enabled", () => {
+    const sessions = [
+      makeItem({ id: "leader", cwd: "/a/app", createdAt: 100, isOrchestrator: true }),
+      makeItem({ id: "worker-a", cwd: "/a/app", createdAt: 400, herdedBy: "leader" }),
+      makeItem({ id: "unrelated", cwd: "/a/app", createdAt: 300 }),
+      makeItem({ id: "worker-b", cwd: "/a/app", createdAt: 200, herdedBy: "leader" }),
+    ];
+
+    const groups = groupSessionsByProject(sessions, undefined, undefined, undefined, "created", true);
+
+    expect(groups[0].sessions.map((s) => s.id)).toEqual(["leader", "worker-a", "unrelated", "worker-b"]);
+  });
+
+  it("does not globally pin orchestrators that have no visible workers", () => {
+    const sessions = [
+      makeItem({ id: "orchestrator", cwd: "/a/app", createdAt: 100, isOrchestrator: true }),
+      makeItem({ id: "newer", cwd: "/a/app", createdAt: 300 }),
+      makeItem({ id: "middle", cwd: "/a/app", createdAt: 200 }),
+    ];
+
+    const groups = groupSessionsByProject(sessions, undefined, undefined, undefined, "created", true);
+
+    expect(groups[0].sessions.map((s) => s.id)).toEqual(["newer", "middle", "orchestrator"]);
+  });
+
+  it("preserves manual session order except for moving each leader above its first worker", () => {
+    const sessions = [
+      makeItem({ id: "leader", cwd: "/a/app", isOrchestrator: true }),
+      makeItem({ id: "worker", cwd: "/a/app", herdedBy: "leader" }),
+      makeItem({ id: "pinned", cwd: "/a/app" }),
+    ];
+    const order = new Map([["/a/app", ["pinned", "worker", "leader"]]]);
+
+    const groups = groupSessionsByProject(sessions, undefined, order, undefined, "created", true);
+
+    expect(groups[0].sessions.map((s) => s.id)).toEqual(["pinned", "leader", "worker"]);
+  });
+
+  it("works after activity sorting without reordering workers by leader membership", () => {
+    const sessions = [
+      makeItem({
+        id: "leader",
+        cwd: "/a/app",
+        isOrchestrator: true,
+        createdAt: 100,
+        lastUserMessageAt: 100,
+      }),
+      makeItem({ id: "worker-a", cwd: "/a/app", herdedBy: "leader", createdAt: 200, lastUserMessageAt: 900 }),
+      makeItem({ id: "worker-b", cwd: "/a/app", herdedBy: "leader", createdAt: 300, lastUserMessageAt: 500 }),
+      makeItem({ id: "unrelated", cwd: "/a/app", createdAt: 400, lastUserMessageAt: 700 }),
+    ];
+
+    const groups = groupSessionsByProject(sessions, undefined, undefined, undefined, "activity", true);
+
+    expect(groups[0].sessions.map((s) => s.id)).toEqual(["leader", "worker-a", "unrelated", "worker-b"]);
+  });
+
+  it("keeps separate herds near their own first worker", () => {
+    const sessions = [
+      makeItem({ id: "leader-a", cwd: "/a/app", createdAt: 10, isOrchestrator: true }),
+      makeItem({ id: "leader-b", cwd: "/a/app", createdAt: 20, isOrchestrator: true }),
+      makeItem({ id: "worker-b", cwd: "/a/app", createdAt: 400, herdedBy: "leader-b" }),
+      makeItem({ id: "gap", cwd: "/a/app", createdAt: 300 }),
+      makeItem({ id: "worker-a", cwd: "/a/app", createdAt: 200, herdedBy: "leader-a" }),
+    ];
+
+    const groups = groupSessionsByProject(sessions, undefined, undefined, undefined, "created", true);
+
+    expect(groups[0].sessions.map((s) => s.id)).toEqual(["leader-b", "worker-b", "gap", "leader-a", "worker-a"]);
+  });
+});
+
 describe("nestReviewerSessions", () => {
   it("places reviewer directly after its parent session", () => {
     const sessions = [
@@ -612,5 +698,19 @@ describe("nestReviewerSessions", () => {
     nestReviewerSessions(sessions);
     // r1 should nest after s2 (sessionNum 5), s1 stays in place
     expect(sessions.map((s) => s.id)).toEqual(["s1", "s2", "r1"]);
+  });
+});
+
+describe("moveHerdLeadersBeforeWorkers", () => {
+  it("mutates the list in place and leaves already-leader-first herds alone", () => {
+    const sessions = [
+      makeItem({ id: "leader", isOrchestrator: true }),
+      makeItem({ id: "worker", herdedBy: "leader" }),
+      makeItem({ id: "unrelated" }),
+    ];
+
+    moveHerdLeadersBeforeWorkers(sessions);
+
+    expect(sessions.map((s) => s.id)).toEqual(["leader", "worker", "unrelated"]);
   });
 });

@@ -26,6 +26,7 @@ const mockApi = {
   archiveSession: vi.fn().mockResolvedValue({}),
   unarchiveSession: vi.fn().mockResolvedValue({}),
   getSettings: vi.fn().mockResolvedValue({ serverName: "" }),
+  updateSettings: vi.fn().mockResolvedValue({ herdLeaderFirstEnabled: false }),
 };
 
 vi.mock("../api.js", () => ({
@@ -36,6 +37,7 @@ vi.mock("../api.js", () => ({
     archiveSession: (...args: unknown[]) => mockApi.archiveSession(...args),
     unarchiveSession: (...args: unknown[]) => mockApi.unarchiveSession(...args),
     getSettings: (...args: unknown[]) => mockApi.getSettings(...args),
+    updateSettings: (...args: unknown[]) => mockApi.updateSettings(...args),
   },
 }));
 
@@ -1298,5 +1300,50 @@ describe("Sidebar", { timeout: 10000 }, () => {
     render(<Sidebar />);
     const leaderButton = screen.getByText("Leader Worker Open").closest("button");
     expect(leaderButton).toHaveClass("ring-amber-400/70");
+  });
+
+  it("toggles server-persisted leader-first herd ordering", async () => {
+    const leaderSessionId = "leader-first";
+    const workerSessionId = "worker-first";
+    const leaderSession = makeSession(leaderSessionId, { model: "leader-first-model" });
+    const workerSession = makeSession(workerSessionId, { model: "worker-first-model" });
+    mockApi.updateSettings.mockResolvedValueOnce({ herdLeaderFirstEnabled: true });
+    mockState = createMockState({
+      sessions: new Map([
+        [leaderSessionId, leaderSession],
+        [workerSessionId, workerSession],
+      ]),
+      sdkSessions: [
+        makeSdkSession(leaderSessionId, {
+          isOrchestrator: true,
+          sessionNum: 41,
+          createdAt: 100,
+        }),
+        makeSdkSession(workerSessionId, {
+          herdedBy: leaderSessionId,
+          sessionNum: 42,
+          createdAt: 300,
+        }),
+      ],
+      sessionNames: new Map([
+        [leaderSessionId, "Leader First"],
+        [workerSessionId, "Worker First"],
+      ]),
+    });
+
+    render(<Sidebar />);
+
+    const leaderBefore = screen.getByText("Leader First").closest("button")!;
+    const workerBefore = screen.getByText("Worker First").closest("button")!;
+    expect(workerBefore.compareDocumentPosition(leaderBefore) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Toggle leader-first herd order" }));
+
+    await waitFor(() => {
+      expect(mockApi.updateSettings).toHaveBeenCalledWith({ herdLeaderFirstEnabled: true });
+    });
+    const leaderAfter = screen.getByText("Leader First").closest("button")!;
+    const workerAfter = screen.getByText("Worker First").closest("button")!;
+    expect(leaderAfter.compareDocumentPosition(workerAfter) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });

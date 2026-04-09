@@ -51,6 +51,8 @@ export interface CompanionSettings {
   sleepInhibitorDurationMinutes: number;
   /** Preferred Questmaster list layout. Optional for backward-compatible tests/mocks. */
   questmasterViewMode?: QuestmasterViewMode;
+  /** Whether herd leaders are pinned above their herded workers in sidebar groups. */
+  herdLeaderFirstEnabled?: boolean;
   updatedAt: number;
 }
 
@@ -142,6 +144,7 @@ let settings: CompanionSettings = {
   sleepInhibitorEnabled: false,
   sleepInhibitorDurationMinutes: 5,
   questmasterViewMode: "cards",
+  herdLeaderFirstEnabled: false,
   updatedAt: 0,
 };
 let secrets: CompanionSecrets = {
@@ -324,6 +327,7 @@ function normalize(raw: Partial<CompanionSettings> | null | undefined): Companio
       raw?.questmasterViewMode === "compact" || raw?.questmasterViewMode === "cards"
         ? raw.questmasterViewMode
         : "cards",
+    herdLeaderFirstEnabled: typeof raw?.herdLeaderFirstEnabled === "boolean" ? raw.herdLeaderFirstEnabled : false,
     updatedAt: typeof raw?.updatedAt === "number" ? raw.updatedAt : 0,
   };
 }
@@ -420,6 +424,7 @@ export function updateSettings(
       | "sleepInhibitorEnabled"
       | "sleepInhibitorDurationMinutes"
       | "questmasterViewMode"
+      | "herdLeaderFirstEnabled"
     >
   >,
 ): CompanionSettings {

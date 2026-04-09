@@ -304,6 +304,7 @@ export interface AppSettings {
   sleepInhibitorEnabled: boolean;
   sleepInhibitorDurationMinutes: number;
   questmasterViewMode: QuestmasterViewMode;
+  herdLeaderFirstEnabled: boolean;
   restartSupported: boolean;
   claudeDefaultModel?: string;
 }
@@ -769,6 +770,7 @@ export const api = {
     sleepInhibitorEnabled?: boolean;
     sleepInhibitorDurationMinutes?: number;
     questmasterViewMode?: QuestmasterViewMode;
+    herdLeaderFirstEnabled?: boolean;
   }) => put<AppSettings>("/settings", data),
   testBinary: (binary: string) =>
     post<{ ok: boolean; resolvedPath?: string; version?: string }>("/settings/test-binary", { binary }),
