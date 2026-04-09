@@ -80,6 +80,7 @@ export function groupSessionsByProject(
   leaderFirstHerds = false,
 ): ProjectGroup[] {
   const groups = new Map<string, ProjectGroup>();
+  const leadersWithVisibleWorkers = leaderFirstHerds ? findLeadersWithVisibleWorkers(sessions) : undefined;
 
   for (const session of sessions) {
     const key = extractProjectKey(session.cwd, session.repoRoot || undefined);
@@ -205,19 +206,35 @@ export function groupSessionsByProject(
     // so they visually nest under the parent in the sidebar.
     nestReviewerSessions(group.sessions);
     if (leaderFirstHerds) {
-      moveHerdLeadersBeforeWorkers(group.sessions);
+      moveHerdLeadersBeforeWorkers(group.sessions, leadersWithVisibleWorkers);
     }
   }
 
   return sorted;
 }
 
+function findLeadersWithVisibleWorkers(sessions: SessionItem[]): Set<string> {
+  const sessionIds = new Set(sessions.map((s) => s.id));
+  const leaderIds = new Set<string>();
+  for (const session of sessions) {
+    if (session.herdedBy && sessionIds.has(session.herdedBy)) {
+      leaderIds.add(session.herdedBy);
+    }
+  }
+  return leaderIds;
+}
+
 /**
  * Moves each visible herd leader to just before the first worker in that herd.
+ * If the leader is visible but its workers are in another project group, move
+ * it to the top of this group instead. Leaders never move across groups.
  * Does not move unrelated orchestrators, does not reorder workers, and does not
  * otherwise collapse the sorted/manual session order.
  */
-export function moveHerdLeadersBeforeWorkers(sessions: SessionItem[]): void {
+export function moveHerdLeadersBeforeWorkers(
+  sessions: SessionItem[],
+  leadersWithVisibleWorkers?: Set<string>,
+): void {
   const ids = new Set(sessions.map((s) => s.id));
   const leaderToFirstWorkerIndex = new Map<string, number>();
 
@@ -230,27 +247,38 @@ export function moveHerdLeadersBeforeWorkers(sessions: SessionItem[]): void {
     }
   });
 
-  if (leaderToFirstWorkerIndex.size === 0) return;
+  const leadersToMoveIds = new Set<string>(leaderToFirstWorkerIndex.keys());
+  for (const session of sessions) {
+    if (leadersWithVisibleWorkers?.has(session.id)) {
+      leadersToMoveIds.add(session.id);
+    }
+  }
+
+  if (leadersToMoveIds.size === 0) return;
 
   const leadersToMove = new Map<string, SessionItem>();
+  const crossGroupLeadersToTop: SessionItem[] = [];
   const withoutMovedLeaders: SessionItem[] = [];
 
   for (const session of sessions) {
-    if (leaderToFirstWorkerIndex.has(session.id)) {
+    if (leadersToMoveIds.has(session.id)) {
       leadersToMove.set(session.id, session);
+      if (!leaderToFirstWorkerIndex.has(session.id)) {
+        crossGroupLeadersToTop.push(session);
+      }
     } else {
       withoutMovedLeaders.push(session);
     }
   }
 
-  const result: SessionItem[] = [];
-  const inserted = new Set<string>();
+  const inserted = new Set(crossGroupLeadersToTop.map((s) => s.id));
+  const result: SessionItem[] = [...crossGroupLeadersToTop];
   for (const session of withoutMovedLeaders) {
     const leaderId = session.herdedBy;
     const leader = leaderId ? leadersToMove.get(leaderId) : undefined;
-    if (leader && !inserted.has(leaderId!)) {
+    if (leaderId && leader && !inserted.has(leaderId)) {
       result.push(leader);
-      inserted.add(leaderId!);
+      inserted.add(leaderId);
     }
     result.push(session);
   }

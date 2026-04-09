@@ -257,6 +257,12 @@ function setTouchDevice(enabled: boolean) {
   });
 }
 
+function expectDocumentOrder(nodes: HTMLElement[]) {
+  for (let i = 0; i < nodes.length - 1; i++) {
+    expect(nodes[i].compareDocumentPosition(nodes[i + 1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  }
+}
+
 describe("Sidebar", { timeout: 10000 }, () => {
   it("polling refreshes sdk sessions without calling connectAllSessions", async () => {
     const listed = [makeSdkSession("s1")];
@@ -1345,5 +1351,72 @@ describe("Sidebar", { timeout: 10000 }, () => {
     const leaderAfter = screen.getByText("Leader First").closest("button")!;
     const workerAfter = screen.getByText("Worker First").closest("button")!;
     expect(leaderAfter.compareDocumentPosition(workerAfter) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("leader-first ordering keeps leaders inside their existing project group", async () => {
+    // Regression: enabling leader-first should reorder rows inside the leader's header,
+    // not move the leader under the worker's project header.
+    const leaderSessionId = "leader-cross-project";
+    const leaderPeerSessionId = "leader-peer";
+    const workerSessionId = "worker-cross-project";
+    const leaderSession = makeSession(leaderSessionId, { cwd: "/home/user/project-leader" });
+    const leaderPeerSession = makeSession(leaderPeerSessionId, { cwd: "/home/user/project-leader" });
+    const workerSession = makeSession(workerSessionId, { cwd: "/home/user/project-worker" });
+    mockApi.updateSettings.mockResolvedValueOnce({ herdLeaderFirstEnabled: true });
+    mockState = createMockState({
+      sessions: new Map([
+        [leaderSessionId, leaderSession],
+        [leaderPeerSessionId, leaderPeerSession],
+        [workerSessionId, workerSession],
+      ]),
+      sdkSessions: [
+        makeSdkSession(leaderSessionId, {
+          cwd: "/home/user/project-leader",
+          isOrchestrator: true,
+          sessionNum: 51,
+          createdAt: 100,
+        }),
+        makeSdkSession(leaderPeerSessionId, {
+          cwd: "/home/user/project-leader",
+          sessionNum: 52,
+          createdAt: 300,
+        }),
+        makeSdkSession(workerSessionId, {
+          cwd: "/home/user/project-worker",
+          herdedBy: leaderSessionId,
+          sessionNum: 53,
+          createdAt: 400,
+        }),
+      ],
+      sessionNames: new Map([
+        [leaderSessionId, "Cross Project Leader"],
+        [leaderPeerSessionId, "Newer Leader-Project Peer"],
+        [workerSessionId, "Cross Project Worker"],
+      ]),
+    });
+
+    render(<Sidebar />);
+
+    expectDocumentOrder([
+      screen.getByText("project-leader"),
+      screen.getByText("Newer Leader-Project Peer").closest("button")!,
+      screen.getByText("Cross Project Leader").closest("button")!,
+      screen.getByText("project-worker"),
+      screen.getByText("Cross Project Worker").closest("button")!,
+    ]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Toggle leader-first herd order" }));
+
+    await waitFor(() => {
+      expect(mockApi.updateSettings).toHaveBeenCalledWith({ herdLeaderFirstEnabled: true });
+    });
+
+    expectDocumentOrder([
+      screen.getByText("project-leader"),
+      screen.getByText("Cross Project Leader").closest("button")!,
+      screen.getByText("Newer Leader-Project Peer").closest("button")!,
+      screen.getByText("project-worker"),
+      screen.getByText("Cross Project Worker").closest("button")!,
+    ]);
   });
 });

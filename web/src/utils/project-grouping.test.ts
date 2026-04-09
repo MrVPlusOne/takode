@@ -570,6 +570,22 @@ describe("groupSessionsByProject — leader-first herds", () => {
     expect(groups[0].sessions.map((s) => s.id)).toEqual(["worker", "unrelated", "leader"]);
   });
 
+  it("keeps cross-project leaders in their original group when disabled", () => {
+    // Off/default mode must remain the pre-toggle session sort in both project groups.
+    const sessions = [
+      makeItem({ id: "newer-leader-peer", cwd: "/a/leader-project", createdAt: 300 }),
+      makeItem({ id: "leader", cwd: "/a/leader-project", createdAt: 100, isOrchestrator: true }),
+      makeItem({ id: "worker", cwd: "/a/worker-project", createdAt: 400, herdedBy: "leader" }),
+      makeItem({ id: "worker-peer", cwd: "/a/worker-project", createdAt: 200 }),
+    ];
+
+    const groups = groupSessionsByProject(sessions, undefined, undefined, undefined, "created", false);
+
+    expect(groups.map((g) => g.key)).toEqual(["/a/leader-project", "/a/worker-project"]);
+    expect(groups[0].sessions.map((s) => s.id)).toEqual(["newer-leader-peer", "leader"]);
+    expect(groups[1].sessions.map((s) => s.id)).toEqual(["worker", "worker-peer"]);
+  });
+
   it("places the leader immediately above its herded workers when enabled", () => {
     const sessions = [
       makeItem({ id: "leader", cwd: "/a/app", createdAt: 100, isOrchestrator: true }),
@@ -581,6 +597,22 @@ describe("groupSessionsByProject — leader-first herds", () => {
     const groups = groupSessionsByProject(sessions, undefined, undefined, undefined, "created", true);
 
     expect(groups[0].sessions.map((s) => s.id)).toEqual(["leader", "worker-a", "unrelated", "worker-b"]);
+  });
+
+  it("moves a visible leader to the top of its own project instead of into its workers' project", () => {
+    // A leader with cross-project workers moves locally within its own project only.
+    const sessions = [
+      makeItem({ id: "newer-leader-peer", cwd: "/a/leader-project", createdAt: 300 }),
+      makeItem({ id: "leader", cwd: "/a/leader-project", createdAt: 100, isOrchestrator: true }),
+      makeItem({ id: "worker", cwd: "/a/worker-project", createdAt: 400, herdedBy: "leader" }),
+      makeItem({ id: "worker-peer", cwd: "/a/worker-project", createdAt: 200 }),
+    ];
+
+    const groups = groupSessionsByProject(sessions, undefined, undefined, undefined, "created", true);
+
+    expect(groups.map((g) => g.key)).toEqual(["/a/leader-project", "/a/worker-project"]);
+    expect(groups[0].sessions.map((s) => s.id)).toEqual(["leader", "newer-leader-peer"]);
+    expect(groups[1].sessions.map((s) => s.id)).toEqual(["worker", "worker-peer"]);
   });
 
   it("does not globally pin orchestrators that have no visible workers", () => {
