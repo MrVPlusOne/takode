@@ -322,18 +322,16 @@ export function TreeViewGroup({
         <button
           onClick={() => onToggleGroupCollapse(group.id)}
           onContextMenu={(e) => {
-            if (group.id !== "default") {
-              e.preventDefault();
-              startGroupRename();
-            }
+            if (group.id === "default") return;
+            e.preventDefault();
+            startGroupRename();
           }}
           className="min-w-0 flex-1 flex items-center gap-1.5 cursor-pointer"
           onDoubleClick={(e) => {
-            if (group.id !== "default") {
-              e.preventDefault();
-              e.stopPropagation();
-              startGroupRename();
-            }
+            if (group.id === "default") return;
+            e.preventDefault();
+            e.stopPropagation();
+            startGroupRename();
           }}
         >
           <svg

@@ -60,9 +60,6 @@ const STATUS_DOT_CLASS: Record<SessionVisualStatus, string> = {
   idle: "bg-cc-muted/50",
 };
 
-/** Same colors as dots, used for the left-edge status stripe in linear view. */
-const STRIPE_COLOR_CLASS = STATUS_DOT_CLASS;
-
 /** Maps reviewer session status to badge border/text/glow colors */
 const REVIEWER_BADGE_THEME: Record<
   SessionVisualStatus,
@@ -356,8 +353,7 @@ export function SessionItem({
     hasUnread,
     idleKilled: s.idleKilled,
   });
-  const dotClass = STATUS_DOT_CLASS[visualStatus];
-  const stripeClass = STRIPE_COLOR_CLASS[visualStatus];
+  const statusColorClass = STATUS_DOT_CLASS[visualStatus];
   const glowColor =
     visualStatus === "permission"
       ? "rgba(245, 158, 11, 0.7)"
@@ -462,7 +458,7 @@ export function SessionItem({
         {/* Left-edge status stripe (linear view only) */}
         {useStatusBar && (
           <span
-            className={`absolute left-0 top-2 bottom-2 w-[3px] rounded-full block ${stripeClass} ${
+            className={`absolute left-0 top-2 bottom-2 w-[3px] rounded-full block ${statusColorClass} ${
               isActive ? "opacity-100" : "opacity-60 group-hover:opacity-85"
             } transition-opacity`}
             data-testid="session-status-stripe"
@@ -502,7 +498,7 @@ export function SessionItem({
               {/* Status dot indicator (tree view only -- linear view uses left-edge stripe) */}
               {!useStatusBar && (
                 <span
-                  className={`shrink-0 w-1.5 h-1.5 rounded-full ${dotClass} ${
+                  className={`shrink-0 w-1.5 h-1.5 rounded-full ${statusColorClass} ${
                     isActive ? "opacity-100" : "opacity-60 group-hover:opacity-85"
                   } transition-opacity`}
                   data-testid="session-status-dot"

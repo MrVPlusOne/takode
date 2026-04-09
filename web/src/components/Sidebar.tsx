@@ -296,15 +296,6 @@ export function Sidebar() {
     setEditingServerName(false);
   }
 
-  function handleToggleHerdLeaderFirst() {
-    const next = !herdLeaderFirstEnabled;
-    setHerdLeaderFirstEnabled(next);
-    api
-      .updateSettings({ herdLeaderFirstEnabled: next })
-      .then((settings) => setHerdLeaderFirstEnabled(settings.herdLeaderFirstEnabled === true))
-      .catch(() => setHerdLeaderFirstEnabled(!next));
-  }
-
   function cancelServerNameEdit() {
     setEditingServerName(false);
   }
