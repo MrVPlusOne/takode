@@ -125,7 +125,13 @@ export function buildTreeViewGroups(
 
   for (const group of orderedGroups) {
     const bucket = groupBuckets.get(group.id);
-    if (!bucket || bucket.length === 0) continue;
+    if (!bucket || bucket.length === 0) {
+      // Include empty non-default groups so the user can see and manage them
+      if (group.id !== "default") {
+        result.push({ id: group.id, name: group.name, nodes: [], runningCount: 0, permCount: 0, unreadCount: 0 });
+      }
+      continue;
+    }
 
     // Separate leaders/standalone from workers
     const leaders: SessionItem[] = [];

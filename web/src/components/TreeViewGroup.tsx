@@ -273,6 +273,7 @@ export function TreeViewGroup({
 
   function renderTreeNode(node: TreeNode) {
     const hasWorkers = node.workers.length > 0;
+    const hasChildren = hasWorkers || node.reviewers.length > 0;
     const isNodeCollapsed = collapsedTreeNodes.has(node.leader.id);
     const workerSummary = hasWorkers ? computeWorkerSummary(node.workers) : undefined;
 
@@ -280,7 +281,7 @@ export function TreeViewGroup({
       <div key={node.leader.id}>
         {/* Leader / standalone row */}
         <div className="flex items-start">
-          {hasWorkers && (
+          {hasChildren && (
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -298,15 +299,30 @@ export function TreeViewGroup({
               </svg>
             </button>
           )}
-          <div className={`flex-1 min-w-0 ${!hasWorkers ? "pl-5" : ""}`}>
+          <div className={`flex-1 min-w-0 ${!hasChildren ? "pl-5" : ""}`}>
             {renderSessionItem(node.leader, { workerStatusSummary: workerSummary })}
           </div>
         </div>
 
-        {/* Workers -- indented under leader with VSCode-style indent guide */}
-        {hasWorkers && !isNodeCollapsed && (
-          <div className="ml-2 pl-4 border-l border-cc-border/30">
-            {node.workers.map((w) => renderSessionItem(w, { compact: true }))}
+        {/* Workers + reviewers indented under leader with VSCode-style indent guide */}
+        {hasChildren && !isNodeCollapsed && (
+          <div className="ml-[11px] pl-2.5 border-l border-cc-border/40">
+            {node.workers.map((w) => {
+              const workerReviewers = node.reviewers.filter(
+                (r) => r.reviewerOf === w.sessionNum,
+              );
+              return (
+                <div key={w.id}>
+                  {renderSessionItem(w, { compact: true })}
+                  {/* Nested reviewers for this worker */}
+                  {workerReviewers.map((r) => renderSessionItem(r, { compact: true }))}
+                </div>
+              );
+            })}
+            {/* Reviewers of the leader itself */}
+            {node.reviewers
+              .filter((r) => r.reviewerOf === node.leader.sessionNum)
+              .map((r) => renderSessionItem(r, { compact: true }))}
           </div>
         )}
       </div>
@@ -397,7 +413,7 @@ export function TreeViewGroup({
       </div>
 
       {/* Tree node list */}
-      {!isGroupCollapsed && (
+      {!isGroupCollapsed && group.nodes.length > 0 && (
         <DndContext
           sensors={isDraggable ? sensors : []}
           collisionDetection={closestCenter}
@@ -418,6 +434,11 @@ export function TreeViewGroup({
             </div>
           </SortableContext>
         </DndContext>
+      )}
+      {!isGroupCollapsed && group.nodes.length === 0 && (
+        <div className="px-4 py-2 text-[11px] text-cc-muted/50 italic">
+          No sessions — use + to create one
+        </div>
       )}
     </div>
   );
