@@ -104,6 +104,10 @@ interface SessionItemProps {
   matchQuery?: string;
   /** Indentation level for tree view (0 = root, 1 = worker under leader). */
   indentLevel?: number;
+  /** When true, renders a compact chip (no preview, no herd badge, no shield). Tree view workers only. */
+  compact?: boolean;
+  /** Worker status counts displayed on leader chips in tree view. */
+  workerStatusSummary?: { running: number; permission: number; unread: number };
 }
 
 export function SessionItem({
@@ -145,6 +149,8 @@ export function SessionItem({
   matchedField,
   matchQuery,
   indentLevel = 0,
+  compact,
+  workerStatusSummary,
 }: SessionItemProps) {
   const buttonRef = useRef<HTMLButtonElement>(null);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -399,7 +405,9 @@ export function SessionItem({
           transition: swipeActive.current ? "none" : "transform 180ms ease-out",
         }}
         className={`w-full text-left rounded-xl sm:rounded-lg border sm:border-transparent ${
-          archived ? "pl-3.5 pr-12 py-2.5 sm:pl-3.5 sm:pr-14 sm:py-2" : "pl-3.5 pr-12 py-2.5 sm:pl-3.5 sm:pr-3 sm:py-2"
+          compact
+            ? "pl-3.5 pr-12 py-1.5 sm:pl-3.5 sm:pr-3 sm:py-1"
+            : archived ? "pl-3.5 pr-12 py-2.5 sm:pl-3.5 sm:pr-14 sm:py-2" : "pl-3.5 pr-12 py-2.5 sm:pl-3.5 sm:pr-3 sm:py-2"
         } transition-all duration-100 select-none ${
           isDraggable
             ? "cursor-pointer sm:cursor-grab sm:active:cursor-grabbing"
@@ -471,7 +479,7 @@ export function SessionItem({
                   reviewer
                 </span>
               )}
-              {!isEditing && !s.isOrchestrator && s.reviewerOf === undefined && !!s.herdedBy && (
+              {!compact && !isEditing && !s.isOrchestrator && s.reviewerOf === undefined && !!s.herdedBy && (
                 <span
                   className="text-[9px] font-medium px-1.5 rounded-full leading-[16px] shrink-0 border"
                   title="Herded by a leader"
@@ -517,8 +525,8 @@ export function SessionItem({
               )}
             </div>
 
-            {/* Row 2: Preview — match context during search, or active task / last message */}
-            {!isEditing &&
+            {/* Row 2: Preview -- match context during search, or active task / last message */}
+            {!compact && !isEditing &&
               (displayMatch ? (
                 <div className="mt-0.5 text-[10.5px] text-cc-muted/80 leading-tight truncate">
                   <span className="text-cc-primary/70 mr-1">{displayMatch.fieldLabel}</span>
@@ -535,8 +543,8 @@ export function SessionItem({
                   <span className="text-[9px] font-mono text-cc-muted/60 shrink-0">#{s.sessionNum}</span>
                 )}
                 <img src={backendLogo} alt={backendAlt} className="w-3 h-3 shrink-0 object-contain opacity-60" />
-                {/* Shield icon: ask permission status (Claude only) */}
-                {s.backendType !== "codex" && s.askPermission === true && (
+                {/* Shield icon: ask permission status (Claude only, hidden in compact mode) */}
+                {!compact && s.backendType !== "codex" && s.askPermission === true && (
                   <span title="Permissions: asking before tool use">
                     <svg viewBox="0 0 16 16" fill="currentColor" className="w-2.5 h-2.5 shrink-0 text-cc-primary">
                       <path d="M8 1L2 4v4c0 3.5 2.6 6.4 6 7 3.4-.6 6-3.5 6-7V4L8 1z" />
@@ -551,7 +559,7 @@ export function SessionItem({
                     </svg>
                   </span>
                 )}
-                {s.backendType !== "codex" && s.askPermission === false && (
+                {!compact && s.backendType !== "codex" && s.askPermission === false && (
                   <span title="Permissions: auto-approving tool use">
                     <svg
                       viewBox="0 0 16 16"
@@ -634,6 +642,29 @@ export function SessionItem({
                       </button>
                     );
                   })()}
+                {/* Worker status summary (leader chips in tree view) */}
+                {workerStatusSummary && (workerStatusSummary.running > 0 || workerStatusSummary.permission > 0 || workerStatusSummary.unread > 0) && (
+                  <span className="flex items-center gap-1 shrink-0 text-[10px] font-medium">
+                    {workerStatusSummary.running > 0 && (
+                      <span className="text-cc-success flex items-center gap-0.5">
+                        {workerStatusSummary.running}
+                        <span className="inline-block w-1.5 h-1.5 rounded-full bg-cc-success" />
+                      </span>
+                    )}
+                    {workerStatusSummary.permission > 0 && (
+                      <span className="text-cc-warning flex items-center gap-0.5">
+                        {workerStatusSummary.permission}
+                        <span className="inline-block w-1.5 h-1.5 rounded-full bg-cc-warning" />
+                      </span>
+                    )}
+                    {workerStatusSummary.unread > 0 && (
+                      <span className="text-blue-500 flex items-center gap-0.5">
+                        {workerStatusSummary.unread}
+                        <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-500" />
+                      </span>
+                    )}
+                  </span>
+                )}
                 {hasBranchDivergence && (
                   <span className="flex items-center gap-0.5 text-[10px] shrink-0">
                     {s.gitAhead > 0 && <span className="text-green-500">{s.gitAhead}&#8593;</span>}

@@ -14,6 +14,7 @@ import { CSS } from "@dnd-kit/utilities";
 import type { TreeViewGroupData, TreeNode } from "../utils/tree-grouping.js";
 import type { SessionItem as SessionItemType } from "../utils/project-grouping.js";
 import { SessionItem } from "./SessionItem.js";
+import { deriveSessionStatus } from "./SessionStatusDot.js";
 import { useStore, countUserPermissions } from "../store.js";
 import { isTouchDevice } from "../utils/mobile.js";
 import { api } from "../api.js";
@@ -222,6 +223,7 @@ export function TreeViewGroup({
 
   function renderSessionItem(
     s: SessionItemType,
+    opts?: { compact?: boolean; workerStatusSummary?: { running: number; permission: number; unread: number } },
   ) {
     const permCount = countUserPermissions(pendingPermissions.get(s.id));
     const attention = sessionAttention?.get(s.id) ?? null;
@@ -238,6 +240,8 @@ export function TreeViewGroup({
         hasUnread={!!attention}
         herdGroupBadgeTheme={herdGroupBadgeThemes?.get(s.id)}
         herdHoverHighlight={herdHoverHighlights?.get(s.id)}
+        compact={opts?.compact}
+        workerStatusSummary={opts?.workerStatusSummary}
         {...sessionItemProps}
       />
     );
@@ -246,6 +250,32 @@ export function TreeViewGroup({
   function renderTreeNode(node: TreeNode) {
     const hasWorkers = node.workers.length > 0;
     const isNodeCollapsed = collapsedTreeNodes.has(node.leader.id);
+
+    // Compute worker status summary for the leader chip
+    const workerSummary = hasWorkers
+      ? (() => {
+          let running = 0;
+          let permission = 0;
+          let unread = 0;
+          for (const w of node.workers) {
+            const wPermCount = countUserPermissions(pendingPermissions.get(w.id));
+            const wAttention = sessionAttention?.get(w.id) ?? null;
+            const status = deriveSessionStatus({
+              archived: w.archived,
+              permCount: wPermCount,
+              isConnected: w.isConnected,
+              sdkState: w.sdkState,
+              status: w.status,
+              hasUnread: !!wAttention,
+              idleKilled: w.idleKilled,
+            });
+            if (status === "running" || status === "compacting") running++;
+            else if (status === "permission") permission++;
+            else if (status === "completed_unread") unread++;
+          }
+          return { running, permission, unread };
+        })()
+      : undefined;
 
     return (
       <div key={node.leader.id}>
@@ -270,14 +300,14 @@ export function TreeViewGroup({
             </button>
           )}
           <div className={`flex-1 min-w-0 ${!hasWorkers ? "pl-4" : ""}`}>
-            {renderSessionItem(node.leader)}
+            {renderSessionItem(node.leader, { workerStatusSummary: workerSummary })}
           </div>
         </div>
 
         {/* Workers -- indented under leader with VSCode-style indent guide */}
         {hasWorkers && !isNodeCollapsed && (
           <div className="ml-[7px] pl-[9px] border-l border-cc-border/20">
-            {node.workers.map((w) => renderSessionItem(w))}
+            {node.workers.map((w) => renderSessionItem(w, { compact: true }))}
           </div>
         )}
       </div>
