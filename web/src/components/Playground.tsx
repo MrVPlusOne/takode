@@ -224,6 +224,55 @@ const PLAYGROUND_SESSION_ROWS: Array<{ session: SidebarSessionItem; sessionName:
     sessionName: "Worker Gamma (no reviewer — no badge)",
     preview: "Implementing dark mode toggle in settings panel.",
   },
+  // Quest-named sessions: demonstrate ☐/☑ prefix styling
+  {
+    session: {
+      id: "quest-in-progress",
+      model: "claude-sonnet-4-5",
+      cwd: "/Users/stan/Dev/takode",
+      gitBranch: "fix/quest-styling",
+      isContainerized: false,
+      gitAhead: 1,
+      gitBehind: 0,
+      linesAdded: 12,
+      linesRemoved: 4,
+      isConnected: true,
+      status: "running",
+      sdkState: "running",
+      createdAt: 6,
+      archived: false,
+      backendType: "claude",
+      repoRoot: "/Users/stan/Dev/takode",
+      permCount: 0,
+      sessionNum: 20,
+    },
+    sessionName: "Fix quest title styling",
+    preview: "Working on q-166: unchecked box for in-progress quests.",
+  },
+  {
+    session: {
+      id: "quest-needs-verification",
+      model: "claude-sonnet-4-5",
+      cwd: "/Users/stan/Dev/takode",
+      gitBranch: "feat/dark-mode",
+      isContainerized: false,
+      gitAhead: 3,
+      gitBehind: 0,
+      linesAdded: 45,
+      linesRemoved: 8,
+      isConnected: true,
+      status: "idle",
+      sdkState: "connected",
+      createdAt: 7,
+      archived: false,
+      backendType: "claude",
+      repoRoot: "/Users/stan/Dev/takode",
+      permCount: 0,
+      sessionNum: 21,
+    },
+    sessionName: "Add dark mode toggle",
+    preview: "Quest complete, awaiting verification.",
+  },
 ];
 const PLAYGROUND_HERD_GROUP_THEMES = (() => {
   const leaderThemes = buildHerdGroupBadgeThemes(PLAYGROUND_SESSION_ROWS.map(({ session }) => session));
@@ -1372,6 +1421,20 @@ export function Playground() {
     store.setCliDisconnectReason(PLAYGROUND_BROKEN_SESSION_ID, "broken");
     store.setSessionStatus(PLAYGROUND_BROKEN_SESSION_ID, null);
 
+    // Seed quest-named state for sidebar quest demo rows.
+    // SessionItem reads isQuestNamed + claimedQuestStatus from the store,
+    // so we inject lightweight session entries for the two quest demo IDs.
+    const questInProgressId = "quest-in-progress";
+    const questVerificationId = "quest-needs-verification";
+    store.markQuestNamed(questInProgressId);
+    store.markQuestNamed(questVerificationId);
+    useStore.setState((s) => {
+      const sessions = new Map(s.sessions);
+      sessions.set(questInProgressId, { ...(sessions.get(questInProgressId) ?? {} as SessionState), claimedQuestStatus: "in_progress" } as SessionState);
+      sessions.set(questVerificationId, { ...(sessions.get(questVerificationId) ?? {} as SessionState), claimedQuestStatus: "needs_verification" } as SessionState);
+      return { sessions };
+    });
+
     return () => {
       useStore.setState((s) => {
         const sessions = new Map(s.sessions);
@@ -1451,6 +1514,15 @@ export function Playground() {
           historyLoading,
           pendingCodexInputs,
         };
+      });
+      // Clean up quest-named demo state
+      useStore.getState().clearQuestNamed(questInProgressId);
+      useStore.getState().clearQuestNamed(questVerificationId);
+      useStore.setState((s) => {
+        const sessions = new Map(s.sessions);
+        sessions.delete(questInProgressId);
+        sessions.delete(questVerificationId);
+        return { sessions };
       });
     };
   }, []);
@@ -2448,6 +2520,43 @@ export function Playground() {
                       herdGroupBadgeTheme={PLAYGROUND_HERD_GROUP_THEMES.get(session.id)}
                     />
                   ))}
+              </div>
+            </Card>
+          </div>
+        </Section>
+
+        <Section
+          title="Quest Title Styling"
+          description="Quest-named sessions show a checkbox prefix: ☐ for in-progress, ☑ for needs-verification. Both use normal white text (no yellow/gold)."
+        >
+          <div className="max-w-md">
+            <Card label="In-progress vs completed quest titles">
+              <div className="space-y-1 rounded-xl bg-cc-sidebar p-2">
+                {PLAYGROUND_SESSION_ROWS.filter(({ session }) => session.id.startsWith("quest-")).map(
+                  ({ session, sessionName, preview }) => (
+                    <SessionItem
+                      key={session.id}
+                      session={session}
+                      isActive={false}
+                      sessionName={sessionName}
+                      sessionPreview={preview}
+                      permCount={session.permCount}
+                      isRecentlyRenamed={false}
+                      onSelect={() => {}}
+                      onStartRename={() => {}}
+                      onArchive={() => {}}
+                      onUnarchive={() => {}}
+                      onDelete={() => {}}
+                      onClearRecentlyRenamed={() => {}}
+                      editingSessionId={null}
+                      editingName=""
+                      setEditingName={() => {}}
+                      onConfirmRename={() => {}}
+                      onCancelRename={() => {}}
+                      editInputRef={{ current: null }}
+                    />
+                  ),
+                )}
               </div>
             </Card>
           </div>

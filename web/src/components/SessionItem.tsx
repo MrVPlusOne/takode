@@ -544,12 +544,14 @@ export function SessionItem({
                 />
               ) : (
                 <span
-                  className={`text-[13px] truncate leading-snug ${
-                    isQuestNamed && questStatus !== "needs_verification" ? "text-amber-400" : "text-cc-fg"
-                  } ${attention ? "font-semibold" : "font-medium"} ${isRecentlyRenamed ? "animate-name-appear" : ""}`}
+                  className={`text-[13px] truncate leading-snug text-cc-fg ${attention ? "font-semibold" : "font-medium"} ${isRecentlyRenamed ? "animate-name-appear" : ""}`}
                   onAnimationEnd={() => onClearRecentlyRenamed(s.id)}
                 >
-                  {isQuestNamed && questStatus === "needs_verification" ? `☑ ${label}` : label}
+                  {isQuestNamed && questStatus === "needs_verification"
+                    ? `☑ ${label}`
+                    : isQuestNamed
+                      ? `☐ ${label}`
+                      : label}
                 </span>
               )}
               {archived && s.archivedAt && (

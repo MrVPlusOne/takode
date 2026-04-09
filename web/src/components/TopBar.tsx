@@ -264,10 +264,14 @@ export function TopBar() {
               )}
               {sessionName && (
                 <span
-                  className={`text-[11px] font-medium truncate ${isQuestNamed && questStatus !== "needs_verification" ? "text-amber-400" : "text-cc-fg"}`}
+                  className="text-[11px] font-medium truncate text-cc-fg"
                   title={sessionName}
                 >
-                  {isQuestNamed && questStatus === "needs_verification" ? `☑ ${sessionName}` : sessionName}
+                  {isQuestNamed && questStatus === "needs_verification"
+                    ? `☑ ${sessionName}`
+                    : isQuestNamed
+                      ? `☐ ${sessionName}`
+                      : sessionName}
                 </span>
               )}
             </button>
