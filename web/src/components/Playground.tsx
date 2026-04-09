@@ -1073,6 +1073,8 @@ export function Playground() {
       PLAYGROUND_STARTING_SESSION_ID,
       PLAYGROUND_RESUMING_SESSION_ID,
       PLAYGROUND_BROKEN_SESSION_ID,
+      "quest-in-progress",
+      "quest-needs-verification",
     ];
     const prevSessions = new Map(demoSessionIds.map((id) => [id, snapshot.sessions.get(id)]));
     const prevMessages = new Map(demoSessionIds.map((id) => [id, snapshot.messages.get(id)]));
@@ -1422,18 +1424,13 @@ export function Playground() {
     store.setSessionStatus(PLAYGROUND_BROKEN_SESSION_ID, null);
 
     // Seed quest-named state for sidebar quest demo rows.
-    // SessionItem reads isQuestNamed + claimedQuestStatus from the store,
-    // so we inject lightweight session entries for the two quest demo IDs.
+    // SessionItem reads isQuestNamed + claimedQuestStatus from the store.
     const questInProgressId = "quest-in-progress";
     const questVerificationId = "quest-needs-verification";
+    store.addSession({ ...session, session_id: questInProgressId, claimedQuestStatus: "in_progress" });
+    store.addSession({ ...session, session_id: questVerificationId, claimedQuestStatus: "needs_verification" });
     store.markQuestNamed(questInProgressId);
     store.markQuestNamed(questVerificationId);
-    useStore.setState((s) => {
-      const sessions = new Map(s.sessions);
-      sessions.set(questInProgressId, { ...(sessions.get(questInProgressId) ?? {} as SessionState), claimedQuestStatus: "in_progress" } as SessionState);
-      sessions.set(questVerificationId, { ...(sessions.get(questVerificationId) ?? {} as SessionState), claimedQuestStatus: "needs_verification" } as SessionState);
-      return { sessions };
-    });
 
     return () => {
       useStore.setState((s) => {
@@ -1515,15 +1512,9 @@ export function Playground() {
           pendingCodexInputs,
         };
       });
-      // Clean up quest-named demo state
+      // Clean up quest-named demo state (sessions themselves are cleaned by the loop above)
       useStore.getState().clearQuestNamed(questInProgressId);
       useStore.getState().clearQuestNamed(questVerificationId);
-      useStore.setState((s) => {
-        const sessions = new Map(s.sessions);
-        sessions.delete(questInProgressId);
-        sessions.delete(questVerificationId);
-        return { sessions };
-      });
     };
   }, []);
 
@@ -2528,7 +2519,7 @@ export function Playground() {
 
         <Section
           title="Quest Title Styling"
-          description="Quest-named sessions show a checkbox prefix: ☐ for in-progress, ☑ for needs-verification. Both use normal white text (no yellow/gold)."
+          description="Quest-named sessions show a checkbox prefix: ☐ for in-progress, ☑ for needs-verification."
         >
           <div className="max-w-md">
             <Card label="In-progress vs completed quest titles">

@@ -9,6 +9,7 @@ import { navigateTo, navigateToSession } from "../utils/navigation.js";
 import { isDesktopShellLayout } from "../utils/layout.js";
 import { SessionInfoPopover } from "./SessionInfoPopover.js";
 import { coalesceSessionViewModel, toSessionViewModel } from "../utils/session-view-model.js";
+import { questLabel } from "../utils/quest-helpers.js";
 
 export function TopBar() {
   const hash = useSyncExternalStore(
@@ -267,11 +268,7 @@ export function TopBar() {
                   className="text-[11px] font-medium truncate text-cc-fg"
                   title={sessionName}
                 >
-                  {isQuestNamed && questStatus === "needs_verification"
-                    ? `☑ ${sessionName}`
-                    : isQuestNamed
-                      ? `☐ ${sessionName}`
-                      : sessionName}
+                  {questLabel(sessionName, isQuestNamed, questStatus)}
                 </span>
               )}
             </button>

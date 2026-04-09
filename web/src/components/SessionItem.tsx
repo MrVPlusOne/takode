@@ -4,6 +4,7 @@ import { deriveSessionStatus, type SessionVisualStatus } from "./SessionStatusDo
 import { useStore } from "../store.js";
 import { navigateToSession } from "../utils/routing.js";
 import { getHighlightParts } from "../utils/highlight.js";
+import { questLabel } from "../utils/quest-helpers.js";
 import type { HerdGroupBadgeTheme } from "../utils/herd-group-theme.js";
 
 type SearchMatchedField = "name" | "task" | "keyword" | "branch" | "path" | "repo" | "user_message";
@@ -564,11 +565,7 @@ export function SessionItem({
                   className={`text-[13px] truncate leading-snug text-cc-fg ${attention ? "font-semibold" : "font-medium"} ${isRecentlyRenamed ? "animate-name-appear" : ""}`}
                   onAnimationEnd={() => onClearRecentlyRenamed(s.id)}
                 >
-                  {isQuestNamed && questStatus === "needs_verification"
-                    ? `☑ ${label}`
-                    : isQuestNamed
-                      ? `☐ ${label}`
-                      : label}
+                  {questLabel(label, isQuestNamed, questStatus)}
                 </span>
               )}
               {archived && s.archivedAt && (

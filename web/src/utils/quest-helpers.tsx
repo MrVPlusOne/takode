@@ -2,6 +2,12 @@ import { useState } from "react";
 import { writeClipboardText } from "./copy-utils.js";
 import type { QuestmasterTask, QuestVerificationItem } from "../types.js";
 
+/** Prefix a session name with ☐/☑ based on quest status, or return it unmodified for non-quest sessions. */
+export function questLabel(name: string, isQuestNamed: boolean, questStatus: string | undefined): string {
+  if (!isQuestNamed) return name;
+  return questStatus === "needs_verification" ? `☑ ${name}` : `☐ ${name}`;
+}
+
 /** Relative time display (e.g. "5m ago", "2h ago", "3d ago"). */
 export function timeAgo(ts: number): string {
   const diff = Date.now() - ts;

@@ -413,6 +413,64 @@ describe("SessionItem reviewer badge", () => {
   });
 });
 
+describe("SessionItem quest title label", () => {
+  // Quest-named sessions display a checkbox prefix to indicate status:
+  // ☐ for in-progress, ☑ for needs_verification.
+  // Non-quest sessions show the plain name with no prefix.
+
+  afterEach(() => {
+    // Reset quest state after each test
+    mockStoreState.questNamedSessions.clear();
+    mockStoreState.sessions.clear();
+  });
+
+  it("shows ☐ prefix for in-progress quest sessions", () => {
+    mockStoreState.questNamedSessions.add("s1");
+    mockStoreState.sessions.set("s1", { claimedQuestStatus: "in_progress" });
+
+    renderSessionItem({ sessionName: "Fix auth bug" });
+
+    expect(screen.getByText("☐ Fix auth bug")).toBeInTheDocument();
+  });
+
+  it("shows ☑ prefix for needs_verification quest sessions", () => {
+    mockStoreState.questNamedSessions.add("s1");
+    mockStoreState.sessions.set("s1", { claimedQuestStatus: "needs_verification" });
+
+    renderSessionItem({ sessionName: "Fix auth bug" });
+
+    expect(screen.getByText("☑ Fix auth bug")).toBeInTheDocument();
+  });
+
+  it("shows plain name for non-quest sessions", () => {
+    renderSessionItem({ sessionName: "Regular session" });
+
+    const span = screen.getByText("Regular session");
+    expect(span.textContent).toBe("Regular session");
+  });
+
+  it("shows ☐ prefix when quest status is undefined", () => {
+    // Edge case: session is quest-named but claimedQuestStatus was never set.
+    // Should fall through to the ☐ branch, not crash or show ☑.
+    mockStoreState.questNamedSessions.add("s1");
+    mockStoreState.sessions.set("s1", { claimedQuestStatus: undefined });
+
+    renderSessionItem({ sessionName: "Mystery quest" });
+
+    expect(screen.getByText("☐ Mystery quest")).toBeInTheDocument();
+  });
+
+  it("shows ☐ prefix for non-verification statuses like 'done'", () => {
+    // Confirms the ☑ check is strict -- only "needs_verification" gets a checked box.
+    mockStoreState.questNamedSessions.add("s1");
+    mockStoreState.sessions.set("s1", { claimedQuestStatus: "done" });
+
+    renderSessionItem({ sessionName: "Completed quest" });
+
+    expect(screen.getByText("☐ Completed quest")).toBeInTheDocument();
+  });
+});
+
 describe("SessionItem isDraggable cursor styling", () => {
   // When isDraggable is true (default), the session button shows a grab cursor
   // on desktop (sm breakpoint) so users know they can drag to reorder.
