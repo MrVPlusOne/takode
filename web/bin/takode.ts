@@ -2889,6 +2889,93 @@ async function handleExport(base: string, args: string[]): Promise<void> {
 
 // ─── Main dispatch ──────────────────────────────────────────────────────────
 
+async function handleTimer(base: string, args: string[]): Promise<void> {
+  const sub = args[0];
+  const sessionId = getCallerSessionId();
+
+  switch (sub) {
+    case "create": {
+      // Parse: takode timer create "check the build" --in 30m
+      //        takode timer create "deploy reminder" --at 3pm
+      //        takode timer create "refresh context" --every 10m
+      const prompt = args[1];
+      if (!prompt) {
+        err("Usage: takode timer create <prompt> --in|--at|--every <spec>");
+      }
+
+      const body: Record<string, string> = { prompt };
+      for (let i = 2; i < args.length; i++) {
+        if (args[i] === "--in" && args[i + 1]) {
+          body.in = args[++i];
+        } else if (args[i] === "--at" && args[i + 1]) {
+          body.at = args[++i];
+        } else if (args[i] === "--every" && args[i + 1]) {
+          body.every = args[++i];
+        }
+      }
+
+      if (!body.in && !body.at && !body.every) {
+        err("Usage: takode timer create <prompt> --in|--at|--every <spec>\n  e.g. --in 30m, --at 3pm, --every 10m");
+      }
+
+      const result = (await apiPost(base, `/sessions/${sessionId}/timers`, body)) as {
+        timer: { id: string; type: string; nextFireAt: number; originalSpec: string; prompt: string };
+      };
+      const t = result.timer;
+      const fireAt = new Date(t.nextFireAt).toLocaleTimeString();
+      console.log(`Created timer ${t.id} (${t.type}): "${t.prompt}" — next fire at ${fireAt}`);
+      break;
+    }
+    case "list": {
+      const result = (await apiGet(base, `/sessions/${sessionId}/timers`)) as {
+        timers: {
+          id: string;
+          type: string;
+          prompt: string;
+          originalSpec: string;
+          nextFireAt: number;
+          fireCount: number;
+          intervalMs?: number;
+        }[];
+      };
+      if (result.timers.length === 0) {
+        console.log("No active timers.");
+        break;
+      }
+      console.log(`Active timers (${result.timers.length}):\n`);
+      for (const t of result.timers) {
+        const fireAt = new Date(t.nextFireAt).toLocaleTimeString();
+        const typeLabel =
+          t.type === "recurring" ? `every ${t.originalSpec}` : t.type === "delay" ? `in ${t.originalSpec}` : `at ${t.originalSpec}`;
+        console.log(`  ${t.id}  ${typeLabel}  fires=${t.fireCount}  next=${fireAt}  "${t.prompt}"`);
+      }
+      break;
+    }
+    case "cancel": {
+      const timerId = args[1];
+      if (!timerId) err("Usage: takode timer cancel <timer-id>");
+
+      await apiDelete(base, `/sessions/${sessionId}/timers/${timerId}`);
+      console.log(`Cancelled timer ${timerId}`);
+      break;
+    }
+    default:
+      err(
+        "Usage: takode timer <subcommand>\n\n" +
+          "Subcommands:\n" +
+          "  create <prompt> --in|--at|--every <spec>   Create a timer\n" +
+          "  list                                       List active timers\n" +
+          "  cancel <timer-id>                          Cancel a timer\n\n" +
+          "Examples:\n" +
+          '  takode timer create "check build" --in 30m\n' +
+          '  takode timer create "deploy" --at 3pm\n' +
+          '  takode timer create "refresh" --every 10m\n' +
+          "  takode timer list\n" +
+          "  takode timer cancel t1",
+      );
+  }
+}
+
 function printUsage(): void {
   console.log(`
 Usage: takode <command> [options]
@@ -2917,6 +3004,7 @@ Commands:
   branch         Branch info and management for the current session
   notify         Alert the user (e.g. takode notify review "ready for verification")
   board          Quest Journey work board (e.g. takode board show, takode board set q-12 --status PLANNING)
+  timer          Session-scoped timers (create, list, cancel)
 
 Peek modes:
   takode peek 1                    Smart overview (collapsed turns + expanded last turn)
@@ -2993,6 +3081,7 @@ try {
     ["branch", {}],
     ["notify", {}],
     ["board", {}],
+    ["timer", {}],
   ]);
   // Skip auth when asking for help — user should be able to read usage without
   // being in an orchestrator session.
@@ -3071,6 +3160,9 @@ try {
       break;
     case "board":
       await handleBoard(base, args);
+      break;
+    case "timer":
+      await handleTimer(base, args);
       break;
     case "help":
     case "-h":

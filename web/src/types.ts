@@ -19,6 +19,7 @@ import type {
 } from "../server/session-types.js";
 import { assertNever, isClaudeFamily } from "../server/session-types.js";
 import type { ImageRef } from "../server/image-store.js";
+import type { SessionTimer } from "../server/timer-types.js";
 import type {
   QuestmasterTask,
   QuestStatus,
@@ -49,6 +50,7 @@ export type {
   ImageRef,
   VsCodeSelectionMetadata,
   VsCodeSelectionState,
+  SessionTimer,
 };
 export { assertNever, isClaudeFamily };
 export type {

@@ -456,6 +456,19 @@ ${TAKODE_LINK_SYNTAX_INSTRUCTIONS}`);
       "Do not notify for routine progress or intermediate steps.",
   );
 
+  // Session-scoped timer instructions
+  parts.push(
+    "## Session Timers\n\n" +
+      "Use `takode timer` to create session-scoped timers that fire within this session.\n" +
+      "Do NOT use CronCreate -- it is not available. Use `takode timer` instead.\n\n" +
+      "    takode timer create <prompt> --in 30m       # fire once after 30 minutes\n" +
+      "    takode timer create <prompt> --at 3pm       # fire once at 3pm\n" +
+      "    takode timer create <prompt> --every 10m    # fire every 10 minutes\n" +
+      "    takode timer list                           # list active timers\n" +
+      "    takode timer cancel <timer-id>              # cancel a timer\n\n" +
+      "Timers survive server restarts and CLI relaunches. They are cancelled when the session is archived.",
+  );
+
   if (opts?.extraInstructions) {
     parts.push(opts.extraInstructions);
   }

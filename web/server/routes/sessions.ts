@@ -1554,6 +1554,11 @@ export function createSessionsRoutes(ctx: RouteContext) {
     launcher.setArchived(id, true);
     await sessionStore.setArchived(id, true);
 
+    // Cancel all session-scoped timers when archiving.
+    if (ctx.timerManager) {
+      void ctx.timerManager.cancelAllTimers(id);
+    }
+
     // Auto-stop reviewer sessions tied to this parent.
     // Reviewer sessions are temporary quality gates -- when the parent worker is
     // archived, the reviewer is no longer useful and should be cleaned up.

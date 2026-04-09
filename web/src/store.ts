@@ -137,6 +137,10 @@ interface AppState {
   // Tasks per session
   sessionTasks: Map<string, TaskItem[]>;
 
+  // Session-scoped timers (server-authoritative)
+  sessionTimers: Map<string, import("./types.js").SessionTimer[]>;
+  setSessionTimers: (sessionId: string, timers: import("./types.js").SessionTimer[]) => void;
+
   // Files changed by the agent per session (Edit/Write tool calls)
   changedFiles: Map<string, Set<string>>;
   // Per-file diff stats for each session (used to filter out +0/-0 files in badge count)
@@ -587,6 +591,14 @@ export const useStore = create<AppState>((set) => ({
   previousPermissionMode: new Map(),
   askPermission: new Map(),
   sessionTasks: new Map(),
+  sessionTimers: new Map(),
+  setSessionTimers: (sessionId, timers) =>
+    set((s) => {
+      const next = new Map(s.sessionTimers);
+      if (timers.length === 0) next.delete(sessionId);
+      else next.set(sessionId, timers);
+      return { sessionTimers: next };
+    }),
   changedFiles: new Map(),
   diffFileStats: new Map(),
   sessionNames: getInitialSessionNames(),
@@ -866,6 +878,8 @@ export const useStore = create<AppState>((set) => ({
       pendingPermissions.delete(sessionId);
       const sessionTasks = new Map(s.sessionTasks);
       sessionTasks.delete(sessionId);
+      const sessionTimers = new Map(s.sessionTimers);
+      sessionTimers.delete(sessionId);
       const changedFiles = new Map(s.changedFiles);
       changedFiles.delete(sessionId);
       const diffFileStats = new Map(s.diffFileStats);
@@ -942,6 +956,7 @@ export const useStore = create<AppState>((set) => ({
         askPermission,
         pendingPermissions,
         sessionTasks,
+        sessionTimers,
         changedFiles,
         diffFileStats,
         sessionNames,

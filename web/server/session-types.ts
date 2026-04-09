@@ -600,7 +600,8 @@ export type BrowserIncomingMessageBase =
       messageId: string | null;
       notification: { category: "needs-input" | "review"; timestamp: number; summary?: string };
     }
-  | { type: "board_updated"; board: BoardRow[] };
+  | { type: "board_updated"; board: BoardRow[] }
+  | { type: "timer_update"; timers: import("./timer-types.js").SessionTimer[] };
 
 export type BrowserIncomingMessage = BrowserIncomingMessageBase & { seq?: number };
 

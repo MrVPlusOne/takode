@@ -11,6 +11,7 @@ import { Lightbox } from "./Lightbox.js";
 import { ToolBlock, getToolIcon, getToolLabel, getPreview, ToolIcon, formatDuration } from "./ToolBlock.js";
 import { BoardBlock } from "./BoardBlock.js";
 import { WorkBoardBar } from "./WorkBoardBar.js";
+import { TimerWidget } from "./TimerWidget.js";
 import { DiffViewer } from "./DiffViewer.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { useStore, COLOR_THEMES, isDarkTheme, type ColorTheme } from "../store.js";
@@ -3071,6 +3072,78 @@ export function Playground() {
                 <p className="text-[10px] text-cc-muted">
                   Click "Seed board data" first, then click the bar to toggle between collapsed summary and expanded
                   table view.
+                </p>
+              </div>
+            </Card>
+          </div>
+        </Section>
+
+        {/* ─── Quest Detail Modal ──────────────────────────────────── */}
+
+        {/* ─── Timer Widget ──────────────────────────────────── */}
+        <Section
+          title="Timer Widget"
+          description="Session-scoped timer display that sits between the board bar and composer."
+        >
+          <div className="max-w-3xl space-y-4">
+            <Card label="Timer widget (with timers)">
+              <div className="p-3 space-y-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const now = Date.now();
+                    useStore.setState({
+                      sessionTimers: new Map([
+                        [
+                          "playground-timers",
+                          [
+                            {
+                              id: "t1",
+                              sessionId: "playground-timers",
+                              prompt: "Check the build status and report back",
+                              type: "delay" as const,
+                              originalSpec: "30m",
+                              nextFireAt: now + 1_800_000,
+                              createdAt: now - 600_000,
+                              fireCount: 0,
+                            },
+                            {
+                              id: "t2",
+                              sessionId: "playground-timers",
+                              prompt: "Refresh context and re-read changed files",
+                              type: "recurring" as const,
+                              originalSpec: "10m",
+                              nextFireAt: now + 360_000,
+                              intervalMs: 600_000,
+                              createdAt: now - 1_200_000,
+                              lastFiredAt: now - 600_000,
+                              fireCount: 3,
+                            },
+                            {
+                              id: "t3",
+                              sessionId: "playground-timers",
+                              prompt: "Deploy reminder",
+                              type: "at" as const,
+                              originalSpec: "3pm",
+                              nextFireAt: now + 7_200_000,
+                              createdAt: now - 300_000,
+                              fireCount: 0,
+                            },
+                          ],
+                        ],
+                      ]),
+                    });
+                  }}
+                  className="text-xs font-medium px-3 py-1.5 rounded-md bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 transition-colors cursor-pointer"
+                >
+                  Seed timer data
+                </button>
+                <div className="border border-cc-border rounded-lg overflow-hidden">
+                  <TimerWidget sessionId="playground-timers" />
+                </div>
+                <p className="text-[10px] text-cc-muted">
+                  Click "Seed timer data" first. The collapsed bar shows timer count and next fire time. Click to expand
+                  the full list. Hover a timer row to reveal the cancel button.
                 </p>
               </div>
             </Card>

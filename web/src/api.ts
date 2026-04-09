@@ -629,6 +629,9 @@ export const api = {
 
   unarchiveSession: (sessionId: string) => post(`/sessions/${encodeURIComponent(sessionId)}/unarchive`),
 
+  cancelTimer: (sessionId: string, timerId: string) =>
+    del(`/sessions/${encodeURIComponent(sessionId)}/timers/${encodeURIComponent(timerId)}`),
+
   getToolResult: (sessionId: string, toolUseId: string) =>
     get<{ content: string; is_error: boolean }>(
       `/sessions/${encodeURIComponent(sessionId)}/tool-result/${encodeURIComponent(toolUseId)}`,

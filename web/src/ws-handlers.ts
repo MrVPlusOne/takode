@@ -943,6 +943,12 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       break;
     }
 
+    case "timer_update": {
+      // Server-authoritative timer list for this session.
+      store.setSessionTimers(sessionId, data.timers ?? []);
+      break;
+    }
+
     case "permissions_cleared": {
       store.clearPermissions(sessionId);
       break;

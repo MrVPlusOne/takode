@@ -819,6 +819,7 @@ export class WsBridge {
   private sessions = new Map<string, Session>();
   private store: SessionStore | null = null;
   private recorder: RecorderManager | null = null;
+  private timerManager: import("./timer-manager.js").TimerManager | null = null;
   private imageStore: ImageStore | null = null;
   private pushoverNotifier: PushoverNotifier | null = null;
   private launcher: CliLauncher | null = null;
@@ -1497,6 +1498,11 @@ export class WsBridge {
   /** Attach a recorder for raw message capture. */
   setRecorder(recorder: RecorderManager): void {
     this.recorder = recorder;
+  }
+
+  /** Attach a timer manager for session-scoped timers. */
+  setTimerManager(timerManager: import("./timer-manager.js").TimerManager): void {
+    this.timerManager = timerManager;
   }
 
   getTrafficStatsSnapshot(): TrafficStatsSnapshot {
@@ -7708,6 +7714,14 @@ export class WsBridge {
         type: "session_task_history",
         tasks: session.taskHistory,
       });
+    }
+
+    // Send active timers for this session so the browser can display them.
+    if (this.timerManager) {
+      const timers = this.timerManager.listTimers(session.id);
+      if (timers.length > 0) {
+        this.sendToBrowser(ws, { type: "timer_update", timers });
+      }
     }
 
     // Always send authoritative state snapshot last — ensures transient state

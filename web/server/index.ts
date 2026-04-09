@@ -39,6 +39,7 @@ import { PushoverNotifier } from "./pushover.js";
 import { PRPoller } from "./pr-poller.js";
 import { RecorderManager } from "./recorder.js";
 import { CronScheduler } from "./cron-scheduler.js";
+import { TimerManager } from "./timer-manager.js";
 import { ImageStore } from "./image-store.js";
 import { IdleManager } from "./idle-manager.js";
 import { SleepInhibitor } from "./sleep-inhibitor.js";
@@ -81,6 +82,7 @@ const prPoller = new PRPoller(wsBridge);
 const recorder = new RecorderManager();
 const imageStore = new ImageStore();
 const cronScheduler = new CronScheduler(launcher, wsBridge);
+const timerManager = new TimerManager(wsBridge);
 
 // ── Performance tracer — event loop lag + slow request/message tracking ──
 import { PerfTracer } from "./perf-tracer.js";
@@ -114,6 +116,7 @@ launcher.setSettingsGetter(getSettings);
 wsBridge.setStore(sessionStore);
 wsBridge.setRecorder(recorder);
 wsBridge.setImageStore(imageStore);
+wsBridge.setTimerManager(timerManager);
 wsBridge.setPushoverNotifier(pushoverNotifier);
 wsBridge.setLauncher(launcher);
 wsBridge.setSessionNameGetter((sessionId) => sessionNames.getName(sessionId) || sessionId.slice(0, 8));
@@ -619,6 +622,7 @@ app.route(
     prPoller,
     recorder,
     cronScheduler,
+    timerManager,
     imageStore,
     pushoverNotifier,
     { requestRestart },
@@ -764,6 +768,9 @@ if (!process.env.COMPANION_SUPERVISED) {
 // ── Cron scheduler ──────────────────────────────────────────────────────────
 await cronScheduler.startAll();
 
+// ── Session timers ─────────────────────────────────────────────────────────
+await timerManager.startAll();
+
 // ── Questmaster CLI integration ─────────────────────────────────────────────
 await ensureQuestmasterIntegration(port, packageRoot);
 ensureTakodeIntegration(packageRoot);
@@ -791,6 +798,8 @@ async function performShutdown() {
   await sessionStore.flushAll();
   containerManager.persistState(CONTAINER_STATE_PATH);
   pushoverNotifier.destroy();
+  timerManager.destroy();
+  cronScheduler.destroy();
 }
 
 function gracefulShutdown() {

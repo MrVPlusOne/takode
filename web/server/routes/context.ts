@@ -31,6 +31,7 @@ export interface RouteContext {
   imageStore?: import("../image-store.js").ImageStore;
   pushoverNotifier?: import("../pushover.js").PushoverNotifier;
   sleepInhibitor?: import("../sleep-inhibitor.js").SleepInhibitor;
+  timerManager?: import("../timer-manager.js").TimerManager;
   options?: { requestRestart?: () => void };
   perfTracer?: PerfTracer;
 

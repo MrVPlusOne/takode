@@ -21,6 +21,7 @@ import { createTakodeRoutes } from "./takode.js";
 import { createQuestRoutes } from "./quests.js";
 import { createRecordingsRoutes } from "./recordings.js";
 import { createSystemRoutes } from "./system.js";
+import { createTimerRoutes } from "./timers.js";
 import type { InitialModeState, RouteContext } from "./context.js";
 
 // Keep legacy semantics after moving from server/routes.ts to server/routes/index.ts
@@ -155,6 +156,7 @@ export function createRoutes(
   prPoller?: import("../pr-poller.js").PRPoller,
   recorder?: import("../recorder.js").RecorderManager,
   cronScheduler?: import("../cron-scheduler.js").CronScheduler,
+  timerManager?: import("../timer-manager.js").TimerManager,
   imageStore?: import("../image-store.js").ImageStore,
   pushoverNotifier?: import("../pushover.js").PushoverNotifier,
   options?: { requestRestart?: () => void },
@@ -203,6 +205,7 @@ export function createRoutes(
     prPoller,
     recorder,
     cronScheduler,
+    timerManager,
     imageStore,
     pushoverNotifier,
     sleepInhibitor,
@@ -229,6 +232,7 @@ export function createRoutes(
   api.route("/", createTranscriptionRoutes(ctx));
   api.route("/", createGitRoutes(ctx));
   api.route("/", createQuestRoutes(ctx));
+  api.route("/", createTimerRoutes(ctx));
 
   return api;
 }
