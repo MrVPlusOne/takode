@@ -276,10 +276,10 @@ export function TreeViewGroup({
           </div>
         </div>
 
-        {/* Workers — indented under leader */}
+        {/* Workers -- indented under leader with VSCode-style indent guide */}
         {hasWorkers && !isNodeCollapsed && (
-          <div className="border-l border-cc-border/30 ml-2">
-            {node.workers.map((w) => renderSessionItem(w, { indentLevel: 1 }))}
+          <div className="ml-[7px] pl-[9px] border-l border-cc-border/20">
+            {node.workers.map((w) => renderSessionItem(w))}
           </div>
         )}
       </div>

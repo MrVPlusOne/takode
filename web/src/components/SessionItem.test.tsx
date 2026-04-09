@@ -196,13 +196,8 @@ describe("SessionItem herd role badges", () => {
   });
 });
 
-describe("SessionItem status stripe", () => {
-  it("does not render the yarnball status dot in sidebar chips", () => {
-    renderSessionItem();
-    expect(screen.queryByTestId("session-status-dot")).not.toBeInTheDocument();
-  });
-
-  it("shows a breathing green stripe while running", () => {
+describe("SessionItem status dot", () => {
+  it("shows a breathing green dot while running", () => {
     renderSessionItem({
       session: makeSession({
         status: "running",
@@ -210,31 +205,31 @@ describe("SessionItem status stripe", () => {
       }),
     });
 
-    const stripe = screen.getByTestId("session-status-stripe");
-    expect(stripe).toHaveAttribute("data-status", "running");
-    expect(stripe).toHaveStyle({ animation: "yarn-glow-breathe 2s ease-in-out infinite" });
+    const dot = screen.getByTestId("session-status-dot");
+    expect(dot).toHaveAttribute("data-status", "running");
+    expect(dot).toHaveStyle({ animation: "yarn-glow-breathe 2s ease-in-out infinite" });
   });
 
-  it("shows a glowing yellow stripe when permissions are pending", () => {
+  it("shows a glowing amber dot when permissions are pending", () => {
     renderSessionItem({
       session: makeSession({ status: "idle", sdkState: "connected" }),
       permCount: 2,
     });
 
-    const stripe = screen.getByTestId("session-status-stripe");
-    expect(stripe).toHaveAttribute("data-status", "permission");
-    expect(stripe).toHaveStyle({ animation: "yarn-glow-breathe 2s ease-in-out infinite" });
+    const dot = screen.getByTestId("session-status-dot");
+    expect(dot).toHaveAttribute("data-status", "permission");
+    expect(dot).toHaveStyle({ animation: "yarn-glow-breathe 2s ease-in-out infinite" });
   });
 
-  it("shows a gray stripe when idle", () => {
+  it("shows a gray dot when idle", () => {
     renderSessionItem({
       session: makeSession({ status: "idle", sdkState: "connected" }),
       permCount: 0,
     });
 
-    const stripe = screen.getByTestId("session-status-stripe");
-    expect(stripe).toHaveAttribute("data-status", "idle");
-    expect(stripe).not.toHaveStyle({ animation: "yarn-glow-breathe 2s ease-in-out infinite" });
+    const dot = screen.getByTestId("session-status-dot");
+    expect(dot).toHaveAttribute("data-status", "idle");
+    expect(dot).not.toHaveStyle({ animation: "yarn-glow-breathe 2s ease-in-out infinite" });
   });
 });
 

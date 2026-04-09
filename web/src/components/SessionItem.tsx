@@ -18,7 +18,7 @@ const SEARCH_MATCH_LABELS: Record<SearchMatchedField, string> = {
   user_message: "message",
 };
 
-const STRIPE_COLOR_CLASS: Record<SessionVisualStatus, string> = {
+const STATUS_DOT_CLASS: Record<SessionVisualStatus, string> = {
   archived: "bg-cc-muted/45",
   permission: "bg-amber-400",
   disconnected: "bg-cc-muted/60",
@@ -312,16 +312,16 @@ export function SessionItem({
     hasUnread,
     idleKilled: s.idleKilled,
   });
-  const stripeClass = STRIPE_COLOR_CLASS[visualStatus];
-  const stripeGlowColor =
+  const dotClass = STATUS_DOT_CLASS[visualStatus];
+  const dotGlowColor =
     visualStatus === "permission"
       ? "rgba(245, 158, 11, 0.7)"
       : visualStatus === "running" || visualStatus === "compacting"
         ? "rgba(34, 197, 94, 0.7)"
         : "";
-  const stripeGlowStyle: React.CSSProperties | undefined = stripeGlowColor
+  const dotGlowStyle: React.CSSProperties | undefined = dotGlowColor
     ? {
-        ["--glow-color" as string]: stripeGlowColor,
+        ["--glow-color" as string]: dotGlowColor,
         animation: "yarn-glow-breathe 2s ease-in-out infinite",
       }
     : undefined;
@@ -412,18 +412,8 @@ export function SessionItem({
               : "bg-cc-hover/20 border-cc-border/80 hover:bg-cc-hover/35 sm:bg-transparent sm:hover:bg-cc-hover"
         } ${herdHighlightClass}`}
       >
-        {/* Left accent border */}
-        <span
-          className={`absolute left-0 top-2 bottom-2 w-[3px] rounded-full block ${stripeClass} ${
-            isActive ? "opacity-100" : "opacity-60 group-hover:opacity-85"
-          } transition-opacity`}
-          data-testid="session-status-stripe"
-          data-status={visualStatus}
-          style={stripeGlowStyle}
-        />
-
         <div className="flex items-start gap-2">
-          {/* Drag handle — mobile reorder mode only (iOS Edit pattern) */}
+          {/* Drag handle -- mobile reorder mode only (iOS Edit pattern) */}
           {reorderMode && (
             <span
               data-session-drag-handle="true"
@@ -450,6 +440,15 @@ export function SessionItem({
           <div className="flex-1 min-w-0">
             {/* Row 1: Leader/herd/reviewer tag (inline) + title */}
             <div className="flex items-center gap-1.5">
+              {/* Status dot indicator */}
+              <span
+                className={`shrink-0 w-1.5 h-1.5 rounded-full ${dotClass} ${
+                  isActive ? "opacity-100" : "opacity-60 group-hover:opacity-85"
+                } transition-opacity`}
+                data-testid="session-status-dot"
+                data-status={visualStatus}
+                style={dotGlowStyle}
+              />
               {!isEditing && s.isOrchestrator && (
                 <span
                   className="text-[9px] font-medium px-1.5 rounded-full leading-[16px] shrink-0 border"
