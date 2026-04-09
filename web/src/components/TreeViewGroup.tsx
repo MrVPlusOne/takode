@@ -437,7 +437,7 @@ export function TreeViewGroup({
       )}
       {!isGroupCollapsed && group.nodes.length === 0 && (
         <div className="px-4 py-2 text-[11px] text-cc-muted/50 italic">
-          No sessions — use + to create one
+          No sessions -- use + to create one
         </div>
       )}
     </div>

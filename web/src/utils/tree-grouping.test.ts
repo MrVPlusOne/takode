@@ -100,6 +100,22 @@ describe("buildTreeViewGroups", () => {
     expect(defaultGroup).toBeUndefined(); // empty groups are excluded
   });
 
+  it("includes empty non-default groups so newly created groups are visible", () => {
+    // When a user creates a new group before assigning any sessions to it,
+    // it should still appear in the result so the UI can render its header.
+    const groups: TreeGroup[] = [
+      { id: "default", name: "Default" },
+      { id: "empty-group", name: "My New Group" },
+    ];
+    const sessions = [makeSession({ id: "s1", sessionNum: 1 })];
+
+    const result = buildTreeViewGroups(sessions, groups, emptyAssignments);
+    const emptyGroup = result.find((g) => g.id === "empty-group");
+    expect(emptyGroup).toBeTruthy();
+    expect(emptyGroup!.nodes).toHaveLength(0);
+    expect(emptyGroup!.runningCount).toBe(0);
+  });
+
   it("reviewers are collected as chips, not separate tree nodes", () => {
     const sessions = [
       makeSession({ id: "leader-1", sessionNum: 1, isOrchestrator: true }),
@@ -112,6 +128,23 @@ describe("buildTreeViewGroups", () => {
     expect(result[0].nodes[0].reviewers).toHaveLength(1);
     expect(result[0].nodes[0].reviewers[0].id).toBe("reviewer-1");
     expect(result[0].nodes[0].workers).toHaveLength(0);
+  });
+
+  it("leader with only reviewers and no workers still has non-empty reviewers", () => {
+    // Validates the UI's hasChildren = workers.length > 0 || reviewers.length > 0
+    // path: a leader with no herded workers but with a reviewer should still
+    // get an expand/collapse chevron in the tree view.
+    const sessions = [
+      makeSession({ id: "leader-1", sessionNum: 5, isOrchestrator: true }),
+      makeSession({ id: "reviewer-a", sessionNum: 20, reviewerOf: 5 }),
+      makeSession({ id: "reviewer-b", sessionNum: 21, reviewerOf: 5 }),
+    ];
+
+    const result = buildTreeViewGroups(sessions, defaultGroups, emptyAssignments);
+    const node = result[0].nodes[0];
+    expect(node.leader.id).toBe("leader-1");
+    expect(node.workers).toHaveLength(0);
+    expect(node.reviewers).toHaveLength(2);
   });
 
   it("orphaned workers (leader not in same group) appear as standalone nodes", () => {
