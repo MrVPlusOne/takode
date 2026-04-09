@@ -222,7 +222,6 @@ export function TreeViewGroup({
 
   function renderSessionItem(
     s: SessionItemType,
-    opts?: { indentLevel?: number },
   ) {
     const permCount = countUserPermissions(pendingPermissions.get(s.id));
     const attention = sessionAttention?.get(s.id) ?? null;
@@ -239,7 +238,6 @@ export function TreeViewGroup({
         hasUnread={!!attention}
         herdGroupBadgeTheme={herdGroupBadgeThemes?.get(s.id)}
         herdHoverHighlight={herdHoverHighlights?.get(s.id)}
-        indentLevel={opts?.indentLevel}
         {...sessionItemProps}
       />
     );

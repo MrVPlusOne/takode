@@ -315,9 +315,9 @@ export function SessionItem({
   const dotClass = STATUS_DOT_CLASS[visualStatus];
   const dotGlowColor =
     visualStatus === "permission"
-      ? "rgba(245, 158, 11, 0.7)"
+      ? "rgba(245, 158, 11, 0.6)"
       : visualStatus === "running" || visualStatus === "compacting"
-        ? "rgba(34, 197, 94, 0.7)"
+        ? "rgba(34, 197, 94, 0.6)"
         : "";
   const dotGlowStyle: React.CSSProperties | undefined = dotGlowColor
     ? {
