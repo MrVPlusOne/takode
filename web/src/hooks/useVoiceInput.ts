@@ -14,6 +14,8 @@ export type VoiceInputUnsupportedReason =
 
 export interface UseVoiceInputReturn {
   isRecording: boolean;
+  /** True while acquiring the mic stream before recording actually starts */
+  isPreparing: boolean;
   isSupported: boolean;
   unsupportedReason: VoiceInputUnsupportedReason | null;
   unsupportedMessage: string | null;
@@ -31,6 +33,8 @@ export interface UseVoiceInputReturn {
   /** Cancel recording: stops the mic but discards audio without triggering onAudioReady */
   cancelRecording: () => void;
   toggleRecording: () => void;
+  /** Pre-warm the mic stream so startRecording() is near-instant. Safe to call multiple times. */
+  warmMicrophone: () => void;
 }
 
 const DEFAULT_RECORDING_MIME_TYPE = "audio/webm";
@@ -106,9 +110,13 @@ export function normalizeMeterLevel(rms: number, previousLevel: number): number 
   return Math.max(0, Math.min(1, next));
 }
 
+/** How long to keep a pre-warmed mic stream before releasing it (stops OS mic indicator). */
+const STREAM_IDLE_TIMEOUT_MS = 30_000;
+
 export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInputReturn {
   const support = getVoiceInputSupport();
   const [isRecording, setIsRecording] = useState(false);
+  const [isPreparing, setIsPreparing] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [transcriptionPhase, setTranscriptionPhase] = useState<TranscriptionPhase>(null);
   const [error, setError] = useState<string | null>(null);
@@ -119,6 +127,10 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
   const cancelledRef = useRef(false);
   const optionsRef = useRef(options);
   optionsRef.current = options;
+
+  // Pre-warmed mic stream, kept alive between recordings to avoid getUserMedia latency
+  const cachedStreamRef = useRef<MediaStream | null>(null);
+  const idleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Web Audio API refs for volume metering
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -177,6 +189,46 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
     setVolumeLevel(0);
   }, []);
 
+  /** Release cached pre-warmed stream and clear idle timeout */
+  const releaseCachedStream = useCallback(() => {
+    if (idleTimeoutRef.current) {
+      clearTimeout(idleTimeoutRef.current);
+      idleTimeoutRef.current = null;
+    }
+    if (cachedStreamRef.current) {
+      cachedStreamRef.current.getTracks().forEach((t) => t.stop());
+      cachedStreamRef.current = null;
+    }
+  }, []);
+
+  /** Reset the idle timeout that auto-releases the cached stream */
+  const resetIdleTimeout = useCallback(() => {
+    if (idleTimeoutRef.current) clearTimeout(idleTimeoutRef.current);
+    idleTimeoutRef.current = setTimeout(releaseCachedStream, STREAM_IDLE_TIMEOUT_MS);
+  }, [releaseCachedStream]);
+
+  /** Pre-warm the microphone stream so startRecording() is near-instant.
+   *  Safe to call multiple times -- no-ops if a live stream already exists. */
+  const warmMicrophone = useCallback(() => {
+    if (!support.isSupported) return;
+    // Already have a live cached stream
+    if (cachedStreamRef.current) {
+      const tracks = cachedStreamRef.current.getTracks();
+      if (tracks.length > 0 && tracks.every((t) => t.readyState === "live")) return;
+      // Tracks ended (e.g. permission revoked) -- clear stale ref
+      cachedStreamRef.current = null;
+    }
+    navigator.mediaDevices
+      .getUserMedia({ audio: true })
+      .then((stream) => {
+        cachedStreamRef.current = stream;
+        resetIdleTimeout();
+      })
+      .catch(() => {
+        // Permission denied or error -- no-op, startRecording will handle it
+      });
+  }, [support.isSupported, resetIdleTimeout]);
+
   const stopRecording = useCallback(() => {
     if (recorderRef.current && recorderRef.current.state !== "inactive") {
       recorderRef.current.stop();
@@ -188,6 +240,8 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
       cancelledRef.current = true;
       recorderRef.current.stop();
     }
+    // Also clear preparing state in case cancel happens during getUserMedia
+    setIsPreparing(false);
   }, []);
 
   const startRecording = useCallback(async () => {
@@ -199,9 +253,33 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
     setError(null);
     chunksRef.current = [];
     cancelledRef.current = false;
+    setIsPreparing(true);
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Attempt to reuse cached pre-warmed stream
+      let stream = cachedStreamRef.current;
+      if (stream) {
+        const tracks = stream.getTracks();
+        if (tracks.length === 0 || tracks.some((t) => t.readyState !== "live")) {
+          // Cached stream is stale (tracks ended) -- need fresh one
+          stream = null;
+          cachedStreamRef.current = null;
+        }
+      }
+      if (!stream) {
+        // No cached stream available -- fall back to fresh getUserMedia
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      }
+
+      // Clear idle timeout -- we're using the stream now
+      if (idleTimeoutRef.current) {
+        clearTimeout(idleTimeoutRef.current);
+        idleTimeoutRef.current = null;
+      }
+      // Detach from cache -- this recording owns the stream.
+      // Prevents stopRecording's track.stop() from killing a shared ref.
+      cachedStreamRef.current = null;
+
       streamRef.current = stream;
 
       // Start volume metering
@@ -243,6 +321,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
       recorder.onerror = () => {
         setError("Recording failed");
         setIsRecording(false);
+        setIsPreparing(false);
         stopVolumeMonitor();
         streamRef.current?.getTracks().forEach((t) => t.stop());
         streamRef.current = null;
@@ -250,8 +329,10 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
       };
 
       recorder.start();
+      setIsPreparing(false);
       setIsRecording(true);
     } catch (err) {
+      setIsPreparing(false);
       if (err instanceof DOMException && err.name === "NotAllowedError") {
         setError("Microphone access denied");
       } else {
@@ -275,12 +356,20 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
         recorderRef.current.stop();
       }
       streamRef.current?.getTracks().forEach((t) => t.stop());
+      // Release cached pre-warmed stream
+      cachedStreamRef.current?.getTracks().forEach((t) => t.stop());
+      cachedStreamRef.current = null;
+      if (idleTimeoutRef.current) {
+        clearTimeout(idleTimeoutRef.current);
+        idleTimeoutRef.current = null;
+      }
       stopVolumeMonitor();
     };
   }, [stopVolumeMonitor]);
 
   return {
     isRecording,
+    isPreparing,
     isSupported: support.isSupported,
     unsupportedReason: support.unsupportedReason,
     unsupportedMessage: support.unsupportedMessage,
@@ -295,5 +384,6 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
     stopRecording,
     cancelRecording,
     toggleRecording,
+    warmMicrophone,
   };
 }

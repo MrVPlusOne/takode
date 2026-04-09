@@ -329,6 +329,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
   const preRecordingTextRef = useRef({ before: "", after: "" });
   const {
     isRecording,
+    isPreparing,
     isSupported: voiceSupported,
     unsupportedReason: voiceUnsupportedReason,
     unsupportedMessage: voiceUnsupportedMessage,
@@ -341,6 +342,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
     setError: setVoiceError,
     toggleRecording,
     cancelRecording,
+    warmMicrophone,
   } = useVoiceInput({
     onAudioReady: (blob) => {
       performTranscription(blob, voiceCaptureModeRef.current, voiceEditBaseTextRef.current, {
@@ -1136,7 +1138,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Shift") otherKeyPressed = true;
-      if (e.key === "Escape" && isRecording) {
+      if (e.key === "Escape" && (isRecording || isPreparing)) {
         e.preventDefault();
         cancelRecording();
       }
@@ -1160,10 +1162,11 @@ export function Composer({ sessionId }: { sessionId: string }) {
       // Not recording: require double-tap to start
       if (now - lastShiftUp < 400) {
         lastShiftUp = 0;
-        if (!isConnected || isTranscribing || voiceEditProposal) return;
+        if (!isConnected || isTranscribing || isPreparing || voiceEditProposal) return;
         handleMicClick();
       } else {
         lastShiftUp = now;
+        warmMicrophone(); // Pre-warm mic on first tap so it's ready for the second
       }
     };
 
@@ -1173,7 +1176,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
       document.removeEventListener("keydown", onKeyDown);
       document.removeEventListener("keyup", onKeyUp);
     };
-  }, [voiceSupported, isRecording, isConnected, isTranscribing, handleMicClick, cancelRecording, voiceEditProposal]);
+  }, [voiceSupported, isRecording, isPreparing, isConnected, isTranscribing, handleMicClick, cancelRecording, warmMicrophone, voiceEditProposal]);
 
   function handleKeyDown(e: React.KeyboardEvent) {
     // Slash menu navigation
@@ -1486,20 +1489,22 @@ export function Composer({ sessionId }: { sessionId: string }) {
   const voiceIdleTitle = text.trim().length > 0 ? "Voice edit" : "Voice input";
   const voiceButtonTitle =
     (!voiceSupported ? voiceUnsupportedTooltip : voiceError) ||
-    (isTranscribing
-      ? transcriptionPhase === "editing"
-        ? "Editing..."
-        : transcriptionPhase === "appending"
-          ? "Appending..."
-          : transcriptionPhase === "enhancing"
-            ? "Enhancing..."
-            : "Transcribing..."
-      : isRecording
-        ? "Stop recording"
-        : voiceEditProposal
-          ? "Accept or undo the voice edit first"
-          : voiceIdleTitle);
-  const voiceButtonDisabled = !isConnected || isTranscribing || !!voiceEditProposal;
+    (isPreparing
+      ? "Preparing microphone..."
+      : isTranscribing
+        ? transcriptionPhase === "editing"
+          ? "Editing..."
+          : transcriptionPhase === "appending"
+            ? "Appending..."
+            : transcriptionPhase === "enhancing"
+              ? "Enhancing..."
+              : "Transcribing..."
+        : isRecording
+          ? "Stop recording"
+          : voiceEditProposal
+            ? "Accept or undo the voice edit first"
+            : voiceIdleTitle);
+  const voiceButtonDisabled = !isConnected || isTranscribing || isPreparing || !!voiceEditProposal;
   const compactVoiceButtonDisabled = voiceButtonDisabled || isRunning;
 
   useEffect(() => {
@@ -1552,6 +1557,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
               <span className="flex-1 text-sm text-cc-muted text-left truncate">Type a message...</span>
             </button>
             <button
+              onPointerEnter={warmMicrophone}
               onClick={() => {
                 if (!voiceSupported) {
                   toggleVoiceUnsupportedInfo(true);
@@ -1566,13 +1572,15 @@ export function Composer({ sessionId }: { sessionId: string }) {
               className={`flex items-center justify-center w-10 h-10 rounded-lg transition-colors shrink-0 ${
                 !voiceSupported || compactVoiceButtonDisabled
                   ? "text-cc-muted opacity-30 cursor-not-allowed"
-                  : isRecording
-                    ? "text-red-500 bg-red-500/10 hover:bg-red-500/20 cursor-pointer"
-                    : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover cursor-pointer"
+                  : isPreparing
+                    ? "text-cc-warning bg-cc-warning/10 cursor-wait"
+                    : isRecording
+                      ? "text-red-500 bg-red-500/10 hover:bg-red-500/20 cursor-pointer"
+                      : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover cursor-pointer"
               }`}
               title={voiceButtonTitle}
             >
-              <svg viewBox="0 0 16 16" fill="currentColor" className={`w-5 h-5 ${isRecording ? "animate-pulse" : ""}`}>
+              <svg viewBox="0 0 16 16" fill="currentColor" className={`w-5 h-5 ${isRecording || isPreparing ? "animate-pulse" : ""}`}>
                 <path d="M8 1a2.5 2.5 0 0 0-2.5 2.5v4a2.5 2.5 0 0 0 5 0v-4A2.5 2.5 0 0 0 8 1z" />
                 <path d="M3.5 7a.5.5 0 0 1 .5.5v.5a4 4 0 0 0 8 0v-.5a.5.5 0 0 1 1 0v.5a5 5 0 0 1-4.5 4.975V14.5h2a.5.5 0 0 1 0 1h-5a.5.5 0 0 1 0-1h2v-1.525A5 5 0 0 1 3 8v-.5a.5.5 0 0 1 .5-.5z" />
               </svg>
@@ -1805,6 +1813,14 @@ export function Composer({ sessionId }: { sessionId: string }) {
                     </button>
                   ))
                 )}
+              </div>
+            )}
+
+            {/* Mic preparing indicator */}
+            {isPreparing && (
+              <div className="flex items-center gap-2 px-4 pt-2 text-[11px] text-cc-warning">
+                <span className="w-2 h-2 rounded-full bg-cc-warning animate-pulse shrink-0" />
+                <span className="shrink-0">Preparing mic...</span>
               </div>
             )}
 
@@ -2353,6 +2369,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
                 </button>
 
                 <button
+                  onPointerEnter={warmMicrophone}
                   onClick={!voiceSupported ? () => toggleVoiceUnsupportedInfo(false) : handleMicClick}
                   disabled={voiceButtonDisabled}
                   aria-label="Voice input"
@@ -2360,16 +2377,18 @@ export function Composer({ sessionId }: { sessionId: string }) {
                   className={`flex items-center justify-center w-11 h-11 sm:w-8 sm:h-8 rounded-lg transition-colors ${
                     !voiceSupported || voiceButtonDisabled
                       ? "text-cc-muted opacity-30 cursor-not-allowed"
-                      : isRecording
-                        ? "text-red-500 bg-red-500/10 hover:bg-red-500/20 cursor-pointer"
-                        : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover cursor-pointer"
+                      : isPreparing
+                        ? "text-cc-warning bg-cc-warning/10 cursor-wait"
+                        : isRecording
+                          ? "text-red-500 bg-red-500/10 hover:bg-red-500/20 cursor-pointer"
+                          : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover cursor-pointer"
                   }`}
                   title={voiceButtonTitle}
                 >
                   <svg
                     viewBox="0 0 16 16"
                     fill="currentColor"
-                    className={`w-5 h-5 sm:w-4 sm:h-4 ${isRecording ? "animate-pulse" : ""}`}
+                    className={`w-5 h-5 sm:w-4 sm:h-4 ${isRecording || isPreparing ? "animate-pulse" : ""}`}
                   >
                     <path d="M8 1a2.5 2.5 0 0 0-2.5 2.5v4a2.5 2.5 0 0 0 5 0v-4A2.5 2.5 0 0 0 8 1z" />
                     <path d="M3.5 7a.5.5 0 0 1 .5.5v.5a4 4 0 0 0 8 0v-.5a.5.5 0 0 1 1 0v.5a5 5 0 0 1-4.5 4.975V14.5h2a.5.5 0 0 1 0 1h-5a.5.5 0 0 1 0-1h2v-1.525A5 5 0 0 1 3 8v-.5a.5.5 0 0 1 .5-.5z" />
