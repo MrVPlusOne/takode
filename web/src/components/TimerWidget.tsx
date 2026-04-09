@@ -19,12 +19,15 @@ function formatRelativeTime(epochMs: number): string {
 }
 
 function TimerRow({ timer, sessionId }: { timer: SessionTimer; sessionId: string }) {
+  // For delay timers, only the live countdown matters (the original spec like "1m"
+  // is just the initial delay and becomes stale). For recurring/at timers, show
+  // the schedule alongside the countdown since they convey different information.
   const typeLabel =
     timer.type === "recurring"
       ? `every ${timer.originalSpec}`
-      : timer.type === "delay"
-        ? `in ${timer.originalSpec}`
-        : `at ${timer.originalSpec}`;
+      : timer.type === "at"
+        ? `at ${timer.originalSpec}`
+        : null;
 
   return (
     <div className="flex items-center gap-2 text-xs group">
@@ -32,7 +35,9 @@ function TimerRow({ timer, sessionId }: { timer: SessionTimer; sessionId: string
       <span className="truncate flex-1 text-cc-text-secondary" title={timer.prompt}>
         {timer.prompt}
       </span>
-      <span className="text-cc-muted whitespace-nowrap shrink-0">{typeLabel}</span>
+      {typeLabel && (
+        <span className="text-cc-muted whitespace-nowrap shrink-0">{typeLabel}</span>
+      )}
       <span className="text-cc-muted whitespace-nowrap shrink-0">
         {formatRelativeTime(timer.nextFireAt)}
       </span>
