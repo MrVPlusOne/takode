@@ -59,13 +59,14 @@ export function TimerWidget({ sessionId }: { sessionId: string }) {
     return () => clearInterval(interval);
   }, [timers.length]);
 
-  if (timers.length === 0) return null;
-
-  // Sort by nextFireAt ascending (soonest first), memoized to avoid re-sorting on tick re-renders
+  // Sort by nextFireAt ascending (soonest first), memoized to avoid re-sorting on tick re-renders.
+  // Must be called before the early return so hook count is stable across renders.
   const sorted = useMemo(
     () => [...timers].sort((a, b) => a.nextFireAt - b.nextFireAt),
     [timers],
   );
+
+  if (timers.length === 0) return null;
 
   return (
     <div className="shrink-0 border-t border-cc-border bg-cc-bg">
