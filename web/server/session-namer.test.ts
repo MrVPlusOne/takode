@@ -928,6 +928,47 @@ describe("stripCodeFences", () => {
       "REVISE: Better Title\nKeywords: a, b",
     );
   });
+
+  it("extracts fenced content when preamble text precedes the fence", () => {
+    // Model sometimes outputs explanation text before the fenced block
+    const raw = `I don't see a conversation history in the provided context.
+
+Based on the user's request, here's the generated title:
+
+\`\`\`
+Debug Takode Server Integration
+Keywords: takode CLI, Claude SDK, session termination, server logs
+\`\`\``;
+    expect(stripCodeFences(raw)).toBe(
+      "Debug Takode Server Integration\nKeywords: takode CLI, Claude SDK, session termination, server logs",
+    );
+  });
+
+  it("extracts fenced content when postamble text follows the fence", () => {
+    const raw = `\`\`\`
+Fix auth bug
+Keywords: jwt, middleware
+\`\`\`
+
+This title captures the main focus of the session.`;
+    expect(stripCodeFences(raw)).toBe("Fix auth bug\nKeywords: jwt, middleware");
+  });
+
+  it("extracts content from first fence when multiple fences exist", () => {
+    const raw = `Here's the title:
+
+\`\`\`
+Debug Server Integration
+Keywords: takode, CLI
+\`\`\`
+
+Example of what I considered:
+
+\`\`\`
+Alternative Title
+\`\`\``;
+    expect(stripCodeFences(raw)).toBe("Debug Server Integration\nKeywords: takode, CLI");
+  });
 });
 
 // ─── parseResponse with backtick-wrapped output ───────────────────────────
@@ -962,6 +1003,37 @@ describe("parseResponse with backtick-wrapped output", () => {
       action: "name",
       title: "Fix auth bug",
       keywords: ["login", "jwt"],
+    });
+  });
+
+  it("parses first-turn title from fenced block with preamble text", () => {
+    // Real-world case: model outputs explanation before the fenced title
+    const raw = `I don't see a conversation history in the provided context — only the user's initial request.
+
+Based on the user's request, here's the generated title:
+
+\`\`\`
+Debug Takode Server Integration
+Keywords: takode CLI, Claude SDK, session termination, server logs, orchestration
+\`\`\``;
+    expect(parseResponse(raw, true)).toEqual({
+      action: "name",
+      title: "Debug Takode Server Integration",
+      keywords: ["takode cli", "claude sdk", "session termination", "server logs", "orchestration"],
+    });
+  });
+
+  it("parses REVISE from fenced block with preamble text", () => {
+    const raw = `The current title doesn't accurately reflect the work. Here's my revision:
+
+\`\`\`
+REVISE: Fix WebSocket Reconnection
+Keywords: ws-bridge, heartbeat, auto-relaunch
+\`\`\``;
+    expect(parseResponse(raw, false)).toEqual({
+      action: "revise",
+      title: "Fix WebSocket Reconnection",
+      keywords: ["ws-bridge", "heartbeat", "auto-relaunch"],
     });
   });
 });
