@@ -62,6 +62,8 @@ export function useTextSelection(containerRef: RefObject<HTMLElement | null>): T
   const rafRef = useRef<number>(0);
   // Track whether we should suppress the next selectionchange (after programmatic clear)
   const suppressRef = useRef(false);
+  // Track mouse-down state so we only show the menu after mouseup, not mid-drag
+  const mouseDownRef = useRef(false);
 
   const clear = useCallback(() => {
     setState(EMPTY_STATE);
@@ -126,20 +128,28 @@ export function useTextSelection(containerRef: RefObject<HTMLElement | null>): T
       });
     }
 
-    // Both mouseup and selectionchange defer to RAF so they never race.
-    // mouseup triggers evaluation; selectionchange re-evaluates (catches
-    // keyboard-driven selection changes and deselection).
     function scheduleEvaluation() {
       cancelAnimationFrame(rafRef.current);
       rafRef.current = requestAnimationFrame(evaluateSelection);
     }
 
+    function handleMouseDown() {
+      mouseDownRef.current = true;
+      // Dismiss existing menu when starting a new selection
+      setState(EMPTY_STATE);
+    }
+
+    // Only show the menu after the user releases the mouse (drag complete)
     function handleMouseUp() {
+      mouseDownRef.current = false;
       scheduleEvaluation();
     }
 
+    // selectionchange fires continuously during drag -- only use it to detect
+    // deselection (collapse) or keyboard-driven selection changes AFTER mouseup.
     function handleSelectionChange() {
       if (suppressRef.current) return;
+      if (mouseDownRef.current) return; // Don't activate mid-drag
       scheduleEvaluation();
     }
 
@@ -150,11 +160,13 @@ export function useTextSelection(containerRef: RefObject<HTMLElement | null>): T
       setState(EMPTY_STATE);
     }
 
+    container.addEventListener("mousedown", handleMouseDown);
     container.addEventListener("mouseup", handleMouseUp);
     document.addEventListener("selectionchange", handleSelectionChange);
     container.addEventListener("scroll", handleScroll, { passive: true });
 
     return () => {
+      container.removeEventListener("mousedown", handleMouseDown);
       container.removeEventListener("mouseup", handleMouseUp);
       document.removeEventListener("selectionchange", handleSelectionChange);
       container.removeEventListener("scroll", handleScroll);
