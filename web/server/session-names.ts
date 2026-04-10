@@ -13,7 +13,15 @@ const DEFAULT_PATH = join(homedir(), ".companion", "session-names.json");
 
 // ─── Store ──────────────────────────────────────────────────────────────────
 
+/** Persisted format: { names: Record<string, string>, leaderCounter: number }
+ *  Backwards-compatible: if the file is a flat Record (old format), migrate on load. */
+interface PersistedData {
+  names: Record<string, string>;
+  leaderCounter: number;
+}
+
 let names: Record<string, string> = {};
+let leaderCounter = 0;
 let loaded = false;
 let filePath = DEFAULT_PATH;
 let _pendingWrite: Promise<void> = Promise.resolve();
@@ -24,20 +32,31 @@ function ensureLoaded(): void {
     if (existsSync(filePath)) {
       // sync-ok: cold path, cached after first load
       const raw = readFileSync(filePath, "utf-8"); // sync-ok: cold path, cached after first load
-      names = JSON.parse(raw) as Record<string, string>;
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object" && "names" in parsed) {
+        // New format
+        names = parsed.names as Record<string, string>;
+        leaderCounter = typeof parsed.leaderCounter === "number" ? parsed.leaderCounter : 0;
+      } else {
+        // Old format: flat Record<string, string>
+        names = parsed as Record<string, string>;
+        leaderCounter = 0;
+      }
     }
   } catch {
     names = {};
+    leaderCounter = 0;
   }
   loaded = true;
 }
 
 function persist(): void {
-  const data = JSON.stringify(names, null, 2);
+  const data: PersistedData = { names, leaderCounter };
+  const json = JSON.stringify(data, null, 2);
   const path = filePath;
   mkdirSync(dirname(path), { recursive: true }); // sync-ok: cold path, ensure dir exists
   // Chain writes so each waits for the previous to finish.
-  _pendingWrite = _pendingWrite.then(() => writeFile(path, data, "utf-8").catch(() => {}));
+  _pendingWrite = _pendingWrite.then(() => writeFile(path, json, "utf-8").catch(() => {}));
 }
 
 // ─── Public API ─────────────────────────────────────────────────────────────
@@ -64,6 +83,14 @@ export function removeName(sessionId: string): void {
   persist();
 }
 
+/** Increment and return the next leader session number (persisted across restarts). */
+export function getNextLeaderNumber(): number {
+  ensureLoaded();
+  leaderCounter += 1;
+  persist();
+  return leaderCounter;
+}
+
 /** Wait for any pending async writes to complete. Test-only. */
 export function _flushForTest(): Promise<void> {
   return _pendingWrite;
@@ -72,6 +99,7 @@ export function _flushForTest(): Promise<void> {
 /** Reset internal state and optionally set a custom file path (for testing). */
 export function _resetForTest(customPath?: string): void {
   names = {};
+  leaderCounter = 0;
   loaded = false;
   filePath = customPath || DEFAULT_PATH;
   _pendingWrite = Promise.resolve();

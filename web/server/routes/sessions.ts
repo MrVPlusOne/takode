@@ -201,6 +201,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
     }
     if (sessionConfig.isOrchestrator) {
       session.isOrchestrator = true;
+      session.noAutoName = true; // Leaders handle multiple quests; autonamer would pick a misleading name
       markOrchestratorSession(session.sessionId, sessionConfig.launchOptions.backendType || "claude");
     }
     if (sessionConfig.envSlug) session.envSlug = sessionConfig.envSlug;
@@ -209,6 +210,8 @@ export function createSessionsRoutes(ctx: RouteContext) {
 
     if (sessionConfig.isAssistantMode) {
       sessionNames.setName(session.sessionId, "Takode");
+    } else if (sessionConfig.isOrchestrator) {
+      sessionNames.setName(session.sessionId, `Leader ${sessionNames.getNextLeaderNumber()}`);
     } else if (sessionConfig.fixedName) {
       sessionNames.setName(session.sessionId, sessionConfig.fixedName);
     } else {

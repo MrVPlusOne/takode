@@ -86,6 +86,7 @@ vi.mock("./session-names.js", () => ({
   setName: vi.fn(),
   getAllNames: vi.fn(() => ({})),
   removeName: vi.fn(),
+  getNextLeaderNumber: vi.fn(() => 1),
   _resetForTest: vi.fn(),
 }));
 
