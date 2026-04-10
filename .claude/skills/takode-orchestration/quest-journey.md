@@ -15,6 +15,8 @@ Every dispatched task follows the Quest Journey lifecycle. The work board (`tako
 
 **Board advances only after completed actions.** Do not advance the board anticipating what will happen next. Only advance after the action for that stage is actually done.
 
+**Update the board immediately.** When a herd event arrives that changes quest state (turn_end, permission_request, etc.), update the board as your FIRST action -- before reviewing content, reading messages, or composing responses. The board must always reflect real-time state.
+
 **Mandatory stages:** Skeptic review is always mandatory. Groom review is mandatory for all code changes. Groom may only be skipped when the task produced zero code changes (e.g., analysis-only work).
 
 ## Refine (before QUEUED)
