@@ -235,6 +235,8 @@ interface AppState {
   quests: QuestmasterTask[];
   questsLoading: boolean;
   setQuests: (quests: QuestmasterTask[]) => void;
+  /** Replace a single quest in the store by questId (find-replace + re-sort by createdAt desc). */
+  replaceQuest: (updated: QuestmasterTask) => void;
   refreshQuests: () => Promise<void>;
 
   // Pending sessions being created (client-only, keyed by "pending-{uuid}")
@@ -676,6 +678,13 @@ export const useStore = create<AppState>((set) => ({
   quests: [],
   questsLoading: false,
   setQuests: (quests) => set({ quests }),
+  replaceQuest: (updated) => {
+    const quests = useStore
+      .getState()
+      .quests.map((q) => (q.questId === updated.questId ? updated : q))
+      .sort((a, b) => b.createdAt - a.createdAt);
+    set({ quests });
+  },
   refreshQuests: async () => {
     set({ questsLoading: true });
     try {

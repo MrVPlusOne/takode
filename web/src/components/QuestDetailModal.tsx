@@ -75,14 +75,9 @@ export function QuestDetailModal() {
   async function handleCheckVerification(questId: string, index: number, checked: boolean) {
     try {
       const updatedQuest = await api.checkQuestVerification(questId, index, checked);
-      const currentQuests = useStore.getState().quests;
-      useStore.getState().setQuests(
-        currentQuests
-          .map((q) => (q.questId === updatedQuest.questId ? updatedQuest : q))
-          .sort((a, b) => b.createdAt - a.createdAt),
-      );
-    } catch {
-      // No-op: modal is too compact for an error banner.
+      useStore.getState().replaceQuest(updatedQuest);
+    } catch (e) {
+      console.warn(`Failed to toggle verification item ${index} for ${questId}:`, e);
     }
   }
 

@@ -209,6 +209,36 @@ describe("QuestDetailModal", () => {
     });
   });
 
+  it("unchecks a previously checked verification item via API", async () => {
+    // Setup: quest with item 0 already checked
+    const quest = makeVerificationQuest();
+    useStore.setState({ quests: [quest], questOverlayId: "q-42" });
+
+    // Mock API to return quest with item 0 now unchecked
+    const updatedQuest = makeVerificationQuest({
+      verificationItems: [
+        { text: "Sidebar no overflow on iPhone SE", checked: false },
+        { text: "Scroll works", checked: false },
+      ],
+    });
+    mockCheckQuestVerification.mockResolvedValue(updatedQuest);
+
+    render(<QuestDetailModal />);
+
+    // Click the checked checkbox (index 0) to uncheck it
+    const checkboxes = screen.getAllByRole("checkbox");
+    fireEvent.click(checkboxes[0]);
+
+    // API should be called with checked=false (toggling from true to false)
+    expect(mockCheckQuestVerification).toHaveBeenCalledWith("q-42", 0, false);
+
+    // After API resolves, store should reflect the unchecked state
+    await waitFor(() => {
+      const storeQuest = useStore.getState().quests.find((q) => q.questId === "q-42");
+      expect((storeQuest as QuestmasterTask & { verificationItems: QuestVerificationItem[] }).verificationItems[0].checked).toBe(false);
+    });
+  });
+
   it("keeps checkbox unchanged when API call fails", async () => {
     const quest = makeVerificationQuest();
     useStore.setState({ quests: [quest], questOverlayId: "q-42" });

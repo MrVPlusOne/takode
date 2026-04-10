@@ -125,6 +125,7 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
   const questsLoading = useStore((s) => s.questsLoading);
   const refreshQuests = useStore((s) => s.refreshQuests);
   const setQuests = useStore((s) => s.setQuests);
+  const replaceQuest = useStore((s) => s.replaceQuest);
   const sdkSessions = useStore((s) => s.sdkSessions);
   const sessionNames = useStore((s) => s.sessionNames);
   const sessions = useStore((s) => s.sessions);
@@ -619,12 +620,7 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
     setError("");
     try {
       const updatedQuest = await api.checkQuestVerification(questId, index, checked);
-      const currentQuests = useStore.getState().quests;
-      setQuests(
-        currentQuests
-          .map((q) => (q.questId === updatedQuest.questId ? updatedQuest : q))
-          .sort((a, b) => b.createdAt - a.createdAt),
-      );
+      replaceQuest(updatedQuest);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
     }
