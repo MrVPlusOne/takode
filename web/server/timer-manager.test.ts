@@ -264,15 +264,12 @@ describe("TimerManager", () => {
       await manager.createTimer("session-1", { prompt: "bye", in: "5m" });
       await manager.cancelTimer("session-1", "t1");
 
+      // Clear mock after cancelTimer's notification, then verify sweep doesn't fire
+      bridge.injectUserMessage.mockClear();
       vi.advanceTimersByTime(10 * 60_000);
       await triggerSweep(manager);
 
-      // injectUserMessage is called once by cancelTimer (cancellation notice),
-      // but the timer should NOT fire
-      const fireCalls = bridge.injectUserMessage.mock.calls.filter(
-        (call: any[]) => !String(call[1]).includes("cancelled"),
-      );
-      expect(fireCalls).toHaveLength(0);
+      expect(bridge.injectUserMessage).not.toHaveBeenCalled();
     });
 
     it("does not reuse timer IDs after all timers fire and are removed", async () => {

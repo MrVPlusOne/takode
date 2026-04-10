@@ -92,7 +92,7 @@ export class TimerManager {
 
     const timer = file.timers[idx];
     file.timers.splice(idx, 1);
-    this.cleanupOrPersist(sessionId, file);
+    this.persistAndEvictIfEmpty(sessionId);
     this.broadcastTimers(sessionId);
 
     // Notify the agent that the user manually cancelled this timer
@@ -173,7 +173,7 @@ export class TimerManager {
       }
 
       if (changed) {
-        this.cleanupOrPersist(sessionId, file);
+        this.persistAndEvictIfEmpty(sessionId);
         this.broadcastTimers(sessionId);
       }
     }
@@ -214,22 +214,21 @@ export class TimerManager {
     return file;
   }
 
-  /** Remove the session from memory when empty, but always persist to disk
-   *  so nextId survives (preventing ID reuse). Only cancelAllTimers deletes the disk file. */
-  private cleanupOrPersist(sessionId: string, file: SessionTimerFile): void {
-    if (file.timers.length === 0) {
+  /** Persist to disk (nextId must survive even when empty), then evict from
+   *  memory if no active timers remain. Only cancelAllTimers deletes the disk file. */
+  private persistAndEvictIfEmpty(sessionId: string): void {
+    this.persistSession(sessionId);
+    const file = this.sessions.get(sessionId);
+    if (file && file.timers.length === 0) {
       this.sessions.delete(sessionId);
     }
-    // Always persist -- even with zero timers, nextId must survive on disk
-    this.persistSession(sessionId, file);
   }
 
-  /** Save session timer state to disk (fire-and-forget).
-   *  Accepts an optional file param for when the session has been removed from memory. */
-  private persistSession(sessionId: string, file?: SessionTimerFile): void {
-    const data = file ?? this.sessions.get(sessionId);
-    if (!data) return;
-    timerStore.saveTimers(data).catch((err) => {
+  /** Save session timer state to disk (fire-and-forget). */
+  private persistSession(sessionId: string): void {
+    const file = this.sessions.get(sessionId);
+    if (!file) return;
+    timerStore.saveTimers(file).catch((err) => {
       console.error(`${LOG_TAG} Failed to persist timers for ${sessionId.slice(0, 8)}:`, err);
     });
   }
