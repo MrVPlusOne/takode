@@ -934,19 +934,28 @@ function EditToolDetail({ input, sessionId }: { input: Record<string, unknown>; 
   });
 
   // Stable callback for rendering "Open File" buttons in DiffViewer headers.
-  // Without useCallback, a new function reference is created every render, which
-  // causes DiffViewer to re-render (since renderHeaderActions is a prop), which
-  // re-invokes the callback during render, creating new JSX nodes, which can
-  // cascade into React error #185 (maximum update depth exceeded).
+  // DiffViewer calls renderHeaderActions during its render phase (inside data.map),
+  // so if this callback's reference changes, DiffViewer re-renders and re-invokes it,
+  // cascading into React error #185 (maximum update depth exceeded).
+  //
+  // The previous fix used useCallback with [parsed, sessionCwd] deps, but `parsed`
+  // is an object reference that can change even when its contents haven't (if the
+  // parent's `input` prop is referentially unstable). Using a ref lets the callback
+  // always read current values while keeping a permanently stable function reference.
+  const parsedRef = useRef(parsed);
+  const sessionCwdRef = useRef(sessionCwd);
+  parsedRef.current = parsed;
+  sessionCwdRef.current = sessionCwd;
+
   const renderHeaderActions = useCallback(
     (diffFilePath: string) => (
       <DiffOpenFileButton
-        filePath={getOpenFilePathForEditFile(parsed, diffFilePath)}
-        cwd={sessionCwd}
-        line={getFirstChangedLineForEditFile(parsed, diffFilePath)}
+        filePath={getOpenFilePathForEditFile(parsedRef.current, diffFilePath)}
+        cwd={sessionCwdRef.current}
+        line={getFirstChangedLineForEditFile(parsedRef.current, diffFilePath)}
       />
     ),
-    [parsed, sessionCwd],
+    [], // stable forever -- reads current values via refs
   );
 
   if (!oldStr && !newStr && unifiedDiff) {
