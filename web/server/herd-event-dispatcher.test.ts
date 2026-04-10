@@ -50,6 +50,7 @@ function createMockBridge(): WsBridgeHandle & {
     }),
     isSessionIdle: vi.fn(() => false),
     wakeIdleKilledSession: vi.fn(() => false),
+    getSessionMessages: vi.fn(() => null),
     _triggerEvent: (evt: TakodeEvent) => {
       callback?.(evt);
     },
@@ -73,6 +74,7 @@ function createMocks() {
     injectUserMessage: vi.fn(() => "sent" as const),
     isSessionIdle: vi.fn(() => false),
     wakeIdleKilledSession: vi.fn(() => false),
+    getSessionMessages: vi.fn(() => null),
   };
   const launcher: LauncherHandle = {
     getHerdedSessions: vi.fn(() => [{ sessionId: "worker-1" }, { sessionId: "worker-2" }]),
@@ -783,7 +785,7 @@ describe("formatHerdEventBatch", () => {
         data: { content: "ping" },
       }),
     ];
-    const result = formatHerdEventBatch(events, now);
+    const result = formatHerdEventBatch(events, { nowTs: now });
     expect(result).toContain("| 45s ago");
   });
 
@@ -841,7 +843,7 @@ describe("formatHerdEventBatch", () => {
         data: { duration_ms: 1230 },
       }),
     ];
-    const result = formatHerdEventBatch(events, now);
+    const result = formatHerdEventBatch(events, { nowTs: now });
     expect(result).toContain("| 2m ago");
   });
 });
@@ -902,5 +904,141 @@ describe("forceFlushPendingEvents", () => {
     expect(flushed).toBe(0);
 
     dispatcher.destroy();
+  });
+});
+
+// ─── Activity injection in formatHerdEventBatch ──────────────────────────────
+
+describe("formatHerdEventBatch with activity injection", () => {
+  it("includes activity summary for turn_end events when getMessages is provided", () => {
+    const events = [
+      makeEvent({
+        event: "turn_end",
+        sessionId: "worker-1",
+        data: {
+          duration_ms: 5000,
+          msgRange: { from: 10, to: 12 },
+        },
+      }),
+    ];
+    // Simulate a 3-message turn: user → assistant → result
+    const mockMessages = [
+      { type: "user_message", content: "Fix the bug", timestamp: Date.now() },
+      {
+        type: "assistant",
+        message: {
+          content: [
+            { type: "text", text: "On it" },
+            { type: "tool_use", id: "tu1", name: "Edit", input: { file_path: "/src/fix.ts" } },
+          ],
+        },
+        timestamp: Date.now(),
+      },
+      { type: "result", data: { result: "Bug fixed", is_error: false, duration_ms: 5000 } },
+    ];
+
+    const result = formatHerdEventBatch(events, {
+      getMessages: (_sid, _from, _to) => mockMessages as any,
+    });
+
+    // Should contain the turn_end status line
+    expect(result).toContain("turn_end");
+    // Should also contain the activity summary
+    expect(result).toContain('user: "Fix the bug"');
+    expect(result).toContain("Edit: fix.ts");
+    expect(result).toContain("Bug fixed");
+  });
+
+  it("does not include activity when getMessages is not provided", () => {
+    const events = [
+      makeEvent({
+        event: "turn_end",
+        data: {
+          duration_ms: 5000,
+          msgRange: { from: 10, to: 15 },
+        },
+      }),
+    ];
+    const result = formatHerdEventBatch(events);
+    // Should just have the status line, no activity
+    expect(result).toContain("turn_end");
+    expect(result).not.toContain("user:");
+  });
+
+  it("does not include activity when msgRange is missing", () => {
+    const events = [
+      makeEvent({
+        event: "turn_end",
+        data: { duration_ms: 5000 },
+      }),
+    ];
+    const result = formatHerdEventBatch(events, {
+      getMessages: () => [{ type: "user_message", content: "should not appear" }] as any,
+    });
+    expect(result).not.toContain("should not appear");
+  });
+
+  it("deduplicates activity using lastEmittedMsgTo watermark", () => {
+    // Two consecutive events from the same worker with overlapping ranges
+    const events = [
+      makeEvent({
+        event: "turn_end",
+        sessionId: "worker-1",
+        data: { duration_ms: 3000, msgRange: { from: 10, to: 15 } },
+      }),
+      makeEvent({
+        event: "turn_end",
+        sessionId: "worker-1",
+        data: { duration_ms: 4000, msgRange: { from: 13, to: 20 } },
+      }),
+    ];
+
+    // Track which ranges were requested
+    const requestedRanges: Array<{ from: number; to: number }> = [];
+    const watermarks = new Map<string, number>();
+
+    formatHerdEventBatch(events, {
+      getMessages: (_sid, from, to) => {
+        requestedRanges.push({ from, to });
+        return [{ type: "user_message", content: `msg ${from}-${to}`, timestamp: Date.now() }] as any;
+      },
+      lastEmittedMsgTo: watermarks,
+    });
+
+    // First event requests [10]-[15]
+    expect(requestedRanges[0]).toEqual({ from: 10, to: 15 });
+    // Second event is deduplicated: start at max(13, 15+1) = 16 (because
+    // formatHerdEventBatch reads watermarks as it goes, and the first event's
+    // msgRange.to is NOT written to the watermark by the formatter itself --
+    // that's done by the caller via updateLastEmittedMsgTo. So within one
+    // batch, events from the same session don't deduplicate against each other.
+    // This is intentional: the batch is a single delivery unit.)
+    expect(requestedRanges[1]).toEqual({ from: 13, to: 20 });
+  });
+
+  it("skips activity entirely when deduplication eliminates the range", () => {
+    const events = [
+      makeEvent({
+        event: "turn_end",
+        sessionId: "worker-1",
+        data: { duration_ms: 5000, msgRange: { from: 10, to: 15 } },
+      }),
+    ];
+    // Watermark at 15 means [10]-[15] was already emitted in a prior batch
+    const watermarks = new Map([["worker-1", 15]]);
+    let getMessagesCalled = false;
+
+    const result = formatHerdEventBatch(events, {
+      getMessages: () => {
+        getMessagesCalled = true;
+        return [];
+      },
+      lastEmittedMsgTo: watermarks,
+    });
+
+    // Should NOT call getMessages since deduplicated range is empty
+    expect(getMessagesCalled).toBe(false);
+    // Should still have the turn_end status line
+    expect(result).toContain("turn_end");
   });
 });

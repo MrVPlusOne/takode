@@ -445,13 +445,11 @@ async function fetchSessionInfo(base: string, sessionRef: string): Promise<Takod
 
 function formatTime(epoch: number): string {
   const d = new Date(epoch);
-  return d.toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
-}
-
-function formatTimeShort(epoch: number): string {
-  const d = new Date(epoch);
   return d.toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit" });
 }
+
+/** @deprecated Use formatTime — both now produce HH:MM. Kept as alias during migration. */
+const formatTimeShort = formatTime;
 
 function formatDate(epoch: number): string {
   const d = new Date(epoch);
@@ -487,6 +485,28 @@ function truncate(s: string, max: number): string {
   const escaped = escapeTerminalText(s);
   if (escaped.length <= max) return escaped;
   return escaped.slice(0, max) + ` [+${escaped.length - max} chars]`;
+}
+
+/** Collapse consecutive tool calls with the same name into groups.
+ *  e.g. [Read, Read, Grep, Edit, Edit] → [{Read, 2}, {Grep, 1}, {Edit, 2}] */
+interface CollapsedToolGroup {
+  name: string;
+  count: number;
+  summaries: string[];
+}
+
+function collapseToolCalls(tools: Array<{ name: string; summary: string }>): CollapsedToolGroup[] {
+  const groups: CollapsedToolGroup[] = [];
+  for (const tool of tools) {
+    const last = groups[groups.length - 1];
+    if (last && last.name === tool.name) {
+      last.count++;
+      last.summaries.push(tool.summary);
+    } else {
+      groups.push({ name: tool.name, count: 1, summaries: [tool.summary] });
+    }
+  }
+  return groups;
 }
 
 // ─── Command handlers ───────────────────────────────────────────────────────
@@ -1148,13 +1168,26 @@ function printExpandedMessages(messages: PeekMessage[]): void {
           console.log(`  ${idx.padEnd(7)} ${time}  asst`);
         }
         if (msg.tools && msg.tools.length > 0) {
-          for (let ti = 0; ti < msg.tools.length; ti++) {
-            const tool = msg.tools[ti];
-            const isLastTool = ti === msg.tools.length - 1;
-            const connector = isLastTool && isLast ? "└─" : "├─";
-            console.log(
-              `  ${pipe}       ${connector} ${formatInlineText(tool.name).padEnd(6)} ${truncate(tool.summary, 80)}`,
-            );
+          // Collapse consecutive tool calls by name: Read×2, Grep×1
+          const collapsed = collapseToolCalls(msg.tools);
+          for (let ci = 0; ci < collapsed.length; ci++) {
+            const group = collapsed[ci];
+            const isLastGroup = ci === collapsed.length - 1;
+            const connector = isLastGroup && isLast ? "└─" : "├─";
+            if (group.count === 1) {
+              console.log(
+                `  ${pipe}       ${connector} ${formatInlineText(group.name).padEnd(6)} ${truncate(group.summaries[0], 80)}`,
+              );
+            } else {
+              // Multiple consecutive calls of the same tool -- show count + combined summaries
+              const summaryParts = group.summaries.filter(Boolean).slice(0, 3);
+              const summaryStr = summaryParts.length > 0
+                ? ` ${summaryParts.join(", ")}${group.count > 3 ? `, ...+${group.count - 3}` : ""}`
+                : "";
+              console.log(
+                `  ${pipe}       ${connector} ${formatInlineText(group.name)}×${group.count}${summaryStr}`,
+              );
+            }
           }
         }
         break;

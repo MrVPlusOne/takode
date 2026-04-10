@@ -20,7 +20,8 @@
  * state that survives any CLI disconnect/reconnect cycle.
  */
 
-import type { TakodeEvent, TakodeEventType } from "./session-types.js";
+import type { TakodeEvent, TakodeEventType, BrowserIncomingMessage } from "./session-types.js";
+import { formatActivitySummary } from "./herd-activity-formatter.js";
 
 // ─── Interfaces (for testability — avoids importing full WsBridge/CliLauncher) ──
 
@@ -36,6 +37,9 @@ export interface WsBridgeHandle {
    *  flag and triggers a CLI relaunch so the session can process queued events.
    *  Returns true if a relaunch was requested, false if the session wasn't idle-killed. */
   wakeIdleKilledSession(sessionId: string): boolean;
+  /** Retrieve a slice of a session's messageHistory for activity summaries.
+   *  Returns null if the session doesn't exist. Indices are inclusive [from, to]. */
+  getSessionMessages(sessionId: string, from: number, to: number): BrowserIncomingMessage[] | null;
 }
 
 export interface LauncherHandle {
@@ -100,6 +104,9 @@ interface HerdInbox {
   workerIds: Set<string>;
   /** Persistent delivery history for diagnostics (last N entries) */
   deliveryHistory: DeliveryRecord[];
+  /** Per-worker: highest msgRange.to from the last delivered batch.
+   *  Prevents re-injecting the same activity in consecutive turn_end events. */
+  lastEmittedMsgTo: Map<string, number>;
 }
 
 // ─── Dispatcher ─────────────────────────────────────────────────────────────────
@@ -139,6 +146,7 @@ export class HerdEventDispatcher {
         debounceTimer: null,
         workerIds,
         deliveryHistory: [],
+        lastEmittedMsgTo: new Map(),
       };
       inbox.unsubscribe = this.wsBridge.subscribeTakodeEvents(workerIds, (evt) => this.onWorkerEvent(orchId, evt));
       this.inboxes.set(orchId, inbox);
@@ -278,8 +286,14 @@ export class HerdEventDispatcher {
     if (pending.length === 0) return 0;
 
     const events = pending.map((e) => e.event);
-    const content = formatHerdEventBatch(events);
+    const content = formatHerdEventBatch(events, {
+      getMessages: (sid, from, to) => this.wsBridge.getSessionMessages(sid, from, to),
+      lastEmittedMsgTo: inbox.lastEmittedMsgTo,
+    });
     this.wsBridge.injectUserMessage(orchId, content, HERD_AGENT_SOURCE);
+
+    // Update deduplication watermarks from the events we just delivered
+    updateLastEmittedMsgTo(inbox.lastEmittedMsgTo, events);
 
     const lastSeq = pending[pending.length - 1].seq;
     inbox.inFlightUpTo = lastSeq;
@@ -341,8 +355,14 @@ export class HerdEventDispatcher {
 
     // Format and inject
     const events = pending.map((e) => e.event);
-    const content = formatHerdEventBatch(events);
+    const content = formatHerdEventBatch(events, {
+      getMessages: (sid, from, to) => this.wsBridge.getSessionMessages(sid, from, to),
+      lastEmittedMsgTo: inbox.lastEmittedMsgTo,
+    });
     this.wsBridge.injectUserMessage(orchId, content, HERD_AGENT_SOURCE);
+
+    // Update deduplication watermarks from the events we just delivered
+    updateLastEmittedMsgTo(inbox.lastEmittedMsgTo, events);
 
     // Mark as in-flight (NOT confirmed yet — that happens on turn end)
     const lastSeq = pending[pending.length - 1].seq;
@@ -435,17 +455,28 @@ export class HerdEventDispatcher {
 
 // ─── Event Formatting ───────────────────────────────────────────────────────────
 
+export interface FormatBatchOptions {
+  nowTs?: number;
+  /** Callback to fetch a slice of a worker's messageHistory for activity summaries.
+   *  When provided, turn_end events include peek-style activity showing what happened. */
+  getMessages?: (sessionId: string, from: number, to: number) => BrowserIncomingMessage[] | null;
+  /** Per-worker deduplication watermark: highest msgRange.to already delivered.
+   *  Prevents re-injecting overlapping activity across consecutive batches. */
+  lastEmittedMsgTo?: Map<string, number>;
+}
+
 /** Format a batch of events into a compact, scannable summary. */
-export function formatHerdEventBatch(events: TakodeEvent[], nowTs: number = Date.now()): string {
+export function formatHerdEventBatch(events: TakodeEvent[], options?: FormatBatchOptions): string {
+  const nowTs = options?.nowTs ?? Date.now();
   // Count unique sessions
   const sessionIds = new Set(events.map((e) => e.sessionId));
   const header = `${events.length} event${events.length === 1 ? "" : "s"} from ${sessionIds.size} session${sessionIds.size === 1 ? "" : "s"}`;
 
-  const lines = events.map((event) => formatSingleEvent(event, nowTs));
+  const lines = events.map((event) => formatSingleEvent(event, nowTs, options));
   return `${header}\n\n${lines.join("\n")}`;
 }
 
-function formatSingleEvent(evt: TakodeEvent, nowTs: number): string {
+function formatSingleEvent(evt: TakodeEvent, nowTs: number, options?: FormatBatchOptions): string {
   const label = `#${evt.sessionNum}`;
   const age = formatRelativeAge(evt.ts, nowTs);
   const ageSuffix = age ? ` | ${age}` : "";
@@ -473,7 +504,15 @@ function formatSingleEvent(evt: TakodeEvent, nowTs: number): string {
       // Quest status change during this turn
       const qc = evt.data.questChange;
       const questStr = qc ? ` | ${qc.questId}: ${qc.from} → ${qc.to}` : "";
-      return `${label} | turn_end | ${success} ${duration}${compacted}${userInitiated}${tools}${rangeStr}${userMsgStr}${questStr}${resultPreview}${ageSuffix}`;
+
+      const statusLine = `${label} | turn_end | ${success} ${duration}${compacted}${userInitiated}${tools}${rangeStr}${userMsgStr}${questStr}${resultPreview}${ageSuffix}`;
+
+      // Auto-inject peek-style activity summary between events
+      const activity = buildActivityForEvent(evt, options);
+      if (activity) {
+        return `${statusLine}\n${activity}`;
+      }
+      return statusLine;
     }
     case "compaction_started": {
       const pct =
@@ -513,6 +552,43 @@ function formatSingleEvent(evt: TakodeEvent, nowTs: number): string {
     }
     default:
       return `${label} | ${evt.event}${ageSuffix}`;
+  }
+}
+
+// ─── Activity Injection ──────────────────────────────────────────────────────────
+
+/** Build a peek-style activity summary for a turn_end event.
+ *  Uses the event's msgRange to fetch the relevant message history slice,
+ *  with deduplication to avoid re-injecting overlapping content. */
+function buildActivityForEvent(evt: TakodeEvent, options?: FormatBatchOptions): string | null {
+  if (evt.event !== "turn_end") return null;
+  if (!options?.getMessages) return null;
+
+  const range = evt.data.msgRange;
+  if (!range) return null;
+
+  // Deduplication: start after the last-emitted message for this worker
+  const lastEmitted = options.lastEmittedMsgTo?.get(evt.sessionId) ?? -1;
+  const deduplicatedFrom = Math.max(range.from, lastEmitted + 1);
+  if (deduplicatedFrom > range.to) return null;
+
+  const messages = options.getMessages(evt.sessionId, deduplicatedFrom, range.to);
+  if (!messages || messages.length === 0) return null;
+
+  const activity = formatActivitySummary(messages, { startIdx: deduplicatedFrom });
+  return activity || null;
+}
+
+/** Update per-worker deduplication watermarks after delivering a batch. */
+function updateLastEmittedMsgTo(watermarks: Map<string, number>, events: TakodeEvent[]): void {
+  for (const evt of events) {
+    if (evt.event !== "turn_end") continue;
+    const range = evt.data.msgRange;
+    if (!range) continue;
+    const current = watermarks.get(evt.sessionId) ?? -1;
+    if (range.to > current) {
+      watermarks.set(evt.sessionId, range.to);
+    }
   }
 }
 

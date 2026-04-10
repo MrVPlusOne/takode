@@ -1586,6 +1586,18 @@ export class WsBridge {
     return true;
   }
 
+  /** Retrieve a slice of a session's messageHistory for activity summaries.
+   *  Returns null if the session doesn't exist. Indices are inclusive [from, to]. */
+  getSessionMessages(sessionId: string, from: number, to: number): BrowserIncomingMessage[] | null {
+    const session = this.sessions.get(sessionId);
+    if (!session) return null;
+    const history = session.messageHistory;
+    const clampedFrom = Math.max(0, from);
+    const clampedTo = Math.min(history.length - 1, to);
+    if (clampedFrom > clampedTo) return [];
+    return history.slice(clampedFrom, clampedTo + 1);
+  }
+
   /** Get diagnostic info for a session's herd event and generation state. */
   getHerdDiagnostics(sessionId: string): Record<string, unknown> | null {
     const session = this.sessions.get(sessionId);
