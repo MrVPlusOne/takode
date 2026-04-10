@@ -1060,19 +1060,20 @@ describe("MessageFeed - scroll behavior", () => {
   });
 
   it("keeps grouped tool containers visible when in-place tool results expand them", async () => {
+    // Use Bash tools (which still group) to test scroll behavior during result expansion
     const sid = "test-grouped-tool-growth";
     setStoreMessages(sid, [
       makeMessage({
         id: "a1",
         role: "assistant",
         content: "",
-        contentBlocks: [{ type: "tool_use", id: "tu-1", name: "Read", input: { file_path: "/a.ts" } }],
+        contentBlocks: [{ type: "tool_use", id: "tu-1", name: "Bash", input: { command: "echo a" } }],
       }),
       makeMessage({
         id: "a2",
         role: "assistant",
         content: "",
-        contentBlocks: [{ type: "tool_use", id: "tu-2", name: "Read", input: { file_path: "/b.ts" } }],
+        contentBlocks: [{ type: "tool_use", id: "tu-2", name: "Bash", input: { command: "echo b" } }],
       }),
     ]);
 
@@ -1102,7 +1103,7 @@ describe("MessageFeed - scroll behavior", () => {
     });
 
     fireEvent.scroll(scrollContainer);
-    fireEvent.click(screen.getByText("/b.ts"));
+    fireEvent.click(screen.getByText("echo b"));
 
     scrollHeightValue = 1760;
     setStoreToolResults(sid, {
@@ -2379,7 +2380,8 @@ describe("MessageFeed - Codex terminal chips", () => {
 // ─── getToolOnlyName behavior (tested via grouping) ──────────────────────────
 
 describe("MessageFeed - tool-only message detection", () => {
-  it("groups consecutive same-tool assistant messages", () => {
+  it("renders file-tool messages as standalone chips without grouping", () => {
+    // Edit/Write/Read tools are never grouped at the feed level
     const sid = "test-tool-group";
     setStoreMessages(sid, [
       makeMessage({
@@ -2398,13 +2400,11 @@ describe("MessageFeed - tool-only message detection", () => {
 
     render(<MessageFeed sessionId={sid} />);
 
-    // When grouped at message level, both should appear under a single "Read File" group
-    // with a count badge showing "2"
-    expect(screen.getByText("2")).toBeTruthy();
-    // The group header label plus each expanded child renders the tool name.
-    // 1 (group header) + 2 (children, since group defaults to open) = 3 total.
+    // No count badge -- each is standalone
+    expect(screen.queryByText("2")).toBeNull();
+    // 2 standalone chips, each with "Read File" label
     const labels = screen.getAllByText("Read File");
-    expect(labels.length).toBe(3);
+    expect(labels.length).toBe(2);
   });
 
   it("keeps the outer Terminal group label while removing repeated inner bash labels", () => {

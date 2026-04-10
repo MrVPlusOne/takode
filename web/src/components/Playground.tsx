@@ -1896,7 +1896,7 @@ export function Playground() {
         {/* ─── Tool Blocks (standalone) ──────────────────────── */}
         <Section
           title="Tool Blocks"
-          description="Expandable tool call visualization with duration badges. Edit and Write diffs start collapsed and only render after expansion."
+          description="Expandable tool call chips. Edit/Write/Read show smart-truncated path + Open File button in header; diffs start collapsed."
         >
           <div className="space-y-2 max-w-3xl">
             <ToolBlock

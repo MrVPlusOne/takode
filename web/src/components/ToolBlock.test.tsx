@@ -340,7 +340,9 @@ describe("ToolBlock", () => {
     expect(container.querySelector(".diff-line-del")).toBeNull();
     expect(container.querySelector(".diff-line-add")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button"));
+    // Header changed from <button> to <div role="button">; "Open File" is also
+    // a button inside the header, so we target the header div specifically.
+    fireEvent.click(container.querySelector<HTMLElement>('div[role="button"]')!);
 
     expect(screen.getByText("app.ts")).toBeTruthy();
     expect(container.querySelector(".diff-line-del")).toBeTruthy();
@@ -377,9 +379,10 @@ describe("ToolBlock", () => {
     expect(container.querySelector(".diff-line-del")).toBeNull();
     expect(container.querySelector(".diff-line-add")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button"));
+    fireEvent.click(container.querySelector<HTMLElement>('div[role="button"]')!);
 
-    expect(screen.getByText("app.ts")).toBeTruthy();
+    // "app.ts" appears in both the header (bold filename) and DiffViewer's per-file header
+    expect(screen.getAllByText("app.ts").length).toBeGreaterThanOrEqual(1);
     expect(container.querySelector(".diff-line-del")).toBeTruthy();
     expect(container.querySelector(".diff-line-add")).toBeTruthy();
   });
@@ -400,7 +403,7 @@ describe("ToolBlock", () => {
     expect(screen.getByText("Write File")).toBeTruthy();
     expect(container.querySelector(".diff-line-add")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button"));
+    fireEvent.click(container.querySelector<HTMLElement>('div[role="button"]')!);
 
     expect(screen.getByText("new-file.ts")).toBeTruthy();
     expect(container.querySelector(".diff-line-add")).toBeTruthy();
@@ -425,7 +428,8 @@ describe("ToolBlock", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Write File\/home\/user\/src\/new-file\.ts/ }));
+    // Header shows smart-truncated path: "Write File .../user/src/ new-file.ts"
+    fireEvent.click(screen.getByRole("button", { name: /Write File.*new-file\.ts/ }));
     expect(screen.getByText("new-file.ts")).toBeTruthy();
     expect(container.querySelector(".diff-line-add")).toBeTruthy();
     expect(screen.queryByText("No changes")).toBeNull();
@@ -450,7 +454,8 @@ describe("ToolBlock", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Edit File\/home\/user\/plans\/design\.md/ }));
+    // Header shows smart-truncated path: "Edit File .../user/plans/ design.md"
+    fireEvent.click(screen.getByRole("button", { name: /Edit File.*design\.md/ }));
     expect(screen.getByText("design.md")).toBeTruthy();
     expect(container.querySelector(".diff-line-add")).toBeTruthy();
     expect(screen.queryByText("No changes")).toBeNull();
@@ -485,7 +490,8 @@ describe("ToolBlock", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Edit File\/home\/user\/src\/app\.ts/ }));
+    // Header shows smart-truncated path; Open File button is now in the header row
+    fireEvent.click(screen.getByRole("button", { name: /Edit File.*app\.ts/ }));
     fireEvent.click(screen.getByRole("button", { name: "Open File" }));
 
     await waitFor(() => {
@@ -495,7 +501,8 @@ describe("ToolBlock", () => {
           type: "takode:open-file",
           payload: {
             absolutePath: "/home/user/src/app.ts",
-            line: 12,
+            // Header Open File button always opens at line 1 (no diff-aware line targeting)
+            line: 1,
             column: 1,
           },
         },
@@ -542,21 +549,24 @@ describe("ToolBlock", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Edit File\/home\/user\/src\/app\.ts/ }));
+    // Header shows smart-truncated path; Open File button is now in the header row
+    fireEvent.click(screen.getByRole("button", { name: /Edit File.*app\.ts/ }));
     fireEvent.click(screen.getByRole("button", { name: "Open File" }));
 
     await waitFor(() => {
       expect(api.openVsCodeRemoteFile).toHaveBeenCalledWith({
         absolutePath: "/home/user/src/app.ts",
-        line: 12,
+        // Header Open File button always opens at line 1 (no diff-aware line targeting)
+        line: 1,
         column: 1,
       });
     });
   });
 
-  it("renders one Open File action per edited file and targets the correct file", async () => {
-    window.history.replaceState({}, "", "/?takodeHost=vscode");
-    const postMessageSpy = vi.spyOn(window.parent, "postMessage");
+  it("renders per-file diff headers for multi-file edits without file_path", async () => {
+    // When input has `changes` but no `file_path`, the ToolBlock header
+    // does not show an Open File button (isFileTool is false). Each file
+    // section in the DiffViewer still renders its own file header with the name.
     const previousSdkSessions = useStore.getState().sdkSessions;
     useStore.setState({
       sdkSessions: [
@@ -569,7 +579,7 @@ describe("ToolBlock", () => {
       ],
     });
 
-    render(
+    const { container } = render(
       <ToolBlock
         name="Edit"
         input={{
@@ -606,31 +616,18 @@ describe("ToolBlock", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Edit File/ }));
+    // Expand the collapsed ToolBlock
+    fireEvent.click(container.querySelector<HTMLElement>('div[role="button"]')!);
 
-    const openButtons = screen.getAllByRole("button", { name: "Open File" });
-    expect(openButtons).toHaveLength(2);
+    // Both file diffs are rendered with their per-file headers
+    expect(screen.getByText("a.ts")).toBeTruthy();
+    expect(screen.getByText("b.ts")).toBeTruthy();
 
-    fireEvent.click(openButtons[1]);
-
-    await waitFor(() => {
-      expect(postMessageSpy).toHaveBeenCalledWith(
-        {
-          source: "takode-vscode-prototype",
-          type: "takode:open-file",
-          payload: {
-            absolutePath: "/home/user/project/src/b.ts",
-            line: 14,
-            column: 1,
-          },
-        },
-        "*",
-      );
-    });
+    // Diff content for both files is present
+    const diffFiles = container.querySelectorAll(".diff-file");
+    expect(diffFiles.length).toBe(2);
 
     useStore.setState({ sdkSessions: previousSdkSessions });
-    postMessageSpy.mockRestore();
-    window.history.replaceState({}, "", "/");
   });
 
   it("renders Edit diff when changes use unified_diff field", () => {
@@ -659,8 +656,10 @@ describe("ToolBlock", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Edit File\/home\/user\/src\/app\.ts/ }));
-    expect(screen.getByText("app.ts")).toBeTruthy();
+    // Header shows smart-truncated path
+    fireEvent.click(screen.getByRole("button", { name: /Edit File.*app\.ts/ }));
+    // "app.ts" appears in both the header (bold filename) and DiffViewer's per-file header
+    expect(screen.getAllByText("app.ts").length).toBeGreaterThanOrEqual(1);
     expect(container.querySelector(".diff-line-del")).toBeTruthy();
     expect(container.querySelector(".diff-line-add")).toBeTruthy();
   });
@@ -684,7 +683,8 @@ describe("ToolBlock", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Edit File\/home\/user\/src\/app\.ts/ }));
+    // Header shows smart-truncated path
+    fireEvent.click(screen.getByRole("button", { name: /Edit File.*app\.ts/ }));
     expect(screen.getByText("app.ts")).toBeTruthy();
     expect(container.querySelector(".diff-line-del")).toBeTruthy();
     expect(container.querySelector(".diff-line-add")).toBeTruthy();
@@ -704,17 +704,21 @@ describe("ToolBlock", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Edit File\/home\/user\/src\/app\.ts/ }));
+    // Header shows smart-truncated path
+    fireEvent.click(screen.getByRole("button", { name: /Edit File.*app\.ts/ }));
     expect(screen.getByText(/modify.*app\.ts/)).toBeTruthy();
   });
 
   it("renders Read file path when expanded", () => {
-    render(<ToolBlock name="Read" input={{ file_path: "/home/user/test.txt" }} toolUseId="tool-8" />);
+    const { container } = render(
+      <ToolBlock name="Read" input={{ file_path: "/home/user/test.txt" }} toolUseId="tool-8" />,
+    );
 
-    fireEvent.click(screen.getByRole("button"));
-    // Full path appears in both header preview (RTL-truncated) and expanded detail
-    const matches = screen.getAllByText("/home/user/test.txt");
-    expect(matches.length).toBeGreaterThanOrEqual(2);
+    fireEvent.click(container.querySelector<HTMLElement>('div[role="button"]')!);
+    // Header shows the path in a truncated span (with title), and expanded detail
+    // shows the full path as plain text.
+    expect(screen.getByText("test.txt")).toBeTruthy();
+    expect(screen.getByText("/home/user/test.txt")).toBeTruthy();
   });
 
   it("shows a 3-format copy menu for ExitPlanMode detail blocks", () => {
@@ -743,7 +747,7 @@ describe("ToolBlock", () => {
     toolResults.set("s-image", sessionResults);
     useStore.setState({ toolResults });
 
-    render(
+    const { container } = render(
       <ToolBlock
         name="Read"
         input={{ file_path: "/home/user/screenshot.jpg" }}
@@ -752,7 +756,9 @@ describe("ToolBlock", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button"));
+    // Header changed from <button> to <div role="button">; "Open File" is also
+    // a button inside the header, so we target the header div specifically.
+    fireEvent.click(container.querySelector<HTMLElement>('div[role="button"]')!);
     expect(screen.getByText("Binary image output hidden.")).toBeTruthy();
     expect(screen.queryByText("PNG binary bytes...")).toBeNull();
     // Image preview appears only once (in Result section), avoiding duplicate thumbnails.

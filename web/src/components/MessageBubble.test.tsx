@@ -670,7 +670,8 @@ describe("MessageBubble - assistant messages", () => {
 // ─── groupContentBlocks behavior (tested indirectly through MessageBubble) ──
 
 describe("MessageBubble - content block grouping", () => {
-  it("groups consecutive same-tool tool_use blocks together", () => {
+  it("renders file-tool blocks as standalone chips without grouping", () => {
+    // Edit/Write/Read tools are never grouped -- each gets its own standalone chip
     const msg = makeMessage({
       role: "assistant",
       content: "",
@@ -680,14 +681,13 @@ describe("MessageBubble - content block grouping", () => {
         { type: "tool_use", id: "tu-3", name: "Read", input: { file_path: "/c.ts" } },
       ],
     });
-    const { container } = render(<MessageBubble message={msg} />);
+    render(<MessageBubble message={msg} />);
 
-    // When grouped, there should be a count badge showing "3"
-    expect(screen.getByText("3")).toBeTruthy();
-    // The group header label plus each expanded child renders the tool name.
-    // 1 (group header) + 3 (children, since group defaults to open) = 4 total.
+    // No count badge -- each is standalone
+    expect(screen.queryByText("3")).toBeNull();
+    // 3 standalone chips, each with "Read File" label
     const labels = screen.getAllByText("Read File");
-    expect(labels.length).toBe(4);
+    expect(labels.length).toBe(3);
   });
 
   it("keeps the outer Terminal group label while removing repeated inner bash labels", () => {

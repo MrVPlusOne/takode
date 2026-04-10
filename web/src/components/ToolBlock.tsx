@@ -3,7 +3,6 @@ import {
   useEffect,
   useRef,
   useMemo,
-  useCallback,
   memo,
   Component,
   type ReactNode,
@@ -11,7 +10,7 @@ import {
 } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { isSubagentToolName } from "../types.js";
-import { DiffViewer } from "./DiffViewer.js";
+import { DiffViewer, formatFileHeaderPath } from "./DiffViewer.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { CodeCopyButton } from "./CodeCopyButton.js";
 import { CollapseFooter } from "./CollapseFooter.js";
@@ -268,7 +267,7 @@ const ToolBlockInner = memo(function ToolBlockInner({
     if (name === "Edit" || name === "Write") return getEditBlocksExpanded();
     return false;
   });
-  const headerRef = useRef<HTMLButtonElement>(null);
+  const headerRef = useRef<HTMLDivElement>(null);
   const iconType = getToolIcon(name);
   const label = getToolLabel(name);
   // Subscribe to a boolean primitive instead of the full ToolResultPreview object.
@@ -289,8 +288,16 @@ const ToolBlockInner = memo(function ToolBlockInner({
   // Extract the most useful preview
   const preview = getPreview(name, input);
   const hideHeaderLabel = hideLabel || name === "Bash";
-  // File path previews use RTL truncation so the filename (rightmost) stays visible
-  const isFilePath = (name === "Read" || name === "Write" || name === "Edit") && !!input.file_path;
+  // File-operation tools show smart-truncated path + Open File button in the header
+  const isFileTool = (name === "Read" || name === "Write" || name === "Edit") && !!input.file_path;
+  const filePath = isFileTool ? String(input.file_path) : "";
+  const filePathParts = isFileTool ? formatFileHeaderPath(filePath) : null;
+
+  // Session cwd for the header Open File button (only subscribed for file tools)
+  const sessionCwd = useStore((s) => {
+    if (!isFileTool || !sessionId) return null;
+    return s.sessions.get(sessionId)?.cwd ?? s.sdkSessions.find((sdk) => sdk.sessionId === sessionId)?.cwd ?? null;
+  });
 
   // TodoWrite: flat inline view with status icon + active task + count
   if (name === "TodoWrite" && Array.isArray((input as Record<string, unknown>).todos)) {
@@ -321,9 +328,12 @@ const ToolBlockInner = memo(function ToolBlockInner({
 
   return (
     <div className="border border-cc-border rounded-[10px] overflow-hidden bg-cc-card">
-      <button
+      <div
         ref={headerRef}
+        role="button"
+        tabIndex={0}
         onClick={() => setOpen(!open)}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen(!open); } }}
         className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-cc-hover transition-colors cursor-pointer"
       >
         <svg
@@ -335,12 +345,25 @@ const ToolBlockInner = memo(function ToolBlockInner({
         </svg>
         <ToolIcon type={iconType} />
         {!hideHeaderLabel && <span className="text-xs font-medium text-cc-fg">{label}</span>}
-        {preview && (
+        {isFileTool && filePathParts ? (
+          <span
+            className="text-xs truncate flex-1 font-mono-code"
+            title={filePath}
+          >
+            {filePathParts.dirLabel && <span className="text-cc-muted">{filePathParts.dirLabel}</span>}
+            <span className="font-semibold text-cc-fg">{filePathParts.baseLabel}</span>
+          </span>
+        ) : preview ? (
           <span
             className={`text-xs truncate flex-1 font-mono-code ${hideHeaderLabel ? "text-cc-fg/90" : "text-cc-muted"}`}
-            style={isFilePath ? { direction: "rtl", textAlign: "left", unicodeBidi: "plaintext" } : undefined}
           >
             {preview}
+          </span>
+        ) : null}
+        {/* Open File button in header for file tools -- stops propagation to avoid toggling collapse */}
+        {isFileTool && (
+          <span onClick={(e) => e.stopPropagation()}>
+            <DiffOpenFileButton filePath={filePath} cwd={sessionCwd} line={1} />
           </span>
         )}
         {showCompletedLiveBadge && (
@@ -352,7 +375,7 @@ const ToolBlockInner = memo(function ToolBlockInner({
           </span>
         )}
         {sessionId && <ToolDurationBadge toolUseId={toolUseId} sessionId={sessionId} />}
-      </button>
+      </div>
 
       {open && (
         <div className="px-3 pb-3 pt-0 border-t border-cc-border">
@@ -859,19 +882,6 @@ function getFirstChangedLineForEditFile(parsed: ReturnType<typeof parseEditToolI
   return 1;
 }
 
-function getOpenFilePathForEditFile(parsed: ReturnType<typeof parseEditToolInput>, filePath: string): string {
-  const matchingChange = parsed.changes.find((change) => changePathMatchesDiffFile(change, filePath));
-  if (matchingChange && typeof matchingChange.path === "string" && matchingChange.path.trim()) {
-    return matchingChange.path;
-  }
-
-  if (parsed.filePath && changePathMatchesDiffFile({ path: parsed.filePath }, filePath)) {
-    return parsed.filePath;
-  }
-
-  return filePath || parsed.filePath;
-}
-
 /** Memoized pure component for "Open File" buttons in diff headers.
  *  Accepts `cwd` as a prop instead of reading it from the Zustand store.
  *  This is critical: DiffViewer calls `renderHeaderActions` during its render
@@ -939,49 +949,18 @@ function EditToolDetail({ input, sessionId }: { input: Record<string, unknown>; 
   const parsed = useMemo(() => parseEditToolInput(input), [input]);
   const { filePath, oldText: oldStr, newText: newStr, changes, unifiedDiff } = parsed;
 
-  // Read sessionCwd at the component level so DiffOpenFileButton doesn't need
-  // to subscribe to the store. This is the key fix for React error #185:
-  // DiffViewer calls renderHeaderActions during its render phase, so any
-  // component it returns must be store-subscription-free.
+  // Session cwd for the changes-list Open File buttons (the main header Open File
+  // button is now in ToolBlockInner, so this is only needed for the multi-change path).
   const sessionCwd = useStore((s) => {
     if (!sessionId) return null;
     return s.sessions.get(sessionId)?.cwd ?? s.sdkSessions.find((sdk) => sdk.sessionId === sessionId)?.cwd ?? null;
   });
 
-  // Stable callback for rendering "Open File" buttons in DiffViewer headers.
-  // DiffViewer calls renderHeaderActions during its render phase (inside data.map),
-  // so if this callback's reference changes, DiffViewer re-renders and re-invokes it,
-  // cascading into React error #185 (maximum update depth exceeded).
-  //
-  // The previous fix used useCallback with [parsed, sessionCwd] deps, but `parsed`
-  // is an object reference that can change even when its contents haven't (if the
-  // parent's `input` prop is referentially unstable). Using a ref lets the callback
-  // always read current values while keeping a permanently stable function reference.
-  //
-  // TODO(refactor): the root cause is DiffViewer calling renderHeaderActions during
-  // render (line ~662, inside data.map). Ideally DiffViewer should memoize the
-  // results or accept precomputed headerActionsByFile, removing this constraint
-  // from callers entirely.
-  const parsedRef = useRef(parsed);
-  const sessionCwdRef = useRef(sessionCwd);
-  parsedRef.current = parsed;
-  sessionCwdRef.current = sessionCwd;
-
-  const renderHeaderActions = useCallback(
-    (diffFilePath: string) => (
-      <DiffOpenFileButton
-        filePath={getOpenFilePathForEditFile(parsedRef.current, diffFilePath)}
-        cwd={sessionCwdRef.current}
-        line={getFirstChangedLineForEditFile(parsedRef.current, diffFilePath)}
-      />
-    ),
-    [], // stable forever -- reads current values via refs
-  );
+  // File path and Open File button are now in the ToolBlock header, so DiffViewer
+  // no longer needs fileName or renderHeaderActions for single-file edits.
 
   if (!oldStr && !newStr && unifiedDiff) {
-    return (
-      <DiffViewer unifiedDiff={unifiedDiff} fileName={filePath} mode="full" renderHeaderActions={renderHeaderActions} />
-    );
+    return <DiffViewer unifiedDiff={unifiedDiff} mode="full" />;
   }
 
   if (!oldStr && !newStr && changes.length > 0) {
@@ -1019,13 +998,7 @@ function EditToolDetail({ input, sessionId }: { input: Record<string, unknown>; 
           replace all
         </span>
       )}
-      <DiffViewer
-        oldText={oldStr}
-        newText={newStr}
-        fileName={filePath}
-        mode="full"
-        renderHeaderActions={renderHeaderActions}
-      />
+      <DiffViewer oldText={oldStr} newText={newStr} mode="full" />
     </div>
   );
 }
@@ -1033,28 +1006,16 @@ function EditToolDetail({ input, sessionId }: { input: Record<string, unknown>; 
 function WriteToolDetail({ input, sessionId }: { input: Record<string, unknown>; sessionId?: string }) {
   const { filePath, content, changes, unifiedDiff } = useMemo(() => parseWriteToolInput(input), [input]);
 
-  // Lift store subscription out of the render-phase callback path (same fix as EditToolDetail).
+  // Session cwd for the changes-list Open File buttons only
   const sessionCwd = useStore((s) => {
     if (!sessionId) return null;
     return s.sessions.get(sessionId)?.cwd ?? s.sdkSessions.find((sdk) => sdk.sessionId === sessionId)?.cwd ?? null;
   });
 
-  // Same ref pattern as EditToolDetail: DiffViewer calls renderHeaderActions during
-  // render, so the callback reference must be permanently stable. Although sessionCwd
-  // is a primitive, using a ref keeps the pattern consistent and prevents any future
-  // dep instability from reintroducing the re-render cascade.
-  const sessionCwdRef = useRef(sessionCwd);
-  sessionCwdRef.current = sessionCwd;
-
-  const renderHeaderActions = useCallback(
-    (diffFilePath: string) => <DiffOpenFileButton filePath={diffFilePath} cwd={sessionCwdRef.current} line={1} />,
-    [], // stable forever -- reads current value via ref
-  );
+  // File path and Open File button are now in the ToolBlock header
 
   if (!content && unifiedDiff) {
-    return (
-      <DiffViewer unifiedDiff={unifiedDiff} fileName={filePath} mode="full" renderHeaderActions={renderHeaderActions} />
-    );
+    return <DiffViewer unifiedDiff={unifiedDiff} mode="full" />;
   }
 
   if (!content && changes.length > 0) {
@@ -1081,7 +1042,7 @@ function WriteToolDetail({ input, sessionId }: { input: Record<string, unknown>;
     );
   }
 
-  return <DiffViewer newText={content} fileName={filePath} mode="full" renderHeaderActions={renderHeaderActions} />;
+  return <DiffViewer newText={content} mode="full" />;
 }
 
 function ReadToolDetail({ input }: { input: Record<string, unknown> }) {

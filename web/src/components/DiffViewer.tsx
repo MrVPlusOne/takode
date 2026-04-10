@@ -59,7 +59,7 @@ interface HighlightedLineMaps {
 const GAP_EXPAND_CHUNK = 50;
 const MAX_VISIBLE_DIR_SEGMENTS = 2;
 
-function formatFileHeaderPath(fileName: string): { dirLabel: string; baseLabel: string } {
+export function formatFileHeaderPath(fileName: string): { dirLabel: string; baseLabel: string } {
   const normalized = fileName.replace(/\\/g, "/");
   const hasLeadingSlash = normalized.startsWith("/");
   const parts = normalized.split("/").filter(Boolean);

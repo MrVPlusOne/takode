@@ -657,6 +657,9 @@ type GroupedBlock =
 function groupContentBlocks(blocks: ContentBlock[]): GroupedBlock[] {
   const groups: GroupedBlock[] = [];
 
+  // File-operation tools get standalone chips (no grouping)
+  const fileToolNames = new Set(["Edit", "Write", "Read"]);
+
   for (const block of blocks) {
     // Skip Task blocks — they render as SubagentContainers in MessageFeed,
     // not as standalone ToolBlocks. Without this filter, every subagent would
@@ -666,7 +669,8 @@ function groupContentBlocks(blocks: ContentBlock[]): GroupedBlock[] {
 
     if (block.type === "tool_use") {
       const last = groups[groups.length - 1];
-      if (last?.kind === "tool_group" && last.name === block.name) {
+      // Never merge file-operation tools -- each gets its own standalone chip
+      if (!fileToolNames.has(block.name) && last?.kind === "tool_group" && last.name === block.name) {
         last.items.push({ id: block.id, name: block.name, input: block.input });
       } else {
         groups.push({
