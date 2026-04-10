@@ -152,6 +152,7 @@ function makeTurnForSections({
     systemEntries,
     responseEntry,
     promotedEntries,
+    subConclusions: [],
     stats: {
       messageCount: 0,
       toolCount: 0,

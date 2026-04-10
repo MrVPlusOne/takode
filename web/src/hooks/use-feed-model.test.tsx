@@ -2,7 +2,7 @@
 
 import { renderHook } from "@testing-library/react";
 import type { ChatMessage } from "../types.js";
-import { buildFeedModel, useFeedModel } from "./use-feed-model.js";
+import { buildFeedModel, useFeedModel, summarizeHerdEvents } from "./use-feed-model.js";
 
 function makeMessage(overrides: Partial<ChatMessage> & { id: string; role: ChatMessage["role"] }): ChatMessage {
   return {
@@ -10,6 +10,17 @@ function makeMessage(overrides: Partial<ChatMessage> & { id: string; role: ChatM
     timestamp: 1,
     ...overrides,
   };
+}
+
+/** Create a herd event user message (injected by the herd dispatcher). */
+function makeHerdEvent(id: string, content: string, timestamp = 1): ChatMessage {
+  return makeMessage({
+    id,
+    role: "user",
+    content,
+    timestamp,
+    agentSource: { sessionId: "herd-events" } as ChatMessage["agentSource"],
+  });
 }
 
 /** Helper to extract the message IDs from a turn's entries. */
@@ -215,6 +226,125 @@ describe("leader mode collapsed preview without @to tags", () => {
 
     // Earlier @to(user) is promoted
     expect(entryIds(turn.promotedEntries)).toEqual(["a-touser"]);
+  });
+});
+
+describe("sub-conclusions in collapsed turns", () => {
+  // Sub-conclusions are assistant messages immediately preceding herd event injections.
+  // They represent intermediate progress worth showing when a turn is collapsed.
+
+  it("extracts sub-conclusions before herd events in leader mode", () => {
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "orchestrate workers", timestamp: 1 }),
+      makeMessage({ id: "a1", role: "assistant", content: "Dispatched #5 to work on q-42.", timestamp: 2 }),
+      makeHerdEvent("h1", "1 events from 1 sessions\n\n#5 | turn_end | ✓ 15.3s\n  [42] asst: Done", 3),
+      makeMessage({ id: "a2", role: "assistant", content: "q-42 complete! Starting q-43.", timestamp: 4 }),
+      makeHerdEvent("h2", "1 events from 1 sessions\n\n#6 | turn_end | ✓ 8.1s\n  [50] asst: Finished", 5),
+      makeMessage({ id: "a3", role: "assistant", content: "All tasks complete.", timestamp: 6 }),
+    ];
+
+    const model = buildFeedModel(messages, true);
+    expect(model.turns).toHaveLength(1);
+    const turn = model.turns[0];
+
+    // Should have 2 sub-conclusions (a1 before h1, a2 before h2)
+    expect(turn.subConclusions).toHaveLength(2);
+    expect((turn.subConclusions[0].entry as { msg: ChatMessage }).msg.id).toBe("a1");
+    expect(turn.subConclusions[0].herdSummary).toContain("#5 turn_end");
+    expect((turn.subConclusions[1].entry as { msg: ChatMessage }).msg.id).toBe("a2");
+    expect(turn.subConclusions[1].herdSummary).toContain("#6 turn_end");
+
+    // Final assistant message is the responseEntry, not a sub-conclusion
+    expect(turn.responseEntry?.kind).toBe("message");
+    expect((turn.responseEntry as { msg: ChatMessage }).msg.id).toBe("a3");
+
+    // Sub-conclusions should not duplicate the responseEntry
+    const subIds = turn.subConclusions.map((sc) => (sc.entry as { msg: ChatMessage }).msg.id);
+    expect(subIds).not.toContain("a3");
+  });
+
+  it("groups consecutive herd events into a single summary", () => {
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "go", timestamp: 1 }),
+      makeMessage({ id: "a1", role: "assistant", content: "Started workers.", timestamp: 2 }),
+      // Two consecutive herd events (common when multiple workers finish at once)
+      makeHerdEvent("h1", "#264 | turn_end | ✓ 5s", 3),
+      makeHerdEvent("h2", "#267 | turn_end | ✓ 8s", 4),
+      makeMessage({ id: "a2", role: "assistant", content: "Both done.", timestamp: 5 }),
+    ];
+
+    const model = buildFeedModel(messages, true);
+    const turn = model.turns[0];
+
+    expect(turn.subConclusions).toHaveLength(1);
+    expect(turn.subConclusions[0].herdSummary).toBe("Herd: #264 turn_end, #267 turn_end");
+  });
+
+  it("returns empty subConclusions when no herd events exist", () => {
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "do something", timestamp: 1 }),
+      makeMessage({ id: "a1", role: "assistant", content: "Working on it...", timestamp: 2 }),
+      makeMessage({ id: "a2", role: "assistant", content: "Done.", timestamp: 3 }),
+    ];
+
+    const model = buildFeedModel(messages, true);
+    expect(model.turns[0].subConclusions).toHaveLength(0);
+  });
+
+  it("returns empty subConclusions for non-leader mode too (consistent interface)", () => {
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "hello", timestamp: 1 }),
+      makeMessage({ id: "a1", role: "assistant", content: "hi", timestamp: 2 }),
+    ];
+
+    const model = buildFeedModel(messages, false);
+    expect(model.turns[0].subConclusions).toHaveLength(0);
+  });
+
+  it("does not count responseEntry as a sub-conclusion when it precedes a herd event", () => {
+    // Edge case: the last assistant message before a herd event at the end of the turn.
+    // If the turn ends with: assistant → herd → (no more assistant), the last assistant
+    // is both the responseEntry and the sub-conclusion candidate. It should only appear
+    // as responseEntry.
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "go", timestamp: 1 }),
+      makeMessage({ id: "a1", role: "assistant", content: "Only message before herd.", timestamp: 2 }),
+      makeHerdEvent("h1", "#10 | turn_end | ✓ 2s", 3),
+    ];
+
+    const model = buildFeedModel(messages, true);
+    const turn = model.turns[0];
+
+    // a1 becomes responseEntry (last assistant text)
+    expect(turn.responseEntry?.kind).toBe("message");
+    expect((turn.responseEntry as { msg: ChatMessage }).msg.id).toBe("a1");
+
+    // No sub-conclusions since the only candidate is the responseEntry
+    expect(turn.subConclusions).toHaveLength(0);
+  });
+});
+
+describe("summarizeHerdEvents", () => {
+  it("parses session number and event type from header lines", () => {
+    const entry = {
+      kind: "message" as const,
+      msg: makeHerdEvent("h1", "1 events from 1 sessions\n\n#5 | turn_end | ✓ 15.3s\n  [42] asst: Done"),
+    };
+    const result = summarizeHerdEvents([entry]);
+    expect(result).toBe("Herd: #5 turn_end");
+  });
+
+  it("combines multiple events from different messages", () => {
+    const entries = [
+      { kind: "message" as const, msg: makeHerdEvent("h1", "#264 | turn_end | ✓ 5s") },
+      { kind: "message" as const, msg: makeHerdEvent("h2", "#267 | permission_request | pending") },
+    ];
+    const result = summarizeHerdEvents(entries);
+    expect(result).toBe("Herd: #264 turn_end, #267 permission_request");
+  });
+
+  it("returns fallback for empty input", () => {
+    expect(summarizeHerdEvents([])).toBe("Herd event");
   });
 });
 

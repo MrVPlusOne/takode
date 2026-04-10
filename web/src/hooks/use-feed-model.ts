@@ -297,6 +297,15 @@ export interface TurnStats {
   herdEventCount: number;
 }
 
+/** Assistant message immediately preceding a herd event injection --
+ *  a sub-conclusion worth showing in the collapsed turn view. */
+export interface SubConclusion {
+  /** The assistant FeedEntry (same reference as in agentEntries) */
+  entry: FeedEntry;
+  /** One-line summary of the herd event(s) that followed, e.g. "Herd: #264 turn_end, #267 turn_end" */
+  herdSummary: string;
+}
+
 export interface Turn {
   id: string;
   userEntry: FeedEntry | null;
@@ -305,6 +314,8 @@ export interface Turn {
   systemEntries: FeedEntry[];
   responseEntry: FeedEntry | null;
   promotedEntries: FeedEntry[];
+  /** Sub-conclusions: assistant messages that precede herd events, shown in collapsed view */
+  subConclusions: SubConclusion[];
   stats: TurnStats;
 }
 
@@ -406,6 +417,81 @@ export function isUserBoundaryEntry(entry: FeedEntry | null): boolean {
   );
 }
 
+/** Check if a FeedEntry is a herd event message (user message injected by herd dispatcher). */
+function isHerdEventEntry(entry: FeedEntry): boolean {
+  return entry.kind === "message" && entry.msg.role === "user" && entry.msg.agentSource?.sessionId === "herd-events";
+}
+
+/** Check if a FeedEntry is an assistant message with text content. */
+function isAssistantTextEntry(entry: FeedEntry): boolean {
+  return entry.kind === "message" && entry.msg.role === "assistant" && !!entry.msg.content?.trim();
+}
+
+/** Summarize herd event messages into a compact one-liner.
+ *  Parses "#N | type | ..." header lines from each message and returns
+ *  e.g. "Herd: #264 turn_end, #267 turn_end" */
+export function summarizeHerdEvents(herdEntries: FeedEntry[]): string {
+  const headers: string[] = [];
+  for (const entry of herdEntries) {
+    if (entry.kind !== "message") continue;
+    for (const line of entry.msg.content.split("\n")) {
+      if (!line.startsWith("#")) continue;
+      // Parse "#5 | turn_end | ✓ 15.3s | ..." → "#5 turn_end"
+      const parts = line.split("|").map((s) => s.trim());
+      if (parts.length >= 2) {
+        headers.push(`${parts[0]} ${parts[1]}`);
+      } else {
+        headers.push(parts[0]);
+      }
+    }
+  }
+  return headers.length > 0 ? `Herd: ${headers.join(", ")}` : "Herd event";
+}
+
+/** Extract sub-conclusions from a turn's entries.
+ *  A sub-conclusion is the last assistant text message before a herd event injection.
+ *  Consecutive herd events are grouped into a single summary. */
+function extractSubConclusions(entries: FeedEntry[], responseEntry: FeedEntry | null): SubConclusion[] {
+  const subConclusions: SubConclusion[] = [];
+  let lastAssistantEntry: FeedEntry | null = null;
+
+  let i = 0;
+  while (i < entries.length) {
+    const entry = entries[i];
+
+    if (isAssistantTextEntry(entry)) {
+      lastAssistantEntry = entry;
+      i++;
+      continue;
+    }
+
+    if (isHerdEventEntry(entry) && lastAssistantEntry) {
+      // Collect consecutive herd events
+      const herdBatch: FeedEntry[] = [];
+      while (i < entries.length && isHerdEventEntry(entries[i])) {
+        herdBatch.push(entries[i]);
+        i++;
+      }
+
+      // Don't add as sub-conclusion if it's the same entry that will be responseEntry
+      if (lastAssistantEntry !== responseEntry) {
+        subConclusions.push({
+          entry: lastAssistantEntry,
+          herdSummary: summarizeHerdEvents(herdBatch),
+        });
+      }
+      lastAssistantEntry = null;
+      continue;
+    }
+
+    // Non-assistant, non-herd entry: reset tracking
+    // (tool results, system messages, etc. break the assistant→herd sequence)
+    i++;
+  }
+
+  return subConclusions;
+}
+
 function isLeaderBoundaryEntry(entry: FeedEntry): boolean {
   // Only split at user messages — NOT at @to(user) assistant messages.
   // When a turn contains @to(user), earlier text blocks should stay in the
@@ -487,6 +573,11 @@ function makeTurn(userEntry: FeedEntry | null, entries: FeedEntry[], turnIndex: 
     }
   }
 
+  // Extract sub-conclusions: assistant messages immediately before herd event injections.
+  // These represent intermediate conclusions worth showing in collapsed view.
+  // Scan allEntries (post-@to(self) filtering) so hidden messages don't appear as sub-conclusions.
+  const subConclusions = extractSubConclusions(allEntries, responseEntry);
+
   // Stable ID: prefer user message ID, fall back to first agent entry ID, then synthetic
   const id = userEntry
     ? userEntry.kind === "message"
@@ -504,6 +595,7 @@ function makeTurn(userEntry: FeedEntry | null, entries: FeedEntry[], turnIndex: 
     systemEntries,
     responseEntry,
     promotedEntries,
+    subConclusions,
     stats: {
       // Subtract responseEntry, promotedEntries (@to(user)), and hidden @to(self) entries;
       // remaining count reflects unmarked internal messages still in agentEntries.

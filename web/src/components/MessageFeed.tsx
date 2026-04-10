@@ -2069,6 +2069,11 @@ const TurnEntries = memo(function TurnEntries({
         appendTimedMessagesFromEntries(turn.allEntries, visibleTimedMessages);
       } else {
         appendTimedMessagesFromEntries(turn.systemEntries, visibleTimedMessages);
+        for (const sc of turn.subConclusions) {
+          if (sc.entry.kind === "message" && isTimedChatMessage(sc.entry.msg)) {
+            visibleTimedMessages.push(sc.entry.msg);
+          }
+        }
         for (const pe of turn.promotedEntries) {
           if (pe.kind === "message" && isTimedChatMessage(pe.msg)) {
             visibleTimedMessages.push(pe.msg);
@@ -2152,6 +2157,29 @@ const TurnEntries = memo(function TurnEntries({
                                   durationMs={turnSummaryDuration}
                                   onClick={() => toggleTurn(turn.id)}
                                 />
+                              )}
+                              {/* Sub-conclusions: assistant messages before herd events, shown in collapsed view */}
+                              {turn.subConclusions.length > 0 && (
+                                <div className="px-3 pt-2 space-y-1.5">
+                                  <HidePawContext.Provider value={true}>
+                                    {turn.subConclusions.map((sc, scIdx) => (
+                                      <div key={scIdx}>
+                                        <FeedEntries
+                                          entries={[sc.entry]}
+                                          sessionId={sessionId}
+                                          minuteBoundaryLabels={minuteBoundaryLabels}
+                                          isCodexSession={isCodexSession}
+                                          activeCodexTerminalIds={activeCodexTerminalIds}
+                                          onOpenCodexTerminal={onOpenCodexTerminal}
+                                        />
+                                        <div className="flex items-center gap-1.5 text-[11px] text-cc-muted/60 font-mono-code py-0.5 leading-snug">
+                                          <span className="text-amber-500/40 shrink-0">◇</span>
+                                          <span className="truncate">{sc.herdSummary}</span>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </HidePawContext.Provider>
+                                </div>
                               )}
                               {turn.responseEntry && (
                                 <div className="px-3 py-2.5">
