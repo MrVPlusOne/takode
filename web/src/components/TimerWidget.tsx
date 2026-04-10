@@ -6,17 +6,19 @@ import type { SessionTimer } from "../types.js";
 
 const EMPTY_TIMERS: SessionTimer[] = [];
 
-/** Format an epoch timestamp as a relative human-readable duration from now. */
+/** Format an epoch timestamp as a consistent countdown from now.
+ *  < 1 hour: M:SS (e.g., "1:30", "0:45", "12:05")
+ *  >= 1 hour: Xh Ym (e.g., "2h 15m", "1h 0m") */
 function formatRelativeTime(epochMs: number): string {
   const diffMs = epochMs - Date.now();
   if (diffMs <= 0) return "firing...";
   const totalSeconds = Math.ceil(diffMs / 1_000);
-  if (totalSeconds < 60) return `in ${totalSeconds}s`;
-  const minutes = Math.ceil(diffMs / 60_000);
-  if (minutes < 60) return `in ${minutes}m`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes < 60) return `${minutes}:${String(seconds).padStart(2, "0")}`;
   const hours = Math.floor(minutes / 60);
   const remainMins = minutes % 60;
-  return remainMins > 0 ? `in ${hours}h${remainMins}m` : `in ${hours}h`;
+  return `${hours}h ${remainMins}m`;
 }
 
 // ─── Shared hooks ────────────────────────────────────────────────────────────
@@ -26,10 +28,11 @@ function useTimers(sessionId: string) {
   const timers = useStore((s) => s.sessionTimers?.get(sessionId) ?? EMPTY_TIMERS);
 
   // Tick forces re-render so formatRelativeTime picks up the latest wall clock.
+  // 1s interval since we now display seconds in the M:SS format.
   const [, setTick] = useState(0);
   useEffect(() => {
     if (timers.length === 0) return;
-    const interval = setInterval(() => setTick((t) => t + 1), 10_000);
+    const interval = setInterval(() => setTick((t) => t + 1), 1_000);
     return () => clearInterval(interval);
   }, [timers.length]);
 
@@ -169,7 +172,7 @@ export function TimerChip({ sessionId }: { sessionId: string }) {
           {timers.length} timer{timers.length !== 1 ? "s" : ""}
         </span>
         <span className="relative text-cc-muted/75">
-          next {formatRelativeTime(sorted[0].nextFireAt)}
+          next in {formatRelativeTime(sorted[0].nextFireAt)}
         </span>
       </button>
 

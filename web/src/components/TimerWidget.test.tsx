@@ -107,7 +107,8 @@ describe("TimerChip", () => {
       ]),
     });
     render(<TimerChip sessionId="s1" />);
-    expect(screen.getByText(/next in 2m/)).toBeInTheDocument();
+    // New M:SS format: 120s = "2:00"
+    expect(screen.getByText(/next in 2:00/)).toBeInTheDocument();
   });
 
   it("opens the modal on click", () => {

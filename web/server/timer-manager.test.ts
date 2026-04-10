@@ -135,6 +135,22 @@ describe("TimerManager", () => {
         timers: [],
       });
     });
+
+    it("injects a cancellation message into the session", async () => {
+      await manager.createTimer("session-1", { prompt: "check the build", in: "5m" });
+      bridge.injectUserMessage.mockClear();
+
+      await manager.cancelTimer("session-1", "t1");
+
+      expect(bridge.injectUserMessage).toHaveBeenCalledWith(
+        "session-1",
+        expect.stringContaining("Timer t1 cancelled"),
+        { sessionId: "timer:t1", sessionLabel: "Timer t1" },
+      );
+      // Verify the prompt text is included so the agent knows which timer was cancelled
+      const callArgs = bridge.injectUserMessage.mock.calls[0];
+      expect(callArgs[1]).toContain("check the build");
+    });
   });
 
   describe("listTimers", () => {
@@ -251,7 +267,30 @@ describe("TimerManager", () => {
       vi.advanceTimersByTime(10 * 60_000);
       await triggerSweep(manager);
 
-      expect(bridge.injectUserMessage).not.toHaveBeenCalled();
+      // injectUserMessage is called once by cancelTimer (cancellation notice),
+      // but the timer should NOT fire
+      const fireCalls = bridge.injectUserMessage.mock.calls.filter(
+        (call: any[]) => !String(call[1]).includes("cancelled"),
+      );
+      expect(fireCalls).toHaveLength(0);
+    });
+
+    it("does not reuse timer IDs after all timers fire and are removed", async () => {
+      // Create two one-shot timers: t1 and t2
+      await manager.createTimer("session-1", { prompt: "first", in: "5m" });
+      await manager.createTimer("session-1", { prompt: "second", in: "10m" });
+
+      // Fire both timers (sweep removes one-shot timers after firing)
+      vi.advanceTimersByTime(15 * 60_000);
+      await triggerSweep(manager);
+
+      // All timers should be gone from memory
+      expect(manager.listTimers("session-1")).toHaveLength(0);
+
+      // Creating a new timer should NOT reuse t1 -- nextId should have been
+      // preserved on disk even though the session was evicted from memory
+      const t3 = await manager.createTimer("session-1", { prompt: "third", in: "5m" });
+      expect(t3.id).toBe("t3");
     });
   });
 

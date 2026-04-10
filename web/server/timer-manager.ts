@@ -50,7 +50,7 @@ export class TimerManager {
     const schedule = resolveTimerSchedule(input);
     if (!Number.isFinite(schedule.nextFireAt)) throw new Error("Invalid timer schedule: non-finite fire time");
 
-    const file = this.getOrCreateFile(sessionId);
+    const file = await this.getOrCreateFile(sessionId);
     if (file.timers.length >= MAX_TIMERS_PER_SESSION) {
       throw new Error(`Timer limit reached (max ${MAX_TIMERS_PER_SESSION} per session)`);
     }
@@ -81,7 +81,8 @@ export class TimerManager {
     return timer;
   }
 
-  /** Cancel (delete) a timer. Returns true if found and removed. */
+  /** Cancel (delete) a timer. Returns true if found and removed.
+   *  Injects a message into the session so the agent knows the user cancelled it. */
   async cancelTimer(sessionId: string, timerId: string): Promise<boolean> {
     const file = this.sessions.get(sessionId);
     if (!file) return false;
@@ -89,9 +90,17 @@ export class TimerManager {
     const idx = file.timers.findIndex((t) => t.id === timerId);
     if (idx === -1) return false;
 
+    const timer = file.timers[idx];
     file.timers.splice(idx, 1);
     this.cleanupOrPersist(sessionId, file);
     this.broadcastTimers(sessionId);
+
+    // Notify the agent that the user manually cancelled this timer
+    const content = `[⏰ Timer ${timerId} cancelled] The user manually cancelled timer "${timer.prompt}"`;
+    this.wsBridge.injectUserMessage(sessionId, content, {
+      sessionId: `timer:${timerId}`,
+      sessionLabel: `Timer ${timerId}`,
+    });
 
     console.log(`${LOG_TAG} Cancelled timer ${timerId} for session ${sessionId.slice(0, 8)}`);
     return true;
@@ -193,33 +202,34 @@ export class TimerManager {
 
   // ── Persistence helpers ────────────────────────────────────────────────────
 
-  /** Get the in-memory file for a session, or create an empty one. */
-  private getOrCreateFile(sessionId: string): SessionTimerFile {
+  /** Get the in-memory file for a session, loading from disk to recover nextId
+   *  if this session had timers previously. Falls back to a fresh file. */
+  private async getOrCreateFile(sessionId: string): Promise<SessionTimerFile> {
     let file = this.sessions.get(sessionId);
     if (!file) {
-      file = { sessionId, nextId: 1, timers: [] };
+      // Try loading from disk -- recovers nextId even after all timers were removed
+      file = await timerStore.loadTimers(sessionId);
       this.sessions.set(sessionId, file);
     }
     return file;
   }
 
-  /** Remove the session from memory + disk if empty, otherwise persist. */
+  /** Remove the session from memory when empty, but always persist to disk
+   *  so nextId survives (preventing ID reuse). Only cancelAllTimers deletes the disk file. */
   private cleanupOrPersist(sessionId: string, file: SessionTimerFile): void {
     if (file.timers.length === 0) {
       this.sessions.delete(sessionId);
-      timerStore.deleteTimers(sessionId).catch((err) => {
-        console.error(`${LOG_TAG} Failed to delete timer file for ${sessionId.slice(0, 8)}:`, err);
-      });
-    } else {
-      this.persistSession(sessionId);
     }
+    // Always persist -- even with zero timers, nextId must survive on disk
+    this.persistSession(sessionId, file);
   }
 
-  /** Save session timer state to disk (fire-and-forget). */
-  private persistSession(sessionId: string): void {
-    const file = this.sessions.get(sessionId);
-    if (!file) return;
-    timerStore.saveTimers(file).catch((err) => {
+  /** Save session timer state to disk (fire-and-forget).
+   *  Accepts an optional file param for when the session has been removed from memory. */
+  private persistSession(sessionId: string, file?: SessionTimerFile): void {
+    const data = file ?? this.sessions.get(sessionId);
+    if (!data) return;
+    timerStore.saveTimers(data).catch((err) => {
       console.error(`${LOG_TAG} Failed to persist timers for ${sessionId.slice(0, 8)}:`, err);
     });
   }
