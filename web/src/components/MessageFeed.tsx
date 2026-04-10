@@ -2072,18 +2072,12 @@ const TurnEntries = memo(function TurnEntries({
         appendTimedMessagesFromEntries(turn.allEntries, visibleTimedMessages);
       } else {
         appendTimedMessagesFromEntries(turn.systemEntries, visibleTimedMessages);
-        for (const sc of turn.subConclusions) {
-          if (sc.entry.kind === "message" && isTimedChatMessage(sc.entry.msg)) {
-            visibleTimedMessages.push(sc.entry.msg);
-          }
-        }
+        // Sub-conclusions and responseEntry are inside the collapsed card where
+        // centered minute markers are suppressed -- don't include them here.
         for (const pe of turn.promotedEntries) {
           if (pe.kind === "message" && isTimedChatMessage(pe.msg)) {
             visibleTimedMessages.push(pe.msg);
           }
-        }
-        if (turn.responseEntry?.kind === "message" && isTimedChatMessage(turn.responseEntry.msg)) {
-          visibleTimedMessages.push(turn.responseEntry.msg);
         }
       }
     }
@@ -2163,7 +2157,9 @@ const TurnEntries = memo(function TurnEntries({
                               )}
                               {/* Sub-conclusions: assistant messages before herd events, shown in collapsed view.
                                  Herd event details (◇ lines) are omitted here for brevity — they appear
-                                 as HerdEventBatchGroup entries when the turn is expanded. */}
+                                 as HerdEventBatchGroup entries when the turn is expanded.
+                                 minuteBoundaryLabels intentionally omitted — centered minute markers
+                                 are redundant with the lower-left timestamps in the collapsed card. */}
                               {turn.subConclusions.length > 0 && (
                                 <div className="px-3 pt-2 space-y-1.5">
                                   <HidePawContext.Provider value={true}>
@@ -2172,7 +2168,6 @@ const TurnEntries = memo(function TurnEntries({
                                         key={scIdx}
                                         entries={[sc.entry]}
                                         sessionId={sessionId}
-                                        minuteBoundaryLabels={minuteBoundaryLabels}
                                         isCodexSession={isCodexSession}
                                         activeCodexTerminalIds={activeCodexTerminalIds}
                                         onOpenCodexTerminal={onOpenCodexTerminal}
@@ -2187,7 +2182,6 @@ const TurnEntries = memo(function TurnEntries({
                                     <FeedEntries
                                       entries={[turn.responseEntry]}
                                       sessionId={sessionId}
-                                      minuteBoundaryLabels={minuteBoundaryLabels}
                                       isCodexSession={isCodexSession}
                                       activeCodexTerminalIds={activeCodexTerminalIds}
                                       onOpenCodexTerminal={onOpenCodexTerminal}
