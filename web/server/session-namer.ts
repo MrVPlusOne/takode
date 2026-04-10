@@ -714,16 +714,8 @@ function parseKeywords(raw: string): string[] {
  *  When the model wraps its output in a fenced block (possibly with preamble text
  *  before it), extract only the content inside the first fence. */
 function stripCodeFences(raw: string): string {
-  // Try to extract content inside the first fenced block (handles preamble text before the fence)
   const fenceMatch = raw.match(/```[^\n]*\n([\s\S]*?)```/);
-  if (fenceMatch) {
-    return fenceMatch[1].trim();
-  }
-  // No fenced block found — strip any stray markers and return as-is
-  return raw
-    .replace(/^```[^\n]*\n?/gm, "")
-    .replace(/\n?```$/gm, "")
-    .trim();
+  return fenceMatch ? fenceMatch[1].trim() : raw.trim();
 }
 
 function parseResponse(raw: string, isFirstTurn: boolean): NamingResult | null {

@@ -1036,6 +1036,33 @@ Keywords: ws-bridge, heartbeat, auto-relaunch
       keywords: ["ws-bridge", "heartbeat", "auto-relaunch"],
     });
   });
+
+  it("parses NO_CHANGE from fenced block with preamble text", () => {
+    const raw = `The current title is still appropriate for the session.
+
+\`\`\`
+NO_CHANGE
+Keywords: auth, security
+\`\`\``;
+    expect(parseResponse(raw, false)).toEqual({
+      action: "no_change",
+      keywords: ["auth", "security"],
+    });
+  });
+
+  it("parses NEW from fenced block with preamble text", () => {
+    const raw = `The user has moved on to a different task:
+
+\`\`\`
+NEW: Add Dark Mode Toggle
+Keywords: ui, theme, css variables
+\`\`\``;
+    expect(parseResponse(raw, false)).toEqual({
+      action: "new",
+      title: "Add Dark Mode Toggle",
+      keywords: ["ui", "theme", "css variables"],
+    });
+  });
 });
 
 // ─── Quest context in prompts ─────────────────────────────────────────────
