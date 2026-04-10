@@ -72,7 +72,7 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
   return createPortal(
     <div
       ref={menuRef}
-      className="fixed z-50 min-w-[120px] bg-cc-card border border-cc-border rounded-lg shadow-lg overflow-visible"
+      className="fixed z-50 w-fit min-w-[120px] bg-cc-card border border-cc-border rounded-lg shadow-lg overflow-visible"
       style={{ left: x, top: y }}
     >
       {confirmingItem ? (
@@ -143,7 +143,7 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
                   }
                 }}
                 onMouseEnter={() => setExpandedSubmenu(null)}
-                className="w-full px-2.5 py-1.5 text-left text-[11px] text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
+                className="w-full px-2.5 py-1.5 text-left text-[11px] text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer whitespace-nowrap"
               >
                 {item.label}
               </button>
@@ -205,7 +205,7 @@ function SubmenuItem({
     >
       <button
         onClick={onOpen}
-        className="w-full px-2.5 py-1.5 text-left text-[11px] text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer flex items-center justify-between"
+        className="w-full px-2.5 py-1.5 text-left text-[11px] text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer flex items-center justify-between whitespace-nowrap"
       >
         <span>{item.label}</span>
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" className="w-2.5 h-2.5 ml-2 opacity-50">
@@ -215,7 +215,7 @@ function SubmenuItem({
       {isOpen && item.children && (
         <div
           ref={subRef}
-          className="fixed z-[60] min-w-[120px] bg-cc-card border border-cc-border rounded-lg shadow-lg py-1"
+          className="fixed z-[60] w-fit min-w-[120px] bg-cc-card border border-cc-border rounded-lg shadow-lg py-1"
           style={subStyle}
           onMouseLeave={() => onClose()}
         >
@@ -223,7 +223,7 @@ function SubmenuItem({
             <button
               key={`${child.label}-${ci}`}
               onClick={() => onAction(child)}
-              className="w-full px-2.5 py-1.5 text-left text-[11px] text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
+              className="w-full px-2.5 py-1.5 text-left text-[11px] text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer whitespace-nowrap"
             >
               {child.label}
             </button>
