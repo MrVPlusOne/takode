@@ -36,9 +36,10 @@ export function parseHerdEvents(content: string): HerdEventParsed[] {
   for (const line of lines) {
     if (EVENT_HEADER_RE.test(line)) {
       events.push({ header: line, activity: [] });
-    } else if (events.length > 0 && line.trim().length > 0) {
-      // Any non-empty line after an event header is activity content,
-      // including markdown headings from key message content
+    } else if (events.length > 0) {
+      // All lines after an event header are activity content -- including
+      // blank lines (paragraph breaks in key messages) for 1:1 fidelity.
+      // Lines before the first event header (batch header, separators) are skipped.
       events[events.length - 1].activity.push(line);
     }
   }

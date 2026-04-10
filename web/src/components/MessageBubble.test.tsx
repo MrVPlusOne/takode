@@ -952,6 +952,30 @@ describe("parseHerdEvents", () => {
   it("parses event header at very first line (no batch header prefix)", () => {
     const events = parseHerdEvents("#1 | turn_end | ✓ 1.0s\n  [5] asst: Done.");
     expect(events).toHaveLength(1);
-    expect(events[0].activity).toHaveLength(1);
+    // Activity includes trailing blank line from the split, plus the actual line
+    expect(events[0].activity.some((l) => l.includes("Done"))).toBe(true);
+  });
+
+  it("preserves blank lines in activity for 1:1 fidelity with injected content", () => {
+    // Key message content often has paragraph breaks (blank lines between sections).
+    // These must be preserved so the expanded view is an exact match of what was injected.
+    const content = [
+      "1 event from 1 session",
+      "",
+      "#287 | turn_end | ✓ 53.6s",
+      "  [22] asst: Review complete.",
+      "## Summary",
+      "",
+      "The fix is correct.",
+      "",
+      "## Details",
+      "No issues found.",
+    ].join("\n");
+
+    const events = parseHerdEvents(content);
+    expect(events).toHaveLength(1);
+    // Blank lines between sections should be preserved
+    const joined = events[0].activity.join("\n");
+    expect(joined).toContain("## Summary\n\nThe fix is correct.\n\n## Details");
   });
 });

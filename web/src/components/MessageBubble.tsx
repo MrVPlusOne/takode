@@ -371,7 +371,7 @@ export function HerdEventMessage({ message }: { message: ChatMessage; showTimest
  *  was injected into the leader's conversation -- serves as a debugging tool). */
 function HerdEventEntry({ header, activity }: { header: string; activity: string[] }) {
   const [expanded, setExpanded] = useState(false);
-  const hasActivity = activity.length > 0;
+  const hasActivity = activity.some((line) => line.trim().length > 0);
 
   return (
     <div className="pl-9">
