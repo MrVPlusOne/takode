@@ -297,6 +297,23 @@ const PLAYGROUND_REVIEWER_MAP = (() => {
   return map;
 })();
 
+/** Mock herd summary bar used in both collapsed and expanded playground cards. */
+function PlaygroundHerdSummaryBar({ isExpanded }: { isExpanded: boolean }) {
+  return (
+    <div className="w-full flex items-center gap-1.5 px-3 py-1 border-t border-cc-border/30 text-[10px] text-cc-muted">
+      <StatusCountDots counts={{ running: 2, permission: 1, unread: 0 }} />
+      <span className="flex items-center gap-0.5 text-cc-muted/50">
+        1
+        <span className="inline-block w-1.5 h-1.5 rounded-full bg-cc-muted/30" />
+      </span>
+      <span className="ml-auto text-cc-muted/50 shrink-0">4 workers</span>
+      <svg viewBox="0 0 16 16" fill="currentColor" className={`w-3 h-3 text-cc-muted/40 shrink-0 ${isExpanded ? "rotate-180" : ""}`}>
+        <path d="M4 6l4 4 4-4" />
+      </svg>
+    </div>
+  );
+}
+
 function mockPermission(
   overrides: Partial<PermissionRequest> & { tool_name: string; input: Record<string, unknown> },
 ): PermissionRequest {
@@ -2483,17 +2500,7 @@ export function Playground() {
                     herdGroupBadgeTheme={PLAYGROUND_HERD_GROUP_THEMES.get(PLAYGROUND_SESSION_ROWS[0].session.id)}
                   />
                   {/* Herd summary bar */}
-                  <div className="w-full flex items-center gap-1.5 px-3 py-1 border-t border-cc-border/30 text-[10px] text-cc-muted">
-                    <StatusCountDots counts={{ running: 2, permission: 1, unread: 0 }} />
-                    <span className="flex items-center gap-0.5 text-cc-muted/50">
-                      1
-                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-cc-muted/30" />
-                    </span>
-                    <span className="ml-auto text-cc-muted/50 shrink-0">4 workers</span>
-                    <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 text-cc-muted/40 shrink-0">
-                      <path d="M4 6l4 4 4-4" />
-                    </svg>
-                  </div>
+                  <PlaygroundHerdSummaryBar isExpanded={false} />
                 </div>
               </div>
             </Card>
@@ -2524,17 +2531,7 @@ export function Playground() {
                     herdGroupBadgeTheme={PLAYGROUND_HERD_GROUP_THEMES.get(PLAYGROUND_SESSION_ROWS[0].session.id)}
                   />
                   {/* Herd summary bar (expanded) */}
-                  <div className="w-full flex items-center gap-1.5 px-3 py-1 border-t border-cc-border/30 text-[10px] text-cc-muted">
-                    <StatusCountDots counts={{ running: 2, permission: 1, unread: 0 }} />
-                    <span className="flex items-center gap-0.5 text-cc-muted/50">
-                      1
-                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-cc-muted/30" />
-                    </span>
-                    <span className="ml-auto text-cc-muted/50 shrink-0">4 workers</span>
-                    <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 text-cc-muted/40 rotate-180 shrink-0">
-                      <path d="M4 6l4 4 4-4" />
-                    </svg>
-                  </div>
+                  <PlaygroundHerdSummaryBar isExpanded={true} />
                   {/* Workers container */}
                   <div className="border-t border-cc-border/30">
                     {PLAYGROUND_SESSION_ROWS.filter(({ session }) => session.herdedBy && session.reviewerOf === undefined)

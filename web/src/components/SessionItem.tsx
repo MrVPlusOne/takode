@@ -139,10 +139,7 @@ interface SessionItemProps {
   indentLevel?: number;
   /** When true, renders a compact chip (no preview, no herd badge, no shield). Tree view workers only. */
   compact?: boolean;
-  /** When true, renders a left-edge status stripe instead of an inline dot. Used in linear view. */
   useStatusBar?: boolean;
-  /** Worker status counts displayed on leader chips in tree view. */
-  workerStatusSummary?: StatusCounts;
 }
 
 export function SessionItem({
@@ -186,7 +183,6 @@ export function SessionItem({
   indentLevel = 0,
   compact,
   useStatusBar,
-  workerStatusSummary,
 }: SessionItemProps) {
   const buttonRef = useRef<HTMLButtonElement>(null);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -690,8 +686,6 @@ export function SessionItem({
                       </button>
                     );
                   })()}
-                {/* Worker status summary (leader chips in tree view) */}
-                {workerStatusSummary && <StatusCountDots counts={workerStatusSummary} />}
                 {hasBranchDivergence && (
                   <span className="flex items-center gap-0.5 text-[10px] shrink-0">
                     {s.gitAhead > 0 && <span className="text-green-500">{s.gitAhead}&#8593;</span>}

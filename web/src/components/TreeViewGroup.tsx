@@ -19,10 +19,8 @@ interface TreeViewGroupProps {
   group: TreeViewGroupData;
   isGroupCollapsed: boolean;
   collapsedTreeNodes: Set<string>;
-  expandedHerdNodes: Set<string>;
   onToggleGroupCollapse: (groupId: string) => void;
   onToggleNodeCollapse: (sessionId: string) => void;
-  onToggleHerdExpand: (sessionId: string) => void;
   onCreateSession: (groupId: string) => void;
   currentSessionId: string | null;
   sessionNames: Map<string, string>;
@@ -96,10 +94,8 @@ export function TreeViewGroup({
   group,
   isGroupCollapsed,
   collapsedTreeNodes,
-  expandedHerdNodes,
   onToggleGroupCollapse,
   onToggleNodeCollapse,
-  onToggleHerdExpand,
   onCreateSession,
   currentSessionId,
   sessionNames,
@@ -134,6 +130,8 @@ export function TreeViewGroup({
 }: TreeViewGroupProps) {
   const reorderMode = useStore((s) => s.reorderMode);
   const sessionSortMode = useStore((s) => s.sessionSortMode);
+  const expandedHerdNodes = useStore((s) => s.expandedHerdNodes);
+  const toggleHerdNodeExpand = useStore((s) => s.toggleHerdNodeExpand);
   const touchDevice = isTouchDevice();
   const isDraggable = sessionSortMode !== "activity";
 
@@ -226,7 +224,7 @@ export function TreeViewGroup({
 
   function renderSessionItem(
     s: SessionItemType,
-    opts?: { compact?: boolean; workerStatusSummary?: StatusCounts },
+    opts?: { compact?: boolean },
   ) {
     const permCount = countUserPermissions(pendingPermissions.get(s.id));
     const attention = sessionAttention?.get(s.id) ?? null;
@@ -244,7 +242,6 @@ export function TreeViewGroup({
         herdGroupBadgeTheme={herdGroupBadgeThemes?.get(s.id)}
         herdHoverHighlight={herdHoverHighlights?.get(s.id)}
         compact={opts?.compact}
-        workerStatusSummary={opts?.workerStatusSummary}
         {...sessionItemProps}
       />
     );
@@ -293,7 +290,7 @@ export function TreeViewGroup({
           <button
             onClick={(e) => {
               e.stopPropagation();
-              onToggleHerdExpand(node.leader.id);
+              toggleHerdNodeExpand(node.leader.id);
             }}
             className="w-full flex items-center gap-1.5 px-3 py-1 border-t border-cc-border/30 text-[10px] text-cc-muted hover:bg-cc-hover/50 transition-colors cursor-pointer"
             title={isExpanded ? "Collapse workers" : "Expand workers"}
@@ -339,7 +336,7 @@ export function TreeViewGroup({
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  onToggleHerdExpand(node.leader.id);
+                  toggleHerdNodeExpand(node.leader.id);
                 }}
                 className="w-full flex items-center justify-center gap-1 px-2 py-0.5 text-[10px] text-cc-muted/40 hover:text-cc-muted hover:bg-cc-hover/40 transition-colors cursor-pointer"
                 title="Collapse workers"

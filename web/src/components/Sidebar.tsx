@@ -148,8 +148,6 @@ export function Sidebar() {
   const toggleTreeGroupCollapse = useStore((s) => s.toggleTreeGroupCollapse);
   const collapsedTreeNodes = useStore((s) => s.collapsedTreeNodes);
   const toggleTreeNodeCollapse = useStore((s) => s.toggleTreeNodeCollapse);
-  const expandedHerdNodes = useStore((s) => s.expandedHerdNodes);
-  const toggleHerdNodeExpand = useStore((s) => s.toggleHerdNodeExpand);
   const treeNodeOrder = useStore((s) => s.treeNodeOrder);
   const pendingSessions = useStore((s) => s.pendingSessions);
   const diffFileStats = useStore((s) => s.diffFileStats);
@@ -1117,10 +1115,8 @@ export function Sidebar() {
                             group={group}
                             isGroupCollapsed={collapsedTreeGroups.has(group.id)}
                             collapsedTreeNodes={collapsedTreeNodes}
-                            expandedHerdNodes={expandedHerdNodes}
                             onToggleGroupCollapse={toggleTreeGroupCollapse}
                             onToggleNodeCollapse={toggleTreeNodeCollapse}
-                            onToggleHerdExpand={toggleHerdNodeExpand}
                             onCreateSession={handleCreateSessionInGroup}
                             currentSessionId={currentSessionId}
                             sessionNames={sessionNames}
