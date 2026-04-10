@@ -90,7 +90,7 @@ function getTaskIdsFromEntry(entry: FeedEntry): string[] {
 
 // File-operation tools get standalone chips (no grouping) so each edit
 // shows its own path in the header without redundant double-headers.
-const FILE_TOOL_NAMES = new Set(["Edit", "Write", "Read"]);
+export const FILE_TOOL_NAMES = new Set(["Edit", "Write", "Read"]);
 
 /** Group consecutive same-tool messages */
 function groupToolMessages(messages: ChatMessage[]): FeedEntry[] {

@@ -360,7 +360,9 @@ const ToolBlockInner = memo(function ToolBlockInner({
             {preview}
           </span>
         ) : null}
-        {/* Open File button in header for file tools -- stops propagation to avoid toggling collapse */}
+        {/* Open File in header for file tools. Uses line=1 because the header doesn't
+            have access to the parsed diff data needed to compute the first changed line.
+            The expanded diff view still shows all changes with line numbers. */}
         {isFileTool && (
           <span onClick={(e) => e.stopPropagation()}>
             <DiffOpenFileButton filePath={filePath} cwd={sessionCwd} line={1} />
