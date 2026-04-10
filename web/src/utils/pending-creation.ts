@@ -4,7 +4,7 @@
  * Decoupled from React components so the SSE stream keeps running even after
  * the NewSessionModal unmounts. Operates on the Zustand store directly.
  */
-import { createSessionStream, type CreateSessionOpts } from "../api.js";
+import { createSessionStream, type CreateSessionOpts, api } from "../api.js";
 import { connectSession } from "../ws.js";
 import { navigateToSession, navigateToMostRecentSession } from "./routing.js";
 import { addRecentDir } from "./recent-dirs.js";
@@ -42,6 +42,7 @@ export function queuePendingSession(params: {
   backend: "claude" | "codex" | "claude-sdk";
   createOpts: CreateSessionOpts;
   cwd?: string | null;
+  treeGroupId?: string;
 }): string {
   const pendingId = createPendingId();
   useStore.getState().addPendingSession({
@@ -54,6 +55,7 @@ export function queuePendingSession(params: {
     realSessionId: null,
     cwd: params.cwd ?? params.createOpts.cwd ?? null,
     groupKey: null,
+    treeGroupId: params.treeGroupId ?? null,
     createdAt: Date.now(),
   });
 
@@ -122,6 +124,11 @@ async function _runCreation(pendingId: string, pending: PendingSession, signal: 
 
     // Add cwd to recent dirs if applicable
     if (pending.cwd) addRecentDir(pending.cwd);
+
+    // Assign to tree group if one was specified (non-default)
+    if (pending.treeGroupId && pending.treeGroupId !== "default") {
+      api.assignSessionToTreeGroup(sessionId, pending.treeGroupId).catch(console.error);
+    }
 
     // Transition: if user is viewing the pending session, seamlessly switch to real session
     const currentId = useStore.getState().currentSessionId;

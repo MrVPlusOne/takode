@@ -59,6 +59,7 @@ export function NewSessionModal({
   onClose,
   groupKey,
   groupCwd,
+  treeGroupId,
 }: {
   open: boolean;
   onClose: () => void;
@@ -66,6 +67,8 @@ export function NewSessionModal({
   groupKey?: string;
   /** Working directory to pre-fill (typically the group's project root) */
   groupCwd?: string;
+  /** Tree-view group to assign the new session to after creation */
+  treeGroupId?: string;
 }) {
   // Resolve defaults: group-specific when opening for a group, global otherwise
   const defaults = groupKey ? getGroupNewSessionDefaults(groupKey) : getGlobalNewSessionDefaults();
@@ -148,7 +151,7 @@ export function NewSessionModal({
     setPullPrompt(null);
     setPullError("");
     setDynamicModels(null);
-  }, [open, groupKey, groupCwd]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open, groupKey, groupCwd, treeGroupId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load server home/cwd and available backends on mount
   useEffect(() => {
@@ -383,6 +386,7 @@ export function NewSessionModal({
       backend,
       createOpts,
       cwd: cwdSnapshot || null,
+      treeGroupId: treeGroupId || undefined,
     });
   }
 

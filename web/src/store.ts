@@ -44,6 +44,7 @@ export interface PendingSession {
   realSessionId: string | null; // set on success, before cleanup
   cwd: string | null; // for sidebar display (folder name)
   groupKey?: string | null; // originating sidebar group for per-group defaults
+  treeGroupId?: string | null; // tree-view group to assign after creation
   createdAt: number;
 }
 import { scopedGetItem, scopedSetItem, scopedRemoveItem } from "./utils/scoped-storage.js";
@@ -275,7 +276,7 @@ interface AppState {
   setSessionSortMode: (mode: "created" | "activity") => void;
   taskPanelOpen: boolean;
   /** null = closed; {} = global new session; { groupKey, cwd } = group new session */
-  newSessionModalState: { groupKey?: string; cwd?: string } | null;
+  newSessionModalState: { groupKey?: string; cwd?: string; treeGroupId?: string } | null;
   /** Quest ID to show in the global read-only detail overlay, or null when closed. */
   questOverlayId: string | null;
   activeTab: "chat" | "diff";
@@ -297,7 +298,7 @@ interface AppState {
   setSessionInfoOpenSessionId: (sessionId: string | null) => void;
   setReorderMode: (v: boolean) => void;
   setTaskPanelOpen: (open: boolean) => void;
-  openNewSessionModal: (opts?: { groupKey?: string; cwd?: string }) => void;
+  openNewSessionModal: (opts?: { groupKey?: string; cwd?: string; treeGroupId?: string }) => void;
   closeNewSessionModal: () => void;
   openQuestOverlay: (questId: string) => void;
   closeQuestOverlay: () => void;

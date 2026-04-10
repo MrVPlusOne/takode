@@ -384,6 +384,17 @@ export function Sidebar() {
     }
   }
 
+  /** Tree view variant: assigns new session to the tree group after creation. */
+  function handleCreateSessionInTreeGroup(treeGroupId: string) {
+    if (!treeGroupId.trim()) return;
+
+    useStore.getState().openNewSessionModal({ treeGroupId: treeGroupId.trim() });
+
+    if (!isDesktopLayout) {
+      useStore.getState().setSidebarOpen(false);
+    }
+  }
+
   function handleCreateTreeGroup() {
     // Auto-increment: "Group 1", "Group 2", etc.
     const existing = new Set(treeGroups.map((g) => g.name));
@@ -1117,7 +1128,7 @@ export function Sidebar() {
                             collapsedTreeNodes={collapsedTreeNodes}
                             onToggleGroupCollapse={toggleTreeGroupCollapse}
                             onToggleNodeCollapse={toggleTreeNodeCollapse}
-                            onCreateSession={handleCreateSessionInGroup}
+                            onCreateSession={handleCreateSessionInTreeGroup}
                             currentSessionId={currentSessionId}
                             sessionNames={sessionNames}
                             sessionPreviews={sessionPreviews}
