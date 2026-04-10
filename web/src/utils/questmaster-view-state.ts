@@ -72,3 +72,21 @@ export function saveQuestmasterViewState(state: QuestmasterViewState): void {
     }),
   );
 }
+
+/**
+ * Toggle a status in a multi-select filter set.
+ * - When all are selected, clicking one selects ONLY that one.
+ * - When a subset is active, toggles the status on/off.
+ * - Deselecting the last status reverts to all.
+ */
+export function toggleStatusFilter(current: Set<QuestStatus>, status: QuestStatus): Set<QuestStatus> {
+  if (current.size === VALID_QUEST_STATUSES.size) return new Set([status]);
+  const next = new Set(current);
+  if (next.has(status)) {
+    next.delete(status);
+    if (next.size === 0) return new Set(VALID_QUEST_STATUSES);
+  } else {
+    next.add(status);
+  }
+  return next;
+}

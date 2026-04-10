@@ -35,11 +35,15 @@ vi.mock("../utils/routing.js", async (importOriginal) => {
   };
 });
 
-vi.mock("../utils/questmaster-view-state.js", () => ({
-  VERIFICATION_INBOX_COLLAPSE_KEY: "verification_inbox",
-  loadQuestmasterViewState: () => null,
-  saveQuestmasterViewState: vi.fn(),
-}));
+vi.mock("../utils/questmaster-view-state.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../utils/questmaster-view-state.js")>();
+  return {
+    VERIFICATION_INBOX_COLLAPSE_KEY: "verification_inbox",
+    loadQuestmasterViewState: () => null,
+    saveQuestmasterViewState: vi.fn(),
+    toggleStatusFilter: actual.toggleStatusFilter,
+  };
+});
 
 vi.mock("../utils/highlight.js", () => ({
   getHighlightParts: (text: string, query: string) => {

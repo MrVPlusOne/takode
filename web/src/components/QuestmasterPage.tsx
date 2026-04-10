@@ -8,6 +8,7 @@ import {
   VERIFICATION_INBOX_COLLAPSE_KEY,
   loadQuestmasterViewState,
   saveQuestmasterViewState,
+  toggleStatusFilter,
 } from "../utils/questmaster-view-state.js";
 import type { QuestmasterCollapsedGroup } from "../utils/questmaster-view-state.js";
 import { getHighlightParts } from "../utils/highlight.js";
@@ -1077,6 +1078,14 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
   // Layer 3: status filter (multi-select -- filter.has checks membership in the active set)
   const filtered = allSelected ? afterTags : afterTags.filter((q) => filter.has(q.status));
 
+  // Pre-compute the single selected status (if exactly one) for the filter pill label
+  const singleFilterStatus = filter.size === 1 ? [...filter][0] : null;
+  const filterPillCount = allSelected
+    ? (counts.all ?? 0)
+    : singleFilterStatus
+      ? (counts[singleFilterStatus] ?? 0)
+      : ALL_STATUSES.reduce((sum, s) => sum + (filter.has(s) ? (counts[s] ?? 0) : 0), 0);
+
   type QuestSection = {
     key: string;
     label: string;
@@ -1257,35 +1266,20 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
               >
                 {/* Filter pill label: All / single status / multi dots */}
                 {allSelected ? (
+                  <span>All</span>
+                ) : singleFilterStatus ? (
                   <>
-                    <span>All</span>
-                    <span className="text-[10px] text-cc-muted">{counts.all ?? 0}</span>
-                  </>
-                ) : filter.size === 1 ? (
-                  <>
-                    {(() => {
-                      const status = [...filter][0];
-                      return (
-                        <>
-                          <span className={`w-1.5 h-1.5 rounded-full ${STATUS_CONFIG[status].dot}`} />
-                          <span>{STATUS_CONFIG[status].label}</span>
-                          <span className="text-[10px] text-cc-muted">{counts[status] ?? 0}</span>
-                        </>
-                      );
-                    })()}
+                    <span className={`w-1.5 h-1.5 rounded-full ${STATUS_CONFIG[singleFilterStatus].dot}`} />
+                    <span>{STATUS_CONFIG[singleFilterStatus].label}</span>
                   </>
                 ) : (
-                  <>
-                    <span className="flex items-center gap-0.5">
-                      {ALL_STATUSES.filter((s) => filter.has(s)).map((s) => (
-                        <span key={s} className={`w-1.5 h-1.5 rounded-full ${STATUS_CONFIG[s].dot}`} />
-                      ))}
-                    </span>
-                    <span className="text-[10px] text-cc-muted">
-                      {ALL_STATUSES.reduce((sum, s) => sum + (filter.has(s) ? (counts[s] ?? 0) : 0), 0)}
-                    </span>
-                  </>
+                  <span className="flex items-center gap-0.5">
+                    {ALL_STATUSES.filter((s) => filter.has(s)).map((s) => (
+                      <span key={s} className={`w-1.5 h-1.5 rounded-full ${STATUS_CONFIG[s].dot}`} />
+                    ))}
+                  </span>
                 )}
+                <span className="text-[10px] text-cc-muted">{filterPillCount}</span>
                 <svg
                   viewBox="0 0 16 16"
                   fill="none"
@@ -1307,24 +1301,9 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
                         key={tab.value}
                         onClick={() => {
                           if (isAll) {
-                            // "All" row: select all statuses
                             setFilter(new Set(ALL_STATUSES));
                           } else {
-                            setFilter((prev) => {
-                              const status = tab.value as QuestStatus;
-                              const wasAllSelected = prev.size === ALL_STATUSES.length;
-                              // When all are selected, clicking one selects ONLY that one
-                              if (wasAllSelected) return new Set([status]);
-                              const next = new Set(prev);
-                              if (next.has(status)) {
-                                next.delete(status);
-                                // Don't allow empty set -- revert to all
-                                if (next.size === 0) return new Set(ALL_STATUSES);
-                              } else {
-                                next.add(status);
-                              }
-                              return next;
-                            });
+                            setFilter((prev) => toggleStatusFilter(prev, tab.value as QuestStatus));
                           }
                         }}
                         className={`w-full px-3 py-1.5 text-xs flex items-center gap-2 transition-colors cursor-pointer ${
