@@ -175,7 +175,7 @@ export function TreeViewGroup({
     }
   }, [editingGroupName]);
 
-  // Dismiss context menu on click outside
+  // Dismiss context menu on click outside or ESC key
   useEffect(() => {
     if (!contextMenu) return;
     function handleClick(e: MouseEvent) {
@@ -183,14 +183,23 @@ export function TreeViewGroup({
         setContextMenu(null);
       }
     }
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setContextMenu(null);
+    }
     document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleClick);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
   }, [contextMenu]);
 
   const handleDeleteGroup = useCallback(() => {
     setContextMenu(null);
     if (group.id === "default") return;
-    api.deleteTreeGroup(group.id).catch(console.error);
+    api.deleteTreeGroup(group.id).catch((err) => {
+      console.warn("[tree-view-group] failed to delete group:", err);
+    });
   }, [group.id]);
 
   const hasStatus = group.runningCount > 0 || group.permCount > 0 || group.unreadCount > 0;
@@ -463,10 +472,12 @@ export function TreeViewGroup({
       {contextMenu && (
         <div
           ref={contextMenuRef}
+          role="menu"
           className="fixed z-[100] bg-cc-card border border-cc-border rounded-lg shadow-lg py-1 min-w-[120px]"
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >
           <button
+            role="menuitem"
             className="w-full px-3 py-1.5 text-left text-[11px] text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
             onClick={() => {
               setContextMenu(null);
@@ -476,6 +487,7 @@ export function TreeViewGroup({
             Rename
           </button>
           <button
+            role="menuitem"
             className="w-full px-3 py-1.5 text-left text-[11px] text-red-400 hover:bg-cc-hover transition-colors cursor-pointer"
             onClick={handleDeleteGroup}
           >
