@@ -61,24 +61,39 @@ export function buildTreeViewGroups(
   sessionAttention?: Map<string, "action" | "error" | "review" | null>,
   sortMode?: "created" | "activity",
   treeNodeOrder?: Map<string, string[]>,
+  /** Reviewer sessions, supplied separately since they're filtered from `sessions` for the linear view. */
+  reviewerSessions?: SessionItem[],
 ): TreeViewGroupData[] {
   const assignments = treeAssignments ?? new Map<string, string>();
-  // 1. Build lookup maps
+  // 1. Build lookup maps (include reviewer sessions for sessionByNum resolution)
   const sessionById = new Map<string, SessionItem>();
   const sessionByNum = new Map<number, SessionItem>();
   for (const s of sessions) {
     sessionById.set(s.id, s);
     if (s.sessionNum != null) sessionByNum.set(s.sessionNum, s);
   }
+  if (reviewerSessions) {
+    for (const s of reviewerSessions) {
+      sessionById.set(s.id, s);
+      if (s.sessionNum != null) sessionByNum.set(s.sessionNum, s);
+    }
+  }
 
-  // 2. Separate reviewers from the main list
-  const reviewers: SessionItem[] = [];
+  // 2. Separate reviewers from the main list.
+  // If reviewerSessions was passed in, use it directly (the main `sessions`
+  // list may have reviewers pre-filtered out by the caller).
+  const reviewers: SessionItem[] = reviewerSessions ?? [];
   const nonReviewers: SessionItem[] = [];
-  for (const s of sessions) {
-    if (s.reviewerOf !== undefined) {
-      reviewers.push(s);
-    } else {
-      nonReviewers.push(s);
+  if (reviewerSessions) {
+    // All of `sessions` are non-reviewers when caller supplies reviewers separately
+    nonReviewers.push(...sessions);
+  } else {
+    for (const s of sessions) {
+      if (s.reviewerOf !== undefined) {
+        reviewers.push(s);
+      } else {
+        nonReviewers.push(s);
+      }
     }
   }
 

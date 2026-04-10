@@ -281,4 +281,123 @@ describe("buildTreeViewGroups", () => {
     const result = buildTreeViewGroups(sessions, defaultGroups, emptyAssignments, undefined, "activity", nodeOrder);
     expect(result[0].nodes[0].leader.id).toBe("old-active"); // more recent activity wins
   });
+
+  it("accepts reviewerSessions as a separate parameter (Sidebar pre-filters reviewers)", () => {
+    // The Sidebar filters reviewers out of `activeSessions` for the linear view,
+    // so reviewers must be passed separately via the reviewerSessions param.
+    // This tests the real data flow where `sessions` has NO reviewers in it.
+    const sessions = [
+      makeSession({ id: "leader-1", sessionNum: 1, isOrchestrator: true }),
+      makeSession({ id: "worker-1", sessionNum: 2, herdedBy: "leader-1" }),
+    ];
+    const reviewerSessions = [
+      makeSession({ id: "reviewer-1", sessionNum: 10, reviewerOf: 2 }),
+    ];
+
+    const result = buildTreeViewGroups(
+      sessions, defaultGroups, emptyAssignments,
+      undefined, undefined, undefined, reviewerSessions,
+    );
+    expect(result[0].nodes).toHaveLength(1);
+    const node = result[0].nodes[0];
+    expect(node.leader.id).toBe("leader-1");
+    expect(node.workers).toHaveLength(1);
+    // Reviewer of worker-1 (sessionNum=2) should be in node.reviewers
+    expect(node.reviewers).toHaveLength(1);
+    expect(node.reviewers[0].id).toBe("reviewer-1");
+    expect(node.reviewers[0].reviewerOf).toBe(2);
+  });
+
+  it("reviewerSessions param works for leader-only reviewers (no workers)", () => {
+    // Reviewer targeting the leader directly, not a worker
+    const sessions = [
+      makeSession({ id: "leader-1", sessionNum: 5, isOrchestrator: true }),
+    ];
+    const reviewerSessions = [
+      makeSession({ id: "reviewer-a", sessionNum: 20, reviewerOf: 5 }),
+      makeSession({ id: "reviewer-b", sessionNum: 21, reviewerOf: 5 }),
+    ];
+
+    const result = buildTreeViewGroups(
+      sessions, defaultGroups, emptyAssignments,
+      undefined, undefined, undefined, reviewerSessions,
+    );
+    const node = result[0].nodes[0];
+    expect(node.leader.id).toBe("leader-1");
+    expect(node.workers).toHaveLength(0);
+    expect(node.reviewers).toHaveLength(2);
+  });
+
+  it("empty reviewerSessions array behaves same as undefined (no reviewers)", () => {
+    // [] is truthy in JS, so the `if (reviewerSessions)` branch fires.
+    // Should still produce zero reviewers when the array is empty.
+    const sessions = [
+      makeSession({ id: "leader-1", sessionNum: 1, isOrchestrator: true }),
+      makeSession({ id: "worker-1", sessionNum: 2, herdedBy: "leader-1" }),
+    ];
+
+    const withUndefined = buildTreeViewGroups(sessions, defaultGroups, emptyAssignments);
+    const withEmpty = buildTreeViewGroups(
+      sessions, defaultGroups, emptyAssignments,
+      undefined, undefined, undefined, [],
+    );
+
+    expect(withUndefined[0].nodes[0].reviewers).toHaveLength(0);
+    expect(withEmpty[0].nodes[0].reviewers).toHaveLength(0);
+    // Both should produce identical node structure
+    expect(withEmpty[0].nodes).toHaveLength(withUndefined[0].nodes.length);
+  });
+
+  it("reviewers are isolated to their parent's group (no cross-group bleed)", () => {
+    // Reviewers should only appear in the group where their parent session lives.
+    const groups: TreeGroup[] = [
+      { id: "default", name: "Default" },
+      { id: "group-a", name: "Group A" },
+    ];
+    const assignments = new Map([
+      ["leader-1", "group-a"],
+      ["leader-2", "default"],
+    ]);
+    const sessions = [
+      makeSession({ id: "leader-1", sessionNum: 1, isOrchestrator: true }),
+      makeSession({ id: "leader-2", sessionNum: 2, isOrchestrator: true }),
+    ];
+    const reviewerSessions = [
+      makeSession({ id: "reviewer-of-1", sessionNum: 10, reviewerOf: 1 }),
+      makeSession({ id: "reviewer-of-2", sessionNum: 11, reviewerOf: 2 }),
+    ];
+
+    const result = buildTreeViewGroups(
+      sessions, groups, assignments,
+      undefined, undefined, undefined, reviewerSessions,
+    );
+
+    const groupA = result.find((g) => g.id === "group-a")!;
+    const defaultGroup = result.find((g) => g.id === "default")!;
+
+    // reviewer-of-1 belongs in group-a (where leader-1 is)
+    expect(groupA.nodes[0].reviewers).toHaveLength(1);
+    expect(groupA.nodes[0].reviewers[0].id).toBe("reviewer-of-1");
+
+    // reviewer-of-2 belongs in default (where leader-2 is)
+    expect(defaultGroup.nodes[0].reviewers).toHaveLength(1);
+    expect(defaultGroup.nodes[0].reviewers[0].id).toBe("reviewer-of-2");
+  });
+
+  it("orphaned reviewer (parent sessionNum missing) is silently dropped", () => {
+    // Reviewers whose reviewerOf points to a nonexistent sessionNum should
+    // not appear in any node's reviewers array.
+    const sessions = [
+      makeSession({ id: "leader-1", sessionNum: 1, isOrchestrator: true }),
+    ];
+    const reviewerSessions = [
+      makeSession({ id: "reviewer-orphan", sessionNum: 99, reviewerOf: 999 }),
+    ];
+
+    const result = buildTreeViewGroups(
+      sessions, defaultGroups, emptyAssignments,
+      undefined, undefined, undefined, reviewerSessions,
+    );
+    expect(result[0].nodes[0].reviewers).toHaveLength(0);
+  });
 });

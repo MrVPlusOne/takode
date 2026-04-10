@@ -623,8 +623,13 @@ export function Sidebar() {
     return map;
   }, [allSessionList]);
 
-  // Reviewer sessions are hidden from the sidebar; they appear as inline badges on the parent row
+  // Reviewer sessions are hidden from the linear sidebar; they appear as inline badges on the parent row.
+  // For tree view, they're passed separately to buildTreeViewGroups so they render inside expanded herds.
   const activeSessions = allSessionList.filter((s) => !s.archived && !s.cronJobId && s.reviewerOf === undefined);
+  const activeReviewers = useMemo(
+    () => allSessionList.filter((s) => !s.archived && s.reviewerOf !== undefined),
+    [allSessionList],
+  );
   const cronSessions = allSessionList.filter((s) => !s.archived && !!s.cronJobId);
   const archivedSessions = allSessionList
     .filter((s) => s.archived && s.reviewerOf === undefined)
@@ -648,8 +653,8 @@ export function Sidebar() {
   );
   // Build tree view groups (herd-centric grouping)
   const treeViewGroups = useMemo(
-    () => buildTreeViewGroups(activeSessions, treeGroups, treeAssignments, sessionAttention, sessionSortMode, treeNodeOrder),
-    [activeSessions, treeGroups, treeAssignments, sessionAttention, sessionSortMode, treeNodeOrder],
+    () => buildTreeViewGroups(activeSessions, treeGroups, treeAssignments, sessionAttention, sessionSortMode, treeNodeOrder, activeReviewers),
+    [activeSessions, treeGroups, treeAssignments, sessionAttention, sessionSortMode, treeNodeOrder, activeReviewers],
   );
   const treeGroupIds = useMemo(() => treeViewGroups.map((g) => g.id), [treeViewGroups]);
   const groupKeys = useMemo(() => projectGroups.map((group) => group.key), [projectGroups]);

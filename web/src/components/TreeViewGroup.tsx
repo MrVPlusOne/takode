@@ -247,39 +247,43 @@ export function TreeViewGroup({
     );
   }
 
-  /** Count worker sessions by visual status for the leader chip's status summary. */
-  function computeWorkerSummary(workers: SessionItemType[]): StatusCounts {
+  /** Count worker + reviewer sessions by visual status for the herd summary bar. */
+  function computeWorkerSummary(workers: SessionItemType[], reviewers: SessionItemType[]): StatusCounts {
     let running = 0;
     let permission = 0;
     let unread = 0;
-    for (const w of workers) {
-      const wPermCount = countUserPermissions(pendingPermissions.get(w.id));
-      const wAttention = sessionAttention?.get(w.id) ?? null;
+    const countSession = (s: SessionItemType) => {
+      const sPermCount = countUserPermissions(pendingPermissions.get(s.id));
+      const sAttention = sessionAttention?.get(s.id) ?? null;
       const status = deriveSessionStatus({
-        archived: w.archived,
-        permCount: wPermCount,
-        isConnected: w.isConnected,
-        sdkState: w.sdkState,
-        status: w.status,
-        hasUnread: !!wAttention,
-        idleKilled: w.idleKilled,
+        archived: s.archived,
+        permCount: sPermCount,
+        isConnected: s.isConnected,
+        sdkState: s.sdkState,
+        status: s.status,
+        hasUnread: !!sAttention,
+        idleKilled: s.idleKilled,
       });
       if (status === "running" || status === "compacting") running++;
       else if (status === "permission") permission++;
       else if (status === "completed_unread") unread++;
-    }
+    };
+    for (const w of workers) countSession(w);
+    for (const r of reviewers) countSession(r);
     return { running, permission, unread };
   }
 
   function renderTreeNode(node: TreeNode) {
     const hasWorkers = node.workers.length > 0;
     const hasReviewersOnly = !hasWorkers && node.reviewers.length > 0;
-    const workerSummary = hasWorkers ? computeWorkerSummary(node.workers) : undefined;
+    const workerSummary = hasWorkers ? computeWorkerSummary(node.workers, node.reviewers) : undefined;
+    const reviewerCount = node.reviewers.length;
 
     // Herded nodes (leader with workers): collapsible container pattern
     if (hasWorkers) {
       const isExpanded = expandedHerdNodes.has(node.leader.id);
-      const idleCount = node.workers.length - (workerSummary!.running + workerSummary!.permission + workerSummary!.unread);
+      const totalMembers = node.workers.length + reviewerCount;
+      const idleCount = totalMembers - (workerSummary!.running + workerSummary!.permission + workerSummary!.unread);
 
       return (
         <div key={node.leader.id} className="border border-cc-border/40 rounded-lg overflow-hidden bg-cc-card/20">
@@ -304,6 +308,7 @@ export function TreeViewGroup({
             )}
             <span className="ml-auto text-cc-muted/50 shrink-0">
               {node.workers.length} worker{node.workers.length !== 1 ? "s" : ""}
+              {reviewerCount > 0 && <>, {reviewerCount} review{reviewerCount !== 1 ? "s" : ""}</>}
             </span>
             <svg
               viewBox="0 0 16 16"
