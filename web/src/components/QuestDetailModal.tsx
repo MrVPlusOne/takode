@@ -13,11 +13,12 @@ import type { QuestVerificationItem, QuestFeedbackEntry, QuestImage } from "../t
 // ─── Main component ──────────────────────────────────────────────────────────
 
 /**
- * Global read-only quest detail modal.
+ * Global quest detail modal.
  *
  * Driven by `questOverlayId` in the Zustand store. Any component can open it
  * via `openQuestOverlay(questId)`. Shows quest details (description, images,
  * verification items, feedback) without navigating away from the current view.
+ * Verification checkboxes are interactive (same toggle behavior as QuestmasterPage).
  *
  * For full editing, the "Open in Questmaster" footer button navigates to the
  * QuestmasterPage with the quest expanded.
@@ -68,6 +69,22 @@ export function QuestDetailModal() {
   const vProgress = hasVerification ? verificationProgress(quest.verificationItems) : null;
   const feedbackEntries: QuestFeedbackEntry[] =
     "feedback" in quest ? ((quest as { feedback?: QuestFeedbackEntry[] }).feedback ?? []) : [];
+
+  // Toggle a verification checkbox via the same API as QuestmasterPage.
+  // On failure the checkbox stays unchanged (server is source of truth).
+  async function handleCheckVerification(questId: string, index: number, checked: boolean) {
+    try {
+      const updatedQuest = await api.checkQuestVerification(questId, index, checked);
+      const currentQuests = useStore.getState().quests;
+      useStore.getState().setQuests(
+        currentQuests
+          .map((q) => (q.questId === updatedQuest.questId ? updatedQuest : q))
+          .sort((a, b) => b.createdAt - a.createdAt),
+      );
+    } catch {
+      // No-op: modal is too compact for an error banner.
+    }
+  }
 
   return createPortal(
     <div
@@ -167,23 +184,23 @@ export function QuestDetailModal() {
             </div>
           )}
 
-          {/* Verification checklist (read-only) */}
+          {/* Verification checklist */}
           {hasVerification && (
             <div>
               <label className="block text-[11px] text-cc-muted mb-1">Verification</label>
               <div className="space-y-0.5">
                 {quest.verificationItems.map((item: QuestVerificationItem, i: number) => (
-                  <div key={i} className="flex items-start gap-2 py-1 px-2 rounded-md">
+                  <label key={i} className="flex items-start gap-2 py-1 px-2 rounded-md hover:bg-cc-hover cursor-pointer">
                     <input
                       type="checkbox"
                       checked={item.checked}
-                      readOnly
-                      className="mt-0.5 accent-cc-primary pointer-events-none"
+                      onChange={() => handleCheckVerification(quest.questId, i, !item.checked)}
+                      className="mt-0.5 accent-cc-primary"
                     />
                     <span className={`text-xs ${item.checked ? "text-cc-muted line-through" : "text-cc-fg"}`}>
                       {item.text}
                     </span>
-                  </div>
+                  </label>
                 ))}
               </div>
             </div>

@@ -1,13 +1,15 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { useStore } from "../store.js";
 
-// Mock the api module -- questImageUrl is needed for images
+// Mock the api module -- questImageUrl is needed for images, checkQuestVerification for toggles
+const mockCheckQuestVerification = vi.fn();
 vi.mock("../api.js", () => ({
   api: {
     questImageUrl: (id: string) => `/api/quests/_images/${id}`,
     getSettings: vi.fn().mockResolvedValue({ editorConfig: { editor: "none" } }),
     openVsCodeRemoteFile: vi.fn(),
+    checkQuestVerification: (...args: unknown[]) => mockCheckQuestVerification(...args),
   },
 }));
 
@@ -18,7 +20,7 @@ vi.mock("../utils/navigation.js", () => ({
 }));
 
 import { QuestDetailModal } from "./QuestDetailModal.js";
-import type { QuestmasterTask } from "../types.js";
+import type { QuestmasterTask, QuestVerificationItem } from "../types.js";
 
 // Minimal quest fixtures for testing
 function makeVerificationQuest(overrides?: Partial<QuestmasterTask>): QuestmasterTask {
@@ -71,6 +73,7 @@ describe("QuestDetailModal", () => {
   beforeEach(() => {
     useStore.getState().reset();
     mockNavigateTo.mockReset();
+    mockCheckQuestVerification.mockReset();
     document.body.style.overflow = "";
   });
 
@@ -160,7 +163,7 @@ describe("QuestDetailModal", () => {
     expect(screen.getByText(/The sidebar overflows/)).toBeTruthy();
   });
 
-  it("shows verification items as read-only checkboxes", () => {
+  it("renders verification items with correct checked state", () => {
     const quest = makeVerificationQuest();
     useStore.setState({ quests: [quest], questOverlayId: "q-42" });
 
@@ -170,10 +173,62 @@ describe("QuestDetailModal", () => {
     expect(screen.getByText("Sidebar no overflow on iPhone SE")).toBeTruthy();
     expect(screen.getByText("Scroll works")).toBeTruthy();
 
-    // Checkboxes are read-only
+    // Checkboxes reflect server state
     const checkboxes = screen.getAllByRole("checkbox");
     expect(checkboxes[0]).toHaveProperty("checked", true);
     expect(checkboxes[1]).toHaveProperty("checked", false);
+  });
+
+  it("toggles verification checkbox via API and updates store", async () => {
+    // Setup: quest with one unchecked item at index 1
+    const quest = makeVerificationQuest();
+    useStore.setState({ quests: [quest], questOverlayId: "q-42" });
+
+    // Mock API to return quest with item 1 now checked
+    const updatedQuest = makeVerificationQuest({
+      verificationItems: [
+        { text: "Sidebar no overflow on iPhone SE", checked: true },
+        { text: "Scroll works", checked: true },
+      ],
+    });
+    mockCheckQuestVerification.mockResolvedValue(updatedQuest);
+
+    render(<QuestDetailModal />);
+
+    // Click the unchecked checkbox (index 1)
+    const checkboxes = screen.getAllByRole("checkbox");
+    fireEvent.click(checkboxes[1]);
+
+    // API should be called with (questId, index, newCheckedValue)
+    expect(mockCheckQuestVerification).toHaveBeenCalledWith("q-42", 1, true);
+
+    // After API resolves, store should be updated
+    await waitFor(() => {
+      const storeQuest = useStore.getState().quests.find((q) => q.questId === "q-42");
+      expect((storeQuest as QuestmasterTask & { verificationItems: QuestVerificationItem[] }).verificationItems[1].checked).toBe(true);
+    });
+  });
+
+  it("keeps checkbox unchanged when API call fails", async () => {
+    const quest = makeVerificationQuest();
+    useStore.setState({ quests: [quest], questOverlayId: "q-42" });
+
+    // Mock API to reject
+    mockCheckQuestVerification.mockRejectedValue(new Error("Network error"));
+
+    render(<QuestDetailModal />);
+
+    const checkboxes = screen.getAllByRole("checkbox");
+    fireEvent.click(checkboxes[1]);
+
+    // Wait for the rejected promise to settle
+    await waitFor(() => {
+      expect(mockCheckQuestVerification).toHaveBeenCalled();
+    });
+
+    // Store should remain unchanged -- item 1 still unchecked
+    const storeQuest = useStore.getState().quests.find((q) => q.questId === "q-42");
+    expect((storeQuest as QuestmasterTask & { verificationItems: QuestVerificationItem[] }).verificationItems[1].checked).toBe(false);
   });
 
   it("shows feedback entries with author labels", () => {
