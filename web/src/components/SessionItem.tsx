@@ -507,7 +507,7 @@ export function SessionItem({
                   style={glowStyle}
                 />
               )}
-              {!isEditing && s.isOrchestrator && (
+              {!isEditing && s.isOrchestrator && useStatusBar && (
                 <span
                   className="text-[9px] font-medium px-1.5 rounded-full leading-[16px] shrink-0 border"
                   title="Leader session"
@@ -562,7 +562,7 @@ export function SessionItem({
                 />
               ) : (
                 <span
-                  className={`text-[13px] truncate leading-snug text-cc-fg ${attention ? "font-semibold" : "font-medium"} ${isRecentlyRenamed ? "animate-name-appear" : ""}`}
+                  className={`text-[13px] truncate leading-snug text-cc-fg ${attention || (s.isOrchestrator && !useStatusBar) ? "font-semibold" : "font-medium"} ${isRecentlyRenamed ? "animate-name-appear" : ""}`}
                   onAnimationEnd={() => onClearRecentlyRenamed(s.id)}
                 >
                   {questLabel(label, isQuestNamed, questStatus)}

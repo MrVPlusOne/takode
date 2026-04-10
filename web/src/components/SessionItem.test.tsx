@@ -172,9 +172,12 @@ describe("SessionItem search match context", () => {
 
 describe("SessionItem herd role badges", () => {
   it("renders a themed leader badge for leader sessions", () => {
+    // Leader badge is only shown in linear view (useStatusBar=true);
+    // in tree view, tree structure already communicates leadership.
     renderSessionItem({
       session: makeSession({ isOrchestrator: true }),
       herdGroupBadgeTheme: SAGE_THEME,
+      useStatusBar: true,
     });
 
     const badge = screen.getByText("leader");

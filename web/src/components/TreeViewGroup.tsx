@@ -151,6 +151,8 @@ export function TreeViewGroup({
   const [editingGroupName, setEditingGroupName] = useState(false);
   const [groupNameDraft, setGroupNameDraft] = useState("");
   const groupNameInputRef = useRef<HTMLInputElement>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
 
   const startGroupRename = useCallback(() => {
     if (group.id === "default") return;
@@ -172,6 +174,24 @@ export function TreeViewGroup({
       groupNameInputRef.current.select();
     }
   }, [editingGroupName]);
+
+  // Dismiss context menu on click outside
+  useEffect(() => {
+    if (!contextMenu) return;
+    function handleClick(e: MouseEvent) {
+      if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) {
+        setContextMenu(null);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [contextMenu]);
+
+  const handleDeleteGroup = useCallback(() => {
+    setContextMenu(null);
+    if (group.id === "default") return;
+    api.deleteTreeGroup(group.id).catch(console.error);
+  }, [group.id]);
 
   const hasStatus = group.runningCount > 0 || group.permCount > 0 || group.unreadCount > 0;
 
@@ -279,7 +299,7 @@ export function TreeViewGroup({
 
     return (
       <div key={node.leader.id}>
-        {/* Leader / standalone row */}
+        {/* Leader row with inline chevron */}
         <div className="flex items-start">
           {hasChildren && (
             <button
@@ -304,9 +324,9 @@ export function TreeViewGroup({
           </div>
         </div>
 
-        {/* Workers + reviewers indented under leader with VSCode-style indent guide */}
+        {/* Workers + reviewers at same level with tight indent guide */}
         {hasChildren && !isNodeCollapsed && (
-          <div className="ml-[11px] pl-2.5 border-l border-cc-border/40">
+          <div className="ml-2 pl-[10px] border-l border-cc-border/40">
             {node.workers.map((w) => {
               const workerReviewers = node.reviewers.filter(
                 (r) => r.reviewerOf === w.sessionNum,
@@ -314,12 +334,10 @@ export function TreeViewGroup({
               return (
                 <div key={w.id}>
                   {renderSessionItem(w, { compact: true })}
-                  {/* Nested reviewers for this worker */}
                   {workerReviewers.map((r) => renderSessionItem(r, { compact: true }))}
                 </div>
               );
             })}
-            {/* Reviewers of the leader itself */}
             {node.reviewers
               .filter((r) => r.reviewerOf === node.leader.sessionNum)
               .map((r) => renderSessionItem(r, { compact: true }))}
@@ -340,7 +358,7 @@ export function TreeViewGroup({
           onContextMenu={(e) => {
             if (group.id === "default") return;
             e.preventDefault();
-            startGroupRename();
+            setContextMenu({ x: e.clientX, y: e.clientY });
           }}
           className="min-w-0 flex-1 flex items-center gap-1.5 cursor-pointer"
           onDoubleClick={(e) => {
@@ -438,6 +456,31 @@ export function TreeViewGroup({
       {!isGroupCollapsed && group.nodes.length === 0 && (
         <div className="px-4 py-2 text-[11px] text-cc-muted/50 italic">
           No sessions -- use + to create one
+        </div>
+      )}
+
+      {/* Context menu for non-default groups */}
+      {contextMenu && (
+        <div
+          ref={contextMenuRef}
+          className="fixed z-[100] bg-cc-card border border-cc-border rounded-lg shadow-lg py-1 min-w-[120px]"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+        >
+          <button
+            className="w-full px-3 py-1.5 text-left text-[11px] text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
+            onClick={() => {
+              setContextMenu(null);
+              startGroupRename();
+            }}
+          >
+            Rename
+          </button>
+          <button
+            className="w-full px-3 py-1.5 text-left text-[11px] text-red-400 hover:bg-cc-hover transition-colors cursor-pointer"
+            onClick={handleDeleteGroup}
+          >
+            Delete
+          </button>
         </div>
       )}
     </div>

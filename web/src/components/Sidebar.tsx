@@ -360,9 +360,7 @@ export function Sidebar() {
   }
 
   function handleCreateTreeGroup() {
-    const name = prompt("New group name:");
-    if (!name?.trim()) return;
-    api.createTreeGroup(name.trim()).catch(console.error);
+    api.createTreeGroup("New group").catch(console.error);
   }
 
   // Focus edit input when entering edit mode
