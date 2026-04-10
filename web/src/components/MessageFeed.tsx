@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useMemo, useState, useCallback, memo, type ReactNode } from "react";
 import { useStore } from "../store.js";
 import { CodexThinkingInline, HerdEventMessage, MessageBubble, isEmptyAssistantMessage } from "./MessageBubble.js";
+import { EVENT_HEADER_RE, HERD_CHIP_BASE, HERD_CHIP_INTERACTIVE } from "../utils/herd-event-parser.js";
 import { ToolBlock, getPreview, getToolIcon, getToolLabel, ToolIcon, formatDuration } from "./ToolBlock.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { CollapseFooter, TurnCollapseFooter } from "./CollapseFooter.js";
@@ -1251,16 +1252,16 @@ function formatHerdBatchTimeRange(messages: ChatMessage[]): string {
   return firstLabel === lastLabel ? firstLabel : `${firstLabel} – ${lastLabel}`;
 }
 
-/** Collapsed group for consecutive herd event messages — shows "N herd updates · time range"
- *  with an expand toggle to see individual events with their timestamps. */
+/** Collapsed group for consecutive herd event messages -- shows "N herd updates · time range"
+ *  with an expand toggle to see individual event chips with full activity content. */
 function HerdEventBatchGroup({ messages }: { messages: ChatMessage[] }) {
   const [expanded, setExpanded] = useState(false);
   const count = messages.length;
   const timeRange = formatHerdBatchTimeRange(messages);
 
-  // Count total event lines across all batched messages
+  // Count total event headers (real "#N | type | ..." lines, not markdown headings)
   const totalLines = messages.reduce((sum, msg) => {
-    const lines = msg.content.split("\n").filter((line) => line.trim().length > 0 && line.startsWith("#"));
+    const lines = msg.content.split("\n").filter((line) => EVENT_HEADER_RE.test(line));
     return sum + lines.length;
   }, 0);
   const eventCount = totalLines || count;
@@ -1270,24 +1271,26 @@ function HerdEventBatchGroup({ messages }: { messages: ChatMessage[] }) {
       className="animate-[fadeSlideIn_0.2s_ease-out]"
       data-feed-block-id={getHerdBatchFeedBlockId(messages[0]?.id ?? `count:${count}`)}
     >
-      <button
-        onClick={() => setExpanded((v) => !v)}
-        className="flex items-center gap-1.5 text-[11px] text-cc-muted font-mono-code pl-9 py-0.5 cursor-pointer hover:text-cc-fg/70 transition-colors"
-      >
-        <span className="text-amber-500/60 shrink-0">◇</span>
-        <span>
-          {eventCount} herd update{eventCount !== 1 ? "s" : ""} · {timeRange}
-        </span>
-        <svg
-          viewBox="0 0 16 16"
-          fill="currentColor"
-          className={`w-3 h-3 text-cc-muted/40 shrink-0 transition-transform ${expanded ? "rotate-90" : ""}`}
+      <div className="pl-9">
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className={`${HERD_CHIP_BASE} ${HERD_CHIP_INTERACTIVE}`}
         >
-          <path d="M6 4l4 4-4 4" />
-        </svg>
-      </button>
+          <span className="text-amber-500/50 shrink-0 text-[10px]">◇</span>
+          <span>
+            {eventCount} herd update{eventCount !== 1 ? "s" : ""} · {timeRange}
+          </span>
+          <svg
+            viewBox="0 0 16 16"
+            fill="currentColor"
+            className={`w-2.5 h-2.5 text-cc-muted/40 shrink-0 transition-transform ${expanded ? "rotate-90" : ""}`}
+          >
+            <path d="M6 3l5 5-5 5V3z" />
+          </svg>
+        </button>
+      </div>
       {expanded && (
-        <div className="space-y-0">
+        <div className="space-y-1 mt-1">
           {messages.map((msg) => (
             <HerdEventMessage key={msg.id} message={msg} showTimestamp={false} />
           ))}

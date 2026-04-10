@@ -1,5 +1,6 @@
 import { useMemo, useRef } from "react";
 import { isSubagentToolName, type ChatMessage, type ContentBlock } from "../types.js";
+import { EVENT_HEADER_RE } from "../utils/herd-event-parser.js";
 
 export interface ToolItem {
   id: string;
@@ -430,8 +431,8 @@ export function summarizeHerdEvents(herdEntries: FeedEntry[]): string {
   for (const entry of herdEntries) {
     if (entry.kind !== "message") continue;
     for (const line of entry.msg.content.split("\n")) {
-      if (!line.startsWith("#")) continue;
-      // Parse "#5 | turn_end | ✓ 15.3s | ..." → "#5 turn_end"
+      if (!EVENT_HEADER_RE.test(line)) continue;
+      // Parse "#5 | turn_end | ✓ 15.3s | ..." -> "#5 turn_end"
       const parts = line.split("|").map((s) => s.trim());
       if (parts.length >= 2) {
         headers.push(`${parts[0]} ${parts[1]}`);

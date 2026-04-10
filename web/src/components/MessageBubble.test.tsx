@@ -12,6 +12,7 @@ vi.mock("remark-gfm", () => ({
 }));
 
 import { MessageBubble, HerdEventMessage } from "./MessageBubble.js";
+import { parseHerdEvents } from "../utils/herd-event-parser.js";
 import { useStore } from "../store.js";
 
 function makeMessage(overrides: Partial<ChatMessage> & { role: ChatMessage["role"] }): ChatMessage {
@@ -836,5 +837,121 @@ describe("HerdEventMessage", () => {
     render(<HerdEventMessage message={msg} showTimestamp={false} />);
 
     expect(screen.getByText("unexpected format with no event lines")).toBeTruthy();
+  });
+
+  it("treats markdown headings in key message content as activity, not event headers", () => {
+    // Regression test: ## and ### headings from a worker's response (key message)
+    // were incorrectly parsed as separate event headers because they start with #.
+    // Only "#N | type | ..." lines should be treated as event headers.
+    const msg = makeMessage({
+      role: "user",
+      content: [
+        "1 event from 1 session",
+        "",
+        '#287 | turn_end | ✓ 53.6s | tools: Read(1), Bash(11) | [1]-[22] | 1s ago',
+        '  [1] asst: I\'ll load skills first.',
+        '  [22] asst: I now have all the evidence.',
+        "## Skeptic Review: Session #286",
+        "### Task",
+        "Fix the autonamer regex.",
+        "### Assessment",
+        "**ACCEPT**: The work is thorough.",
+      ].join("\n"),
+      agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
+    });
+    render(<HerdEventMessage message={msg} showTimestamp={false} />);
+
+    // Should parse as exactly ONE event (not 4 events for each heading)
+    const buttons = screen.getAllByRole("button");
+    expect(buttons).toHaveLength(1);
+
+    // Header should be the real event line
+    expect(screen.getByText(/turn_end.*53\.6s/)).toBeTruthy();
+
+    // Markdown headings should NOT appear as separate event headers
+    expect(screen.queryByText("## Skeptic Review: Session #286")).toBeNull();
+    expect(screen.queryByText("### Task")).toBeNull();
+
+    // Expand the event -- all content including headings should be visible
+    fireEvent.click(buttons[0]);
+    expect(screen.getByText(/Skeptic Review/)).toBeTruthy();
+    expect(screen.getByText(/ACCEPT/)).toBeTruthy();
+  });
+});
+
+// ─── parseHerdEvents unit tests ─────────────────────────────────────────────
+
+describe("parseHerdEvents", () => {
+  it("parses standard event headers with activity lines", () => {
+    const content = [
+      "1 event from 1 session",
+      "",
+      '#8 | turn_end | ✓ 5.0s | tools: Edit(1)',
+      '  [10] user: "Fix bug"',
+      '  [11] ✓ "Done"',
+    ].join("\n");
+
+    const events = parseHerdEvents(content);
+    expect(events).toHaveLength(1);
+    expect(events[0].header).toBe('#8 | turn_end | ✓ 5.0s | tools: Edit(1)');
+    expect(events[0].activity).toHaveLength(2);
+  });
+
+  it("does NOT treat markdown headings as event headers", () => {
+    // Key bug: ## and ### headings in key message content were mistakenly
+    // parsed as event headers because they start with #
+    const content = [
+      "1 event from 1 session",
+      "",
+      "#287 | turn_end | ✓ 53.6s",
+      "  [22] asst: Evidence gathered.",
+      "## Skeptic Review",
+      "### Task",
+      "Fix the regex.",
+      "### Assessment",
+      "ACCEPT",
+    ].join("\n");
+
+    const events = parseHerdEvents(content);
+    // Only ONE real event header (#287 | turn_end)
+    expect(events).toHaveLength(1);
+    expect(events[0].header).toBe("#287 | turn_end | ✓ 53.6s");
+    // All remaining lines are activity (including markdown headings)
+    expect(events[0].activity).toContain("## Skeptic Review");
+    expect(events[0].activity).toContain("### Task");
+    expect(events[0].activity).toContain("### Assessment");
+    expect(events[0].activity).toContain("Fix the regex.");
+    expect(events[0].activity).toContain("ACCEPT");
+  });
+
+  it("handles multiple real events in the same batch", () => {
+    const content = [
+      "2 events from 2 sessions",
+      "",
+      "#8 | turn_end | ✓ 5.0s",
+      "  [10] asst: Done.",
+      "#9 | permission_request | Bash",
+    ].join("\n");
+
+    const events = parseHerdEvents(content);
+    expect(events).toHaveLength(2);
+    expect(events[0].header).toMatch(/turn_end/);
+    expect(events[1].header).toMatch(/permission_request/);
+    expect(events[0].activity).toHaveLength(1);
+    expect(events[1].activity).toHaveLength(0);
+  });
+
+  it("returns empty array for empty content", () => {
+    expect(parseHerdEvents("")).toHaveLength(0);
+  });
+
+  it("returns empty array when content has only a batch header (no event lines)", () => {
+    expect(parseHerdEvents("3 events from 2 sessions\n\n")).toHaveLength(0);
+  });
+
+  it("parses event header at very first line (no batch header prefix)", () => {
+    const events = parseHerdEvents("#1 | turn_end | ✓ 1.0s\n  [5] asst: Done.");
+    expect(events).toHaveLength(1);
+    expect(events[0].activity).toHaveLength(1);
   });
 });

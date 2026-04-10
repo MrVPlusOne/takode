@@ -4543,73 +4543,53 @@ export function Playground() {
           </div>
         </Section>
         <Section
-          title="Herd Event Batch Groups"
-          description="Consecutive herd event messages are collapsed into a single expandable group with a time range, reducing vertical noise in leader sessions."
+          title="Herd Event Chips"
+          description="Herd events render as compact expandable chips. Collapsed shows event header; expanded shows full injected content (1:1 debugging match). Batch groups aggregate consecutive events."
         >
           <div className="space-y-4 max-w-3xl">
-            <Card label="Collapsed batch (default state)">
-              <div className="py-2">
-                <button className="flex items-center gap-1.5 text-[11px] text-cc-muted font-mono-code pl-9 py-0.5 cursor-pointer hover:text-cc-fg/70 transition-colors">
-                  <span className="text-amber-500/60 shrink-0">◇</span>
+            <Card label="Collapsed batch chip">
+              <div className="py-2 pl-9">
+                <button className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-mono-code leading-snug border border-amber-500/20 bg-amber-500/5 cursor-pointer hover:bg-amber-500/10 hover:border-amber-500/30 transition-colors text-cc-muted">
+                  <span className="text-amber-500/50 shrink-0 text-[10px]">◇</span>
                   <span>4 herd updates · 11:44 AM – 11:55 AM</span>
-                  <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 text-cc-muted/40 shrink-0">
-                    <path d="M6 4l4 4-4 4" />
+                  <svg viewBox="0 0 16 16" fill="currentColor" className="w-2.5 h-2.5 text-cc-muted/40 shrink-0">
+                    <path d="M6 3l5 5-5 5V3z" />
                   </svg>
                 </button>
               </div>
             </Card>
-            <Card label="Expanded batch (click to see events)">
-              <div className="py-2">
-                <button className="flex items-center gap-1.5 text-[11px] text-cc-muted font-mono-code pl-9 py-0.5 cursor-pointer hover:text-cc-fg/70 transition-colors">
-                  <span className="text-amber-500/60 shrink-0">◇</span>
-                  <span>4 herd updates · 11:44 AM – 11:55 AM</span>
-                  <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 text-cc-muted/40 shrink-0 rotate-90">
-                    <path d="M6 4l4 4-4 4" />
-                  </svg>
+            <Card label="Single event chip (no activity)">
+              <div className="py-2 pl-9">
+                <button className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-mono-code leading-snug border border-amber-500/20 bg-amber-500/5 cursor-default text-cc-muted">
+                  <span className="text-amber-500/50 shrink-0 text-[10px]">◇</span>
+                  <span className="truncate max-w-[60ch]">#35 | session_archived | 2s ago</span>
                 </button>
-                <div className="space-y-0">
-                  <div className="flex items-center gap-1.5 text-[11px] text-cc-muted font-mono-code pl-9 py-0.5 leading-snug">
-                    <span className="text-amber-500/60 shrink-0">◇</span>
-                    <span className="truncate">
-                      #34 | turn_end | ✓ 56.3s | tools: Read(3), Grep(2) | &quot;Refactored auth middleware&quot;
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-1.5 text-[11px] text-cc-muted font-mono-code pl-9 py-0.5 leading-snug">
-                    <span className="text-amber-500/60 shrink-0">◇</span>
-                    <span className="truncate">#35 | session_archived</span>
-                  </div>
-                  <div className="flex items-center gap-1.5 text-[11px] text-cc-muted font-mono-code pl-9 py-0.5 leading-snug">
-                    <span className="text-amber-500/60 shrink-0">◇</span>
-                    <span className="truncate">
-                      #34 | turn_end | ✓ 12.1s | tools: Edit(1) | &quot;Added tests&quot;
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-1.5 text-[11px] text-cc-muted font-mono-code pl-9 py-0.5 leading-snug">
-                    <span className="text-amber-500/60 shrink-0">◇</span>
-                    <span className="truncate">#36 | session_archived</span>
-                  </div>
-                </div>
               </div>
             </Card>
-            <Card label="Single herd event (no batching)">
-              <div className="py-2">
-                <div className="flex items-center gap-1.5 text-[11px] text-cc-muted font-mono-code pl-9 py-0.5 leading-snug">
-                  <span className="text-amber-500/60 shrink-0">◇</span>
-                  <span className="truncate">
-                    #34 | turn_end | ✓ 56.3s | tools: Read(3), Grep(2) | &quot;Refactored auth middleware&quot;
-                  </span>
-                </div>
-              </div>
-            </Card>
-            <Card label="Herd event with collapsible activity (click chevron to expand)">
+            <Card label="Event chip with activity (click to expand)">
               <div className="py-2">
                 <HerdEventMessage
                   showTimestamp={false}
                   message={{
-                    id: "herd-activity-demo",
+                    id: "herd-chip-demo",
                     role: "user",
                     content:
-                      '1 event from 1 session\n\n#8 | turn_end | ✓ 15.3s | tools: Edit(3), Bash(2) | [169]-[281] | "Fixed login validation"\n  [169] user: "Fix the login bug in auth.ts"\n  [170] asst: Read×2, Grep×1\n  [171] asst: Edit: auth.ts, Bash: bun test\n  [172] ✓ "Fixed the login validation logic"',
+                      '1 event from 1 session\n\n#8 | turn_end | ✓ 15.3s | tools: Edit(3), Bash(2) | [169]-[172] | "Fixed login validation"\n  [169] user: "Fix the login bug in auth.ts"\n  [170] asst: Read×2, Grep×1\n  [171] asst: Edit: auth.ts, Bash: bun test\n  [172] ✓ "Fixed the login validation logic"',
+                    timestamp: Date.now(),
+                    agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
+                  }}
+                />
+              </div>
+            </Card>
+            <Card label="Event with key message content (markdown headings in activity)">
+              <div className="py-2">
+                <HerdEventMessage
+                  showTimestamp={false}
+                  message={{
+                    id: "herd-keymsg-demo",
+                    role: "user",
+                    content:
+                      '1 event from 1 session\n\n#287 | turn_end | ✓ 53.6s | tools: Read(1), Bash(11), Skill(3) | [1]-[22] | 1s ago\n  [1] asst: I\'ll load the required skills first.\n  [5] asst: Skills loaded. Now let me gather the evidence.\n  [22] asst: I now have all the evidence. Let me compile the review.\n## Skeptic Review: Session #286 / Quest q-180\n### Task\nFix the autonamer regex to handle edge cases.\n### Assessment\n**ACCEPT**: The work is thorough and the claims are honest.',
                     timestamp: Date.now(),
                     agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
                   }}

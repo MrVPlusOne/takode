@@ -7,6 +7,7 @@ import { CollapseFooter } from "./CollapseFooter.js";
 import { Lightbox } from "./Lightbox.js";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
 import { getMessageMarkdown, getMessagePlainText, copyRichText, writeClipboardText } from "../utils/copy-utils.js";
+import { EVENT_HEADER_RE, HERD_CHIP_BASE, HERD_CHIP_INTERACTIVE, parseHerdEvents } from "../utils/herd-event-parser.js";
 import { useStore, getSessionSearchState } from "../store.js";
 import { formatVsCodeSelectionAttachmentLabel } from "../utils/vscode-context.js";
 import { api } from "../api.js";
@@ -356,7 +357,7 @@ export function HerdEventMessage({ message }: { message: ChatMessage; showTimest
   }
 
   return (
-    <div className="animate-[fadeSlideIn_0.2s_ease-out] space-y-0">
+    <div className="animate-[fadeSlideIn_0.2s_ease-out] space-y-1">
       {events.map((evt, i) => (
         <HerdEventEntry key={i} header={evt.header} activity={evt.activity} />
       ))}
@@ -364,21 +365,23 @@ export function HerdEventMessage({ message }: { message: ChatMessage; showTimest
   );
 }
 
-/** A single herd event: always shows the header, toggles activity on click. */
+/** A single herd event rendered as a compact expandable chip.
+ *  Collapsed: inline pill showing the event header (e.g. "#287 | turn_end | ✓ 53.6s").
+ *  Expanded: full activity content as raw preformatted text (1:1 match with what
+ *  was injected into the leader's conversation -- serves as a debugging tool). */
 function HerdEventEntry({ header, activity }: { header: string; activity: string[] }) {
   const [expanded, setExpanded] = useState(false);
   const hasActivity = activity.length > 0;
 
   return (
-    <div>
-      <div
-        className={`flex items-center gap-1.5 text-[11px] text-cc-muted font-mono-code pl-9 py-0.5 leading-snug${
-          hasActivity ? " cursor-pointer hover:text-cc-fg/70 transition-colors" : ""
-        }`}
+    <div className="pl-9">
+      <button
+        type="button"
         onClick={hasActivity ? () => setExpanded((v) => !v) : undefined}
+        className={`${HERD_CHIP_BASE} ${hasActivity ? HERD_CHIP_INTERACTIVE : "cursor-default"}`}
       >
-        <span className="text-amber-500/60 shrink-0">◇</span>
-        <span className="truncate">{header}</span>
+        <span className="text-amber-500/50 shrink-0 text-[10px]">◇</span>
+        <span className="truncate max-w-[60ch]">{header}</span>
         {hasActivity && (
           <svg
             viewBox="0 0 16 16"
@@ -388,47 +391,20 @@ function HerdEventEntry({ header, activity }: { header: string; activity: string
             <path d="M6 3l5 5-5 5V3z" />
           </svg>
         )}
-      </div>
+      </button>
       {expanded && (
-        <div className="pl-[52px] py-0.5 space-y-0">
-          {activity.map((line, j) => (
-            <div key={j} className="text-[10px] text-cc-muted/70 font-mono-code leading-snug whitespace-pre-wrap">
-              {line}
-            </div>
-          ))}
-        </div>
+        <pre className="mt-1 ml-1 px-2.5 py-2 rounded-md border border-cc-border/20 bg-cc-card/30
+          text-[10px] text-cc-muted/80 font-mono-code leading-relaxed
+          whitespace-pre-wrap break-words overflow-x-auto max-h-[400px] overflow-y-auto">
+          {activity.join("\n")}
+        </pre>
       )}
     </div>
   );
 }
 
-/** Parse herd event batch content into structured events with headers and activity lines.
- *
- *  Format contract (produced by formatHerdEventBatch + formatSingleEvent in
- *  web/server/herd-event-dispatcher.ts):
- *    "N events from N sessions\n\n"         ← batch header (skipped)
- *    "#5 | turn_end | ✓ 15.3s | ...\n"      ← event header (starts with #)
- *    "  [169] user: \"Fix bug\"\n"           ← activity line (2-space indent)
- *    "  [170] asst: Edit: auth.ts\n"         ← activity line
- *    "#6 | permission_request | ...\n"       ← next event header
- */
-function parseHerdEvents(content: string): Array<{ header: string; activity: string[] }> {
-  const events: Array<{ header: string; activity: string[] }> = [];
-  const lines = content.split("\n");
-
-  for (const line of lines) {
-    if (line.startsWith("#")) {
-      // New event header
-      events.push({ header: line, activity: [] });
-    } else if (line.startsWith("  ") && line.trim().length > 0 && events.length > 0) {
-      // Indented activity line belongs to the current event
-      events[events.length - 1].activity.push(line);
-    }
-    // Skip the batch header ("N events from N sessions") and blank lines
-  }
-
-  return events;
-}
+// Re-export herd event parsing utilities for backward compatibility
+export { EVENT_HEADER_RE, parseHerdEvents } from "../utils/herd-event-parser.js";
 
 type SearchHighlightInfo = { query: string; mode: "strict" | "fuzzy"; isCurrent: boolean } | null;
 
