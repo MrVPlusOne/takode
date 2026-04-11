@@ -5548,11 +5548,18 @@ export class WsBridge {
         }
       }
 
-      this.broadcastToBrowsers(session, {
-        type: "status_change",
-        status: msg.status ?? null,
-      });
-      this.onSessionActivityStateChanged(session.id, "system_status");
+      // During --resume replay, the CLI sends stale system.status messages
+      // from completed turns. Broadcasting these to browsers would override
+      // the correct state_snapshot (idle) with a stale "running" status,
+      // leaving the UI stuck. Guard matches permissionMode (line 5535) and
+      // compaction (lines 5511/5519) patterns above.
+      if (!session.cliResuming) {
+        this.broadcastToBrowsers(session, {
+          type: "status_change",
+          status: msg.status ?? null,
+        });
+        this.onSessionActivityStateChanged(session.id, "system_status");
+      }
     } else if (msg.subtype === "compact_boundary") {
       // CLI has compacted its context — append a compact marker as a divider.
       // Old messages are preserved for browser display; the marker visually separates

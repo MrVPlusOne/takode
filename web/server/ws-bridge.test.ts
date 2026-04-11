@@ -14939,6 +14939,112 @@ describe("cliResuming debounce prevents false compaction events on --resume repl
   });
 });
 
+// ─── cliResuming guards status_change broadcast (q-213) ───────────────────
+
+describe("cliResuming suppresses status_change broadcast during --resume replay", () => {
+  // During --resume, the CLI replays historical system.status messages (with
+  // status "compacting" | null per CLISystemStatusMessage). Without the
+  // cliResuming guard, these get broadcast to browsers as live status_change
+  // events, polluting the eventBuffer and overriding state_snapshot.
+
+  it("does not broadcast status_change for replayed system.status during cliResuming", () => {
+    vi.useFakeTimers();
+
+    const session = bridge.getOrCreateSession("s1");
+    session.messageHistory.push({ role: "assistant", content: "previous turn" } as any);
+
+    const cli = makeCliSocket("s1");
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+    bridge.handleCLIOpen(cli, "s1");
+    expect(session.cliResuming).toBe(true);
+
+    // Replayed system.init (triggers cliResuming debounce)
+    bridge.handleCLIMessage(cli, makeInitMsg());
+    expect(session.cliResuming).toBe(true);
+
+    browser.send.mockClear();
+
+    // Replayed system.status with null (idle/completed turn) — should NOT be broadcast.
+    bridge.handleCLIMessage(
+      cli,
+      JSON.stringify({ type: "system", subtype: "status", status: null }),
+    );
+
+    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    const statusChanges = calls.filter((m: any) => m.type === "status_change");
+    expect(statusChanges).toHaveLength(0);
+
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  });
+
+  it("broadcasts status_change after cliResuming clears", () => {
+    vi.useFakeTimers();
+
+    const session = bridge.getOrCreateSession("s1");
+    session.messageHistory.push({ role: "assistant", content: "previous turn" } as any);
+
+    const cli = makeCliSocket("s1");
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+    bridge.handleCLIOpen(cli, "s1");
+
+    bridge.handleCLIMessage(cli, makeInitMsg());
+    expect(session.cliResuming).toBe(true);
+
+    // Wait for debounce to clear cliResuming.
+    vi.advanceTimersByTime(2100);
+    expect(session.cliResuming).toBe(false);
+
+    browser.send.mockClear();
+
+    // Real system.status with compacting — should be broadcast.
+    bridge.handleCLIMessage(
+      cli,
+      JSON.stringify({ type: "system", subtype: "status", status: "compacting" }),
+    );
+
+    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    const statusChanges = calls.filter((m: any) => m.type === "status_change");
+    expect(statusChanges).toHaveLength(1);
+    expect(statusChanges[0].status).toBe("compacting");
+
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  });
+
+  it("does not buffer stale status_change in eventBuffer during cliResuming", () => {
+    vi.useFakeTimers();
+
+    const session = bridge.getOrCreateSession("s1");
+    session.messageHistory.push({ role: "assistant", content: "previous turn" } as any);
+
+    const cli = makeCliSocket("s1");
+    bridge.handleCLIOpen(cli, "s1");
+    expect(session.cliResuming).toBe(true);
+
+    bridge.handleCLIMessage(cli, makeInitMsg());
+
+    const bufferLenBefore = session.eventBuffer.length;
+
+    // Replayed system.status with null — should NOT enter eventBuffer.
+    bridge.handleCLIMessage(
+      cli,
+      JSON.stringify({ type: "system", subtype: "status", status: null }),
+    );
+
+    // eventBuffer should not have grown (no status_change was buffered).
+    const statusBuffered = session.eventBuffer
+      .slice(bufferLenBefore)
+      .filter((evt: any) => evt.message?.type === "status_change");
+    expect(statusBuffered).toHaveLength(0);
+
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  });
+});
+
 // ─── Stuck session watchdog ─────────────────────────────────────────────────
 
 describe("stuck session watchdog", () => {
