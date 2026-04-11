@@ -816,6 +816,8 @@ export function Sidebar() {
 
   const herdHoverHighlights = useMemo(() => {
     const highlights = new Map<string, "leader" | "worker">();
+    // Tree view already groups sessions by herd -- hover highlight is redundant.
+    if (sidebarViewMode === "tree") return highlights;
     const sourceIds = [
       hoveredSession?.sessionId ?? null,
       sessionInfoOpenSessionId && sessionInfoOpenSessionId !== hoveredSession?.sessionId
@@ -856,7 +858,7 @@ export function Sidebar() {
     }
 
     return highlights;
-  }, [hoveredSession?.sessionId, sessionInfoOpenSessionId, allSessionList]);
+  }, [sidebarViewMode, hoveredSession?.sessionId, sessionInfoOpenSessionId, allSessionList]);
   const herdGroupBadgeThemes = useMemo(() => {
     const leaderThemes = buildHerdGroupBadgeThemes(allSessionList);
     const sessionThemes = new Map<string, HerdGroupBadgeTheme>();
