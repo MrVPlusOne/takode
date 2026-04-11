@@ -16,23 +16,74 @@ The `takode` CLI lets you interact with other sessions managed by the Companion 
 
 ## Sub-Skill Workflows
 
-Read these files when performing the corresponding operation:
+Read these files or invoke these skills when performing the corresponding operation:
 
-| Workflow | When to read | File |
-|----------|-------------|------|
-| **Dispatching work** | Before choosing a worker and sending a quest | [dispatch-workflow.md](dispatch-workflow.md) |
+| Workflow | When to use | Source |
+|----------|------------|--------|
+| **Dispatching work** | Before choosing a worker and sending a quest | Invoke `/leader-dispatch` |
 | **Quest Journey** | Advancing a quest through its lifecycle | [quest-journey.md](quest-journey.md) |
-| **Leader operations** | Discipline rules, herd event reactions, delegation | [leader-operations.md](leader-operations.md) |
 | **Work board** | Managing the quest board | [board-usage.md](board-usage.md) |
 
 ## Key Principles
 
 - **Quests are the unit of work.** Create a quest for any non-trivial task before dispatching.
-- **Workers have the same tools you do.** Give them the quest ID; they run `quest show` themselves.
+- **Never implement non-trivial changes yourself.** Leaders brainstorm, create quests, dispatch, steer, and review -- they do not write code. Investigation and research are also work to delegate.
+- **Never run `quest claim` yourself.** Workers claim quests when dispatched. Leaders coordinate, workers claim.
+- **Before dispatching any quest, *ALWAYS* invoke `/leader-dispatch`.** The dispatch message to the worker must use the standardized template. Do not add extra context, file paths, or investigation instructions -- add any extra information into the quest itself before dispatching.
 - **Events are push-based.** Herd events arrive as `[Herd]` user messages when idle. No polling.
 - **Reference, don't relay.** Point to source messages instead of paraphrasing.
+- **Workers have the same tools you do.** Give them the quest ID; they run `quest show` themselves.
 - **One task at a time per worker.** Mid-task steering is fine; unrelated new tasks queue.
-- **Before dispatching any quest, *ALWAYS* read and follow [dispatch-workflow.md](dispatch-workflow.md) step by step.** The dispatch message to the worker must use the standardized template. Do not add extra context, file paths, or investigation instructions -- add any extra information into the quest itself before dispatching.
+- **User feedback triggers full rework.** When a user reports issues with a completed quest, record feedback, set the quest back to `refined`, and dispatch for a full quest journey. Never skip review steps for "small" fixes. See [quest-journey.md](quest-journey.md).
+- **Don't echo board state as prose.** `takode board` commands display the board in the terminal with a special UI. Never repeat that information as markdown tables or summaries -- just run the command and move on.
+
+## Herd Events
+
+Events from herded sessions are delivered automatically as `[Herd]` user messages when you go idle. No polling needed.
+
+### Message Source Tags
+
+- **`[User HH:MM]`** -- human operator
+- **`[Herd HH:MM]`** -- automatic event summary from herded sessions
+- **`[Agent #N name HH:MM]`** -- forwarded from another agent/session
+
+### Event Types and Reactions
+
+| Event | Meaning | Action |
+|-------|---------|--------|
+| `turn_end (✓)` | Worker completed successfully | Peek at output, send follow-up or mark done |
+| `turn_end (✗)` | Worker hit an error | Diagnose the issue, send recovery instructions |
+| `turn_end (⊘)` | User interrupted the worker | Check if it needs redirection |
+| `permission_request` | Worker needs approval | Answer `AskUserQuestion`/`ExitPlanMode` with `takode answer`. **Tool permissions are human-only.** If `(user-initiated)`, don't answer -- the user is handling it |
+| `permission_resolved` | Worker was unblocked | No action needed |
+| `session_error` | Session-level error | Investigate, decide whether to retry |
+| `user_message [User]` | Human sent directly to worker | May indicate new instructions -- stay aware but don't interfere |
+
+## Session Lifecycle
+
+Three distinct operations -- never confuse them:
+
+| Command | What it does | Session after |
+|---------|-------------|---------------|
+| `takode interrupt <N>` | Halts the worker's current turn (SIGTERM) | Active, idle, ready for new work |
+| `takode archive <N>` | Removes session from active herd | Archived, history still readable |
+| Disconnect (idle manager) | CLI process killed automatically | Disconnected (`✗`), auto-relaunches on `takode send` |
+
+**Key rule:** When you interrupt a worker, say "interrupted" -- never "archived" or "stopped".
+
+## Maintaining Focus
+
+- **Don't let herd events override your decision to wait for the user.** If you asked the user a question, keep waiting even if herd events arrive. Acknowledge events briefly, but don't proceed until the user responds.
+- **When the user is directly steering a herded worker**: stay out of it. Resume normal coordination once the user stops interacting.
+- **After context compaction, refresh state.** Run `takode list` to see your herd with each worker's recent task history before making dispatch decisions.
+
+## User Notifications
+
+Tie `takode notify` calls to Quest Journey events:
+- **`takode notify review "q-42 ready for verification"`**: when a quest completes the full Journey (removed from board and transitioned to `needs_verification`)
+- **`takode notify needs-input "need decision on auth approach for q-42"`**: when the user needs to make a decision or provide information and no built-in tool covers it
+
+Do not notify for routine progress or intermediate steps.
 
 ## Read-Only Commands
 

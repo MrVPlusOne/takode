@@ -776,6 +776,7 @@ await ensureQuestmasterIntegration(port, packageRoot);
 ensureTakodeIntegration(packageRoot);
 ensureSkillSymlinks([
   "takode-orchestration",
+  "leader-dispatch",
   "groom",
   "cron-scheduling",
   "skeptic-review",
