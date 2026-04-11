@@ -1816,6 +1816,27 @@ describe("relaunch", () => {
   });
 });
 
+// ─── session identity injection ──────────────────────────────────────────────
+
+describe("session identity injection", () => {
+  // q-197: Every session's system prompt should include its Takode session
+  // number so the model can self-reference (e.g. "I am session #3").
+  it("includes session number in the system prompt", async () => {
+    await launcher.launch({ cwd: "/tmp/project" });
+
+    const [cmdAndArgs] = mockSpawn.mock.calls[0];
+    const sysPromptIdx = cmdAndArgs.indexOf("--append-system-prompt");
+    expect(sysPromptIdx).toBeGreaterThan(-1);
+    const sysPrompt = String(cmdAndArgs[sysPromptIdx + 1] ?? "");
+    // Session number is assigned monotonically starting from 1
+    expect(sysPrompt).toContain("You are Takode session #");
+    // Verify it appears before other sections (link syntax, timers, etc.)
+    const identityIdx = sysPrompt.indexOf("You are Takode session #");
+    const linkSyntaxIdx = sysPrompt.indexOf("Link Syntax");
+    expect(identityIdx).toBeLessThan(linkSyntaxIdx);
+  });
+});
+
 // ─── persistence ─────────────────────────────────────────────────────────────
 
 describe("persistence", () => {

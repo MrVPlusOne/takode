@@ -407,10 +407,16 @@ type HostCodexBinaryKind = "native" | "dotslash" | "bootstrap";
  * the session runs in a git worktree.
  */
 function buildCompanionInstructions(opts?: {
+  sessionNum?: number;
   worktree?: { branch: string; repoRoot: string; parentBranch?: string };
   extraInstructions?: string;
 }): string {
   const parts: string[] = [];
+
+  // Session identity — always first so the model knows who it is
+  if (opts?.sessionNum !== undefined) {
+    parts.push(`## Session Identity\n\nYou are Takode session #${opts.sessionNum}.`);
+  }
 
   if (opts?.worktree) {
     const { branch, repoRoot, parentBranch } = opts.worktree;
@@ -1335,6 +1341,7 @@ export class CliLauncher {
     // worktree branch guardrails, orchestrator guardrails, sync workflow).
     // This replaces the old approach of writing files into the user's repo.
     const companionInstructions = buildCompanionInstructions({
+      sessionNum: info.sessionNum,
       ...(info.isWorktree && info.branch
         ? {
             worktree: {
@@ -1488,6 +1495,7 @@ export class CliLauncher {
   private async spawnClaudeSdk(sessionId: string, info: SdkSessionInfo, options: LaunchOptions): Promise<void> {
     const { ClaudeSdkAdapter } = await import("./claude-sdk-adapter.js");
     const sdkInstructions = buildCompanionInstructions({
+      sessionNum: info.sessionNum,
       ...(info.isWorktree && info.branch
         ? {
             worktree: {
@@ -1953,6 +1961,7 @@ export class CliLauncher {
     // Create the CodexAdapter which handles JSON-RPC and message translation
     // Pass the raw permission mode — the adapter maps it to Codex's approval policy
     const codexInstructions = buildCompanionInstructions({
+      sessionNum: info.sessionNum,
       ...(info.isWorktree && info.branch
         ? {
             worktree: {
