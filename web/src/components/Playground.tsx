@@ -6,7 +6,13 @@ import {
   PermissionsCollapsedChip,
   EvaluatingCollapsedChip,
 } from "./PermissionBanner.js";
-import { CodexThinkingInline, MessageBubble, UserReplyChip, NotificationMarker, HerdEventMessage } from "./MessageBubble.js";
+import {
+  CodexThinkingInline,
+  MessageBubble,
+  UserReplyChip,
+  NotificationMarker,
+  HerdEventMessage,
+} from "./MessageBubble.js";
 import { Lightbox } from "./Lightbox.js";
 import { ToolBlock, getToolIcon, getToolLabel, getPreview, ToolIcon, formatDuration } from "./ToolBlock.js";
 import { BoardBlock } from "./BoardBlock.js";
@@ -308,7 +314,11 @@ function PlaygroundHerdSummaryBar({ isExpanded }: { isExpanded: boolean }) {
         <span className="inline-block w-1.5 h-1.5 rounded-full bg-cc-muted/30" />
       </span>
       <span className="ml-auto text-cc-muted/50 shrink-0">4 workers</span>
-      <svg viewBox="0 0 16 16" fill="currentColor" className={`w-3 h-3 text-cc-muted/40 shrink-0 ${isExpanded ? "rotate-180" : ""}`}>
+      <svg
+        viewBox="0 0 16 16"
+        fill="currentColor"
+        className={`w-3 h-3 text-cc-muted/40 shrink-0 ${isExpanded ? "rotate-180" : ""}`}
+      >
         <path d="M4 6l4 4 4-4" />
       </svg>
     </div>
@@ -2544,7 +2554,9 @@ export function Playground() {
                   <PlaygroundHerdSummaryBar isExpanded={true} />
                   {/* Workers container */}
                   <div className="border-t border-cc-border/30">
-                    {PLAYGROUND_SESSION_ROWS.filter(({ session }) => session.herdedBy && session.reviewerOf === undefined)
+                    {PLAYGROUND_SESSION_ROWS.filter(
+                      ({ session }) => session.herdedBy && session.reviewerOf === undefined,
+                    )
                       .slice(0, 3)
                       .map(({ session, sessionName, preview }) => (
                         <SessionItem
@@ -3397,7 +3409,8 @@ export function Playground() {
                             {
                               id: "t3",
                               sessionId: "playground-timers",
-                              prompt: "Deploy reminder — make sure the staging build has passed CI before promoting to production",
+                              prompt:
+                                "Deploy reminder — make sure the staging build has passed CI before promoting to production",
                               type: "at" as const,
                               originalSpec: "3pm",
                               nextFireAt: now + 7_200_000,
@@ -3430,8 +3443,8 @@ export function Playground() {
               <div className="p-3 space-y-2">
                 <TimerModalDemo />
                 <p className="text-[10px] text-cc-muted">
-                  Opens the timer detail modal. Seed timer data above first to see entries.
-                  Shows full prompt text, timer type, countdown, and per-timer cancel button.
+                  Opens the timer detail modal. Seed timer data above first to see entries. Shows full prompt text,
+                  timer type, countdown, and per-timer cancel button.
                 </p>
               </div>
             </Card>
@@ -4604,7 +4617,7 @@ export function Playground() {
                     id: "herd-keymsg-demo",
                     role: "user",
                     content:
-                      '1 event from 1 session\n\n#287 | turn_end | ✓ 53.6s | tools: Read(1), Bash(11), Skill(3) | [1]-[22] | 1s ago\n  [1] asst: I\'ll load the required skills first.\n  [5] asst: Skills loaded. Now let me gather the evidence.\n  [22] asst: I now have all the evidence. Let me compile the review.\n## Skeptic Review: Session #286 / Quest q-180\n### Task\nFix the autonamer regex to handle edge cases.\n### Assessment\n**ACCEPT**: The work is thorough and the claims are honest.',
+                      "1 event from 1 session\n\n#287 | turn_end | ✓ 53.6s | tools: Read(1), Bash(11), Skill(3) | [1]-[22] | 1s ago\n  [1] asst: I'll load the required skills first.\n  [5] asst: Skills loaded. Now let me gather the evidence.\n  [22] asst: I now have all the evidence. Let me compile the review.\n## Skeptic Review: Session #286 / Quest q-180\n### Task\nFix the autonamer regex to handle edge cases.\n### Assessment\n**ACCEPT**: The work is thorough and the claims are honest.",
                     timestamp: Date.now(),
                     agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
                   }}
@@ -5546,9 +5559,7 @@ function PlaygroundSelectionContextMenu() {
         <PawTrailAvatar />
         <div className="flex-1 min-w-0">
           <div className="markdown-body text-[14px] text-cc-fg leading-relaxed">
-            <p className="mb-3">
-              Here are the key design principles for the new architecture:
-            </p>
+            <p className="mb-3">Here are the key design principles for the new architecture:</p>
             <p className="mb-3">
               1.{" "}
               <mark
@@ -5558,21 +5569,17 @@ function PlaygroundSelectionContextMenu() {
                   padding: "1px 0",
                 }}
               >
-                Leader has zero extra indentation -- no toggle arrow before it. It looks
-                exactly like a standalone session.
+                Leader has zero extra indentation -- no toggle arrow before it. It looks exactly like a standalone
+                session.
               </mark>
             </p>
-            <p className="mb-3 last:mb-0">
-              2. Herd summary bar sits directly below the leader.
-            </p>
+            <p className="mb-3 last:mb-0">2. Herd summary bar sits directly below the leader.</p>
           </div>
         </div>
       </div>
 
       {/* Static context menu positioned above the "selected" text */}
-      {menuOpen && (
-        <ContextMenu x={100} y={4} items={menuItems} onClose={() => setMenuOpen(false)} />
-      )}
+      {menuOpen && <ContextMenu x={100} y={4} items={menuItems} onClose={() => setMenuOpen(false)} />}
 
       {/* Re-open button if closed */}
       {!menuOpen && (

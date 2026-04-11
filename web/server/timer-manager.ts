@@ -186,9 +186,7 @@ export class TimerManager {
       sessionId: `timer:${timer.id}`,
       sessionLabel: `Timer ${timer.id}`,
     });
-    console.log(
-      `${LOG_TAG} Fired timer ${timer.id} for session ${sessionId.slice(0, 8)}: ${result}`,
-    );
+    console.log(`${LOG_TAG} Fired timer ${timer.id} for session ${sessionId.slice(0, 8)}: ${result}`);
   }
 
   // ── Browser sync ───────────────────────────────────────────────────────────

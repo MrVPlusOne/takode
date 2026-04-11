@@ -54,5 +54,4 @@ export const HERD_CHIP_BASE =
   "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-mono-code leading-snug border border-amber-500/20 bg-amber-500/5 text-cc-muted";
 
 /** Hover/interactive addition to HERD_CHIP_BASE for clickable chips. */
-export const HERD_CHIP_INTERACTIVE =
-  "cursor-pointer hover:bg-amber-500/10 hover:border-amber-500/30 transition-colors";
+export const HERD_CHIP_INTERACTIVE = "cursor-pointer hover:bg-amber-500/10 hover:border-amber-500/30 transition-colors";

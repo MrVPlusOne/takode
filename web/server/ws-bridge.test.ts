@@ -671,9 +671,9 @@ describe("CLI handlers", () => {
   /** Parse CLI socket send calls and find the initialize control_request, if any. */
   function findInitializeMsg(cli: ReturnType<typeof makeCliSocket>) {
     const sent = cli.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg.trim()));
-    return sent.find(
-      (m: any) => m.type === "control_request" && m.request?.subtype === "initialize",
-    ) as { type: string; request_id: string; request: { subtype: string; appendSystemPrompt?: string } } | undefined;
+    return sent.find((m: any) => m.type === "control_request" && m.request?.subtype === "initialize") as
+      | { type: string; request_id: string; request: { subtype: string; appendSystemPrompt?: string } }
+      | undefined;
   }
 
   /** Set up a mock launcher returning a session with the given backendType and optional instructions. */
@@ -694,7 +694,8 @@ describe("CLI handlers", () => {
     // The --append-system-prompt CLI flag is not honored in --sdk-url mode.
     // Instead, we send a control_request {subtype: "initialize", appendSystemPrompt}
     // over the WebSocket before the first user message.
-    const instructions = "## Session Timers\n\nUse `takode timer` to create timers.\n\n## Link Syntax\n\nTest instructions";
+    const instructions =
+      "## Session Timers\n\nUse `takode timer` to create timers.\n\n## Link Syntax\n\nTest instructions";
     setLauncherSession("claude", instructions);
 
     const browser = makeBrowserSocket("s1");
@@ -835,19 +836,14 @@ describe("CLI handlers", () => {
     bridge.handleBrowserOpen(browser, "s1");
 
     // Queue a user message before CLI connects
-    bridge.handleBrowserMessage(
-      browser,
-      JSON.stringify({ type: "user_message", content: "hello" }),
-    );
+    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "hello" }));
 
     const cli = makeCliSocket("s1");
     bridge.handleCLIOpen(cli, "s1");
 
     // Check ordering: initialize should come before the user message
     const sent = cli.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg.trim()));
-    const initIdx = sent.findIndex(
-      (m: any) => m.type === "control_request" && m.request?.subtype === "initialize",
-    );
+    const initIdx = sent.findIndex((m: any) => m.type === "control_request" && m.request?.subtype === "initialize");
     const userIdx = sent.findIndex((m: any) => m.type === "user");
     expect(initIdx).toBeGreaterThanOrEqual(0);
     expect(userIdx).toBeGreaterThanOrEqual(0);
@@ -1236,7 +1232,9 @@ describe("CLI handlers", () => {
       .map((call: unknown[]) => String(call[0]))
       .filter((cmd) => cmd.includes("rev-parse"));
     expect(gitCommands).toContainEqual(
-      expect.stringContaining('git --no-optional-locks -c core.fsmonitor=false rev-parse --abbrev-ref --symbolic-full-name jiayi@{upstream}'),
+      expect.stringContaining(
+        "git --no-optional-locks -c core.fsmonitor=false rev-parse --abbrev-ref --symbolic-full-name jiayi@{upstream}",
+      ),
     );
     for (const cmd of gitCommands) {
       expect(cmd).toContain("-c core.fsmonitor=false");
@@ -2244,7 +2242,8 @@ describe("CLI message routing", () => {
 
   it("assistant: does not recursively re-inject reminder on system-triggered turns", () => {
     bridge.setLauncher({
-      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ isOrchestrator: true })),
     } as any);
 
@@ -2302,7 +2301,8 @@ describe("CLI message routing", () => {
 
   it("assistant: does not inject reminder after direct leader interrupt", () => {
     bridge.setLauncher({
-      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ isOrchestrator: true })),
     } as any);
 
@@ -2368,7 +2368,8 @@ describe("CLI message routing", () => {
     const adapter = makeClaudeSdkAdapterMock();
     adapter.sendBrowserMessage.mockReturnValue(true);
     bridge.setLauncher({
-      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ isOrchestrator: true })),
     } as any);
     bridge.attachClaudeSdkAdapter("s1", adapter as any);
@@ -2427,7 +2428,8 @@ describe("CLI message routing", () => {
 
   it("assistant: treats tool-only leader messages as internal without reminder", () => {
     bridge.setLauncher({
-      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ isOrchestrator: true })),
     } as any);
 
@@ -2759,7 +2761,8 @@ describe("CLI message routing", () => {
   // They use `takode notify` explicitly instead of the old @to(user) tag system.
   it("result: suppresses review attention for all leader turns (leaders use takode notify instead)", () => {
     bridge.setLauncher({
-      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ isOrchestrator: true })),
     } as any);
 
@@ -2803,7 +2806,8 @@ describe("CLI message routing", () => {
 
   it("result: suppresses review attention for herded worker turns triggered by leader messages", async () => {
     bridge.setLauncher({
-      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ herdedBy: "orch-1" })),
     } as any);
 
@@ -2856,7 +2860,8 @@ describe("CLI message routing", () => {
 
   it("result: keeps user-triggered herded turns unread even with leader follow-up messages", async () => {
     bridge.setLauncher({
-      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ herdedBy: "orch-1" })),
     } as any);
 
@@ -2947,7 +2952,8 @@ describe("CLI message routing", () => {
       [workerId, { sessionId: workerId, herdedBy: leaderId, backendType: "claude", cwd: "/test" }],
     ]);
     bridge.setLauncher({
-      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
       getSession: vi.fn((id: string) => launcherSessions.get(id)),
       getHerdedSessions: vi.fn((id: string) => (id === leaderId ? [{ sessionId: workerId }] : [])),
       getSessionNum: vi.fn((id: string) => (id === leaderId ? 7 : undefined)),
@@ -3012,7 +3018,8 @@ describe("CLI message routing", () => {
       [workerId, { sessionId: workerId, herdedBy: leaderId, backendType: "claude", cwd: "/test" }],
     ]);
     bridge.setLauncher({
-      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
       getSession: vi.fn((id: string) => launcherSessions.get(id)),
       getHerdedSessions: vi.fn((id: string) => (id === leaderId ? [{ sessionId: workerId }] : [])),
       getSessionNum: vi.fn((id: string) => (id === leaderId ? 17 : undefined)),
@@ -3048,7 +3055,8 @@ describe("CLI message routing", () => {
       [workerId, { sessionId: workerId, herdedBy: leaderId, backendType: "claude", cwd: "/test" }],
     ]);
     bridge.setLauncher({
-      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
       getSession: vi.fn((id: string) => launcherSessions.get(id)),
       getHerdedSessions: vi.fn((id: string) => (id === leaderId ? [{ sessionId: workerId }] : [])),
       getSessionNum: vi.fn((id: string) => (id === leaderId ? 8 : undefined)),
@@ -3391,7 +3399,8 @@ describe("CLI message routing", () => {
 
   it("control_request (can_use_tool): does not set attention for herded worker sessions", async () => {
     bridge.setLauncher({
-      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ herdedBy: "orch-1" })),
     } as any);
 
@@ -3707,7 +3716,8 @@ describe("Browser message routing", () => {
   it("user_message: herded worker gets [Leader HH:MM] for leader-forwarded messages", () => {
     // Make the session a herded worker
     bridge.setLauncher({
-      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ herdedBy: "leader-session-1" })),
     } as any);
 
@@ -3728,7 +3738,8 @@ describe("Browser message routing", () => {
   it("user_message: herded worker gets [User HH:MM] for direct human messages", () => {
     // Make the session a herded worker
     bridge.setLauncher({
-      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ herdedBy: "leader-session-1" })),
     } as any);
 
@@ -4268,14 +4279,8 @@ describe("Browser message routing", () => {
     // because interrupts are normal control flow.
     const spy = vi.spyOn(bridge, "emitTakodeEvent");
 
-    bridge.handleBrowserMessage(
-      browser,
-      JSON.stringify({ type: "user_message", content: "start work" }),
-    );
-    bridge.handleBrowserMessage(
-      browser,
-      JSON.stringify({ type: "interrupt" }),
-    );
+    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "start work" }));
+    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "interrupt" }));
     bridge.handleCLIMessage(
       cli,
       JSON.stringify({
@@ -4295,22 +4300,14 @@ describe("Browser message routing", () => {
     // turn_end should still fire with interrupted metadata
     const turnEndCalls = spy.mock.calls.filter(([, eventType]) => eventType === "turn_end");
     expect(turnEndCalls.length).toBeGreaterThan(0);
-    expect(turnEndCalls[turnEndCalls.length - 1]?.[2]).toEqual(
-      expect.objectContaining({ interrupted: true }),
-    );
+    expect(turnEndCalls[turnEndCalls.length - 1]?.[2]).toEqual(expect.objectContaining({ interrupted: true }));
     spy.mockRestore();
   });
 
   it("interrupt: suppresses attention badge for interrupted is_error result", () => {
     // Interrupted error results should not set attention to "error"
-    bridge.handleBrowserMessage(
-      browser,
-      JSON.stringify({ type: "user_message", content: "start work" }),
-    );
-    bridge.handleBrowserMessage(
-      browser,
-      JSON.stringify({ type: "interrupt" }),
-    );
+    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "start work" }));
+    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "interrupt" }));
     bridge.handleCLIMessage(
       cli,
       JSON.stringify({
@@ -4330,14 +4327,8 @@ describe("Browser message routing", () => {
   it("interrupt: result browser message includes interrupted flag", () => {
     // The result message broadcast to browsers should carry interrupted: true
     // so the frontend can suppress error rendering.
-    bridge.handleBrowserMessage(
-      browser,
-      JSON.stringify({ type: "user_message", content: "start work" }),
-    );
-    bridge.handleBrowserMessage(
-      browser,
-      JSON.stringify({ type: "interrupt" }),
-    );
+    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "start work" }));
+    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "interrupt" }));
     browser.send.mockClear();
     bridge.handleCLIMessage(
       cli,
@@ -4363,10 +4354,7 @@ describe("Browser message routing", () => {
     // set attention -- only interrupts are suppressed.
     const spy = vi.spyOn(bridge, "emitTakodeEvent");
 
-    bridge.handleBrowserMessage(
-      browser,
-      JSON.stringify({ type: "user_message", content: "start work" }),
-    );
+    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "start work" }));
     // No interrupt sent
     bridge.handleCLIMessage(
       cli,
@@ -4395,10 +4383,7 @@ describe("Browser message routing", () => {
     // Both should suppress error side-effects (ws-bridge.ts:5896 checks both).
     const spy = vi.spyOn(bridge, "emitTakodeEvent");
 
-    bridge.handleBrowserMessage(
-      browser,
-      JSON.stringify({ type: "user_message", content: "start work" }),
-    );
+    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "start work" }));
     bridge.handleCLIMessage(
       cli,
       JSON.stringify({
@@ -7166,10 +7151,7 @@ describe("Claude SDK compaction handling", () => {
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
 
-    await bridge.handleBrowserMessage(
-      browser,
-      JSON.stringify({ type: "user_message", content: "implement feature" }),
-    );
+    await bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "implement feature" }));
 
     const session = bridge.getSession("s1")!;
     // isGenerating is set by the user message dispatch
@@ -7312,7 +7294,6 @@ describe("Claude SDK compaction handling", () => {
   });
 });
 
-
 // ─── Leader compaction recovery ─────────────────────────────────────────────
 
 describe("Leader compaction recovery", () => {
@@ -7328,12 +7309,19 @@ describe("Leader compaction recovery", () => {
     bridge.attachClaudeSdkAdapter("s1", adapter as any);
     adapter.emitBrowserMessage({
       type: "session_init",
-      session: { session_id: "cli-s1", model: "claude-sonnet-4-5-20250929", cwd: "/tmp/test", tools: [], permissionMode: "default" },
+      session: {
+        session_id: "cli-s1",
+        model: "claude-sonnet-4-5-20250929",
+        cwd: "/tmp/test",
+        tools: [],
+        permissionMode: "default",
+      },
     });
 
     // Mark session as orchestrator
     bridge.setLauncher({
-      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ isOrchestrator: true })),
     } as any);
 
@@ -7358,12 +7346,19 @@ describe("Leader compaction recovery", () => {
     bridge.attachClaudeSdkAdapter("s1", adapter as any);
     adapter.emitBrowserMessage({
       type: "session_init",
-      session: { session_id: "cli-s1", model: "claude-sonnet-4-5-20250929", cwd: "/tmp/test", tools: [], permissionMode: "default" },
+      session: {
+        session_id: "cli-s1",
+        model: "claude-sonnet-4-5-20250929",
+        cwd: "/tmp/test",
+        tools: [],
+        permissionMode: "default",
+      },
     });
 
     // Not an orchestrator
     bridge.setLauncher({
-      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ isOrchestrator: false })),
     } as any);
 
@@ -7384,12 +7379,19 @@ describe("Leader compaction recovery", () => {
     bridge.attachClaudeSdkAdapter("s1", adapter as any);
     adapter.emitBrowserMessage({
       type: "session_init",
-      session: { session_id: "cli-s1", model: "claude-sonnet-4-5-20250929", cwd: "/tmp/test", tools: [], permissionMode: "default" },
+      session: {
+        session_id: "cli-s1",
+        model: "claude-sonnet-4-5-20250929",
+        cwd: "/tmp/test",
+        tools: [],
+        permissionMode: "default",
+      },
     });
 
     // Herded worker (not orchestrator)
     bridge.setLauncher({
-      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ isOrchestrator: false, herdedBy: "leader-uuid" })),
     } as any);
 
@@ -8324,7 +8326,8 @@ describe("status_change: running on user_message", () => {
 
   it("state_snapshot includes attention for herded worker sessions when set", () => {
     bridge.setLauncher({
-      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ herdedBy: "orch-1" })),
     } as any);
 
@@ -10090,7 +10093,8 @@ describe("Codex MCP startup failures", () => {
     const relaunchCb = vi.fn();
     bridge.onCLIRelaunchNeededCallback(relaunchCb);
     bridge.setLauncher({
-      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ backendType: "codex", state: "connected", killedByIdleManager: false })),
     } as any);
 
@@ -10109,7 +10113,7 @@ describe("Codex MCP startup failures", () => {
         {
           name: "notion",
           status: "failed",
-          error: "Auth(TokenRefreshFailed(\"Server returned error response: invalid_grant\"))",
+          error: 'Auth(TokenRefreshFailed("Server returned error response: invalid_grant"))',
           config: { type: "unknown" },
           scope: "session",
           tools: [],
@@ -10209,7 +10213,8 @@ describe("Codex disconnect auto-relaunch", () => {
     const relaunchCb = vi.fn();
     bridge.onCLIRelaunchNeededCallback(relaunchCb);
     bridge.setLauncher({
-      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ killedByIdleManager: true })),
     } as any);
 
@@ -10300,7 +10305,8 @@ describe("Codex user-message-driven relaunch for idle sessions", () => {
     const relaunchCb = vi.fn();
     bridge.onCLIRelaunchNeededCallback(relaunchCb);
     bridge.setLauncher({
-      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ state: "exited", killedByIdleManager: false })),
     } as any);
 
@@ -10338,7 +10344,8 @@ describe("Codex user-message-driven relaunch for idle sessions", () => {
     const relaunchCb = vi.fn();
     bridge.onCLIRelaunchNeededCallback(relaunchCb);
     bridge.setLauncher({
-      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ state: "exited", killedByIdleManager: false })),
     } as any);
 
@@ -10376,7 +10383,8 @@ describe("Codex user-message-driven relaunch for idle sessions", () => {
     bridge.onCLIRelaunchNeededCallback(relaunchCb);
     const launcherInfo = { state: "exited", killedByIdleManager: true };
     bridge.setLauncher({
-      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
       getSession: vi.fn(() => launcherInfo),
     } as any);
 
@@ -10409,7 +10417,8 @@ describe("Codex user-message-driven relaunch for idle sessions", () => {
     const relaunchCb = vi.fn();
     bridge.onCLIRelaunchNeededCallback(relaunchCb);
     bridge.setLauncher({
-      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ state: "connected" })),
     } as any);
 
@@ -10446,7 +10455,8 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     const relaunchCb = vi.fn();
     bridge.onCLIRelaunchNeededCallback(relaunchCb);
     bridge.setLauncher({
-      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ state: "exited", killedByIdleManager: false })),
     } as any);
 
@@ -10468,7 +10478,8 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     const launcherInfo = { backendType: "codex", state: "starting", killedByIdleManager: false };
     bridge.onCLIRelaunchNeededCallback(relaunchCb);
     bridge.setLauncher({
-      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
       getSession: vi.fn(() => launcherInfo),
     } as any);
 
@@ -10518,7 +10529,8 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     bridge.onCLIRelaunchNeededCallback(relaunchCb);
     const launcherInfo = { state: "exited", killedByIdleManager: true };
     bridge.setLauncher({
-      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
       getSession: vi.fn(() => launcherInfo),
     } as any);
 
@@ -10538,7 +10550,8 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     const relaunchCb = vi.fn();
     bridge.onCLIRelaunchNeededCallback(relaunchCb);
     bridge.setLauncher({
-      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ state: "connected" })),
     } as any);
 
@@ -10560,7 +10573,8 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     bridge.onCLIRelaunchNeededCallback(relaunchCb);
     const launcherInfo = { backendType: "claude-sdk", state: "exited", killedByIdleManager: true };
     bridge.setLauncher({
-      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
       getSession: vi.fn(() => launcherInfo),
     } as any);
 
@@ -12251,7 +12265,8 @@ describe("Codex runtime settings updates", () => {
     const relaunchCb = vi.fn();
     const launcherInfo = { model: "gpt-5.4", permissionMode: "plan" };
     const launcherMock = {
-      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
       getSession: vi.fn(() => launcherInfo),
     };
     bridge.setLauncher(launcherMock as any);
@@ -12291,7 +12306,8 @@ describe("Codex runtime settings updates", () => {
     const relaunchCb = vi.fn();
     const launcherInfo = { model: "gpt-5.4", codexReasoningEffort: undefined };
     const launcherMock = {
-      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
       getSession: vi.fn(() => launcherInfo),
     };
     bridge.setLauncher(launcherMock as any);
@@ -12322,7 +12338,8 @@ describe("Codex runtime settings updates", () => {
     const relaunchCb = vi.fn();
     const launcherInfo = { permissionMode: "plan", askPermission: true };
     const launcherMock = {
-      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
       getSession: vi.fn(() => launcherInfo),
     };
     bridge.setLauncher(launcherMock as any);
@@ -12376,7 +12393,8 @@ describe("Codex permission mode switch with pending approvals", () => {
     const relaunchCb = vi.fn();
     const launcherInfo = { permissionMode: "suggest" };
     const launcherMock = {
-      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
       getSession: vi.fn(() => launcherInfo),
       getSessionNum: vi.fn(() => 1),
     };
@@ -12451,7 +12469,8 @@ describe("Codex permission mode switch with pending approvals", () => {
     // Start in suggest mode (permissions go to pending_human, not auto-approved)
     const launcherInfo = { permissionMode: "suggest" };
     const launcherMock = {
-      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
       getSession: vi.fn(() => launcherInfo),
       getSessionNum: vi.fn(() => 2),
     };
@@ -12518,7 +12537,8 @@ describe("Codex permission mode switch with pending approvals", () => {
     const relaunchCb = vi.fn();
     const launcherInfo = { permissionMode: "suggest" };
     const launcherMock = {
-      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
       getSession: vi.fn(() => launcherInfo),
     };
     bridge.setLauncher(launcherMock as any);
@@ -12836,7 +12856,8 @@ describe("Codex user_message takode events", () => {
     ]);
 
     const launcherMock = {
-      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
       getSession: vi.fn((id: string) => launcherSessions.get(id)),
       getHerdedSessions: vi.fn((id: string) => (id === leaderId ? [{ sessionId: workerId }] : [])),
       getSessionNum: vi.fn((id: string) => (id === leaderId ? 1 : 2)),
@@ -13005,7 +13026,8 @@ describe("Codex user_message takode events", () => {
     ]);
 
     const launcherMock = {
-      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
       getSession: vi.fn((id: string) => launcherSessions.get(id)),
       getHerdedSessions: vi.fn((id: string) => (id === leaderId ? [{ sessionId: workerId }] : [])),
       getSessionNum: vi.fn((id: string) => (id === leaderId ? 1 : 2)),
@@ -13180,7 +13202,8 @@ describe("Codex user_message takode events", () => {
     ]);
 
     const launcherMock = {
-      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
       getSession: vi.fn((id: string) => launcherSessions.get(id)),
       getHerdedSessions: vi.fn((id: string) => (id === leaderId ? [{ sessionId: workerId }] : [])),
       getSessionNum: vi.fn((id: string) => (id === leaderId ? 1 : 2)),
@@ -13948,7 +13971,8 @@ describe("Claude SDK adapter queue handoff", () => {
     session.backendType = "claude-sdk";
 
     bridge.setLauncher({
-      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ herdedBy: "leader-1" })),
     } as any);
 
@@ -14221,7 +14245,8 @@ describe("SDK disconnect auto-relaunch", () => {
     const relaunchCb = vi.fn();
     bridge.onCLIRelaunchNeededCallback(relaunchCb);
     bridge.setLauncher({
-      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ killedByIdleManager: true })),
     } as any);
 
@@ -14245,7 +14270,8 @@ describe("SDK disconnect auto-relaunch", () => {
     bridge.onCLIRelaunchNeededCallback(relaunchCb);
     // Simulate post-restart: launcher reports SDK session as exited, no adapter attached
     bridge.setLauncher({
-      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ backendType: "claude-sdk", state: "exited" })),
     } as any);
 
@@ -14267,7 +14293,8 @@ describe("SDK disconnect auto-relaunch", () => {
     const relaunchCb = vi.fn();
     bridge.onCLIRelaunchNeededCallback(relaunchCb);
     bridge.setLauncher({
-      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ backendType: "claude-sdk", state: "starting" })),
     } as any);
 
@@ -14287,7 +14314,8 @@ describe("SDK disconnect auto-relaunch", () => {
     const relaunchCb = vi.fn();
     bridge.onCLIRelaunchNeededCallback(relaunchCb);
     bridge.setLauncher({
-      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
       getSession: vi.fn(() => ({ backendType: "claude-sdk", state: "connected" })),
     } as any);
 
@@ -14362,25 +14390,24 @@ describe("SDK disconnect auto-relaunch", () => {
     browser.send.mockClear();
 
     // Send /compact as a browser user message
-    bridge.handleBrowserMessage(browser, JSON.stringify({
-      type: "user_message",
-      content: "/compact",
-    }));
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "user_message",
+        content: "/compact",
+      }),
+    );
 
     // Should have triggered relaunch
     expect(relaunchCb).toHaveBeenCalledWith(sid);
 
     // Should have broadcast "compacting" status to browsers
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    expect(calls).toContainEqual(
-      expect.objectContaining({ type: "status_change", status: "compacting" }),
-    );
+    expect(calls).toContainEqual(expect.objectContaining({ type: "status_change", status: "compacting" }));
 
     // Should have recorded the /compact in message history
     const session = bridge.getSession(sid)!;
-    const userMsg = session.messageHistory.find(
-      (m) => m.type === "user_message" && (m as any).content === "/compact",
-    );
+    const userMsg = session.messageHistory.find((m) => m.type === "user_message" && (m as any).content === "/compact");
     expect(userMsg).toBeTruthy();
 
     // Should have queued /compact in browser format for the SDK adapter flush
@@ -14409,17 +14436,18 @@ describe("SDK disconnect auto-relaunch", () => {
     bridge.handleBrowserOpen(browser, sid);
     browser.send.mockClear();
 
-    bridge.handleBrowserMessage(browser, JSON.stringify({
-      type: "user_message",
-      content: "/compact",
-    }));
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "user_message",
+        content: "/compact",
+      }),
+    );
 
     expect(relaunchCb).toHaveBeenCalledWith(sid);
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    expect(calls).toContainEqual(
-      expect.objectContaining({ type: "status_change", status: "compacting" }),
-    );
+    expect(calls).toContainEqual(expect.objectContaining({ type: "status_change", status: "compacting" }));
 
     // WebSocket sessions queue NDJSON format for sendToCLI flush
     expect(session.pendingMessages.length).toBe(1);
@@ -14463,10 +14491,13 @@ describe("CLI slash command interception", () => {
     browser.send.mockClear();
     adapter.sendBrowserMessage.mockClear();
 
-    bridge.handleBrowserMessage(browser, JSON.stringify({
-      type: "user_message",
-      content: "/context",
-    }));
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "user_message",
+        content: "/context",
+      }),
+    );
 
     // Should have forwarded to the SDK adapter with clean content (no timestamp tag)
     expect(adapter.sendBrowserMessage).toHaveBeenCalledWith(
@@ -14474,16 +14505,12 @@ describe("CLI slash command interception", () => {
     );
 
     // Should have recorded the command in message history
-    const userMsg = session.messageHistory.find(
-      (m) => m.type === "user_message" && (m as any).content === "/context",
-    );
+    const userMsg = session.messageHistory.find((m) => m.type === "user_message" && (m as any).content === "/context");
     expect(userMsg).toBeTruthy();
 
     // Should have broadcast "running" status
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    expect(calls).toContainEqual(
-      expect.objectContaining({ type: "status_change", status: "running" }),
-    );
+    expect(calls).toContainEqual(expect.objectContaining({ type: "status_change", status: "running" }));
   });
 
   it("forwards /cost to WebSocket session via sendToCLI", () => {
@@ -14500,10 +14527,13 @@ describe("CLI slash command interception", () => {
     browser.send.mockClear();
     cliSocket.send.mockClear();
 
-    bridge.handleBrowserMessage(browser, JSON.stringify({
-      type: "user_message",
-      content: "/cost",
-    }));
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "user_message",
+        content: "/cost",
+      }),
+    );
 
     // Should have sent NDJSON to the CLI socket without timestamp tags
     expect(cliSocket.send).toHaveBeenCalled();
@@ -14512,9 +14542,7 @@ describe("CLI slash command interception", () => {
     expect(sentNdjson.message.content).toBe("/cost");
 
     // Should have recorded the command in message history
-    const userMsg = session.messageHistory.find(
-      (m) => m.type === "user_message" && (m as any).content === "/cost",
-    );
+    const userMsg = session.messageHistory.find((m) => m.type === "user_message" && (m as any).content === "/cost");
     expect(userMsg).toBeTruthy();
   });
 
@@ -14530,10 +14558,13 @@ describe("CLI slash command interception", () => {
     bridge.handleBrowserOpen(browser, sid);
     adapter.sendBrowserMessage.mockClear();
 
-    bridge.handleBrowserMessage(browser, JSON.stringify({
-      type: "user_message",
-      content: "/nonexistent-command",
-    }));
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "user_message",
+        content: "/nonexistent-command",
+      }),
+    );
 
     // The adapter should still receive the message (through normal path with timestamp)
     // but it should NOT have been intercepted by the slash command handler.
@@ -14559,10 +14590,13 @@ describe("CLI slash command interception", () => {
     bridge.handleBrowserOpen(browser, sid);
     adapter.sendBrowserMessage.mockClear();
 
-    bridge.handleBrowserMessage(browser, JSON.stringify({
-      type: "user_message",
-      content: "/context",
-    }));
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "user_message",
+        content: "/context",
+      }),
+    );
 
     // Should NOT have been intercepted -- goes through normal path
     const adapterCalls = adapter.sendBrowserMessage.mock.calls;
@@ -14584,10 +14618,13 @@ describe("CLI slash command interception", () => {
     bridge.handleBrowserOpen(browser, sid);
     adapter.sendBrowserMessage.mockClear();
 
-    bridge.handleBrowserMessage(browser, JSON.stringify({
-      type: "user_message",
-      content: "  /context  ",
-    }));
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "user_message",
+        content: "  /context  ",
+      }),
+    );
 
     // Should have been intercepted and forwarded with trimmed content
     expect(adapter.sendBrowserMessage).toHaveBeenCalledWith(
@@ -14607,10 +14644,13 @@ describe("CLI slash command interception", () => {
     const browser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(browser, sid);
 
-    bridge.handleBrowserMessage(browser, JSON.stringify({
-      type: "user_message",
-      content: "/context",
-    }));
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "user_message",
+        content: "/context",
+      }),
+    );
 
     // Should have queued the message for later flush
     expect(session.pendingMessages.length).toBe(1);
@@ -15610,7 +15650,8 @@ describe("Cross-session branch invalidation", () => {
   it("archived sessions are excluded from cross-session invalidation", async () => {
     // Set up a launcher mock where session B is archived
     bridge.setLauncher({
-      touchActivity: vi.fn(), touchUserMessage: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
       getSession: vi.fn((id: string) => {
         if (id === "sB") return { archived: true };
         return { archived: false };

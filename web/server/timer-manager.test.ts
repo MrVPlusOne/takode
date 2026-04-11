@@ -93,9 +93,7 @@ describe("TimerManager", () => {
     });
 
     it("rejects empty prompt", async () => {
-      await expect(manager.createTimer("session-1", { prompt: "", in: "5m" })).rejects.toThrow(
-        "prompt is required",
-      );
+      await expect(manager.createTimer("session-1", { prompt: "", in: "5m" })).rejects.toThrow("prompt is required");
     });
 
     it("rejects when timer limit is reached", async () => {
@@ -104,9 +102,9 @@ describe("TimerManager", () => {
         await manager.createTimer("session-1", { prompt: `timer ${i}`, in: "30m" });
       }
       // The 51st should be rejected
-      await expect(
-        manager.createTimer("session-1", { prompt: "one too many", in: "5m" }),
-      ).rejects.toThrow("Timer limit reached");
+      await expect(manager.createTimer("session-1", { prompt: "one too many", in: "5m" })).rejects.toThrow(
+        "Timer limit reached",
+      );
     });
   });
 
@@ -203,11 +201,10 @@ describe("TimerManager", () => {
       vi.advanceTimersByTime(5 * 60_000 + 1);
       await triggerSweep(manager);
 
-      expect(bridge.injectUserMessage).toHaveBeenCalledWith(
-        "session-1",
-        "[⏰ Timer t1] do something",
-        { sessionId: "timer:t1", sessionLabel: "Timer t1" },
-      );
+      expect(bridge.injectUserMessage).toHaveBeenCalledWith("session-1", "[⏰ Timer t1] do something", {
+        sessionId: "timer:t1",
+        sessionLabel: "Timer t1",
+      });
       // One-shot should be removed after firing
       expect(manager.listTimers("session-1")).toHaveLength(0);
     });

@@ -3,7 +3,13 @@ import { useStore } from "./store.js";
 import { connectSession, disconnectSession, sendVsCodeSelectionUpdate } from "./ws.js";
 import { api, checkHealth } from "./api.js";
 
-import { parseHash, navigateToSession, navigateToMostRecentSession, messageIndexFromHash, scrollToMessageIndex } from "./utils/routing.js";
+import {
+  parseHash,
+  navigateToSession,
+  navigateToMostRecentSession,
+  messageIndexFromHash,
+  scrollToMessageIndex,
+} from "./utils/routing.js";
 import { Sidebar } from "./components/Sidebar.js";
 import { ChatView } from "./components/ChatView.js";
 import { TopBar } from "./components/TopBar.js";

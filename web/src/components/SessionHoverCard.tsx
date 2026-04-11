@@ -67,13 +67,18 @@ export function SessionHoverCard({
     snippetFetchedRef.current = cacheKey;
 
     let cancelled = false;
-    api.fetchMessageSnippet(s.id, messageIndex).then((result) => {
-      if (!cancelled && result) setMessageSnippet(result);
-    }).catch(() => {
-      // Snippet fetch is best-effort; the hover card still shows session info
-    });
+    api
+      .fetchMessageSnippet(s.id, messageIndex)
+      .then((result) => {
+        if (!cancelled && result) setMessageSnippet(result);
+      })
+      .catch(() => {
+        // Snippet fetch is best-effort; the hover card still shows session info
+      });
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [s.id, messageIndex]);
 
   // For leader sessions: find which sessions this leader is herding

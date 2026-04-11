@@ -261,7 +261,11 @@ export function ProjectGroup({
                 return (
                   <SortableSessionItem key={s.id} id={s.id} disabled={!isDraggable}>
                     {({ setNodeRef, style, listeners, attributes, isDragging }) => (
-                      <div ref={setNodeRef} style={style} {...(!touchDevice && isDraggable ? { ...listeners, ...attributes } : {})}>
+                      <div
+                        ref={setNodeRef}
+                        style={style}
+                        {...(!touchDevice && isDraggable ? { ...listeners, ...attributes } : {})}
+                      >
                         <SessionItem
                           session={s}
                           isActive={currentSessionId === s.id}

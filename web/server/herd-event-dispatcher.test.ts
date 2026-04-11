@@ -1132,12 +1132,8 @@ describe("inbox overflow prioritization (q-205)", () => {
     }
 
     // Add critical events
-    triggerEvent(
-      makeEvent({ id: 198, event: "permission_request", data: { tool_name: "Bash", summary: "test" } }),
-    );
-    triggerEvent(
-      makeEvent({ id: 199, event: "session_error", data: { error: "CLI crashed" } }),
-    );
+    triggerEvent(makeEvent({ id: 198, event: "permission_request", data: { tool_name: "Bash", summary: "test" } }));
+    triggerEvent(makeEvent({ id: 199, event: "session_error", data: { error: "CLI crashed" } }));
 
     // Trigger overflow
     triggerEvent(makeEvent({ id: 200, event: "turn_end" }));

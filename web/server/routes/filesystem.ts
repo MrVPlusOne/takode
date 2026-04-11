@@ -210,11 +210,9 @@ export function createFilesystemRoutes(ctx: RouteContext) {
           repoRoot,
         );
         if (untracked) {
-          diff = await execCaptureStdoutAsync(
-            `${SERVER_GIT_CMD} diff --no-index -- /dev/null "${absPath}"`,
-            repoRoot,
-            { maxBuffer: DIFF_MAX_BUFFER },
-          );
+          diff = await execCaptureStdoutAsync(`${SERVER_GIT_CMD} diff --no-index -- /dev/null "${absPath}"`, repoRoot, {
+            maxBuffer: DIFF_MAX_BUFFER,
+          });
         }
       }
 

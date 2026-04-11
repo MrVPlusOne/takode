@@ -2,7 +2,15 @@ import { mkdtempSync, rmSync, readFileSync, mkdirSync, writeFileSync } from "nod
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { getName, setName, getAllNames, removeName, getNextLeaderNumber, _resetForTest, _flushForTest } from "./session-names.js";
+import {
+  getName,
+  setName,
+  getAllNames,
+  removeName,
+  getNextLeaderNumber,
+  _resetForTest,
+  _flushForTest,
+} from "./session-names.js";
 
 let tempDir: string;
 

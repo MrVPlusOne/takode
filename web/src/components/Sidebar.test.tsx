@@ -27,7 +27,9 @@ const mockApi = {
   unarchiveSession: vi.fn().mockResolvedValue({}),
   getSettings: vi.fn().mockResolvedValue({ serverName: "" }),
   updateSettings: vi.fn().mockResolvedValue({ herdLeaderFirstEnabled: false }),
-  getTreeGroups: vi.fn().mockResolvedValue({ groups: [{ id: "default", name: "Default" }], assignments: {}, nodeOrder: {} }),
+  getTreeGroups: vi
+    .fn()
+    .mockResolvedValue({ groups: [{ id: "default", name: "Default" }], assignments: {}, nodeOrder: {} }),
 };
 
 vi.mock("../api.js", () => ({
@@ -284,9 +286,12 @@ describe("Sidebar", { timeout: 10000 }, () => {
   it("hydrates tree groups from server on mount", async () => {
     // Validates that sidebar fetches tree groups on first render so grouping
     // is correct immediately, without waiting for a WebSocket session connect.
-    const groups = [{ id: "default", name: "Default" }, { id: "g1", name: "Project A" }];
-    const assignments = { "s1": "g1" };
-    const nodeOrder = { "g1": ["s1"] };
+    const groups = [
+      { id: "default", name: "Default" },
+      { id: "g1", name: "Project A" },
+    ];
+    const assignments = { s1: "g1" };
+    const nodeOrder = { g1: ["s1"] };
     mockApi.getTreeGroups.mockResolvedValueOnce({ groups, assignments, nodeOrder });
 
     render(<Sidebar />);

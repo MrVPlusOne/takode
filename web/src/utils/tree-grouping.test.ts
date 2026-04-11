@@ -31,10 +31,7 @@ describe("buildTreeViewGroups", () => {
   const emptyAssignments = new Map<string, string>();
 
   it("places all sessions in default group when no assignments exist", () => {
-    const sessions = [
-      makeSession({ id: "s1", sessionNum: 1 }),
-      makeSession({ id: "s2", sessionNum: 2 }),
-    ];
+    const sessions = [makeSession({ id: "s1", sessionNum: 1 }), makeSession({ id: "s2", sessionNum: 2 })];
 
     const result = buildTreeViewGroups(sessions, defaultGroups, emptyAssignments);
     expect(result).toHaveLength(1);
@@ -197,9 +194,7 @@ describe("buildTreeViewGroups", () => {
   });
 
   it("assigns to default group when assignment references a deleted group", () => {
-    const assignments = new Map([
-      ["s1", "deleted-group-id"],
-    ]);
+    const assignments = new Map([["s1", "deleted-group-id"]]);
     const sessions = [makeSession({ id: "s1", sessionNum: 1 })];
 
     const result = buildTreeViewGroups(sessions, defaultGroups, assignments);
@@ -290,13 +285,16 @@ describe("buildTreeViewGroups", () => {
       makeSession({ id: "leader-1", sessionNum: 1, isOrchestrator: true }),
       makeSession({ id: "worker-1", sessionNum: 2, herdedBy: "leader-1" }),
     ];
-    const reviewerSessions = [
-      makeSession({ id: "reviewer-1", sessionNum: 10, reviewerOf: 2 }),
-    ];
+    const reviewerSessions = [makeSession({ id: "reviewer-1", sessionNum: 10, reviewerOf: 2 })];
 
     const result = buildTreeViewGroups(
-      sessions, defaultGroups, emptyAssignments,
-      undefined, undefined, undefined, reviewerSessions,
+      sessions,
+      defaultGroups,
+      emptyAssignments,
+      undefined,
+      undefined,
+      undefined,
+      reviewerSessions,
     );
     expect(result[0].nodes).toHaveLength(1);
     const node = result[0].nodes[0];
@@ -310,17 +308,20 @@ describe("buildTreeViewGroups", () => {
 
   it("reviewerSessions param works for leader-only reviewers (no workers)", () => {
     // Reviewer targeting the leader directly, not a worker
-    const sessions = [
-      makeSession({ id: "leader-1", sessionNum: 5, isOrchestrator: true }),
-    ];
+    const sessions = [makeSession({ id: "leader-1", sessionNum: 5, isOrchestrator: true })];
     const reviewerSessions = [
       makeSession({ id: "reviewer-a", sessionNum: 20, reviewerOf: 5 }),
       makeSession({ id: "reviewer-b", sessionNum: 21, reviewerOf: 5 }),
     ];
 
     const result = buildTreeViewGroups(
-      sessions, defaultGroups, emptyAssignments,
-      undefined, undefined, undefined, reviewerSessions,
+      sessions,
+      defaultGroups,
+      emptyAssignments,
+      undefined,
+      undefined,
+      undefined,
+      reviewerSessions,
     );
     const node = result[0].nodes[0];
     expect(node.leader.id).toBe("leader-1");
@@ -338,8 +339,13 @@ describe("buildTreeViewGroups", () => {
 
     const withUndefined = buildTreeViewGroups(sessions, defaultGroups, emptyAssignments);
     const withEmpty = buildTreeViewGroups(
-      sessions, defaultGroups, emptyAssignments,
-      undefined, undefined, undefined, [],
+      sessions,
+      defaultGroups,
+      emptyAssignments,
+      undefined,
+      undefined,
+      undefined,
+      [],
     );
 
     expect(withUndefined[0].nodes[0].reviewers).toHaveLength(0);
@@ -368,8 +374,13 @@ describe("buildTreeViewGroups", () => {
     ];
 
     const result = buildTreeViewGroups(
-      sessions, groups, assignments,
-      undefined, undefined, undefined, reviewerSessions,
+      sessions,
+      groups,
+      assignments,
+      undefined,
+      undefined,
+      undefined,
+      reviewerSessions,
     );
 
     const groupA = result.find((g) => g.id === "group-a")!;
@@ -387,16 +398,17 @@ describe("buildTreeViewGroups", () => {
   it("orphaned reviewer (parent sessionNum missing) is silently dropped", () => {
     // Reviewers whose reviewerOf points to a nonexistent sessionNum should
     // not appear in any node's reviewers array.
-    const sessions = [
-      makeSession({ id: "leader-1", sessionNum: 1, isOrchestrator: true }),
-    ];
-    const reviewerSessions = [
-      makeSession({ id: "reviewer-orphan", sessionNum: 99, reviewerOf: 999 }),
-    ];
+    const sessions = [makeSession({ id: "leader-1", sessionNum: 1, isOrchestrator: true })];
+    const reviewerSessions = [makeSession({ id: "reviewer-orphan", sessionNum: 99, reviewerOf: 999 })];
 
     const result = buildTreeViewGroups(
-      sessions, defaultGroups, emptyAssignments,
-      undefined, undefined, undefined, reviewerSessions,
+      sessions,
+      defaultGroups,
+      emptyAssignments,
+      undefined,
+      undefined,
+      undefined,
+      reviewerSessions,
     );
     expect(result[0].nodes[0].reviewers).toHaveLength(0);
   });

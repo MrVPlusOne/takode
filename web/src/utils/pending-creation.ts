@@ -127,9 +127,9 @@ async function _runCreation(pendingId: string, pending: PendingSession, signal: 
 
     // Assign to tree group if one was specified (non-default)
     if (pending.treeGroupId && pending.treeGroupId !== "default") {
-      api.assignSessionToTreeGroup(sessionId, pending.treeGroupId).catch((err) =>
-        console.error("Failed to assign session to tree group:", sessionId, pending.treeGroupId, err),
-      );
+      api
+        .assignSessionToTreeGroup(sessionId, pending.treeGroupId)
+        .catch((err) => console.error("Failed to assign session to tree group:", sessionId, pending.treeGroupId, err));
     }
 
     // Transition: if user is viewing the pending session, seamlessly switch to real session

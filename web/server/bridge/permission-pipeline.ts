@@ -243,9 +243,7 @@ export function handlePermissionRequest<S extends PermissionPipelineSession>(
   // sessions may forward requests the CLI couldn't approve (e.g. Bash commands
   // not matching the CLI's narrower rule set, or requests during plan mode).
   // Skip tools that can never be auto-approved (they'd just return null anyway).
-  const settingsRuleEnabled =
-    options.enableSettingsRuleApprove !== false &&
-    !NEVER_AUTO_APPROVE.has(toolName);
+  const settingsRuleEnabled = options.enableSettingsRuleApprove !== false && !NEVER_AUTO_APPROVE.has(toolName);
   if (settingsRuleEnabled) {
     return shouldSettingsRuleApprove(toolName, input, session.state.cwd).then((matchedRule) => {
       if (matchedRule) {

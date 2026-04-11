@@ -181,9 +181,7 @@ export function groupSessionsByProject(
       // tool progress, which would cause sessions to flip order constantly while
       // concurrently working.  Fall back to createdAt for sessions with no user
       // messages yet.
-      group.sessions.sort((a, b) =>
-        (b.lastUserMessageAt ?? b.createdAt) - (a.lastUserMessageAt ?? a.createdAt),
-      );
+      group.sessions.sort((a, b) => (b.lastUserMessageAt ?? b.createdAt) - (a.lastUserMessageAt ?? a.createdAt));
     } else {
       const customOrder = sessionOrder?.get(group.key);
       if (customOrder && customOrder.length > 0) {
@@ -231,10 +229,7 @@ function findLeadersWithVisibleWorkers(sessions: SessionItem[]): Set<string> {
  * Does not move unrelated orchestrators, does not reorder workers, and does not
  * otherwise collapse the sorted/manual session order.
  */
-export function moveHerdLeadersBeforeWorkers(
-  sessions: SessionItem[],
-  leadersWithVisibleWorkers?: Set<string>,
-): void {
+export function moveHerdLeadersBeforeWorkers(sessions: SessionItem[], leadersWithVisibleWorkers?: Set<string>): void {
   const ids = new Set(sessions.map((s) => s.id));
   const leaderToFirstWorkerIndex = new Map<string, number>();
 

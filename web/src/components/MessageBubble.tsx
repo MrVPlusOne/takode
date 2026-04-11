@@ -392,9 +392,11 @@ function HerdEventEntry({ header, activity }: { header: string; activity: string
         </svg>
       </button>
       {expanded && hasActivity && (
-        <pre className="mt-1 ml-1 px-2.5 py-2 rounded-md border border-cc-border/20 bg-cc-card/30
+        <pre
+          className="mt-1 ml-1 px-2.5 py-2 rounded-md border border-cc-border/20 bg-cc-card/30
           text-[10px] text-cc-muted/80 font-mono-code leading-relaxed
-          whitespace-pre-wrap break-words overflow-x-auto max-h-[400px] overflow-y-auto">
+          whitespace-pre-wrap break-words overflow-x-auto max-h-[400px] overflow-y-auto"
+        >
           {activity.join("\n")}
         </pre>
       )}
@@ -766,7 +768,9 @@ function AssistantMessage({
         >
           {userAddressed && <LeaderUserAddressedMarker />}
           <MarkdownContent text={displayMessage.content} sessionId={sessionId} searchHighlight={searchHighlight} />
-          {message.notification && <NotificationMarker category={message.notification.category} summary={message.notification.summary} />}
+          {message.notification && (
+            <NotificationMarker category={message.notification.category} summary={message.notification.summary} />
+          )}
           {showTimestamp && (
             <MessageTimestamp timestamp={displayMessage.timestamp} turnDurationMs={displayMessage.turnDurationMs} />
           )}
@@ -807,7 +811,9 @@ function AssistantMessage({
           // Grouped tool_uses
           return <ToolGroupBlock key={i} name={group.name} items={group.items} sessionId={sessionId} />;
         })}
-        {message.notification && <NotificationMarker category={message.notification.category} summary={message.notification.summary} />}
+        {message.notification && (
+          <NotificationMarker category={message.notification.category} summary={message.notification.summary} />
+        )}
         {showTimestamp && (
           <MessageTimestamp timestamp={displayMessage.timestamp} turnDurationMs={displayMessage.turnDurationMs} />
         )}

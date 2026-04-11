@@ -394,7 +394,10 @@ export function SessionItem({
   };
 
   return (
-    <div className={`relative group ${archived ? "opacity-50" : ""}`} style={indentLevel > 0 ? { paddingLeft: `${indentLevel * 16}px` } : undefined}>
+    <div
+      className={`relative group ${archived ? "opacity-50" : ""}`}
+      style={indentLevel > 0 ? { paddingLeft: `${indentLevel * 16}px` } : undefined}
+    >
       {canSwipeToArchive && (
         <div
           className={`absolute inset-0 sm:hidden rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-300 pointer-events-none transition-opacity ${
@@ -439,11 +442,11 @@ export function SessionItem({
         className={`w-full text-left rounded-xl sm:rounded-lg border sm:border-transparent ${
           compact
             ? "pl-3.5 pr-12 py-1.5 sm:pl-3.5 sm:pr-3 sm:py-1"
-            : archived ? "pl-3.5 pr-12 py-2.5 sm:pl-3.5 sm:pr-14 sm:py-2" : "pl-3.5 pr-12 py-2.5 sm:pl-3.5 sm:pr-3 sm:py-2"
+            : archived
+              ? "pl-3.5 pr-12 py-2.5 sm:pl-3.5 sm:pr-14 sm:py-2"
+              : "pl-3.5 pr-12 py-2.5 sm:pl-3.5 sm:pr-3 sm:py-2"
         } transition-all duration-100 select-none ${
-          isDraggable
-            ? "cursor-pointer sm:cursor-grab sm:active:cursor-grabbing"
-            : "cursor-pointer"
+          isDraggable ? "cursor-pointer sm:cursor-grab sm:active:cursor-grabbing" : "cursor-pointer"
         } ${
           isActive
             ? "bg-cc-active border-cc-primary/25"
@@ -570,7 +573,8 @@ export function SessionItem({
             </div>
 
             {/* Row 2: Preview -- match context during search, or active task / last message */}
-            {!compact && !isEditing &&
+            {!compact &&
+              !isEditing &&
               (displayMatch ? (
                 <div className="mt-0.5 text-[10.5px] text-cc-muted/80 leading-tight truncate">
                   <span className="text-cc-primary/70 mr-1">{displayMatch.fieldLabel}</span>

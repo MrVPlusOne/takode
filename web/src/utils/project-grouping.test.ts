@@ -502,7 +502,14 @@ describe("groupSessionsByProject — activity sort mode", () => {
 
   it("still nests reviewers after parent in activity mode", () => {
     const sessions = [
-      makeItem({ id: "reviewer", cwd: "/a/app", createdAt: 200, lastUserMessageAt: 500, sessionNum: 20, reviewerOf: 10 }),
+      makeItem({
+        id: "reviewer",
+        cwd: "/a/app",
+        createdAt: 200,
+        lastUserMessageAt: 500,
+        sessionNum: 20,
+        reviewerOf: 10,
+      }),
       makeItem({ id: "worker", cwd: "/a/app", createdAt: 100, lastUserMessageAt: 100, sessionNum: 10 }),
     ];
     const groups = groupSessionsByProject(sessions, undefined, undefined, undefined, "activity");

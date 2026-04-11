@@ -264,10 +264,7 @@ export function TopBar() {
                 </span>
               )}
               {sessionName && (
-                <span
-                  className="text-[11px] font-medium truncate text-cc-fg"
-                  title={sessionName}
-                >
+                <span className="text-[11px] font-medium truncate text-cc-fg" title={sessionName}>
                   {questLabel(sessionName, isQuestNamed, questStatus)}
                 </span>
               )}

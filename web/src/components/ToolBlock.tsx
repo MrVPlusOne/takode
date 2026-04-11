@@ -1,13 +1,4 @@
-import {
-  useState,
-  useEffect,
-  useRef,
-  useMemo,
-  memo,
-  Component,
-  type ReactNode,
-  type ErrorInfo,
-} from "react";
+import { useState, useEffect, useRef, useMemo, memo, Component, type ReactNode, type ErrorInfo } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { isSubagentToolName } from "../types.js";
 import { DiffViewer, formatFileHeaderPath } from "./DiffViewer.js";
@@ -94,8 +85,7 @@ class ToolBlockErrorBoundary extends Component<
         >
           <span className="font-medium">Failed to render {isOuter ? "tool block" : "tool content"}</span>
           <span className="text-cc-muted ml-1">
-            ({this.state.error.message})
-            {!isPermanent && " -- retrying..."}
+            ({this.state.error.message}){!isPermanent && " -- retrying..."}
           </span>
         </div>
       );
@@ -275,9 +265,7 @@ const ToolBlockInner = memo(function ToolBlockInner({
   // The object reference can change during history replay (re-deserialization),
   // which defeats Zustand's Object.is check and causes unnecessary re-renders.
   // The header only needs to know *whether* a result exists, not its contents.
-  const hasResult = useStore((s) =>
-    sessionId ? s.toolResults.get(sessionId)?.get(toolUseId) != null : false,
-  );
+  const hasResult = useStore((s) => (sessionId ? s.toolResults.get(sessionId)?.get(toolUseId) != null : false));
   // Only subscribe to the toolName field (a primitive string) instead of the
   // entire progress object. This prevents re-renders from progress.output or
   // progress.elapsedSeconds updates that don't affect the header badge.
@@ -328,7 +316,12 @@ const ToolBlockInner = memo(function ToolBlockInner({
         role="button"
         tabIndex={0}
         onClick={() => setOpen(!open)}
-        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen(!open); } }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setOpen(!open);
+          }
+        }}
         className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-cc-hover transition-colors cursor-pointer"
       >
         <svg
@@ -341,10 +334,7 @@ const ToolBlockInner = memo(function ToolBlockInner({
         <ToolIcon type={iconType} />
         {!hideHeaderLabel && <span className="text-xs font-medium text-cc-fg">{label}</span>}
         {isFileTool && filePathParts ? (
-          <span
-            className="text-xs truncate flex-1 font-mono-code"
-            title={filePath}
-          >
+          <span className="text-xs truncate flex-1 font-mono-code" title={filePath}>
             {filePathParts.dirLabel && <span className="text-cc-muted">{filePathParts.dirLabel}</span>}
             <span className="font-semibold text-cc-fg">{filePathParts.baseLabel}</span>
           </span>

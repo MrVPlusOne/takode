@@ -1299,10 +1299,7 @@ function HerdEventBatchGroup({ messages, sessionId }: { messages: ChatMessage[];
       data-feed-block-id={getHerdBatchFeedBlockId(messages[0]?.id ?? `count:${count}`)}
     >
       <div className="pl-9">
-        <button
-          onClick={() => setExpanded((v) => !v)}
-          className={`${HERD_CHIP_BASE} ${HERD_CHIP_INTERACTIVE}`}
-        >
+        <button onClick={() => setExpanded((v) => !v)} className={`${HERD_CHIP_BASE} ${HERD_CHIP_INTERACTIVE}`}>
           <span className="text-amber-500/50 shrink-0 text-[10px]">◇</span>
           <span>
             {eventCount} herd update{eventCount !== 1 ? "s" : ""} · {timeRange}

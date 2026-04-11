@@ -563,25 +563,19 @@ async function resolveGitInfo(state: SessionState): Promise<void> {
       // For worktrees, --show-toplevel gives the worktree root, not the main repo.
       // Use --git-common-dir to find the real repo root.
       if (state.is_worktree) {
-        const { stdout: commonDirOut } = await execPromise(
-          `${SERVER_GIT_CMD} rev-parse --git-common-dir 2>/dev/null`,
-          {
-            cwd: state.cwd,
-            encoding: "utf-8",
-            timeout: GIT_CMD_TIMEOUT,
-          },
-        );
+        const { stdout: commonDirOut } = await execPromise(`${SERVER_GIT_CMD} rev-parse --git-common-dir 2>/dev/null`, {
+          cwd: state.cwd,
+          encoding: "utf-8",
+          timeout: GIT_CMD_TIMEOUT,
+        });
         // commonDir is e.g. /path/to/repo/.git — parent is the repo root
         state.repo_root = resolve(state.cwd, commonDirOut.trim(), "..");
       } else {
-        const { stdout: toplevelOut } = await execPromise(
-          `${SERVER_GIT_CMD} rev-parse --show-toplevel 2>/dev/null`,
-          {
-            cwd: state.cwd,
-            encoding: "utf-8",
-            timeout: GIT_CMD_TIMEOUT,
-          },
-        );
+        const { stdout: toplevelOut } = await execPromise(`${SERVER_GIT_CMD} rev-parse --show-toplevel 2>/dev/null`, {
+          cwd: state.cwd,
+          encoding: "utf-8",
+          timeout: GIT_CMD_TIMEOUT,
+        });
         state.repo_root = toplevelOut.trim();
       }
     } catch {
@@ -1249,7 +1243,11 @@ export class WsBridge {
   }
 
   /** Broadcast tree group state to every connected browser socket. */
-  broadcastTreeGroupsUpdate(treeGroups: import("./tree-group-store.js").TreeGroup[], treeAssignments: Record<string, string>, treeNodeOrder: Record<string, string[]> = {}): void {
+  broadcastTreeGroupsUpdate(
+    treeGroups: import("./tree-group-store.js").TreeGroup[],
+    treeAssignments: Record<string, string>,
+    treeNodeOrder: Record<string, string[]> = {},
+  ): void {
     const payload: BrowserIncomingMessage = {
       type: "tree_groups_update",
       treeGroups,
@@ -4723,16 +4721,20 @@ export class WsBridge {
       groupOrder: this.getGroupOrderState(),
     });
     // Send tree group state (async store, fire-and-forget for the open handler)
-    import("./tree-group-store.js").then((treeGroupStore) =>
-      treeGroupStore.getState().then((tgs) => {
-        this.sendToBrowser(ws, {
-          type: "tree_groups_update",
-          treeGroups: tgs.groups,
-          treeAssignments: tgs.assignments,
-          treeNodeOrder: tgs.nodeOrder,
-        });
-      }),
-    ).catch((err) => { console.warn("[ws-bridge] failed to send tree group state on connect:", err); });
+    import("./tree-group-store.js")
+      .then((treeGroupStore) =>
+        treeGroupStore.getState().then((tgs) => {
+          this.sendToBrowser(ws, {
+            type: "tree_groups_update",
+            treeGroups: tgs.groups,
+            treeAssignments: tgs.assignments,
+            treeNodeOrder: tgs.nodeOrder,
+          });
+        }),
+      )
+      .catch((err) => {
+        console.warn("[ws-bridge] failed to send tree group state on connect:", err);
+      });
     this.sendVsCodeSelectionState(ws);
 
     // History replay and pending permissions are sent by handleSessionSubscribe
@@ -8051,9 +8053,7 @@ export class WsBridge {
         session.pendingMessages.push(JSON.stringify({ type: "user_message", content: command }));
       }
     } else {
-      const cliSessionId = this.launcher?.getSession(sessionId)?.cliSessionId
-        || session.state.session_id
-        || "";
+      const cliSessionId = this.launcher?.getSession(sessionId)?.cliSessionId || session.state.session_id || "";
       const ndjson = JSON.stringify({
         type: "user",
         message: { role: "user", content: command },

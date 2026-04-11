@@ -132,7 +132,7 @@ describe("tree-group-store", () => {
         { id: "default", name: "Default" },
         { id: "custom-1", name: "Custom" },
       ],
-      assignments: { "s1": "custom-1" },
+      assignments: { s1: "custom-1" },
       nodeOrder: {},
     });
 

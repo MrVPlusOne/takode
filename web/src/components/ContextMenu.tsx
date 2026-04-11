@@ -78,11 +78,7 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
   // Portal to document.body so the menu escapes overflow-hidden ancestors
   // and the CSS transform containing block on the root layout div.
   return createPortal(
-    <div
-      ref={menuRef}
-      className={MENU_STYLES.container}
-      style={{ left: x, top: y }}
-    >
+    <div ref={menuRef} className={MENU_STYLES.container} style={{ left: x, top: y }}>
       {confirmingItem ? (
         <div className="p-3 w-56">
           <p className="text-xs text-cc-fg mb-1 font-medium">{confirmingItem.confirm!.title}</p>
@@ -113,10 +109,7 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
         <div className="py-1">
           {items.map((item, idx) =>
             item.disabled ? (
-              <div
-                key={`${item.label}-${idx}`}
-                className={MENU_STYLES.disabledItem}
-              >
+              <div key={`${item.label}-${idx}`} className={MENU_STYLES.disabledItem}>
                 {item.label}
               </div>
             ) : item.children && item.children.length > 0 ? (
@@ -211,28 +204,22 @@ function SubmenuItem({
         onClose();
       }}
     >
-      <button
-        onClick={onOpen}
-        className={`${MENU_STYLES.item} flex items-center justify-between`}
-      >
+      <button onClick={onOpen} className={`${MENU_STYLES.item} flex items-center justify-between`}>
         <span>{item.label}</span>
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" className="w-2.5 h-2.5 ml-2 opacity-50">
+        <svg
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          className="w-2.5 h-2.5 ml-2 opacity-50"
+        >
           <path d="M6 4l4 4-4 4" />
         </svg>
       </button>
       {isOpen && item.children && (
-        <div
-          ref={subRef}
-          className={MENU_STYLES.submenuContainer}
-          style={subStyle}
-          onMouseLeave={() => onClose()}
-        >
+        <div ref={subRef} className={MENU_STYLES.submenuContainer} style={subStyle} onMouseLeave={() => onClose()}>
           {item.children.map((child, ci) => (
-            <button
-              key={`${child.label}-${ci}`}
-              onClick={() => onAction(child)}
-              className={MENU_STYLES.item}
-            >
+            <button key={`${child.label}-${ci}`} onClick={() => onAction(child)} className={MENU_STYLES.item}>
               {child.label}
             </button>
           ))}

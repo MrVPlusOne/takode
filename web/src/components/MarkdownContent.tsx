@@ -332,10 +332,7 @@ export function MarkdownContent({
             const sessionLink = parseSessionLinkFromHref(href);
             if (sessionLink != null) {
               return (
-                <SessionMarkdownLink
-                  sessionNum={sessionLink.sessionNum}
-                  messageIndex={sessionLink.messageIndex}
-                >
+                <SessionMarkdownLink sessionNum={sessionLink.sessionNum} messageIndex={sessionLink.messageIndex}>
                   {children}
                 </SessionMarkdownLink>
               );

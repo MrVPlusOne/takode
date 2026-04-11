@@ -4313,7 +4313,7 @@ describe("CodexAdapter", () => {
           name: "notion",
           status: "failed",
           error:
-            "MCP client for `notion` failed to start: Auth(TokenRefreshFailed(\"Server returned error response: invalid_grant\"))",
+            'MCP client for `notion` failed to start: Auth(TokenRefreshFailed("Server returned error response: invalid_grant"))',
         },
       }) + "\n",
     );

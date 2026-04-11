@@ -58,10 +58,7 @@ export interface FormatActivityOptions {
  * messages are preserved (they're the most diagnostic). Layout when truncated:
  *   first line + "... N messages skipped [range]" + last (maxLines-1) lines
  */
-export function formatActivitySummary(
-  messages: BrowserIncomingMessage[],
-  options: FormatActivityOptions,
-): string {
+export function formatActivitySummary(messages: BrowserIncomingMessage[], options: FormatActivityOptions): string {
   const maxLines = options.maxLines ?? MAX_LINES;
   const startIdx = options.startIdx;
 
@@ -95,9 +92,7 @@ export function formatActivitySummary(
   const lastSkippedIdx = allLines[allLines.length - 1 - tailCount].msgIdx;
 
   const result: string[] = [head.line];
-  result.push(
-    `  ... ${skipped} message${skipped === 1 ? "" : "s"} skipped [${firstSkippedIdx}]-[${lastSkippedIdx}]`,
-  );
+  result.push(`  ... ${skipped} message${skipped === 1 ? "" : "s"} skipped [${firstSkippedIdx}]-[${lastSkippedIdx}]`);
   for (const t of tail) result.push(t.line);
 
   return result.join("\n");
@@ -224,10 +219,7 @@ function findLastFormattableIndex(messages: BrowserIncomingMessage[]): number {
 /** Format tool counts with optional summaries for low-count tools.
  *  e.g. "Read×2, Bash: bun test, Edit store.ts"
  *  Named distinctly from formatToolCounts in herd-event-dispatcher.ts (different signature). */
-function formatActivityToolLine(
-  counts: Record<string, number>,
-  summaries: Record<string, string[]>,
-): string {
+function formatActivityToolLine(counts: Record<string, number>, summaries: Record<string, string[]>): string {
   return Object.entries(counts)
     .map(([name, count]) => {
       if (count === 1 && summaries[name]?.[0]) {

@@ -225,13 +225,21 @@ export function createSessionsRoutes(ctx: RouteContext) {
       if (creator?.isOrchestrator) {
         launcher.herdSessions(creator.sessionId, [session.sessionId]);
         // Auto-assign new worker to leader's tree group
-        treeGroupStore.getGroupForSession(creator.sessionId).then((leaderGroup) => {
-          if (leaderGroup) {
-            treeGroupStore.assignSession(session.sessionId, leaderGroup).then(() => broadcastTreeGroups()).catch((err) => {
-              console.warn("[tree-group] failed to assign worker to leader group:", err);
-            });
-          }
-        }).catch((err) => { console.warn("[tree-group] failed to lookup leader group:", err); });
+        treeGroupStore
+          .getGroupForSession(creator.sessionId)
+          .then((leaderGroup) => {
+            if (leaderGroup) {
+              treeGroupStore
+                .assignSession(session.sessionId, leaderGroup)
+                .then(() => broadcastTreeGroups())
+                .catch((err) => {
+                  console.warn("[tree-group] failed to assign worker to leader group:", err);
+                });
+            }
+          })
+          .catch((err) => {
+            console.warn("[tree-group] failed to lookup leader group:", err);
+          });
       }
     }
 
@@ -1619,7 +1627,9 @@ export function createSessionsRoutes(ctx: RouteContext) {
     wsBridge.closeSession(id);
     await imageStore?.removeSession(id);
     // Clean up tree group assignment (fire-and-forget)
-    treeGroupStore.removeSession(id).catch((err) => { console.warn("[tree-group] cleanup failed for session:", id, err); });
+    treeGroupStore.removeSession(id).catch((err) => {
+      console.warn("[tree-group] cleanup failed for session:", id, err);
+    });
     return c.json({ ok: true, worktree: worktreeResult });
   });
 

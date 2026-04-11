@@ -111,7 +111,9 @@ function persist(): void {
       await mkdir(dirname(path), { recursive: true });
       await writeFile(path, data, "utf-8");
     })
-    .catch((err) => { console.error("[tree-group-store] persist failed:", err); });
+    .catch((err) => {
+      console.error("[tree-group-store] persist failed:", err);
+    });
 }
 
 // ─── Public API ──────────────────────────────────────────────────────────────
@@ -121,7 +123,11 @@ export async function getState(): Promise<TreeGroupState> {
   await ensureLoaded();
   const nodeOrderCopy: Record<string, string[]> = {};
   for (const [k, v] of Object.entries(state.nodeOrder)) nodeOrderCopy[k] = [...v];
-  return { groups: state.groups.map((g) => ({ ...g })), assignments: { ...state.assignments }, nodeOrder: nodeOrderCopy };
+  return {
+    groups: state.groups.map((g) => ({ ...g })),
+    assignments: { ...state.assignments },
+    nodeOrder: nodeOrderCopy,
+  };
 }
 
 /** Replace full state (for reorder/batch operations). */

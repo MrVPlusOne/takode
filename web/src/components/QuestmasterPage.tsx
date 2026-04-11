@@ -1326,7 +1326,9 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
                             {isActive ? (
                               <span className={`w-2 h-2 rounded-full ${STATUS_CONFIG[tab.value as QuestStatus].dot}`} />
                             ) : (
-                              <span className={`w-2 h-2 rounded-full border ${STATUS_CONFIG[tab.value as QuestStatus].dot} opacity-25`} />
+                              <span
+                                className={`w-2 h-2 rounded-full border ${STATUS_CONFIG[tab.value as QuestStatus].dot} opacity-25`}
+                              />
                             )}
                           </span>
                         )}
@@ -1739,1059 +1741,1092 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
                 style={viewMode === "compact" ? { display: "none" } : undefined}
               >
                 {questSections.map((section) => {
-              const isCollapsible = !!section.collapseGroup;
-              const isCollapsed = !!section.collapseGroup && collapsedGroups.has(section.collapseGroup);
-              const showSectionHeader =
-                filter.size > 1 ||
-                (filter.has("needs_verification") &&
-                  (section.key === VERIFICATION_INBOX_COLLAPSE_KEY || section.key === "needs_verification"));
-              return (
-                <div key={section.key}>
-                  {showSectionHeader &&
-                    (isCollapsible ? (
-                      <button
-                        onClick={() =>
-                          setCollapsedGroups((prev) => {
-                            const next = new Set(prev);
-                            if (section.collapseGroup && next.has(section.collapseGroup))
-                              next.delete(section.collapseGroup);
-                            else if (section.collapseGroup) next.add(section.collapseGroup);
-                            return next;
-                          })
-                        }
-                        className="flex items-center gap-2 mb-1.5 mt-3 first:mt-0 cursor-pointer group/gh w-full text-left"
-                      >
-                        <svg
-                          viewBox="0 0 16 16"
-                          fill="currentColor"
-                          className={`w-3 h-3 text-cc-muted/40 group-hover/gh:text-cc-muted transition-transform ${isCollapsed ? "" : "rotate-90"}`}
-                        >
-                          <path d="M6 3l5 5-5 5V3z" />
-                        </svg>
-                        <span className={`w-1.5 h-1.5 rounded-full ${section.dotClass}`} />
-                        <span className={`text-xs font-medium ${section.textClass}`}>{section.label}</span>
-                        <span className="text-[10px] text-cc-muted/50">{section.quests.length}</span>
-                      </button>
-                    ) : (
-                      <div className="flex items-center gap-2 mb-1.5 mt-3 first:mt-0 px-0.5">
-                        <span className={`w-1.5 h-1.5 rounded-full ${section.dotClass}`} />
-                        <span className={`text-xs font-medium ${section.textClass}`}>{section.label}</span>
-                        <span className="text-[10px] text-cc-muted/50">{section.quests.length}</span>
-                      </div>
-                    ))}
-                  {(!isCollapsed || viewMode === "compact") && (
-                    <div className="space-y-2">
-                        {section.quests.map((quest) => {
-                        const isCancelled = "cancelled" in quest && !!(quest as { cancelled?: boolean }).cancelled;
-                        const cfg = STATUS_CONFIG[quest.status];
-                        const isExpanded = expandedId === quest.questId;
-                        const isEditing = editingId === quest.questId;
-                        const isInboxVerification = isVerificationInboxUnread(quest);
-                        const hasVerification = "verificationItems" in quest && quest.verificationItems?.length > 0;
-                        const vProgress = hasVerification ? verificationProgress(quest.verificationItems) : null;
-                        const description = "description" in quest ? quest.description : undefined;
-                        const questNotes = "notes" in quest ? (quest as { notes?: string }).notes : undefined;
-                        const questSessionId = getQuestOwnerSessionId(quest);
-                        const isKnownSession = questSessionId
-                          ? sdkSessions.some((s) => s.sessionId === questSessionId)
-                          : false;
-                        const feedbackEntries =
-                          "feedback" in quest ? (quest as { feedback?: QuestFeedbackEntry[] }).feedback : undefined;
-                        const unaddressedFeedbackCount =
-                          feedbackEntries?.filter((e) => e.author === "human" && !e.addressed).length ?? 0;
-                        const addressedFeedbackCount =
-                          feedbackEntries?.filter((e) => e.author === "human" && e.addressed).length ?? 0;
-
-                        return (
-                          <div key={quest.id}>
-                            <div
-                              data-quest-id={quest.questId}
-                              className={`border rounded-xl transition-colors ${
-                                isExpanded
-                                  ? "bg-cc-card border-cc-primary/30"
-                                  : `bg-cc-card border-cc-border hover:border-cc-border/80 ${isCancelled ? "opacity-60" : ""}`
-                              }`}
+                  const isCollapsible = !!section.collapseGroup;
+                  const isCollapsed = !!section.collapseGroup && collapsedGroups.has(section.collapseGroup);
+                  const showSectionHeader =
+                    filter.size > 1 ||
+                    (filter.has("needs_verification") &&
+                      (section.key === VERIFICATION_INBOX_COLLAPSE_KEY || section.key === "needs_verification"));
+                  return (
+                    <div key={section.key}>
+                      {showSectionHeader &&
+                        (isCollapsible ? (
+                          <button
+                            onClick={() =>
+                              setCollapsedGroups((prev) => {
+                                const next = new Set(prev);
+                                if (section.collapseGroup && next.has(section.collapseGroup))
+                                  next.delete(section.collapseGroup);
+                                else if (section.collapseGroup) next.add(section.collapseGroup);
+                                return next;
+                              })
+                            }
+                            className="flex items-center gap-2 mb-1.5 mt-3 first:mt-0 cursor-pointer group/gh w-full text-left"
+                          >
+                            <svg
+                              viewBox="0 0 16 16"
+                              fill="currentColor"
+                              className={`w-3 h-3 text-cc-muted/40 group-hover/gh:text-cc-muted transition-transform ${isCollapsed ? "" : "rotate-90"}`}
                             >
-                              {/* Card header */}
-                              <div
-                                role="button"
-                                tabIndex={0}
-                                onClick={() => handleExpand(quest)}
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter" || e.key === " ") {
-                                    e.preventDefault();
-                                    handleExpand(quest);
-                                  }
-                                }}
-                                className="w-full flex items-center gap-3 px-4 py-3 text-left cursor-pointer group"
-                              >
-                                {/* Status dot */}
-                                <span
-                                  className={`w-2 h-2 rounded-full shrink-0 ${isCancelled ? "bg-red-400" : cfg.dot}`}
-                                />
+                              <path d="M6 3l5 5-5 5V3z" />
+                            </svg>
+                            <span className={`w-1.5 h-1.5 rounded-full ${section.dotClass}`} />
+                            <span className={`text-xs font-medium ${section.textClass}`}>{section.label}</span>
+                            <span className="text-[10px] text-cc-muted/50">{section.quests.length}</span>
+                          </button>
+                        ) : (
+                          <div className="flex items-center gap-2 mb-1.5 mt-3 first:mt-0 px-0.5">
+                            <span className={`w-1.5 h-1.5 rounded-full ${section.dotClass}`} />
+                            <span className={`text-xs font-medium ${section.textClass}`}>{section.label}</span>
+                            <span className="text-[10px] text-cc-muted/50">{section.quests.length}</span>
+                          </div>
+                        ))}
+                      {(!isCollapsed || viewMode === "compact") && (
+                        <div className="space-y-2">
+                          {section.quests.map((quest) => {
+                            const isCancelled = "cancelled" in quest && !!(quest as { cancelled?: boolean }).cancelled;
+                            const cfg = STATUS_CONFIG[quest.status];
+                            const isExpanded = expandedId === quest.questId;
+                            const isEditing = editingId === quest.questId;
+                            const isInboxVerification = isVerificationInboxUnread(quest);
+                            const hasVerification = "verificationItems" in quest && quest.verificationItems?.length > 0;
+                            const vProgress = hasVerification ? verificationProgress(quest.verificationItems) : null;
+                            const description = "description" in quest ? quest.description : undefined;
+                            const questNotes = "notes" in quest ? (quest as { notes?: string }).notes : undefined;
+                            const questSessionId = getQuestOwnerSessionId(quest);
+                            const isKnownSession = questSessionId
+                              ? sdkSessions.some((s) => s.sessionId === questSessionId)
+                              : false;
+                            const feedbackEntries =
+                              "feedback" in quest ? (quest as { feedback?: QuestFeedbackEntry[] }).feedback : undefined;
+                            const unaddressedFeedbackCount =
+                              feedbackEntries?.filter((e) => e.author === "human" && !e.addressed).length ?? 0;
+                            const addressedFeedbackCount =
+                              feedbackEntries?.filter((e) => e.author === "human" && e.addressed).length ?? 0;
 
-                                {/* Title + meta */}
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-2">
-                                    <span
-                                      className={`text-sm font-medium ${isExpanded ? "" : "truncate"} ${isCancelled ? "text-cc-muted line-through" : "text-cc-fg"}`}
-                                    >
-                                      {renderSearchHighlight(quest.title)}
-                                    </span>
-                                    {quest.parentId && (
-                                      <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-cc-hover text-cc-muted shrink-0">
-                                        sub:{quest.parentId}
-                                      </span>
-                                    )}
-                                  </div>
-                                  <div className="flex items-center gap-2 mt-0.5">
-                                    <span className="text-[10px] text-cc-muted/50 shrink-0">
-                                      {renderSearchHighlight(quest.questId)}
-                                    </span>
-                                    {isInboxVerification && (
-                                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-cc-hover text-cc-muted border border-cc-border flex items-center gap-1">
-                                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
-                                        Inbox
-                                      </span>
-                                    )}
-                                    {questSessionId && <SessionNumChip sessionId={questSessionId} />}
-                                    {vProgress && (
-                                      <span className="text-[10px] text-cc-muted flex items-center gap-1">
-                                        <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
-                                          <path d="M8 2a6 6 0 100 12A6 6 0 008 2zM0 8a8 8 0 1116 0A8 8 0 010 8zm11.354-1.646a.5.5 0 00-.708-.708L7 9.293 5.354 7.646a.5.5 0 10-.708.708l2 2a.5.5 0 00.708 0l4-4z" />
-                                        </svg>
-                                        {vProgress.checked}/{vProgress.total}
-                                      </span>
-                                    )}
-                                    {(unaddressedFeedbackCount > 0 || addressedFeedbackCount > 0) && (
-                                      <span className="text-[10px] flex items-center gap-1.5">
-                                        {unaddressedFeedbackCount > 0 && (
-                                          <span
-                                            className="flex items-center gap-0.5 text-amber-400"
-                                            aria-label={`${unaddressedFeedbackCount} pending feedback`}
-                                          >
-                                            <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
-                                              <path d="M2.5 2A1.5 1.5 0 001 3.5v8A1.5 1.5 0 002.5 13H5l3 3 3-3h2.5a1.5 1.5 0 001.5-1.5v-8A1.5 1.5 0 0013.5 2h-11z" />
-                                            </svg>
-                                            {unaddressedFeedbackCount}
-                                          </span>
-                                        )}
-                                        {addressedFeedbackCount > 0 && (
-                                          <span
-                                            className="flex items-center gap-0.5 text-emerald-400/70"
-                                            aria-label={`${addressedFeedbackCount} addressed feedback`}
-                                          >
-                                            <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
-                                              <path d="M2.5 2A1.5 1.5 0 001 3.5v8A1.5 1.5 0 002.5 13H5l3 3 3-3h2.5a1.5 1.5 0 001.5-1.5v-8A1.5 1.5 0 0013.5 2h-11z" />
-                                            </svg>
-                                            {addressedFeedbackCount}
-                                          </span>
-                                        )}
-                                      </span>
-                                    )}
-                                    <span className="text-[10px] text-cc-muted/50">
-                                      {timeAgo((quest as { updatedAt?: number }).updatedAt ?? quest.createdAt)}
-                                    </span>
-                                  </div>
-                                  {quest.tags && quest.tags.length > 0 && (
-                                    <div className="flex items-center gap-1.5 mt-0.5">
-                                      {quest.tags.map((tag) => (
-                                        <span
-                                          key={tag}
-                                          className="text-[10px] px-1.5 py-0.5 rounded-full bg-cc-hover text-cc-muted"
-                                        >
-                                          {tag.toLowerCase()}
-                                        </span>
-                                      ))}
-                                    </div>
-                                  )}
-                                </div>
-
-                                {/* Expand chevron */}
-                                <svg
-                                  viewBox="0 0 16 16"
-                                  fill="currentColor"
-                                  className={`w-3.5 h-3.5 text-cc-muted/40 group-hover:text-cc-muted transition-transform ${
-                                    isExpanded ? "rotate-90" : ""
+                            return (
+                              <div key={quest.id}>
+                                <div
+                                  data-quest-id={quest.questId}
+                                  className={`border rounded-xl transition-colors ${
+                                    isExpanded
+                                      ? "bg-cc-card border-cc-primary/30"
+                                      : `bg-cc-card border-cc-border hover:border-cc-border/80 ${isCancelled ? "opacity-60" : ""}`
                                   }`}
                                 >
-                                  <path d="M6 4l4 4-4 4" />
-                                </svg>
-                              </div>
-
-                              {/* Expanded detail */}
-                              {isExpanded &&
-                                createPortal(
+                                  {/* Card header */}
                                   <div
-                                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-3 py-4"
-                                    onClick={closeQuestDetails}
+                                    role="button"
+                                    tabIndex={0}
+                                    onClick={() => handleExpand(quest)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter" || e.key === " ") {
+                                        e.preventDefault();
+                                        handleExpand(quest);
+                                      }
+                                    }}
+                                    className="w-full flex items-center gap-3 px-4 py-3 text-left cursor-pointer group"
                                   >
-                                    <div
-                                      className="w-[min(920px,100%)] max-h-[88dvh] bg-cc-card border border-cc-border rounded-xl shadow-2xl flex flex-col overflow-hidden"
-                                      role="dialog"
-                                      aria-modal="true"
-                                      aria-label={`Quest details: ${quest.title}`}
-                                      onClick={(e) => e.stopPropagation()}
-                                    >
-                                      <div className="shrink-0 flex items-start justify-between gap-3 px-4 py-3 border-b border-cc-border">
-                                        <div className="min-w-0">
-                                          <div className="flex items-center gap-2">
-                                            <span
-                                              className={`w-2 h-2 rounded-full shrink-0 ${isCancelled ? "bg-red-400" : cfg.dot}`}
-                                            />
-                                            <span
-                                              className={`text-xs font-medium px-1.5 py-0.5 rounded-full border ${cfg.border} ${cfg.bg} ${cfg.text}`}
-                                            >
-                                              {cfg.label}
-                                            </span>
-                                            <CopyableQuestId questId={quest.questId} />
-                                          </div>
-                                          <div className="flex items-center gap-2 mt-1 min-w-0">
-                                            <div className="text-sm font-semibold text-cc-fg truncate">
-                                              {quest.title}
-                                            </div>
-                                            {quest.parentId && (
-                                              <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-cc-hover text-cc-muted shrink-0">
-                                                sub:{quest.parentId}
-                                              </span>
-                                            )}
-                                          </div>
-                                          <div className="flex flex-wrap items-center gap-2 mt-1">
-                                            {isInboxVerification && (
-                                              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-cc-hover text-cc-muted border border-cc-border flex items-center gap-1">
-                                                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
-                                                Inbox
-                                              </span>
-                                            )}
-                                            {questSessionId && <SessionNumChip sessionId={questSessionId} />}
-                                            {vProgress && (
-                                              <span className="text-[10px] text-cc-muted flex items-center gap-1">
-                                                <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
-                                                  <path d="M8 2a6 6 0 100 12A6 6 0 008 2zM0 8a8 8 0 1116 0A8 8 0 010 8zm11.354-1.646a.5.5 0 00-.708-.708L7 9.293 5.354 7.646a.5.5 0 10-.708.708l2 2a.5.5 0 00.708 0l4-4z" />
-                                                </svg>
-                                                {vProgress.checked}/{vProgress.total}
-                                              </span>
-                                            )}
-                                            {(unaddressedFeedbackCount > 0 || addressedFeedbackCount > 0) && (
-                                              <span className="text-[10px] flex items-center gap-1.5">
-                                                {unaddressedFeedbackCount > 0 && (
-                                                  <span
-                                                    className="flex items-center gap-0.5 text-amber-400"
-                                                    aria-label={`${unaddressedFeedbackCount} pending feedback`}
-                                                  >
-                                                    <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
-                                                      <path d="M2.5 2A1.5 1.5 0 001 3.5v8A1.5 1.5 0 002.5 13H5l3 3 3-3h2.5a1.5 1.5 0 001.5-1.5v-8A1.5 1.5 0 0013.5 2h-11z" />
-                                                    </svg>
-                                                    {unaddressedFeedbackCount}
-                                                  </span>
-                                                )}
-                                                {addressedFeedbackCount > 0 && (
-                                                  <span
-                                                    className="flex items-center gap-0.5 text-emerald-400/70"
-                                                    aria-label={`${addressedFeedbackCount} addressed feedback`}
-                                                  >
-                                                    <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
-                                                      <path d="M2.5 2A1.5 1.5 0 001 3.5v8A1.5 1.5 0 002.5 13H5l3 3 3-3h2.5a1.5 1.5 0 001.5-1.5v-8A1.5 1.5 0 0013.5 2h-11z" />
-                                                    </svg>
-                                                    {addressedFeedbackCount}
-                                                  </span>
-                                                )}
-                                              </span>
-                                            )}
-                                            <span className="text-[10px] text-cc-muted/50">
-                                              {timeAgo((quest as { updatedAt?: number }).updatedAt ?? quest.createdAt)}
-                                            </span>
-                                          </div>
-                                          {quest.tags && quest.tags.length > 0 && (
-                                            <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                                              {quest.tags.map((tag) => (
-                                                <span
-                                                  key={tag}
-                                                  className="text-[10px] px-1.5 py-0.5 rounded-full bg-cc-hover text-cc-muted"
-                                                >
-                                                  {tag.toLowerCase()}
-                                                </span>
-                                              ))}
-                                            </div>
-                                          )}
-                                        </div>
-                                        <button
-                                          type="button"
-                                          onClick={closeQuestDetails}
-                                          className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-cc-hover text-cc-muted hover:text-cc-fg transition-colors cursor-pointer shrink-0"
-                                          aria-label="Close quest details"
-                                        >
-                                          <svg
-                                            viewBox="0 0 16 16"
-                                            fill="none"
-                                            stroke="currentColor"
-                                            strokeWidth="1.5"
-                                            className="w-3.5 h-3.5"
-                                          >
-                                            <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
-                                          </svg>
-                                        </button>
-                                      </div>
-                                      <div
-                                        className="overflow-y-auto px-4 pb-4 pt-3 space-y-3"
-                                        onPaste={isEditing ? (e) => handleEditPaste(quest.questId, e) : undefined}
-                                      >
-                                        {isEditing ? (
-                                          /* ─── Edit mode ─── */
-                                          <>
-                                            <div>
-                                              <label className="block text-[11px] text-cc-muted mb-1">Title</label>
-                                              <textarea
-                                                ref={editTitleRef}
-                                                value={editTitle}
-                                                onChange={(e) => {
-                                                  setEditTitle(e.target.value);
-                                                  autoResize(e.target);
-                                                  updateEditorHashtagState(
-                                                    "editTitle",
-                                                    e.target.value,
-                                                    e.target.selectionStart ?? e.target.value.length,
-                                                  );
-                                                }}
-                                                onFocus={(e) => {
-                                                  updateEditorHashtagState(
-                                                    "editTitle",
-                                                    e.currentTarget.value,
-                                                    e.currentTarget.selectionStart ?? e.currentTarget.value.length,
-                                                  );
-                                                }}
-                                                onBlur={() => {
-                                                  setTimeout(() => {
-                                                    setEditorHashtagQuery("");
-                                                    setEditorAutocompleteTarget(null);
-                                                    setEditorAutocompleteIndex(0);
-                                                  }, 120);
-                                                }}
-                                                onKeyDown={(e) => {
-                                                  if (handleEditorAutocompleteKeyDown(e)) return;
-                                                  if (e.key === "Enter") e.preventDefault();
-                                                }}
-                                                rows={1}
-                                                className="w-full px-3 py-2 text-base sm:text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/50 resize-none overflow-hidden"
-                                                style={{ minHeight: "36px" }}
-                                              />
-                                              {renderEditorHashtagDropdown("editTitle")}
-                                            </div>
-                                            <div>
-                                              <label className="block text-[11px] text-cc-muted mb-1">
-                                                Description
-                                              </label>
-                                              <textarea
-                                                ref={editDescRef}
-                                                value={editDescription}
-                                                onChange={(e) => {
-                                                  setEditDescription(e.target.value);
-                                                  autoResize(e.target);
-                                                  updateEditorHashtagState(
-                                                    "editDescription",
-                                                    e.target.value,
-                                                    e.target.selectionStart ?? e.target.value.length,
-                                                  );
-                                                }}
-                                                onFocus={(e) => {
-                                                  updateEditorHashtagState(
-                                                    "editDescription",
-                                                    e.currentTarget.value,
-                                                    e.currentTarget.selectionStart ?? e.currentTarget.value.length,
-                                                  );
-                                                }}
-                                                onBlur={() => {
-                                                  setTimeout(() => {
-                                                    setEditorHashtagQuery("");
-                                                    setEditorAutocompleteTarget(null);
-                                                    setEditorAutocompleteIndex(0);
-                                                  }, 120);
-                                                }}
-                                                onKeyDown={(e) => {
-                                                  handleEditorAutocompleteKeyDown(e);
-                                                }}
-                                                placeholder="Add a description..."
-                                                rows={1}
-                                                className="w-full px-3 py-2 text-base sm:text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg placeholder:text-cc-muted focus:outline-none focus:border-cc-primary/50 resize-none overflow-y-auto"
-                                                style={{ minHeight: "36px", maxHeight: "200px" }}
-                                              />
-                                              <p className="text-[10px] text-cc-muted/60 mt-1">
-                                                Tip: use #tag in description to attach tags.
-                                              </p>
-                                              {renderEditorHashtagDropdown("editDescription")}
-                                            </div>
+                                    {/* Status dot */}
+                                    <span
+                                      className={`w-2 h-2 rounded-full shrink-0 ${isCancelled ? "bg-red-400" : cfg.dot}`}
+                                    />
 
-                                            {/* Images (always show upload in edit mode) */}
-                                            <div>
-                                              <label className="block text-[11px] text-cc-muted mb-1.5">Images</label>
-                                              {quest.images && quest.images.length > 0 && (
-                                                <div className="flex flex-wrap gap-2 mb-2">
-                                                  {quest.images.map((img: QuestImage) => (
-                                                    <div
-                                                      key={img.id}
-                                                      className="relative group rounded-lg overflow-hidden border border-cc-border bg-cc-input-bg"
-                                                    >
-                                                      <img
-                                                        src={api.questImageUrl(img.id)}
-                                                        alt={img.filename}
-                                                        className="w-24 h-24 object-cover cursor-zoom-in"
-                                                        onClick={() => setLightboxSrc(api.questImageUrl(img.id))}
-                                                      />
-                                                      <button
-                                                        onClick={() => handleRemoveImage(quest.questId, img.id)}
-                                                        className="absolute top-1 right-1 w-5 h-5 bg-black/60 rounded-full flex items-center justify-center cursor-pointer"
+                                    {/* Title + meta */}
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-2">
+                                        <span
+                                          className={`text-sm font-medium ${isExpanded ? "" : "truncate"} ${isCancelled ? "text-cc-muted line-through" : "text-cc-fg"}`}
+                                        >
+                                          {renderSearchHighlight(quest.title)}
+                                        </span>
+                                        {quest.parentId && (
+                                          <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-cc-hover text-cc-muted shrink-0">
+                                            sub:{quest.parentId}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="flex items-center gap-2 mt-0.5">
+                                        <span className="text-[10px] text-cc-muted/50 shrink-0">
+                                          {renderSearchHighlight(quest.questId)}
+                                        </span>
+                                        {isInboxVerification && (
+                                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-cc-hover text-cc-muted border border-cc-border flex items-center gap-1">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+                                            Inbox
+                                          </span>
+                                        )}
+                                        {questSessionId && <SessionNumChip sessionId={questSessionId} />}
+                                        {vProgress && (
+                                          <span className="text-[10px] text-cc-muted flex items-center gap-1">
+                                            <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
+                                              <path d="M8 2a6 6 0 100 12A6 6 0 008 2zM0 8a8 8 0 1116 0A8 8 0 010 8zm11.354-1.646a.5.5 0 00-.708-.708L7 9.293 5.354 7.646a.5.5 0 10-.708.708l2 2a.5.5 0 00.708 0l4-4z" />
+                                            </svg>
+                                            {vProgress.checked}/{vProgress.total}
+                                          </span>
+                                        )}
+                                        {(unaddressedFeedbackCount > 0 || addressedFeedbackCount > 0) && (
+                                          <span className="text-[10px] flex items-center gap-1.5">
+                                            {unaddressedFeedbackCount > 0 && (
+                                              <span
+                                                className="flex items-center gap-0.5 text-amber-400"
+                                                aria-label={`${unaddressedFeedbackCount} pending feedback`}
+                                              >
+                                                <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
+                                                  <path d="M2.5 2A1.5 1.5 0 001 3.5v8A1.5 1.5 0 002.5 13H5l3 3 3-3h2.5a1.5 1.5 0 001.5-1.5v-8A1.5 1.5 0 0013.5 2h-11z" />
+                                                </svg>
+                                                {unaddressedFeedbackCount}
+                                              </span>
+                                            )}
+                                            {addressedFeedbackCount > 0 && (
+                                              <span
+                                                className="flex items-center gap-0.5 text-emerald-400/70"
+                                                aria-label={`${addressedFeedbackCount} addressed feedback`}
+                                              >
+                                                <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
+                                                  <path d="M2.5 2A1.5 1.5 0 001 3.5v8A1.5 1.5 0 002.5 13H5l3 3 3-3h2.5a1.5 1.5 0 001.5-1.5v-8A1.5 1.5 0 0013.5 2h-11z" />
+                                                </svg>
+                                                {addressedFeedbackCount}
+                                              </span>
+                                            )}
+                                          </span>
+                                        )}
+                                        <span className="text-[10px] text-cc-muted/50">
+                                          {timeAgo((quest as { updatedAt?: number }).updatedAt ?? quest.createdAt)}
+                                        </span>
+                                      </div>
+                                      {quest.tags && quest.tags.length > 0 && (
+                                        <div className="flex items-center gap-1.5 mt-0.5">
+                                          {quest.tags.map((tag) => (
+                                            <span
+                                              key={tag}
+                                              className="text-[10px] px-1.5 py-0.5 rounded-full bg-cc-hover text-cc-muted"
+                                            >
+                                              {tag.toLowerCase()}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
+
+                                    {/* Expand chevron */}
+                                    <svg
+                                      viewBox="0 0 16 16"
+                                      fill="currentColor"
+                                      className={`w-3.5 h-3.5 text-cc-muted/40 group-hover:text-cc-muted transition-transform ${
+                                        isExpanded ? "rotate-90" : ""
+                                      }`}
+                                    >
+                                      <path d="M6 4l4 4-4 4" />
+                                    </svg>
+                                  </div>
+
+                                  {/* Expanded detail */}
+                                  {isExpanded &&
+                                    createPortal(
+                                      <div
+                                        className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-3 py-4"
+                                        onClick={closeQuestDetails}
+                                      >
+                                        <div
+                                          className="w-[min(920px,100%)] max-h-[88dvh] bg-cc-card border border-cc-border rounded-xl shadow-2xl flex flex-col overflow-hidden"
+                                          role="dialog"
+                                          aria-modal="true"
+                                          aria-label={`Quest details: ${quest.title}`}
+                                          onClick={(e) => e.stopPropagation()}
+                                        >
+                                          <div className="shrink-0 flex items-start justify-between gap-3 px-4 py-3 border-b border-cc-border">
+                                            <div className="min-w-0">
+                                              <div className="flex items-center gap-2">
+                                                <span
+                                                  className={`w-2 h-2 rounded-full shrink-0 ${isCancelled ? "bg-red-400" : cfg.dot}`}
+                                                />
+                                                <span
+                                                  className={`text-xs font-medium px-1.5 py-0.5 rounded-full border ${cfg.border} ${cfg.bg} ${cfg.text}`}
+                                                >
+                                                  {cfg.label}
+                                                </span>
+                                                <CopyableQuestId questId={quest.questId} />
+                                              </div>
+                                              <div className="flex items-center gap-2 mt-1 min-w-0">
+                                                <div className="text-sm font-semibold text-cc-fg truncate">
+                                                  {quest.title}
+                                                </div>
+                                                {quest.parentId && (
+                                                  <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-cc-hover text-cc-muted shrink-0">
+                                                    sub:{quest.parentId}
+                                                  </span>
+                                                )}
+                                              </div>
+                                              <div className="flex flex-wrap items-center gap-2 mt-1">
+                                                {isInboxVerification && (
+                                                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-cc-hover text-cc-muted border border-cc-border flex items-center gap-1">
+                                                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+                                                    Inbox
+                                                  </span>
+                                                )}
+                                                {questSessionId && <SessionNumChip sessionId={questSessionId} />}
+                                                {vProgress && (
+                                                  <span className="text-[10px] text-cc-muted flex items-center gap-1">
+                                                    <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
+                                                      <path d="M8 2a6 6 0 100 12A6 6 0 008 2zM0 8a8 8 0 1116 0A8 8 0 010 8zm11.354-1.646a.5.5 0 00-.708-.708L7 9.293 5.354 7.646a.5.5 0 10-.708.708l2 2a.5.5 0 00.708 0l4-4z" />
+                                                    </svg>
+                                                    {vProgress.checked}/{vProgress.total}
+                                                  </span>
+                                                )}
+                                                {(unaddressedFeedbackCount > 0 || addressedFeedbackCount > 0) && (
+                                                  <span className="text-[10px] flex items-center gap-1.5">
+                                                    {unaddressedFeedbackCount > 0 && (
+                                                      <span
+                                                        className="flex items-center gap-0.5 text-amber-400"
+                                                        aria-label={`${unaddressedFeedbackCount} pending feedback`}
                                                       >
                                                         <svg
                                                           viewBox="0 0 16 16"
-                                                          fill="none"
-                                                          stroke="white"
-                                                          strokeWidth="2"
-                                                          className="w-2.5 h-2.5"
+                                                          fill="currentColor"
+                                                          className="w-3 h-3"
                                                         >
-                                                          <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
+                                                          <path d="M2.5 2A1.5 1.5 0 001 3.5v8A1.5 1.5 0 002.5 13H5l3 3 3-3h2.5a1.5 1.5 0 001.5-1.5v-8A1.5 1.5 0 0013.5 2h-11z" />
                                                         </svg>
-                                                      </button>
-                                                      <div className="absolute bottom-0 left-0 right-0 bg-black/50 px-1 py-0.5 text-[9px] text-white truncate opacity-0 group-hover:opacity-100 transition-opacity">
-                                                        {img.filename}
-                                                      </div>
-                                                    </div>
+                                                        {unaddressedFeedbackCount}
+                                                      </span>
+                                                    )}
+                                                    {addressedFeedbackCount > 0 && (
+                                                      <span
+                                                        className="flex items-center gap-0.5 text-emerald-400/70"
+                                                        aria-label={`${addressedFeedbackCount} addressed feedback`}
+                                                      >
+                                                        <svg
+                                                          viewBox="0 0 16 16"
+                                                          fill="currentColor"
+                                                          className="w-3 h-3"
+                                                        >
+                                                          <path d="M2.5 2A1.5 1.5 0 001 3.5v8A1.5 1.5 0 002.5 13H5l3 3 3-3h2.5a1.5 1.5 0 001.5-1.5v-8A1.5 1.5 0 0013.5 2h-11z" />
+                                                        </svg>
+                                                        {addressedFeedbackCount}
+                                                      </span>
+                                                    )}
+                                                  </span>
+                                                )}
+                                                <span className="text-[10px] text-cc-muted/50">
+                                                  {timeAgo(
+                                                    (quest as { updatedAt?: number }).updatedAt ?? quest.createdAt,
+                                                  )}
+                                                </span>
+                                              </div>
+                                              {quest.tags && quest.tags.length > 0 && (
+                                                <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                                                  {quest.tags.map((tag) => (
+                                                    <span
+                                                      key={tag}
+                                                      className="text-[10px] px-1.5 py-0.5 rounded-full bg-cc-hover text-cc-muted"
+                                                    >
+                                                      {tag.toLowerCase()}
+                                                    </span>
                                                   ))}
                                                 </div>
                                               )}
-                                              <div
-                                                onDragOver={(e) => {
-                                                  e.preventDefault();
-                                                  e.stopPropagation();
-                                                }}
-                                                onDrop={(e) => {
-                                                  e.preventDefault();
-                                                  e.stopPropagation();
-                                                  if (e.dataTransfer.files.length > 0) {
-                                                    handleImageUpload(quest.questId, e.dataTransfer.files);
-                                                  }
-                                                }}
-                                                className="flex items-center gap-2"
-                                              >
-                                                <button
-                                                  onClick={() => imageInputRef.current?.click()}
-                                                  className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg bg-cc-hover text-cc-muted hover:text-cc-fg border border-cc-border transition-colors cursor-pointer flex items-center gap-1.5"
-                                                >
-                                                  <svg
-                                                    viewBox="0 0 16 16"
-                                                    fill="none"
-                                                    stroke="currentColor"
-                                                    strokeWidth="1.5"
-                                                    className="w-3 h-3"
-                                                  >
-                                                    <rect x="1.5" y="2.5" width="13" height="11" rx="2" />
-                                                    <circle cx="5" cy="6" r="1.5" />
-                                                    <path d="M1.5 11l3-3.5 2.5 2.5 2-1.5 5.5 4" />
-                                                  </svg>
-                                                  Add Image
-                                                </button>
-                                                <span className="text-[10px] text-cc-muted/50">or drag & drop</span>
-                                                <input
-                                                  ref={imageInputRef}
-                                                  type="file"
-                                                  accept="image/*"
-                                                  multiple
-                                                  className="hidden"
-                                                  onChange={(e) => {
-                                                    if (e.target.files && e.target.files.length > 0) {
-                                                      handleImageUpload(quest.questId, e.target.files);
-                                                      e.target.value = "";
-                                                    }
-                                                  }}
-                                                />
-                                              </div>
                                             </div>
-
-                                            {/* Save / Cancel */}
-                                            <div className="flex items-center gap-2">
-                                              <button
-                                                onClick={() => handlePatch(quest.questId)}
-                                                className="px-3 py-1.5 text-xs font-medium bg-cc-primary hover:bg-cc-primary-hover text-white rounded-lg transition-colors cursor-pointer"
+                                            <button
+                                              type="button"
+                                              onClick={closeQuestDetails}
+                                              className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-cc-hover text-cc-muted hover:text-cc-fg transition-colors cursor-pointer shrink-0"
+                                              aria-label="Close quest details"
+                                            >
+                                              <svg
+                                                viewBox="0 0 16 16"
+                                                fill="none"
+                                                stroke="currentColor"
+                                                strokeWidth="1.5"
+                                                className="w-3.5 h-3.5"
                                               >
-                                                Save
-                                              </button>
-                                              <button
-                                                onClick={cancelEdit}
-                                                className="px-3 py-1.5 text-xs font-medium text-cc-muted hover:text-cc-fg rounded-lg transition-colors cursor-pointer"
-                                              >
-                                                Cancel
-                                              </button>
-                                            </div>
-                                          </>
-                                        ) : (
-                                          /* ─── Read mode ─── */
-                                          <>
-                                            {/* Description */}
-                                            {description && (
-                                              <MarkdownContent
-                                                text={description}
-                                                size="sm"
-                                                searchHighlight={
-                                                  searchText
-                                                    ? { query: searchText, mode: "fuzzy", isCurrent: false }
-                                                    : null
-                                                }
-                                              />
-                                            )}
-
-                                            {/* Images (read-only thumbnails, only if images exist) */}
-                                            {quest.images && quest.images.length > 0 && (
-                                              <div className="flex flex-wrap gap-2">
-                                                {quest.images.map((img: QuestImage) => (
-                                                  <div
-                                                    key={img.id}
-                                                    className="relative group rounded-lg overflow-hidden border border-cc-border bg-cc-input-bg"
-                                                  >
-                                                    <img
-                                                      src={api.questImageUrl(img.id)}
-                                                      alt={img.filename}
-                                                      className="w-20 h-20 object-cover cursor-zoom-in"
-                                                      onClick={() => setLightboxSrc(api.questImageUrl(img.id))}
-                                                    />
-                                                    <div className="absolute bottom-0 left-0 right-0 bg-black/50 px-1 py-0.5 text-[9px] text-white truncate opacity-0 group-hover:opacity-100 transition-opacity">
-                                                      {img.filename}
-                                                    </div>
-                                                  </div>
-                                                ))}
-                                              </div>
-                                            )}
-
-                                            {/* Verification checklist */}
-                                            {hasVerification && (
-                                              <div>
-                                                <label className="block text-[11px] text-cc-muted mb-1">
-                                                  Verification
-                                                </label>
-                                                <div className="space-y-0.5">
-                                                  {quest.verificationItems.map(
-                                                    (item: QuestVerificationItem, i: number) => (
-                                                      <label
-                                                        key={i}
-                                                        className="flex items-start gap-2 py-1 px-2 rounded-md hover:bg-cc-hover transition-colors cursor-pointer"
-                                                      >
-                                                        <input
-                                                          type="checkbox"
-                                                          checked={item.checked}
-                                                          onChange={(e) =>
-                                                            handleCheckVerification(quest.questId, i, e.target.checked)
-                                                          }
-                                                          className="mt-0.5 accent-cc-primary cursor-pointer"
-                                                        />
-                                                        <span
-                                                          className={`text-xs ${
-                                                            item.checked ? "text-cc-muted line-through" : "text-cc-fg"
-                                                          }`}
-                                                        >
-                                                          {item.text}
-                                                        </span>
-                                                      </label>
-                                                    ),
-                                                  )}
-                                                </div>
-                                              </div>
-                                            )}
-
-                                            {/* Feedback thread */}
-                                            {(() => {
-                                              const feedbackEntries: QuestFeedbackEntry[] =
-                                                "feedback" in quest
-                                                  ? ((quest as { feedback?: QuestFeedbackEntry[] }).feedback ?? [])
-                                                  : [];
-                                              const hasFeedback = feedbackEntries.length > 0;
-                                              const canAddFeedback =
-                                                quest.status === "needs_verification" || quest.status === "in_progress";
-                                              if (!hasFeedback && !canAddFeedback) return null;
-                                              return (
+                                                <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
+                                              </svg>
+                                            </button>
+                                          </div>
+                                          <div
+                                            className="overflow-y-auto px-4 pb-4 pt-3 space-y-3"
+                                            onPaste={isEditing ? (e) => handleEditPaste(quest.questId, e) : undefined}
+                                          >
+                                            {isEditing ? (
+                                              /* ─── Edit mode ─── */
+                                              <>
                                                 <div>
-                                                  {hasFeedback && (
-                                                    <>
-                                                      <label className="block text-xs text-cc-muted mb-1">
-                                                        Feedback
-                                                      </label>
-                                                      <div className="space-y-2 mb-2">
-                                                        {feedbackEntries.map((entry, i) => {
-                                                          const isEditing =
-                                                            editingFeedback?.questId === quest.questId &&
-                                                            editingFeedback?.index === i;
-                                                          const feedbackSessionId =
-                                                            entry.author === "agent"
-                                                              ? entry.authorSessionId
-                                                              : undefined;
-                                                          const feedbackAuthorLabel = entry.author;
-                                                          return (
-                                                            <div
-                                                              key={i}
-                                                              className={`px-2.5 py-2 rounded-lg text-sm ${
-                                                                entry.author === "human"
-                                                                  ? entry.addressed
-                                                                    ? "bg-amber-500/5 border border-amber-500/10 text-amber-300/50"
-                                                                    : "bg-amber-500/8 border border-amber-500/15 text-amber-300/90"
-                                                                  : "bg-cc-input-bg border border-cc-border text-cc-fg/80 ml-4"
-                                                              }`}
-                                                            >
-                                                              <div className="flex items-center gap-1.5 mb-0.5">
-                                                                {feedbackSessionId ? (
-                                                                  <SessionNumChip
-                                                                    sessionId={feedbackSessionId}
-                                                                    className="text-xs font-medium font-mono text-cc-primary hover:text-cc-primary-hover cursor-pointer"
-                                                                  />
-                                                                ) : (
-                                                                  <span
-                                                                    className={`text-xs font-medium ${
-                                                                      entry.author === "human"
-                                                                        ? "text-amber-400/70"
-                                                                        : "text-cc-muted"
-                                                                    }`}
-                                                                  >
-                                                                    {feedbackAuthorLabel}
-                                                                  </span>
-                                                                )}
-                                                                <span className="text-[11px] text-cc-muted/40">
-                                                                  {timeAgo(entry.ts)}
-                                                                </span>
-                                                                {entry.author === "human" && entry.addressed && (
-                                                                  <span className="text-[11px] text-green-500/60 font-medium">
-                                                                    addressed
-                                                                  </span>
-                                                                )}
-                                                                <span className="ml-auto flex items-center gap-1">
-                                                                  {entry.author === "human" && (
-                                                                    <button
-                                                                      onClick={() =>
-                                                                        handleToggleAddressed(quest.questId, i)
-                                                                      }
-                                                                      className={`px-1 py-0.5 rounded transition-colors cursor-pointer ${
-                                                                        entry.addressed
-                                                                          ? "text-green-500/50 hover:text-green-500/70"
-                                                                          : "text-cc-muted/30 hover:text-green-500/60"
-                                                                      }`}
-                                                                      title={
-                                                                        entry.addressed
-                                                                          ? "Mark unaddressed"
-                                                                          : "Mark addressed"
-                                                                      }
-                                                                    >
-                                                                      <svg
-                                                                        viewBox="0 0 16 16"
-                                                                        fill="currentColor"
-                                                                        className="w-3.5 h-3.5"
-                                                                      >
-                                                                        <path d="M8 2a6 6 0 100 12A6 6 0 008 2zM0 8a8 8 0 1116 0A8 8 0 010 8zm11.354-1.646a.5.5 0 00-.708-.708L7 9.293 5.354 7.646a.5.5 0 10-.708.708l2 2a.5.5 0 00.708 0l4-4z" />
-                                                                      </svg>
-                                                                    </button>
-                                                                  )}
-                                                                  {entry.author === "human" && !isEditing && (
-                                                                    <button
-                                                                      onClick={() =>
-                                                                        setEditingFeedback({
-                                                                          questId: quest.questId,
-                                                                          index: i,
-                                                                          text: entry.text,
-                                                                          images: entry.images ?? [],
-                                                                        })
-                                                                      }
-                                                                      className="text-cc-muted/30 hover:text-cc-muted/60 cursor-pointer transition-colors"
-                                                                      title="Edit"
-                                                                    >
-                                                                      <svg
-                                                                        viewBox="0 0 16 16"
-                                                                        fill="currentColor"
-                                                                        className="w-3.5 h-3.5"
-                                                                      >
-                                                                        <path d="M11.013 1.427a1.75 1.75 0 012.474 0l1.086 1.086a1.75 1.75 0 010 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 01-.927-.928l.929-3.25a1.75 1.75 0 01.445-.758l8.61-8.61zm1.414 1.06a.25.25 0 00-.354 0L3.463 11.098a.25.25 0 00-.064.108l-.386 1.35 1.35-.386a.25.25 0 00.108-.064l8.61-8.61a.25.25 0 000-.354L12.427 2.487z" />
-                                                                      </svg>
-                                                                    </button>
-                                                                  )}
-                                                                </span>
-                                                              </div>
-                                                              {isEditing ? (
-                                                                <div className="flex flex-col gap-1 mt-1">
-                                                                  <textarea
-                                                                    ref={editFeedbackTextareaRef}
-                                                                    value={editingFeedback.text}
-                                                                    onChange={(e) => {
-                                                                      setEditingFeedback((prev) =>
-                                                                        prev ? { ...prev, text: e.target.value } : prev,
-                                                                      );
-                                                                      e.target.style.height = "auto";
-                                                                      e.target.style.height =
-                                                                        e.target.scrollHeight + "px";
-                                                                    }}
-                                                                    className="w-full text-sm bg-cc-bg border border-amber-500/30 rounded-lg px-2.5 py-1.5 text-cc-fg focus:outline-none focus:ring-1 focus:ring-amber-500/30 resize-none"
-                                                                    rows={2}
-                                                                    onKeyDown={(e) => {
-                                                                      if (
-                                                                        e.key === "Enter" &&
-                                                                        (e.metaKey || e.ctrlKey)
-                                                                      ) {
-                                                                        e.preventDefault();
-                                                                        handleEditFeedbackSave();
-                                                                      } else if (e.key === "Escape") {
-                                                                        setEditingFeedback(null);
-                                                                      }
-                                                                    }}
-                                                                    onPaste={(e) => {
-                                                                      const imgs = extractPastedImages(e);
-                                                                      if (imgs.length > 0)
-                                                                        handleEditFeedbackImageUpload(imgs);
-                                                                    }}
-                                                                  />
-                                                                  {editingFeedback.images.length > 0 && (
-                                                                    <div className="flex flex-wrap gap-1">
-                                                                      {editingFeedback.images.map((img) => (
-                                                                        <div key={img.id} className="relative group">
-                                                                          <img
-                                                                            src={api.questImageUrl(img.id)}
-                                                                            className="w-10 h-10 object-cover rounded cursor-pointer"
-                                                                            onClick={() =>
-                                                                              setLightboxSrc(api.questImageUrl(img.id))
-                                                                            }
-                                                                          />
-                                                                          <button
-                                                                            onClick={() =>
-                                                                              setEditingFeedback((prev) =>
-                                                                                prev
-                                                                                  ? {
-                                                                                      ...prev,
-                                                                                      images: prev.images.filter(
-                                                                                        (im) => im.id !== img.id,
-                                                                                      ),
-                                                                                    }
-                                                                                  : prev,
-                                                                              )
-                                                                            }
-                                                                            className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-red-500 text-white text-[8px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
-                                                                          >
-                                                                            x
-                                                                          </button>
-                                                                        </div>
-                                                                      ))}
-                                                                    </div>
-                                                                  )}
-                                                                  <div className="flex items-center gap-1.5">
-                                                                    <button
-                                                                      onClick={handleEditFeedbackSave}
-                                                                      disabled={feedbackSubmitting}
-                                                                      className="text-xs px-2.5 py-1 rounded bg-amber-500/15 text-amber-400 border border-amber-500/20 hover:bg-amber-500/25 disabled:opacity-40 cursor-pointer"
-                                                                    >
-                                                                      Save
-                                                                    </button>
-                                                                    <button
-                                                                      onClick={() => setEditingFeedback(null)}
-                                                                      className="text-xs px-2.5 py-1 rounded text-cc-muted hover:text-cc-fg cursor-pointer"
-                                                                    >
-                                                                      Cancel
-                                                                    </button>
-                                                                  </div>
-                                                                </div>
-                                                              ) : (
-                                                                <>
-                                                                  <MarkdownContent text={entry.text} size="sm" />
-                                                                  {entry.images && entry.images.length > 0 && (
-                                                                    <div className="flex flex-wrap gap-1 mt-1">
-                                                                      {entry.images.map((img) => (
-                                                                        <img
-                                                                          key={img.id}
-                                                                          src={api.questImageUrl(img.id)}
-                                                                          className="w-16 h-16 object-cover rounded cursor-pointer hover:opacity-80 transition-opacity"
-                                                                          title={img.filename}
-                                                                          onClick={() =>
-                                                                            setLightboxSrc(api.questImageUrl(img.id))
-                                                                          }
-                                                                        />
-                                                                      ))}
-                                                                    </div>
-                                                                  )}
-                                                                </>
-                                                              )}
-                                                            </div>
-                                                          );
-                                                        })}
-                                                      </div>
-                                                    </>
-                                                  )}
-                                                  {canAddFeedback && (
-                                                    <div className="flex flex-col gap-1">
-                                                      {!hasFeedback && (
-                                                        <label className="block text-xs text-cc-muted mb-0.5">
-                                                          Feedback
-                                                        </label>
-                                                      )}
-                                                      <textarea
-                                                        ref={feedbackTextareaRef}
-                                                        value={expandedId === quest.questId ? feedbackDraft : ""}
-                                                        onChange={(e) => {
-                                                          setFeedbackDraft(e.target.value);
-                                                          e.target.style.height = "auto";
-                                                          e.target.style.height = e.target.scrollHeight + "px";
-                                                        }}
-                                                        placeholder="Leave feedback..."
-                                                        className="w-full text-sm bg-cc-input-bg border border-cc-border rounded-lg px-2.5 py-2 text-cc-fg placeholder-cc-muted/50 focus:outline-none focus:ring-1 focus:ring-amber-500/30 resize-none"
-                                                        rows={2}
-                                                        onKeyDown={(e) => {
-                                                          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                                                            e.preventDefault();
-                                                            handleAddFeedback(quest.questId, feedbackDraft);
-                                                          }
-                                                        }}
-                                                        onPaste={(e) => {
-                                                          const imgs = extractPastedImages(e);
-                                                          if (imgs.length > 0) handleFeedbackImageUpload(imgs);
-                                                        }}
-                                                      />
-                                                      {feedbackImages.length > 0 && expandedId === quest.questId && (
-                                                        <div className="flex flex-wrap gap-1">
-                                                          {feedbackImages.map((img) => (
-                                                            <div key={img.id} className="relative group">
-                                                              <img
-                                                                src={api.questImageUrl(img.id)}
-                                                                className="w-10 h-10 object-cover rounded cursor-pointer"
-                                                                onClick={() =>
-                                                                  setLightboxSrc(api.questImageUrl(img.id))
-                                                                }
-                                                              />
-                                                              <button
-                                                                onClick={() =>
-                                                                  setFeedbackImages((prev) =>
-                                                                    prev.filter((im) => im.id !== img.id),
-                                                                  )
-                                                                }
-                                                                className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-red-500 text-white text-[8px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
-                                                              >
-                                                                x
-                                                              </button>
-                                                            </div>
-                                                          ))}
-                                                        </div>
-                                                      )}
-                                                      <div className="flex items-center gap-1.5">
-                                                        <button
-                                                          onClick={() =>
-                                                            handleAddFeedback(quest.questId, feedbackDraft)
-                                                          }
-                                                          disabled={
-                                                            (!feedbackDraft.trim() && feedbackImages.length === 0) ||
-                                                            feedbackSubmitting
-                                                          }
-                                                          className="text-xs px-2.5 py-1 rounded bg-amber-500/15 text-amber-400 border border-amber-500/20 hover:bg-amber-500/25 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                                                  <label className="block text-[11px] text-cc-muted mb-1">Title</label>
+                                                  <textarea
+                                                    ref={editTitleRef}
+                                                    value={editTitle}
+                                                    onChange={(e) => {
+                                                      setEditTitle(e.target.value);
+                                                      autoResize(e.target);
+                                                      updateEditorHashtagState(
+                                                        "editTitle",
+                                                        e.target.value,
+                                                        e.target.selectionStart ?? e.target.value.length,
+                                                      );
+                                                    }}
+                                                    onFocus={(e) => {
+                                                      updateEditorHashtagState(
+                                                        "editTitle",
+                                                        e.currentTarget.value,
+                                                        e.currentTarget.selectionStart ?? e.currentTarget.value.length,
+                                                      );
+                                                    }}
+                                                    onBlur={() => {
+                                                      setTimeout(() => {
+                                                        setEditorHashtagQuery("");
+                                                        setEditorAutocompleteTarget(null);
+                                                        setEditorAutocompleteIndex(0);
+                                                      }, 120);
+                                                    }}
+                                                    onKeyDown={(e) => {
+                                                      if (handleEditorAutocompleteKeyDown(e)) return;
+                                                      if (e.key === "Enter") e.preventDefault();
+                                                    }}
+                                                    rows={1}
+                                                    className="w-full px-3 py-2 text-base sm:text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/50 resize-none overflow-hidden"
+                                                    style={{ minHeight: "36px" }}
+                                                  />
+                                                  {renderEditorHashtagDropdown("editTitle")}
+                                                </div>
+                                                <div>
+                                                  <label className="block text-[11px] text-cc-muted mb-1">
+                                                    Description
+                                                  </label>
+                                                  <textarea
+                                                    ref={editDescRef}
+                                                    value={editDescription}
+                                                    onChange={(e) => {
+                                                      setEditDescription(e.target.value);
+                                                      autoResize(e.target);
+                                                      updateEditorHashtagState(
+                                                        "editDescription",
+                                                        e.target.value,
+                                                        e.target.selectionStart ?? e.target.value.length,
+                                                      );
+                                                    }}
+                                                    onFocus={(e) => {
+                                                      updateEditorHashtagState(
+                                                        "editDescription",
+                                                        e.currentTarget.value,
+                                                        e.currentTarget.selectionStart ?? e.currentTarget.value.length,
+                                                      );
+                                                    }}
+                                                    onBlur={() => {
+                                                      setTimeout(() => {
+                                                        setEditorHashtagQuery("");
+                                                        setEditorAutocompleteTarget(null);
+                                                        setEditorAutocompleteIndex(0);
+                                                      }, 120);
+                                                    }}
+                                                    onKeyDown={(e) => {
+                                                      handleEditorAutocompleteKeyDown(e);
+                                                    }}
+                                                    placeholder="Add a description..."
+                                                    rows={1}
+                                                    className="w-full px-3 py-2 text-base sm:text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg placeholder:text-cc-muted focus:outline-none focus:border-cc-primary/50 resize-none overflow-y-auto"
+                                                    style={{ minHeight: "36px", maxHeight: "200px" }}
+                                                  />
+                                                  <p className="text-[10px] text-cc-muted/60 mt-1">
+                                                    Tip: use #tag in description to attach tags.
+                                                  </p>
+                                                  {renderEditorHashtagDropdown("editDescription")}
+                                                </div>
+
+                                                {/* Images (always show upload in edit mode) */}
+                                                <div>
+                                                  <label className="block text-[11px] text-cc-muted mb-1.5">
+                                                    Images
+                                                  </label>
+                                                  {quest.images && quest.images.length > 0 && (
+                                                    <div className="flex flex-wrap gap-2 mb-2">
+                                                      {quest.images.map((img: QuestImage) => (
+                                                        <div
+                                                          key={img.id}
+                                                          className="relative group rounded-lg overflow-hidden border border-cc-border bg-cc-input-bg"
                                                         >
-                                                          {feedbackSubmitting ? "Saving..." : "Add Feedback"}
-                                                        </button>
-                                                        {uploadingFeedbackImage && (
-                                                          <span className="text-xs text-cc-muted animate-pulse">
-                                                            Uploading...
-                                                          </span>
-                                                        )}
-                                                        <span className="text-[11px] text-cc-muted/40 ml-auto">
-                                                          {navigator.platform.includes("Mac") ? "\u2318" : "Ctrl"}+Enter
-                                                        </span>
-                                                      </div>
+                                                          <img
+                                                            src={api.questImageUrl(img.id)}
+                                                            alt={img.filename}
+                                                            className="w-24 h-24 object-cover cursor-zoom-in"
+                                                            onClick={() => setLightboxSrc(api.questImageUrl(img.id))}
+                                                          />
+                                                          <button
+                                                            onClick={() => handleRemoveImage(quest.questId, img.id)}
+                                                            className="absolute top-1 right-1 w-5 h-5 bg-black/60 rounded-full flex items-center justify-center cursor-pointer"
+                                                          >
+                                                            <svg
+                                                              viewBox="0 0 16 16"
+                                                              fill="none"
+                                                              stroke="white"
+                                                              strokeWidth="2"
+                                                              className="w-2.5 h-2.5"
+                                                            >
+                                                              <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
+                                                            </svg>
+                                                          </button>
+                                                          <div className="absolute bottom-0 left-0 right-0 bg-black/50 px-1 py-0.5 text-[9px] text-white truncate opacity-0 group-hover:opacity-100 transition-opacity">
+                                                            {img.filename}
+                                                          </div>
+                                                        </div>
+                                                      ))}
                                                     </div>
                                                   )}
-                                                </div>
-                                              );
-                                            })()}
-
-                                            {/* Notes */}
-                                            {questNotes && (
-                                              <div className="px-3 py-2 text-xs bg-cc-input-bg border border-cc-border rounded-lg">
-                                                <MarkdownContent text={questNotes} size="sm" />
-                                              </div>
-                                            )}
-
-                                            {/* Metadata: quest ID + version history button */}
-                                            <div className="flex items-center gap-2 text-[10px] text-cc-muted/50">
-                                              <CopyableQuestId
-                                                questId={quest.questId}
-                                                className="text-[10px] text-cc-muted/50"
-                                              />
-                                              {quest.version > 1 ? (
-                                                <button
-                                                  onClick={() => toggleHistory(quest.questId)}
-                                                  className="px-1.5 py-0.5 rounded bg-cc-hover text-cc-muted hover:text-cc-fg transition-colors cursor-pointer text-[10px]"
-                                                >
-                                                  v{quest.version} — {historyForId === quest.questId ? "hide" : "show"}{" "}
-                                                  history
-                                                </button>
-                                              ) : (
-                                                <span>v{quest.version}</span>
-                                              )}
-                                            </div>
-
-                                            {/* Version history (lazy-loaded) */}
-                                            {historyForId === quest.questId && (
-                                              <QuestVersionHistory questId={quest.questId} />
-                                            )}
-
-                                            {/* Action bar: Edit, Assign, Transitions, Delete + inbox controls */}
-                                            <div className="flex items-start justify-between gap-2 flex-wrap pt-1">
-                                              <div className="flex items-center gap-1.5 flex-wrap">
-                                                {/* Edit button */}
-                                                <button
-                                                  onClick={() => enterEditMode(quest)}
-                                                  className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg bg-cc-hover text-cc-muted hover:text-cc-fg border border-cc-border transition-colors cursor-pointer"
-                                                >
-                                                  Edit
-                                                </button>
-
-                                                {/* Assign to Session */}
-                                                {quest.status !== "done" && (
-                                                  <button
-                                                    onClick={() => setAssignPickerForId(quest.questId)}
-                                                    className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg bg-cc-primary/10 text-cc-primary border border-cc-primary/20 hover:bg-cc-primary/20 transition-colors cursor-pointer"
-                                                  >
-                                                    Assign
-                                                  </button>
-                                                )}
-
-                                                {/* Separator */}
-                                                <span className="w-px h-4 bg-cc-border mx-0.5" />
-
-                                                {/* Status transitions */}
-                                                {(() => {
-                                                  const dropdownCfg = isCancelled
-                                                    ? {
-                                                        bg: "bg-red-500/10",
-                                                        text: "text-red-400",
-                                                        border: "border-red-500/20",
+                                                  <div
+                                                    onDragOver={(e) => {
+                                                      e.preventDefault();
+                                                      e.stopPropagation();
+                                                    }}
+                                                    onDrop={(e) => {
+                                                      e.preventDefault();
+                                                      e.stopPropagation();
+                                                      if (e.dataTransfer.files.length > 0) {
+                                                        handleImageUpload(quest.questId, e.dataTransfer.files);
                                                       }
-                                                    : cfg;
-                                                  return (
-                                                    <select
-                                                      value={isCancelled ? "cancelled" : quest.status}
+                                                    }}
+                                                    className="flex items-center gap-2"
+                                                  >
+                                                    <button
+                                                      onClick={() => imageInputRef.current?.click()}
+                                                      className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg bg-cc-hover text-cc-muted hover:text-cc-fg border border-cc-border transition-colors cursor-pointer flex items-center gap-1.5"
+                                                    >
+                                                      <svg
+                                                        viewBox="0 0 16 16"
+                                                        fill="none"
+                                                        stroke="currentColor"
+                                                        strokeWidth="1.5"
+                                                        className="w-3 h-3"
+                                                      >
+                                                        <rect x="1.5" y="2.5" width="13" height="11" rx="2" />
+                                                        <circle cx="5" cy="6" r="1.5" />
+                                                        <path d="M1.5 11l3-3.5 2.5 2.5 2-1.5 5.5 4" />
+                                                      </svg>
+                                                      Add Image
+                                                    </button>
+                                                    <span className="text-[10px] text-cc-muted/50">or drag & drop</span>
+                                                    <input
+                                                      ref={imageInputRef}
+                                                      type="file"
+                                                      accept="image/*"
+                                                      multiple
+                                                      className="hidden"
                                                       onChange={(e) => {
-                                                        const val = e.target.value;
-                                                        if (val === "cancelled") {
-                                                          handleCancel(quest);
-                                                        } else {
-                                                          handleTransition(quest, val as QuestStatus);
+                                                        if (e.target.files && e.target.files.length > 0) {
+                                                          handleImageUpload(quest.questId, e.target.files);
+                                                          e.target.value = "";
                                                         }
                                                       }}
-                                                      className={`px-2 py-1.5 text-[11px] font-medium rounded-lg cursor-pointer outline-none transition-colors ${dropdownCfg.bg} ${dropdownCfg.text} border ${dropdownCfg.border}`}
-                                                    >
-                                                      {ALL_STATUSES.map((s) => (
-                                                        <option key={s} value={s}>
-                                                          {STATUS_CONFIG[s].label}
-                                                        </option>
-                                                      ))}
-                                                      <option key="cancelled" value="cancelled">
-                                                        Cancelled
-                                                      </option>
-                                                    </select>
+                                                    />
+                                                  </div>
+                                                </div>
+
+                                                {/* Save / Cancel */}
+                                                <div className="flex items-center gap-2">
+                                                  <button
+                                                    onClick={() => handlePatch(quest.questId)}
+                                                    className="px-3 py-1.5 text-xs font-medium bg-cc-primary hover:bg-cc-primary-hover text-white rounded-lg transition-colors cursor-pointer"
+                                                  >
+                                                    Save
+                                                  </button>
+                                                  <button
+                                                    onClick={cancelEdit}
+                                                    className="px-3 py-1.5 text-xs font-medium text-cc-muted hover:text-cc-fg rounded-lg transition-colors cursor-pointer"
+                                                  >
+                                                    Cancel
+                                                  </button>
+                                                </div>
+                                              </>
+                                            ) : (
+                                              /* ─── Read mode ─── */
+                                              <>
+                                                {/* Description */}
+                                                {description && (
+                                                  <MarkdownContent
+                                                    text={description}
+                                                    size="sm"
+                                                    searchHighlight={
+                                                      searchText
+                                                        ? { query: searchText, mode: "fuzzy", isCurrent: false }
+                                                        : null
+                                                    }
+                                                  />
+                                                )}
+
+                                                {/* Images (read-only thumbnails, only if images exist) */}
+                                                {quest.images && quest.images.length > 0 && (
+                                                  <div className="flex flex-wrap gap-2">
+                                                    {quest.images.map((img: QuestImage) => (
+                                                      <div
+                                                        key={img.id}
+                                                        className="relative group rounded-lg overflow-hidden border border-cc-border bg-cc-input-bg"
+                                                      >
+                                                        <img
+                                                          src={api.questImageUrl(img.id)}
+                                                          alt={img.filename}
+                                                          className="w-20 h-20 object-cover cursor-zoom-in"
+                                                          onClick={() => setLightboxSrc(api.questImageUrl(img.id))}
+                                                        />
+                                                        <div className="absolute bottom-0 left-0 right-0 bg-black/50 px-1 py-0.5 text-[9px] text-white truncate opacity-0 group-hover:opacity-100 transition-opacity">
+                                                          {img.filename}
+                                                        </div>
+                                                      </div>
+                                                    ))}
+                                                  </div>
+                                                )}
+
+                                                {/* Verification checklist */}
+                                                {hasVerification && (
+                                                  <div>
+                                                    <label className="block text-[11px] text-cc-muted mb-1">
+                                                      Verification
+                                                    </label>
+                                                    <div className="space-y-0.5">
+                                                      {quest.verificationItems.map(
+                                                        (item: QuestVerificationItem, i: number) => (
+                                                          <label
+                                                            key={i}
+                                                            className="flex items-start gap-2 py-1 px-2 rounded-md hover:bg-cc-hover transition-colors cursor-pointer"
+                                                          >
+                                                            <input
+                                                              type="checkbox"
+                                                              checked={item.checked}
+                                                              onChange={(e) =>
+                                                                handleCheckVerification(
+                                                                  quest.questId,
+                                                                  i,
+                                                                  e.target.checked,
+                                                                )
+                                                              }
+                                                              className="mt-0.5 accent-cc-primary cursor-pointer"
+                                                            />
+                                                            <span
+                                                              className={`text-xs ${
+                                                                item.checked
+                                                                  ? "text-cc-muted line-through"
+                                                                  : "text-cc-fg"
+                                                              }`}
+                                                            >
+                                                              {item.text}
+                                                            </span>
+                                                          </label>
+                                                        ),
+                                                      )}
+                                                    </div>
+                                                  </div>
+                                                )}
+
+                                                {/* Feedback thread */}
+                                                {(() => {
+                                                  const feedbackEntries: QuestFeedbackEntry[] =
+                                                    "feedback" in quest
+                                                      ? ((quest as { feedback?: QuestFeedbackEntry[] }).feedback ?? [])
+                                                      : [];
+                                                  const hasFeedback = feedbackEntries.length > 0;
+                                                  const canAddFeedback =
+                                                    quest.status === "needs_verification" ||
+                                                    quest.status === "in_progress";
+                                                  if (!hasFeedback && !canAddFeedback) return null;
+                                                  return (
+                                                    <div>
+                                                      {hasFeedback && (
+                                                        <>
+                                                          <label className="block text-xs text-cc-muted mb-1">
+                                                            Feedback
+                                                          </label>
+                                                          <div className="space-y-2 mb-2">
+                                                            {feedbackEntries.map((entry, i) => {
+                                                              const isEditing =
+                                                                editingFeedback?.questId === quest.questId &&
+                                                                editingFeedback?.index === i;
+                                                              const feedbackSessionId =
+                                                                entry.author === "agent"
+                                                                  ? entry.authorSessionId
+                                                                  : undefined;
+                                                              const feedbackAuthorLabel = entry.author;
+                                                              return (
+                                                                <div
+                                                                  key={i}
+                                                                  className={`px-2.5 py-2 rounded-lg text-sm ${
+                                                                    entry.author === "human"
+                                                                      ? entry.addressed
+                                                                        ? "bg-amber-500/5 border border-amber-500/10 text-amber-300/50"
+                                                                        : "bg-amber-500/8 border border-amber-500/15 text-amber-300/90"
+                                                                      : "bg-cc-input-bg border border-cc-border text-cc-fg/80 ml-4"
+                                                                  }`}
+                                                                >
+                                                                  <div className="flex items-center gap-1.5 mb-0.5">
+                                                                    {feedbackSessionId ? (
+                                                                      <SessionNumChip
+                                                                        sessionId={feedbackSessionId}
+                                                                        className="text-xs font-medium font-mono text-cc-primary hover:text-cc-primary-hover cursor-pointer"
+                                                                      />
+                                                                    ) : (
+                                                                      <span
+                                                                        className={`text-xs font-medium ${
+                                                                          entry.author === "human"
+                                                                            ? "text-amber-400/70"
+                                                                            : "text-cc-muted"
+                                                                        }`}
+                                                                      >
+                                                                        {feedbackAuthorLabel}
+                                                                      </span>
+                                                                    )}
+                                                                    <span className="text-[11px] text-cc-muted/40">
+                                                                      {timeAgo(entry.ts)}
+                                                                    </span>
+                                                                    {entry.author === "human" && entry.addressed && (
+                                                                      <span className="text-[11px] text-green-500/60 font-medium">
+                                                                        addressed
+                                                                      </span>
+                                                                    )}
+                                                                    <span className="ml-auto flex items-center gap-1">
+                                                                      {entry.author === "human" && (
+                                                                        <button
+                                                                          onClick={() =>
+                                                                            handleToggleAddressed(quest.questId, i)
+                                                                          }
+                                                                          className={`px-1 py-0.5 rounded transition-colors cursor-pointer ${
+                                                                            entry.addressed
+                                                                              ? "text-green-500/50 hover:text-green-500/70"
+                                                                              : "text-cc-muted/30 hover:text-green-500/60"
+                                                                          }`}
+                                                                          title={
+                                                                            entry.addressed
+                                                                              ? "Mark unaddressed"
+                                                                              : "Mark addressed"
+                                                                          }
+                                                                        >
+                                                                          <svg
+                                                                            viewBox="0 0 16 16"
+                                                                            fill="currentColor"
+                                                                            className="w-3.5 h-3.5"
+                                                                          >
+                                                                            <path d="M8 2a6 6 0 100 12A6 6 0 008 2zM0 8a8 8 0 1116 0A8 8 0 010 8zm11.354-1.646a.5.5 0 00-.708-.708L7 9.293 5.354 7.646a.5.5 0 10-.708.708l2 2a.5.5 0 00.708 0l4-4z" />
+                                                                          </svg>
+                                                                        </button>
+                                                                      )}
+                                                                      {entry.author === "human" && !isEditing && (
+                                                                        <button
+                                                                          onClick={() =>
+                                                                            setEditingFeedback({
+                                                                              questId: quest.questId,
+                                                                              index: i,
+                                                                              text: entry.text,
+                                                                              images: entry.images ?? [],
+                                                                            })
+                                                                          }
+                                                                          className="text-cc-muted/30 hover:text-cc-muted/60 cursor-pointer transition-colors"
+                                                                          title="Edit"
+                                                                        >
+                                                                          <svg
+                                                                            viewBox="0 0 16 16"
+                                                                            fill="currentColor"
+                                                                            className="w-3.5 h-3.5"
+                                                                          >
+                                                                            <path d="M11.013 1.427a1.75 1.75 0 012.474 0l1.086 1.086a1.75 1.75 0 010 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 01-.927-.928l.929-3.25a1.75 1.75 0 01.445-.758l8.61-8.61zm1.414 1.06a.25.25 0 00-.354 0L3.463 11.098a.25.25 0 00-.064.108l-.386 1.35 1.35-.386a.25.25 0 00.108-.064l8.61-8.61a.25.25 0 000-.354L12.427 2.487z" />
+                                                                          </svg>
+                                                                        </button>
+                                                                      )}
+                                                                    </span>
+                                                                  </div>
+                                                                  {isEditing ? (
+                                                                    <div className="flex flex-col gap-1 mt-1">
+                                                                      <textarea
+                                                                        ref={editFeedbackTextareaRef}
+                                                                        value={editingFeedback.text}
+                                                                        onChange={(e) => {
+                                                                          setEditingFeedback((prev) =>
+                                                                            prev
+                                                                              ? { ...prev, text: e.target.value }
+                                                                              : prev,
+                                                                          );
+                                                                          e.target.style.height = "auto";
+                                                                          e.target.style.height =
+                                                                            e.target.scrollHeight + "px";
+                                                                        }}
+                                                                        className="w-full text-sm bg-cc-bg border border-amber-500/30 rounded-lg px-2.5 py-1.5 text-cc-fg focus:outline-none focus:ring-1 focus:ring-amber-500/30 resize-none"
+                                                                        rows={2}
+                                                                        onKeyDown={(e) => {
+                                                                          if (
+                                                                            e.key === "Enter" &&
+                                                                            (e.metaKey || e.ctrlKey)
+                                                                          ) {
+                                                                            e.preventDefault();
+                                                                            handleEditFeedbackSave();
+                                                                          } else if (e.key === "Escape") {
+                                                                            setEditingFeedback(null);
+                                                                          }
+                                                                        }}
+                                                                        onPaste={(e) => {
+                                                                          const imgs = extractPastedImages(e);
+                                                                          if (imgs.length > 0)
+                                                                            handleEditFeedbackImageUpload(imgs);
+                                                                        }}
+                                                                      />
+                                                                      {editingFeedback.images.length > 0 && (
+                                                                        <div className="flex flex-wrap gap-1">
+                                                                          {editingFeedback.images.map((img) => (
+                                                                            <div
+                                                                              key={img.id}
+                                                                              className="relative group"
+                                                                            >
+                                                                              <img
+                                                                                src={api.questImageUrl(img.id)}
+                                                                                className="w-10 h-10 object-cover rounded cursor-pointer"
+                                                                                onClick={() =>
+                                                                                  setLightboxSrc(
+                                                                                    api.questImageUrl(img.id),
+                                                                                  )
+                                                                                }
+                                                                              />
+                                                                              <button
+                                                                                onClick={() =>
+                                                                                  setEditingFeedback((prev) =>
+                                                                                    prev
+                                                                                      ? {
+                                                                                          ...prev,
+                                                                                          images: prev.images.filter(
+                                                                                            (im) => im.id !== img.id,
+                                                                                          ),
+                                                                                        }
+                                                                                      : prev,
+                                                                                  )
+                                                                                }
+                                                                                className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-red-500 text-white text-[8px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                                                                              >
+                                                                                x
+                                                                              </button>
+                                                                            </div>
+                                                                          ))}
+                                                                        </div>
+                                                                      )}
+                                                                      <div className="flex items-center gap-1.5">
+                                                                        <button
+                                                                          onClick={handleEditFeedbackSave}
+                                                                          disabled={feedbackSubmitting}
+                                                                          className="text-xs px-2.5 py-1 rounded bg-amber-500/15 text-amber-400 border border-amber-500/20 hover:bg-amber-500/25 disabled:opacity-40 cursor-pointer"
+                                                                        >
+                                                                          Save
+                                                                        </button>
+                                                                        <button
+                                                                          onClick={() => setEditingFeedback(null)}
+                                                                          className="text-xs px-2.5 py-1 rounded text-cc-muted hover:text-cc-fg cursor-pointer"
+                                                                        >
+                                                                          Cancel
+                                                                        </button>
+                                                                      </div>
+                                                                    </div>
+                                                                  ) : (
+                                                                    <>
+                                                                      <MarkdownContent text={entry.text} size="sm" />
+                                                                      {entry.images && entry.images.length > 0 && (
+                                                                        <div className="flex flex-wrap gap-1 mt-1">
+                                                                          {entry.images.map((img) => (
+                                                                            <img
+                                                                              key={img.id}
+                                                                              src={api.questImageUrl(img.id)}
+                                                                              className="w-16 h-16 object-cover rounded cursor-pointer hover:opacity-80 transition-opacity"
+                                                                              title={img.filename}
+                                                                              onClick={() =>
+                                                                                setLightboxSrc(
+                                                                                  api.questImageUrl(img.id),
+                                                                                )
+                                                                              }
+                                                                            />
+                                                                          ))}
+                                                                        </div>
+                                                                      )}
+                                                                    </>
+                                                                  )}
+                                                                </div>
+                                                              );
+                                                            })}
+                                                          </div>
+                                                        </>
+                                                      )}
+                                                      {canAddFeedback && (
+                                                        <div className="flex flex-col gap-1">
+                                                          {!hasFeedback && (
+                                                            <label className="block text-xs text-cc-muted mb-0.5">
+                                                              Feedback
+                                                            </label>
+                                                          )}
+                                                          <textarea
+                                                            ref={feedbackTextareaRef}
+                                                            value={expandedId === quest.questId ? feedbackDraft : ""}
+                                                            onChange={(e) => {
+                                                              setFeedbackDraft(e.target.value);
+                                                              e.target.style.height = "auto";
+                                                              e.target.style.height = e.target.scrollHeight + "px";
+                                                            }}
+                                                            placeholder="Leave feedback..."
+                                                            className="w-full text-sm bg-cc-input-bg border border-cc-border rounded-lg px-2.5 py-2 text-cc-fg placeholder-cc-muted/50 focus:outline-none focus:ring-1 focus:ring-amber-500/30 resize-none"
+                                                            rows={2}
+                                                            onKeyDown={(e) => {
+                                                              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                                                                e.preventDefault();
+                                                                handleAddFeedback(quest.questId, feedbackDraft);
+                                                              }
+                                                            }}
+                                                            onPaste={(e) => {
+                                                              const imgs = extractPastedImages(e);
+                                                              if (imgs.length > 0) handleFeedbackImageUpload(imgs);
+                                                            }}
+                                                          />
+                                                          {feedbackImages.length > 0 &&
+                                                            expandedId === quest.questId && (
+                                                              <div className="flex flex-wrap gap-1">
+                                                                {feedbackImages.map((img) => (
+                                                                  <div key={img.id} className="relative group">
+                                                                    <img
+                                                                      src={api.questImageUrl(img.id)}
+                                                                      className="w-10 h-10 object-cover rounded cursor-pointer"
+                                                                      onClick={() =>
+                                                                        setLightboxSrc(api.questImageUrl(img.id))
+                                                                      }
+                                                                    />
+                                                                    <button
+                                                                      onClick={() =>
+                                                                        setFeedbackImages((prev) =>
+                                                                          prev.filter((im) => im.id !== img.id),
+                                                                        )
+                                                                      }
+                                                                      className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-red-500 text-white text-[8px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                                                                    >
+                                                                      x
+                                                                    </button>
+                                                                  </div>
+                                                                ))}
+                                                              </div>
+                                                            )}
+                                                          <div className="flex items-center gap-1.5">
+                                                            <button
+                                                              onClick={() =>
+                                                                handleAddFeedback(quest.questId, feedbackDraft)
+                                                              }
+                                                              disabled={
+                                                                (!feedbackDraft.trim() &&
+                                                                  feedbackImages.length === 0) ||
+                                                                feedbackSubmitting
+                                                              }
+                                                              className="text-xs px-2.5 py-1 rounded bg-amber-500/15 text-amber-400 border border-amber-500/20 hover:bg-amber-500/25 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                                                            >
+                                                              {feedbackSubmitting ? "Saving..." : "Add Feedback"}
+                                                            </button>
+                                                            {uploadingFeedbackImage && (
+                                                              <span className="text-xs text-cc-muted animate-pulse">
+                                                                Uploading...
+                                                              </span>
+                                                            )}
+                                                            <span className="text-[11px] text-cc-muted/40 ml-auto">
+                                                              {navigator.platform.includes("Mac") ? "\u2318" : "Ctrl"}
+                                                              +Enter
+                                                            </span>
+                                                          </div>
+                                                        </div>
+                                                      )}
+                                                    </div>
                                                   );
                                                 })()}
 
-                                                {/* Separator */}
-                                                <span className="w-px h-4 bg-cc-border mx-0.5" />
+                                                {/* Notes */}
+                                                {questNotes && (
+                                                  <div className="px-3 py-2 text-xs bg-cc-input-bg border border-cc-border rounded-lg">
+                                                    <MarkdownContent text={questNotes} size="sm" />
+                                                  </div>
+                                                )}
 
-                                                {/* Complete quest */}
-                                                {quest.status !== "done" && (
-                                                  <>
+                                                {/* Metadata: quest ID + version history button */}
+                                                <div className="flex items-center gap-2 text-[10px] text-cc-muted/50">
+                                                  <CopyableQuestId
+                                                    questId={quest.questId}
+                                                    className="text-[10px] text-cc-muted/50"
+                                                  />
+                                                  {quest.version > 1 ? (
                                                     <button
-                                                      onClick={() => handleTransition(quest, "done")}
-                                                      className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg bg-cc-primary text-white border border-cc-primary/40 hover:bg-cc-primary-hover transition-colors cursor-pointer"
+                                                      onClick={() => toggleHistory(quest.questId)}
+                                                      className="px-1.5 py-0.5 rounded bg-cc-hover text-cc-muted hover:text-cc-fg transition-colors cursor-pointer text-[10px]"
                                                     >
-                                                      Finish Quest
+                                                      v{quest.version} —{" "}
+                                                      {historyForId === quest.questId ? "hide" : "show"} history
                                                     </button>
+                                                  ) : (
+                                                    <span>v{quest.version}</span>
+                                                  )}
+                                                </div>
+
+                                                {/* Version history (lazy-loaded) */}
+                                                {historyForId === quest.questId && (
+                                                  <QuestVersionHistory questId={quest.questId} />
+                                                )}
+
+                                                {/* Action bar: Edit, Assign, Transitions, Delete + inbox controls */}
+                                                <div className="flex items-start justify-between gap-2 flex-wrap pt-1">
+                                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                                    {/* Edit button */}
+                                                    <button
+                                                      onClick={() => enterEditMode(quest)}
+                                                      className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg bg-cc-hover text-cc-muted hover:text-cc-fg border border-cc-border transition-colors cursor-pointer"
+                                                    >
+                                                      Edit
+                                                    </button>
+
+                                                    {/* Assign to Session */}
+                                                    {quest.status !== "done" && (
+                                                      <button
+                                                        onClick={() => setAssignPickerForId(quest.questId)}
+                                                        className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg bg-cc-primary/10 text-cc-primary border border-cc-primary/20 hover:bg-cc-primary/20 transition-colors cursor-pointer"
+                                                      >
+                                                        Assign
+                                                      </button>
+                                                    )}
+
                                                     {/* Separator */}
                                                     <span className="w-px h-4 bg-cc-border mx-0.5" />
-                                                  </>
-                                                )}
 
-                                                {/* Rework in session */}
-                                                {questSessionId && isKnownSession && (
-                                                  <>
-                                                    <button
-                                                      type="button"
-                                                      onClick={() => handleReworkInSession(quest, questSessionId)}
-                                                      disabled={unaddressedFeedbackCount === 0}
-                                                      title={
-                                                        unaddressedFeedbackCount > 0
-                                                          ? "Switch to this session and draft a rework message for quest feedback."
-                                                          : "No unaddressed human feedback."
-                                                      }
-                                                      className={`px-2.5 py-1.5 text-[11px] font-medium rounded-lg border transition-colors ${
-                                                        unaddressedFeedbackCount > 0
-                                                          ? "bg-cc-hover text-cc-fg border-cc-border hover:bg-amber-500/10 hover:text-amber-300 hover:border-amber-500/20 cursor-pointer"
-                                                          : "bg-cc-hover text-cc-muted/60 border-cc-border cursor-not-allowed"
-                                                      }`}
-                                                    >
-                                                      Rework
-                                                    </button>
+                                                    {/* Status transitions */}
+                                                    {(() => {
+                                                      const dropdownCfg = isCancelled
+                                                        ? {
+                                                            bg: "bg-red-500/10",
+                                                            text: "text-red-400",
+                                                            border: "border-red-500/20",
+                                                          }
+                                                        : cfg;
+                                                      return (
+                                                        <select
+                                                          value={isCancelled ? "cancelled" : quest.status}
+                                                          onChange={(e) => {
+                                                            const val = e.target.value;
+                                                            if (val === "cancelled") {
+                                                              handleCancel(quest);
+                                                            } else {
+                                                              handleTransition(quest, val as QuestStatus);
+                                                            }
+                                                          }}
+                                                          className={`px-2 py-1.5 text-[11px] font-medium rounded-lg cursor-pointer outline-none transition-colors ${dropdownCfg.bg} ${dropdownCfg.text} border ${dropdownCfg.border}`}
+                                                        >
+                                                          {ALL_STATUSES.map((s) => (
+                                                            <option key={s} value={s}>
+                                                              {STATUS_CONFIG[s].label}
+                                                            </option>
+                                                          ))}
+                                                          <option key="cancelled" value="cancelled">
+                                                            Cancelled
+                                                          </option>
+                                                        </select>
+                                                      );
+                                                    })()}
+
                                                     {/* Separator */}
                                                     <span className="w-px h-4 bg-cc-border mx-0.5" />
-                                                  </>
-                                                )}
 
-                                                {/* Delete */}
-                                                {confirmDeleteId === quest.questId ? (
-                                                  <>
-                                                    <button
-                                                      onClick={() => handleDelete(quest.questId)}
-                                                      className="px-2 py-1.5 text-[11px] font-medium rounded-lg bg-red-500/15 text-red-400 border border-red-500/20 hover:bg-red-500/25 transition-colors cursor-pointer"
-                                                    >
-                                                      Confirm Delete
-                                                    </button>
-                                                    <button
-                                                      onClick={() => setConfirmDeleteId(null)}
-                                                      className="px-2 py-1.5 text-[11px] font-medium text-cc-muted hover:text-cc-fg rounded-lg transition-colors cursor-pointer"
-                                                    >
-                                                      Cancel
-                                                    </button>
-                                                  </>
-                                                ) : (
-                                                  <button
-                                                    onClick={() => setConfirmDeleteId(quest.questId)}
-                                                    className="px-2 py-1.5 text-[11px] font-medium text-cc-muted hover:text-red-400 rounded-lg transition-colors cursor-pointer"
-                                                  >
-                                                    Delete
-                                                  </button>
-                                                )}
-                                              </div>
+                                                    {/* Complete quest */}
+                                                    {quest.status !== "done" && (
+                                                      <>
+                                                        <button
+                                                          onClick={() => handleTransition(quest, "done")}
+                                                          className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg bg-cc-primary text-white border border-cc-primary/40 hover:bg-cc-primary-hover transition-colors cursor-pointer"
+                                                        >
+                                                          Finish Quest
+                                                        </button>
+                                                        {/* Separator */}
+                                                        <span className="w-px h-4 bg-cc-border mx-0.5" />
+                                                      </>
+                                                    )}
 
-                                              {quest.status === "needs_verification" &&
-                                                (isInboxVerification ? (
-                                                  <button
-                                                    onClick={async () => {
-                                                      const marked = await handleMarkVerificationRead(quest.questId);
-                                                      if (marked) {
-                                                        closeQuestDetails();
-                                                      }
-                                                    }}
-                                                    title="Remove from Verification Inbox and keep it in Verification for now."
-                                                    className="ml-auto px-2.5 py-1.5 text-[11px] font-medium rounded-lg bg-cc-hover text-cc-muted border border-cc-border hover:bg-amber-500/10 hover:text-amber-300 hover:border-amber-500/20 transition-colors cursor-pointer"
-                                                  >
-                                                    Later
-                                                  </button>
-                                                ) : (
-                                                  <button
-                                                    onClick={() => handleMarkVerificationInbox(quest.questId)}
-                                                    title="Move this quest back to Verification Inbox to prioritize it again."
-                                                    className="ml-auto px-2.5 py-1.5 text-[11px] font-medium rounded-lg bg-cc-hover text-cc-muted border border-cc-border hover:bg-amber-500/10 hover:text-amber-300 hover:border-amber-500/20 transition-colors cursor-pointer"
-                                                  >
-                                                    Inbox
-                                                  </button>
-                                                ))}
-                                            </div>
-                                          </>
-                                        )}
-                                      </div>
-                                    </div>
-                                  </div>,
-                                  document.body,
-                                )}
-                            </div>
-                          </div>
-                        );
-                        })}
+                                                    {/* Rework in session */}
+                                                    {questSessionId && isKnownSession && (
+                                                      <>
+                                                        <button
+                                                          type="button"
+                                                          onClick={() => handleReworkInSession(quest, questSessionId)}
+                                                          disabled={unaddressedFeedbackCount === 0}
+                                                          title={
+                                                            unaddressedFeedbackCount > 0
+                                                              ? "Switch to this session and draft a rework message for quest feedback."
+                                                              : "No unaddressed human feedback."
+                                                          }
+                                                          className={`px-2.5 py-1.5 text-[11px] font-medium rounded-lg border transition-colors ${
+                                                            unaddressedFeedbackCount > 0
+                                                              ? "bg-cc-hover text-cc-fg border-cc-border hover:bg-amber-500/10 hover:text-amber-300 hover:border-amber-500/20 cursor-pointer"
+                                                              : "bg-cc-hover text-cc-muted/60 border-cc-border cursor-not-allowed"
+                                                          }`}
+                                                        >
+                                                          Rework
+                                                        </button>
+                                                        {/* Separator */}
+                                                        <span className="w-px h-4 bg-cc-border mx-0.5" />
+                                                      </>
+                                                    )}
+
+                                                    {/* Delete */}
+                                                    {confirmDeleteId === quest.questId ? (
+                                                      <>
+                                                        <button
+                                                          onClick={() => handleDelete(quest.questId)}
+                                                          className="px-2 py-1.5 text-[11px] font-medium rounded-lg bg-red-500/15 text-red-400 border border-red-500/20 hover:bg-red-500/25 transition-colors cursor-pointer"
+                                                        >
+                                                          Confirm Delete
+                                                        </button>
+                                                        <button
+                                                          onClick={() => setConfirmDeleteId(null)}
+                                                          className="px-2 py-1.5 text-[11px] font-medium text-cc-muted hover:text-cc-fg rounded-lg transition-colors cursor-pointer"
+                                                        >
+                                                          Cancel
+                                                        </button>
+                                                      </>
+                                                    ) : (
+                                                      <button
+                                                        onClick={() => setConfirmDeleteId(quest.questId)}
+                                                        className="px-2 py-1.5 text-[11px] font-medium text-cc-muted hover:text-red-400 rounded-lg transition-colors cursor-pointer"
+                                                      >
+                                                        Delete
+                                                      </button>
+                                                    )}
+                                                  </div>
+
+                                                  {quest.status === "needs_verification" &&
+                                                    (isInboxVerification ? (
+                                                      <button
+                                                        onClick={async () => {
+                                                          const marked = await handleMarkVerificationRead(
+                                                            quest.questId,
+                                                          );
+                                                          if (marked) {
+                                                            closeQuestDetails();
+                                                          }
+                                                        }}
+                                                        title="Remove from Verification Inbox and keep it in Verification for now."
+                                                        className="ml-auto px-2.5 py-1.5 text-[11px] font-medium rounded-lg bg-cc-hover text-cc-muted border border-cc-border hover:bg-amber-500/10 hover:text-amber-300 hover:border-amber-500/20 transition-colors cursor-pointer"
+                                                      >
+                                                        Later
+                                                      </button>
+                                                    ) : (
+                                                      <button
+                                                        onClick={() => handleMarkVerificationInbox(quest.questId)}
+                                                        title="Move this quest back to Verification Inbox to prioritize it again."
+                                                        className="ml-auto px-2.5 py-1.5 text-[11px] font-medium rounded-lg bg-cc-hover text-cc-muted border border-cc-border hover:bg-amber-500/10 hover:text-amber-300 hover:border-amber-500/20 transition-colors cursor-pointer"
+                                                      >
+                                                        Inbox
+                                                      </button>
+                                                    ))}
+                                                </div>
+                                              </>
+                                            )}
+                                          </div>
+                                        </div>
+                                      </div>,
+                                      document.body,
+                                    )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
-              );
+                  );
                 })}
               </div>
             </>

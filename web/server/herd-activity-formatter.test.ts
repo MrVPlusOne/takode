@@ -132,11 +132,7 @@ describe("formatActivitySummary", () => {
   });
 
   it("shows single tool call with summary instead of count", () => {
-    const messages = [
-      assistantMsg("", [
-        { name: "Bash", input: { command: "bun test" } },
-      ]),
-    ];
+    const messages = [assistantMsg("", [{ name: "Bash", input: { command: "bun test" } }])];
     const result = formatActivitySummary(messages, { startIdx: 10 });
     expect(result).toContain("Bash: bun test");
     expect(result).not.toContain("×");
@@ -147,7 +143,13 @@ describe("formatActivitySummary", () => {
     // instead of the truncated raw command, for better readability.
     const messages = [
       assistantMsg("", [
-        { name: "Bash", input: { command: "cd /tmp && find . -name '*.ts' -exec grep -l 'export' {} + | head -20", description: "Find TypeScript files with exports" } },
+        {
+          name: "Bash",
+          input: {
+            command: "cd /tmp && find . -name '*.ts' -exec grep -l 'export' {} + | head -20",
+            description: "Find TypeScript files with exports",
+          },
+        },
       ]),
     ];
     const result = formatActivitySummary(messages, { startIdx: 10 });
@@ -157,11 +159,7 @@ describe("formatActivitySummary", () => {
 
   it("falls back to Bash command when no description field exists", () => {
     // When no description is provided, fall back to showing the command.
-    const messages = [
-      assistantMsg("", [
-        { name: "Bash", input: { command: "bun test --watch" } },
-      ]),
-    ];
+    const messages = [assistantMsg("", [{ name: "Bash", input: { command: "bun test --watch" } }])];
     const result = formatActivitySummary(messages, { startIdx: 10 });
     expect(result).toContain("Bash: bun test --watch");
   });
@@ -179,10 +177,7 @@ describe("formatActivitySummary", () => {
   });
 
   it("formats permission_approved and permission_denied", () => {
-    const messages = [
-      permissionApprovedMsg("Bash", "bun test"),
-      permissionDeniedMsg("Edit", "modify /etc/hosts"),
-    ];
+    const messages = [permissionApprovedMsg("Bash", "bun test"), permissionDeniedMsg("Edit", "modify /etc/hosts")];
     const result = formatActivitySummary(messages, { startIdx: 0 });
     expect(result).toContain("[0] ✓ approved Bash -- bun test");
     expect(result).toContain("[1] ✗ denied Edit -- modify /etc/hosts");
@@ -224,9 +219,7 @@ describe("formatActivitySummary", () => {
     //   first line (step 0) + skip marker + last 4 lines (steps 16-18 + result)
     const messages: BrowserIncomingMessage[] = [];
     for (let i = 0; i < 19; i++) {
-      messages.push(
-        assistantMsg(`step ${i}`, [{ name: "Read", input: { file_path: `/file${i}.ts` } }]),
-      );
+      messages.push(assistantMsg(`step ${i}`, [{ name: "Read", input: { file_path: `/file${i}.ts` } }]));
     }
     messages.push(resultMsg("All done"));
 
@@ -335,10 +328,7 @@ describe("formatActivitySummary", () => {
     // When a user_message is the last formattable message (e.g. in a user_message event),
     // it should get the generous 5000-char limit instead of the standard 1000-char limit.
     const longUserMsg = "Important context: ".repeat(200); // ~3800 chars
-    const messages = [
-      assistantMsg("working", [{ name: "Read", input: { file_path: "/a.ts" } }]),
-      userMsg(longUserMsg),
-    ];
+    const messages = [assistantMsg("working", [{ name: "Read", input: { file_path: "/a.ts" } }]), userMsg(longUserMsg)];
     const result = formatActivitySummary(messages, { startIdx: 0 });
 
     // The user message should NOT be truncated (under 5000 chars)
@@ -349,10 +339,7 @@ describe("formatActivitySummary", () => {
   it("applies key message limit to result when it is the last formattable", () => {
     // When a result is the last formattable message, it should get 5000-char limit.
     const longResult = "Detailed output: ".repeat(200); // ~3400 chars
-    const messages = [
-      userMsg("run build"),
-      resultMsg(longResult),
-    ];
+    const messages = [userMsg("run build"), resultMsg(longResult)];
     const result = formatActivitySummary(messages, { startIdx: 0 });
 
     // The result should NOT be truncated (under 5000 chars)
@@ -382,9 +369,7 @@ describe("formatActivitySummary", () => {
     const messages: BrowserIncomingMessage[] = [];
     // Fill 20 assistant messages to exceed maxLines (5)
     for (let i = 0; i < 19; i++) {
-      messages.push(
-        assistantMsg(`step ${i}`, [{ name: "Read", input: { file_path: `/file${i}.ts` } }]),
-      );
+      messages.push(assistantMsg(`step ${i}`, [{ name: "Read", input: { file_path: `/file${i}.ts` } }]));
     }
     // Key message: the last assistant (worker's conclusion)
     const conclusion = "This is the worker's detailed conclusion with many important details.";
@@ -405,10 +390,7 @@ describe("formatActivitySummary", () => {
     // When permission_approved or permission_denied is the key message, its summary
     // should get KEY_MESSAGE_LIMIT (5000) instead of the default 80-char limit.
     const longSummary = "Justification: ".repeat(250); // ~3750 chars
-    const messages = [
-      userMsg("Deploy"),
-      permissionApprovedMsg("Bash", longSummary),
-    ];
+    const messages = [userMsg("Deploy"), permissionApprovedMsg("Bash", longSummary)];
     const result = formatActivitySummary(messages, { startIdx: 0 });
 
     // The summary should NOT be truncated at 80 chars

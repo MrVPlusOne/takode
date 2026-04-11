@@ -249,9 +249,7 @@ export class ClaudeSdkAdapter
         });
         cachedV4Class = probe?.query?.transport?.constructor ?? null;
         cachedQueryClass = probe?.query?.constructor ?? null;
-        console.log(
-          `[claude-sdk-adapter] V4 probe: v4Class=${!!cachedV4Class} queryClass=${!!cachedQueryClass}`,
-        );
+        console.log(`[claude-sdk-adapter] V4 probe: v4Class=${!!cachedV4Class} queryClass=${!!cachedQueryClass}`);
         // Close the probe session immediately
         try {
           probe?.close?.();
@@ -260,10 +258,7 @@ export class ClaudeSdkAdapter
         }
       } catch (probeErr) {
         // Probe failed — classes unavailable, skip the patches
-        console.warn(
-          `[claude-sdk-adapter] V4 probe failed:`,
-          probeErr instanceof Error ? probeErr.message : probeErr,
-        );
+        console.warn(`[claude-sdk-adapter] V4 probe failed:`, probeErr instanceof Error ? probeErr.message : probeErr);
       }
     }
     const v4Class = cachedV4Class;

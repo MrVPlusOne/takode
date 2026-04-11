@@ -61,9 +61,7 @@ export async function deleteTimers(sessionId: string): Promise<void> {
 export async function listTimerSessions(): Promise<string[]> {
   try {
     const files = await readdir(TIMER_DIR);
-    return files
-      .filter((f) => f.endsWith(".json"))
-      .map((f) => f.replace(/\.json$/, ""));
+    return files.filter((f) => f.endsWith(".json")).map((f) => f.replace(/\.json$/, ""));
   } catch (err: any) {
     if (err?.code !== "ENOENT") {
       console.warn("[timer-store] Failed to list timer sessions:", err);

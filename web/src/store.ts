@@ -436,7 +436,11 @@ interface AppState {
 
   // Tree view mode actions
   setSidebarViewMode: (mode: "linear" | "tree") => void;
-  setTreeGroups: (groups: import("./types.js").TreeGroup[], assignments: Record<string, string>, nodeOrder: Record<string, string[]>) => void;
+  setTreeGroups: (
+    groups: import("./types.js").TreeGroup[],
+    assignments: Record<string, string>,
+    nodeOrder: Record<string, string[]>,
+  ) => void;
   toggleTreeGroupCollapse: (groupId: string) => void;
   toggleTreeNodeCollapse: (sessionId: string) => void;
   toggleHerdNodeExpand: (sessionId: string) => void;

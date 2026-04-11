@@ -185,7 +185,10 @@ export function QuestDetailModal() {
               <label className="block text-[11px] text-cc-muted mb-1">Verification</label>
               <div className="space-y-0.5">
                 {quest.verificationItems.map((item: QuestVerificationItem, i: number) => (
-                  <label key={i} className="flex items-start gap-2 py-1 px-2 rounded-md hover:bg-cc-hover cursor-pointer">
+                  <label
+                    key={i}
+                    className="flex items-start gap-2 py-1 px-2 rounded-md hover:bg-cc-hover cursor-pointer"
+                  >
                     <input
                       type="checkbox"
                       checked={item.checked}

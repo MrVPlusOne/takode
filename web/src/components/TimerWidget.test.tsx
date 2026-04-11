@@ -97,13 +97,7 @@ describe("TimerChip", () => {
     const later = Date.now() + 7_200_000; // 2h
     resetStore({
       sessionTimers: new Map([
-        [
-          "s1",
-          [
-            makeTimer({ id: "t1", nextFireAt: later }),
-            makeTimer({ id: "t2", nextFireAt: soonest }),
-          ],
-        ],
+        ["s1", [makeTimer({ id: "t1", nextFireAt: later }), makeTimer({ id: "t2", nextFireAt: soonest })]],
       ]),
     });
     render(<TimerChip sessionId="s1" />);
@@ -207,9 +201,7 @@ describe("TimerModal", () => {
 
   it("shows timer count in header", () => {
     resetStore({
-      sessionTimers: new Map([
-        ["s1", [makeTimer({ id: "t1" }), makeTimer({ id: "t2" })]],
-      ]),
+      sessionTimers: new Map([["s1", [makeTimer({ id: "t1" }), makeTimer({ id: "t2" })]]]),
     });
     render(<TimerModal sessionId="s1" onClose={vi.fn()} />);
     expect(screen.getByText("(2)")).toBeInTheDocument();

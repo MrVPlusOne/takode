@@ -232,11 +232,14 @@ export function Sidebar() {
   // Hydrate tree groups on mount so sidebar renders correct grouping immediately.
   // After this initial fetch, WebSocket tree_groups_update keeps groups in sync.
   useEffect(() => {
-    api.getTreeGroups().then((tgs) => {
-      useStore.getState().setTreeGroups(tgs.groups, tgs.assignments, tgs.nodeOrder ?? {});
-    }).catch((e) => {
-      console.warn("[sidebar] tree group hydration failed:", e);
-    });
+    api
+      .getTreeGroups()
+      .then((tgs) => {
+        useStore.getState().setTreeGroups(tgs.groups, tgs.assignments, tgs.nodeOrder ?? {});
+      })
+      .catch((e) => {
+        console.warn("[sidebar] tree group hydration failed:", e);
+      });
   }, []);
 
   // Fetch server settings (name + ID) on mount
@@ -653,7 +656,16 @@ export function Sidebar() {
   );
   // Build tree view groups (herd-centric grouping)
   const treeViewGroups = useMemo(
-    () => buildTreeViewGroups(activeSessions, treeGroups, treeAssignments, sessionAttention, sessionSortMode, treeNodeOrder, activeReviewers),
+    () =>
+      buildTreeViewGroups(
+        activeSessions,
+        treeGroups,
+        treeAssignments,
+        sessionAttention,
+        sessionSortMode,
+        treeNodeOrder,
+        activeReviewers,
+      ),
     [activeSessions, treeGroups, treeAssignments, sessionAttention, sessionSortMode, treeNodeOrder, activeReviewers],
   );
   const treeGroupIds = useMemo(() => treeViewGroups.map((g) => g.id), [treeViewGroups]);
@@ -1118,69 +1130,69 @@ export function Sidebar() {
             {sidebarViewMode === "tree" ? (
               /* Tree view -- herd-centric groups */
               <>
-              <DndContext
-                sensors={sessionSortMode === "activity" ? [] : groupSensors}
-                collisionDetection={closestCenter}
-                onDragEnd={sessionSortMode === "activity" ? undefined : handleTreeGroupDragEnd}
-                modifiers={[restrictToVerticalAxis]}
-              >
-                <SortableContext items={treeGroupIds} strategy={verticalListSortingStrategy}>
-                  {/* Session-level DndContext enables cross-group drag-and-drop */}
-                  <DndContext
-                    sensors={sessionSortMode === "activity" ? [] : sessionSensors}
-                    collisionDetection={closestCenter}
-                    onDragEnd={sessionSortMode === "activity" ? undefined : handleTreeSessionDragEnd}
-                    modifiers={[restrictToVerticalAxis]}
-                  >
-                    <SortableContext items={allTreeSessionIds} strategy={verticalListSortingStrategy}>
-                  {treeViewGroups.map((group, i) => (
-                    <SortableProjectGroup key={group.id} id={group.id}>
-                      {({ setNodeRef, style, listeners, attributes, isDragging }) => (
-                        <div ref={setNodeRef} style={style}>
-                          <TreeViewGroup
-                            group={group}
-                            isGroupCollapsed={collapsedTreeGroups.has(group.id)}
-                            collapsedTreeNodes={collapsedTreeNodes}
-                            onToggleGroupCollapse={toggleTreeGroupCollapse}
-                            onToggleNodeCollapse={toggleTreeNodeCollapse}
-                            onCreateSession={handleCreateSessionInTreeGroup}
-                            currentSessionId={currentSessionId}
-                            sessionNames={sessionNames}
-                            sessionPreviews={sessionPreviews}
-                            pendingPermissions={pendingPermissions}
-                            recentlyRenamed={recentlyRenamed}
-                            isFirst={i === 0}
-                            groupDragging={isDragging}
-                            onMobileReorderHandleActiveChange={setMobileReorderHandleActive}
-                            groupDragHandleProps={
-                              treeViewGroups.length > 1 && sessionSortMode !== "activity"
-                                ? {
-                                    listeners: listeners as Record<string, unknown> | undefined,
-                                    attributes: attributes as unknown as Record<string, unknown>,
+                <DndContext
+                  sensors={sessionSortMode === "activity" ? [] : groupSensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={sessionSortMode === "activity" ? undefined : handleTreeGroupDragEnd}
+                  modifiers={[restrictToVerticalAxis]}
+                >
+                  <SortableContext items={treeGroupIds} strategy={verticalListSortingStrategy}>
+                    {/* Session-level DndContext enables cross-group drag-and-drop */}
+                    <DndContext
+                      sensors={sessionSortMode === "activity" ? [] : sessionSensors}
+                      collisionDetection={closestCenter}
+                      onDragEnd={sessionSortMode === "activity" ? undefined : handleTreeSessionDragEnd}
+                      modifiers={[restrictToVerticalAxis]}
+                    >
+                      <SortableContext items={allTreeSessionIds} strategy={verticalListSortingStrategy}>
+                        {treeViewGroups.map((group, i) => (
+                          <SortableProjectGroup key={group.id} id={group.id}>
+                            {({ setNodeRef, style, listeners, attributes, isDragging }) => (
+                              <div ref={setNodeRef} style={style}>
+                                <TreeViewGroup
+                                  group={group}
+                                  isGroupCollapsed={collapsedTreeGroups.has(group.id)}
+                                  collapsedTreeNodes={collapsedTreeNodes}
+                                  onToggleGroupCollapse={toggleTreeGroupCollapse}
+                                  onToggleNodeCollapse={toggleTreeNodeCollapse}
+                                  onCreateSession={handleCreateSessionInTreeGroup}
+                                  currentSessionId={currentSessionId}
+                                  sessionNames={sessionNames}
+                                  sessionPreviews={sessionPreviews}
+                                  pendingPermissions={pendingPermissions}
+                                  recentlyRenamed={recentlyRenamed}
+                                  isFirst={i === 0}
+                                  groupDragging={isDragging}
+                                  onMobileReorderHandleActiveChange={setMobileReorderHandleActive}
+                                  groupDragHandleProps={
+                                    treeViewGroups.length > 1 && sessionSortMode !== "activity"
+                                      ? {
+                                          listeners: listeners as Record<string, unknown> | undefined,
+                                          attributes: attributes as unknown as Record<string, unknown>,
+                                        }
+                                      : undefined
                                   }
-                                : undefined
-                            }
-                            herdGroupBadgeThemes={herdGroupBadgeThemes}
-                            {...sessionItemProps}
-                          />
-                        </div>
-                      )}
-                    </SortableProjectGroup>
-                  ))}
-                    </SortableContext>
-                  </DndContext>
-                </SortableContext>
-              </DndContext>
-              {/* Create new group button */}
-              <button
-                onClick={handleCreateTreeGroup}
-                className="w-full mt-1 px-2 py-1.5 flex items-center gap-1.5 rounded-md text-[10px] text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
-              >
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-3 h-3">
-                  <path d="M8 3.5v9M3.5 8h9" strokeLinecap="round" />
-                </svg>
-                <span className="font-medium">New Group</span>
-              </button>
+                                  herdGroupBadgeThemes={herdGroupBadgeThemes}
+                                  {...sessionItemProps}
+                                />
+                              </div>
+                            )}
+                          </SortableProjectGroup>
+                        ))}
+                      </SortableContext>
+                    </DndContext>
+                  </SortableContext>
+                </DndContext>
+                {/* Create new group button */}
+                <button
+                  onClick={handleCreateTreeGroup}
+                  className="w-full mt-1 px-2 py-1.5 flex items-center gap-1.5 rounded-md text-[10px] text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
+                >
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-3 h-3">
+                    <path d="M8 3.5v9M3.5 8h9" strokeLinecap="round" />
+                  </svg>
+                  <span className="font-medium">New Group</span>
+                </button>
               </>
             ) : (
               /* Linear view — CWD-based groups */

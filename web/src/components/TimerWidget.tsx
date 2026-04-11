@@ -38,10 +38,7 @@ function useTimers(sessionId: string) {
 
   // Sort by nextFireAt ascending (soonest first). Called before any early return
   // so hook count stays stable across renders.
-  const sorted = useMemo(
-    () => [...timers].sort((a, b) => a.nextFireAt - b.nextFireAt),
-    [timers],
-  );
+  const sorted = useMemo(() => [...timers].sort((a, b) => a.nextFireAt - b.nextFireAt), [timers]);
 
   return { timers, sorted };
 }
@@ -78,13 +75,7 @@ function TimerModalRow({ timer, sessionId }: { timer: SessionTimer; sessionId: s
   );
 }
 
-export function TimerModal({
-  sessionId,
-  onClose,
-}: {
-  sessionId: string;
-  onClose: () => void;
-}) {
+export function TimerModal({ sessionId, onClose }: { sessionId: string; onClose: () => void }) {
   const { sorted } = useTimers(sessionId);
 
   // Close on Escape — stop propagation so stacked handlers (search overlay, etc.) don't also fire.
@@ -126,7 +117,14 @@ export function TimerModal({
             className="text-cc-muted hover:text-cc-fg transition-colors p-1 -mr-1 cursor-pointer"
             aria-label="Close"
           >
-            <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+            <svg
+              className="w-4 h-4"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+            >
               <path d="M4 4l8 8M12 4l-8 8" />
             </svg>
           </button>
@@ -137,9 +135,7 @@ export function TimerModal({
           {sorted.length === 0 ? (
             <p className="px-4 py-8 text-center text-sm text-cc-muted">No active timers</p>
           ) : (
-            sorted.map((timer) => (
-              <TimerModalRow key={timer.id} timer={timer} sessionId={sessionId} />
-            ))
+            sorted.map((timer) => <TimerModalRow key={timer.id} timer={timer} sessionId={sessionId} />)
           )}
         </div>
       </div>
@@ -171,9 +167,7 @@ export function TimerChip({ sessionId }: { sessionId: string }) {
         <span className="relative truncate text-cc-fg/90">
           {timers.length} timer{timers.length !== 1 ? "s" : ""}
         </span>
-        <span className="relative text-cc-muted/75">
-          next in {formatRelativeTime(sorted[0].nextFireAt)}
-        </span>
+        <span className="relative text-cc-muted/75">next in {formatRelativeTime(sorted[0].nextFireAt)}</span>
       </button>
 
       {modalOpen && <TimerModal sessionId={sessionId} onClose={closeModal} />}

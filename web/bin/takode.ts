@@ -616,8 +616,7 @@ async function handleList(base: string, args: string[]): Promise<void> {
     }
     // Reviewers inherit their parent's project group when the parent is visible
     const ownKey = (s.repoRoot || s.cwd || "").replace(/\/+$/, "") || "/";
-    const projectKey =
-      s.reviewerOf !== undefined ? (sessionProjectKey.get(s.reviewerOf) ?? ownKey) : ownKey;
+    const projectKey = s.reviewerOf !== undefined ? (sessionProjectKey.get(s.reviewerOf) ?? ownKey) : ownKey;
     if (!groups.has(projectKey)) groups.set(projectKey, []);
     groups.get(projectKey)!.push(s);
   }
@@ -1113,7 +1112,14 @@ function userSourceLabel(msg: PeekMessage): string {
 function formatMultilineContent(text: string, indent: string): string {
   const lines = text.split("\n");
   if (lines.length <= 1) return text;
-  return lines[0] + "\n" + lines.slice(1).map((l) => `${indent}↵ ${l}`).join("\n");
+  return (
+    lines[0] +
+    "\n" +
+    lines
+      .slice(1)
+      .map((l) => `${indent}↵ ${l}`)
+      .join("\n")
+  );
 }
 
 function formatCollapsedTurn(turn: CollapsedTurn): string {
@@ -1172,7 +1178,10 @@ function printExpandedMessages(messages: PeekMessage[]): void {
         const label = !text && hasTools ? "tool" : "asst";
         if (text) {
           const prefix = `  ${idx.padEnd(7)} ${time}  asst  `;
-          const formatted = formatMultilineContent(truncate(text, TAKODE_PEEK_CONTENT_LIMIT), " ".repeat(prefix.length));
+          const formatted = formatMultilineContent(
+            truncate(text, TAKODE_PEEK_CONTENT_LIMIT),
+            " ".repeat(prefix.length),
+          );
           console.log(`${prefix}${formatted}`);
         } else if (hasTools) {
           // No text content -- print idx header so the msg ID is always visible
@@ -1192,12 +1201,11 @@ function printExpandedMessages(messages: PeekMessage[]): void {
             } else {
               // Multiple consecutive calls of the same tool -- show count + combined summaries
               const summaryParts = group.summaries.filter(Boolean).slice(0, 3);
-              const summaryStr = summaryParts.length > 0
-                ? ` ${summaryParts.join(", ")}${group.count > 3 ? `, ...+${group.count - 3}` : ""}`
-                : "";
-              console.log(
-                `  ${pipe}       ${connector} ${formatInlineText(group.name)}×${group.count}${summaryStr}`,
-              );
+              const summaryStr =
+                summaryParts.length > 0
+                  ? ` ${summaryParts.join(", ")}${group.count > 3 ? `, ...+${group.count - 3}` : ""}`
+                  : "";
+              console.log(`  ${pipe}       ${connector} ${formatInlineText(group.name)}×${group.count}${summaryStr}`);
             }
           }
         }
@@ -1357,7 +1365,10 @@ function printPeekRange(d: PeekRangeResponse, sessionRef: string, count: number)
           const label = text ? "asst" : "tool";
           if (text) {
             const prefix = `  ${idx.padEnd(7)} ${time}  asst  `;
-            const formatted = formatMultilineContent(truncate(text, TAKODE_PEEK_CONTENT_LIMIT), " ".repeat(prefix.length));
+            const formatted = formatMultilineContent(
+              truncate(text, TAKODE_PEEK_CONTENT_LIMIT),
+              " ".repeat(prefix.length),
+            );
             console.log(`${prefix}${formatted}`);
           } else {
             console.log(`  ${idx.padEnd(7)} ${time}  ${label}`);
@@ -1581,9 +1592,7 @@ async function handleRead(base: string, args: string[]): Promise<void> {
       ? ` (lines ${d.offset + 1}-${d.offset + d.limit} of ${d.totalLines})`
       : ` (${d.totalLines} lines)`;
   const typeLabel =
-    d.type === "assistant" && d.contentBlocks?.some((b) => b.type === "tool_use")
-      ? "assistant (tools)"
-      : d.type;
+    d.type === "assistant" && d.contentBlocks?.some((b) => b.type === "tool_use") ? "assistant (tools)" : d.type;
   console.log(`[msg ${d.idx}] ${formatInlineText(typeLabel)} -- ${time}${lineInfo}`);
   console.log("\u2500".repeat(60));
 
@@ -3034,7 +3043,11 @@ async function handleTimer(base: string, args: string[]): Promise<void> {
       for (const t of result.timers) {
         const fireAt = new Date(t.nextFireAt).toLocaleTimeString();
         const typeLabel =
-          t.type === "recurring" ? `every ${t.originalSpec}` : t.type === "delay" ? `in ${t.originalSpec}` : `at ${t.originalSpec}`;
+          t.type === "recurring"
+            ? `every ${t.originalSpec}`
+            : t.type === "delay"
+              ? `in ${t.originalSpec}`
+              : `at ${t.originalSpec}`;
         console.log(`  ${t.id}  ${typeLabel}  fires=${t.fireCount}  next=${fireAt}  "${t.prompt}"`);
       }
       break;

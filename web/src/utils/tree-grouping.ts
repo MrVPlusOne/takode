@@ -225,10 +225,13 @@ export function buildTreeViewGroups(
     }
 
     // Compute aggregate counters (include reviewers whose parent is in this group)
-    const allSessions = [...bucket, ...reviewers.filter((r) => {
-      const parent = r.reviewerOf != null ? sessionByNum.get(r.reviewerOf) : undefined;
-      return parent && bucketIds.has(parent.id);
-    })];
+    const allSessions = [
+      ...bucket,
+      ...reviewers.filter((r) => {
+        const parent = r.reviewerOf != null ? sessionByNum.get(r.reviewerOf) : undefined;
+        return parent && bucketIds.has(parent.id);
+      }),
+    ];
 
     let runningCount = 0;
     let permCount = 0;

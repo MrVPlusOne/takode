@@ -1,12 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
-import {
-  getVoiceInputSupport,
-  normalizeMeterLevel,
-  resolveRecordedMimeType,
-  useVoiceInput,
-} from "./useVoiceInput.js";
+import { getVoiceInputSupport, normalizeMeterLevel, resolveRecordedMimeType, useVoiceInput } from "./useVoiceInput.js";
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
 
@@ -192,7 +187,10 @@ describe("useVoiceInput — isPreparing", () => {
     // Make getUserMedia hang until we resolve it manually
     let resolveStream!: (stream: MediaStream) => void;
     getUserMediaMock.mockImplementation(
-      () => new Promise<MediaStream>((r) => { resolveStream = r; }),
+      () =>
+        new Promise<MediaStream>((r) => {
+          resolveStream = r;
+        }),
     );
 
     const { result } = renderHook(() => useVoiceInput());
@@ -201,13 +199,17 @@ describe("useVoiceInput — isPreparing", () => {
     expect(result.current.isRecording).toBe(false);
 
     // Start recording -- should immediately set isPreparing
-    act(() => { result.current.startRecording(); });
+    act(() => {
+      result.current.startRecording();
+    });
     // isPreparing goes true synchronously in the same microtask as the setState
     expect(result.current.isPreparing).toBe(true);
     expect(result.current.isRecording).toBe(false);
 
     // Resolve getUserMedia -- recording should start and isPreparing should clear
-    await act(async () => { resolveStream(makeMockStream()); });
+    await act(async () => {
+      resolveStream(makeMockStream());
+    });
     expect(result.current.isPreparing).toBe(false);
     expect(result.current.isRecording).toBe(true);
   });
@@ -217,7 +219,9 @@ describe("useVoiceInput — isPreparing", () => {
 
     const { result } = renderHook(() => useVoiceInput());
 
-    await act(async () => { result.current.startRecording(); });
+    await act(async () => {
+      result.current.startRecording();
+    });
 
     expect(result.current.isPreparing).toBe(false);
     expect(result.current.isRecording).toBe(false);
@@ -230,11 +234,15 @@ describe("useVoiceInput — isPreparing", () => {
 
     const { result } = renderHook(() => useVoiceInput());
 
-    act(() => { result.current.startRecording(); });
+    act(() => {
+      result.current.startRecording();
+    });
     expect(result.current.isPreparing).toBe(true);
 
     // Cancel while still preparing (before getUserMedia resolves)
-    act(() => { result.current.cancelRecording(); });
+    act(() => {
+      result.current.cancelRecording();
+    });
     expect(result.current.isPreparing).toBe(false);
     expect(result.current.isRecording).toBe(false);
   });
@@ -246,8 +254,12 @@ describe("useVoiceInput — warmMicrophone", () => {
   it("calls getUserMedia once on first warmMicrophone call", async () => {
     const { result } = renderHook(() => useVoiceInput());
 
-    act(() => { result.current.warmMicrophone(); });
-    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    act(() => {
+      result.current.warmMicrophone();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
 
     expect(getUserMediaMock).toHaveBeenCalledTimes(1);
     expect(getUserMediaMock).toHaveBeenCalledWith({ audio: true });
@@ -257,13 +269,21 @@ describe("useVoiceInput — warmMicrophone", () => {
     const { result } = renderHook(() => useVoiceInput());
 
     // First call caches the stream
-    act(() => { result.current.warmMicrophone(); });
-    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    act(() => {
+      result.current.warmMicrophone();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
     expect(getUserMediaMock).toHaveBeenCalledTimes(1);
 
     // Second call should be a no-op (cached stream tracks are "live")
-    act(() => { result.current.warmMicrophone(); });
-    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    act(() => {
+      result.current.warmMicrophone();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
     expect(getUserMediaMock).toHaveBeenCalledTimes(1);
   });
 
@@ -271,8 +291,12 @@ describe("useVoiceInput — warmMicrophone", () => {
     getUserMediaMock.mockRejectedValue(new DOMException("Denied", "NotAllowedError"));
     const { result } = renderHook(() => useVoiceInput());
 
-    act(() => { result.current.warmMicrophone(); });
-    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    act(() => {
+      result.current.warmMicrophone();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
 
     // warmMicrophone should NOT set error -- it's a background pre-warm
     expect(result.current.error).toBeNull();
@@ -286,7 +310,9 @@ describe("useVoiceInput — warmMicrophone", () => {
 
     const { result } = renderHook(() => useVoiceInput());
 
-    act(() => { result.current.warmMicrophone(); });
+    act(() => {
+      result.current.warmMicrophone();
+    });
     expect(getUserMediaMock).not.toHaveBeenCalled();
   });
 
@@ -294,12 +320,18 @@ describe("useVoiceInput — warmMicrophone", () => {
     const { result } = renderHook(() => useVoiceInput());
 
     // Pre-warm
-    act(() => { result.current.warmMicrophone(); });
-    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    act(() => {
+      result.current.warmMicrophone();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
     expect(getUserMediaMock).toHaveBeenCalledTimes(1);
 
     // Start recording -- should reuse cached stream
-    await act(async () => { result.current.startRecording(); });
+    await act(async () => {
+      result.current.startRecording();
+    });
     expect(result.current.isRecording).toBe(true);
     expect(result.current.isPreparing).toBe(false);
     // No additional getUserMedia call
@@ -312,19 +344,29 @@ describe("useVoiceInput — warmMicrophone", () => {
 
     const { result } = renderHook(() => useVoiceInput());
 
-    act(() => { result.current.warmMicrophone(); });
-    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    act(() => {
+      result.current.warmMicrophone();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
     expect(getUserMediaMock).toHaveBeenCalledTimes(1);
 
     // Advance past the 30s idle timeout
-    act(() => { vi.advanceTimersByTime(31_000); });
+    act(() => {
+      vi.advanceTimersByTime(31_000);
+    });
 
     // Stream tracks should have been stopped
     expect(mockStream.getTracks()[0].stop).toHaveBeenCalled();
 
     // Next warmMicrophone should request a fresh stream
-    act(() => { result.current.warmMicrophone(); });
-    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    act(() => {
+      result.current.warmMicrophone();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
     expect(getUserMediaMock).toHaveBeenCalledTimes(2);
   });
 });
@@ -337,18 +379,24 @@ describe("useVoiceInput — stale stream fallback", () => {
     const staleStream = makeMockStream("ended");
     const freshStream = makeMockStream("live");
     getUserMediaMock
-      .mockResolvedValueOnce(staleStream)   // for warmMicrophone
-      .mockResolvedValueOnce(freshStream);  // for startRecording fallback
+      .mockResolvedValueOnce(staleStream) // for warmMicrophone
+      .mockResolvedValueOnce(freshStream); // for startRecording fallback
 
     const { result } = renderHook(() => useVoiceInput());
 
     // Pre-warm with what will become a stale stream
-    act(() => { result.current.warmMicrophone(); });
-    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    act(() => {
+      result.current.warmMicrophone();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
     expect(getUserMediaMock).toHaveBeenCalledTimes(1);
 
     // Start recording -- stale stream should be detected, fresh getUserMedia triggered
-    await act(async () => { result.current.startRecording(); });
+    await act(async () => {
+      result.current.startRecording();
+    });
     expect(getUserMediaMock).toHaveBeenCalledTimes(2);
     expect(result.current.isRecording).toBe(true);
     expect(result.current.isPreparing).toBe(false);
@@ -362,16 +410,24 @@ describe("useVoiceInput — stale stream fallback", () => {
     const { result } = renderHook(() => useVoiceInput());
 
     // Warm and cache
-    act(() => { result.current.warmMicrophone(); });
-    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    act(() => {
+      result.current.warmMicrophone();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
     expect(getUserMediaMock).toHaveBeenCalledTimes(1);
 
     // Simulate permission revocation by marking track as ended
     (stream.getTracks()[0] as { readyState: string }).readyState = "ended";
 
     // Next warmMicrophone should detect stale tracks and request fresh stream
-    act(() => { result.current.warmMicrophone(); });
-    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    act(() => {
+      result.current.warmMicrophone();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
     expect(getUserMediaMock).toHaveBeenCalledTimes(2);
   });
 });
@@ -383,10 +439,14 @@ describe("useVoiceInput — onAudioReady", () => {
     const onAudioReady = vi.fn();
     const { result } = renderHook(() => useVoiceInput({ onAudioReady }));
 
-    await act(async () => { result.current.startRecording(); });
+    await act(async () => {
+      result.current.startRecording();
+    });
     expect(result.current.isRecording).toBe(true);
 
-    act(() => { result.current.stopRecording(); });
+    act(() => {
+      result.current.stopRecording();
+    });
     expect(result.current.isRecording).toBe(false);
     expect(onAudioReady).toHaveBeenCalledTimes(1);
     expect(onAudioReady.mock.calls[0][0]).toBeInstanceOf(Blob);
@@ -396,8 +456,12 @@ describe("useVoiceInput — onAudioReady", () => {
     const onAudioReady = vi.fn();
     const { result } = renderHook(() => useVoiceInput({ onAudioReady }));
 
-    await act(async () => { result.current.startRecording(); });
-    act(() => { result.current.cancelRecording(); });
+    await act(async () => {
+      result.current.startRecording();
+    });
+    act(() => {
+      result.current.cancelRecording();
+    });
 
     expect(result.current.isRecording).toBe(false);
     expect(onAudioReady).not.toHaveBeenCalled();
@@ -411,12 +475,16 @@ describe("useVoiceInput — recorder.onerror", () => {
     const onAudioReady = vi.fn();
     const { result } = renderHook(() => useVoiceInput({ onAudioReady }));
 
-    await act(async () => { result.current.startRecording(); });
+    await act(async () => {
+      result.current.startRecording();
+    });
     expect(result.current.isRecording).toBe(true);
 
     // Simulate a recorder error via the mock's triggerError helper
     const recorder = MockMediaRecorder.lastInstance!;
-    act(() => { recorder.triggerError(); });
+    act(() => {
+      recorder.triggerError();
+    });
 
     expect(result.current.isRecording).toBe(false);
     expect(result.current.isPreparing).toBe(false);
@@ -432,20 +500,29 @@ describe("useVoiceInput — warming promise coalescing", () => {
     // Make getUserMedia hang until we resolve it manually
     let resolveStream!: (stream: MediaStream) => void;
     getUserMediaMock.mockImplementation(
-      () => new Promise<MediaStream>((r) => { resolveStream = r; }),
+      () =>
+        new Promise<MediaStream>((r) => {
+          resolveStream = r;
+        }),
     );
 
     const { result } = renderHook(() => useVoiceInput());
 
     // Start warming (fires getUserMedia, hangs on promise)
-    act(() => { result.current.warmMicrophone(); });
+    act(() => {
+      result.current.warmMicrophone();
+    });
 
     // Immediately start recording before warm resolves -- should NOT fire a second getUserMedia
-    act(() => { result.current.startRecording(); });
+    act(() => {
+      result.current.startRecording();
+    });
     expect(result.current.isPreparing).toBe(true);
 
     // Resolve the single getUserMedia call
-    await act(async () => { resolveStream(makeMockStream()); });
+    await act(async () => {
+      resolveStream(makeMockStream());
+    });
 
     expect(result.current.isRecording).toBe(true);
     expect(result.current.isPreparing).toBe(false);
@@ -461,7 +538,9 @@ describe("useVoiceInput — warming promise coalescing", () => {
       result.current.warmMicrophone();
       result.current.warmMicrophone();
     });
-    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
 
     // Only one getUserMedia call despite two warmMicrophone calls
     expect(getUserMediaMock).toHaveBeenCalledTimes(1);

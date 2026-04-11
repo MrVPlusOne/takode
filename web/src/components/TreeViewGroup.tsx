@@ -1,7 +1,5 @@
 import { type RefObject, useCallback, useState, useRef, useEffect } from "react";
-import {
-  type DraggableAttributes,
-} from "@dnd-kit/core";
+import { type DraggableAttributes } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { TreeViewGroupData, TreeNode } from "../utils/tree-grouping.js";
@@ -222,10 +220,7 @@ export function TreeViewGroup({
     onMobileReorderHandleActiveChange,
   };
 
-  function renderSessionItem(
-    s: SessionItemType,
-    opts?: { compact?: boolean; reviewerSession?: SessionItemType },
-  ) {
+  function renderSessionItem(s: SessionItemType, opts?: { compact?: boolean; reviewerSession?: SessionItemType }) {
     const permCount = countUserPermissions(pendingPermissions.get(s.id));
     const attention = sessionAttention?.get(s.id) ?? null;
     return (
@@ -283,12 +278,13 @@ export function TreeViewGroup({
       const isExpanded = expandedHerdNodes.has(node.leader.id);
       const totalMembers = node.workers.length;
       const idleCount = totalMembers - (workerSummary!.running + workerSummary!.permission + workerSummary!.unread);
-      const leaderReviewer = node.reviewers.find(
-        (r) => r.reviewerOf === node.leader.sessionNum,
-      );
+      const leaderReviewer = node.reviewers.find((r) => r.reviewerOf === node.leader.sessionNum);
 
       return (
-        <div key={node.leader.id} className="border border-cc-border/40 rounded-lg overflow-hidden bg-cc-card/20 border-l-[3px] border-l-cc-primary/30">
+        <div
+          key={node.leader.id}
+          className="border border-cc-border/40 rounded-lg overflow-hidden bg-cc-card/20 border-l-[3px] border-l-cc-primary/30"
+        >
           {/* Leader chip -- full width, no chevron, no indent */}
           {renderSessionItem(node.leader, { reviewerSession: leaderReviewer })}
 
@@ -326,14 +322,8 @@ export function TreeViewGroup({
           {isExpanded && (
             <div className="border-t border-cc-border/30 pl-3">
               {node.workers.map((w) => {
-                const workerReviewer = node.reviewers.find(
-                  (r) => r.reviewerOf === w.sessionNum,
-                );
-                return (
-                  <div key={w.id}>
-                    {renderSessionItem(w, { compact: true, reviewerSession: workerReviewer })}
-                  </div>
-                );
+                const workerReviewer = node.reviewers.find((r) => r.reviewerOf === w.sessionNum);
+                return <div key={w.id}>{renderSessionItem(w, { compact: true, reviewerSession: workerReviewer })}</div>;
               })}
             </div>
           )}
@@ -343,9 +333,7 @@ export function TreeViewGroup({
 
     // Standalone node with only reviewers (no workers): show reviewer as inline chip
     if (hasReviewersOnly) {
-      const leaderReviewer = node.reviewers.find(
-        (r) => r.reviewerOf === node.leader.sessionNum,
-      );
+      const leaderReviewer = node.reviewers.find((r) => r.reviewerOf === node.leader.sessionNum);
       return (
         <div key={node.leader.id} className="border border-cc-border/20 rounded-lg">
           {renderSessionItem(node.leader, { reviewerSession: leaderReviewer })}
@@ -408,7 +396,9 @@ export function TreeViewGroup({
           )}
           {hasStatus && (
             <span className="ml-auto">
-              <StatusCountDots counts={{ running: group.runningCount, permission: group.permCount, unread: group.unreadCount }} />
+              <StatusCountDots
+                counts={{ running: group.runningCount, permission: group.permCount, unread: group.unreadCount }}
+              />
             </span>
           )}
           <span className="text-[10px] text-cc-muted/60 shrink-0 ml-1">{totalSessions}</span>
@@ -451,9 +441,13 @@ export function TreeViewGroup({
             {group.nodes.map((node) => (
               <SortableTreeNode key={node.leader.id} id={node.leader.id} disabled={!isDraggable}>
                 {({ setNodeRef, style, listeners, attributes }) => (
-                    <div ref={setNodeRef} style={style} {...(!touchDevice && isDraggable ? { ...listeners, ...attributes } : {})}>
-                      {renderTreeNode(node)}
-                    </div>
+                  <div
+                    ref={setNodeRef}
+                    style={style}
+                    {...(!touchDevice && isDraggable ? { ...listeners, ...attributes } : {})}
+                  >
+                    {renderTreeNode(node)}
+                  </div>
                 )}
               </SortableTreeNode>
             ))}
@@ -461,9 +455,7 @@ export function TreeViewGroup({
         </SortableContext>
       )}
       {!isGroupCollapsed && group.nodes.length === 0 && (
-        <div className="px-4 py-2 text-[11px] text-cc-muted/50 italic">
-          No sessions -- use + to create one
-        </div>
+        <div className="px-4 py-2 text-[11px] text-cc-muted/50 italic">No sessions -- use + to create one</div>
       )}
 
       {/* Context menu for non-default groups */}

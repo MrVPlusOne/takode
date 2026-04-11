@@ -205,7 +205,9 @@ describe("QuestDetailModal", () => {
     // After API resolves, store should be updated
     await waitFor(() => {
       const storeQuest = useStore.getState().quests.find((q) => q.questId === "q-42");
-      expect((storeQuest as QuestmasterTask & { verificationItems: QuestVerificationItem[] }).verificationItems[1].checked).toBe(true);
+      expect(
+        (storeQuest as QuestmasterTask & { verificationItems: QuestVerificationItem[] }).verificationItems[1].checked,
+      ).toBe(true);
     });
   });
 
@@ -235,7 +237,9 @@ describe("QuestDetailModal", () => {
     // After API resolves, store should reflect the unchecked state
     await waitFor(() => {
       const storeQuest = useStore.getState().quests.find((q) => q.questId === "q-42");
-      expect((storeQuest as QuestmasterTask & { verificationItems: QuestVerificationItem[] }).verificationItems[0].checked).toBe(false);
+      expect(
+        (storeQuest as QuestmasterTask & { verificationItems: QuestVerificationItem[] }).verificationItems[0].checked,
+      ).toBe(false);
     });
   });
 
@@ -258,7 +262,9 @@ describe("QuestDetailModal", () => {
 
     // Store should remain unchanged -- item 1 still unchecked
     const storeQuest = useStore.getState().quests.find((q) => q.questId === "q-42");
-    expect((storeQuest as QuestmasterTask & { verificationItems: QuestVerificationItem[] }).verificationItems[1].checked).toBe(false);
+    expect(
+      (storeQuest as QuestmasterTask & { verificationItems: QuestVerificationItem[] }).verificationItems[1].checked,
+    ).toBe(false);
   });
 
   it("shows feedback entries with author labels", () => {
