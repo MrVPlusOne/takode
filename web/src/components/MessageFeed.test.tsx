@@ -1813,7 +1813,10 @@ describe("MessageFeed - scroll behavior", () => {
 
     const { container } = render(<MessageFeed sessionId={sid} />);
 
-    expect(screen.getByTestId("markdown").textContent).toContain("Codex is streaming");
+    // The user message also renders via MarkdownContent now, so multiple
+    // [data-testid="markdown"] elements exist. The streaming bubble is the last one.
+    const markdownEls = screen.getAllByTestId("markdown");
+    expect(markdownEls[markdownEls.length - 1].textContent).toContain("Codex is streaming");
     expect(screen.queryByText("Still hidden")).toBeNull();
     expect(container.querySelector("pre.font-mono-code")).toBeNull();
   });
@@ -1837,14 +1840,18 @@ describe("MessageFeed - scroll behavior", () => {
 
     const { unmount } = render(<MessageFeed sessionId={sid} />);
 
-    expect(screen.getByTestId("markdown").textContent).toBe("");
+    // The user message also renders via MarkdownContent, so get the last
+    // markdown element (the streaming bubble).
+    const els1 = screen.getAllByTestId("markdown");
+    expect(els1[els1.length - 1].textContent).toBe("");
     expect(screen.queryByText("Uncommitted partial")).toBeNull();
 
     unmount();
     setStoreStreaming(sid, "Uncommitted partial\n");
     render(<MessageFeed sessionId={sid} />);
 
-    expect(screen.getByTestId("markdown").textContent).toContain("Uncommitted partial");
+    const els2 = screen.getAllByTestId("markdown");
+    expect(els2[els2.length - 1].textContent).toContain("Uncommitted partial");
   });
 
   it("keeps serif streaming typography for claude sessions", () => {

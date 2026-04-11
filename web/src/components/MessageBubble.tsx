@@ -13,7 +13,6 @@ import { formatVsCodeSelectionAttachmentLabel } from "../utils/vscode-context.js
 import { api } from "../api.js";
 import { PawTrailAvatar, HidePawContext } from "./PawTrail.js";
 import { QuestClaimBlock } from "./QuestClaimBlock.js";
-import { HighlightedText } from "./HighlightedText.js";
 import { generateReplyPreview } from "../utils/reply-preview.js";
 import { parseReplyContext } from "../utils/reply-context.js";
 import { FILE_TOOL_NAMES } from "../hooks/use-feed-model.js";
@@ -531,18 +530,12 @@ function UserMessage({
           </div>
         )}
         <CollapsibleContent>
-          <pre className="text-[13px] sm:text-[14px] whitespace-pre-wrap break-words font-sans-ui leading-relaxed">
-            {searchHighlight ? (
-              <HighlightedText
-                text={displayContent}
-                query={searchHighlight.query}
-                mode={searchHighlight.mode}
-                isCurrent={searchHighlight.isCurrent}
-              />
-            ) : (
-              displayContent
-            )}
-          </pre>
+          <MarkdownContent
+            text={displayContent}
+            variant="conservative"
+            sessionId={sessionId}
+            searchHighlight={searchHighlight}
+          />
         </CollapsibleContent>
         {showTimestamp && <MessageTimestamp timestamp={message.timestamp} align="right" />}
       </div>

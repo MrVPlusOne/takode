@@ -579,6 +579,31 @@ const MSG_USER: ChatMessage = {
   timestamp: Date.now() - 60000,
 };
 
+const MSG_USER_MARKDOWN: ChatMessage = {
+  id: "msg-1-md",
+  role: "user",
+  content: `I found a few issues in the auth flow:
+
+\`\`\`typescript
+const token = await getToken();
+if (!token) throw new Error("missing token");
+\`\`\`
+
+The \`getToken()\` function is **not retrying** on network failure. Here's what I think we should do:
+
+1. Add retry logic with *exponential backoff*
+2. Cache the token in memory
+3. Handle the edge case where the refresh token is expired
+
+> The current behavior silently drops the error and returns null
+
+# This line starts with a hash
+Also --- this triple dash should not become a rule.
+
+Check [this guide](https://example.com/auth) for reference.`,
+  timestamp: Date.now() - 59000,
+};
+
 const MSG_USER_SELECTION: ChatMessage = {
   id: "msg-1b",
   role: "user",
@@ -1777,6 +1802,9 @@ export function Playground() {
           <div className="space-y-4 max-w-3xl">
             <Card label="User message">
               <MessageBubble message={MSG_USER} />
+            </Card>
+            <Card label="User message with Markdown (conservative subset)">
+              <MessageBubble message={MSG_USER_MARKDOWN} />
             </Card>
             <Card label="User message with VS Code selection">
               <MessageBubble message={MSG_USER_SELECTION} />

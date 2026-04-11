@@ -278,15 +278,20 @@ function transformMarkdownUrl(url: string): string {
 export function MarkdownContent({
   text,
   size = "default",
+  variant = "full",
   sessionId,
   searchHighlight,
 }: {
   text: string;
   size?: "default" | "sm";
+  variant?: "full" | "conservative";
   sessionId?: string;
   searchHighlight?: { query: string; mode: "strict" | "fuzzy"; isCurrent: boolean } | null;
 }) {
-  const sizeClass = size === "sm" ? "text-xs" : "text-[14px] sm:text-[15px]";
+  const sizeClass =
+    size === "sm" ? "text-xs" : variant === "conservative" ? "text-[13px] sm:text-[14px]" : "text-[14px] sm:text-[15px]";
+
+  const isConservative = variant === "conservative";
 
   // Helper: replaces string children with HighlightedText when search is active
   const hl = searchHighlight;
@@ -308,6 +313,10 @@ export function MarkdownContent({
       <Markdown
         remarkPlugins={[remarkGfm]}
         urlTransform={transformMarkdownUrl}
+        disallowedElements={
+          isConservative ? ["h1", "h2", "h3", "h4", "h5", "h6", "table", "thead", "tbody", "tr", "th", "td", "hr", "img"] : undefined
+        }
+        unwrapDisallowed={isConservative}
         components={{
           p: ({ children }) => <p className="mb-3 last:mb-0">{highlightChildren(children)}</p>,
           strong: ({ children }) => <strong className="font-semibold text-cc-fg">{highlightChildren(children)}</strong>,
