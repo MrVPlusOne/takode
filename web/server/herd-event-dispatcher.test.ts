@@ -453,10 +453,11 @@ describe("HerdEventDispatcher", () => {
     dispatcher.destroy();
   });
 
-  it("flushes immediately on turnEnd via microtask, not 500ms debounce", async () => {
-    // Regression: onOrchestratorTurnEnd used scheduleDelivery (500ms debounce),
-    // giving a window where the leader could start a new turn before events
-    // were delivered. Now it flushes via queueMicrotask for immediate delivery.
+  it("flushes synchronously on turnEnd, not via microtask or 500ms debounce", () => {
+    // Regression: flushing via microtask raced with promoteNextQueuedTurn()
+    // which sets isGenerating=true synchronously after onOrchestratorTurnEnd,
+    // causing the microtask to find the leader "busy" (q-205). Now flushInbox
+    // runs synchronously during onOrchestratorTurnEnd for reliable delivery.
     const { bridge, launcher } = createMocks();
     const dispatcher = new HerdEventDispatcher(bridge, launcher);
     dispatcher.setupForOrchestrator("orch-1");
@@ -468,8 +469,7 @@ describe("HerdEventDispatcher", () => {
     vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
     dispatcher.onOrchestratorTurnEnd("orch-1");
 
-    // Events should be delivered immediately (microtask), not after 500ms
-    await Promise.resolve();
+    // Events should be delivered synchronously (no microtask/await needed)
     expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
 
     // No pending debounce timer should exist
@@ -479,7 +479,7 @@ describe("HerdEventDispatcher", () => {
     dispatcher.destroy();
   });
 
-  it("cancels debounce timer when turnEnd triggers immediate flush", async () => {
+  it("cancels debounce timer when turnEnd triggers immediate flush", () => {
     // If a debounce timer was already pending when onOrchestratorTurnEnd fires,
     // it should be cancelled to avoid double-delivery.
     const { bridge, launcher } = createMocks();
@@ -492,9 +492,8 @@ describe("HerdEventDispatcher", () => {
     const inbox = dispatcher._getInbox("orch-1");
     expect(inbox?.debounceTimer).not.toBeNull(); // Timer is active
 
-    // Before debounce fires, turnEnd triggers immediate flush
+    // Before debounce fires, turnEnd triggers synchronous flush
     dispatcher.onOrchestratorTurnEnd("orch-1");
-    await Promise.resolve();
 
     // Should be delivered exactly once (not doubled by the old debounce timer)
     expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
@@ -1038,5 +1037,118 @@ describe("formatHerdEventBatch with activity injection", () => {
     expect(getMessagesCalled).toBe(false);
     // Should still have the turn_end status line
     expect(result).toContain("turn_end");
+  });
+});
+
+describe("inbox overflow prioritization (q-205)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("preserves permission_request events when non-critical events can be trimmed", () => {
+    // When inbox overflows, non-critical events (turn_end, permission_resolved)
+    // should be dropped first to protect critical events (permission_request,
+    // session_error) that represent workers blocked on human action.
+    const { bridge, launcher } = createMocks();
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    // Leader is busy — events accumulate without delivery
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(false);
+
+    // Fill inbox with 199 turn_end events
+    for (let i = 0; i < 199; i++) {
+      triggerEvent(makeEvent({ id: i, event: "turn_end" }));
+    }
+
+    // Add a critical permission_request event
+    triggerEvent(
+      makeEvent({
+        id: 199,
+        event: "permission_request",
+        data: { tool_name: "Bash", summary: "run tests" },
+      }),
+    );
+
+    // Add one more turn_end to trigger overflow (201 > 200 cap)
+    triggerEvent(makeEvent({ id: 200, event: "turn_end" }));
+
+    const inbox = dispatcher._getInbox("orch-1");
+    // Inbox should be capped at 200
+    expect(inbox!.entries.length).toBeLessThanOrEqual(200);
+    // The permission_request event should survive
+    const hasPermissionRequest = inbox!.entries.some((e) => e.event.event === "permission_request");
+    expect(hasPermissionRequest).toBe(true);
+
+    dispatcher.destroy();
+  });
+
+  it("logs warning when critical events must be dropped during overflow", () => {
+    // When there aren't enough non-critical events to trim, critical events
+    // get dropped as a last resort — but with a console.warn for diagnostics.
+    const { bridge, launcher } = createMocks();
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(false);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    // Fill inbox entirely with permission_request events (all critical)
+    for (let i = 0; i < 201; i++) {
+      triggerEvent(
+        makeEvent({
+          id: i,
+          event: "permission_request",
+          data: { tool_name: "Bash", summary: `request ${i}` },
+        }),
+      );
+    }
+
+    const inbox = dispatcher._getInbox("orch-1");
+    expect(inbox!.entries.length).toBeLessThanOrEqual(200);
+    // Should have logged a warning about dropping critical events
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("critical event"));
+
+    warnSpy.mockRestore();
+    dispatcher.destroy();
+  });
+
+  it("preserves session_error events during overflow alongside permission_request", () => {
+    // Both permission_request and session_error are critical — both should
+    // survive when non-critical events can be trimmed instead.
+    const { bridge, launcher } = createMocks();
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(false);
+
+    // Fill with 198 turn_end events
+    for (let i = 0; i < 198; i++) {
+      triggerEvent(makeEvent({ id: i, event: "turn_end" }));
+    }
+
+    // Add critical events
+    triggerEvent(
+      makeEvent({ id: 198, event: "permission_request", data: { tool_name: "Bash", summary: "test" } }),
+    );
+    triggerEvent(
+      makeEvent({ id: 199, event: "session_error", data: { error: "CLI crashed" } }),
+    );
+
+    // Trigger overflow
+    triggerEvent(makeEvent({ id: 200, event: "turn_end" }));
+
+    const inbox = dispatcher._getInbox("orch-1");
+    expect(inbox!.entries.length).toBeLessThanOrEqual(200);
+
+    const events = inbox!.entries.map((e) => e.event.event);
+    expect(events).toContain("permission_request");
+    expect(events).toContain("session_error");
+
+    dispatcher.destroy();
   });
 });

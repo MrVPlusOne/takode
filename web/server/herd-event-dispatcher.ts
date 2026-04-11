@@ -64,6 +64,9 @@ const ACTIONABLE_EVENTS = new Set<TakodeEventType>([
   "session_deleted",
 ]);
 
+/** Events that must survive inbox overflow — dropping these leaves workers stuck. */
+const CRITICAL_EVENTS = new Set<TakodeEventType>(["permission_request", "session_error"]);
+
 const DEBOUNCE_MS = 500;
 /** Retry interval when flush finds the leader busy — longer than DEBOUNCE_MS
  *  to avoid tight polling loops, but short enough for reasonable latency. */
@@ -193,10 +196,34 @@ export class HerdEventDispatcher {
       inbox.deliveryHistory.splice(0, inbox.deliveryHistory.length - HISTORY_CAP);
     }
 
-    // Cap inbox entries to prevent unbounded growth
+    // Cap inbox entries to prevent unbounded growth. Prioritize critical events
+    // (permission_request, session_error) over informational ones — dropping a
+    // permission_request leaves a worker permanently stuck (q-205).
     if (inbox.entries.length > INBOX_CAP) {
-      const dropped = inbox.entries.length - INBOX_CAP;
-      inbox.entries.splice(0, dropped);
+      const excess = inbox.entries.length - INBOX_CAP;
+      // Partition: try to drop non-critical entries first (oldest first)
+      const nonCriticalIndices: number[] = [];
+      for (let i = 0; i < inbox.entries.length && nonCriticalIndices.length < excess; i++) {
+        if (!CRITICAL_EVENTS.has(inbox.entries[i].event.event)) {
+          nonCriticalIndices.push(i);
+        }
+      }
+
+      if (nonCriticalIndices.length >= excess) {
+        // Enough non-critical entries to drop — remove them (reverse to preserve indices)
+        for (let i = nonCriticalIndices.length - 1; i >= 0; i--) {
+          inbox.entries.splice(nonCriticalIndices[i], 1);
+        }
+      } else {
+        // Not enough non-critical entries — fall back to dropping oldest
+        const criticalDropped = excess - nonCriticalIndices.length;
+        if (criticalDropped > 0) {
+          console.warn(
+            `[herd-dispatcher] Inbox overflow for leader ${orchId}: dropping ${criticalDropped} critical event(s) (cap=${INBOX_CAP})`,
+          );
+        }
+        inbox.entries.splice(0, excess);
+      }
       // Update confirmedUpTo so we don't try to re-deliver trimmed entries
       if (inbox.entries.length > 0) {
         inbox.confirmedUpTo = Math.max(inbox.confirmedUpTo, inbox.entries[0].seq);
@@ -235,16 +262,19 @@ export class HerdEventDispatcher {
       }
     }
 
-    // If there are new pending events, flush immediately (on the next microtask).
-    // The orchestrator is idle RIGHT NOW — going through the 500ms debounce risks
-    // the leader becoming busy again (from user input, auto-approval, etc.) before
-    // the timer fires. Cancel any existing debounce timer to avoid double-delivery.
+    // If there are new pending events, flush synchronously. The orchestrator is
+    // idle RIGHT NOW (isGenerating was set to false before this call). Using
+    // queueMicrotask here would race with promoteNextQueuedTurn() which runs
+    // synchronously after this returns and sets isGenerating back to true —
+    // causing the microtask to find the leader "busy" and fall into a 2s retry
+    // loop (q-205). A synchronous flush is safe because flushInbox re-checks
+    // isSessionIdle, and the debounce timer cancellation prevents double-delivery.
     if (this.pendingCount(inbox) > 0) {
       if (inbox.debounceTimer) {
         clearTimeout(inbox.debounceTimer);
         inbox.debounceTimer = null;
       }
-      queueMicrotask(() => this.flushInbox(orchId));
+      this.flushInbox(orchId);
     }
   }
 

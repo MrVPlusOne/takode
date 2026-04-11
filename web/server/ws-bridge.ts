@@ -6298,6 +6298,13 @@ export class WsBridge {
           timestamp: Date.now(),
         });
 
+        // Takode: permission_resolved for herd visibility (q-205).
+        // Without this, auto-approved permissions are invisible to the leader.
+        this.emitTakodeEvent(session.id, "permission_resolved", {
+          tool_name: perm.tool_name,
+          outcome: "approved",
+        });
+
         console.log(
           `[auto-approver] Auto-approved ${perm.tool_name} for session ${sessionTag(session.id)}: ${result.reason}`,
         );

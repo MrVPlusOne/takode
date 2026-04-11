@@ -198,6 +198,12 @@ export function handlePermissionRequest<S extends PermissionPipelineSession>(
     deps.onSessionActivityStateChanged(session.id, options.activityReason);
     deps.broadcastPermissionRequest(session, perm);
 
+    // Always emit takode permission_request — the herd leader needs visibility
+    // into ALL pending permissions, including ones queued for LLM auto-approval.
+    // Without this, the leader has a blind spot while the LLM evaluates: the
+    // worker is blocked but the leader doesn't know about it (q-205).
+    deps.emitTakodePermissionRequest(session, perm);
+
     if (autoApprovalConfig) {
       deps.persistSession(session);
       return {
@@ -209,7 +215,6 @@ export function handlePermissionRequest<S extends PermissionPipelineSession>(
 
     deps.setAttentionAction(session);
     deps.persistSession(session);
-    deps.emitTakodePermissionRequest(session, perm);
     deps.schedulePermissionNotification?.(session, perm);
     return { kind: "pending_human", request: perm };
   };
