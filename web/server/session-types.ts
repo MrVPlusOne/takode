@@ -461,7 +461,7 @@ export type BrowserIncomingMessageBase =
       notification?: { category: "needs-input" | "review"; timestamp: number };
     }
   | { type: "stream_event"; event: unknown; parent_tool_use_id: string | null }
-  | { type: "result"; data: CLIResultMessage }
+  | { type: "result"; data: CLIResultMessage; interrupted?: boolean }
   | { type: "permission_request"; request: PermissionRequest }
   | { type: "permission_cancelled"; request_id: string }
   | {

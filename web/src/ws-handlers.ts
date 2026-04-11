@@ -339,7 +339,7 @@ function normalizeHistoryMessages(
       const r = histMsg.data as { is_error?: boolean; errors?: string[]; result?: string };
       store.setTasks(sessionId, []);
       store.setSessionTaskPreview(sessionId, null);
-      if (r.is_error) {
+      if (r.is_error && !histMsg.interrupted) {
         const errorText = r.errors?.length ? r.errors.join(", ") : r.result || "An error occurred";
         chatMessages.push({
           id: `hist-error-${historyIndex}`,
@@ -639,7 +639,7 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       if (notifyOnResult && !document.hasFocus() && store.notificationDesktop) {
         sendBrowserNotification("Session completed", "Claude finished the task", sessionId);
       }
-      if (r.is_error) {
+      if (r.is_error && !data.interrupted) {
         const errorText = r.errors?.length ? r.errors.join(", ") : r.result || "An error occurred";
         const isContextLimit = errorText.toLowerCase().includes("prompt is too long");
 

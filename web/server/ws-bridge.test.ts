@@ -4262,6 +4262,162 @@ describe("Browser message routing", () => {
     expect(cli.send).toHaveBeenCalledTimes(1);
   });
 
+  it("interrupt: suppresses session_error takode event for interrupted is_error result", () => {
+    // When a WS session is interrupted, the CLI may send a result with
+    // is_error: true and diagnostic text. This should NOT fire session_error
+    // because interrupts are normal control flow.
+    const spy = vi.spyOn(bridge, "emitTakodeEvent");
+
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({ type: "user_message", content: "start work" }),
+    );
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({ type: "interrupt" }),
+    );
+    bridge.handleCLIMessage(
+      cli,
+      JSON.stringify({
+        type: "result",
+        subtype: "error_during_execution",
+        is_error: true,
+        result: "[ede_diagnostic] result_type=user last_content_type=n/a stop_reason=tool_use",
+        stop_reason: "interrupted",
+        total_cost_usd: 0.01,
+        num_turns: 1,
+      }),
+    );
+
+    const sessionErrorCalls = spy.mock.calls.filter(([, eventType]) => eventType === "session_error");
+    expect(sessionErrorCalls).toHaveLength(0);
+
+    // turn_end should still fire with interrupted metadata
+    const turnEndCalls = spy.mock.calls.filter(([, eventType]) => eventType === "turn_end");
+    expect(turnEndCalls.length).toBeGreaterThan(0);
+    expect(turnEndCalls[turnEndCalls.length - 1]?.[2]).toEqual(
+      expect.objectContaining({ interrupted: true }),
+    );
+    spy.mockRestore();
+  });
+
+  it("interrupt: suppresses attention badge for interrupted is_error result", () => {
+    // Interrupted error results should not set attention to "error"
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({ type: "user_message", content: "start work" }),
+    );
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({ type: "interrupt" }),
+    );
+    bridge.handleCLIMessage(
+      cli,
+      JSON.stringify({
+        type: "result",
+        subtype: "error_during_execution",
+        is_error: true,
+        result: "[ede_diagnostic] internal error",
+        stop_reason: "interrupted",
+        total_cost_usd: 0.01,
+        num_turns: 1,
+      }),
+    );
+
+    expect(bridge.getSession("s1")!.attentionReason).toBeNull();
+  });
+
+  it("interrupt: result browser message includes interrupted flag", () => {
+    // The result message broadcast to browsers should carry interrupted: true
+    // so the frontend can suppress error rendering.
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({ type: "user_message", content: "start work" }),
+    );
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({ type: "interrupt" }),
+    );
+    browser.send.mockClear();
+    bridge.handleCLIMessage(
+      cli,
+      JSON.stringify({
+        type: "result",
+        subtype: "error_during_execution",
+        is_error: true,
+        result: "diagnostic text",
+        stop_reason: "interrupted",
+        total_cost_usd: 0.01,
+        num_turns: 1,
+      }),
+    );
+
+    const sentMessages = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    const resultMsg = sentMessages.find((m: { type: string }) => m.type === "result");
+    expect(resultMsg).toBeDefined();
+    expect(resultMsg.interrupted).toBe(true);
+  });
+
+  it("non-interrupted error result still emits session_error (regression)", () => {
+    // Non-interrupted error results should still emit session_error and
+    // set attention -- only interrupts are suppressed.
+    const spy = vi.spyOn(bridge, "emitTakodeEvent");
+
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({ type: "user_message", content: "start work" }),
+    );
+    // No interrupt sent
+    bridge.handleCLIMessage(
+      cli,
+      JSON.stringify({
+        type: "result",
+        subtype: "error_during_execution",
+        is_error: true,
+        result: "real error: tool execution failed",
+        stop_reason: "end_turn",
+        total_cost_usd: 0.01,
+        num_turns: 1,
+      }),
+    );
+
+    const sessionErrorCalls = spy.mock.calls.filter(([, eventType]) => eventType === "session_error");
+    expect(sessionErrorCalls).toHaveLength(1);
+    expect(sessionErrorCalls[0]?.[2]).toEqual(
+      expect.objectContaining({ error: expect.stringContaining("real error") }),
+    );
+    expect(bridge.getSession("s1")!.attentionReason).toBe("error");
+    spy.mockRestore();
+  });
+
+  it("interrupt: suppresses session_error for stop_reason=cancel (alternative interrupt indicator)", () => {
+    // The CLI may use stop_reason "cancel" instead of "interrupted".
+    // Both should suppress error side-effects (ws-bridge.ts:5896 checks both).
+    const spy = vi.spyOn(bridge, "emitTakodeEvent");
+
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({ type: "user_message", content: "start work" }),
+    );
+    bridge.handleCLIMessage(
+      cli,
+      JSON.stringify({
+        type: "result",
+        subtype: "error_during_execution",
+        is_error: true,
+        result: "cancelled",
+        stop_reason: "cancel",
+        total_cost_usd: 0.01,
+        num_turns: 1,
+      }),
+    );
+
+    const sessionErrorCalls = spy.mock.calls.filter(([, eventType]) => eventType === "session_error");
+    expect(sessionErrorCalls).toHaveLength(0);
+    expect(bridge.getSession("s1")!.attentionReason).toBeNull();
+    spy.mockRestore();
+  });
+
   it("set_model: sends control_request with set_model subtype to CLI", () => {
     bridge.handleBrowserMessage(
       browser,

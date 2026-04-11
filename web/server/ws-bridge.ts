@@ -5940,36 +5940,44 @@ export class WsBridge {
     const resultBrowserMsg: BrowserIncomingMessage = {
       type: "result",
       data: msg,
+      ...(turnWasInterrupted ? { interrupted: true } : {}),
     };
     session.messageHistory.push(resultBrowserMsg);
     this.freezeHistoryThroughCurrentTail(session);
     this.broadcastToBrowsers(session, resultBrowserMsg);
     this.persistSession(session);
 
-    // Set attention only when this turn should surface to the human.
-    if (shouldNotifyHuman) {
-      this.setAttention(session, msg.is_error ? "error" : "review", {
-        allowHerdedWorker: this.isHerdedWorkerSession(session) && turnTriggerSource === "user",
-      });
-    }
+    // Skip attention, error events, and notifications for interrupted turns.
+    // Interrupts are normal control flow -- the turn_end takode event with
+    // `interrupted: true` already signals the leader. Surfacing a red error
+    // badge, session_error herd event, or push notification for an interrupt
+    // is misleading and blocks orchestration.
+    if (!turnWasInterrupted) {
+      // Set attention only when this turn should surface to the human.
+      if (shouldNotifyHuman) {
+        this.setAttention(session, msg.is_error ? "error" : "review", {
+          allowHerdedWorker: this.isHerdedWorkerSession(session) && turnTriggerSource === "user",
+        });
+      }
 
-    // Takode: session_error when the result indicates an error
-    if (msg.is_error) {
-      this.emitTakodeEvent(session.id, "session_error", {
-        error: typeof msg.result === "string" ? msg.result.slice(0, 200) : "Unknown error",
-      });
-    }
-
-    // Schedule Pushover notification for session completion/error
-    if (this.pushoverNotifier && shouldNotifyHuman) {
+      // Takode: session_error when the result indicates an error
       if (msg.is_error) {
-        this.pushoverNotifier.scheduleNotification(
-          session.id,
-          "error",
-          typeof msg.result === "string" ? msg.result.slice(0, 100) : "Error",
-        );
-      } else {
-        this.pushoverNotifier.scheduleNotification(session.id, "completed");
+        this.emitTakodeEvent(session.id, "session_error", {
+          error: typeof msg.result === "string" ? msg.result.slice(0, 200) : "Unknown error",
+        });
+      }
+
+      // Schedule Pushover notification for session completion/error
+      if (this.pushoverNotifier && shouldNotifyHuman) {
+        if (msg.is_error) {
+          this.pushoverNotifier.scheduleNotification(
+            session.id,
+            "error",
+            typeof msg.result === "string" ? msg.result.slice(0, 100) : "Error",
+          );
+        } else {
+          this.pushoverNotifier.scheduleNotification(session.id, "completed");
+        }
       }
     }
 
