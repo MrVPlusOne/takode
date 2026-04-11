@@ -29,10 +29,10 @@ import type {
 } from "./bridge/adapter-interface.js";
 
 // ─── SDK internals cache ─────────────────────────────────────────────────────
-// We cache the V4 (ProcessTransport) class reference after the first SDK import
-// so we can patch V4.prototype.initialize without spawning a new probe process
-// on every session creation.
+// We cache class references after the first SDK import so we can patch prototypes
+// without spawning a new probe process on every session creation.
 let cachedV4Class: any = null;
+let cachedQueryClass: any = null;
 
 // ─── Types ──────────────────────────────────────────────────────────────────────
 
@@ -241,45 +241,74 @@ export class ClaudeSdkAdapter
     if (!cachedV4Class) {
       try {
         // Probe: create a session with a nonexistent binary so the process fails
-        // fast. We just need the V4 class reference — the subprocess dying is fine.
+        // fast. We just need class references — the subprocess dying is fine.
         // This probe only runs ONCE per server process lifetime (result is cached).
         const probe = (sdk as any).unstable_v2_createSession({
           permissionMode: "bypassPermissions",
           pathToClaudeCodeExecutable: "__nonexistent_probe__",
         });
         cachedV4Class = probe?.query?.transport?.constructor ?? null;
+        cachedQueryClass = probe?.query?.constructor ?? null;
+        console.log(
+          `[claude-sdk-adapter] V4 probe: v4Class=${!!cachedV4Class} queryClass=${!!cachedQueryClass}`,
+        );
         // Close the probe session immediately
         try {
           probe?.close?.();
         } catch {
           /* ignore */
         }
-      } catch {
-        // Probe failed — V4 class unavailable, skip the patch
+      } catch (probeErr) {
+        // Probe failed — classes unavailable, skip the patches
+        console.warn(
+          `[claude-sdk-adapter] V4 probe failed:`,
+          probeErr instanceof Error ? probeErr.message : probeErr,
+        );
       }
     }
     const v4Class = cachedV4Class;
+    const queryClass = cachedQueryClass;
 
-    const originalInitialize = v4Class?.prototype?.initialize;
-    if (v4Class && originalInitialize) {
+    // PATCH 1: V4 (ProcessTransport) — inject settingSources and plugins into
+    // CLI args. The SDK's v2 SQ class hardcodes settingSources:[] and omits
+    // plugins; we override them before the subprocess spawns.
+    const originalV4Initialize = v4Class?.prototype?.initialize;
+    if (v4Class && originalV4Initialize) {
       const patchedSettingSources = sessionOptions.settingSources as string[];
       const patchedPlugins = plugins;
-      const patchedAppendSystemPrompt = this.options.instructions;
-      v4Class.prototype.initialize = function patchedInitialize(this: any) {
-        // Override the values SQ hardcoded so V4 builds correct CLI args
+      v4Class.prototype.initialize = function patchedV4Initialize(this: any) {
         this.options.settingSources = patchedSettingSources;
         if (patchedPlugins.length > 0) {
           this.options.plugins = patchedPlugins;
         }
-        // Inject Companion instructions via appendSystemPrompt
-        if (patchedAppendSystemPrompt) {
-          this.options.appendSystemPrompt = patchedAppendSystemPrompt;
-        }
-        return originalInitialize.call(this);
+        return originalV4Initialize.call(this);
       };
     } else {
       console.warn(
         `[claude-sdk-adapter] Could not patch V4.prototype.initialize — settingSources and plugins may not reach the CLI`,
+      );
+    }
+
+    // PATCH 2: Query class — inject appendSystemPrompt into the initialize
+    // control_request. In SDK 0.2.101+, appendSystemPrompt is sent via the
+    // Query's initialize() control_request (reading from this.initConfig),
+    // NOT via V4's CLI args. The v2 API (unstable_v2_createSession) doesn't
+    // pass initConfig to the Query constructor, so we patch the Query's
+    // initialize() to inject it before the request is built.
+    const originalQueryInitialize = queryClass?.prototype?.initialize;
+    if (queryClass && originalQueryInitialize && this.options.instructions) {
+      const patchedAppendSystemPrompt = this.options.instructions;
+      queryClass.prototype.initialize = async function patchedQueryInitialize(this: any) {
+        // Ensure initConfig exists and inject appendSystemPrompt
+        if (!this.initConfig) {
+          this.initConfig = {};
+        }
+        this.initConfig.appendSystemPrompt = patchedAppendSystemPrompt;
+        return originalQueryInitialize.call(this);
+      };
+      console.log(
+        `[claude-sdk-adapter] Patching Query.initialize for session ${this.sessionId}` +
+          ` (appendSystemPrompt=${patchedAppendSystemPrompt.length} chars)`,
       );
     }
 
@@ -304,8 +333,8 @@ export class ClaudeSdkAdapter
     }
 
     // Create or resume session — MUST be synchronous (no await) so process.cwd()
-    // is still set to targetCwd when the subprocess spawns. The V4.prototype.initialize
-    // patch above is also active at this point.
+    // is still set to targetCwd when the subprocess spawns. The prototype patches
+    // above are also active at this point.
     try {
       if (this.options.cliSessionId) {
         this.sdkSession = sdk.unstable_v2_resumeSession(this.options.cliSessionId, sessionOptions as any);
@@ -321,9 +350,12 @@ export class ClaudeSdkAdapter
           /* ignore */
         }
       }
-      // Always restore the original V4.prototype.initialize
-      if (v4Class && originalInitialize) {
-        v4Class.prototype.initialize = originalInitialize;
+      // Always restore original prototypes
+      if (v4Class && originalV4Initialize) {
+        v4Class.prototype.initialize = originalV4Initialize;
+      }
+      if (queryClass && originalQueryInitialize) {
+        queryClass.prototype.initialize = originalQueryInitialize;
       }
     }
 
