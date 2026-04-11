@@ -7668,6 +7668,20 @@ export class WsBridge {
     ws: ServerWebSocket<SocketData>,
     knownFrozenCount: number,
     knownFrozenHash?: string,
+  ): Promise<void> {
+    const synced = await this.sendHistorySyncAttempt(session, ws, knownFrozenCount, knownFrozenHash);
+    if (!synced && knownFrozenCount > 0) {
+      // Frozen prefix mismatch or invalid count -- fall back to full history
+      // delivery so the browser rebuilds its frozen state from scratch.
+      await this.sendHistorySyncAttempt(session, ws, 0, undefined);
+    }
+  }
+
+  private async sendHistorySyncAttempt(
+    session: Session,
+    ws: ServerWebSocket<SocketData>,
+    knownFrozenCount: number,
+    knownFrozenHash?: string,
   ): Promise<boolean> {
     const normalizedKnownFrozenCount = this.normalizeKnownFrozenCount(knownFrozenCount);
     this.clampFrozenCount(session);
@@ -7789,12 +7803,7 @@ export class WsBridge {
     // also done in handleBrowserOpen, causing double delivery).
     if (lastAckSeq === 0) {
       if (session.messageHistory.length > 0) {
-        const synced = await this.sendHistorySync(session, ws, knownFrozenCount, knownFrozenHash);
-        if (!synced) {
-          // Frozen prefix hash mismatch — fall back to full history delivery
-          // so the browser rebuilds its frozen state from scratch.
-          await this.sendHistorySync(session, ws, 0, undefined);
-        }
+        await this.sendHistorySync(session, ws, knownFrozenCount, knownFrozenHash);
       }
       // Also replay any buffered events so transient messages (stream_event,
       // tool_progress, status_change, etc.) are caught up
@@ -7821,10 +7830,7 @@ export class WsBridge {
         // Prefer frozen-delta + hot-tail sync. If the frozen prefix hash
         // mismatches, fall back to full history delivery.
         if (session.messageHistory.length > 0) {
-          const synced = await this.sendHistorySync(session, ws, knownFrozenCount, knownFrozenHash);
-          if (!synced) {
-            await this.sendHistorySync(session, ws, 0, undefined);
-          }
+          await this.sendHistorySync(session, ws, knownFrozenCount, knownFrozenHash);
         }
         const transientMissed = missedEvents.filter((evt) => !this.isHistoryBackedEvent(evt.message));
         if (transientMissed.length > 0) {

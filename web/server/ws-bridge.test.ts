@@ -1968,6 +1968,92 @@ describe("Browser handlers", () => {
     warnSpy.mockRestore();
   });
 
+  it("session_subscribe: falls back to full history sync on gap path with stale frozen hash", async () => {
+    // Exercises the gap-recovery code path (lastAckSeq > 0, hasGap=true) with
+    // a frozen hash mismatch. The fallback should deliver full history_sync
+    // just like the fresh connection path.
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const cli = makeCliSocket("s1");
+    bridge.handleCLIOpen(cli, "s1");
+    bridge.handleCLIMessage(
+      cli,
+      JSON.stringify({
+        type: "user_message",
+        content: "hello",
+        timestamp: 1000,
+        session_id: "s1",
+        uuid: "u1",
+      }),
+    );
+    bridge.handleCLIMessage(
+      cli,
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          id: "gap-hist-1",
+          type: "message",
+          role: "assistant",
+          model: "claude-sonnet-4-5-20250929",
+          content: [{ type: "text", text: "gap test" }],
+          stop_reason: "end_turn",
+          usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        },
+        parent_tool_use_id: null,
+        uuid: "gap-hist-u1",
+        session_id: "s1",
+      }),
+    );
+    bridge.handleCLIMessage(
+      cli,
+      JSON.stringify({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        duration_ms: 1,
+        duration_api_ms: 1,
+        num_turns: 1,
+        total_cost_usd: 0,
+        usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        session_id: "s1",
+        uuid: "gap-res-1",
+        stop_reason: "end_turn",
+      }),
+    );
+
+    // Force a gap by clearing eventBuffer so the browser's last_seq=1 is
+    // before the earliest buffered seq.
+    const session = bridge.getSession("s1")!;
+    session.eventBuffer.length = 0;
+
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+    browser.send.mockClear();
+
+    // last_seq=1 + empty eventBuffer → hasGap=true → gap recovery path.
+    // known_frozen_hash is stale → sendHistorySyncAttempt returns false →
+    // fallback delivers full history.
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "session_subscribe",
+        last_seq: 1,
+        known_frozen_count: 2,
+        known_frozen_hash: "stale-gap-hash",
+      }),
+    );
+    await flushAsync();
+
+    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    const historySync = calls.find((c: any) => c.type === "history_sync");
+    expect(historySync).toBeDefined();
+    expect(historySync.frozen_base_count).toBe(0);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("[history-sync]"),
+    );
+    expect(calls.some((c: any) => c.type === "state_snapshot")).toBe(true);
+    warnSpy.mockRestore();
+  });
+
   it("logs a warning when the browser reports a history_sync mismatch", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const browser = makeBrowserSocket("s1");
