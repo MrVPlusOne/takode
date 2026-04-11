@@ -367,9 +367,9 @@ export function HerdEventMessage({ message }: { message: ChatMessage; showTimest
 }
 
 /** A single herd event rendered as a compact expandable chip.
- *  Collapsed: inline pill showing the event header (e.g. "#287 | turn_end | ✓ 53.6s").
- *  Expanded: full activity content as raw preformatted text (1:1 match with what
- *  was injected into the leader's conversation -- serves as a debugging tool). */
+ *  Every event is clickable. Collapsed: inline pill showing the event header
+ *  (e.g. "#287 | turn_end | ✓ 53.6s"). Expanded: full content -- activity lines
+ *  for turn_end events, or the untruncated header for other event types. */
 function HerdEventEntry({ header, activity }: { header: string; activity: string[] }) {
   const [expanded, setExpanded] = useState(false);
   const hasActivity = activity.some((line) => line.trim().length > 0);
@@ -378,22 +378,20 @@ function HerdEventEntry({ header, activity }: { header: string; activity: string
     <div className="pl-9">
       <button
         type="button"
-        onClick={hasActivity ? () => setExpanded((v) => !v) : undefined}
-        className={`${HERD_CHIP_BASE} ${hasActivity ? HERD_CHIP_INTERACTIVE : "cursor-default"}`}
+        onClick={() => setExpanded((v) => !v)}
+        className={`${HERD_CHIP_BASE} ${HERD_CHIP_INTERACTIVE}`}
       >
         <span className="text-amber-500/50 shrink-0 text-[10px]">◇</span>
-        <span className="truncate max-w-[60ch]">{header}</span>
-        {hasActivity && (
-          <svg
-            viewBox="0 0 16 16"
-            fill="currentColor"
-            className={`w-2.5 h-2.5 shrink-0 text-cc-muted/40 transition-transform ${expanded ? "rotate-90" : ""}`}
-          >
-            <path d="M6 3l5 5-5 5V3z" />
-          </svg>
-        )}
+        <span className={expanded ? "break-words" : "truncate max-w-[60ch]"}>{header}</span>
+        <svg
+          viewBox="0 0 16 16"
+          fill="currentColor"
+          className={`w-2.5 h-2.5 shrink-0 text-cc-muted/40 transition-transform ${expanded ? "rotate-90" : ""}`}
+        >
+          <path d="M6 3l5 5-5 5V3z" />
+        </svg>
       </button>
-      {expanded && (
+      {expanded && hasActivity && (
         <pre className="mt-1 ml-1 px-2.5 py-2 rounded-md border border-cc-border/20 bg-cc-card/30
           text-[10px] text-cc-muted/80 font-mono-code leading-relaxed
           whitespace-pre-wrap break-words overflow-x-auto max-h-[400px] overflow-y-auto">

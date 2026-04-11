@@ -4558,12 +4558,18 @@ export function Playground() {
                 </button>
               </div>
             </Card>
-            <Card label="Single event chip (no activity)">
-              <div className="py-2 pl-9">
-                <button className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-mono-code leading-snug border border-amber-500/20 bg-amber-500/5 cursor-default text-cc-muted">
-                  <span className="text-amber-500/50 shrink-0 text-[10px]">◇</span>
-                  <span className="truncate max-w-[60ch]">#35 | session_archived | 2s ago</span>
-                </button>
+            <Card label="Single event chip (no activity — click to expand header)">
+              <div className="py-2">
+                <HerdEventMessage
+                  showTimestamp={false}
+                  message={{
+                    id: "herd-no-activity-demo",
+                    role: "user",
+                    content: "1 event from 1 session\n\n#35 | session_archived | 2s ago",
+                    timestamp: Date.now(),
+                    agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
+                  }}
+                />
               </div>
             </Card>
             <Card label="Event chip with activity (click to expand)">

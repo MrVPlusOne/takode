@@ -791,8 +791,9 @@ describe("HerdEventMessage", () => {
     expect(screen.getByText(/Done/)).toBeTruthy();
   });
 
-  it("renders events without activity as non-clickable", () => {
-    // Event header with no activity lines -- no chevron, not expandable
+  it("renders events without activity as clickable (expand shows untruncated header)", () => {
+    // Event header with no activity lines -- still clickable with chevron,
+    // but no activity <pre> block appears on expand
     const msg = makeMessage({
       role: "user",
       content: "1 event from 1 session\n\n#8 | turn_end | ✓ 5.0s",
@@ -800,11 +801,14 @@ describe("HerdEventMessage", () => {
     });
     render(<HerdEventMessage message={msg} showTimestamp={false} />);
 
-    // Header visible
+    // Header visible with chevron
     expect(screen.getByText(/turn_end/)).toBeTruthy();
-    // No chevron SVG for events without activity
-    const container = screen.getByText(/turn_end/).closest("div")!;
-    expect(container.querySelector("svg")).toBeNull();
+    const button = screen.getByText(/turn_end/).closest("button")!;
+    expect(button.querySelector("svg")).not.toBeNull();
+
+    // Click expands (removes truncation) but shows no activity <pre> block
+    fireEvent.click(button);
+    expect(button.closest("div")!.querySelector("pre")).toBeNull();
   });
 
   it("renders multiple events with independent collapse state", () => {
