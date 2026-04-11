@@ -14171,6 +14171,169 @@ describe("SDK disconnect auto-relaunch", () => {
   });
 });
 
+describe("CLI slash command interception", () => {
+  // CLI-native slash commands (e.g. /context, /cost, /status) must be forwarded
+  // to the CLI without timestamp tagging. The timestamp prefix (e.g.
+  // "[User 7:41 PM] /context") breaks the CLI's internal slash command parser.
+
+  let bridge: WsBridge;
+
+  beforeEach(() => {
+    bridge = new WsBridge();
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn(() => ({ cliSessionId: "cli-sess-slash" })),
+    } as any);
+  });
+
+  it("forwards /context to SDK adapter without timestamp tagging", () => {
+    const sid = "s-slash-sdk";
+    const adapter = makeClaudeSdkAdapterMock();
+    bridge.attachClaudeSdkAdapter(sid, adapter as any);
+
+    // Populate slash_commands so the bridge recognizes /context
+    const session = bridge.getSession(sid)!;
+    session.state.slash_commands = ["context", "cost", "status"];
+
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    browser.send.mockClear();
+    adapter.sendBrowserMessage.mockClear();
+
+    bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "user_message",
+      content: "/context",
+    }));
+
+    // Should have forwarded to the SDK adapter with clean content (no timestamp tag)
+    expect(adapter.sendBrowserMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "user_message", content: "/context" }),
+    );
+
+    // Should have recorded the command in message history
+    const userMsg = session.messageHistory.find(
+      (m) => m.type === "user_message" && (m as any).content === "/context",
+    );
+    expect(userMsg).toBeTruthy();
+
+    // Should have broadcast "running" status
+    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    expect(calls).toContainEqual(
+      expect.objectContaining({ type: "status_change", status: "running" }),
+    );
+  });
+
+  it("forwards /cost to WebSocket session via sendToCLI", () => {
+    const sid = "s-slash-ws";
+    const session = bridge.getOrCreateSession(sid);
+    session.state.slash_commands = ["context", "cost", "status"];
+
+    // Connect a mock CLI socket so sendToCLI works
+    const cliSocket = makeCliSocket(sid);
+    bridge.handleCLIOpen(cliSocket, sid);
+
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    browser.send.mockClear();
+    cliSocket.send.mockClear();
+
+    bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "user_message",
+      content: "/cost",
+    }));
+
+    // Should have sent NDJSON to the CLI socket without timestamp tags
+    expect(cliSocket.send).toHaveBeenCalled();
+    const sentNdjson = JSON.parse(cliSocket.send.mock.calls[0][0]);
+    expect(sentNdjson.type).toBe("user");
+    expect(sentNdjson.message.content).toBe("/cost");
+
+    // Should have recorded the command in message history
+    const userMsg = session.messageHistory.find(
+      (m) => m.type === "user_message" && (m as any).content === "/cost",
+    );
+    expect(userMsg).toBeTruthy();
+  });
+
+  it("does NOT intercept unrecognized slash commands", () => {
+    const sid = "s-slash-unknown";
+    const adapter = makeClaudeSdkAdapterMock();
+    bridge.attachClaudeSdkAdapter(sid, adapter as any);
+
+    const session = bridge.getSession(sid)!;
+    session.state.slash_commands = ["context", "cost"];
+
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    adapter.sendBrowserMessage.mockClear();
+
+    bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "user_message",
+      content: "/nonexistent-command",
+    }));
+
+    // The adapter should still receive the message (through normal path with timestamp)
+    // but it should NOT have been intercepted by the slash command handler.
+    // If it went through the normal path, the content will have a timestamp tag.
+    const adapterCalls = adapter.sendBrowserMessage.mock.calls;
+    if (adapterCalls.length > 0) {
+      const content = (adapterCalls[0][0] as any).content;
+      // Normal path adds timestamp tag prefix like "[User HH:MM PM]"
+      expect(content).not.toBe("/nonexistent-command");
+    }
+  });
+
+  it("does NOT intercept slash commands when slash_commands is empty", () => {
+    const sid = "s-slash-empty";
+    const adapter = makeClaudeSdkAdapterMock();
+    bridge.attachClaudeSdkAdapter(sid, adapter as any);
+
+    // Leave slash_commands empty (as before first user message)
+    const session = bridge.getSession(sid)!;
+    expect(session.state.slash_commands).toEqual([]);
+
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    adapter.sendBrowserMessage.mockClear();
+
+    bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "user_message",
+      content: "/context",
+    }));
+
+    // Should NOT have been intercepted -- goes through normal path
+    const adapterCalls = adapter.sendBrowserMessage.mock.calls;
+    if (adapterCalls.length > 0) {
+      const content = (adapterCalls[0][0] as any).content;
+      expect(content).not.toBe("/context");
+    }
+  });
+
+  it("trims whitespace when matching slash commands", () => {
+    const sid = "s-slash-trim";
+    const adapter = makeClaudeSdkAdapterMock();
+    bridge.attachClaudeSdkAdapter(sid, adapter as any);
+
+    const session = bridge.getSession(sid)!;
+    session.state.slash_commands = ["context"];
+
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    adapter.sendBrowserMessage.mockClear();
+
+    bridge.handleBrowserMessage(browser, JSON.stringify({
+      type: "user_message",
+      content: "  /context  ",
+    }));
+
+    // Should have been intercepted and forwarded with trimmed content
+    expect(adapter.sendBrowserMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "user_message", content: "/context" }),
+    );
+  });
+});
+
 describe("cliResuming debounce prevents false compaction events on --resume replay", () => {
   // During --resume, the CLI replays ALL historical system.init messages (one
   // per subagent/Task invocation). The old code cleared cliResuming on every

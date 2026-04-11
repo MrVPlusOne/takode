@@ -7097,6 +7097,22 @@ export class WsBridge {
       return;
     }
 
+    // Intercept CLI-native slash commands (e.g. /context, /cost, /status)
+    // BEFORE timestamp tagging. The CLI's internal slash command parser
+    // requires the message to start with "/" -- a timestamp tag prefix like
+    // "[User 7:41 PM] /context" breaks detection. Forward the command
+    // directly to the CLI without tagging.
+    if (
+      msg.type === "user_message" &&
+      typeof msg.content === "string" &&
+      !msg.images?.length &&
+      session.backendType !== "codex" &&
+      this.isCliSlashCommand(session, msg.content.trim())
+    ) {
+      this.handleCliSlashCommand(session, msg.content.trim());
+      return;
+    }
+
     // For Codex/Claude SDK sessions, route CLI-bound messages through the adapter,
     // while ws-bridge still owns cross-cutting session state/history/permissions.
     if (session.backendType === "codex" || session.backendType === "claude-sdk") {
@@ -7983,6 +7999,67 @@ export class WsBridge {
     if (this.onUserMessage) {
       this.onUserMessage(session.id, [...session.messageHistory], session.state.cwd, ingested.wasGenerating);
     }
+  }
+
+  /** Check if a trimmed message is a CLI-native slash command.
+   *  Matches against session.state.slash_commands (reported by the CLI at init).
+   *  The command name is the first word after "/", e.g. "/context foo" → "context".
+   *  /compact is excluded since it has its own dedicated handler. */
+  private isCliSlashCommand(session: Session, trimmed: string): boolean {
+    if (!trimmed.startsWith("/")) return false;
+    const commandWord = trimmed.slice(1).split(/\s/)[0].toLowerCase();
+    if (!commandWord || commandWord === "compact") return false;
+    const knownCommands = session.state.slash_commands;
+    if (!knownCommands?.length) return false;
+    return knownCommands.some((cmd) => cmd.toLowerCase() === commandWord);
+  }
+
+  /** Forward a CLI-native slash command directly to the CLI without timestamp
+   *  tagging. Unlike /compact, no relaunch is needed -- the CLI processes
+   *  these inline and emits results as assistant messages. */
+  private handleCliSlashCommand(session: Session, command: string) {
+    const sessionId = session.id;
+    console.log(`[ws-bridge] CLI slash command intercepted for session ${sessionTag(sessionId)}: ${command}`);
+
+    // Record in message history so it appears in the chat UI.
+    const ts = Date.now();
+    const userHistoryEntry: Extract<BrowserIncomingMessage, { type: "user_message" }> = {
+      type: "user_message",
+      content: command,
+      timestamp: ts,
+      id: `user-${ts}-${this.userMsgCounter++}`,
+    };
+    session.messageHistory.push(userHistoryEntry);
+    session.lastUserMessage = command;
+    this.launcher?.touchUserMessage(session.id);
+    this.broadcastToBrowsers(session, userHistoryEntry);
+
+    // Send to the CLI without timestamp tagging.
+    if (session.claudeSdkAdapter) {
+      const accepted = session.claudeSdkAdapter.sendBrowserMessage({
+        type: "user_message",
+        content: command,
+      } as any);
+      if (!accepted) {
+        session.pendingMessages.push(JSON.stringify({ type: "user_message", content: command }));
+      }
+    } else {
+      const cliSessionId = this.launcher?.getSession(sessionId)?.cliSessionId
+        || session.state.session_id
+        || "";
+      const ndjson = JSON.stringify({
+        type: "user",
+        message: { role: "user", content: command },
+        parent_tool_use_id: null,
+        session_id: cliSessionId,
+      });
+      this.sendToCLI(session, ndjson);
+    }
+
+    // Mark session as generating so the UI shows the spinner.
+    this.setGenerating(session, true, "cli_slash_command");
+    this.broadcastToBrowsers(session, { type: "status_change", status: "running" });
+    this.persistSession(session);
   }
 
   /** Intercept /compact from the browser and trigger a kill+relaunch cycle.
