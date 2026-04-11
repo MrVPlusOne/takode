@@ -3258,9 +3258,10 @@ describe("CLI message routing", () => {
     bridge.handleCLIMessage(cli, msg);
 
     const state = bridge.getSession("s1")!.state;
-    // (400000 + 15000 + 25000) / 1000000 * 100 = 44
+    // input_tokens (400000) already includes cached tokens (OpenAI/Copilot semantics).
+    // 400000 / 1000000 * 100 = 40
     // output_tokens (10000) excluded — they are generated, not context occupants
-    expect(state.context_used_percent).toBe(44);
+    expect(state.context_used_percent).toBe(40);
   });
 
   it("result: keeps previous context_used_percent when usage payload is empty", () => {
@@ -14848,14 +14849,16 @@ describe("Claude SDK generation lifecycle on result", () => {
       session_id: sid,
     });
 
-    // context_used_percent should be ~30% (300k / 1M)
-    expect(session.state.context_used_percent).toBe(30);
+    // context_used_percent should be ~20% (200k / 1M)
+    // input_tokens already includes cached tokens (OpenAI/Copilot semantics),
+    // so cache_read_input_tokens is a subset, not additive.
+    expect(session.state.context_used_percent).toBe(20);
 
     // Verify the session_update broadcast includes the context %
     const sent = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     const update = sent.find((m: any) => m.type === "session_update" && m.session?.context_used_percent != null);
     expect(update).toBeDefined();
-    expect(update.session.context_used_percent).toBe(30);
+    expect(update.session.context_used_percent).toBe(20);
   });
 });
 

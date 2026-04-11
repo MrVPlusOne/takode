@@ -716,15 +716,32 @@ interface TokenUsage {
 
 /**
  * Compute context fill % from token usage and a context window size.
- * Context fill = input_tokens + cache_creation + cache_read.
- * output_tokens are excluded — they are generated tokens, not context occupants.
- * input_tokens excludes cached portions; the three input fields are mutually exclusive.
+ * output_tokens are excluded -- they are generated tokens, not context occupants.
+ *
+ * In the native Anthropic API, input_tokens excludes cached portions and the
+ * three input fields (input_tokens, cache_creation, cache_read) are additive.
+ * However, when routed through the LiteLLM Copilot proxy, OpenAI's
+ * prompt_tokens (which is the TOTAL including cached) is mapped to
+ * input_tokens. Adding cache_read on top would double-count.
+ *
+ * Detection: if cache tokens are reported AND their sum fits within
+ * input_tokens, then input_tokens already includes them (OpenAI semantics).
  */
 function computeContextUsedPercent(usage: TokenUsage, contextWindow: number): number | undefined {
-  const usedInContext =
-    Number(usage.input_tokens || 0) +
-    Number(usage.cache_creation_input_tokens || 0) +
-    Number(usage.cache_read_input_tokens || 0);
+  const inputTokens = Number(usage.input_tokens || 0);
+  const cacheCreation = Number(usage.cache_creation_input_tokens || 0);
+  const cacheRead = Number(usage.cache_read_input_tokens || 0);
+  const totalCache = cacheCreation + cacheRead;
+
+  let usedInContext: number;
+  if (totalCache > 0 && totalCache <= inputTokens) {
+    // Cache tokens are a subset of input_tokens (OpenAI/Copilot semantics):
+    // input_tokens already includes cached portions. Use it directly.
+    usedInContext = inputTokens;
+  } else {
+    // Native Anthropic semantics: fields are mutually exclusive and additive.
+    usedInContext = inputTokens + totalCache;
+  }
   if (usedInContext <= 0) return undefined;
 
   const pct = Math.round((usedInContext / contextWindow) * 100);
