@@ -4674,13 +4674,66 @@ describe("CodexAdapter", () => {
 
     const lastUpdate = sessionUpdates[sessionUpdates.length - 1];
 
-    // context_used_percent should use last turn: (85000 + 5000) / 258400 ≈ 35%
-    expect(lastUpdate.session.context_used_percent).toBe(35);
+    // context_used_percent should use last turn's input only (output tokens excluded,
+    // they are generated, not context occupants). cachedInputTokens (80k) fits within
+    // inputTokens (85k), so OpenAI semantics applies: use inputTokens directly.
+    // 85000 / 258400 ≈ 33%
+    expect(lastUpdate.session.context_used_percent).toBe(33);
 
     // codex_token_details should still show cumulative totals
     expect(lastUpdate.session.codex_token_details?.inputTokens).toBe(1_150_000);
     expect(lastUpdate.session.codex_token_details?.outputTokens).toBe(50_000);
     expect(lastUpdate.session.codex_token_details?.cachedInputTokens).toBe(930_000);
+  });
+
+  it("applies additive cache semantics when cachedInputTokens exceeds inputTokens", async () => {
+    // Native Anthropic semantics: inputTokens excludes cached portions and
+    // the cache field is additive. This can happen if a future Codex backend
+    // routes through native Anthropic token accounting.
+    const messages: BrowserIncomingMessage[] = [];
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
+    adapter.onBrowserMessage((msg) => messages.push(msg));
+
+    await tick();
+    stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
+    await tick();
+    stdout.push(JSON.stringify({ id: 2, result: { thread: { id: "thr_123" } } }) + "\n");
+    await tick();
+
+    stdout.push(
+      JSON.stringify({
+        method: "thread/tokenUsage/updated",
+        params: {
+          threadId: "thr_123",
+          turnId: "turn_1",
+          tokenUsage: {
+            total: { totalTokens: 100_000, inputTokens: 90_000, cachedInputTokens: 0, outputTokens: 10_000 },
+            last: {
+              totalTokens: 50_000,
+              // inputTokens excludes cached (Anthropic semantics)
+              inputTokens: 10_000,
+              cachedInputTokens: 40_000,
+              outputTokens: 5_000,
+            },
+            modelContextWindow: 200_000,
+          },
+        },
+      }) + "\n",
+    );
+
+    await tick();
+
+    const sessionUpdates = messages.filter((m) => m.type === "session_update") as Array<{
+      type: "session_update";
+      session: { context_used_percent?: number };
+    }>;
+    expect(sessionUpdates.length).toBeGreaterThan(0);
+
+    const lastUpdate = sessionUpdates[sessionUpdates.length - 1];
+
+    // Anthropic semantics: cachedInputTokens (40k) > inputTokens (10k),
+    // so fields are additive: 10000 + 40000 = 50000 / 200000 = 25%
+    expect(lastUpdate.session.context_used_percent).toBe(25);
   });
 });
 

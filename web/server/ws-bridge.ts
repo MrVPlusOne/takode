@@ -768,8 +768,12 @@ function computeResultContextUsedPercent(
 
   // Fallback: use the result's per-turn usage. For SDK sessions this is the
   // primary source since assistant messages have zero usage. For WebSocket
-  // sessions this is a safety net for the first turn.
+  // (NDJSON) sessions result.usage is cumulative across all turns and must
+  // be skipped — a single turn's input tokens can never exceed the context
+  // window, so exceeding it is a reliable signal of cumulative data.
   if (!msg.usage) return undefined;
+  const fallbackInput = Number(msg.usage.input_tokens || 0);
+  if (fallbackInput > contextWindow) return undefined;
   return computeContextUsedPercent(msg.usage, contextWindow);
 }
 

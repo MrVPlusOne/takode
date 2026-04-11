@@ -3318,6 +3318,64 @@ describe("CLI message routing", () => {
     expect(bridge.getSession("s1")!.state.context_used_percent).toBe(61);
   });
 
+  it("result: skips cumulative usage that exceeds context window (WS sessions)", () => {
+    // WS (NDJSON) sessions send cumulative usage on result messages that can
+    // far exceed the context window. When assistant messages have zero usage
+    // (typical for WS sessions), the code must not fall back to this cumulative
+    // data or the context percentage will be wildly inflated.
+    const session = bridge.getSession("s1")!;
+    session.state.model = "claude-opus-4-6[1m]";
+    session.state.context_used_percent = 34;
+
+    // Add a top-level assistant message with zero usage (typical WS behavior)
+    session.messageHistory.push({
+      type: "assistant",
+      message: {
+        id: "msg-ws-cumulative",
+        type: "message",
+        role: "assistant",
+        content: [{ type: "text", text: "test" }],
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+    } as any);
+
+    const msg = JSON.stringify({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      duration_ms: 70000,
+      duration_api_ms: 66000,
+      num_turns: 6,
+      total_cost_usd: 9.64,
+      stop_reason: "end_turn",
+      // Cumulative usage across 6 turns — 1.9M input tokens far exceeds the 1M context window
+      usage: {
+        input_tokens: 1905323,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 189924,
+        output_tokens: 800,
+      },
+      modelUsage: {
+        "claude-opus-4-6[1m]": {
+          inputTokens: 1905323,
+          outputTokens: 800,
+          cacheReadInputTokens: 189924,
+          cacheCreationInputTokens: 0,
+          contextWindow: 1000000,
+          maxOutputTokens: 64000,
+          costUSD: 9.64,
+        },
+      },
+      uuid: "uuid-ws-cumulative",
+      session_id: "s1",
+    });
+
+    bridge.handleCLIMessage(cli, msg);
+
+    // context_used_percent should be preserved, not inflated to 100%+
+    expect(bridge.getSession("s1")!.state.context_used_percent).toBe(34);
+  });
+
   it("stream_event: broadcasts without storing", () => {
     const msg = JSON.stringify({
       type: "stream_event",

@@ -3022,9 +3022,19 @@ export class CodexAdapter
 
     const updates: Partial<SessionState> = {};
 
-    // Use last turn's input tokens for context usage — that's what's actually in the window
+    // Use last turn's input tokens for context usage — that's what's actually in the window.
+    // output_tokens are excluded — they are generated tokens, not context occupants.
+    // Cache detection: if cached tokens fit within inputTokens, they are already
+    // included (OpenAI semantics); otherwise add them (native Anthropic semantics).
     if (last && contextWindow && contextWindow > 0) {
-      const usedInContext = (last.inputTokens || 0) + (last.outputTokens || 0);
+      const inputTokens = last.inputTokens || 0;
+      const cachedInputTokens = last.cachedInputTokens || 0;
+      let usedInContext: number;
+      if (cachedInputTokens > 0 && cachedInputTokens <= inputTokens) {
+        usedInContext = inputTokens;
+      } else {
+        usedInContext = inputTokens + cachedInputTokens;
+      }
       const pct = Math.round((usedInContext / contextWindow) * 100);
       updates.context_used_percent = Math.max(0, Math.min(pct, 100));
     }
