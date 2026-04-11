@@ -1109,6 +1109,13 @@ function userSourceLabel(msg: PeekMessage): string {
   return `agent${msg.agentSource.sessionLabel ? ` ${formatInlineText(msg.agentSource.sessionLabel)}` : ""}`;
 }
 
+/** Format multi-line content with ↵ continuation prefix on subsequent lines. */
+function formatMultilineContent(text: string, indent: string): string {
+  const lines = text.split("\n");
+  if (lines.length <= 1) return text;
+  return lines[0] + "\n" + lines.slice(1).map((l) => `${indent}↵ ${l}`).join("\n");
+}
+
 function formatCollapsedTurn(turn: CollapsedTurn): string {
   const endIdx = turn.endIdx >= 0 ? turn.endIdx : turn.startIdx; // in-progress turns use startIdx as fallback
   const msgRange = `[${turn.startIdx}]-[${endIdx}]`;
@@ -1161,13 +1168,17 @@ function printExpandedMessages(messages: PeekMessage[]): void {
         break;
       case "assistant": {
         const text = msg.content.trim();
+        const hasTools = msg.tools && msg.tools.length > 0;
+        const label = !text && hasTools ? "tool" : "asst";
         if (text) {
-          console.log(`  ${idx.padEnd(7)} ${time}  asst  ${truncate(text, TAKODE_PEEK_CONTENT_LIMIT)}`);
-        } else if (msg.tools && msg.tools.length > 0) {
+          const prefix = `  ${idx.padEnd(7)} ${time}  asst  `;
+          const formatted = formatMultilineContent(truncate(text, TAKODE_PEEK_CONTENT_LIMIT), " ".repeat(prefix.length));
+          console.log(`${prefix}${formatted}`);
+        } else if (hasTools) {
           // No text content -- print idx header so the msg ID is always visible
-          console.log(`  ${idx.padEnd(7)} ${time}  asst`);
+          console.log(`  ${idx.padEnd(7)} ${time}  ${label}`);
         }
-        if (msg.tools && msg.tools.length > 0) {
+        if (hasTools) {
           // Collapse consecutive tool calls by name: Read×2, Grep×1
           const collapsed = collapseToolCalls(msg.tools);
           for (let ci = 0; ci < collapsed.length; ci++) {
@@ -1340,12 +1351,16 @@ function printPeekRange(d: PeekRangeResponse, sessionRef: string, count: number)
         break;
       case "assistant": {
         const text = msg.content.trim();
-        if (msg.tools && msg.tools.length > 0) {
+        const hasExpandedTools = msg.tools && msg.tools.length > 0;
+        if (hasExpandedTools) {
           // Expanded tool display (--show-tools)
+          const label = text ? "asst" : "tool";
           if (text) {
-            console.log(`  ${idx.padEnd(7)} ${time}  asst  ${truncate(text, TAKODE_PEEK_CONTENT_LIMIT)}`);
+            const prefix = `  ${idx.padEnd(7)} ${time}  asst  `;
+            const formatted = formatMultilineContent(truncate(text, TAKODE_PEEK_CONTENT_LIMIT), " ".repeat(prefix.length));
+            console.log(`${prefix}${formatted}`);
           } else {
-            console.log(`  ${idx.padEnd(7)} ${time}  asst`);
+            console.log(`  ${idx.padEnd(7)} ${time}  ${label}`);
           }
           for (const tool of msg.tools) {
             console.log(`  ${idx.padEnd(7)}           → ${formatInlineText(tool.name)}: ${truncate(tool.summary, 80)}`);
@@ -1360,9 +1375,12 @@ function printPeekRange(d: PeekRangeResponse, sessionRef: string, count: number)
               ")"
             : "";
           if (text) {
-            console.log(`  ${idx.padEnd(7)} ${time}  asst  ${truncate(text, TAKODE_PEEK_CONTENT_LIMIT)}${toolStr}`);
+            const prefix = `  ${idx.padEnd(7)} ${time}  asst  `;
+            const truncated = truncate(text, TAKODE_PEEK_CONTENT_LIMIT);
+            const formatted = formatMultilineContent(truncated, " ".repeat(prefix.length));
+            console.log(`${prefix}${formatted}${toolStr}`);
           } else if (toolStr) {
-            console.log(`  ${idx.padEnd(7)} ${time}  asst ${toolStr}`);
+            console.log(`  ${idx.padEnd(7)} ${time}  tool ${toolStr}`);
           }
         }
         break;
@@ -1554,6 +1572,7 @@ async function handleRead(base: string, args: string[]): Promise<void> {
     offset: number;
     limit: number;
     content: string;
+    contentBlocks?: { type: string }[];
   };
 
   const time = formatTime(d.ts);
@@ -1561,7 +1580,11 @@ async function handleRead(base: string, args: string[]): Promise<void> {
     d.totalLines > d.limit
       ? ` (lines ${d.offset + 1}-${d.offset + d.limit} of ${d.totalLines})`
       : ` (${d.totalLines} lines)`;
-  console.log(`[msg ${d.idx}] ${formatInlineText(d.type)} -- ${time}${lineInfo}`);
+  const typeLabel =
+    d.type === "assistant" && d.contentBlocks?.some((b) => b.type === "tool_use")
+      ? "assistant (tools)"
+      : d.type;
+  console.log(`[msg ${d.idx}] ${formatInlineText(typeLabel)} -- ${time}${lineInfo}`);
   console.log("\u2500".repeat(60));
 
   // Print with line numbers (like the Read tool)

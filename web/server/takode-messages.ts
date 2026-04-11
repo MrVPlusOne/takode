@@ -432,6 +432,14 @@ function extractFullText(msg: BrowserIncomingMessage, sessionId?: string): strin
     case "compact_marker":
       return msg.summary || "[Context compacted]";
 
+    case "tool_result_preview":
+      return (msg as { previews: ToolResultPreview[] }).previews
+        .map((p) => {
+          const prefix = p.is_error ? "[Tool Error]" : "[Tool Result]";
+          return `${prefix} ${p.content}`;
+        })
+        .join("\n\n");
+
     default:
       return "";
   }
