@@ -16696,3 +16696,250 @@ describe("work board", () => {
     expect(bridge.advanceBoardRow("s1", "q-999")).toBeNull();
   });
 });
+
+// ─── SDK resume stall (q-220) ──────────────────────────────────────────────
+
+describe("SDK resume stall: cliResuming guards (q-220)", () => {
+  // When an SDK session is resumed after server restart, the CLI replays
+  // historical messages including stale status_change:"running" events.
+  // Without cliResuming guards, these get broadcast to browsers, overriding
+  // the correct "idle" state from state_snapshot and leaving the session
+  // stuck showing "running" indefinitely.
+
+  /** Set up a mock launcher with cliSessionId (simulates post-restart resume). */
+  function setResumedSdkLauncher(sessionId: string) {
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn(() => ({
+        sessionId,
+        state: "connected",
+        backendType: "claude-sdk",
+        cliSessionId: "cli-session-for-resume",
+      })),
+      setCLISessionId: vi.fn(),
+    } as any);
+  }
+
+  /** Helper: create a session with existing history (simulates resumed session). */
+  function createResumedSdkSession(sessionId: string) {
+    const session = bridge.getOrCreateSession(sessionId, "claude-sdk");
+    session.messageHistory.push({ role: "assistant", content: "previous turn" } as any);
+    setResumedSdkLauncher(sessionId);
+    return session;
+  }
+
+  it("sets cliResuming=true when attaching SDK adapter to resumed session", () => {
+    // A resumed SDK session has existing messageHistory and the launcher has
+    // a cliSessionId. The adapter attach must set cliResuming to defer
+    // message processing during replay.
+    createResumedSdkSession("s1");
+    const adapter = makeClaudeSdkAdapterMock();
+    bridge.attachClaudeSdkAdapter("s1", adapter as any);
+
+    const session = bridge.getSession("s1")!;
+    expect(session.cliResuming).toBe(true);
+  });
+
+  it("does NOT set cliResuming for a fresh SDK session (no history, no cliSessionId)", () => {
+    // Brand-new sessions have no replay — cliResuming should stay false.
+    const adapter = makeClaudeSdkAdapterMock();
+    bridge.attachClaudeSdkAdapter("s1", adapter as any);
+
+    const session = bridge.getSession("s1")!;
+    expect(session.cliResuming).toBe(false);
+  });
+
+  it("does NOT set cliResuming when adapter is replaced mid-conversation (no cliSessionId)", () => {
+    // Adapter replacement during normal operation (e.g., adapter crash + relaunch)
+    // should NOT trigger cliResuming, even if messageHistory has entries.
+    // Without the cliSessionId check, this would false-positive.
+    const session = bridge.getOrCreateSession("s1", "claude-sdk");
+    session.messageHistory.push({ role: "assistant", content: "msg" } as any);
+    // No launcher set — simulates adapter replacement without server restart
+    const adapter = makeClaudeSdkAdapterMock();
+    bridge.attachClaudeSdkAdapter("s1", adapter as any);
+
+    expect(session.cliResuming).toBe(false);
+  });
+
+  it("suppresses status_change broadcasts during SDK resume replay", () => {
+    // Stale status_change:"running" from completed historical turns must not
+    // reach browsers — they would override the correct "idle" snapshot.
+    createResumedSdkSession("s1");
+    const adapter = makeClaudeSdkAdapterMock();
+    bridge.attachClaudeSdkAdapter("s1", adapter as any);
+
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+    browser.send.mockClear();
+
+    const session = bridge.getSession("s1")!;
+    expect(session.cliResuming).toBe(true);
+
+    // Simulate replayed status_change from a completed turn
+    adapter.emitBrowserMessage({ type: "status_change", status: "running" });
+
+    // The browser should NOT receive a status_change broadcast
+    const statusChanges = browser.send.mock.calls.filter((call: any[]) => {
+      try {
+        const msg = JSON.parse(call[0]);
+        return msg.type === "status_change";
+      } catch {
+        return false;
+      }
+    });
+    expect(statusChanges).toHaveLength(0);
+  });
+
+  it("still updates is_compacting state during SDK resume replay", () => {
+    // Compaction state tracking must still work during replay for correctness
+    // — only the browser broadcast is suppressed.
+    createResumedSdkSession("s1");
+    const adapter = makeClaudeSdkAdapterMock();
+    bridge.attachClaudeSdkAdapter("s1", adapter as any);
+
+    const session = bridge.getSession("s1")!;
+    expect(session.cliResuming).toBe(true);
+
+    adapter.emitBrowserMessage({ type: "status_change", status: "compacting" });
+    expect(session.state.is_compacting).toBe(true);
+  });
+
+  it("clears cliResuming after 2s debounce and flushes deferred messages", () => {
+    vi.useFakeTimers();
+
+    createResumedSdkSession("s1");
+    const adapter = makeClaudeSdkAdapterMock();
+    bridge.attachClaudeSdkAdapter("s1", adapter as any);
+
+    const session = bridge.getSession("s1")!;
+    expect(session.cliResuming).toBe(true);
+
+    // Queue a pending message (e.g., user message sent during reconnect)
+    session.pendingMessages.push(
+      JSON.stringify({ type: "user_message", content: "hello" }),
+    );
+
+    // Simulate replayed messages arriving from the SDK stream
+    adapter.emitBrowserMessage({ type: "status_change", status: "running" });
+    adapter.emitBrowserMessage({ type: "status_change", status: null });
+
+    // cliResuming should still be true before the debounce fires
+    expect(session.cliResuming).toBe(true);
+    expect(session.pendingMessages).toHaveLength(1);
+
+    // Advance past the 2s debounce
+    vi.advanceTimersByTime(2100);
+
+    expect(session.cliResuming).toBe(false);
+    // Deferred pending message should have been flushed via adapter.sendBrowserMessage
+    expect(adapter.sendBrowserMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "user_message", content: "hello" }),
+    );
+    expect(session.pendingMessages).toHaveLength(0);
+
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  });
+
+  it("debounce resets on each incoming SDK message", () => {
+    vi.useFakeTimers();
+
+    createResumedSdkSession("s1");
+    const adapter = makeClaudeSdkAdapterMock();
+    bridge.attachClaudeSdkAdapter("s1", adapter as any);
+
+    const session = bridge.getSession("s1")!;
+
+    // First replayed message
+    adapter.emitBrowserMessage({ type: "status_change", status: "running" });
+    vi.advanceTimersByTime(1500);
+    // Still resuming — debounce not yet elapsed
+    expect(session.cliResuming).toBe(true);
+
+    // Second replayed message resets the debounce
+    adapter.emitBrowserMessage({ type: "status_change", status: null });
+    vi.advanceTimersByTime(1500);
+    // Still resuming — only 1.5s since last message
+    expect(session.cliResuming).toBe(true);
+
+    // Full 2s after the last message
+    vi.advanceTimersByTime(600);
+    expect(session.cliResuming).toBe(false);
+
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  });
+
+  it("defers pendingMessages flush when SDK adapter attaches during resume", () => {
+    // When cliResuming is true, pendingMessages should NOT be flushed
+    // immediately on adapter attach — they must wait for replay to finish.
+    createResumedSdkSession("s1");
+    const session = bridge.getSession("s1")!;
+    session.pendingMessages.push(
+      JSON.stringify({ type: "user_message", content: "queued" }),
+    );
+
+    const adapter = makeClaudeSdkAdapterMock();
+    bridge.attachClaudeSdkAdapter("s1", adapter as any);
+
+    // Message should NOT have been flushed yet
+    expect(adapter.sendBrowserMessage).not.toHaveBeenCalled();
+    expect(session.pendingMessages).toHaveLength(1);
+  });
+
+  it("flushes pendingMessages immediately for fresh SDK sessions (no resume)", () => {
+    // Non-resumed sessions should flush immediately, preserving existing behavior.
+    const session = bridge.getOrCreateSession("s1", "claude-sdk");
+    session.pendingMessages.push(
+      JSON.stringify({ type: "user_message", content: "queued" }),
+    );
+
+    const adapter = makeClaudeSdkAdapterMock();
+    bridge.attachClaudeSdkAdapter("s1", adapter as any);
+
+    // Message should be flushed immediately
+    expect(adapter.sendBrowserMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "user_message", content: "queued" }),
+    );
+    expect(session.pendingMessages).toHaveLength(0);
+  });
+
+  it("broadcasts status_change after cliResuming clears", () => {
+    vi.useFakeTimers();
+
+    createResumedSdkSession("s1");
+    const adapter = makeClaudeSdkAdapterMock();
+    bridge.attachClaudeSdkAdapter("s1", adapter as any);
+
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    const session = bridge.getSession("s1")!;
+
+    // Replayed messages during resume — suppressed
+    adapter.emitBrowserMessage({ type: "status_change", status: "running" });
+    adapter.emitBrowserMessage({ type: "status_change", status: null });
+
+    // Clear cliResuming via debounce
+    vi.advanceTimersByTime(2100);
+    expect(session.cliResuming).toBe(false);
+    browser.send.mockClear();
+
+    // Now a live status_change should be broadcast normally
+    adapter.emitBrowserMessage({ type: "status_change", status: "running" });
+    const statusChanges = browser.send.mock.calls.filter((call: any[]) => {
+      try {
+        const msg = JSON.parse(call[0]);
+        return msg.type === "status_change";
+      } catch {
+        return false;
+      }
+    });
+    expect(statusChanges.length).toBeGreaterThan(0);
+
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  });
+});

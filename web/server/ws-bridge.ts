@@ -3966,11 +3966,32 @@ export class WsBridge {
     // returns false → herd events are never delivered.
     session.cliInitReceived = true;
 
+    // Mirror WS path: defer message processing during SDK resume replay.
+    // Resumed SDK sessions replay historical messages through stream() —
+    // including stale status_change events that would confuse browsers.
+    // Without this guard, the browser receives status:"running" from a
+    // completed historical turn AFTER the correct state_snapshot:"idle",
+    // getting stuck in "running" indefinitely (q-220).
+    // Detect resume via cliSessionId on the launcher (same pattern as
+    // handleCLIOpen line ~4515) — this means the adapter will call
+    // unstable_v2_resumeSession which replays history. Using messageHistory
+    // length alone would false-positive when an adapter is replaced during
+    // normal operation (e.g., adapter failure + relaunch mid-conversation).
+    const isResuming = !!launcherInfo?.cliSessionId && session.messageHistory.length > 0;
+    if (isResuming) {
+      if (session.cliResumingClearTimer) {
+        clearTimeout(session.cliResumingClearTimer);
+        session.cliResumingClearTimer = null;
+      }
+      session.cliResuming = true;
+    }
+
     // Flush messages that were queued while the adapter was disconnected
     // (e.g., herd events or user messages that arrived during a reconnect cycle).
-    // Without this, queued messages are stranded forever since the SDK path
-    // has no equivalent of the WebSocket handleCLIOpen flush (line ~3256).
-    if (session.pendingMessages.length > 0) {
+    // When resuming, defer the flush until replay is done (cliResuming cleared
+    // by debounced timer in onBrowserMessage below) — the CLI silently drops
+    // messages received mid-replay, same as the WS path (q-209).
+    if (!isResuming && session.pendingMessages.length > 0) {
       console.log(
         `[ws-bridge] Flushing ${session.pendingMessages.length} queued message(s) on SDK adapter attach for session ${sessionTag(sessionId)}`,
       );
@@ -3986,7 +4007,8 @@ export class WsBridge {
     }
 
     // Flush pending herd events now that isSessionIdle() can return true.
-    if (this.herdEventDispatcher) {
+    // Defer when resuming — the debounced timer handles this.
+    if (!isResuming && this.herdEventDispatcher) {
       const orchInfo = this.launcher?.getSession(session.id);
       if (orchInfo?.isOrchestrator) {
         this.herdEventDispatcher.onOrchestratorTurnEnd(session.id);
@@ -3997,6 +4019,44 @@ export class WsBridge {
       this.launcher?.touchActivity(session.id);
       session.lastCliMessageAt = Date.now();
       this.clearOptimisticRunningTimer(session, `sdk_output:${msg.type}`);
+
+      // Debounce cliResuming clear: 2s after the last replayed SDK message,
+      // replay is done. Clear the flag and flush deferred messages/events.
+      // Mirrors the WS path's debounce on system.init (q-209, q-220).
+      if (session.cliResuming) {
+        if (session.cliResumingClearTimer) clearTimeout(session.cliResumingClearTimer);
+        session.cliResumingClearTimer = setTimeout(() => {
+          session.cliResumingClearTimer = null;
+          session.cliResuming = false;
+          console.log(
+            `[ws-bridge] cliResuming cleared for SDK session ${sessionTag(session.id)} — replay done`,
+          );
+          // Reset stale compaction state now that replay is truly done.
+          session.state.is_compacting = false;
+          // Flush messages deferred during replay.
+          if (session.pendingMessages.length > 0) {
+            console.log(
+              `[ws-bridge] Flushing ${session.pendingMessages.length} deferred message(s) after SDK replay done for session ${sessionTag(session.id)}`,
+            );
+            const queued = session.pendingMessages.splice(0);
+            for (const raw of queued) {
+              try {
+                const deferredMsg = JSON.parse(raw) as BrowserOutgoingMessage;
+                adapter.sendBrowserMessage(deferredMsg);
+              } catch {
+                /* skip corrupt */
+              }
+            }
+          }
+          // Flush deferred herd events.
+          if (this.herdEventDispatcher) {
+            const launcherInfo = this.launcher?.getSession(session.id);
+            if (launcherInfo?.isOrchestrator) {
+              this.herdEventDispatcher.onOrchestratorTurnEnd(session.id);
+            }
+          }
+        }, 2000);
+      }
 
       // Track generation state for SDK sessions
       if (msg.type === "result") {
@@ -4185,6 +4245,12 @@ export class WsBridge {
           this.injectLeaderCompactionRecovery(session);
         }
         this.persistSession(session);
+        // Suppress stale status_change broadcasts during resume replay (q-220).
+        // The browser already has the correct state from state_snapshot; letting
+        // replayed status:"running" through would override it and stick forever.
+        // Compaction state above is still updated — only the browser broadcast
+        // is suppressed.
+        if (session.cliResuming) return;
         // Fall through to broadcastToBrowsers — the browser uses status_change
         // to update the session status indicator.
       }
