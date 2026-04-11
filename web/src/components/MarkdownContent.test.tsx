@@ -110,6 +110,28 @@ describe("MarkdownContent quest links", () => {
     expect(window.location.hash).toBe("#/session/session-abc");
   });
 
+  it("routes session:N:M message-level links with msg query param in href", () => {
+    useStore.setState((state) => ({
+      ...state,
+      sdkSessions: [
+        {
+          sessionId: "session-abc",
+          state: "connected",
+          cwd: "/repo",
+          createdAt: 1,
+          sessionNum: 123,
+        },
+      ],
+    }));
+
+    render(<MarkdownContent text="[#123 msg 42](session:123:42)" />);
+
+    const link = screen.getByRole("link", { name: "#123 msg 42" });
+    // Href should include ?msg= query param for right-click "open in new tab" support
+    expect(link.getAttribute("href")).toBe("#/session/session-abc?msg=42");
+    expect(link.getAttribute("title")).toBe("Open session #123, message 42");
+  });
+
   it("shows SessionHoverCard content when hovering a session link", async () => {
     useStore.setState((state) => ({
       ...state,

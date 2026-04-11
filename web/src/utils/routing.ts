@@ -100,6 +100,45 @@ export function navigateToSession(sessionId: string, replace = false): void {
 }
 
 /**
+ * Resolve a message index to an ID and trigger scroll+expand.
+ * If messages are loaded, scrolls immediately; otherwise stores a pending scroll.
+ */
+export function scrollToMessageIndex(sessionId: string, messageIndex: number): void {
+  const store = useStore.getState();
+  const messages = store.messages.get(sessionId);
+
+  if (messages && messageIndex < messages.length) {
+    const targetMsg = messages[messageIndex];
+    if (targetMsg) {
+      store.requestScrollToMessage(sessionId, targetMsg.id);
+      store.setExpandAllInTurn(sessionId, targetMsg.id);
+    }
+  } else {
+    store.setPendingScrollToMessageIndex(sessionId, messageIndex);
+  }
+}
+
+/**
+ * Navigate to a specific message within a session.
+ * Opens the session and scrolls to the message at the given index.
+ */
+export function navigateToSessionMessage(sessionId: string, messageIndex: number): void {
+  navigateToSession(sessionId);
+  scrollToMessageIndex(sessionId, messageIndex);
+}
+
+/**
+ * Read message index from hash query param (e.g. `?msg=42`).
+ */
+export function messageIndexFromHash(hash: string): number | null {
+  const { params } = splitHash(hash);
+  const raw = params.get("msg");
+  if (!raw) return null;
+  const idx = parseInt(raw, 10);
+  return isNaN(idx) || idx < 0 ? null : idx;
+}
+
+/**
  * Navigate to the home page (no session selected) by clearing the hash.
  * When replace=true, uses replaceState to avoid creating a history entry.
  */

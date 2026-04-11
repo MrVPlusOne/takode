@@ -378,6 +378,19 @@ function resetAuthoritativeHistoryState(sessionId: string): void {
   store.setPendingCodexInputs(sessionId, []);
 }
 
+/** Resolve a pending message-index scroll from deep link navigation (session:N:M). */
+function resolvePendingMessageScroll(sessionId: string, messages: ChatMessage[]): void {
+  const store = useStore.getState();
+  const pendingIdx = store.pendingScrollToMessageIndex.get(sessionId);
+  if (pendingIdx == null) return;
+  store.clearPendingScrollToMessageIndex(sessionId);
+  const targetMsg = messages[pendingIdx];
+  if (targetMsg) {
+    store.requestScrollToMessage(sessionId, targetMsg.id);
+    store.setExpandAllInTurn(sessionId, targetMsg.id);
+  }
+}
+
 function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, deps: WsMessageHandlerDeps) {
   const store = useStore.getState();
 
@@ -1264,6 +1277,7 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       processedToolUseIds.delete(sessionId);
       taskCounters.delete(sessionId);
       updateSessionPreviewFromHistory(sessionId, data.messages);
+      resolvePendingMessageScroll(sessionId, chatMessages);
       break;
     }
 
@@ -1298,6 +1312,7 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       processedToolUseIds.delete(sessionId);
       taskCounters.delete(sessionId);
       updateSessionPreviewFromHistory(sessionId, [...data.frozen_delta, ...data.hot_messages]);
+      resolvePendingMessageScroll(sessionId, mergedMessages);
       break;
     }
   }

@@ -13,7 +13,7 @@ import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api } from "../api.js";
 import { useStore, countUserPermissions } from "../store.js";
-import { navigateToSession, sessionHash } from "../utils/routing.js";
+import { navigateToSession, navigateToSessionMessage, sessionHash } from "../utils/routing.js";
 import { SessionHoverCard } from "./SessionHoverCard.js";
 import { QuestHoverCard } from "./QuestHoverCard.js";
 import type { SessionItem as SessionItemType } from "../utils/project-grouping.js";
@@ -39,17 +39,22 @@ function parseQuestIdFromHref(href?: string): string | null {
   return null;
 }
 
-function parseSessionNumFromHref(href?: string): number | null {
+interface SessionLinkTarget {
+  sessionNum: number;
+  messageIndex?: number;
+}
+
+function parseSessionLinkFromHref(href?: string): SessionLinkTarget | null {
   if (!href) return null;
   const trimmed = href.trim();
 
-  const sessionScheme = trimmed.match(/^session:(\d+)$/i);
-  if (sessionScheme) return Number.parseInt(sessionScheme[1], 10);
+  // session:304:1195 or session:304 (with optional // prefix)
+  const match = trimmed.match(/^session:(?:\/\/)?(\d+)(?::(\d+))?$/i);
+  if (!match) return null;
 
-  const sessionUri = trimmed.match(/^session:\/\/(\d+)$/i);
-  if (sessionUri) return Number.parseInt(sessionUri[1], 10);
-
-  return null;
+  const sessionNum = parseInt(match[1], 10);
+  const messageIndex = match[2] != null ? parseInt(match[2], 10) : undefined;
+  return { sessionNum, messageIndex };
 }
 
 interface FileLinkTarget {
@@ -256,7 +261,7 @@ function parseFileLinkFromHref(href?: string): FileLinkTarget | null {
 }
 
 function transformMarkdownUrl(url: string): string {
-  if (parseQuestIdFromHref(url) || parseSessionNumFromHref(url) != null || parseFileLinkFromHref(url)) return url;
+  if (parseQuestIdFromHref(url) || parseSessionLinkFromHref(url) != null || parseFileLinkFromHref(url)) return url;
   if (/^file:/i.test(url.trim())) return "";
   // Block dangerous protocols while preserving normal links.
   const normalized = url.toLowerCase().replace(/[\u0000-\u001f\u007f\s]+/g, "");
@@ -324,9 +329,16 @@ export function MarkdownContent({
             if (questId) {
               return <QuestMarkdownLink questId={questId}>{children}</QuestMarkdownLink>;
             }
-            const sessionNum = parseSessionNumFromHref(href);
-            if (sessionNum != null) {
-              return <SessionMarkdownLink sessionNum={sessionNum}>{children}</SessionMarkdownLink>;
+            const sessionLink = parseSessionLinkFromHref(href);
+            if (sessionLink != null) {
+              return (
+                <SessionMarkdownLink
+                  sessionNum={sessionLink.sessionNum}
+                  messageIndex={sessionLink.messageIndex}
+                >
+                  {children}
+                </SessionMarkdownLink>
+              );
             }
             const fileTarget = parseFileLinkFromHref(href);
             if (fileTarget) {
@@ -453,7 +465,15 @@ function QuestMarkdownLink({ questId, children }: { questId: string; children: R
   );
 }
 
-function SessionMarkdownLink({ sessionNum, children }: { sessionNum: number; children: ReactNode }) {
+function SessionMarkdownLink({
+  sessionNum,
+  messageIndex,
+  children,
+}: {
+  sessionNum: number;
+  messageIndex?: number;
+  children: ReactNode;
+}) {
   const sessions = useStore((s) => s.sessions);
   const sdkSessions = useStore((s) => s.sdkSessions);
   const sessionNames = useStore((s) => s.sessionNames);
@@ -553,7 +573,17 @@ function SessionMarkdownLink({ sessionNum, children }: { sessionNum: number; chi
     setHoverRect(null);
   }
 
-  const href = sessionId ? sessionHash(sessionId) : "#";
+  const href = sessionId
+    ? messageIndex != null
+      ? `${sessionHash(sessionId)}?msg=${messageIndex}`
+      : sessionHash(sessionId)
+    : "#";
+
+  const title = sessionId
+    ? messageIndex != null
+      ? `Open session #${sessionNum}, message ${messageIndex}`
+      : `Open session #${sessionNum}`
+    : `Session #${sessionNum} not found`;
 
   return (
     <>
@@ -562,12 +592,16 @@ function SessionMarkdownLink({ sessionNum, children }: { sessionNum: number; chi
         onClick={(e) => {
           e.preventDefault();
           if (!sessionId) return;
-          navigateToSession(sessionId);
+          if (messageIndex != null) {
+            navigateToSessionMessage(sessionId, messageIndex);
+          } else {
+            navigateToSession(sessionId);
+          }
         }}
         onMouseEnter={handleLinkMouseEnter}
         onMouseLeave={handleLinkMouseLeave}
         className={sessionId ? "text-cc-primary hover:underline" : "text-cc-muted"}
-        title={sessionId ? `Open session #${sessionNum}` : `Session #${sessionNum} not found`}
+        title={title}
       >
         {children}
       </a>
@@ -582,6 +616,7 @@ function SessionMarkdownLink({ sessionNum, children }: { sessionNum: number; chi
           anchorRect={hoverRect}
           onMouseEnter={handleHoverCardEnter}
           onMouseLeave={handleHoverCardLeave}
+          messageIndex={messageIndex}
         />
       )}
     </>

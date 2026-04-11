@@ -41,6 +41,15 @@ html, body {
   100% { background-color: transparent; }
 }
 
+/* Scroll-to-message highlight: brief amber flash when deep-linking or search-navigating to a message */
+.message-scroll-highlight {
+  animation: messageScrollHighlight 2s ease-out;
+}
+@keyframes messageScrollHighlight {
+  0% { background-color: rgba(251, 191, 36, 0.3); }
+  100% { background-color: transparent; }
+}
+
 .reply-highlight-flash {
   animation: replyHighlightFlash 1.5s ease-out;
   border-radius: 8px;

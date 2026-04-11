@@ -874,6 +874,25 @@ function CodexTerminalInspector({
   );
 }
 
+// ─── Expand-on-scroll-target hook ───────────────────────────────────────────
+// Used by collapsible containers (SubagentContainer, ApprovalBatchGroup,
+// HerdEventBatchGroup) to auto-expand when a scroll-to-message target
+// is inside them. The expandAllInTurn store signal holds the target message
+// ID; if any of the container's message IDs match, it forces open.
+
+function useExpandForScrollTarget(
+  sessionId: string,
+  containedMessageIds: string[],
+  setOpen: (v: boolean) => void,
+): void {
+  const expandTargetId = useStore((s) => s.expandAllInTurn.get(sessionId));
+  useEffect(() => {
+    if (expandTargetId && containedMessageIds.includes(expandTargetId)) {
+      setOpen(true);
+    }
+  }, [expandTargetId, containedMessageIds, setOpen]);
+}
+
 // ─── Components ──────────────────────────────────────────────────────────────
 
 const ToolMessageGroup = memo(function ToolMessageGroup({
@@ -1180,9 +1199,13 @@ function isApprovalEntry(entry: FeedEntry): entry is { kind: "message"; msg: Cha
 
 /** Collapsed group for consecutive auto-approved tool calls — shows "N tools auto-approved"
  *  with an expand toggle to see individual approval details. */
-function ApprovalBatchGroup({ messages }: { messages: ChatMessage[] }) {
+function ApprovalBatchGroup({ messages, sessionId }: { messages: ChatMessage[]; sessionId: string }) {
   const [expanded, setExpanded] = useState(false);
   const count = messages.length;
+
+  // Auto-expand when a scroll-to-message target is inside this batch
+  const messageIds = useMemo(() => messages.map((m) => m.id), [messages]);
+  useExpandForScrollTarget(sessionId, messageIds, setExpanded);
   return (
     <div
       className="flex justify-end animate-[fadeSlideIn_0.2s_ease-out]"
@@ -1254,10 +1277,14 @@ function formatHerdBatchTimeRange(messages: ChatMessage[]): string {
 
 /** Collapsed group for consecutive herd event messages -- shows "N herd updates · time range"
  *  with an expand toggle to see individual event chips with full activity content. */
-function HerdEventBatchGroup({ messages }: { messages: ChatMessage[] }) {
+function HerdEventBatchGroup({ messages, sessionId }: { messages: ChatMessage[]; sessionId: string }) {
   const [expanded, setExpanded] = useState(false);
   const count = messages.length;
   const timeRange = formatHerdBatchTimeRange(messages);
+
+  // Auto-expand when a scroll-to-message target is inside this batch
+  const messageIds = useMemo(() => messages.map((m) => m.id), [messages]);
+  useExpandForScrollTarget(sessionId, messageIds, setExpanded);
 
   // Count total event headers (real "#N | type | ..." lines, not markdown headings)
   const totalLines = messages.reduce((sum, msg) => {
@@ -1331,7 +1358,7 @@ const FeedEntries = memo(function FeedEntries({
           j++;
         }
         if (batch.length >= 2) {
-          result.push(<ApprovalBatchGroup key={batch[0].id} messages={batch} />);
+          result.push(<ApprovalBatchGroup key={batch[0].id} messages={batch} sessionId={sessionId} />);
           i = j;
           continue;
         }
@@ -1346,7 +1373,7 @@ const FeedEntries = memo(function FeedEntries({
           j++;
         }
         if (batch.length >= 2) {
-          result.push(<HerdEventBatchGroup key={`herd-batch:${batch[0].id}`} messages={batch} />);
+          result.push(<HerdEventBatchGroup key={`herd-batch:${batch[0].id}`} messages={batch} sessionId={sessionId} />);
           i = j;
           continue;
         }
@@ -1635,6 +1662,13 @@ const SubagentContainer = memo(function SubagentContainer({
   const agentType = group.agentType;
   const childCount = group.children.length;
   const hasPrompt = !!group.taskInput?.prompt;
+
+  // Auto-expand when a scroll-to-message target is inside this subagent
+  const childMessageIds = useMemo(
+    () => group.children.filter((e) => e.kind === "message").map((e) => (e as { msg: ChatMessage }).msg.id),
+    [group.children],
+  );
+  useExpandForScrollTarget(sessionId, childMessageIds, setOpen);
 
   // Read the subagent's final result from the toolResults store
   const resultPreview = useStore((s) => s.toolResults.get(sessionId)?.get(group.taskToolUseId));
@@ -3172,11 +3206,13 @@ export function MessageFeed({
     scheduleScroll();
   }, [clearScrollToTurn, ensureSectionForTurnVisible, scrollToTurnId, sessionId]);
 
-  // Scroll-to-message: triggered from QuestmasterPage version history clicks.
+  // Scroll-to-message: triggered from deep links, search navigation, and QuestmasterPage.
   // Finds the turn containing the target message, focuses it (expand target,
-  // collapse all others except last), and scrolls to the specific message element.
+  // collapse all others except last), expands collapsed groups, and scrolls to the element.
   const scrollToMessageId = useStore((s) => s.scrollToMessageId.get(sessionId));
+  const expandAllInTurnTarget = useStore((s) => s.expandAllInTurn.get(sessionId));
   const clearScrollToMessage = useStore((s) => s.clearScrollToMessage);
+  const clearExpandAllInTurn = useStore((s) => s.clearExpandAllInTurn);
   useEffect(() => {
     if (!scrollToMessageId) return;
     clearScrollToMessage(sessionId);
@@ -3202,7 +3238,12 @@ export function MessageFeed({
         const target = el.querySelector(`[data-message-id="${escapeSelectorValue(scrollToMessageId)}"]`);
         if (target) {
           target.scrollIntoView({ behavior: "smooth", block: "center" });
+          // Brief amber highlight flash on the target message
+          (target as HTMLElement).classList.add("message-scroll-highlight");
+          setTimeout(() => (target as HTMLElement).classList.remove("message-scroll-highlight"), 2000);
         }
+        // Clear expand-all signal after DOM has settled
+        clearExpandAllInTurn(sessionId);
       });
     };
     if (sectionChanged) {
@@ -3210,7 +3251,7 @@ export function MessageFeed({
       return;
     }
     scheduleScroll();
-  }, [clearScrollToMessage, ensureSectionForTurnVisible, scrollToMessageId, sessionId, turns]);
+  }, [clearExpandAllInTurn, clearScrollToMessage, ensureSectionForTurnVisible, scrollToMessageId, sessionId, turns]);
 
   // Track which task outline chip should be highlighted based on scroll position.
   // The reference line is near the container top (with a small offset to avoid

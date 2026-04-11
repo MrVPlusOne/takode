@@ -1196,6 +1196,24 @@ export const api = {
     if (!result) throw new Error("Import stream ended without a result");
     return result;
   },
+
+  // Takode: fetch a single message snippet for hover previews
+  fetchMessageSnippet: async (
+    sessionId: string,
+    messageIndex: number,
+  ): Promise<{ role: string; snippet: string } | null> => {
+    try {
+      const res = await fetch(
+        `${BASE}/takode/sessions/${encodeURIComponent(sessionId)}/messages/${messageIndex}?limit=3`,
+      );
+      if (!res.ok) return null;
+      const data = await res.json();
+      const text: string = data.text || data.content || "";
+      return { role: data.role || "unknown", snippet: text.slice(0, 200) };
+    } catch {
+      return null;
+    }
+  },
 };
 
 export interface ImportStats {

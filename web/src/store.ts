@@ -171,6 +171,12 @@ interface AppState {
   // Scroll-to-message request per session (session → message ID to scroll to).
   // Unlike scrollToTurnId, this also collapses all other turns except the target and last.
   scrollToMessageId: Map<string, string | null>;
+  // When scrolling to a specific message, expand all collapsible groups in its turn.
+  // Value is the target message ID — cleared after DOM settles.
+  expandAllInTurn: Map<string, string | null>;
+  // Pending message-index scroll for sessions whose messages haven't loaded yet.
+  // Set by navigateToSessionMessage(), consumed by the message_history handler.
+  pendingScrollToMessageIndex: Map<string, number>;
   // Local-only hint: the next authoritative user message echoed back for this
   // session should be bottom-aligned in the feed.
   bottomAlignNextUserMessage: Set<string>;
@@ -377,6 +383,10 @@ interface AppState {
   clearScrollToTurn: (sessionId: string) => void;
   requestScrollToMessage: (sessionId: string, messageId: string) => void;
   clearScrollToMessage: (sessionId: string) => void;
+  setExpandAllInTurn: (sessionId: string, messageId: string) => void;
+  clearExpandAllInTurn: (sessionId: string) => void;
+  setPendingScrollToMessageIndex: (sessionId: string, messageIndex: number) => void;
+  clearPendingScrollToMessageIndex: (sessionId: string) => void;
 
   // Within-session search actions
   openSessionSearch: (sessionId: string) => void;
@@ -650,6 +660,8 @@ export const useStore = create<AppState>((set) => ({
   sessionSearch: new Map(),
   scrollToTurnId: new Map(),
   scrollToMessageId: new Map(),
+  expandAllInTurn: new Map(),
+  pendingScrollToMessageIndex: new Map(),
   bottomAlignNextUserMessage: new Set(),
   activeTaskTurnId: new Map(),
   sessionTaskPreview: new Map(),
@@ -1627,6 +1639,34 @@ export const useStore = create<AppState>((set) => ({
       return { scrollToMessageId };
     }),
 
+  setExpandAllInTurn: (sessionId, messageId) =>
+    set((s) => {
+      const expandAllInTurn = new Map(s.expandAllInTurn);
+      expandAllInTurn.set(sessionId, messageId);
+      return { expandAllInTurn };
+    }),
+
+  clearExpandAllInTurn: (sessionId) =>
+    set((s) => {
+      const expandAllInTurn = new Map(s.expandAllInTurn);
+      expandAllInTurn.delete(sessionId);
+      return { expandAllInTurn };
+    }),
+
+  setPendingScrollToMessageIndex: (sessionId, messageIndex) =>
+    set((s) => {
+      const pendingScrollToMessageIndex = new Map(s.pendingScrollToMessageIndex);
+      pendingScrollToMessageIndex.set(sessionId, messageIndex);
+      return { pendingScrollToMessageIndex };
+    }),
+
+  clearPendingScrollToMessageIndex: (sessionId) =>
+    set((s) => {
+      const pendingScrollToMessageIndex = new Map(s.pendingScrollToMessageIndex);
+      pendingScrollToMessageIndex.delete(sessionId);
+      return { pendingScrollToMessageIndex };
+    }),
+
   // ─── Within-session search actions ──────────────────────────────────────────
 
   openSessionSearch: (sessionId) =>
@@ -2125,6 +2165,8 @@ export const useStore = create<AppState>((set) => ({
       sessionSearch: new Map(),
       scrollToTurnId: new Map(),
       scrollToMessageId: new Map(),
+      expandAllInTurn: new Map(),
+      pendingScrollToMessageIndex: new Map(),
       bottomAlignNextUserMessage: new Set(),
       activeTaskTurnId: new Map(),
       sessionTaskPreview: new Map(),

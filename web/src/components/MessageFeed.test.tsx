@@ -75,6 +75,8 @@ vi.mock("../store.js", () => {
       clearScrollToTurn: mockClearScrollToTurn,
       scrollToMessageId: mockStoreValues.scrollToMessageId ?? new Map(),
       clearScrollToMessage: mockClearScrollToMessage,
+      expandAllInTurn: mockStoreValues.expandAllInTurn ?? new Map(),
+      clearExpandAllInTurn: vi.fn(),
       bottomAlignNextUserMessage: mockStoreValues.bottomAlignNextUserMessage ?? new Set(),
       sessionTaskHistory: mockStoreValues.sessionTaskHistory ?? new Map(),
       pendingCodexInputs: mockStoreValues.pendingCodexInputs ?? new Map(),
@@ -379,6 +381,7 @@ function resetStore() {
   mockStoreValues.backgroundAgentNotifs = new Map();
   mockStoreValues.scrollToTurnId = new Map();
   mockStoreValues.scrollToMessageId = new Map();
+  mockStoreValues.expandAllInTurn = new Map();
   mockStoreValues.bottomAlignNextUserMessage = new Set();
   mockStoreValues.sessionTaskHistory = new Map();
   mockStoreValues.pendingCodexInputs = new Map();

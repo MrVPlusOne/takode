@@ -3,7 +3,7 @@ import { useStore } from "./store.js";
 import { connectSession, disconnectSession, sendVsCodeSelectionUpdate } from "./ws.js";
 import { api, checkHealth } from "./api.js";
 
-import { parseHash, navigateToSession, navigateToMostRecentSession } from "./utils/routing.js";
+import { parseHash, navigateToSession, navigateToMostRecentSession, messageIndexFromHash, scrollToMessageIndex } from "./utils/routing.js";
 import { Sidebar } from "./components/Sidebar.js";
 import { ChatView } from "./components/ChatView.js";
 import { TopBar } from "./components/TopBar.js";
@@ -203,6 +203,12 @@ export default function App() {
       const store = useStore.getState();
       if (store.currentSessionId !== route.sessionId) {
         store.setCurrentSession(route.sessionId);
+      }
+
+      // Handle ?msg=N query param for message-level deep links (right-click → open in new tab)
+      const msgIdx = messageIndexFromHash(hash);
+      if (msgIdx != null) {
+        scrollToMessageIndex(route.sessionId, msgIdx);
       }
       // Don't connect WebSocket or fire REST calls for pending sessions
       // (they don't exist on the server yet)
