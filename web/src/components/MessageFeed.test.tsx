@@ -746,6 +746,22 @@ describe("MessageFeed - message rendering", () => {
     // Only 1 marker (the initial date), not 2 (would have been 2 with minute marks)
     expect(screen.getAllByTestId("minute-boundary-timestamp")).toHaveLength(1);
   });
+
+  it("shows a date marker when messages cross a day boundary", () => {
+    const sid = "test-cross-day-boundary";
+    // Use dates far apart to avoid timezone edge cases
+    const day1 = new Date("2026-02-25T12:00:00.000Z").getTime();
+    const day2 = new Date("2026-02-26T12:00:00.000Z").getTime();
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Day one", timestamp: day1 }),
+      makeMessage({ id: "a1", role: "assistant", content: "Day two", timestamp: day2 }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    // 2 date markers: one for Feb 25, one for Feb 26
+    expect(screen.getAllByTestId("minute-boundary-timestamp")).toHaveLength(2);
+  });
 });
 
 // ─── Scroll behavior ────────────────────────────────────────────────────────

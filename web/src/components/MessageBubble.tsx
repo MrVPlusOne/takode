@@ -64,11 +64,9 @@ function formatTurnDuration(ms: number): string {
 
 function MessageTimestamp({
   timestamp,
-  align = "left",
   turnDurationMs,
 }: {
   timestamp: number;
-  align?: "left" | "right";
   turnDurationMs?: number;
 }) {
   const d = new Date(timestamp);
@@ -81,7 +79,7 @@ function MessageTimestamp({
       data-testid="message-timestamp"
       dateTime={d.toISOString()}
       title={d.toLocaleString()}
-      className={`inline-block ml-2 text-[11px] text-cc-muted/70 ${align === "right" ? "text-right" : "text-left"}`}
+      className="inline-block ml-2 text-[11px] text-cc-muted/70"
     >
       {durationText ? `${timeText} · ${durationText}` : timeText}
     </time>
@@ -537,7 +535,7 @@ function UserMessage({
             searchHighlight={searchHighlight}
           />
         </CollapsibleContent>
-        {showTimestamp && <MessageTimestamp timestamp={message.timestamp} align="right" />}
+        {showTimestamp && <MessageTimestamp timestamp={message.timestamp} />}
       </div>
       <UserMessageMenu message={message} sessionId={sessionId} canRevert={canRevert} />
       {lightboxSrc && <Lightbox src={lightboxSrc} alt="attachment" onClose={() => setLightboxSrc(null)} />}

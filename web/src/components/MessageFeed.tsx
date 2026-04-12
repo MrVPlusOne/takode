@@ -101,10 +101,10 @@ function collectFeedBlockIdsFromNode(node: Node | null, blockIds: Set<string>) {
   }
 }
 
-function minuteBucket(timestamp: number): string | null {
+function dateBucket(timestamp: number): string | null {
   const d = new Date(timestamp);
   if (Number.isNaN(d.getTime())) return null;
-  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}-${d.getHours()}-${d.getMinutes()}`;
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 }
 
 function isTimedChatMessage(msg: ChatMessage): boolean {
@@ -147,18 +147,17 @@ function formatMinuteBoundaryLabel(timestamp: number, previousTimestamp: number 
 
 function buildMinuteBoundaryLabelMap(messages: ChatMessage[]): Map<string, string> {
   const labels = new Map<string, string>();
-  let prevMinute: string | null = null;
+  let prevDate: string | null = null;
   let prevTimestamp: number | null = null;
 
   for (const msg of messages) {
-    const currentMinute = minuteBucket(msg.timestamp);
-    const startsNewMinute = currentMinute !== null && (prevMinute === null || currentMinute !== prevMinute);
-    if (startsNewMinute) {
+    const currentDate = dateBucket(msg.timestamp);
+    if (currentDate !== null && currentDate !== prevDate) {
       const label = formatMinuteBoundaryLabel(msg.timestamp, prevTimestamp);
       if (label) labels.set(msg.id, label);
+      prevDate = currentDate;
     }
-    if (currentMinute !== null) {
-      prevMinute = currentMinute;
+    if (currentDate !== null) {
       prevTimestamp = msg.timestamp;
     }
   }
