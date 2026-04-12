@@ -6462,9 +6462,7 @@ describe("Takode server-authoritative auth", () => {
   // Tests that GET /sessions/:id/notifications returns the notification list
   it("returns notification list via GET /sessions/:id/notifications", async () => {
     setupTakodeSessions();
-    const mockNotifs = [
-      { id: "n-1", category: "review", timestamp: 1000, messageId: "mock-msg-5", done: false },
-    ];
+    const mockNotifs = [{ id: "n-1", category: "review", timestamp: 1000, messageId: "mock-msg-5", done: false }];
     bridge.getNotifications.mockReturnValue(mockNotifs);
 
     const res = await app.request("/api/sessions/orch-1/notifications");

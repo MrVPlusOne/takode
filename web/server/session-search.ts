@@ -1,7 +1,15 @@
 import type { BrowserIncomingMessage, SessionTaskEntry } from "./session-types.js";
 import { normalizeForSearch } from "../shared/search-utils.js";
 
-export type SessionSearchMatchedField = "name" | "task" | "keyword" | "branch" | "path" | "repo" | "user_message" | "compact_marker";
+export type SessionSearchMatchedField =
+  | "name"
+  | "task"
+  | "keyword"
+  | "branch"
+  | "path"
+  | "repo"
+  | "user_message"
+  | "compact_marker";
 
 export interface SessionSearchDocument {
   sessionId: string;

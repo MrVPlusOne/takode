@@ -23,10 +23,7 @@ describe("isValidWaitForRef", () => {
   });
 
   // Invalid refs
-  it.each(["42", "foo", "q-", "#", "#abc", "session-5", "", "q-1,#5"])(
-    "rejects invalid wait-for ref: %j",
-    (ref) => {
-      expect(isValidWaitForRef(ref)).toBe(false);
-    },
-  );
+  it.each(["42", "foo", "q-", "#", "#abc", "session-5", "", "q-1,#5"])("rejects invalid wait-for ref: %j", (ref) => {
+    expect(isValidWaitForRef(ref)).toBe(false);
+  });
 });

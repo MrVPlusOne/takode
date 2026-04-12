@@ -1370,7 +1370,6 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
           )}
         </div>
       </div>
-
     </div>
   );
 }
@@ -1491,5 +1490,3 @@ function CompactQuestTable({
     </div>
   );
 }
-
-

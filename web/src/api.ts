@@ -632,9 +632,7 @@ export const api = {
     post(`/sessions/${encodeURIComponent(sessionId)}/archive`, opts),
 
   archiveGroup: (sessionId: string) =>
-    post<{ ok: boolean; archived: number; failed: number }>(
-      `/sessions/${encodeURIComponent(sessionId)}/archive-group`,
-    ),
+    post<{ ok: boolean; archived: number; failed: number }>(`/sessions/${encodeURIComponent(sessionId)}/archive-group`),
 
   unarchiveSession: (sessionId: string) => post(`/sessions/${encodeURIComponent(sessionId)}/unarchive`),
 

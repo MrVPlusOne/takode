@@ -713,9 +713,7 @@ describe("grepMessageHistory", () => {
 
   // If \| actually matches content (message contains a literal pipe), no warning.
   it("does not warn when \\| pattern finds matches", () => {
-    const historyWithPipe: BrowserIncomingMessage[] = [
-      userMsg("image|quality is a valid filter", 1000),
-    ];
+    const historyWithPipe: BrowserIncomingMessage[] = [userMsg("image|quality is a valid filter", 1000)];
     const result = grepMessageHistory(historyWithPipe, "image\\|quality");
     expect(result.totalMatches).toBe(1);
     expect(result.warning).toBeUndefined();
@@ -729,9 +727,7 @@ describe("grepMessageHistory", () => {
 
   it("falls back to literal match for invalid regex", () => {
     // Unbalanced bracket is invalid regex -- should fall back to literal match
-    const historyWithBracket: BrowserIncomingMessage[] = [
-      userMsg("array[0 is broken syntax", 1000),
-    ];
+    const historyWithBracket: BrowserIncomingMessage[] = [userMsg("array[0 is broken syntax", 1000)];
     const result = grepMessageHistory(historyWithBracket, "array[0");
     expect(result.totalMatches).toBe(1);
     expect(result.warning).toBeUndefined();
@@ -778,11 +774,7 @@ describe("buildPeekTurnScan compactionEvents", () => {
   });
 
   it("omits compactionEvents field when no compaction events exist", () => {
-    const history: BrowserIncomingMessage[] = [
-      userMsg("hello", 1000),
-      assistantMsg("hi", 1100),
-      resultMsg(200),
-    ];
+    const history: BrowserIncomingMessage[] = [userMsg("hello", 1000), assistantMsg("hi", 1100), resultMsg(200)];
 
     const result = buildPeekTurnScan(history);
     expect(result.compactionEvents).toBeUndefined();
@@ -838,11 +830,7 @@ describe("buildPeekDefault compactionEvents", () => {
   });
 
   it("omits compactionEvents when none in visible range", () => {
-    const history: BrowserIncomingMessage[] = [
-      userMsg("hello", 1000),
-      assistantMsg("hi", 1100),
-      resultMsg(200),
-    ];
+    const history: BrowserIncomingMessage[] = [userMsg("hello", 1000), assistantMsg("hi", 1100), resultMsg(200)];
 
     const result = buildPeekDefault(history);
     expect(result.compactionEvents).toBeUndefined();

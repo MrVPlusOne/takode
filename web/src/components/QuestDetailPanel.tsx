@@ -337,11 +337,13 @@ export function QuestDetailPanel() {
         tags: tags.length > 0 ? tags : undefined,
       });
       const currentQuests = useStore.getState().quests;
-      useStore.getState().setQuests(
-        currentQuests
-          .map((q) => (q.questId === updatedQuest.questId ? updatedQuest : q))
-          .sort((a, b) => b.createdAt - a.createdAt),
-      );
+      useStore
+        .getState()
+        .setQuests(
+          currentQuests
+            .map((q) => (q.questId === updatedQuest.questId ? updatedQuest : q))
+            .sort((a, b) => b.createdAt - a.createdAt),
+        );
       setEditingId(null);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
@@ -356,11 +358,13 @@ export function QuestDetailPanel() {
         ? await api.markQuestDone(q.questId, { verificationItems })
         : await api.markQuestDone(q.questId);
       const currentQuests = useStore.getState().quests;
-      useStore.getState().setQuests(
-        currentQuests
-          .map((x) => (x.questId === updatedQuest.questId ? updatedQuest : x))
-          .sort((a, b) => b.createdAt - a.createdAt),
-      );
+      useStore
+        .getState()
+        .setQuests(
+          currentQuests
+            .map((x) => (x.questId === updatedQuest.questId ? updatedQuest : x))
+            .sort((a, b) => b.createdAt - a.createdAt),
+        );
       closePanel();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
@@ -380,11 +384,13 @@ export function QuestDetailPanel() {
         ...(sessionId ? { sessionId } : {}),
       });
       const currentQuests = useStore.getState().quests;
-      useStore.getState().setQuests(
-        currentQuests
-          .map((x) => (x.questId === updatedQuest.questId ? updatedQuest : x))
-          .sort((a, b) => b.createdAt - a.createdAt),
-      );
+      useStore
+        .getState()
+        .setQuests(
+          currentQuests
+            .map((x) => (x.questId === updatedQuest.questId ? updatedQuest : x))
+            .sort((a, b) => b.createdAt - a.createdAt),
+        );
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -395,11 +401,13 @@ export function QuestDetailPanel() {
     try {
       const updatedQuest = await api.markQuestDone(q.questId, { cancelled: true });
       const currentQuests = useStore.getState().quests;
-      useStore.getState().setQuests(
-        currentQuests
-          .map((x) => (x.questId === updatedQuest.questId ? updatedQuest : x))
-          .sort((a, b) => b.createdAt - a.createdAt),
-      );
+      useStore
+        .getState()
+        .setQuests(
+          currentQuests
+            .map((x) => (x.questId === updatedQuest.questId ? updatedQuest : x))
+            .sort((a, b) => b.createdAt - a.createdAt),
+        );
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -433,11 +441,13 @@ export function QuestDetailPanel() {
     try {
       const updatedQuest = await api.markQuestVerificationRead(questId);
       const currentQuests = useStore.getState().quests;
-      useStore.getState().setQuests(
-        currentQuests
-          .map((q) => (q.questId === updatedQuest.questId ? updatedQuest : q))
-          .sort((a, b) => b.createdAt - a.createdAt),
-      );
+      useStore
+        .getState()
+        .setQuests(
+          currentQuests
+            .map((q) => (q.questId === updatedQuest.questId ? updatedQuest : q))
+            .sort((a, b) => b.createdAt - a.createdAt),
+        );
       return true;
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
@@ -450,11 +460,13 @@ export function QuestDetailPanel() {
     try {
       const updatedQuest = await api.markQuestVerificationInbox(questId);
       const currentQuests = useStore.getState().quests;
-      useStore.getState().setQuests(
-        currentQuests
-          .map((q) => (q.questId === updatedQuest.questId ? updatedQuest : q))
-          .sort((a, b) => b.createdAt - a.createdAt),
-      );
+      useStore
+        .getState()
+        .setQuests(
+          currentQuests
+            .map((q) => (q.questId === updatedQuest.questId ? updatedQuest : q))
+            .sort((a, b) => b.createdAt - a.createdAt),
+        );
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -472,11 +484,13 @@ export function QuestDetailPanel() {
         feedbackImages.length > 0 ? feedbackImages : undefined,
       );
       const currentQuests = useStore.getState().quests;
-      useStore.getState().setQuests(
-        currentQuests
-          .map((q) => (q.questId === updatedQuest.questId ? updatedQuest : q))
-          .sort((a, b) => b.createdAt - a.createdAt),
-      );
+      useStore
+        .getState()
+        .setQuests(
+          currentQuests
+            .map((q) => (q.questId === updatedQuest.questId ? updatedQuest : q))
+            .sort((a, b) => b.createdAt - a.createdAt),
+        );
       setFeedbackDraft("");
       setFeedbackImages([]);
       if (feedbackTextareaRef.current) {
@@ -500,11 +514,13 @@ export function QuestDetailPanel() {
         images: editingFeedback.images.length > 0 ? editingFeedback.images : undefined,
       });
       const currentQuests = useStore.getState().quests;
-      useStore.getState().setQuests(
-        currentQuests
-          .map((q) => (q.questId === updatedQuest.questId ? updatedQuest : q))
-          .sort((a, b) => b.createdAt - a.createdAt),
-      );
+      useStore
+        .getState()
+        .setQuests(
+          currentQuests
+            .map((q) => (q.questId === updatedQuest.questId ? updatedQuest : q))
+            .sort((a, b) => b.createdAt - a.createdAt),
+        );
       setEditingFeedback(null);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
@@ -518,11 +534,13 @@ export function QuestDetailPanel() {
     try {
       const updatedQuest = await api.toggleFeedbackAddressed(questId, index);
       const currentQuests = useStore.getState().quests;
-      useStore.getState().setQuests(
-        currentQuests
-          .map((q) => (q.questId === updatedQuest.questId ? updatedQuest : q))
-          .sort((a, b) => b.createdAt - a.createdAt),
-      );
+      useStore
+        .getState()
+        .setQuests(
+          currentQuests
+            .map((q) => (q.questId === updatedQuest.questId ? updatedQuest : q))
+            .sort((a, b) => b.createdAt - a.createdAt),
+        );
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -569,11 +587,13 @@ export function QuestDetailPanel() {
     }
     if (lastUpdatedQuest) {
       const currentQuests = useStore.getState().quests;
-      useStore.getState().setQuests(
-        currentQuests
-          .map((q) => (q.questId === lastUpdatedQuest.questId ? lastUpdatedQuest : q))
-          .sort((a, b) => b.createdAt - a.createdAt),
-      );
+      useStore
+        .getState()
+        .setQuests(
+          currentQuests
+            .map((q) => (q.questId === lastUpdatedQuest.questId ? lastUpdatedQuest : q))
+            .sort((a, b) => b.createdAt - a.createdAt),
+        );
     }
   }
 
@@ -582,11 +602,13 @@ export function QuestDetailPanel() {
     try {
       const updatedQuest = await api.removeQuestImage(questId, imageId);
       const currentQuests = useStore.getState().quests;
-      useStore.getState().setQuests(
-        currentQuests
-          .map((q) => (q.questId === updatedQuest.questId ? updatedQuest : q))
-          .sort((a, b) => b.createdAt - a.createdAt),
-      );
+      useStore
+        .getState()
+        .setQuests(
+          currentQuests
+            .map((q) => (q.questId === updatedQuest.questId ? updatedQuest : q))
+            .sort((a, b) => b.createdAt - a.createdAt),
+        );
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -673,10 +695,8 @@ export function QuestDetailPanel() {
   const questSessionId = getQuestOwnerSessionId(quest);
   const isKnownSession = questSessionId ? sdkSessions.some((s) => s.sessionId === questSessionId) : false;
   const feedbackEntries = getQuestFeedback(quest);
-  const unaddressedFeedbackCount =
-    feedbackEntries.filter((e) => e.author === "human" && !e.addressed).length;
-  const addressedFeedbackCount =
-    feedbackEntries.filter((e) => e.author === "human" && e.addressed).length;
+  const unaddressedFeedbackCount = feedbackEntries.filter((e) => e.author === "human" && !e.addressed).length;
+  const addressedFeedbackCount = feedbackEntries.filter((e) => e.author === "human" && e.addressed).length;
 
   return createPortal(
     <div
@@ -731,7 +751,10 @@ export function QuestDetailPanel() {
               {(unaddressedFeedbackCount > 0 || addressedFeedbackCount > 0) && (
                 <span className="text-[10px] flex items-center gap-1.5">
                   {unaddressedFeedbackCount > 0 && (
-                    <span className="flex items-center gap-0.5 text-amber-400" aria-label={`${unaddressedFeedbackCount} pending feedback`}>
+                    <span
+                      className="flex items-center gap-0.5 text-amber-400"
+                      aria-label={`${unaddressedFeedbackCount} pending feedback`}
+                    >
                       <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
                         <path d="M2.5 2A1.5 1.5 0 001 3.5v8A1.5 1.5 0 002.5 13H5l3 3 3-3h2.5a1.5 1.5 0 001.5-1.5v-8A1.5 1.5 0 0013.5 2h-11z" />
                       </svg>
@@ -739,7 +762,10 @@ export function QuestDetailPanel() {
                     </span>
                   )}
                   {addressedFeedbackCount > 0 && (
-                    <span className="flex items-center gap-0.5 text-emerald-400/70" aria-label={`${addressedFeedbackCount} addressed feedback`}>
+                    <span
+                      className="flex items-center gap-0.5 text-emerald-400/70"
+                      aria-label={`${addressedFeedbackCount} addressed feedback`}
+                    >
                       <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
                         <path d="M2.5 2A1.5 1.5 0 001 3.5v8A1.5 1.5 0 002.5 13H5l3 3 3-3h2.5a1.5 1.5 0 001.5-1.5v-8A1.5 1.5 0 0013.5 2h-11z" />
                       </svg>
@@ -748,9 +774,7 @@ export function QuestDetailPanel() {
                   )}
                 </span>
               )}
-              <span className="text-[10px] text-cc-muted/50">
-                {timeAgo(getQuestUpdatedAt(quest))}
-              </span>
+              <span className="text-[10px] text-cc-muted/50">{timeAgo(getQuestUpdatedAt(quest))}</span>
             </div>
             {quest.tags && quest.tags.length > 0 && (
               <div className="flex flex-wrap items-center gap-1.5 mt-1">
@@ -784,9 +808,7 @@ export function QuestDetailPanel() {
 
         {/* Error banner */}
         {error && (
-          <div className="px-4 py-2 text-xs text-red-400 bg-red-500/10 border-b border-red-500/20">
-            {error}
-          </div>
+          <div className="px-4 py-2 text-xs text-red-400 bg-red-500/10 border-b border-red-500/20">{error}</div>
         )}
 
         {/* Scrollable body */}
@@ -804,10 +826,18 @@ export function QuestDetailPanel() {
                   onChange={(e) => {
                     setEditTitle(e.target.value);
                     autoResizeTextarea(e.target);
-                    updateEditorHashtagState("editTitle", e.target.value, e.target.selectionStart ?? e.target.value.length);
+                    updateEditorHashtagState(
+                      "editTitle",
+                      e.target.value,
+                      e.target.selectionStart ?? e.target.value.length,
+                    );
                   }}
                   onFocus={(e) => {
-                    updateEditorHashtagState("editTitle", e.currentTarget.value, e.currentTarget.selectionStart ?? e.currentTarget.value.length);
+                    updateEditorHashtagState(
+                      "editTitle",
+                      e.currentTarget.value,
+                      e.currentTarget.selectionStart ?? e.currentTarget.value.length,
+                    );
                   }}
                   onBlur={() => {
                     setTimeout(() => {
@@ -834,10 +864,18 @@ export function QuestDetailPanel() {
                   onChange={(e) => {
                     setEditDescription(e.target.value);
                     autoResizeTextarea(e.target);
-                    updateEditorHashtagState("editDescription", e.target.value, e.target.selectionStart ?? e.target.value.length);
+                    updateEditorHashtagState(
+                      "editDescription",
+                      e.target.value,
+                      e.target.selectionStart ?? e.target.value.length,
+                    );
                   }}
                   onFocus={(e) => {
-                    updateEditorHashtagState("editDescription", e.currentTarget.value, e.currentTarget.selectionStart ?? e.currentTarget.value.length);
+                    updateEditorHashtagState(
+                      "editDescription",
+                      e.currentTarget.value,
+                      e.currentTarget.selectionStart ?? e.currentTarget.value.length,
+                    );
                   }}
                   onBlur={() => {
                     setTimeout(() => {
@@ -864,7 +902,10 @@ export function QuestDetailPanel() {
                 {quest.images && quest.images.length > 0 && (
                   <div className="flex flex-wrap gap-2 mb-2">
                     {quest.images.map((img: QuestImage) => (
-                      <div key={img.id} className="relative group rounded-lg overflow-hidden border border-cc-border bg-cc-input-bg">
+                      <div
+                        key={img.id}
+                        className="relative group rounded-lg overflow-hidden border border-cc-border bg-cc-input-bg"
+                      >
                         <img
                           src={api.questImageUrl(img.id)}
                           alt={img.filename}
@@ -887,7 +928,10 @@ export function QuestDetailPanel() {
                   </div>
                 )}
                 <div
-                  onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }}
                   onDrop={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
@@ -946,9 +990,7 @@ export function QuestDetailPanel() {
                 <MarkdownContent
                   text={description}
                   size="sm"
-                  searchHighlight={
-                    searchHighlight ? { query: searchHighlight, mode: "fuzzy", isCurrent: false } : null
-                  }
+                  searchHighlight={searchHighlight ? { query: searchHighlight, mode: "fuzzy", isCurrent: false } : null}
                 />
               )}
 
@@ -956,7 +998,10 @@ export function QuestDetailPanel() {
               {quest.images && quest.images.length > 0 && (
                 <div className="flex flex-wrap gap-2">
                   {quest.images.map((img: QuestImage) => (
-                    <div key={img.id} className="relative group rounded-lg overflow-hidden border border-cc-border bg-cc-input-bg">
+                    <div
+                      key={img.id}
+                      className="relative group rounded-lg overflow-hidden border border-cc-border bg-cc-input-bg"
+                    >
                       <img
                         src={api.questImageUrl(img.id)}
                         alt={img.filename}
@@ -1115,7 +1160,9 @@ export function QuestDetailPanel() {
                                             <button
                                               onClick={() =>
                                                 setEditingFeedback((prev) =>
-                                                  prev ? { ...prev, images: prev.images.filter((im) => im.id !== img.id) } : prev,
+                                                  prev
+                                                    ? { ...prev, images: prev.images.filter((im) => im.id !== img.id) }
+                                                    : prev,
                                                 )
                                               }
                                               className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-red-500 text-white text-[8px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
@@ -1168,9 +1215,7 @@ export function QuestDetailPanel() {
                     )}
                     {canAddFeedback && (
                       <div className="flex flex-col gap-1">
-                        {!hasFeedback && (
-                          <label className="block text-xs text-cc-muted mb-0.5">Feedback</label>
-                        )}
+                        {!hasFeedback && <label className="block text-xs text-cc-muted mb-0.5">Feedback</label>}
                         <textarea
                           ref={feedbackTextareaRef}
                           value={feedbackDraft}
@@ -1293,9 +1338,13 @@ export function QuestDetailPanel() {
                         className={`px-2 py-1.5 text-[11px] font-medium rounded-lg cursor-pointer outline-none transition-colors ${dropdownCfg.bg} ${dropdownCfg.text} border ${dropdownCfg.border}`}
                       >
                         {ALL_STATUSES.map((s) => (
-                          <option key={s} value={s}>{STATUS_CONFIG[s].label}</option>
+                          <option key={s} value={s}>
+                            {STATUS_CONFIG[s].label}
+                          </option>
                         ))}
-                        <option key="cancelled" value="cancelled">Cancelled</option>
+                        <option key="cancelled" value="cancelled">
+                          Cancelled
+                        </option>
                       </select>
                     );
                   })()}
@@ -1415,7 +1464,13 @@ export function QuestDetailPanel() {
                     onClick={() => setAssignPickerForId(null)}
                     className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-cc-hover text-cc-muted hover:text-cc-fg transition-colors cursor-pointer"
                   >
-                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5">
+                    <svg
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      className="w-3.5 h-3.5"
+                    >
                       <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
                     </svg>
                   </button>
@@ -1499,7 +1554,8 @@ function QuestVersionHistory({ questId }: { questId: string }) {
 
   if (loading) return <div className="text-[10px] text-cc-muted py-1">Loading history...</div>;
   if (err) return <div className="text-[10px] text-red-400 py-1">{err}</div>;
-  if (!history || history.length === 0) return <div className="text-[10px] text-cc-muted py-1">No previous versions.</div>;
+  if (!history || history.length === 0)
+    return <div className="text-[10px] text-cc-muted py-1">No previous versions.</div>;
 
   return (
     <div className="space-y-1.5">
@@ -1602,28 +1658,55 @@ function PickerSessionChip({
               <span title="Permissions: asking before tool use">
                 <svg viewBox="0 0 16 16" fill="currentColor" className="w-2.5 h-2.5 shrink-0 text-cc-primary">
                   <path d="M8 1L2 4v4c0 3.5 2.6 6.4 6 7 3.4-.6 6-3.5 6-7V4L8 1z" />
-                  <path d="M6.5 8.5L7.5 9.5L10 7" stroke="white" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                  <path
+                    d="M6.5 8.5L7.5 9.5L10 7"
+                    stroke="white"
+                    strokeWidth="1.5"
+                    fill="none"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
                 </svg>
               </span>
             )}
             {s.backendType !== "codex" && s.askPermission === false && (
               <span title="Permissions: auto-approving tool use">
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" className="w-2.5 h-2.5 shrink-0 text-cc-muted/50">
+                <svg
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.2"
+                  className="w-2.5 h-2.5 shrink-0 text-cc-muted/50"
+                >
                   <path d="M8 1L2 4v4c0 3.5 2.6 6.4 6 7 3.4-.6 6-3.5 6-7V4L8 1z" />
                 </svg>
               </span>
             )}
             {s.isContainerized && (
-              <span className="text-[9px] font-medium px-1.5 rounded-full leading-[16px] shrink-0 text-blue-400 bg-blue-500/10">Docker</span>
+              <span className="text-[9px] font-medium px-1.5 rounded-full leading-[16px] shrink-0 text-blue-400 bg-blue-500/10">
+                Docker
+              </span>
             )}
             {s.cronJobId && (
-              <span className="text-[9px] font-medium px-1.5 rounded-full leading-[16px] shrink-0 text-violet-500 bg-violet-500/10">Cron</span>
+              <span className="text-[9px] font-medium px-1.5 rounded-full leading-[16px] shrink-0 text-violet-500 bg-violet-500/10">
+                Cron
+              </span>
             )}
             {s.isOrchestrator && (
-              <span className="text-[9px] font-medium px-1.5 rounded-full leading-[16px] shrink-0 text-amber-500 bg-amber-500/10" title="Leader session">leader</span>
+              <span
+                className="text-[9px] font-medium px-1.5 rounded-full leading-[16px] shrink-0 text-amber-500 bg-amber-500/10"
+                title="Leader session"
+              >
+                leader
+              </span>
             )}
             {!s.isOrchestrator && s.herdedBy && s.herdedBy.length > 0 && (
-              <span className="text-[9px] font-medium px-1.5 rounded-full leading-[16px] shrink-0 text-amber-400 bg-amber-500/10" title="Herded by a leader">herd</span>
+              <span
+                className="text-[9px] font-medium px-1.5 rounded-full leading-[16px] shrink-0 text-amber-400 bg-amber-500/10"
+                title="Herded by a leader"
+              >
+                herd
+              </span>
             )}
             {s.sessionNum != null && (
               <span className="text-[9px] font-mono text-cc-muted/60 shrink-0">#{s.sessionNum}</span>

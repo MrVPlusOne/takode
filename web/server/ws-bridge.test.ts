@@ -6186,7 +6186,9 @@ describe("compact_boundary handling", () => {
     expect(bridge.getOrCreateSession("s1").state.context_used_percent).toBe(68);
     const calls = browser.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
     // No session_update with context_used_percent should be broadcast
-    const contextUpdate = calls.find((m: any) => m.type === "session_update" && m.session?.context_used_percent != null);
+    const contextUpdate = calls.find(
+      (m: any) => m.type === "session_update" && m.session?.context_used_percent != null,
+    );
     expect(contextUpdate).toBeUndefined();
   });
 
@@ -17006,7 +17008,13 @@ describe("work board", () => {
 
     // Find the most recent board_updated broadcast
     const boardUpdates = browser.send.mock.calls
-      .map((call: any[]) => { try { return JSON.parse(call[0]); } catch { return null; } })
+      .map((call: any[]) => {
+        try {
+          return JSON.parse(call[0]);
+        } catch {
+          return null;
+        }
+      })
       .filter((msg: any) => msg?.type === "board_updated");
     const lastUpdate = boardUpdates[boardUpdates.length - 1];
     expect(lastUpdate.completedBoard).toHaveLength(1);
@@ -17156,9 +17164,7 @@ describe("SDK resume stall: cliResuming guards (q-220)", () => {
     expect(session.cliResuming).toBe(true);
 
     // Queue a pending message (e.g., user message sent during reconnect)
-    session.pendingMessages.push(
-      JSON.stringify({ type: "user_message", content: "hello" }),
-    );
+    session.pendingMessages.push(JSON.stringify({ type: "user_message", content: "hello" }));
 
     // Simulate replayed messages arriving from the SDK stream
     adapter.emitBrowserMessage({ type: "status_change", status: "running" });
@@ -17216,9 +17222,7 @@ describe("SDK resume stall: cliResuming guards (q-220)", () => {
     // immediately on adapter attach — they must wait for replay to finish.
     createResumedSdkSession("s1");
     const session = bridge.getSession("s1")!;
-    session.pendingMessages.push(
-      JSON.stringify({ type: "user_message", content: "queued" }),
-    );
+    session.pendingMessages.push(JSON.stringify({ type: "user_message", content: "queued" }));
 
     const adapter = makeClaudeSdkAdapterMock();
     bridge.attachClaudeSdkAdapter("s1", adapter as any);
@@ -17231,9 +17235,7 @@ describe("SDK resume stall: cliResuming guards (q-220)", () => {
   it("flushes pendingMessages immediately for fresh SDK sessions (no resume)", () => {
     // Non-resumed sessions should flush immediately, preserving existing behavior.
     const session = bridge.getOrCreateSession("s1", "claude-sdk");
-    session.pendingMessages.push(
-      JSON.stringify({ type: "user_message", content: "queued" }),
-    );
+    session.pendingMessages.push(JSON.stringify({ type: "user_message", content: "queued" }));
 
     const adapter = makeClaudeSdkAdapterMock();
     bridge.attachClaudeSdkAdapter("s1", adapter as any);

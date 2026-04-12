@@ -117,7 +117,7 @@ describe("ImageStore", () => {
     const rawPixels = Buffer.alloc(width * height * 3);
     for (let i = 0; i < rawPixels.length; i += 3) {
       rawPixels[i] = (i / 3) % 256;
-      rawPixels[i + 1] = Math.floor((i / 3) / width) % 256;
+      rawPixels[i + 1] = Math.floor(i / 3 / width) % 256;
       rawPixels[i + 2] = 128;
     }
     const pngBuffer = await sharpMod(rawPixels, { raw: { width, height, channels: 3 } })

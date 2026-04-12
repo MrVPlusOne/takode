@@ -107,7 +107,9 @@ describe("searchSessionDocuments", () => {
         sessionId: "s-task",
         archived: false,
         createdAt: 100,
-        taskHistory: [{ title: "Implement BoardTable component", action: "new" as const, timestamp: 100, triggerMessageId: "m1" }],
+        taskHistory: [
+          { title: "Implement BoardTable component", action: "new" as const, timestamp: 100, triggerMessageId: "m1" },
+        ],
       },
     ];
 
@@ -146,17 +148,13 @@ describe("searchSessionDocuments", () => {
         sessionId: "s-compact",
         archived: false,
         createdAt: 100,
-        messageHistory: [
-          { type: "compact_marker", summary: "Context compacted", timestamp: 1000, id: "c1" },
-        ],
+        messageHistory: [{ type: "compact_marker", summary: "Context compacted", timestamp: 1000, id: "c1" }],
       },
       {
         sessionId: "s-user",
         archived: false,
         createdAt: 200,
-        messageHistory: [
-          { type: "user_message", content: "context compacted review", timestamp: 2000, id: "m1" },
-        ],
+        messageHistory: [{ type: "user_message", content: "context compacted review", timestamp: 2000, id: "m1" }],
       },
     ];
 

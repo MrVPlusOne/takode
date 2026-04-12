@@ -3536,9 +3536,9 @@ export function Playground() {
                   </div>
                 </div>
                 <p className="text-[10px] text-cc-muted">
-                  Click &quot;Seed notification data&quot; first. Shows active count as a glassmorphic pill. Click to open
-                  the inbox modal with active notifications (amber = needs-input, green = review) and a collapsible Done
-                  section. Each item has a checkbox and jumps to the anchored message on click.
+                  Click &quot;Seed notification data&quot; first. Shows active count as a glassmorphic pill. Click to
+                  open the inbox modal with active notifications (amber = needs-input, green = review) and a collapsible
+                  Done section. Each item has a checkbox and jumps to the anchored message on click.
                 </p>
               </div>
             </Card>

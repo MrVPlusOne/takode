@@ -289,7 +289,11 @@ export function MarkdownContent({
   searchHighlight?: { query: string; mode: "strict" | "fuzzy"; isCurrent: boolean } | null;
 }) {
   const sizeClass =
-    size === "sm" ? "text-xs" : variant === "conservative" ? "text-[13px] sm:text-[14px]" : "text-[14px] sm:text-[15px]";
+    size === "sm"
+      ? "text-xs"
+      : variant === "conservative"
+        ? "text-[13px] sm:text-[14px]"
+        : "text-[14px] sm:text-[15px]";
 
   const isConservative = variant === "conservative";
 
@@ -314,7 +318,9 @@ export function MarkdownContent({
         remarkPlugins={[remarkGfm]}
         urlTransform={transformMarkdownUrl}
         disallowedElements={
-          isConservative ? ["h1", "h2", "h3", "h4", "h5", "h6", "table", "thead", "tbody", "tr", "th", "td", "hr", "img"] : undefined
+          isConservative
+            ? ["h1", "h2", "h3", "h4", "h5", "h6", "table", "thead", "tbody", "tr", "th", "td", "hr", "img"]
+            : undefined
         }
         unwrapDisallowed={isConservative}
         components={{

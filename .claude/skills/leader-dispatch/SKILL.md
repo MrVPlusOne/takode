@@ -81,7 +81,7 @@ Default to your own backend type unless the user specifies otherwise.
 
 ### 5. Check Herd Limit
 
-Maintain at most **5 sessions** in your herd (reviewer sessions don't count). Before spawning, check `takode list`. **Never archive proactively.** Only archive when you are at the 5-session limit AND need to spawn a new worker. Idle and disconnected sessions retain valuable context -- keep them until you actually need the slot. When you must archive, choose the session least likely to be reused -- typically the one whose work is most complete, least related to upcoming tasks, or oldest.
+Maintain at most **5 sessions** in your herd (reviewer sessions don't count). Before spawning, check `takode list`. When counting, only count non-reviewer sessions. The summary line at the bottom shows total sessions -- subtract reviewers to get the worker count. **Never archive proactively.** Only archive when you are at the 5-session limit AND need to spawn a new worker. Idle and disconnected sessions retain valuable context -- keep them until you actually need the slot. When you must archive, choose the session least likely to be reused -- typically the one whose work is most complete, least related to upcoming tasks, or oldest.
 
 ### 6. Send Standardized Dispatch Message
 

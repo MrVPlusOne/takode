@@ -62,13 +62,7 @@ function formatTurnDuration(ms: number): string {
   return `${mins}m ${secs}s`;
 }
 
-function MessageTimestamp({
-  timestamp,
-  turnDurationMs,
-}: {
-  timestamp: number;
-  turnDurationMs?: number;
-}) {
+function MessageTimestamp({ timestamp, turnDurationMs }: { timestamp: number; turnDurationMs?: number }) {
   const d = new Date(timestamp);
   if (Number.isNaN(d.getTime())) return null;
   const timeText = formatMessageTime(timestamp);

@@ -1550,7 +1550,9 @@ export function createSessionsRoutes(ctx: RouteContext) {
     // Truncate server-side message history
     session.messageHistory = session.messageHistory.slice(0, targetIdx);
     session.frozenCount = Math.min(session.frozenCount, session.messageHistory.length);
-    console.log(`[revert] Truncated server messageHistory to ${session.messageHistory.length} entries (frozenCount=${session.frozenCount})`);
+    console.log(
+      `[revert] Truncated server messageHistory to ${session.messageHistory.length} entries (frozenCount=${session.frozenCount})`,
+    );
 
     // Truncate task history: keep only entries whose trigger message survived truncation
     if (session.taskHistory?.length) {

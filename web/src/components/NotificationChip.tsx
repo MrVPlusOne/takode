@@ -171,7 +171,15 @@ function NotificationItem({
         aria-label={notif.done ? "Mark as active" : "Mark as done"}
       >
         {notif.done && (
-          <svg className="w-3 h-3 text-cc-primary" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg
+            className="w-3 h-3 text-cc-primary"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
             <path d="M3.5 8.5l3 3 6-6" />
           </svg>
         )}
@@ -180,7 +188,9 @@ function NotificationItem({
       {/* Content */}
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
-          <span className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${isNeedsInput ? "bg-amber-400" : "bg-emerald-400"}`} />
+          <span
+            className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${isNeedsInput ? "bg-amber-400" : "bg-emerald-400"}`}
+          />
           <button
             onClick={jumpToMessage}
             onMouseEnter={handleMouseEnter}
@@ -252,16 +262,21 @@ function NotificationPopover({ sessionId, onClose }: { sessionId: string; onClos
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-cc-border/50 shrink-0">
         <h2 className="text-[13px] font-medium text-cc-fg">
           Notifications
-          {active.length > 0 && (
-            <span className="ml-1.5 text-[11px] text-cc-muted font-normal">({active.length})</span>
-          )}
+          {active.length > 0 && <span className="ml-1.5 text-[11px] text-cc-muted font-normal">({active.length})</span>}
         </h2>
         <button
           onClick={onClose}
           className="text-cc-muted hover:text-cc-fg transition-colors p-1 -mr-1 cursor-pointer"
           aria-label="Close"
         >
-          <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+          <svg
+            className="w-3.5 h-3.5"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          >
             <path d="M4 4l8 8M12 4l-8 8" />
           </svg>
         </button>
@@ -333,7 +348,14 @@ export function NotificationChip({ sessionId }: { sessionId: string }) {
       >
         <span className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.10),transparent_55%)]" />
         <span className="relative">
-          <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+          <svg
+            className="w-3.5 h-3.5"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          >
             <path d="M8 1.5a4.5 4.5 0 0 0-4.5 4.5c0 2.5-1.5 4-1.5 4h12s-1.5-1.5-1.5-4A4.5 4.5 0 0 0 8 1.5z" />
             <path d="M6 12a2 2 0 0 0 4 0" />
           </svg>

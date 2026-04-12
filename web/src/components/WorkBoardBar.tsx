@@ -98,9 +98,7 @@ export function WorkBoardBar({ sessionId }: { sessionId: string }) {
                 >
                   <path d="M4 2l4 4-4 4" />
                 </svg>
-                <span className="text-[11px] text-cc-muted">
-                  {completedCount} completed
-                </span>
+                <span className="text-[11px] text-cc-muted">{completedCount} completed</span>
               </button>
               {completedExpanded && (
                 <div className="opacity-60">

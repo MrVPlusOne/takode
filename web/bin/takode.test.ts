@@ -2083,23 +2083,20 @@ describe("takode board --wait-for validation (q-N and #N formats)", () => {
     expect(capturedBodies[0].waitFor).toEqual(["q-1", "#5"]);
   });
 
-  it.each(["42", "foo", "q-", "#", "#abc", "session-5"])(
-    "rejects invalid --wait-for value: %j",
-    async (badRef) => {
-      const result = await runTakode(["board", "set", "q-1", "--wait-for", badRef, "--port", String(port)], {
-        ...process.env,
-        COMPANION_SESSION_ID: "leader-1",
-        COMPANION_AUTH_TOKEN: "auth-1",
-      });
+  it.each(["42", "foo", "q-", "#", "#abc", "session-5"])("rejects invalid --wait-for value: %j", async (badRef) => {
+    const result = await runTakode(["board", "set", "q-1", "--wait-for", badRef, "--port", String(port)], {
+      ...process.env,
+      COMPANION_SESSION_ID: "leader-1",
+      COMPANION_AUTH_TOKEN: "auth-1",
+    });
 
-      expect(result.status).toBe(1);
-      expect(result.stderr).toContain("Invalid wait-for");
-      expect(result.stderr).toContain("q-N");
-      expect(result.stderr).toContain("#N");
-      // No POST should have been made
-      expect(capturedBodies).toHaveLength(0);
-    },
-  );
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Invalid wait-for");
+    expect(result.stderr).toContain("q-N");
+    expect(result.stderr).toContain("#N");
+    // No POST should have been made
+    expect(capturedBodies).toHaveLength(0);
+  });
 
   it("rejects when any ref in a comma-separated list is invalid", async () => {
     const result = await runTakode(["board", "set", "q-1", "--wait-for", "q-2,42,#3", "--port", String(port)], {

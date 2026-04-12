@@ -43,9 +43,7 @@ describe("boardSummary", () => {
   });
 
   it("includes completed count in summary", () => {
-    const board: BoardRowData[] = [
-      { questId: "q-1", status: "IMPLEMENTING", updatedAt: 1 },
-    ];
+    const board: BoardRowData[] = [{ questId: "q-1", status: "IMPLEMENTING", updatedAt: 1 }];
     expect(boardSummary(board, 3)).toBe("1 IMPLEMENTING, 3 done");
   });
 });

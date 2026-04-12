@@ -229,7 +229,15 @@ export function SessionInfoPopover({ sessionId, onClose }: { sessionId: string; 
                   {(turns > 0 || contextPercent > 0 || contextWindow > 0) && (
                     <span className="text-cc-muted/40">&middot;</span>
                   )}
-                  <span className={historyBytes > 16 * 1024 * 1024 ? "text-red-400" : historyBytes > 10 * 1024 * 1024 ? "text-amber-400" : ""}>
+                  <span
+                    className={
+                      historyBytes > 16 * 1024 * 1024
+                        ? "text-red-400"
+                        : historyBytes > 10 * 1024 * 1024
+                          ? "text-amber-400"
+                          : ""
+                    }
+                  >
                     {formatBytes(historyBytes)}
                   </span>
                 </>

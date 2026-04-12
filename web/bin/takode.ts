@@ -1112,7 +1112,6 @@ function userSourceLabel(msg: PeekMessage): string {
   return `agent${msg.agentSource.sessionLabel ? ` ${formatInlineText(msg.agentSource.sessionLabel)}` : ""}`;
 }
 
-
 function formatCollapsedTurn(turn: CollapsedTurn): string {
   const endIdx = turn.endIdx >= 0 ? turn.endIdx : turn.startIdx; // in-progress turns use startIdx as fallback
   const msgRange = `[${turn.startIdx}]-[${endIdx}]`;
@@ -1137,7 +1136,8 @@ function formatCollapsedTurn(turn: CollapsedTurn): string {
   // Single-message turn or only one side exists: compact format
   if (!hasUser && !hasResult) return header;
   if (!hasUser) return `${header}\n  ${formatQuotedContent(turn.resultPreview, TAKODE_PEEK_CONTENT_LIMIT)}`;
-  if (!hasResult) return `${header}\n  ${sourceLabel}: ${formatQuotedContent(turn.userPreview, TAKODE_PEEK_CONTENT_LIMIT)}`;
+  if (!hasResult)
+    return `${header}\n  ${sourceLabel}: ${formatQuotedContent(turn.userPreview, TAKODE_PEEK_CONTENT_LIMIT)}`;
 
   // Multi-message turn: show source prompt, ellipsis, and assistant response (no asst: tag)
   return [
@@ -1200,7 +1200,9 @@ function printExpandedMessages(messages: PeekMessage[]): void {
         const icon = msg.success ? "✓" : "✗";
         const resultText = msg.content.trim();
         if (resultText) {
-          console.log(`  ${idx.padEnd(7)} ${time}  ${icon} ${formatQuotedContent(resultText, TAKODE_PEEK_CONTENT_LIMIT)}`);
+          console.log(
+            `  ${idx.padEnd(7)} ${time}  ${icon} ${formatQuotedContent(resultText, TAKODE_PEEK_CONTENT_LIMIT)}`,
+          );
         } else {
           console.log(`  ${idx.padEnd(7)} ${time}  ${icon} "done"`);
         }
@@ -1365,7 +1367,9 @@ function printPeekRange(d: PeekRangeResponse, sessionRef: string, count: number)
               ")"
             : "";
           if (text) {
-            console.log(`  ${idx.padEnd(7)} ${time}  ${formatQuotedContent(text, TAKODE_PEEK_CONTENT_LIMIT)}${toolStr}`);
+            console.log(
+              `  ${idx.padEnd(7)} ${time}  ${formatQuotedContent(text, TAKODE_PEEK_CONTENT_LIMIT)}${toolStr}`,
+            );
           } else if (toolStr) {
             console.log(`  ${idx.padEnd(7)} ${time}  tool ${toolStr}`);
           }
@@ -1376,7 +1380,9 @@ function printPeekRange(d: PeekRangeResponse, sessionRef: string, count: number)
         const icon = msg.success ? "✓" : "✗";
         const resultText = msg.content.trim();
         if (resultText) {
-          console.log(`  ${idx.padEnd(7)} ${time}  ${icon} ${formatQuotedContent(resultText, TAKODE_PEEK_CONTENT_LIMIT)}`);
+          console.log(
+            `  ${idx.padEnd(7)} ${time}  ${icon} ${formatQuotedContent(resultText, TAKODE_PEEK_CONTENT_LIMIT)}`,
+          );
         } else {
           console.log(`  ${idx.padEnd(7)} ${time}  ${icon} "done"`);
         }
@@ -2460,7 +2466,12 @@ async function handleNotify(base: string, args: string[]): Promise<void> {
 
 // ─── Board ─────────────────────────────────────────────────────────────────
 
-import { QUEST_JOURNEY_STATES, QUEST_JOURNEY_HINTS, isValidQuestId, isValidWaitForRef } from "../shared/quest-journey.js";
+import {
+  QUEST_JOURNEY_STATES,
+  QUEST_JOURNEY_HINTS,
+  isValidQuestId,
+  isValidWaitForRef,
+} from "../shared/quest-journey.js";
 
 interface BoardRow {
   questId: string;
@@ -2480,13 +2491,17 @@ function formatBoardOutput(
   opts?: { operation?: string; completedCount?: number; completedBoard?: BoardRow[] },
 ): string {
   const { operation, completedCount, completedBoard } = opts ?? {};
-  return JSON.stringify({
-    __takode_board__: true,
-    board,
-    ...(operation ? { operation } : {}),
-    ...(completedCount != null ? { completedCount } : {}),
-    ...(completedBoard ? { completedBoard } : {}),
-  }, null, 2);
+  return JSON.stringify(
+    {
+      __takode_board__: true,
+      board,
+      ...(operation ? { operation } : {}),
+      ...(completedCount != null ? { completedCount } : {}),
+      ...(completedBoard ? { completedBoard } : {}),
+    },
+    null,
+    2,
+  );
 }
 
 /** Print board in a human-readable table with Quest Journey state and next-action hints. */
@@ -2671,7 +2686,14 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
     const result = (await apiPost(
       base,
       `/sessions/${encodeURIComponent(selfId)}/board/${encodeURIComponent(questId)}/advance`,
-    )) as { board: BoardRow[]; removed: boolean; previousState?: string; newState?: string; completedCount?: number; resolvedSessionDeps?: string[] };
+    )) as {
+      board: BoardRow[];
+      removed: boolean;
+      previousState?: string;
+      newState?: string;
+      completedCount?: number;
+      resolvedSessionDeps?: string[];
+    };
 
     let operation: string;
     if (result.removed) {
@@ -2684,7 +2706,11 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
       operation = `advanced ${questId}`;
     }
     const resolved = new Set(result.resolvedSessionDeps ?? []);
-    outputBoard(result.board, flags.json === true, { operation, resolvedSessionDeps: resolved, completedCount: result.completedCount });
+    outputBoard(result.board, flags.json === true, {
+      operation,
+      resolvedSessionDeps: resolved,
+      completedCount: result.completedCount,
+    });
     return;
   }
 
@@ -2702,7 +2728,11 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
       resolvedSessionDeps?: string[];
     };
     const resolved = new Set(result.resolvedSessionDeps ?? []);
-    outputBoard(result.board, flags.json === true, { operation: `removed ${questIds.join(", ")}`, resolvedSessionDeps: resolved, completedCount: result.completedCount });
+    outputBoard(result.board, flags.json === true, {
+      operation: `removed ${questIds.join(", ")}`,
+      resolvedSessionDeps: resolved,
+      completedCount: result.completedCount,
+    });
     return;
   }
 

@@ -892,11 +892,12 @@ export function buildPeekDefault(
   // Find compaction events within the visible range (collapsed turns through expanded turn).
   // When no collapsed turns are visible, scan from start of history (or after omitted turns)
   // to catch markers before the expanded turn.
-  const visibleStart = collapsedSlice.length > 0
-    ? collapsedSlice[0].startIdx
-    : omittedTurnCount > 0
-      ? (allTurns[omittedTurnCount - 1].endIdx + 1)
-      : 0;
+  const visibleStart =
+    collapsedSlice.length > 0
+      ? collapsedSlice[0].startIdx
+      : omittedTurnCount > 0
+        ? allTurns[omittedTurnCount - 1].endIdx + 1
+        : 0;
   const visibleEnd = lastTurn.endIdx >= 0 ? lastTurn.endIdx : messageHistory.length - 1;
   const compactionEvents = findCompactionEvents(messageHistory, allTurns, visibleStart, visibleEnd);
 
@@ -1192,7 +1193,12 @@ export function buildPeekTurnScan(
     // Even with no turns in range, check for compaction events
     const compactionEvents = findCompactionEvents(messageHistory, allTurns, 0, messageHistory.length - 1);
     return {
-      mode: "turn_scan", totalTurns, totalMessages, fromTurn, returnedTurns: 0, turns: [],
+      mode: "turn_scan",
+      totalTurns,
+      totalMessages,
+      fromTurn,
+      returnedTurns: 0,
+      turns: [],
       ...(compactionEvents.length > 0 ? { compactionEvents } : {}),
     };
   }
@@ -1242,7 +1248,12 @@ export function buildPeekTurnScan(
   const compactionEvents = findCompactionEvents(messageHistory, allTurns, scanStart, scanEnd);
 
   return {
-    mode: "turn_scan", totalTurns, totalMessages, fromTurn, returnedTurns: turns.length, turns,
+    mode: "turn_scan",
+    totalTurns,
+    totalMessages,
+    fromTurn,
+    returnedTurns: turns.length,
+    turns,
     ...(compactionEvents.length > 0 ? { compactionEvents } : {}),
   };
 }

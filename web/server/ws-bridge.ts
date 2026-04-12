@@ -2014,7 +2014,9 @@ export class WsBridge {
         taskHistory: Array.isArray(p.taskHistory) ? p.taskHistory : [],
         keywords: Array.isArray(p.keywords) ? p.keywords : [],
         board: new Map(Array.isArray(p.board) ? p.board.map((row: BoardRow) => [row.questId, row]) : []),
-        completedBoard: new Map(Array.isArray(p.completedBoard) ? p.completedBoard.map((row: BoardRow) => [row.questId, row]) : []),
+        completedBoard: new Map(
+          Array.isArray(p.completedBoard) ? p.completedBoard.map((row: BoardRow) => [row.questId, row]) : [],
+        ),
         notifications: Array.isArray(p.notifications) ? p.notifications : [],
         notificationCounter: Array.isArray(p.notifications)
           ? p.notifications.reduce((max: number, n: SessionNotification) => {
@@ -3090,9 +3092,7 @@ export class WsBridge {
   getCompletedBoard(sessionId: string): BoardRow[] {
     const session = this.sessions.get(sessionId);
     if (!session) return [];
-    return Array.from(session.completedBoard.values()).sort(
-      (a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0),
-    );
+    return Array.from(session.completedBoard.values()).sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0));
   }
 
   /** Get the number of completed board items without copying/sorting. */
@@ -3157,9 +3157,11 @@ export class WsBridge {
   }
 
   /** Get attention state for a session (used by REST enrichment and Pushover). */
-  getSessionAttentionState(
-    sessionId: string,
-  ): { lastReadAt: number; attentionReason: "action" | "error" | "review" | null; pendingPermissionSummary: string | null } | null {
+  getSessionAttentionState(sessionId: string): {
+    lastReadAt: number;
+    attentionReason: "action" | "error" | "review" | null;
+    pendingPermissionSummary: string | null;
+  } | null {
     const session = this.sessions.get(sessionId);
     if (!session) return null;
     return {
@@ -4094,7 +4096,9 @@ export class WsBridge {
           const msg = JSON.parse(raw) as BrowserOutgoingMessage;
           adapter.sendBrowserMessage(msg);
         } catch (e) {
-          console.warn(`[ws-bridge] Skipping corrupt queued message for session ${sessionTag(sessionId)}: ${raw.substring(0, 80)}`);
+          console.warn(
+            `[ws-bridge] Skipping corrupt queued message for session ${sessionTag(sessionId)}: ${raw.substring(0, 80)}`,
+          );
         }
       }
     }
@@ -4121,9 +4125,7 @@ export class WsBridge {
         session.cliResumingClearTimer = setTimeout(() => {
           session.cliResumingClearTimer = null;
           session.cliResuming = false;
-          console.log(
-            `[ws-bridge] cliResuming cleared for SDK session ${sessionTag(session.id)} — replay done`,
-          );
+          console.log(`[ws-bridge] cliResuming cleared for SDK session ${sessionTag(session.id)} — replay done`);
           // Replayed status_change:"compacting" may have set this true during
           // replay. Reset it now — otherwise the browser shows a permanent
           // compaction indicator after replay ends.
@@ -4144,7 +4146,9 @@ export class WsBridge {
                 const deferredMsg = JSON.parse(raw) as BrowserOutgoingMessage;
                 adapter.sendBrowserMessage(deferredMsg);
               } catch {
-                console.warn(`[ws-bridge] Skipping corrupt deferred message for session ${sessionTag(session.id)}: ${raw.substring(0, 80)}`);
+                console.warn(
+                  `[ws-bridge] Skipping corrupt deferred message for session ${sessionTag(session.id)}: ${raw.substring(0, 80)}`,
+                );
               }
             }
           }
