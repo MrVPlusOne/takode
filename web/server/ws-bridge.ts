@@ -7973,6 +7973,9 @@ export class WsBridge {
       }
     }
 
+    // Ensure message history bytes is fresh before sending state to the browser.
+    this.recomputeAndBroadcastHistoryBytes(session);
+
     // Always send authoritative state snapshot last — ensures transient state
     // (session status, CLI connection, permission mode) is correct regardless
     // of which events the browser may have missed.
@@ -9634,9 +9637,27 @@ export class WsBridge {
     }
   }
 
+  /** Recompute message history JSON byte size and broadcast if changed significantly. */
+  private recomputeAndBroadcastHistoryBytes(session: Session): void {
+    const bytes = Buffer.byteLength(JSON.stringify(session.messageHistory), "utf-8");
+    const prev = session.state.message_history_bytes ?? 0;
+    // Skip broadcast if change is less than 1 KB (avoid noisy updates)
+    if (Math.abs(bytes - prev) < 1024) return;
+    session.state.message_history_bytes = bytes;
+    this.broadcastToBrowsers(session, {
+      type: "session_update",
+      session: { message_history_bytes: bytes },
+    });
+  }
+
   /** Centralized generation state setter with logging and recording. */
   private setGenerating(session: Session, generating: boolean, reason: string): void {
     setGeneratingLifecycle(this.getGenerationLifecycleDeps(), session, generating, reason);
+    // Recompute message history bytes at turn boundaries (when generation ends)
+    // so the UI can show payload size without computing on every push.
+    if (!generating) {
+      this.recomputeAndBroadcastHistoryBytes(session);
+    }
   }
 
   private getGenerationLifecycleDeps() {

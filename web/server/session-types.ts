@@ -680,6 +680,8 @@ export interface SessionState {
   total_cost_usd: number;
   num_turns: number;
   context_used_percent: number;
+  /** Approximate JSON byte size of the server-side message history. */
+  message_history_bytes?: number;
   is_compacting: boolean;
   git_branch: string;
   /** Current HEAD commit SHA (server-derived, used for history rewrite detection). */

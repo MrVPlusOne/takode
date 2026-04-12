@@ -33,6 +33,7 @@ export function SessionInfoPopover({ sessionId, onClose }: { sessionId: string; 
   const turns = sessionVm?.numTurns ?? 0;
   const contextPercent = sessionVm?.contextUsedPercent ?? 0;
   const contextWindow = sessionVm?.modelContextWindow ?? 0;
+  const historyBytes = sessionVm?.messageHistoryBytes ?? 0;
 
   // Git
   const gitBranch = sessionVm?.gitBranch ?? null;
@@ -83,7 +84,7 @@ export function SessionInfoPopover({ sessionId, onClose }: { sessionId: string; 
 
   const backendLabel = backendType === "codex" ? "Codex" : "Claude";
   const hasGit = gitBranch || gitAhead > 0 || gitBehind > 0 || linesAdded > 0 || linesRemoved > 0;
-  const hasStats = turns > 0 || contextPercent > 0 || contextWindow > 0;
+  const hasStats = turns > 0 || contextPercent > 0 || contextWindow > 0 || historyBytes > 0;
   const taskEntries = (taskHistory ?? []).map((task) => ({
     ...task,
     title: task.title.trim(),
@@ -223,6 +224,16 @@ export function SessionInfoPopover({ sessionId, onClose }: { sessionId: string; 
                   <span>{formatContextWindowLabel(contextWindow)}</span>
                 </>
               )}
+              {historyBytes > 0 && (
+                <>
+                  {(turns > 0 || contextPercent > 0 || contextWindow > 0) && (
+                    <span className="text-cc-muted/40">&middot;</span>
+                  )}
+                  <span className={historyBytes > 16 * 1024 * 1024 ? "text-red-400" : historyBytes > 10 * 1024 * 1024 ? "text-amber-400" : ""}>
+                    {formatBytes(historyBytes)}
+                  </span>
+                </>
+              )}
             </div>
           </div>
         )}
@@ -242,6 +253,12 @@ export function SessionInfoPopover({ sessionId, onClose }: { sessionId: string; 
       </div>
     </div>
   );
+}
+
+/** Format byte count as human-readable KB/MB. */
+function formatBytes(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${Math.round(bytes / 1024)} KB`;
 }
 
 /** Quest chip in task history; hover popups are intentionally disabled here to keep scrolling smooth. */
