@@ -391,4 +391,34 @@ diff --git a/b.ts b/b.ts
 
     spy.mockRestore();
   });
+
+  it("shows expand button between hunks in unified-diff-only mode (no source text)", () => {
+    // Two hunks separated by a gap: hunk 1 at lines 1-5, hunk 2 at lines 20-25.
+    // Without oldText/newText, buildRenderBlocks should still generate gap blocks
+    // from the hunk metadata so the user can see there are hidden lines.
+    const unifiedDiff = `diff --git a/file.ts b/file.ts
+--- a/file.ts
++++ b/file.ts
+@@ -1,5 +1,5 @@
+ const a = 1;
+-const b = 2;
++const b = 20;
+ const c = 3;
+ const d = 4;
+ const e = 5;
+@@ -20,5 +20,5 @@
+ const t = 20;
+-const u = 21;
++const u = 210;
+ const v = 22;
+ const w = 23;
+ const x = 24;`;
+
+    render(<DiffViewer unifiedDiff={unifiedDiff} mode="full" />);
+
+    // There should be a gap between the two hunks (lines 6-19 = 14 lines)
+    const expandButton = screen.getByRole("button", { name: /Show \d+ unchanged lines/ });
+    expect(expandButton).toBeTruthy();
+    expect(expandButton.textContent).toContain("14");
+  });
 });

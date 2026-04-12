@@ -475,10 +475,7 @@ function buildRenderBlocks(
   oldSourceLines: string[] | null,
   newSourceLines: string[] | null,
 ): RenderBlock[] {
-  if (!oldSourceLines || !newSourceLines || oldSourceLines.length === 0 || newSourceLines.length === 0) {
-    return hunks.map((hunk, index) => ({ type: "hunk", key: `hunk-${index}`, hunk }));
-  }
-
+  const hasSource = !!oldSourceLines?.length && !!newSourceLines?.length;
   const blocks: RenderBlock[] = [];
   let prevOld = 1;
   let prevNew = 1;
@@ -495,7 +492,7 @@ function buildRenderBlocks(
         const newLineNo = prevNew + j;
         lines.push({
           type: "context",
-          content: newSourceLines[newLineNo - 1] ?? oldSourceLines[oldLineNo - 1] ?? "",
+          content: hasSource ? (newSourceLines![newLineNo - 1] ?? oldSourceLines![oldLineNo - 1] ?? "") : "",
           oldLineNo,
           newLineNo,
         });
@@ -508,21 +505,24 @@ function buildRenderBlocks(
     prevNew = hunk.newStart + hunk.newLines;
   }
 
-  const trailingOld = oldSourceLines.length - (prevOld - 1);
-  const trailingNew = newSourceLines.length - (prevNew - 1);
-  if (trailingOld > 0 && trailingNew > 0 && trailingOld === trailingNew) {
-    const lines: DiffLine[] = [];
-    for (let j = 0; j < trailingOld; j++) {
-      const oldLineNo = prevOld + j;
-      const newLineNo = prevNew + j;
-      lines.push({
-        type: "context",
-        content: newSourceLines[newLineNo - 1] ?? oldSourceLines[oldLineNo - 1] ?? "",
-        oldLineNo,
-        newLineNo,
-      });
+  // Trailing gap: only when source is available (without source we don't know file length)
+  if (hasSource) {
+    const trailingOld = oldSourceLines!.length - (prevOld - 1);
+    const trailingNew = newSourceLines!.length - (prevNew - 1);
+    if (trailingOld > 0 && trailingNew > 0 && trailingOld === trailingNew) {
+      const lines: DiffLine[] = [];
+      for (let j = 0; j < trailingOld; j++) {
+        const oldLineNo = prevOld + j;
+        const newLineNo = prevNew + j;
+        lines.push({
+          type: "context",
+          content: newSourceLines![newLineNo - 1] ?? oldSourceLines![oldLineNo - 1] ?? "",
+          oldLineNo,
+          newLineNo,
+        });
+      }
+      blocks.push({ type: "gap", key: "gap-tail", lines });
     }
-    blocks.push({ type: "gap", key: "gap-tail", lines });
   }
 
   return blocks;

@@ -4708,6 +4708,28 @@ export function Playground() {
                 mode="full"
               />
             </Card>
+            <Card label="Unified diff with expandable gap between hunks">
+              <DiffViewer
+                unifiedDiff={`diff --git a/src/config.ts b/src/config.ts
+--- a/src/config.ts
++++ b/src/config.ts
+@@ -1,5 +1,5 @@
+ export const config = {
+-  apiUrl: "https://api.example.com",
++  apiUrl: "https://api.v2.example.com",
+   timeout: 5000,
+   retries: 3,
+   debug: false,
+@@ -25,5 +25,5 @@
+ export function getHeaders() {
+   return {
+-    "Content-Type": "application/json",
++    "Content-Type": "application/json; charset=utf-8",
+     Authorization: getAuthToken(),
+   };`}
+                mode="full"
+              />
+            </Card>
             <Card label="No changes">
               <DiffViewer oldText="same content" newText="same content" />
             </Card>
