@@ -5397,6 +5397,31 @@ describe("POST /api/sessions/:id/revert", () => {
     expect(mockSession.frozenCount).toBeLessThanOrEqual(mockSession.messageHistory.length);
     expect(mockSession.frozenCount).toBe(2);
   });
+
+  // Revert must clear stale compaction state left by a reverted /compact turn.
+  // Without this, the next /compact after revert produces duplicate markers (q-227).
+  it("clears stale compaction state on revert (q-227)", async () => {
+    const { mockSession } = setupRevertSession();
+    const session = mockSession as any;
+
+    // Simulate stale compaction state from a reverted /compact turn
+    session.awaitingCompactSummary = true;
+    session.compactedDuringTurn = true;
+    session.state = { is_compacting: true };
+
+    const res = await app.request("/api/sessions/session-1/revert", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messageId: "user-msg-2" }),
+    });
+
+    expect(res.status).toBe(200);
+
+    // All compaction flags should be cleared
+    expect(session.awaitingCompactSummary).toBe(false);
+    expect(session.compactedDuringTurn).toBe(false);
+    expect(session.state.is_compacting).toBe(false);
+  });
 });
 
 // ─── Quests ────────────────────────────────────────────────────────────────

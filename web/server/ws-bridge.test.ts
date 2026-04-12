@@ -7445,6 +7445,149 @@ describe("Claude SDK compaction handling", () => {
     expect(sessionUpdate).toBeTruthy();
     expect(sessionUpdate.session.context_used_percent).toBe(90);
   });
+
+  it("does not synthesize compact_marker during cliResuming replay (q-227)", () => {
+    // During --resume replay, replayed status_change(compacting) must NOT
+    // create a compact_marker in history. Without this guard, a revert +
+    // /compact sequence produces duplicate markers: one from the replayed
+    // compaction and one from the real compaction after resume ends.
+    const adapter = initSdkSession("s1");
+    const session = bridge.getSession("s1")!;
+    // Simulate resume state (session has history + CLI is replaying)
+    session.cliResuming = true;
+
+    const spy = vi.spyOn(bridge, "emitTakodeEvent");
+
+    // Replayed status_change(compacting) — should NOT create marker
+    adapter.emitBrowserMessage({ type: "status_change", status: "compacting" });
+
+    // is_compacting is still tracked (needed for cleanup when cliResuming clears)
+    expect(session.state.is_compacting).toBe(true);
+    // But no marker should have been synthesized
+    const markers = session.messageHistory.filter((m) => m.type === "compact_marker");
+    expect(markers).toHaveLength(0);
+    // awaitingCompactSummary should NOT be set during replay
+    expect(session.awaitingCompactSummary).toBeFalsy();
+    // compactedDuringTurn should NOT be set during replay
+    expect(session.compactedDuringTurn).toBe(false);
+    // No takode event emitted
+    expect(spy.mock.calls.filter(([, e]) => e === "compaction_started")).toHaveLength(0);
+
+    spy.mockRestore();
+  });
+
+  it("skips replayed compact_boundary during cliResuming (q-227)", () => {
+    // Replayed compact_boundary during --resume must be completely ignored,
+    // not just deduped. After a revert, old markers are removed from history,
+    // so UUID-based dedup fails and would create a ghost marker.
+    const adapter = initSdkSession("s1");
+    const session = bridge.getSession("s1")!;
+    session.cliResuming = true;
+
+    adapter.emitBrowserMessage({
+      type: "system",
+      subtype: "compact_boundary",
+      compact_metadata: { trigger: "auto", pre_tokens: 80000 },
+      uuid: "replayed-boundary-uuid",
+      session_id: "cli-s1",
+    });
+
+    const markers = session.messageHistory.filter((m) => m.type === "compact_marker");
+    expect(markers).toHaveLength(0);
+    expect(session.awaitingCompactSummary).toBeFalsy();
+  });
+
+  it("skips compact summary capture from replayed user messages during cliResuming (q-227)", () => {
+    // If awaitingCompactSummary is stale from before a revert, replayed
+    // user messages during --resume must not be consumed as summaries.
+    const adapter = initSdkSession("s1");
+    const session = bridge.getSession("s1")!;
+    session.cliResuming = true;
+    // Simulate stale flag from a pre-revert compaction
+    session.awaitingCompactSummary = true;
+
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+    browser.send.mockClear();
+
+    adapter.emitBrowserMessage({
+      type: "user",
+      message: { role: "user", content: [{ type: "text", text: "This is a replayed summary" }] },
+      parent_tool_use_id: null,
+      uuid: "replayed-user-msg",
+      session_id: "cli-s1",
+    });
+
+    // awaitingCompactSummary should NOT have been consumed (still true)
+    expect(session.awaitingCompactSummary).toBe(true);
+    // No compact_summary broadcast
+    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    expect(calls.find((m: any) => m.type === "compact_summary")).toBeUndefined();
+  });
+
+  it("replayed compaction during resume is ignored, real compaction after resume produces exactly one marker (q-227)", () => {
+    // Regression test for the resume replay path. Simulates:
+    // 1. cliResuming=true: replayed compaction events arrive (all ignored)
+    // 2. cliResuming clears: resume replay is done
+    // 3. Real /compact produces compaction events
+    // Verifies exactly one marker from the real compaction, none from replay.
+    // Note: the revert handler's state clearing is tested separately in routes.test.ts.
+    vi.useFakeTimers();
+
+    const adapter = initSdkSession("s1");
+    const session = bridge.getSession("s1")!;
+    session.cliResuming = true;
+
+    // Phase 1: Replayed compaction events during resume (all ignored)
+    adapter.emitBrowserMessage({ type: "status_change", status: "compacting" });
+    adapter.emitBrowserMessage({
+      type: "system",
+      subtype: "compact_boundary",
+      compact_metadata: { trigger: "auto", pre_tokens: 80000 },
+      uuid: "old-compact-uuid",
+      session_id: "cli-s1",
+    });
+    adapter.emitBrowserMessage({
+      type: "user",
+      message: { role: "user", content: [{ type: "text", text: "Old compaction summary" }] },
+      parent_tool_use_id: null,
+      uuid: "old-summary-msg",
+      session_id: "cli-s1",
+    });
+    adapter.emitBrowserMessage({ type: "status_change", status: null });
+
+    expect(session.messageHistory.filter((m) => m.type === "compact_marker")).toHaveLength(0);
+
+    // Phase 2: Resume ends
+    session.cliResuming = false;
+
+    // Phase 3: Real compaction from the new /compact
+    adapter.emitBrowserMessage({ type: "status_change", status: "compacting" });
+    adapter.emitBrowserMessage({
+      type: "system",
+      subtype: "compact_boundary",
+      compact_metadata: { trigger: "manual", pre_tokens: 60000 },
+      uuid: "new-compact-uuid",
+      session_id: "cli-s1",
+    });
+    adapter.emitBrowserMessage({
+      type: "user",
+      message: { role: "user", content: [{ type: "text", text: "New compaction summary" }] },
+      parent_tool_use_id: null,
+      uuid: "new-summary-msg",
+      session_id: "cli-s1",
+    });
+
+    // Exactly one marker with the real summary
+    const markers = session.messageHistory.filter((m) => m.type === "compact_marker");
+    expect(markers).toHaveLength(1);
+    const marker = markers[0] as any;
+    expect(marker.summary).toBe("New compaction summary");
+    expect(marker.cliUuid).toBe("new-compact-uuid");
+    expect(marker.trigger).toBe("manual");
+
+    vi.useRealTimers();
+  });
 });
 
 // ─── Leader compaction recovery ─────────────────────────────────────────────

@@ -4043,6 +4043,11 @@ export class WsBridge {
           // replay. Reset it now — otherwise the browser shows a permanent
           // compaction indicator after replay ends.
           session.state.is_compacting = false;
+          // Clear stale compaction flags that may have been set by replayed
+          // events during resume. Without this, a stale awaitingCompactSummary
+          // could eat the first real user message as a compact summary (q-227).
+          session.awaitingCompactSummary = false;
+          session.compactedDuringTurn = false;
           // Flush messages deferred during replay.
           if (session.pendingMessages.length > 0) {
             console.log(
@@ -4219,7 +4224,7 @@ export class WsBridge {
         const wasCompacting = session.state.is_compacting;
         session.state.is_compacting = newStatus === "compacting";
 
-        if (newStatus === "compacting" && !wasCompacting) {
+        if (newStatus === "compacting" && !wasCompacting && !session.cliResuming) {
           session.compactedDuringTurn = true;
           this.emitTakodeEvent(session.id, "compaction_started", {
             ...(typeof session.state.context_used_percent === "number"
@@ -4246,7 +4251,7 @@ export class WsBridge {
             timestamp: ts,
           });
         }
-        if (wasCompacting && newStatus !== "compacting") {
+        if (wasCompacting && newStatus !== "compacting" && !session.cliResuming) {
           this.emitTakodeEvent(session.id, "compaction_finished", {
             ...(typeof session.state.context_used_percent === "number"
               ? { context_used_percent: session.state.context_used_percent }
@@ -4256,7 +4261,8 @@ export class WsBridge {
         }
         this.persistSession(session);
         // Suppress stale status broadcasts during --resume replay (q-220);
-        // compaction state above is still tracked.
+        // compaction state above is still tracked (is_compacting updated at
+        // line above unconditionally, cleaned up when cliResuming clears).
         if (session.cliResuming) return;
       }
 
@@ -4266,6 +4272,12 @@ export class WsBridge {
       // enrich it with the boundary metadata. Otherwise create a new marker
       // (fallback for compact_boundary arriving without prior status_change).
       if ((msg as any).type === "system" && (msg as any).subtype === "compact_boundary") {
+        // Skip replayed compact_boundary during --resume — markers are already
+        // in persisted history (deduped on reconnect) or were intentionally
+        // removed by revert. Creating markers from replay would duplicate
+        // markers from the real compaction that follows (q-227).
+        if (session.cliResuming) return;
+
         const cliUuid = (msg as any).uuid;
         const meta = (msg as any).compact_metadata;
 
@@ -4326,7 +4338,10 @@ export class WsBridge {
 
       // Intercept user messages that contain the compaction summary — the next
       // "user" message after compact_boundary carries the summary text.
-      if ((msg as any).type === "user" && session.awaitingCompactSummary) {
+      // Guard: awaitingCompactSummary is cleared when cliResuming ends (debounce
+      // handler), so this condition is structurally false during replay. The
+      // !cliResuming check is a belt-and-suspenders defense (q-227).
+      if ((msg as any).type === "user" && session.awaitingCompactSummary && !session.cliResuming) {
         const content = (msg as any).message?.content;
         let summaryText: string | undefined;
         if (typeof content === "string" && content.length > 0) {

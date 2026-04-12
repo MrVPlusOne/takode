@@ -1577,6 +1577,13 @@ export function createSessionsRoutes(ctx: RouteContext) {
     // they are not skipped by the browser's dedup check in ws-transport.ts.
     session.eventBuffer = [];
 
+    // Clear stale compaction state — a reverted turn may have started
+    // compaction (setting these flags) before the user rolled back.
+    // Without clearing, the next /compact produces duplicate markers (q-227).
+    session.awaitingCompactSummary = false;
+    session.compactedDuringTurn = false;
+    if (session.state) session.state.is_compacting = false;
+
     // Notify browsers that revert is in progress
     wsBridge.broadcastToSession(id, { type: "status_change", status: "reverting" });
 
