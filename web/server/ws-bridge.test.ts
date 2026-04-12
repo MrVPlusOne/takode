@@ -7411,20 +7411,17 @@ describe("Claude SDK compaction handling", () => {
     expect(finalStatusMsg.length).toBeGreaterThanOrEqual(1);
   });
 
-  it("updates context_used_percent from compact_boundary enrichment", () => {
-    // When compact_boundary enriches an existing marker (created by
-    // status_change), context_used_percent should be updated from the
-    // pre_tokens metadata and broadcast as a session_update. This is the
-    // primary source of context usage info during compaction for SDK sessions.
+  // Validates that compact_boundary enrichment does NOT update
+  // context_used_percent. pre_tokens is a pre-compaction diagnostic
+  // snapshot that would show a stale high value.
+  it("does not update context_used_percent from compact_boundary enrichment", () => {
     const adapter = initSdkSession("s1");
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
 
     const session = bridge.getSession("s1")!;
-    // Set a known model so computePreTokenContextUsedPercent can resolve
-    // the context window. claude-sonnet-4-5-20250929 has a 200k window.
     session.state.model = "claude-sonnet-4-5-20250929";
-    session.state.context_used_percent = 0;
+    session.state.context_used_percent = 42;
     browser.send.mockClear();
 
     // status_change creates the synthesized marker
@@ -7439,17 +7436,15 @@ describe("Claude SDK compaction handling", () => {
       session_id: "cli-s1",
     });
 
-    // context_used_percent should have been updated
-    // 180000 / 200000 = 90%
-    expect(session.state.context_used_percent).toBe(90);
+    // context_used_percent should remain unchanged (not set from pre_tokens)
+    expect(session.state.context_used_percent).toBe(42);
 
-    // session_update should have been broadcast
+    // No session_update with context_used_percent should be broadcast
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    const sessionUpdate = calls.find(
+    const contextUpdate = calls.find(
       (m: any) => m.type === "session_update" && m.session?.context_used_percent != null,
     );
-    expect(sessionUpdate).toBeTruthy();
-    expect(sessionUpdate.session.context_used_percent).toBe(90);
+    expect(contextUpdate).toBeUndefined();
   });
 
   it("does not synthesize compact_marker during cliResuming replay (q-227)", () => {

@@ -4387,14 +4387,7 @@ export class WsBridge {
           (existingMarker as any).cliUuid = cliUuid;
           (existingMarker as any).trigger = meta?.trigger;
           (existingMarker as any).preTokens = meta?.pre_tokens;
-          const preTokenContextPct = computePreTokenContextUsedPercent(session.state.model, meta?.pre_tokens);
-          if (typeof preTokenContextPct === "number" && preTokenContextPct !== session.state.context_used_percent) {
-            session.state.context_used_percent = preTokenContextPct;
-            this.broadcastToBrowsers(session, {
-              type: "session_update",
-              session: { context_used_percent: preTokenContextPct },
-            });
-          }
+          // NOTE: do not set context_used_percent from pre_tokens -- see compact_boundary handler comment
           this.persistSession(session);
           return;
         }
@@ -4411,14 +4404,7 @@ export class WsBridge {
           preTokens: meta?.pre_tokens,
         });
         this.freezeHistoryThroughCurrentTail(session);
-        const preTokenContextPct = computePreTokenContextUsedPercent(session.state.model, meta?.pre_tokens);
-        if (typeof preTokenContextPct === "number" && preTokenContextPct !== session.state.context_used_percent) {
-          session.state.context_used_percent = preTokenContextPct;
-          this.broadcastToBrowsers(session, {
-            type: "session_update",
-            session: { context_used_percent: preTokenContextPct },
-          });
-        }
+        // NOTE: do not set context_used_percent from pre_tokens -- see compact_boundary handler comment
         session.awaitingCompactSummary = true;
         session.compactedDuringTurn = true;
         this.broadcastToBrowsers(session, {
