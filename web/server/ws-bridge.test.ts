@@ -15277,6 +15277,46 @@ describe("stuck session watchdog", () => {
     vi.useRealTimers();
   });
 
+  it("detects stuck session when toolStartTimes entries are stale (older than 5 min)", () => {
+    // Regression test for q-237 follow-up: stale toolStartTimes entries from
+    // missed tool_results were permanently suppressing stuck detection. Tools
+    // older than AUTO_RECOVER_MS (5 min) should be treated as stale and not
+    // prevent stuck detection from firing.
+    vi.useFakeTimers();
+    const sid = "s-stuck-stale-tools";
+    const cli = makeCliSocket(sid);
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    bridge.handleCLIOpen(cli, sid);
+    bridge.handleCLIMessage(cli, makeInitMsg());
+
+    const session = bridge.getSession(sid)!;
+
+    // Generation started 6 minutes ago, no CLI activity since
+    const sixMinAgo = Date.now() - 360_000;
+    session.isGenerating = true;
+    session.generationStartedAt = sixMinAgo;
+    session.lastCliMessageAt = sixMinAgo;
+    session.lastCliPingAt = sixMinAgo;
+    session.lastToolProgressAt = 0;
+    session.stuckNotifiedAt = null;
+
+    // Stale tool entry from 6 minutes ago (missed tool_result)
+    session.toolStartTimes.set("tool-stale-123", sixMinAgo);
+
+    bridge.startStuckSessionWatchdog();
+
+    vi.advanceTimersByTime(31_000);
+
+    // Should auto-recover despite toolStartTimes being non-empty
+    expect(session.isGenerating).toBe(false);
+    // Stale tools should be cleared during auto-recovery
+    expect(session.toolStartTimes.size).toBe(0);
+
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  });
+
   it("sends session_unstuck when CLI activity resumes", () => {
     vi.useFakeTimers();
     const sid = "s-stuck-recover";
@@ -15380,8 +15420,8 @@ describe("stuck session watchdog", () => {
     session.lastToolProgressAt = 0;
     session.stuckNotifiedAt = null;
 
-    // But a tool is actively running (started but no result yet)
-    session.toolStartTimes.set("tool-bash-123", fiveMinAgo);
+    // But a tool is actively running (started recently, not stale)
+    session.toolStartTimes.set("tool-bash-123", Date.now() - 60_000);
 
     bridge.startStuckSessionWatchdog();
 

@@ -1373,12 +1373,21 @@ export class WsBridge {
         // session is not stuck — it's waiting for a blocking command, agent,
         // or other tool to finish.  This covers long-running `block=true`
         // Bash commands that produce no output (no tool_progress events).
+        // However, if ALL tool entries are older than AUTO_RECOVER_MS, they're
+        // stale leftovers from missed tool_results — don't let them suppress
+        // stuck detection indefinitely (q-237).
         if (session.toolStartTimes.size > 0) {
-          if (session.stuckNotifiedAt) {
-            session.stuckNotifiedAt = null;
-            this.broadcastToBrowsers(session, { type: "session_unstuck" } as BrowserIncomingMessage);
+          const allToolsStale = [...session.toolStartTimes.values()].every(
+            (startedAt) => now - startedAt >= AUTO_RECOVER_MS,
+          );
+          if (!allToolsStale) {
+            if (session.stuckNotifiedAt) {
+              session.stuckNotifiedAt = null;
+              this.broadcastToBrowsers(session, { type: "session_unstuck" } as BrowserIncomingMessage);
+            }
+            continue;
           }
-          continue;
+          // Fall through to stuck detection — tools are stale
         }
 
         // Check whether the CLI has been active recently — either a real
@@ -1455,6 +1464,7 @@ export class WsBridge {
           );
           this.markTurnInterrupted(session, "system");
           this.setGenerating(session, false, "stuck_auto_recovery");
+          session.toolStartTimes.clear();
           // Drain stale queued turns -- they reference user messages from the
           // stuck turn that will never produce output.
           const staleEntries = getQueuedTurnLifecycleEntriesLifecycle(session);
@@ -6100,6 +6110,11 @@ export class WsBridge {
     const turnTriggerSource = this.getCurrentTurnTriggerSource(session);
     reconcileTerminalResultStateLifecycle(this.getGenerationLifecycleDeps(), session, "result");
     this.finalizeOrphanedTerminalToolsOnResult(session, msg);
+    // A completed turn means no tools are in-flight. Clear stale entries
+    // that would otherwise permanently disable stuck detection (q-237).
+    if (session.toolStartTimes.size > 0) {
+      session.toolStartTimes.clear();
+    }
     // Broadcast idle status for backends that don't send a separate
     // system.status message after result (e.g. Claude SDK via Agent SDK).
     // WebSocket sessions get idle via CLI's system.status {status:null},
