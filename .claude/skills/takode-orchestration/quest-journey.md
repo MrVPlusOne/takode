@@ -1,6 +1,6 @@
 # Quest Journey Lifecycle
 
-Every dispatched task follows the Quest Journey lifecycle. The work board (`takode board show`) tracks each quest's stage and shows the next required leader action. **Do not skip stages.**
+Every dispatched task follows the Quest Journey lifecycle. The work board (`takode board show`) tracks each quest's stage and shows the next required leader action. **Do not skip stages -- no exceptions, regardless of change size.** If a change is too small to justify the full journey, it's too small to need a quest. Every quest gets the full lifecycle.
 
 ## Stage Overview
 
@@ -17,7 +17,7 @@ Every dispatched task follows the Quest Journey lifecycle. The work board (`tako
 
 **Update the board immediately.** When a herd event arrives that changes quest state (turn_end, permission_request, etc.), update the board as your FIRST action -- before reviewing content, reading messages, or composing responses. The board must always reflect real-time state.
 
-**Mandatory stages:** Skeptic review is always mandatory. Groom review is mandatory for all code changes. Groom may only be skipped when the task produced zero code changes (e.g., analysis-only work).
+**Mandatory stages:** Skeptic review and groom review are mandatory for ALL quests with code changes -- no exceptions for "small" or "trivial" changes. Groom may only be skipped when the task produced zero code changes (e.g., analysis-only work).
 
 ## Refine (before QUEUED)
 
@@ -47,6 +47,7 @@ Every dispatched task follows the Quest Journey lifecycle. The work board (`tako
 - Steer if needed: scope refinements, corrections, additional context for the current task
 - Do NOT send unrelated new tasks to a busy worker -- queue them and wait
 - **When the user is directly steering a herded worker**: stay out of it. Resume normal coordination once the user stops interacting
+- **Workers must NOT self-advance.** After implementing, the worker reports completion and STOPS. It does not run /groom, /port-changes, or /skeptic-review on its own. The leader controls stage transitions.
 - When `turn_end (✓)` arrives with a quest transition:
   - Run `takode scan <session>` to understand the solution at a high level
   - **Always** spawn a skeptic reviewer (see Skeptic Review below). Skeptic review is mandatory for every quest -- no exceptions, regardless of perceived size or triviality.

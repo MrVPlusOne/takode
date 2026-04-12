@@ -94,6 +94,8 @@ Return a plan for approval before implementing.
 
 If the worker needs additional context (related sessions, rejected approaches, user decisions), add it to the quest description before dispatching. Workers have the same tools and skills you do -- they run `quest show q-XX` themselves.
 
+**Workers must stop after each stage boundary.** The dispatch message only authorizes planning. After plan approval, the worker implements. After implementation, the worker STOPS and waits -- it does NOT self-review, self-groom, or self-port. The leader advances the quest through review stages.
+
 **For feedback rework dispatches**, use this extended template instead:
 
 ```
