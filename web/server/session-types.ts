@@ -583,6 +583,7 @@ export type BrowserIncomingMessageBase =
       generationStartedAt?: number | null;
       board?: BoardRow[];
       completedBoard?: BoardRow[];
+      notifications?: SessionNotification[];
     }
   | { type: "session_stuck" }
   | { type: "session_unstuck" }
@@ -604,6 +605,7 @@ export type BrowserIncomingMessageBase =
       notification: { category: "needs-input" | "review"; timestamp: number; summary?: string };
     }
   | { type: "board_updated"; board: BoardRow[]; completedBoard: BoardRow[] }
+  | { type: "notification_update"; notifications: SessionNotification[] }
   | { type: "timer_update"; timers: import("./timer-types.js").SessionTimer[] }
   | {
       type: "tree_groups_update";
@@ -740,6 +742,19 @@ export interface SessionState {
   claimedQuestTitle?: string;
   /** Questmaster: current status of the claimed quest */
   claimedQuestStatus?: string;
+  /** Per-session notification inbox entries (server-only, never from CLI) */
+  notifications?: SessionNotification[];
+}
+
+/** A notification collected when `takode notify` fires. Persisted per session. */
+export interface SessionNotification {
+  id: string;
+  category: "needs-input" | "review";
+  summary?: string;
+  timestamp: number;
+  /** Index into messageHistory for jump-to-message links */
+  messageIndex: number;
+  done: boolean;
 }
 
 // ─── MCP Types ───────────────────────────────────────────────────────────────

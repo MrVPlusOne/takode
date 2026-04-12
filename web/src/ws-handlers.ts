@@ -963,6 +963,12 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       break;
     }
 
+    case "notification_update": {
+      // Server-authoritative notification inbox for this session.
+      store.setSessionNotifications(sessionId, data.notifications ?? []);
+      break;
+    }
+
     case "permissions_cleared": {
       store.clearPermissions(sessionId);
       break;
@@ -1015,6 +1021,10 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       }
       if (data.completedBoard) {
         store.setSessionCompletedBoard(sessionId, data.completedBoard);
+      }
+      // Sync notification inbox from server on connect/reconnect
+      if (data.notifications) {
+        store.setSessionNotifications(sessionId, data.notifications);
       }
       break;
     }

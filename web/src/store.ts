@@ -142,6 +142,10 @@ interface AppState {
   sessionTimers: Map<string, import("./types.js").SessionTimer[]>;
   setSessionTimers: (sessionId: string, timers: import("./types.js").SessionTimer[]) => void;
 
+  // Session-scoped notification inbox (server-authoritative)
+  sessionNotifications: Map<string, import("./types.js").SessionNotification[]>;
+  setSessionNotifications: (sessionId: string, notifications: import("./types.js").SessionNotification[]) => void;
+
   // Files changed by the agent per session (Edit/Write tool calls)
   changedFiles: Map<string, Set<string>>;
   // Per-file diff stats for each session (used to filter out +0/-0 files in badge count)
@@ -653,6 +657,14 @@ export const useStore = create<AppState>((set) => ({
       else next.set(sessionId, timers);
       return { sessionTimers: next };
     }),
+  sessionNotifications: new Map(),
+  setSessionNotifications: (sessionId, notifications) =>
+    set((s) => {
+      const next = new Map(s.sessionNotifications);
+      if (notifications.length === 0) next.delete(sessionId);
+      else next.set(sessionId, notifications);
+      return { sessionNotifications: next };
+    }),
   changedFiles: new Map(),
   diffFileStats: new Map(),
   sessionNames: getInitialSessionNames(),
@@ -958,6 +970,8 @@ export const useStore = create<AppState>((set) => ({
       sessionTasks.delete(sessionId);
       const sessionTimers = new Map(s.sessionTimers);
       sessionTimers.delete(sessionId);
+      const sessionNotifications = new Map(s.sessionNotifications);
+      sessionNotifications.delete(sessionId);
       const changedFiles = new Map(s.changedFiles);
       changedFiles.delete(sessionId);
       const diffFileStats = new Map(s.diffFileStats);
@@ -1035,6 +1049,7 @@ export const useStore = create<AppState>((set) => ({
         pendingPermissions,
         sessionTasks,
         sessionTimers,
+        sessionNotifications,
         changedFiles,
         diffFileStats,
         sessionNames,

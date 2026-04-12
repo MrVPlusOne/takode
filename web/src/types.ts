@@ -16,6 +16,7 @@ import type {
   PendingCodexInputImageDraft,
   VsCodeSelectionMetadata,
   VsCodeSelectionState,
+  SessionNotification,
 } from "../server/session-types.js";
 import { assertNever, isClaudeFamily } from "../server/session-types.js";
 import type { ImageRef } from "../server/image-store.js";
@@ -51,6 +52,7 @@ export type {
   VsCodeSelectionMetadata,
   VsCodeSelectionState,
   SessionTimer,
+  SessionNotification,
 };
 export type { TreeGroup, TreeGroupState } from "../server/tree-group-store.js";
 export { assertNever, isClaudeFamily };

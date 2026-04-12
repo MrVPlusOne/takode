@@ -661,6 +661,12 @@ export const api = {
 
   markAllSessionsRead: () => post<{ ok: boolean }>("/sessions/mark-all-read"),
 
+  markNotificationDone: (sessionId: string, notifId: string, done = true) =>
+    post<{ ok: boolean }>(
+      `/sessions/${encodeURIComponent(sessionId)}/notifications/${encodeURIComponent(notifId)}/done`,
+      { done },
+    ),
+
   setDiffBase: (sessionId: string, branch: string) =>
     patch<{ ok: boolean; diff_base_branch: string }>(`/sessions/${encodeURIComponent(sessionId)}/diff-base`, {
       branch,

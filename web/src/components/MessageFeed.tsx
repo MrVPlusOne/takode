@@ -14,6 +14,7 @@ import { isTouchDevice } from "../utils/mobile.js";
 import { sendToSession } from "../ws.js";
 import { useCollapsePolicy } from "../hooks/use-collapse-policy.js";
 import { TimerChip } from "./TimerWidget.js";
+import { NotificationChip } from "./NotificationChip.js";
 import { useTextSelection } from "../hooks/useTextSelection.js";
 import { SelectionContextMenu } from "./SelectionContextMenu.js";
 import {
@@ -318,8 +319,9 @@ function FeedStatusPill({
       <div className="pointer-events-none absolute bottom-2 left-2 z-10 sm:bottom-3 sm:left-3">
         <ElapsedTimer sessionId={sessionId} variant="floating" onVisibleHeightChange={onVisibleHeightChange} />
       </div>
-      {/* Timer chip — lower right */}
-      <div className="pointer-events-none absolute bottom-2 right-2 z-10 sm:bottom-3 sm:right-3">
+      {/* Timer + Notification chips — lower right, stacked vertically */}
+      <div className="pointer-events-none absolute bottom-2 right-2 z-10 flex flex-col items-end gap-1.5 sm:bottom-3 sm:right-3">
+        <NotificationChip sessionId={sessionId} />
         <TimerChip sessionId={sessionId} />
       </div>
     </>

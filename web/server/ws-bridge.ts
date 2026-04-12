@@ -62,6 +62,7 @@ import type {
   TakodeEventSubscriber,
   TakodeTurnEndEventData,
   BoardRow,
+  SessionNotification,
 } from "./session-types.js";
 import {
   TOOL_RESULT_PREVIEW_LIMIT,
@@ -425,6 +426,8 @@ interface Session {
   board: Map<string, BoardRow>;
   /** Completed board items (moved here by rm/advance instead of being deleted). Newest-first by completedAt. */
   completedBoard: Map<string, BoardRow>;
+  /** Per-session notification inbox entries from `takode notify`. */
+  notifications: SessionNotification[];
   /** Whether agent activity has occurred since the last diff computation */
   diffStatsDirty: boolean;
   /** Whether this session was created by resuming an external CLI session (VS Code/terminal) */
@@ -2007,6 +2010,7 @@ export class WsBridge {
         keywords: Array.isArray(p.keywords) ? p.keywords : [],
         board: new Map(Array.isArray(p.board) ? p.board.map((row: BoardRow) => [row.questId, row]) : []),
         completedBoard: new Map(Array.isArray(p.completedBoard) ? p.completedBoard.map((row: BoardRow) => [row.questId, row]) : []),
+        notifications: Array.isArray(p.notifications) ? p.notifications : [],
         diffStatsDirty: true,
         evaluatingAborts: new Map(),
         cliInitializeSent: false,
@@ -2074,6 +2078,7 @@ export class WsBridge {
       keywords: session.keywords,
       board: Array.from(session.board.values()),
       completedBoard: Array.from(session.completedBoard.values()),
+      notifications: session.notifications,
     });
   }
 
@@ -2101,6 +2106,7 @@ export class WsBridge {
       keywords: session.keywords,
       board: Array.from(session.board.values()),
       completedBoard: Array.from(session.completedBoard.values()),
+      notifications: session.notifications,
     });
   }
 
@@ -2615,6 +2621,7 @@ export class WsBridge {
         keywords: [],
         board: new Map(),
         completedBoard: new Map(),
+        notifications: [],
         diffStatsDirty: true,
         evaluatingAborts: new Map(),
         cliInitializeSent: false,
@@ -2913,6 +2920,18 @@ export class WsBridge {
     const reason = category === "needs-input" ? ("action" as const) : ("review" as const);
     this.setAttention(session, reason);
 
+    // Persist notification to inbox
+    const messageIndex = lastAssistant ? session.messageHistory.lastIndexOf(lastAssistant) : -1;
+    const notif: SessionNotification = {
+      id: `n-${session.notifications.length + 1}`,
+      category,
+      ...(summary ? { summary } : {}),
+      timestamp: Date.now(),
+      messageIndex: messageIndex >= 0 ? messageIndex : session.messageHistory.length - 1,
+      done: false,
+    };
+    session.notifications.push(notif);
+
     // Fire Pushover -- explicit user notification, so bypass the read-check.
     // Without skipReadCheck, the browser's auto-read (triggered by the setAttention
     // broadcast above when the user is viewing this session) would set lastReadAt
@@ -2927,7 +2946,13 @@ export class WsBridge {
     // Broadcast notification to browsers
     this.broadcastToBrowsers(session, {
       type: "session_update",
-      session: { attentionReason: session.attentionReason },
+      session: { attentionReason: session.attentionReason, notifications: session.notifications },
+    });
+
+    // Broadcast notification inbox update
+    this.broadcastToBrowsers(session, {
+      type: "notification_update",
+      notifications: session.notifications,
     });
 
     // Also broadcast the notification stamp on the message so browsers can render the marker
@@ -2941,6 +2966,23 @@ export class WsBridge {
 
     this.persistSession(session);
     return { ok: true, anchoredMessageId };
+  }
+
+  /** Toggle the done state of a notification and broadcast the update. */
+  markNotificationDone(sessionId: string, notifId: string, done: boolean): boolean {
+    const session = this.sessions.get(sessionId);
+    if (!session) return false;
+    const notif = session.notifications.find((n) => n.id === notifId);
+    if (!notif) return false;
+    notif.done = done;
+    this.broadcastToBrowsers(session, { type: "notification_update", notifications: session.notifications });
+    this.persistSession(session);
+    return true;
+  }
+
+  /** Get the notifications array for a session. */
+  getNotifications(sessionId: string): SessionNotification[] {
+    return this.sessions.get(sessionId)?.notifications ?? [];
   }
 
   // ─── Work Board ──────────────────────────────────────────────────────────
@@ -9862,6 +9904,7 @@ export class WsBridge {
       generationStartedAt: session.generationStartedAt ?? null,
       board: this.getBoard(session.id),
       completedBoard: this.getCompletedBoard(session.id),
+      notifications: session.notifications,
     });
   }
 

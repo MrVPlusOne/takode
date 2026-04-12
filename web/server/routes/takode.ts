@@ -733,6 +733,25 @@ export function createTakodeRoutes(ctx: RouteContext) {
     return c.json({ ok: true, category, anchoredMessageId: result.anchoredMessageId });
   });
 
+  // ─── Notification Inbox ─────────────────────────────────────────────
+
+  api.post("/sessions/:id/notifications/:notifId/done", async (c) => {
+    const id = resolveId(c.req.param("id"));
+    if (!id) return c.json({ error: "Session not found" }, 404);
+    const notifId = c.req.param("notifId");
+    const body = await c.req.json().catch(() => ({}));
+    const done = body.done !== false;
+    const ok = wsBridge.markNotificationDone(id, notifId, done);
+    if (!ok) return c.json({ error: "Notification not found" }, 404);
+    return c.json({ ok: true });
+  });
+
+  api.get("/sessions/:id/notifications", (c) => {
+    const id = resolveId(c.req.param("id"));
+    if (!id) return c.json({ error: "Session not found" }, 404);
+    return c.json(wsBridge.getNotifications(id));
+  });
+
   // ─── Work Board ──────────────────────────────────────────────────────
 
   /** Resolve which #N session deps on the board are currently idle. */

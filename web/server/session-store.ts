@@ -11,6 +11,7 @@ import type {
   CodexOutboundTurn,
   PendingCodexInput,
   BoardRow,
+  SessionNotification,
 } from "./session-types.js";
 
 // ─── Two-Tier Persistence Design ────────────────────────────────────────────
@@ -92,6 +93,8 @@ export interface PersistedSession {
   board?: BoardRow[];
   /** Completed board items (moved from board on rm/advance) */
   completedBoard?: BoardRow[];
+  /** Per-session notification inbox entries */
+  notifications?: SessionNotification[];
 
   // ── Append-only history bookkeeping (managed by SessionStore) ───────────
   /**
