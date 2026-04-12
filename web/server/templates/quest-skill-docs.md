@@ -259,7 +259,7 @@ idea → refined → in_progress → needs_verification → done
 - Run tests, typecheck, linting yourself first.
 - **Worktree sessions:** If you made the change in a git worktree, finish the full sync-to-main workflow first (rebase/cherry-pick/push/reset/post-reset verification) before running `quest complete` or describing the work as ready for verification.
 
-**Pre-submission checklist (all required):**
+**Pre-submission checklist (all three required -- the skeptic reviewer will verify each one and CHALLENGE if any are missing):**
 
 1. **Address all human feedback.** For each human feedback entry on the quest:
    - Post an explicit reply explaining HOW you addressed it: `quest feedback q-N --text "Addressed: fixed mobile layout with flex-wrap"`
