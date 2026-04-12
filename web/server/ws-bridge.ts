@@ -5765,14 +5765,11 @@ export class WsBridge {
         preTokens: meta?.pre_tokens,
       });
       this.freezeHistoryThroughCurrentTail(session);
-      const preTokenContextPct = computePreTokenContextUsedPercent(session.state.model, meta?.pre_tokens);
-      if (typeof preTokenContextPct === "number" && preTokenContextPct !== session.state.context_used_percent) {
-        session.state.context_used_percent = preTokenContextPct;
-        this.broadcastToBrowsers(session, {
-          type: "session_update",
-          session: { context_used_percent: preTokenContextPct },
-        });
-      }
+      // NOTE: pre_tokens is a diagnostic snapshot of context BEFORE compaction.
+      // Do NOT use it to set context_used_percent -- that would display the
+      // pre-compaction value as current, and subsequent result messages may not
+      // provide a valid post-compaction value to overwrite it (leaving it stale).
+      // The next assistant/result message with real usage will update the percent.
       session.awaitingCompactSummary = true;
       this.broadcastToBrowsers(session, {
         type: "compact_boundary",

@@ -6156,7 +6156,12 @@ describe("compact_boundary handling", () => {
     expect(marker.id).toMatch(/^compact-boundary-/);
   });
 
-  it("updates context_used_percent from compact_boundary pre_tokens", () => {
+  // Validates that compact_boundary does NOT update context_used_percent.
+  // pre_tokens is a diagnostic snapshot of context BEFORE compaction -- using
+  // it as the displayed percentage would show a stale high value that may
+  // never be overwritten (the post-compaction result message may not produce
+  // a valid percentage for SDK/WebSocket sessions).
+  it("does not update context_used_percent from compact_boundary pre_tokens", () => {
     const cli = makeCliSocket("s1");
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
@@ -6177,11 +6182,12 @@ describe("compact_boundary handling", () => {
       }),
     );
 
-    // 167048 / 200000 * 100 = 84
-    expect(bridge.getOrCreateSession("s1").state.context_used_percent).toBe(84);
+    // context_used_percent should remain at 68 (unchanged by compact_boundary)
+    expect(bridge.getOrCreateSession("s1").state.context_used_percent).toBe(68);
     const calls = browser.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
-    const contextUpdate = calls.find((m: any) => m.type === "session_update" && m.session?.context_used_percent === 84);
-    expect(contextUpdate).toBeDefined();
+    // No session_update with context_used_percent should be broadcast
+    const contextUpdate = calls.find((m: any) => m.type === "session_update" && m.session?.context_used_percent != null);
+    expect(contextUpdate).toBeUndefined();
   });
 
   it("supports multiple compactions creating multiple compact_markers in history", () => {
