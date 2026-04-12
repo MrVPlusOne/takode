@@ -1374,12 +1374,16 @@ export class WsBridge {
         // or other tool to finish.  This covers long-running `block=true`
         // Bash commands that produce no output (no tool_progress events).
         // However, if ALL tool entries are older than AUTO_RECOVER_MS, they're
-        // stale leftovers from missed tool_results — don't let them suppress
+        // stale leftovers from missed tool_results -- don't let them suppress
         // stuck detection indefinitely (q-237).
         if (session.toolStartTimes.size > 0) {
-          const allToolsStale = [...session.toolStartTimes.values()].every(
-            (startedAt) => now - startedAt >= AUTO_RECOVER_MS,
-          );
+          let allToolsStale = true;
+          for (const startedAt of session.toolStartTimes.values()) {
+            if (now - startedAt < AUTO_RECOVER_MS) {
+              allToolsStale = false;
+              break;
+            }
+          }
           if (!allToolsStale) {
             if (session.stuckNotifiedAt) {
               session.stuckNotifiedAt = null;
@@ -6112,9 +6116,7 @@ export class WsBridge {
     this.finalizeOrphanedTerminalToolsOnResult(session, msg);
     // A completed turn means no tools are in-flight. Clear stale entries
     // that would otherwise permanently disable stuck detection (q-237).
-    if (session.toolStartTimes.size > 0) {
-      session.toolStartTimes.clear();
-    }
+    session.toolStartTimes.clear();
     // Broadcast idle status for backends that don't send a separate
     // system.status message after result (e.g. Claude SDK via Agent SDK).
     // WebSocket sessions get idle via CLI's system.status {status:null},
