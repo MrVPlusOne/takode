@@ -5220,6 +5220,14 @@ describe("POST /api/sessions/:id/revert", () => {
         },
       ],
       pendingPermissions: new Map(),
+      eventBuffer: [
+        { seq: 1, message: { type: "assistant", message: { id: "asst-msg-1" } } },
+        { seq: 2, message: { type: "status_change", status: "idle" } },
+        { seq: 3, message: { type: "assistant", message: { id: "asst-msg-2" } } },
+        { seq: 4, message: { type: "status_change", status: "idle" } },
+      ],
+      nextEventSeq: 5,
+      frozenCount: 4,
     };
     bridge.getOrCreateSession.mockReturnValue(mockSession);
 
@@ -5356,6 +5364,38 @@ describe("POST /api/sessions/:id/revert", () => {
     expect(res.status).toBe(503);
     const json = await res.json();
     expect(json.error).toBe("CLI not found");
+  });
+
+  // Revert must clear stale eventBuffer entries so browsers don't replay
+  // events from the reverted turn after server restart. nextEventSeq is
+  // preserved (not reset) so subsequent broadcasts use seq numbers beyond
+  // browsers' lastAckSeq. Also clamps frozenCount to the truncated history.
+  it("clears eventBuffer and clamps frozenCount on revert", async () => {
+    const { mockSession } = setupRevertSession();
+
+    // Precondition: session has stale eventBuffer and high frozenCount
+    expect(mockSession.eventBuffer).toHaveLength(4);
+    expect(mockSession.frozenCount).toBe(4);
+    const seqBefore = mockSession.nextEventSeq;
+
+    const res = await app.request("/api/sessions/session-1/revert", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messageId: "user-msg-2" }),
+    });
+
+    expect(res.status).toBe(200);
+
+    // eventBuffer should be cleared
+    expect(mockSession.eventBuffer).toHaveLength(0);
+
+    // nextEventSeq must NOT be reset -- subsequent broadcasts need seq
+    // numbers beyond browsers' lastAckSeq to avoid being skipped.
+    expect(mockSession.nextEventSeq).toBeGreaterThanOrEqual(seqBefore);
+
+    // frozenCount should be clamped to truncated history length (2 messages survive)
+    expect(mockSession.frozenCount).toBeLessThanOrEqual(mockSession.messageHistory.length);
+    expect(mockSession.frozenCount).toBe(2);
   });
 });
 

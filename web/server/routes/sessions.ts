@@ -1548,7 +1548,8 @@ export function createSessionsRoutes(ctx: RouteContext) {
 
     // Truncate server-side message history
     session.messageHistory = session.messageHistory.slice(0, targetIdx);
-    console.log(`[revert] Truncated server messageHistory to ${session.messageHistory.length} entries`);
+    session.frozenCount = Math.min(session.frozenCount, session.messageHistory.length);
+    console.log(`[revert] Truncated server messageHistory to ${session.messageHistory.length} entries (frozenCount=${session.frozenCount})`);
 
     // Truncate task history: keep only entries whose trigger message survived truncation
     if (session.taskHistory?.length) {
@@ -1568,6 +1569,13 @@ export function createSessionsRoutes(ctx: RouteContext) {
     // Clear orphaned permission dialogs
     session.pendingPermissions.clear();
     wsBridge.broadcastToSession(id, { type: "permissions_cleared" });
+
+    // Clear stale eventBuffer -- events from the reverted turn would otherwise
+    // survive persistence and get replayed to browsers after server restart.
+    // Keep nextEventSeq unchanged so subsequent broadcasts (status_change,
+    // message_history) use seq numbers beyond browsers' lastAckSeq, ensuring
+    // they are not skipped by the browser's dedup check in ws-transport.ts.
+    session.eventBuffer = [];
 
     // Notify browsers that revert is in progress
     wsBridge.broadcastToSession(id, { type: "status_change", status: "reverting" });
