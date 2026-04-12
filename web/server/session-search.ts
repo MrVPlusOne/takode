@@ -1,4 +1,5 @@
 import type { BrowserIncomingMessage, SessionTaskEntry } from "./session-types.js";
+import { normalizeForSearch } from "../shared/search-utils.js";
 
 export type SessionSearchMatchedField = "name" | "task" | "keyword" | "branch" | "path" | "repo" | "user_message";
 
@@ -39,10 +40,6 @@ export interface SearchSessionDocumentsOptions {
 export interface SearchSessionDocumentsOutput {
   totalMatches: number;
   results: SessionSearchResult[];
-}
-
-function normalize(value: string): string {
-  return value.trim().toLowerCase();
 }
 
 function clampInt(value: number, min: number, max: number): number {
@@ -90,7 +87,7 @@ function messageMatchCandidate(
     if (msg.type !== "user_message") continue;
     const content = (msg.content || "").trim();
     if (!content) continue;
-    if (!content.toLowerCase().includes(q)) continue;
+    if (!normalizeForSearch(content).includes(q)) continue;
 
     const timestamp = typeof msg.timestamp === "number" ? msg.timestamp : (doc.lastActivityAt ?? doc.createdAt);
 
@@ -114,7 +111,7 @@ export function searchSessionDocuments(
   docs: SessionSearchDocument[],
   options: SearchSessionDocumentsOptions,
 ): SearchSessionDocumentsOutput {
-  const q = normalize(options.query);
+  const q = normalizeForSearch(options.query);
   if (!q) return { totalMatches: 0, results: [] };
 
   const includeArchived = options.includeArchived !== false;
@@ -130,7 +127,7 @@ export function searchSessionDocuments(
     let best: SessionSearchResult | null = null;
 
     const name = (doc.name || "").trim();
-    if (name && name.toLowerCase().includes(q)) {
+    if (name && normalizeForSearch(name).includes(q)) {
       best = pushIfBetter(best, {
         sessionId: doc.sessionId,
         score: 1000,
@@ -140,7 +137,7 @@ export function searchSessionDocuments(
       });
     }
 
-    const task = (doc.taskHistory || []).find((t) => t.title.toLowerCase().includes(q));
+    const task = (doc.taskHistory || []).find((t) => normalizeForSearch(t.title).includes(q));
     if (task) {
       best = pushIfBetter(best, {
         sessionId: doc.sessionId,
@@ -151,7 +148,7 @@ export function searchSessionDocuments(
       });
     }
 
-    const kw = (doc.keywords || []).find((k) => k.toLowerCase().includes(q));
+    const kw = (doc.keywords || []).find((k) => normalizeForSearch(k).includes(q));
     if (kw) {
       best = pushIfBetter(best, {
         sessionId: doc.sessionId,
@@ -163,7 +160,7 @@ export function searchSessionDocuments(
     }
 
     const branch = (doc.gitBranch || "").trim();
-    if (branch && branch.toLowerCase().includes(q)) {
+    if (branch && normalizeForSearch(branch).includes(q)) {
       best = pushIfBetter(best, {
         sessionId: doc.sessionId,
         score: 840,
@@ -174,7 +171,7 @@ export function searchSessionDocuments(
     }
 
     const cwd = (doc.cwd || "").trim();
-    if (cwd && cwd.toLowerCase().includes(q)) {
+    if (cwd && normalizeForSearch(cwd).includes(q)) {
       best = pushIfBetter(best, {
         sessionId: doc.sessionId,
         score: 810,
@@ -185,7 +182,7 @@ export function searchSessionDocuments(
     }
 
     const repoRoot = (doc.repoRoot || "").trim();
-    if (repoRoot && repoRoot.toLowerCase().includes(q)) {
+    if (repoRoot && normalizeForSearch(repoRoot).includes(q)) {
       best = pushIfBetter(best, {
         sessionId: doc.sessionId,
         score: 800,

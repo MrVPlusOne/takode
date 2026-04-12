@@ -1,4 +1,5 @@
 import type { QuestmasterTask } from "./quest-types.js";
+import { normalizeForSearch } from "../shared/search-utils.js";
 
 export interface QuestListFilterOptions {
   status?: string;
@@ -22,7 +23,7 @@ export function applyQuestListFilters(quests: QuestmasterTask[], filters: QuestL
   const tagTokens = new Set([...parseCsv(filters.tags), ...parseCsv(filters.tag)].map((tag) => tag.toLowerCase()));
   const verificationScopes = new Set(parseCsv(filters.verification).map((scope) => scope.toLowerCase()));
   const sessionId = filters.session?.trim() || "";
-  const textQuery = filters.text?.trim().toLowerCase() || "";
+  const textQuery = normalizeForSearch(filters.text ?? "");
 
   return quests.filter((quest) => {
     if (statuses.size > 0 && !statuses.has(quest.status)) return false;
@@ -68,8 +69,9 @@ export function applyQuestListFilters(quests: QuestmasterTask[], filters: QuestL
     }
 
     if (textQuery) {
-      const haystack =
-        `${quest.questId}\n${quest.title}\n${"description" in quest ? quest.description || "" : ""}`.toLowerCase();
+      const haystack = normalizeForSearch(
+        `${quest.questId}\n${quest.title}\n${"description" in quest ? quest.description || "" : ""}`,
+      );
       if (!haystack.includes(textQuery)) return false;
     }
 

@@ -77,4 +77,41 @@ describe("searchSessionDocuments", () => {
     });
     expect(activeOnly.results.map((r) => r.sessionId)).toEqual(["active"]);
   });
+
+  it("matches CamelCase tokens in session names", () => {
+    // "plan mode" should match "ExitPlanMode" via CamelCase boundary splitting
+    const docs: SessionSearchDocument[] = [
+      {
+        sessionId: "s-camel",
+        archived: false,
+        createdAt: 100,
+        name: "ExitPlanMode feature",
+      },
+      {
+        sessionId: "s-plain",
+        archived: false,
+        createdAt: 100,
+        name: "exit plan mode feature",
+      },
+    ];
+
+    const out = searchSessionDocuments(docs, { query: "plan mode" });
+    expect(out.totalMatches).toBe(2);
+    expect(out.results.map((r) => r.sessionId)).toContain("s-camel");
+    expect(out.results.map((r) => r.sessionId)).toContain("s-plain");
+  });
+
+  it("matches CamelCase tokens in task titles", () => {
+    const docs: SessionSearchDocument[] = [
+      {
+        sessionId: "s-task",
+        archived: false,
+        createdAt: 100,
+        taskHistory: [{ title: "Implement BoardTable component", action: "new" as const, timestamp: 100, triggerMessageId: "m1" }],
+      },
+    ];
+
+    const out = searchSessionDocuments(docs, { query: "board table" });
+    expect(out.totalMatches).toBe(1);
+  });
 });

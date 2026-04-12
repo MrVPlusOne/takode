@@ -33,6 +33,17 @@ describe("messageMatches", () => {
     it("handles single-word fuzzy as substring match", () => {
       expect(_messageMatches("authentication system", "auth", "fuzzy")).toBe(true);
     });
+
+    it("matches CamelCase tokens split at word boundaries", () => {
+      // "plan mode" should match "ExitPlanMode" because CamelCase is expanded
+      expect(_messageMatches("ExitPlanMode is the tool", "plan mode", "fuzzy")).toBe(true);
+      expect(_messageMatches("Use BoardTable component", "board table", "fuzzy")).toBe(true);
+    });
+
+    it("matches CamelCase in strict mode", () => {
+      // "plan mode" should match "ExitPlanMode" in strict mode too
+      expect(_messageMatches("ExitPlanMode is the tool", "plan mode", "strict")).toBe(true);
+    });
   });
 });
 

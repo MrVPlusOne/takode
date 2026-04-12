@@ -12,6 +12,7 @@ import {
 } from "../utils/questmaster-view-state.js";
 import type { QuestmasterCollapsedGroup } from "../utils/questmaster-view-state.js";
 import { getHighlightParts } from "../utils/highlight.js";
+import { normalizeForSearch } from "../../shared/search-utils.js";
 import { Lightbox } from "./Lightbox.js";
 import { SessionStatusDot } from "./SessionStatusDot.js";
 import { buildQuestAssignDraft } from "./quest-assign.js";
@@ -1053,12 +1054,12 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
   // Layer 1: text search (case-insensitive on quest ID + title + description)
   // Strip any trailing #hashtag token from the search text
   const searchText = searchQuery.replace(/#[^\s]*$/, "").trim();
-  const searchLower = searchText.toLowerCase();
-  const afterSearch = searchLower
+  const searchNormalized = normalizeForSearch(searchText);
+  const afterSearch = searchNormalized
     ? quests.filter((q) => {
-        if (q.questId.toLowerCase().includes(searchLower)) return true;
-        if (q.title.toLowerCase().includes(searchLower)) return true;
-        if (q.description && q.description.toLowerCase().includes(searchLower)) return true;
+        if (normalizeForSearch(q.questId).includes(searchNormalized)) return true;
+        if (normalizeForSearch(q.title).includes(searchNormalized)) return true;
+        if (q.description && normalizeForSearch(q.description).includes(searchNormalized)) return true;
         return false;
       })
     : quests;

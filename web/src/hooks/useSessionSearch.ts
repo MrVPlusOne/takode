@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useStore, getSessionSearchState, type SearchMatch } from "../store.js";
+import { normalizeForSearch } from "../../shared/search-utils.js";
 
 /**
  * Hook that computes search matches whenever the query, mode, or messages change.
@@ -59,13 +60,14 @@ function computeMatches(
 
 /** Check if a message's text matches the query in the given mode. */
 function messageMatches(text: string, query: string, mode: "strict" | "fuzzy"): boolean {
+  const normalizedText = normalizeForSearch(text);
+  const normalizedQuery = normalizeForSearch(query);
   if (mode === "strict") {
-    return text.toLowerCase().includes(query.toLowerCase());
+    return normalizedText.includes(normalizedQuery);
   }
   // Fuzzy: all query words must be present
-  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-  const lowerText = text.toLowerCase();
-  return words.every((w) => lowerText.includes(w));
+  const words = normalizedQuery.split(/\s+/).filter(Boolean);
+  return words.every((w) => normalizedText.includes(w));
 }
 
 // Export pure functions for testing

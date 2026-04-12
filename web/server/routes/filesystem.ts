@@ -8,6 +8,7 @@ import { ensureAssistantWorkspace, ASSISTANT_DIR } from "../assistant-workspace.
 import { expandTilde } from "../path-resolver.js";
 import { getRipgrepPath } from "../ripgrep.js";
 import { SERVER_GIT_CMD } from "../constants.js";
+import { normalizeForSearch } from "../../shared/search-utils.js";
 import type { RouteContext } from "./context.js";
 
 const execPromise = promisify(execCb);
@@ -464,18 +465,19 @@ export function createFilesystemRoutes(ctx: RouteContext) {
         { cwd: searchRoot, timeout: 5000 },
       );
 
-      const queryLower = query.toLowerCase();
+      const queryNorm = normalizeForSearch(query);
       const files = stdout.split("\n").filter(Boolean);
       const matches: Array<{ path: string; name: string; score: number }> = [];
 
       for (const relPath of files) {
-        const lower = relPath.toLowerCase();
-        if (!lower.includes(queryLower)) continue;
+        const pathNorm = normalizeForSearch(relPath);
+        if (!pathNorm.includes(queryNorm)) continue;
 
         // Score: prefer filename matches over directory-only matches,
         // then shorter paths over longer ones
         const name = relPath.split("/").pop() || relPath;
-        const nameMatch = name.toLowerCase().includes(queryLower);
+        const nameNorm = pathNorm.split("/").pop() || pathNorm;
+        const nameMatch = nameNorm.includes(queryNorm);
         const score = (nameMatch ? 0 : 1000) + relPath.length;
 
         matches.push({ path: relPath, name, score });
