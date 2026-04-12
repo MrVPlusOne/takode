@@ -189,18 +189,12 @@ function deriveAttachmentPaths(sessionId: string, imageRefs: ImageRefForAttachme
   });
 }
 
-function formatAttachmentPathAnnotation(paths: string[]): string {
-  if (paths.length === 0) return "";
-  const numbered = paths.map((path, idx) => `Attachment ${idx + 1}: ${path}`).join("\n");
-  return `\n[📎 Inline image file paths (same order as images above):\n${numbered}]`;
-}
-
 /**
- * SDK-specific annotation that explicitly instructs Claude to use the Read tool.
- * The Claude Code CLI doesn't support image content blocks via stdin transport
- * (only the WebSocket path handles them), so SDK sessions rely on the Read tool.
+ * Annotation that instructs Claude to use the Read tool to view image attachments
+ * from disk. Used by all backends (CLI/WebSocket, SDK, and Codex) to avoid
+ * embedding base64 image data in the API request body.
  */
-function formatSdkAttachmentPathAnnotation(paths: string[]): string {
+function formatAttachmentPathAnnotation(paths: string[]): string {
   if (paths.length === 0) return "";
   const numbered = paths.map((path, idx) => `Attachment ${idx + 1}: ${path}`).join("\n");
   return `\n[📎 Image attachments — use the Read tool to view these files:\n${numbered}]`;
@@ -7493,7 +7487,7 @@ export class WsBridge {
           // image from disk.
           if (userImageRefs?.length) {
             const paths = deriveAttachmentPaths(session.id, userImageRefs);
-            annotatedContent = (msg.content || "") + formatSdkAttachmentPathAnnotation(paths);
+            annotatedContent = (msg.content || "") + formatAttachmentPathAnnotation(paths);
           }
           const stripped = { ...adapterMsg, content: annotatedContent } as BrowserOutgoingMessage;
           delete (stripped as { images?: unknown }).images;
@@ -8063,31 +8057,20 @@ export class WsBridge {
     const imageRefs = ingested.imageRefs;
     const userMsgHistoryIdx = ingested.historyIndex;
 
-    // Build content: if images are present, convert unsupported formats and use
-    // content block array; otherwise plain string. Conversion operates on copies
-    // so that the original base64 data stored to disk is not affected.
+    // Build content: if images are present, send file path annotations instead of
+    // inline base64 to avoid bloating the API request body. The CLI's Read tool
+    // resolves images from disk on demand.
     const selectionText = msg.vscodeSelection ? this.formatVsCodeSelectionPrompt(msg.vscodeSelection) : null;
     let content: string | unknown[];
-    if (msg.images?.length) {
-      const blocks: unknown[] = [];
-      for (const img of msg.images) {
-        blocks.push({
-          type: "image",
-          source: { type: "base64", media_type: img.media_type, data: img.data },
-        });
-      }
-      // Append image file paths to the text block so the leader can see them
-      // in real-time and forward to herded workers via takode send.
-      let textContent = msg.content;
-      if (imageRefs?.length) {
-        const paths = deriveAttachmentPaths(session.id, imageRefs);
-        textContent += formatAttachmentPathAnnotation(paths);
-      }
-      blocks.push({ type: "text", text: textContent });
-      if (selectionText) {
-        blocks.push({ type: "text", text: selectionText });
-      }
-      content = blocks;
+    if (msg.images?.length && imageRefs?.length) {
+      const paths = deriveAttachmentPaths(session.id, imageRefs);
+      const textContent = msg.content + formatAttachmentPathAnnotation(paths);
+      content = selectionText
+        ? [
+            { type: "text", text: textContent },
+            { type: "text", text: selectionText },
+          ]
+        : textContent;
     } else {
       content = selectionText
         ? [

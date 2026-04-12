@@ -4161,7 +4161,7 @@ describe("Browser message routing", () => {
     );
   });
 
-  it("user_message with images: non-SDK Claude keeps inline image blocks when imageStore is enabled", async () => {
+  it("user_message with images: non-SDK Claude sends file path annotations instead of inline base64", async () => {
     const mockImageStore = {
       store: vi
         .fn()
@@ -4186,19 +4186,15 @@ describe("Browser message routing", () => {
     expect(cli.send).toHaveBeenCalledTimes(1);
     const sentRaw = cli.send.mock.calls[0][0] as string;
     const sent = JSON.parse(sentRaw.trim());
-    expect(Array.isArray(sent.message.content)).toBe(true);
-    expect(sent.message.content).toHaveLength(3);
-    expect(sent.message.content[0].type).toBe("image");
-    expect(sent.message.content[1].type).toBe("image");
-    expect(sent.message.content[2].type).toBe("text");
-    // Images are sent as-is (no conversion) since resize happens at store time
-    expect(sent.message.content[0].source.data).toBe("img1-base64");
-    expect(sent.message.content[1].source.data).toBe("img2-base64");
-
+    // Images should be sent as file path annotations (plain text), not inline base64 blocks.
+    // This avoids bloating the API request body with base64 data.
+    expect(typeof sent.message.content).toBe("string");
     const expectedPath1 = join(homedir(), ".companion", "images", "s1", "img-1.orig.png");
     const expectedPath2 = join(homedir(), ".companion", "images", "s1", "img-2.orig.jpeg");
-    expect(sent.message.content[2].text).toContain(`Attachment 1: ${expectedPath1}`);
-    expect(sent.message.content[2].text).toContain(`Attachment 2: ${expectedPath2}`);
+    expect(sent.message.content).toContain("Please compare these");
+    expect(sent.message.content).toContain(`Attachment 1: ${expectedPath1}`);
+    expect(sent.message.content).toContain(`Attachment 2: ${expectedPath2}`);
+    expect(sent.message.content).toContain("use the Read tool to view these files");
 
     expect(mockImageStore.store).toHaveBeenCalledTimes(2);
   });
@@ -11662,7 +11658,7 @@ describe("Codex resumed-turn recovery", () => {
     const expectedPath = join(homedir(), ".companion", "images", sid, "img-1.orig.png");
     expect((getPendingCodexTurn(bridge.getSession(sid)!) as any)?.userContent).toBe(
       "describe this screenshot\n" +
-        "[📎 Inline image file paths (same order as images above):\n" +
+        "[📎 Image attachments — use the Read tool to view these files:\n" +
         `Attachment 1: ${expectedPath}]`,
     );
 
@@ -11693,7 +11689,7 @@ describe("Codex resumed-turn recovery", () => {
                   type: "text",
                   text:
                     "describe this screenshot\n" +
-                    "[📎 Inline image file paths (same order as images above):\n" +
+                    "[📎 Image attachments — use the Read tool to view these files:\n" +
                     `Attachment 1: ${expectedPath}]`,
                 },
               ],
