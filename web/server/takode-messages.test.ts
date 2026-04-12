@@ -5,6 +5,7 @@ import {
   buildPeekResponse,
   buildReadResponse,
   buildToolSummary,
+  grepMessageHistory,
 } from "./takode-messages.js";
 import type { BrowserIncomingMessage, CLIResultMessage } from "./session-types.js";
 
@@ -618,5 +619,72 @@ describe("buildReadResponse", () => {
     const result = buildReadResponse(history, 2)!;
     expect(result.type).toBe("tool_result_preview");
     expect(result.content).toContain("[Tool Result] file contents here");
+  });
+});
+
+// ─── grepMessageHistory ───────────────────────────────────────────────────────
+
+describe("grepMessageHistory", () => {
+  const history: BrowserIncomingMessage[] = [
+    userMsg("How do I combine image and quality filters?", 1000),
+    assistantMsg("You can use the pipe operator to combine them.", 2000),
+    resultMsg(500),
+  ];
+
+  it("returns matches for a valid regex pattern", () => {
+    const result = grepMessageHistory(history, "pipe");
+    expect(result.totalMatches).toBe(1);
+    expect(result.matches[0].snippet).toContain("pipe");
+    expect(result.warning).toBeUndefined();
+  });
+
+  it("supports ERE alternation with |", () => {
+    const result = grepMessageHistory(history, "image|quality");
+    expect(result.totalMatches).toBeGreaterThanOrEqual(1);
+    expect(result.warning).toBeUndefined();
+  });
+
+  // Backslash-pipe (\|) matches a literal pipe in JS regex, not alternation.
+  // When this yields 0 matches, a warning should help the user.
+  it("warns when \\| pattern returns zero matches", () => {
+    const result = grepMessageHistory(history, "image\\|quality");
+    expect(result.totalMatches).toBe(0);
+    expect(result.warning).toMatch(/literal pipe/);
+    expect(result.warning).toContain('"|"');
+  });
+
+  // If \| actually matches content (message contains a literal pipe), no warning.
+  it("does not warn when \\| pattern finds matches", () => {
+    const historyWithPipe: BrowserIncomingMessage[] = [
+      userMsg("image|quality is a valid filter", 1000),
+    ];
+    const result = grepMessageHistory(historyWithPipe, "image\\|quality");
+    expect(result.totalMatches).toBe(1);
+    expect(result.warning).toBeUndefined();
+  });
+
+  it("does not warn for zero matches without \\|", () => {
+    const result = grepMessageHistory(history, "nonexistent_xyz");
+    expect(result.totalMatches).toBe(0);
+    expect(result.warning).toBeUndefined();
+  });
+
+  it("falls back to literal match for invalid regex", () => {
+    // Unbalanced bracket is invalid regex -- should fall back to literal match
+    const historyWithBracket: BrowserIncomingMessage[] = [
+      userMsg("array[0 is broken syntax", 1000),
+    ];
+    const result = grepMessageHistory(historyWithBracket, "array[0");
+    expect(result.totalMatches).toBe(1);
+    expect(result.warning).toBeUndefined();
+  });
+
+  it("respects the limit option", () => {
+    const bigHistory: BrowserIncomingMessage[] = Array.from({ length: 10 }, (_, i) =>
+      userMsg(`message ${i} with keyword`, i * 1000),
+    );
+    const result = grepMessageHistory(bigHistory, "keyword", { limit: 3 });
+    expect(result.totalMatches).toBe(10);
+    expect(result.matches).toHaveLength(3);
   });
 });

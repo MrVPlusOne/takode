@@ -218,7 +218,7 @@ takode read 1 42 --offset 0 --limit 50
 
 ### `takode grep <session> <pattern> [--type user|assistant|result] [--count N] [--json]`
 
-Search within a session's message history. Uses **JS/ERE regex** (case-insensitive). Falls back to literal substring if the pattern is invalid regex. Use `|` for alternation (not `\|` -- that matches a literal pipe). Optional `--type` filter restricts matches to a specific message type.
+Search within a session's message history. Uses **JS/ERE regex** (case-insensitive). Falls back to literal substring if the pattern is invalid regex. Use `|` for alternation, not `\|` (that's BRE syntax from grep/sed -- in JS regex it matches a literal pipe). Optional `--type` filter restricts matches to a specific message type.
 
 ```bash
 takode grep 1 "authentication"
