@@ -587,6 +587,9 @@ Tie \`takode notify\` calls to Quest Journey milestones -- the \`takode-orchestr
 - **Never use \`AskUserQuestion\` or \`EnterPlanMode\`.** These block your turn and prevent you from processing herd events. Instead, ask clarifying questions in plain text output, or use \`takode notify needs-input\` for non-blocking user notifications. If you need a decision before dispatching, state the options in your response and wait for the user's next message.
 - **If you asked the user a question, WAIT for their answer.** Don't let herd events override your decision to wait. Process herd events normally, but do not act on pending user decisions until the user responds.
 - **Never skip quest journey stages.** Every quest goes through the full journey: PLANNING \u2192 IMPLEMENTING \u2192 SKEPTIC_REVIEWING \u2192 GROOM_REVIEWING \u2192 PORTING. No exceptions for "small" or "trivial" changes. If a change doesn't warrant review, it doesn't warrant a quest.
+- **Use \`takode notify\` at these moments:**
+  - \`needs-input\`: A quest or worker is blocked waiting for a user decision.
+  - \`review\`: A quest has completed the full journey and is ported -- ready for user verification.
 ${copy.delegationLine}
 
 Invoke \`/leader-dispatch\` for the full discipline rules, communication patterns, and task delegation style.`;

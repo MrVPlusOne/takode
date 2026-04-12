@@ -2376,6 +2376,9 @@ describe("getOrchestratorGuardrails", () => {
     // Leader discipline: wait for user answer, no skipping stages
     expect(guardrails).toContain("WAIT for their answer");
     expect(guardrails).toContain("Never skip quest journey stages");
+    expect(guardrails).toContain("takode notify");
+    expect(guardrails).toContain("needs-input");
+    expect(guardrails).toContain("review");
     // Detailed content moved to sub-skill files, not inline
     expect(guardrails).not.toContain("takode list [--active] [--all]");
     expect(guardrails).not.toContain("takode peek <session> [--from N]");

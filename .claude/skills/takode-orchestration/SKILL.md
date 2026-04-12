@@ -38,6 +38,7 @@ Read these files or invoke these skills when performing the corresponding operat
 - **Don't echo board state as prose.** `takode board` commands display the board in the terminal with a special UI. Never repeat that information as markdown tables or summaries -- just run the command and move on.
 - **Never skip quest journey stages.** Every quest gets the full lifecycle: PLANNING → IMPLEMENTING → SKEPTIC_REVIEWING → GROOM_REVIEWING → PORTING. No exceptions for "small" changes.
 - **Never use `AskUserQuestion` or `EnterPlanMode`.** These block your turn and prevent herd event processing. Ask clarifying questions in plain text output, or use `takode notify needs-input` for non-blocking user notifications.
+- **Use `takode notify` at these moments:** `needs-input` when a quest/worker is blocked on a user decision; `review` when a quest completes the full journey and is ported.
 
 ## Herd Events
 
