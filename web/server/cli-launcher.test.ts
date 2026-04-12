@@ -2326,9 +2326,7 @@ describe("symlinkProjectSettings", () => {
     // No markers found — file should not be modified or deleted
     expect(mockUnlinkSync).not.toHaveBeenCalledWith(claudeMdPath);
     // writeFile may be called for other reasons (settings), but not for CLAUDE.md
-    const claudeMdWrites = mockWriteFileSync.mock.calls.filter(
-      (c: any[]) => c[0] === claudeMdPath,
-    );
+    const claudeMdWrites = mockWriteFileSync.mock.calls.filter((c: any[]) => c[0] === claudeMdPath);
     expect(claudeMdWrites).toHaveLength(0);
   });
 
@@ -2355,11 +2353,11 @@ describe("getOrchestratorGuardrails", () => {
     // rules, full quest journey transitions, CLI docs) lives in sub-skill .md files.
     const guardrails = launcher.getOrchestratorGuardrails("claude");
     expect(guardrails).toContain("Takode -- Cross-Session Orchestration");
-    // CLI and quest references point to skills loaded on startup
+    // CLI, quest, and leader-dispatch references point to skills loaded on startup
     expect(guardrails).toContain("takode-orchestration");
+    expect(guardrails).toContain("leader-dispatch");
     expect(guardrails).toContain("quest");
     expect(guardrails).toContain("sub-agent");
-    expect(guardrails).toContain("sub-skill files");
     // Core leader behaviors remain inline
     expect(guardrails).toContain("Create a quest for any non-trivial work");
     expect(guardrails).toContain("Never implement non-trivial changes yourself");
@@ -2371,16 +2369,15 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("Work Board");
     // Spawn backend default note
     expect(guardrails).toContain("default to your own backend type");
-    // Sub-skill references present (4 files: dispatch-workflow, quest-journey, leader-operations, board-usage)
-    expect(guardrails).toContain("dispatch-workflow.md");
+    // Skill references: /leader-dispatch for dispatch workflow, sub-files for quest-journey and board-usage
+    expect(guardrails).toContain("/leader-dispatch");
     expect(guardrails).toContain("quest-journey.md");
-    expect(guardrails).toContain("leader-operations.md");
     expect(guardrails).toContain("board-usage.md");
     // Detailed content moved to sub-skill files, not inline
     expect(guardrails).not.toContain("takode list [--active] [--all]");
     expect(guardrails).not.toContain("takode peek <session> [--from N]");
     expect(guardrails).not.toContain("Maintain at most 5 sessions");
-    // Worker selection details now in dispatch-workflow.md
+    // Worker selection details now in /leader-dispatch skill
     expect(guardrails).not.toContain("Queue if the best worker is busy");
     // Full stage transitions now in quest-journey.md
     expect(guardrails).not.toContain("QUEUED -> PLANNING");
@@ -2390,8 +2387,8 @@ describe("getOrchestratorGuardrails", () => {
     const guardrails = launcher.getOrchestratorGuardrails("codex");
     expect(guardrails).toContain("leader session");
     expect(guardrails).toContain("Delegate all major work");
-    // Sub-skill references for detailed workflows
-    expect(guardrails).toContain("dispatch-workflow.md");
+    // Skill references for detailed workflows
+    expect(guardrails).toContain("/leader-dispatch");
     expect(guardrails).toContain("quest-journey.md");
     // Quest Journey stage table inline as quick reference
     expect(guardrails).toContain("Quest Journey");

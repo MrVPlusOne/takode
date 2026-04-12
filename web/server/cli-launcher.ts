@@ -518,7 +518,7 @@ function renderOrchestratorGuardrails(copy: OrchestratorGuardrailCopy): string {
 
 You are an **orchestrator ${copy.orchestratorRole}**. You coordinate multiple worker sessions, monitor their progress, and decide when to intervene, send follow-up instructions, or notify the human.
 
-The \`takode-orchestration\` and \`quest\` skills are loaded on startup with full CLI references. Use them as your source of truth for command syntax and detailed usage. The \`takode-orchestration\` skill has sub-skill files for detailed workflows -- read them when performing the corresponding operation. When spawning workers, default to your own backend type unless the user specifies otherwise. If your session uses \`bypassPermissions\` (auto mode), spawned workers inherit auto mode.
+The \`takode-orchestration\`, \`leader-dispatch\`, and \`quest\` skills are loaded on startup with full CLI references. Use them as your source of truth for command syntax and detailed workflows. The \`takode-orchestration\` skill covers CLI commands, herd events, quest journey lifecycle, and the work board. The \`leader-dispatch\` skill covers the dispatch decision tree, worker selection, and dispatch templates -- invoke it before every dispatch. When spawning workers, default to your own backend type unless the user specifies otherwise. If your session uses \`bypassPermissions\` (auto mode), spawned workers inherit auto mode.
 
 ## Quests as the Unit of Work
 
@@ -535,7 +535,7 @@ Events from herded sessions are delivered automatically as \`[Herd]\` user messa
 - **\`[Herd HH:MM]\`** -- automatic event summary from herded sessions
 ${copy.forwardedSessionLine}
 
-Read \`leader-operations.md\` from the \`takode-orchestration\` skill for the full event type reference and reaction rules.
+The \`takode-orchestration\` skill has the full event type table and reaction rules inline in its Herd Events section.
 
 ## Quest Journey
 
@@ -556,7 +556,7 @@ Read \`quest-journey.md\` from the \`takode-orchestration\` skill for full stage
 
 ## Worker Selection
 
-Before dispatching any quest, read and follow \`dispatch-workflow.md\` from the \`takode-orchestration\` skill. It walks through checking the board, evaluating idle workers, and deciding whether to reuse, queue, or spawn fresh.
+Before dispatching any quest, invoke \`/leader-dispatch\`. It walks through checking the board, evaluating idle workers, and deciding whether to reuse, queue, or spawn fresh.
 
 ## Skeptic Review
 
@@ -569,7 +569,7 @@ The work board (\`takode board show\`) is your primary coordination tool. Read \
 
 ## User Notifications
 
-Tie \`takode notify\` calls to Quest Journey milestones -- see \`leader-operations.md\` for notification categories and rules.
+Tie \`takode notify\` calls to Quest Journey milestones -- the \`takode-orchestration\` skill has notification categories and rules in its User Notifications section.
 
 ## Leader Discipline
 
@@ -580,7 +580,7 @@ Tie \`takode notify\` calls to Quest Journey milestones -- see \`leader-operatio
 - **Always spawn with worktrees.** Never use \`--no-worktree\` unless the user explicitly asks for it. Even investigation and debugging tasks should get worktrees -- they almost always lead to code changes.
 ${copy.delegationLine}
 
-Read \`leader-operations.md\` from the \`takode-orchestration\` skill for the full discipline rules, communication patterns, and task delegation style.`;
+Invoke \`/leader-dispatch\` for the full discipline rules, communication patterns, and task delegation style.`;
 }
 
 /**
@@ -2116,9 +2116,7 @@ export class CliLauncher {
       const endIdx = content.indexOf(STALE_END);
       if (startIdx === -1 || endIdx === -1) return;
 
-      const cleaned = (
-        content.slice(0, startIdx) + content.slice(endIdx + STALE_END.length)
-      ).trim();
+      const cleaned = (content.slice(0, startIdx) + content.slice(endIdx + STALE_END.length)).trim();
 
       if (cleaned.length === 0) {
         await unlink(claudeMdPath);
@@ -2130,10 +2128,10 @@ export class CliLauncher {
 
       // Hide the change from git status so it doesn't pollute the worktree
       try {
-        await execPromise(
-          `git --no-optional-locks update-index --skip-worktree .claude/CLAUDE.md`,
-          { cwd: worktreePath, timeout: 5000 },
-        );
+        await execPromise(`git --no-optional-locks update-index --skip-worktree .claude/CLAUDE.md`, {
+          cwd: worktreePath,
+          timeout: 5000,
+        });
       } catch (e) {
         console.debug(`[cli-launcher] Could not mark .claude/CLAUDE.md skip-worktree:`, e);
       }

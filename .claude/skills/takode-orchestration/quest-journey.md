@@ -28,7 +28,7 @@ Every dispatched task follows the Quest Journey lifecycle. The work board (`tako
 
 ## QUEUED -> PLANNING
 
-- Choose a worker and send the standardized dispatch message by following [dispatch-workflow.md](dispatch-workflow.md)
+- Choose a worker and send the standardized dispatch message by invoking `/leader-dispatch`
 - `takode board set <quest-id> --worker <N> --status PLANNING`
 
 ## PLANNING -> IMPLEMENTING
@@ -106,7 +106,7 @@ When the user provides feedback on a completed quest (in `needs_verification` or
 2. **Reset the quest state**: `quest transition <id> --status refined`
 3. **Dispatch for full quest journey**: Treat the rework as a fresh dispatch. The quest goes through PLANNING -> IMPLEMENTING -> SKEPTIC_REVIEWING -> GROOM_REVIEWING -> PORTING again, ensuring rework gets the same review rigor as the original implementation. Never skip review steps for "small" feedback fixes.
 4. **Prefer the original worker** if still available -- it has the most context from the first implementation. Check `takode list` for idle/disconnected workers with matching quest history.
-5. **Use the rework dispatch template** from dispatch-workflow.md, which explicitly tells the worker to check and address feedback.
+5. **Use the rework dispatch template** from `/leader-dispatch`, which explicitly tells the worker to check and address feedback.
 6. **The worker must mark each feedback entry as addressed**: `quest address <id> <index>` after fixing each item. This is a hard requirement -- the leader should verify via `quest show <id>` that all feedback entries are marked addressed before accepting the rework.
 
 This loop can repeat multiple times. Each round is a full quest journey.

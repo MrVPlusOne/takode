@@ -227,11 +227,11 @@ const CODEX_TOOL_RESULT_WATCHDOG_MS = 120_000;
 // orchestration skills and refresh herd state before making decisions.
 const LEADER_COMPACTION_RECOVERY_PROMPT = `Context was compacted. Before continuing, reload your orchestration state:
 
-1. Load skills: /takode-orchestration and /quest
-2. Run: takode board show && takode list --tasks
+1. Load skills: /takode-orchestration, /leader-dispatch, and /quest
+2. Run: takode board show && takode list
 3. Key rules:
    - Use \`takode spawn\` to create workers (never Agent tool)
-   - Follow dispatch-workflow.md template for every dispatch
+   - Invoke /leader-dispatch before every dispatch
    - Follow quest-journey.md for lifecycle transitions
    - Update the board (\`takode board set/advance\`) at every stage transition
    - Never implement non-trivial changes yourself -- delegate to workers`;
