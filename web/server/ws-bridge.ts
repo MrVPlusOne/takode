@@ -197,7 +197,7 @@ function deriveAttachmentPaths(sessionId: string, imageRefs: ImageRefForAttachme
 function formatAttachmentPathAnnotation(paths: string[]): string {
   if (paths.length === 0) return "";
   const numbered = paths.map((path, idx) => `Attachment ${idx + 1}: ${path}`).join("\n");
-  return `\n[📎 Image attachments — use the Read tool to view these files:\n${numbered}]`;
+  return `\n[📎 Image attachments -- use the Read tool to view these files:\n${numbered}]`;
 }
 
 function buildPendingCodexImageDrafts(
@@ -8064,7 +8064,7 @@ export class WsBridge {
     let content: string | unknown[];
     if (msg.images?.length && imageRefs?.length) {
       const paths = deriveAttachmentPaths(session.id, imageRefs);
-      const textContent = msg.content + formatAttachmentPathAnnotation(paths);
+      const textContent = (msg.content || "") + formatAttachmentPathAnnotation(paths);
       content = selectionText
         ? [
             { type: "text", text: textContent },

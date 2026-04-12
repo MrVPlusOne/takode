@@ -11658,7 +11658,7 @@ describe("Codex resumed-turn recovery", () => {
     const expectedPath = join(homedir(), ".companion", "images", sid, "img-1.orig.png");
     expect((getPendingCodexTurn(bridge.getSession(sid)!) as any)?.userContent).toBe(
       "describe this screenshot\n" +
-        "[📎 Image attachments — use the Read tool to view these files:\n" +
+        "[📎 Image attachments -- use the Read tool to view these files:\n" +
         `Attachment 1: ${expectedPath}]`,
     );
 
@@ -11689,7 +11689,7 @@ describe("Codex resumed-turn recovery", () => {
                   type: "text",
                   text:
                     "describe this screenshot\n" +
-                    "[📎 Image attachments — use the Read tool to view these files:\n" +
+                    "[📎 Image attachments -- use the Read tool to view these files:\n" +
                     `Attachment 1: ${expectedPath}]`,
                 },
               ],
