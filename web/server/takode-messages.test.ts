@@ -3,6 +3,7 @@ import {
   buildPeekDefault,
   buildPeekRange,
   buildPeekResponse,
+  buildPeekTurnScan,
   buildReadResponse,
   buildToolSummary,
   grepMessageHistory,
@@ -89,12 +90,18 @@ function resultMsg(durationMs: number, isError = false): BrowserIncomingMessage 
 }
 
 /** Create a compact_marker entry. */
-function compactMarker(summary: string, ts: number): BrowserIncomingMessage {
+function compactMarker(
+  summary: string,
+  ts: number,
+  opts?: { trigger?: "auto" | "manual"; preTokens?: number },
+): BrowserIncomingMessage {
   return {
     type: "compact_marker",
     timestamp: ts,
     summary,
     id: `compact-${ts}`,
+    ...(opts?.trigger ? { trigger: opts.trigger } : {}),
+    ...(opts?.preTokens ? { preTokens: opts.preTokens } : {}),
   } as BrowserIncomingMessage;
 }
 
@@ -737,5 +744,107 @@ describe("grepMessageHistory", () => {
     const result = grepMessageHistory(bigHistory, "keyword", { limit: 3 });
     expect(result.totalMatches).toBe(10);
     expect(result.matches).toHaveLength(3);
+  });
+});
+
+// ─── Compaction events in scan and peek ──────────────────────────────────────
+
+describe("buildPeekTurnScan compactionEvents", () => {
+  it("returns compaction events between turns", () => {
+    // Turn 0: user -> result, then compaction, then Turn 1: user -> result
+    const history: BrowserIncomingMessage[] = [
+      userMsg("first task", 1000),
+      assistantMsg("working on it", 1100),
+      resultMsg(500),
+      compactMarker("Context compacted to 4%", 2000, { trigger: "auto", preTokens: 50000 }),
+      userMsg("second task", 3000),
+      assistantMsg("done", 3100),
+      resultMsg(300),
+    ];
+
+    const result = buildPeekTurnScan(history);
+    expect(result.turns).toHaveLength(2);
+    expect(result.compactionEvents).toBeDefined();
+    expect(result.compactionEvents).toHaveLength(1);
+
+    const event = result.compactionEvents![0];
+    expect(event.idx).toBe(3);
+    expect(event.ts).toBe(2000);
+    expect(event.trigger).toBe("auto");
+    expect(event.preTokens).toBe(50000);
+    expect(event.summary).toBe("Context compacted to 4%");
+    // Compaction is after turn 0 (which ends at idx 2)
+    expect(event.afterTurn).toBe(0);
+  });
+
+  it("omits compactionEvents field when no compaction events exist", () => {
+    const history: BrowserIncomingMessage[] = [
+      userMsg("hello", 1000),
+      assistantMsg("hi", 1100),
+      resultMsg(200),
+    ];
+
+    const result = buildPeekTurnScan(history);
+    expect(result.compactionEvents).toBeUndefined();
+  });
+
+  it("detects compaction before first turn", () => {
+    const history: BrowserIncomingMessage[] = [
+      compactMarker("Initial compaction", 500, { trigger: "manual" }),
+      userMsg("start", 1000),
+      resultMsg(200),
+    ];
+
+    const result = buildPeekTurnScan(history);
+    expect(result.compactionEvents).toHaveLength(1);
+    expect(result.compactionEvents![0].afterTurn).toBe(-1);
+  });
+
+  it("detects multiple compaction events", () => {
+    const history: BrowserIncomingMessage[] = [
+      userMsg("t1", 1000),
+      resultMsg(100),
+      compactMarker("First compaction", 2000),
+      userMsg("t2", 3000),
+      resultMsg(100),
+      compactMarker("Second compaction", 4000),
+      userMsg("t3", 5000),
+      resultMsg(100),
+    ];
+
+    const result = buildPeekTurnScan(history);
+    expect(result.turns).toHaveLength(3);
+    expect(result.compactionEvents).toHaveLength(2);
+    expect(result.compactionEvents![0].afterTurn).toBe(0);
+    expect(result.compactionEvents![1].afterTurn).toBe(1);
+  });
+});
+
+describe("buildPeekDefault compactionEvents", () => {
+  it("includes compaction events in default peek within visible range", () => {
+    const history: BrowserIncomingMessage[] = [
+      userMsg("t1", 1000),
+      resultMsg(100),
+      compactMarker("Compacted", 2000, { trigger: "auto" }),
+      userMsg("t2", 3000),
+      assistantMsg("response", 3100),
+      resultMsg(200),
+    ];
+
+    const result = buildPeekDefault(history);
+    expect(result.compactionEvents).toBeDefined();
+    expect(result.compactionEvents).toHaveLength(1);
+    expect(result.compactionEvents![0].summary).toBe("Compacted");
+  });
+
+  it("omits compactionEvents when none in visible range", () => {
+    const history: BrowserIncomingMessage[] = [
+      userMsg("hello", 1000),
+      assistantMsg("hi", 1100),
+      resultMsg(200),
+    ];
+
+    const result = buildPeekDefault(history);
+    expect(result.compactionEvents).toBeUndefined();
   });
 });

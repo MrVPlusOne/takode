@@ -81,6 +81,22 @@ export interface TakodePeekTurnSummary {
   agentSource?: { sessionId: string; sessionLabel?: string };
 }
 
+/** A compaction event that occurred between turns (or before the first turn). */
+export interface CompactionEvent {
+  /** Message index in history */
+  idx: number;
+  /** Timestamp of the compaction */
+  ts: number;
+  /** What triggered the compaction */
+  trigger?: "auto" | "manual";
+  /** Context tokens before compaction */
+  preTokens?: number;
+  /** Compaction summary text (if available) */
+  summary?: string;
+  /** Turn number this compaction falls after (-1 if before all turns) */
+  afterTurn: number;
+}
+
 export interface PeekDefaultResponse {
   mode: "default";
   totalTurns: number;
@@ -96,6 +112,8 @@ export interface PeekDefaultResponse {
         omittedMessageCount: number;
       })
     | null;
+  /** Compaction events within the visible turn range */
+  compactionEvents?: CompactionEvent[];
 }
 
 export interface PeekRangeResponse {
@@ -547,6 +565,42 @@ export function findTurnBoundaries(messages: BrowserIncomingMessage[]): TurnBoun
   return turns;
 }
 
+/**
+ * Find compact_marker messages within the given index range of the message history.
+ * For each marker, determines which turn it falls after (or within) based on the
+ * provided turn boundaries. A marker within a turn is associated with that turn.
+ */
+function findCompactionEvents(
+  messages: BrowserIncomingMessage[],
+  turns: TurnBoundary[],
+  startIdx: number,
+  endIdx: number,
+): CompactionEvent[] {
+  const events: CompactionEvent[] = [];
+  for (let i = startIdx; i <= endIdx; i++) {
+    const msg = messages[i];
+    if (msg.type !== "compact_marker") continue;
+    // Determine which turn this marker belongs to or falls after.
+    // Scan backwards: first turn whose start is <= marker index owns it.
+    let afterTurn = -1;
+    for (let t = turns.length - 1; t >= 0; t--) {
+      if (i >= turns[t].startIdx) {
+        afterTurn = t;
+        break;
+      }
+    }
+    events.push({
+      idx: i,
+      ts: extractTimestamp(msg),
+      trigger: msg.trigger === "auto" || msg.trigger === "manual" ? msg.trigger : undefined,
+      preTokens: msg.preTokens,
+      summary: msg.summary || undefined,
+      afterTurn,
+    });
+  }
+  return events;
+}
+
 /** Count tools, assistant messages, and Task subagents within a turn range. */
 function computeTurnStats(messages: BrowserIncomingMessage[], startIdx: number, endIdx: number): TurnStats {
   let tools = 0,
@@ -835,6 +889,17 @@ export function buildPeekDefault(
   const omittedMessageCount = Math.max(0, expandedMessages.length - expandLimit);
   const visibleMessages = expandedMessages.slice(-expandLimit);
 
+  // Find compaction events within the visible range (collapsed turns through expanded turn).
+  // When no collapsed turns are visible, scan from start of history (or after omitted turns)
+  // to catch markers before the expanded turn.
+  const visibleStart = collapsedSlice.length > 0
+    ? collapsedSlice[0].startIdx
+    : omittedTurnCount > 0
+      ? (allTurns[omittedTurnCount - 1].endIdx + 1)
+      : 0;
+  const visibleEnd = lastTurn.endIdx >= 0 ? lastTurn.endIdx : messageHistory.length - 1;
+  const compactionEvents = findCompactionEvents(messageHistory, allTurns, visibleStart, visibleEnd);
+
   return {
     mode: "default",
     totalTurns,
@@ -850,6 +915,7 @@ export function buildPeekDefault(
       stats: lastTurnStats,
       omittedMessageCount,
     },
+    ...(compactionEvents.length > 0 ? { compactionEvents } : {}),
   };
 }
 
@@ -1101,6 +1167,8 @@ export interface PeekTurnScanResponse {
   /** Number of turns returned in this page */
   returnedTurns: number;
   turns: TakodePeekTurnSummary[];
+  /** Compaction events that occurred within the scanned turn range */
+  compactionEvents?: CompactionEvent[];
 }
 
 /**
@@ -1121,7 +1189,12 @@ export function buildPeekTurnScan(
   const totalMessages = messageHistory.length;
 
   if (totalTurns === 0 || fromTurn >= totalTurns) {
-    return { mode: "turn_scan", totalTurns, totalMessages, fromTurn, returnedTurns: 0, turns: [] };
+    // Even with no turns in range, check for compaction events
+    const compactionEvents = findCompactionEvents(messageHistory, allTurns, 0, messageHistory.length - 1);
+    return {
+      mode: "turn_scan", totalTurns, totalMessages, fromTurn, returnedTurns: 0, turns: [],
+      ...(compactionEvents.length > 0 ? { compactionEvents } : {}),
+    };
   }
 
   const endTurn = Math.min(fromTurn + turnCount, totalTurns);
@@ -1161,7 +1234,17 @@ export function buildPeekTurnScan(
     };
   });
 
-  return { mode: "turn_scan", totalTurns, totalMessages, fromTurn, returnedTurns: turns.length, turns };
+  // Find compaction events within the scanned range
+  const firstTurn = slice[0];
+  const lastTurn = slice[slice.length - 1];
+  const scanStart = fromTurn === 0 ? 0 : firstTurn.startIdx;
+  const scanEnd = lastTurn.endIdx >= 0 ? lastTurn.endIdx : messageHistory.length - 1;
+  const compactionEvents = findCompactionEvents(messageHistory, allTurns, scanStart, scanEnd);
+
+  return {
+    mode: "turn_scan", totalTurns, totalMessages, fromTurn, returnedTurns: turns.length, turns,
+    ...(compactionEvents.length > 0 ? { compactionEvents } : {}),
+  };
 }
 
 // ─── Grep (within-session search) ─────────────────────────────────────────────

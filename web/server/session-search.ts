@@ -1,7 +1,7 @@
 import type { BrowserIncomingMessage, SessionTaskEntry } from "./session-types.js";
 import { normalizeForSearch } from "../shared/search-utils.js";
 
-export type SessionSearchMatchedField = "name" | "task" | "keyword" | "branch" | "path" | "repo" | "user_message";
+export type SessionSearchMatchedField = "name" | "task" | "keyword" | "branch" | "path" | "repo" | "user_message" | "compact_marker";
 
 export interface SessionSearchDocument {
   sessionId: string;
@@ -84,25 +84,38 @@ function messageMatchCandidate(
     if (scanned >= maxMessagesToScan) break;
     scanned++;
     const msg = history[i];
-    if (msg.type !== "user_message") continue;
-    const content = (msg.content || "").trim();
-    if (!content) continue;
-    if (!normalizeForSearch(content).includes(q)) continue;
 
-    const timestamp = typeof msg.timestamp === "number" ? msg.timestamp : (doc.lastActivityAt ?? doc.createdAt);
+    // Search user messages and compaction markers
+    if (msg.type === "user_message") {
+      const content = (msg.content || "").trim();
+      if (!content) continue;
+      if (!normalizeForSearch(content).includes(q)) continue;
 
-    return {
-      sessionId: doc.sessionId,
-      score: 500,
-      matchedField: "user_message",
-      matchContext: `message: ${buildSnippet(content, q)}`,
-      matchedAt: timestamp,
-      messageMatch: {
-        id: msg.id,
-        timestamp,
-        snippet: buildSnippet(content, q),
-      },
-    };
+      const timestamp = typeof msg.timestamp === "number" ? msg.timestamp : (doc.lastActivityAt ?? doc.createdAt);
+      return {
+        sessionId: doc.sessionId,
+        score: 500,
+        matchedField: "user_message",
+        matchContext: `message: ${buildSnippet(content, q)}`,
+        matchedAt: timestamp,
+        messageMatch: { id: msg.id, timestamp, snippet: buildSnippet(content, q) },
+      };
+    }
+
+    if (msg.type === "compact_marker") {
+      const content = (msg.summary || "[Context compacted]").trim();
+      if (!normalizeForSearch(content).includes(q)) continue;
+
+      const timestamp = typeof msg.timestamp === "number" ? msg.timestamp : (doc.lastActivityAt ?? doc.createdAt);
+      return {
+        sessionId: doc.sessionId,
+        score: 450,
+        matchedField: "compact_marker",
+        matchContext: `compaction: ${buildSnippet(content, q)}`,
+        matchedAt: timestamp,
+        messageMatch: { id: msg.id, timestamp, snippet: buildSnippet(content, q) },
+      };
+    }
   }
   return null;
 }

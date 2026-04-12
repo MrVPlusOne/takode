@@ -150,12 +150,17 @@ takode scan 1 --until 100           # 50 turns ending before turn 100 (turns 50-
 takode scan 1 --from 50 --count 20  # turns 50-69
 ```
 
-Each turn shows the trigger message and the assistant's response:
+Each turn shows the trigger message and the assistant's response. Compaction events appear as markers between turns:
 ```
 Turn 42 · [821]-[827] · 18:17-18:17 (15s) · 2 tools · ✓
   user: "check how #89 is doing"
   ...
   asst: "#89 has been idle since 2:02 PM..."
+── Context compacted [828] (auto) ──
+Turn 43 · [829]-[835] · 18:18-18:19 (45s) · 3 tools · ✓
+  user: "run the tests"
+  ...
+  asst: "All 142 tests passed."
 ```
 
 Use this to quickly understand what a session worked on across its entire history without reading every message. Drill into interesting turns with `takode peek <session> --turn <N>`.

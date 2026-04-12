@@ -114,4 +114,56 @@ describe("searchSessionDocuments", () => {
     const out = searchSessionDocuments(docs, { query: "board table" });
     expect(out.totalMatches).toBe(1);
   });
+
+  it("matches compact_marker content when searching for compaction", () => {
+    // Session with a compaction event in its history
+    const docs: SessionSearchDocument[] = [
+      {
+        sessionId: "s-compacted",
+        archived: false,
+        createdAt: 100,
+        messageHistory: [
+          { type: "user_message", content: "start task", timestamp: 1000, id: "m1" },
+          { type: "compact_marker", summary: "Context compacted to 4%", timestamp: 2000, id: "compact-2000" },
+          { type: "user_message", content: "continue work", timestamp: 3000, id: "m2" },
+        ],
+      },
+    ];
+
+    const out = searchSessionDocuments(docs, { query: "compacted" });
+    expect(out.totalMatches).toBe(1);
+    expect(out.results[0]).toMatchObject({
+      sessionId: "s-compacted",
+      matchedField: "compact_marker",
+    });
+    expect(out.results[0].matchContext).toContain("compaction:");
+  });
+
+  it("scores compact_marker matches below user_message matches", () => {
+    // Two sessions: one with compaction match, one with user message match
+    const docs: SessionSearchDocument[] = [
+      {
+        sessionId: "s-compact",
+        archived: false,
+        createdAt: 100,
+        messageHistory: [
+          { type: "compact_marker", summary: "Context compacted", timestamp: 1000, id: "c1" },
+        ],
+      },
+      {
+        sessionId: "s-user",
+        archived: false,
+        createdAt: 200,
+        messageHistory: [
+          { type: "user_message", content: "context compacted review", timestamp: 2000, id: "m1" },
+        ],
+      },
+    ];
+
+    const out = searchSessionDocuments(docs, { query: "compacted" });
+    expect(out.totalMatches).toBe(2);
+    // user_message (score 500) should rank above compact_marker (score 450)
+    expect(out.results[0].matchedField).toBe("user_message");
+    expect(out.results[1].matchedField).toBe("compact_marker");
+  });
 });
