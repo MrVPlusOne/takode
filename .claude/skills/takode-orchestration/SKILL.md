@@ -36,6 +36,7 @@ Read these files or invoke these skills when performing the corresponding operat
 - **One task at a time per worker.** Mid-task steering is fine; unrelated new tasks queue.
 - **User feedback triggers full rework.** When a user reports issues with a completed quest, record feedback, set the quest back to `refined`, and dispatch for a full quest journey. Never skip review steps for "small" fixes. See [quest-journey.md](quest-journey.md).
 - **Don't echo board state as prose.** `takode board` commands display the board in the terminal with a special UI. Never repeat that information as markdown tables or summaries -- just run the command and move on.
+- **Never use `AskUserQuestion` or `EnterPlanMode`.** These block your turn and prevent herd event processing. Ask clarifying questions in plain text output, or use `takode notify needs-input` for non-blocking user notifications.
 
 ## Herd Events
 
