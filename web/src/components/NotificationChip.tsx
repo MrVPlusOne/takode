@@ -5,6 +5,7 @@ import { api } from "../api.js";
 import type { SessionNotification, ChatMessage } from "../types.js";
 
 const EMPTY: SessionNotification[] = [];
+const EMPTY_MESSAGES: ChatMessage[] = [];
 
 function useNotifications(sessionId: string) {
   const all = useStore((s) => s.sessionNotifications?.get(sessionId)) ?? EMPTY;
@@ -43,7 +44,7 @@ function NotificationPreviewCard({
   onMouseLeave: () => void;
 }) {
   const cardRef = useRef<HTMLDivElement>(null);
-  const messages = useStore((s) => s.messages.get(sessionId)) ?? [];
+  const messages = useStore((s) => s.messages.get(sessionId)) ?? EMPTY_MESSAGES;
   const zoomLevel = useStore((s) => s.zoomLevel ?? 1);
 
   const targetIdx = useMemo(() => messages.findIndex((m) => m.id === messageId), [messages, messageId]);
@@ -243,7 +244,7 @@ function NotificationPopover({ sessionId, onClose }: { sessionId: string; onClos
   return createPortal(
     <div
       ref={popoverRef}
-      className="fixed bottom-14 right-3 z-50 w-80 max-h-[50vh] flex flex-col rounded-2xl border border-cc-border bg-cc-card/95 shadow-[0_25px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl overflow-hidden"
+      className="fixed bottom-14 right-3 z-50 w-80 max-w-[calc(100vw-1.5rem)] max-h-[50vh] flex flex-col rounded-2xl border border-cc-border bg-cc-card/95 shadow-[0_25px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl overflow-hidden"
       role="dialog"
       aria-label="Notification inbox"
     >

@@ -6463,7 +6463,7 @@ describe("Takode server-authoritative auth", () => {
   it("returns notification list via GET /sessions/:id/notifications", async () => {
     setupTakodeSessions();
     const mockNotifs = [
-      { id: "n-1", category: "review", timestamp: 1000, messageIndex: 5, done: false },
+      { id: "n-1", category: "review", timestamp: 1000, messageId: "mock-msg-5", done: false },
     ];
     bridge.getNotifications.mockReturnValue(mockNotifs);
 
