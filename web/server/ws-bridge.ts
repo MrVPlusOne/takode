@@ -1375,10 +1375,12 @@ export class WsBridge {
         }
 
         // Check whether the CLI has been active recently — either a real
-        // message, a keep_alive ping, or sub-agent tool_progress within the
-        // threshold. Sub-agent progress prevents false "stuck" warnings when
-        // the main agent is idle waiting for long-running async sub-agents.
-        const lastActivity = Math.max(session.lastCliMessageAt, session.lastCliPingAt, session.lastToolProgressAt);
+        // message or sub-agent tool_progress within the threshold.
+        // keep_alive pings are excluded — they indicate the CLI process is
+        // alive (network liveness), not that it's doing work. Including them
+        // would prevent stuck detection from ever firing on sessions whose
+        // CLI is alive but not producing output (e.g. missed result message).
+        const lastActivity = Math.max(session.lastCliMessageAt, session.lastToolProgressAt);
         const sinceLastActivity = lastActivity > 0 ? now - lastActivity : now - session.generationStartedAt;
 
         if (sinceLastActivity < STUCK_THRESHOLD_MS) {

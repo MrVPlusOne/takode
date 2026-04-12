@@ -15241,6 +15241,42 @@ describe("stuck session watchdog", () => {
     vi.useRealTimers();
   });
 
+  it("detects stuck session even when keep_alive pings are recent", () => {
+    // Regression test for q-237: keep_alive pings indicate the CLI process
+    // is alive (network liveness) but should NOT be treated as real activity.
+    // A session with stale lastCliMessageAt but recent lastCliPingAt is stuck.
+    vi.useFakeTimers();
+    const sid = "s-stuck-keepalive";
+    const cli = makeCliSocket(sid);
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    bridge.handleCLIOpen(cli, sid);
+    bridge.handleCLIMessage(cli, makeInitMsg());
+
+    const session = bridge.getSession(sid)!;
+
+    // Generation started 3 minutes ago, no real CLI output since
+    const threeMinAgo = Date.now() - 180_000;
+    session.isGenerating = true;
+    session.generationStartedAt = threeMinAgo;
+    session.lastCliMessageAt = threeMinAgo;
+    // But keep_alive pings are recent (CLI process is alive)
+    session.lastCliPingAt = Date.now() - 10_000;
+    session.stuckNotifiedAt = null;
+
+    bridge.startStuckSessionWatchdog();
+
+    vi.advanceTimersByTime(31_000);
+
+    // Should be flagged as stuck despite recent keep_alive pings
+    const sentMessages = browser.send.mock.calls.map((c: any) => JSON.parse(c[0]));
+    const stuckMessages = sentMessages.filter((m: any) => m.type === "session_stuck");
+    expect(stuckMessages).toHaveLength(1);
+
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  });
+
   it("sends session_unstuck when CLI activity resumes", () => {
     vi.useFakeTimers();
     const sid = "s-stuck-recover";
