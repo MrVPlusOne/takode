@@ -318,6 +318,8 @@ export interface Turn {
   allEntries: FeedEntry[];
   agentEntries: FeedEntry[];
   systemEntries: FeedEntry[];
+  /** Messages with notification chips -- always visible even when the turn is collapsed. */
+  notificationEntries: FeedEntry[];
   responseEntry: FeedEntry | null;
   promotedEntries: FeedEntry[];
   /** Sub-conclusions: assistant messages that precede herd events, shown in collapsed view */
@@ -519,6 +521,17 @@ function makeTurn(userEntry: FeedEntry | null, entries: FeedEntry[], turnIndex: 
   // Count stats on ALL agent entries before extracting the response
   const s = countEntryStats(agentEntries);
 
+  // Extract messages with notification chips -- always visible like systemEntries.
+  // Splice in reverse to avoid index shifting. Done before responseEntry extraction
+  // so a notification message isn't accidentally chosen as the response preview.
+  const notificationEntries: FeedEntry[] = [];
+  for (let i = agentEntries.length - 1; i >= 0; i--) {
+    const e = agentEntries[i];
+    if (e.kind === "message" && e.msg.notification) {
+      notificationEntries.unshift(agentEntries.splice(i, 1)[0]);
+    }
+  }
+
   // Extract the default-visible response entry (last assistant text message).
   // This is the preview shown when a turn is collapsed. Both normal and leader
   // sessions use the same rule: pick the last assistant message with text content,
@@ -597,13 +610,16 @@ function makeTurn(userEntry: FeedEntry | null, entries: FeedEntry[], turnIndex: 
     allEntries,
     agentEntries,
     systemEntries,
+    notificationEntries,
     responseEntry,
     promotedEntries,
     subConclusions,
     stats: {
-      // Subtract responseEntry, promotedEntries (@to(user)), and hidden @to(self) entries;
-      // remaining count reflects unmarked internal messages still in agentEntries.
-      messageCount: s.messages - (responseEntry ? 1 : 0) - promotedEntries.length - selfAddressedCount,
+      // Subtract responseEntry, promotedEntries (@to(user)), notificationEntries,
+      // and hidden @to(self) entries; remaining count reflects unmarked internal
+      // messages still in agentEntries.
+      messageCount:
+        s.messages - (responseEntry ? 1 : 0) - promotedEntries.length - notificationEntries.length - selfAddressedCount,
       toolCount: s.tools,
       subagentCount: s.subagents,
       herdEventCount: s.herdEvents,

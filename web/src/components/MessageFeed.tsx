@@ -2171,6 +2171,17 @@ const TurnEntries = memo(function TurnEntries({
                             onOpenCodexTerminal={onOpenCodexTerminal}
                           />
                         )}
+                        {/* Notification messages — always visible, like systemEntries */}
+                        {turn.notificationEntries.length > 0 && (
+                          <FeedEntries
+                            entries={turn.notificationEntries}
+                            sessionId={sessionId}
+                            minuteBoundaryLabels={minuteBoundaryLabels}
+                            isCodexSession={isCodexSession}
+                            activeCodexTerminalIds={activeCodexTerminalIds}
+                            onOpenCodexTerminal={onOpenCodexTerminal}
+                          />
+                        )}
                         {/* Collapsed: activity bar (with optional response) in a card, @to(user) messages rendered outside */}
                         {(turn.agentEntries.length > 0 || turn.responseEntry) && (
                           <div className="flex items-start gap-3">

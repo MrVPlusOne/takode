@@ -152,6 +152,7 @@ function makeTurnForSections({
     allEntries: [...systemEntries, ...agentEntries, ...promotedEntries, ...(responseEntry ? [responseEntry] : [])],
     agentEntries,
     systemEntries,
+    notificationEntries: [],
     responseEntry,
     promotedEntries,
     subConclusions: [],
@@ -3676,5 +3677,37 @@ describe("MessageFeed - collapsed turns", () => {
 
     expect(screen.queryByText("Read File")).toBeNull();
     expect(screen.getAllByText(/1 tool/)).toHaveLength(2);
+  });
+
+  // q-277: notification-bearing assistant messages should remain visible even
+  // when the turn is collapsed. They are extracted into notificationEntries
+  // (separate from agentEntries) and rendered outside the collapsed card.
+  it("keeps notification-bearing messages visible when turn is collapsed", () => {
+    const sid = "test-collapsed-notification-visible";
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Deploy the fix" }),
+      // Internal assistant message (will be hidden when collapsed)
+      makeMessage({ id: "a1", role: "assistant", content: "Running tests and building..." }),
+      // Assistant message with a notification chip (should stay visible)
+      makeMessage({
+        id: "a2",
+        role: "assistant",
+        content: "Quest q-99 ready for verification",
+        notification: { category: "review", timestamp: Date.now(), summary: "q-99 ready for verification" },
+      }),
+      // Final response (shown as collapsed preview)
+      makeMessage({ id: "a3", role: "assistant", content: "All done, ported to main." }),
+      // Second turn boundary to force the first turn to collapse by default
+      makeMessage({ id: "u2", role: "user", content: "Thanks" }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    // The notification message should be visible (extracted to notificationEntries)
+    expect(screen.getByText("Quest q-99 ready for verification")).toBeTruthy();
+    // The collapsed response preview should also be visible
+    expect(screen.getByText("All done, ported to main.")).toBeTruthy();
+    // The internal assistant message should be hidden (in agentEntries, collapsed)
+    expect(screen.queryByText("Running tests and building...")).toBeNull();
   });
 });
