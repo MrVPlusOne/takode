@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { SessionState } from "../types.js";
 import type { SessionItem as SessionItemType } from "../utils/project-grouping.js";
@@ -181,5 +181,81 @@ describe("SessionHoverCard", () => {
     expect(screen.getByText("7 turns")).toBeInTheDocument();
     // Cost is never shown
     expect(screen.queryByText("$1.25")).toBeNull();
+  });
+
+  it("shows worktree and base repo paths separately with concise path tails", () => {
+    render(
+      <SessionHoverCard
+        session={makeSession({
+          cwd: "/Users/test/.companion/worktrees/companion/jiayi-wt-3116",
+          repoRoot: "/Users/test/Code/companion",
+          isWorktree: true,
+        })}
+        sessionName="Fix hover card path layout"
+        sessionPreview={undefined}
+        taskHistory={undefined}
+        sessionState={undefined}
+        cliSessionId="cli-1"
+        anchorRect={new DOMRect(120, 80, 200, 40)}
+        onMouseEnter={() => {}}
+        onMouseLeave={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("Worktree")).toBeInTheDocument();
+    expect(screen.getByText("Base repo")).toBeInTheDocument();
+    expect(screen.getByTestId("session-hover-path-worktree-tail")).toHaveTextContent("jiayi-wt-3116");
+    expect(screen.getByTestId("session-hover-path-repo-tail")).toHaveTextContent("companion");
+  });
+
+  it("shows concise herding chips for leader sessions in the hover card", () => {
+    mockStoreState.sdkSessions = [
+      {
+        sessionId: "worker-1",
+        sessionNum: 21,
+        state: "idle",
+        backendType: "codex",
+        cwd: "/repo/worktree-1",
+        herdedBy: "s1",
+      },
+      {
+        sessionId: "worker-2",
+        sessionNum: 22,
+        state: "running",
+        backendType: "claude",
+        cwd: "/repo/worktree-2",
+        herdedBy: "s1",
+      },
+    ];
+    mockStoreState.sessionNames = new Map([
+      ["worker-1", "Fix notification links"],
+      ["worker-2", "Improve hover chips"],
+    ]);
+
+    try {
+      render(
+        <SessionHoverCard
+          session={makeSession({ isOrchestrator: true })}
+          sessionName="Leader Session"
+          sessionPreview={undefined}
+          taskHistory={undefined}
+          sessionState={undefined}
+          cliSessionId="cli-1"
+          anchorRect={new DOMRect(120, 80, 200, 40)}
+          onMouseEnter={() => {}}
+          onMouseLeave={() => {}}
+        />,
+      );
+
+      expect(screen.getByText("Herding")).toBeInTheDocument();
+      const section = screen.getByTestId("session-hover-herding");
+      expect(within(section).getByRole("button", { name: "#21" })).toBeInTheDocument();
+      expect(within(section).getByRole("button", { name: "#22" })).toBeInTheDocument();
+      expect(within(section).queryByText("Fix notification links")).toBeNull();
+      expect(within(section).queryByText("Improve hover chips")).toBeNull();
+    } finally {
+      mockStoreState.sdkSessions = [];
+      mockStoreState.sessionNames = new Map();
+    }
   });
 });

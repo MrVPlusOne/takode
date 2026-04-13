@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useMemo } from "react";
 import { useStore } from "../store.js";
 import {
   GitHubPRSection,
@@ -7,15 +7,17 @@ import {
   HerdDiagnosticsSection,
   SystemPromptCollapsible,
 } from "./TaskPanel.js";
-import { shortenHome } from "../utils/path-display.js";
 import { formatModel } from "../utils/backends.js";
 import { coalesceSessionViewModel } from "../utils/session-view-model.js";
 import { navigateTo } from "../utils/navigation.js";
 import { formatContextWindowLabel } from "../utils/token-format.js";
+import { SessionNumChip } from "./SessionNumChip.js";
+import { SessionPathSummary } from "./SessionPathSummary.js";
 
 export function SessionInfoPopover({ sessionId, onClose }: { sessionId: string; onClose: () => void }) {
   const session = useStore((s) => s.sessions.get(sessionId));
   const sdkSession = useStore((s) => s.sdkSessions.find((x) => x.sessionId === sessionId));
+  const sdkSessions = useStore((s) => s.sdkSessions);
   const taskHistory = useStore((s) => s.sessionTaskHistory.get(sessionId));
   const sessionVm = coalesceSessionViewModel(session, sdkSession);
   const cwd = sessionVm?.cwd ?? null;
@@ -23,11 +25,6 @@ export function SessionInfoPopover({ sessionId, onClose }: { sessionId: string; 
   const backendType = sessionVm?.backendType ?? "claude";
   const popoverRef = useRef<HTMLDivElement>(null);
   const taskHistoryScrollRef = useRef<HTMLDivElement>(null);
-
-  // Auto-scroll cwd to the right end so the last path segment is visible
-  const cwdScrollRef = useCallback((el: HTMLDivElement | null) => {
-    if (el) el.scrollLeft = el.scrollWidth;
-  }, []);
 
   // Stats
   const turns = sessionVm?.numTurns ?? 0;
@@ -89,6 +86,15 @@ export function SessionInfoPopover({ sessionId, onClose }: { sessionId: string; 
     ...task,
     title: task.title.trim(),
   }));
+  const herdedSessions = useMemo(() => {
+    if (!sdkSession?.isOrchestrator) return [];
+    return sdkSessions.filter((sdk) => sdk.herdedBy === sessionId && !sdk.archived).map((sdk) => sdk.sessionId);
+  }, [sdkSession?.isOrchestrator, sdkSessions, sessionId]);
+  const leaderSession = useMemo(() => {
+    if (sdkSession?.isOrchestrator || !sdkSession?.herdedBy) return null;
+    const leader = sdkSessions.find((sdk) => sdk.sessionId === sdkSession.herdedBy && !sdk.archived);
+    return leader?.sessionId ?? sdkSession.herdedBy;
+  }, [sdkSession?.isOrchestrator, sdkSession?.herdedBy, sdkSessions]);
 
   return (
     <div
@@ -125,14 +131,12 @@ export function SessionInfoPopover({ sessionId, onClose }: { sessionId: string; 
             )}
           </div>
           {cwd && (
-            <div className="flex items-center gap-1.5">
-              <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 shrink-0 text-cc-muted/50">
-                <path d="M1 3.5A1.5 1.5 0 012.5 2h3.379a1.5 1.5 0 011.06.44l.622.621a.5.5 0 00.353.146H13.5A1.5 1.5 0 0115 4.707V12.5a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 011 12.5v-9z" />
-              </svg>
-              <div ref={cwdScrollRef} className="overflow-x-auto scrollbar-hide" title={cwd}>
-                <span className="text-[11px] text-cc-muted font-mono-code whitespace-nowrap">{shortenHome(cwd)}</span>
-              </div>
-            </div>
+            <SessionPathSummary
+              cwd={cwd}
+              repoRoot={sessionVm?.repoRoot}
+              isWorktree={sessionVm?.isWorktree}
+              testIdPrefix="session-info-path"
+            />
           )}
           {/* Git summary */}
           {hasGit && (
@@ -171,6 +175,37 @@ export function SessionInfoPopover({ sessionId, onClose }: { sessionId: string; 
             </div>
           )}
         </div>
+
+        {/* Task history */}
+        {(herdedSessions.length > 0 || leaderSession) && (
+          <div className="px-4 py-2 border-t border-cc-border/50 space-y-2">
+            {herdedSessions.length > 0 && (
+              <div data-testid="session-info-herding">
+                <span className="text-[10px] uppercase tracking-wider text-cc-muted/60">Herding</span>
+                <div className="mt-1 flex flex-wrap gap-1.5">
+                  {herdedSessions.map((hs) => (
+                    <SessionNumChip
+                      key={hs}
+                      sessionId={hs}
+                      className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 cursor-pointer transition-colors"
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+            {leaderSession && (
+              <div data-testid="session-info-herded-by">
+                <span className="text-[10px] uppercase tracking-wider text-cc-muted/60">Herded by</span>
+                <div className="mt-1">
+                  <SessionNumChip
+                    sessionId={leaderSession}
+                    className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 cursor-pointer transition-colors"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Task history */}
         {taskEntries.length > 0 && (

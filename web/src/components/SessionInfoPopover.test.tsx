@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 
 interface MockStoreState {
@@ -32,8 +32,13 @@ interface MockStoreState {
     contextUsedPercent?: number;
     codexTokenDetails?: { modelContextWindow?: number };
     claudeTokenDetails?: { modelContextWindow?: number };
+    sessionNum?: number | null;
+    herdedBy?: string;
+    isOrchestrator?: boolean;
+    archived?: boolean;
   }>;
   sessionTaskHistory: Map<string, Array<{ title: string; source?: "quest"; questId?: string }>>;
+  sessionNames: Map<string, string>;
 }
 
 let storeState: MockStoreState;
@@ -63,6 +68,7 @@ function resetStore(taskHistory: Array<{ title: string; source?: "quest"; questI
     ]),
     sdkSessions: [{ sessionId: "s1", cwd: "/repo", backendType: "codex" }],
     sessionTaskHistory: new Map([["s1", taskHistory]]),
+    sessionNames: new Map(),
   };
 }
 
@@ -198,6 +204,103 @@ describe("SessionInfoPopover", () => {
     expect(screen.getByText("-13")).toBeInTheDocument();
     expect(pathLine.compareDocumentPosition(branch) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(branch.compareDocumentPosition(tasksLabel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("shows worktree and base repo paths separately with the trailing worktree segment emphasized", () => {
+    resetStore([]);
+    const session = storeState.sessions.get("s1");
+    if (!session) throw new Error("missing session fixture");
+    session.cwd = "/Users/test/.companion/worktrees/companion/jiayi-wt-3116";
+    session.repo_root = "/Users/test/Code/companion";
+    session.is_worktree = true;
+    storeState.sdkSessions = [
+      {
+        sessionId: "s1",
+        cwd: session.cwd,
+        backendType: "codex",
+      },
+    ];
+
+    render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
+
+    expect(screen.getByText("Worktree")).toBeInTheDocument();
+    expect(screen.getByText("Base repo")).toBeInTheDocument();
+    expect(screen.getByTestId("session-info-path-worktree-tail")).toHaveTextContent("jiayi-wt-3116");
+    expect(screen.getByTestId("session-info-path-repo-tail")).toHaveTextContent("companion");
+    expect(screen.getByTitle("/Users/test/.companion/worktrees/companion/jiayi-wt-3116")).toBeInTheDocument();
+    expect(screen.getByTitle("/Users/test/Code/companion")).toBeInTheDocument();
+  });
+
+  it("shows concise herd relationship chips in the info panel", () => {
+    resetStore([]);
+    const session = storeState.sessions.get("s1");
+    if (!session) throw new Error("missing session fixture");
+    session.cwd = "/repo/worker";
+    storeState.sdkSessions = [
+      {
+        sessionId: "leader-1",
+        cwd: "/repo",
+        backendType: "codex",
+        sessionNum: 7,
+        isOrchestrator: true,
+      },
+      {
+        sessionId: "s1",
+        cwd: "/repo/worker",
+        backendType: "codex",
+        sessionNum: 11,
+        herdedBy: "leader-1",
+      },
+    ];
+
+    render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
+
+    expect(screen.getByText("Herded by")).toBeInTheDocument();
+    expect(screen.getByTestId("session-info-herded-by")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "#7" })).toBeInTheDocument();
+  });
+
+  it("shows concise herding chips for leader sessions in the info panel", () => {
+    resetStore([]);
+    const session = storeState.sessions.get("s1");
+    if (!session) throw new Error("missing session fixture");
+    session.cwd = "/repo";
+    storeState.sdkSessions = [
+      {
+        sessionId: "s1",
+        cwd: "/repo",
+        backendType: "codex",
+        sessionNum: 11,
+        isOrchestrator: true,
+      },
+      {
+        sessionId: "worker-1",
+        cwd: "/repo/worktree-1",
+        backendType: "codex",
+        sessionNum: 21,
+        herdedBy: "s1",
+      },
+      {
+        sessionId: "worker-2",
+        cwd: "/repo/worktree-2",
+        backendType: "claude",
+        sessionNum: 22,
+        herdedBy: "s1",
+      },
+    ];
+    storeState.sessionNames = new Map([
+      ["worker-1", "Fix notification links"],
+      ["worker-2", "Improve hover chips"],
+    ]);
+
+    render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
+
+    expect(screen.getByText("Herding")).toBeInTheDocument();
+    const section = screen.getByTestId("session-info-herding");
+    expect(within(section).getByRole("button", { name: "#21" })).toBeInTheDocument();
+    expect(within(section).getByRole("button", { name: "#22" })).toBeInTheDocument();
+    expect(within(section).queryByText("Fix notification links")).toBeNull();
+    expect(within(section).queryByText("Improve hover chips")).toBeNull();
   });
 
   it("shows the max context window rounded to whole K tokens", () => {

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { SessionState, SdkSessionInfo } from "../types.js";
 
@@ -1207,7 +1207,8 @@ describe("Sidebar", { timeout: 10000 }, () => {
       expect(leaderButton).toHaveTextContent("Leader Session");
       expect(leaderButton).toHaveClass("ring-amber-400/70");
       expect(screen.getByText("Herded by")).toBeInTheDocument();
-      expect(screen.getByTitle("Navigate to Leader Session")).toBeInTheDocument();
+      const section = screen.getByTestId("session-hover-herded-by");
+      expect(within(section).getByRole("button", { name: "#7" })).toBeInTheDocument();
     });
   });
 

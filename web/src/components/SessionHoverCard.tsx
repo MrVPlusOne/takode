@@ -2,11 +2,11 @@ import type { SessionItem as SessionItemType } from "../utils/project-grouping.j
 import type { SessionState, SessionTaskEntry } from "../../server/session-types.js";
 import { useRef, useLayoutEffect, useMemo, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { shortenHome } from "../utils/path-display.js";
 import { useStore } from "../store.js";
-import { navigateToSession } from "../utils/routing.js";
 import { formatContextWindowLabel } from "../utils/token-format.js";
 import { api } from "../api.js";
+import { SessionNumChip } from "./SessionNumChip.js";
+import { SessionPathSummary } from "./SessionPathSummary.js";
 
 interface SessionHoverCardProps {
   session: SessionItemType;
@@ -83,27 +83,16 @@ export function SessionHoverCard({
 
   // For leader sessions: find which sessions this leader is herding
   const sdkSessions = useStore((st) => st.sdkSessions);
-  const sessionNames = useStore((st) => st.sessionNames);
   const sdkSessionMeta = useMemo(() => sdkSessions.find((sdk) => sdk.sessionId === s.id), [sdkSessions, s.id]);
   const herdedSessions = useMemo(() => {
     if (!s.isOrchestrator) return [];
-    return sdkSessions
-      .filter((sdk) => sdk.herdedBy === s.id && !sdk.archived)
-      .map((sdk) => ({
-        sessionId: sdk.sessionId,
-        sessionNum: sdk.sessionNum,
-        name: sessionNames.get(sdk.sessionId) ?? sdk.name,
-      }));
-  }, [s.isOrchestrator, s.id, sdkSessions, sessionNames]);
+    return sdkSessions.filter((sdk) => sdk.herdedBy === s.id && !sdk.archived).map((sdk) => sdk.sessionId);
+  }, [s.isOrchestrator, s.id, sdkSessions]);
   const leaderSession = useMemo(() => {
     if (s.isOrchestrator || !s.herdedBy) return null;
     const leader = sdkSessions.find((sdk) => sdk.sessionId === s.herdedBy && !sdk.archived);
-    return {
-      sessionId: s.herdedBy,
-      sessionNum: leader?.sessionNum,
-      name: sessionNames.get(s.herdedBy) ?? leader?.name,
-    };
-  }, [s.isOrchestrator, s.herdedBy, sdkSessions, sessionNames]);
+    return leader?.sessionId ?? s.herdedBy;
+  }, [s.isOrchestrator, s.herdedBy, sdkSessions]);
 
   // Status info
   const isRunning = s.status === "running";
@@ -237,16 +226,7 @@ export function SessionHoverCard({
               </>
             )}
           </div>
-          {s.cwd && (
-            <div className="flex items-center gap-1.5 mt-1">
-              <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 shrink-0 text-cc-muted/50">
-                <path d="M1 3.5A1.5 1.5 0 012.5 2h3.379a1.5 1.5 0 011.06.44l.622.621a.5.5 0 00.353.146H13.5A1.5 1.5 0 0115 4.707V12.5a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 011 12.5v-9z" />
-              </svg>
-              <span className="text-[11px] text-cc-muted font-mono-code truncate" title={s.cwd}>
-                {shortenHome(s.cwd)}
-              </span>
-            </div>
-          )}
+          {s.cwd && <SessionPathSummary cwd={s.cwd} repoRoot={s.repoRoot} isWorktree={s.isWorktree} testIdPrefix="session-hover-path" />}
         </div>
 
         {/* Message snippet — shown for message-level deep links (session:N:M) */}
@@ -268,39 +248,27 @@ export function SessionHoverCard({
 
         {/* Herded sessions — shown for leader sessions */}
         {herdedSessions.length > 0 && (
-          <div className="px-4 py-2 border-t border-cc-border/50">
+          <div data-testid="session-hover-herding" className="px-4 py-2 border-t border-cc-border/50">
             <span className="text-[10px] uppercase tracking-wider text-cc-muted/60">Herding</span>
             <div className="flex flex-wrap gap-1.5 mt-1">
               {herdedSessions.map((hs) => (
-                <button
-                  key={hs.sessionId}
-                  onClick={() => navigateToSession(hs.sessionId)}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] rounded-full bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 transition-colors cursor-pointer"
-                  title={`Navigate to ${hs.name || hs.sessionId.slice(0, 8)}`}
-                >
-                  {hs.sessionNum != null && <span className="font-mono text-amber-400/60">#{hs.sessionNum}</span>}
-                  <span className="truncate max-w-[140px]">{hs.name || hs.sessionId.slice(0, 8)}</span>
-                </button>
+                <SessionNumChip
+                  key={hs}
+                  sessionId={hs}
+                  className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 cursor-pointer transition-colors"
+                />
               ))}
             </div>
           </div>
         )}
         {leaderSession && (
-          <div className="px-4 py-2 border-t border-cc-border/50">
+          <div data-testid="session-hover-herded-by" className="px-4 py-2 border-t border-cc-border/50">
             <span className="text-[10px] uppercase tracking-wider text-cc-muted/60">Herded by</span>
             <div className="mt-1">
-              <button
-                onClick={() => navigateToSession(leaderSession.sessionId)}
-                className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] rounded-full bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 transition-colors cursor-pointer"
-                title={`Navigate to ${leaderSession.name || leaderSession.sessionId.slice(0, 8)}`}
-              >
-                {leaderSession.sessionNum != null && (
-                  <span className="font-mono text-amber-400/60">#{leaderSession.sessionNum}</span>
-                )}
-                <span className="truncate max-w-[200px]">
-                  {leaderSession.name || leaderSession.sessionId.slice(0, 8)}
-                </span>
-              </button>
+              <SessionNumChip
+                sessionId={leaderSession}
+                className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 cursor-pointer transition-colors"
+              />
             </div>
           </div>
         )}
