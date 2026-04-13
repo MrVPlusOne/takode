@@ -406,7 +406,8 @@ interface Session {
   lastReadAt: number;
   /** Current attention reason: why this session needs the user's attention */
   attentionReason: "action" | "error" | "review" | null;
-  /** Transient: session that triggered the latest permission response (for actorSessionId tagging) */
+  /** Transient: session that triggered the latest permission response (for actorSessionId tagging).
+   *  Safe because sessions process one permission response at a time (serial message handling). */
   permissionResponseActorId?: string;
   /** Grace period timer for CLI disconnect — delays side-effects to allow seamless reconnect.
    *  The Claude Code CLI disconnects every 5 minutes for token refresh and reconnects in ~13s.

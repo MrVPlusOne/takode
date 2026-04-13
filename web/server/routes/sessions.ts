@@ -24,7 +24,12 @@ import { trafficStats } from "../traffic-stats.js";
 import { generateUniqueSessionName } from "../../src/utils/names.js";
 import { GIT_CMD_TIMEOUT } from "../constants.js";
 import { getDefaultModelForBackend } from "../../shared/backend-defaults.js";
-import type { RouteContext } from "./context.js";
+import type { RouteContext, OptionalAuthResult } from "./context.js";
+
+/** Extract the caller's session ID from an optional auth result, if available. */
+function getActorSessionId(auth: OptionalAuthResult): string | undefined {
+  return auth && "callerId" in auth ? auth.callerId : undefined;
+}
 
 export function createSessionsRoutes(ctx: RouteContext) {
   const api = new Hono();
@@ -1628,8 +1633,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
     // Must happen BEFORE kill -- after removal the session info is gone.
     const sessionInfo = launcher.getSession(id);
     if (sessionInfo?.herdedBy && !sessionInfo.archived) {
-      const caller = authenticateCompanionCallerOptional(c);
-      const actorId = caller && "callerId" in caller ? caller.callerId : undefined;
+      const actorId = getActorSessionId(authenticateCompanionCallerOptional(c));
       wsBridge.emitTakodeEvent(id, "session_archived", {}, actorId);
     }
 
@@ -1715,8 +1719,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
     if (!id) return c.json({ error: "Session not found" }, 404);
     await c.req.json().catch(() => ({}));
 
-    const caller = authenticateCompanionCallerOptional(c);
-    const actorId = caller && "callerId" in caller ? caller.callerId : undefined;
+    const actorId = getActorSessionId(authenticateCompanionCallerOptional(c));
     const worktreeResult = await archiveSingleSession(id, actorId);
     return c.json({ ok: true, worktree: worktreeResult });
   });
@@ -1731,8 +1734,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
       return c.json({ error: "Session is not an orchestrator" }, 400);
     }
 
-    const caller = authenticateCompanionCallerOptional(c);
-    const actorId = caller && "callerId" in caller ? caller.callerId : undefined;
+    const actorId = getActorSessionId(authenticateCompanionCallerOptional(c));
 
     // Find all non-archived herded workers
     const workers = launcher.getHerdedSessions(id).filter((s) => !s.archived);
