@@ -2,7 +2,7 @@ import { useStore } from "./store.js";
 import { api } from "./api.js";
 import type { BrowserIncomingMessage, ContentBlock, ChatMessage, TaskItem } from "./types.js";
 import { generateUniqueSessionName } from "./utils/names.js";
-import { playNotificationSound } from "./utils/notification-sound.js";
+import { playNotificationSound, playReviewSound, playNeedsInputSound } from "./utils/notification-sound.js";
 
 const taskCounters = new Map<string, number>();
 const pendingCliDisconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -965,7 +965,26 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
 
     case "notification_update": {
       // Server-authoritative notification inbox for this session.
-      store.setSessionNotifications(sessionId, data.notifications ?? []);
+      const newNotifications = data.notifications ?? [];
+      const oldNotifications = store.sessionNotifications?.get(sessionId) ?? [];
+
+      // Detect newly added unaddressed notifications by comparing IDs
+      const oldIds = new Set(oldNotifications.map((n: { id: string }) => n.id));
+      const added = newNotifications.filter(
+        (n: { id: string; done: boolean }) => !n.done && !oldIds.has(n.id),
+      );
+
+      store.setSessionNotifications(sessionId, newNotifications);
+
+      // Play differentiated sounds for new notifications (when tab is not focused)
+      if (added.length > 0 && !document.hasFocus() && store.notificationSound) {
+        const hasNeedsInput = added.some((n: { category: string }) => n.category === "needs-input");
+        if (hasNeedsInput) {
+          playNeedsInputSound();
+        } else {
+          playReviewSound();
+        }
+      }
       break;
     }
 

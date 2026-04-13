@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Takode Notification Sound Preview</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #1a1a2e; color: #e0e0e0; padding: 2rem; max-width: 700px; margin: 0 auto; }
+    h1 { font-size: 1.5rem; margin-bottom: 0.5rem; color: #fff; }
+    p.subtitle { color: #888; margin-bottom: 2rem; font-size: 0.9rem; }
+    h2 { font-size: 1.1rem; margin: 2rem 0 0.75rem; display: flex; align-items: center; gap: 0.5rem; }
+    .blue-dot { width: 10px; height: 10px; border-radius: 50%; background: #3b82f6; display: inline-block; }
+    .amber-dot { width: 10px; height: 10px; border-radius: 50%; background: #fbbf24; display: inline-block; }
+    .card { background: #16213e; border: 1px solid #333; border-radius: 10px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; }
+    .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
+    .card-title { font-weight: 600; font-size: 0.95rem; }
+    .card-desc { color: #999; font-size: 0.8rem; line-height: 1.5; }
+    .params { font-family: 'SF Mono', Menlo, monospace; font-size: 0.75rem; color: #7aa2f7; margin-top: 0.5rem; }
+    button.play { background: #3b82f6; color: white; border: none; border-radius: 6px; padding: 0.4rem 1rem; font-size: 0.85rem; cursor: pointer; font-weight: 500; transition: background 0.15s; }
+    button.play:hover { background: #2563eb; }
+    button.play:active { background: #1d4ed8; }
+    button.play.amber { background: #d97706; }
+    button.play.amber:hover { background: #b45309; }
+    button.play.amber:active { background: #92400e; }
+    .divider { border-top: 1px solid #333; margin: 2rem 0; }
+  </style>
+</head>
+<body>
+  <h1>Notification Sound Preview</h1>
+  <p class="subtitle">Click each button to hear the candidate sounds. Pick one blue + one amber.</p>
+
+  <h2><span class="blue-dot"></span> Blue (review/done) -- Completion Chime</h2>
+  <p class="card-desc" style="margin-bottom: 1rem;">Short ascending two-note tone. Warm, satisfying -- like a task-complete ding.</p>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Blue A: Classic E5-G5 Chime</span>
+      <button class="play" onclick="playBlueA()">Play</button>
+    </div>
+    <div class="card-desc">Two sine tones ascending a minor third. The current notification sound.</div>
+    <div class="params">E5 (659Hz) → G5 (784Hz), sine, 0.3 gain, 500ms</div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Blue B: Warm C5-E5 Triangle</span>
+      <button class="play" onclick="playBlueB()">Play</button>
+    </div>
+    <div class="card-desc">Triangle wave for warmer timbre. Wider interval (major third) feels more resolved.</div>
+    <div class="params">C5 (523Hz) → E5 (659Hz), triangle, 0.25 gain, 450ms</div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Blue C: Soft A4-D5 Sine</span>
+      <button class="play" onclick="playBlueC()">Play</button>
+    </div>
+    <div class="card-desc">Lower register, longer decay. Gentle ascending fourth -- subtle and calming.</div>
+    <div class="params">A4 (440Hz) → D5 (587Hz), sine, 0.2 gain, 550ms</div>
+  </div>
+
+  <div class="divider"></div>
+
+  <h2><span class="amber-dot"></span> Amber (needs-input) -- Attention Tone</h2>
+  <p class="card-desc" style="margin-bottom: 1rem;">Two identical notes with a short pause (gentle double-tap). "Someone's waiting for you."</p>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Amber A: E5 Double Tap</span>
+      <button class="play amber" onclick="playAmberA()">Play</button>
+    </div>
+    <div class="card-desc">Two identical E5 sine tones with 150ms gap. Clean and clear.</div>
+    <div class="params">E5 (659Hz) × 2, sine, gap 150ms, 0.3 gain, 550ms</div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Amber B: A5 Triangle Double Tap</span>
+      <button class="play amber" onclick="playAmberB()">Play</button>
+    </div>
+    <div class="card-desc">Brighter A5 with triangle wave. Slightly sharper timbre, more noticeable.</div>
+    <div class="params">A5 (880Hz) × 2, triangle, gap 180ms, 0.2 gain, 600ms</div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Amber C: F#5 Square-ish Double Tap</span>
+      <button class="play amber" onclick="playAmberC()">Play</button>
+    </div>
+    <div class="card-desc">Square wave (filtered) for a slightly electronic character. Distinctive from the sine chimes.</div>
+    <div class="params">F#5 (740Hz) × 2, square (low gain), gap 160ms, 0.15 gain, 560ms</div>
+  </div>
+
+  <script>
+    let audioCtx = null;
+    function ctx() {
+      if (!audioCtx) audioCtx = new AudioContext();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      return audioCtx;
+    }
+
+    // ─── Blue candidates (ascending two-note chime) ─────────────────────
+
+    function playBlueA() {
+      const c = ctx(), now = c.currentTime;
+      // E5 → G5, sine
+      tone(c, 659.25, now, 0.3, 0.3, 'sine');
+      tone(c, 783.99, now + 0.15, 0.3, 0.35, 'sine');
+    }
+
+    function playBlueB() {
+      const c = ctx(), now = c.currentTime;
+      // C5 → E5, triangle (warmer)
+      tone(c, 523.25, now, 0.25, 0.25, 'triangle');
+      tone(c, 659.25, now + 0.15, 0.25, 0.3, 'triangle');
+    }
+
+    function playBlueC() {
+      const c = ctx(), now = c.currentTime;
+      // A4 → D5, sine (lower, gentler)
+      tone(c, 440.0, now, 0.2, 0.3, 'sine');
+      tone(c, 587.33, now + 0.2, 0.2, 0.35, 'sine');
+    }
+
+    // ─── Amber candidates (double-tap attention) ────────────────────────
+
+    function playAmberA() {
+      const c = ctx(), now = c.currentTime;
+      // E5 × 2, sine
+      tone(c, 659.25, now, 0.3, 0.15, 'sine');
+      tone(c, 659.25, now + 0.3, 0.3, 0.15, 'sine');
+    }
+
+    function playAmberB() {
+      const c = ctx(), now = c.currentTime;
+      // A5 × 2, triangle (brighter)
+      tone(c, 880.0, now, 0.2, 0.15, 'triangle');
+      tone(c, 880.0, now + 0.33, 0.2, 0.15, 'triangle');
+    }
+
+    function playAmberC() {
+      const c = ctx(), now = c.currentTime;
+      // F#5 × 2, square (filtered by low gain)
+      tone(c, 739.99, now, 0.15, 0.15, 'square');
+      tone(c, 739.99, now + 0.32, 0.15, 0.15, 'square');
+    }
+
+    // ─── Shared tone helper ─────────────────────────────────────────────
+
+    function tone(ctx, freq, start, gain, duration, type) {
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, start);
+      g.gain.setValueAtTime(0.001, start);
+      g.gain.linearRampToValueAtTime(gain, start + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.001, start + duration);
+      osc.connect(g);
+      g.connect(ctx.destination);
+      osc.start(start);
+      osc.stop(start + duration + 0.05);
+    }
+  </script>
+</body>
+</html>

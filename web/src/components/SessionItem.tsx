@@ -90,6 +90,28 @@ function timeAgo(epochMs: number): string {
   return `${days}d ago`;
 }
 
+/** Derives a notification marker from the session's notification inbox.
+ *  needs-input (amber) takes precedence over review (blue). Only shows for unaddressed (not done) notifications. */
+function NotificationMarker({ sessionId }: { sessionId: string }) {
+  const notifications = useStore((s) => s.sessionNotifications?.get(sessionId));
+  if (!notifications) return null;
+
+  const hasNeedsInput = notifications.some((n) => !n.done && n.category === "needs-input");
+  const hasReview = notifications.some((n) => !n.done && n.category === "review");
+
+  if (hasNeedsInput) {
+    return (
+      <span className="absolute right-11 sm:right-2 top-1/2 -translate-y-1/2 min-w-[8px] h-[8px] rounded-full bg-amber-400 sm:group-hover:opacity-0 transition-opacity pointer-events-none" />
+    );
+  }
+  if (hasReview) {
+    return (
+      <span className="absolute right-11 sm:right-2 top-1/2 -translate-y-1/2 min-w-[6px] h-[6px] rounded-full bg-blue-500 sm:group-hover:opacity-0 transition-opacity pointer-events-none" />
+    );
+  }
+  return null;
+}
+
 interface SessionItemProps {
   session: SessionItemType;
   isActive: boolean;
@@ -776,6 +798,11 @@ export function SessionItem({
       {!archived && attention === "review" && permCount === 0 && (
         <span className="absolute right-11 sm:right-2 top-1/2 -translate-y-1/2 min-w-[6px] h-[6px] rounded-full bg-blue-500 sm:group-hover:opacity-0 transition-opacity pointer-events-none" />
       )}
+
+      {/* Notification inbox markers (shown when no server attention or permission badges are active).
+          Derived from the per-session notification inbox -- surfaces unaddressed notifications
+          on sidebar chips so the user can see which sessions need attention at a glance. */}
+      {!archived && !attention && permCount === 0 && <NotificationMarker sessionId={s.id} />}
 
       {/* Action buttons */}
       {archived ? (
