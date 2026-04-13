@@ -21,7 +21,6 @@ The Takode server symlinks project skills into global skill directories at start
 | `leader-dispatch` | `.claude/skills/leader-dispatch/` | Leader dispatch workflow: worker selection, templates, discipline rules |
 | `groom` | `.claude/skills/groom/` | Multi-perspective code review via parallel subagents |
 | `skeptic-review` | `.claude/skills/skeptic-review/` | Adversarial work integrity review of worker output |
-| `cron-scheduling` | `.claude/skills/cron-scheduling/` | Cron expression helper (prevents scheduling errors) |
 | `worktree-rules` (`/port-changes`) | `.claude/skills/worktree-rules/` | Worktree-to-main-repo porting workflow; `worktree-rules` is the underlying skill slug and `/port-changes` is the user-facing command/alias |
 | `playwright-e2e-tester` | `.claude/skills/playwright-e2e-tester/` | E2E browser testing via Playwright MCP |
 

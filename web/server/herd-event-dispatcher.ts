@@ -325,7 +325,13 @@ export class HerdEventDispatcher {
       getMessages: (sid, from, to) => this.wsBridge.getSessionMessages(sid, from, to),
       lastEmittedMsgTo: inbox.lastEmittedMsgTo,
     });
-    this.wsBridge.injectUserMessage(orchId, content, HERD_AGENT_SOURCE);
+    const delivery = this.wsBridge.injectUserMessage(orchId, content, HERD_AGENT_SOURCE);
+    if (delivery !== "sent") {
+      if (delivery === "queued") {
+        this.scheduleRetry(orchId);
+      }
+      return 0;
+    }
 
     // Update deduplication watermarks from the events we just delivered
     updateLastEmittedMsgTo(inbox.lastEmittedMsgTo, events);
@@ -394,7 +400,13 @@ export class HerdEventDispatcher {
       getMessages: (sid, from, to) => this.wsBridge.getSessionMessages(sid, from, to),
       lastEmittedMsgTo: inbox.lastEmittedMsgTo,
     });
-    this.wsBridge.injectUserMessage(orchId, content, HERD_AGENT_SOURCE);
+    const delivery = this.wsBridge.injectUserMessage(orchId, content, HERD_AGENT_SOURCE);
+    if (delivery !== "sent") {
+      if (delivery === "queued") {
+        this.scheduleRetry(orchId);
+      }
+      return;
+    }
 
     // Update deduplication watermarks from the events we just delivered
     updateLastEmittedMsgTo(inbox.lastEmittedMsgTo, events);

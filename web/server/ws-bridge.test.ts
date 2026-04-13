@@ -12993,6 +12993,147 @@ describe("Codex injected user_message metadata", () => {
       sessionLabel: "Herd Events",
     });
   });
+
+  it("dedupes herd-event retries even when the formatted age text changes", async () => {
+    // Regression guard for q-275: real herd retries re-render relative-age text
+    // (for example 1s ago -> 3s ago). The retry path must still match the
+    // existing pending herd input instead of stacking a duplicate.
+    vi.useFakeTimers();
+    const leaderId = "orch-herd-retry-codex";
+    const workerId = "worker-herd-retry-codex";
+    const launcherSessions = new Map<string, any>([
+      [leaderId, { sessionId: leaderId, isOrchestrator: true, backendType: "codex", cwd: "/test" }],
+      [workerId, { sessionId: workerId, herdedBy: leaderId, backendType: "codex", cwd: "/test" }],
+    ]);
+
+    const launcherMock = {
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn((id: string) => launcherSessions.get(id)),
+      getHerdedSessions: vi.fn((id: string) => (id === leaderId ? [{ sessionId: workerId }] : [])),
+      getSessionNum: vi.fn((id: string) => (id === leaderId ? 1 : 2)),
+    };
+    bridge.setLauncher(launcherMock as any);
+
+    const dispatcher = new HerdEventDispatcher(bridge as any, launcherMock as any);
+    bridge.setHerdEventDispatcher(dispatcher);
+    dispatcher.setupForOrchestrator(leaderId);
+
+    const browser = makeBrowserSocket(leaderId);
+    const adapter = makeCodexAdapterMock();
+    let pendingBatchAttempts = 0;
+    adapter.sendBrowserMessage.mockImplementation((msg: any) => {
+      if (msg.type === "codex_start_pending") {
+        pendingBatchAttempts += 1;
+        return pendingBatchAttempts > 1;
+      }
+      return true;
+    });
+    bridge.attachCodexAdapter(leaderId, adapter as any);
+    emitCodexSessionReady(adapter, { cliSessionId: "thread-herd-events-queued" });
+    bridge.handleBrowserOpen(browser, leaderId);
+
+    bridge.emitTakodeEvent(workerId, "turn_end", { duration_ms: 1000 });
+    vi.advanceTimersByTime(600);
+    await Promise.resolve();
+
+    const session = bridge.getSession(leaderId)!;
+    expect(session.pendingCodexInputs).toHaveLength(1);
+    expect(getPendingCodexTurn(session)).toMatchObject({
+      status: "queued",
+    });
+
+    vi.advanceTimersByTime(2100);
+    await Promise.resolve();
+
+    expect(session.pendingCodexInputs).toHaveLength(1);
+    expect(session.pendingCodexTurns).toHaveLength(1);
+    expect(getPendingCodexTurn(session)).toMatchObject({
+      status: "dispatched",
+    });
+    expect(adapter.sendBrowserMessage).toHaveBeenCalledTimes(2);
+
+    dispatcher.destroy();
+    vi.useRealTimers();
+  });
+
+  it("dispatches a later real leader message instead of leaving it stranded behind a queued herd event", async () => {
+    // q-275 user-visible regression: once the queued herd-event retry succeeds,
+    // a later ordinary leader message should steer into the live Codex turn
+    // instead of remaining stranded behind the previously queued herd chip.
+    vi.useFakeTimers();
+    const leaderId = "orch-herd-follow-up-codex";
+    const workerId = "worker-herd-follow-up-codex";
+    const launcherSessions = new Map<string, any>([
+      [leaderId, { sessionId: leaderId, isOrchestrator: true, backendType: "codex", cwd: "/test" }],
+      [workerId, { sessionId: workerId, herdedBy: leaderId, backendType: "codex", cwd: "/test" }],
+    ]);
+    const launcherMock = {
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn((id: string) => launcherSessions.get(id)),
+      getHerdedSessions: vi.fn((id: string) => (id === leaderId ? [{ sessionId: workerId }] : [])),
+      getSessionNum: vi.fn((id: string) => (id === leaderId ? 1 : 2)),
+    };
+    bridge.setLauncher(launcherMock as any);
+
+    const dispatcher = new HerdEventDispatcher(bridge as any, launcherMock as any);
+    bridge.setHerdEventDispatcher(dispatcher);
+    dispatcher.setupForOrchestrator(leaderId);
+
+    const browser = makeBrowserSocket(leaderId);
+    const adapter = makeCodexAdapterMock();
+    let pendingBatchAttempts = 0;
+    adapter.sendBrowserMessage.mockImplementation((msg: any) => {
+      if (msg.type === "codex_start_pending") {
+        pendingBatchAttempts += 1;
+        return pendingBatchAttempts > 1;
+      }
+      return true;
+    });
+    bridge.attachCodexAdapter(leaderId, adapter as any);
+    emitCodexSessionReady(adapter, { cliSessionId: "thread-herd-events-follow-up" });
+    bridge.handleBrowserOpen(browser, leaderId);
+
+    bridge.emitTakodeEvent(workerId, "turn_end", { duration_ms: 1000 });
+    vi.advanceTimersByTime(600);
+    await Promise.resolve();
+
+    const session = bridge.getSession(leaderId)!;
+    expect(getPendingCodexTurn(session)).toMatchObject({ status: "queued" });
+    vi.advanceTimersByTime(2100);
+    await Promise.resolve();
+    expect(getPendingCodexTurn(session)).toMatchObject({ status: "dispatched" });
+
+    adapter.emitTurnStarted("turn-herd-events-follow-up");
+    await Promise.resolve();
+
+    await bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "user_message",
+        content: "actual leader message",
+      }),
+    );
+    await Promise.resolve();
+
+    expect(session.pendingCodexInputs).toHaveLength(1);
+    const pendingId = session.pendingCodexInputs[0]?.id;
+    const steerCall = (adapter.sendBrowserMessage.mock.calls as any[])
+      .map((call) => call[0])
+      .find((msg: any) => msg.type === "codex_steer_pending");
+    expect(steerCall?.type).toBe("codex_steer_pending");
+    expect(steerCall?.inputs?.[0]?.content).toBe("actual leader message");
+
+    adapter.emitTurnSteered("turn-herd-events-follow-up", [pendingId]);
+    expect(session.pendingCodexInputs).toHaveLength(0);
+    expect(
+      session.messageHistory.some((msg: any) => msg.type === "user_message" && msg.content === "actual leader message"),
+    ).toBe(true);
+
+    dispatcher.destroy();
+    vi.useRealTimers();
+  });
 });
 
 describe("Codex user_message takode events", () => {

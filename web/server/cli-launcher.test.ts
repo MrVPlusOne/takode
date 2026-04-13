@@ -99,6 +99,11 @@ const mockCopyFile = vi.hoisted(() =>
     // no-op for mocked paths
   }),
 );
+const mockCp = vi.hoisted(() =>
+  vi.fn(async (..._args: any[]) => {
+    // no-op for mocked paths
+  }),
+);
 const mockReaddir = vi.hoisted(() => vi.fn(async (..._args: any[]) => []));
 const mockStat = vi.hoisted(() =>
   vi.fn(async (..._args: any[]) => ({
@@ -106,6 +111,7 @@ const mockStat = vi.hoisted(() =>
     mtimeMs: 1,
   })),
 );
+const mockRealpath = vi.hoisted(() => vi.fn(async (...args: any[]) => args[0]));
 const mockWriteFile = vi.hoisted(() =>
   vi.fn(async (...args: any[]) => {
     mockWriteFileSync(...args);
@@ -203,6 +209,15 @@ vi.mock("node:fs/promises", async (importOriginal) => {
       }
       return actual.copyFile(...args);
     },
+    cp: async (...args: any[]) => {
+      if (
+        (typeof args[0] === "string" && isMockedPath(args[0])) ||
+        (typeof args[1] === "string" && isMockedPath(args[1]))
+      ) {
+        return mockCp(...args);
+      }
+      return actual.cp(...args);
+    },
     readdir: async (...args: any[]) => {
       if (typeof args[0] === "string" && isMockedPath(args[0])) {
         return mockReaddir(...args);
@@ -239,6 +254,12 @@ vi.mock("node:fs/promises", async (importOriginal) => {
         return mockLstat(...args);
       }
       return actual.lstat(...args);
+    },
+    realpath: async (...args: any[]) => {
+      if (typeof args[0] === "string" && isMockedPath(args[0])) {
+        return mockRealpath(...args);
+      }
+      return actual.realpath(...args);
     },
   };
 });
@@ -807,6 +828,99 @@ describe("launch", () => {
     await waitForSpawnCalls(1);
 
     expect(mockCopyFile).toHaveBeenCalledWith(legacyAuth, sessionAuth);
+  });
+
+  it("prunes broken legacy skill symlinks from the session Codex home", async () => {
+    // q-275: stale broken symlinks in ~/.codex/skills should not be copied into
+    // every per-session Codex home, or each relaunch will spam skill-load errors.
+    mockResolveBinary.mockReturnValue("/opt/fake/codex");
+    mockSpawn.mockReturnValueOnce(createMockCodexProc());
+
+    const legacyHome = join(homedir(), ".codex");
+    const legacySkills = join(legacyHome, "skills");
+    const sessionSkills = join(homedir(), ".companion", "codex-home", "test-session-id", "skills");
+    const brokenSkill = join(sessionSkills, "cron-scheduling");
+
+    mockExistsSync.mockImplementation((path: string) => {
+      if (path === legacyHome) return true;
+      if (path === legacySkills) return true;
+      return false;
+    });
+    mockReaddir.mockImplementation(async (path: string, options?: { withFileTypes?: boolean }) => {
+      if (path === sessionSkills && options?.withFileTypes) {
+        return [
+          {
+            name: "cron-scheduling",
+            isSymbolicLink: () => true,
+            isDirectory: () => false,
+          },
+        ];
+      }
+      return [];
+    });
+    mockRealpath.mockImplementation(async (path: string) => {
+      if (path === brokenSkill) {
+        throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+      }
+      return path;
+    });
+
+    await launcher.launch({
+      backendType: "codex",
+      cwd: "/tmp/project",
+      codexSandbox: "workspace-write",
+    });
+    await waitForSpawnCalls(1);
+
+    expect(mockCp).toHaveBeenCalledWith(legacySkills, sessionSkills, { recursive: true });
+    expect(mockUnlink).toHaveBeenCalledWith(brokenSkill);
+  });
+
+  it("prunes broken skill symlinks from an existing session Codex home on relaunch", async () => {
+    // q-275 follow-up: once a session-specific skills/ directory already exists,
+    // relaunch must still clean stale broken symlinks instead of only fixing the
+    // first bootstrap copy.
+    mockResolveBinary.mockReturnValue("/opt/fake/codex");
+    mockSpawn.mockReturnValueOnce(createMockCodexProc());
+
+    const legacyHome = join(homedir(), ".codex");
+    const sessionHome = join(homedir(), ".companion", "codex-home", "test-session-id");
+    const sessionSkills = join(sessionHome, "skills");
+    const brokenSkill = join(sessionSkills, "cron-scheduling");
+
+    mockExistsSync.mockImplementation((path: string) => {
+      if (path === legacyHome) return true;
+      if (path === sessionSkills) return true;
+      return false;
+    });
+    mockReaddir.mockImplementation(async (path: string, options?: { withFileTypes?: boolean }) => {
+      if (path === sessionSkills && options?.withFileTypes) {
+        return [
+          {
+            name: "cron-scheduling",
+            isSymbolicLink: () => true,
+            isDirectory: () => false,
+          },
+        ];
+      }
+      return [];
+    });
+    mockRealpath.mockImplementation(async (path: string) => {
+      if (path === brokenSkill) {
+        throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+      }
+      return path;
+    });
+
+    await launcher.launch({
+      backendType: "codex",
+      cwd: "/tmp/project",
+      codexSandbox: "workspace-write",
+    });
+    await waitForSpawnCalls(1);
+
+    expect(mockCp).not.toHaveBeenCalledWith(join(legacyHome, "skills"), sessionSkills, { recursive: true });
+    expect(mockUnlink).toHaveBeenCalledWith(brokenSkill);
   });
 
   it("seeds the matching Codex rollout file into the session home for external resume", async () => {

@@ -778,7 +778,6 @@ ensureSkillSymlinks([
   "takode-orchestration",
   "leader-dispatch",
   "groom",
-  "cron-scheduling",
   "skeptic-review",
   "worktree-rules",
   "playwright-e2e-tester",

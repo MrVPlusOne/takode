@@ -417,6 +417,38 @@ describe("HerdEventDispatcher", () => {
     dispatcher.destroy();
   });
 
+  it("keeps herd events pending when bridge queues the injection locally", () => {
+    // Regression guard for q-275: Codex leaders can accept a herd event into a
+    // local pending-delivery queue before the backend turn actually starts.
+    // The dispatcher must not mark those events in-flight yet, or later user
+    // messages can get stuck behind an undelivered herd chip indefinitely.
+    const { bridge, launcher } = createMocks();
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+    vi.mocked(bridge.injectUserMessage)
+      .mockReturnValueOnce("queued")
+      .mockReturnValueOnce("sent");
+
+    triggerEvent(makeEvent({ event: "turn_end" }));
+
+    vi.advanceTimersByTime(600);
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+    const inboxAfterQueued = dispatcher._getInbox("orch-1");
+    expect(inboxAfterQueued?.inFlightUpTo).toBeNull();
+    expect(inboxAfterQueued?.entries).toHaveLength(1);
+    expect(inboxAfterQueued?.deliveryHistory[0]?.status).toBe("pending");
+
+    vi.advanceTimersByTime(2100);
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(2);
+    const inboxAfterSent = dispatcher._getInbox("orch-1");
+    expect(inboxAfterSent?.inFlightUpTo).toBe(0);
+    expect(inboxAfterSent?.deliveryHistory[0]?.status).toBe("in_flight");
+
+    dispatcher.destroy();
+  });
+
   it("wakes idle-killed leader when herd event arrives", () => {
     // When a leader session was stopped by idle-manager (killedByIdleManager=true),
     // new herd events should wake it up by calling wakeIdleKilledSession.
@@ -951,6 +983,39 @@ describe("forceFlushPendingEvents", () => {
     const flushed = dispatcher.forceFlushPendingEvents("orch-1");
     expect(flushed).toBe(1);
     expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+
+    dispatcher.destroy();
+  });
+
+  it("keeps force-flushed events pending and re-arms retry when bridge still queues them locally", () => {
+    // q-275 follow-up: the stuck-session watchdog uses forceFlushPendingEvents.
+    // If Codex still only accepts the herd event into a local pending queue,
+    // the dispatcher must not mark it delivered and must retry again later.
+    const { bridge, launcher } = createMocks();
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(false);
+    vi.mocked(bridge.injectUserMessage)
+      .mockReturnValueOnce("queued")
+      .mockReturnValueOnce("sent");
+    triggerEvent(makeEvent({ event: "turn_end" }));
+
+    vi.advanceTimersByTime(600);
+    expect(bridge.injectUserMessage).not.toHaveBeenCalled();
+
+    const queuedFlush = dispatcher.forceFlushPendingEvents("orch-1");
+    expect(queuedFlush).toBe(0);
+    const inboxAfterQueued = dispatcher._getInbox("orch-1");
+    expect(inboxAfterQueued?.inFlightUpTo).toBeNull();
+    expect(inboxAfterQueued?.deliveryHistory[0]?.status).toBe("pending");
+
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+    vi.advanceTimersByTime(2100);
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(2);
+    const inboxAfterSent = dispatcher._getInbox("orch-1");
+    expect(inboxAfterSent?.inFlightUpTo).toBe(0);
+    expect(inboxAfterSent?.deliveryHistory[0]?.status).toBe("in_flight");
 
     dispatcher.destroy();
   });

@@ -34,7 +34,7 @@ describe("ensureSkillSymlinks", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     execSyncMock.mockReturnValue("../.git\n");
-    fsMocks.existsSync.mockReturnValue(false);
+    fsMocks.existsSync.mockReturnValue(true);
     fsMocks.lstatSync.mockImplementation((_targetDir: string): { isSymbolicLink: () => boolean } => {
       throw new Error("ENOENT");
     });
@@ -43,6 +43,10 @@ describe("ensureSkillSymlinks", () => {
   it("symlinks project skills into Claude, Codex, and agents homes", () => {
     // Validates the shared project-skill fallback used by takode-orchestration,
     // which currently only exists under the repo's .claude/skills directory.
+    fsMocks.existsSync.mockImplementation((targetDir: string) => {
+      return targetDir === "/repo/.claude/skills/takode-orchestration";
+    });
+
     ensureSkillSymlinks(["takode-orchestration"]);
 
     expect(fsMocks.symlinkSync).toHaveBeenCalledWith(
@@ -62,6 +66,9 @@ describe("ensureSkillSymlinks", () => {
   it("replaces stale copied agent skill directories with repo symlinks", () => {
     // Validates the observed bug: old copied ~/.agents skills are replaced with
     // repo-backed symlinks, so subdocs like quest-journey.md stay available.
+    fsMocks.existsSync.mockImplementation((targetDir: string) => {
+      return targetDir === "/repo/.claude/skills/takode-orchestration";
+    });
     fsMocks.lstatSync.mockImplementation((targetDir: string) => {
       if (targetDir === "/home/tester/.agents/skills/takode-orchestration") {
         return { isSymbolicLink: () => false };
@@ -84,7 +91,10 @@ describe("ensureSkillSymlinks", () => {
     // Validates agent-specific variants are preserved instead of being replaced
     // by the Claude source when the repo has an .agents/skills copy.
     fsMocks.existsSync.mockImplementation((targetDir: string) => {
-      return targetDir === "/repo/.agents/skills/playwright-e2e-tester";
+      return (
+        targetDir === "/repo/.agents/skills/playwright-e2e-tester" ||
+        targetDir === "/repo/.claude/skills/playwright-e2e-tester"
+      );
     });
 
     ensureSkillSymlinks(["playwright-e2e-tester"]);
@@ -103,7 +113,10 @@ describe("ensureSkillSymlinks", () => {
     // Validates Codex-specific variants are preserved instead of always
     // falling back to the repo's Claude skill directory.
     fsMocks.existsSync.mockImplementation((targetDir: string) => {
-      return targetDir === "/repo/.codex/skills/takode-orchestration";
+      return (
+        targetDir === "/repo/.codex/skills/takode-orchestration" ||
+        targetDir === "/repo/.claude/skills/takode-orchestration"
+      );
     });
 
     ensureSkillSymlinks(["takode-orchestration"]);
@@ -121,6 +134,9 @@ describe("ensureSkillSymlinks", () => {
   it("leaves an existing correct agent symlink alone", () => {
     // Validates the startup path stays idempotent once ~/.agents already
     // points at the expected repo-backed skill directory.
+    fsMocks.existsSync.mockImplementation((targetDir: string) => {
+      return targetDir === "/repo/.claude/skills/takode-orchestration";
+    });
     fsMocks.lstatSync.mockImplementation((targetDir: string) => {
       if (targetDir === "/home/tester/.agents/skills/takode-orchestration") {
         return { isSymbolicLink: () => true };
@@ -144,5 +160,23 @@ describe("ensureSkillSymlinks", () => {
       "/repo/.claude/skills/takode-orchestration",
       "/home/tester/.agents/skills/takode-orchestration",
     );
+  });
+
+  it("skips missing repo skill sources instead of creating broken symlinks", () => {
+    // Validates q-275: startup should not create global skill symlinks for
+    // hardcoded slugs that do not exist in the repo checkout.
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    fsMocks.existsSync.mockImplementation((targetDir: string) => {
+      return targetDir !== "/repo/.claude/skills/cron-scheduling";
+    });
+
+    ensureSkillSymlinks(["cron-scheduling"]);
+
+    expect(fsMocks.symlinkSync).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[skill-symlink] Skipping missing repo skill source: /repo/.claude/skills/cron-scheduling",
+    );
+
+    warnSpy.mockRestore();
   });
 });

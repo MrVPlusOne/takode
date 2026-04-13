@@ -5062,14 +5062,32 @@ export class WsBridge {
       return "no_session";
     }
     this.syncBackendTypeFromLauncher(session, "inject_user_message");
+    if (this.isHerdEventSource(agentSource) && session.backendType === "codex") {
+      const existing = this.findMatchingPendingCodexInput(session, content, agentSource);
+      if (existing) {
+        if (existing.cancelable) {
+          this.queueCodexPendingStartBatch(session, "inject_herd_event_retry");
+        }
+        return this.getPendingCodexInputDeliveryState(session, existing.id);
+      }
+    }
     // Check backend connectivity BEFORE routing — if the backend is dead,
     // routeBrowserMessage will queue the message but the caller should know.
     const backendLive = this.backendConnected(session);
+    const pendingCodexCountBefore = session.pendingCodexInputs.length;
     this.routeBrowserMessage(session, {
       type: "user_message",
       content,
       ...(agentSource ? { agentSource } : {}),
     });
+    if (this.isHerdEventSource(agentSource) && session.backendType === "codex") {
+      const pending = session.pendingCodexInputs
+        .slice(pendingCodexCountBefore)
+        .find((input) => input.content === content && this.sameAgentSource(input.agentSource, agentSource));
+      if (pending) {
+        return this.getPendingCodexInputDeliveryState(session, pending.id);
+      }
+    }
 
     // If the backend is dead, request a relaunch so queued messages will
     // eventually be flushed.  routeBrowserMessage already handles this for
@@ -5095,6 +5113,51 @@ export class WsBridge {
     }
 
     return backendLive ? "sent" : "queued";
+  }
+
+  private isHerdEventSource(agentSource: { sessionId: string; sessionLabel?: string } | undefined): boolean {
+    return agentSource?.sessionId === "herd-events";
+  }
+
+  private sameAgentSource(
+    left: { sessionId: string; sessionLabel?: string } | undefined,
+    right: { sessionId: string; sessionLabel?: string } | undefined,
+  ): boolean {
+    return (left?.sessionId ?? "") === (right?.sessionId ?? "") && (left?.sessionLabel ?? "") === (right?.sessionLabel ?? "");
+  }
+
+  private findMatchingPendingCodexInput(
+    session: Session,
+    content: string,
+    agentSource?: { sessionId: string; sessionLabel?: string },
+  ): PendingCodexInput | null {
+    const normalizedContent = this.normalizePendingCodexDedupContent(content, agentSource);
+    for (let i = session.pendingCodexInputs.length - 1; i >= 0; i--) {
+      const pending = session.pendingCodexInputs[i];
+      if (this.normalizePendingCodexDedupContent(pending.content, pending.agentSource) !== normalizedContent) continue;
+      if (!this.sameAgentSource(pending.agentSource, agentSource)) continue;
+      return pending;
+    }
+    return null;
+  }
+
+  private normalizePendingCodexDedupContent(
+    content: string,
+    agentSource?: { sessionId: string; sessionLabel?: string },
+  ): string {
+    if (!this.isHerdEventSource(agentSource)) return content;
+    return content.replace(/ \| \d+[smhd] ago(?=$|\n)/g, "");
+  }
+
+  private getPendingCodexInputDeliveryState(session: Session, inputId: string): "sent" | "queued" {
+    const pending = session.pendingCodexInputs.find((input) => input.id === inputId);
+    if (!pending) return "sent";
+    const turn = session.pendingCodexTurns.find((candidate) =>
+      (candidate.pendingInputIds ?? [candidate.userMessageId]).includes(inputId),
+    );
+    if (!turn) return pending.cancelable ? "queued" : "sent";
+    if (turn.status === "dispatched" || turn.status === "backend_acknowledged") return "sent";
+    return "queued";
   }
 
   private isSystemSourceTag(agentSource: { sessionId: string; sessionLabel?: string } | undefined): boolean {
@@ -7640,7 +7703,12 @@ export class WsBridge {
       }
 
       let pendingTurnTarget: UserDispatchTurnTarget | null = null;
-      if (msg.type === "user_message" && ingested && session.state.backend_state !== "broken") {
+      if (
+        msg.type === "user_message" &&
+        ingested &&
+        session.state.backend_state !== "broken" &&
+        !(session.backendType === "codex" && this.isHerdEventSource(msg.agentSource))
+      ) {
         // Mark session running for ALL user_message dispatches, not just
         // when the session was already generating. Without this, idle SDK
         // sessions stay visually idle until the CLI emits a status_change

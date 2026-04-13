@@ -1716,6 +1716,24 @@ export class CliLauncher {
     await copyFile(rolloutPath, destPath);
   }
 
+  private async pruneBrokenSymlinks(root: string): Promise<void> {
+    const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      const fullPath = join(root, entry.name);
+      if (entry.isSymbolicLink()) {
+        try {
+          await realpath(fullPath);
+        } catch {
+          await unlink(fullPath).catch(() => {});
+        }
+        continue;
+      }
+      if (entry.isDirectory()) {
+        await this.pruneBrokenSymlinks(fullPath);
+      }
+    }
+  }
+
   private async resolveHostCodexLaunchBinary(
     sessionId: string,
     binary: string,
@@ -1787,8 +1805,13 @@ export class CliLauncher {
       try {
         const src = join(legacyHome, name);
         const dest = join(codexHome, name);
+        let copied = false;
         if (!(await this.pathExists(dest)) && (await this.pathExists(src))) {
           await cp(src, dest, { recursive: true });
+          copied = true;
+        }
+        if (name === "skills" && (copied || (await this.pathExists(dest)))) {
+          await this.pruneBrokenSymlinks(dest);
         }
       } catch (e) {
         console.warn(`[cli-launcher] Failed to bootstrap ${name}/ from legacy home:`, e);
