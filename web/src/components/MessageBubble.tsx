@@ -753,9 +753,6 @@ function AssistantMessage({
         >
           {userAddressed && <LeaderUserAddressedMarker />}
           <MarkdownContent text={displayMessage.content} sessionId={sessionId} searchHighlight={searchHighlight} />
-          {message.notification && (
-            <NotificationMarker category={message.notification.category} summary={message.notification.summary} />
-          )}
           {showTimestamp && (
             <MessageTimestamp timestamp={displayMessage.timestamp} turnDurationMs={displayMessage.turnDurationMs} />
           )}
@@ -796,9 +793,6 @@ function AssistantMessage({
           // Grouped tool_uses
           return <ToolGroupBlock key={i} name={group.name} items={group.items} sessionId={sessionId} />;
         })}
-        {message.notification && (
-          <NotificationMarker category={message.notification.category} summary={message.notification.summary} />
-        )}
         {showTimestamp && (
           <MessageTimestamp timestamp={displayMessage.timestamp} turnDurationMs={displayMessage.turnDurationMs} />
         )}

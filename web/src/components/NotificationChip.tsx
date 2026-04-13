@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useMemo, useRef, useLayoutEffect, typ
 import { createPortal } from "react-dom";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
+import { MarkdownContent } from "./MarkdownContent.js";
 import type { SessionNotification, ChatMessage } from "../types.js";
 
 const EMPTY: SessionNotification[] = [];
@@ -81,21 +82,22 @@ function NotificationPreviewCard({
   // Message not found in store -- show summary fallback if available, otherwise hide
   if (contextMessages.length === 0 && !summary) return null;
 
+  // Filter to messages with visible content (skip tool-only or empty messages)
+  const visibleMessages = contextMessages.filter(({ msg }) => {
+    const text = msg.content?.trim();
+    return text && text.length > 0;
+  });
+
   const cardContent =
-    contextMessages.length > 0 ? (
-      <div className="bg-cc-card border border-cc-border rounded-xl shadow-xl overflow-hidden">
-        {contextMessages.map(({ msg, isTarget }) => (
+    visibleMessages.length > 0 ? (
+      <div className="bg-cc-card border border-cc-border rounded-xl shadow-xl overflow-hidden max-h-48 overflow-y-auto">
+        {visibleMessages.map(({ msg, isTarget }) => (
           <div
             key={msg.id}
-            className={`px-3 py-2 border-b border-cc-border/20 last:border-b-0 ${isTarget ? "bg-amber-500/15" : ""}`}
+            className={`px-3 py-2 border-b border-cc-border/20 last:border-b-0 ${isTarget ? "bg-amber-500/10" : ""}`}
           >
-            <div className="flex items-center gap-1.5 mb-0.5">
-              <span className={`text-[10px] font-medium ${msg.role === "user" ? "text-blue-400" : "text-emerald-400"}`}>
-                {msg.role === "user" ? "You" : "Assistant"}
-              </span>
-            </div>
-            <div className={`text-[11px] leading-relaxed ${isTarget ? "text-cc-fg" : "text-cc-muted"}`}>
-              {truncateContent(msg)}
+            <div className="text-[11px] leading-relaxed line-clamp-3">
+              <MarkdownContent text={truncateContent(msg, 200)} size="sm" />
             </div>
           </div>
         ))}

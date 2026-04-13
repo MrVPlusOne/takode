@@ -3,6 +3,7 @@ import { useShallow } from "zustand/react/shallow";
 import { isSubagentToolName } from "../types.js";
 import { DiffViewer, formatFileHeaderPath } from "./DiffViewer.js";
 import { MarkdownContent } from "./MarkdownContent.js";
+import { NotificationMarker } from "./MessageBubble.js";
 import { CodeCopyButton } from "./CodeCopyButton.js";
 import { Lightbox } from "./Lightbox.js";
 import { CollapseFooter } from "./CollapseFooter.js";
@@ -309,6 +310,12 @@ const ToolBlockInner = memo(function ToolBlockInner({
     );
   }
 
+  // takode notify: render inline notification chip instead of terminal block.
+  const notifyMatch = name === "Bash" ? parseTakodeNotifyCommand(String(input.command || "")) : null;
+  if (notifyMatch) {
+    return <NotificationMarker category={notifyMatch.category} />;
+  }
+
   return (
     <div className="border border-cc-border rounded-[10px] overflow-hidden bg-cc-card">
       <div
@@ -425,6 +432,13 @@ function TodoWriteInline({ input }: { input: Record<string, unknown> }) {
 /** Detect `takode board` commands (display, add, set, rm). */
 function isTakodeBoardCommand(command: string): boolean {
   return /\btakode\s+board\b/.test(command);
+}
+
+/** Parse `takode notify <category>` commands, extracting the notification category. */
+function parseTakodeNotifyCommand(command: string): { category: "needs-input" | "review" } | null {
+  const match = command.match(/\btakode\s+notify\s+(needs-input|review)\b/);
+  if (!match) return null;
+  return { category: match[1] as "needs-input" | "review" };
 }
 
 /**
