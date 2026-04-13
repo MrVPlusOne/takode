@@ -1,9 +1,11 @@
 ---
 name: worktree-rules
-description: "Port changes from a git worktree to the main repository. Use when asked to 'port changes', 'sync to main', 'push to main repo', '/port-changes', or when porting worktree commits."
+description: "Port changes from a git worktree to the main repository. This is the skill behind `/port-changes`; `worktree-rules` remains the underlying skill slug/directory. Use when asked to 'port changes', 'sync to main', 'push to main repo', '/port-changes', or when porting worktree commits."
 ---
 
-# Worktree Rules -- Port Changes Workflow
+# Worktree Rules (`/port-changes`) -- Worktree Porting Workflow
+
+This skill's runtime slug/directory is `worktree-rules`. When a leader or worker is told to use `/port-changes`, this is the skill they should load.
 
 The `/port-changes` command ports commits from the current worktree session to the main repository. Only use this in worktree sessions.
 

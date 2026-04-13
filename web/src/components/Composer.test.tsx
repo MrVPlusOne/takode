@@ -1130,6 +1130,24 @@ describe("Composer slash menu", () => {
     expect(screen.getByText("/compact")).toBeTruthy();
   });
 
+  it("double-prefixes slash-prefixed skill names from session data", () => {
+    // Regression guard for q-269: slash menu entries are rendered as `/${name}`,
+    // so changing a runtime skill name to `/port-changes` would surface
+    // `//port-changes` instead of the intended `/port-changes`.
+    setupMockStore({
+      session: {
+        slash_commands: [],
+        skills: ["/port-changes"],
+      },
+    });
+    const { container } = render(<Composer sessionId="s1" />);
+    const textarea = container.querySelector("textarea")!;
+
+    fireEvent.change(textarea, { target: { value: "/" } });
+
+    expect(screen.getByText("//port-changes")).toBeTruthy();
+  });
+
   it("slash menu shows command types", () => {
     setupMockStore({
       session: {
