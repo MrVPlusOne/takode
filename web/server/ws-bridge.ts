@@ -2960,17 +2960,13 @@ export class WsBridge {
     };
     session.notifications.push(notif);
 
-    // Broadcast notification inbox to browsers (always -- for inline markers)
-    this.broadcastToBrowsers(session, {
-      type: "notification_update",
-      notifications: session.notifications,
-    });
-
     if (isHerded) {
       // Herded sessions: route through leader, not directly to user.
-      // Review notifications are silenced -- the leader tracks completion via the
-      // work board and herd events. Needs-input notifications are emitted as herd
-      // events so the leader can decide whether to escalate to the user.
+      // Notification is persisted to the inbox (above) for server-side visibility
+      // via takode peek, but NOT broadcast to browsers -- no sidebar markers,
+      // no sounds, no attention badges. The leader handles escalation.
+      // Review notifications are silenced entirely. Needs-input notifications
+      // are emitted as herd events so the leader can decide what to do.
       if (category === "needs-input") {
         this.emitTakodeEvent(sessionId, "notification_needs_input", {
           ...(summary ? { summary } : {}),
@@ -2981,6 +2977,12 @@ export class WsBridge {
     }
 
     // Non-herded sessions: notify user directly
+
+    // Broadcast notification inbox to browsers (drives sidebar markers and sounds)
+    this.broadcastToBrowsers(session, {
+      type: "notification_update",
+      notifications: session.notifications,
+    });
 
     // Set attention
     const reason = category === "needs-input" ? ("action" as const) : ("review" as const);

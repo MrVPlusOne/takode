@@ -17422,11 +17422,11 @@ describe("notifyUser herded session routing", () => {
     // But attention should NOT be set (no user-facing badge)
     expect(session.attentionReason).toBeNull();
 
-    // Verify notification_update was broadcast (inbox visible to browser)
+    // Verify notification_update was NOT broadcast (herded sessions don't drive browser UI)
     const notifUpdates = browser.send.mock.calls
       .map((c: any[]) => { try { return JSON.parse(c[0]); } catch { return null; } })
       .filter((m: any) => m?.type === "notification_update");
-    expect(notifUpdates.length).toBeGreaterThan(0);
+    expect(notifUpdates).toHaveLength(0);
 
     // Verify NO session_update with attentionReason was broadcast
     const attentionUpdates = browser.send.mock.calls
