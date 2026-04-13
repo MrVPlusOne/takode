@@ -1154,10 +1154,20 @@ export function Composer({ sessionId }: { sessionId: string }) {
   useEffect(() => {
     if (!voiceSupported) return;
     let lastShiftUp = 0;
-    let otherKeyPressed = false;
+    let shiftGestureCandidate = false;
 
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== "Shift") otherKeyPressed = true;
+      if (e.key === "Shift") {
+        // Start a fresh candidate only for a non-repeating standalone Shift press.
+        if (!e.repeat) shiftGestureCandidate = true;
+      } else if (shiftGestureCandidate) {
+        // Any non-Shift key while Shift is down means this was regular typing or a shortcut.
+        shiftGestureCandidate = false;
+        lastShiftUp = 0;
+      } else if (lastShiftUp !== 0) {
+        // Any intervening non-Shift typing between taps invalidates the armed first tap.
+        lastShiftUp = 0;
+      }
       if (e.key === "Escape" && (isRecording || isPreparing)) {
         e.preventDefault();
         cancelRecording();
@@ -1165,11 +1175,11 @@ export function Composer({ sessionId }: { sessionId: string }) {
     };
     const onKeyUp = (e: KeyboardEvent) => {
       if (e.key !== "Shift") return;
-      if (otherKeyPressed) {
-        otherKeyPressed = false;
+      if (!shiftGestureCandidate) {
         lastShiftUp = 0;
         return;
       }
+      shiftGestureCandidate = false;
       const now = Date.now();
 
       if (isRecording) {

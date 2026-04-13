@@ -62,6 +62,9 @@ const mockVoiceState = {
     | null,
   unsupportedMessageOverride: null as string | null,
   onAudioReady: null as ((blob: Blob) => void | Promise<void>) | null,
+  warmMicrophone: vi.fn(),
+  toggleRecording: vi.fn(),
+  cancelRecording: vi.fn(),
 };
 
 vi.mock("../hooks/useVoiceInput.js", async () => {
@@ -86,6 +89,7 @@ vi.mock("../hooks/useVoiceInput.js", async () => {
       const [transcriptionPhase, setTranscriptionPhase] = React.useState<string | null>(null);
       return {
         isRecording: false,
+        isPreparing: false,
         isSupported,
         unsupportedReason,
         unsupportedMessage,
@@ -98,8 +102,11 @@ vi.mock("../hooks/useVoiceInput.js", async () => {
         setError,
         startRecording: vi.fn(),
         stopRecording: vi.fn(),
-        toggleRecording: vi.fn(() => options.onAudioReady?.(new Blob(["voice"], { type: "audio/webm" }))),
-        cancelRecording: vi.fn(),
+        toggleRecording: mockVoiceState.toggleRecording.mockImplementation(() =>
+          options.onAudioReady?.(new Blob(["voice"], { type: "audio/webm" })),
+        ),
+        cancelRecording: mockVoiceState.cancelRecording,
+        warmMicrophone: mockVoiceState.warmMicrophone,
       };
     },
   };
@@ -289,6 +296,9 @@ beforeEach(() => {
   mockVoiceState.unsupportedReasonOverride = null;
   mockVoiceState.unsupportedMessageOverride = null;
   mockVoiceState.onAudioReady = null;
+  mockVoiceState.warmMicrophone.mockReset();
+  mockVoiceState.toggleRecording.mockReset();
+  mockVoiceState.cancelRecording.mockReset();
   mockTranscribe.mockResolvedValue({ mode: "dictation", text: "transcribed text", backend: "openai", enhanced: false });
   mockGetBackendModels.mockResolvedValue([]);
   mockRefreshSessionSkills.mockResolvedValue({ ok: true, skills: [] });
@@ -495,6 +505,72 @@ describe("Composer voice edit mode", () => {
       expect((document.querySelector("textarea") as HTMLTextAreaElement).value).toBe("Keep this draft as-is.");
     });
     expect(screen.queryByText("Voice edit preview")).toBeNull();
+  });
+});
+
+describe("Composer voice keyboard prewarm", () => {
+  it("does not pre-warm when Shift is used for uppercase typing", () => {
+    const { container } = render(<Composer sessionId="s1" />);
+    const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
+
+    textarea.focus();
+    fireEvent.keyDown(document, { key: "Shift" });
+    fireEvent.keyDown(document, { key: "A", shiftKey: true });
+    fireEvent.keyUp(document, { key: "A", shiftKey: true });
+    fireEvent.change(textarea, { target: { value: "A" } });
+    fireEvent.keyUp(document, { key: "Shift" });
+
+    expect(mockVoiceState.warmMicrophone).not.toHaveBeenCalled();
+    expect(mockVoiceState.toggleRecording).not.toHaveBeenCalled();
+  });
+
+  it("pre-warms on the first clean standalone Shift tap and records on the second", () => {
+    vi.useFakeTimers();
+    try {
+      render(<Composer sessionId="s1" />);
+
+      fireEvent.keyDown(document, { key: "Shift" });
+      fireEvent.keyUp(document, { key: "Shift" });
+      expect(mockVoiceState.warmMicrophone).toHaveBeenCalledTimes(1);
+      expect(mockVoiceState.toggleRecording).not.toHaveBeenCalled();
+
+      vi.advanceTimersByTime(200);
+
+      fireEvent.keyDown(document, { key: "Shift" });
+      fireEvent.keyUp(document, { key: "Shift" });
+      expect(mockVoiceState.toggleRecording).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("invalidates the armed first Shift tap when non-Shift typing happens between taps", () => {
+    vi.useFakeTimers();
+    try {
+      const { container } = render(<Composer sessionId="s1" />);
+      const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
+
+      textarea.focus();
+
+      fireEvent.keyDown(document, { key: "Shift" });
+      fireEvent.keyUp(document, { key: "Shift" });
+      expect(mockVoiceState.warmMicrophone).toHaveBeenCalledTimes(1);
+      expect(mockVoiceState.toggleRecording).not.toHaveBeenCalled();
+
+      fireEvent.keyDown(document, { key: "a" });
+      fireEvent.keyUp(document, { key: "a" });
+      fireEvent.change(textarea, { target: { value: "a" } });
+
+      vi.advanceTimersByTime(200);
+
+      fireEvent.keyDown(document, { key: "Shift" });
+      fireEvent.keyUp(document, { key: "Shift" });
+
+      expect(mockVoiceState.toggleRecording).not.toHaveBeenCalled();
+      expect(mockVoiceState.warmMicrophone).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

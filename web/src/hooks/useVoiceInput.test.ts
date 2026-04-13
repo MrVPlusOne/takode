@@ -338,7 +338,7 @@ describe("useVoiceInput — warmMicrophone", () => {
     expect(getUserMediaMock).toHaveBeenCalledTimes(1);
   });
 
-  it("releases cached stream after idle timeout (30s)", async () => {
+  it("releases cached stream after idle timeout (5s)", async () => {
     const mockStream = makeMockStream();
     getUserMediaMock.mockResolvedValue(mockStream);
 
@@ -352,9 +352,9 @@ describe("useVoiceInput — warmMicrophone", () => {
     });
     expect(getUserMediaMock).toHaveBeenCalledTimes(1);
 
-    // Advance past the 30s idle timeout
+    // Advance past the 5s idle timeout
     act(() => {
-      vi.advanceTimersByTime(31_000);
+      vi.advanceTimersByTime(6_000);
     });
 
     // Stream tracks should have been stopped

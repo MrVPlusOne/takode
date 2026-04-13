@@ -111,7 +111,7 @@ export function normalizeMeterLevel(rms: number, previousLevel: number): number 
 }
 
 /** How long to keep a pre-warmed mic stream before releasing it (stops OS mic indicator). */
-const STREAM_IDLE_TIMEOUT_MS = 30_000;
+const STREAM_IDLE_TIMEOUT_MS = 5_000;
 
 export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInputReturn {
   const support = getVoiceInputSupport();
