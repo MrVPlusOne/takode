@@ -543,6 +543,65 @@ describe("MessageFeed section windowing", () => {
     expect(mockClearScrollToMessage).toHaveBeenCalledWith(sid);
   });
 
+  // q-274: notifications anchored to tool-use-only assistant messages (like
+  // codex-tool_use-call_NTK7...) get grouped into tool_msg_group entries by
+  // the feed model, so the scroll search must also check tool_msg_group.firstId.
+  // The DOM scroll step must also find the element via data-feed-block-id
+  // (tool groups don't have data-message-id).
+  it("scrolls to the correct turn when notification targets a tool-use-only assistant message", async () => {
+    const sid = "test-scroll-tool-use-only";
+    const toolUseMessageId = "codex-tool_use-call_NTK7xAS0zqfp1eNdSC9vV7yL";
+    // Build a realistic turn: user message, then a tool-use-only assistant
+    // message (no text, only tool_use content blocks). The feed model groups
+    // this into a tool_msg_group entry with firstId = the assistant message id.
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Run the quest transition", timestamp: 1000 }),
+      makeMessage({
+        id: toolUseMessageId,
+        role: "assistant",
+        content: "", // no text -- tool-use only
+        contentBlocks: [{ type: "tool_use", id: "tu-1", name: "Bash", input: { command: "quest done q-261" } }],
+        timestamp: 1001,
+      }),
+    ]);
+    // Target the tool-use-only assistant message (simulates a notification
+    // created by `takode notify review` when the last assistant message was
+    // a tool invocation with no text content)
+    setStoreScrollToMessage(sid, toolUseMessageId);
+
+    const { container } = render(<MessageFeed sessionId={sid} sectionTurnCount={50} />);
+
+    // The turn lookup should resolve the tool_msg_group entry and focus the turn
+    expect(mockClearScrollToMessage).toHaveBeenCalledWith(sid);
+    expect(mockFocusTurn).toHaveBeenCalledWith(sid, "u1");
+
+    // The DOM should contain the tool group element with data-feed-block-id
+    // (tool_msg_group entries render with data-feed-block-id, not data-message-id).
+    // This is what the scroll step querySelector falls back to.
+    const toolGroupElement = container.querySelector(
+      `[data-feed-block-id="tool-group:${toolUseMessageId}"]`,
+    );
+    expect(toolGroupElement).not.toBeNull();
+    // And confirm there's no data-message-id for this ID (would indicate it
+    // wasn't actually grouped into tool_msg_group)
+    const messageElement = container.querySelector(`[data-message-id="${toolUseMessageId}"]`);
+    expect(messageElement).toBeNull();
+  });
+
+  // Generic fallback: when messageId genuinely doesn't exist in any turn entry
+  // (e.g. compacted away), fall back to the last turn rather than doing nothing.
+  it("falls back to last turn when scroll-to-message target is completely absent", async () => {
+    const sid = "test-scroll-to-message-fallback";
+    setStoreMessages(sid, makeSectionedMessages(2, 2));
+    setStoreScrollToMessage(sid, "completely-nonexistent-id");
+
+    render(<MessageFeed sessionId={sid} sectionTurnCount={2} />);
+
+    expect(mockClearScrollToMessage).toHaveBeenCalledWith(sid);
+    // Falls back to the last turn (u4 in a 2-section × 2-turn grid)
+    expect(mockFocusTurn).toHaveBeenCalledWith(sid, "u4");
+  });
+
   it("restores a saved older-section anchor instead of falling back to latest", async () => {
     const sid = "test-section-anchor-restore";
     setStoreMessages(sid, makeSectionedMessages(4, 2));

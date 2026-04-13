@@ -3212,13 +3212,31 @@ export function MessageFeed({
     clearScrollToMessage(sessionId);
     autoFollowEnabledRef.current = false;
 
-    // Find which turn contains this message
+    // Find which turn contains this message. Check both regular messages and
+    // tool_msg_group entries (tool-use-only assistant messages get grouped into
+    // tool_msg_group by the feed model, so their IDs only appear in firstId).
     const targetTurn = turns.find(
       (t) =>
-        t.allEntries.some((e) => e.kind === "message" && e.msg.id === scrollToMessageId) ||
-        (t.userEntry?.kind === "message" && t.userEntry.msg.id === scrollToMessageId),
+        t.allEntries.some(
+          (e) =>
+            (e.kind === "message" && e.msg.id === scrollToMessageId) ||
+            (e.kind === "tool_msg_group" && e.firstId === scrollToMessageId),
+        ) || (t.userEntry?.kind === "message" && t.userEntry.msg.id === scrollToMessageId),
     );
-    if (!targetTurn) return;
+    if (!targetTurn) {
+      // Target message genuinely not in turns (e.g. compacted out of history).
+      // Fall back to scrolling to the most recent content rather than doing nothing.
+      const lastTurn = turns[turns.length - 1];
+      if (lastTurn) {
+        useStore.getState().focusTurn(sessionId, lastTurn.id);
+        ensureSectionForTurnVisible(lastTurn.id);
+        requestAnimationFrame(() => {
+          containerRef.current?.lastElementChild?.scrollIntoView({ behavior: "smooth", block: "end" });
+          clearExpandAllInTurn(sessionId);
+        });
+      }
+      return;
+    }
 
     // Focus: expand target turn, all others revert to defaults (last expanded, rest collapsed)
     useStore.getState().focusTurn(sessionId, targetTurn.id);
@@ -3229,10 +3247,14 @@ export function MessageFeed({
       requestAnimationFrame(() => {
         const el = containerRef.current;
         if (!el) return;
-        const target = el.querySelector(`[data-message-id="${escapeSelectorValue(scrollToMessageId)}"]`);
+        // Try data-message-id first (regular messages), then data-feed-block-id
+        // with tool-group: prefix (tool-use-only messages grouped into tool_msg_group).
+        const target =
+          el.querySelector(`[data-message-id="${escapeSelectorValue(scrollToMessageId)}"]`) ||
+          el.querySelector(`[data-feed-block-id="tool-group:${escapeSelectorValue(scrollToMessageId)}"]`);
         if (target) {
           target.scrollIntoView({ behavior: "smooth", block: "center" });
-          // Brief amber highlight flash on the target message
+          // Brief amber highlight flash on the target
           (target as HTMLElement).classList.add("message-scroll-highlight");
           setTimeout(() => (target as HTMLElement).classList.remove("message-scroll-highlight"), 2000);
         }
