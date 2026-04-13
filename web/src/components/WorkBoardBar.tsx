@@ -13,6 +13,7 @@ import { useState, useRef, useEffect } from "react";
 import { useStore } from "../store.js";
 import { BoardTable } from "./BoardTable.js";
 import type { BoardRowData } from "./BoardTable.js";
+import { scopedGetItem, scopedSetItem } from "../utils/scoped-storage.js";
 
 /**
  * Build a compact status summary for the collapsed board bar.
@@ -32,6 +33,15 @@ export function boardSummary(board: BoardRowData[], completedCount: number): str
   return parts.join(", ");
 }
 
+function workBoardExpandedKey(sessionId: string): string {
+  return `cc-work-board-expanded:${sessionId}`;
+}
+
+function readExpandedState(sessionId: string): boolean {
+  if (typeof window === "undefined") return false;
+  return scopedGetItem(workBoardExpandedKey(sessionId)) === "1";
+}
+
 export function WorkBoardBar({ sessionId }: { sessionId: string }) {
   const board = useStore((s) => s.sessionBoards.get(sessionId));
   const completedBoard = useStore((s) => s.sessionCompletedBoards.get(sessionId));
@@ -39,14 +49,27 @@ export function WorkBoardBar({ sessionId }: { sessionId: string }) {
     s.sdkSessions.some((session) => session.sessionId === sessionId && session.isOrchestrator === true),
   );
 
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(() => readExpandedState(sessionId));
   const [completedExpanded, setCompletedExpanded] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setExpanded(readExpandedState(sessionId));
+    setCompletedExpanded(false);
+  }, [sessionId]);
+
+  useEffect(() => {
+    scopedSetItem(workBoardExpandedKey(sessionId), expanded ? "1" : "0");
+  }, [sessionId, expanded]);
 
   // Close on outside click
   useEffect(() => {
     if (!expanded) return;
     const handler = (e: MouseEvent) => {
+      const targetEl = e.target instanceof Element ? e.target : null;
+      if (targetEl?.closest("[data-work-board-ignore-outside-click='true']")) {
+        return;
+      }
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setExpanded(false);
       }

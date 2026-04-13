@@ -3327,7 +3327,7 @@ export function Playground() {
         {/* ─── Work Board Bar (Persistent Widget) ────────────────────── */}
         <Section
           title="Work Board Bar"
-          description="Persistent bottom bar for orchestrator sessions. Shows summary (collapsed) and full board table (expanded). Click the bar to toggle."
+          description="Persistent bottom bar for orchestrator sessions. Shows summary (collapsed) and full board table (expanded). Expanded/collapsed state persists per session in the browser, and composer interaction should not auto-collapse it."
         >
           <div className="max-w-3xl space-y-4">
             <Card label="Work Board Bar (click to seed store, then interact)">
@@ -3389,7 +3389,8 @@ export function Playground() {
                 </div>
                 <p className="text-[10px] text-cc-muted">
                   Click "Seed board data" first, then click the bar to toggle between collapsed summary and expanded
-                  table view.
+                  table view. The expanded state is intended to persist per session and stay open while you interact
+                  with the composer.
                 </p>
               </div>
             </Card>

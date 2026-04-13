@@ -4,6 +4,7 @@ import { render, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { boardSummary } from "./WorkBoardBar.js";
 import type { BoardRowData } from "./BoardTable.js";
+import { scopedKey } from "../utils/scoped-storage.js";
 
 // ─── boardSummary unit tests ──────────────────────────────────────────────────
 
@@ -81,6 +82,8 @@ const { WorkBoardBar } = await import("./WorkBoardBar.js");
 
 beforeEach(() => {
   resetStore();
+  localStorage.clear();
+  localStorage.setItem("cc-server-id", "test-server");
 });
 
 describe("WorkBoardBar", () => {
@@ -178,5 +181,66 @@ describe("WorkBoardBar", () => {
     });
     const { getByText } = render(<WorkBoardBar sessionId="s1" />);
     expect(getByText("1 item")).toBeInTheDocument();
+  });
+
+  it("persists expanded state per session across remounts and session switches", () => {
+    resetStore({
+      sdkSessions: [
+        { sessionId: "s1", isOrchestrator: true },
+        { sessionId: "s2", isOrchestrator: true },
+      ],
+      sessionBoards: new Map([
+        ["s1", BOARD_DATA],
+        ["s2", BOARD_DATA],
+      ]),
+    });
+    const { getByRole, getByTestId, queryByTestId, rerender, unmount } = render(<WorkBoardBar sessionId="s1" />);
+
+    fireEvent.click(getByRole("button"));
+    expect(getByTestId("board-table")).toBeInTheDocument();
+    expect(localStorage.getItem(scopedKey("cc-work-board-expanded:s1"))).toBe("1");
+
+    rerender(<WorkBoardBar sessionId="s2" />);
+    expect(queryByTestId("board-table")).not.toBeInTheDocument();
+
+    rerender(<WorkBoardBar sessionId="s1" />);
+    expect(getByTestId("board-table")).toBeInTheDocument();
+
+    unmount();
+    const remounted = render(<WorkBoardBar sessionId="s1" />);
+    expect(remounted.getByTestId("board-table")).toBeInTheDocument();
+  });
+
+  it("does not collapse when clicking inside the composer root", () => {
+    resetStore({
+      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
+      sessionBoards: new Map([["s1", BOARD_DATA]]),
+    });
+    const { getByRole, getByTestId } = render(<WorkBoardBar sessionId="s1" />);
+    fireEvent.click(getByRole("button"));
+    expect(getByTestId("board-table")).toBeInTheDocument();
+
+    const composerRoot = document.createElement("div");
+    composerRoot.setAttribute("data-work-board-ignore-outside-click", "true");
+    document.body.appendChild(composerRoot);
+    try {
+      fireEvent.mouseDown(composerRoot);
+      expect(getByTestId("board-table")).toBeInTheDocument();
+    } finally {
+      composerRoot.remove();
+    }
+  });
+
+  it("still collapses on normal outside click", () => {
+    resetStore({
+      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
+      sessionBoards: new Map([["s1", BOARD_DATA]]),
+    });
+    const { getByRole, queryByTestId } = render(<WorkBoardBar sessionId="s1" />);
+    fireEvent.click(getByRole("button"));
+    expect(queryByTestId("board-table")).toBeInTheDocument();
+
+    fireEvent.mouseDown(document.body);
+    expect(queryByTestId("board-table")).not.toBeInTheDocument();
   });
 });
