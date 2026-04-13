@@ -2917,7 +2917,10 @@ export class WsBridge {
     this.persistSession(session);
   }
 
-  /** Notify the user by anchoring a notification to the most recent assistant message. */
+  /** Notify the user by anchoring a notification to the most recent assistant message.
+   *  For herded sessions, notifications are routed through the leader instead of
+   *  directly to the user: review notifications are silenced (leader tracks via board),
+   *  and needs-input notifications are emitted as herd events. */
   notifyUser(
     sessionId: string,
     category: "needs-input" | "review",
@@ -2926,6 +2929,9 @@ export class WsBridge {
     const session = this.sessions.get(sessionId);
     if (!session) return { ok: false, error: "Session not found" };
 
+    const launcherInfo = this.launcher?.getSession(sessionId);
+    const isHerded = !!launcherInfo?.herdedBy;
+
     // Find the last top-level assistant message
     const lastAssistant = session.messageHistory.findLast(
       (m) => m.type === "assistant" && (m as { parent_tool_use_id?: string | null }).parent_tool_use_id == null,
@@ -2933,7 +2939,7 @@ export class WsBridge {
 
     const anchoredMessageId = lastAssistant?.message.id ?? null;
 
-    // Stamp notification onto the anchored message
+    // Stamp notification onto the anchored message (always -- for peek/read visibility)
     if (lastAssistant) {
       (lastAssistant as Record<string, unknown>).notification = {
         category,
@@ -2942,11 +2948,7 @@ export class WsBridge {
       };
     }
 
-    // Set attention
-    const reason = category === "needs-input" ? ("action" as const) : ("review" as const);
-    this.setAttention(session, reason);
-
-    // Persist notification to inbox
+    // Persist notification to inbox (always -- leader can see via takode peek)
     const notif: SessionNotification = {
       id: `n-${++session.notificationCounter}`,
       category,
@@ -2956,6 +2958,32 @@ export class WsBridge {
       done: false,
     };
     session.notifications.push(notif);
+
+    // Broadcast notification inbox to browsers (always -- for inline markers)
+    this.broadcastToBrowsers(session, {
+      type: "notification_update",
+      notifications: session.notifications,
+    });
+
+    if (isHerded) {
+      // Herded sessions: route through leader, not directly to user.
+      // Review notifications are silenced -- the leader tracks completion via the
+      // work board and herd events. Needs-input notifications are emitted as herd
+      // events so the leader can decide whether to escalate to the user.
+      if (category === "needs-input") {
+        this.emitTakodeEvent(sessionId, "notification_needs_input", {
+          ...(summary ? { summary } : {}),
+        });
+      }
+      this.persistSession(session);
+      return { ok: true, anchoredMessageId };
+    }
+
+    // Non-herded sessions: notify user directly
+
+    // Set attention
+    const reason = category === "needs-input" ? ("action" as const) : ("review" as const);
+    this.setAttention(session, reason);
 
     // Fire Pushover -- explicit user notification, so bypass the read-check.
     // Without skipReadCheck, the browser's auto-read (triggered by the setAttention
@@ -2968,14 +2996,10 @@ export class WsBridge {
       this.pushoverNotifier.scheduleNotification(sessionId, eventType, detail, undefined, { skipReadCheck: true });
     }
 
-    // Broadcast attention + notification inbox to browsers
+    // Broadcast attention to browsers
     this.broadcastToBrowsers(session, {
       type: "session_update",
       session: { attentionReason: session.attentionReason },
-    });
-    this.broadcastToBrowsers(session, {
-      type: "notification_update",
-      notifications: session.notifications,
     });
 
     // Also broadcast the notification stamp on the message so browsers can render the marker

@@ -62,6 +62,7 @@ const ACTIONABLE_EVENTS = new Set<TakodeEventType>([
   "session_error",
   "session_archived",
   "session_deleted",
+  "notification_needs_input",
 ]);
 
 /** Events that must survive inbox overflow — dropping these leaves workers stuck. */
@@ -588,6 +589,10 @@ function formatSingleEvent(evt: TakodeEvent, nowTs: number, options?: FormatBatc
         sender = agentSource.sessionLabel ? `Agent ${agentSource.sessionLabel}` : "Agent";
       }
       return `${label} | user_message [${sender}] | "${content}"${ageSuffix}`;
+    }
+    case "notification_needs_input": {
+      const summary = typeof evt.data.summary === "string" ? ` | "${truncate(evt.data.summary, 80)}"` : "";
+      return `${label} | notification_needs_input${summary}${ageSuffix}`;
     }
     default:
       return `${label} | ${evt.event}${ageSuffix}`;

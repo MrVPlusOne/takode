@@ -17379,3 +17379,113 @@ describe("SDK resume stall: cliResuming guards (q-220)", () => {
     vi.useRealTimers();
   });
 });
+
+// ─── notifyUser: herded session routing (q-264) ─────────────────────────────
+
+describe("notifyUser herded session routing", () => {
+  // When a herded worker calls takode notify, notifications should be routed
+  // through the leader instead of directly to the user. Review notifications
+  // are silenced (leader tracks via board/herd events), and needs-input
+  // notifications are emitted as herd events for the leader to handle.
+
+  it("suppresses attention and Pushover for herded review notifications", () => {
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    // Set up launcher to report this session as herded
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn(() => ({ sessionId: "s1", state: "connected", herdedBy: "leader-1" })),
+    } as any);
+
+    // Add an assistant message so notifyUser can anchor to it
+    const session = (bridge as any).sessions.get("s1");
+    session.messageHistory.push({
+      type: "assistant",
+      message: { id: "asst-1", content: [{ type: "text", text: "Done" }] },
+      timestamp: Date.now(),
+    });
+
+    const result = bridge.notifyUser("s1", "review", "Quest completed");
+    expect(result.ok).toBe(true);
+
+    // Notification should be persisted to inbox
+    expect(session.notifications).toHaveLength(1);
+    expect(session.notifications[0].category).toBe("review");
+
+    // But attention should NOT be set (no user-facing badge)
+    expect(session.attentionReason).toBeNull();
+
+    // Verify notification_update was broadcast (inbox visible to browser)
+    const notifUpdates = browser.send.mock.calls
+      .map((c: any[]) => { try { return JSON.parse(c[0]); } catch { return null; } })
+      .filter((m: any) => m?.type === "notification_update");
+    expect(notifUpdates.length).toBeGreaterThan(0);
+
+    // Verify NO session_update with attentionReason was broadcast
+    const attentionUpdates = browser.send.mock.calls
+      .map((c: any[]) => { try { return JSON.parse(c[0]); } catch { return null; } })
+      .filter((m: any) => m?.type === "session_update" && m.session?.attentionReason !== undefined);
+    expect(attentionUpdates).toHaveLength(0);
+  });
+
+  it("emits notification_needs_input herd event for herded needs-input notifications", () => {
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    // Set up launcher to report this session as herded
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn(() => ({ sessionId: "s1", state: "connected", herdedBy: "leader-1" })),
+    } as any);
+
+    // Subscribe to takode events to capture the emitted event
+    const capturedEvents: any[] = [];
+    bridge.subscribeTakodeEvents(new Set(["s1"]), (evt) => capturedEvents.push(evt));
+
+    // Add an assistant message
+    const session = (bridge as any).sessions.get("s1");
+    session.messageHistory.push({
+      type: "assistant",
+      message: { id: "asst-1", content: [{ type: "text", text: "Need help" }] },
+      timestamp: Date.now(),
+    });
+
+    const result = bridge.notifyUser("s1", "needs-input", "Need decision on auth");
+    expect(result.ok).toBe(true);
+
+    // Should emit notification_needs_input event
+    const needsInputEvents = capturedEvents.filter((e) => e.event === "notification_needs_input");
+    expect(needsInputEvents).toHaveLength(1);
+    expect(needsInputEvents[0].data.summary).toBe("Need decision on auth");
+
+    // Attention should NOT be set for herded session
+    expect(session.attentionReason).toBeNull();
+  });
+
+  it("notifies user directly for non-herded sessions (no herdedBy)", () => {
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    // Non-herded session (no herdedBy)
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn(() => ({ sessionId: "s1", state: "connected" })),
+    } as any);
+
+    const session = (bridge as any).sessions.get("s1");
+    session.messageHistory.push({
+      type: "assistant",
+      message: { id: "asst-1", content: [{ type: "text", text: "Done" }] },
+      timestamp: Date.now(),
+    });
+
+    bridge.notifyUser("s1", "review", "Task done");
+
+    // Attention SHOULD be set for non-herded sessions
+    expect(session.attentionReason).toBe("review");
+  });
+});

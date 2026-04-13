@@ -862,7 +862,8 @@ export type TakodeEventType =
   | "session_error"
   | "session_archived"
   | "session_deleted"
-  | "user_message";
+  | "user_message"
+  | "notification_needs_input";
 
 export interface TakodeTurnEndMsgRange {
   from: number;
@@ -944,6 +945,10 @@ export interface TakodeUserMessageEventData {
   };
 }
 
+export interface TakodeNotificationNeedsInputEventData {
+  summary?: string;
+}
+
 export interface TakodeEventDataByType {
   turn_end: TakodeTurnEndEventData;
   turn_start: TakodeTurnStartEventData;
@@ -956,6 +961,7 @@ export interface TakodeEventDataByType {
   session_archived: TakodeSessionLifecycleEventData;
   session_deleted: TakodeSessionLifecycleEventData;
   user_message: TakodeUserMessageEventData;
+  notification_needs_input: TakodeNotificationNeedsInputEventData;
 }
 
 interface TakodeEventBase {
