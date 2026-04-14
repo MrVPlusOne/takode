@@ -427,6 +427,7 @@ type TakodeSessionInfo = {
   claimedQuestId?: string | null;
   claimedQuestTitle?: string | null;
   claimedQuestStatus?: string | null;
+  pendingTimerCount?: number;
   uiMode?: string | null;
   attentionReason?: string | null;
   lastReadAt?: number;
@@ -467,6 +468,43 @@ function formatRelativeTime(epoch: number): string {
   if (diff < 60000) return `${Math.round(diff / 1000)}s ago`;
   if (diff < 3600000) return `${Math.round(diff / 60000)}m ago`;
   return `${Math.round(diff / 3600000)}h ago`;
+}
+
+function formatTimestampCompact(epoch: number): string {
+  return dateKey(epoch) === dateKey(Date.now()) ? formatTime(epoch) : `${formatDate(epoch)} ${formatTime(epoch)}`;
+}
+
+type SessionTimerDetail = {
+  id: string;
+  type: string;
+  prompt: string;
+  originalSpec: string;
+  nextFireAt: number;
+  fireCount: number;
+  intervalMs?: number;
+  createdAt?: number;
+  lastFiredAt?: number;
+};
+
+function formatTimerScheduleLabel(timer: Pick<SessionTimerDetail, "type" | "originalSpec">): string {
+  return timer.type === "recurring"
+    ? `every ${timer.originalSpec}`
+    : timer.type === "delay"
+      ? `in ${timer.originalSpec}`
+      : `at ${timer.originalSpec}`;
+}
+
+function printTimerRows(timers: SessionTimerDetail[]): void {
+  for (const timer of timers) {
+    const parts = [
+      `  ${timer.id}`,
+      formatTimerScheduleLabel(timer),
+      `fires=${timer.fireCount}`,
+      `next=${formatTimestampCompact(timer.nextFireAt)}`,
+    ];
+    if (timer.lastFiredAt) parts.push(`last=${formatTimestampCompact(timer.lastFiredAt)}`);
+    console.log(`${parts.join("  ")}  "${formatInlineText(timer.prompt)}"`);
+  }
 }
 
 function escapeTerminalText(s: string): string {
@@ -546,6 +584,7 @@ async function handleList(base: string, args: string[]): Promise<void> {
     reviewerOf?: number;
     claimedQuestId?: string | null;
     claimedQuestStatus?: string | null;
+    pendingTimerCount?: number;
     taskHistory?: Array<{ title: string; timestamp: number }>;
   }>;
 
@@ -689,11 +728,13 @@ function printSessionLine(
     totalLinesAdded?: number;
     totalLinesRemoved?: number;
     attentionReason?: string;
+    pendingPermissionSummary?: string | null;
     lastActivityAt?: number;
     lastMessagePreview?: string;
     isWorktree?: boolean;
     claimedQuestId?: string | null;
     claimedQuestStatus?: string | null;
+    pendingTimerCount?: number;
   },
   opts?: { indent?: boolean },
 ): void {
@@ -715,6 +756,7 @@ function printSessionLine(
   const quest = s.claimedQuestId
     ? ` 📋 ${formatInlineText(s.claimedQuestId)}${s.claimedQuestStatus ? ` ${formatInlineText(s.claimedQuestStatus)}` : ""}`
     : "";
+  const timers = ` ⏰${s.pendingTimerCount ?? 0}`;
 
   const branch = s.gitBranch ? `  ${formatInlineText(s.gitBranch)}` : "";
 
@@ -734,7 +776,7 @@ function printSessionLine(
   const activity = s.lastActivityAt ? formatRelativeTime(s.lastActivityAt) : "";
   const preview = s.lastMessagePreview ? `  "${truncate(s.lastMessagePreview, 50)}"` : "";
 
-  console.log(`${prefix}${num.padEnd(5)} ${status} ${name}${role}${herd}${backend}${quest}${attention}`);
+  console.log(`${prefix}${num.padEnd(5)} ${status} ${name}${role}${herd}${backend}${quest}${timers}${attention}`);
   // Compact display for indented reviewer sessions: skip the detail line (cwd/branch)
   // since reviewers share the parent's worktree and the extra line is just noise
   if (!opts?.indent) {
@@ -918,6 +960,7 @@ function printSessionInfo(data: TakodeSessionInfo): void {
   if (data.cronJobId) {
     console.log(`  Cron Job       ${formatInlineText(data.cronJobName || data.cronJobId)}`);
   }
+  console.log(`  Timers         ${data.pendingTimerCount ?? 0} pending`);
 
   // ── Env ──
   if (data.envSlug) console.log(`  Env Profile    ${formatInlineText(data.envSlug)}`);
@@ -1024,6 +1067,32 @@ async function handleTasks(base: string, args: string[]): Promise<void> {
   console.log(`Browse: takode peek ${safeSessionRef} --from <msg-id> | Task: takode peek ${safeSessionRef} --task <n>`);
 }
 
+// ─── Timers handler ──────────────────────────────────────────────────────────
+
+async function handleTimers(base: string, args: string[]): Promise<void> {
+  const sessionRef = args[0];
+  if (!sessionRef) err("Usage: takode timers <session> [--json]");
+
+  const flags = parseFlags(args.slice(1));
+  const jsonMode = flags.json === true;
+  const result = (await apiGet(base, `/sessions/${encodeURIComponent(sessionRef)}/timers`)) as {
+    timers: SessionTimerDetail[];
+  };
+
+  if (jsonMode) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (result.timers.length === 0) {
+    console.log(`No pending timers for ${formatInlineText(sessionRef)}.`);
+    return;
+  }
+
+  console.log(`Pending timers for ${formatInlineText(sessionRef)} (${result.timers.length}):\n`);
+  printTimerRows(result.timers);
+}
+
 // ─── Peek types ──────────────────────────────────────────────────────────────
 
 type PeekMessage = {
@@ -1058,6 +1127,7 @@ type PeekDefaultResponse = {
   name: string;
   status: string;
   quest: { id: string; title: string; status: string } | null;
+  pendingTimerCount?: number;
   mode: "default";
   totalTurns: number;
   totalMessages: number;
@@ -1080,6 +1150,7 @@ type PeekRangeResponse = {
   name: string;
   status: string;
   quest: { id: string; title: string; status: string } | null;
+  pendingTimerCount?: number;
   mode: "range";
   totalMessages: number;
   from: number;
@@ -1094,6 +1165,7 @@ type PeekDetailResponse = {
   name: string;
   status: string;
   quest: { id: string; title: string; status: string } | null;
+  pendingTimerCount?: number;
   turns: Array<{
     turn: number;
     start: number;
@@ -1220,8 +1292,11 @@ function printPeekHeader(d: {
   name: string;
   status: string;
   quest?: { id: string; title: string; status: string } | null;
+  pendingTimerCount?: number;
 }): void {
-  console.log(`Session #${d.sn} "${formatInlineText(d.name)}" -- ${formatInlineText(d.status)}`);
+  console.log(
+    `Session #${d.sn} "${formatInlineText(d.name)}" -- ${formatInlineText(d.status)}  ⏰${d.pendingTimerCount ?? 0}`,
+  );
   if (d.quest) {
     console.log(
       `Quest: ${formatInlineText(d.quest.id)} "${formatInlineText(d.quest.title)}" [${formatInlineText(d.quest.status)}]`,
@@ -2850,6 +2925,7 @@ type PeekTurnScanResponse = {
   name: string;
   status: string;
   quest: { id: string; title: string; status: string } | null;
+  pendingTimerCount?: number;
   mode: "turn_scan";
   totalTurns: number;
   totalMessages: number;
@@ -3101,31 +3177,14 @@ async function handleTimer(base: string, args: string[]): Promise<void> {
     }
     case "list": {
       const result = (await apiGet(base, `/sessions/${sessionId}/timers`)) as {
-        timers: {
-          id: string;
-          type: string;
-          prompt: string;
-          originalSpec: string;
-          nextFireAt: number;
-          fireCount: number;
-          intervalMs?: number;
-        }[];
+        timers: SessionTimerDetail[];
       };
       if (result.timers.length === 0) {
         console.log("No active timers.");
         break;
       }
       console.log(`Active timers (${result.timers.length}):\n`);
-      for (const t of result.timers) {
-        const fireAt = new Date(t.nextFireAt).toLocaleTimeString();
-        const typeLabel =
-          t.type === "recurring"
-            ? `every ${t.originalSpec}`
-            : t.type === "delay"
-              ? `in ${t.originalSpec}`
-              : `at ${t.originalSpec}`;
-        console.log(`  ${t.id}  ${typeLabel}  fires=${t.fireCount}  next=${fireAt}  "${t.prompt}"`);
-      }
+      printTimerRows(result.timers);
       break;
     }
     case "cancel": {
@@ -3163,6 +3222,7 @@ Commands:
   info     Show detailed metadata for a session
   spawn    Create and auto-herd new worker sessions
   tasks    Show a session task outline (available to all sessions)
+  timers   Inspect pending timers for a session
   scan     Scan session turns (collapsed summaries, paginated)
   peek     View session activity (available to all sessions)
   read     Read a full message (available to all sessions)
@@ -3204,6 +3264,7 @@ Examples:
   takode spawn --backend claude-sdk --count 2
   takode spawn --backend codex --count 3 --message "Check flaky tests"
   takode tasks 1
+  takode timers 1
   takode scan 1
   takode scan 1 --from 50 --count 20
   takode peek 1
@@ -3240,6 +3301,7 @@ try {
     ["search", {}],
     ["info", {}],
     ["tasks", {}],
+    ["timers", {}],
     ["scan", {}],
     ["peek", {}],
     ["read", {}],
@@ -3289,6 +3351,9 @@ try {
       break;
     case "tasks":
       await handleTasks(base, args);
+      break;
+    case "timers":
+      await handleTimers(base, args);
       break;
     case "scan":
       await handleScan(base, args);

@@ -1107,6 +1107,7 @@ describe("takode info", () => {
             isWorktree: true,
             branch: "jiayi",
             actualBranch: "jiayi-wt-7173",
+            pendingTimerCount: 3,
             codexReasoningEffort: "high",
             codexInternetAccess: true,
             codexSandbox: "danger-full-access",
@@ -1141,6 +1142,401 @@ describe("takode info", () => {
     expect(result.stdout).toContain("Worktree       yes");
     expect(result.stdout).toContain("WT Branch      jiayi");
     expect(result.stdout).toContain("Actual Branch  jiayi-wt-7173");
+    expect(result.stdout).toContain("Timers         3 pending");
+  });
+});
+
+describe("takode list timer counts", () => {
+  it("shows pending timer counts in session rows", async () => {
+    // Verifies list output surfaces the server-reported pending timer count for
+    // each visible session, including the zero-count case.
+    const server = createServer((req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-timers", isOrchestrator: true }));
+        return;
+      }
+
+      if (method === "GET" && url === "/api/takode/sessions") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify([
+            {
+              sessionId: "leader-timers",
+              sessionNum: 1,
+              name: "Leader",
+              state: "idle",
+              archived: false,
+              cwd: "/repo/companion",
+              createdAt: Date.now() - 50_000,
+              lastActivityAt: Date.now() - 10_000,
+              cliConnected: true,
+              isOrchestrator: true,
+            },
+            {
+              sessionId: "worker-with-timers",
+              sessionNum: 10,
+              name: "Timer Worker",
+              state: "idle",
+              archived: false,
+              cwd: "/repo/companion",
+              createdAt: Date.now() - 40_000,
+              lastActivityAt: Date.now() - 5_000,
+              cliConnected: true,
+              herdedBy: "leader-timers",
+              pendingTimerCount: 2,
+            },
+            {
+              sessionId: "worker-no-timers",
+              sessionNum: 11,
+              name: "No Timer Worker",
+              state: "idle",
+              archived: false,
+              cwd: "/repo/companion",
+              createdAt: Date.now() - 30_000,
+              lastActivityAt: Date.now() - 8_000,
+              cliConnected: true,
+              herdedBy: "leader-timers",
+              pendingTimerCount: 0,
+            },
+          ]),
+        );
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    try {
+      const result = await runTakode(["list", "--port", String(port)], {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-timers",
+        COMPANION_AUTH_TOKEN: "auth-timers",
+      });
+
+      expect(result.status).toBe(0);
+      expect(result.stdout).toMatch(/#10.*⏰2/);
+      expect(result.stdout).toMatch(/#11.*⏰0/);
+    } finally {
+      server.close();
+    }
+  });
+});
+
+describe("takode timers", () => {
+  it("inspects timers for another session", async () => {
+    // Verifies the cross-session inspection command renders timer schedule,
+    // next fire time, and recurrence metadata without relying on the current session.
+    const server = createServer((req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-watch", isOrchestrator: true }));
+        return;
+      }
+
+      if (method === "GET" && url === "/api/sessions/worker-77/timers") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            timers: [
+              {
+                id: "t1",
+                sessionId: "worker-77",
+                prompt: "check the build",
+                type: "delay",
+                originalSpec: "30m",
+                nextFireAt: Date.now() + 30 * 60 * 1000,
+                createdAt: Date.now(),
+                fireCount: 0,
+              },
+              {
+                id: "t2",
+                sessionId: "worker-77",
+                prompt: "refresh context",
+                type: "recurring",
+                originalSpec: "10m",
+                nextFireAt: Date.now() + 10 * 60 * 1000,
+                createdAt: Date.now(),
+                fireCount: 4,
+                lastFiredAt: Date.now() - 60 * 1000,
+              },
+            ],
+          }),
+        );
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    try {
+      const result = await runTakode(["timers", "worker-77", "--port", String(port)], {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-watch",
+        COMPANION_AUTH_TOKEN: "auth-watch",
+      });
+
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("Pending timers for worker-77 (2):");
+      expect(result.stdout).toContain('t1  in 30m');
+      expect(result.stdout).toContain('t2  every 10m');
+      expect(result.stdout).toContain('last=');
+      expect(result.stdout).toContain('"refresh context"');
+    } finally {
+      server.close();
+    }
+  });
+
+  it("prints the empty-state message when a session has no timers", async () => {
+    // Verifies the advertised human-readable empty branch for cross-session timer
+    // inspection instead of treating an empty payload as a rendering failure.
+    const server = createServer((req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-empty", isOrchestrator: true }));
+        return;
+      }
+
+      if (method === "GET" && url === "/api/sessions/worker-empty/timers") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ timers: [] }));
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    try {
+      const result = await runTakode(["timers", "worker-empty", "--port", String(port)], {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-empty",
+        COMPANION_AUTH_TOKEN: "auth-empty",
+      });
+
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("No pending timers for worker-empty.");
+    } finally {
+      server.close();
+    }
+  });
+
+  it("returns raw timer data in json mode", async () => {
+    // Verifies the machine-readable branch so orchestrator scripts can consume
+    // the same session-level timer inspection command without parsing prose.
+    const server = createServer((req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-json", isOrchestrator: true }));
+        return;
+      }
+
+      if (method === "GET" && url === "/api/sessions/worker-json/timers") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            timers: [
+              {
+                id: "t3",
+                sessionId: "worker-json",
+                prompt: "json branch",
+                type: "at",
+                originalSpec: "3pm",
+                nextFireAt: 1_700_000_123_000,
+                createdAt: 1_700_000_000_000,
+                fireCount: 1,
+              },
+            ],
+          }),
+        );
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    try {
+      const result = await runTakode(["timers", "worker-json", "--json", "--port", String(port)], {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-json",
+        COMPANION_AUTH_TOKEN: "auth-json",
+      });
+
+      expect(result.status).toBe(0);
+      expect(JSON.parse(result.stdout)).toEqual({
+        timers: [
+          {
+            id: "t3",
+            sessionId: "worker-json",
+            prompt: "json branch",
+            type: "at",
+            originalSpec: "3pm",
+            nextFireAt: 1_700_000_123_000,
+            createdAt: 1_700_000_000_000,
+            fireCount: 1,
+          },
+        ],
+      });
+    } finally {
+      server.close();
+    }
+  });
+});
+
+describe("takode peek/scan timer counts", () => {
+  it("shows pending timer count in peek header", async () => {
+    // Regression: peek is a state-bearing Takode surface and must include the
+    // pending timer count in its session header, not just list/info.
+    const server = createServer((req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-peek-timers", isOrchestrator: false }));
+        return;
+      }
+
+      if (method === "GET" && url === "/api/sessions/153/messages") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            sid: "worker-153",
+            sn: 153,
+            name: "Peek Worker",
+            status: "idle",
+            pendingTimerCount: 2,
+            quest: null,
+            mode: "default",
+            totalTurns: 0,
+            totalMessages: 0,
+            collapsed: [],
+            omitted: 0,
+            expanded: null,
+          }),
+        );
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    try {
+      const result = await runTakode(["peek", "153", "--port", String(port)], {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-peek-timers",
+        COMPANION_AUTH_TOKEN: "auth-peek-timers",
+      });
+
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain('Session #153 "Peek Worker" -- idle  ⏰2');
+    } finally {
+      server.close();
+    }
+  });
+
+  it("shows pending timer count in scan header", async () => {
+    // Regression: scan reuses the shared session header, so timer visibility
+    // must remain present there as well.
+    const server = createServer((req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-scan-timers", isOrchestrator: false }));
+        return;
+      }
+
+      if (method === "GET" && url === "/api/sessions/153/messages?scan=turns&fromTurn=0&turnCount=1") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            sid: "worker-153",
+            sn: 153,
+            name: "Scan Worker",
+            status: "running",
+            pendingTimerCount: 1,
+            quest: null,
+            mode: "turn_scan",
+            totalTurns: 1,
+            totalMessages: 3,
+            from: 0,
+            count: 1,
+            turns: [
+              {
+                turn: 0,
+                si: 0,
+                ei: 2,
+                start: Date.now() - 60_000,
+                end: Date.now() - 30_000,
+                dur: 30_000,
+                stats: { tools: 0, messages: 3, subagents: 0 },
+                result: "done",
+                user: "scan session",
+              },
+            ],
+          }),
+        );
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    try {
+      const result = await runTakode(["scan", "153", "--from", "0", "--count", "1", "--port", String(port)], {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-scan-timers",
+        COMPANION_AUTH_TOKEN: "auth-scan-timers",
+      });
+
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain('Session #153 "Scan Worker" -- running  ⏰1');
+    } finally {
+      server.close();
+    }
   });
 });
 

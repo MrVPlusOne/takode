@@ -395,6 +395,15 @@ function createMockRecorder() {
   } as any;
 }
 
+function createMockTimerManager() {
+  return {
+    createTimer: vi.fn(),
+    listTimers: vi.fn(() => []),
+    cancelTimer: vi.fn(async () => true),
+    cancelAllTimers: vi.fn(async () => {}),
+  } as any;
+}
+
 function createMockTracker() {
   return {
     addMapping: vi.fn(),
@@ -412,6 +421,7 @@ let bridge: ReturnType<typeof createMockBridge>;
 let sessionStore: ReturnType<typeof createMockStore>;
 let tracker: ReturnType<typeof createMockTracker>;
 let recorder: ReturnType<typeof createMockRecorder>;
+let timerManager: ReturnType<typeof createMockTimerManager>;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -429,9 +439,13 @@ beforeEach(() => {
   sessionStore = createMockStore();
   tracker = createMockTracker();
   recorder = createMockRecorder();
+  timerManager = createMockTimerManager();
   app = new Hono();
   const terminalManager = { getInfo: () => null, spawn: () => "", kill: () => {} } as any;
-  app.route("/api", createRoutes(launcher, bridge, sessionStore, tracker, terminalManager, undefined, recorder));
+  app.route(
+    "/api",
+    createRoutes(launcher, bridge, sessionStore, tracker, terminalManager, undefined, recorder, undefined, timerManager),
+  );
 
   // Default no-op mocks for container workspace isolation (called during container session creation)
   vi.spyOn(containerManager, "copyWorkspaceToContainer").mockResolvedValue(undefined);
@@ -6619,6 +6633,31 @@ describe("Takode server-authoritative auth", () => {
     });
   });
 
+  it("includes pendingTimerCount in takode session snapshots", async () => {
+    // Verifies the list snapshot carries timer counts from the timer manager so
+    // takode list can render state without extra per-session requests.
+    setupTakodeSessions();
+    timerManager.listTimers.mockImplementation((sessionId: string) =>
+      sessionId === "worker-1" ? [{ id: "t1" }, { id: "t2" }] : [],
+    );
+
+    const res = await app.request("/api/takode/sessions", {
+      method: "GET",
+      headers: authHeaders("orch-1", "tok-1"),
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.find((s: any) => s.sessionId === "worker-1")).toMatchObject({
+      sessionId: "worker-1",
+      pendingTimerCount: 2,
+    });
+    expect(json.find((s: any) => s.sessionId === "worker-2")).toMatchObject({
+      sessionId: "worker-2",
+      pendingTimerCount: 0,
+    });
+  });
+
   it("enforces authenticated orchestrator identity for herd and unherd", async () => {
     setupTakodeSessions();
     launcher.herdSessions.mockReturnValue({ herded: ["worker-1"], notFound: [], conflicts: [], leaders: [] });
@@ -6879,6 +6918,121 @@ describe("Takode server-authoritative auth", () => {
     const json = await res.json();
     expect(json.permissionMode).toBe("bypassPermissions");
     expect(json.askPermission).toBe(false);
+  });
+
+  it("includes pendingTimerCount in takode info", async () => {
+    // Verifies the detailed info endpoint exposes the pending timer count used
+    // by takode info alongside other session metadata.
+    setupTakodeSessions();
+    timerManager.listTimers.mockImplementation((sessionId: string) => (sessionId === "worker-1" ? [{ id: "t9" }] : []));
+
+    const res = await app.request("/api/sessions/worker-1/info", {
+      method: "GET",
+      headers: authHeaders("orch-1", "tok-1"),
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.pendingTimerCount).toBe(1);
+  });
+
+  it("includes pendingTimerCount in takode message views", async () => {
+    // Verifies the shared message-view payload carries timer counts for the
+    // default peek path, which both CLI state surfaces and tests rely on.
+    setupTakodeSessions();
+    timerManager.listTimers.mockImplementation((sessionId: string) => (sessionId === "worker-1" ? [{ id: "t2" }] : []));
+    bridge.getMessageHistory.mockReturnValue([]);
+
+    const res = await app.request("/api/sessions/worker-1/messages", {
+      method: "GET",
+      headers: authHeaders("orch-1", "tok-1"),
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.pendingTimerCount).toBe(1);
+  });
+
+  it("includes pendingTimerCount in takode scan message views", async () => {
+    // Verifies the scan=turns branch preserves timer counts too, so takode scan
+    // cannot regress independently from the default message-view path.
+    setupTakodeSessions();
+    timerManager.listTimers.mockImplementation((sessionId: string) => (sessionId === "worker-1" ? [{ id: "t4" }] : []));
+    bridge.getMessageHistory.mockReturnValue([]);
+
+    const res = await app.request("/api/sessions/worker-1/messages?scan=turns&fromTurn=0&turnCount=1", {
+      method: "GET",
+      headers: authHeaders("orch-1", "tok-1"),
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.pendingTimerCount).toBe(1);
+  });
+
+  it("returns session timers via takode auth", async () => {
+    // Verifies the dedicated timer inspection endpoint stays protected by Takode
+    // auth while returning the raw timer details needed by takode timers.
+    setupTakodeSessions();
+    timerManager.listTimers.mockReturnValue([
+      {
+        id: "t1",
+        sessionId: "worker-1",
+        prompt: "check build",
+        type: "delay",
+        originalSpec: "30m",
+        nextFireAt: 1_700_000_000_000,
+        createdAt: 1_699_999_900_000,
+        fireCount: 0,
+      },
+    ]);
+
+    const res = await app.request("/api/sessions/worker-1/timers", {
+      method: "GET",
+      headers: authHeaders("orch-1", "tok-1"),
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json).toEqual({
+      timers: [
+        {
+          id: "t1",
+          sessionId: "worker-1",
+          prompt: "check build",
+          type: "delay",
+          originalSpec: "30m",
+          nextFireAt: 1_700_000_000_000,
+          createdAt: 1_699_999_900_000,
+          fireCount: 0,
+        },
+      ],
+    });
+  });
+
+  it("preserves pendingTimerCount when session enrichment falls back after an error", async () => {
+    // Regression: an unrelated enrichment failure should not zero out the timer
+    // indicator in takode list for that session.
+    setupTakodeSessions();
+    timerManager.listTimers.mockImplementation((sessionId: string) => (sessionId === "worker-1" ? [{ id: "t7" }] : []));
+    bridge.getSession.mockImplementation((sessionId: string) => {
+      if (sessionId === "worker-1") {
+        throw new Error("bridge read failed");
+      }
+      return null;
+    });
+
+    const res = await app.request("/api/takode/sessions", {
+      method: "GET",
+      headers: authHeaders("orch-1", "tok-1"),
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.find((s: any) => s.sessionId === "worker-1")).toMatchObject({
+      sessionId: "worker-1",
+      pendingTimerCount: 1,
+    });
   });
 
   it("removes deprecated takode watch endpoint", async () => {

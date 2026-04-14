@@ -18,7 +18,7 @@ import type { RouteContext } from "./context.js";
 
 export function createTakodeRoutes(ctx: RouteContext) {
   const api = new Hono();
-  const { launcher, wsBridge, authenticateTakodeCaller, resolveId } = ctx;
+  const { launcher, wsBridge, authenticateTakodeCaller, resolveId, timerManager } = ctx;
 
   const resolveReportedPermissionMode = (
     launcherMode: string | undefined,
@@ -42,6 +42,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
     const heavyRepoModeEnabled = getSettings().heavyRepoModeEnabled;
     return Promise.all(
       pool.map(async (s) => {
+        const pendingTimerCount = timerManager?.listTimers(s.sessionId).length ?? 0;
         try {
           const { sessionAuthToken: _token, ...safeSession } = s;
           const bridgeSession = wsBridge.getSession(s.sessionId);
@@ -59,6 +60,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
             state: effectiveState,
             sessionNum: launcher.getSessionNum(s.sessionId) ?? null,
             name: names[s.sessionId] ?? s.name,
+            pendingTimerCount,
             gitBranch: bridge?.git_branch || "",
             gitDefaultBranch: bridge?.git_default_branch || "",
             diffBaseBranch: bridge?.diff_base_branch || "",
@@ -88,7 +90,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
           };
         } catch (e) {
           console.warn(`[routes] Failed to enrich session ${s.sessionId}:`, e);
-          return { ...s, name: names[s.sessionId] ?? s.name };
+          return { ...s, name: names[s.sessionId] ?? s.name, pendingTimerCount };
         }
       }),
     );
@@ -171,6 +173,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
       claimedQuestTitle: bridge?.claimedQuestTitle ?? null,
       claimedQuestStatus: bridge?.claimedQuestStatus ?? null,
       uiMode: bridge?.uiMode ?? null,
+      pendingTimerCount: timerManager?.listTimers(sessionId).length ?? 0,
       ...(wsBridge.getSessionAttentionState(sessionId) ?? {}),
       taskHistory: wsBridge.getSessionTaskHistory(sessionId),
       keywords: wsBridge.getSessionKeywords(sessionId),
@@ -180,6 +183,9 @@ export function createTakodeRoutes(ctx: RouteContext) {
   // ─── Takode: Message Peek & Read ────────────────────────────
 
   api.get("/sessions/:id/messages", (c) => {
+    const auth = authenticateTakodeCaller(c);
+    if ("response" in auth) return auth.response;
+
     const sessionId = resolveId(c.req.param("id"));
     if (!sessionId) return c.json({ error: "Session not found" }, 404);
 
@@ -207,7 +213,14 @@ export function createTakodeRoutes(ctx: RouteContext) {
         }
       : null;
 
-    const base = { sid: sessionId, sn: sessionNum, name: sessionName, status, quest };
+    const base = {
+      sid: sessionId,
+      sn: sessionNum,
+      name: sessionName,
+      status,
+      quest,
+      pendingTimerCount: timerManager?.listTimers(sessionId).length ?? 0,
+    };
 
     // ── Mode detection ──
     const fromParam = c.req.query("from");
@@ -271,6 +284,9 @@ export function createTakodeRoutes(ctx: RouteContext) {
   });
 
   api.get("/sessions/:id/messages/:idx", (c) => {
+    const auth = authenticateTakodeCaller(c);
+    if ("response" in auth) return auth.response;
+
     const sessionId = resolveId(c.req.param("id"));
     if (!sessionId) return c.json({ error: "Session not found" }, 404);
 
@@ -303,6 +319,9 @@ export function createTakodeRoutes(ctx: RouteContext) {
   // ─── Takode: Grep (within-session search) ────────────────────
 
   api.get("/sessions/:id/grep", (c) => {
+    const auth = authenticateTakodeCaller(c);
+    if ("response" in auth) return auth.response;
+
     const sessionId = resolveId(c.req.param("id"));
     if (!sessionId) return c.json({ error: "Session not found" }, 404);
 
@@ -322,6 +341,9 @@ export function createTakodeRoutes(ctx: RouteContext) {
   // ─── Takode: Export (dump session to text) ───────────────────
 
   api.get("/sessions/:id/export", (c) => {
+    const auth = authenticateTakodeCaller(c);
+    if ("response" in auth) return auth.response;
+
     const sessionId = resolveId(c.req.param("id"));
     if (!sessionId) return c.json({ error: "Session not found" }, 404);
 
