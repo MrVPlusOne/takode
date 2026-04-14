@@ -6322,6 +6322,38 @@ export class WsBridge {
     }
   }
 
+  /**
+   * Claude WebSocket follow-up user messages are delivered to the live CLI
+   * immediately, even while the current turn is still marked generating. The
+   * queued-turn lifecycle is still populated so we can attribute interruptions,
+   * but those inline-delivered follow-ups must not be promoted into a phantom
+   * second turn when the current result arrives.
+   *
+   * Keep only queued entries that still correspond to undelivered user NDJSON
+   * sitting in pendingMessages (for example during disconnect/reconnect). This
+   * preserves legitimate queued follow-ups while draining stale inline ones.
+   */
+  private drainInlineQueuedClaudeTurns(session: Session, reason: string): boolean {
+    if (session.backendType !== "claude") return false;
+    const queuedEntries = getQueuedTurnLifecycleEntriesLifecycle(session);
+    if (queuedEntries.length === 0) return false;
+
+    const pendingUserMessageCount = session.pendingMessages.reduce((count, raw) => {
+      return count + (this.isCliUserMessagePayload(raw) ? 1 : 0);
+    }, 0);
+    if (queuedEntries.length <= pendingUserMessageCount) return false;
+
+    const retainedEntries =
+      pendingUserMessageCount > 0 ? queuedEntries.slice(-pendingUserMessageCount) : [];
+    const drainedCount = queuedEntries.length - retainedEntries.length;
+    console.log(
+      `[ws-bridge] Draining ${drainedCount} inline queued Claude turn(s) on ${reason} for session ${sessionTag(session.id)} ` +
+        `(pending_cli_user_messages=${pendingUserMessageCount})`,
+    );
+    replaceQueuedTurnLifecycleEntriesLifecycle(session, retainedEntries);
+    return true;
+  }
+
   private handleResultMessage(session: Session, msg: CLIResultMessage) {
     // Dedup: CLI replays result messages on --resume. Skip if already in history
     // to avoid re-triggering attention/notifications for old completions.
@@ -6339,7 +6371,8 @@ export class WsBridge {
           session,
           "result_replay",
         );
-        if (reconciled.clearedResidualState) {
+        const drainedQueuedTurns = this.drainInlineQueuedClaudeTurns(session, "result_replay");
+        if (drainedQueuedTurns || reconciled.clearedResidualState) {
           this.broadcastToBrowsers(session, { type: "status_change", status: "idle" });
           this.persistSession(session);
         }
@@ -6396,6 +6429,7 @@ export class WsBridge {
       this.markTurnInterrupted(session, queuedInterruptSource);
     }
     const turnWasInterrupted = session.interruptedDuringTurn || resultInterrupted;
+    this.drainInlineQueuedClaudeTurns(session, "result");
 
     const turnTriggerSource = this.getCurrentTurnTriggerSource(session);
     reconcileTerminalResultStateLifecycle(this.getGenerationLifecycleDeps(), session, "result");
