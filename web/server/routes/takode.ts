@@ -748,7 +748,10 @@ export function createTakodeRoutes(ctx: RouteContext) {
       return c.json({ error: 'category must be "needs-input" or "review"' }, 400);
     }
     const rawSummary = typeof body.summary === "string" ? body.summary.trim() : "";
-    const summary = rawSummary || undefined;
+    if (!rawSummary) {
+      return c.json({ error: "summary is required" }, 400);
+    }
+    const summary = rawSummary;
 
     const result = wsBridge.notifyUser(id, category, summary);
     if (!result.ok) return c.json({ error: result.error }, 404);

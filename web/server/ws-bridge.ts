@@ -3102,7 +3102,7 @@ export class WsBridge {
   notifyUser(
     sessionId: string,
     category: "needs-input" | "review",
-    summary?: string,
+    summary: string,
   ): { ok: true; anchoredMessageId: string | null } | { ok: false; error: string } {
     const session = this.sessions.get(sessionId);
     if (!session) return { ok: false, error: "Session not found" };
@@ -3122,7 +3122,7 @@ export class WsBridge {
       (lastAssistant as Record<string, unknown>).notification = {
         category,
         timestamp: Date.now(),
-        ...(summary ? { summary } : {}),
+        summary,
       };
     }
 
@@ -3130,7 +3130,7 @@ export class WsBridge {
     const notif: SessionNotification = {
       id: `n-${++session.notificationCounter}`,
       category,
-      ...(summary ? { summary } : {}),
+      summary,
       timestamp: Date.now(),
       messageId: anchoredMessageId,
       done: false,
@@ -3146,7 +3146,7 @@ export class WsBridge {
       // are emitted as herd events so the leader can decide what to do.
       if (category === "needs-input") {
         this.emitTakodeEvent(sessionId, "notification_needs_input", {
-          ...(summary ? { summary } : {}),
+          summary,
         });
       }
       this.persistSession(session);
@@ -3172,7 +3172,7 @@ export class WsBridge {
     // skip the notification.
     if (this.pushoverNotifier) {
       const eventType = category === "needs-input" ? ("question" as const) : ("completed" as const);
-      const detail = summary || (category === "needs-input" ? "Needs user input" : "Ready for review");
+      const detail = summary;
       this.pushoverNotifier.scheduleNotification(sessionId, eventType, detail, undefined, { skipReadCheck: true });
     }
 
@@ -3187,7 +3187,7 @@ export class WsBridge {
       this.broadcastToBrowsers(session, {
         type: "notification_anchored",
         messageId: anchoredMessageId,
-        notification: { category, timestamp: Date.now(), ...(summary ? { summary } : {}) },
+        notification: { category, timestamp: Date.now(), summary },
       });
     }
 

@@ -6738,7 +6738,7 @@ describe("Takode server-authoritative auth", () => {
 
   // ── Notify endpoint ──────────────────────────────────────────────────────
 
-  it("sends notification with category only (backward compat)", async () => {
+  it("rejects notification without summary", async () => {
     setupTakodeSessions();
 
     const res = await app.request("/api/sessions/orch-1/notify", {
@@ -6747,11 +6747,11 @@ describe("Takode server-authoritative auth", () => {
       body: JSON.stringify({ category: "review" }),
     });
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(400);
     const json = await res.json();
-    expect(json).toEqual({ ok: true, category: "review", anchoredMessageId: "msg-123" });
-    // notifyUser called with category and no summary
-    expect(bridge.notifyUser).toHaveBeenCalledWith("orch-1", "review", undefined);
+    expect(json.error).toBe("summary is required");
+    // notifyUser should not be called when summary is missing
+    expect(bridge.notifyUser).not.toHaveBeenCalled();
   });
 
   it("passes summary string through to notifyUser", async () => {
@@ -6767,7 +6767,7 @@ describe("Takode server-authoritative auth", () => {
     expect(bridge.notifyUser).toHaveBeenCalledWith("orch-1", "needs-input", "Need decision on auth approach");
   });
 
-  it("treats whitespace-only summary as undefined", async () => {
+  it("rejects whitespace-only summary", async () => {
     setupTakodeSessions();
 
     const res = await app.request("/api/sessions/orch-1/notify", {
@@ -6776,9 +6776,10 @@ describe("Takode server-authoritative auth", () => {
       body: JSON.stringify({ category: "review", summary: "   " }),
     });
 
-    expect(res.status).toBe(200);
-    // Whitespace-only summary should be normalized to undefined
-    expect(bridge.notifyUser).toHaveBeenCalledWith("orch-1", "review", undefined);
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toBe("summary is required");
+    expect(bridge.notifyUser).not.toHaveBeenCalled();
   });
 
   it("rejects notify with invalid category", async () => {

@@ -460,11 +460,12 @@ ${TAKODE_LINK_SYNTAX_INSTRUCTIONS}`);
   parts.push(
     "## User notifications\n\n" +
       "Use `takode notify` to alert the user when they should come look at your work.\n\n" +
-      "    takode notify <category>\n\n" +
+      "    takode notify <category> <summary>\n\n" +
       "Categories:\n" +
       "- **`needs-input`**: The user needs to provide information or make a decision, and no built-in tool covers it. " +
       "Note: AskUserQuestion and ExitPlanMode already notify the user -- do not call `takode notify` in addition to those.\n" +
       "- **`review`**: Something is ready for the user's eyes -- a quest reached verification, code is synced and testable, or a significant deliverable is complete.\n\n" +
+      "The summary is required -- always describe what specifically needs attention.\n" +
       "Do not notify for routine progress or intermediate steps.",
   );
 

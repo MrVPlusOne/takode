@@ -2518,10 +2518,13 @@ async function handleSetBase(base: string, args: string[]): Promise<void> {
 async function handleNotify(base: string, args: string[]): Promise<void> {
   const category = args[0];
   if (!category || (category !== "needs-input" && category !== "review")) {
-    err("Usage: takode notify <category> [summary]\nCategories: needs-input, review");
+    err("Usage: takode notify <category> <summary>\nCategories: needs-input, review");
   }
   const remaining = args.slice(1).filter((a) => !a.startsWith("--"));
   const summary = remaining.length > 0 ? remaining.join(" ") : undefined;
+  if (!summary) {
+    err("Usage: takode notify <category> <summary>\nSummary is required -- describe what needs attention.");
+  }
   const flags = parseFlags(args.slice(1));
   const jsonMode = flags.json === true;
   const selfId = getCallerSessionId();
