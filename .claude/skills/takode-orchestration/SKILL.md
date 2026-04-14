@@ -54,10 +54,10 @@ Events from herded sessions are delivered automatically as `[Herd]` user message
 
 | Event | Meaning | Action |
 |-------|---------|--------|
-| `turn_end (✓)` | Worker completed successfully | Peek at output, send follow-up or mark done |
+| `turn_end (✓)` | Worker completed successfully | Peek at output, send follow-up or mark done. In `PLANNING`, this may contain a plain-text plan that should be reviewed and answered with normal `takode send` rather than `takode answer` |
 | `turn_end (✗)` | Worker hit an error | Diagnose the issue, send recovery instructions |
 | `turn_end (⊘)` | User interrupted the worker | Check if it needs redirection |
-| `permission_request` | Worker needs approval | Answer `AskUserQuestion`/`ExitPlanMode` with `takode answer`. **Tool permissions are human-only.** If `(user-initiated)`, don't answer -- the user is handling it |
+| `permission_request` | Worker needs approval | For `AskUserQuestion`/`ExitPlanMode`, answer with `takode answer`. **Tool permissions are human-only.** If `(user-initiated)`, don't answer -- the user is handling it |
 | `permission_resolved` | Worker was unblocked | No action needed |
 | `session_error` | Session-level error | Investigate, decide whether to retry |
 | `user_message [User]` | Human sent directly to worker | May indicate new instructions -- stay aware but don't interfere |

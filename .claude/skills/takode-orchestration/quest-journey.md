@@ -7,7 +7,7 @@ Every dispatched task follows the Quest Journey lifecycle. The work board (`tako
 | Stage | What's happening | Next action |
 |-------|-----------------|-------------|
 | `QUEUED` | Quest is ready, waiting for dispatch | Dispatch to a worker |
-| `PLANNING` | Worker is planning | Wait for `permission_request` (ExitPlanMode), then review plan |
+| `PLANNING` | Worker is planning | Wait for the plan via `permission_request` or plain-text `turn_end`, then review it |
 | `IMPLEMENTING` | Worker is implementing | Wait for `turn_end`, then spawn skeptic reviewer |
 | `SKEPTIC_REVIEWING` | Skeptic reviewer is evaluating | Wait for reviewer ACCEPT, then tell worker to run `/groom`, implement any Critical or Recommended suggestions, report back, and wait |
 | `GROOM_REVIEWING` | Worker ran groom and implemented suggestions; reviewer checking compliance | ALWAYS send to reviewer, wait for ACCEPT, then send a separate explicit port instruction when ready |
@@ -43,12 +43,16 @@ Every dispatched task follows the Quest Journey lifecycle. The work board (`tako
 
 ## PLANNING -> IMPLEMENTING
 
-- Wait for the `permission_request` herd event (ExitPlanMode)
-- **If the worker completes without submitting a plan first**, send it back: "Please submit a plan via ExitPlanMode before implementing. I need to review your approach."
+- Workers can present plans in two valid ways:
+  - `permission_request` via `ExitPlanMode` (formal plan)
+  - plain-text assistant output on `turn_end` (informal plan)
+- If the worker uses `ExitPlanMode`, review with `takode pending <session>` / the pending payload, then approve or reject with `takode answer`.
+- If the worker returns the plan as plain text on `turn_end`, read the plan in the assistant output, then approve or reject with a normal `takode send <session> "..."` message.
+- Do **not** send a worker back just because it used plain-text output instead of `ExitPlanMode`. Send it back only if it started implementing without presenting a reviewable plan at all.
 - **Read the full plan** -- don't just peek. Verify the worker fully understood the task and aligned with the goal
 - Be skeptical and adversarial: does the plan actually address the root problem? Are there misunderstandings or shortcuts that would produce wrong results?
 - It's better to reject and redirect now than to let the worker implement the wrong thing
-- Approve or reject with specific feedback via `takode answer`
+- Approve or reject with the correct mechanism for the path used (`takode answer` for `ExitPlanMode`, normal `takode send` for plain-text plans)
 - On approve, send an explicit stage instruction: implement now, then stop and report back. Do not let the worker assume review, `/groom`, `/port-changes`, or quest transitions are authorized.
 - On approve: `takode board advance <quest-id>`
 
