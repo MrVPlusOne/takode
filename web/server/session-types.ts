@@ -666,7 +666,7 @@ export interface SessionState {
   session_id: string;
   backend_type?: BackendType;
   /** Server-authored backend lifecycle state. */
-  backend_state?: "initializing" | "resuming" | "connected" | "disconnected" | "broken";
+  backend_state?: "initializing" | "resuming" | "recovering" | "connected" | "disconnected" | "broken";
   /** Server-authored backend failure detail for disconnected/broken states. */
   backend_error?: string | null;
   model: string;

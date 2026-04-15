@@ -90,7 +90,7 @@ export function ChatView({ sessionId }: { sessionId: string }) {
     connStatus === "connected" &&
     !cliConnected &&
     backendState !== "broken" &&
-    (backendState === "initializing" || backendState === "resuming" || !cliEverConnected);
+    (backendState === "initializing" || backendState === "resuming" || backendState === "recovering" || !cliEverConnected);
   const isResumeMissingRolloutError =
     backendError?.includes("could not be resumed because its local rollout is missing or unreadable") ?? false;
   return (
@@ -111,7 +111,11 @@ export function ChatView({ sessionId }: { sessionId: string }) {
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
           </svg>
           <span className="text-xs text-cc-text-secondary font-medium">
-            {backendState === "resuming" || cliEverConnected ? "Reconnecting session..." : "Starting session..."}
+            {backendState === "recovering"
+              ? "Recovering session..."
+              : backendState === "resuming" || cliEverConnected
+                ? "Reconnecting session..."
+                : "Starting session..."}
           </span>
         </div>
       )}
@@ -137,7 +141,8 @@ export function ChatView({ sessionId }: { sessionId: string }) {
         cliEverConnected &&
         backendState !== "broken" &&
         backendState !== "initializing" &&
-        backendState !== "resuming" && (
+        backendState !== "resuming" &&
+        backendState !== "recovering" && (
           <div
             className={`px-4 py-2 border-b text-center flex items-center justify-center gap-3 ${
               cliDisconnectReason === "idle_limit"

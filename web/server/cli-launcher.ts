@@ -71,6 +71,26 @@ async function readProcessCmdline(pid: number): Promise<string | null> {
   }
 }
 
+async function captureProcessSnapshot(pid: number): Promise<string[]> {
+  if (!Number.isInteger(pid) || pid <= 0) return [];
+  const cmd =
+    `PARENT_PID="$(ps -o ppid= -p ${pid} 2>/dev/null | tr -d ' ')"; ` +
+    `CHILD_PIDS="$(pgrep -P ${pid} 2>/dev/null | tr '\\n' ' ')"; ` +
+    `IDS="${pid}"; ` +
+    `[ -n "$PARENT_PID" ] && IDS="$IDS $PARENT_PID"; ` +
+    `[ -n "$CHILD_PIDS" ] && IDS="$IDS $CHILD_PIDS"; ` +
+    `ps -o pid=,ppid=,pgid=,stat=,etime=,command= -p $IDS 2>/dev/null`;
+  try {
+    const { stdout } = await execPromise(cmd, { timeout: 3000, maxBuffer: 64 * 1024 });
+    return stdout
+      .split("\n")
+      .map((line) => line.trimEnd())
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
 function getClaudeSdkDebugLogPath(port: number, sessionId: string): string {
   return join(homedir(), ".companion", "logs", `claude-sdk-${port}-${sessionId}.log`);
 }
@@ -1965,6 +1985,7 @@ export class CliLauncher {
         ...process.env,
         ...shellEnv,
         CLAUDECODE: undefined,
+        MAI_CODEX_DEBUG_WRAPPER: "1",
         ...options.env,
         CODEX_HOME: codexHome,
         ...(dotslashCache ? { DOTSLASH_CACHE: dotslashCache } : {}),
@@ -1998,6 +2019,7 @@ export class CliLauncher {
 
     info.pid = proc.pid;
     this.processes.set(sessionId, proc);
+    void this.logCodexProcessSnapshot(sessionId, proc.pid, "spawn");
 
     // Pipe stderr for debugging (stdout is used for JSON-RPC)
     const stderr = proc.stderr;
@@ -2739,6 +2761,26 @@ export class CliLauncher {
   async killAll(): Promise<void> {
     const ids = [...this.processes.keys()];
     await Promise.all(ids.map((id) => this.kill(id)));
+  }
+
+  logCodexProcessSnapshotForSession(sessionId: string, reason: string): void {
+    const info = this.sessions.get(sessionId);
+    if (!info || info.backendType !== "codex" || !info.pid) return;
+    void this.logCodexProcessSnapshot(sessionId, info.pid, reason);
+  }
+
+  private async logCodexProcessSnapshot(sessionId: string, pid: number, reason: string): Promise<void> {
+    const lines = await captureProcessSnapshot(pid);
+    if (lines.length === 0) {
+      console.log(
+        `[cli-launcher] Codex process snapshot unavailable for session ${sessionTag(sessionId)} (reason=${reason}, pid=${pid})`,
+      );
+      return;
+    }
+    console.log(`[cli-launcher] Codex process snapshot for session ${sessionTag(sessionId)} (${reason}, pid=${pid}):`);
+    for (const line of lines) {
+      console.log(`[cli-launcher]   ${line}`);
+    }
   }
 
   private async pipeStream(

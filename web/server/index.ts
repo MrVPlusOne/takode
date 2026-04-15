@@ -204,6 +204,7 @@ const relaunchQueue = new RelaunchQueue(async (sessionId) => {
       try {
         const wtResult = await recreateWorktreeIfMissing(sessionId, info, { launcher, worktreeTracker, wsBridge });
         if (wtResult.error) {
+          wsBridge.markCodexAutoRecoveryFailed(sessionId);
           wsBridge.broadcastToSession(sessionId, { type: "error", message: wtResult.error });
           return;
         }
@@ -211,6 +212,7 @@ const relaunchQueue = new RelaunchQueue(async (sessionId) => {
           console.log(`[server] Recreated worktree for session ${sessionId} before relaunch`);
         }
       } catch (e) {
+        wsBridge.markCodexAutoRecoveryFailed(sessionId);
         wsBridge.broadcastToSession(sessionId, {
           type: "error",
           message: `Failed to recreate worktree: ${e instanceof Error ? e.message : String(e)}`,
@@ -218,6 +220,7 @@ const relaunchQueue = new RelaunchQueue(async (sessionId) => {
         return;
       }
     } else {
+      wsBridge.markCodexAutoRecoveryFailed(sessionId);
       wsBridge.broadcastToSession(sessionId, {
         type: "error",
         message: `Working directory not found: ${info.cwd}`,
@@ -228,8 +231,11 @@ const relaunchQueue = new RelaunchQueue(async (sessionId) => {
 
   console.log(`[server] Relaunching session ${sessionId}`);
   const result = await launcher.relaunch(sessionId);
-  if (!result.ok && result.error) {
-    wsBridge.broadcastToSession(sessionId, { type: "error", message: result.error });
+  if (!result.ok) {
+    wsBridge.markCodexAutoRecoveryFailed(sessionId);
+    if (result.error) {
+      wsBridge.broadcastToSession(sessionId, { type: "error", message: result.error });
+    }
   }
 });
 

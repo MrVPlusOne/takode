@@ -8,7 +8,7 @@ interface MockStoreState {
   sessions: Map<
     string,
     {
-      backend_state?: "initializing" | "resuming" | "connected" | "disconnected" | "broken";
+      backend_state?: "initializing" | "resuming" | "recovering" | "connected" | "disconnected" | "broken";
       backend_error?: string | null;
     }
   >;
@@ -167,6 +167,21 @@ describe("ChatView backend banners", () => {
     expect(scope.getByText("Codex initialization failed: Transport closed")).toBeInTheDocument();
     fireEvent.click(scope.getByRole("button", { name: "Relaunch" }));
     expect(mockRelaunchSession).toHaveBeenCalledWith("s1");
+  });
+
+  it("shows a recovering banner instead of the generic disconnected banner during auto-relaunch", () => {
+    resetStore({
+      sessions: new Map([["s1", { backend_state: "recovering", backend_error: null }]]),
+      cliConnected: new Map([["s1", false]]),
+      cliEverConnected: new Map([["s1", true]]),
+      cliDisconnectReason: new Map([["s1", null]]),
+      sessionStatus: new Map([["s1", null]]),
+    });
+
+    const view = render(<ChatView sessionId="s1" />);
+    const scope = within(view.container);
+    expect(scope.getByText("Recovering session...")).toBeInTheDocument();
+    expect(scope.queryByText("CLI disconnected")).not.toBeInTheDocument();
   });
 
   it("renders the feed without the external latest-indicator rail", () => {

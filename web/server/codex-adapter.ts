@@ -554,11 +554,15 @@ class JsonRpcTransport {
   private writer: WritableStreamDefaultWriter<Uint8Array>;
   private connected = true;
   private buffer = "";
+  private closeContext = "unknown";
+  private sessionId: string;
 
   constructor(
     stdin: WritableStream<Uint8Array> | { write(data: Uint8Array): number },
     stdout: ReadableStream<Uint8Array>,
+    sessionId: string,
   ) {
+    this.sessionId = sessionId;
     // Handle both Bun subprocess stdin types
     let writable: WritableStream<Uint8Array>;
     if ("write" in stdin && typeof stdin.write === "function") {
@@ -597,11 +601,15 @@ class JsonRpcTransport {
     try {
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) {
+          this.closeContext = `stdout_eof(buffer=${this.buffer.length})`;
+          break;
+        }
         this.buffer += decoder.decode(value, { stream: true });
         this.processBuffer();
       }
     } catch (err) {
+      this.closeContext = `stdout_read_error:${err instanceof Error ? err.message : String(err)}`;
       console.error("[codex-adapter] stdout reader error:", err);
     } finally {
       this.connected = false;
@@ -746,13 +754,34 @@ class JsonRpcTransport {
     return [...this.pending.keys()];
   }
 
+  getCloseContext(): string {
+    return this.closeContext;
+  }
+
   private async writeRaw(data: string): Promise<void> {
     if (!this.connected) {
       throw new Error("Transport closed");
     }
     // Record raw outgoing data before writing
     this.rawOutCb?.(data);
-    await this.writer.write(new TextEncoder().encode(data));
+    try {
+      await this.writer.write(new TextEncoder().encode(data));
+    } catch (err) {
+      console.error(
+        `[codex-adapter] stdin write failed for session ${this.sessionId}:`,
+        err instanceof Error ? err.message : String(err),
+      );
+      throw err instanceof Error ? err : new Error(String(err));
+    }
+  }
+}
+
+function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -880,6 +909,7 @@ export class CodexAdapter
     this.transport = new JsonRpcTransport(
       stdin as WritableStream<Uint8Array> | { write(data: Uint8Array): number },
       stdout as ReadableStream<Uint8Array>,
+      sessionId,
     );
     this.transport.onNotification((method, params) => this.handleNotification(method, params));
     this.transport.onRequest((method, id, params) => this.handleRequest(method, id, params));
@@ -934,7 +964,9 @@ export class CodexAdapter
       if (!this.connected) return; // already handled by proc.exited
       const pendingIds = [...this.transport.getPendingIds()];
       console.log(
-        `[codex-adapter] Transport closed for session ${sessionId} (process may still be running)` +
+        `[codex-adapter] Transport closed for session ${sessionId} ` +
+          `(pid=${proc.pid}, pidAlive=${isPidAlive(proc.pid)}, closeContext=${this.transport.getCloseContext()})` +
+          ` (process may still be running)` +
           `${pendingIds.length ? `, pendingRpcIds=[${pendingIds.join(",")}]` : ""}`,
       );
       if (this.recentRawMessages.length > 0) {
@@ -959,7 +991,8 @@ export class CodexAdapter
     proc.exited.then((exitCode) => {
       if (!this.connected) return; // already handled by transport.onClose
       console.log(
-        `[codex-adapter] Process exited for session ${sessionId} (code=${exitCode}, connected was true — transport.onClose did not fire first)`,
+        `[codex-adapter] Process exited for session ${sessionId} ` +
+          `(pid=${proc.pid}, code=${exitCode}, closeContext=${this.transport.getCloseContext()}, connected was true — transport.onClose did not fire first)`,
       );
       this.connected = false;
       for (const resolve of this.turnEndResolvers.splice(0)) resolve();

@@ -54,6 +54,7 @@ const PLAYGROUND_CODEX_TERMINAL_SESSION_ID = "playground-codex-terminal-feed";
 const PLAYGROUND_CODEX_PENDING_SESSION_ID = "playground-codex-pending-feed";
 const PLAYGROUND_STARTING_SESSION_ID = "playground-chat-starting";
 const PLAYGROUND_RESUMING_SESSION_ID = "playground-chat-resuming";
+const PLAYGROUND_RECOVERING_SESSION_ID = "playground-chat-recovering";
 const PLAYGROUND_BROKEN_SESSION_ID = "playground-chat-broken";
 const PLAYGROUND_SESSION_ROWS: Array<{ session: SidebarSessionItem; sessionName: string; preview: string }> = [
   {
@@ -1476,6 +1477,19 @@ export function Playground() {
 
     store.addSession({
       ...session,
+      session_id: PLAYGROUND_RECOVERING_SESSION_ID,
+      backend_type: "codex",
+      backend_state: "recovering",
+      backend_error: null,
+      model: "gpt-5.3-codex",
+    });
+    store.setConnectionStatus(PLAYGROUND_RECOVERING_SESSION_ID, "connected");
+    store.setCliConnected(PLAYGROUND_RECOVERING_SESSION_ID, false);
+    store.setCliEverConnected(PLAYGROUND_RECOVERING_SESSION_ID);
+    store.setSessionStatus(PLAYGROUND_RECOVERING_SESSION_ID, null);
+
+    store.addSession({
+      ...session,
       session_id: PLAYGROUND_BROKEN_SESSION_ID,
       backend_type: "codex",
       backend_state: "broken",
@@ -1752,12 +1766,17 @@ export function Playground() {
 
         <Section
           title="ChatView Recovery States"
-          description="Startup, resume, and broken-session banners shown by ChatView before the main message feed is usable."
+          description="Startup, recovery, resume, and broken-session banners shown by ChatView before the main message feed is usable."
         >
           <div className="space-y-4">
             <Card label="Fresh session starting">
               <div className="border border-cc-border rounded-xl overflow-hidden bg-cc-card h-[260px]">
                 <ChatView sessionId={PLAYGROUND_STARTING_SESSION_ID} />
+              </div>
+            </Card>
+            <Card label="Codex session recovering">
+              <div className="border border-cc-border rounded-xl overflow-hidden bg-cc-card h-[260px]">
+                <ChatView sessionId={PLAYGROUND_RECOVERING_SESSION_ID} />
               </div>
             </Card>
             <Card label="Codex session resuming">

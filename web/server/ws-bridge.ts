@@ -3519,7 +3519,11 @@ export class WsBridge {
   private deriveBackendState(session: Session): NonNullable<SessionState["backend_state"]> {
     if (session.state.backend_state === "broken") return "broken";
     if (this.backendConnected(session)) return "connected";
-    if (session.state.backend_state === "initializing" || session.state.backend_state === "resuming") {
+    if (
+      session.state.backend_state === "initializing" ||
+      session.state.backend_state === "resuming" ||
+      session.state.backend_state === "recovering"
+    ) {
       return session.state.backend_state;
     }
     return "disconnected";
@@ -3541,6 +3545,30 @@ export class WsBridge {
         backend_error: backendError,
       },
     });
+  }
+
+  private requestCodexAutoRecovery(session: Session, reason: string): boolean {
+    const launcherInfo = this.launcher?.getSession(session.id);
+    if (!this.onCLIRelaunchNeeded) {
+      return false;
+    }
+    if (launcherInfo?.archived || launcherInfo?.killedByIdleManager) return false;
+    if (launcherInfo?.state === "starting") return false;
+    if (session.state.backend_state === "broken") return false;
+    this.setBackendState(session, "recovering", null);
+    this.persistSession(session);
+    console.log(`[ws-bridge] Requesting Codex auto-recovery for session ${sessionTag(session.id)} (${reason})`);
+    this.onCLIRelaunchNeeded(session.id);
+    return true;
+  }
+
+  markCodexAutoRecoveryFailed(sessionId: string): void {
+    const session = this.sessions.get(sessionId);
+    if (!session || session.backendType !== "codex") return;
+    if (session.state.backend_state !== "recovering") return;
+    if (this.backendAttached(session)) return;
+    this.setBackendState(session, "disconnected", null);
+    this.persistSession(session);
   }
 
   private getCodexHeadTurn(session: Session): CodexOutboundTurn | null {
@@ -4185,6 +4213,7 @@ export class WsBridge {
           `${intentionalReason ? ` (intentional relaunch: ${intentionalReason})` : ""}` +
           ` (consecutive failures: ${session.consecutiveAdapterFailures})`,
       );
+      this.launcher?.logCodexProcessSnapshotForSession?.(sessionId, "adapter_disconnect");
       this.broadcastToBrowsers(session, {
         type: "backend_disconnected",
         ...(idleKilled ? { reason: "idle_limit" as const } : {}),
@@ -4193,22 +4222,21 @@ export class WsBridge {
         this.setAttention(session, "error");
       }
 
-      // Recover faster from unexpected Codex transport drops while a browser is
-      // actively connected. Without this, the UI can remain disconnected until
-      // either the process exits by itself or the browser reconnects.
+      // Recover faster from unexpected Codex transport drops. Previously this
+      // only auto-relaunched when a browser was attached, which left detached
+      // worker sessions dead until someone reopened them manually.
       if (
         !intentionalRelaunch &&
         !idleKilled &&
-        this.onCLIRelaunchNeeded &&
-        session.browserSockets.size > 0 &&
         // Suppress relaunch for intentional teardown (session closed/removed).
         this.sessions.get(sessionId) === session &&
         session.consecutiveAdapterFailures <= MAX_ADAPTER_RELAUNCH_FAILURES
       ) {
+        const browserQualifier = session.browserSockets.size > 0 ? "active browser" : "detached session";
         console.log(
-          `[ws-bridge] Codex adapter disconnected for active browser; requesting relaunch for session ${sessionTag(sessionId)} (attempt ${session.consecutiveAdapterFailures}/${MAX_ADAPTER_RELAUNCH_FAILURES})`,
+          `[ws-bridge] Codex adapter disconnected for ${browserQualifier}; requesting relaunch for session ${sessionTag(sessionId)} (attempt ${session.consecutiveAdapterFailures}/${MAX_ADAPTER_RELAUNCH_FAILURES})`,
         );
-        this.onCLIRelaunchNeeded(sessionId);
+        this.requestCodexAutoRecovery(session, "adapter_disconnect");
       } else if (!intentionalRelaunch && session.consecutiveAdapterFailures > MAX_ADAPTER_RELAUNCH_FAILURES) {
         console.error(
           `[ws-bridge] Codex adapter for session ${sessionTag(sessionId)} exceeded ${MAX_ADAPTER_RELAUNCH_FAILURES} consecutive failures — stopping auto-relaunch`,
@@ -5239,7 +5267,12 @@ export class WsBridge {
           type: "backend_disconnected",
           ...(idleKilled ? { reason: "idle_limit" as const } : {}),
         });
-        if (this.onCLIRelaunchNeeded) {
+        if (session.backendType === "codex") {
+          console.log(
+            `[ws-bridge] Browser connected but backend is dead for session ${sessionTag(sessionId)}, requesting relaunch`,
+          );
+          this.requestCodexAutoRecovery(session, "browser_open_dead_backend");
+        } else if (this.onCLIRelaunchNeeded) {
           console.log(
             `[ws-bridge] Browser connected but backend is dead for session ${sessionTag(sessionId)}, requesting relaunch`,
           );
@@ -5360,7 +5393,19 @@ export class WsBridge {
     // handleBrowserOpen — neither of which run for REST-injected messages.
     if (!backendLive && this.onCLIRelaunchNeeded) {
       const launcherInfo = this.launcher?.getSession(sessionId);
-      if (launcherInfo && launcherInfo.state === "exited" && session.state.backend_state !== "broken") {
+      if (session.backendType === "codex") {
+        if (session.state.backend_state !== "broken" && launcherInfo && launcherInfo.state !== "starting") {
+          if (launcherInfo.killedByIdleManager) {
+            launcherInfo.killedByIdleManager = false;
+            console.log(`[ws-bridge] Clearing idle-killed flag for session ${sessionTag(sessionId)} (message inject)`);
+          }
+          session.consecutiveAdapterFailures = 0;
+          console.log(
+            `[ws-bridge] Injected message queued for adapter-missing Codex session ${sessionTag(sessionId)}, requesting relaunch`,
+          );
+          this.requestCodexAutoRecovery(session, "inject_user_message_adapter_missing");
+        }
+      } else if (launcherInfo && launcherInfo.state === "exited" && session.state.backend_state !== "broken") {
         // Clear killedByIdleManager so the relaunch callback proceeds.
         // Sending a message is an explicit intent to wake the session,
         // matching how wakeIdleKilledSession() works for herd events.
@@ -8123,21 +8168,19 @@ export class WsBridge {
           console.log(
             `[ws-bridge] Codex adapter not yet attached for session ${sessionTag(session.id)}, queued user_message`,
           );
-          if (this.onCLIRelaunchNeeded) {
-            const launcherInfo = this.launcher?.getSession(session.id);
-            if (session.state.backend_state !== "broken" && launcherInfo && launcherInfo.state === "exited") {
-              if (launcherInfo.killedByIdleManager) {
-                launcherInfo.killedByIdleManager = false;
-                console.log(
-                  `[ws-bridge] Clearing idle-killed flag for session ${sessionTag(session.id)} (codex user_message)`,
-                );
-              }
-              session.consecutiveAdapterFailures = 0;
+          const launcherInfo = this.launcher?.getSession(session.id);
+          if (session.state.backend_state !== "broken" && launcherInfo && launcherInfo.state !== "starting") {
+            if (launcherInfo.killedByIdleManager) {
+              launcherInfo.killedByIdleManager = false;
               console.log(
-                `[ws-bridge] User message queued for exited ${session.backendType} session ${sessionTag(session.id)}, requesting relaunch`,
+                `[ws-bridge] Clearing idle-killed flag for session ${sessionTag(session.id)} (codex user_message)`,
               );
-              this.onCLIRelaunchNeeded(session.id);
             }
+            session.consecutiveAdapterFailures = 0;
+            console.log(
+              `[ws-bridge] User message queued for adapter-missing ${session.backendType} session ${sessionTag(session.id)}, requesting relaunch`,
+            );
+            this.requestCodexAutoRecovery(session, "queued_user_message_adapter_missing");
           }
         }
         return;
@@ -8186,7 +8229,7 @@ export class WsBridge {
 
         if (msg.type === "user_message" && this.onCLIRelaunchNeeded) {
           const launcherInfo = this.launcher?.getSession(session.id);
-          if (session.state.backend_state !== "broken" && launcherInfo && launcherInfo.state === "exited") {
+          if (session.state.backend_state !== "broken" && launcherInfo && launcherInfo.state !== "starting") {
             if (launcherInfo.killedByIdleManager) {
               launcherInfo.killedByIdleManager = false;
               console.log(
@@ -8195,9 +8238,13 @@ export class WsBridge {
             }
             session.consecutiveAdapterFailures = 0;
             console.log(
-              `[ws-bridge] User message queued for exited ${session.backendType} session ${sessionTag(session.id)}, requesting relaunch`,
+              `[ws-bridge] User message queued for adapter-missing ${session.backendType} session ${sessionTag(session.id)}, requesting relaunch`,
             );
-            this.onCLIRelaunchNeeded(session.id);
+            if (session.backendType === "codex") {
+              this.requestCodexAutoRecovery(session, "queued_user_message_adapter_missing");
+            } else {
+              this.onCLIRelaunchNeeded(session.id);
+            }
           }
         }
         this.persistSession(session);

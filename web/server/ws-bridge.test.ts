@@ -1902,6 +1902,31 @@ describe("Browser handlers", () => {
     expect(disconnectedMsg).toBeDefined();
   });
 
+  it("handleBrowserOpen: Codex dead backend enters recovering state before relaunch", () => {
+    const sid = "s-codex-browser-open-dead";
+    const relaunchCb = vi.fn();
+    bridge.onCLIRelaunchNeededCallback(relaunchCb);
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn(() => ({ backendType: "codex", state: "connected", killedByIdleManager: false })),
+    } as any);
+
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+
+    expect(relaunchCb).toHaveBeenCalledWith(sid);
+    expect(bridge.getSession(sid)?.state.backend_state).toBe("recovering");
+    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    expect(calls).toContainEqual(expect.objectContaining({ type: "backend_disconnected" }));
+    expect(calls).toContainEqual(
+      expect.objectContaining({
+        type: "session_update",
+        session: expect.objectContaining({ backend_state: "recovering", backend_error: null }),
+      }),
+    );
+  });
+
   it("handleBrowserOpen: does NOT relaunch when Codex adapter is attached but still initializing", () => {
     const relaunchCb = vi.fn();
     bridge.onCLIRelaunchNeededCallback(relaunchCb);
@@ -11076,9 +11101,15 @@ describe("Codex disconnect auto-relaunch", () => {
     expect(relaunchCb).toHaveBeenCalledWith(sid);
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     expect(calls).toContainEqual(expect.objectContaining({ type: "backend_disconnected" }));
+    expect(calls).toContainEqual(
+      expect.objectContaining({
+        type: "session_update",
+        session: expect.objectContaining({ backend_state: "recovering", backend_error: null }),
+      }),
+    );
   });
 
-  it("does not request relaunch when no browser is connected", () => {
+  it("requests relaunch when Codex adapter disconnects without a browser attached", () => {
     const sid = "s1";
     const relaunchCb = vi.fn();
     bridge.onCLIRelaunchNeededCallback(relaunchCb);
@@ -11087,7 +11118,8 @@ describe("Codex disconnect auto-relaunch", () => {
     bridge.attachCodexAdapter(sid, adapter as any);
     adapter.emitDisconnect();
 
-    expect(relaunchCb).not.toHaveBeenCalled();
+    expect(relaunchCb).toHaveBeenCalledWith(sid);
+    expect(bridge.getSession(sid)?.state.backend_state).toBe("recovering");
   });
 
   it("does not request relaunch for idle-manager disconnects", () => {
@@ -11324,6 +11356,36 @@ describe("Codex user-message-driven relaunch for idle sessions", () => {
     expect(adapter.sendBrowserMessage).toHaveBeenCalled();
     expect(relaunchCb).not.toHaveBeenCalled();
   });
+
+  it("requests relaunch for adapter-missing Codex user messages even when launcher state is connected", async () => {
+    const sid = "s-codex-missing-adapter";
+    const relaunchCb = vi.fn();
+    bridge.onCLIRelaunchNeededCallback(relaunchCb);
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn(() => ({ backendType: "codex", state: "connected", killedByIdleManager: false })),
+    } as any);
+
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    const session = bridge.getSession(sid)!;
+    session.backendType = "codex";
+    browser.send.mockClear();
+    relaunchCb.mockClear();
+
+    await bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "user_message",
+        content: "wake missing adapter",
+      }),
+    );
+
+    expect(relaunchCb).toHaveBeenCalledWith(sid);
+    expect(session.state.backend_state).toBe("recovering");
+    expect(session.pendingCodexInputs.map((input: any) => input.content)).toContain("wake missing adapter");
+  });
 });
 
 describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () => {
@@ -11446,6 +11508,28 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     expect(relaunchCb).not.toHaveBeenCalled();
   });
 
+  it("requests relaunch when injectUserMessage targets an adapter-missing Codex session whose launcher still says connected", () => {
+    const sid = "s-inject-codex-missing-adapter";
+    const relaunchCb = vi.fn();
+    bridge.onCLIRelaunchNeededCallback(relaunchCb);
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn(() => ({ backendType: "codex", state: "connected", killedByIdleManager: false })),
+    } as any);
+
+    const session = bridge.getOrCreateSession(sid);
+    session.backendType = "codex";
+    session.state.backend_type = "codex";
+
+    const delivery = bridge.injectUserMessage(sid, "inject wake missing adapter");
+
+    expect(delivery).toBe("queued");
+    expect(relaunchCb).toHaveBeenCalledWith(sid);
+    expect(session.state.backend_state).toBe("recovering");
+    expect(session.pendingCodexInputs.map((input: any) => input.content)).toContain("inject wake missing adapter");
+  });
+
   it("wakes idle-killed SDK session when browser sends user_message (adapter path)", async () => {
     // SDK sessions use the adapter code path in routeBrowserMessage.
     // When the adapter is missing (post-restart, idle-killed), a browser
@@ -11477,6 +11561,31 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
 
     expect(relaunchCb).toHaveBeenCalledWith(sid);
     expect(launcherInfo.killedByIdleManager).toBe(false);
+  });
+});
+
+describe("Codex recovering state reset", () => {
+  it("drops recovering back to disconnected when auto-relaunch fails before any adapter reattaches", () => {
+    const sid = "s-codex-recovery-failed";
+    const session = bridge.getOrCreateSession(sid, "codex");
+    session.state.backend_state = "recovering";
+
+    (bridge as any).markCodexAutoRecoveryFailed(sid);
+
+    expect(session.state.backend_state).toBe("disconnected");
+    expect(session.state.backend_error).toBeNull();
+  });
+
+  it("keeps recovering unchanged if a Codex adapter is already attached", () => {
+    const sid = "s-codex-recovery-live";
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter as any);
+    const session = bridge.getSession(sid)!;
+    session.state.backend_state = "recovering";
+
+    (bridge as any).markCodexAutoRecoveryFailed(sid);
+
+    expect(session.state.backend_state).toBe("recovering");
   });
 });
 
