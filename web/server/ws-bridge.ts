@@ -1361,6 +1361,10 @@ export class WsBridge {
     const STUCK_THRESHOLD_MS = 120_000; // 2 minutes without any CLI activity
     const CHECK_INTERVAL_MS = 30_000; // check every 30s
     const AUTO_RECOVER_MS = 300_000; // 5 minutes — force-clear isGenerating
+    // Orchestrator (leader) sessions gate ALL herd event delivery via
+    // isSessionIdle(), so a stuck leader blocks the entire herd. Recover
+    // faster (same as stuck detection threshold) to unblock workers (q-307).
+    const AUTO_RECOVER_ORCHESTRATOR_MS = 120_000;
 
     const timer = setInterval(() => {
       const now = Date.now();
@@ -1452,36 +1456,36 @@ export class WsBridge {
           }
         }
 
-        // Auto-recover: if the session has been stuck for 5+ minutes AND the
-        // CLI backend is connected (meaning the CLI is alive and sending
-        // keep-alives but the server never received a result message),
-        // force-clear isGenerating. This is the last-resort safety net for
-        // missed result messages -- especially important for herded workers
-        // which skip the optimistic 30s running timer.
-        if (elapsed >= AUTO_RECOVER_MS && this.backendConnected(session)) {
+        // Auto-recover: force-clear isGenerating as a last-resort safety net for
+        // missed result messages -- especially important for herded workers which
+        // skip the optimistic 30s running timer.
+        // Thresholds (q-307):
+        //   - Orchestrator sessions: 2 min (they gate herd event delivery for all workers)
+        //   - Regular sessions with CLI connected: 5 min
+        //   - Any session with CLI disconnected: 5 min (relaunch may have failed)
+        const launcherInfo = this.launcher?.getSession(session.id);
+        const isOrchestrator = !!launcherInfo?.isOrchestrator;
+        const cliConnected = this.backendConnected(session);
+        const recoverThreshold = isOrchestrator ? AUTO_RECOVER_ORCHESTRATOR_MS : AUTO_RECOVER_MS;
+
+        if (elapsed >= recoverThreshold && (cliConnected || elapsed >= AUTO_RECOVER_MS)) {
           console.warn(
             `[ws-bridge] Auto-recovering stuck session ${sessionTag(session.id)} ` +
-              `(${Math.round(elapsed / 1000)}s stuck, CLI connected, force-clearing isGenerating)`,
+              `(${Math.round(elapsed / 1000)}s stuck, CLI ${cliConnected ? "connected" : "disconnected"}` +
+              `${isOrchestrator ? ", orchestrator" : ""}, force-clearing isGenerating)`,
           );
           this.recorder?.recordServerEvent(
             session.id,
             "stuck_auto_recovered",
-            { elapsed, sinceLastActivity },
+            { elapsed, sinceLastActivity, cliConnected, isOrchestrator },
             session.backendType,
             session.state.cwd,
           );
           this.markTurnInterrupted(session, "system");
           this.setGenerating(session, false, "stuck_auto_recovery");
           session.toolStartTimes.clear();
-          // Drain stale queued turns -- they reference user messages from the
-          // stuck turn that will never produce output.
-          const staleEntries = getQueuedTurnLifecycleEntriesLifecycle(session);
-          if (staleEntries.length > 0) {
-            console.warn(
-              `[ws-bridge] Draining ${staleEntries.length} stale queued turn(s) on stuck auto-recovery for session ${sessionTag(session.id)}`,
-            );
-            replaceQueuedTurnLifecycleEntriesLifecycle(session, []);
-          }
+          // Note: queued turn draining is now handled by setGenerating via
+          // generation-lifecycle.ts RECOVERY_REASONS check (q-307).
           this.broadcastToBrowsers(session, { type: "status_change", status: "idle" });
           this.broadcastToBrowsers(session, { type: "session_unstuck" } as BrowserIncomingMessage);
         }
@@ -1646,10 +1650,22 @@ export class WsBridge {
   getHerdDiagnostics(sessionId: string): Record<string, unknown> | null {
     const session = this.sessions.get(sessionId);
     if (!session) return null;
+    const now = Date.now();
+    const generationElapsedMs = session.isGenerating && session.generationStartedAt
+      ? now - session.generationStartedAt
+      : null;
+    // Find oldest active tool start time for stale-tool diagnosis
+    let oldestToolAgeMs: number | null = null;
+    for (const startedAt of session.toolStartTimes.values()) {
+      const age = now - startedAt;
+      if (oldestToolAgeMs === null || age > oldestToolAgeMs) oldestToolAgeMs = age;
+    }
     return {
       isGenerating: session.isGenerating,
       generationStartedAt: session.generationStartedAt,
+      generationElapsedMs,
       queuedTurnStarts: session.queuedTurnStarts,
+      queuedTurnReasons: session.queuedTurnReasons,
       cliConnected: !!(session.backendSocket || session.codexAdapter || session.claudeSdkAdapter),
       cliInitReceived: session.cliInitReceived,
       pendingMessagesCount: session.pendingMessages.length,
@@ -1657,6 +1673,9 @@ export class WsBridge {
       disconnectGraceActive: session.disconnectGraceTimer !== null,
       disconnectWasGenerating: session.disconnectWasGenerating,
       seamlessReconnect: session.seamlessReconnect,
+      stuckNotifiedAt: session.stuckNotifiedAt,
+      toolStartTimesCount: session.toolStartTimes.size,
+      oldestToolAgeMs,
       ...(this.herdEventDispatcher ? { herdDispatcher: this.herdEventDispatcher.getDiagnostics(sessionId) } : {}),
     };
   }
@@ -5908,10 +5927,20 @@ export class WsBridge {
       // process via --resume). On seamless reconnects (5-minute token refresh), the CLI
       // process is still alive and may still be mid-generation — clearing isGenerating
       // would emit a false turn_end takode event while the agent is still working.
+      // Exception (q-307): if generation has been running for 2+ minutes at the time of
+      // a seamless reconnect, the CLI had a full token-refresh cycle (~5 min) to produce
+      // output and didn't — the session is provably stuck even on a seamless reconnect.
       // Also preserve running state if we already dispatched a user message and are
       // waiting for that turn's backend output, to avoid a spurious turn_end before
       // the real turn starts producing output.
-      if (session.isGenerating && !session.seamlessReconnect) {
+      const generationAge = session.generationStartedAt ? Date.now() - session.generationStartedAt : 0;
+      const seamlessButStuck = session.seamlessReconnect && generationAge >= 120_000;
+      if (seamlessButStuck) {
+        console.warn(
+          `[ws-bridge] Seamless reconnect with stale generation (${Math.round(generationAge / 1000)}s) for session ${sessionTag(session.id)} — treating as relaunch`,
+        );
+      }
+      if (session.isGenerating && (!session.seamlessReconnect || seamlessButStuck)) {
         const hasInFlightUserDispatch =
           typeof session.lastOutboundUserNdjson === "string" &&
           this.isCliUserMessagePayload(session.lastOutboundUserNdjson);
@@ -5921,19 +5950,12 @@ export class WsBridge {
           );
         } else {
           console.log(
-            `[ws-bridge] Force-clearing stale isGenerating on system.init for session ${sessionTag(session.id)}`,
+            `[ws-bridge] Force-clearing stale isGenerating on system.init for session ${sessionTag(session.id)}${seamlessButStuck ? " (seamless but stuck)" : ""}`,
           );
           this.markTurnInterrupted(session, "system");
           this.setGenerating(session, false, "system_init_reset");
-          // Drain stale queued turns — they reference user messages from a
-          // previous CLI process that will never be processed by the new one.
-          const staleEntries = getQueuedTurnLifecycleEntriesLifecycle(session);
-          if (staleEntries.length > 0) {
-            console.log(
-              `[ws-bridge] Draining ${staleEntries.length} stale queued turn(s) on system.init reset for session ${sessionTag(session.id)}`,
-            );
-            replaceQueuedTurnLifecycleEntriesLifecycle(session, []);
-          }
+          // Note: queued turn draining is now handled by setGenerating via
+          // generation-lifecycle.ts RECOVERY_REASONS check (q-307).
           this.broadcastToBrowsers(session, { type: "status_change", status: "idle" });
         }
       }

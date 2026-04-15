@@ -1,5 +1,15 @@
 import { sessionTag } from "../session-tag.js";
 
+/** Reasons that indicate the turn ended due to recovery/error, not a normal result.
+ *  Queued turns should be drained (not promoted) for these reasons because the CLI
+ *  that would process them is either dead, stuck, or was replaced by a new process. */
+export const RECOVERY_REASONS = new Set([
+  "stuck_auto_recovery",
+  "system_init_reset",
+  "cli_disconnect",
+  "user_message_timeout",
+]);
+
 export type InterruptSource = "user" | "leader" | "system";
 
 export interface GenerationLifecycleSession {
@@ -294,7 +304,21 @@ export function setGenerating<S extends GenerationLifecycleSession>(
 
     deps.onOrchestratorTurnEnd?.(session.id);
 
-    if (reason === "result") promoteNextQueuedTurn(deps, session);
+    // On normal result: promote the next queued turn (the CLI is ready for more).
+    // On recovery/error: drain ALL queued turns -- the CLI that would process them
+    // is either dead, stuck, or was replaced. Promoting them would start phantom
+    // turns that never complete, leaving isGenerating=true indefinitely (q-307).
+    if (reason === "result") {
+      promoteNextQueuedTurn(deps, session);
+    } else if (RECOVERY_REASONS.has(reason)) {
+      const staleEntries = getQueuedTurnLifecycleEntries(session);
+      if (staleEntries.length > 0) {
+        console.warn(
+          `[ws-bridge] Draining ${staleEntries.length} orphaned queued turn(s) for session ${sessionTag(session.id)} (reason: ${reason})`,
+        );
+        replaceQueuedTurnLifecycleEntries(session, []);
+      }
+    }
   }
   deps.onSessionActivityStateChanged(session.id, `generating:${reason}`);
 }

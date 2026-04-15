@@ -16082,9 +16082,10 @@ describe("stuck session watchdog", () => {
     vi.useRealTimers();
   });
 
-  it("does not auto-recover a stuck session when CLI is disconnected", () => {
-    // Auto-recovery should only fire when the CLI is connected. If the CLI is
-    // disconnected, the disconnect grace period / relaunch flow handles recovery.
+  it("auto-recovers a stuck session even when CLI is disconnected after 5 minutes (q-307)", () => {
+    // Before q-307, auto-recovery required CLI to be connected. Now, if the
+    // session has been stuck for 5+ minutes AND the CLI is disconnected (relaunch
+    // may have failed), the watchdog clears isGenerating as a safety net.
     vi.useFakeTimers();
     const sid = "s-stuck-cli-disconnected";
     const cli = makeCliSocket(sid);
@@ -16111,8 +16112,8 @@ describe("stuck session watchdog", () => {
 
     vi.advanceTimersByTime(31_000);
 
-    // Should NOT auto-recover because CLI is disconnected
-    expect(session.isGenerating).toBe(true);
+    // Should auto-recover even with CLI disconnected (q-307)
+    expect(session.isGenerating).toBe(false);
 
     vi.clearAllTimers();
     vi.useRealTimers();
