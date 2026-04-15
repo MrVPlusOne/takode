@@ -245,6 +245,7 @@ describe("QuestDetailPanel", () => {
     expect(screen.getByText("Check iPad mini too")).toBeTruthy();
     expect(screen.getByText("Confirmed working on iPad mini.")).toBeTruthy();
     expect(screen.getByText("addressed")).toBeTruthy();
+    expect(screen.getByPlaceholderText("Leave feedback...")).toBeTruthy();
   });
 
   it("shows edit and delete controls only for agent feedback entries", () => {
@@ -405,6 +406,35 @@ describe("QuestDetailPanel", () => {
     render(<QuestDetailPanel />);
 
     expect(screen.getByText(/Reduced p99 latency/)).toBeTruthy();
+    expect(screen.getByPlaceholderText("Leave feedback...")).toBeTruthy();
+  });
+
+  it("submits feedback from a done quest and updates the quest in store", async () => {
+    // q-328 regression guard: the composer must not just be visible on a
+    // previously gated state like "done" — it must still submit through the
+    // normal feedback path and refresh the quest thread in store.
+    const quest = makeDoneQuest();
+    useStore.setState({ quests: [quest], questOverlayId: "q-99" });
+    const updatedQuest = {
+      ...makeDoneQuest(),
+      feedback: [{ author: "human", text: "Please note the migration impact.", ts: Date.now() }],
+    } as QuestmasterTask;
+    mockAddQuestFeedback.mockResolvedValue(updatedQuest);
+
+    render(<QuestDetailPanel />);
+
+    fireEvent.change(screen.getByPlaceholderText("Leave feedback..."), {
+      target: { value: "Please note the migration impact." },
+    });
+    fireEvent.click(screen.getByText("Add Feedback"));
+
+    expect(mockAddQuestFeedback).toHaveBeenCalledWith("q-99", "Please note the migration impact.", "human", undefined);
+
+    await waitFor(() => {
+      expect(useStore.getState().quests.find((q) => q.questId === "q-99")).toMatchObject({
+        feedback: [expect.objectContaining({ text: "Please note the migration impact." })],
+      });
+    });
   });
 
   it("shows verification progress in the header", () => {
@@ -496,9 +526,32 @@ describe("QuestDetailPanel", () => {
     expect(screen.getByText("Bare idea quest")).toBeTruthy();
     // "Idea" appears in both the status badge and the select dropdown
     expect(screen.getAllByText("Idea").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByPlaceholderText("Leave feedback...")).toBeTruthy();
+    expect(screen.getByText("Add Feedback")).toBeTruthy();
     // No verification checklist section (the word "Verification" in dropdown doesn't count)
     expect(screen.queryByText("Verification", { selector: "label" })).toBeNull();
     expect(screen.queryByText("Notes")).toBeNull();
+  });
+
+  it("shows the feedback composer for refined quests", () => {
+    // Refined quests were also previously gated out by the status check, so
+    // keep a direct visibility assertion for that lifecycle state.
+    const quest: QuestmasterTask = {
+      id: "q-6-v1",
+      questId: "q-6",
+      version: 1,
+      title: "Ready for implementation",
+      status: "refined",
+      description: "Scoped and ready to pick up.",
+      createdAt: Date.now() - 120000,
+    } as QuestmasterTask;
+    useStore.setState({ quests: [quest], questOverlayId: "q-6" });
+
+    render(<QuestDetailPanel />);
+
+    expect(screen.getByText("Ready for implementation")).toBeTruthy();
+    expect(screen.getByPlaceholderText("Leave feedback...")).toBeTruthy();
+    expect(screen.getByText("Add Feedback")).toBeTruthy();
   });
 
   // ─── Action button tests (new in QuestDetailPanel) ──────────────────

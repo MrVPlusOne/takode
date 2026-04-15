@@ -1076,8 +1076,6 @@ export function QuestDetailPanel() {
               {/* Feedback thread */}
               {(() => {
                 const hasFeedback = feedbackEntries.length > 0;
-                const canAddFeedback = quest.status === "needs_verification" || quest.status === "in_progress";
-                if (!hasFeedback && !canAddFeedback) return null;
                 return (
                   <div>
                     {hasFeedback && (
@@ -1283,67 +1281,63 @@ export function QuestDetailPanel() {
                         </div>
                       </>
                     )}
-                    {canAddFeedback && (
-                      <div className="flex flex-col gap-1">
-                        {!hasFeedback && <label className="block text-xs text-cc-muted mb-0.5">Feedback</label>}
-                        <textarea
-                          ref={feedbackTextareaRef}
-                          value={feedbackDraft}
-                          onChange={(e) => {
-                            setFeedbackDraft(e.target.value);
-                            e.target.style.height = "auto";
-                            e.target.style.height = e.target.scrollHeight + "px";
-                          }}
-                          placeholder="Leave feedback..."
-                          className="w-full text-sm bg-cc-input-bg border border-cc-border rounded-lg px-2.5 py-2 text-cc-fg placeholder-cc-muted/50 focus:outline-none focus:ring-1 focus:ring-amber-500/30 resize-none"
-                          rows={2}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                              e.preventDefault();
-                              handleAddFeedback(quest.questId, feedbackDraft);
-                            }
-                          }}
-                          onPaste={(e) => {
-                            const imgs = extractPastedImages(e);
-                            if (imgs.length > 0) handleFeedbackImageUpload(imgs);
-                          }}
-                        />
-                        {feedbackImages.length > 0 && (
-                          <div className="flex flex-wrap gap-1">
-                            {feedbackImages.map((img) => (
-                              <div key={img.id} className="relative group">
-                                <img
-                                  src={api.questImageUrl(img.id)}
-                                  className="w-10 h-10 object-cover rounded cursor-pointer"
-                                  onClick={() => setLightboxSrc(api.questImageUrl(img.id))}
-                                />
-                                <button
-                                  onClick={() => setFeedbackImages((prev) => prev.filter((im) => im.id !== img.id))}
-                                  className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-red-500 text-white text-[8px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
-                                >
-                                  x
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            onClick={() => handleAddFeedback(quest.questId, feedbackDraft)}
-                            disabled={(!feedbackDraft.trim() && feedbackImages.length === 0) || feedbackSubmitting}
-                            className="text-xs px-2.5 py-1 rounded bg-amber-500/15 text-amber-400 border border-amber-500/20 hover:bg-amber-500/25 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
-                          >
-                            {feedbackSubmitting ? "Saving..." : "Add Feedback"}
-                          </button>
-                          {uploadingFeedbackImage && (
-                            <span className="text-xs text-cc-muted animate-pulse">Uploading...</span>
-                          )}
-                          <span className="text-[11px] text-cc-muted/40 ml-auto">
-                            {navigator.platform.includes("Mac") ? "\u2318" : "Ctrl"}+Enter
-                          </span>
+                    <div className="flex flex-col gap-1">
+                      {!hasFeedback && <label className="block text-xs text-cc-muted mb-0.5">Feedback</label>}
+                      <textarea
+                        ref={feedbackTextareaRef}
+                        value={feedbackDraft}
+                        onChange={(e) => {
+                          setFeedbackDraft(e.target.value);
+                          e.target.style.height = "auto";
+                          e.target.style.height = e.target.scrollHeight + "px";
+                        }}
+                        placeholder="Leave feedback..."
+                        className="w-full text-sm bg-cc-input-bg border border-cc-border rounded-lg px-2.5 py-2 text-cc-fg placeholder-cc-muted/50 focus:outline-none focus:ring-1 focus:ring-amber-500/30 resize-none"
+                        rows={2}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                            e.preventDefault();
+                            handleAddFeedback(quest.questId, feedbackDraft);
+                          }
+                        }}
+                        onPaste={(e) => {
+                          const imgs = extractPastedImages(e);
+                          if (imgs.length > 0) handleFeedbackImageUpload(imgs);
+                        }}
+                      />
+                      {feedbackImages.length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {feedbackImages.map((img) => (
+                            <div key={img.id} className="relative group">
+                              <img
+                                src={api.questImageUrl(img.id)}
+                                className="w-10 h-10 object-cover rounded cursor-pointer"
+                                onClick={() => setLightboxSrc(api.questImageUrl(img.id))}
+                              />
+                              <button
+                                onClick={() => setFeedbackImages((prev) => prev.filter((im) => im.id !== img.id))}
+                                className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-red-500 text-white text-[8px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                              >
+                                x
+                              </button>
+                            </div>
+                          ))}
                         </div>
+                      )}
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => handleAddFeedback(quest.questId, feedbackDraft)}
+                          disabled={(!feedbackDraft.trim() && feedbackImages.length === 0) || feedbackSubmitting}
+                          className="text-xs px-2.5 py-1 rounded bg-amber-500/15 text-amber-400 border border-amber-500/20 hover:bg-amber-500/25 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                        >
+                          {feedbackSubmitting ? "Saving..." : "Add Feedback"}
+                        </button>
+                        {uploadingFeedbackImage && <span className="text-xs text-cc-muted animate-pulse">Uploading...</span>}
+                        <span className="text-[11px] text-cc-muted/40 ml-auto">
+                          {navigator.platform.includes("Mac") ? "\u2318" : "Ctrl"}+Enter
+                        </span>
                       </div>
-                    )}
+                    </div>
                   </div>
                 );
               })()}
