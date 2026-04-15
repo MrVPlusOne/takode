@@ -56,6 +56,7 @@ function renderMetaWithSessions(entry: ServerLogEntry, sessionLabels: Map<string
 }
 
 export function LogsPage() {
+  const isDesktopViewport = typeof window === "undefined" ? true : window.innerWidth >= 1024;
   const [entries, setEntries] = useState<ServerLogEntry[]>([]);
   const [availableComponents, setAvailableComponents] = useState<string[]>([]);
   const [selectedLevels, setSelectedLevels] = useState<LogLevel[] | null>(null);
@@ -241,7 +242,8 @@ export function LogsPage() {
         </div>
 
         <div className="grid gap-3 lg:grid-cols-[280px_minmax(0,1fr)] min-h-0 flex-1">
-          <div className={`${filtersOpen ? "" : "hidden"} min-h-0 rounded-2xl border border-cc-border bg-cc-card p-4 space-y-4 overflow-y-auto lg:block`}>
+          {(filtersOpen || isDesktopViewport) && (
+          <div className="min-h-0 rounded-2xl border border-cc-border bg-cc-card p-4 space-y-4 overflow-y-auto">
             <div>
               <label className="block text-xs font-medium text-cc-muted mb-1.5" htmlFor="log-pattern">
                 Message Filter
@@ -326,6 +328,7 @@ export function LogsPage() {
               </div>
             </div>
           </div>
+          )}
 
           <div className="min-h-0 rounded-2xl border border-cc-border bg-cc-card overflow-hidden flex flex-col">
             <div className="px-4 py-3 border-b border-cc-border flex items-center justify-between gap-3 text-xs text-cc-muted">
