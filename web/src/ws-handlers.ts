@@ -371,15 +371,23 @@ function updateSessionPreviewFromHistory(sessionId: string, historyMessages: Bro
   }
 }
 
-function resetAuthoritativeHistoryState(sessionId: string): void {
+function collectRetainedToolUseIds(messages: ChatMessage[]): Set<string> {
+  const retained = new Set<string>();
+  for (const message of messages) {
+    if (message.parentToolUseId) retained.add(message.parentToolUseId);
+    for (const block of message.contentBlocks || []) {
+      if (block.type === "tool_use" && block.id) retained.add(block.id);
+    }
+  }
+  return retained;
+}
+
+function resetAuthoritativeHistoryState(
+  sessionId: string,
+  options?: { preserveToolStateIds?: Iterable<string> },
+): void {
   const store = useStore.getState();
-  store.clearPermissions(sessionId);
-  store.clearAutoExpandedTurns(sessionId);
-  store.setTasks(sessionId, []);
-  store.setSessionTaskPreview(sessionId, null);
-  // Authoritative history supersedes any pending Codex inputs — they've either
-  // been committed (appear in hot messages) or were dropped by the server.
-  store.setPendingCodexInputs(sessionId, []);
+  store.resetSessionForAuthoritativeHistory(sessionId, options);
 }
 
 /** Resolve a pending message-index scroll from deep link navigation (session:N:M). */
@@ -1322,7 +1330,6 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
     }
 
     case "history_sync": {
-      resetAuthoritativeHistoryState(sessionId);
       const existingMessages = store.messages.get(sessionId) || [];
       const existingFrozenCount = Math.max(
         0,
@@ -1330,6 +1337,8 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       );
       const reusableFrozenCount = Math.max(0, Math.min(existingFrozenCount, data.frozen_base_count));
       const frozenPrefix = reusableFrozenCount > 0 ? existingMessages.slice(0, reusableFrozenCount) : [];
+      const preservedToolStateIds = collectRetainedToolUseIds(frozenPrefix);
+      resetAuthoritativeHistoryState(sessionId, { preserveToolStateIds: preservedToolStateIds });
       const { chatMessages: frozenDeltaMessages } = normalizeHistoryMessages(
         sessionId,
         data.frozen_delta,

@@ -346,6 +346,11 @@ interface AppState {
   setStreamingStats: (sessionId: string, stats: { startedAt?: number; outputTokens?: number } | null) => void;
   /** Clear all streaming/generation transient state for a session in one batch */
   clearStreamingState: (sessionId: string) => void;
+  /** Reset browser-derived per-session state before authoritative history replacement. */
+  resetSessionForAuthoritativeHistory: (
+    sessionId: string,
+    options?: { preserveToolStateIds?: Iterable<string> },
+  ) => void;
 
   // Permission actions
   addPermission: (sessionId: string, perm: PermissionRequest) => void;
@@ -1380,6 +1385,91 @@ export const useStore = create<AppState>((set) => ({
         streamingOutputTokens,
         streamingPausedDuration,
         streamingPauseStartedAt,
+      };
+    }),
+
+  resetSessionForAuthoritativeHistory: (sessionId, options) =>
+    set((s) => {
+      const pendingPermissions = new Map(s.pendingPermissions);
+      pendingPermissions.delete(sessionId);
+      const autoExpandedTurnIds = new Map(s.autoExpandedTurnIds);
+      autoExpandedTurnIds.delete(sessionId);
+      const sessionTasks = new Map(s.sessionTasks);
+      sessionTasks.set(sessionId, []);
+      const sessionTaskPreview = new Map(s.sessionTaskPreview);
+      sessionTaskPreview.delete(sessionId);
+      const pendingCodexInputs = new Map(s.pendingCodexInputs);
+      pendingCodexInputs.delete(sessionId);
+      const streaming = new Map(s.streaming);
+      streaming.delete(sessionId);
+      const streamingByParentToolUseId = new Map(s.streamingByParentToolUseId);
+      streamingByParentToolUseId.delete(sessionId);
+      const streamingThinking = new Map(s.streamingThinking);
+      streamingThinking.delete(sessionId);
+      const streamingThinkingByParentToolUseId = new Map(s.streamingThinkingByParentToolUseId);
+      streamingThinkingByParentToolUseId.delete(sessionId);
+      const streamingStartedAt = new Map(s.streamingStartedAt);
+      streamingStartedAt.delete(sessionId);
+      const streamingOutputTokens = new Map(s.streamingOutputTokens);
+      streamingOutputTokens.delete(sessionId);
+      const streamingPausedDuration = new Map(s.streamingPausedDuration);
+      streamingPausedDuration.delete(sessionId);
+      const streamingPauseStartedAt = new Map(s.streamingPauseStartedAt);
+      streamingPauseStartedAt.delete(sessionId);
+      const toolProgress = new Map(s.toolProgress);
+      toolProgress.delete(sessionId);
+      const toolResults = new Map(s.toolResults);
+      const backgroundAgentNotifs = new Map(s.backgroundAgentNotifs);
+      const toolStartTimestamps = new Map(s.toolStartTimestamps);
+      const preservedIds = options?.preserveToolStateIds ? new Set(options.preserveToolStateIds) : null;
+      if (preservedIds && preservedIds.size > 0) {
+        const sessionResults = s.toolResults.get(sessionId);
+        if (sessionResults) {
+          const filtered = new Map([...sessionResults].filter(([toolUseId]) => preservedIds.has(toolUseId)));
+          if (filtered.size > 0) toolResults.set(sessionId, filtered);
+          else toolResults.delete(sessionId);
+        } else {
+          toolResults.delete(sessionId);
+        }
+        const sessionNotifs = s.backgroundAgentNotifs.get(sessionId);
+        if (sessionNotifs) {
+          const filtered = new Map([...sessionNotifs].filter(([toolUseId]) => preservedIds.has(toolUseId)));
+          if (filtered.size > 0) backgroundAgentNotifs.set(sessionId, filtered);
+          else backgroundAgentNotifs.delete(sessionId);
+        } else {
+          backgroundAgentNotifs.delete(sessionId);
+        }
+        const sessionTimestamps = s.toolStartTimestamps.get(sessionId);
+        if (sessionTimestamps) {
+          const filtered = new Map([...sessionTimestamps].filter(([toolUseId]) => preservedIds.has(toolUseId)));
+          if (filtered.size > 0) toolStartTimestamps.set(sessionId, filtered);
+          else toolStartTimestamps.delete(sessionId);
+        } else {
+          toolStartTimestamps.delete(sessionId);
+        }
+      } else {
+        toolResults.delete(sessionId);
+        backgroundAgentNotifs.delete(sessionId);
+        toolStartTimestamps.delete(sessionId);
+      }
+      return {
+        pendingPermissions,
+        autoExpandedTurnIds,
+        sessionTasks,
+        sessionTaskPreview,
+        pendingCodexInputs,
+        streaming,
+        streamingByParentToolUseId,
+        streamingThinking,
+        streamingThinkingByParentToolUseId,
+        streamingStartedAt,
+        streamingOutputTokens,
+        streamingPausedDuration,
+        streamingPauseStartedAt,
+        toolProgress,
+        toolResults,
+        backgroundAgentNotifs,
+        toolStartTimestamps,
       };
     }),
 

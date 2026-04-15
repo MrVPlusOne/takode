@@ -1894,6 +1894,389 @@ describe("handleMessage: history_sync", () => {
 
     expect(useStore.getState().pendingCodexInputs.has("s1")).toBe(false);
   });
+
+  it("clears stale live subagent state when message_history replaces the session feed", () => {
+    // q-327: authoritative history replay must clear client-derived live
+    // subagent state, otherwise stale running chips can survive reconnect.
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    useStore.getState().setStreaming("s1", "child output", "task-live-1");
+    useStore.getState().setStreamingThinking("s1", "child reasoning", "task-live-1");
+    useStore.getState().setToolProgress("s1", "task-live-1", {
+      toolName: "Task",
+      elapsedSeconds: 120,
+      outputDelta: "still running",
+    });
+    useStore.getState().setToolResult("s1", "task-live-1", {
+      tool_use_id: "task-live-1",
+      content: "stale result",
+      is_error: false,
+      total_size: 11,
+      is_truncated: false,
+    });
+    useStore.getState().setBackgroundAgentNotif("s1", "task-live-1", {
+      status: "running",
+      summary: "stale background agent",
+    });
+    useStore.getState().setToolStartTimestamps("s1", {
+      "task-live-1": 1234,
+    });
+
+    fireMessage({
+      type: "message_history",
+      messages: [
+        { type: "user_message", id: "u1", content: "Fresh request", timestamp: 1000 },
+        {
+          type: "assistant",
+          message: {
+            id: "msg-1",
+            type: "message",
+            role: "assistant",
+            model: "claude-opus-4-20250514",
+            content: [{ type: "text", text: "Fresh reply" }],
+            stop_reason: "end_turn",
+            usage: { input_tokens: 5, output_tokens: 2, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+          },
+          parent_tool_use_id: null,
+          timestamp: 3000,
+        },
+      ],
+    });
+
+    const state = useStore.getState();
+    expect(state.streamingByParentToolUseId.has("s1")).toBe(false);
+    expect(state.streamingThinkingByParentToolUseId.has("s1")).toBe(false);
+    expect(state.toolProgress.has("s1")).toBe(false);
+    expect(state.toolResults.has("s1")).toBe(false);
+    expect(state.backgroundAgentNotifs.has("s1")).toBe(false);
+    expect(state.toolStartTimestamps.has("s1")).toBe(false);
+  });
+
+  it("clears stale live subagent state when history_sync replaces the hot tail", () => {
+    // q-327: history_sync is also an authoritative replacement path and must
+    // drop stale live progress before rebuilding from server data, while the
+    // frozen prefix keeps its already-authoritative historical tool state.
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+    useStore.getState().setMessages("s1", [{ id: "frozen-1", role: "user", content: "old frozen", timestamp: 1000 }], {
+      frozenCount: 1,
+    });
+    useStore.getState().setToolProgress("s1", "task-live-2", {
+      toolName: "Task",
+      elapsedSeconds: 55,
+      outputDelta: "stale progress",
+    });
+    useStore.getState().setToolStartTimestamps("s1", {
+      "task-live-2": 4321,
+    });
+
+    fireMessage({
+      type: "history_sync",
+      frozen_base_count: 1,
+      frozen_delta: [],
+      hot_messages: [{ type: "assistant", message: {
+        id: "msg-fresh",
+        type: "message",
+        role: "assistant",
+        model: "claude-opus-4-20250514",
+        content: [{ type: "text", text: "Fresh synced reply" }],
+        stop_reason: "end_turn",
+        usage: { input_tokens: 5, output_tokens: 2, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      }, parent_tool_use_id: null, timestamp: 2000 }],
+      frozen_count: 1,
+      expected_frozen_hash: "frozen-hash",
+      expected_full_hash: "full-hash",
+    });
+
+    const state = useStore.getState();
+    expect(state.toolProgress.has("s1")).toBe(false);
+  });
+
+  it("rebuilds fresh live tool state from message_history after clearing stale entries", () => {
+    // q-327: authoritative message_history should not just clear stale live
+    // tool state — it must also repopulate fresh tool results, notifications,
+    // and tool-start timestamps from the replay payload.
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    useStore.getState().setToolProgress("s1", "task-stale", {
+      toolName: "Task",
+      elapsedSeconds: 99,
+      outputDelta: "stale progress",
+    });
+    useStore.getState().setToolResult("s1", "task-stale", {
+      tool_use_id: "task-stale",
+      content: "stale result",
+      is_error: false,
+      total_size: 11,
+      is_truncated: false,
+    });
+    useStore.getState().setBackgroundAgentNotif("s1", "task-stale", {
+      status: "running",
+      summary: "stale notif",
+    });
+    useStore.getState().setToolStartTimestamps("s1", {
+      "task-stale": 1111,
+    });
+
+    fireMessage({
+      type: "message_history",
+      messages: [
+        {
+          type: "assistant",
+          message: {
+            id: "msg-task",
+            type: "message",
+            role: "assistant",
+            model: "claude-opus-4-20250514",
+            content: [
+              {
+                type: "tool_use",
+                id: "task-fresh",
+                name: "Task",
+                input: { description: "Fresh child", subagent_type: "explorer" },
+              },
+            ],
+            stop_reason: null,
+            usage: { input_tokens: 5, output_tokens: 2, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+          },
+          parent_tool_use_id: null,
+          timestamp: 2000,
+          tool_start_times: { "task-fresh": 2222 },
+        },
+        {
+          type: "tool_result_preview",
+          previews: [
+            {
+              tool_use_id: "task-fresh",
+              content: "fresh result",
+              is_error: false,
+              total_size: 12,
+              is_truncated: false,
+            },
+          ],
+        },
+        {
+          type: "task_notification",
+          task_id: "bg-1",
+          tool_use_id: "task-fresh",
+          status: "completed",
+          summary: "fresh notification",
+        },
+      ],
+    });
+
+    const state = useStore.getState();
+    expect(state.toolProgress.has("s1")).toBe(false);
+    expect(state.toolResults.get("s1")?.has("task-stale")).toBe(false);
+    expect(state.backgroundAgentNotifs.get("s1")?.has("task-stale")).toBe(false);
+    expect(state.toolStartTimestamps.get("s1")?.has("task-stale")).toBe(false);
+    expect(state.toolResults.get("s1")?.get("task-fresh")?.content).toBe("fresh result");
+    expect(state.backgroundAgentNotifs.get("s1")?.get("task-fresh")?.summary).toBe("fresh notification");
+    expect(state.toolStartTimestamps.get("s1")?.get("task-fresh")).toBe(2222);
+  });
+
+  it("rebuilds fresh live tool state from history_sync after clearing stale entries", () => {
+    // q-327: history_sync follows the same authoritative replacement rule as
+    // message_history for fresh incoming entries, but it also preserves the
+    // reused frozen prefix's historical tool/subagent state.
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+    useStore.getState().setMessages("s1", [{ id: "frozen-1", role: "user", content: "old frozen", timestamp: 1000 }], {
+      frozenCount: 1,
+    });
+    useStore.getState().setToolResult("s1", "task-stale", {
+      tool_use_id: "task-stale",
+      content: "stale result",
+      is_error: false,
+      total_size: 11,
+      is_truncated: false,
+    });
+    useStore.getState().setBackgroundAgentNotif("s1", "task-stale", {
+      status: "running",
+      summary: "stale notif",
+    });
+    useStore.getState().setToolStartTimestamps("s1", {
+      "task-stale": 3333,
+    });
+    useStore.getState().setToolProgress("s1", "task-stale", {
+      toolName: "Task",
+      elapsedSeconds: 21,
+      outputDelta: "stale progress",
+    });
+
+    fireMessage({
+      type: "history_sync",
+      frozen_base_count: 1,
+      frozen_delta: [],
+      hot_messages: [
+        {
+          type: "assistant",
+          message: {
+            id: "msg-fresh-sync",
+            type: "message",
+            role: "assistant",
+            model: "claude-opus-4-20250514",
+            content: [
+              {
+                type: "tool_use",
+                id: "task-fresh-sync",
+                name: "Task",
+                input: { description: "Fresh synced child", subagent_type: "explorer" },
+              },
+            ],
+            stop_reason: null,
+            usage: { input_tokens: 5, output_tokens: 2, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+          },
+          parent_tool_use_id: null,
+          timestamp: 2000,
+          tool_start_times: { "task-fresh-sync": 4444 },
+        },
+        {
+          type: "tool_result_preview",
+          previews: [
+            {
+              tool_use_id: "task-fresh-sync",
+              content: "fresh synced result",
+              is_error: false,
+              total_size: 19,
+              is_truncated: false,
+            },
+          ],
+        },
+        {
+          type: "task_notification",
+          task_id: "bg-2",
+          tool_use_id: "task-fresh-sync",
+          status: "completed",
+          summary: "fresh synced notification",
+        },
+      ],
+      frozen_count: 1,
+      expected_frozen_hash: "frozen-hash",
+      expected_full_hash: "full-hash",
+    });
+
+    const state = useStore.getState();
+    expect(state.toolProgress.has("s1")).toBe(false);
+    expect(state.toolResults.get("s1")?.get("task-fresh-sync")?.content).toBe("fresh synced result");
+    expect(state.backgroundAgentNotifs.get("s1")?.get("task-fresh-sync")?.summary).toBe("fresh synced notification");
+    expect(state.toolStartTimestamps.get("s1")?.get("task-fresh-sync")).toBe(4444);
+  });
+
+  it("preserves frozen-prefix tool state across history_sync reuse while replacing the hot tail", () => {
+    // q-327: history_sync reuses the browser's frozen prefix, so completed
+    // tool/subagent state from that prefix must survive while stale hot-tail
+    // live state is cleared and replaced by fresh server data.
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+    useStore.getState().setMessages(
+      "s1",
+      [
+        {
+          id: "frozen-task-parent",
+          role: "assistant",
+          content: "",
+          timestamp: 1000,
+          contentBlocks: [
+            {
+              type: "tool_use",
+              id: "task-frozen",
+              name: "Task",
+              input: { description: "Frozen child", subagent_type: "explorer" },
+            },
+          ],
+        },
+        { id: "hot-1", role: "assistant", content: "stale hot", timestamp: 2000 },
+      ],
+      { frozenCount: 1 },
+    );
+    useStore.getState().setToolResult("s1", "task-frozen", {
+      tool_use_id: "task-frozen",
+      content: "frozen result",
+      is_error: false,
+      total_size: 13,
+      is_truncated: false,
+    });
+    useStore.getState().setBackgroundAgentNotif("s1", "task-frozen", {
+      status: "completed",
+      summary: "frozen notification",
+    });
+    useStore.getState().setToolStartTimestamps("s1", {
+      "task-frozen": 1111,
+      "task-stale-hot": 2222,
+    });
+    useStore.getState().setToolProgress("s1", "task-stale-hot", {
+      toolName: "Task",
+      elapsedSeconds: 55,
+      outputDelta: "stale progress",
+    });
+
+    fireMessage({
+      type: "history_sync",
+      frozen_base_count: 1,
+      frozen_delta: [],
+      hot_messages: [
+        {
+          type: "assistant",
+          message: {
+            id: "msg-fresh-sync-2",
+            type: "message",
+            role: "assistant",
+            model: "claude-opus-4-20250514",
+            content: [
+              {
+                type: "tool_use",
+                id: "task-fresh-sync-2",
+                name: "Task",
+                input: { description: "Fresh synced child", subagent_type: "explorer" },
+              },
+            ],
+            stop_reason: null,
+            usage: { input_tokens: 5, output_tokens: 2, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+          },
+          parent_tool_use_id: null,
+          timestamp: 3000,
+          tool_start_times: { "task-fresh-sync-2": 4444 },
+        },
+        {
+          type: "tool_result_preview",
+          previews: [
+            {
+              tool_use_id: "task-fresh-sync-2",
+              content: "fresh synced result 2",
+              is_error: false,
+              total_size: 21,
+              is_truncated: false,
+            },
+          ],
+        },
+        {
+          type: "task_notification",
+          task_id: "bg-3",
+          tool_use_id: "task-fresh-sync-2",
+          status: "completed",
+          summary: "fresh synced notification 2",
+        },
+      ],
+      frozen_count: 1,
+      expected_frozen_hash: "frozen-hash",
+      expected_full_hash: "full-hash",
+    });
+
+    const state = useStore.getState();
+    expect(state.toolResults.get("s1")?.get("task-frozen")?.content).toBe("frozen result");
+    expect(state.backgroundAgentNotifs.get("s1")?.get("task-frozen")?.summary).toBe("frozen notification");
+    expect(state.toolStartTimestamps.get("s1")?.get("task-frozen")).toBe(1111);
+    expect(state.toolResults.get("s1")?.has("task-stale-hot")).toBe(false);
+    expect(state.backgroundAgentNotifs.get("s1")?.has("task-stale-hot")).toBe(false);
+    expect(state.toolStartTimestamps.get("s1")?.has("task-stale-hot")).toBe(false);
+    expect(state.toolProgress.has("s1")).toBe(false);
+    expect(state.toolResults.get("s1")?.get("task-fresh-sync-2")?.content).toBe("fresh synced result 2");
+    expect(state.backgroundAgentNotifs.get("s1")?.get("task-fresh-sync-2")?.summary).toBe("fresh synced notification 2");
+    expect(state.toolStartTimestamps.get("s1")?.get("task-fresh-sync-2")).toBe(4444);
+  });
 });
 
 // ===========================================================================
