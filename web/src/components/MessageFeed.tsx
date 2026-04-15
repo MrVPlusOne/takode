@@ -3404,7 +3404,7 @@ export function MessageFeed({
         <div
           ref={containerRef}
           onScroll={handleScroll}
-          className="h-full overflow-y-auto px-3 sm:px-4 py-4 sm:py-6"
+          className="h-full overflow-y-auto overflow-x-hidden px-3 sm:px-4 py-4 sm:py-6"
           style={{ overscrollBehavior: "contain" }}
         >
           <PawScrollProvider scrollRef={containerRef}>
