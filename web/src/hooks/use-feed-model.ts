@@ -426,7 +426,7 @@ export function isUserBoundaryEntry(entry: FeedEntry | null): boolean {
 }
 
 /** Check if a FeedEntry is a herd event message (user message injected by herd dispatcher). */
-function isHerdEventEntry(entry: FeedEntry): boolean {
+function isHerdEventEntry(entry: FeedEntry): entry is Extract<FeedEntry, { kind: "message" }> {
   return entry.kind === "message" && entry.msg.role === "user" && entry.msg.agentSource?.sessionId === "herd-events";
 }
 
@@ -503,6 +503,59 @@ function isLeaderBoundaryEntry(entry: FeedEntry): boolean {
   // When a turn contains @to(user), earlier text blocks should stay in the
   // same turn and be promoted to user-facing (see makeTurn promotedEntries).
   return isUserBoundaryEntry(entry);
+}
+
+const LEADER_HERD_TURN_GAP_MS = 60_000;
+
+function isLikelyInProgressLeaderReply(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized) return false;
+  if (normalized.endsWith("...")) return true;
+  return (
+    normalized.startsWith("let me ") ||
+    normalized.startsWith("looking into") ||
+    normalized.startsWith("i'll check") ||
+    normalized.startsWith("checking ") ||
+    normalized.startsWith("working on") ||
+    normalized.startsWith("searching ") ||
+    normalized.startsWith("investigating ") ||
+    normalized.startsWith("one moment") ||
+    normalized.startsWith("hang on")
+  );
+}
+
+function shouldSplitDeferredLeaderHerdEvent(
+  entry: FeedEntry,
+  currentUser: FeedEntry | null,
+  assistantTextCount: number,
+  lastAssistantText: string | null,
+  lastMessageTimestamp: number | null,
+): boolean {
+  if (!isHerdEventEntry(entry)) return false;
+  // Only split delayed herd updates after the leader already had time to
+  // answer within the original user turn. A single in-progress status
+  // message ("let me check") is not enough to justify starting a new
+  // synthetic turn there, but a single substantive answer is.
+  //
+  // For already-synthetic herd turns (currentUser === null), a single
+  // assistant follow-up is enough to let a later delayed herd batch start its
+  // own turn instead of visually piling into the earlier herd batch.
+  if (currentUser) {
+    if (assistantTextCount === 0) return false;
+    if (assistantTextCount === 1 && isLikelyInProgressLeaderReply(lastAssistantText || "")) {
+      return false;
+    }
+  } else if (assistantTextCount < 1) {
+    return false;
+  }
+
+  const incomingTs = entry.msg.timestamp;
+  if (typeof incomingTs !== "number" || lastMessageTimestamp === null) return false;
+
+  // If a herd event arrives well after the leader already responded in the
+  // current turn, start a new synthetic turn instead of visually appending a
+  // background backlog under the older user request.
+  return incomingTs - lastMessageTimestamp >= LEADER_HERD_TURN_GAP_MS;
 }
 
 /** Build a Turn from accumulated entries */
@@ -628,24 +681,53 @@ function makeTurn(userEntry: FeedEntry | null, entries: FeedEntry[], turnIndex: 
 }
 
 /** Group flat feed entries into turns.
- *  Leader mode keeps the same boundary rule (user messages only); @to(user) affects
- *  response/promotion behavior inside a turn, not turn splitting. */
+ *  Leader mode still primarily splits on user messages. A delayed herd-event
+ *  injection that arrives long after the leader already answered in the current
+ *  turn starts a new synthetic turn so background updates don't visually pile up
+ *  under an older user request. */
 export function groupIntoTurns(entries: FeedEntry[], leaderMode = false, startTurnIndex = 0): Turn[] {
   const turns: Turn[] = [];
   let currentUser: FeedEntry | null = null;
   let currentEntries: FeedEntry[] = [];
+  let assistantTextCount = 0;
+  let lastAssistantText: string | null = null;
+  let lastMessageTimestamp: number | null = null;
 
   for (const entry of entries) {
     const isBoundary = leaderMode ? isLeaderBoundaryEntry(entry) : isUserBoundaryEntry(entry);
-    if (isBoundary) {
+    const splitDeferredLeaderHerd =
+      leaderMode &&
+      shouldSplitDeferredLeaderHerdEvent(entry, currentUser, assistantTextCount, lastAssistantText, lastMessageTimestamp);
+    if (isBoundary || splitDeferredLeaderHerd) {
       // Flush previous turn
       if (currentUser !== null || currentEntries.length > 0) {
         turns.push(makeTurn(currentUser, currentEntries, startTurnIndex + turns.length, leaderMode));
       }
-      currentUser = entry;
-      currentEntries = [];
+      if (isBoundary) {
+        currentUser = entry;
+        currentEntries = [];
+        assistantTextCount = 0;
+        lastAssistantText = null;
+        lastMessageTimestamp = null;
+      } else {
+        const herdEntry = entry as Extract<FeedEntry, { kind: "message" }>;
+        currentUser = null;
+        currentEntries = [herdEntry];
+        assistantTextCount = 0;
+        lastAssistantText = null;
+        lastMessageTimestamp = typeof herdEntry.msg.timestamp === "number" ? herdEntry.msg.timestamp : null;
+      }
     } else {
       currentEntries.push(entry);
+      if (entry.kind === "message") {
+        if (typeof entry.msg.timestamp === "number") {
+          lastMessageTimestamp = entry.msg.timestamp;
+        }
+        if (entry.msg.role === "assistant" && entry.msg.content?.trim()) {
+          assistantTextCount += 1;
+          lastAssistantText = entry.msg.content;
+        }
+      }
     }
   }
 
@@ -673,7 +755,12 @@ function concatFeedModels(base: FeedModel, next: FeedModel): FeedModel {
   // last frozen turn so they appear as one continuous agent turn in the UI,
   // rather than creating a phantom turn boundary that causes incorrect collapsing.
   let mergedTurns: Turn[];
-  if (next.turns.length > 0 && base.turns.length > 0 && next.turns[0].userEntry === null) {
+  if (
+    next.turns.length > 0 &&
+    base.turns.length > 0 &&
+    next.turns[0].userEntry === null &&
+    next.turns[0].stats.herdEventCount === 0
+  ) {
     const lastBase = base.turns[base.turns.length - 1];
     const firstNext = next.turns[0];
     // Re-derive the merged turn via makeTurn so stats, response entry,

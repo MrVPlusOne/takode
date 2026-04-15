@@ -301,6 +301,59 @@ describe("sub-conclusions in collapsed turns", () => {
     expect(model.turns[0].subConclusions).toHaveLength(0);
   });
 
+  it("starts a new synthetic leader turn for delayed herd events after a completed response", () => {
+    // q-321: in session #222 the herd dispatcher was delivering updates, but
+    // they were arriving minutes after the leader had already answered the
+    // user's question. Keeping those delayed herd events in the older user turn
+    // made them look like a queued backlog in the UI.
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "what is the prompt limit?", timestamp: 1_000 }),
+      makeMessage({ id: "a1", role: "assistant", content: "It's 56K tokens.", timestamp: 10_000 }),
+      makeHerdEvent("h1", "#193 | turn_end | ✓ 1m 38s", 185_000),
+      makeMessage({ id: "a2", role: "assistant", content: "Routine update from #193. @to(self)", timestamp: 190_000 }),
+      makeHerdEvent("h2", "#449 | turn_end | ✓ 33.0s", 320_000),
+      makeMessage({ id: "a3", role: "assistant", content: "Routine update from #449. @to(self)", timestamp: 325_000 }),
+    ];
+
+    const model = buildFeedModel(messages, true);
+
+    // Original user question remains its own turn.
+    expect(model.turns).toHaveLength(3);
+    expect(model.turns[0].userEntry?.kind).toBe("message");
+    expect((model.turns[0].userEntry as { msg: ChatMessage }).msg.id).toBe("u1");
+    expect((model.turns[0].responseEntry as { msg: ChatMessage }).msg.id).toBe("a1");
+    expect(model.turns[0].stats.herdEventCount).toBe(0);
+
+    // Each delayed herd batch becomes its own synthetic turn instead of
+    // visually piling under the older user request.
+    expect(model.turns[1].userEntry).toBeNull();
+    expect(model.turns[1].stats.herdEventCount).toBe(1);
+    expect(entryIds(model.turns[1].allEntries)).toContain("h1");
+
+    expect(model.turns[2].userEntry).toBeNull();
+    expect(model.turns[2].stats.herdEventCount).toBe(1);
+    expect(entryIds(model.turns[2].allEntries)).toContain("h2");
+  });
+
+  it("keeps delayed herd events in the same turn when the leader only sent an in-progress status update", () => {
+    // A single assistant status message ("let me check") should not be
+    // treated as a completed answer. In that case, a later herd event still
+    // belongs to the same orchestration turn.
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "what's happening?", timestamp: 1_000 }),
+      makeMessage({ id: "a1", role: "assistant", content: "Let me check that for you.", timestamp: 2_000 }),
+      makeHerdEvent("h1", "#193 | turn_end | ✓ 1m 38s", 185_000),
+      makeMessage({ id: "a2", role: "assistant", content: "Routine update from #193. @to(self)", timestamp: 190_000 }),
+    ];
+
+    const model = buildFeedModel(messages, true);
+
+    expect(model.turns).toHaveLength(1);
+    expect((model.turns[0].userEntry as { msg: ChatMessage }).msg.id).toBe("u1");
+    expect(model.turns[0].stats.herdEventCount).toBe(1);
+    expect(entryIds(model.turns[0].allEntries)).toContain("h1");
+  });
+
   it("does not count responseEntry as a sub-conclusion when it precedes a herd event", () => {
     // Edge case: the last assistant message before a herd event at the end of the turn.
     // If the turn ends with: assistant → herd → (no more assistant), the last assistant
@@ -442,5 +495,24 @@ describe("useFeedModel", () => {
         turn.responseEntry?.kind === "message" ? turn.responseEntry.msg.id : null,
       ),
     );
+  });
+
+  it("does not re-merge a delayed synthetic herd turn across the frozen/active boundary", () => {
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "what is the prompt limit?", timestamp: 1_000 }),
+      makeMessage({ id: "a1", role: "assistant", content: "It's 56K tokens.", timestamp: 10_000 }),
+      makeHerdEvent("h1", "#193 | turn_end | ✓ 1m 38s", 185_000),
+      makeMessage({ id: "a2", role: "assistant", content: "Routine update from #193. @to(self)", timestamp: 190_000 }),
+    ];
+
+    const full = buildFeedModel(messages, true);
+    expect(full.turns).toHaveLength(2);
+
+    const { result } = renderHook(() => useFeedModel(messages, { leaderMode: true, frozenCount: 2, frozenRevision: 0 }));
+
+    expect(result.current.turns).toHaveLength(2);
+    expect(result.current.turns.map((turn) => turn.id)).toEqual(full.turns.map((turn) => turn.id));
+    expect(result.current.turns[1].userEntry).toBeNull();
+    expect(result.current.turns[1].stats.herdEventCount).toBe(1);
   });
 });
