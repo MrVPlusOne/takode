@@ -6,8 +6,10 @@ export interface SessionTimer {
   id: string;
   /** Session that owns this timer. */
   sessionId: string;
-  /** The prompt text to inject when the timer fires. */
-  prompt: string;
+  /** Concise one-line summary for humans scanning timer lists. */
+  title: string;
+  /** Additional detail for the model when the timer fires. */
+  description: string;
   /** Timer schedule type. */
   type: "delay" | "at" | "recurring";
   /** Original spec as entered by the user (e.g. "30m", "3pm", "every 10m"). */
@@ -34,7 +36,8 @@ export interface SessionTimerFile {
 
 /** Input for creating a timer via REST API or CLI. Exactly one of in/at/every must be provided. */
 export interface TimerCreateInput {
-  prompt: string;
+  title: string;
+  description?: string;
   /** Relative delay: "30m", "2h", "45s" */
   in?: string;
   /** Wall-clock time: "3pm", "15:00", "3:30pm" */

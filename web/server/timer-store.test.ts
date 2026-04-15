@@ -47,7 +47,8 @@ describe("timer-store", () => {
           {
             id: "t1",
             sessionId: id,
-            prompt: "check build",
+            title: "check build",
+            description: "inspect latest failing jobs",
             type: "delay",
             originalSpec: "30m",
             nextFireAt: Date.now() + 1_800_000,
@@ -57,7 +58,8 @@ describe("timer-store", () => {
           {
             id: "t2",
             sessionId: id,
-            prompt: "ping",
+            title: "ping",
+            description: "",
             type: "recurring",
             originalSpec: "10m",
             nextFireAt: Date.now() + 600_000,
@@ -78,6 +80,117 @@ describe("timer-store", () => {
       expect(loaded.timers[0].id).toBe("t1");
       expect(loaded.timers[1].id).toBe("t2");
       expect(loaded.timers[1].intervalMs).toBe(600_000);
+      expect(loaded.timers[0].description).toBe("inspect latest failing jobs");
+    });
+
+    it("normalizes legacy prompt-only timers into title and description", async () => {
+      // Older timer files stored one dense prompt field; loading should migrate
+      // them into the new human-scannable title + description shape.
+      const id = testId("legacy-prompt");
+      createdIds.push(id);
+
+      const legacyData = {
+        sessionId: id,
+        nextId: 2,
+        timers: [
+          {
+            id: "t1",
+            sessionId: id,
+            prompt: "HOURLY DATAGEN CHECK -- inspect stalled shards and relaunch failed jobs",
+            type: "recurring",
+            originalSpec: "1h",
+            nextFireAt: Date.now() + 3_600_000,
+            intervalMs: 3_600_000,
+            createdAt: Date.now(),
+            fireCount: 0,
+          },
+        ],
+      };
+
+      await saveTimers(legacyData as SessionTimerFile);
+      const loaded = await loadTimers(id);
+
+      expect(loaded.timers[0].title).toBe("HOURLY DATAGEN CHECK");
+      expect(loaded.timers[0].description).toContain("inspect stalled shards");
+    });
+
+    it("splits multiline and colon-delimited legacy prompts into title and description", async () => {
+      // Legacy timers often used newline or colon separators instead of " -- ",
+      // and those should still migrate into the new split structure.
+      const newlineId = testId("legacy-newline");
+      const colonId = testId("legacy-colon");
+      createdIds.push(newlineId, colonId);
+
+      await saveTimers({
+        sessionId: newlineId,
+        nextId: 2,
+        timers: [
+          {
+            id: "t1",
+            sessionId: newlineId,
+            prompt: "Check build health\nInspect the latest failing shard if the build is red.",
+            type: "delay",
+            originalSpec: "30m",
+            nextFireAt: Date.now() + 1_800_000,
+            createdAt: Date.now(),
+            fireCount: 0,
+          } as any,
+        ],
+      } as SessionTimerFile);
+
+      await saveTimers({
+        sessionId: colonId,
+        nextId: 2,
+        timers: [
+          {
+            id: "t1",
+            sessionId: colonId,
+            prompt: "Refresh context: summarize blockers added since the last run.",
+            type: "recurring",
+            originalSpec: "10m",
+            nextFireAt: Date.now() + 600_000,
+            intervalMs: 600_000,
+            createdAt: Date.now(),
+            fireCount: 0,
+          } as any,
+        ],
+      } as SessionTimerFile);
+
+      const newlineLoaded = await loadTimers(newlineId);
+      const colonLoaded = await loadTimers(colonId);
+
+      expect(newlineLoaded.timers[0].title).toBe("Check build health");
+      expect(newlineLoaded.timers[0].description).toBe("Inspect the latest failing shard if the build is red.");
+      expect(colonLoaded.timers[0].title).toBe("Refresh context");
+      expect(colonLoaded.timers[0].description).toBe("summarize blockers added since the last run.");
+    });
+
+    it("preserves an existing title when description is missing in partially migrated data", async () => {
+      // Partially migrated files should not lose the already-curated title on reload.
+      const id = testId("partial-migration");
+      createdIds.push(id);
+
+      await saveTimers({
+        sessionId: id,
+        nextId: 2,
+        timers: [
+          {
+            id: "t1",
+            sessionId: id,
+            title: "Build check",
+            prompt: "Build check -- inspect the latest failing shard if the build is red.",
+            type: "delay",
+            originalSpec: "30m",
+            nextFireAt: Date.now() + 1_800_000,
+            createdAt: Date.now(),
+            fireCount: 0,
+          } as any,
+        ],
+      } as SessionTimerFile);
+
+      const loaded = await loadTimers(id);
+      expect(loaded.timers[0].title).toBe("Build check");
+      expect(loaded.timers[0].description).toBe("inspect the latest failing shard if the build is red.");
     });
   });
 
@@ -93,7 +206,8 @@ describe("timer-store", () => {
           {
             id: "t1",
             sessionId: id,
-            prompt: "test prompt",
+            title: "test prompt",
+            description: "full detail",
             type: "at",
             originalSpec: "3pm",
             nextFireAt: Date.now() + 3_600_000,
@@ -105,7 +219,8 @@ describe("timer-store", () => {
 
       await saveTimers(data);
       const loaded = await loadTimers(id);
-      expect(loaded.timers[0].prompt).toBe("test prompt");
+      expect(loaded.timers[0].title).toBe("test prompt");
+      expect(loaded.timers[0].description).toBe("full detail");
       expect(loaded.timers[0].type).toBe("at");
     });
   });

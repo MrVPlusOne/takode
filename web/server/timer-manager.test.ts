@@ -51,20 +51,22 @@ describe("TimerManager", () => {
   describe("createTimer", () => {
     it("creates a one-shot delay timer", async () => {
       const timer = await manager.createTimer("session-1", {
-        prompt: "check the build",
+        title: "check the build",
+        description: "Inspect the latest failing shard if the build is red.",
         in: "30m",
       });
 
       expect(timer.id).toBe("t1");
       expect(timer.type).toBe("delay");
-      expect(timer.prompt).toBe("check the build");
+      expect(timer.title).toBe("check the build");
+      expect(timer.description).toBe("Inspect the latest failing shard if the build is red.");
       expect(timer.nextFireAt).toBe(Date.now() + 1_800_000);
       expect(timer.fireCount).toBe(0);
     });
 
     it("creates a recurring timer", async () => {
       const timer = await manager.createTimer("session-1", {
-        prompt: "refresh context",
+        title: "refresh context",
         every: "10m",
       });
 
@@ -74,9 +76,9 @@ describe("TimerManager", () => {
     });
 
     it("increments timer IDs", async () => {
-      const t1 = await manager.createTimer("session-1", { prompt: "a", in: "5m" });
-      const t2 = await manager.createTimer("session-1", { prompt: "b", in: "10m" });
-      const t3 = await manager.createTimer("session-1", { prompt: "c", every: "15m" });
+      const t1 = await manager.createTimer("session-1", { title: "a", in: "5m" });
+      const t2 = await manager.createTimer("session-1", { title: "b", in: "10m" });
+      const t3 = await manager.createTimer("session-1", { title: "c", every: "15m" });
 
       expect(t1.id).toBe("t1");
       expect(t2.id).toBe("t2");
@@ -84,7 +86,7 @@ describe("TimerManager", () => {
     });
 
     it("broadcasts timer update to browsers", async () => {
-      await manager.createTimer("session-1", { prompt: "test", in: "5m" });
+      await manager.createTimer("session-1", { title: "test", in: "5m" });
 
       expect(bridge.broadcastToSession).toHaveBeenCalledWith("session-1", {
         type: "timer_update",
@@ -92,17 +94,17 @@ describe("TimerManager", () => {
       });
     });
 
-    it("rejects empty prompt", async () => {
-      await expect(manager.createTimer("session-1", { prompt: "", in: "5m" })).rejects.toThrow("prompt is required");
+    it("rejects empty title", async () => {
+      await expect(manager.createTimer("session-1", { title: "", in: "5m" })).rejects.toThrow("title is required");
     });
 
     it("rejects when timer limit is reached", async () => {
       // Create 50 timers (the max)
       for (let i = 0; i < 50; i++) {
-        await manager.createTimer("session-1", { prompt: `timer ${i}`, in: "30m" });
+        await manager.createTimer("session-1", { title: `timer ${i}`, in: "30m" });
       }
       // The 51st should be rejected
-      await expect(manager.createTimer("session-1", { prompt: "one too many", in: "5m" })).rejects.toThrow(
+      await expect(manager.createTimer("session-1", { title: "one too many", in: "5m" })).rejects.toThrow(
         "Timer limit reached",
       );
     });
@@ -110,7 +112,7 @@ describe("TimerManager", () => {
 
   describe("cancelTimer", () => {
     it("removes a timer", async () => {
-      await manager.createTimer("session-1", { prompt: "a", in: "5m" });
+      await manager.createTimer("session-1", { title: "a", in: "5m" });
       const cancelled = await manager.cancelTimer("session-1", "t1");
 
       expect(cancelled).toBe(true);
@@ -123,7 +125,7 @@ describe("TimerManager", () => {
     });
 
     it("broadcasts after cancel", async () => {
-      await manager.createTimer("session-1", { prompt: "a", in: "5m" });
+      await manager.createTimer("session-1", { title: "a", in: "5m" });
       bridge.broadcastToSession.mockClear();
 
       await manager.cancelTimer("session-1", "t1");
@@ -135,7 +137,11 @@ describe("TimerManager", () => {
     });
 
     it("injects a cancellation message into the session", async () => {
-      await manager.createTimer("session-1", { prompt: "check the build", in: "5m" });
+      await manager.createTimer("session-1", {
+        title: "check the build",
+        description: "Inspect the latest failing shard if the build is red.",
+        in: "5m",
+      });
       bridge.injectUserMessage.mockClear();
 
       await manager.cancelTimer("session-1", "t1");
@@ -145,9 +151,10 @@ describe("TimerManager", () => {
         expect.stringContaining("Timer t1 cancelled"),
         { sessionId: "timer:t1", sessionLabel: "Timer t1" },
       );
-      // Verify the prompt text is included so the agent knows which timer was cancelled
+      // Verify the title and extra detail are included so the agent knows what was cancelled.
       const callArgs = bridge.injectUserMessage.mock.calls[0];
       expect(callArgs[1]).toContain("check the build");
+      expect(callArgs[1]).toContain("Inspect the latest failing shard");
     });
   });
 
@@ -157,8 +164,8 @@ describe("TimerManager", () => {
     });
 
     it("returns all timers for a session", async () => {
-      await manager.createTimer("session-1", { prompt: "a", in: "5m" });
-      await manager.createTimer("session-1", { prompt: "b", every: "10m" });
+      await manager.createTimer("session-1", { title: "a", in: "5m" });
+      await manager.createTimer("session-1", { title: "b", every: "10m" });
 
       const timers = manager.listTimers("session-1");
       expect(timers).toHaveLength(2);
@@ -167,8 +174,8 @@ describe("TimerManager", () => {
 
   describe("cancelAllTimers", () => {
     it("removes all timers for a session", async () => {
-      await manager.createTimer("session-1", { prompt: "a", in: "5m" });
-      await manager.createTimer("session-1", { prompt: "b", every: "10m" });
+      await manager.createTimer("session-1", { title: "a", in: "5m" });
+      await manager.createTimer("session-1", { title: "b", every: "10m" });
 
       await manager.cancelAllTimers("session-1");
 
@@ -176,7 +183,7 @@ describe("TimerManager", () => {
     });
 
     it("broadcasts empty timer list", async () => {
-      await manager.createTimer("session-1", { prompt: "a", in: "5m" });
+      await manager.createTimer("session-1", { title: "a", in: "5m" });
       bridge.broadcastToSession.mockClear();
 
       await manager.cancelAllTimers("session-1");
@@ -195,22 +202,30 @@ describe("TimerManager", () => {
     }
 
     it("fires a one-shot delay timer when due", async () => {
-      await manager.createTimer("session-1", { prompt: "do something", in: "5m" });
+      await manager.createTimer("session-1", {
+        title: "do something",
+        description: "Open the latest incident thread and summarize the blocker.",
+        in: "5m",
+      });
 
       // Advance time past the timer's fire time
       vi.advanceTimersByTime(5 * 60_000 + 1);
       await triggerSweep(manager);
 
-      expect(bridge.injectUserMessage).toHaveBeenCalledWith("session-1", "[⏰ Timer t1] do something", {
-        sessionId: "timer:t1",
-        sessionLabel: "Timer t1",
-      });
+      expect(bridge.injectUserMessage).toHaveBeenCalledWith(
+        "session-1",
+        "[⏰ Timer t1] do something\n\nOpen the latest incident thread and summarize the blocker.",
+        {
+          sessionId: "timer:t1",
+          sessionLabel: "Timer t1",
+        },
+      );
       // One-shot should be removed after firing
       expect(manager.listTimers("session-1")).toHaveLength(0);
     });
 
     it("fires a recurring timer and advances nextFireAt", async () => {
-      await manager.createTimer("session-1", { prompt: "ping", every: "10m" });
+      await manager.createTimer("session-1", { title: "ping", every: "10m" });
 
       // First fire
       vi.advanceTimersByTime(10 * 60_000 + 1);
@@ -233,7 +248,7 @@ describe("TimerManager", () => {
     });
 
     it("does not fire a timer before its time", async () => {
-      await manager.createTimer("session-1", { prompt: "not yet", in: "30m" });
+      await manager.createTimer("session-1", { title: "not yet", in: "30m" });
 
       vi.advanceTimersByTime(5 * 60_000); // Only 5 minutes
       await triggerSweep(manager);
@@ -243,7 +258,7 @@ describe("TimerManager", () => {
     });
 
     it("handles recurring catchup (fires once, skips missed intervals)", async () => {
-      await manager.createTimer("session-1", { prompt: "check", every: "10m" });
+      await manager.createTimer("session-1", { title: "check", every: "10m" });
 
       // Advance 35 minutes (missed 3 intervals)
       vi.advanceTimersByTime(35 * 60_000 + 1);
@@ -258,7 +273,7 @@ describe("TimerManager", () => {
     });
 
     it("cancelled timer never fires", async () => {
-      await manager.createTimer("session-1", { prompt: "bye", in: "5m" });
+      await manager.createTimer("session-1", { title: "bye", in: "5m" });
       await manager.cancelTimer("session-1", "t1");
 
       // Clear mock after cancelTimer's notification, then verify sweep doesn't fire
@@ -271,8 +286,8 @@ describe("TimerManager", () => {
 
     it("does not reuse timer IDs after all timers fire and are removed", async () => {
       // Create two one-shot timers: t1 and t2
-      await manager.createTimer("session-1", { prompt: "first", in: "5m" });
-      await manager.createTimer("session-1", { prompt: "second", in: "10m" });
+      await manager.createTimer("session-1", { title: "first", in: "5m" });
+      await manager.createTimer("session-1", { title: "second", in: "10m" });
 
       // Fire both timers (sweep removes one-shot timers after firing)
       vi.advanceTimersByTime(15 * 60_000);
@@ -283,7 +298,7 @@ describe("TimerManager", () => {
 
       // Creating a new timer should NOT reuse t1 -- nextId should have been
       // preserved on disk even though the session was evicted from memory
-      const t3 = await manager.createTimer("session-1", { prompt: "third", in: "5m" });
+      const t3 = await manager.createTimer("session-1", { title: "third", in: "5m" });
       expect(t3.id).toBe("t3");
     });
   });
@@ -298,7 +313,8 @@ describe("TimerManager", () => {
           {
             id: "t1",
             sessionId: "session-saved",
-            prompt: "restored timer",
+            title: "restored timer",
+            description: "restore detail",
             type: "recurring",
             originalSpec: "10m",
             nextFireAt: Date.now() + 600_000,
@@ -313,7 +329,7 @@ describe("TimerManager", () => {
 
       const timers = manager.listTimers("session-saved");
       expect(timers).toHaveLength(1);
-      expect(timers[0].prompt).toBe("restored timer");
+      expect(timers[0].title).toBe("restored timer");
     });
   });
 });

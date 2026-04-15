@@ -174,7 +174,7 @@ describe("resolveTimerSchedule", () => {
   it("resolves delay (--in)", () => {
     vi.useFakeTimers({ now: new Date("2026-04-08T10:00:00") });
 
-    const result = resolveTimerSchedule({ prompt: "test", in: "30m" });
+    const result = resolveTimerSchedule({ title: "test", in: "30m" });
     expect(result.type).toBe("delay");
     expect(result.nextFireAt).toBe(Date.now() + 1_800_000);
     expect(result.intervalMs).toBeUndefined();
@@ -184,7 +184,7 @@ describe("resolveTimerSchedule", () => {
   it("resolves wall-clock (--at)", () => {
     vi.useFakeTimers({ now: new Date("2026-04-08T10:00:00") });
 
-    const result = resolveTimerSchedule({ prompt: "test", at: "3pm" });
+    const result = resolveTimerSchedule({ title: "test", at: "3pm" });
     expect(result.type).toBe("at");
     expect(result.originalSpec).toBe("3pm");
     const date = new Date(result.nextFireAt);
@@ -194,7 +194,7 @@ describe("resolveTimerSchedule", () => {
   it("resolves recurring (--every)", () => {
     vi.useFakeTimers({ now: new Date("2026-04-08T10:00:00") });
 
-    const result = resolveTimerSchedule({ prompt: "test", every: "10m" });
+    const result = resolveTimerSchedule({ title: "test", every: "10m" });
     expect(result.type).toBe("recurring");
     expect(result.nextFireAt).toBe(Date.now() + 600_000);
     expect(result.intervalMs).toBe(600_000);
@@ -202,10 +202,10 @@ describe("resolveTimerSchedule", () => {
   });
 
   it("rejects no schedule spec", () => {
-    expect(() => resolveTimerSchedule({ prompt: "test" })).toThrow("One of");
+    expect(() => resolveTimerSchedule({ title: "test" })).toThrow("One of");
   });
 
   it("rejects multiple schedule specs", () => {
-    expect(() => resolveTimerSchedule({ prompt: "test", in: "5m", every: "10m" })).toThrow("Only one");
+    expect(() => resolveTimerSchedule({ title: "test", in: "5m", every: "10m" })).toThrow("Only one");
   });
 });

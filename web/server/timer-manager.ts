@@ -45,7 +45,8 @@ export class TimerManager {
 
   /** Create a new timer for a session. Returns the created timer. */
   async createTimer(sessionId: string, input: TimerCreateInput): Promise<SessionTimer> {
-    if (!input.prompt?.trim()) throw new Error("Timer prompt is required");
+    const title = input.title?.trim();
+    if (!title) throw new Error("Timer title is required");
 
     const schedule = resolveTimerSchedule(input);
     if (!Number.isFinite(schedule.nextFireAt)) throw new Error("Invalid timer schedule: non-finite fire time");
@@ -60,7 +61,8 @@ export class TimerManager {
     const timer: SessionTimer = {
       id,
       sessionId,
-      prompt: input.prompt.trim(),
+      title,
+      description: input.description?.trim() ?? "",
       type: schedule.type,
       originalSpec: schedule.originalSpec,
       nextFireAt: schedule.nextFireAt,
@@ -96,7 +98,10 @@ export class TimerManager {
     this.broadcastTimers(sessionId);
 
     // Notify the agent that the user manually cancelled this timer
-    const content = `[⏰ Timer ${timerId} cancelled] The user manually cancelled timer "${timer.prompt}"`;
+    const content =
+      `[⏰ Timer ${timerId} cancelled] ` +
+      `The user manually cancelled timer "${timer.title}"` +
+      (timer.description ? `.\n\nDescription:\n${timer.description}` : "");
     this.wsBridge.injectUserMessage(sessionId, content, {
       sessionId: `timer:${timerId}`,
       sessionLabel: `Timer ${timerId}`,
@@ -181,7 +186,8 @@ export class TimerManager {
 
   /** Fire a single timer: inject user message into the session. */
   private fireTimer(sessionId: string, timer: SessionTimer): void {
-    const content = `[⏰ Timer ${timer.id}] ${timer.prompt}`;
+    const content =
+      `[⏰ Timer ${timer.id}] ${timer.title}` + (timer.description ? `\n\n${timer.description}` : "");
     const result = this.wsBridge.injectUserMessage(sessionId, content, {
       sessionId: `timer:${timer.id}`,
       sessionLabel: `Timer ${timer.id}`,

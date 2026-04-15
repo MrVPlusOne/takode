@@ -478,7 +478,8 @@ function formatTimestampCompact(epoch: number): string {
 type SessionTimerDetail = {
   id: string;
   type: string;
-  prompt: string;
+  title: string;
+  description: string;
   originalSpec: string;
   nextFireAt: number;
   fireCount: number;
@@ -486,6 +487,10 @@ type SessionTimerDetail = {
   createdAt?: number;
   lastFiredAt?: number;
 };
+
+const TIMER_CREATE_GUIDANCE =
+  "Guidance: keep the timer title short and scannable. Use the description only for extra detail. " +
+  "For recurring timers, keep the description general so it does not go stale across repeated firings.";
 
 function formatTimerScheduleLabel(timer: Pick<SessionTimerDetail, "type" | "originalSpec">): string {
   return timer.type === "recurring"
@@ -504,7 +509,10 @@ function printTimerRows(timers: SessionTimerDetail[]): void {
       `next=${formatTimestampCompact(timer.nextFireAt)}`,
     ];
     if (timer.lastFiredAt) parts.push(`last=${formatTimestampCompact(timer.lastFiredAt)}`);
-    console.log(`${parts.join("  ")}  "${formatInlineText(timer.prompt)}"`);
+    console.log(`${parts.join("  ")}  "${formatInlineText(timer.title)}"`);
+    if (timer.description) {
+      console.log(`      ${formatInlineText(timer.description)}`);
+    }
   }
 }
 
@@ -3288,15 +3296,15 @@ async function handleTimer(base: string, args: string[]): Promise<void> {
 
   switch (sub) {
     case "create": {
-      // Parse: takode timer create "check the build" --in 30m
-      //        takode timer create "deploy reminder" --at 3pm
-      //        takode timer create "refresh context" --every 10m
-      const prompt = args[1];
-      if (!prompt) {
-        err("Usage: takode timer create <prompt> --in|--at|--every <spec>");
+      // Parse: takode timer create "Check build health" --desc "Inspect the latest failing shard." --in 30m
+      //        takode timer create "Deploy reminder" --at 3pm
+      //        takode timer create "Refresh context" --every 10m
+      const title = args[1];
+      if (!title) {
+        err("Usage: takode timer create <title> [--desc <description>] --in|--at|--every <spec>");
       }
 
-      const body: Record<string, string> = { prompt };
+      const body: Record<string, string> = { title };
       for (let i = 2; i < args.length; i++) {
         if (args[i] === "--in" && args[i + 1]) {
           body.in = args[++i];
@@ -3304,19 +3312,26 @@ async function handleTimer(base: string, args: string[]): Promise<void> {
           body.at = args[++i];
         } else if (args[i] === "--every" && args[i + 1]) {
           body.every = args[++i];
+        } else if ((args[i] === "--desc" || args[i] === "--description") && args[i + 1]) {
+          body.description = args[++i];
         }
       }
 
       if (!body.in && !body.at && !body.every) {
-        err("Usage: takode timer create <prompt> --in|--at|--every <spec>\n  e.g. --in 30m, --at 3pm, --every 10m");
+        err(
+          "Usage: takode timer create <title> [--desc <description>] --in|--at|--every <spec>\n" +
+            "  e.g. --in 30m, --at 3pm, --every 10m\n" +
+            `  ${TIMER_CREATE_GUIDANCE}`,
+        );
       }
 
       const result = (await apiPost(base, `/sessions/${sessionId}/timers`, body)) as {
-        timer: { id: string; type: string; nextFireAt: number; originalSpec: string; prompt: string };
+        timer: { id: string; type: string; nextFireAt: number; originalSpec: string; title: string; description: string };
       };
       const t = result.timer;
       const fireAt = new Date(t.nextFireAt).toLocaleTimeString();
-      console.log(`Created timer ${t.id} (${t.type}): "${t.prompt}" -- next fire at ${fireAt}`);
+      console.log(`Created timer ${t.id} (${t.type}): "${formatInlineText(t.title)}" -- next fire at ${fireAt}`);
+      if (t.description) console.log(`Description: ${formatInlineText(t.description)}`);
       break;
     }
     case "list": {
@@ -3343,13 +3358,14 @@ async function handleTimer(base: string, args: string[]): Promise<void> {
       err(
         "Usage: takode timer <subcommand>\n\n" +
           "Subcommands:\n" +
-          "  create <prompt> --in|--at|--every <spec>   Create a timer\n" +
+          "  create <title> [--desc <description>] --in|--at|--every <spec>   Create a timer\n" +
           "  list                                       List active timers\n" +
           "  cancel <timer-id>                          Cancel a timer\n\n" +
+          `${TIMER_CREATE_GUIDANCE}\n\n` +
           "Examples:\n" +
-          '  takode timer create "check build" --in 30m\n' +
-          '  takode timer create "deploy" --at 3pm\n' +
-          '  takode timer create "refresh" --every 10m\n' +
+          '  takode timer create "Check build health" --desc "Inspect the latest failing shard if red." --in 30m\n' +
+          '  takode timer create "Deploy reminder" --at 3pm\n' +
+          '  takode timer create "Refresh context" --desc "Summarize new blockers since the last run." --every 10m\n' +
           "  takode timer list\n" +
           "  takode timer cancel t1",
       );

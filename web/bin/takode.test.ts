@@ -1503,6 +1503,88 @@ describe("takode list timer counts", () => {
 });
 
 describe("takode timers", () => {
+  it("creates timers with separate title and description", async () => {
+    // Verifies timer creation sends the new title + description payload shape and
+    // keeps the success output centered on the concise title.
+    let receivedBody: Record<string, unknown> | null = null;
+    const server = createServer((req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "worker-self", isOrchestrator: false }));
+        return;
+      }
+
+      if (method === "POST" && url === "/api/sessions/worker-self/timers") {
+        let raw = "";
+        req.on("data", (chunk) => {
+          raw += String(chunk);
+        });
+        req.on("end", () => {
+          receivedBody = JSON.parse(raw);
+          res.writeHead(201, { "content-type": "application/json" });
+          res.end(
+            JSON.stringify({
+              timer: {
+                id: "t1",
+                sessionId: "worker-self",
+                title: "Check build health",
+                description: "Inspect the latest failing shard if the build is red.",
+                type: "delay",
+                originalSpec: "30m",
+                nextFireAt: Date.now() + 30 * 60 * 1000,
+                createdAt: Date.now(),
+                fireCount: 0,
+              },
+            }),
+          );
+        });
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    try {
+      const result = await runTakode(
+        [
+          "timer",
+          "create",
+          "Check build health",
+          "--desc",
+          "Inspect the latest failing shard if the build is red.",
+          "--in",
+          "30m",
+          "--port",
+          String(port),
+        ],
+        {
+          ...process.env,
+          COMPANION_SESSION_ID: "worker-self",
+          COMPANION_AUTH_TOKEN: "auth-self",
+        },
+      );
+
+      expect(result.status).toBe(0);
+      expect(receivedBody).toEqual({
+        title: "Check build health",
+        description: "Inspect the latest failing shard if the build is red.",
+        in: "30m",
+      });
+      expect(result.stdout).toContain('Created timer t1 (delay): "Check build health"');
+      expect(result.stdout).toContain("Description: Inspect the latest failing shard if the build is red.");
+    } finally {
+      server.close();
+    }
+  });
+
   it("inspects timers for another session", async () => {
     // Verifies the cross-session inspection command renders timer schedule,
     // next fire time, and recurrence metadata without relying on the current session.
@@ -1524,7 +1606,8 @@ describe("takode timers", () => {
               {
                 id: "t1",
                 sessionId: "worker-77",
-                prompt: "check the build",
+                title: "Check build health",
+                description: "Inspect the latest failing shard if the build is red.",
                 type: "delay",
                 originalSpec: "30m",
                 nextFireAt: Date.now() + 30 * 60 * 1000,
@@ -1534,7 +1617,8 @@ describe("takode timers", () => {
               {
                 id: "t2",
                 sessionId: "worker-77",
-                prompt: "refresh context",
+                title: "Refresh context",
+                description: "Summarize blockers added since the last run.",
                 type: "recurring",
                 originalSpec: "10m",
                 nextFireAt: Date.now() + 10 * 60 * 1000,
@@ -1568,7 +1652,8 @@ describe("takode timers", () => {
       expect(result.stdout).toContain('t1  in 30m');
       expect(result.stdout).toContain('t2  every 10m');
       expect(result.stdout).toContain('last=');
-      expect(result.stdout).toContain('"refresh context"');
+      expect(result.stdout).toContain('"Refresh context"');
+      expect(result.stdout).toContain("Summarize blockers added since the last run.");
     } finally {
       server.close();
     }
@@ -1636,7 +1721,8 @@ describe("takode timers", () => {
               {
                 id: "t3",
                 sessionId: "worker-json",
-                prompt: "json branch",
+                title: "JSON branch",
+                description: "Machine-readable timer detail",
                 type: "at",
                 originalSpec: "3pm",
                 nextFireAt: 1_700_000_123_000,
@@ -1670,7 +1756,8 @@ describe("takode timers", () => {
           {
             id: "t3",
             sessionId: "worker-json",
-            prompt: "json branch",
+            title: "JSON branch",
+            description: "Machine-readable timer detail",
             type: "at",
             originalSpec: "3pm",
             nextFireAt: 1_700_000_123_000,

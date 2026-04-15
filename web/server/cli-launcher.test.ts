@@ -1949,6 +1949,22 @@ describe("session identity injection", () => {
     const linkSyntaxIdx = sysPrompt.indexOf("Link Syntax");
     expect(identityIdx).toBeLessThan(linkSyntaxIdx);
   });
+
+  it("documents the title plus description timer flow in the system prompt", async () => {
+    // q-320: the injected timer instructions must match the current timer CLI
+    // shape so sessions stop generating stale prompt-only timer commands.
+    await launcher.launch({ cwd: "/tmp/project" });
+
+    const [cmdAndArgs] = mockSpawn.mock.calls[0];
+    const sysPromptIdx = cmdAndArgs.indexOf("--append-system-prompt");
+    expect(sysPromptIdx).toBeGreaterThan(-1);
+    const sysPrompt = String(cmdAndArgs[sysPromptIdx + 1] ?? "");
+
+    expect(sysPrompt).toContain('takode timer create "Check build health" --desc');
+    expect(sysPrompt).toContain("Keep timer titles concise and human-scannable.");
+    expect(sysPrompt).toContain("For recurring timers, keep the description general");
+    expect(sysPrompt).not.toContain("takode timer create <prompt>");
+  });
 });
 
 // ─── persistence ─────────────────────────────────────────────────────────────

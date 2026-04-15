@@ -44,7 +44,8 @@ function makeTimer(overrides: Partial<SessionTimer> = {}): SessionTimer {
   return {
     id: "t1",
     sessionId: "s1",
-    prompt: "Check the build status",
+    title: "Check the build status",
+    description: "Inspect the latest failing shard if the build is red.",
     type: "delay",
     originalSpec: "30m",
     nextFireAt: Date.now() + 1_800_000, // 30m from now
@@ -63,14 +64,13 @@ describe("TimerChip", () => {
     expect(container.innerHTML).toBe("");
   });
 
-  it("renders a chip with timer count and next fire time", () => {
-    // Verifies the chip shows the correct count and relative time for
-    // the soonest timer.
+  it("renders a single timer chip with its title and next fire time", () => {
+    // Verifies humans see the concise timer title first when only one timer is active.
     resetStore({
       sessionTimers: new Map([["s1", [makeTimer()]]]),
     });
     render(<TimerChip sessionId="s1" />);
-    expect(screen.getByText("1 timer")).toBeInTheDocument();
+    expect(screen.getByText("Check the build status")).toBeInTheDocument();
     expect(screen.getByText(/next in/)).toBeInTheDocument();
   });
 
@@ -119,15 +119,33 @@ describe("TimerChip", () => {
 // ─── TimerModal ──────────────────────────────────────────────────────────────
 
 describe("TimerModal", () => {
-  it("renders timer list with full prompt text", () => {
-    // Verifies the modal shows the complete, untruncated prompt for each timer.
-    const longPrompt = "Check the build status and report back to the team with the full log output";
+  it("renders timer title with only the first description line by default", () => {
+    // Verifies the anchored timer view separates title from description and collapses
+    // the description to its first line for scan-friendly reading.
+    const description = "First line summary\nSecond line detail\nThird line detail";
     resetStore({
-      sessionTimers: new Map([["s1", [makeTimer({ prompt: longPrompt })]]]),
+      sessionTimers: new Map([["s1", [makeTimer({ title: "Check the build status", description })]]]),
     });
     const onClose = vi.fn();
     render(<TimerModal sessionId="s1" onClose={onClose} />);
-    expect(screen.getByText(longPrompt)).toBeInTheDocument();
+    expect(screen.getByText("Check the build status")).toBeInTheDocument();
+    expect(screen.getByText("First line summary")).toBeInTheDocument();
+    expect(screen.queryByText("Second line detail")).toBeNull();
+    expect(screen.getByRole("button", { name: "Expand timer t1 description" })).toBeInTheDocument();
+  });
+
+  it("expands the timer description on demand", () => {
+    // Verifies additional detail stays hidden until the user explicitly expands it.
+    const description = "First line summary\nSecond line detail";
+    resetStore({
+      sessionTimers: new Map([["s1", [makeTimer({ description })]]]),
+    });
+    render(<TimerModal sessionId="s1" onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Expand timer t1 description" }));
+
+    expect(screen.getByText(/Second line detail/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Collapse timer t1 description" })).toBeInTheDocument();
   });
 
   it("shows type labels for recurring and at timers, but not for delay", () => {
@@ -166,25 +184,24 @@ describe("TimerModal", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("closes on backdrop click", () => {
+  it("closes on outside click", async () => {
     resetStore({
       sessionTimers: new Map([["s1", [makeTimer()]]]),
     });
     const onClose = vi.fn();
     render(<TimerModal sessionId="s1" onClose={onClose} />);
-    // The outermost dialog div acts as the backdrop click target.
-    const dialog = screen.getByRole("dialog");
-    fireEvent.click(dialog);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fireEvent.mouseDown(document.body);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("does not close when clicking inside the modal card", () => {
+  it("does not close when clicking inside the anchored timer view", () => {
     resetStore({
       sessionTimers: new Map([["s1", [makeTimer()]]]),
     });
     const onClose = vi.fn();
     render(<TimerModal sessionId="s1" onClose={onClose} />);
-    // Clicking the timer prompt text (inside the card) should not trigger close.
+    // Clicking the timer title inside the popover should not trigger close.
     fireEvent.click(screen.getByText("Check the build status"));
     expect(onClose).not.toHaveBeenCalled();
   });

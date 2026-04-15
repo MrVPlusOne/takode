@@ -2,7 +2,7 @@ import { mkdirSync } from "node:fs";
 import { readdir, readFile, writeFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import type { SessionTimerFile } from "./timer-types.js";
+import type { SessionTimer, SessionTimerFile } from "./timer-types.js";
 
 // ─── Paths ──────────────────────────────────────────────────────────────────
 
@@ -21,6 +21,59 @@ function emptyFile(sessionId: string): SessionTimerFile {
   return { sessionId, nextId: 1, timers: [] };
 }
 
+function normalizeLegacyPrompt(prompt: unknown): { title: string; description: string } {
+  const raw = String(prompt ?? "").trim();
+  if (!raw) return { title: "Timer", description: "" };
+
+  const normalizedNewlines = raw.replace(/\r\n?/g, "\n");
+
+  const dashDivider = splitOnce(normalizedNewlines, " -- ");
+  if (dashDivider) return dashDivider;
+
+  const newlineDivider = splitOnce(normalizedNewlines, "\n");
+  if (newlineDivider) return newlineDivider;
+
+  const colonDivider = splitOnce(normalizedNewlines, ": ");
+  if (colonDivider) return colonDivider;
+
+  const sentenceDivider = splitOnce(normalizedNewlines, ". ");
+  if (sentenceDivider) return sentenceDivider;
+
+  const title = raw.length > 72 ? `${raw.slice(0, 69).trimEnd()}...` : raw;
+  return { title, description: raw.length > 72 ? raw : "" };
+}
+
+function splitOnce(text: string, divider: string): { title: string; description: string } | null {
+  const index = text.indexOf(divider);
+  if (index === -1) return null;
+  const title = text.slice(0, index).trim();
+  const description = text.slice(index + divider.length).trim();
+  if (!title) return null;
+  return { title, description };
+}
+
+function normalizeTimer(sessionId: string, timer: SessionTimer | (SessionTimer & { prompt?: unknown })): SessionTimer {
+  const { prompt: _legacyPrompt, ...rest } = timer as SessionTimer & { prompt?: unknown };
+  const title = typeof timer.title === "string" ? timer.title.trim() : "";
+  const description = typeof timer.description === "string" ? timer.description.trim() : undefined;
+  if (title) {
+    return {
+      ...rest,
+      sessionId,
+      title,
+      description: description ?? normalizeLegacyPrompt((timer as { prompt?: unknown }).prompt).description,
+    };
+  }
+
+  const normalized = normalizeLegacyPrompt((timer as { prompt?: unknown }).prompt);
+  return {
+    ...rest,
+    sessionId,
+    title: normalized.title,
+    description: description ?? normalized.description,
+  };
+}
+
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 /** Load all timers for a session. Returns empty file struct if no file exists.
@@ -33,6 +86,7 @@ export async function loadTimers(sessionId: string): Promise<SessionTimerFile> {
     if (!data.timers || !Array.isArray(data.timers)) return emptyFile(sessionId);
     if (typeof data.nextId !== "number") data.nextId = 1;
     data.sessionId = sessionId;
+    data.timers = data.timers.map((timer) => normalizeTimer(sessionId, timer as SessionTimer & { prompt?: unknown }));
     return data;
   } catch (err: any) {
     if (err?.code !== "ENOENT") {

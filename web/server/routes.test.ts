@@ -7341,7 +7341,8 @@ describe("Takode server-authoritative auth", () => {
       {
         id: "t1",
         sessionId: "worker-1",
-        prompt: "check build",
+        title: "Check build health",
+        description: "Inspect the latest failing shard if the build is red.",
         type: "delay",
         originalSpec: "30m",
         nextFireAt: 1_700_000_000_000,
@@ -7362,7 +7363,8 @@ describe("Takode server-authoritative auth", () => {
         {
           id: "t1",
           sessionId: "worker-1",
-          prompt: "check build",
+          title: "Check build health",
+          description: "Inspect the latest failing shard if the build is red.",
           type: "delay",
           originalSpec: "30m",
           nextFireAt: 1_700_000_000_000,
@@ -7370,6 +7372,55 @@ describe("Takode server-authoritative auth", () => {
           fireCount: 0,
         },
       ],
+    });
+  });
+
+  it("creates session timers via takode auth with title and description", async () => {
+    // Verifies the timer creation route forwards the new title/description payload
+    // shape and returns the server-created timer object.
+    setupTakodeSessions();
+    timerManager.createTimer.mockResolvedValue({
+      id: "t7",
+      sessionId: "worker-1",
+      title: "Refresh context",
+      description: "Summarize blockers added since the last run.",
+      type: "recurring",
+      originalSpec: "10m",
+      nextFireAt: 1_700_000_000_000,
+      intervalMs: 600_000,
+      createdAt: 1_699_999_900_000,
+      fireCount: 0,
+    });
+
+    const res = await app.request("/api/sessions/worker-1/timers", {
+      method: "POST",
+      headers: { ...authHeaders("orch-1", "tok-1"), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "Refresh context",
+        description: "Summarize blockers added since the last run.",
+        every: "10m",
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    expect(timerManager.createTimer).toHaveBeenCalledWith("worker-1", {
+      title: "Refresh context",
+      description: "Summarize blockers added since the last run.",
+      every: "10m",
+    });
+    expect(await res.json()).toEqual({
+      timer: {
+        id: "t7",
+        sessionId: "worker-1",
+        title: "Refresh context",
+        description: "Summarize blockers added since the last run.",
+        type: "recurring",
+        originalSpec: "10m",
+        nextFireAt: 1_700_000_000_000,
+        intervalMs: 600_000,
+        createdAt: 1_699_999_900_000,
+        fireCount: 0,
+      },
     });
   });
 

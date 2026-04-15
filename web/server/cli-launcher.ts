@@ -475,9 +475,11 @@ ${TAKODE_LINK_SYNTAX_INSTRUCTIONS}`);
       "Use `takode timer` to create session-scoped timers that fire within this session.\n" +
       "Do NOT use CronCreate or ScheduleWakeup -- they are not available. Use `takode timer` instead.\n\n" +
       "**Never sleep longer than 1 minute.** For any wait exceeding 1 minute, use `takode timer` instead of `sleep`, `ScheduleWakeup`, or polling loops. Timers free up your session for herd events and other work while you wait; sleeping blocks you.\n\n" +
-      "    takode timer create <prompt> --in 30m       # fire once after 30 minutes\n" +
-      "    takode timer create <prompt> --at 3pm       # fire once at 3pm\n" +
-      "    takode timer create <prompt> --every 10m    # fire every 10 minutes\n" +
+      "Keep timer titles concise and human-scannable. Use the description only for extra detail.\n" +
+      "For recurring timers, keep the description general so it does not go stale across repeated firings.\n\n" +
+      '    takode timer create "Check build health" --desc "Inspect the latest failing shard if the build is red." --in 30m\n' +
+      '    takode timer create "Deploy reminder" --at 3pm\n' +
+      '    takode timer create "Refresh context" --desc "Summarize new blockers since the last run." --every 10m\n' +
       "    takode timer list                           # list active timers\n" +
       "    takode timer cancel <timer-id>              # cancel a timer\n\n" +
       "Timers survive server restarts and CLI relaunches. They are cancelled when the session is archived.",

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
@@ -43,22 +43,40 @@ function useTimers(sessionId: string) {
   return { timers, sorted };
 }
 
-// ─── Timer Modal ─────────────────────────────────────────────────────────────
+// ─── Timer Popover ───────────────────────────────────────────────────────────
 
 function TimerModalRow({ timer, sessionId }: { timer: SessionTimer; sessionId: string }) {
+  const [expanded, setExpanded] = useState(false);
   const typeLabel =
     timer.type === "recurring"
       ? `every ${timer.originalSpec}`
       : timer.type === "at"
         ? `at ${timer.originalSpec}`
         : null;
+  const descriptionLines = timer.description.split(/\r?\n/);
+  const collapsedDescription = descriptionLines[0] ?? "";
+  const canExpandDescription = descriptionLines.length > 1;
+  const visibleDescription = expanded ? timer.description : collapsedDescription;
 
   return (
     <div className="flex items-start gap-3 px-4 py-3 group hover:bg-white/[0.03] transition-colors">
       <span className="font-mono text-cc-muted text-[11px] shrink-0 pt-0.5">{timer.id}</span>
       <div className="flex-1 min-w-0 space-y-0.5">
-        {/* Full untruncated prompt */}
-        <p className="text-[13px] text-cc-fg/90 leading-snug break-words">{timer.prompt}</p>
+        <p className="text-[13px] font-medium text-cc-fg leading-snug break-words">{timer.title}</p>
+        {timer.description && (
+          <div className="space-y-1">
+            <p className="text-[12px] text-cc-fg/65 leading-snug break-words whitespace-pre-wrap">{visibleDescription}</p>
+            {canExpandDescription && (
+              <button
+                onClick={() => setExpanded((value) => !value)}
+                className="text-[11px] text-cc-muted hover:text-cc-fg transition-colors cursor-pointer"
+                aria-label={expanded ? `Collapse timer ${timer.id} description` : `Expand timer ${timer.id} description`}
+              >
+                {expanded ? "Show less" : "Show more"}
+              </button>
+            )}
+          </div>
+        )}
         <div className="flex items-center gap-2 text-[11px] text-cc-muted">
           {typeLabel && <span>{typeLabel}</span>}
           <span>{formatRelativeTime(timer.nextFireAt)}</span>
@@ -77,6 +95,7 @@ function TimerModalRow({ timer, sessionId }: { timer: SessionTimer; sessionId: s
 
 export function TimerModal({ sessionId, onClose }: { sessionId: string; onClose: () => void }) {
   const { sorted } = useTimers(sessionId);
+  const popoverRef = useRef<HTMLDivElement>(null);
 
   // Close on Escape — stop propagation so stacked handlers (search overlay, etc.) don't also fire.
   useEffect(() => {
@@ -90,54 +109,58 @@ export function TimerModal({ sessionId, onClose }: { sessionId: string; onClose:
     return () => document.removeEventListener("keydown", handler, { capture: true });
   }, [onClose]);
 
+  // Click-outside to close (mousedown for early dismissal)
+  useEffect(() => {
+    const handler = (e: globalThis.MouseEvent) => {
+      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
+        onClose();
+      }
+    };
+    const timer = setTimeout(() => document.addEventListener("mousedown", handler), 0);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("mousedown", handler);
+    };
+  }, [onClose]);
+
   return createPortal(
     <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center"
-      onClick={onClose}
+      ref={popoverRef}
+      className="fixed bottom-14 right-3 z-50 w-80 max-w-[calc(100vw-1.5rem)] max-h-[50vh] flex flex-col rounded-2xl border border-cc-border bg-cc-card/95 shadow-[0_25px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl overflow-hidden"
       role="dialog"
-      aria-modal="true"
       aria-label="Session timers"
     >
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-
-      {/* Modal card */}
-      <div
-        className="relative w-full max-w-md mx-4 rounded-2xl border border-cc-border bg-cc-card/95 shadow-[0_25px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl overflow-hidden"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-cc-border/50">
-          <h2 className="text-sm font-medium text-cc-fg">
-            Session Timers
-            <span className="ml-2 text-[11px] text-cc-muted font-normal">({sorted.length})</span>
-          </h2>
-          <button
-            onClick={onClose}
-            className="text-cc-muted hover:text-cc-fg transition-colors p-1 -mr-1 cursor-pointer"
-            aria-label="Close"
+      {/* Header */}
+      <div className="flex items-center justify-between px-3 py-2.5 border-b border-cc-border/50 shrink-0">
+        <h2 className="text-[13px] font-medium text-cc-fg">
+          Session Timers
+          <span className="ml-1.5 text-[11px] text-cc-muted font-normal">({sorted.length})</span>
+        </h2>
+        <button
+          onClick={onClose}
+          className="text-cc-muted hover:text-cc-fg transition-colors p-1 -mr-1 cursor-pointer"
+          aria-label="Close"
+        >
+          <svg
+            className="w-3.5 h-3.5"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
           >
-            <svg
-              className="w-4 h-4"
-              viewBox="0 0 16 16"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-            >
-              <path d="M4 4l8 8M12 4l-8 8" />
-            </svg>
-          </button>
-        </div>
+            <path d="M4 4l8 8M12 4l-8 8" />
+          </svg>
+        </button>
+      </div>
 
-        {/* Timer list */}
-        <div className="max-h-[60vh] overflow-y-auto divide-y divide-cc-border/30">
-          {sorted.length === 0 ? (
-            <p className="px-4 py-8 text-center text-sm text-cc-muted">No active timers</p>
-          ) : (
-            sorted.map((timer) => <TimerModalRow key={timer.id} timer={timer} sessionId={sessionId} />)
-          )}
-        </div>
+      {/* Timer list */}
+      <div className="overflow-y-auto flex-1 divide-y divide-cc-border/30">
+        {sorted.length === 0 ? (
+          <p className="px-4 py-8 text-center text-sm text-cc-muted">No active timers</p>
+        ) : (
+          sorted.map((timer) => <TimerModalRow key={timer.id} timer={timer} sessionId={sessionId} />)
+        )}
       </div>
     </div>,
     document.body,
@@ -155,6 +178,7 @@ export function TimerChip({ sessionId }: { sessionId: string }) {
   const closeModal = useCallback(() => setModalOpen(false), []);
 
   if (timers.length === 0) return null;
+  const primaryLabel = timers.length === 1 ? sorted[0].title : `${timers.length} timers`;
 
   return (
     <>
@@ -164,9 +188,7 @@ export function TimerChip({ sessionId }: { sessionId: string }) {
       >
         <span className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.10),transparent_55%)]" />
         <span className="relative">⏰</span>
-        <span className="relative truncate text-cc-fg/90">
-          {timers.length} timer{timers.length !== 1 ? "s" : ""}
-        </span>
+        <span className="relative truncate text-cc-fg/90">{primaryLabel}</span>
         <span className="relative text-cc-muted/75">next in {formatRelativeTime(sorted[0].nextFireAt)}</span>
       </button>
 
