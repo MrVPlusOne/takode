@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -9,6 +9,7 @@ import {
   cwdToProjectDir,
   migrateClaudeProjectDir,
 } from "./migration.js";
+import * as gitUtils from "./git-utils.js";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -279,6 +280,144 @@ describe("recreateWorktreeIfMissing", () => {
     expect(result.recreated).toBe(false);
     expect(result.error).toContain("Repository not found");
     expect(result.error).toContain("Please clone it first");
+  });
+  it("restores original actualBranch when it still exists in the repo (q-329)", async () => {
+    // When a worktree session is unarchived, recreateWorktreeIfMissing should
+    // reattach to the original -wt- branch (preserved during archive) instead
+    // of creating a fresh random branch.
+    const info = {
+      sessionId: "test-session",
+      cwd: "/nonexistent/worktree/jiayi-wt-8153",
+      state: "exited" as const,
+      createdAt: Date.now(),
+      isWorktree: true,
+      repoRoot: "/tmp/test-repo",
+      branch: "jiayi",
+      actualBranch: "jiayi-wt-8153",
+    };
+
+    const updateWorktree = vi.fn();
+    const addMapping = vi.fn();
+    const markWorktree = vi.fn();
+    const mockDeps = {
+      launcher: { updateWorktree } as any,
+      worktreeTracker: { addMapping } as any,
+      wsBridge: { markWorktree } as any,
+    };
+
+    // Mock git operations: repo exists, original branch exists
+    const getRepoInfoSpy = vi.spyOn(gitUtils, "getRepoInfoAsync").mockResolvedValue({
+      repoRoot: "/tmp/test-repo",
+      currentBranch: "jiayi",
+      defaultBranch: "main",
+      isWorktree: false,
+    });
+    const gitSafeSpy = vi.spyOn(gitUtils, "gitSafeAsync").mockResolvedValue("abc123");
+    const gitAsyncSpy = vi.spyOn(gitUtils, "gitAsync").mockResolvedValue("");
+
+    try {
+      const result = await recreateWorktreeIfMissing("test-session", info, mockDeps);
+
+      expect(result.recreated).toBe(true);
+      expect(result.error).toBeUndefined();
+
+      // Should have checked if the original branch exists
+      expect(gitSafeSpy).toHaveBeenCalledWith(
+        "rev-parse --verify refs/heads/jiayi-wt-8153",
+        "/tmp/test-repo",
+      );
+
+      // Should have created worktree on the original branch (no -b flag)
+      expect(gitAsyncSpy).toHaveBeenCalledWith(
+        expect.stringContaining("worktree add"),
+        "/tmp/test-repo",
+      );
+      const worktreeAddCmd = gitAsyncSpy.mock.calls.find(
+        ([cmd]) => typeof cmd === "string" && cmd.includes("worktree add"),
+      );
+      expect(worktreeAddCmd?.[0]).toContain("jiayi-wt-8153");
+      // Should NOT have a -b flag (reattaching to existing branch)
+      expect(worktreeAddCmd?.[0]).not.toContain("-b");
+
+      // Should have updated launcher with the original branch, not a new one
+      expect(updateWorktree).toHaveBeenCalledWith("test-session", {
+        cwd: expect.any(String),
+        actualBranch: "jiayi-wt-8153",
+      });
+
+      // Should NOT have called ensureWorktreeAsync (the fallback path)
+      // -- ensureWorktreeAsync would call gitAsync with "-b" to create a new branch
+    } finally {
+      getRepoInfoSpy.mockRestore();
+      gitSafeSpy.mockRestore();
+      gitAsyncSpy.mockRestore();
+    }
+  });
+
+  it("falls back to fresh branch when actualBranch was deleted (q-329)", async () => {
+    // If the original branch was manually deleted (e.g., git branch -D),
+    // recreateWorktreeIfMissing should fall back to creating a fresh worktree.
+    const info = {
+      sessionId: "test-session",
+      cwd: "/nonexistent/worktree/jiayi-wt-9999",
+      state: "exited" as const,
+      createdAt: Date.now(),
+      isWorktree: true,
+      repoRoot: "/tmp/test-repo",
+      branch: "jiayi",
+      actualBranch: "jiayi-wt-9999",
+    };
+
+    const mockDeps = {
+      launcher: { updateWorktree: vi.fn() } as any,
+      worktreeTracker: { addMapping: vi.fn() } as any,
+      wsBridge: { markWorktree: vi.fn() } as any,
+    };
+
+    // Mock: repo exists, but original branch does NOT exist
+    const getRepoInfoSpy = vi.spyOn(gitUtils, "getRepoInfoAsync").mockResolvedValue({
+      repoRoot: "/tmp/test-repo",
+      currentBranch: "jiayi",
+      defaultBranch: "main",
+      isWorktree: false,
+    });
+    const gitSafeSpy = vi.spyOn(gitUtils, "gitSafeAsync").mockResolvedValue(null);
+    // ensureWorktreeAsync is the fallback -- mock it
+    const ensureWtSpy = vi.spyOn(gitUtils, "ensureWorktreeAsync").mockResolvedValue({
+      worktreePath: "/tmp/worktrees/repo/jiayi-wt-1234",
+      branch: "jiayi",
+      actualBranch: "jiayi-wt-1234",
+      isNew: true,
+    });
+
+    try {
+      const result = await recreateWorktreeIfMissing("test-session", info, mockDeps);
+
+      expect(result.recreated).toBe(true);
+
+      // Should have checked for the original branch and found it missing
+      expect(gitSafeSpy).toHaveBeenCalledWith(
+        "rev-parse --verify refs/heads/jiayi-wt-9999",
+        "/tmp/test-repo",
+      );
+
+      // Should have fallen back to ensureWorktreeAsync
+      expect(ensureWtSpy).toHaveBeenCalledWith("/tmp/test-repo", "jiayi", {
+        baseBranch: "main",
+        createBranch: false,
+        forceNew: true,
+      });
+
+      // Launcher should be updated with the new (fallback) branch
+      expect(mockDeps.launcher.updateWorktree).toHaveBeenCalledWith("test-session", {
+        cwd: "/tmp/worktrees/repo/jiayi-wt-1234",
+        actualBranch: "jiayi-wt-1234",
+      });
+    } finally {
+      getRepoInfoSpy.mockRestore();
+      gitSafeSpy.mockRestore();
+      ensureWtSpy.mockRestore();
+    }
   });
 });
 

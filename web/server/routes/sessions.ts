@@ -56,6 +56,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
   function cleanupWorktree(
     sessionId: string,
     force?: boolean,
+    options?: { preserveBranch?: boolean },
   ): { cleaned?: boolean; dirty?: boolean; path?: string } | undefined {
     const mapping = worktreeTracker.getBySession(sessionId);
     if (!mapping) return undefined;
@@ -72,9 +73,13 @@ export function createSessionsRoutes(ctx: RouteContext) {
       return { cleaned: false, dirty: true, path: mapping.worktreePath };
     }
 
-    // Delete companion-managed branch if it differs from the user-selected branch
+    // Delete companion-managed branch if it differs from the user-selected branch.
+    // Skip branch deletion when preserveBranch is set (archive path) so committed
+    // work survives and the original branch can be restored on unarchive (q-329).
     const branchToDelete =
-      mapping.actualBranch && mapping.actualBranch !== mapping.branch ? mapping.actualBranch : undefined;
+      !options?.preserveBranch && mapping.actualBranch && mapping.actualBranch !== mapping.branch
+        ? mapping.actualBranch
+        : undefined;
     const result = gitUtils.removeWorktree(mapping.repoRoot, mapping.worktreePath, {
       force: dirty,
       branchToDelete,
@@ -1790,11 +1795,10 @@ export function createSessionsRoutes(ctx: RouteContext) {
     // Stop PR polling for this session
     prPoller?.unwatch(id);
 
-    // Always force-delete the worktree on archive. Worktrees contain only
-    // generated/derived content — the branch preserves any committed changes.
-    // Without force, dirty worktrees (any untracked file) accumulate forever,
-    // inflating git branch lists and slowing NFS operations.
-    const worktreeResult = cleanupWorktree(id, true);
+    // Force-delete the worktree directory on archive but preserve the branch.
+    // The directory is generated/derived content; the branch preserves committed
+    // changes and can be restored on unarchive (q-329).
+    const worktreeResult = cleanupWorktree(id, true, { preserveBranch: true });
     launcher.setArchived(id, true);
     await sessionStore.setArchived(id, true);
 

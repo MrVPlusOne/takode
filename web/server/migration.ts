@@ -11,7 +11,7 @@ import {
   utimesSync,
   renameSync,
 } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { access } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
 import { spawn } from "node:child_process";
@@ -491,6 +491,48 @@ export async function recreateWorktreeIfMissing(
   }
 
   const oldCwd = info.cwd;
+
+  // Try to restore the original -wt- branch if it survived archiving (q-329).
+  // Archive now preserves the branch (only removes the worktree directory), so
+  // we can reattach to it directly instead of creating a fresh random branch.
+  const actualBranch = info.actualBranch;
+  if (actualBranch && actualBranch !== info.branch) {
+    const branchExists = await gitUtils.gitSafeAsync(
+      `rev-parse --verify refs/heads/${actualBranch}`,
+      repoInfo.repoRoot,
+    );
+    if (branchExists !== null) {
+      const targetPath = gitUtils.worktreeDir(basename(repoInfo.repoRoot), actualBranch);
+      try {
+        await gitUtils.gitAsync(`worktree add "${targetPath}" "${actualBranch}"`, repoInfo.repoRoot);
+
+        migrateClaudeProjectDir(oldCwd, targetPath);
+        deps.launcher.updateWorktree(sessionId, { cwd: targetPath, actualBranch });
+        deps.worktreeTracker.addMapping({
+          sessionId,
+          repoRoot: info.repoRoot,
+          branch: info.branch,
+          actualBranch,
+          worktreePath: targetPath,
+          createdAt: Date.now(),
+        });
+        deps.wsBridge.markWorktree(sessionId, info.repoRoot, targetPath, repoInfo.defaultBranch, info.branch);
+
+        console.log(`[migration] Restored worktree on original branch ${actualBranch} for session ${sessionId}: ${targetPath}`);
+        return { recreated: true };
+      } catch (err) {
+        // Branch exists but worktree creation failed (e.g., branch already
+        // checked out in another worktree, corrupted repo). Fall through to
+        // the fresh-branch fallback below.
+        console.warn(
+          `[migration] Failed to restore worktree on original branch ${actualBranch} for session ${sessionId}, falling back to fresh branch:`,
+          err,
+        );
+      }
+    }
+  }
+
+  // Fallback: original branch was deleted or doesn't exist -- create a fresh worktree.
   const result = await gitUtils.ensureWorktreeAsync(repoInfo.repoRoot, info.branch, {
     baseBranch: repoInfo.defaultBranch,
     createBranch: false,

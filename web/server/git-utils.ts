@@ -46,13 +46,13 @@ export interface WorktreeCreateResult {
 
 // ─── Paths ──────────────────────────────────────────────────────────────────
 
-const WORKTREES_BASE = join(homedir(), ".companion", "worktrees");
+export const WORKTREES_BASE = join(homedir(), ".companion", "worktrees");
 
 function sanitizeBranch(branch: string): string {
   return branch.replace(/\//g, "--");
 }
 
-function worktreeDir(repoName: string, branch: string): string {
+export function worktreeDir(repoName: string, branch: string): string {
   return join(WORKTREES_BASE, repoName, sanitizeBranch(branch));
 }
 
@@ -89,7 +89,7 @@ function gitSafe(cmd: string, cwd: string): string | null {
 
 // ─── Async helpers (non-blocking — for hot paths) ────────────────────────────
 
-async function gitAsync(cmd: string, cwd: string): Promise<string> {
+export async function gitAsync(cmd: string, cwd: string): Promise<string> {
   const { stdout } = await execPromise(`${SERVER_GIT_CMD} ${cmd}`, {
     cwd,
     encoding: "utf-8",
@@ -98,7 +98,7 @@ async function gitAsync(cmd: string, cwd: string): Promise<string> {
   return stdout.trim();
 }
 
-async function gitSafeAsync(cmd: string, cwd: string): Promise<string | null> {
+export async function gitSafeAsync(cmd: string, cwd: string): Promise<string | null> {
   try {
     return await gitAsync(cmd, cwd);
   } catch {
