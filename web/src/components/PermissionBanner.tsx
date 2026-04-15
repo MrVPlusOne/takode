@@ -1128,7 +1128,7 @@ function AskUserQuestionDisplay({
                 </button>
 
                 {isCustom && (
-                  <div className="pl-6">
+                  <div className="pl-6 flex items-center gap-1.5">
                     <input
                       type="text"
                       value={customText[key] || ""}
@@ -1137,9 +1137,19 @@ function AskUserQuestionDisplay({
                         if (e.key === "Enter") handleCustomSubmit(i);
                       }}
                       placeholder="Type your answer..."
-                      className="w-full px-2.5 py-1.5 text-xs bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg placeholder:text-cc-muted focus:outline-none focus:border-cc-primary/50"
+                      className="flex-1 px-2.5 py-1.5 text-xs bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg placeholder:text-cc-muted focus:outline-none focus:border-cc-primary/50"
                       autoFocus
                     />
+                    <button
+                      onClick={() => handleCustomSubmit(i)}
+                      disabled={!customText[key]?.trim()}
+                      className="w-7 h-7 flex items-center justify-center rounded-lg bg-cc-primary text-white disabled:opacity-50 hover:bg-cc-primary-hover transition-colors cursor-pointer shrink-0"
+                      title="Send"
+                    >
+                      <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
+                        <path d="M8 2.5a.5.5 0 01.5.5v8.793l3.146-3.147a.5.5 0 01.708.708l-4 4a.5.5 0 01-.708 0l-4-4a.5.5 0 11.708-.708L7.5 11.793V3a.5.5 0 01.5-.5z" transform="rotate(180 8 8)" />
+                      </svg>
+                    </button>
                   </div>
                 )}
               </div>
