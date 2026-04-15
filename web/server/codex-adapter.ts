@@ -1295,6 +1295,7 @@ export class CodexAdapter
         total_cost_usd: 0,
         num_turns: 0,
         context_used_percent: 0,
+        codex_retained_payload_bytes: 0,
         is_compacting: false,
         git_branch: "",
         is_worktree: false,

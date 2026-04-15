@@ -124,7 +124,7 @@ export const MessageBubble = memo(function MessageBubble({
 
   if (message.role === "system") {
     if (message.variant === "error") {
-      const isContextLimit = message.content.toLowerCase().includes("prompt is too long");
+      const isContextLimit = shouldShowCompactGuidance(message.content);
       return (
         <div className="flex items-start gap-2.5 px-3 py-2.5 rounded-lg bg-cc-error/8 border border-cc-error/20 animate-[fadeSlideIn_0.2s_ease-out]">
           <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4 text-cc-error shrink-0 mt-0.5">
@@ -135,7 +135,7 @@ export const MessageBubble = memo(function MessageBubble({
             {isContextLimit && (
               <p className="text-xs text-cc-muted mt-1">
                 Try <code className="px-1 py-0.5 rounded bg-cc-code-bg/30 text-[11px] font-mono-code">/compact</code> to
-                reduce context, or start a new session.
+                shrink retained context before retrying, or start a new session.
               </p>
             )}
           </div>
@@ -262,6 +262,15 @@ export const MessageBubble = memo(function MessageBubble({
     </div>
   );
 });
+
+function shouldShowCompactGuidance(content: string): boolean {
+  const normalized = content.toLowerCase();
+  if (normalized.includes("prompt is too long")) return true;
+  if (normalized.includes("payload too large")) return true;
+  if (normalized.includes("request too large")) return true;
+  if (normalized.includes("failed to parse request") && normalized.includes("payload")) return true;
+  return normalized.includes("413") && (normalized.includes("payload") || normalized.includes("request"));
+}
 
 /** Auto-collapse content that exceeds a height threshold.
  *  Shows a gradient fade and "Show more" pill when collapsed. */

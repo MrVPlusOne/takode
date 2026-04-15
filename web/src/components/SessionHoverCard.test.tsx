@@ -16,6 +16,7 @@ const mockStoreState = {
     archived?: boolean;
     contextUsedPercent?: number;
     messageHistoryBytes?: number;
+    codexRetainedPayloadBytes?: number;
     codexTokenDetails?: { modelContextWindow?: number };
     claudeTokenDetails?: { modelContextWindow?: number };
   }>,
@@ -54,7 +55,7 @@ function makeSession(overrides: Partial<SessionItemType> = {}): SessionItemType 
 describe("SessionHoverCard", () => {
   it("shows the max context window rounded to whole K tokens", () => {
     // q-291: live hover-card metrics should use the authoritative
-    // sessionState.message_history_bytes value from the server.
+    // sessionState message bytes plus Codex retained payload bytes from the server.
     const sessionState = {
       session_id: "s1",
       backend_type: "codex",
@@ -71,6 +72,7 @@ describe("SessionHoverCard", () => {
       num_turns: 1,
       context_used_percent: 73,
       message_history_bytes: 1_572_864,
+      codex_retained_payload_bytes: 2_621_440,
       git_branch: "jiayi",
       is_worktree: false,
       is_containerized: false,
@@ -104,18 +106,20 @@ describe("SessionHoverCard", () => {
     );
 
     expect(screen.getByText("73% context")).toBeInTheDocument();
-    expect(screen.getByText("1.5 MB history")).toBeInTheDocument();
+    expect(screen.getByText("1.5 MB replay")).toBeInTheDocument();
+    expect(screen.getByText("2.5 MB retained")).toBeInTheDocument();
     expect(screen.getByText("258 K tokens")).toBeInTheDocument();
   });
 
   it("falls back to sdk session metadata when no live session state is present", () => {
     // q-291: when the full live session state is unavailable, the hover card
-    // should still render message size from sdkSessions fallback metadata.
+    // should still render Codex replay/retained sizes from sdkSessions fallback metadata.
     mockStoreState.sdkSessions = [
       {
         sessionId: "s1",
         contextUsedPercent: 73,
         messageHistoryBytes: 972_800,
+        codexRetainedPayloadBytes: 1_228_800,
         codexTokenDetails: { modelContextWindow: 258_400 },
       },
     ];
@@ -136,7 +140,8 @@ describe("SessionHoverCard", () => {
       );
 
       expect(screen.getByText("73% context")).toBeInTheDocument();
-      expect(screen.getByText("950 KB history")).toBeInTheDocument();
+      expect(screen.getByText("950 KB replay")).toBeInTheDocument();
+      expect(screen.getByText("1.2 MB retained")).toBeInTheDocument();
       expect(screen.getByText("258 K tokens")).toBeInTheDocument();
     } finally {
       mockStoreState.sdkSessions = [];
@@ -145,12 +150,13 @@ describe("SessionHoverCard", () => {
 
   it("prefers live session message-history bytes over sdk fallback metadata", () => {
     // q-291: when both sources exist, the live authoritative session state
-    // must win over potentially stale sdkSessions fallback metadata.
+    // must win over potentially stale sdkSessions fallback metadata for replay/retained metrics.
     mockStoreState.sdkSessions = [
       {
         sessionId: "s1",
         contextUsedPercent: 73,
         messageHistoryBytes: 972_800,
+        codexRetainedPayloadBytes: 1_228_800,
         codexTokenDetails: { modelContextWindow: 258_400 },
       },
     ];
@@ -171,6 +177,7 @@ describe("SessionHoverCard", () => {
       num_turns: 1,
       context_used_percent: 73,
       message_history_bytes: 1_572_864,
+      codex_retained_payload_bytes: 2_621_440,
       git_branch: "jiayi",
       is_worktree: false,
       is_containerized: false,
@@ -204,11 +211,122 @@ describe("SessionHoverCard", () => {
         />,
       );
 
-      expect(screen.getByText("1.5 MB history")).toBeInTheDocument();
-      expect(screen.queryByText("950 KB history")).toBeNull();
+      expect(screen.getByText("1.5 MB replay")).toBeInTheDocument();
+      expect(screen.getByText("2.5 MB retained")).toBeInTheDocument();
+      expect(screen.queryByText("950 KB replay")).toBeNull();
     } finally {
       mockStoreState.sdkSessions = [];
     }
+  });
+
+  it("keeps non-Codex sessions on history wording and hides retained payload", () => {
+    // Non-Codex sessions should keep the legacy history label and must not
+    // surface Codex-only retained payload UI.
+    const sessionState = {
+      session_id: "s1",
+      backend_type: "claude-sdk",
+      model: "claude-sonnet-4-5-20250929",
+      cwd: "/repo",
+      tools: [],
+      permissionMode: "default",
+      claude_code_version: "1.0.0",
+      mcp_servers: [],
+      agents: [],
+      slash_commands: [],
+      skills: [],
+      total_cost_usd: 0,
+      num_turns: 2,
+      context_used_percent: 41,
+      message_history_bytes: 972_800,
+      git_branch: "jiayi",
+      is_worktree: false,
+      is_containerized: false,
+      repo_root: "/repo",
+      git_ahead: 0,
+      git_behind: 0,
+      total_lines_added: 0,
+      total_lines_removed: 0,
+      claude_token_details: {
+        inputTokens: 254,
+        outputTokens: 77708,
+        cachedInputTokens: 22001692,
+        modelContextWindow: 200_000,
+      },
+      is_compacting: false,
+    } as SessionState;
+
+    render(
+      <SessionHoverCard
+        session={makeSession({ backendType: "claude-sdk", model: "claude-sonnet-4-5-20250929" })}
+        sessionName="Explain Claude Session Metrics"
+        sessionPreview={undefined}
+        taskHistory={undefined}
+        sessionState={sessionState}
+        cliSessionId="cli-1"
+        anchorRect={new DOMRect(120, 80, 200, 40)}
+        onMouseEnter={() => {}}
+        onMouseLeave={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("950 KB history")).toBeInTheDocument();
+    expect(screen.queryByText(/retained/)).toBeNull();
+  });
+
+  it("uses merged backend identity for header copy and stat labeling", () => {
+    // If session list metadata lags, the hover card should still render a
+    // consistent backend identity from the merged session data.
+    const sessionState = {
+      session_id: "s1",
+      backend_type: "codex",
+      model: "gpt-5.4",
+      cwd: "/repo",
+      tools: [],
+      permissionMode: "default",
+      claude_code_version: "1.0.0",
+      mcp_servers: [],
+      agents: [],
+      slash_commands: [],
+      skills: [],
+      total_cost_usd: 0,
+      num_turns: 1,
+      context_used_percent: 73,
+      message_history_bytes: 1_572_864,
+      codex_retained_payload_bytes: 2_621_440,
+      git_branch: "jiayi",
+      is_worktree: false,
+      is_containerized: false,
+      repo_root: "/repo",
+      git_ahead: 0,
+      git_behind: 0,
+      total_lines_added: 0,
+      total_lines_removed: 0,
+      codex_token_details: {
+        inputTokens: 0,
+        outputTokens: 0,
+        cachedInputTokens: 0,
+        reasoningOutputTokens: 0,
+        modelContextWindow: 258_400,
+      },
+      is_compacting: false,
+    } as SessionState;
+
+    render(
+      <SessionHoverCard
+        session={makeSession({ backendType: "claude-sdk" })}
+        sessionName="Merged Backend Test"
+        sessionPreview={undefined}
+        taskHistory={undefined}
+        sessionState={sessionState}
+        cliSessionId="cli-1"
+        anchorRect={new DOMRect(120, 80, 200, 40)}
+        onMouseEnter={() => {}}
+        onMouseLeave={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("Codex")).toBeInTheDocument();
+    expect(screen.getByText("1.5 MB replay")).toBeInTheDocument();
   });
 
   it("shows Claude SDK context stats with turns but no cost", () => {

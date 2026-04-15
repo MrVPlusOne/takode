@@ -195,6 +195,8 @@ export interface SdkSessionInfo {
   numTurns?: number;
   /** Approximate JSON byte size of the server-side message history. */
   messageHistoryBytes?: number;
+  /** Codex-only retained payload estimate, including hidden full tool results. */
+  codexRetainedPayloadBytes?: number;
   /** Last server-reported Codex token details for this session. */
   codexTokenDetails?: SessionState["codex_token_details"];
   /** Last server-reported Claude token details for this session. */

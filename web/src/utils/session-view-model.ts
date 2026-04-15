@@ -22,6 +22,7 @@ export interface SessionViewModel {
   contextUsedPercent?: number;
   modelContextWindow?: number;
   messageHistoryBytes?: number;
+  codexRetainedPayloadBytes?: number;
   state?: SdkSessionInfo["state"];
   createdAt?: number;
   cliSessionId?: string;
@@ -61,6 +62,7 @@ export function toSessionViewModel(session: SessionState | SdkSessionInfo): Sess
       modelContextWindow:
         session.codex_token_details?.modelContextWindow ?? session.claude_token_details?.modelContextWindow,
       messageHistoryBytes: session.message_history_bytes,
+      codexRetainedPayloadBytes: session.codex_retained_payload_bytes,
       claimedQuestStatus: session.claimedQuestStatus,
       askPermission: session.askPermission,
     };
@@ -85,6 +87,7 @@ export function toSessionViewModel(session: SessionState | SdkSessionInfo): Sess
     numTurns: session.numTurns,
     modelContextWindow: session.codexTokenDetails?.modelContextWindow ?? session.claudeTokenDetails?.modelContextWindow,
     messageHistoryBytes: session.messageHistoryBytes,
+    codexRetainedPayloadBytes: session.codexRetainedPayloadBytes,
     state: session.state,
     createdAt: session.createdAt,
     cliSessionId: session.cliSessionId,

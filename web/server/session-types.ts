@@ -236,7 +236,7 @@ export interface ToolResultPreview {
   /** Truncated content (last TOOL_RESULT_PREVIEW_LIMIT chars) */
   content: string;
   is_error: boolean;
-  /** Original content size in characters */
+  /** Original content size in UTF-8 bytes */
   total_size: number;
   /** Whether the preview was truncated */
   is_truncated: boolean;
@@ -687,6 +687,11 @@ export interface SessionState {
   context_used_percent: number;
   /** Approximate JSON byte size of the server-side message history. */
   message_history_bytes?: number;
+  /**
+   * Approximate Codex-retained payload size, including full tool results that
+   * are hidden behind browser replay previews.
+   */
+  codex_retained_payload_bytes?: number;
   is_compacting: boolean;
   git_branch: string;
   /** Current HEAD commit SHA (server-derived, used for history rewrite detection). */

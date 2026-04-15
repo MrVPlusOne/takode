@@ -83,6 +83,19 @@ describe("MessageBubble - error system messages", () => {
     expect(screen.getByText(/start a new session/)).toBeTruthy();
   });
 
+  it("renders Codex payload-too-large errors with compact guidance", () => {
+    const msg = makeMessage({
+      role: "system",
+      content: '413 Payload Too Large: APIError: Github_copilotException - {"message":"failed to parse request"}',
+      variant: "error",
+    });
+    render(<MessageBubble message={msg} />);
+
+    expect(screen.getByText(/413 Payload Too Large/)).toBeTruthy();
+    expect(screen.getByText(/\/compact/)).toBeTruthy();
+    expect(screen.getByText(/shrink retained context before retrying/i)).toBeTruthy();
+  });
+
   it("renders generic error without compact guidance", () => {
     const msg = makeMessage({ role: "system", content: "Error: API rate limit exceeded", variant: "error" });
     render(<MessageBubble message={msg} />);

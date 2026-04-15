@@ -14,6 +14,8 @@ interface MockStoreState {
       num_turns?: number;
       total_cost_usd?: number;
       context_used_percent?: number;
+      message_history_bytes?: number;
+      codex_retained_payload_bytes?: number;
       codex_token_details?: { modelContextWindow?: number };
       claude_token_details?: { modelContextWindow?: number };
       git_branch?: string | null;
@@ -304,16 +306,39 @@ describe("SessionInfoPopover", () => {
   });
 
   it("shows the max context window rounded to whole K tokens", () => {
+    // Codex sessions should show both replay and retained payload metrics in
+    // the shared stats row when the server provides both values.
     resetStore([]);
     const session = storeState.sessions.get("s1");
     if (!session) throw new Error("missing session fixture");
     session.context_used_percent = 73;
+    session.message_history_bytes = 1_572_864;
+    session.codex_retained_payload_bytes = 2_621_440;
     session.codex_token_details = { modelContextWindow: 258_400 };
 
     render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
 
     expect(screen.getByText("73% context")).toBeInTheDocument();
+    expect(screen.getByText("1.5 MB replay")).toBeInTheDocument();
+    expect(screen.getByText("2.5 MB retained")).toBeInTheDocument();
     expect(screen.getByText("258 K tokens")).toBeInTheDocument();
+  });
+
+  it("keeps non-Codex sessions on history wording and hides retained payload", () => {
+    // Claude-family sessions should keep the generic history label and should
+    // not render the Codex-only retained payload metric.
+    resetStore([]);
+    const session = storeState.sessions.get("s1");
+    if (!session) throw new Error("missing session fixture");
+    session.backend_type = "claude-sdk";
+    session.context_used_percent = 41;
+    session.message_history_bytes = 972_800;
+    session.claude_token_details = { modelContextWindow: 200_000 };
+
+    render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
+
+    expect(screen.getByText("950 KB history")).toBeInTheDocument();
+    expect(screen.queryByText(/retained/)).toBeNull();
   });
 
   it("falls back to sdk session metadata for context stats after restore", () => {

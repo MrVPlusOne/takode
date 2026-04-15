@@ -1031,6 +1031,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
             numTurns: bridge?.num_turns || 0,
             contextUsedPercent: bridge?.context_used_percent || 0,
             messageHistoryBytes: bridge?.message_history_bytes || 0,
+            codexRetainedPayloadBytes: bridge?.codex_retained_payload_bytes || 0,
             ...(bridge?.codex_token_details ? { codexTokenDetails: bridge.codex_token_details } : {}),
             ...(bridge?.claude_token_details ? { claudeTokenDetails: bridge.claude_token_details } : {}),
             lastMessagePreview: wsBridge.getLastUserMessage(s.sessionId) || "",

@@ -4,6 +4,7 @@ import { exec as execCb } from "node:child_process";
 import { promisify } from "node:util";
 import { readFile as readFileAsync, stat as statAsync } from "node:fs/promises";
 import { GIT_CMD_TIMEOUT, SERVER_GIT_CMD } from "./constants.js";
+import { computeSessionPayloadMetrics } from "./session-payload-metrics.js";
 import { getDefaultModelForBackend } from "../shared/backend-defaults.js";
 import { computeHistoryMessagesSyncHash, computeHistoryPrefixSyncHash } from "../shared/history-sync-hash.js";
 
@@ -525,6 +526,7 @@ function makeDefaultState(sessionId: string, backendType: BackendType = "claude"
     total_cost_usd: 0,
     num_turns: 0,
     context_used_percent: 0,
+    codex_retained_payload_bytes: 0,
     is_compacting: false,
     git_branch: "",
     git_head_sha: "",
@@ -2752,6 +2754,7 @@ export class WsBridge {
 
     session.messageHistory = session.messageHistory.slice(0, truncateIdx);
     session.frozenCount = Math.min(session.frozenCount, session.messageHistory.length);
+    this.pruneToolResultsForCurrentHistory(session);
 
     const lastUser = [...session.messageHistory]
       .reverse()
@@ -2823,6 +2826,7 @@ export class WsBridge {
     session.pendingCodexRollbackError = null;
     waiter?.resolve();
     session.pendingCodexRollbackWaiter = null;
+    this.recomputeAndBroadcastHistoryBytes(session);
     this.persistSessionSync(session.id);
     this.broadcastToSession(session.id, { type: "message_history", messages: revertedSession.messageHistory });
     this.broadcastToSession(session.id, { type: "status_change", status: "idle" });
@@ -7230,8 +7234,8 @@ export class WsBridge {
       content = retainedOutput;
     }
 
-    const totalSize = content.length;
-    const isTruncated = totalSize > TOOL_RESULT_PREVIEW_LIMIT;
+    const totalSize = Buffer.byteLength(content, "utf-8");
+    const isTruncated = content.length > TOOL_RESULT_PREVIEW_LIMIT;
     const startedAt = session.toolStartTimes.get(toolUseId);
     const durationSeconds = startedAt != null ? Math.round((Date.now() - startedAt) / 100) / 10 : undefined;
     session.toolStartTimes.delete(toolUseId);
@@ -7294,6 +7298,27 @@ export class WsBridge {
       }
     }
     return null;
+  }
+
+  private pruneToolResultsForCurrentHistory(session: Session): void {
+    if (session.toolResults.size === 0) return;
+    const reachableToolUseIds = new Set<string>();
+
+    for (const msg of session.messageHistory) {
+      if (msg.type !== "tool_result_preview") continue;
+      for (const preview of msg.previews || []) {
+        reachableToolUseIds.add(preview.tool_use_id);
+      }
+    }
+
+    const nextToolResults = new Map(
+      [...session.toolResults.entries()].filter(([toolUseId]) => reachableToolUseIds.has(toolUseId)),
+    );
+    if (nextToolResults.size === session.toolResults.size) {
+      const membershipUnchanged = [...session.toolResults.keys()].every((toolUseId) => nextToolResults.has(toolUseId));
+      if (membershipUnchanged) return;
+    }
+    session.toolResults = nextToolResults;
   }
 
   private collectUnresolvedToolStartTimesFromHistory(session: Session): Map<string, number> {
@@ -7543,8 +7568,8 @@ export class WsBridge {
         resultContent = WsBridge.deduplicateCliErrorOutput(resultContent);
       }
 
-      const totalSize = resultContent.length;
-      const isTruncated = totalSize > TOOL_RESULT_PREVIEW_LIMIT;
+      const totalSize = Buffer.byteLength(resultContent, "utf-8");
+      const isTruncated = resultContent.length > TOOL_RESULT_PREVIEW_LIMIT;
 
       // Compute wall-clock duration from tool_use start time
       const startTime = session.toolStartTimes.get(block.tool_use_id);
@@ -10139,16 +10164,37 @@ export class WsBridge {
     }
   }
 
-  /** Recompute message history JSON byte size and broadcast if changed significantly. */
+  /** Recompute browser replay history bytes and Codex retained payload estimate. */
   private recomputeAndBroadcastHistoryBytes(session: Session): void {
-    const bytes = Buffer.byteLength(JSON.stringify(session.messageHistory), "utf-8");
-    const prev = session.state.message_history_bytes ?? 0;
-    // Skip broadcast if change is less than 1 KB (avoid noisy updates)
-    if (Math.abs(bytes - prev) < 1024) return;
-    session.state.message_history_bytes = bytes;
+    const { replayHistoryBytes, codexRetainedPayloadBytes } = computeSessionPayloadMetrics(
+      session.messageHistory,
+      session.toolResults,
+    );
+    const prevReplayBytes = session.state.message_history_bytes ?? 0;
+    const prevRetainedBytes = session.state.codex_retained_payload_bytes ?? 0;
+
+    session.state.message_history_bytes = replayHistoryBytes;
+    if (session.backendType === "codex") {
+      session.state.codex_retained_payload_bytes = codexRetainedPayloadBytes;
+    }
+
+    const sessionUpdate: Partial<SessionState> = {};
+    if (prevReplayBytes === 0 ? replayHistoryBytes > 0 : Math.abs(replayHistoryBytes - prevReplayBytes) >= 1024) {
+      sessionUpdate.message_history_bytes = replayHistoryBytes;
+    }
+    if (
+      session.backendType === "codex" &&
+      (prevRetainedBytes === 0
+        ? codexRetainedPayloadBytes > 0
+        : Math.abs(codexRetainedPayloadBytes - prevRetainedBytes) >= 1024)
+    ) {
+      sessionUpdate.codex_retained_payload_bytes = codexRetainedPayloadBytes;
+    }
+
+    if (Object.keys(sessionUpdate).length === 0) return;
     this.broadcastToBrowsers(session, {
       type: "session_update",
-      session: { message_history_bytes: bytes },
+      session: sessionUpdate,
     });
   }
 

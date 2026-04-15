@@ -27,6 +27,7 @@ describe("toSessionViewModel", () => {
       total_cost_usd: 1.25,
       num_turns: 3,
       context_used_percent: 42,
+      codex_retained_payload_bytes: 2_048,
       codex_token_details: codexTokenDetails,
       is_compacting: false,
       git_branch: "jiayi",
@@ -47,6 +48,7 @@ describe("toSessionViewModel", () => {
     expect(vm.repoRoot).toBe("/repo");
     expect(vm.totalLinesAdded).toBe(10);
     expect(vm.totalCostUsd).toBe(1.25);
+    expect(vm.codexRetainedPayloadBytes).toBe(2_048);
     expect(vm.modelContextWindow).toBe(258_400);
   });
 
@@ -63,6 +65,7 @@ describe("toSessionViewModel", () => {
       totalLinesAdded: 3,
       totalLinesRemoved: 2,
       contextUsedPercent: 27,
+      codexRetainedPayloadBytes: 4_096,
       codexTokenDetails,
       repoRoot: "/work",
       sessionNum: 9,
@@ -76,6 +79,7 @@ describe("toSessionViewModel", () => {
     expect(vm.gitBranch).toBe("main");
     expect(vm.totalLinesRemoved).toBe(2);
     expect(vm.contextUsedPercent).toBe(27);
+    expect(vm.codexRetainedPayloadBytes).toBe(4_096);
     expect(vm.modelContextWindow).toBe(258_400);
     expect(vm.sessionNum).toBe(9);
   });

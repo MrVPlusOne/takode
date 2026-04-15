@@ -792,6 +792,15 @@ const MSG_ERROR_CONTEXT_LIMIT: ChatMessage = {
   variant: "error",
 };
 
+const MSG_ERROR_CODEX_PAYLOAD_TOO_LARGE: ChatMessage = {
+  id: "msg-err-codex-413",
+  role: "system",
+  content:
+    '413 Payload Too Large: APIError: Github_copilotException - {"message":"failed to parse request","code":""}',
+  timestamp: Date.now() - 22500,
+  variant: "error",
+};
+
 const MSG_ERROR_GENERIC: ChatMessage = {
   id: "msg-err-2",
   role: "system",
@@ -1849,6 +1858,9 @@ export function Playground() {
             </Card>
             <Card label="Error — context limit (with guidance)">
               <MessageBubble message={MSG_ERROR_CONTEXT_LIMIT} />
+            </Card>
+            <Card label="Error — Codex payload too large (with /compact guidance)">
+              <MessageBubble message={MSG_ERROR_CODEX_PAYLOAD_TOO_LARGE} sessionId={CODEX_DEMO_SESSION} />
             </Card>
             <Card label="Error — generic">
               <MessageBubble message={MSG_ERROR_GENERIC} />

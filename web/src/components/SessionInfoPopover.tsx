@@ -10,9 +10,9 @@ import {
 import { formatModel } from "../utils/backends.js";
 import { coalesceSessionViewModel } from "../utils/session-view-model.js";
 import { navigateTo } from "../utils/navigation.js";
-import { formatContextWindowLabel } from "../utils/token-format.js";
 import { SessionNumChip } from "./SessionNumChip.js";
 import { SessionPathSummary } from "./SessionPathSummary.js";
+import { SessionPayloadStats } from "./SessionPayloadStats.js";
 
 export function SessionInfoPopover({ sessionId, onClose }: { sessionId: string; onClose: () => void }) {
   const session = useStore((s) => s.sessions.get(sessionId));
@@ -31,6 +31,8 @@ export function SessionInfoPopover({ sessionId, onClose }: { sessionId: string; 
   const contextPercent = sessionVm?.contextUsedPercent ?? 0;
   const contextWindow = sessionVm?.modelContextWindow ?? 0;
   const historyBytes = sessionVm?.messageHistoryBytes ?? 0;
+  const codexRetainedPayloadBytes = sessionVm?.codexRetainedPayloadBytes ?? 0;
+  const isCodexSession = backendType === "codex";
 
   // Git
   const gitBranch = sessionVm?.gitBranch ?? null;
@@ -81,7 +83,7 @@ export function SessionInfoPopover({ sessionId, onClose }: { sessionId: string; 
 
   const backendLabel = backendType === "codex" ? "Codex" : "Claude";
   const hasGit = gitBranch || gitAhead > 0 || gitBehind > 0 || linesAdded > 0 || linesRemoved > 0;
-  const hasStats = turns > 0 || contextPercent > 0 || contextWindow > 0 || historyBytes > 0;
+  const hasStats = turns > 0 || contextPercent > 0 || contextWindow > 0 || historyBytes > 0 || codexRetainedPayloadBytes > 0;
   const taskEntries = (taskHistory ?? []).map((task) => ({
     ...task,
     title: task.title.trim(),
@@ -241,43 +243,15 @@ export function SessionInfoPopover({ sessionId, onClose }: { sessionId: string; 
         {/* Stats */}
         {hasStats && (
           <div className="px-4 py-2 border-t border-cc-border/50">
-            <div className="flex items-center gap-2 text-[11px] text-cc-muted">
-              {turns > 0 && (
-                <span>
-                  {turns} {turns === 1 ? "turn" : "turns"}
-                </span>
-              )}
-              {contextPercent > 0 && (
-                <>
-                  {turns > 0 && <span className="text-cc-muted/40">&middot;</span>}
-                  <span>{Math.round(contextPercent)}% context</span>
-                </>
-              )}
-              {contextWindow > 0 && (
-                <>
-                  {(turns > 0 || contextPercent > 0) && <span className="text-cc-muted/40">&middot;</span>}
-                  <span>{formatContextWindowLabel(contextWindow)}</span>
-                </>
-              )}
-              {historyBytes > 0 && (
-                <>
-                  {(turns > 0 || contextPercent > 0 || contextWindow > 0) && (
-                    <span className="text-cc-muted/40">&middot;</span>
-                  )}
-                  <span
-                    className={
-                      historyBytes > 16 * 1024 * 1024
-                        ? "text-red-400"
-                        : historyBytes > 10 * 1024 * 1024
-                          ? "text-amber-400"
-                          : ""
-                    }
-                  >
-                    {formatBytes(historyBytes)}
-                  </span>
-                </>
-              )}
-            </div>
+            <SessionPayloadStats
+              turns={turns}
+              contextPercent={contextPercent}
+              contextWindow={contextWindow}
+              historyBytes={historyBytes}
+              codexRetainedPayloadBytes={codexRetainedPayloadBytes}
+              isCodexSession={isCodexSession}
+              highlightHighHistoryBytes
+            />
           </div>
         )}
 
@@ -296,12 +270,6 @@ export function SessionInfoPopover({ sessionId, onClose }: { sessionId: string; 
       </div>
     </div>
   );
-}
-
-/** Format byte count as human-readable KB/MB. */
-function formatBytes(bytes: number): string {
-  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${Math.round(bytes / 1024)} KB`;
 }
 
 /** Quest chip in task history; hover popups are intentionally disabled here to keep scrolling smooth. */

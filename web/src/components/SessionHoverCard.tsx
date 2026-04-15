@@ -3,10 +3,10 @@ import type { SessionState, SessionTaskEntry } from "../../server/session-types.
 import { useRef, useLayoutEffect, useMemo, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useStore } from "../store.js";
-import { formatContextWindowLabel } from "../utils/token-format.js";
 import { api } from "../api.js";
 import { SessionNumChip } from "./SessionNumChip.js";
 import { SessionPathSummary } from "./SessionPathSummary.js";
+import { SessionPayloadStats } from "./SessionPayloadStats.js";
 
 interface SessionHoverCardProps {
   session: SessionItemType;
@@ -27,24 +27,6 @@ interface SessionHoverCardProps {
 function formatModel(model: string): string {
   // Strip date suffixes like -20250929
   return model.replace(/-\d{8}$/, "");
-}
-
-/** Format an epoch ms timestamp as a relative time string (e.g. "2m ago") */
-function formatRelativeTime(epochMs: number): string {
-  const diffSec = Math.max(0, Math.floor((Date.now() - epochMs) / 1000));
-  if (diffSec < 60) return `${diffSec}s ago`;
-  const diffMin = Math.floor(diffSec / 60);
-  if (diffMin < 60) return `${diffMin}m ago`;
-  const diffHr = Math.floor(diffMin / 60);
-  if (diffHr < 24) return `${diffHr}h ago`;
-  const diffDay = Math.floor(diffHr / 24);
-  return `${diffDay}d ago`;
-}
-
-function formatHistoryBytes(bytes: number): string {
-  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB history`;
-  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB history`;
-  return `${bytes} B history`;
 }
 
 export function SessionHoverCard({
@@ -90,6 +72,7 @@ export function SessionHoverCard({
   // For leader sessions: find which sessions this leader is herding
   const sdkSessions = useStore((st) => st.sdkSessions);
   const sdkSessionMeta = useMemo(() => sdkSessions.find((sdk) => sdk.sessionId === s.id), [sdkSessions, s.id]);
+  const effectiveBackendType = sessionState?.backend_type ?? sdkSessionMeta?.backendType ?? s.backendType;
   const herdedSessions = useMemo(() => {
     if (!s.isOrchestrator) return [];
     return sdkSessions.filter((sdk) => sdk.herdedBy === s.id && !sdk.archived).map((sdk) => sdk.sessionId);
@@ -122,13 +105,15 @@ export function SessionHoverCard({
         : isRunning
           ? "bg-cc-success"
           : isCompacting
-            ? "bg-cc-warning"
-            : "bg-cc-success/60";
+          ? "bg-cc-warning"
+          : "bg-cc-success/60";
 
   const shortId = s.id.slice(0, 8);
   const label = sessionName || s.model || shortId;
   const model = sessionState?.model || s.model || "";
-  const backendLabel = s.backendType === "codex" ? "Codex" : s.backendType === "claude-sdk" ? "Claude SDK" : "Claude";
+  const backendType = effectiveBackendType ?? "claude";
+  const backendLabel = backendType === "codex" ? "Codex" : backendType === "claude-sdk" ? "Claude SDK" : "Claude";
+  const backendToneClass = backendType === "codex" ? "text-blue-500" : "text-[#D97757]";
   const createdAtLabel = s.createdAt > 0 ? new Date(s.createdAt).toLocaleString() : "Unknown";
   const taskEntries = (taskHistory ?? []).map((task) => ({
     ...task,
@@ -144,7 +129,10 @@ export function SessionHoverCard({
     sdkSessionMeta?.codexTokenDetails?.modelContextWindow ??
     sdkSessionMeta?.claudeTokenDetails?.modelContextWindow ??
     0;
+  const isCodexSession = effectiveBackendType === "codex";
   const messageHistoryBytes = sessionState?.message_history_bytes ?? sdkSessionMeta?.messageHistoryBytes ?? 0;
+  const codexRetainedPayloadBytes =
+    sessionState?.codex_retained_payload_bytes ?? sdkSessionMeta?.codexRetainedPayloadBytes ?? 0;
   const hasBranchDivergence = s.gitAhead > 0 || s.gitBehind > 0;
   const hasLineDiff = s.linesAdded > 0 || s.linesRemoved > 0;
 
@@ -210,7 +198,7 @@ export function SessionHoverCard({
           </div>
           <div className="flex items-center gap-1.5 mt-0.5">
             <span
-              className={`text-[11px] font-medium ${s.backendType === "codex" ? "text-blue-500" : "text-[#D97757]"}`}
+              className={`text-[11px] font-medium ${backendToneClass}`}
             >
               {backendLabel}
             </span>
@@ -373,45 +361,22 @@ export function SessionHoverCard({
         )}
 
         {/* Stats row */}
-        {(turns > 0 || contextPercent > 0 || messageHistoryBytes > 0 || contextWindow > 0 || s.lastActivityAt) && (
+        {(turns > 0 ||
+          contextPercent > 0 ||
+          messageHistoryBytes > 0 ||
+          codexRetainedPayloadBytes > 0 ||
+          contextWindow > 0 ||
+          s.lastActivityAt) && (
           <div className="px-4 py-2 border-t border-cc-border/50">
-            <div className="flex items-center gap-2 text-[11px] text-cc-muted">
-              {turns > 0 && (
-                <span>
-                  {turns} {turns === 1 ? "turn" : "turns"}
-                </span>
-              )}
-              {contextPercent > 0 && (
-                <>
-                  {turns > 0 && <span className="text-cc-muted/40">&middot;</span>}
-                  <span>{Math.round(contextPercent)}% context</span>
-                </>
-              )}
-              {messageHistoryBytes > 0 && (
-                <>
-                  {(turns > 0 || contextPercent > 0) && <span className="text-cc-muted/40">&middot;</span>}
-                  <span title="Server-tracked message history size">{formatHistoryBytes(messageHistoryBytes)}</span>
-                </>
-              )}
-              {contextWindow > 0 && (
-                <>
-                  {(turns > 0 || contextPercent > 0 || messageHistoryBytes > 0) && (
-                    <span className="text-cc-muted/40">&middot;</span>
-                  )}
-                  <span>{formatContextWindowLabel(contextWindow)}</span>
-                </>
-              )}
-              {s.lastActivityAt && (
-                <>
-                  {(turns > 0 || contextPercent > 0 || messageHistoryBytes > 0 || contextWindow > 0) && (
-                    <span className="text-cc-muted/40">&middot;</span>
-                  )}
-                  <span title={new Date(s.lastActivityAt).toLocaleString()}>
-                    active {formatRelativeTime(s.lastActivityAt)}
-                  </span>
-                </>
-              )}
-            </div>
+            <SessionPayloadStats
+              turns={turns}
+              contextPercent={contextPercent}
+              contextWindow={contextWindow}
+              historyBytes={messageHistoryBytes}
+              codexRetainedPayloadBytes={codexRetainedPayloadBytes}
+              isCodexSession={isCodexSession}
+              lastActivityAt={s.lastActivityAt}
+            />
           </div>
         )}
 

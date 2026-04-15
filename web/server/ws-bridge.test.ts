@@ -16036,6 +16036,101 @@ describe("cliResuming debounce prevents false compaction events on --resume repl
   });
 });
 
+describe("prepareSessionForRevert", () => {
+  it("prunes toolResults that are no longer reachable after revert truncation", () => {
+    // Revert should drop lazy-fetch tool results for previews that were
+    // truncated out of history so retained payload metrics don't stay inflated.
+    const bridge = new WsBridge();
+    const cli = makeCliSocket("revert-prunes-tool-results");
+    bridge.handleCLIOpen(cli, "revert-prunes-tool-results");
+
+    const session = bridge.getSession("revert-prunes-tool-results");
+    expect(session).toBeDefined();
+    if (!session) return;
+
+    session.messageHistory = [
+      {
+        type: "tool_result_preview",
+        previews: [
+          {
+            tool_use_id: "tool-keep",
+            content: "keep",
+            is_error: false,
+            total_size: 4,
+            is_truncated: false,
+          },
+        ],
+      } as any,
+      {
+        type: "tool_result_preview",
+        previews: [
+          {
+            tool_use_id: "tool-drop",
+            content: "drop",
+            is_error: false,
+            total_size: 4,
+            is_truncated: false,
+          },
+        ],
+      } as any,
+    ];
+    session.toolResults.set("tool-keep", { content: "keep", is_error: false, timestamp: 1 });
+    session.toolResults.set("tool-drop", { content: "drop", is_error: false, timestamp: 2 });
+
+    bridge.prepareSessionForRevert("revert-prunes-tool-results", 1);
+
+    expect(session.toolResults.has("tool-keep")).toBe(true);
+    expect(session.toolResults.has("tool-drop")).toBe(false);
+  });
+
+  it("prunes stale toolResults even when reachable preview count matches map size", () => {
+    // Equal cardinality is not equal membership: rollback/resume can leave a
+    // stale tool ID in the map while history references a different preview ID.
+    const bridge = new WsBridge();
+    const cli = makeCliSocket("revert-prunes-equal-cardinality");
+    bridge.handleCLIOpen(cli, "revert-prunes-equal-cardinality");
+
+    const session = bridge.getSession("revert-prunes-equal-cardinality");
+    expect(session).toBeDefined();
+    if (!session) return;
+
+    session.messageHistory = [
+      {
+        type: "tool_result_preview",
+        previews: [
+          {
+            tool_use_id: "tool-keep",
+            content: "keep",
+            is_error: false,
+            total_size: 4,
+            is_truncated: false,
+          },
+        ],
+      } as any,
+      {
+        type: "tool_result_preview",
+        previews: [
+          {
+            tool_use_id: "tool-replacement",
+            content: "replacement",
+            is_error: false,
+            total_size: 11,
+            is_truncated: false,
+          },
+        ],
+      } as any,
+    ];
+    session.toolResults.set("tool-keep", { content: "keep", is_error: false, timestamp: 1 });
+    session.toolResults.set("tool-stale", { content: "stale", is_error: false, timestamp: 2 });
+
+    bridge.prepareSessionForRevert("revert-prunes-equal-cardinality", 2);
+
+    expect(session.toolResults.has("tool-keep")).toBe(true);
+    expect(session.toolResults.has("tool-stale")).toBe(false);
+    expect(session.toolResults.has("tool-replacement")).toBe(false);
+  });
+});
+
 // ─── cliResuming guards status_change broadcast (q-213) ───────────────────
 
 describe("cliResuming suppresses status_change broadcast during --resume replay", () => {
