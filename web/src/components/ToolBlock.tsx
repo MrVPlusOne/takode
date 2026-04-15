@@ -95,6 +95,11 @@ class ToolBlockErrorBoundary extends Component<
   }
 }
 
+/** Plan files live under ~/.claude/plans/ -- detect them by path segment. */
+function isPlanFilePath(filePath: unknown): boolean {
+  return typeof filePath === "string" && filePath.includes("/.claude/plans/");
+}
+
 /** localStorage key for the Edit/Write blocks default-expanded preference. */
 export const EDIT_BLOCKS_EXPANDED_KEY = "cc-edit-blocks-expanded";
 
@@ -257,8 +262,12 @@ const ToolBlockInner = memo(function ToolBlockInner({
 }: ToolBlockProps) {
   const [open, setOpen] = useState(() => {
     if (defaultOpen !== undefined) return defaultOpen;
+    const isEditOrWrite = name === "Write" || name === "Edit";
+    // Plan file writes are always collapsed -- the Plan chip renders
+    // the content in a better format.
+    if (isEditOrWrite && isPlanFilePath(input.file_path)) return false;
     // Edit/Write blocks respect the user's expand preference; others start collapsed
-    if (name === "Edit" || name === "Write") return getEditBlocksExpanded();
+    if (isEditOrWrite) return getEditBlocksExpanded();
     return false;
   });
   const headerRef = useRef<HTMLDivElement>(null);

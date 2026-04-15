@@ -1315,6 +1315,80 @@ describe("Edit/Write blocks expanded preference", () => {
   });
 });
 
+// ─── Plan file writes auto-collapse ─────────────────────────────────────────
+
+describe("Plan file writes auto-collapse", () => {
+  afterEach(() => {
+    localStorage.removeItem(EDIT_BLOCKS_EXPANDED_KEY);
+  });
+
+  it("Write blocks for .claude/plans/ files start collapsed even when expand preference is on", () => {
+    localStorage.setItem(EDIT_BLOCKS_EXPANDED_KEY, "true");
+
+    const { container } = render(
+      <ToolBlock
+        name="Write"
+        input={{ file_path: "/Users/test/.claude/plans/mighty-chasing-dragonfly.md", content: "# Plan\n\n1. Step one" }}
+        toolUseId="tool-plan-write-collapsed"
+      />,
+    );
+
+    // Plan file write should be collapsed -- no diff content visible
+    expect(container.querySelector(".diff-viewer")).toBeNull();
+    expect(container.querySelector(".diff-line-add")).toBeNull();
+  });
+
+  it("Edit blocks for .claude/plans/ files start collapsed even when expand preference is on", () => {
+    localStorage.setItem(EDIT_BLOCKS_EXPANDED_KEY, "true");
+
+    const { container } = render(
+      <ToolBlock
+        name="Edit"
+        input={{
+          file_path: "/Users/test/.claude/plans/mighty-chasing-dragonfly.md",
+          old_string: "# Plan\n\n1. Step one",
+          new_string: "# Plan\n\n1. Step one\n2. Step two",
+        }}
+        toolUseId="tool-plan-edit-collapsed"
+      />,
+    );
+
+    // Plan file edit should be collapsed -- no diff content visible
+    expect(container.querySelector(".diff-viewer")).toBeNull();
+  });
+
+  it("non-plan Write blocks still respect the expand preference", () => {
+    localStorage.setItem(EDIT_BLOCKS_EXPANDED_KEY, "true");
+
+    const { container } = render(
+      <ToolBlock
+        name="Write"
+        input={{ file_path: "/Users/test/project/src/app.ts", content: "export const x = 1;\n" }}
+        toolUseId="tool-non-plan-write"
+      />,
+    );
+
+    // Non-plan Write should be expanded per the preference
+    expect(container.querySelector(".diff-viewer")).toBeTruthy();
+  });
+
+  it("explicit defaultOpen={true} overrides plan file auto-collapse", () => {
+    localStorage.setItem(EDIT_BLOCKS_EXPANDED_KEY, "false");
+
+    const { container } = render(
+      <ToolBlock
+        name="Write"
+        input={{ file_path: "/Users/test/.claude/plans/plan.md", content: "# Plan\n\n1. Do thing" }}
+        toolUseId="tool-plan-explicit-open"
+        defaultOpen={true}
+      />,
+    );
+
+    // Explicit defaultOpen should take priority over plan file auto-collapse
+    expect(container.querySelector(".diff-viewer")).toBeTruthy();
+  });
+});
+
 // ─── React error #185 regression ──────────────────────────────────────────────
 
 describe("Edit block rendering does not trigger React error #185", () => {
