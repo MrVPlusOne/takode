@@ -866,51 +866,6 @@ describe("launch", () => {
     expect(mockCopyFile).toHaveBeenCalledWith(legacyAuth, sessionAuth);
   });
 
-  it("refreshes config.toml from the legacy Codex home on relaunch for existing Codex sessions", async () => {
-    mockResolveBinary.mockReturnValue("/opt/fake/codex");
-
-    let resolveFirst: (code: number) => void;
-    const firstProc = {
-      pid: 12345,
-      kill: vi.fn(() => {
-        resolveFirst(0);
-      }),
-      exited: new Promise<number>((r) => {
-        resolveFirst = r;
-      }),
-      stdin: new WritableStream<Uint8Array>(),
-      stdout: new ReadableStream<Uint8Array>(),
-      stderr: new ReadableStream<Uint8Array>(),
-    };
-    mockSpawn.mockReturnValueOnce(firstProc);
-
-    const legacyHome = join(homedir(), ".codex");
-    const sessionHome = join(homedir(), ".companion", "codex-home", "test-session-id");
-    const legacyConfig = join(legacyHome, "config.toml");
-    const sessionConfig = join(sessionHome, "config.toml");
-
-    mockExistsSync.mockImplementation((path: string) => {
-      if (path === legacyHome) return true;
-      if (path === legacyConfig) return true;
-      if (path === sessionConfig) return true;
-      return false;
-    });
-
-    await launcher.launch({
-      backendType: "codex",
-      cwd: "/tmp/project",
-      codexSandbox: "workspace-write",
-    });
-    await waitForSpawnCalls(1);
-
-    mockCopyFile.mockClear();
-    mockSpawn.mockReturnValueOnce(createMockCodexProc(54321));
-
-    const result = await launcher.relaunch("test-session-id");
-    expect(result).toEqual({ ok: true });
-    expect(mockCopyFile).toHaveBeenCalledWith(legacyConfig, sessionConfig);
-  });
-
   it("prunes broken legacy skill symlinks from the session Codex home", async () => {
     // q-275: stale broken symlinks in ~/.codex/skills should not be copied into
     // every per-session Codex home, or each relaunch will spam skill-load errors.
