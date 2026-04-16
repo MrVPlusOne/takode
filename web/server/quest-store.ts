@@ -1,5 +1,5 @@
 import { mkdirSync } from "node:fs";
-import { readdir, readFile, writeFile, unlink, mkdir } from "node:fs/promises";
+import { readdir, readFile, writeFile, unlink, mkdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { extname } from "node:path";
@@ -146,6 +146,11 @@ function questImagesEqual(
 const QUESTMASTER_DIR = join(homedir(), ".companion", "questmaster");
 const IMAGES_DIR = join(QUESTMASTER_DIR, "images");
 const COUNTER_FILE = join(QUESTMASTER_DIR, "_quest_counter.json");
+const CREATE_LOCK_DIR = join(QUESTMASTER_DIR, "_create.lock");
+const CREATE_LOCK_STALE_MS = 30_000;
+const CREATE_LOCK_RETRY_MS = 10;
+
+let pendingCreate: Promise<unknown> = Promise.resolve();
 
 // Cold-path: synchronous mkdir at module load is fine
 mkdirSync(QUESTMASTER_DIR, { recursive: true });
@@ -183,6 +188,7 @@ async function writeCounter(next: number): Promise<void> {
   await writeFile(COUNTER_FILE, JSON.stringify({ next }), "utf-8");
 }
 
+/** Allocate the next quest ID. Must be called while holding the create lock. */
 async function nextQuestId(): Promise<string> {
   let n = await readCounter();
 
@@ -205,6 +211,62 @@ async function nextQuestId(): Promise<string> {
 
   await writeCounter(n + 1);
   return `q-${n}`;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function isCreateLockStale(): Promise<boolean> {
+  try {
+    const lockStat = await stat(CREATE_LOCK_DIR);
+    return Date.now() - lockStat.mtimeMs > CREATE_LOCK_STALE_MS;
+  } catch {
+    return false;
+  }
+}
+
+async function acquireCreateFilesystemLock(): Promise<() => Promise<void>> {
+  await ensureDir();
+  const startedAt = Date.now();
+
+  while (true) {
+    try {
+      await mkdir(CREATE_LOCK_DIR);
+      return async () => {
+        await rm(CREATE_LOCK_DIR, { recursive: true, force: true });
+      };
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException | undefined)?.code;
+      if (code !== "EEXIST") throw err;
+
+      if (await isCreateLockStale()) {
+        await rm(CREATE_LOCK_DIR, { recursive: true, force: true }).catch(() => {});
+        continue;
+      }
+
+      if (Date.now() - startedAt > CREATE_LOCK_STALE_MS * 2) {
+        throw new Error("Timed out waiting for quest create lock");
+      }
+
+      await sleep(CREATE_LOCK_RETRY_MS);
+    }
+  }
+}
+
+async function withCreateLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = async () => {
+    const release = await acquireCreateFilesystemLock();
+    try {
+      return await fn();
+    } finally {
+      await release();
+    }
+  };
+
+  const result = pendingCreate.catch(() => {}).then(run);
+  pendingCreate = result.catch(() => {});
+  return result;
 }
 
 // ─── Internal helpers ────────────────────────────────────────────────────────
@@ -297,49 +359,51 @@ export async function createQuest(input: QuestCreateInput): Promise<QuestmasterT
     throw new Error("Quest title is required");
   }
 
-  const questId = await nextQuestId();
-  const id = `${questId}-v1`;
-  const now = Date.now();
   const status = input.status || "idea";
 
-  const base = {
-    id,
-    questId,
-    version: 1,
-    title: input.title.trim(),
-    createdAt: now,
-    ...(input.tags?.length ? { tags: input.tags } : {}),
-    ...(input.parentId ? { parentId: input.parentId } : {}),
-    ...(input.images?.length ? { images: input.images } : {}),
-  };
+  return withCreateLock(async () => {
+    const questId = await nextQuestId();
+    const id = `${questId}-v1`;
+    const now = Date.now();
+    const base = {
+      id,
+      questId,
+      version: 1,
+      title: input.title.trim(),
+      createdAt: now,
+      ...(input.tags?.length ? { tags: input.tags } : {}),
+      ...(input.parentId ? { parentId: input.parentId } : {}),
+      ...(input.images?.length ? { images: input.images } : {}),
+    };
 
-  let quest: QuestmasterTask;
+    let quest: QuestmasterTask;
 
-  switch (status) {
-    case "idea":
-      quest = {
-        ...base,
-        status: "idea",
-        ...(input.description ? { description: input.description } : {}),
-      } as QuestIdea;
-      break;
-    case "refined":
-      if (!input.description?.trim()) {
-        throw new Error("Description is required for refined status");
-      }
-      quest = {
-        ...base,
-        status: "refined",
-        description: input.description,
-      } as QuestRefined;
-      break;
-    default:
-      // For simplicity, only idea and refined are valid initial statuses
-      throw new Error(`Cannot create a quest directly in "${status}" status`);
-  }
+    switch (status) {
+      case "idea":
+        quest = {
+          ...base,
+          status: "idea",
+          ...(input.description ? { description: input.description } : {}),
+        } as QuestIdea;
+        break;
+      case "refined":
+        if (!input.description?.trim()) {
+          throw new Error("Description is required for refined status");
+        }
+        quest = {
+          ...base,
+          status: "refined",
+          description: input.description,
+        } as QuestRefined;
+        break;
+      default:
+        // For simplicity, only idea and refined are valid initial statuses
+        throw new Error(`Cannot create a quest directly in "${status}" status`);
+    }
 
-  await writeQuest(quest);
-  return quest;
+    await writeQuest(quest);
+    return quest;
+  });
 }
 
 /** Same-stage edit. Mutates the latest version in place, no new version. */

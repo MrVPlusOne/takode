@@ -4,7 +4,7 @@ import { createServer } from "node:http";
 import type { IncomingMessage } from "node:http";
 import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { getSessionAuthDir, getSessionAuthPath } from "../shared/session-auth.js";
@@ -272,6 +272,56 @@ describe("quest CLI create image attachments", () => {
 
       expect(result.status).not.toBe(0);
       expect(result.stderr).toContain("Companion server port not found");
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("quest CLI parallel create", () => {
+  it("returns unique quest IDs for concurrent create commands", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "quest-create-parallel-"));
+
+    try {
+      const results = await Promise.all(
+        Array.from({ length: 5 }, (_, index) =>
+          runQuest(
+            ["create", `Parallel quest ${index + 1}`, "--json"],
+            {
+              ...process.env,
+              COMPANION_PORT: undefined,
+              COMPANION_SESSION_ID: undefined,
+              COMPANION_AUTH_TOKEN: undefined,
+              HOME: tmp,
+            },
+            tmp,
+          ),
+        ),
+      );
+
+      for (const result of results) {
+        expect(result.status).toBe(0);
+        expect(result.stderr).toBe("");
+      }
+
+      const quests = results.map((result) =>
+        JSON.parse(result.stdout) as {
+          questId: string;
+          id: string;
+          title: string;
+        },
+      );
+
+      const numericIds = quests
+        .map((quest) => Number(quest.questId.slice(2)))
+        .sort((a, b) => a - b);
+      expect(new Set(quests.map((quest) => quest.questId)).size).toBe(5);
+      expect(numericIds).toEqual([1, 2, 3, 4, 5]);
+
+      const questFiles = readdirSync(join(tmp, ".companion", "questmaster"))
+        .filter((name) => /^q-\d+-v1\.json$/.test(name))
+        .sort((a, b) => Number(a.match(/^q-(\d+)-/)?.[1]) - Number(b.match(/^q-(\d+)-/)?.[1]));
+      expect(questFiles).toEqual(["q-1-v1.json", "q-2-v1.json", "q-3-v1.json", "q-4-v1.json", "q-5-v1.json"]);
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }

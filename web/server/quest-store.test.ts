@@ -110,6 +110,30 @@ describe("createQuest", () => {
     expect(q.tags).toEqual(["ui", "feature"]);
     expect(q.parentId).toBe("q-0");
   });
+
+  it("serializes parallel creates and persists distinct quests", async () => {
+    const created = await Promise.all(
+      Array.from({ length: 6 }, (_, index) =>
+        questStore.createQuest({
+          title: `Parallel quest ${index + 1}`,
+        }),
+      ),
+    );
+
+    const numericIds = created
+      .map((quest) => Number(quest.questId.slice(2)))
+      .sort((a, b) => a - b);
+    expect(new Set(created.map((quest) => quest.questId)).size).toBe(6);
+    expect(numericIds).toEqual([1, 2, 3, 4, 5, 6]);
+
+    const files = readdirSync(questDir())
+      .filter((name) => /^q-\d+-v1\.json$/.test(name))
+      .sort((a, b) => Number(a.match(/^q-(\d+)-/)?.[1]) - Number(b.match(/^q-(\d+)-/)?.[1]));
+    expect(files).toEqual(["q-1-v1.json", "q-2-v1.json", "q-3-v1.json", "q-4-v1.json", "q-5-v1.json", "q-6-v1.json"]);
+
+    const counter = JSON.parse(readFileSync(join(questDir(), "_quest_counter.json"), "utf-8"));
+    expect(counter.next).toBe(7);
+  });
 });
 
 // ===========================================================================
