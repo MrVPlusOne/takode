@@ -745,7 +745,48 @@ export function buildFeedModel(messages: ChatMessage[], leaderMode = false, star
   return { entries, turns };
 }
 
-function concatFeedModels(base: FeedModel, next: FeedModel): FeedModel {
+function getTurnContinuationContext(entries: FeedEntry[]): {
+  assistantTextCount: number;
+  lastAssistantText: string | null;
+  lastMessageTimestamp: number | null;
+} {
+  let assistantTextCount = 0;
+  let lastAssistantText: string | null = null;
+  let lastMessageTimestamp: number | null = null;
+
+  for (const entry of entries) {
+    if (entry.kind !== "message") continue;
+    if (typeof entry.msg.timestamp === "number") {
+      lastMessageTimestamp = entry.msg.timestamp;
+    }
+    if (entry.msg.role === "assistant" && entry.msg.content?.trim()) {
+      assistantTextCount += 1;
+      lastAssistantText = entry.msg.content;
+    }
+  }
+
+  return { assistantTextCount, lastAssistantText, lastMessageTimestamp };
+}
+
+function shouldMergeFirstActiveTurnIntoLastFrozenTurn(baseTurn: Turn, nextTurn: Turn, leaderMode: boolean): boolean {
+  if (nextTurn.userEntry !== null) return false;
+  if (!leaderMode) return true;
+
+  const firstEntry = nextTurn.allEntries[0];
+  if (!firstEntry) return true;
+  if (!isHerdEventEntry(firstEntry)) return true;
+
+  const { assistantTextCount, lastAssistantText, lastMessageTimestamp } = getTurnContinuationContext(baseTurn.allEntries);
+  return !shouldSplitDeferredLeaderHerdEvent(
+    firstEntry,
+    baseTurn.userEntry,
+    assistantTextCount,
+    lastAssistantText,
+    lastMessageTimestamp,
+  );
+}
+
+function concatFeedModels(base: FeedModel, next: FeedModel, leaderMode = false): FeedModel {
   if (base.entries.length === 0) return next;
   if (next.entries.length === 0) return base;
 
@@ -758,8 +799,7 @@ function concatFeedModels(base: FeedModel, next: FeedModel): FeedModel {
   if (
     next.turns.length > 0 &&
     base.turns.length > 0 &&
-    next.turns[0].userEntry === null &&
-    next.turns[0].stats.herdEventCount === 0
+    shouldMergeFirstActiveTurnIntoLastFrozenTurn(base.turns[base.turns.length - 1], next.turns[0], leaderMode)
   ) {
     const lastBase = base.turns[base.turns.length - 1];
     const firstNext = next.turns[0];
@@ -827,7 +867,7 @@ export function useFeedModel(
     ) {
       const newlyFrozen = frozenMessages.slice(cached.frozenCount);
       const deltaModel = buildFeedModel(newlyFrozen, leaderMode, cached.frozenModel.turns.length);
-      frozenModel = concatFeedModels(cached.frozenModel, deltaModel);
+      frozenModel = concatFeedModels(cached.frozenModel, deltaModel, leaderMode);
     } else {
       frozenModel = buildFeedModel(frozenMessages, leaderMode);
     }
@@ -841,6 +881,6 @@ export function useFeedModel(
     };
 
     const activeModel = buildFeedModel(activeMessages, leaderMode, frozenModel.turns.length);
-    return concatFeedModels(frozenModel, activeModel);
+    return concatFeedModels(frozenModel, activeModel, leaderMode);
   }, [messages, leaderMode, frozenCount, frozenRevision]);
 }

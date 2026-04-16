@@ -515,4 +515,41 @@ describe("useFeedModel", () => {
     expect(result.current.turns[1].userEntry).toBeNull();
     expect(result.current.turns[1].stats.herdEventCount).toBe(1);
   });
+
+  it("re-merges same-turn Codex leader activity with herd events across the frozen/active boundary", () => {
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "review the worker state", timestamp: 1_000 }),
+      makeMessage({
+        id: "a1",
+        role: "assistant",
+        content: "The prompt survived, and #496 already completed the planning turn.",
+        timestamp: 4_000,
+      }),
+      makeHerdEvent("h1", "#496 | turn_end | ✓ 17s", 8_000),
+      makeMessage({
+        id: "a2",
+        role: "assistant",
+        content: "",
+        timestamp: 9_000,
+        contentBlocks: [{ type: "tool_use", id: "tu-1", name: "Read", input: { file_path: "/tmp/q-352.md" } }],
+      }),
+      makeMessage({
+        id: "a3",
+        role: "assistant",
+        content: "It returned a plan after reading the new feedback.",
+        timestamp: 10_000,
+      }),
+    ];
+
+    const full = buildFeedModel(messages, true);
+    expect(full.turns).toHaveLength(1);
+
+    const { result } = renderHook(() => useFeedModel(messages, { leaderMode: true, frozenCount: 2, frozenRevision: 0 }));
+
+    expect(result.current.turns).toHaveLength(1);
+    expect(result.current.turns.map((turn) => turn.id)).toEqual(full.turns.map((turn) => turn.id));
+    expect(entryIds(result.current.turns[0].allEntries)).toEqual(entryIds(full.turns[0].allEntries));
+    expect(result.current.turns[0].stats.herdEventCount).toBe(1);
+    expect(result.current.turns[0].stats.toolCount).toBe(1);
+  });
 });
