@@ -125,7 +125,7 @@ export function WorkBoardBar({ sessionId }: { sessionId: string }) {
               </button>
               {completedExpanded && (
                 <div className="opacity-60">
-                  <BoardTable board={completedBoard!} />
+                  <BoardTable board={completedBoard!} mode="completed" />
                 </div>
               )}
             </div>

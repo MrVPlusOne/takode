@@ -25,6 +25,16 @@ export interface BoardRowData {
   completedAt?: number;
 }
 
+export type BoardTableMode = "active" | "completed";
+
+export function formatCompletedTime(timestamp?: number): string {
+  if (!timestamp || timestamp <= 0) return "\u2014";
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(timestamp));
+}
+
 /** Clickable quest ID link with hover preview card -- navigates to Questmaster detail view. */
 export function QuestLink({ questId }: { questId: string }) {
   const quests = useStore((s) => s.quests);
@@ -234,10 +244,18 @@ function WaitForRef({ depRef }: { depRef: string }) {
 }
 
 /** Shared board table -- renders the rows without any card chrome or collapse logic. */
-export const BoardTable = memo(function BoardTable({ board }: { board: BoardRowData[] }) {
+export const BoardTable = memo(function BoardTable({
+  board,
+  mode = "active",
+}: {
+  board: BoardRowData[];
+  mode?: BoardTableMode;
+}) {
   if (board.length === 0) {
     return <div className="px-3 py-3 text-xs text-cc-muted italic">Board is empty</div>;
   }
+
+  const isCompleted = mode === "completed";
 
   return (
     <div className="overflow-x-auto">
@@ -247,7 +265,9 @@ export const BoardTable = memo(function BoardTable({ board }: { board: BoardRowD
             <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap">Quest</th>
             <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap">Title</th>
             <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap">Worker</th>
-            <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap">Wait For</th>
+            <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap">
+              {isCompleted ? "Completed Time" : "Wait For"}
+            </th>
             <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap">Status</th>
           </tr>
         </thead>
@@ -266,14 +286,22 @@ export const BoardTable = memo(function BoardTable({ board }: { board: BoardRowD
                 )}
               </td>
               <td className="px-3 py-1.5 whitespace-nowrap">
-                {row.waitFor && row.waitFor.length > 0 ? (
-                  <span className="flex gap-1.5 flex-wrap">
-                    {row.waitFor.map((dep) => (
-                      <WaitForRef key={dep} depRef={dep} />
-                    ))}
+                {isCompleted ? (
+                  <span className="text-cc-muted" title={row.completedAt ? new Date(row.completedAt).toLocaleString() : ""}>
+                    {formatCompletedTime(row.completedAt)}
                   </span>
                 ) : (
-                  <span className="text-cc-muted">{"\u2014"}</span>
+                  <>
+                    {row.waitFor && row.waitFor.length > 0 ? (
+                      <span className="flex gap-1.5 flex-wrap">
+                        {row.waitFor.map((dep) => (
+                          <WaitForRef key={dep} depRef={dep} />
+                        ))}
+                      </span>
+                    ) : (
+                      <span className="text-cc-muted">{"\u2014"}</span>
+                    )}
+                  </>
                 )}
               </td>
               <td className="px-3 py-1.5 text-cc-muted max-w-[250px] truncate">{row.status || "\u2014"}</td>
