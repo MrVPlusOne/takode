@@ -27,8 +27,9 @@ parallel escalation path). This is a **work integrity** review.
 
 The skill takes a session number as an argument: `/skeptic-review 93`
 
-Your spawn message contains context pointers -- a quest ID and session
-reference. Use these to gather the evidence you need.
+Your spawn message should explicitly tell you to use `/skeptic-review`, and
+it should contain context pointers -- a quest ID and session reference. Use
+these to gather the evidence you need.
 
 ## Workflow
 

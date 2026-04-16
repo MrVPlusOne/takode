@@ -9,7 +9,7 @@ Every dispatched task follows the Quest Journey lifecycle. The work board (`tako
 | `QUEUED` | Quest is ready, waiting for dispatch | Dispatch to a worker |
 | `PLANNING` | Worker is planning | Wait for the plan via `permission_request` or plain-text `turn_end`, then review it |
 | `IMPLEMENTING` | Worker is implementing | Wait for `turn_end`, then spawn skeptic reviewer |
-| `SKEPTIC_REVIEWING` | Skeptic reviewer is evaluating | Wait for reviewer ACCEPT, then send the same reviewer a concise review request; the reviewer self-invokes `/reviewer-groom "<scope>"` |
+| `SKEPTIC_REVIEWING` | Skeptic reviewer is evaluating | Wait for reviewer ACCEPT; skeptic-review dispatches must explicitly say `Use the installed /skeptic-review workflow for this review.` |
 | `GROOM_REVIEWING` | Reviewer owns the quality pass and follow-up judgment | Wait for reviewer ACCEPT on the worker's response, then send a separate explicit port instruction when ready |
 | `PORTING` | Worker is porting to main repo | Wait for port confirmation, then remove from board |
 
@@ -73,7 +73,7 @@ Every dispatched task follows the Quest Journey lifecycle. The work board (`tako
 ### Spawn Command
 
 ```bash
-takode spawn --reviewer <session-number> --message 'Load skills first: /takode-orchestration, /quest, /skeptic-review. Then skeptic review session #X / quest q-Y. Read changes: takode peek X --from N --show-tools'
+takode spawn --reviewer <session-number> --message 'Load skills first: /takode-orchestration, /quest, /skeptic-review. Use the installed /skeptic-review workflow for this review. Then skeptic review session #X / quest q-Y. Read changes: takode peek X --from N --show-tools'
 ```
 
 The `--reviewer` flag automatically:
@@ -81,7 +81,9 @@ The `--reviewer` flag automatically:
 - Sets fixed name "Reviewer of #XX"
 - Tracks the parent relationship
 
-**Keep the spawn message minimal.** Provide context pointers only -- quest ID, session reference, message range for changes. The reviewer invokes `/skeptic-review` itself and decides what to evaluate. Do NOT tell the reviewer what to check or paste diffs into the spawn message.
+**Keep the spawn message minimal.** Provide context pointers only -- quest ID, session reference, message range for changes, and the explicit sentence `Use the installed /skeptic-review workflow for this review.` Do NOT add extra review criteria or paste diffs into the spawn message.
+
+**Do not rely on implicit self-start.** The leader must explicitly tell the reviewer to use `/skeptic-review`. This rule exists because an earlier q-343 skeptic pass drifted into an ad hoc review when that instruction was omitted.
 
 ### Reviewer Lifecycle
 

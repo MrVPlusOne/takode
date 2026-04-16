@@ -39,7 +39,7 @@ export const QUEST_JOURNEY_HINTS: Record<QuestJourneyState, string> = {
   QUEUED: "dispatch to a worker",
   PLANNING: "wait for ExitPlanMode, then review plan",
   IMPLEMENTING: "wait for turn_end, then spawn skeptic reviewer",
-  SKEPTIC_REVIEWING: "wait for reviewer ACCEPT, then send reviewer a concise review request for /reviewer-groom",
+  SKEPTIC_REVIEWING: "wait for reviewer ACCEPT; skeptic-review dispatches must explicitly say to use /skeptic-review",
   GROOM_REVIEWING: "wait for reviewer ACCEPT on the worker response, then tell worker to port",
   PORTING: "wait for port confirmation, then remove from board",
 };

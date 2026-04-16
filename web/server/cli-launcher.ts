@@ -578,7 +578,7 @@ Every dispatched task follows the **Quest Journey** lifecycle. The work board (\
 | \`QUEUED\` | Waiting for dispatch | Dispatch to a worker |
 | \`PLANNING\` | Worker is planning | Review plan, approve/reject |
 | \`IMPLEMENTING\` | Worker is implementing | Spawn skeptic reviewer on turn_end |
-| \`SKEPTIC_REVIEWING\` | Reviewer evaluating | Wait for ACCEPT, then send reviewer a concise review request and have them self-run /reviewer-groom "<scope>" |
+| \`SKEPTIC_REVIEWING\` | Reviewer evaluating | Wait for ACCEPT; skeptic-review dispatches must explicitly say "Use the installed /skeptic-review workflow for this review." |
 | \`GROOM_REVIEWING\` | Reviewer checking worker response to reviewer-groom | Wait for ACCEPT, then send a separate explicit port instruction when ready |
 | \`PORTING\` | Worker porting to main | Wait for confirmation, then remove |
 
@@ -600,7 +600,7 @@ Before dispatching any quest, invoke \`/leader-dispatch\`. It walks through chec
 ## Skeptic Review
 
 Spawn reviewers with: \`takode spawn --reviewer <session-number> --message "..."\`
-Keep spawn messages minimal -- provide context pointers only (quest ID, session reference, message range). The reviewer invokes \`/skeptic-review\` itself and decides what to evaluate. Full workflow details are in the SKEPTIC_REVIEWING stage of \`quest-journey.md\`.
+Keep spawn messages minimal -- provide context pointers only (quest ID, session reference, message range) plus the explicit sentence \`Use the installed /skeptic-review workflow for this review.\` Full workflow details are in the SKEPTIC_REVIEWING stage of \`quest-journey.md\`.
 
 ## Work Board
 
