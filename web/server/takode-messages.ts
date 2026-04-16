@@ -351,15 +351,39 @@ function extractAssistantReadText(
 }
 
 function deriveTurnResultPreview(
-  peekMessages: TakodePeekMessage[],
+  messageHistory: BrowserIncomingMessage[],
+  turn: TurnBoundary,
   resultMessage: BrowserIncomingMessage | null,
   contentLimit: number,
+  opts: {
+    subagentToolUseIds?: Set<string>;
+    toolResultPreviews?: Map<string, ToolResultPreview>;
+  } = {},
 ): string {
-  const assistantPreview = [...peekMessages]
-    .reverse()
-    .find((msg) => msg.type === "assistant" && msg.content.trim())
-    ?.content.trim();
-  if (assistantPreview) return truncate(assistantPreview, contentLimit);
+  const { subagentToolUseIds = new Set<string>(), toolResultPreviews = new Map<string, ToolResultPreview>() } = opts;
+  const endBound = turn.endIdx >= 0 ? turn.endIdx : messageHistory.length - 1;
+  let lastTopLevelAssistantText = "";
+  let lastSyntheticAssistantPreview = "";
+
+  for (let i = turn.startIdx; i <= endBound; i++) {
+    const msg = messageHistory[i];
+    if (msg.type !== "assistant" || !msg.message?.content) continue;
+    if (msg.parent_tool_use_id && subagentToolUseIds.has(msg.parent_tool_use_id)) continue;
+
+    const textContent = extractTextFromBlocks(msg.message.content).trim();
+    if (textContent) {
+      lastTopLevelAssistantText = textContent;
+      continue;
+    }
+
+    const syntheticPreview = extractSubagentPreviewText(msg.message.content, toolResultPreviews, contentLimit).trim();
+    if (syntheticPreview) {
+      lastSyntheticAssistantPreview = syntheticPreview;
+    }
+  }
+
+  if (lastTopLevelAssistantText) return truncate(lastTopLevelAssistantText, contentLimit);
+  if (lastSyntheticAssistantPreview) return truncate(lastSyntheticAssistantPreview, contentLimit);
   if (resultMessage?.type === "result") {
     return truncate((resultMessage.data as CLIResultMessage).result || "", contentLimit);
   }
@@ -850,7 +874,10 @@ export function buildPeekDefault(
       subagentToolUseIds,
       toolResultPreviews,
     });
-    const resultPreview = deriveTurnResultPreview(peekMessages, endMsg, contentLimit);
+    const resultPreview = deriveTurnResultPreview(messageHistory, turn, endMsg, contentLimit, {
+      subagentToolUseIds,
+      toolResultPreviews,
+    });
 
     // User preview
     const userPreview = startMsg.type === "user_message" ? truncate(startMsg.content || "", 80) : "";
@@ -1222,7 +1249,10 @@ export function buildPeekTurnScan(
       subagentToolUseIds,
       toolResultPreviews,
     });
-    const resultPreview = deriveTurnResultPreview(peekMessages, endMsg, contentLimit);
+    const resultPreview = deriveTurnResultPreview(messageHistory, turn, endMsg, contentLimit, {
+      subagentToolUseIds,
+      toolResultPreviews,
+    });
     const userPreview = startMsg.type === "user_message" ? truncate(startMsg.content || "", 80) : "";
 
     return {

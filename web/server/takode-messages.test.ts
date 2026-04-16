@@ -470,6 +470,24 @@ describe("buildPeekDefault", () => {
     expect(result.collapsed[0].result).toBe("Subagent finished the audit");
   });
 
+  it("prefers the turn-local assistant reply over later synthetic subagent preview text", () => {
+    const childPreview = JSON.stringify([{ type: "text", text: "Repeated apology from a nested agent" }]);
+    const history: BrowserIncomingMessage[] = [
+      userMsg("Turn 1", 1000),
+      assistantMsg("Actual first-turn reply", 2000),
+      assistantMsg("", 2500, [{ name: "Agent", input: { prompt: "double-check details" } }]),
+      toolResultPreview("tu-Agent", childPreview),
+      resultMsg(3000),
+      userMsg("Turn 2", 7000),
+      assistantMsg("Distinct second-turn reply", 8000),
+      resultMsg(1000),
+    ];
+
+    const result = buildPeekDefault(history);
+    expect(result.collapsed).toHaveLength(1);
+    expect(result.collapsed[0].result).toBe("Actual first-turn reply");
+  });
+
   it("ignores a trailing injected stop message instead of treating it as a running turn", () => {
     const history: BrowserIncomingMessage[] = [
       userMsg("Investigate the bug", 1000),
@@ -543,6 +561,31 @@ describe("buildPeekRange", () => {
     expect(result.from).toBe(2);
     expect(result.to).toBe(4);
     expect(result.messages.map((msg) => msg.idx)).toEqual([2, 3, 4]);
+  });
+});
+
+describe("buildPeekTurnScan", () => {
+  it("uses the actual turn-local assistant reply for collapsed summaries", () => {
+    const childPreview = JSON.stringify([{ type: "text", text: "Repeated apology from a nested agent" }]);
+    const history: BrowserIncomingMessage[] = [
+      userMsg("Turn 1", 1000),
+      assistantMsg("Actual first-turn reply", 2000),
+      assistantMsg("", 2500, [{ name: "Agent", input: { prompt: "double-check details" } }]),
+      toolResultPreview("tu-Agent", childPreview),
+      resultMsg(3000),
+      userMsg("Turn 2", 7000),
+      assistantMsg("Distinct second-turn reply", 8000),
+      resultMsg(1000),
+      userMsg("Turn 3", 10000),
+      assistantMsg("Third-turn reply", 11000),
+      resultMsg(1000),
+    ];
+
+    const result = buildPeekTurnScan(history, { fromTurn: 0, turnCount: 3 });
+    expect(result.turns).toHaveLength(3);
+    expect(result.turns[0].result).toBe("Actual first-turn reply");
+    expect(result.turns[1].result).toBe("Distinct second-turn reply");
+    expect(result.turns[2].result).toBe("Third-turn reply");
   });
 });
 
