@@ -2509,6 +2509,9 @@ describe("symlinkProjectSettings", () => {
     expect(prompt).toContain("Base branch");
     expect(prompt).toContain("override any conflicting generic markdown-link or file-reference instructions");
     expect(prompt).toContain("never write plain");
+    expect(prompt).toContain("Even if the user refers to quests or sessions in plain text");
+    expect(prompt).toContain("rich links in the chat UI");
+    expect(prompt).toContain("hover for previews and click through");
   });
 });
 
