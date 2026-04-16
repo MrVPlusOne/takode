@@ -8,6 +8,18 @@ const { mockApi } = vi.hoisted(() => ({
     getPRStatus: vi.fn().mockRejectedValue(new Error("skip")),
     getClaudeMdFiles: vi.fn().mockResolvedValue({ cwd: "/repo", files: [] }),
     getAutoApprovalConfigForPath: vi.fn().mockResolvedValue({ config: null }),
+    getHerdDiagnostics: vi.fn().mockResolvedValue({
+      herdDispatcher: { pendingEventCount: 0, eventHistory: [] },
+      isGenerating: false,
+      cliConnected: true,
+      cliInitReceived: true,
+      pendingMessagesCount: 0,
+      disconnectGraceActive: false,
+      herdedWorkers: [],
+      pendingPermissionsCount: 0,
+    }),
+    unherdSession: vi.fn().mockResolvedValue({ ok: true }),
+    listSessions: vi.fn().mockResolvedValue([]),
   },
 }));
 
@@ -157,6 +169,68 @@ describe("TaskPanel", () => {
     const autoApprovalButton = await screen.findByRole("button", { name: "Auto-Approval Rules" }, { timeout: 5000 });
     fireEvent.click(autoApprovalButton);
     await screen.findByText("Read-only", {}, { timeout: 5000 });
+  });
+
+  it("does not start herd diagnostics polling when the task panel is closed", () => {
+    resetStore({
+      taskPanelOpen: false,
+      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
+    });
+
+    render(<TaskPanel sessionId="s1" />);
+
+    expect(mockApi.getHerdDiagnostics).not.toHaveBeenCalled();
+  });
+
+  it("does not poll herd diagnostics while the section is collapsed", async () => {
+    vi.useFakeTimers();
+    try {
+      localStorage.setItem("cc-collapse-herd-diag", "1");
+      resetStore({
+        sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
+      });
+
+      render(<TaskPanel sessionId="s1" />);
+      await vi.advanceTimersByTimeAsync(15_000);
+
+      expect(mockApi.getHerdDiagnostics).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the herd diagnostics header visible when first mounted collapsed", () => {
+    localStorage.setItem("cc-collapse-herd-diag", "1");
+    resetStore({
+      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
+    });
+
+    render(<TaskPanel sessionId="s1" />);
+
+    // Regression coverage for q-365: persisted collapsed state must not hide
+    // the entire section before diagnostics data has ever loaded.
+    expect(screen.getByRole("button", { name: "Herd Diagnostics" })).toBeInTheDocument();
+    expect(mockApi.getHerdDiagnostics).not.toHaveBeenCalled();
+  });
+
+  it("polls herd diagnostics only when the section is visible", async () => {
+    vi.useFakeTimers();
+    try {
+      localStorage.setItem("cc-collapse-herd-diag", "0");
+      resetStore({
+        sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
+      });
+
+      render(<TaskPanel sessionId="s1" />);
+
+      await vi.advanceTimersByTimeAsync(0);
+      expect(mockApi.getHerdDiagnostics).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(mockApi.getHerdDiagnostics).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

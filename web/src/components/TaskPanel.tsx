@@ -862,6 +862,7 @@ export function HerdDiagnosticsSection({ sessionId }: { sessionId: string }) {
   const [diag, setDiag] = useState<Record<string, unknown> | null>(null);
 
   useEffect(() => {
+    if (collapsed) return;
     let active = true;
     async function poll() {
       try {
@@ -877,17 +878,15 @@ export function HerdDiagnosticsSection({ sessionId }: { sessionId: string }) {
       active = false;
       clearInterval(interval);
     };
-  }, [sessionId]);
+  }, [collapsed, sessionId]);
 
-  if (!diag) return null;
-
-  const dispatcher = diag.herdDispatcher as Record<string, unknown> | null;
+  const dispatcher = (diag?.herdDispatcher as Record<string, unknown> | null | undefined) ?? null;
   const pendingCount = (dispatcher?.pendingEventCount as number) || 0;
-  const isGen = diag.isGenerating as boolean;
-  const cliConn = diag.cliConnected as boolean;
-  const cliInitReceived = diag.cliInitReceived as boolean;
-  const pendingMsgs = (diag.pendingMessagesCount as number) || 0;
-  const graceActive = diag.disconnectGraceActive as boolean;
+  const isGen = (diag?.isGenerating as boolean | undefined) ?? false;
+  const cliConn = (diag?.cliConnected as boolean | undefined) ?? false;
+  const cliInitReceived = (diag?.cliInitReceived as boolean | undefined) ?? false;
+  const pendingMsgs = (diag?.pendingMessagesCount as number | undefined) || 0;
+  const graceActive = (diag?.disconnectGraceActive as boolean | undefined) ?? false;
   const eventHistory = (dispatcher?.eventHistory || []) as Array<{
     event: string;
     sessionName: string;
@@ -920,47 +919,53 @@ export function HerdDiagnosticsSection({ sessionId }: { sessionId: string }) {
       />
       {!collapsed && (
         <div className="px-3 py-2 text-[10px] font-mono text-cc-muted space-y-0.5">
-          <div>{statusLine}</div>
-          {pendingCount > 0 && dispatcher != null && (
-            <div className="text-amber-400/70">
-              Events: {String(((dispatcher.pendingEventTypes as string[]) || []).join(", "))}
-            </div>
-          )}
-          <div className="opacity-50">
-            workers: {((diag.herdedWorkers as Array<Record<string, unknown>>) || []).length}
-            {" · "}perms: {(diag.pendingPermissionsCount as number) || 0}
-          </div>
-          {/* Persistent event history */}
-          {eventHistory.length > 0 && (
-            <div className="mt-1.5 pt-1.5 border-t border-cc-border/30">
-              <div className="text-[9px] text-cc-muted/50 mb-0.5">Recent events ({eventHistory.length})</div>
-              <div className="max-h-24 overflow-y-auto space-y-px">
-                {eventHistory.slice(-15).map((h, i) => {
-                  const time = new Date(h.ts).toLocaleTimeString("en-US", {
-                    hour12: false,
-                    hour: "2-digit",
-                    minute: "2-digit",
-                    second: "2-digit",
-                  });
-                  const statusIcon = h.status === "delivered" ? "✓" : h.status === "dropped" ? "✗" : "⏳";
-                  const statusColor =
-                    h.status === "delivered"
-                      ? "text-green-500/60"
-                      : h.status === "dropped"
-                        ? "text-red-500/60"
-                        : "text-amber-400/60";
-                  return (
-                    <div key={i} className="flex items-center gap-1">
-                      <span className={`${statusColor} shrink-0`}>{statusIcon}</span>
-                      <span className="text-cc-muted/40">{time}</span>
-                      <span className="truncate">
-                        {h.event} · {h.sessionName}
-                      </span>
-                    </div>
-                  );
-                })}
+          {!diag ? (
+            <div className="text-cc-muted italic">Loading diagnostics…</div>
+          ) : (
+            <>
+              <div>{statusLine}</div>
+              {pendingCount > 0 && dispatcher != null && (
+                <div className="text-amber-400/70">
+                  Events: {String(((dispatcher.pendingEventTypes as string[]) || []).join(", "))}
+                </div>
+              )}
+              <div className="opacity-50">
+                workers: {((diag.herdedWorkers as Array<Record<string, unknown>>) || []).length}
+                {" · "}perms: {(diag.pendingPermissionsCount as number) || 0}
               </div>
-            </div>
+              {/* Persistent event history */}
+              {eventHistory.length > 0 && (
+                <div className="mt-1.5 pt-1.5 border-t border-cc-border/30">
+                  <div className="text-[9px] text-cc-muted/50 mb-0.5">Recent events ({eventHistory.length})</div>
+                  <div className="max-h-24 overflow-y-auto space-y-px">
+                    {eventHistory.slice(-15).map((h, i) => {
+                      const time = new Date(h.ts).toLocaleTimeString("en-US", {
+                        hour12: false,
+                        hour: "2-digit",
+                        minute: "2-digit",
+                        second: "2-digit",
+                      });
+                      const statusIcon = h.status === "delivered" ? "✓" : h.status === "dropped" ? "✗" : "⏳";
+                      const statusColor =
+                        h.status === "delivered"
+                          ? "text-green-500/60"
+                          : h.status === "dropped"
+                            ? "text-red-500/60"
+                            : "text-amber-400/60";
+                      return (
+                        <div key={i} className="flex items-center gap-1">
+                          <span className={`${statusColor} shrink-0`}>{statusIcon}</span>
+                          <span className="text-cc-muted/40">{time}</span>
+                          <span className="truncate">
+                            {h.event} · {h.sessionName}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
