@@ -15235,6 +15235,16 @@ describe("Codex image transport", () => {
   /** Flush microtask queue so async routeBrowserMessage completes. */
   const flush = () => new Promise((r) => setTimeout(r, 20));
 
+  function deferred<T>() {
+    let resolve!: (value: T | PromiseLike<T>) => void;
+    let reject!: (reason?: unknown) => void;
+    const promise = new Promise<T>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  }
+
   it("sends path-only text context to Codex when stored originals are available", async () => {
     const adapter = makeCodexAdapterMock();
 
@@ -15287,6 +15297,117 @@ describe("Codex image transport", () => {
       },
     ]);
     expect(session?.pendingCodexInputs[0]?.localImagePaths).toEqual([expectedPath]);
+  });
+
+  it("preserves browser send order when an image message is delayed by async storage", async () => {
+    const adapter = makeCodexAdapterMock();
+    const imageStoreGate = deferred<{ imageId: string; media_type: string }>();
+    const mockImageStore = {
+      store: vi.fn().mockReturnValue(imageStoreGate.promise),
+      getOriginalPath: vi.fn().mockResolvedValue("/tmp/companion-images/img-queued.orig.png"),
+    };
+    bridge.setImageStore(mockImageStore as any);
+    bridge.attachCodexAdapter("s1", adapter as any);
+    emitCodexSessionReady(adapter, { cliSessionId: "thread-image-order" });
+
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+    browser.send.mockClear();
+
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "user_message",
+        content: "look at this screenshot",
+        images: [{ media_type: "image/png", data: "delayed-image-data" }],
+      }),
+    );
+    await Promise.resolve();
+
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "user_message",
+        content: "follow-up text should stay behind the image",
+      }),
+    );
+    await flush();
+
+    const sessionBeforeRelease = bridge.getSession("s1")!;
+    expect(sessionBeforeRelease.pendingCodexInputs).toHaveLength(0);
+    expect(adapter.sendBrowserMessage).not.toHaveBeenCalled();
+
+    imageStoreGate.resolve({ imageId: "img-queued", media_type: "image/png" });
+    await flush();
+
+    const session = bridge.getSession("s1")!;
+    expect(session.pendingCodexInputs).toHaveLength(2);
+    expect(session.pendingCodexInputs[0]?.content).toBe("look at this screenshot");
+    expect(session.pendingCodexInputs[1]?.content).toBe("follow-up text should stay behind the image");
+    expect(adapter.sendBrowserMessage).toHaveBeenCalledTimes(1);
+
+    const firstDispatch = adapter.sendBrowserMessage.mock.calls[0]?.[0] as any;
+    expect(firstDispatch?.type).toBe("codex_start_pending");
+    expect(firstDispatch.inputs[0]?.content).toContain("look at this screenshot");
+    expect(firstDispatch.inputs[0]?.content).toContain("Attachment 1: /tmp/companion-images/img-queued.orig.png");
+    expect(firstDispatch.inputs[0]?.local_images).toEqual(["/tmp/companion-images/img-queued.orig.png"]);
+
+    expect(getPendingCodexTurn(session)).toMatchObject({
+      status: "dispatched",
+      userContent: expect.stringContaining("look at this screenshot"),
+    });
+  });
+
+  it("queues injected herd events behind an in-flight delayed image send", async () => {
+    const adapter = makeCodexAdapterMock();
+    const imageStoreGate = deferred<{ imageId: string; media_type: string }>();
+    const mockImageStore = {
+      store: vi.fn().mockReturnValue(imageStoreGate.promise),
+      getOriginalPath: vi.fn().mockResolvedValue("/tmp/companion-images/img-herd.orig.png"),
+    };
+    bridge.setImageStore(mockImageStore as any);
+    bridge.attachCodexAdapter("s1", adapter as any);
+    emitCodexSessionReady(adapter, { cliSessionId: "thread-image-herd-order" });
+
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+    browser.send.mockClear();
+
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "user_message",
+        content: "inspect this image before the herd event",
+        images: [{ media_type: "image/png", data: "queued-image-data" }],
+      }),
+    );
+    await Promise.resolve();
+
+    const herdDelivery = bridge.injectUserMessage("s1", "1 event from 1 session\n\n#490 | turn_end | ✓ 5s", {
+      sessionId: "herd-events",
+      sessionLabel: "Herd Events",
+    });
+    expect(herdDelivery).toBe("sent");
+
+    await flush();
+    expect(adapter.sendBrowserMessage).not.toHaveBeenCalled();
+
+    imageStoreGate.resolve({ imageId: "img-herd", media_type: "image/png" });
+    await flush();
+
+    const session = bridge.getSession("s1")!;
+    expect(session.pendingCodexInputs).toHaveLength(2);
+    expect(session.pendingCodexInputs[0]?.content).toBe("inspect this image before the herd event");
+    expect(session.pendingCodexInputs[1]?.agentSource).toEqual({
+      sessionId: "herd-events",
+      sessionLabel: "Herd Events",
+    });
+    expect(session.pendingCodexInputs[1]?.content).toContain("#490 | turn_end");
+
+    const firstDispatch = adapter.sendBrowserMessage.mock.calls[0]?.[0] as any;
+    expect(firstDispatch?.type).toBe("codex_start_pending");
+    expect(firstDispatch.inputs[0]?.content).toContain("inspect this image before the herd event");
+    expect(firstDispatch.inputs[0]?.content).toContain("Attachment 1: /tmp/companion-images/img-herd.orig.png");
   });
 
   it("restores image attachments when a pending Codex image input is cancelled", async () => {

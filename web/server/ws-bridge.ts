@@ -860,6 +860,9 @@ export class WsBridge {
     "set_ask_permission",
   ]);
   private sessions = new Map<string, Session>();
+  /** Per-session serialization chain for externally injected/browser-routed messages.
+   *  Preserves send order across async image ingestion without blocking other sessions. */
+  private sessionRouteChains = new Map<string, Promise<void>>();
   private store: SessionStore | null = null;
   private recorder: RecorderManager | null = null;
   private timerManager: import("./timer-manager.js").TimerManager | null = null;
@@ -5459,7 +5462,7 @@ export class WsBridge {
       payloadBytes: Buffer.byteLength(data, "utf-8"),
     });
 
-    void this.routeBrowserMessage(session, msg, ws).catch((err) => {
+    void this.enqueueSessionRoute(session, () => this.routeBrowserMessage(session, msg, ws)).catch((err) => {
       if (msg.type === "user_message" && msg.images?.length) {
         this.notifyImageSendFailure(session, err);
         return;
@@ -5477,6 +5480,31 @@ export class WsBridge {
         this.perfTracer.recordSlowWsMessage(sessionId, "browser", msg.type, perfMs);
       }
     }
+  }
+
+  private enqueueSessionRoute(session: Session, task: () => Promise<void> | void): Promise<void> {
+    const prior = this.sessionRouteChains.get(session.id);
+    let next: Promise<void>;
+    if (prior) {
+      next = prior.catch(() => {}).then(() => task());
+    } else {
+      try {
+        next = Promise.resolve(task());
+      } catch (err) {
+        next = Promise.reject(err);
+      }
+    }
+    const tracked = next.finally(() => {
+      if (this.sessionRouteChains.get(session.id) === tracked) {
+        this.sessionRouteChains.delete(session.id);
+      }
+    });
+    this.sessionRouteChains.set(session.id, tracked);
+    return tracked;
+  }
+
+  private hasSessionRouteInFlight(sessionId: string): boolean {
+    return this.sessionRouteChains.has(sessionId);
   }
 
   /** Send a user message into a session programmatically (no browser required).
@@ -5506,17 +5534,28 @@ export class WsBridge {
     // routeBrowserMessage will queue the message but the caller should know.
     const backendLive = this.backendConnected(session);
     const pendingCodexCountBefore = session.pendingCodexInputs.length;
-    this.routeBrowserMessage(session, {
-      type: "user_message",
-      content,
-      ...(agentSource ? { agentSource } : {}),
-    });
-    if (this.isHerdEventSource(agentSource) && session.backendType === "codex") {
-      const pending = session.pendingCodexInputs
-        .slice(pendingCodexCountBefore)
-        .find((input) => input.content === content && this.sameAgentSource(input.agentSource, agentSource));
-      if (pending) {
-        return this.getPendingCodexInputDeliveryState(session, pending.id);
+    const hadRouteInFlight = this.hasSessionRouteInFlight(session.id);
+    if (hadRouteInFlight) {
+      void this.enqueueSessionRoute(session, () =>
+        this.routeBrowserMessage(session, {
+          type: "user_message",
+          content,
+          ...(agentSource ? { agentSource } : {}),
+        }),
+      );
+    } else {
+      this.routeBrowserMessage(session, {
+        type: "user_message",
+        content,
+        ...(agentSource ? { agentSource } : {}),
+      });
+      if (this.isHerdEventSource(agentSource) && session.backendType === "codex") {
+        const pending = session.pendingCodexInputs
+          .slice(pendingCodexCountBefore)
+          .find((input) => input.content === content && this.sameAgentSource(input.agentSource, agentSource));
+        if (pending) {
+          return this.getPendingCodexInputDeliveryState(session, pending.id);
+        }
       }
     }
 
