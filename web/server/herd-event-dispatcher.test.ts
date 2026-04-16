@@ -1239,7 +1239,7 @@ describe("formatHerdEventBatch with activity injection", () => {
     expect(requestedRanges[1]).toEqual({ from: 13, to: 20 });
   });
 
-  it("skips activity entirely when deduplication eliminates the range", () => {
+  it("fetches the full range and skips activity when no unseen user or non-user content survives deduplication", () => {
     const events = [
       makeEvent({
         event: "turn_end",
@@ -1259,10 +1259,72 @@ describe("formatHerdEventBatch with activity injection", () => {
       lastEmittedMsgTo: watermarks,
     });
 
-    // Should NOT call getMessages since deduplicated range is empty
-    expect(getMessagesCalled).toBe(false);
+    // The dispatcher now fetches the full range so the formatter can decide
+    // whether any older unseen user messages still need to surface.
+    expect(getMessagesCalled).toBe(true);
     // Should still have the turn_end status line
     expect(result).toContain("turn_end");
+    expect(result).not.toContain("user:");
+  });
+
+  it("still surfaces an unseen user message even when it is older than the non-user dedup watermark", () => {
+    const events = [
+      makeEvent({
+        event: "turn_end",
+        sessionId: "worker-1",
+        data: { duration_ms: 5000, msgRange: { from: 10, to: 16 } },
+      }),
+    ];
+    const watermarks = new Map([["worker-1", 14]]);
+    const seenUserMsgIdxs = new Map<string, Set<number>>();
+    const surfacedUserMsgIdxs = new Map<string, Set<number>>();
+    const mockMessages = [
+      { type: "assistant", message: { content: [{ type: "text", text: "older assistant" }] }, timestamp: Date.now() },
+      { type: "user_message", content: "Unseen user below watermark", timestamp: Date.now() },
+      { type: "assistant", message: { content: [{ type: "text", text: "new assistant" }] }, timestamp: Date.now() },
+      { type: "result", data: { result: "Done", is_error: false, duration_ms: 1 } },
+    ];
+
+    const result = formatHerdEventBatch(events, {
+      getMessages: () => mockMessages as any,
+      lastEmittedMsgTo: watermarks,
+      seenUserMsgIdxs,
+      surfacedUserMsgIdxs,
+    });
+
+    expect(result).toContain('user: "Unseen user below watermark"');
+    expect(result).not.toContain("older assistant");
+    expect(surfacedUserMsgIdxs.get("worker-1")).toEqual(new Set([11]));
+  });
+
+  it("does not duplicate user messages that were already surfaced in prior activity output", () => {
+    const events = [
+      makeEvent({
+        event: "turn_end",
+        sessionId: "worker-1",
+        data: { duration_ms: 5000, msgRange: { from: 20, to: 24 } },
+      }),
+    ];
+    const watermarks = new Map([["worker-1", 22]]);
+    const seenUserMsgIdxs = new Map<string, Set<number>>([["worker-1", new Set([21])]]);
+    const surfacedUserMsgIdxs = new Map<string, Set<number>>();
+    const mockMessages = [
+      { type: "assistant", message: { content: [{ type: "text", text: "old assistant" }] }, timestamp: Date.now() },
+      { type: "user_message", content: "Already seen user", timestamp: Date.now() },
+      { type: "user_message", content: "Fresh unseen user", timestamp: Date.now() },
+      { type: "result", data: { result: "Done", is_error: false, duration_ms: 1 } },
+    ];
+
+    const result = formatHerdEventBatch(events, {
+      getMessages: () => mockMessages as any,
+      lastEmittedMsgTo: watermarks,
+      seenUserMsgIdxs,
+      surfacedUserMsgIdxs,
+    });
+
+    expect(result).not.toContain('user: "Already seen user"');
+    expect(result).toContain('user: "Fresh unseen user"');
+    expect(surfacedUserMsgIdxs.get("worker-1")).toEqual(new Set([22]));
   });
 });
 

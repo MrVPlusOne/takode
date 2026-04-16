@@ -42,8 +42,17 @@ const KEY_MESSAGE_LIMIT = 5000;
 export interface FormatActivityOptions {
   /** Base message index offset for display (e.g. msgRange.from). */
   startIdx: number;
-  /** Max output lines (default: 15). */
+  /** Max non-user output lines (default: 15). User lines are always included. */
   maxLines?: number;
+  /** Non-user messages with idx < deduplicatedFrom are skipped as already emitted. */
+  deduplicatedFrom?: number;
+  /** User message indices that were already surfaced in prior herd activity output. */
+  seenUserMsgIdxs?: ReadonlySet<number>;
+}
+
+export interface FormattedActivitySummary {
+  text: string;
+  surfacedUserMsgIdxs: number[];
 }
 
 /**
@@ -67,21 +76,36 @@ export interface FormatActivityOptions {
  *   first line + "... N messages skipped [range]" + last (maxLines-1) lines
  */
 export function formatActivitySummary(messages: BrowserIncomingMessage[], options: FormatActivityOptions): string {
+  return formatActivitySummaryDetailed(messages, options).text;
+}
+
+export function formatActivitySummaryDetailed(
+  messages: BrowserIncomingMessage[],
+  options: FormatActivityOptions,
+): FormattedActivitySummary {
   const maxLines = options.maxLines ?? MAX_LINES;
   const startIdx = options.startIdx;
+  const deduplicatedFrom = options.deduplicatedFrom ?? startIdx;
+  const seenUserMsgIdxs = options.seenUserMsgIdxs ?? EMPTY_SEEN_USER_MSG_IDXS;
 
   // Find the last formattable message -- it's the "key message" that triggered the event
   // and gets the generous content limit.
-  const keyMessageIdx = findLastFormattableIndex(messages);
+  const keyMessageIdx = findLastFormattableIndex(messages, startIdx, deduplicatedFrom, seenUserMsgIdxs);
 
-  // Pass 1: format ALL messages into lines, tracking their original message indices
-  const allLines: Array<{ line: string; msgIdx: number }> = [];
+  // Pass 1: build visible lines, keeping user lines separate from capped non-user lines.
+  const userLines: Array<{ line: string; msgIdx: number }> = [];
+  const nonUserLines: Array<{ line: string; msgIdx: number }> = [];
+  const surfacedUserMsgIdxs: number[] = [];
   const hiddenToolCounts = new Map<string, number>();
   let firstHiddenToolIdx: number | null = null;
   let lastHiddenToolIdx: number | null = null;
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i];
     const idx = startIdx + i;
+    const keepUserLine = msg.type === "user_message" && !seenUserMsgIdxs.has(idx);
+    const keepNonUserLine = msg.type !== "user_message" && idx >= deduplicatedFrom;
+    if (!keepUserLine && !keepNonUserLine) continue;
+
     const isKeyMessage = i === keyMessageIdx;
     const formatted = formatMessage(msg, idx, isKeyMessage);
     if (formatted?.hiddenToolCounts) {
@@ -93,9 +117,32 @@ export function formatActivitySummary(messages: BrowserIncomingMessage[], option
     }
     if (formatted && formatted.lines !== null) {
       for (const line of formatted.lines) {
-        allLines.push({ line, msgIdx: idx });
+        if (msg.type === "user_message") {
+          userLines.push({ line, msgIdx: idx });
+          surfacedUserMsgIdxs.push(idx);
+        } else {
+          nonUserLines.push({ line, msgIdx: idx });
+        }
       }
     }
+  }
+
+  const allLines: Array<{ line: string; msgIdx: number }> = [...userLines];
+
+  if (nonUserLines.length > maxLines) {
+    const keptTail = maxLines > 0 ? nonUserLines.slice(-maxLines) : [];
+    const skipped = nonUserLines.length - keptTail.length;
+    if (skipped > 0 && keptTail.length > 0) {
+      const firstSkippedIdx = nonUserLines[0].msgIdx;
+      const lastSkippedIdx = nonUserLines[skipped - 1].msgIdx;
+      allLines.push({
+        line: `... ${skipped} non-user message${skipped === 1 ? "" : "s"} skipped [${firstSkippedIdx}]-[${lastSkippedIdx}]`,
+        msgIdx: firstSkippedIdx,
+      });
+    }
+    allLines.push(...keptTail);
+  } else {
+    allLines.push(...nonUserLines);
   }
 
   if (hiddenToolCounts.size > 0) {
@@ -111,11 +158,12 @@ export function formatActivitySummary(messages: BrowserIncomingMessage[], option
     });
   }
 
-  if (allLines.length === 0) return "";
+  if (allLines.length === 0) return { text: "", surfacedUserMsgIdxs };
 
-  // Pass 2: tail-priority truncation -- keep first line + last (maxLines-1) lines
-  if (allLines.length <= maxLines) {
-    return allLines.map((l) => l.line).join("\n");
+  // Pass 2: final guard for total output size. User lines were already preserved
+  // and non-user lines already capped, so this mostly protects pathological cases.
+  if (allLines.length <= maxLines + userLines.length + (hiddenToolCounts.size > 0 ? 1 : 0) + 1) {
+    return { text: allLines.map((l) => l.line).join("\n"), surfacedUserMsgIdxs };
   }
 
   const head = allLines[0];
@@ -130,7 +178,7 @@ export function formatActivitySummary(messages: BrowserIncomingMessage[], option
   result.push(`... ${skipped} message${skipped === 1 ? "" : "s"} skipped [${firstSkippedIdx}]-[${lastSkippedIdx}]`);
   for (const t of tail) result.push(t.line);
 
-  return result.join("\n");
+  return { text: result.join("\n"), surfacedUserMsgIdxs };
 }
 
 // ─── Message Formatting ──────────────────────────────────────────────────────
@@ -241,11 +289,25 @@ function formatAssistantMessage(
 
 // ─── Helpers ────────────────────────────────────────────────────────────────────
 
+const EMPTY_SEEN_USER_MSG_IDXS = new Set<number>();
+
 /** Find the index of the last formattable message in the slice.
  *  This is the "key message" that triggered the event and gets generous treatment. */
-function findLastFormattableIndex(messages: BrowserIncomingMessage[]): number {
+function findLastFormattableIndex(
+  messages: BrowserIncomingMessage[],
+  startIdx: number,
+  deduplicatedFrom: number,
+  seenUserMsgIdxs: ReadonlySet<number>,
+): number {
   for (let i = messages.length - 1; i >= 0; i--) {
-    if (isFormattable(messages[i])) return i;
+    const idx = startIdx + i;
+    const msg = messages[i];
+    if (!isFormattable(msg)) continue;
+    if (msg.type === "user_message") {
+      if (!seenUserMsgIdxs.has(idx)) return i;
+      continue;
+    }
+    if (idx >= deduplicatedFrom) return i;
   }
   return -1;
 }

@@ -167,6 +167,41 @@ describe("formatActivitySummary", () => {
     expect(result).toContain("Tool Calls not shown above: 1 Bash, 1 Read.");
   });
 
+  it("always includes unseen user messages even when non-user lines exceed the normal cap", () => {
+    const messages: BrowserIncomingMessage[] = [
+      userMsg("First unseen user"),
+      assistantMsg("older assistant 1"),
+      assistantMsg("older assistant 2"),
+      userMsg("Second unseen user"),
+      assistantMsg("latest assistant"),
+      resultMsg("Done"),
+    ];
+
+    const result = formatActivitySummary(messages, { startIdx: 10, maxLines: 1 });
+
+    expect(result).toContain('[10] user: "First unseen user"');
+    expect(result).toContain('[13] user: "Second unseen user"');
+    expect(result).toContain('[15] ✓ "Done"');
+    expect(result).not.toContain("older assistant 1");
+    expect(result).not.toContain("older assistant 2");
+  });
+
+  it("drops older non-user lines before unseen user messages when truncation is needed", () => {
+    const messages: BrowserIncomingMessage[] = [
+      assistantMsg("older assistant"),
+      userMsg("Need this context"),
+      assistantMsg("newer assistant"),
+      resultMsg("Final outcome"),
+    ];
+
+    const result = formatActivitySummary(messages, { startIdx: 20, maxLines: 1 });
+
+    expect(result).toContain('[21] user: "Need this context"');
+    expect(result).toContain('[23] ✓ "Final outcome"');
+    expect(result).not.toContain("older assistant");
+    expect(result).toContain("non-user messages skipped");
+  });
+
   it("formats error results with ✗ icon", () => {
     const messages = [resultMsg("TypeError: x is not defined", true)];
     const result = formatActivitySummary(messages, { startIdx: 0 });
@@ -216,10 +251,7 @@ describe("formatActivitySummary", () => {
     expect(result).toContain("[1] user:");
   });
 
-  it("truncates with tail-priority: keeps first line + skip marker + last N lines", () => {
-    // Create 20 messages: many assistant messages plus a final result.
-    // Each assistant has text + tools = 2 lines. With maxLines=5:
-    //   first 2 lines (step 0) + skip marker + last 4 lines
+  it("truncates non-user activity with tail-priority while preserving the most recent lines", () => {
     const messages: BrowserIncomingMessage[] = [];
     for (let i = 0; i < 19; i++) {
       messages.push(assistantMsg(`step ${i}`, [{ name: "Read", input: { file_path: `/file${i}.ts` } }]));
@@ -229,26 +261,28 @@ describe("formatActivitySummary", () => {
     const result = formatActivitySummary(messages, { startIdx: 0, maxLines: 5 });
     const lines = result.split("\n");
 
-    // First line should be the first message (step 0)
-    expect(lines[0]).toContain("[0]");
-    expect(lines[0]).toContain("step 0");
+    // Non-user truncation now keeps the most recent non-user lines rather than
+    // preserving the oldest head line.
+    expect(lines[0]).toContain("non-user messages skipped");
     // Skip marker should be present (no indent)
     expect(result).toContain("...");
     expect(result).toContain("skipped");
     // Last lines should be the TAIL (most recent messages)
     expect(result).toContain("All done");
+    expect(result).toContain("step 18");
+    expect(result).not.toContain("step 0");
   });
 
-  it("handles maxLines=1 edge case: head + skip marker, no tail", () => {
-    // With maxLines=1 and multiple messages, tailCount = 0, so output is
-    // just the first line + skip marker (no tail lines).
+  it("does not truncate when only user messages exceed maxLines", () => {
+    // User messages are exempt from the normal non-user cap.
     const messages = [userMsg("first"), userMsg("second"), userMsg("third")];
     const result = formatActivitySummary(messages, { startIdx: 0, maxLines: 1 });
     const lines = result.split("\n");
 
     expect(lines[0]).toContain('[0] user: "first"');
-    expect(lines[1]).toContain("2 messages skipped");
-    expect(lines.length).toBe(2);
+    expect(lines[1]).toContain('[1] user: "second"');
+    expect(lines[2]).toContain('[2] user: "third"');
+    expect(result).not.toContain("skipped");
   });
 
   it("does not truncate when exactly at maxLines boundary", () => {
@@ -258,11 +292,11 @@ describe("formatActivitySummary", () => {
     expect(result).not.toContain("skipped");
     expect(result.split("\n").length).toBe(3);
 
-    // 4 formattable messages with maxLines=3 SHOULD truncate
+    // 4 user messages with maxLines=3 still do NOT truncate because the cap
+    // applies only to non-user lines.
     const messages4 = [userMsg("a"), userMsg("b"), userMsg("c"), userMsg("d")];
     const result4 = formatActivitySummary(messages4, { startIdx: 0, maxLines: 3 });
-    expect(result4).toContain("skipped");
-    // Tail should have the last 2 messages
+    expect(result4).not.toContain("skipped");
     expect(result4).toContain('[2] user: "c"');
     expect(result4).toContain('[3] user: "d"');
   });

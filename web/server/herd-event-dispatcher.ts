@@ -21,7 +21,7 @@
  */
 
 import type { TakodeEvent, TakodeEventType, BrowserIncomingMessage } from "./session-types.js";
-import { formatActivitySummary } from "./herd-activity-formatter.js";
+import { formatActivitySummaryDetailed } from "./herd-activity-formatter.js";
 
 // ─── Interfaces (for testability — avoids importing full WsBridge/CliLauncher) ──
 
@@ -112,6 +112,8 @@ interface HerdInbox {
   /** Per-worker: highest msgRange.to from the last delivered batch.
    *  Prevents re-injecting the same activity in consecutive turn_end events. */
   lastEmittedMsgTo: Map<string, number>;
+  /** Per-worker: user message indices that were actually surfaced in prior activity output. */
+  seenUserMsgIdxs: Map<string, Set<number>>;
 }
 
 // ─── Dispatcher ─────────────────────────────────────────────────────────────────
@@ -161,6 +163,7 @@ export class HerdEventDispatcher {
         workerIds,
         deliveryHistory: [],
         lastEmittedMsgTo: new Map(),
+        seenUserMsgIdxs: new Map(),
       };
       inbox.unsubscribe = this.wsBridge.subscribeTakodeEvents(workerIds, (evt) => this.onWorkerEvent(orchId, evt));
       this.inboxes.set(orchId, inbox);
@@ -333,9 +336,12 @@ export class HerdEventDispatcher {
     if (pending.length === 0) return 0;
 
     const events = pending.map((e) => e.event);
+    const surfacedUserMsgIdxs = new Map<string, Set<number>>();
     const content = formatHerdEventBatch(events, {
       getMessages: (sid, from, to) => this.wsBridge.getSessionMessages(sid, from, to),
       lastEmittedMsgTo: inbox.lastEmittedMsgTo,
+      seenUserMsgIdxs: inbox.seenUserMsgIdxs,
+      surfacedUserMsgIdxs,
     });
     const delivery = this.wsBridge.injectUserMessage(orchId, content, HERD_AGENT_SOURCE);
     if (delivery !== "sent") {
@@ -347,6 +353,7 @@ export class HerdEventDispatcher {
 
     // Update deduplication watermarks from the events we just delivered
     updateLastEmittedMsgTo(inbox.lastEmittedMsgTo, events);
+    mergeSurfacedUserMsgIdxs(inbox.seenUserMsgIdxs, surfacedUserMsgIdxs);
 
     const lastSeq = pending[pending.length - 1].seq;
     inbox.inFlightUpTo = lastSeq;
@@ -411,9 +418,12 @@ export class HerdEventDispatcher {
 
     // Format and inject
     const events = pending.map((e) => e.event);
+    const surfacedUserMsgIdxs = new Map<string, Set<number>>();
     const content = formatHerdEventBatch(events, {
       getMessages: (sid, from, to) => this.wsBridge.getSessionMessages(sid, from, to),
       lastEmittedMsgTo: inbox.lastEmittedMsgTo,
+      seenUserMsgIdxs: inbox.seenUserMsgIdxs,
+      surfacedUserMsgIdxs,
     });
     const delivery = this.wsBridge.injectUserMessage(orchId, content, HERD_AGENT_SOURCE);
     if (delivery !== "sent") {
@@ -425,6 +435,7 @@ export class HerdEventDispatcher {
 
     // Update deduplication watermarks from the events we just delivered
     updateLastEmittedMsgTo(inbox.lastEmittedMsgTo, events);
+    mergeSurfacedUserMsgIdxs(inbox.seenUserMsgIdxs, surfacedUserMsgIdxs);
 
     // Mark as in-flight (NOT confirmed yet — that happens on turn end)
     const lastSeq = pending[pending.length - 1].seq;
@@ -534,6 +545,10 @@ export interface FormatBatchOptions {
   /** Per-worker deduplication watermark: highest msgRange.to already delivered.
    *  Prevents re-injecting overlapping activity across consecutive batches. */
   lastEmittedMsgTo?: Map<string, number>;
+  /** Per-worker set of user message indices already surfaced in prior deliveries. */
+  seenUserMsgIdxs?: Map<string, Set<number>>;
+  /** Collector populated with the user message indices actually surfaced by this batch. */
+  surfacedUserMsgIdxs?: Map<string, Set<number>>;
 }
 
 /** Format a batch of events into a compact, scannable summary. */
@@ -657,13 +672,21 @@ function buildActivityForEvent(evt: TakodeEvent, options?: FormatBatchOptions): 
   // Deduplication: start after the last-emitted message for this worker
   const lastEmitted = options.lastEmittedMsgTo?.get(evt.sessionId) ?? -1;
   const deduplicatedFrom = Math.max(range.from, lastEmitted + 1);
-  if (deduplicatedFrom > range.to) return null;
-
-  const messages = options.getMessages(evt.sessionId, deduplicatedFrom, range.to);
+  const messages = options.getMessages(evt.sessionId, range.from, range.to);
   if (!messages || messages.length === 0) return null;
 
-  const activity = formatActivitySummary(messages, { startIdx: deduplicatedFrom });
-  return activity || null;
+  const seenUserMsgIdxs = options.seenUserMsgIdxs?.get(evt.sessionId);
+  const activity = formatActivitySummaryDetailed(messages, {
+    startIdx: range.from,
+    deduplicatedFrom,
+    seenUserMsgIdxs,
+  });
+  if (activity.surfacedUserMsgIdxs.length > 0) {
+    const collected = options.surfacedUserMsgIdxs?.get(evt.sessionId) ?? new Set<number>();
+    for (const idx of activity.surfacedUserMsgIdxs) collected.add(idx);
+    options.surfacedUserMsgIdxs?.set(evt.sessionId, collected);
+  }
+  return activity.text || null;
 }
 
 /** Update per-worker deduplication watermarks after delivering a batch. */
@@ -676,6 +699,17 @@ function updateLastEmittedMsgTo(watermarks: Map<string, number>, events: TakodeE
     if (range.to > current) {
       watermarks.set(evt.sessionId, range.to);
     }
+  }
+}
+
+function mergeSurfacedUserMsgIdxs(
+  target: Map<string, Set<number>>,
+  surfaced: Map<string, Set<number>>,
+): void {
+  for (const [sessionId, idxs] of surfaced) {
+    const existing = target.get(sessionId) ?? new Set<number>();
+    for (const idx of idxs) existing.add(idx);
+    target.set(sessionId, existing);
   }
 }
 
