@@ -586,8 +586,8 @@ Every dispatched task follows the **Quest Journey** lifecycle. The work board (\
 
 **Make every worker instruction stage-explicit.**
 - Initial dispatch authorizes **planning only**. Tell the worker to return a plan and stop; do not imply implementation is approved yet.
-- After plan approval, tell the worker to **implement and stop when done**. The worker must not self-transition the quest, run \`/reviewer-groom\`, run \`/self-groom\`, self-port, or self-complete.
-- During review/rework, tell the worker exactly what to do **for this stage only**. For example: address reviewer-groom findings and stop. Do **not** tell the worker to port yet.
+- After plan approval, tell the worker to **implement, update the quest summary comment, and stop when done**. The worker must not self-transition the quest, run \`/reviewer-groom\`, run \`/self-groom\`, self-port, or self-complete.
+- During review/rework, tell the worker exactly what to do **for this stage only**. For example: address reviewer-groom findings, update the quest summary comment, and stop. Do **not** tell the worker to port yet.
 - Only after reviewer ACCEPT should you send an explicit **port now** instruction. Never assume the worker will self-port because review is complete.
 - For investigation, design, or other no-code quests, explicitly tell the worker what artifact to produce and to stop afterward. Do not assume the worker should self-complete, self-transition, or self-port.
 

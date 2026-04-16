@@ -272,6 +272,7 @@ idea → refined → in_progress → needs_verification → done
    - Briefly describe the changes made and why
    - Include commit hashes or PR links if changes were ported (e.g., "Ported as commit abc1234")
    - The goal: someone reading only the quest (not the session conversation) should understand what happened
+   - Treat this as a required worker deliverable before you report back that the quest is ready
 
 3. **Verification items must require human eyes only.** When writing `quest complete --items "..."`:
    - Do NOT include items you can verify yourself: "tests pass", "typecheck clean", "code compiles", "no regressions in test suite"

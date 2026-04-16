@@ -771,6 +771,9 @@ async function cmdComplete(): Promise<void> {
         out(quest);
       } else {
         console.log(`Completed ${quest.questId} "${quest.title}" with ${items.length} verification items`);
+        console.log(
+          `Reminder: add or update the final quest summary comment with \`quest feedback ${quest.questId} --text "Summary: <what was done>"\` before reporting that the quest is ready.`,
+        );
       }
       return;
     } catch (e) {
@@ -791,6 +794,9 @@ async function cmdComplete(): Promise<void> {
       out(quest);
     } else {
       console.log(`Completed ${quest.questId} "${quest.title}" with ${items.length} verification items`);
+      console.log(
+        `Reminder: add or update the final quest summary comment with \`quest feedback ${quest.questId} --text "Summary: <what was done>"\` before reporting that the quest is ready.`,
+      );
     }
   } catch (e) {
     die((e as Error).message);

@@ -91,7 +91,8 @@ pass/fail items. If any fail, the verdict is **CHALLENGE**.
 2. **Summary comment present?** Look for a final agent feedback entry that:
    - Summarizes what was done (not just "done" or "completed")
    - Includes commit hashes or PR links if changes were ported
-   - If missing, CHALLENGE: "Add a summary comment to the quest describing what was done and any relevant commit/PR links"
+   - This should already be part of the worker's normal completion flow; the skeptic review is confirming it happened, not inventing a new requirement
+   - If missing, CHALLENGE: "Add the required quest summary comment describing what was done and any relevant commit/PR links"
 
 3. **Verification items are human-only?** Check each verification item in the quest:
    - Items like "tests pass", "typecheck clean", "no regressions", "code compiles" should NOT be in the checklist -- the agent can verify those itself

@@ -53,6 +53,7 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("Address all human feedback");
     expect(skill).toContain("Both steps are required");
     expect(skill).toContain("Add a summary comment");
+    expect(skill).toContain("required worker deliverable");
   });
 
   it("requires titles under 10 words for refined and later stages", async () => {

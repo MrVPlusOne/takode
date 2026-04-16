@@ -2548,10 +2548,10 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("Only inspect a worker after a herd event");
     expect(guardrails).toContain("Make every worker instruction stage-explicit");
     expect(guardrails).toContain("Initial dispatch authorizes **planning only**");
-    expect(guardrails).toContain("implement and stop when done");
+    expect(guardrails).toContain("implement, update the quest summary comment, and stop when done");
     expect(guardrails).toContain("Do **not** tell the worker to port yet");
     expect(guardrails).toContain("investigation, design, or other no-code quests");
-    expect(guardrails).toContain("address reviewer-groom findings and stop");
+    expect(guardrails).toContain("address reviewer-groom findings, update the quest summary comment, and stop");
     expect(guardrails).toContain("what artifact to produce and to stop afterward");
     expect(guardrails).toContain("send a separate explicit port instruction when ready");
     expect(guardrails).toContain("takode notify");
@@ -2584,9 +2584,9 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("wait for the next herd event");
     expect(guardrails).toContain("Make every worker instruction stage-explicit");
     expect(guardrails).toContain("Initial dispatch authorizes **planning only**");
-    expect(guardrails).toContain("implement and stop when done");
+    expect(guardrails).toContain("implement, update the quest summary comment, and stop when done");
     expect(guardrails).toContain("Do **not** tell the worker to port yet");
-    expect(guardrails).toContain("address reviewer-groom findings and stop");
+    expect(guardrails).toContain("address reviewer-groom findings, update the quest summary comment, and stop");
     expect(guardrails).toContain("what artifact to produce and to stop afterward");
     expect(guardrails).toContain("send a separate explicit port instruction when ready");
     // No verbose CLI command docs
