@@ -103,6 +103,8 @@ interface MockStoreState {
   setSidebarOpen: ReturnType<typeof vi.fn>;
   setSessionName: ReturnType<typeof vi.fn>;
   setSessionPreview: ReturnType<typeof vi.fn>;
+  setSessionTaskHistory: ReturnType<typeof vi.fn>;
+  setSessionKeywords: ReturnType<typeof vi.fn>;
   markRecentlyRenamed: ReturnType<typeof vi.fn>;
   clearRecentlyRenamed: ReturnType<typeof vi.fn>;
   setSdkSessions: ReturnType<typeof vi.fn>;
@@ -201,6 +203,8 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
     setSidebarOpen: vi.fn(),
     setSessionName: vi.fn(),
     setSessionPreview: vi.fn(),
+    setSessionTaskHistory: vi.fn(),
+    setSessionKeywords: vi.fn(),
     markRecentlyRenamed: vi.fn(),
     clearRecentlyRenamed: vi.fn(),
     setSdkSessions: vi.fn(),
@@ -287,6 +291,59 @@ describe("Sidebar", { timeout: 10000 }, () => {
       expect(mockState.setSdkSessions).toHaveBeenCalledWith(listed);
     });
     expect(mockConnectAllSessions).not.toHaveBeenCalled();
+  });
+
+  it("polling strips search metadata from sdkSessions and skips unchanged task/keyword hydration", async () => {
+    const unchangedTasks = [{ title: "Task", action: "new", timestamp: 1, triggerMessageId: "m1" }] as const;
+    const unchangedKeywords = ["alpha", "beta"];
+    mockState = createMockState({
+      sessionTaskHistory: new Map([["s1", [...unchangedTasks]]]),
+      sessionKeywords: new Map([["s1", unchangedKeywords]]),
+    });
+
+    const listed = [
+      makeSdkSession("s1", {
+        taskHistory: [...unchangedTasks],
+        keywords: [...unchangedKeywords],
+      }),
+    ];
+    mockApi.listSessions.mockResolvedValueOnce(listed);
+
+    render(<Sidebar />);
+
+    await waitFor(() => {
+      expect(mockApi.listSessions).toHaveBeenCalled();
+      expect(mockState.setSdkSessions).toHaveBeenCalledWith([
+        expect.not.objectContaining({
+          taskHistory: expect.anything(),
+          keywords: expect.anything(),
+        }),
+      ]);
+    });
+    expect(mockState.setSessionTaskHistory).not.toHaveBeenCalled();
+    expect(mockState.setSessionKeywords).not.toHaveBeenCalled();
+  });
+
+  it("polling clears stale task history and keywords when the server reports empty metadata", async () => {
+    mockState = createMockState({
+      sessionTaskHistory: new Map([["s1", [{ title: "Old", action: "new", timestamp: 1, triggerMessageId: "m1" }]]]),
+      sessionKeywords: new Map([["s1", ["stale"]]]),
+    });
+
+    const listed = [
+      makeSdkSession("s1", {
+        taskHistory: [],
+        keywords: [],
+      }),
+    ];
+    mockApi.listSessions.mockResolvedValueOnce(listed);
+
+    render(<Sidebar />);
+
+    await waitFor(() => {
+      expect(mockState.setSessionTaskHistory).toHaveBeenCalledWith("s1", []);
+      expect(mockState.setSessionKeywords).toHaveBeenCalledWith("s1", []);
+    });
   });
 
   it("hydrates tree groups from server on mount", async () => {

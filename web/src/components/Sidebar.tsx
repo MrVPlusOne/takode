@@ -26,6 +26,7 @@ import { SessionHoverCard } from "./SessionHoverCard.js";
 import { SidebarUsageBar } from "./SidebarUsageBar.js";
 import { YarnBallSpinner } from "./CatIcons.js";
 import { deriveSessionStatus } from "./SessionStatusDot.js";
+import type { SessionTaskEntry, SdkSessionInfo } from "../types.js";
 
 import { groupSessionsByProject, type SessionItem as SessionItemType } from "../utils/project-grouping.js";
 import { buildTreeViewGroups } from "../utils/tree-grouping.js";
@@ -50,6 +51,42 @@ function sumDiffFileStats(fileStats: Map<string, { additions: number; deletions:
     deletions += stats.deletions;
   }
   return { additions, deletions };
+}
+
+function sessionTaskHistoryEqual(a: SessionTaskEntry[] | undefined, b: SessionTaskEntry[] | undefined): boolean {
+  if (a === b) return true;
+  if (!a || !b) return !a && !b;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const left = a[i];
+    const right = b[i];
+    if (
+      left.title !== right.title ||
+      left.action !== right.action ||
+      left.timestamp !== right.timestamp ||
+      left.triggerMessageId !== right.triggerMessageId ||
+      left.source !== right.source ||
+      left.questId !== right.questId
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function stringArrayEqual(a: string[] | undefined, b: string[] | undefined): boolean {
+  if (a === b) return true;
+  if (!a || !b) return !a && !b;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
+function stripSearchMetadata(session: SdkSessionInfo): SdkSessionInfo {
+  const { taskHistory: _taskHistory, keywords: _keywords, ...rest } = session;
+  return rest;
 }
 
 /** Build "Move to..." submenu items for the session context menu (tree view only). */
@@ -173,9 +210,9 @@ export function Sidebar() {
       try {
         const list = await api.listSessions();
         if (active) {
-          useStore.getState().setSdkSessions(list);
-          // Hydrate session names from server (server is source of truth for auto-generated names)
           const store = useStore.getState();
+          store.setSdkSessions(list.map(stripSearchMetadata));
+          // Hydrate session names from server (server is source of truth for auto-generated names)
           let batchedAttention: Map<string, "action" | "error" | "review" | null> | null = null;
           for (const s of list) {
             if (s.name) {
@@ -193,11 +230,15 @@ export function Sidebar() {
               store.setSessionPreview(s.sessionId, s.lastMessagePreview);
             }
             // Hydrate task history and keywords from server for search
-            if (s.taskHistory?.length) {
-              store.setSessionTaskHistory(s.sessionId, s.taskHistory);
+            const nextTaskHistory = s.taskHistory ?? [];
+            const currentTaskHistory = store.sessionTaskHistory.get(s.sessionId);
+            if (!sessionTaskHistoryEqual(currentTaskHistory, nextTaskHistory)) {
+              store.setSessionTaskHistory(s.sessionId, nextTaskHistory);
             }
-            if (s.keywords?.length) {
-              store.setSessionKeywords(s.sessionId, s.keywords);
+            const nextKeywords = s.keywords ?? [];
+            const currentKeywords = store.sessionKeywords.get(s.sessionId);
+            if (!stringArrayEqual(currentKeywords, nextKeywords)) {
+              store.setSessionKeywords(s.sessionId, nextKeywords);
             }
             // Batch server-authoritative attention state changes
             if (s.attentionReason !== undefined) {

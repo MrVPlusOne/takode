@@ -274,6 +274,57 @@ describe("Session management", () => {
     expect(useStore.getState().sessionStatus.get("current")).toBe("compacting");
   });
 
+  it("setSdkSessions: preserves the existing array reference when the payload is semantically unchanged", () => {
+    const initial: SdkSessionInfo[] = [
+      {
+        sessionId: "s1",
+        state: "connected",
+        cwd: "/repo",
+        createdAt: 123,
+        cliConnected: true,
+        name: "Worker",
+        taskHistory: [{ title: "Task", action: "new", timestamp: 1, triggerMessageId: "m1" }],
+        keywords: ["alpha"],
+      },
+    ];
+    useStore.getState().setSdkSessions(initial);
+    const previousRef = useStore.getState().sdkSessions;
+
+    useStore.getState().setSdkSessions([
+      {
+        sessionId: "s1",
+        state: "connected",
+        cwd: "/repo",
+        createdAt: 123,
+        cliConnected: true,
+        name: "Worker",
+        taskHistory: [{ title: "Task", action: "new", timestamp: 1, triggerMessageId: "m1" }],
+        keywords: ["beta"],
+      },
+    ]);
+
+    expect(useStore.getState().sdkSessions).toBe(previousRef);
+  });
+
+  it("setSessionTaskHistory: preserves the existing map when tasks are unchanged", () => {
+    const tasks = [{ title: "Task", action: "new", timestamp: 1, triggerMessageId: "m1" }] as const;
+    useStore.getState().setSessionTaskHistory("s1", [...tasks]);
+    const previousMap = useStore.getState().sessionTaskHistory;
+
+    useStore.getState().setSessionTaskHistory("s1", [...tasks]);
+
+    expect(useStore.getState().sessionTaskHistory).toBe(previousMap);
+  });
+
+  it("setSessionKeywords: preserves the existing map when keywords are unchanged", () => {
+    useStore.getState().setSessionKeywords("s1", ["alpha", "beta"]);
+    const previousMap = useStore.getState().sessionKeywords;
+
+    useStore.getState().setSessionKeywords("s1", ["alpha", "beta"]);
+
+    expect(useStore.getState().sessionKeywords).toBe(previousMap);
+  });
+
   it("removeSession: does not clear currentSessionId if a different session is removed", () => {
     useStore.getState().addSession(makeSession("s1"));
     useStore.getState().addSession(makeSession("s2"));
