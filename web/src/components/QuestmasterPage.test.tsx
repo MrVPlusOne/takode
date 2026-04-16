@@ -391,6 +391,248 @@ describe("QuestmasterPage verification inbox", () => {
     expect(screen.queryByText("Regular verification quest")).toBeNull();
   });
 
+  it("preserves plain-text title search while ignoring negated-tag syntax", () => {
+    // q-331: plain-text matching should remain intact after introducing
+    // explicit `-#tag` exclusion parsing.
+    mockState.quests = [
+      {
+        ...buildVerificationQuest({ id: "q-40-v1", questId: "q-40", title: "Auth mobile quest" }),
+        verificationInboxUnread: false,
+        tags: ["auth", "mobile"],
+      } as QuestmasterTask,
+      {
+        ...buildVerificationQuest({ id: "q-41-v1", questId: "q-41", title: "Infra backend quest" }),
+        verificationInboxUnread: false,
+        tags: ["infra", "backend"],
+      } as QuestmasterTask,
+    ];
+
+    renderQuestmaster();
+
+    const searchInput = screen.getByPlaceholderText("Search or #tag...");
+    fireEvent.change(searchInput, { target: { value: "backend" } });
+
+    expect(document.querySelector('[data-quest-id="q-41"]')).toBeTruthy();
+    expect(document.querySelector('[data-quest-id="q-40"]')).toBeNull();
+  });
+
+  it("preserves positive #tag search through the existing autocomplete tag-pill flow", () => {
+    // Positive #tag search should keep working exactly as before: selecting an
+    // autocomplete tag turns it into a pill and filters by matching quests.
+    mockState.quests = [
+      {
+        ...buildVerificationQuest({ id: "q-50-v1", questId: "q-50", title: "Auth mobile quest" }),
+        verificationInboxUnread: false,
+        tags: ["auth", "mobile"],
+      } as QuestmasterTask,
+      {
+        ...buildVerificationQuest({ id: "q-51-v1", questId: "q-51", title: "Auth backend quest" }),
+        verificationInboxUnread: false,
+        tags: ["auth", "backend"],
+      } as QuestmasterTask,
+      {
+        ...buildVerificationQuest({ id: "q-52-v1", questId: "q-52", title: "Infra mobile quest" }),
+        verificationInboxUnread: false,
+        tags: ["infra", "mobile"],
+      } as QuestmasterTask,
+    ];
+
+    renderQuestmaster();
+
+    const searchInput = screen.getByPlaceholderText("Search or #tag...");
+    fireEvent.change(searchInput, { target: { value: "#mob" } });
+    fireEvent.keyDown(searchInput, { key: "Enter" });
+
+    expect(screen.getByText("#mobile")).toBeInTheDocument();
+    expect(screen.getByText("Auth mobile quest")).toBeInTheDocument();
+    expect(screen.getByText("Infra mobile quest")).toBeInTheDocument();
+    expect(screen.queryByText("Auth backend quest")).toBeNull();
+  });
+
+  it("supports bare # as the positive-tag autocomplete entry path", () => {
+    // q-331 follow-up: typing a bare `#` should still open the positive-tag
+    // suggestions so users can enter the existing #tag pill flow without
+    // typing a tag prefix first.
+    mockState.quests = [
+      {
+        ...buildVerificationQuest({ id: "q-55-v1", questId: "q-55", title: "Alpha quest" }),
+        verificationInboxUnread: false,
+        tags: ["alpha"],
+      } as QuestmasterTask,
+      {
+        ...buildVerificationQuest({ id: "q-56-v1", questId: "q-56", title: "Beta quest" }),
+        verificationInboxUnread: false,
+        tags: ["beta"],
+      } as QuestmasterTask,
+    ];
+
+    renderQuestmaster();
+
+    const searchInput = screen.getByPlaceholderText("Search or #tag...") as HTMLInputElement;
+    fireEvent.focus(searchInput);
+    fireEvent.change(searchInput, { target: { value: "#" } });
+    fireEvent.keyDown(searchInput, { key: "Enter" });
+
+    expect(screen.getByText("#alpha")).toBeInTheDocument();
+    expect(searchInput.value).toBe("");
+  });
+
+  it("supports -#tag to exclude quests with matching tags", () => {
+    // q-331: the search box should support explicit negated tags that exclude
+    // matching quests without requiring users to mutate the positive tag pills.
+    mockState.quests = [
+      {
+        ...buildVerificationQuest({ id: "q-60-v1", questId: "q-60", title: "Auth mobile quest" }),
+        verificationInboxUnread: false,
+        tags: ["auth", "mobile"],
+      } as QuestmasterTask,
+      {
+        ...buildVerificationQuest({ id: "q-61-v1", questId: "q-61", title: "Auth backend quest" }),
+        verificationInboxUnread: false,
+        tags: ["auth", "backend"],
+      } as QuestmasterTask,
+      {
+        ...buildVerificationQuest({ id: "q-62-v1", questId: "q-62", title: "Infra mobile quest" }),
+        verificationInboxUnread: false,
+        tags: ["infra", "mobile"],
+      } as QuestmasterTask,
+    ];
+
+    renderQuestmaster();
+
+    const searchInput = screen.getByPlaceholderText("Search or #tag...");
+    fireEvent.change(searchInput, { target: { value: "-#mobile" } });
+
+    expect(document.querySelector('[data-quest-id="q-61"]')).toBeTruthy();
+    expect(document.querySelector('[data-quest-id="q-60"]')).toBeNull();
+    expect(document.querySelector('[data-quest-id="q-62"]')).toBeNull();
+  });
+
+  it("does not convert negated hashtags into positive tag pills via autocomplete", () => {
+    // Negated tags should stay in the raw search query. Hitting Enter on `-#mob`
+    // must not create the positive `#mobile` tag pill or clear the search text.
+    mockState.quests = [
+      {
+        ...buildVerificationQuest({ id: "q-65-v1", questId: "q-65", title: "Auth mobile quest" }),
+        verificationInboxUnread: false,
+        tags: ["auth", "mobile"],
+      } as QuestmasterTask,
+      {
+        ...buildVerificationQuest({ id: "q-66-v1", questId: "q-66", title: "Infra backend quest" }),
+        verificationInboxUnread: false,
+        tags: ["infra", "backend"],
+      } as QuestmasterTask,
+    ];
+
+    renderQuestmaster();
+
+    const searchInput = screen.getByPlaceholderText("Search or #tag...") as HTMLInputElement;
+    fireEvent.change(searchInput, { target: { value: "-#mob" } });
+    fireEvent.keyDown(searchInput, { key: "Enter" });
+
+    expect(searchInput.value).toBe("-#mob");
+    expect(screen.queryByText("#mobile")).toBeNull();
+  });
+
+  it("supports mixed free-text plus negated-tag queries and only highlights the positive text", () => {
+    // Mixed queries like `auth -#mobile` should preserve the positive text
+    // match while excluding the negated tag, and highlight only the positive
+    // free-text portion of the query.
+    mockState.quests = [
+      {
+        ...buildVerificationQuest({ id: "q-70-v1", questId: "q-70", title: "Auth mobile quest" }),
+        verificationInboxUnread: false,
+        tags: ["auth", "mobile"],
+      } as QuestmasterTask,
+      {
+        ...buildVerificationQuest({ id: "q-71-v1", questId: "q-71", title: "Auth backend quest" }),
+        verificationInboxUnread: false,
+        tags: ["auth", "backend"],
+      } as QuestmasterTask,
+      {
+        ...buildVerificationQuest({ id: "q-72-v1", questId: "q-72", title: "Infra backend quest" }),
+        verificationInboxUnread: false,
+        tags: ["infra", "backend"],
+      } as QuestmasterTask,
+    ];
+
+    const { container } = renderQuestmaster();
+
+    const searchInput = screen.getByPlaceholderText("Search or #tag...");
+    fireEvent.change(searchInput, { target: { value: "auth -#mobile" } });
+
+    expect(document.querySelector('[data-quest-id="q-71"]')).toBeTruthy();
+    expect(document.querySelector('[data-quest-id="q-70"]')).toBeNull();
+    expect(document.querySelector('[data-quest-id="q-72"]')).toBeNull();
+
+    const marks = Array.from(container.querySelectorAll("mark")).map((el) => el.textContent?.toLowerCase());
+    expect(marks).toContain("auth");
+    expect(marks).not.toContain("mobile");
+  });
+
+  it("supports mixed positive #tag pills plus negated-tag queries", () => {
+    // Users should be able to select a positive tag via the existing pill flow
+    // and then further narrow the result with a raw `-#tag` exclusion query.
+    mockState.quests = [
+      {
+        ...buildVerificationQuest({ id: "q-80-v1", questId: "q-80", title: "Auth mobile quest" }),
+        verificationInboxUnread: false,
+        tags: ["auth", "mobile"],
+      } as QuestmasterTask,
+      {
+        ...buildVerificationQuest({ id: "q-81-v1", questId: "q-81", title: "Auth backend quest" }),
+        verificationInboxUnread: false,
+        tags: ["auth", "backend"],
+      } as QuestmasterTask,
+      {
+        ...buildVerificationQuest({ id: "q-82-v1", questId: "q-82", title: "Infra mobile quest" }),
+        verificationInboxUnread: false,
+        tags: ["infra", "mobile"],
+      } as QuestmasterTask,
+    ];
+
+    renderQuestmaster();
+
+    const searchInput = screen.getByPlaceholderText("Search or #tag...");
+    fireEvent.change(searchInput, { target: { value: "#auth" } });
+    fireEvent.keyDown(searchInput, { key: "Enter" });
+    expect(screen.getByText("#auth")).toBeInTheDocument();
+
+    fireEvent.change(searchInput, { target: { value: "-#backend" } });
+
+    expect(document.querySelector('[data-quest-id="q-80"]')).toBeTruthy();
+    expect(document.querySelector('[data-quest-id="q-81"]')).toBeNull();
+    expect(document.querySelector('[data-quest-id="q-82"]')).toBeNull();
+  });
+
+  it("passes only the positive/free-text portion of a mixed negated query into the quest overlay", () => {
+    // The detail overlay highlight should reuse the parsed positive search text,
+    // not the raw query with `-#tag` suffixes.
+    mockState.quests = [
+      {
+        ...buildVerificationQuest({ id: "q-90-v1", questId: "q-90", title: "Auth mobile quest" }),
+        verificationInboxUnread: false,
+        tags: ["auth", "mobile"],
+      } as QuestmasterTask,
+      {
+        ...buildVerificationQuest({ id: "q-91-v1", questId: "q-91", title: "Auth backend quest" }),
+        verificationInboxUnread: false,
+        tags: ["auth", "backend"],
+      } as QuestmasterTask,
+    ];
+
+    renderQuestmaster();
+
+    const searchInput = screen.getByPlaceholderText("Search or #tag...");
+    fireEvent.change(searchInput, { target: { value: "auth -#mobile" } });
+
+    const cardButton = document.querySelector('[data-quest-id="q-91"] [role="button"]') as HTMLElement | null;
+    expect(cardButton).toBeTruthy();
+    fireEvent.click(cardButton!);
+
+    expect(mockState.openQuestOverlay).toHaveBeenCalledWith("q-91", "auth");
+  });
+
   it("opens quest overlay for newly created quest", async () => {
     // After creating a quest, openQuestOverlay should be called with the new quest's ID.
     renderQuestmaster();

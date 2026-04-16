@@ -48,6 +48,45 @@ function questRecencyTs(quest: QuestmasterTask): number {
   return (quest as { updatedAt?: number }).updatedAt ?? quest.createdAt;
 }
 
+function classifyQuestSearchToken(
+  token: string,
+): { kind: "positiveTag" | "negatedTag" | "text"; value: string } {
+  const negatedMatch = token.match(/^-#([^\s#]+)$/);
+  if (negatedMatch) return { kind: "negatedTag", value: negatedMatch[1].toLowerCase() };
+  const positiveMatch = token.match(/^#([^\s#]*)$/);
+  if (positiveMatch) return { kind: "positiveTag", value: positiveMatch[1].toLowerCase() };
+  return { kind: "text", value: token };
+}
+
+function getTrailingQuestSearchToken(query: string): { kind: "positiveTag" | "negatedTag"; value: string } | null {
+  const match = query.match(/(?:^|\s)(-?#([^\s#]*))$/);
+  if (!match) return null;
+  const rawToken = match[1];
+  const classified = classifyQuestSearchToken(rawToken);
+  if (classified.kind === "text") return null;
+  return classified;
+}
+
+function parseQuestSearchQuery(query: string): { searchText: string; negatedTags: Set<string> } {
+  const negatedTags = new Set<string>();
+  const positiveTokens: string[] = [];
+
+  for (const token of query.trim().split(/\s+/).filter(Boolean)) {
+    const classified = classifyQuestSearchToken(token);
+    if (classified.kind === "negatedTag") {
+      negatedTags.add(classified.value);
+      continue;
+    }
+    positiveTokens.push(token);
+  }
+
+  // Preserve the existing positive #tag autocomplete flow by keeping a trailing
+  // positive hashtag token out of plain-text matching/highlighting until the
+  // user selects it into the positive tag pill set.
+  const searchText = positiveTokens.join(" ").replace(/(?:^|\s)#[^\s]*$/, "").trim();
+  return { searchText, negatedTags };
+}
+
 type EditorTarget = "newTitle" | "newDescription";
 
 // ─── Component ──────────────────────────────────────────────────────────────
@@ -95,6 +134,7 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
 
   // Hashtag autocomplete state
   const [hashtagQuery, setHashtagQuery] = useState("");
+  const [hashtagAutocompleteActive, setHashtagAutocompleteActive] = useState(false);
   const [autocompleteIndex, setAutocompleteIndex] = useState(0);
   const [searchFocused, setSearchFocused] = useState(false);
   const autocompleteRef = useRef<HTMLDivElement>(null);
@@ -123,6 +163,9 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<QuestmasterCollapsedGroup>>(
     () => new Set(initialViewState?.collapsedGroups ?? []),
   );
+  const parsedSearch = useMemo(() => parseQuestSearchQuery(searchQuery), [searchQuery]);
+  const searchText = parsedSearch.searchText;
+  const negatedTags = parsedSearch.negatedTags;
 
   // Load quests on mount, poll periodically as a fallback for cases where
   // no session WebSocket is open (the `quest_list_updated` broadcast only
@@ -301,10 +344,9 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
         store.closeQuestOverlay();
         return;
       }
-      const searchText = searchQuery.replace(/#[^\s]*$/, "").trim();
       store.openQuestOverlay(quest.questId, searchText || undefined);
     },
-    [searchQuery],
+    [searchText],
   );
 
   // ─── Actions ──────────────────────────────────────────────────────────
@@ -433,10 +475,10 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
 
   // Compute autocomplete matches for hashtag query
   const autocompleteMatches = useMemo(() => {
-    if (!hashtagQuery) return [];
+    if (!hashtagAutocompleteActive) return [];
     const q = hashtagQuery.toLowerCase();
-    return allTags.filter((t) => t.includes(q) && !selectedTags.has(t));
-  }, [hashtagQuery, allTags, selectedTags]);
+    return allTags.filter((t) => (!q || t.includes(q)) && !selectedTags.has(t));
+  }, [hashtagAutocompleteActive, hashtagQuery, allTags, selectedTags]);
 
   const editorAutocompleteMatches = useMemo(() => {
     if (!editorHashtagQuery) return [];
@@ -508,8 +550,8 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
   // ─── Filtering ────────────────────────────────────────────────────────
 
   // Layer 1: text search (case-insensitive on quest ID + title + description)
-  // Strip any trailing #hashtag token from the search text
-  const searchText = searchQuery.replace(/#[^\s]*$/, "").trim();
+  // Negated tags like `-#mobile` are parsed separately so free-text matching
+  // and highlighting stay focused on the positive portion of the query.
   const searchNormalized = normalizeForSearch(searchText);
   const afterSearch = searchNormalized
     ? quests.filter((q) => {
@@ -526,14 +568,20 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
       ? afterSearch
       : afterSearch.filter((q) => q.tags?.some((t) => selectedTags.has(t.toLowerCase())) ?? false);
 
-  // Status counts (after search + tags, before status filter)
-  const counts: Record<string, number> = { all: afterTags.length };
+  // Layer 3: negated tag filter (exclude quests matching ANY negated tag)
+  const afterNegatedTags =
+    negatedTags.size === 0
+      ? afterTags
+      : afterTags.filter((q) => !(q.tags?.some((t) => negatedTags.has(t.toLowerCase())) ?? false));
+
+  // Status counts (after search + tags + negated tags, before status filter)
+  const counts: Record<string, number> = { all: afterNegatedTags.length };
   for (const s of ALL_STATUSES) {
-    counts[s] = afterTags.filter((q) => q.status === s).length;
+    counts[s] = afterNegatedTags.filter((q) => q.status === s).length;
   }
 
-  // Layer 3: status filter (multi-select -- filter.has checks membership in the active set)
-  const filtered = allSelected ? afterTags : afterTags.filter((q) => filter.has(q.status));
+  // Layer 4: status filter (multi-select -- filter.has checks membership in the active set)
+  const filtered = allSelected ? afterNegatedTags : afterNegatedTags.filter((q) => filter.has(q.status));
 
   // Pre-compute the single selected status (if exactly one) for the filter pill label
   const singleFilterStatus = filter.size === 1 ? [...filter][0] : null;
@@ -852,29 +900,30 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
                     // Delay closing autocomplete to allow click on item
                     setTimeout(() => {
                       setHashtagQuery("");
+                      setHashtagAutocompleteActive(false);
                       setAutocompleteIndex(0);
                     }, 150);
                   }}
                   onChange={(e) => {
                     const val = e.target.value;
-                    // Detect hashtag typing: find last # that starts a tag token
-                    const hashIdx = val.lastIndexOf("#");
-                    if (hashIdx >= 0) {
-                      const afterHash = val.slice(hashIdx + 1);
-                      // If there's no space after #, we're typing a tag
-                      if (!/\s/.test(afterHash)) {
-                        setHashtagQuery(afterHash);
-                        setAutocompleteIndex(0);
-                        setSearchQuery(val);
-                        return;
-                      }
+                    // Positive trailing #tags keep the existing autocomplete flow.
+                    // Negated tags (`-#tag`) stay in the raw query and should not
+                    // create positive tag pills.
+                    const trailingToken = getTrailingQuestSearchToken(val);
+                    if (trailingToken?.kind === "positiveTag") {
+                      setHashtagQuery(trailingToken.value);
+                      setHashtagAutocompleteActive(true);
+                      setAutocompleteIndex(0);
+                      setSearchQuery(val);
+                      return;
                     }
                     setHashtagQuery("");
+                    setHashtagAutocompleteActive(false);
                     setSearchQuery(val);
                   }}
                   onKeyDown={(e) => {
                     // Autocomplete navigation
-                    if (hashtagQuery && autocompleteMatches.length > 0) {
+                    if (hashtagAutocompleteActive && autocompleteMatches.length > 0) {
                       if (e.key === "ArrowDown") {
                         e.preventDefault();
                         setAutocompleteIndex((i) => Math.min(i + 1, autocompleteMatches.length - 1));
@@ -894,14 +943,16 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
                           const hashIdx = searchQuery.lastIndexOf("#");
                           setSearchQuery(hashIdx > 0 ? searchQuery.slice(0, hashIdx).trimEnd() : "");
                           setHashtagQuery("");
+                          setHashtagAutocompleteActive(false);
                           setAutocompleteIndex(0);
                         }
                         return;
                       }
                     }
                     if (e.key === "Escape") {
-                      if (hashtagQuery) {
+                      if (hashtagAutocompleteActive) {
                         setHashtagQuery("");
+                        setHashtagAutocompleteActive(false);
                         setAutocompleteIndex(0);
                       } else {
                         setSearchQuery("");
@@ -925,6 +976,7 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
                       setSearchQuery("");
                       setSelectedTags(new Set());
                       setHashtagQuery("");
+                      setHashtagAutocompleteActive(false);
                       searchInputRef.current?.focus();
                     }}
                     className="text-cc-muted hover:text-cc-fg cursor-pointer shrink-0"
@@ -943,7 +995,7 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
               </div>
 
               {/* Hashtag autocomplete dropdown */}
-              {hashtagQuery && autocompleteMatches.length > 0 && searchFocused && (
+              {hashtagAutocompleteActive && autocompleteMatches.length > 0 && searchFocused && (
                 <div
                   ref={autocompleteRef}
                   className="absolute top-full left-0 right-0 mt-1 bg-cc-card border border-cc-border rounded-lg shadow-xl z-30 py-1 max-h-48 overflow-y-auto"
@@ -957,6 +1009,7 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
                         const hashIdx = searchQuery.lastIndexOf("#");
                         setSearchQuery(hashIdx > 0 ? searchQuery.slice(0, hashIdx).trimEnd() : "");
                         setHashtagQuery("");
+                        setHashtagAutocompleteActive(false);
                         setAutocompleteIndex(0);
                         searchInputRef.current?.focus();
                       }}
