@@ -3,6 +3,32 @@ import { encodeLogQuery, type LogQuery, type LogQueryResponse } from "../shared/
 import type { HerdSessionsResponse } from "../shared/herd-types.js";
 
 const BASE = "/api";
+const TRANSCRIPTION_REQUEST_BASE_TIMEOUT_MS = 45_000;
+const TRANSCRIPTION_REQUEST_TIMEOUT_CAP_MS = 180_000;
+const TRANSCRIPTION_REQUEST_BYTES_PER_EXTRA_SECOND = 64 * 1024;
+
+/**
+ * The transcription route does not start streaming SSE until after the browser
+ * finishes uploading the multipart body and the server parses it. A fixed 45s
+ * timeout is fine for short dictation, but longer mobile recordings can spend
+ * most of that budget just getting the upload to the server on a slow uplink.
+ *
+ * Scale the pre-response timeout with audio size while keeping short clips at
+ * the existing baseline and capping the total wait to avoid hanging forever.
+ */
+export function getTranscriptionRequestTimeoutMs(audioSizeBytes: number): number {
+  if (!Number.isFinite(audioSizeBytes) || audioSizeBytes <= 0) {
+    return TRANSCRIPTION_REQUEST_BASE_TIMEOUT_MS;
+  }
+  const extraSeconds = Math.max(
+    0,
+    Math.ceil(audioSizeBytes / TRANSCRIPTION_REQUEST_BYTES_PER_EXTRA_SECOND) - 1,
+  );
+  return Math.min(
+    TRANSCRIPTION_REQUEST_BASE_TIMEOUT_MS + extraSeconds * 1_000,
+    TRANSCRIPTION_REQUEST_TIMEOUT_CAP_MS,
+  );
+}
 
 export function resolveAudioUploadFilename(audioType: string): string {
   const normalizedAudioType = audioType.split(";")[0]?.trim().toLowerCase();
@@ -938,16 +964,21 @@ export const api = {
     if (options?.mode) form.append("mode", options.mode);
     if (options?.sessionId) form.append("sessionId", options.sessionId);
     if (options?.composerText !== undefined) form.append("composerText", options.composerText);
-    // Timeout must exceed server-side STT + enhancement budget (STT ~5s + LLM 30s + overhead)
+    // This timeout only covers the pre-SSE phase (upload + server multipart parse
+    // + route startup). Once the response body starts streaming, the reader below
+    // owns the rest of the request lifecycle.
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 45_000);
+    const timeoutMs = getTranscriptionRequestTimeoutMs(audio.size);
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
     let res: Response;
     try {
       res = await fetch(`${BASE}/transcribe`, { method: "POST", body: form, signal: controller.signal });
     } catch (err) {
       clearTimeout(timeout);
       if (err instanceof DOMException && err.name === "AbortError") {
-        throw new Error("Transcription timed out — the server took too long to respond.");
+        throw new Error(
+          `Transcription timed out after ${Math.round(timeoutMs / 1000)}s — the upload or server took too long to respond.`,
+        );
       }
       throw err;
     }

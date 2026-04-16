@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { api, resolveAudioUploadFilename } from "./api.js";
+import { api, getTranscriptionRequestTimeoutMs, resolveAudioUploadFilename } from "./api.js";
 
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
@@ -288,6 +288,124 @@ describe("resolveAudioUploadFilename", () => {
 
   it("keeps webm as the default fallback", () => {
     expect(resolveAudioUploadFilename("")).toBe("recording.webm");
+  });
+});
+
+// ===========================================================================
+// getTranscriptionRequestTimeoutMs
+// ===========================================================================
+describe("getTranscriptionRequestTimeoutMs", () => {
+  it("keeps short dictation at the legacy 45-second timeout", () => {
+    // Short recordings should preserve the fast failure behavior users already
+    // expect instead of silently stretching every transcription request.
+    expect(getTranscriptionRequestTimeoutMs(8 * 1024)).toBe(45_000);
+  });
+
+  it("extends the pre-response timeout for larger mobile uploads", () => {
+    // q-359: longer mobile recordings spend significant time uploading before
+    // the transcription route can start its SSE response, so larger blobs need
+    // a larger timeout budget than the old fixed 45 seconds.
+    expect(getTranscriptionRequestTimeoutMs(1_024 * 1_024)).toBe(60_000);
+    expect(getTranscriptionRequestTimeoutMs(20 * 1_024 * 1_024)).toBe(180_000);
+  });
+});
+
+// ===========================================================================
+// transcribe
+// ===========================================================================
+describe("transcribe", () => {
+  it("allows larger recordings to outlive the old fixed timeout before aborting", async () => {
+    // q-359 regression: the request timeout applies before the SSE stream even
+    // begins, so large mobile uploads should get more than the old 45-second
+    // budget to finish the multipart upload and server body parsing.
+    vi.useFakeTimers();
+    try {
+      mockFetch.mockImplementationOnce((_url, opts?: RequestInit) => {
+        const signal = opts?.signal as AbortSignal;
+        return new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+        });
+      });
+
+      const largeAudio = new Blob([new Uint8Array(1_024 * 1_024)], { type: "audio/mp4" });
+      const timeoutMs = getTranscriptionRequestTimeoutMs(largeAudio.size);
+      let settled = false;
+      let rejectionMessage = "";
+
+      const pending = api.transcribe(largeAudio).catch((err) => {
+        settled = true;
+        rejectionMessage = err instanceof Error ? err.message : String(err);
+      });
+
+      await vi.advanceTimersByTimeAsync(45_000);
+      expect(settled).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(timeoutMs - 45_000);
+      await pending;
+
+      expect(settled).toBe(true);
+      expect(rejectionMessage).toContain("60s");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("uploads short audio and parses the SSE transcription result", async () => {
+    // Keep the normal short-dictation path working: the client should still
+    // POST multipart audio, surface phase changes, and return the final result.
+    const encoder = new TextEncoder();
+    const body = new ReadableStream({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode(
+            'event: stt_complete\ndata: {"rawText":"turn this into bullets","nextPhase":"editing","mode":"edit"}\n\n',
+          ),
+        );
+        controller.enqueue(
+          encoder.encode(
+            'event: result\ndata: {"text":"- first\\n- second","rawText":"turn this into bullets","instructionText":"turn this into bullets","mode":"edit","backend":"openai","enhanced":true}\n\n',
+          ),
+        );
+        controller.close();
+      },
+    });
+    mockFetch.mockResolvedValueOnce(
+      new Response(body, {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      }),
+    );
+
+    const onPhase = vi.fn();
+    const shortAudio = new Blob([new Uint8Array([1, 2, 3, 4])], { type: "audio/webm" });
+    const result = await api.transcribe(shortAudio, {
+      mode: "edit",
+      composerText: "draft text",
+      sessionId: "session-1",
+      onPhase,
+    });
+
+    expect(onPhase).toHaveBeenCalledWith("editing");
+    expect(result).toEqual({
+      text: "- first\n- second",
+      rawText: "turn this into bullets",
+      instructionText: "turn this into bullets",
+      mode: "edit",
+      backend: "openai",
+      enhanced: true,
+    });
+
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toBe("/api/transcribe");
+    expect(opts?.method).toBe("POST");
+    expect(opts?.signal).toBeInstanceOf(AbortSignal);
+    const form = opts?.body as FormData;
+    const uploadedAudio = form.get("audio");
+    expect(uploadedAudio).toBeInstanceOf(File);
+    expect((uploadedAudio as File).name).toBe("recording.webm");
+    expect(form.get("mode")).toBe("edit");
+    expect(form.get("composerText")).toBe("draft text");
+    expect(form.get("sessionId")).toBe("session-1");
   });
 });
 
