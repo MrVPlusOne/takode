@@ -1815,9 +1815,10 @@ export class CliLauncher {
         const dest = join(codexHome, name);
         const srcExists = await this.pathExists(src);
         if (!srcExists) continue;
-        // Auth is user-scoped, not session-scoped. Always refresh it from the
-        // canonical Codex home so re-login fixes existing Takode sessions.
-        if (name === "auth.json" || !(await this.pathExists(dest))) {
+        // Auth and config are treated as user-scoped inputs. Refresh them from
+        // the canonical Codex home on every launch/relaunch so provider changes
+        // and re-login fixes propagate into existing Takode sessions.
+        if (name === "auth.json" || name === "config.toml" || !(await this.pathExists(dest))) {
           await copyFile(src, dest);
         }
       } catch (e) {
