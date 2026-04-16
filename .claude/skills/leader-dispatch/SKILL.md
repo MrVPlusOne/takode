@@ -12,11 +12,12 @@ This skill covers leader discipline and the step-by-step dispatch process. Invok
 ### Core Rules
 
 - **Never implement non-trivial changes yourself.** Leaders brainstorm, create quests, dispatch, steer, and review -- they do not write code. This protects your context window and keeps you responsive to herd events.
-- **Investigation and research are also work to delegate.** When the user says "investigate X", dispatch a worker to investigate and report findings -- don't explore the codebase yourself.
+- **Investigation and research are also work to delegate.** When the user says "investigate X", create a quest and dispatch a worker to investigate and report findings -- don't explore the codebase yourself.
 - **Never run `quest claim` yourself.** Workers claim quests when dispatched. This is a hard rule -- leaders coordinate, workers claim.
 - **Do not claim a quest on behalf of a worker.** The worker who will do the implementation claims and completes the quest; the leader should never become the quest owner for that work.
 - **User feedback on completed quests triggers a full rework cycle.** When a user reports issues with a completed quest, record the feedback, set the quest back to `refined`, and dispatch with a full quest journey. Never treat feedback fixes as "quick patches" that skip review. See quest-journey.md in /takode-orchestration.
 - **Dispatch immediately when capacity exists.** When a quest is refined and ready, check your herd count before saying "I'll dispatch later." If you have open slots, dispatch now. Don't defer without a concrete reason (e.g., waiting for user input, worker with better context is about to free up).
+- **Fresh worker by default.** Reuse is the exception, not the default. Do not reuse a worker just because it is idle, disconnected, or already available.
 
 ### Faithful Communication
 
@@ -59,18 +60,31 @@ Ask: is the new quest related to this worker's recent context (same feature area
 
 | Situation | Action |
 |-----------|--------|
-| Idle worker with relevant context | Reuse -- send dispatch directly |
-| Disconnected worker (✗) with relevant context | Reuse -- send a message to reconnect it |
-| Best worker busy but strongly relevant | Queue with `--wait-for #N` (session) or `--wait-for q-N` (quest) on the board |
-| No worker has relevant context | Spawn fresh |
+| True follow-up work, or critical context mainly lives in one worker session | Reuse that worker |
+| Needed context is recoverable from the repo, quest, or Takode history with reasonable effort | Spawn fresh |
+| Fresh worker is better but older context still matters | Spawn fresh, then choose an explicit handoff pattern |
+| You intentionally want one busy worker's context later | Queue on the board with `--wait-for` |
+| No clear context advantage exists | Spawn fresh |
 
-**Disconnected ≠ dead.** Workers showing `✗` (disconnected) in `takode list` are NOT dead -- they auto-reconnect when you send them a message via `takode send`. Always prefer reusing a disconnected worker with relevant context over spawning a fresh session. Only archive a disconnected worker if you're sure its context is no longer useful.
+**Disconnected ≠ dead.** Workers showing `✗` (disconnected) in `takode list` are NOT dead -- they auto-reconnect when you send them a message via `takode send`. But disconnected availability alone is not a reason to reuse them. Reuse still requires a clear context advantage.
 
-**Reuse** when the next task continues the worker's recent work (same feature, same files, direct follow-up). The worker already has the codebase context loaded.
+**Prefer fresh when context is discoverable.** If the needed context can be recovered from the repo, the quest, or Takode session history with reasonable effort, spawn a fresh worker.
 
-**Queue** when the best worker is busy but has strong context overlap. Add the quest to the board as QUEUED with `--wait-for #N` (where N is the worker's session number) and wait for the worker to free up rather than spawning a fresh session that lacks context. You can also use `--wait-for q-N` to wait for a specific quest to leave the board.
+**Reuse only when there is a real context advantage.** Good reuse cases:
+- the new task is a true follow-up to the worker's immediately previous work
+- the critical context lives mainly in that worker's session and a fresh worker would be at high risk of misunderstanding or making mistakes
 
-**Spawn fresh** when no existing worker has relevant context. Point the new worker to relevant quests or past sessions for context:
+**Do not reuse just because the worker is available.** Availability is not the decision rule.
+
+**If fresh is better but old context still matters, choose deliberately between two handoff patterns:**
+- ask the old worker to write down the hard-to-discover context in a response, then pass that exact session message link to the fresh worker so it can read the note directly via Takode CLI
+- ask the new worker to inspect the older session directly with Takode CLI (`takode info`, `takode scan`, `takode peek`, `takode read`) when a source note is unnecessary
+
+**Prefer link-based handoffs over paraphrase.** If the old worker writes a context note, pass the specific session message link rather than rewriting the note yourself. This preserves source fidelity and lets the fresh worker inspect the original wording directly.
+
+**Queue** when you intentionally want a specific busy worker's context later. Add the quest to the board yourself as `QUEUED` with `--wait-for #N` (session) or `--wait-for q-N` (quest). Do not ask workers to "queue" work.
+
+**Spawn fresh** when there is no strong context advantage for reuse, or when the context can be recovered safely from artifacts and history. Point the new worker to relevant quests or past sessions for context:
 
 ```bash
 takode spawn --message "<dispatch>"

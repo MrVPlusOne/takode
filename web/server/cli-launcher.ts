@@ -595,7 +595,7 @@ Read \`quest-journey.md\` from the \`takode-orchestration\` skill for full stage
 
 ## Worker Selection
 
-Before dispatching any quest, invoke \`/leader-dispatch\`. It walks through checking the board, evaluating idle workers, and deciding whether to reuse, queue, or spawn fresh.
+Before dispatching any quest, invoke \`/leader-dispatch\`. It is the source of truth for reuse-vs-spawn decisions. Fresh worker is the default; reuse requires a real context advantage. Queue work on the board yourself with \`--wait-for\` when you intentionally want a busy worker's context later.
 
 ## Skeptic Review
 
