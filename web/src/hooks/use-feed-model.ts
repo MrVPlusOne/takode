@@ -417,11 +417,15 @@ function getEntryId(entry: FeedEntry): string {
 }
 
 export function isUserBoundaryEntry(entry: FeedEntry | null): boolean {
+  const sourceId = entry?.kind === "message" && entry.msg.role === "user" ? entry.msg.agentSource?.sessionId : undefined;
   return !!(
     entry &&
     entry.kind === "message" &&
     entry.msg.role === "user" &&
-    entry.msg.agentSource?.sessionId !== "herd-events"
+    sourceId !== "herd-events" &&
+    sourceId !== "system" &&
+    !sourceId?.startsWith("system:") &&
+    !sourceId?.startsWith("timer:")
   );
 }
 

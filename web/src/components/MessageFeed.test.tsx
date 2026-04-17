@@ -13,7 +13,7 @@ beforeAll(() => {
   vi.stubGlobal("cancelAnimationFrame", vi.fn());
 });
 
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { render, screen, fireEvent, act, within } from "@testing-library/react";
 import type { ChatMessage } from "../types.js";
 import type { FeedEntry, Turn } from "../hooks/use-feed-model.js";
 
@@ -3773,9 +3773,9 @@ describe("MessageFeed - collapsed turns", () => {
   });
 
   // q-277: notification-bearing assistant messages should remain visible even
-  // when the turn is collapsed. They are extracted into notificationEntries
-  // (separate from agentEntries) and rendered outside the collapsed card.
-  it("keeps notification-bearing messages visible when turn is collapsed", () => {
+  // when the turn is collapsed. They should stay visible inside the same
+  // collapsed turn card rather than rendering as a separate visual turn.
+  it("keeps notification-bearing messages visible inside the collapsed single turn", () => {
     const sid = "test-collapsed-notification-visible";
     setStoreMessages(sid, [
       makeMessage({ id: "u1", role: "user", content: "Deploy the fix" }),
@@ -3796,10 +3796,16 @@ describe("MessageFeed - collapsed turns", () => {
 
     render(<MessageFeed sessionId={sid} />);
 
-    // The notification message should be visible (extracted to notificationEntries)
-    expect(screen.getByText("Quest q-99 ready for verification")).toBeTruthy();
-    // The collapsed response preview should also be visible
-    expect(screen.getByText("All done, ported to main.")).toBeTruthy();
+    const notificationMessage = screen.getByText("Quest q-99 ready for verification");
+    const responsePreview = screen.getByText("All done, ported to main.");
+    const collapsedCard = responsePreview.closest(".rounded-xl");
+
+    expect(notificationMessage).toBeTruthy();
+    expect(responsePreview).toBeTruthy();
+    expect(collapsedCard).toBeTruthy();
+    expect(notificationMessage.closest(".rounded-xl")).toBe(collapsedCard);
+    expect(within(collapsedCard as HTMLElement).getByText("Quest q-99 ready for verification")).toBeTruthy();
+    expect(within(collapsedCard as HTMLElement).getByText("All done, ported to main.")).toBeTruthy();
     // The internal assistant message should be hidden (in agentEntries, collapsed)
     expect(screen.queryByText("Running tests and building...")).toBeNull();
   });

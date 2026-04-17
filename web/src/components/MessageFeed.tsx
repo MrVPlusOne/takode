@@ -2403,19 +2403,8 @@ const TurnEntries = memo(function TurnEntries({
                             onOpenCodexTerminal={onOpenCodexTerminal}
                           />
                         )}
-                        {/* Notification messages — always visible, like systemEntries */}
-                        {turn.notificationEntries.length > 0 && (
-                          <FeedEntries
-                            entries={turn.notificationEntries}
-                            sessionId={sessionId}
-                            minuteBoundaryLabels={minuteBoundaryLabels}
-                            isCodexSession={isCodexSession}
-                            activeCodexTerminalIds={activeCodexTerminalIds}
-                            onOpenCodexTerminal={onOpenCodexTerminal}
-                          />
-                        )}
                         {/* Collapsed: activity bar (with optional response) in a card, @to(user) messages rendered outside */}
-                        {(turn.agentEntries.length > 0 || turn.responseEntry) && (
+                        {(turn.agentEntries.length > 0 || turn.responseEntry || turn.notificationEntries.length > 0) && (
                           <div className="flex items-start gap-3">
                             <PawTrailAvatar />
                             <div className="flex-1 min-w-0 rounded-xl border border-cc-border/20 bg-cc-card/20 overflow-hidden">
@@ -2444,6 +2433,20 @@ const TurnEntries = memo(function TurnEntries({
                                         onOpenCodexTerminal={onOpenCodexTerminal}
                                       />
                                     ))}
+                                  </HidePawContext.Provider>
+                                </div>
+                              )}
+                              {turn.notificationEntries.length > 0 && (
+                                <div className="px-3 pt-2">
+                                  <HidePawContext.Provider value={true}>
+                                    <FeedEntries
+                                      entries={turn.notificationEntries}
+                                      sessionId={sessionId}
+                                      minuteBoundaryLabels={minuteBoundaryLabels}
+                                      isCodexSession={isCodexSession}
+                                      activeCodexTerminalIds={activeCodexTerminalIds}
+                                      onOpenCodexTerminal={onOpenCodexTerminal}
+                                    />
                                   </HidePawContext.Provider>
                                 </div>
                               )}
