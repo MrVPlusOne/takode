@@ -226,6 +226,7 @@ const LEADER_COMPACTION_RECOVERY_PROMPT = `Context was compacted. Before continu
 1. Load skills: /takode-orchestration, /leader-dispatch, and /quest
 2. Run: takode board show && takode list
 3. Key rules:
+   - If you need earlier context from your own session, inspect it first with token-efficient Takode tools like \`takode scan <your-session-number>\`
    - Use \`takode spawn\` to create workers (never Agent tool)
    - Invoke /leader-dispatch before every dispatch
    - Follow quest-journey.md for lifecycle transitions

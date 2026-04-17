@@ -436,7 +436,10 @@ function buildCompanionInstructions(opts?: {
 
   // Session identity — always first so the model knows who it is
   if (opts?.sessionNum !== undefined) {
-    parts.push(`## Session Identity\n\nYou are Takode session #${opts.sessionNum}.`);
+    parts.push(
+      `## Session Identity\n\nYou are Takode session #${opts.sessionNum}.\n\n` +
+        `Pro tip: if you need earlier context from this same session, inspect your own conversation with token-efficient Takode tools before re-reading long history. Start with \`takode scan ${opts.sessionNum}\`.`,
+    );
   }
 
   if (opts?.worktree) {

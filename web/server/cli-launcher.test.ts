@@ -1981,6 +1981,8 @@ describe("session identity injection", () => {
     const sysPrompt = String(cmdAndArgs[sysPromptIdx + 1] ?? "");
     // Session number is assigned monotonically starting from 1
     expect(sysPrompt).toContain("You are Takode session #");
+    expect(sysPrompt).toContain("earlier context from this same session");
+    expect(sysPrompt).toContain("Start with `takode scan ");
     // Verify it appears before other sections (link syntax, timers, etc.)
     const identityIdx = sysPrompt.indexOf("You are Takode session #");
     const linkSyntaxIdx = sysPrompt.indexOf("Link Syntax");

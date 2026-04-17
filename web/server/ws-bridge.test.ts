@@ -8267,6 +8267,8 @@ describe("Leader compaction recovery", () => {
     expect(recoveryCalls).toHaveLength(1);
     expect(recoveryCalls[0][1]).toContain("/takode-orchestration");
     expect(recoveryCalls[0][1]).toContain("takode board show");
+    expect(recoveryCalls[0][1]).toContain("takode scan <your-session-number>");
+    expect(recoveryCalls[0][1]).toContain("earlier context from your own session");
     expect(recoveryCalls[0][1]).toContain("stage-explicit");
     expect(recoveryCalls[0][1]).toContain("plan only");
     expect(recoveryCalls[0][1]).toContain("implement and stop");
