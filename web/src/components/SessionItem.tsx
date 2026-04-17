@@ -99,10 +99,16 @@ function timeAgo(epochMs: number): string {
 
 /** Derives a notification marker from the session's notification inbox.
  *  needs-input (amber) takes precedence over review (blue). Only shows for unaddressed (not done) notifications. */
+function useNotificationUrgency(sessionId: string) {
+  return useStore((s) => {
+    const notifications = s.sessionNotifications?.get(sessionId);
+    const activeNotifications = notifications?.filter((n) => !n.done);
+    return getHighestNotificationUrgency(activeNotifications);
+  });
+}
+
 function NotificationMarker({ sessionId }: { sessionId: string }) {
-  const notifications = useStore((s) => s.sessionNotifications?.get(sessionId));
-  const activeNotifications = notifications?.filter((n) => !n.done);
-  const urgency = getHighestNotificationUrgency(activeNotifications);
+  const urgency = useNotificationUrgency(sessionId);
 
   if (urgency === "needs-input") {
     return (
@@ -123,6 +129,26 @@ function NotificationMarker({ sessionId }: { sessionId: string }) {
     );
   }
   return null;
+}
+
+function SessionTimerMarker({ sessionId }: { sessionId: string }) {
+  const timerCount = useStore((s) => s.sessionTimers?.get(sessionId)?.length ?? 0);
+
+  if (timerCount === 0) return null;
+
+  return (
+    <span
+      data-testid="session-timer-marker"
+      data-count={String(timerCount)}
+      title={`${timerCount} scheduled timer${timerCount === 1 ? "" : "s"}`}
+      className="absolute right-11 sm:right-2 top-1/2 -translate-y-1/2 h-[18px] inline-flex items-center gap-1 rounded-full border border-cc-primary/20 bg-cc-primary/10 px-1.5 text-[10px] font-medium text-cc-primary sm:group-hover:opacity-0 transition-opacity pointer-events-none"
+    >
+      <svg viewBox="0 0 16 16" fill="currentColor" className="w-2.5 h-2.5 shrink-0">
+        <path d="M8 1.75a.75.75 0 01.75.75v.88a4.75 4.75 0 11-1.5 0V2.5A.75.75 0 018 1.75zm0 3A3.25 3.25 0 108 11.25 3.25 3.25 0 008 4.75zm.75 1.5v1.44l1.02.61a.75.75 0 11-.77 1.28L7.62 8.8A.75.75 0 017.25 8V6.25a.75.75 0 011.5 0z" />
+      </svg>
+      {timerCount > 1 && <span>{timerCount}</span>}
+    </span>
+  );
 }
 
 interface SessionItemProps {
@@ -234,6 +260,8 @@ export function SessionItem({
   const reviewerAttention = useStore((st) =>
     reviewerSession ? st.sessionAttention.get(reviewerSession.id) : undefined,
   );
+  const hasTimers = useStore((st) => (st.sessionTimers?.get(s.id)?.length ?? 0) > 0);
+  const inboxUrgency = useNotificationUrgency(s.id);
   const canSwipeToArchive = !archived && !reorderMode;
 
   // Long-press to open context menu on touch devices
@@ -841,7 +869,12 @@ export function SessionItem({
       {/* Notification inbox markers (shown when no server attention or permission badges are active).
           Derived from the per-session notification inbox -- surfaces unaddressed notifications
           on sidebar chips so the user can see which sessions need attention at a glance. */}
-      {!archived && !attention && permCount === 0 && <NotificationMarker sessionId={s.id} />}
+      {!archived && !attention && permCount === 0 && hasTimers && inboxUrgency !== "needs-input" && (
+        <SessionTimerMarker sessionId={s.id} />
+      )}
+      {!archived && !attention && permCount === 0 && (!hasTimers || inboxUrgency === "needs-input") && (
+        <NotificationMarker sessionId={s.id} />
+      )}
 
       {/* Action buttons */}
       {archived ? (

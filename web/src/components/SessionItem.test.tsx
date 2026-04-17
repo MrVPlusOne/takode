@@ -12,6 +12,7 @@ const mockStoreState = {
   sessionPreviewUpdatedAt: new Map<string, number>(),
   sessionAttention: new Map<string, "action" | "error" | "review" | null>(),
   sessionNotifications: new Map<string, Array<any>>(),
+  sessionTimers: new Map<string, Array<{ id: string }>>(),
 };
 
 vi.mock("../store.js", () => ({
@@ -86,6 +87,13 @@ function renderSessionItem(overrides: Partial<ComponentProps<typeof SessionItem>
 
 function setSessionNotifications(sessionId: string, notifications: Array<any>) {
   mockStoreState.sessionNotifications.set(sessionId, notifications);
+}
+
+function setSessionTimers(sessionId: string, timerIds: string[]) {
+  mockStoreState.sessionTimers.set(
+    sessionId,
+    timerIds.map((id) => ({ id })),
+  );
 }
 
 const SAGE_THEME: HerdGroupBadgeTheme = {
@@ -269,6 +277,7 @@ describe("SessionItem notification marker", () => {
   beforeEach(() => {
     mockStoreState.sessionAttention.clear();
     mockStoreState.sessionNotifications.clear();
+    mockStoreState.sessionTimers.clear();
   });
 
   it("shows a blue notification marker when review is the highest active inbox urgency", () => {
@@ -306,6 +315,55 @@ describe("SessionItem notification marker", () => {
 
     const { container } = renderSessionItem({ attention: "action" });
     expect(container.querySelector('[data-testid="session-notification-marker"]')).toBeNull();
+  });
+
+  it("shows the timer marker when timers exist and no stronger badge is active", () => {
+    // A timed but otherwise idle session should surface a subtle inline timer
+    // badge so scheduled work remains visible in the sidebar.
+    setSessionTimers("s1", ["t1", "t2"]);
+
+    renderSessionItem();
+
+    const marker = screen.getByTestId("session-timer-marker");
+    expect(marker).toHaveAttribute("data-count", "2");
+    expect(marker).toHaveAttribute("title", "2 scheduled timers");
+    expect(marker).toHaveTextContent("2");
+  });
+
+  it("suppresses the timer marker when a stronger permission badge is active", () => {
+    // Pending permissions should continue to own the badge lane because they
+    // require immediate user attention.
+    setSessionTimers("s1", ["t1"]);
+
+    const { container } = renderSessionItem({ permCount: 1 });
+    expect(container.querySelector('[data-testid="session-timer-marker"]')).toBeNull();
+  });
+
+  it("shows the timer marker instead of the lower-priority inbox marker", () => {
+    // Timers should beat passive inbox markers so sessions with scheduled work
+    // are still discoverable without hiding stronger action/review badges.
+    setSessionNotifications("s1", [
+      { id: "n-review", category: "review", summary: "Needs review", timestamp: Date.now(), done: false },
+    ]);
+    setSessionTimers("s1", ["t1"]);
+
+    const { container } = renderSessionItem();
+    expect(container.querySelector('[data-testid="session-timer-marker"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="session-notification-marker"]')).toBeNull();
+  });
+
+  it("preserves needs-input precedence when timers are also present", () => {
+    // Urgent needs-input inbox markers must still win over the timer badge so
+    // sessions that require a human response remain immediately visible.
+    setSessionNotifications("s1", [
+      { id: "n-input", category: "needs-input", summary: "Need answer", timestamp: Date.now(), done: false },
+    ]);
+    setSessionTimers("s1", ["t1"]);
+
+    const { container } = renderSessionItem();
+    const marker = screen.getByTestId("session-notification-marker");
+    expect(marker).toHaveAttribute("data-urgency", "needs-input");
+    expect(container.querySelector('[data-testid="session-timer-marker"]')).toBeNull();
   });
 });
 

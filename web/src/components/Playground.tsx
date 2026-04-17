@@ -1155,6 +1155,8 @@ export function Playground() {
     const prevFeedScrollPositions = new Map(demoSessionIds.map((id) => [id, snapshot.feedScrollPosition.get(id)]));
     const prevHistoryLoading = new Map(demoSessionIds.map((id) => [id, snapshot.historyLoading.get(id)]));
     const prevPendingCodexInputs = new Map(demoSessionIds.map((id) => [id, snapshot.pendingCodexInputs.get(id)]));
+    const sidebarTimerDemoIds = ["leader-alpha"];
+    const prevSessionTimers = new Map(sidebarTimerDemoIds.map((id) => [id, snapshot.sessionTimers.get(id)]));
 
     const session: SessionState = {
       session_id: sessionId,
@@ -1510,6 +1512,19 @@ export function Playground() {
     store.addSession({ ...session, session_id: questVerificationId, claimedQuestStatus: "needs_verification" });
     store.markQuestNamed(questInProgressId);
     store.markQuestNamed(questVerificationId);
+    store.setSessionTimers("leader-alpha", [
+      {
+        id: "sidebar-timer-1",
+        sessionId: "leader-alpha",
+        title: "Check worker queue",
+        description: "Review the active herd backlog and redistribute work if needed.",
+        type: "delay",
+        originalSpec: "20m",
+        nextFireAt: Date.now() + 1_200_000,
+        createdAt: Date.now() - 240_000,
+        fireCount: 0,
+      },
+    ]);
 
     return () => {
       useStore.setState((s) => {
@@ -1527,6 +1542,7 @@ export function Playground() {
         const feedScrollPosition = new Map(s.feedScrollPosition);
         const historyLoading = new Map(s.historyLoading);
         const pendingCodexInputs = new Map(s.pendingCodexInputs);
+        const sessionTimers = new Map(s.sessionTimers);
 
         for (const demoId of demoSessionIds) {
           const prevSession = prevSessions.get(demoId);
@@ -1573,6 +1589,11 @@ export function Playground() {
           if (prevPendingCodex) pendingCodexInputs.set(demoId, prevPendingCodex);
           else pendingCodexInputs.delete(demoId);
         }
+        for (const timerDemoId of sidebarTimerDemoIds) {
+          const prevTimers = prevSessionTimers.get(timerDemoId);
+          if (prevTimers) sessionTimers.set(timerDemoId, prevTimers);
+          else sessionTimers.delete(timerDemoId);
+        }
 
         return {
           sessions,
@@ -1589,6 +1610,7 @@ export function Playground() {
           feedScrollPosition,
           historyLoading,
           pendingCodexInputs,
+          sessionTimers,
         };
       });
       // Clean up quest-named demo state (sessions themselves are cleaned by the loop above)
@@ -2521,7 +2543,7 @@ export function Playground() {
 
         <Section
           title="Session List Herd Groups"
-          description="Leader and worker pills share a herd-group color so different leader groups are easier to scan in the sidebar."
+          description="Leader and worker pills share a herd-group color, and the leading row includes a subtle timer badge sourced from the real sidebar timer store."
         >
           <div className="max-w-md">
             <Card label="Session list pills">
