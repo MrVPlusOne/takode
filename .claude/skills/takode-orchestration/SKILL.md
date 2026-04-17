@@ -374,7 +374,7 @@ A `✗ disconnected` session just means its CLI process was killed (usually by t
 
 ## Archiving Sessions
 
-Maintain at most **5 sessions in your herd**. **Never archive proactively.** Only archive when you are at the 5-session limit AND need to spawn a new worker. Idle and disconnected sessions retain valuable context -- keep them until you actually need the slot. When you must archive, choose the one least likely to be reused -- typically the one whose work is most complete, least related to upcoming tasks, or oldest. Archiving doesn't lose anything -- archived sessions' full conversation history remains readable via `takode peek` and `takode read`, and the Takode UI.
+Maintain at most **5 sessions in your herd**. **Never archive proactively.** Only archive when you are at the 5-session limit AND need to spawn a new worker. Idle and disconnected sessions retain valuable context -- keep them until you actually need the slot. **Archiving a worktree worker deletes its worktree and any uncommitted changes**, so do not archive until anything worth keeping has been ported, committed, or otherwise synced. When you must archive, choose the one least likely to be reused -- typically the one whose work is most complete, least related to upcoming tasks, or oldest. Archived sessions' conversation history remains readable via `takode peek`, `takode read`, and the Takode UI, but that history does not preserve uncommitted work from a deleted worktree.
 
 ## Tips
 

@@ -4852,6 +4852,7 @@ describe("buildOrchestratorSystemPrompt", () => {
     expect(prompt).toContain(
       "Delegate non-trivial implementation, investigation, and verification to worker sessions.",
     );
+    expect(prompt).toContain("Archiving a worktree worker deletes its worktree and any uncommitted changes.");
     // Link syntax instructions moved to system prompt (cli-launcher.ts) -- no longer in user message
     expect(prompt).not.toContain("CLAUDE.md");
     expect(prompt).not.toContain("sub-agent");
