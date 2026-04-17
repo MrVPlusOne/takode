@@ -1918,6 +1918,77 @@ describe("CodexAdapter", () => {
     expect((toolBlock as { input: { query: string } }).input.query).toBe("codex cli skills documentation");
   });
 
+  it("surfaces rawResponseItem/completed view_image function calls as tool_use blocks", async () => {
+    const messages: BrowserIncomingMessage[] = [];
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
+    adapter.onBrowserMessage((msg) => messages.push(msg));
+
+    await initializeAdapter(stdout);
+
+    stdout.push(
+      JSON.stringify({
+        method: "rawResponseItem/completed",
+        params: {
+          item: {
+            type: "function_call",
+            name: "view_image",
+            arguments: '{"path":"/tmp/proof.png"}',
+            call_id: "call_view_image_1",
+          },
+        },
+      }) + "\n",
+    );
+
+    await tick();
+
+    const toolMsg = messages
+      .filter((m) => m.type === "assistant")
+      .find((m) => {
+        const content = (m as { message: { content: Array<{ type: string; name?: string; id?: string }> } }).message
+          .content;
+        return content.some((b) => b.type === "tool_use" && b.name === "view_image" && b.id === "call_view_image_1");
+      });
+
+    expect(toolMsg).toBeDefined();
+    const toolBlock = (
+      toolMsg as { message: { content: Array<{ type: string; input?: { path?: string } }> } }
+    ).message.content.find((b) => b.type === "tool_use");
+    expect((toolBlock as { input: { path?: string } }).input.path).toBe("/tmp/proof.png");
+  });
+
+  it("deduplicates replayed rawResponseItem/completed view_image calls", async () => {
+    const messages: BrowserIncomingMessage[] = [];
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
+    adapter.onBrowserMessage((msg) => messages.push(msg));
+
+    await initializeAdapter(stdout);
+
+    const rawViewImage = JSON.stringify({
+      method: "rawResponseItem/completed",
+      params: {
+        item: {
+          type: "function_call",
+          name: "view_image",
+          arguments: '{"path":"/tmp/replayed.png"}',
+          call_id: "call_view_image_replay",
+        },
+      },
+    });
+
+    stdout.push(rawViewImage + "\n");
+    stdout.push(rawViewImage + "\n");
+
+    await tick();
+
+    const toolUseMsgs = messages.filter((m) => {
+      if (m.type !== "assistant") return false;
+      const content = (m as { message: { content: Array<{ type: string; id?: string }> } }).message.content;
+      return content.some((b) => b.type === "tool_use" && b.id === "call_view_image_replay");
+    });
+
+    expect(toolUseMsgs).toHaveLength(1);
+  });
+
   it("calls onSessionMeta with thread ID after initialization", async () => {
     const metaCalls: Array<{ cliSessionId?: string; model?: string }> = [];
     const adapter = new CodexAdapter(proc as never, "test-session", { model: "gpt-5.4", cwd: "/project" });

@@ -121,6 +121,7 @@ const TOOL_ICONS: Record<string, string> = {
   WebFetch: "globe",
   WebSearch: "globe",
   NotebookEdit: "notebook",
+  view_image: "file",
   Task: "agent",
   Agent: "agent",
   TodoWrite: "checklist",
@@ -148,6 +149,7 @@ export function getToolLabel(name: string): string {
   if (name === "Grep") return "Search Content";
   if (name === "WebSearch") return "Web Search";
   if (name === "WebFetch") return "Web Fetch";
+  if (name === "view_image") return "View Image";
   if (name === "Task" || name === "Agent") return "Subagent";
   if (name === "TodoWrite") return "Tasks";
   if (name === "NotebookEdit") return "Notebook";
@@ -1396,6 +1398,9 @@ export function getPreview(name: string, input: Record<string, unknown>): string
   }
   if (name === "WebSearch" || name === "web_search") {
     return extractWebSearchQuery(input);
+  }
+  if (name === "view_image" && input.path) {
+    return String(input.path);
   }
   if (name === "WebFetch" && input.url) {
     try {

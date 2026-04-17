@@ -488,6 +488,24 @@ function extractWebSearchQuery(item: CodexWebSearchItem): string {
   return "";
 }
 
+function parseToolArguments(raw: unknown): Record<string, unknown> {
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    return raw as Record<string, unknown>;
+  }
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      // Fall through to preserve the raw string when arguments are not JSON.
+    }
+    return raw.trim() ? { raw: raw.trim() } : {};
+  }
+  return {};
+}
+
 interface CodexMcpServerStatus {
   name: string;
   tools?: Record<string, { name?: string; annotations?: unknown }>;
@@ -1952,7 +1970,7 @@ export class CodexAdapter
           this.handleItemCompleted(params);
           break;
         case "rawResponseItem/completed":
-          // Raw model response — internal, not needed for UI.
+          this.handleRawResponseItemCompleted(params);
           break;
         case "turn/started":
           // Turn started, nothing to emit
@@ -2606,6 +2624,32 @@ export class CodexAdapter
   private handleItemUpdated(params: Record<string, unknown>): void {
     // item/updated is a general update — currently we handle streaming via the specific delta events
     // Could handle status updates for command_execution / file_change items here
+  }
+
+  private handleRawResponseItemCompleted(params: Record<string, unknown>): void {
+    const item =
+      (params.item && typeof params.item === "object" ? (params.item as Record<string, unknown>) : null) ??
+      (params.responseItem && typeof params.responseItem === "object"
+        ? (params.responseItem as Record<string, unknown>)
+        : null) ??
+      (params.rawResponseItem && typeof params.rawResponseItem === "object"
+        ? (params.rawResponseItem as Record<string, unknown>)
+        : null);
+    if (!item) return;
+
+    const itemType = toSafeText(item.type).trim().toLowerCase();
+    if (itemType !== "function_call") return;
+
+    const toolName = toSafeText(item.name).trim();
+    // Most tool calls are already translated via item/started + item/completed.
+    // `view_image` is emitted only as a raw function_call, so surface it here.
+    if (toolName !== "view_image") return;
+
+    const toolUseId = toSafeText(item.call_id ?? item.callId ?? item.id).trim() || `raw-${randomUUID()}`;
+    if (this.emittedToolUseIds.has(toolUseId)) return;
+    this.emitToolUseTracked(toolUseId, toolName, parseToolArguments(item.arguments), {
+      parentToolUseId: this.resolveParentToolUseId(params, toolUseId),
+    });
   }
 
   private normalizePlanStatus(value: unknown): "pending" | "in_progress" | "completed" {

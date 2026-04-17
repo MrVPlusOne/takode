@@ -1995,6 +1995,11 @@ export function Playground() {
               sessionId={MOCK_SESSION_ID}
             />
             <ToolBlock
+              name="view_image"
+              input={{ path: "/Users/stan/Dev/project/docs/bug-screenshot.png" }}
+              toolUseId="tb-view-image"
+            />
+            <ToolBlock
               name="Read"
               input={{ file_path: "/Users/stan/Dev/project/src/index.ts", offset: 10, limit: 50 }}
               toolUseId="tb-2"

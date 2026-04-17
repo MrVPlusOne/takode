@@ -109,6 +109,7 @@ describe("getToolLabel", () => {
 
   it("returns known labels for newly added tools", () => {
     expect(getToolLabel("WebFetch")).toBe("Web Fetch");
+    expect(getToolLabel("view_image")).toBe("View Image");
     expect(getToolLabel("Task")).toBe("Subagent");
     expect(getToolLabel("TodoWrite")).toBe("Tasks");
     expect(getToolLabel("NotebookEdit")).toBe("Notebook");
@@ -168,6 +169,10 @@ describe("getPreview", () => {
 
   it("extracts query for WebSearch", () => {
     expect(getPreview("WebSearch", { query: "react testing library" })).toBe("react testing library");
+  });
+
+  it("extracts the target path for view_image", () => {
+    expect(getPreview("view_image", { path: "/tmp/proof.png" })).toBe("/tmp/proof.png");
   });
 
   it("extracts query for Codex web_search input shape", () => {
