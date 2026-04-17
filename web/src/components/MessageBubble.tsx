@@ -32,15 +32,18 @@ export function isEmptyAssistantMessage(msg: ChatMessage): boolean {
  * Per-message search highlight info, derived from the session search state.
  * Returns null when no search is active (zero overhead path).
  */
-function useMessageSearchHighlight(sessionId: string | undefined, messageId: string) {
+function useMessageSearchHighlight(sessionId: string | undefined, messageId: string, messageRole: ChatMessage["role"]) {
   const query = useStore((s) => (sessionId ? getSessionSearchState(s, sessionId).query : ""));
   const mode = useStore((s) => (sessionId ? getSessionSearchState(s, sessionId).mode : ("strict" as const)));
+  const category = useStore((s) => (sessionId ? getSessionSearchState(s, sessionId).category : "all"));
   const isCurrent = useStore((s) => {
     if (!sessionId) return false;
     const ss = getSessionSearchState(s, sessionId);
     if (ss.matches.length === 0 || ss.currentMatchIndex < 0) return false;
     return ss.matches[ss.currentMatchIndex]?.messageId === messageId;
   });
+  const roleMatchesCategory = category === "all" || category === messageRole;
+  if (!roleMatchesCategory) return null;
   if (!query.trim()) return null;
   return { query, mode, isCurrent };
 }
@@ -121,7 +124,7 @@ export const MessageBubble = memo(function MessageBubble({
   showTimestamp?: boolean;
 }) {
   // Search highlight state -- must be called unconditionally (hooks can't be after early returns)
-  const searchHighlight = useMessageSearchHighlight(sessionId, message.id);
+  const searchHighlight = useMessageSearchHighlight(sessionId, message.id, message.role);
 
   if (message.role === "system") {
     if (message.variant === "error") {

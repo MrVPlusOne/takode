@@ -5201,6 +5201,44 @@ export function Playground() {
                   <span className="font-medium text-cc-fg">Mode toggle:</span> Strict (exact substring) ↔ Fuzzy
                   (per-word) via button in the search bar
                 </p>
+                <p>
+                  <span className="font-medium text-cc-fg">Category filters:</span> Inline segmented pills for `All`,
+                  `User`, `Assistant`, and `System` keep the bar compact while narrowing matches and highlights by
+                  message role
+                </p>
+              </div>
+            </Card>
+            <Card label="SearchBar filter mock">
+              <div className="rounded-xl border border-cc-border bg-cc-card px-3 py-2">
+                <div className="flex items-center gap-2">
+                  <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5 text-cc-muted shrink-0">
+                    <path d="M11.742 10.344a6.5 6.5 0 10-1.397 1.398h-.001l3.85 3.85a1 1 0 001.415-1.414l-3.85-3.85-.017.016zm-5.442.156a5 5 0 110-10 5 5 0 010 10z" />
+                  </svg>
+                  <div className="min-w-0 flex-1 text-sm text-cc-muted">Search messages...</div>
+                  <div className="flex items-center gap-1 rounded-lg border border-cc-border/70 bg-cc-bg/70 p-0.5">
+                    {["All", "User", "Assistant", "System"].map((label) => {
+                      const isActive = label === "Assistant";
+                      return (
+                        <button
+                          key={label}
+                          type="button"
+                          className={`rounded-md px-2 py-1 text-[11px] font-medium ${
+                            isActive ? "bg-cc-primary/18 text-cc-primary" : "text-cc-muted"
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <button
+                    type="button"
+                    className="flex items-center justify-center w-7 h-7 rounded-lg text-xs font-mono-code bg-cc-hover text-cc-fg"
+                  >
+                    Aa
+                  </button>
+                  <span className="text-[11px] text-cc-muted whitespace-nowrap tabular-nums shrink-0">2 of 4</span>
+                </div>
               </div>
             </Card>
           </div>

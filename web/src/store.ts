@@ -16,6 +16,7 @@ import { api, type PRStatusResponse, type CreationProgressEvent, type CreateSess
 import type { BoardRowData } from "./components/BoardTable.js";
 import { isEmbeddedInVsCode } from "./utils/embed-context.js";
 import { isDesktopShellLayout } from "./utils/layout.js";
+import { normalizeForSearch } from "../shared/search-utils.js";
 
 // ─── Color Themes ───────────────────────────────────────────────────────────
 
@@ -178,10 +179,13 @@ export interface SearchMatch {
   messageId: string; // ChatMessage.id of a message that contains match(es)
 }
 
+export type SessionSearchCategory = "all" | ChatMessage["role"];
+
 export interface SessionSearchState {
   query: string;
   isOpen: boolean;
   mode: "strict" | "fuzzy";
+  category: SessionSearchCategory;
   matches: SearchMatch[];
   currentMatchIndex: number; // index into matches[], -1 if none
 }
@@ -190,6 +194,7 @@ const DEFAULT_SEARCH_STATE: SessionSearchState = {
   query: "",
   isOpen: false,
   mode: "strict",
+  category: "all",
   matches: [],
   currentMatchIndex: -1,
 };
@@ -197,6 +202,38 @@ const DEFAULT_SEARCH_STATE: SessionSearchState = {
 /** Read search state for a session, falling back to defaults. */
 export function getSessionSearchState(state: AppState, sessionId: string): SessionSearchState {
   return state.sessionSearch.get(sessionId) ?? DEFAULT_SEARCH_STATE;
+}
+
+export function computeSessionSearchMatches(
+  messages: Pick<ChatMessage, "id" | "content" | "role">[],
+  query: string,
+  mode: "strict" | "fuzzy",
+  category: SessionSearchCategory = "all",
+): SearchMatch[] {
+  const trimmed = query.trim();
+  if (!trimmed) return [];
+
+  const matches: SearchMatch[] = [];
+  for (const msg of messages) {
+    if (!sessionSearchRoleMatchesCategory(msg.role, category)) continue;
+    if (!msg.content) continue;
+    if (sessionSearchTextMatches(msg.content, trimmed, mode)) {
+      matches.push({ messageId: msg.id });
+    }
+  }
+  return matches;
+}
+
+function sessionSearchRoleMatchesCategory(role: ChatMessage["role"], category: SessionSearchCategory): boolean {
+  return category === "all" || role === category;
+}
+
+function sessionSearchTextMatches(text: string, query: string, mode: "strict" | "fuzzy"): boolean {
+  const normalizedText = normalizeForSearch(text);
+  const normalizedQuery = normalizeForSearch(query);
+  if (mode === "strict") return normalizedText.includes(normalizedQuery);
+  const words = normalizedQuery.split(/\s+/).filter(Boolean);
+  return words.every((word) => normalizedText.includes(word));
 }
 
 interface AppState {
@@ -528,6 +565,7 @@ interface AppState {
   setSessionSearchQuery: (sessionId: string, query: string) => void;
   setSessionSearchResults: (sessionId: string, matches: SearchMatch[]) => void;
   setSessionSearchMode: (sessionId: string, mode: "strict" | "fuzzy") => void;
+  setSessionSearchCategory: (sessionId: string, category: SessionSearchCategory) => void;
   navigateSessionSearch: (sessionId: string, direction: "next" | "prev") => void;
 
   requestBottomAlignOnNextUserMessage: (sessionId: string) => void;
@@ -1983,6 +2021,21 @@ export const useStore = create<AppState>((set) => ({
       const sessionSearch = new Map(s.sessionSearch);
       const prev = sessionSearch.get(sessionId) ?? DEFAULT_SEARCH_STATE;
       sessionSearch.set(sessionId, { ...prev, mode });
+      return { sessionSearch };
+    }),
+
+  setSessionSearchCategory: (sessionId, category) =>
+    set((s) => {
+      const sessionSearch = new Map(s.sessionSearch);
+      const prev = sessionSearch.get(sessionId) ?? DEFAULT_SEARCH_STATE;
+      const messages = s.messages.get(sessionId) ?? [];
+      const matches = computeSessionSearchMatches(messages, prev.query, prev.mode, category);
+      sessionSearch.set(sessionId, {
+        ...prev,
+        category,
+        matches,
+        currentMatchIndex: matches.length > 0 ? 0 : -1,
+      });
       return { sessionSearch };
     }),
 

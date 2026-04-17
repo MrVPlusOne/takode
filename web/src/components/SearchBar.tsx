@@ -3,7 +3,7 @@ import { useStore, getSessionSearchState } from "../store.js";
 
 /**
  * Horizontal search bar that appears below the TopBar inside ChatView.
- * Shows input, mode toggle, match counter, prev/next navigation, and close button.
+ * Shows input, category filters, mode toggle, match counter, prev/next navigation, and close button.
  */
 export function SearchBar({
   sessionId,
@@ -15,10 +15,17 @@ export function SearchBar({
   const searchState = useStore((s) => getSessionSearchState(s, sessionId));
   const setQuery = useStore((s) => s.setSessionSearchQuery);
   const setMode = useStore((s) => s.setSessionSearchMode);
+  const setCategory = useStore((s) => s.setSessionSearchCategory);
   const navigate = useStore((s) => s.navigateSessionSearch);
   const close = useStore((s) => s.closeSessionSearch);
 
-  const { query, mode, matches, currentMatchIndex, isOpen } = searchState;
+  const { query, mode, category, matches, currentMatchIndex, isOpen } = searchState;
+  const categories = [
+    { value: "all", label: "All" },
+    { value: "user", label: "User" },
+    { value: "assistant", label: "Assistant" },
+    { value: "system", label: "System" },
+  ] as const;
 
   // Auto-focus when opened
   useEffect(() => {
@@ -67,6 +74,28 @@ export function SearchBar({
         placeholder="Search messages..."
         className="flex-1 min-w-0 bg-transparent text-sm text-cc-fg placeholder:text-cc-muted outline-none"
       />
+
+      <div className="flex items-center gap-1 shrink min-w-0 overflow-x-auto rounded-lg border border-cc-border/70 bg-cc-bg/70 p-0.5">
+        {categories.map((option) => {
+          const isActive = category === option.value;
+          return (
+            <button
+              key={option.value}
+              type="button"
+              aria-pressed={isActive}
+              onClick={() => setCategory(sessionId, option.value)}
+              className={`shrink-0 rounded-md px-2 py-1 text-[11px] font-medium transition-colors cursor-pointer ${
+                isActive
+                  ? "bg-cc-primary/18 text-cc-primary"
+                  : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover/70"
+              }`}
+              title={`Search ${option.label.toLowerCase()} messages`}
+            >
+              {option.label}
+            </button>
+          );
+        })}
+      </div>
 
       {/* Mode toggle */}
       <button

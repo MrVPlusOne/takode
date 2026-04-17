@@ -103,6 +103,7 @@ vi.mock("../store.js", () => ({
     query: "",
     isOpen: false,
     mode: "strict",
+    category: "all",
     matches: [],
     currentMatchIndex: -1,
   }),

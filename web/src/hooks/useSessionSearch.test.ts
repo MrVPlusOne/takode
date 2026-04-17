@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { _computeMatches, _messageMatches } from "./useSessionSearch.js";
+import { _computeMatches, _messageMatches, _messageMatchesCategory } from "./useSessionSearch.js";
 
 describe("messageMatches", () => {
   describe("strict mode", () => {
@@ -49,11 +49,11 @@ describe("messageMatches", () => {
 
 describe("computeMatches", () => {
   const messages = [
-    { id: "m1", content: "Hello world" },
-    { id: "m2", content: "Goodbye world" },
-    { id: "m3", content: "Hello again" },
-    { id: "m4", content: "" },
-    { id: "m5", content: "Nothing relevant here" },
+    { id: "m1", role: "user" as const, content: "Hello world" },
+    { id: "m2", role: "assistant" as const, content: "Goodbye world" },
+    { id: "m3", role: "assistant" as const, content: "Hello again" },
+    { id: "m4", role: "system" as const, content: "" },
+    { id: "m5", role: "system" as const, content: "Nothing relevant here" },
   ];
 
   it("returns empty for empty query", () => {
@@ -77,9 +77,33 @@ describe("computeMatches", () => {
     expect(result).toEqual([{ messageId: "m1" }, { messageId: "m2" }]);
   });
 
+  it("respects the selected message category", () => {
+    // Filtered session search should only return matches from the active
+    // message role rather than highlighting every role with the same query.
+    const assistantOnly = _computeMatches(messages, "hello", "strict", "assistant");
+    expect(assistantOnly).toEqual([{ messageId: "m3" }]);
+
+    const userOnly = _computeMatches(messages, "hello", "strict", "user");
+    expect(userOnly).toEqual([{ messageId: "m1" }]);
+  });
+
   it("skips messages with empty content", () => {
     const result = _computeMatches(messages, "hello", "strict");
     // m4 has empty content, should not appear
     expect(result.find((m) => m.messageId === "m4")).toBeUndefined();
+  });
+});
+
+describe("messageMatchesCategory", () => {
+  it("accepts every role when the all filter is active", () => {
+    expect(_messageMatchesCategory("user", "all")).toBe(true);
+    expect(_messageMatchesCategory("assistant", "all")).toBe(true);
+    expect(_messageMatchesCategory("system", "all")).toBe(true);
+  });
+
+  it("only accepts the selected role for specific filters", () => {
+    expect(_messageMatchesCategory("assistant", "assistant")).toBe(true);
+    expect(_messageMatchesCategory("user", "assistant")).toBe(false);
+    expect(_messageMatchesCategory("system", "assistant")).toBe(false);
   });
 });
