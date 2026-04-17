@@ -77,6 +77,8 @@ interface QuestBase {
   images?: QuestImage[];
   /** Past owners in chronological order. Excludes the current active owner. */
   previousOwnerSessionIds?: string[];
+  /** Ordered synced commit SHAs associated with this quest's verification handoff. */
+  commitShas?: string[];
 }
 
 // ─── Progressive stage types (each extends the previous) ─────────────────────
@@ -159,6 +161,8 @@ export interface QuestTransitionInput {
   sessionId?: string;
   /** Required for needs_verification+. Accepts strings (normalized to {text, checked:false}) or full objects. */
   verificationItems?: (QuestVerificationItem | string)[];
+  /** Ordered synced commit SHAs to attach at verification handoff. */
+  commitShas?: string[];
   /** Closure notes for done status (commit hashes, reasoning, etc.) */
   notes?: string;
   /** If true, marks this as cancelled/aborted rather than completed */

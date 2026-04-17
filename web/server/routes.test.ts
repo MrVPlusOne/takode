@@ -1147,6 +1147,7 @@ describe("GET /api/sessions", () => {
         numTurns: 0,
         contextUsedPercent: 0,
         messageHistoryBytes: 0,
+        codexRetainedPayloadBytes: 0,
         lastMessagePreview: "",
         cliConnected: false,
         taskHistory: [],
@@ -1169,6 +1170,7 @@ describe("GET /api/sessions", () => {
         numTurns: 0,
         contextUsedPercent: 0,
         messageHistoryBytes: 0,
+        codexRetainedPayloadBytes: 0,
         lastMessagePreview: "",
         cliConnected: false,
         taskHistory: [],
@@ -6201,6 +6203,84 @@ describe("POST /api/quests/:questId/transition", () => {
       id: "q-1",
       title: "Quest",
       status: "in_progress",
+    });
+  });
+});
+
+describe("GET /api/quests/:questId/commits/:sha", () => {
+  it("returns git-backed commit details for a SHA attached to the quest", async () => {
+    vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
+      id: "q-1-v4",
+      questId: "q-1",
+      title: "Quest",
+      status: "needs_verification",
+      createdAt: Date.now(),
+      description: "Ready",
+      sessionId: "session-1",
+      claimedAt: Date.now(),
+      verificationItems: [{ text: "verify", checked: false }],
+      commitShas: ["abc1234"],
+    } as any);
+    launcher.getSession.mockReturnValue({
+      sessionId: "session-1",
+      cwd: "/repo/worktree",
+      repoRoot: "/repo",
+    } as any);
+    vi.mocked(execSync).mockImplementation((cmd: string) => {
+      if (typeof cmd !== "string") throw new Error("non-string cmd");
+      if (cmd.includes('rev-parse --verify "abc1234^')) return "abc1234567890abcdef\n";
+      if (cmd.includes('show -s --format="%H%x00%h%x00%s%x00%ct"')) {
+        return ["abc1234567890abcdef", "abc1234", "Attach commits to quests", "1713292534"].join("\0") + "\n";
+      }
+      if (cmd.includes('show --format= --patch --no-color "abc1234567890abcdef"')) {
+        return `diff --git a/file.ts b/file.ts\n--- a/file.ts\n+++ b/file.ts\n@@ -1 +1 @@\n-old\n+new\n`;
+      }
+      throw new Error(`Unmocked: ${cmd}`);
+    });
+
+    const res = await app.request("/api/quests/q-1/commits/abc1234", { method: "GET" });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json).toMatchObject({
+      sha: "abc1234567890abcdef",
+      shortSha: "abc1234",
+      message: "Attach commits to quests",
+      available: true,
+    });
+    expect(json.diff).toContain("diff --git");
+    expect(vi.mocked(execSync)).toHaveBeenCalledWith(expect.stringContaining('rev-parse --verify "abc1234^'));
+  });
+
+  it("returns an unavailable state when the commit cannot be found locally", async () => {
+    vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
+      id: "q-1-v4",
+      questId: "q-1",
+      title: "Quest",
+      status: "needs_verification",
+      createdAt: Date.now(),
+      description: "Ready",
+      sessionId: "session-1",
+      claimedAt: Date.now(),
+      verificationItems: [{ text: "verify", checked: false }],
+      commitShas: ["deadbee"],
+    } as any);
+    launcher.getSession.mockReturnValue({
+      sessionId: "session-1",
+      cwd: "/repo/worktree",
+      repoRoot: "/repo",
+    } as any);
+    vi.mocked(execSync).mockImplementation(() => {
+      throw new Error("unknown revision");
+    });
+
+    const res = await app.request("/api/quests/q-1/commits/deadbee", { method: "GET" });
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      sha: "deadbee",
+      available: false,
+      reason: "commit_not_available",
     });
   });
 });

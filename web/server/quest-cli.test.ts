@@ -518,6 +518,68 @@ describe("quest CLI completion reminder", () => {
     }
   });
 
+  it("forwards explicit commit SHAs during HTTP completion", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "quest-complete-commits-http-"));
+    const authDir = getSessionAuthDir(tmp);
+    mkdirSync(authDir, { recursive: true });
+    const authPath = centralAuthPath(tmp, tmp);
+    const seenBodies: JsonObject[] = [];
+
+    const server = createServer(async (req, res) => {
+      if (req.method === "POST" && req.url === "/api/quests/q-1/complete") {
+        seenBodies.push(await readJson(req));
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            questId: "q-1",
+            title: "Quest",
+            status: "needs_verification",
+            verificationItems: [{ text: "Visual check", checked: false }],
+            commitShas: ["abc1234", "deadbeef"],
+          }),
+        );
+        return;
+      }
+      if (req.method === "POST" && req.url === "/api/quests/_notify") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true }));
+        return;
+      }
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    writeFileSync(
+      authPath,
+      JSON.stringify({ sessionId: "session-file", authToken: "file-token", port, serverId: "test-server-id" }),
+      "utf-8",
+    );
+
+    try {
+      const result = await runQuest(
+        ["complete", "q-1", "--items", "Visual check", "--commit", "ABC1234", "--commits", "deadbeef,abc1234"],
+        {
+          ...process.env,
+          COMPANION_PORT: String(port),
+          HOME: tmp,
+        },
+        tmp,
+      );
+
+      expect(result.status).toBe(0);
+      expect(seenBodies[0]).toMatchObject({
+        verificationItems: [{ text: "Visual check", checked: false }],
+        commitShas: ["abc1234", "deadbeef"],
+      });
+    } finally {
+      server.close();
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
   it("prints the same summary-comment reminder on filesystem fallback completion", async () => {
     const tmp = mkdtempSync(join(tmpdir(), "quest-complete-reminder-fallback-"));
     const questDir = join(tmp, ".companion", "questmaster");

@@ -1,12 +1,42 @@
 import { Hono } from "hono";
 import * as questStore from "../quest-store.js";
-import type { QuestFeedbackEntry } from "../quest-types.js";
+import type { QuestFeedbackEntry, QuestmasterTask } from "../quest-types.js";
+import { SERVER_GIT_CMD } from "../constants.js";
 import { broadcastQuestUpdate } from "./quest-helpers.js";
 import type { RouteContext } from "./context.js";
 
+const DIFF_MAX_BUFFER = 10 * 1024 * 1024;
+const MAX_DIFF_BYTES = 512 * 1024;
+
+function normalizeRequestedCommitSha(value: string): string | null {
+  const sha = value.trim().toLowerCase();
+  return /^[0-9a-f]{7,40}$/.test(sha) ? sha : null;
+}
+
+function questRepoCandidates(quest: QuestmasterTask, launcher: RouteContext["launcher"]): string[] {
+  const sessionIds = [
+    ...("sessionId" in quest && typeof quest.sessionId === "string" ? [quest.sessionId] : []),
+    ...(Array.isArray(quest.previousOwnerSessionIds) ? quest.previousOwnerSessionIds : []),
+  ];
+  const seen = new Set<string>();
+  const paths: string[] = [];
+
+  for (const sessionId of sessionIds) {
+    const session = launcher.getSession(sessionId);
+    if (!session) continue;
+    for (const path of [session.repoRoot, session.cwd]) {
+      if (!path || seen.has(path)) continue;
+      seen.add(path);
+      paths.push(path);
+    }
+  }
+
+  return paths;
+}
+
 export function createQuestRoutes(ctx: RouteContext) {
   const api = new Hono();
-  const { launcher, wsBridge, imageStore, authenticateCompanionCallerOptional } = ctx;
+  const { launcher, wsBridge, imageStore, authenticateCompanionCallerOptional, execCaptureStdoutAsync } = ctx;
 
   // ─── Questmaster (~/.companion/questmaster/) ──────────────────────
 
@@ -93,6 +123,62 @@ export function createQuestRoutes(ctx: RouteContext) {
   api.get("/quests/:questId/history", async (c) => {
     const history = await questStore.getQuestHistory(c.req.param("questId"));
     return c.json(history);
+  });
+
+  api.get("/quests/:questId/commits/:sha", async (c) => {
+    const quest = await questStore.getQuest(c.req.param("questId"));
+    if (!quest) return c.json({ error: "Quest not found" }, 404);
+
+    const sha = normalizeRequestedCommitSha(c.req.param("sha"));
+    if (!sha) return c.json({ error: "Invalid commit SHA" }, 400);
+    if (!quest.commitShas?.some((storedSha) => storedSha.toLowerCase() === sha)) {
+      return c.json({ error: "Commit not attached to this quest" }, 404);
+    }
+
+    const repoCandidates = questRepoCandidates(quest, launcher);
+    if (repoCandidates.length === 0) {
+      return c.json({ sha, available: false, reason: "repo_unavailable" });
+    }
+
+    for (const repoRoot of repoCandidates) {
+      try {
+        const fullSha = (
+          await execCaptureStdoutAsync(`${SERVER_GIT_CMD} rev-parse --verify "${sha}^{commit}"`, repoRoot)
+        ).trim();
+        if (!fullSha) continue;
+        const metadata = await execCaptureStdoutAsync(
+          `${SERVER_GIT_CMD} show -s --format="%H%x00%h%x00%s%x00%ct" "${fullSha}"`,
+          repoRoot,
+        );
+        if (!metadata.trim()) continue;
+        let diff = await execCaptureStdoutAsync(
+          `${SERVER_GIT_CMD} show --format= --patch --no-color "${fullSha}"`,
+          repoRoot,
+          { maxBuffer: DIFF_MAX_BUFFER },
+        );
+        let truncated = false;
+        if (Buffer.byteLength(diff, "utf-8") > MAX_DIFF_BYTES) {
+          diff = Buffer.from(diff, "utf-8").subarray(0, MAX_DIFF_BYTES).toString("utf-8");
+          truncated = true;
+        }
+
+        const [resolvedSha, shortSha, message, ts] = metadata.trim().split("\0");
+        if (!resolvedSha) continue;
+        return c.json({
+          sha: resolvedSha || fullSha,
+          shortSha: shortSha || fullSha.slice(0, 7),
+          message: message || "",
+          timestamp: Number.parseInt(ts || "0", 10) * 1000,
+          diff,
+          truncated,
+          available: true,
+        });
+      } catch {
+        // Try the next known repo candidate for this quest.
+      }
+    }
+
+    return c.json({ sha, available: false, reason: "commit_not_available" });
   });
 
   api.get("/quests/:questId/version/:versionId", async (c) => {
@@ -235,7 +321,8 @@ export function createQuestRoutes(ctx: RouteContext) {
     const items = body.verificationItems as import("../quest-types.js").QuestVerificationItem[] | undefined;
     if (!items || !Array.isArray(items)) return c.json({ error: "verificationItems array is required" }, 400);
     try {
-      const quest = await questStore.completeQuest(c.req.param("questId"), items);
+      const commitShas = Array.isArray(body.commitShas) ? body.commitShas : undefined;
+      const quest = await questStore.completeQuest(c.req.param("questId"), items, { commitShas });
       if (!quest) return c.json({ error: "Quest not found" }, 404);
       broadcastQuestUpdate(wsBridge);
       // Update session's quest status so browsers can show "pending review" badge

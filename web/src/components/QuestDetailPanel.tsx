@@ -22,10 +22,12 @@ import { SessionNumChip } from "./SessionNumChip.js";
 import { SessionStatusDot } from "./SessionStatusDot.js";
 import { Lightbox } from "./Lightbox.js";
 import { MarkdownContent } from "./MarkdownContent.js";
+import { DiffViewer } from "./DiffViewer.js";
 import { buildQuestAssignDraft } from "./quest-assign.js";
 import { buildQuestReworkDraft } from "./quest-rework.js";
 import type { SessionItem as SessionItemType } from "../utils/project-grouping.js";
 import type { QuestmasterTask, QuestStatus, QuestVerificationItem, QuestImage } from "../types.js";
+import type { QuestCommitLookup } from "../api.js";
 
 type EditorTarget = "editTitle" | "editDescription";
 
@@ -84,6 +86,10 @@ export function QuestDetailPanel() {
   const [assignPickerForId, setAssignPickerForId] = useState<string | null>(null);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [historyForId, setHistoryForId] = useState<string | null>(null);
+  const [activeCommitIndex, setActiveCommitIndex] = useState<number | null>(null);
+  const [commitLookupBySha, setCommitLookupBySha] = useState<Record<string, QuestCommitLookup>>({});
+  const [commitLookupLoadingSha, setCommitLookupLoadingSha] = useState<string | null>(null);
+  const [commitLookupError, setCommitLookupError] = useState("");
 
   // Reset local state when quest changes
   useEffect(() => {
@@ -99,6 +105,10 @@ export function QuestDetailPanel() {
     setAssignPickerForId(null);
     setLightboxSrc(null);
     setHistoryForId(null);
+    setActiveCommitIndex(null);
+    setCommitLookupBySha({});
+    setCommitLookupLoadingSha(null);
+    setCommitLookupError("");
     setEditorHashtagQuery("");
     setEditorAutocompleteTarget(null);
     setEditorAutocompleteIndex(0);
@@ -129,6 +139,11 @@ export function QuestDetailPanel() {
     function handleKey(e: KeyboardEvent) {
       if (e.key !== "Escape") return;
       if (lightboxSrc) return; // Lightbox has its own Escape handler
+      if (activeCommitIndex !== null) {
+        setActiveCommitIndex(null);
+        setCommitLookupError("");
+        return;
+      }
       if (assignPickerForId) return; // Assign picker has its own Escape handler
       if (confirmDeleteFeedback) {
         setConfirmDeleteFeedback(null);
@@ -146,7 +161,16 @@ export function QuestDetailPanel() {
     }
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
-  }, [questOverlayId, lightboxSrc, assignPickerForId, confirmDeleteFeedback, editingFeedback, editingId, closePanel]);
+  }, [
+    questOverlayId,
+    lightboxSrc,
+    activeCommitIndex,
+    assignPickerForId,
+    confirmDeleteFeedback,
+    editingFeedback,
+    editingId,
+    closePanel,
+  ]);
 
   // Close assign picker on Escape
   useEffect(() => {
@@ -333,6 +357,16 @@ export function QuestDetailPanel() {
     setHistoryForId(historyForId === questId ? null : questId);
   }
 
+  const openCommitModal = useCallback((index: number) => {
+    setActiveCommitIndex(index);
+    setCommitLookupError("");
+  }, []);
+
+  const closeCommitModal = useCallback(() => {
+    setActiveCommitIndex(null);
+    setCommitLookupError("");
+  }, []);
+
   // Actions
   async function handlePatch(questId: string) {
     setError("");
@@ -481,6 +515,34 @@ export function QuestDetailPanel() {
       setError(e instanceof Error ? e.message : String(e));
     }
   }
+
+  useEffect(() => {
+    if (!quest || activeCommitIndex === null) return;
+    const sha = quest.commitShas?.[activeCommitIndex];
+    if (!sha || commitLookupBySha[sha]) return;
+
+    let cancelled = false;
+    setCommitLookupLoadingSha(sha);
+    setCommitLookupError("");
+    api
+      .getQuestCommit(quest.questId, sha)
+      .then((details) => {
+        if (cancelled) return;
+        setCommitLookupBySha((prev) => (prev[sha] ? prev : { ...prev, [sha]: details }));
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setCommitLookupError(e instanceof Error ? e.message : String(e));
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setCommitLookupLoadingSha((prev) => (prev === sha ? null : prev));
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [quest, activeCommitIndex, commitLookupBySha]);
 
   async function handleAddFeedback(questId: string, text: string) {
     if (!text.trim() && feedbackImages.length === 0) return;
@@ -727,6 +789,9 @@ export function QuestDetailPanel() {
   const questSessionId = getQuestOwnerSessionId(quest);
   const isKnownSession = questSessionId ? sdkSessions.some((s) => s.sessionId === questSessionId) : false;
   const feedbackEntries = getQuestFeedback(quest);
+  const questCommitShas = quest.commitShas ?? [];
+  const activeCommitSha = activeCommitIndex !== null ? (questCommitShas[activeCommitIndex] ?? null) : null;
+  const activeCommitDetails = activeCommitSha ? commitLookupBySha[activeCommitSha] : undefined;
   const unaddressedFeedbackCount = feedbackEntries.filter((e) => e.author === "human" && !e.addressed).length;
   const addressedFeedbackCount = feedbackEntries.filter((e) => e.author === "human" && e.addressed).length;
 
@@ -814,6 +879,23 @@ export function QuestDetailPanel() {
                   <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded-full bg-cc-hover text-cc-muted">
                     {tag.toLowerCase()}
                   </span>
+                ))}
+              </div>
+            )}
+            {questCommitShas.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                <span className="text-[10px] uppercase tracking-[0.08em] text-cc-muted/60">Commits</span>
+                {questCommitShas.map((sha, index) => (
+                  <button
+                    key={sha}
+                    type="button"
+                    onClick={() => openCommitModal(index)}
+                    className="text-[10px] font-mono-code px-2 py-0.5 rounded-full bg-cc-hover text-cc-fg border border-cc-border hover:border-cc-primary/30 hover:text-cc-primary transition-colors cursor-pointer"
+                    title={sha}
+                    aria-label={`Open commit ${sha.slice(0, 7)}`}
+                  >
+                    {sha.slice(0, 7)}
+                  </button>
                 ))}
               </div>
             )}
@@ -1501,6 +1583,123 @@ export function QuestDetailPanel() {
           )}
         </div>
       </div>
+
+      {activeCommitSha && (
+        <div className="fixed inset-0 z-[55] flex items-center justify-center bg-black/70 p-4" onClick={closeCommitModal}>
+          <div
+            className="w-[min(1100px,96vw)] max-h-[90dvh] bg-cc-card border border-cc-border rounded-xl shadow-2xl flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Commit ${activeCommitSha.slice(0, 7)}`}
+            data-testid="quest-commit-modal"
+          >
+            <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-cc-border">
+              <div className="min-w-0">
+                <div className="text-[10px] uppercase tracking-[0.08em] text-cc-muted/60">Synced Commit</div>
+                <div className="mt-1 flex items-center gap-2 flex-wrap">
+                  <span className="text-sm font-semibold text-cc-fg font-mono-code">
+                    {activeCommitDetails?.shortSha || activeCommitSha.slice(0, 7)}
+                  </span>
+                  <span className="text-[10px] text-cc-muted">
+                    {activeCommitIndex !== null ? `${activeCommitIndex + 1}/${questCommitShas.length}` : ""}
+                  </span>
+                  {activeCommitDetails?.timestamp && (
+                    <span className="text-[10px] text-cc-muted">{timeAgo(activeCommitDetails.timestamp)}</span>
+                  )}
+                </div>
+                {activeCommitDetails?.message && (
+                  <div className="mt-1 text-sm text-cc-fg truncate">{activeCommitDetails.message}</div>
+                )}
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  {questCommitShas.map((sha, index) => (
+                    <button
+                      key={sha}
+                      type="button"
+                      onClick={() => openCommitModal(index)}
+                      className={`text-[10px] font-mono-code px-2 py-0.5 rounded-full border transition-colors cursor-pointer ${
+                        sha === activeCommitSha
+                          ? "bg-cc-primary/15 text-cc-primary border-cc-primary/30"
+                          : "bg-cc-hover text-cc-fg border-cc-border hover:border-cc-primary/30 hover:text-cc-primary"
+                      }`}
+                      title={sha}
+                    >
+                      {sha.slice(0, 7)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setActiveCommitIndex((prev) => (prev && prev > 0 ? prev - 1 : prev))}
+                  disabled={activeCommitIndex === null || activeCommitIndex <= 0}
+                  className="px-2.5 py-1.5 text-[11px] rounded-lg bg-cc-hover text-cc-fg border border-cc-border disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setActiveCommitIndex((prev) =>
+                      prev !== null && prev < questCommitShas.length - 1 ? prev + 1 : prev,
+                    )
+                  }
+                  disabled={activeCommitIndex === null || activeCommitIndex >= questCommitShas.length - 1}
+                  className="px-2.5 py-1.5 text-[11px] rounded-lg bg-cc-hover text-cc-fg border border-cc-border disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  Next
+                </button>
+                <button
+                  type="button"
+                  onClick={closeCommitModal}
+                  className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-cc-hover text-cc-muted hover:text-cc-fg transition-colors cursor-pointer"
+                  aria-label="Close commit modal"
+                >
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
+                    <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-auto p-4 bg-cc-bg/40">
+              {commitLookupLoadingSha === activeCommitSha && !activeCommitDetails ? (
+                <div className="h-full min-h-48 flex items-center justify-center text-sm text-cc-muted">
+                  Loading commit diff...
+                </div>
+              ) : commitLookupError ? (
+                <div className="h-full min-h-48 flex items-center justify-center text-sm text-red-400">
+                  {commitLookupError}
+                </div>
+              ) : activeCommitDetails && !activeCommitDetails.available ? (
+                <div className="h-full min-h-48 flex flex-col items-center justify-center gap-2 text-center px-6">
+                  <div className="text-sm font-medium text-cc-fg">Commit not available</div>
+                  <div className="text-sm text-cc-muted max-w-md">
+                    {activeCommitDetails.reason === "repo_unavailable"
+                      ? "The quest no longer has an available session checkout to read this commit from."
+                      : "This commit is no longer available in local git history."}
+                  </div>
+                </div>
+              ) : activeCommitDetails ? (
+                <div className="space-y-3">
+                  {activeCommitDetails.truncated && (
+                    <div className="px-3 py-2 text-xs bg-amber-500/10 border border-amber-500/20 rounded-lg text-amber-300">
+                      Commit diff truncated for display.
+                    </div>
+                  )}
+                  <DiffViewer
+                    unifiedDiff={activeCommitDetails.diff}
+                    fileName={activeCommitDetails.shortSha}
+                    mode="full"
+                    showLineNumbers
+                  />
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Lightbox */}
       {lightboxSrc && <Lightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />}

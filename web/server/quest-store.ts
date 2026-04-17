@@ -51,6 +51,25 @@ function normalizeVerificationItems(items: unknown[]): QuestVerificationItem[] {
   return result;
 }
 
+/** Normalize stored commit SHAs. */
+function normalizeCommitShas(items: unknown[]): string[] {
+  const result: string[] = [];
+  const seen = new Set<string>();
+  for (const item of items) {
+    if (typeof item !== "string") {
+      throw new Error("Each commit SHA must be a string");
+    }
+    const sha = item.trim().toLowerCase();
+    if (!/^[0-9a-f]{7,40}$/.test(sha)) {
+      throw new Error(`Invalid commit SHA: ${item}`);
+    }
+    if (seen.has(sha)) continue;
+    seen.add(sha);
+    result.push(sha);
+  }
+  return result;
+}
+
 function getActiveSessionId(quest: QuestmasterTask): string | undefined {
   if (!("sessionId" in quest) || typeof quest.sessionId !== "string") return undefined;
   const sid = quest.sessionId.trim();
@@ -461,6 +480,7 @@ export async function transitionQuest(questId: string, input: QuestTransitionInp
     !input.description &&
     !input.sessionId &&
     !input.verificationItems &&
+    !input.commitShas &&
     !input.notes &&
     !input.cancelled
   ) {
@@ -488,6 +508,11 @@ export async function transitionQuest(questId: string, input: QuestTransitionInp
     ...(current.images?.length ? { images: current.images } : {}),
     ...(previousOwners.length ? { previousOwnerSessionIds: previousOwners } : {}),
   };
+  if (input.commitShas !== undefined && targetStatus !== "needs_verification") {
+    throw new Error("commitShas can only be set when transitioning to needs_verification");
+  }
+  const inputCommitShas =
+    input.commitShas && input.commitShas.length > 0 ? normalizeCommitShas(input.commitShas) : undefined;
 
   let quest: QuestmasterTask;
 
@@ -585,6 +610,7 @@ export async function transitionQuest(questId: string, input: QuestTransitionInp
         verificationItems,
         verificationInboxUnread: true,
         ...(nextPreviousOwners.length ? { previousOwnerSessionIds: nextPreviousOwners } : {}),
+        ...(inputCommitShas?.length ? { commitShas: inputCommitShas } : {}),
         ...(currentFeedback?.length ? { feedback: currentFeedback } : {}),
       } as QuestNeedsVerification;
       break;
@@ -610,6 +636,7 @@ export async function transitionQuest(questId: string, input: QuestTransitionInp
         claimedAt: "claimedAt" in current ? (current as QuestInProgress).claimedAt : now,
         verificationItems: verificationItems ?? [],
         ...(previousOwners.length ? { previousOwnerSessionIds: previousOwners } : {}),
+        ...(current.commitShas?.length ? { commitShas: current.commitShas } : {}),
         completedAt: now,
         ...(input.notes ? { notes: input.notes } : {}),
         ...(input.cancelled ? { cancelled: true } : {}),
@@ -693,10 +720,15 @@ export async function claimQuest(
 }
 
 /** Convenience: complete a quest (transition to needs_verification). */
-export async function completeQuest(questId: string, items: QuestVerificationItem[]): Promise<QuestmasterTask | null> {
+export async function completeQuest(
+  questId: string,
+  items: QuestVerificationItem[],
+  opts?: { commitShas?: string[] },
+): Promise<QuestmasterTask | null> {
   return transitionQuest(questId, {
     status: "needs_verification",
     verificationItems: items,
+    ...(opts?.commitShas?.length ? { commitShas: opts.commitShas } : {}),
   });
 }
 
@@ -743,6 +775,7 @@ export async function cancelQuest(questId: string, notes?: string): Promise<Ques
     ...(current.parentId ? { parentId: current.parentId } : {}),
     ...(current.images?.length ? { images: current.images } : {}),
     ...(previousOwners.length ? { previousOwnerSessionIds: previousOwners } : {}),
+    ...(current.commitShas?.length ? { commitShas: current.commitShas } : {}),
     status: "done",
     ...(description ? { description } : {}),
     claimedAt: "claimedAt" in current ? (current as QuestInProgress).claimedAt : now,

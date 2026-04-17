@@ -10,6 +10,7 @@ const mockMarkQuestDone = vi.fn();
 const mockAddQuestFeedback = vi.fn();
 const mockEditQuestFeedback = vi.fn();
 const mockDeleteQuestFeedback = vi.fn();
+const mockGetQuestCommit = vi.fn();
 vi.mock("../api.js", () => ({
   api: {
     questImageUrl: (id: string) => `/api/quests/_images/${id}`,
@@ -22,6 +23,7 @@ vi.mock("../api.js", () => ({
     addQuestFeedback: (...args: unknown[]) => mockAddQuestFeedback(...args),
     editQuestFeedback: (...args: unknown[]) => mockEditQuestFeedback(...args),
     deleteQuestFeedback: (...args: unknown[]) => mockDeleteQuestFeedback(...args),
+    getQuestCommit: (...args: unknown[]) => mockGetQuestCommit(...args),
   },
 }));
 
@@ -101,6 +103,7 @@ describe("QuestDetailPanel", () => {
     mockAddQuestFeedback.mockReset();
     mockEditQuestFeedback.mockReset();
     mockDeleteQuestFeedback.mockReset();
+    mockGetQuestCommit.mockReset();
     document.body.style.overflow = "";
   });
 
@@ -678,5 +681,67 @@ describe("QuestDetailPanel", () => {
         (storeQuest as QuestmasterTask & { verificationItems: QuestVerificationItem[] }).verificationItems[0].checked,
       ).toBe(false);
     });
+  });
+
+  it("renders commit chips and navigates between commit diffs in the modal", async () => {
+    const firstSha = "abc1234def567890";
+    const secondSha = "deadbeeffeedcafe";
+    const quest = makeVerificationQuest({ commitShas: [firstSha, secondSha] } as Partial<QuestmasterTask>);
+    useStore.setState({ quests: [quest], questOverlayId: "q-42" });
+    mockGetQuestCommit
+      .mockResolvedValueOnce({
+        sha: firstSha,
+        shortSha: firstSha.slice(0, 7),
+        message: "First ported commit",
+        timestamp: Date.now(),
+        diff: `diff --git a/file.ts b/file.ts\n--- a/file.ts\n+++ b/file.ts\n@@ -1 +1 @@\n-old\n+new\n`,
+        available: true,
+      })
+      .mockResolvedValueOnce({
+        sha: secondSha,
+        shortSha: secondSha.slice(0, 7),
+        message: "Second ported commit",
+        timestamp: Date.now(),
+        diff: `diff --git a/other.ts b/other.ts\n--- a/other.ts\n+++ b/other.ts\n@@ -1 +1 @@\n-before\n+after\n`,
+        available: true,
+      });
+
+    render(<QuestDetailPanel />);
+
+    fireEvent.click(screen.getByLabelText(`Open commit ${firstSha.slice(0, 7)}`));
+
+    await waitFor(() => {
+      expect(mockGetQuestCommit).toHaveBeenCalledWith("q-42", firstSha);
+    });
+    expect(screen.getByTestId("quest-commit-modal")).toBeTruthy();
+    expect(screen.getByText("First ported commit")).toBeTruthy();
+
+    fireEvent.click(screen.getByText("Next"));
+
+    await waitFor(() => {
+      expect(mockGetQuestCommit).toHaveBeenCalledWith("q-42", secondSha);
+    });
+    expect(screen.getByText("Second ported commit")).toBeTruthy();
+  });
+
+  it("shows a graceful unavailable state when a stored commit cannot be loaded", async () => {
+    const sha = "abc1234def567890";
+    const quest = makeVerificationQuest({ commitShas: [sha] } as Partial<QuestmasterTask>);
+    useStore.setState({ quests: [quest], questOverlayId: "q-42" });
+    mockGetQuestCommit.mockResolvedValueOnce({
+      sha,
+      available: false,
+      reason: "commit_not_available",
+    });
+
+    render(<QuestDetailPanel />);
+
+    fireEvent.click(screen.getByLabelText(`Open commit ${sha.slice(0, 7)}`));
+
+    await waitFor(() => {
+      expect(mockGetQuestCommit).toHaveBeenCalledWith("q-42", sha);
+    });
+    expect(screen.getByText("Commit not available")).toBeTruthy();
+    expect(screen.getByText("This commit is no longer available in local git history.")).toBeTruthy();
   });
 });

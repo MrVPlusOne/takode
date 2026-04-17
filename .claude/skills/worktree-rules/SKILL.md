@@ -49,6 +49,8 @@ git -C <BASE_REPO> cherry-pick <commit-hash>
 
 Cherry-pick one at a time in chronological order.
 
+Track the resulting **main-repo SHAs** in the same order as you cherry-pick them. These synced SHAs are the ones that matter for quest verification metadata. Do not reuse the worktree-only pre-port SHAs when the main repo now has different cherry-picked copies.
+
 ### 4. Handle unexpected conflicts
 
 If cherry-pick still conflicts (it shouldn't after a clean rebase), tell the user the conflicting files and ask how to proceed. Do not force-resolve or abort without asking.
@@ -85,3 +87,10 @@ Do NOT report the sync as complete until ALL of the following are true:
 ## Quest Status Rule
 
 If you are working on a quest from this worktree session, do **NOT** transition it to `needs_verification` until the sync workflow above is fully complete, the main repo contains the changes, and the branch has been pushed. If sync is still pending, leave the quest `in_progress`.
+
+If you are also the agent performing the verification handoff, attach the ordered synced SHAs when you submit:
+```bash
+quest complete q-N --items "..." --commits "sha1,sha2"
+```
+
+If a leader controls the quest transition, report back with the ordered synced SHAs explicitly so the later handoff can attach them. Do **not** rely on `/port-changes` logs being parsed after the fact.

@@ -252,6 +252,17 @@ export interface GitWorktreeInfo {
   isDirty: boolean;
 }
 
+export interface QuestCommitLookup {
+  sha: string;
+  shortSha?: string;
+  message?: string;
+  timestamp?: number;
+  diff?: string;
+  truncated?: boolean;
+  available: boolean;
+  reason?: "repo_unavailable" | "commit_not_available";
+}
+
 export interface WorktreeCreateResult {
   worktreePath: string;
   branch: string;
@@ -1130,6 +1141,8 @@ export const api = {
   getQuest: (id: string) => get<import("./types.js").QuestmasterTask>(`/quests/${encodeURIComponent(id)}`),
   getQuestHistory: (id: string) =>
     get<import("./types.js").QuestmasterTask[]>(`/quests/${encodeURIComponent(id)}/history`),
+  getQuestCommit: (id: string, sha: string) =>
+    get<QuestCommitLookup>(`/quests/${encodeURIComponent(id)}/commits/${encodeURIComponent(sha)}`),
   createQuest: (input: import("./types.js").QuestCreateInput) =>
     post<import("./types.js").QuestmasterTask>("/quests", input),
   patchQuest: (id: string, body: import("./types.js").QuestPatchInput) =>
@@ -1139,8 +1152,15 @@ export const api = {
   deleteQuest: (id: string) => del(`/quests/${encodeURIComponent(id)}`),
   claimQuest: (id: string, sessionId: string) =>
     post<import("./types.js").QuestmasterTask>(`/quests/${encodeURIComponent(id)}/claim`, { sessionId }),
-  completeQuest: (id: string, verificationItems: import("./types.js").QuestVerificationItem[]) =>
-    post<import("./types.js").QuestmasterTask>(`/quests/${encodeURIComponent(id)}/complete`, { verificationItems }),
+  completeQuest: (
+    id: string,
+    verificationItems: import("./types.js").QuestVerificationItem[],
+    commitShas?: string[],
+  ) =>
+    post<import("./types.js").QuestmasterTask>(`/quests/${encodeURIComponent(id)}/complete`, {
+      verificationItems,
+      ...(commitShas?.length ? { commitShas } : {}),
+    }),
   markQuestDone: (
     id: string,
     input?: {

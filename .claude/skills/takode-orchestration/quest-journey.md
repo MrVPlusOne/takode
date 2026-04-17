@@ -122,8 +122,8 @@ The `--reviewer` flag automatically:
 
 - Tell the worker to run `/port-changes` only when you are explicitly ready for porting. Do not assume they will self-port once review is done.
 - For investigation, design, or other no-code quests, give an explicit next-step instruction after the worker reports back. Do not ask them to self-complete or move the quest forward on their own.
-- Wait for the worker to confirm sync is complete (commits landed, tests passed, pushed to remote)
-- Only after port is confirmed: transition the quest to `needs_verification`
+- Wait for the worker to confirm sync is complete (commits landed, tests passed, pushed to remote) **and include the ordered synced SHAs from the main repo**
+- Only after port is confirmed: transition the quest to `needs_verification` and attach those SHAs explicitly with `quest complete q-N --items "..." --commits "sha1,sha2"`
 - `takode board advance <quest-id>` -- this removes the row from the board
 - Run `takode notify review "<quest-id> ready for verification"` to alert the user that the quest is ready for verification
 

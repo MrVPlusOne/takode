@@ -41,7 +41,7 @@ quest history <id> [--json]                                   Show version histo
 quest tags   [--json]                                         List all existing tags with counts
 quest create <title> [--desc "..."] [--tags "t1,t2"] [--image <path>] [--images "p1,p2"] [--json] Create a quest (auto-assigns ID)
 quest claim  <id> [--session <sid>] [--json]                  Claim for your session
-quest complete <id> --items "c1,c2" [--json]                  Submit for verification
+quest complete <id> --items "c1,c2" [--commit <sha>] [--commits "c1,c2"] [--json]  Submit for verification
 quest done   <id> [--notes "..."] [--cancelled] [--json]      Mark as done/cancelled
 quest transition <id> --status <s> [--desc "..."] [--json]    Change status
 quest later  <id> [--json]                                    Move quest out of Verification Inbox
@@ -115,6 +115,8 @@ Unknown flags are rejected with a "Did you mean?" suggestion.
 | Flag | Description |
 |------|-------------|
 | `--items "i1,i2"` | Comma-separated verification checklist items (REQUIRED) |
+| `--commit <sha>` | Attach one synced commit SHA (repeatable) |
+| `--commits "s1,s2"` | Attach multiple synced commit SHAs in order |
 | `--json` | Output JSON |
 
 ### quest done <id> [flags]
@@ -258,6 +260,8 @@ idea → refined → in_progress → needs_verification → done
 - Is the implementation actually complete?
 - Run tests, typecheck, linting yourself first.
 - **Worktree sessions:** If you made the change in a git worktree, finish the full sync-to-main workflow first (rebase/cherry-pick/push/reset/post-reset verification) before running `quest complete` or describing the work as ready for verification.
+- **If the work was ported/synced:** attach the ordered synced SHAs during the verification handoff with `quest complete q-N --items "..." --commits "sha1,sha2"`. Use the merged/cherry-picked SHAs from the main repo, not the pre-port worktree-only SHAs.
+- **If a leader controls the handoff:** report the ordered synced SHAs explicitly so the later `quest complete` call can attach them. Do not rely on log parsing or memory.
 
 **Pre-submission checklist (all three required -- the skeptic reviewer will verify each one and CHALLENGE if any are missing):**
 

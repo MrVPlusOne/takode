@@ -452,6 +452,12 @@ function formatQuestDetail(q: QuestmasterTask, archivedMap?: Map<string, boolean
       lines.push(`  [${items[i].checked ? "x" : " "}] ${i}: ${items[i].text}`);
     }
   }
+  if (q.commitShas?.length) {
+    lines.push(`Commits:     ${q.commitShas.length}`);
+    for (const sha of q.commitShas) {
+      lines.push(`  ${sha}`);
+    }
+  }
   if ("feedback" in q) {
     const entries = (
       q as {
@@ -535,6 +541,26 @@ function guessMimeType(filePath: string): string {
     default:
       return "application/octet-stream";
   }
+}
+
+function parseCommitShasFromFlags(): string[] {
+  const raw = [
+    ...options("commit"),
+    ...options("commits").flatMap((group) => group.split(",").map((value) => value.trim())),
+  ].filter(Boolean);
+
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of raw) {
+    const sha = value.trim().toLowerCase();
+    if (!/^[0-9a-f]{7,40}$/.test(sha)) {
+      die(`Invalid commit SHA: ${value}`);
+    }
+    if (seen.has(sha)) continue;
+    seen.add(sha);
+    result.push(sha);
+  }
+  return result;
 }
 
 async function uploadQuestImage(port: string, rawPath: string): Promise<QuestImageRef> {
@@ -733,11 +759,14 @@ async function cmdClaim(): Promise<void> {
 }
 
 async function cmdComplete(): Promise<void> {
-  validateFlags(["items", "json"]);
+  validateFlags(["items", "commit", "commits", "json"]);
   const id = positional(0);
-  if (!id) die('Usage: quest complete <questId> [--items "check1,check2"]');
+  if (!id) {
+    die('Usage: quest complete <questId> [--items "check1,check2"] [--commit <sha>] [--commits "sha1,sha2"]');
+  }
 
   const itemsStr = option("items");
+  const commitShas = parseCommitShasFromFlags();
   let items: { text: string; checked: boolean }[] = [];
   if (itemsStr) {
     items = itemsStr
@@ -759,7 +788,10 @@ async function cmdComplete(): Promise<void> {
       const res = await fetch(`http://localhost:${companionPort}/api/quests/${encodeURIComponent(id)}/complete`, {
         method: "POST",
         headers: companionAuthHeaders({ "Content-Type": "application/json" }),
-        body: JSON.stringify({ verificationItems: items }),
+        body: JSON.stringify({
+          verificationItems: items,
+          ...(commitShas.length > 0 ? { commitShas } : {}),
+        }),
         signal: AbortSignal.timeout(5000),
       });
       if (!res.ok) {
@@ -787,7 +819,7 @@ async function cmdComplete(): Promise<void> {
 
   // Fallback: direct filesystem (no browser notification)
   try {
-    const quest = await completeQuest(id, items);
+    const quest = await completeQuest(id, items, commitShas.length > 0 ? { commitShas } : undefined);
     if (!quest) die(`Quest ${id} not found`);
     await notifyServer();
     if (jsonOutput) {
@@ -848,7 +880,7 @@ async function cmdCancel(): Promise<void> {
 }
 
 async function cmdTransition(): Promise<void> {
-  validateFlags(["status", "desc", "session", "json"]);
+  validateFlags(["status", "desc", "session", "commit", "commits", "json"]);
   const id = positional(0);
   if (!id) die('Usage: quest transition <questId> --status <s> [--desc "..."]');
 
@@ -857,12 +889,17 @@ async function cmdTransition(): Promise<void> {
 
   const description = option("desc");
   const sessionId = option("session") || currentSessionId;
+  const commitShas = parseCommitShasFromFlags();
+  if (commitShas.length > 0 && status !== "needs_verification") {
+    die("--commit/--commits can only be used when transitioning to needs_verification");
+  }
 
   try {
     const quest = await transitionQuest(id, {
       status: status as import("../server/quest-types.js").QuestStatus,
       ...(description !== undefined ? { description } : {}),
       ...(sessionId ? { sessionId } : {}),
+      ...(commitShas.length > 0 ? { commitShas } : {}),
     });
     if (!quest) die(`Quest ${id} not found`);
     await notifyServer();
@@ -1280,10 +1317,12 @@ Commands:
   tags   [--json]                                        List all existing tags with counts
   create <title> [--desc "..."] [--tags "t1,t2"] [--image <path>] [--images "p1,p2"] [--json] Create a quest
   claim  <id> [--session <sid>] [--json]                 Claim for session
-  complete <id> --items "c1,c2" [--json]                 Submit for verification
+  complete <id> --items "c1,c2" [--commit <sha>] [--commits "s1,s2"] [--json]
+                                                         Submit for verification
   done   <id> [--notes "..."] [--cancelled] [--json]      Mark as done/cancelled
   cancel <id> [--notes "reason"] [--json]                Cancel from any status
-  transition <id> --status <s> [--desc "..."] [--json]   Change status
+  transition <id> --status <s> [--desc "..."] [--commit <sha>] [--commits "s1,s2"] [--json]
+                                                         Change status
   later  <id> [--json]                                   Move verification quest out of inbox
   inbox  <id> [--json]                                   Move verification quest back to inbox
   edit   <id> [--title "..."] [--desc "..."] [--json]    Edit in place

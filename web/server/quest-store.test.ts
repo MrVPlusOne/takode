@@ -390,6 +390,26 @@ describe("backward transitions", () => {
       "in_progress", // rework
     ]);
   });
+
+  it("drops previous verification commit SHAs when a quest re-enters in_progress", async () => {
+    await questStore.createQuest({ title: "Rework resets SHAs" });
+    await questStore.transitionQuest("q-1", {
+      status: "refined",
+      description: "Original plan",
+    });
+    await questStore.claimQuest("q-1", "sess-1");
+    await questStore.completeQuest("q-1", [{ text: "Check UI", checked: false }], {
+      commitShas: ["abc1234", "deadbeef"],
+    });
+
+    const rework = await questStore.transitionQuest("q-1", {
+      status: "in_progress",
+      sessionId: "sess-1",
+    });
+
+    expect(rework?.status).toBe("in_progress");
+    expect(rework?.commitShas).toBeUndefined();
+  });
 });
 
 // ===========================================================================
@@ -478,6 +498,30 @@ describe("completeQuest", () => {
       expect(completed.verificationItems).toHaveLength(2);
       expect(completed.verificationInboxUnread).toBe(true);
     }
+  });
+
+  it("stores ordered commit SHAs on the verification handoff", async () => {
+    await questStore.createQuest({ title: "Attach sync commits" });
+    await questStore.transitionQuest("q-1", {
+      status: "refined",
+      description: "Ready",
+    });
+    await questStore.claimQuest("q-1", "sess-1");
+
+    const completed = await questStore.completeQuest(
+      "q-1",
+      [{ text: "Human verifies UI", checked: false }],
+      {
+        commitShas: [
+          "BEEF1234",
+          "beef1234",
+          "deadbeefcafebabe",
+        ],
+      },
+    );
+
+    expect(completed?.status).toBe("needs_verification");
+    expect(completed?.commitShas).toEqual(["beef1234", "deadbeefcafebabe"]);
   });
 });
 
@@ -720,6 +764,47 @@ describe("transition validation", () => {
     if (quest?.status === "needs_verification") {
       expect(quest.verificationItems).toEqual([]);
     }
+  });
+
+  it("rejects setting commit SHAs before the verification handoff", async () => {
+    await questStore.createQuest({ title: "No premature SHAs" });
+    await questStore.transitionQuest("q-1", {
+      status: "refined",
+      description: "Ready",
+    });
+
+    await expect(
+      questStore.transitionQuest("q-1", {
+        status: "in_progress",
+        sessionId: "sess-1",
+        commitShas: ["abc1234"],
+      }),
+    ).rejects.toThrow("commitShas can only be set when transitioning to needs_verification");
+  });
+
+  it("does not silently inherit old commit SHAs on a re-submitted verification handoff", async () => {
+    await questStore.createQuest({ title: "Fresh handoff SHAs" });
+    await questStore.transitionQuest("q-1", {
+      status: "refined",
+      description: "Ready",
+    });
+    await questStore.claimQuest("q-1", "sess-1");
+    await questStore.completeQuest("q-1", [{ text: "Verify v1", checked: false }], {
+      commitShas: ["abc1234"],
+    });
+    await questStore.transitionQuest("q-1", {
+      status: "in_progress",
+      sessionId: "sess-1",
+    });
+
+    const resubmitted = await questStore.transitionQuest("q-1", {
+      status: "needs_verification",
+      sessionId: "sess-1",
+      verificationItems: [{ text: "Verify v2", checked: false }],
+    });
+
+    expect(resubmitted?.status).toBe("needs_verification");
+    expect(resubmitted?.commitShas).toBeUndefined();
   });
 
   it("allows done transition from in_progress when verificationItems are provided", async () => {

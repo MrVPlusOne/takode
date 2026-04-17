@@ -82,6 +82,8 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("Worktree sessions:");
     expect(skill).toContain("do **not** run `quest complete`");
     expect(skill).toContain("synced to the main repo checkout and pushed");
+    expect(skill).toContain('quest complete q-N --items "..." --commits "sha1,sha2"');
+    expect(skill).toContain("Do not rely on log parsing or memory");
   });
 
   it("instructs agents to use quest directly before PATH fallbacks", async () => {

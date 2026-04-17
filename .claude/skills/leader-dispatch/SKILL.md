@@ -148,7 +148,7 @@ Address the reviewer-groom findings, then stop and report back. Do not port yet.
 ```
 
 ```
-Port now using /port-changes, then report back when sync is complete.
+Port now using /port-changes, then report back when sync is complete and include the ordered synced SHAs from the main repo.
 ```
 
 **For feedback rework dispatches**, use this extended template instead:
