@@ -5462,7 +5462,13 @@ export class WsBridge {
       payloadBytes: Buffer.byteLength(data, "utf-8"),
     });
 
-    void this.enqueueSessionRoute(session, () => this.routeBrowserMessage(session, msg, ws)).catch((err) => {
+    const routeTask = () => this.routeBrowserMessage(session, msg, ws);
+    const routePromise =
+      this.shouldSerializeBrowserMessage(session, msg) || this.hasSessionRouteInFlight(session.id)
+        ? this.enqueueSessionRoute(session, routeTask)
+        : routeTask();
+
+    void routePromise.catch((err) => {
       if (msg.type === "user_message" && msg.images?.length) {
         this.notifyImageSendFailure(session, err);
         return;
@@ -5480,6 +5486,10 @@ export class WsBridge {
         this.perfTracer.recordSlowWsMessage(sessionId, "browser", msg.type, perfMs);
       }
     }
+  }
+
+  private shouldSerializeBrowserMessage(session: Session, msg: BrowserOutgoingMessage): boolean {
+    return session.backendType === "codex" && msg.type === "user_message" && !!msg.images?.length;
   }
 
   private enqueueSessionRoute(session: Session, task: () => Promise<void> | void): Promise<void> {
@@ -10047,6 +10057,9 @@ export class WsBridge {
       pending.turnId = lastTurn.id;
       pending.resumeConfirmedAt = Date.now();
       pending.updatedAt = pending.resumeConfirmedAt;
+      if (pending.turnTarget === "queued" && session.isGenerating) {
+        pending.turnTarget = "current";
+      }
       if (pending.turnTarget !== "queued" && !session.isGenerating) {
         const target = this.markRunningFromUserDispatch(session, "codex_resume_in_progress");
         pending.turnTarget = target;

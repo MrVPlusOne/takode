@@ -12531,8 +12531,11 @@ describe("Codex resumed-turn recovery", () => {
     const turnEndCalls = eventSpy.mock.calls.filter(
       ([eventSid, eventType]) => eventSid === sid && eventType === "turn_end",
     );
-    expect(turnEndCalls).toHaveLength(3);
-    expect(turnEndCalls[2]?.[2]).toEqual(
+    // Only two real turns complete in this scenario: the initial turn and the
+    // resumed follow-up turn. Re-arming the resumed in-progress follow-up
+    // should not synthesize an extra turn_end during reconnect.
+    expect(turnEndCalls).toHaveLength(2);
+    expect(turnEndCalls[1]?.[2]).toEqual(
       expect.not.objectContaining({
         interrupted: true,
       }),
