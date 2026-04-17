@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { ChatMessage, ContentBlock } from "../types.js";
 
 const revertToMessageMock = vi.hoisted(() => vi.fn(async () => ({})));
@@ -1213,6 +1214,143 @@ describe("HerdEventMessage", () => {
     expect(screen.getByText(/Done/)).toBeTruthy();
   });
 
+  it("uses the session number as a navigation affordance when the session resolves", () => {
+    // When the herd event session number maps to a live session, clicking that
+    // token should navigate without expanding the chip content.
+    const prevSdkSessions = useStore.getState().sdkSessions;
+    const prevHash = window.location.hash;
+    useStore.setState({
+      sdkSessions: [
+        {
+          sessionId: "worker-8",
+          sessionNum: 8,
+          createdAt: 1,
+          cwd: "/repo",
+          state: "connected",
+        },
+      ],
+    });
+
+    try {
+      const msg = makeMessage({
+        role: "user",
+        content: '1 event from 1 session\n\n#8 | turn_end | ✓ 5.0s\n  [10] user: "Fix bug"\n  [11] ✓ "Done"',
+        agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
+      });
+      render(<HerdEventMessage message={msg} showTimestamp={false} />);
+
+      fireEvent.click(screen.getByRole("button", { name: "Open session #8" }));
+
+      expect(window.location.hash).toBe("#/session/worker-8");
+      expect(screen.queryByText(/Fix bug/)).toBeNull();
+    } finally {
+      window.location.hash = prevHash;
+      useStore.setState({ sdkSessions: prevSdkSessions });
+    }
+  });
+
+  it("activates the session-number affordance from the keyboard without expanding the chip", async () => {
+    // Regression test for the nested interactive path: Enter and Space on the
+    // #N button should route to the session and must not bubble into the
+    // parent chip's expand/collapse keyboard handler.
+    const prevSdkSessions = useStore.getState().sdkSessions;
+    const prevHash = window.location.hash;
+    const user = userEvent.setup();
+    useStore.setState({
+      sdkSessions: [
+        {
+          sessionId: "worker-8",
+          sessionNum: 8,
+          createdAt: 1,
+          cwd: "/repo",
+          state: "connected",
+        },
+      ],
+    });
+
+    try {
+      const msg = makeMessage({
+        role: "user",
+        content: '1 event from 1 session\n\n#8 | turn_end | ✓ 5.0s\n  [10] user: "Fix bug"\n  [11] ✓ "Done"',
+        agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
+      });
+      render(<HerdEventMessage message={msg} showTimestamp={false} />);
+
+      const sessionLink = screen.getByRole("button", { name: "Open session #8" });
+
+      sessionLink.focus();
+      await user.keyboard("{Enter}");
+      expect(window.location.hash).toBe("#/session/worker-8");
+      expect(screen.queryByText(/Fix bug/)).toBeNull();
+
+      window.location.hash = prevHash;
+      sessionLink.focus();
+      await user.keyboard(" ");
+      expect(window.location.hash).toBe("#/session/worker-8");
+      expect(screen.queryByText(/Fix bug/)).toBeNull();
+    } finally {
+      window.location.hash = prevHash;
+      useStore.setState({ sdkSessions: prevSdkSessions });
+    }
+  });
+
+  it("keeps an explicit focus-visible style on the session-number affordance", () => {
+    // Regression guard: the #N button suppresses the browser default outline,
+    // so it must carry its own replacement focus-visible treatment.
+    const prevSdkSessions = useStore.getState().sdkSessions;
+    useStore.setState({
+      sdkSessions: [
+        {
+          sessionId: "worker-8",
+          sessionNum: 8,
+          createdAt: 1,
+          cwd: "/repo",
+          state: "connected",
+        },
+      ],
+    });
+
+    try {
+      const msg = makeMessage({
+        role: "user",
+        content: "1 event from 1 session\n\n#8 | turn_end | ✓ 5.0s",
+        agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
+      });
+      render(<HerdEventMessage message={msg} showTimestamp={false} />);
+
+      const sessionLink = screen.getByRole("button", { name: "Open session #8" });
+      expect(sessionLink.className).toContain("focus-visible:ring-2");
+      expect(sessionLink.className).toContain("focus-visible:ring-offset-1");
+      expect(sessionLink.className).toContain("focus-visible:ring-offset-cc-card");
+    } finally {
+      useStore.setState({ sdkSessions: prevSdkSessions });
+    }
+  });
+
+  it("falls back safely when the session number cannot be resolved", () => {
+    // Unresolved session numbers should stay visible but behave like the old
+    // chip: clicking the token expands the activity instead of trying to route.
+    const prevSdkSessions = useStore.getState().sdkSessions;
+    useStore.setState({ sdkSessions: [] });
+
+    try {
+      const msg = makeMessage({
+        role: "user",
+        content: '1 event from 1 session\n\n#8 | turn_end | ✓ 5.0s\n  [10] user: "Fix bug"\n  [11] ✓ "Done"',
+        agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
+      });
+      render(<HerdEventMessage message={msg} showTimestamp={false} />);
+
+      expect(screen.queryByRole("button", { name: "Open session #8" })).toBeNull();
+
+      fireEvent.click(screen.getByText("#8"));
+
+      expect(screen.getByText(/Fix bug/)).toBeTruthy();
+    } finally {
+      useStore.setState({ sdkSessions: prevSdkSessions });
+    }
+  });
+
   it("renders events without activity as clickable (expand shows untruncated header)", () => {
     // Event header with no activity lines -- still clickable with chevron,
     // but no activity <pre> block appears on expand
@@ -1225,12 +1363,12 @@ describe("HerdEventMessage", () => {
 
     // Header visible with chevron
     expect(screen.getByText(/turn_end/)).toBeTruthy();
-    const button = screen.getByText(/turn_end/).closest("button")!;
-    expect(button.querySelector("svg")).not.toBeNull();
+    const chip = screen.getByText(/turn_end/).closest('[role="button"]') as HTMLElement;
+    expect(chip.querySelector("svg")).not.toBeNull();
 
     // Click expands (removes truncation) but shows no activity <pre> block
-    fireEvent.click(button);
-    expect(button.closest("div")!.querySelector("pre")).toBeNull();
+    fireEvent.click(chip);
+    expect(chip.closest("div")!.querySelector("pre")).toBeNull();
   });
 
   it("renders multiple events with independent collapse state", () => {

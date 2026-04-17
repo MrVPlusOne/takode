@@ -10,6 +10,7 @@ import { getMessageMarkdown, getMessagePlainText, copyRichText, writeClipboardTe
 import { EVENT_HEADER_RE, HERD_CHIP_BASE, HERD_CHIP_INTERACTIVE, parseHerdEvents } from "../utils/herd-event-parser.js";
 import { useStore, getSessionSearchState } from "../store.js";
 import { formatVsCodeSelectionAttachmentLabel } from "../utils/vscode-context.js";
+import { navigateToSession } from "../utils/routing.js";
 import { api } from "../api.js";
 import { PawTrailAvatar, HidePawContext } from "./PawTrail.js";
 import { QuestClaimBlock } from "./QuestClaimBlock.js";
@@ -396,6 +397,12 @@ export function HerdEventMessage({ message }: { message: ChatMessage; showTimest
   );
 }
 
+function splitHerdEventHeader(header: string): { sessionLabel: string | null; remainder: string } {
+  const match = header.match(/^(#\d+)(.*)$/);
+  if (!match) return { sessionLabel: null, remainder: header };
+  return { sessionLabel: match[1], remainder: match[2] || "" };
+}
+
 /** A single herd event rendered as a compact expandable chip.
  *  Every event is clickable. Collapsed: inline pill showing the event header
  *  (e.g. "#287 | turn_end | ✓ 53.6s"). Expanded: full content -- activity lines
@@ -403,16 +410,75 @@ export function HerdEventMessage({ message }: { message: ChatMessage; showTimest
 function HerdEventEntry({ header, activity }: { header: string; activity: string[] }) {
   const [expanded, setExpanded] = useState(false);
   const hasActivity = activity.some((line) => line.trim().length > 0);
+  const { sessionLabel, remainder } = useMemo(() => splitHerdEventHeader(header), [header]);
+  const sessionNum = useMemo(() => {
+    if (!sessionLabel) return null;
+    const raw = sessionLabel.slice(1);
+    const parsed = Number.parseInt(raw, 10);
+    return Number.isFinite(parsed) ? parsed : null;
+  }, [sessionLabel]);
+  const resolvedSessionId = useStore((s) =>
+    sessionNum == null ? null : s.sdkSessions.find((session) => session.sessionNum === sessionNum)?.sessionId ?? null,
+  );
+
+  const toggleExpanded = useCallback(() => {
+    setExpanded((v) => !v);
+  }, []);
+
+  const handleContainerKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      e.preventDefault();
+      toggleExpanded();
+    },
+    [toggleExpanded],
+  );
+
+  const handleSessionClick = useCallback(
+    (e: React.MouseEvent<HTMLButtonElement>) => {
+      e.stopPropagation();
+      if (!resolvedSessionId) return;
+      navigateToSession(resolvedSessionId);
+    },
+    [resolvedSessionId],
+  );
+
+  const handleSessionKeyDown = useCallback((e: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.stopPropagation();
+    }
+  }, []);
 
   return (
     <div className="pl-9">
-      <button
-        type="button"
-        onClick={() => setExpanded((v) => !v)}
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={toggleExpanded}
+        onKeyDown={handleContainerKeyDown}
+        aria-expanded={expanded}
         className={`${HERD_CHIP_BASE} ${HERD_CHIP_INTERACTIVE}`}
       >
         <span className="text-amber-500/50 shrink-0 text-[10px]">◇</span>
-        <span className={expanded ? "break-words" : "truncate max-w-[60ch]"}>{header}</span>
+        {sessionLabel ? (
+          resolvedSessionId ? (
+            <button
+              type="button"
+              onClick={handleSessionClick}
+              onKeyDown={handleSessionKeyDown}
+              className="shrink-0 rounded-sm font-mono-code text-blue-400 hover:text-blue-300 hover:underline cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/70 focus-visible:ring-offset-1 focus-visible:ring-offset-cc-card"
+              aria-label={`Open session ${sessionLabel}`}
+              title={`Open session ${sessionLabel}`}
+            >
+              {sessionLabel}
+            </button>
+          ) : (
+            <span className="shrink-0">{sessionLabel}</span>
+          )
+        ) : null}
+        <span className={expanded ? "break-words min-w-0" : "truncate min-w-0 max-w-[60ch]"}>
+          {sessionLabel ? remainder : header}
+        </span>
         <svg
           viewBox="0 0 16 16"
           fill="currentColor"
@@ -420,7 +486,7 @@ function HerdEventEntry({ header, activity }: { header: string; activity: string
         >
           <path d="M6 3l5 5-5 5V3z" />
         </svg>
-      </button>
+      </div>
       {expanded && hasActivity && (
         <pre
           className="mt-1 ml-1 px-2.5 py-2 rounded-md border border-cc-border/20 bg-cc-card/30

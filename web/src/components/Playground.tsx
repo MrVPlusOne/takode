@@ -4745,7 +4745,7 @@ export function Playground() {
         </Section>
         <Section
           title="Herd Event Chips"
-          description="Herd events render as compact expandable chips. Collapsed shows event header; expanded shows full injected content (1:1 debugging match). Batch groups aggregate consecutive events."
+          description="Herd events render as compact expandable chips. When the session number resolves, that token links to the worker session while the rest of the chip still expands inline."
         >
           <div className="space-y-4 max-w-3xl">
             <Card label="Collapsed batch chip">
@@ -4773,7 +4773,7 @@ export function Playground() {
                 />
               </div>
             </Card>
-            <Card label="Event chip with activity (click to expand)">
+            <Card label="Event chip with activity (click #8 to navigate, rest expands)">
               <div className="py-2">
                 <HerdEventMessage
                   showTimestamp={false}
