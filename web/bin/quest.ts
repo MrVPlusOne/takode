@@ -47,6 +47,12 @@ import {
 import type { QuestmasterTask } from "../server/quest-types.js";
 import { applyQuestListFilters } from "../server/quest-list-filters.js";
 import { getName } from "../server/session-names.js";
+import {
+  formatQuestDetail,
+  formatQuestLine,
+  formatSessionLabel,
+} from "./quest-format.js";
+import { fetchSessionMetadataMap, type SessionMetadata } from "./quest-session-metadata.js";
 import { readFile } from "node:fs/promises";
 import { readFileSync, readdirSync } from "node:fs";
 import { basename, extname, join, resolve } from "node:path";
@@ -314,14 +320,6 @@ function timeAgo(ts: number): string {
   return `${days}d ago`;
 }
 
-const STATUS_ICONS: Record<string, string> = {
-  idea: "○",
-  refined: "●",
-  in_progress: "◐",
-  needs_verification: "◑",
-  done: "✓",
-};
-
 const STATUS_LABELS: Record<string, string> = {
   idea: "idea",
   refined: "refined",
@@ -352,10 +350,6 @@ function parseVerificationFilterTokens(value: string | undefined): string[] {
     .filter(Boolean);
 }
 
-function isVerificationInboxUnreadQuest(q: QuestmasterTask): boolean {
-  return q.status === "needs_verification" && !!(q as { verificationInboxUnread?: boolean }).verificationInboxUnread;
-}
-
 function requireNeedsVerificationQuest(quest: QuestmasterTask, questId: string, action: "later" | "inbox"): void {
   if (quest.status === "needs_verification") return;
   die(`Quest ${questId} is ${quest.status}; quest ${action} only applies to needs_verification quests.`);
@@ -364,151 +358,12 @@ function requireNeedsVerificationQuest(quest: QuestmasterTask, questId: string, 
 const currentSessionId = getCurrentSessionId();
 const companionPort = getCompanionPort();
 
-let sessionArchivedCache: Map<string, boolean> | null = null;
+let sessionMetadataCache: Map<string, SessionMetadata> | null = null;
 
-async function getSessionArchivedMap(): Promise<Map<string, boolean>> {
-  if (sessionArchivedCache) return sessionArchivedCache;
-  if (!companionPort) {
-    sessionArchivedCache = new Map();
-    return sessionArchivedCache;
-  }
-  try {
-    const res = await fetch(`http://localhost:${companionPort}/api/sessions`, {
-      headers: companionAuthHeaders(),
-      signal: AbortSignal.timeout(2000),
-    });
-    if (!res.ok) throw new Error(res.statusText);
-    const sessions = (await res.json()) as { sessionId: string; archived?: boolean }[];
-    sessionArchivedCache = new Map(sessions.map((s) => [s.sessionId, !!s.archived]));
-    return sessionArchivedCache;
-  } catch {
-    sessionArchivedCache = new Map();
-    return sessionArchivedCache;
-  }
-}
-
-function formatSessionLabel(sid: string, archivedMap?: Map<string, boolean>): string {
-  const name = getName(sid);
-  const isYou = currentSessionId === sid;
-  const archived = archivedMap?.get(sid) ? ", archived" : "";
-  const you = isYou ? ", you" : "";
-  const suffix =
-    archived || you ? ` (${[archived.replace(/^, /, ""), you.replace(/^, /, "")].filter(Boolean).join(", ")})` : "";
-  return name ? `"${name}" (${sid.slice(0, 8)})${suffix}` : `${sid.slice(0, 8)}${suffix}`;
-}
-
-function formatQuestLine(q: QuestmasterTask, archivedMap?: Map<string, boolean>): string {
-  const cancelled = "cancelled" in q && (q as { cancelled?: boolean }).cancelled;
-  const icon = cancelled ? "✗" : STATUS_ICONS[q.status] || "?";
-  const tags = q.tags?.length ? `  [${q.tags.join(", ")}]` : "";
-  const session = (() => {
-    if (!("sessionId" in q)) return "";
-    const sid = (q as { sessionId: string }).sessionId;
-    return `  → ${formatSessionLabel(sid, archivedMap)}`;
-  })();
-  const ownership = (() => {
-    const previous = (q as { previousOwnerSessionIds?: string[] }).previousOwnerSessionIds;
-    if (!previous?.length) return "";
-    return `  [prev:${previous.length}]`;
-  })();
-  const statusLabel = (() => {
-    if (cancelled) return "cancelled";
-    if (isVerificationInboxUnreadQuest(q)) return "verification_inbox";
-    return STATUS_LABELS[q.status] ?? q.status;
-  })();
-  const pad = (s: string, len: number) => s.padEnd(len);
-  return `${icon} ${pad(q.questId, 6)} ${pad(q.title, 36)}${tags}${ownership}  (${statusLabel}${session})`;
-}
-
-function formatQuestDetail(q: QuestmasterTask, archivedMap?: Map<string, boolean>): string {
-  const lines: string[] = [];
-  lines.push(`Quest ${q.questId} (v${q.version}, ${STATUS_LABELS[q.status] ?? q.status})`);
-  lines.push(`Title:       ${q.title}`);
-  if ("description" in q && q.description) {
-    lines.push(`Description: ${q.description}`);
-  }
-  if (q.tags?.length) {
-    lines.push(`Tags:        ${q.tags.join(", ")}`);
-  }
-  if ("sessionId" in q) {
-    const sid = (q as { sessionId: string }).sessionId;
-    lines.push(`Session:     ${formatSessionLabel(sid, archivedMap)}`);
-  }
-  const previousOwners = (q as { previousOwnerSessionIds?: string[] }).previousOwnerSessionIds;
-  if (previousOwners?.length) {
-    lines.push(`Previous:    ${previousOwners.map((sid) => formatSessionLabel(sid, archivedMap)).join(", ")}`);
-  }
-  if ("claimedAt" in q) {
-    lines.push(`Claimed:     ${timeAgo((q as { claimedAt: number }).claimedAt)}`);
-  }
-  if ("verificationItems" in q) {
-    const items = (q as { verificationItems: { text: string; checked: boolean }[] }).verificationItems;
-    const checked = items.filter((i) => i.checked).length;
-    lines.push(`Verification: ${checked}/${items.length}`);
-    lines.push(
-      `Inbox:        ${isVerificationInboxUnreadQuest(q) ? "unread (Verification Inbox)" : "acknowledged (Verification)"}`,
-    );
-    for (let i = 0; i < items.length; i++) {
-      lines.push(`  [${items[i].checked ? "x" : " "}] ${i}: ${items[i].text}`);
-    }
-  }
-  if (q.commitShas?.length) {
-    lines.push(`Commits:     ${q.commitShas.length}`);
-    for (const sha of q.commitShas) {
-      lines.push(`  ${sha}`);
-    }
-  }
-  if ("feedback" in q) {
-    const entries = (
-      q as {
-        feedback?: {
-          author: string;
-          text: string;
-          ts: number;
-          addressed?: boolean;
-          authorSessionId?: string;
-          images?: { filename: string; path: string }[];
-        }[];
-      }
-    ).feedback;
-    if (entries?.length) {
-      lines.push(`Feedback:`);
-      for (const entry of entries) {
-        const authorLabel = entry.authorSessionId
-          ? `${entry.author}:${formatSessionLabel(entry.authorSessionId, archivedMap)}`
-          : entry.author;
-        const tag = entry.addressed
-          ? `${authorLabel}, addressed, ${timeAgo(entry.ts)}`
-          : `${authorLabel}, ${timeAgo(entry.ts)}`;
-        lines.push(`  [${tag}] ${entry.text}`);
-        if (entry.images?.length) {
-          for (const img of entry.images) {
-            lines.push(`    ${img.filename} → ${img.path}`);
-          }
-        }
-      }
-    }
-  }
-  if (q.images?.length) {
-    lines.push(`Images:      ${q.images.length} attached`);
-    for (const img of q.images) {
-      lines.push(`  ${img.filename} → ${img.path}`);
-    }
-  }
-  if ("cancelled" in q && (q as { cancelled?: boolean }).cancelled) {
-    lines.push(`Cancelled:   yes`);
-  }
-  if ("notes" in q && (q as { notes?: string }).notes) {
-    lines.push(`Notes:       ${(q as { notes: string }).notes}`);
-  }
-  if ("completedAt" in q) {
-    lines.push(`Completed:   ${timeAgo((q as { completedAt: number }).completedAt)}`);
-  }
-  lines.push(`Created:     ${timeAgo(q.createdAt)}`);
-  if (q.prevId) {
-    lines.push(`Previous:    ${q.prevId}`);
-  }
-  return lines.join("\n");
+async function getSessionMetadataMap(): Promise<Map<string, SessionMetadata>> {
+  if (sessionMetadataCache) return sessionMetadataCache;
+  sessionMetadataCache = await fetchSessionMetadataMap(companionPort, companionAuthHeaders());
+  return sessionMetadataCache;
 }
 
 function die(message: string): never {
@@ -602,7 +457,7 @@ async function cmdList(): Promise<void> {
     text: option("text"),
     verification,
   });
-  const archivedMap = await getSessionArchivedMap();
+  const sessionMetadata = await getSessionMetadataMap();
 
   if (jsonOutput) {
     out(quests);
@@ -614,7 +469,7 @@ async function cmdList(): Promise<void> {
     return;
   }
   for (const q of quests) {
-    console.log(formatQuestLine(q, archivedMap));
+    console.log(formatQuestLine(q, sessionMetadata, { currentSessionId, getSessionName: getName }));
   }
 }
 
@@ -630,8 +485,8 @@ async function cmdShow(): Promise<void> {
     out(quest);
     return;
   }
-  const archivedMap = await getSessionArchivedMap();
-  console.log(formatQuestDetail(quest, archivedMap));
+  const sessionMetadata = await getSessionMetadataMap();
+  console.log(formatQuestDetail(quest, sessionMetadata, { currentSessionId, getSessionName: getName }));
 }
 
 async function cmdHistory(): Promise<void> {
@@ -732,7 +587,12 @@ async function cmdClaim(): Promise<void> {
         out(quest);
       } else {
         const owner = "sessionId" in quest && typeof quest.sessionId === "string" ? quest.sessionId : sessionId;
-        console.log(`Claimed ${quest.questId} "${quest.title}" for session ${formatSessionLabel(owner || "unknown")}`);
+        console.log(
+          `Claimed ${quest.questId} "${quest.title}" for session ${formatSessionLabel(owner || "unknown", undefined, {
+            currentSessionId,
+            getSessionName: getName,
+          })}`,
+        );
       }
       return;
     } catch (e) {
@@ -751,7 +611,12 @@ async function cmdClaim(): Promise<void> {
     if (jsonOutput) {
       out(quest);
     } else {
-      console.log(`Claimed ${quest.questId} "${quest.title}" for session ${formatSessionLabel(sessionId)}`);
+      console.log(
+        `Claimed ${quest.questId} "${quest.title}" for session ${formatSessionLabel(sessionId, undefined, {
+          currentSessionId,
+          getSessionName: getName,
+        })}`,
+      );
     }
   } catch (e) {
     die((e as Error).message);
@@ -1202,7 +1067,7 @@ async function cmdMine(): Promise<void> {
   }
 
   for (const q of quests) {
-    console.log(formatQuestLine(q));
+    console.log(formatQuestLine(q, undefined, { currentSessionId, getSessionName: getName }));
   }
 }
 

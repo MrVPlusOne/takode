@@ -7,6 +7,9 @@ import { fileURLToPath } from "node:url";
 import { mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { formatQuestDetail, type SessionMetadata } from "../bin/quest-format.js";
+import { fetchSessionMetadataMap } from "../bin/quest-session-metadata.js";
+import type { QuestmasterTask } from "./quest-types.js";
 import { getSessionAuthDir, getSessionAuthPath } from "../shared/session-auth.js";
 
 type JsonObject = Record<string, unknown>;
@@ -626,6 +629,106 @@ describe("quest CLI completion reminder", () => {
       expect(result.stdout).toContain('quest feedback q-1 --text "Summary: <what was done>"');
     } finally {
       rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("quest CLI show session numbers", () => {
+  it("shows Takode session numbers prominently for active and previous owners", async () => {
+    const quest: QuestmasterTask = {
+      id: "q-1-v2",
+      questId: "q-1",
+      version: 2,
+      prevId: "q-1-v1",
+      title: "Quest with owners",
+      createdAt: Date.now() - 60_000,
+      status: "in_progress",
+      description: "Quest show should surface human-friendly session numbers.",
+      sessionId: "active-12345678",
+      previousOwnerSessionIds: ["prev-11111111", "prev-22222222"],
+      claimedAt: Date.now() - 30_000,
+    };
+    const sessionMetadata = new Map<string, SessionMetadata>([
+      ["active-12345678", { archived: false, sessionNum: 42, name: "Active Worker" }],
+      ["prev-11111111", { archived: false, sessionNum: 7, name: "Earlier Worker" }],
+      ["prev-22222222", { archived: false, sessionNum: 8 }],
+    ]);
+
+    const detail = formatQuestDetail(quest, sessionMetadata, {
+      currentSessionId: "active-12345678",
+      getSessionName: () => undefined,
+    });
+
+    expect(detail).toContain('Session:     #42 "Active Worker" (active-1, you)');
+    expect(detail).toContain('Previous:    #7 "Earlier Worker" (prev-111), #8 (prev-222)');
+  });
+
+  it("falls back to UUID-focused labels when session numbers are unavailable", async () => {
+    const quest: QuestmasterTask = {
+      id: "q-1-v2",
+      questId: "q-1",
+      version: 2,
+      prevId: "q-1-v1",
+      title: "Quest without numbers",
+      createdAt: Date.now() - 60_000,
+      status: "in_progress",
+      description: "Quest show should keep UUID prefixes when no session number resolves.",
+      sessionId: "fallback-123456",
+      previousOwnerSessionIds: ["prevless-87654"],
+      claimedAt: Date.now() - 30_000,
+    };
+
+    const detail = formatQuestDetail(quest, undefined, {
+      currentSessionId: "fallback-123456",
+      getSessionName: (sessionId) =>
+        ({
+          "fallback-123456": "Fallback Worker",
+          "prevless-87654": "Earlier Worker",
+        })[sessionId],
+    });
+
+    expect(detail).toContain('Session:     "Fallback Worker" (fallback) (you)');
+    expect(detail).toContain('Previous:    "Earlier Worker" (prevless)');
+  });
+
+  it("loads session numbers from the real /api/sessions payload shape used by quest show", async () => {
+    // Spawning the full Bun CLI from this harness is blocked in this workspace
+    // because quest.ts transitively imports sharp and Bun resolves that optional
+    // dependency through a temp HOME-scoped cache before cmdShow() runs. This
+    // test still covers the live session-metadata fetch path that quest show
+    // depends on, rather than only the pure formatter output.
+    const server = createServer((req, res) => {
+      if (req.method === "GET" && req.url === "/api/sessions") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify([
+            { sessionId: "active-12345678", sessionNum: 42, name: "Active Worker" },
+            { sessionId: "prev-11111111", sessionNum: 7, archived: true },
+          ]),
+        );
+        return;
+      }
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+    server.listen(0);
+    await once(server, "listening");
+    const port = String((server.address() as AddressInfo).port);
+
+    try {
+      const metadata = await fetchSessionMetadataMap(port, {});
+      expect(metadata.get("active-12345678")).toEqual({
+        archived: false,
+        sessionNum: 42,
+        name: "Active Worker",
+      });
+      expect(metadata.get("prev-11111111")).toEqual({
+        archived: true,
+        sessionNum: 7,
+        name: undefined,
+      });
+    } finally {
+      server.close();
     }
   });
 });
