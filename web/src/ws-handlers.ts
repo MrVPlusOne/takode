@@ -433,7 +433,7 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       }
       // Restore quest name and styling from persisted session state (on reconnect).
       // This is the most reliable path since session_init fires on every WS connect.
-      const isOrchestrator = (data.session as unknown as Record<string, unknown>).isOrchestrator === true;
+      const isOrchestrator = data.session.isOrchestrator === true;
       if (data.session.claimedQuestId && data.session.claimedQuestTitle && !isOrchestrator) {
         store.setSessionName(sessionId, data.session.claimedQuestTitle);
         store.markQuestNamed(sessionId);

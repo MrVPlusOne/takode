@@ -5421,9 +5421,13 @@ export class WsBridge {
     // If slash_commands/skills haven't arrived yet (CLI sends them only after the first
     // user message), fill from the per-project cache so autocomplete works immediately.
     this.prefillSlashCommands(session);
+    const launcherInfo = this.launcher?.getSession(session.id);
     const snapshot: BrowserIncomingMessage = {
       type: "session_init",
-      session: session.state,
+      session: {
+        ...session.state,
+        isOrchestrator: launcherInfo?.isOrchestrator === true,
+      },
       nextEventSeq: session.nextEventSeq,
     };
     this.sendToBrowser(ws, snapshot);
@@ -6283,9 +6287,13 @@ export class WsBridge {
       // Resolve and publish git info
       this.refreshGitInfoThenRecomputeDiff(session, { notifyPoller: true });
 
+      const launcherInfo = this.launcher?.getSession(session.id);
       this.broadcastToBrowsers(session, {
         type: "session_init",
-        session: session.state,
+        session: {
+          ...session.state,
+          isOrchestrator: launcherInfo?.isOrchestrator === true,
+        },
       });
       this.persistSession(session);
 

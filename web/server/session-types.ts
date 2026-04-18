@@ -682,6 +682,8 @@ export interface CodexOutboundTurn {
 
 export interface SessionState {
   session_id: string;
+  /** Whether this session is an orchestrator/leader session. */
+  isOrchestrator?: boolean;
   backend_type?: BackendType;
   /** Server-authored backend lifecycle state. */
   backend_state?: "initializing" | "resuming" | "recovering" | "connected" | "disconnected" | "broken";
