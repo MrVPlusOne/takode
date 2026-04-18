@@ -430,12 +430,11 @@ function parseTakodeNotifyCommand(command: string): { category: "needs-input" | 
 }
 
 /**
- * Hook: parse board data from a tool result preview, fetching the full result
- * from the server when the preview is truncated (>300 chars).
+ * Hook: derive board data for `takode board` commands.
  *
- * Uses two primitive selectors (content string, truncated boolean) to avoid
- * creating a new object on every render, which would defeat Zustand's
- * Object.is equality check and cause infinite re-renders.
+ * Prefer the explicit board JSON marker when present (`--json` output or older
+ * mixed outputs). When the CLI output is plain text, fall back to the current
+ * server-authoritative board state already synced into Zustand.
  */
 function useBoardData(
   isBoardCommand: boolean,
@@ -446,19 +445,37 @@ function useBoardData(
     if (!isBoardCommand || !sessionId) return undefined;
     return s.toolResults.get(sessionId)?.get(toolUseId)?.content;
   });
+  const previewIsError = useStore((s) => {
+    if (!isBoardCommand || !sessionId) return undefined;
+    return s.toolResults.get(sessionId)?.get(toolUseId)?.is_error;
+  });
   const isTruncated = useStore((s) => {
     if (!isBoardCommand || !sessionId) return false;
     return s.toolResults.get(sessionId)?.get(toolUseId)?.is_truncated ?? false;
   });
+  const liveBoard = useStore((s) => {
+    if (!isBoardCommand || !sessionId) return undefined;
+    if (!s.sessionBoards.has(sessionId)) return undefined;
+    return s.sessionBoards.get(sessionId) ?? [];
+  });
 
   const [boardData, setBoardData] = useState<ParsedBoardResult | null>(null);
   useEffect(() => {
-    if (!isBoardCommand || !sessionId || previewContent === undefined) {
+    if (!isBoardCommand || !sessionId) {
       setBoardData(null);
       return;
     }
+    if (previewIsError === true) {
+      setBoardData(null);
+      return;
+    }
+    if (previewContent === undefined) {
+      setBoardData(liveBoard !== undefined ? { board: liveBoard } : null);
+      return;
+    }
     if (!isTruncated) {
-      setBoardData(parseBoardFromResult(previewContent));
+      const parsed = parseBoardFromResult(previewContent);
+      setBoardData(parsed ?? (liveBoard !== undefined ? { board: liveBoard } : null));
       return;
     }
     // Server truncated the preview -- fetch full result to get complete JSON
@@ -466,15 +483,21 @@ function useBoardData(
     api
       .getToolResult(sessionId, toolUseId)
       .then((full) => {
-        if (!cancelled) setBoardData(parseBoardFromResult(full?.content));
+        if (cancelled) return;
+        if (full?.is_error) {
+          setBoardData(null);
+          return;
+        }
+        const parsed = parseBoardFromResult(full?.content);
+        setBoardData(parsed ?? (liveBoard !== undefined ? { board: liveBoard } : null));
       })
       .catch(() => {
-        if (!cancelled) setBoardData(null);
+        if (!cancelled) setBoardData(liveBoard !== undefined ? { board: liveBoard } : null);
       });
     return () => {
       cancelled = true;
     };
-  }, [isBoardCommand, sessionId, toolUseId, previewContent, isTruncated]);
+  }, [isBoardCommand, sessionId, toolUseId, previewContent, previewIsError, isTruncated, liveBoard]);
 
   return boardData;
 }
@@ -482,9 +505,9 @@ function useBoardData(
 /**
  * Parse board JSON from a tool result string. Returns the board rows or null.
  *
- * The CLI always emits the JSON marker first, but may append a human-readable
- * text table after it (when not in --json mode). We extract the first top-level
- * JSON object via brace counting so the trailing text doesn't break parsing.
+ * Historical board results may contain mixed JSON+text output. Current `--json`
+ * output remains parseable here; plain-text-only output falls back to live
+ * board state via `useBoardData`.
  */
 export interface ParsedBoardResult {
   board: BoardRowData[];

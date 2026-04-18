@@ -3077,7 +3077,7 @@ function printBoardText(
   console.log("");
 }
 
-/** Output board with frontend-detectable JSON marker, plus a human-readable table when not in --json mode. */
+/** Output board as JSON in `--json` mode, otherwise as human-readable text. */
 function outputBoard(
   board: BoardRow[],
   jsonMode: boolean,
@@ -3090,19 +3090,20 @@ function outputBoard(
   },
 ): void {
   const { operation, resolvedSessionDeps, completedCount, completedBoard, rowSessionStatuses } = opts ?? {};
-  // Always emit the JSON marker so the Companion frontend can detect and render BoardBlock.
-  console.log(formatBoardOutput(board, { operation, completedCount, completedBoard, rowSessionStatuses }));
-  if (!jsonMode) {
-    printBoardText(board, { allBoardRows: board, resolvedSessionDeps, rowSessionStatuses });
-    // Print completed items table when --all flag includes them
-    if (completedBoard && completedBoard.length > 0) {
-      console.log("── Completed ──────────────────────────────────────────");
-      printBoardText(completedBoard, { rowSessionStatuses });
-    }
-    // Always show a footer count when completed items exist
-    if (completedCount && completedCount > 0 && !completedBoard) {
-      console.log(`${completedCount} quest${completedCount === 1 ? "" : "s"} completed`);
-    }
+  if (jsonMode) {
+    console.log(formatBoardOutput(board, { operation, completedCount, completedBoard, rowSessionStatuses }));
+    return;
+  }
+
+  printBoardText(board, { allBoardRows: board, resolvedSessionDeps, rowSessionStatuses });
+  // Print completed items table when --all flag includes them
+  if (completedBoard && completedBoard.length > 0) {
+    console.log("── Completed ──────────────────────────────────────────");
+    printBoardText(completedBoard, { rowSessionStatuses });
+  }
+  // Always show a footer count when completed items exist
+  if (completedCount && completedCount > 0 && !completedBoard) {
+    console.log(`${completedCount} quest${completedCount === 1 ? "" : "s"} completed`);
   }
 }
 

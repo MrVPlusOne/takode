@@ -22,8 +22,8 @@ interface BoardBlockProps {
 
 /**
  * Collapsible card that renders the leader's work board inline in the chat feed.
- * Displayed when a `takode board` CLI command produces output containing
- * `__takode_board__: true` in the Bash tool result.
+ * Displayed when a `takode board` CLI command yields explicit board JSON or
+ * when ToolBlock can fall back to the live server-authoritative board state.
  *
  * Auto-collapse: when a new board renders, it registers as the latest via Zustand.
  * All BoardBlock instances subscribe to the latest ID -- non-latest boards collapse.

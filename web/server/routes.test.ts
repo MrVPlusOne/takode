@@ -7730,6 +7730,45 @@ describe("Takode server-authoritative auth", () => {
     expect(json.pendingTimerCount).toBe(1);
   });
 
+  it("supports takode scan zero-count metadata probes without crashing", async () => {
+    // The CLI probes scan=turns with turnCount=0 to learn totalTurns before it
+    // requests the real page. That metadata-only request must return cleanly.
+    setupTakodeSessions();
+    bridge.getMessageHistory.mockReturnValue([
+      {
+        type: "user_message",
+        content: "first turn",
+        timestamp: 1_000,
+      },
+      {
+        type: "assistant",
+        message: { content: [{ type: "text", text: "working" }] },
+        timestamp: 1_100,
+      },
+      {
+        type: "result",
+        duration_ms: 250,
+        is_error: false,
+        timestamp: 1_350,
+      },
+    ]);
+
+    const res = await app.request("/api/sessions/worker-1/messages?scan=turns&fromTurn=0&turnCount=0", {
+      method: "GET",
+      headers: authHeaders("orch-1", "tok-1"),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      mode: "turn_scan",
+      totalTurns: 1,
+      totalMessages: 3,
+      from: 0,
+      count: 0,
+      turns: [],
+    });
+  });
+
   it("returns session timers via takode auth", async () => {
     // Verifies the dedicated timer inspection endpoint stays protected by Takode
     // auth while returning the raw timer details needed by takode timers.

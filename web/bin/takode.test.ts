@@ -2082,6 +2082,107 @@ describe("takode peek/scan timer counts", () => {
       server.close();
     }
   });
+
+  it("uses a zero-count scan probe to fetch metadata before the real default scan page", async () => {
+    const requests: string[] = [];
+    const server = createServer((req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+      requests.push(`${method} ${url}`);
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-scan-probe", isOrchestrator: false }));
+        return;
+      }
+
+      if (method === "GET" && url === "/api/sessions/153/messages?scan=turns&fromTurn=0&turnCount=0") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            sid: "worker-153",
+            sn: 153,
+            name: "Scan Worker",
+            status: "idle",
+            quest: null,
+            mode: "turn_scan",
+            totalTurns: 2,
+            totalMessages: 6,
+            from: 0,
+            count: 0,
+            turns: [],
+          }),
+        );
+        return;
+      }
+
+      if (method === "GET" && url === "/api/sessions/153/messages?scan=turns&fromTurn=0&turnCount=50") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            sid: "worker-153",
+            sn: 153,
+            name: "Scan Worker",
+            status: "idle",
+            quest: null,
+            mode: "turn_scan",
+            totalTurns: 2,
+            totalMessages: 6,
+            from: 0,
+            count: 2,
+            turns: [
+              {
+                turn: 0,
+                si: 0,
+                ei: 2,
+                start: Date.now() - 120_000,
+                end: Date.now() - 90_000,
+                dur: 30_000,
+                stats: { tools: 0, messages: 3, subagents: 0 },
+                result: "first turn",
+                user: "scan session 1",
+              },
+              {
+                turn: 1,
+                si: 3,
+                ei: 5,
+                start: Date.now() - 60_000,
+                end: Date.now() - 30_000,
+                dur: 30_000,
+                stats: { tools: 0, messages: 3, subagents: 0 },
+                result: "second turn",
+                user: "scan session 2",
+              },
+            ],
+          }),
+        );
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    try {
+      const result = await runTakode(["scan", "153", "--port", String(port)], {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-scan-probe",
+        COMPANION_AUTH_TOKEN: "auth-scan-probe",
+      });
+
+      expect(result.status).toBe(0);
+      expect(requests).toContain("GET /api/sessions/153/messages?scan=turns&fromTurn=0&turnCount=0");
+      expect(requests).toContain("GET /api/sessions/153/messages?scan=turns&fromTurn=0&turnCount=50");
+      expect(result.stdout).toContain('Session #153 "Scan Worker" -- idle');
+      expect(result.stdout).toContain("Showing turns 0-1:");
+    } finally {
+      server.close();
+    }
+  });
 });
 
 describe("takode search", () => {
@@ -2936,7 +3037,121 @@ describe("takode board reviewer status output", () => {
       expect(result.stdout).toContain("#17 running");
       expect(result.stdout).toContain("#8 disconnected");
       expect(result.stdout).toContain("no reviewer assigned");
-      expect(result.stdout).toContain('"rowSessionStatuses"');
+      expect(result.stdout).not.toContain('"rowSessionStatuses"');
+    } finally {
+      server.close();
+    }
+  });
+});
+
+describe("takode board output modes", () => {
+  it("keeps default board show output human-first without embedded JSON", async () => {
+    const server = createServer((req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-board-show", isOrchestrator: true }));
+        return;
+      }
+
+      if (method === "GET" && url === "/api/sessions/leader-board-show/board?resolve=true") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            board: [
+              {
+                questId: "q-12",
+                title: "Simplify board output",
+                worker: "worker-1",
+                workerNum: 5,
+                status: "PLANNING",
+                waitFor: ["q-9"],
+                createdAt: 1,
+                updatedAt: 2,
+              },
+            ],
+            rowSessionStatuses: {
+              "q-12": {
+                worker: { sessionId: "worker-1", sessionNum: 5, status: "idle" },
+                reviewer: null,
+              },
+            },
+          }),
+        );
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    try {
+      const result = await runTakode(["board", "show", "--port", String(port)], {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-board-show",
+        COMPANION_AUTH_TOKEN: "auth-board-show",
+      });
+
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("QUEST");
+      expect(result.stdout).toContain("NEXT ACTION");
+      expect(result.stdout).toContain("q-12");
+      expect(result.stdout).toContain("#5 idle");
+      expect(result.stdout).not.toContain("__takode_board__");
+      expect(result.stdout).not.toContain('"rowSessionStatuses"');
+    } finally {
+      server.close();
+    }
+  });
+
+  it("emits structured board JSON only in --json mode", async () => {
+    const server = createServer((req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-board-json", isOrchestrator: true }));
+        return;
+      }
+
+      if (method === "GET" && url === "/api/sessions/leader-board-json/board?resolve=true") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            board: [{ questId: "q-12", status: "PLANNING", createdAt: 1, updatedAt: 2 }],
+            rowSessionStatuses: {},
+          }),
+        );
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    try {
+      const result = await runTakode(["board", "show", "--json", "--port", String(port)], {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-board-json",
+        COMPANION_AUTH_TOKEN: "auth-board-json",
+      });
+
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain('"__takode_board__": true');
+      expect(result.stdout).toContain('"rowSessionStatuses": {}');
+      expect(result.stdout).not.toContain("QUEST");
+      expect(result.stdout).not.toContain("NEXT ACTION");
     } finally {
       server.close();
     }

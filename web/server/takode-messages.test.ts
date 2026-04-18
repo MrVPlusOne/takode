@@ -587,6 +587,25 @@ describe("buildPeekTurnScan", () => {
     expect(result.turns[1].result).toBe("Distinct second-turn reply");
     expect(result.turns[2].result).toBe("Third-turn reply");
   });
+
+  it("returns a safe empty slice for metadata-only zero-count probes", () => {
+    const history: BrowserIncomingMessage[] = [
+      userMsg("Turn 1", 1000),
+      assistantMsg("reply", 2000),
+      resultMsg(3000),
+      userMsg("Turn 2", 4000),
+      assistantMsg("reply 2", 5000),
+      resultMsg(6000),
+    ];
+
+    const result = buildPeekTurnScan(history, { fromTurn: 0, turnCount: 0 });
+    expect(result.totalTurns).toBe(2);
+    expect(result.totalMessages).toBe(6);
+    expect(result.from).toBe(0);
+    expect(result.count).toBe(0);
+    expect(result.turns).toEqual([]);
+    expect(result.compactionEvents).toBeUndefined();
+  });
 });
 
 // ─── buildReadResponse ────────────────────────────────────────────────────────

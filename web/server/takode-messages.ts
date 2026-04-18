@@ -1212,6 +1212,19 @@ export function buildPeekTurnScan(
   const totalTurns = allTurns.length;
   const totalMessages = messageHistory.length;
 
+  // The CLI uses turnCount=0 as a metadata-only probe when it needs totalTurns
+  // before deciding which turn page to request next.
+  if (turnCount <= 0) {
+    return {
+      mode: "turn_scan",
+      totalTurns,
+      totalMessages,
+      from: fromTurn,
+      count: 0,
+      turns: [],
+    };
+  }
+
   if (totalTurns === 0 || fromTurn >= totalTurns) {
     // Even with no turns in range, check for compaction events
     const compactionEvents = findCompactionEvents(messageHistory, allTurns, 0, messageHistory.length - 1);

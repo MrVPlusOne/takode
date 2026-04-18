@@ -450,16 +450,10 @@ describe("ToolBlock", () => {
     expect(screen.getAllByText("Work Board")).toHaveLength(1);
   });
 
-  it("toggles the original board command view without affecting the board card", async () => {
+  it("falls back to authoritative session board state for plain-text board output", async () => {
     const boardOutput = [
-      JSON.stringify(
-        {
-          __takode_board__: true,
-          board: [{ questId: "q-412", title: "Inspect original board command", updatedAt: 100 }],
-        },
-        null,
-        2,
-      ),
+      "QUEST    TITLE                    WORKER",
+      "q-412    Inspect original boa…   #5 idle",
       "",
       "BOARD OUTPUT MARKER",
     ].join("\n");
@@ -472,7 +466,11 @@ describe("ToolBlock", () => {
     });
     const toolResults = new Map();
     toolResults.set("board-session-toggle", sessionResults);
-    useStore.setState({ toolResults, latestBoardToolUseId: new Map() });
+    const sessionBoards = new Map();
+    sessionBoards.set("board-session-toggle", [
+      { questId: "q-412", title: "Inspect original board command", workerNum: 5, status: "PLANNING", updatedAt: 100 },
+    ]);
+    useStore.setState({ toolResults, sessionBoards, latestBoardToolUseId: new Map() });
 
     render(
       <ToolBlock
@@ -491,6 +489,40 @@ describe("ToolBlock", () => {
     expect(screen.queryByText("Original command")).toBeNull();
     expect(screen.queryByText(/BOARD OUTPUT MARKER/)).toBeNull();
     expect(screen.getByText("Work Board")).toBeTruthy();
+    expect(screen.getByText("Inspect original board command")).toBeTruthy();
+  });
+
+  it("does not render a board card for failed plain-text board commands", async () => {
+    const errorOutput = "Error: invalid quest ID";
+    const sessionResults = new Map();
+    sessionResults.set("tool-board-error", {
+      content: errorOutput,
+      is_error: true,
+      is_truncated: false,
+      total_size: errorOutput.length,
+    });
+    const toolResults = new Map();
+    toolResults.set("board-session-error", sessionResults);
+    const sessionBoards = new Map();
+    sessionBoards.set("board-session-error", [
+      { questId: "q-412", title: "Stale board row", workerNum: 5, status: "PLANNING", updatedAt: 100 },
+    ]);
+    useStore.setState({ toolResults, sessionBoards, latestBoardToolUseId: new Map() });
+
+    render(
+      <ToolBlock
+        name="Bash"
+        input={{ command: "takode board set nope" }}
+        toolUseId="tool-board-error"
+        sessionId="board-session-error"
+        defaultOpen
+      />,
+    );
+
+    expect(screen.queryByText("Work Board")).toBeNull();
+    expect(screen.getAllByText("takode board set nope").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText(errorOutput)).toBeTruthy();
+    expect(screen.queryByText("Stale board row")).toBeNull();
   });
 
   it("keeps Edit diffs collapsed when defaultOpen is false and only renders them after expand", () => {
