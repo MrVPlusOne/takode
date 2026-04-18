@@ -17,6 +17,7 @@ import { api } from "../api.js";
 vi.mock("../api.js", () => ({
   api: {
     getSettings: vi.fn(),
+    getToolResult: vi.fn(),
     getFsImageUrl: vi.fn((path: string) => `/api/fs/image?path=${encodeURIComponent(path)}`),
     openVsCodeRemoteFile: vi.fn(),
   },
@@ -24,10 +25,12 @@ vi.mock("../api.js", () => ({
 
 beforeEach(() => {
   vi.mocked(api.getSettings).mockReset();
+  vi.mocked(api.getToolResult).mockReset();
   vi.mocked(api.openVsCodeRemoteFile).mockReset();
   vi.mocked(api.getSettings).mockResolvedValue({ editorConfig: { editor: "vscode-local" } } as Awaited<
     ReturnType<typeof api.getSettings>
   >);
+  useStore.setState({ toolResults: new Map(), latestBoardToolUseId: new Map() });
 });
 
 // ─── getToolIcon ─────────────────────────────────────────────────────────────
@@ -399,6 +402,92 @@ describe("ToolBlock", () => {
 
     expect(screen.getByText("Needs input")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Mark handled" }).hasAttribute("disabled")).toBe(true);
+  });
+
+  it("renders a show original command affordance for takode board tool blocks", async () => {
+    const boardOutput = [
+      JSON.stringify(
+        {
+          __takode_board__: true,
+          board: [{ questId: "q-412", title: "Inspect original board command", updatedAt: 100 }],
+          operation: "set q-412",
+        },
+        null,
+        2,
+      ),
+      "",
+      "ORIGINAL BOARD OUTPUT",
+    ].join("\n");
+    const sessionResults = new Map();
+    sessionResults.set("tool-board-original", {
+      content: boardOutput,
+      is_error: false,
+      is_truncated: false,
+      total_size: boardOutput.length,
+    });
+    const toolResults = new Map();
+    toolResults.set("board-session", sessionResults);
+    useStore.setState({ toolResults, latestBoardToolUseId: new Map() });
+
+    render(
+      <ToolBlock
+        name="Bash"
+        input={{ command: "takode board show --json" }}
+        toolUseId="tool-board-original"
+        sessionId="board-session"
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByText("Work Board")).toBeTruthy());
+    fireEvent.click(screen.getByText("show original command"));
+
+    expect(screen.getByText("Original command")).toBeTruthy();
+    expect(screen.getAllByText("takode board show --json").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText(/ORIGINAL BOARD OUTPUT/)).toBeTruthy();
+    expect(screen.getAllByText("Work Board")).toHaveLength(1);
+  });
+
+  it("toggles the original board command view without affecting the board card", async () => {
+    const boardOutput = [
+      JSON.stringify(
+        {
+          __takode_board__: true,
+          board: [{ questId: "q-412", title: "Inspect original board command", updatedAt: 100 }],
+        },
+        null,
+        2,
+      ),
+      "",
+      "BOARD OUTPUT MARKER",
+    ].join("\n");
+    const sessionResults = new Map();
+    sessionResults.set("tool-board-toggle", {
+      content: boardOutput,
+      is_error: false,
+      is_truncated: false,
+      total_size: boardOutput.length,
+    });
+    const toolResults = new Map();
+    toolResults.set("board-session-toggle", sessionResults);
+    useStore.setState({ toolResults, latestBoardToolUseId: new Map() });
+
+    render(
+      <ToolBlock
+        name="Bash"
+        input={{ command: "takode board show" }}
+        toolUseId="tool-board-toggle"
+        sessionId="board-session-toggle"
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByText("show original command")).toBeTruthy());
+    fireEvent.click(screen.getByText("show original command"));
+    expect(screen.getByText(/BOARD OUTPUT MARKER/)).toBeTruthy();
+
+    fireEvent.click(screen.getByText("hide original command"));
+    expect(screen.queryByText("Original command")).toBeNull();
+    expect(screen.queryByText(/BOARD OUTPUT MARKER/)).toBeNull();
+    expect(screen.getByText("Work Board")).toBeTruthy();
   });
 
   it("keeps Edit diffs collapsed when defaultOpen is false and only renders them after expand", () => {

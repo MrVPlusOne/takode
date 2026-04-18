@@ -241,6 +241,7 @@ interface ToolBlockProps {
   parentMessageId?: string;
   hideLabel?: boolean;
   defaultOpen?: boolean;
+  disableInlineSpecialCases?: boolean;
 }
 
 /** Public ToolBlock: wraps the inner implementation in an error boundary so that
@@ -262,6 +263,7 @@ const ToolBlockInner = memo(function ToolBlockInner({
   parentMessageId,
   hideLabel = false,
   defaultOpen,
+  disableInlineSpecialCases = false,
 }: ToolBlockProps) {
   const [open, setOpen] = useState(() => {
     if (defaultOpen !== undefined) return defaultOpen;
@@ -306,7 +308,7 @@ const ToolBlockInner = memo(function ToolBlockInner({
   // takode board: render board card instead of terminal block.
   // Tool result previews are truncated to 300 chars by the server, which breaks
   // JSON parsing for boards with several rows. We fetch the full result if needed.
-  const isBoardCommand = name === "Bash" && isTakodeBoardCommand(String(input.command || ""));
+  const isBoardCommand = !disableInlineSpecialCases && name === "Bash" && isTakodeBoardCommand(String(input.command || ""));
   const parsedBoard = useBoardData(isBoardCommand, sessionId, toolUseId);
   if (isBoardCommand && parsedBoard) {
     return (
@@ -315,12 +317,16 @@ const ToolBlockInner = memo(function ToolBlockInner({
         operation={parsedBoard.operation}
         toolUseId={toolUseId}
         sessionId={sessionId ?? undefined}
+        originalToolName={name}
+        originalInput={input}
+        originalCommand={String(input.command || "")}
       />
     );
   }
 
   // takode notify: render inline notification chip instead of terminal block.
-  const notifyMatch = name === "Bash" ? parseTakodeNotifyCommand(String(input.command || "")) : null;
+  const notifyMatch =
+    !disableInlineSpecialCases && name === "Bash" ? parseTakodeNotifyCommand(String(input.command || "")) : null;
   if (notifyMatch) {
     return <NotificationMarker category={notifyMatch.category} sessionId={sessionId} messageId={parentMessageId} />;
   }

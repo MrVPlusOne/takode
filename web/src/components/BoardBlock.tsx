@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect, memo } from "react";
 import { CollapseFooter } from "./CollapseFooter.js";
 import { useStore } from "../store.js";
 import { BoardTable } from "./BoardTable.js";
+import { ToolBlock } from "./ToolBlock.js";
 
 // Re-export for backward compatibility (ToolBlock imports BoardRowData from here)
 export type { BoardRowData } from "./BoardTable.js";
@@ -12,6 +13,10 @@ interface BoardBlockProps {
   operation?: string;
   toolUseId?: string;
   sessionId?: string;
+  originalCommand?: string;
+  originalToolName?: string;
+  originalInput?: Record<string, unknown>;
+  defaultShowOriginalCommand?: boolean;
 }
 
 /**
@@ -22,7 +27,16 @@ interface BoardBlockProps {
  * Auto-collapse: when a new board renders, it registers as the latest via Zustand.
  * All BoardBlock instances subscribe to the latest ID -- non-latest boards collapse.
  */
-export const BoardBlock = memo(function BoardBlock({ board, operation, toolUseId, sessionId }: BoardBlockProps) {
+export const BoardBlock = memo(function BoardBlock({
+  board,
+  operation,
+  toolUseId,
+  sessionId,
+  originalCommand,
+  originalToolName,
+  originalInput,
+  defaultShowOriginalCommand = false,
+}: BoardBlockProps) {
   // Subscribe to the latest board ID for this session via Zustand (reactive)
   const latestId = useStore((s) => (sessionId ? s.latestBoardToolUseId.get(sessionId) : undefined));
   const setLatest = useStore((s) => s.setLatestBoardToolUseId);
@@ -33,6 +47,8 @@ export const BoardBlock = memo(function BoardBlock({ board, operation, toolUseId
   // Track whether the user has manually toggled this board
   const userToggled = useRef(false);
   const [open, setOpen] = useState(true);
+  const [showOriginalCommand, setShowOriginalCommand] = useState(defaultShowOriginalCommand);
+  const canShowOriginalCommand = !!originalToolName && !!originalInput && !!toolUseId && !!sessionId;
 
   // Register as the latest board on mount
   useEffect(() => {
@@ -53,13 +69,30 @@ export const BoardBlock = memo(function BoardBlock({ board, operation, toolUseId
     setOpen((prev) => !prev);
   }, []);
 
-  const headerRef = useRef<HTMLButtonElement>(null);
+  const handleOriginalCommandToggle = useCallback(
+    (e: React.MouseEvent<HTMLElement>) => {
+      e.stopPropagation();
+      setOpen(true);
+      setShowOriginalCommand((prev) => !prev);
+    },
+    [],
+  );
+
+  const headerRef = useRef<HTMLDivElement>(null);
 
   return (
     <div className="border border-cc-border rounded-[10px] overflow-hidden bg-cc-card">
-      <button
+      <div
         ref={headerRef}
+        role="button"
+        tabIndex={0}
         onClick={handleToggle}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            handleToggle();
+          }
+        }}
         className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-cc-hover transition-colors cursor-pointer"
       >
         <svg
@@ -76,13 +109,47 @@ export const BoardBlock = memo(function BoardBlock({ board, operation, toolUseId
         </svg>
         <span className="text-xs font-medium text-cc-fg">Work Board</span>
         {operation && <span className="text-xs text-cc-muted">-- {operation}</span>}
+        {canShowOriginalCommand && (
+          <span
+            role="button"
+            tabIndex={0}
+            onClick={handleOriginalCommandToggle}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                e.stopPropagation();
+                setOpen(true);
+                setShowOriginalCommand((prev) => !prev);
+              }
+            }}
+            className="ml-2 rounded border border-cc-border px-1.5 py-0.5 text-[10px] text-cc-muted hover:border-cc-muted/40 hover:text-cc-fg transition-colors"
+            title={originalCommand ? `Original command: ${originalCommand}` : "Show original command"}
+          >
+            {showOriginalCommand ? "hide original command" : "show original command"}
+          </span>
+        )}
         <span className="text-xs text-cc-muted ml-auto">
           {board.length} {board.length === 1 ? "item" : "items"}
         </span>
-      </button>
+      </div>
 
       {open && (
         <div className="border-t border-cc-border">
+          {showOriginalCommand && canShowOriginalCommand && (
+            <div className="border-b border-cc-border px-3 py-3 bg-cc-bg/30">
+              <div className="mb-2 text-[10px] font-medium uppercase tracking-wider text-cc-muted">
+                Original command
+              </div>
+              <ToolBlock
+                name={originalToolName}
+                input={originalInput}
+                toolUseId={toolUseId}
+                sessionId={sessionId}
+                defaultOpen
+                disableInlineSpecialCases
+              />
+            </div>
+          )}
           <BoardTable board={board} />
           <CollapseFooter headerRef={headerRef} onCollapse={() => setOpen(false)} />
         </div>

@@ -328,6 +328,54 @@ function PlaygroundHerdSummaryBar({ isExpanded }: { isExpanded: boolean }) {
   );
 }
 
+function PlaygroundBoardWithOriginalCommand() {
+  useEffect(() => {
+    const sessionResults = new Map();
+    const resultContent = [
+      JSON.stringify(
+        {
+          __takode_board__: true,
+          board: [{ questId: "q-412", title: "Debug board command output", updatedAt: Date.now() - 15000 }],
+          operation: "set q-412",
+        },
+        null,
+        2,
+      ),
+      "",
+      "Quest   Title                     Worker  State",
+      "q-412   Debug board command output  --      Planning",
+    ].join("\n");
+    sessionResults.set("playground-board-original", {
+      content: resultContent,
+      is_error: false,
+      is_truncated: false,
+      total_size: resultContent.length,
+    });
+    const toolResults = new Map(useStore.getState().toolResults);
+    toolResults.set("playground-board-original-session", sessionResults);
+    useStore.setState({ toolResults });
+
+    return () => {
+      const nextToolResults = new Map(useStore.getState().toolResults);
+      nextToolResults.delete("playground-board-original-session");
+      useStore.setState({ toolResults: nextToolResults });
+    };
+  }, []);
+
+  return (
+    <BoardBlock
+      board={[{ questId: "q-412", title: "Debug board command output", updatedAt: Date.now() - 15000 }]}
+      operation="set q-412"
+      toolUseId="playground-board-original"
+      sessionId="playground-board-original-session"
+      originalToolName="Bash"
+      originalInput={{ command: "takode board show --json" }}
+      originalCommand="takode board show --json"
+      defaultShowOriginalCommand
+    />
+  );
+}
+
 function mockPermission(
   overrides: Partial<PermissionRequest> & { tool_name: string; input: Record<string, unknown> },
 ): PermissionRequest {
@@ -3416,6 +3464,9 @@ export function Playground() {
                   },
                 ]}
               />
+            </Card>
+            <Card label="Board with original command visible">
+              <PlaygroundBoardWithOriginalCommand />
             </Card>
             <Card label="Empty board">
               <BoardBlock board={[]} />
