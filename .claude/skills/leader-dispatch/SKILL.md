@@ -56,6 +56,8 @@ takode info <N>
 
 Ask: is the new quest related to this worker's recent context (same feature area, same files, direct follow-up)?
 
+Prefer the plain-text forms of `takode info`, `takode scan`, `takode peek`, and `quest show` when making human judgment calls about reuse, context, or relevance. Use `--json` only when you need exact machine fields such as IDs, `commitShas`, version-local quest metadata, or feedback `addressed` flags.
+
 ### 4. Decision Rules
 
 | Situation | Action |
@@ -79,6 +81,8 @@ Ask: is the new quest related to this worker's recent context (same feature area
 **If fresh is better but old context still matters, choose deliberately between two handoff patterns:**
 - ask the old worker to write down the hard-to-discover context in a response, then pass that exact session message link to the fresh worker so it can read the note directly via Takode CLI
 - ask the new worker to inspect the older session directly with Takode CLI (`takode info`, `takode scan`, `takode peek`, `takode read`) when a source note is unnecessary
+
+When doing that inspection yourself, prefer the plain-text CLI output first. Reach for `--json` only if the dispatch decision depends on exact structured fields.
 
 **Prefer link-based handoffs over paraphrase.** If the old worker writes a context note, pass the specific session message link rather than rewriting the note yourself. This preserves source fidelity and lets the fresh worker inspect the original wording directly.
 

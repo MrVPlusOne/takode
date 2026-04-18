@@ -40,6 +40,8 @@ Read these files or invoke these skills when performing the corresponding operat
 - **Never skip quest journey stages.** Every quest gets the full lifecycle: PLANNING → IMPLEMENTING → SKEPTIC_REVIEWING → GROOM_REVIEWING → PORTING. No exceptions for "small" changes.
 - **Never use `AskUserQuestion` or `EnterPlanMode`.** These block your turn and prevent herd event processing. Ask clarifying questions in plain text output, or use `takode notify needs-input` for non-blocking user notifications.
 - **Use `takode notify` at these moments:** `needs-input` when a quest/worker is blocked and genuinely needs the user's decision before proceeding (e.g., scope unclear, design choice needed); `review` when a quest completes the full journey and is ported.
+- **Prefer plain-text inspection by default.** When using `takode info`, `takode peek`, `takode scan`, or `quest show` to read for judgment, scanability, or general situational awareness, use the normal plain-text output first. It is usually more token-efficient and easier to reason about than `--json`.
+- **Use `--json` only when exact machine fields matter.** Reach for JSON when you need precise structured data such as feedback `addressed` flags, `commitShas`, version-local quest metadata from `quest history`, exact IDs, or machine-oriented filtering/branching.
 
 ## Herd Events
 
@@ -128,7 +130,7 @@ takode info 1 --json
 
 Human-readable output shows a structured overview with sections for identity (UUID, CLI session ID, PID), backend (type, model, version, permissions), working directory, git state (branch, ahead/behind, diff stats), roles, quest claim, metrics (turns, cost, context usage), MCP servers, and timestamps.
 
-Use `--json` for programmatic access to all fields.
+Prefer plain-text for normal inspection. Use `--json` only when you need exact structured fields for a programmatic decision.
 
 ### `takode tasks <session> [--json]`
 
@@ -165,6 +167,7 @@ Turn 43 · [829]-[835] · 18:18-18:19 (45s) · 3 tools · ✓
 ```
 
 Use this to quickly understand what a session worked on across its entire history without reading every message. Drill into interesting turns with `takode peek <session> --turn <N>`.
+Prefer the plain-text scan output for this triage workflow; it is optimized for human reading. Use `--json` only if you truly need to branch on structured turn fields.
 
 ### `takode peek <session> [--from N] [--until N] [--count N] [--turn N] [--task N] [--detail --turns N] [--json]`
 
@@ -215,6 +218,8 @@ takode peek 1 --detail --turns 3
 11. takode grep 1 "error" --type user     → Search only user messages
 12. takode export 1 /tmp/s1.txt           → Dump full session for offline analysis
 ```
+
+Default to the plain-text forms above when you are reading for judgment. Switch to `--json` only when you need exact machine fields.
 
 ### `takode read <session> <msg-id> [--offset N] [--limit N] [--json]`
 
@@ -390,7 +395,7 @@ Maintain at most **5 sessions in your herd**. **Never archive proactively.** Onl
 ## Tips
 
 - **Use `peek` over `read`** to protect your context window -- peek gives truncated summaries. Drill into specific messages with `read` only when the summary isn't enough. Paginate long messages with `--offset`/`--limit`.
-- **Use `--json` for programmatic decisions.** Parse JSON output when you need to branch on event data.
+- **Use `--json` only for programmatic decisions.** Parse JSON output when you need to branch on exact event data, IDs, or other structured fields.
 - **Verify spawn settings.** After `takode spawn`, check the output to confirm worktree and other settings match your intent. Never use `--no-worktree` unless the user explicitly requests it or the project instructions require it.
 - **Mixed backends work seamlessly.** The `takode` CLI talks to the Companion server, not to any backend directly. You can orchestrate both Claude Code and Codex sessions from either backend.
 - **Coordinate with quests.** Use the `quest` CLI alongside `takode` for task tracking. Always create a quest for non-trivial work before dispatching.

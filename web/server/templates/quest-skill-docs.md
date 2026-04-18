@@ -200,7 +200,7 @@ quest cancel q-5 --notes "Superseded by q-12"
 
 When the user asks you to work on a quest — whether via the Companion "Assign" button or free-form text like "work on q-5" — follow this order:
 
-1. **Read and verify**: `quest show q-N` — understand the full scope. **Verify the title matches what you expect.** If the quest title/description doesn't match the task you were asked to work on, STOP — you may have the wrong quest ID. If the quest has a **Feedback** section, read it carefully — these are review comments from the human that must be addressed.
+1. **Read and verify**: `quest show q-N` — understand the full scope. Prefer the plain-text form for normal reading and judgment; it is more scannable and token-efficient than `--json`. Use `--json` only when you need exact machine fields such as feedback `addressed` flags, `commitShas`, or version-local metadata from `quest history`. **Verify the title matches what you expect.** If the quest title/description doesn't match the task you were asked to work on, STOP — you may have the wrong quest ID. If the quest has a **Feedback** section, read it carefully — these are review comments from the human that must be addressed.
 2. **Claim immediately**: `quest claim q-N` — always claim first, regardless of the quest's current status. This links it to your session. If this fails because another session already claimed it, **STOP and tell the user** — do not proceed.
 3. **Polish metadata (required before coding)**:
    - Always do a quick metadata pass, even if it already looks good.

@@ -169,4 +169,19 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("Verification Inbox workflow");
     expect(skill).toContain("quest list --verification inbox");
   });
+
+  it("tells agents to prefer plain-text quest show and reserve --json for exact fields", async () => {
+    await ensureQuestmasterIntegration(3456, "/repo/web");
+
+    const codexSkillWrite = fsMocks.writeFileSync.mock.calls.find(
+      (call) => call[0] === "/home/tester/.codex/skills/quest/SKILL.md",
+    );
+    expect(codexSkillWrite).toBeDefined();
+
+    const skill = String(codexSkillWrite?.[1] ?? "");
+    expect(skill).toContain("Prefer the plain-text form");
+    expect(skill).toContain("feedback `addressed` flags");
+    expect(skill).toContain("`commitShas`");
+    expect(skill).toContain("version-local metadata from `quest history`");
+  });
 });
