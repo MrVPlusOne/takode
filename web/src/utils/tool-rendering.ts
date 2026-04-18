@@ -86,7 +86,14 @@ export function parseEditToolInput(
     .map((change) => getChangePatch(change))
     .filter(Boolean)
     .join("\n");
-  const topLevelContent = firstNonEmptyString(input, ["content", "text", "new_string", "newText", "new_content", "newContent"]);
+  const topLevelContent = firstNonEmptyString(input, [
+    "content",
+    "text",
+    "new_string",
+    "newText",
+    "new_content",
+    "newContent",
+  ]);
   const createChangeContent = changes
     .map((change) => {
       const kind = typeof change.kind === "string" ? change.kind : typeof change.type === "string" ? change.type : "";

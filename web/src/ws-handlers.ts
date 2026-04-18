@@ -1256,7 +1256,9 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
         claimedQuestTitle: data.quest?.title ?? undefined,
         claimedQuestStatus: data.quest?.status ?? undefined,
       });
-      const isOrchestrator = store.sdkSessions.find((sdk) => sdk.sessionId === sessionId)?.isOrchestrator === true;
+      const isOrchestrator =
+        store.sdkSessions.find((sdk) => sdk.sessionId === sessionId)?.isOrchestrator === true ||
+        store.sessions.get(sessionId)?.isOrchestrator === true;
       if (data.quest?.id && data.quest?.title && data.quest?.status === "in_progress" && !isOrchestrator) {
         // Override session name with quest title and mark as quest-named
         // only while the quest is actively in_progress. Once it transitions

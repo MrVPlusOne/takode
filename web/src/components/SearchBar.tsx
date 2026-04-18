@@ -85,9 +85,7 @@ export function SearchBar({
               aria-pressed={isActive}
               onClick={() => setCategory(sessionId, option.value)}
               className={`shrink-0 rounded-md px-2 py-1 text-[11px] font-medium transition-colors cursor-pointer ${
-                isActive
-                  ? "bg-cc-primary/18 text-cc-primary"
-                  : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover/70"
+                isActive ? "bg-cc-primary/18 text-cc-primary" : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover/70"
               }`}
               title={`Search ${option.label.toLowerCase()} messages`}
             >

@@ -111,6 +111,17 @@ Unknown flags are rejected with a "Did you mean?" suggestion.
 | `--images "a.png,b.png"` | Attach multiple images (comma-separated) |
 | `--json` | Output JSON |
 
+**Shell quoting safety:** if feedback text may contain backticks, `$(...)`, quotes, braces, copied CLI output, or other shell-sensitive content, do not inline it directly in double quotes. Build the text with a single-quoted heredoc and pass the variable instead:
+
+```bash
+msg=$(cat <<'EOF'
+Port summary: commit abc123 ...
+Treat `foo $(bar)` as literal text, not shell.
+EOF
+)
+quest feedback q-12 --text "$msg"
+```
+
 ### quest complete <id> --items "item1,item2"
 | Flag | Description |
 |------|-------------|

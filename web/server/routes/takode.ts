@@ -110,7 +110,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
 
   const deriveSessionStatusLabel = (session: { archived?: boolean; cliConnected?: boolean; state?: string | null }) => {
     if (session.archived) return "archived" as const;
-    if (session.cliConnected) return session.state === "running" ? "running" as const : "idle" as const;
+    if (session.cliConnected) return session.state === "running" ? ("running" as const) : ("idle" as const);
     return "disconnected" as const;
   };
 

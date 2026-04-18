@@ -1,5 +1,6 @@
 import type { QuestmasterTask } from "../server/quest-types.js";
 import type { SessionMetadata } from "./quest-session-metadata.js";
+export type { SessionMetadata } from "./quest-session-metadata.js";
 
 type FormatSessionOptions = {
   currentSessionId?: string;

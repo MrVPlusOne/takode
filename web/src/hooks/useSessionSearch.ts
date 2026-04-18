@@ -73,4 +73,8 @@ function messageMatches(text: string, query: string, mode: "strict" | "fuzzy"): 
 }
 
 // Export pure functions for testing
-export { computeMatches as _computeMatches, messageMatches as _messageMatches, messageMatchesCategory as _messageMatchesCategory };
+export {
+  computeMatches as _computeMatches,
+  messageMatches as _messageMatches,
+  messageMatchesCategory as _messageMatchesCategory,
+};

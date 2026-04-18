@@ -8858,7 +8858,14 @@ describe("handleSessionSubscribe — no double message_history", () => {
       section_turn_count: 1,
       visible_section_count: 2,
     });
-    expect(windowSync.messages.map((m: any) => m.id || m.message?.id)).toEqual(["u3", "a3", undefined, "u4", "a4", undefined]);
+    expect(windowSync.messages.map((m: any) => m.id || m.message?.id)).toEqual([
+      "u3",
+      "a3",
+      undefined,
+      "u4",
+      "a4",
+      undefined,
+    ]);
   });
 
   it("serves an older history window on history_window_request", () => {
@@ -11190,7 +11197,7 @@ describe("Codex adapter result handling", () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(resolveClaimTitle).not.toBeNull();
-    resolveClaimTitle?.("Fix Codex quest lifecycle chips");
+    resolveClaimTitle!("Fix Codex quest lifecycle chips");
     await flushAsync();
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
@@ -11293,7 +11300,7 @@ describe("Codex adapter result handling", () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(resolveClaimTitle).not.toBeNull();
-    resolveClaimTitle?.("Fix Codex quest lifecycle chips");
+    resolveClaimTitle!("Fix Codex quest lifecycle chips");
     await flushAsync();
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
@@ -11333,7 +11340,14 @@ describe("Codex adapter result handling", () => {
         type: "message",
         role: "assistant",
         model: "gpt-5-codex",
-        content: [{ type: "tool_use", id: "quest-cross-claim", name: "Bash", input: { command: "quest claim q-74 --json | jq '{id,status}'" } }],
+        content: [
+          {
+            type: "tool_use",
+            id: "quest-cross-claim",
+            name: "Bash",
+            input: { command: "quest claim q-74 --json | jq '{id,status}'" },
+          },
+        ],
         stop_reason: null,
         usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
       },
@@ -11348,7 +11362,14 @@ describe("Codex adapter result handling", () => {
         type: "message",
         role: "assistant",
         model: "gpt-5-codex",
-        content: [{ type: "tool_result", tool_use_id: "quest-cross-claim", content: JSON.stringify({ id: "q-74-v2", status: "in_progress" }), is_error: false }],
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "quest-cross-claim",
+            content: JSON.stringify({ id: "q-74-v2", status: "in_progress" }),
+            is_error: false,
+          },
+        ],
         stop_reason: null,
         usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
       },
@@ -11363,7 +11384,14 @@ describe("Codex adapter result handling", () => {
         type: "message",
         role: "assistant",
         model: "gpt-5-codex",
-        content: [{ type: "tool_use", id: "quest-cross-complete", name: "Bash", input: { command: 'quest complete q-74 --items "Verify" --json' } }],
+        content: [
+          {
+            type: "tool_use",
+            id: "quest-cross-complete",
+            name: "Bash",
+            input: { command: 'quest complete q-74 --items "Verify" --json' },
+          },
+        ],
         stop_reason: null,
         usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
       },
@@ -11378,7 +11406,18 @@ describe("Codex adapter result handling", () => {
         type: "message",
         role: "assistant",
         model: "gpt-5-codex",
-        content: [{ type: "tool_result", tool_use_id: "quest-cross-complete", content: JSON.stringify({ questId: "q-74", title: "Fix Codex quest lifecycle chips", status: "needs_verification" }), is_error: false }],
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "quest-cross-complete",
+            content: JSON.stringify({
+              questId: "q-74",
+              title: "Fix Codex quest lifecycle chips",
+              status: "needs_verification",
+            }),
+            is_error: false,
+          },
+        ],
         stop_reason: null,
         usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
       },
@@ -11389,7 +11428,7 @@ describe("Codex adapter result handling", () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(resolveClaimTitle).not.toBeNull();
-    resolveClaimTitle?.("Fix Codex quest lifecycle chips");
+    resolveClaimTitle!("Fix Codex quest lifecycle chips");
     await flushAsync();
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
@@ -11433,7 +11472,14 @@ describe("Codex adapter result handling", () => {
         type: "message",
         role: "assistant",
         model: "gpt-5-codex",
-        content: [{ type: "tool_use", id: "quest-cross-done-claim", name: "Bash", input: { command: "quest claim q-74 --json | jq '{id,status}'" } }],
+        content: [
+          {
+            type: "tool_use",
+            id: "quest-cross-done-claim",
+            name: "Bash",
+            input: { command: "quest claim q-74 --json | jq '{id,status}'" },
+          },
+        ],
         stop_reason: null,
         usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
       },
@@ -11448,7 +11494,14 @@ describe("Codex adapter result handling", () => {
         type: "message",
         role: "assistant",
         model: "gpt-5-codex",
-        content: [{ type: "tool_result", tool_use_id: "quest-cross-done-claim", content: JSON.stringify({ id: "q-74-v2", status: "in_progress" }), is_error: false }],
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "quest-cross-done-claim",
+            content: JSON.stringify({ id: "q-74-v2", status: "in_progress" }),
+            is_error: false,
+          },
+        ],
         stop_reason: null,
         usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
       },
@@ -11463,7 +11516,14 @@ describe("Codex adapter result handling", () => {
         type: "message",
         role: "assistant",
         model: "gpt-5-codex",
-        content: [{ type: "tool_use", id: "quest-cross-done", name: "Bash", input: { command: 'quest done q-74 --notes "done"' } }],
+        content: [
+          {
+            type: "tool_use",
+            id: "quest-cross-done",
+            name: "Bash",
+            input: { command: 'quest done q-74 --notes "done"' },
+          },
+        ],
         stop_reason: null,
         usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
       },
@@ -11478,7 +11538,14 @@ describe("Codex adapter result handling", () => {
         type: "message",
         role: "assistant",
         model: "gpt-5-codex",
-        content: [{ type: "tool_result", tool_use_id: "quest-cross-done", content: JSON.stringify({ questId: "q-74", title: "Fix Codex quest lifecycle chips", status: "done" }), is_error: false }],
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "quest-cross-done",
+            content: JSON.stringify({ questId: "q-74", title: "Fix Codex quest lifecycle chips", status: "done" }),
+            is_error: false,
+          },
+        ],
         stop_reason: null,
         usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
       },
@@ -11489,7 +11556,7 @@ describe("Codex adapter result handling", () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(resolveClaimTitle).not.toBeNull();
-    resolveClaimTitle?.("Fix Codex quest lifecycle chips");
+    resolveClaimTitle!("Fix Codex quest lifecycle chips");
     await flushAsync();
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));

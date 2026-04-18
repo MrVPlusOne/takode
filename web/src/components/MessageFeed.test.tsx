@@ -2240,7 +2240,9 @@ describe("MessageFeed - Codex terminal chips", () => {
         id: "codex-live-drag",
         role: "assistant",
         content: "",
-        contentBlocks: [{ type: "tool_use", id: "tu-live-drag", name: "Bash", input: { command: "tail -f server.log" } }],
+        contentBlocks: [
+          { type: "tool_use", id: "tu-live-drag", name: "Bash", input: { command: "tail -f server.log" } },
+        ],
       }),
     ]);
     setStoreToolProgress(sid, [

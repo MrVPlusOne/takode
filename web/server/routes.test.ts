@@ -6305,7 +6305,9 @@ describe("GET /api/quests/:questId/commits/:sha", () => {
         return ["abc1234567890abcdef", "abc1234", "Attach commits to quests", "1713292534"].join("\0") + "\n";
       }
       if (cmd.includes('show --format= --numstat --no-renames "abc1234567890abcdef"')) {
-        return ["12\t4\tweb/server/routes/quests.ts", "3\t0\tweb/src/components/QuestDetailPanel.tsx"].join("\n") + "\n";
+        return (
+          ["12\t4\tweb/server/routes/quests.ts", "3\t0\tweb/src/components/QuestDetailPanel.tsx"].join("\n") + "\n"
+        );
       }
       if (cmd.includes('show --format= --patch --no-color "abc1234567890abcdef"')) {
         return `diff --git a/file.ts b/file.ts\n--- a/file.ts\n+++ b/file.ts\n@@ -1 +1 @@\n-old\n+new\n`;

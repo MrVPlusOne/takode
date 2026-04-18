@@ -417,7 +417,8 @@ function getEntryId(entry: FeedEntry): string {
 }
 
 export function isUserBoundaryEntry(entry: FeedEntry | null): boolean {
-  const sourceId = entry?.kind === "message" && entry.msg.role === "user" ? entry.msg.agentSource?.sessionId : undefined;
+  const sourceId =
+    entry?.kind === "message" && entry.msg.role === "user" ? entry.msg.agentSource?.sessionId : undefined;
   return !!(
     entry &&
     entry.kind === "message" &&

@@ -65,9 +65,7 @@ function topologicallySortStatusGroup(rows: BoardRowData[]): BoardRowData[] {
     }
   }
 
-  const queue = rows
-    .filter((row) => (indegree.get(row.questId.toLowerCase()) ?? 0) === 0)
-    .sort(compareByRecencyDesc);
+  const queue = rows.filter((row) => (indegree.get(row.questId.toLowerCase()) ?? 0) === 0).sort(compareByRecencyDesc);
   const result: BoardRowData[] = [];
 
   while (queue.length > 0) {

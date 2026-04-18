@@ -281,7 +281,7 @@ takode send 2 "Please also add tests for the edge cases"
 takode send 2 "Actually, skip the auth tests" --correction
 ```
 
-**Shell quoting safety.** Do not put complex message text directly inside double quotes if it contains backticks, `$(...)`, or other shell syntax. Your shell can execute that content locally before `takode` receives it. For multi-line or shell-like text, build the message with a single-quoted heredoc and pass the variable to `takode`:
+**Shell quoting safety.** Do not put complex text payloads directly inside double quotes if they may contain backticks, `$(...)`, quotes, braces, copied CLI output, or other shell-sensitive content. Your shell can execute or corrupt that text locally before the target command receives it. This applies to `takode send`, `takode spawn --message`, `quest feedback`, and any other shell command that carries arbitrary text. For multi-line or shell-like text, build the payload with a single-quoted heredoc and pass the variable instead:
 
 ```bash
 msg=$(cat <<'EOF'
@@ -291,6 +291,17 @@ EOF
 )
 takode send 2 "$msg"
 takode spawn --message "$msg"
+```
+
+For quest comments or summaries, use the same pattern:
+
+```bash
+msg=$(cat <<'EOF'
+Port summary: commit abc123 ...
+Treat `foo $(bar)` as literal text, not shell.
+EOF
+)
+quest feedback q-123 --text "$msg"
 ```
 
 ### `takode herd <session> [<session> ...]`

@@ -129,10 +129,7 @@ function createDefaultCodexTerminalInspectorLayout(
   return clampCodexTerminalInspectorLayout(
     {
       x: CODEX_TERMINAL_INSPECTOR_MARGIN_PX,
-      y:
-        viewport.height -
-        CODEX_TERMINAL_INSPECTOR_MARGIN_PX -
-        CODEX_TERMINAL_INSPECTOR_DEFAULT_HEIGHT_PX,
+      y: viewport.height - CODEX_TERMINAL_INSPECTOR_MARGIN_PX - CODEX_TERMINAL_INSPECTOR_DEFAULT_HEIGHT_PX,
       width: CODEX_TERMINAL_INSPECTOR_DEFAULT_WIDTH_PX,
       height: CODEX_TERMINAL_INSPECTOR_DEFAULT_HEIGHT_PX,
     },
@@ -1099,7 +1096,13 @@ function CodexTerminalInspector({
           className="absolute bottom-0 right-0 h-7 w-7 cursor-se-resize rounded-tl-lg text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg"
           style={{ touchAction: "none" }}
         >
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="ml-auto mt-auto h-4 w-4">
+          <svg
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            className="ml-auto mt-auto h-4 w-4"
+          >
             <path d="M5 11l6-6M8 11l3-3M11 11l0 0" strokeLinecap="round" />
           </svg>
         </button>
@@ -2409,7 +2412,9 @@ const TurnEntries = memo(function TurnEntries({
                           />
                         )}
                         {/* Collapsed: activity bar (with optional response) in a card, @to(user) messages rendered outside */}
-                        {(turn.agentEntries.length > 0 || turn.responseEntry || turn.notificationEntries.length > 0) && (
+                        {(turn.agentEntries.length > 0 ||
+                          turn.responseEntry ||
+                          turn.notificationEntries.length > 0) && (
                           <div className="flex items-start gap-3">
                             <PawTrailAvatar />
                             <div className="flex-1 min-w-0 rounded-xl border border-cc-border/20 bg-cc-card/20 overflow-hidden">
@@ -3081,7 +3086,15 @@ export function MessageFeed({
       setSectionWindowStart(null);
       requestAnimationFrame(performScroll);
     },
-    [getRealContentBottom, hasNewerSections, historyWindow, scrollContainerTo, sectionWindowStart, sessionId, totalSections],
+    [
+      getRealContentBottom,
+      hasNewerSections,
+      historyWindow,
+      scrollContainerTo,
+      sectionWindowStart,
+      sessionId,
+      totalSections,
+    ],
   );
 
   const handleScrollToBottomClick = useCallback(() => {
@@ -3117,7 +3130,15 @@ export function MessageFeed({
         scrollContainerTo(targetTop, behavior);
       });
     },
-    [getRealContentBottom, hasNewerSections, historyWindow, scrollContainerTo, sectionWindowStart, sessionId, totalSections],
+    [
+      getRealContentBottom,
+      hasNewerSections,
+      historyWindow,
+      scrollContainerTo,
+      sectionWindowStart,
+      sessionId,
+      totalSections,
+    ],
   );
 
   const flushAutoFollow = useCallback(() => {
@@ -3717,7 +3738,11 @@ export function MessageFeed({
 
   return (
     <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-      <div ref={overlayViewportRef} data-testid="message-feed-overlay" className="relative flex-1 min-h-0 overflow-hidden">
+      <div
+        ref={overlayViewportRef}
+        data-testid="message-feed-overlay"
+        className="relative flex-1 min-h-0 overflow-hidden"
+      >
         <div
           ref={containerRef}
           onScroll={handleScroll}

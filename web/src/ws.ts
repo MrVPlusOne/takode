@@ -2,10 +2,7 @@ import { useStore } from "./store.js";
 import type { BrowserIncomingMessage, BrowserOutgoingMessage, McpServerConfig, SdkSessionInfo } from "./types.js";
 import { createWsTransport } from "./ws-transport.js";
 import { createWsMessageHandler, resolveSessionFilePath } from "./ws-handlers.js";
-import {
-  HISTORY_WINDOW_SECTION_TURN_COUNT,
-  HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
-} from "../shared/history-window.js";
+import { HISTORY_WINDOW_SECTION_TURN_COUNT, HISTORY_WINDOW_VISIBLE_SECTION_COUNT } from "../shared/history-window.js";
 
 let handleIncomingMessage: ((sessionId: string, data: BrowserIncomingMessage) => void) | null = null;
 

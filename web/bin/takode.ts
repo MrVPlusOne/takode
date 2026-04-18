@@ -3033,9 +3033,10 @@ function printBoardText(
     const titleStr = row.title ? (row.title.length > tCol - 2 ? row.title.slice(0, tCol - 3) + "…" : row.title) : "--";
     const title = titleStr.padEnd(tCol);
     const rowStatus = rowSessionStatuses?.[row.questId];
-    const workerStr = row.worker || row.workerNum !== undefined
-      ? formatBoardParticipantStatus(rowStatus?.worker, row.workerNum)
-      : formatBoardParticipantStatus(undefined, undefined);
+    const workerStr =
+      row.worker || row.workerNum !== undefined
+        ? formatBoardParticipantStatus(rowStatus?.worker, row.workerNum)
+        : formatBoardParticipantStatus(undefined, undefined);
     const reviewerStr =
       row.worker || row.workerNum !== undefined
         ? rowStatus?.reviewer

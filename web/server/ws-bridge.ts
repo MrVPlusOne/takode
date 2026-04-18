@@ -5599,9 +5599,7 @@ export class WsBridge {
 
   private enqueueCodexQuestLifecycle(session: Session, task: () => Promise<void>): Promise<void> {
     const prior = this.codexQuestLifecycleChains.get(session.id);
-    const next = (prior ?? Promise.resolve())
-      .catch(() => {})
-      .then(() => task());
+    const next = (prior ?? Promise.resolve()).catch(() => {}).then(() => task());
     const tracked = next.finally(() => {
       if (this.codexQuestLifecycleChains.get(session.id) === tracked) {
         this.codexQuestLifecycleChains.delete(session.id);
@@ -8745,7 +8743,9 @@ export class WsBridge {
     const normalizedVisibleSectionCount = Math.max(1, Math.floor(options.visibleSectionCount));
     const normalizedTurnCount = Math.max(
       1,
-      Math.floor(options.turnCount || getHistoryWindowTurnCount(normalizedVisibleSectionCount, normalizedSectionTurnCount)),
+      Math.floor(
+        options.turnCount || getHistoryWindowTurnCount(normalizedVisibleSectionCount, normalizedSectionTurnCount),
+      ),
     );
     const turns = findTurnBoundaries(session.messageHistory);
     const totalTurns = turns.length;
@@ -9761,11 +9761,7 @@ export class WsBridge {
     return questId ? normalized === questId.toLowerCase() : true;
   }
 
-  private async resolveQuestLifecycleTitle(
-    session: Session,
-    questId: string,
-    parsedTitle?: string,
-  ): Promise<string> {
+  private async resolveQuestLifecycleTitle(session: Session, questId: string, parsedTitle?: string): Promise<string> {
     const candidateTitle = parsedTitle?.trim();
     if (candidateTitle && !this.isBareQuestIdTitle(candidateTitle, questId)) {
       return candidateTitle;
@@ -10057,10 +10053,7 @@ export class WsBridge {
 
   private rebuildQueuedCodexPendingStartBatch(session: Session): void {
     const head = this.getCodexHeadTurn(session);
-    const headBlocksQueuedFollowUps =
-      !!head &&
-      head.status === "blocked_broken_session" &&
-      !(head.status === "queued" && head.turnId == null && head.adapterMsg.type === "codex_start_pending");
+    const headBlocksQueuedFollowUps = !!head && head.status === "blocked_broken_session";
     const deliverable = this.getQueuedCodexPendingBatchInputs(session);
     const existingQueuedTurn = this.findQueuedCodexPendingStartBatchTurn(session);
     if (headBlocksQueuedFollowUps) {

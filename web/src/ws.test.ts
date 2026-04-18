@@ -2,10 +2,7 @@
 
 import type { SessionState, PermissionRequest, ContentBlock } from "./types.js";
 import { computeHistoryMessagesSyncHash } from "../shared/history-sync-hash.js";
-import {
-  HISTORY_WINDOW_SECTION_TURN_COUNT,
-  HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
-} from "../shared/history-window.js";
+import { HISTORY_WINDOW_SECTION_TURN_COUNT, HISTORY_WINDOW_VISIBLE_SECTION_COUNT } from "../shared/history-window.js";
 
 // Mock the names utility before any imports
 vi.mock("./utils/names.js", () => ({
@@ -237,11 +234,10 @@ describe("connectSession", () => {
 
   it("treats windowed history as non-reusable and resubscribes fresh", () => {
     localStorage.setItem("companion:last-seq:s1", "50");
-    useStore.getState().setMessages(
-      "s1",
-      [{ id: "partial-msg", role: "user", content: "partial", timestamp: 1000 }],
-      { frozenCount: 1, frozenHash: "stale-window-hash" },
-    );
+    useStore.getState().setMessages("s1", [{ id: "partial-msg", role: "user", content: "partial", timestamp: 1000 }], {
+      frozenCount: 1,
+      frozenHash: "stale-window-hash",
+    });
     useStore.getState().setHistoryWindow("s1", {
       from_turn: 100,
       turn_count: 150,
@@ -2407,11 +2403,9 @@ describe("handleMessage: history_window_sync", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
 
-    useStore.getState().setMessages(
-      "s1",
-      [{ id: "stale", role: "assistant", content: "stale", timestamp: 1 }],
-      { frozenCount: 0 },
-    );
+    useStore
+      .getState()
+      .setMessages("s1", [{ id: "stale", role: "assistant", content: "stale", timestamp: 1 }], { frozenCount: 0 });
 
     fireMessage({
       type: "history_window_sync",

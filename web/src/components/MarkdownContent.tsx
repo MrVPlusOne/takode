@@ -276,13 +276,7 @@ function transformMarkdownUrl(url: string): string {
   return url;
 }
 
-function MarkdownTable({
-  children,
-  compact = false,
-}: {
-  children: ReactNode;
-  compact?: boolean;
-}) {
+function MarkdownTable({ children, compact = false }: { children: ReactNode; compact?: boolean }) {
   return (
     <table
       className={
@@ -296,13 +290,7 @@ function MarkdownTable({
   );
 }
 
-function MarkdownTableDialog({
-  children,
-  onClose,
-}: {
-  children: ReactNode;
-  onClose: () => void;
-}) {
+function MarkdownTableDialog({ children, onClose }: { children: ReactNode; onClose: () => void }) {
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();

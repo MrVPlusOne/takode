@@ -9,7 +9,11 @@ import { useStore } from "../store.js";
 const SESSION_ID = "search-bar-test";
 const requestScrollToMessage = vi.fn();
 
-function setSearchState(overrides: Partial<ReturnType<typeof useStore.getState>["sessionSearch"] extends Map<string, infer T> ? T : never> = {}) {
+function setSearchState(
+  overrides: Partial<
+    ReturnType<typeof useStore.getState>["sessionSearch"] extends Map<string, infer T> ? T : never
+  > = {},
+) {
   useStore.setState({
     sessionSearch: new Map([
       [

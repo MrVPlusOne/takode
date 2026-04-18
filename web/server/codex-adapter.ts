@@ -1416,11 +1416,7 @@ export class CodexAdapter
       await this.interruptAndWaitForTurnEnd();
     }
 
-    if (
-      isCompactSlashCommand(msg.content) &&
-      !msg.images?.length &&
-      !msg.vscodeSelection
-    ) {
+    if (isCompactSlashCommand(msg.content) && !msg.images?.length && !msg.vscodeSelection) {
       try {
         await this.transport.call("thread/compact/start", {
           threadId: this.threadId,

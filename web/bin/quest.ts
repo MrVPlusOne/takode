@@ -47,11 +47,7 @@ import {
 import type { QuestmasterTask } from "../server/quest-types.js";
 import { applyQuestListFilters } from "../server/quest-list-filters.js";
 import { getName } from "../server/session-names.js";
-import {
-  formatQuestDetail,
-  formatQuestLine,
-  formatSessionLabel,
-} from "./quest-format.js";
+import { formatQuestDetail, formatQuestLine, formatSessionLabel } from "./quest-format.js";
 import { fetchSessionMetadataMap, type SessionMetadata } from "./quest-session-metadata.js";
 import { readFile } from "node:fs/promises";
 import { readFileSync, readdirSync } from "node:fs";

@@ -90,7 +90,7 @@ Ask: is the new quest related to this worker's recent context (same feature area
 takode spawn --message "<dispatch>"
 ```
 
-**Shell quoting safety.** Do not paste complex dispatch text inline inside double quotes if it contains backticks, `$(...)`, or other shell syntax. Your shell can execute that content locally before `takode` receives it. For multi-line or shell-like dispatches, compose the message with a single-quoted heredoc and pass the variable instead:
+**Shell quoting safety.** Do not paste complex text payloads inline inside double quotes if they may contain backticks, `$(...)`, quotes, braces, copied CLI output, or other shell-sensitive content. Your shell can execute or corrupt that text locally before the target command receives it. This applies to `takode send`, `takode spawn --message`, `quest feedback`, and any other shell command carrying arbitrary text. For multi-line or shell-like payloads, compose the text with a single-quoted heredoc and pass the variable instead:
 
 ```bash
 msg=$(cat <<'EOF'
@@ -101,6 +101,17 @@ EOF
 )
 takode spawn --message "$msg"
 takode send 2 "$msg"
+```
+
+Use the same pattern for quest comments and port summaries:
+
+```bash
+msg=$(cat <<'EOF'
+Port summary: commit abc123 ...
+Treat `foo $(bar)` as literal text, not shell.
+EOF
+)
+quest feedback q-123 --text "$msg"
 ```
 
 **Never use `--no-worktree` unless the user explicitly asks for it** or the project's repo instructions require it. All workers get worktrees by default -- including investigation and debugging tasks, since they almost always lead to code changes. Don't use `--fixed-name` for regular workers -- they auto-name from their quest.

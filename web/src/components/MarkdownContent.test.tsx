@@ -78,7 +78,11 @@ describe("MarkdownContent tables", () => {
   });
 
   it("opens and closes the expanded table overlay", () => {
-    render(<MarkdownContent text={"| Dataset | Path |\n| --- | --- |\n| v7 filtered long | /mnt/v7/long |\n| RTG | /mnt/rtg |"} />);
+    render(
+      <MarkdownContent
+        text={"| Dataset | Path |\n| --- | --- |\n| v7 filtered long | /mnt/v7/long |\n| RTG | /mnt/rtg |"}
+      />,
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "View table" }));
 

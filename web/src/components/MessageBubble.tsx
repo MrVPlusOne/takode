@@ -443,7 +443,7 @@ function HerdEventEntry({ header, activity }: { header: string; activity: string
     return Number.isFinite(parsed) ? parsed : null;
   }, [sessionLabel]);
   const sdkInfo = useMemo(
-    () => (sessionNum == null ? null : sdkSessions.find((session) => session.sessionNum === sessionNum) ?? null),
+    () => (sessionNum == null ? null : (sdkSessions.find((session) => session.sessionNum === sessionNum) ?? null)),
     [sdkSessions, sessionNum],
   );
   const resolvedSessionId = sdkInfo?.sessionId ?? null;
