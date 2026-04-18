@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
 
 interface MockTask {
@@ -53,6 +53,30 @@ describe("TodoStatusLine", () => {
     render(<TodoStatusLine sessionId="s1" />);
     expect(screen.getByText("Implement task sync")).toBeInTheDocument();
     expect(screen.getByText("0/2")).toBeInTheDocument();
+  });
+
+  it("shows a newly created pending-only todo list and expands it immediately", () => {
+    resetStore({
+      sessionTasks: new Map([
+        [
+          "s1",
+          [
+            { id: "t1", status: "pending", subject: "Inspect worktree" },
+            { id: "t2", status: "pending", subject: "Run tests" },
+          ],
+        ],
+      ]),
+    });
+
+    render(<TodoStatusLine sessionId="s1" />);
+
+    expect(screen.getByText("Inspect worktree")).toBeInTheDocument();
+    expect(screen.getByText("+1")).toBeInTheDocument();
+    expect(screen.getByText("0/2")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button"));
+    expect(screen.getByText("Current To-Dos")).toBeInTheDocument();
+    expect(screen.getByText("Run tests")).toBeInTheDocument();
   });
 
   it("renders nothing when there are no tasks", () => {

@@ -33,12 +33,13 @@ export function TodoStatusLine({ sessionId }: { sessionId: string }) {
 
   const completedCount = tasks.filter((t) => t.status === "completed").length;
   const activeTask = tasks.find((t) => t.status === "in_progress");
+  const firstPendingTask = tasks.find((t) => t.status === "pending");
+  const highlightedTask = activeTask ?? firstPendingTask ?? tasks[0];
   const pendingCount = tasks.filter((t) => t.status === "pending").length;
+  const extraCount = activeTask ? pendingCount : Math.max(0, pendingCount - 1);
 
   // Hide when all completed
   if (completedCount >= tasks.length) return null;
-  // Hide when no active task (nothing in progress)
-  if (!activeTask) return null;
 
   return (
     <div ref={containerRef} className="shrink-0 flex flex-col min-h-0">
@@ -65,27 +66,32 @@ export function TodoStatusLine({ sessionId }: { sessionId: string }) {
         onClick={() => setPopoverOpen(!popoverOpen)}
         className="w-full flex items-center gap-2 px-3 sm:px-4 py-1.5 border-t border-cc-border bg-cc-card hover:bg-cc-hover/50 transition-colors cursor-pointer"
       >
-        {/* Spinning indicator */}
-        <svg className="w-3.5 h-3.5 text-cc-primary animate-spin shrink-0" viewBox="0 0 16 16" fill="none">
-          <circle
-            cx="8"
-            cy="8"
-            r="6"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeDasharray="28"
-            strokeDashoffset="8"
-            strokeLinecap="round"
-          />
-        </svg>
+        {activeTask ? (
+          <svg className="w-3.5 h-3.5 text-cc-primary animate-spin shrink-0" viewBox="0 0 16 16" fill="none">
+            <circle
+              cx="8"
+              cy="8"
+              r="6"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeDasharray="28"
+              strokeDashoffset="8"
+              strokeLinecap="round"
+            />
+          </svg>
+        ) : (
+          <svg viewBox="0 0 16 16" fill="none" className="w-3.5 h-3.5 text-cc-muted shrink-0">
+            <path d="M4 4.5h8M4 8h8M4 11.5h5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+        )}
 
         {/* Active task text */}
         <span className="text-[11px] text-cc-fg/80 truncate flex-1 text-left">
-          {activeTask.activeForm ?? activeTask.subject}
+          {highlightedTask?.activeForm ?? highlightedTask?.subject ?? "Current To-Dos"}
         </span>
 
         {/* Pending count */}
-        {pendingCount > 0 && <span className="text-[10px] text-cc-muted shrink-0">+{pendingCount}</span>}
+        {extraCount > 0 && <span className="text-[10px] text-cc-muted shrink-0">+{extraCount}</span>}
 
         {/* Progress fraction */}
         <span className="text-[10px] text-cc-muted shrink-0 tabular-nums">

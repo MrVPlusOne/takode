@@ -175,6 +175,17 @@ describe("getPreview", () => {
     expect(getPreview("view_image", { path: "/tmp/proof.png" })).toBe("/tmp/proof.png");
   });
 
+  it("shows the first pending TodoWrite item before anything is completed", () => {
+    expect(
+      getPreview("TodoWrite", {
+        todos: [
+          { content: "Inspect worktree", status: "pending" },
+          { content: "Run tests", status: "pending" },
+        ],
+      }),
+    ).toBe("Inspect worktree (2 left)");
+  });
+
   it("extracts query for Codex web_search input shape", () => {
     expect(
       getPreview("web_search", {
@@ -1361,6 +1372,31 @@ describe("WebSearch result suppression", () => {
     expect(container.querySelector(".diff-viewer")).toBeTruthy();
 
     spy.mockRestore();
+  });
+});
+
+describe("TodoWrite tool block", () => {
+  it("renders as an expandable tool block immediately for newly created lists", () => {
+    render(
+      <ToolBlock
+        name="TodoWrite"
+        input={{
+          todos: [
+            { content: "Inspect worktree", status: "pending" },
+            { content: "Run tests", status: "pending" },
+          ],
+        }}
+        toolUseId="todo-expand-1"
+      />,
+    );
+
+    const toggle = screen.getByRole("button", { name: /Tasks\s*Inspect worktree \(2 left\)/i });
+    expect(screen.queryByText("Run tests")).toBeNull();
+
+    fireEvent.click(toggle);
+
+    expect(screen.getByText("Inspect worktree")).toBeTruthy();
+    expect(screen.getByText("Run tests")).toBeTruthy();
   });
 });
 

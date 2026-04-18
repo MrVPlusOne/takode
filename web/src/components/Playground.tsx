@@ -2174,6 +2174,18 @@ export function Playground() {
               toolUseId="tb-10"
               sessionId={MOCK_SESSION_ID}
             />
+            <ToolBlock
+              name="TodoWrite"
+              input={{
+                todos: [
+                  { content: "Inspect worktree", status: "pending", activeForm: "Inspecting worktree" },
+                  { content: "Run focused tests", status: "pending", activeForm: "Running focused tests" },
+                  { content: "Report findings", status: "pending", activeForm: "Reporting findings" },
+                ],
+              }}
+              toolUseId="tb-10-pending"
+              sessionId={MOCK_SESSION_ID}
+            />
             {/* Takode Notify pills */}
             <ToolBlock
               name="Bash"
