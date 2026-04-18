@@ -7,6 +7,8 @@ import { GIT_CMD_TIMEOUT, SERVER_GIT_CMD } from "./constants.js";
 import { computeSessionPayloadMetrics } from "./session-payload-metrics.js";
 import { getDefaultModelForBackend } from "../shared/backend-defaults.js";
 import { computeHistoryMessagesSyncHash, computeHistoryPrefixSyncHash } from "../shared/history-sync-hash.js";
+import { findTurnBoundaries } from "./takode-messages.js";
+import { getHistoryWindowTurnCount } from "../shared/history-window.js";
 
 const execPromise = promisify(execCb);
 const TOOL_PROGRESS_OUTPUT_LIMIT = 12_000;
@@ -7963,7 +7965,26 @@ export class WsBridge {
 
   private async routeBrowserMessage(session: Session, msg: BrowserOutgoingMessage, ws?: ServerWebSocket<SocketData>) {
     if (msg.type === "session_subscribe") {
-      await this.handleSessionSubscribe(session, ws, msg.last_seq, msg.known_frozen_count, msg.known_frozen_hash);
+      await this.handleSessionSubscribe(
+        session,
+        ws,
+        msg.last_seq,
+        msg.known_frozen_count,
+        msg.known_frozen_hash,
+        msg.history_window_section_turn_count,
+        msg.history_window_visible_section_count,
+      );
+      return;
+    }
+
+    if (msg.type === "history_window_request") {
+      if (!ws) return;
+      this.sendHistoryWindowSync(session, ws, {
+        fromTurn: msg.from_turn,
+        turnCount: msg.turn_count,
+        sectionTurnCount: msg.section_turn_count,
+        visibleSectionCount: msg.visible_section_count,
+      });
       return;
     }
 
@@ -8693,12 +8714,61 @@ export class WsBridge {
     return true;
   }
 
+  private sendHistoryWindowSync(
+    session: Session,
+    ws: ServerWebSocket<SocketData>,
+    options: {
+      fromTurn: number;
+      turnCount: number;
+      sectionTurnCount: number;
+      visibleSectionCount: number;
+    },
+  ): void {
+    const normalizedSectionTurnCount = Math.max(1, Math.floor(options.sectionTurnCount));
+    const normalizedVisibleSectionCount = Math.max(1, Math.floor(options.visibleSectionCount));
+    const normalizedTurnCount = Math.max(
+      1,
+      Math.floor(options.turnCount || getHistoryWindowTurnCount(normalizedVisibleSectionCount, normalizedSectionTurnCount)),
+    );
+    const turns = findTurnBoundaries(session.messageHistory);
+    const totalTurns = turns.length;
+
+    let fromTurn = 0;
+    let turnCount = 0;
+    let messages: BrowserIncomingMessage[] = session.messageHistory.slice();
+
+    if (totalTurns > 0) {
+      fromTurn = Math.max(0, Math.min(Math.floor(options.fromTurn), totalTurns - 1));
+      const endTurnExclusive = Math.min(totalTurns, fromTurn + normalizedTurnCount);
+      turnCount = Math.max(0, endTurnExclusive - fromTurn);
+      const startIdx = turns[fromTurn]?.startIdx ?? 0;
+      const lastTurn = turns[endTurnExclusive - 1];
+      const endIdx =
+        lastTurn && lastTurn.endIdx >= 0 ? lastTurn.endIdx : Math.max(0, session.messageHistory.length - 1);
+      messages = session.messageHistory.slice(startIdx, endIdx + 1);
+    }
+
+    this.sendToBrowser(ws, {
+      type: "history_window_sync",
+      messages,
+      window: {
+        from_turn: fromTurn,
+        turn_count: totalTurns === 0 ? 0 : turnCount,
+        total_turns: totalTurns,
+        section_turn_count: normalizedSectionTurnCount,
+        visible_section_count: normalizedVisibleSectionCount,
+      },
+    });
+  }
+
   private async handleSessionSubscribe(
     session: Session,
     ws: ServerWebSocket<SocketData> | undefined,
     lastSeq: number,
     knownFrozenCount = 0,
     knownFrozenHash?: string,
+    historyWindowSectionTurnCount?: number,
+    historyWindowVisibleSectionCount?: number,
   ) {
     if (!ws) return;
     const data = ws.data as BrowserSocketData;
@@ -8740,7 +8810,25 @@ export class WsBridge {
     // also done in handleBrowserOpen, causing double delivery).
     if (lastAckSeq === 0) {
       if (session.messageHistory.length > 0) {
-        await this.sendHistorySync(session, ws, knownFrozenCount, knownFrozenHash);
+        if (
+          typeof historyWindowSectionTurnCount === "number" &&
+          historyWindowSectionTurnCount > 0 &&
+          typeof historyWindowVisibleSectionCount === "number" &&
+          historyWindowVisibleSectionCount > 0
+        ) {
+          this.sendHistoryWindowSync(session, ws, {
+            fromTurn: Math.max(
+              0,
+              findTurnBoundaries(session.messageHistory).length -
+                getHistoryWindowTurnCount(historyWindowVisibleSectionCount, historyWindowSectionTurnCount),
+            ),
+            turnCount: getHistoryWindowTurnCount(historyWindowVisibleSectionCount, historyWindowSectionTurnCount),
+            sectionTurnCount: historyWindowSectionTurnCount,
+            visibleSectionCount: historyWindowVisibleSectionCount,
+          });
+        } else {
+          await this.sendHistorySync(session, ws, knownFrozenCount, knownFrozenHash);
+        }
       }
       // Also replay any buffered events so transient messages (stream_event,
       // tool_progress, status_change, etc.) are caught up

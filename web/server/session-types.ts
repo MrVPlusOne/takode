@@ -382,7 +382,21 @@ export type BrowserOutgoingMessage =
       actorSessionId?: string;
       client_msg_id?: string;
     }
-  | { type: "session_subscribe"; last_seq: number; known_frozen_count?: number; known_frozen_hash?: string }
+  | {
+      type: "session_subscribe";
+      last_seq: number;
+      known_frozen_count?: number;
+      known_frozen_hash?: string;
+      history_window_section_turn_count?: number;
+      history_window_visible_section_count?: number;
+    }
+  | {
+      type: "history_window_request";
+      from_turn: number;
+      turn_count: number;
+      section_turn_count: number;
+      visible_section_count: number;
+    }
   | {
       type: "history_sync_mismatch";
       frozen_count: number;
@@ -427,6 +441,14 @@ export interface BoardRow {
   updatedAt: number;
   /** Epoch ms when this row was moved to the completed list. Present only for completed items. */
   completedAt?: number;
+}
+
+export interface HistoryWindowState {
+  from_turn: number;
+  turn_count: number;
+  total_turns: number;
+  section_turn_count: number;
+  visible_section_count: number;
 }
 
 /** High-level task recognized by the session auto-namer. */
@@ -490,6 +512,7 @@ export type BrowserIncomingMessageBase =
   | { type: "codex_pending_inputs"; inputs: PendingCodexInput[] }
   | { type: "codex_pending_input_cancelled"; input: PendingCodexInput }
   | { type: "message_history"; messages: BrowserIncomingMessage[] }
+  | { type: "history_window_sync"; messages: BrowserIncomingMessage[]; window: HistoryWindowState }
   | {
       type: "history_sync";
       frozen_base_count: number;

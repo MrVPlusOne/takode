@@ -8,6 +8,7 @@ import type {
   McpServerDetail,
   ToolResultPreview,
   SessionTaskEntry,
+  HistoryWindowState,
   PendingCodexInput,
   QuestmasterTask,
   VsCodeSelectionState,
@@ -252,6 +253,8 @@ interface AppState {
   messageFrozenRevisions: Map<string, number>;
   /** True while the browser is waiting for the first authoritative history payload for a session. */
   historyLoading: Map<string, boolean>;
+  /** Partial-history window metadata for sessions that are loading section windows on demand. */
+  historyWindows: Map<string, HistoryWindowState>;
 
   // Streaming partial text per session
   streaming: Map<string, string>;
@@ -492,6 +495,7 @@ interface AppState {
     options?: { frozenCount?: number; frozenHash?: string },
   ) => void;
   setHistoryLoading: (sessionId: string, loading: boolean) => void;
+  setHistoryWindow: (sessionId: string, window: HistoryWindowState | null) => void;
   setPendingCodexInputs: (sessionId: string, inputs: PendingCodexInput[]) => void;
   updateMessage: (sessionId: string, msgId: string, updates: Partial<ChatMessage>) => void;
   /** Update quest title in all quest_claimed/quest_submitted messages for a quest. */
@@ -797,6 +801,7 @@ export const useStore = create<AppState>((set) => ({
   messageFrozenHashes: new Map(),
   messageFrozenRevisions: new Map(),
   historyLoading: new Map(),
+  historyWindows: new Map(),
   streaming: new Map(),
   streamingByParentToolUseId: new Map(),
   streamingThinking: new Map(),
@@ -1113,6 +1118,8 @@ export const useStore = create<AppState>((set) => ({
       messageFrozenRevisions.delete(sessionId);
       const historyLoading = new Map(s.historyLoading);
       historyLoading.delete(sessionId);
+      const historyWindows = new Map(s.historyWindows);
+      historyWindows.delete(sessionId);
       const streaming = new Map(s.streaming);
       streaming.delete(sessionId);
       const streamingByParentToolUseId = new Map(s.streamingByParentToolUseId);
@@ -1211,6 +1218,7 @@ export const useStore = create<AppState>((set) => ({
         messageFrozenHashes,
         messageFrozenRevisions,
         historyLoading,
+        historyWindows,
         streaming,
         streamingByParentToolUseId,
         streamingThinking,
@@ -1378,6 +1386,17 @@ export const useStore = create<AppState>((set) => ({
         historyLoading.delete(sessionId);
       }
       return { historyLoading };
+    }),
+
+  setHistoryWindow: (sessionId, window) =>
+    set((s) => {
+      const historyWindows = new Map(s.historyWindows);
+      if (window) {
+        historyWindows.set(sessionId, window);
+      } else {
+        historyWindows.delete(sessionId);
+      }
+      return { historyWindows };
     }),
 
   setPendingCodexInputs: (sessionId, inputs) =>
@@ -1583,6 +1602,8 @@ export const useStore = create<AppState>((set) => ({
       sessionTaskPreview.delete(sessionId);
       const pendingCodexInputs = new Map(s.pendingCodexInputs);
       pendingCodexInputs.delete(sessionId);
+      const historyWindows = new Map(s.historyWindows);
+      historyWindows.delete(sessionId);
       const streaming = new Map(s.streaming);
       streaming.delete(sessionId);
       const streamingByParentToolUseId = new Map(s.streamingByParentToolUseId);
@@ -1641,6 +1662,7 @@ export const useStore = create<AppState>((set) => ({
         sessionTasks,
         sessionTaskPreview,
         pendingCodexInputs,
+        historyWindows,
         streaming,
         streamingByParentToolUseId,
         streamingThinking,
@@ -2460,6 +2482,7 @@ export const useStore = create<AppState>((set) => ({
       messageFrozenCounts: new Map(),
       messageFrozenRevisions: new Map(),
       historyLoading: new Map(),
+      historyWindows: new Map(),
       streaming: new Map(),
       streamingByParentToolUseId: new Map(),
       streamingThinking: new Map(),

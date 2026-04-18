@@ -2,19 +2,34 @@ import { useStore } from "./store.js";
 import type { BrowserIncomingMessage, BrowserOutgoingMessage, McpServerConfig, SdkSessionInfo } from "./types.js";
 import { createWsTransport } from "./ws-transport.js";
 import { createWsMessageHandler, resolveSessionFilePath } from "./ws-handlers.js";
+import {
+  HISTORY_WINDOW_SECTION_TURN_COUNT,
+  HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+} from "../shared/history-window.js";
 
 let handleIncomingMessage: ((sessionId: string, data: BrowserIncomingMessage) => void) | null = null;
 
 const transport = createWsTransport({
   hasLocalMessages: (sessionId) => {
-    const messages = useStore.getState().messages.get(sessionId);
-    return Boolean(messages && messages.length > 0);
+    const store = useStore.getState();
+    const messages = store.messages.get(sessionId);
+    const historyWindow = store.historyWindows.get(sessionId);
+    return Boolean(messages && messages.length > 0 && !historyWindow);
   },
   getKnownFrozenCount: (sessionId) => {
     return useStore.getState().messageFrozenCounts.get(sessionId) ?? 0;
   },
   getKnownFrozenHash: (sessionId) => {
     return useStore.getState().messageFrozenHashes.get(sessionId);
+  },
+  getFreshHistoryWindow: (sessionId) => {
+    const store = useStore.getState();
+    if (store.pendingScrollToMessageIndex.get(sessionId) != null) return null;
+    if (store.scrollToTurnId.get(sessionId)) return null;
+    return {
+      sectionTurnCount: HISTORY_WINDOW_SECTION_TURN_COUNT,
+      visibleSectionCount: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+    };
   },
   onConnecting: (sessionId) => {
     useStore.getState().setConnectionStatus(sessionId, "connecting");

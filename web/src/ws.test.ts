@@ -2,6 +2,10 @@
 
 import type { SessionState, PermissionRequest, ContentBlock } from "./types.js";
 import { computeHistoryMessagesSyncHash } from "../shared/history-sync-hash.js";
+import {
+  HISTORY_WINDOW_SECTION_TURN_COUNT,
+  HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+} from "../shared/history-window.js";
 
 // Mock the names utility before any imports
 vi.mock("./utils/names.js", () => ({
@@ -189,7 +193,13 @@ describe("connectSession", () => {
     lastWs.onopen?.(new Event("open"));
 
     expect(lastWs.send).toHaveBeenCalledWith(
-      JSON.stringify({ type: "session_subscribe", last_seq: 0, known_frozen_count: 0 }),
+      JSON.stringify({
+        type: "session_subscribe",
+        last_seq: 0,
+        known_frozen_count: 0,
+        history_window_section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
+        history_window_visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+      }),
     );
   });
 
@@ -200,7 +210,57 @@ describe("connectSession", () => {
     lastWs.onopen?.(new Event("open"));
 
     expect(lastWs.send).toHaveBeenCalledWith(
-      JSON.stringify({ type: "session_subscribe", last_seq: 0, known_frozen_count: 0 }),
+      JSON.stringify({
+        type: "session_subscribe",
+        last_seq: 0,
+        known_frozen_count: 0,
+        history_window_section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
+        history_window_visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+      }),
+    );
+  });
+
+  it("falls back to full-history subscribe when a pending message scroll needs absolute indexes", () => {
+    useStore.getState().setPendingScrollToMessageIndex("s1", 42);
+    wsModule.connectSession("s1");
+
+    lastWs.onopen?.(new Event("open"));
+
+    expect(lastWs.send).toHaveBeenCalledWith(
+      JSON.stringify({
+        type: "session_subscribe",
+        last_seq: 0,
+        known_frozen_count: 0,
+      }),
+    );
+  });
+
+  it("treats windowed history as non-reusable and resubscribes fresh", () => {
+    localStorage.setItem("companion:last-seq:s1", "50");
+    useStore.getState().setMessages(
+      "s1",
+      [{ id: "partial-msg", role: "user", content: "partial", timestamp: 1000 }],
+      { frozenCount: 1, frozenHash: "stale-window-hash" },
+    );
+    useStore.getState().setHistoryWindow("s1", {
+      from_turn: 100,
+      turn_count: 150,
+      total_turns: 500,
+      section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
+      visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+    });
+
+    wsModule.connectSession("s1");
+    lastWs.onopen?.(new Event("open"));
+
+    expect(lastWs.send).toHaveBeenCalledWith(
+      JSON.stringify({
+        type: "session_subscribe",
+        last_seq: 0,
+        known_frozen_count: 0,
+        history_window_section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
+        history_window_visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+      }),
     );
   });
 
@@ -2339,6 +2399,121 @@ describe("handleMessage: history_sync", () => {
       "fresh synced notification 2",
     );
     expect(state.toolStartTimestamps.get("s1")?.get("task-fresh-sync-2")).toBe(4444);
+  });
+});
+
+describe("handleMessage: history_window_sync", () => {
+  it("replaces local messages with the requested history window and records window metadata", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    useStore.getState().setMessages(
+      "s1",
+      [{ id: "stale", role: "assistant", content: "stale", timestamp: 1 }],
+      { frozenCount: 0 },
+    );
+
+    fireMessage({
+      type: "history_window_sync",
+      messages: [
+        { type: "user_message", id: "u-window", content: "window user", timestamp: 1000 },
+        {
+          type: "assistant",
+          message: {
+            id: "a-window",
+            type: "message",
+            role: "assistant",
+            model: "claude-opus-4-20250514",
+            content: [{ type: "text", text: "window reply" }],
+            stop_reason: "end_turn",
+            usage: { input_tokens: 5, output_tokens: 3, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+          },
+          parent_tool_use_id: null,
+          timestamp: 2000,
+        },
+      ],
+      window: {
+        from_turn: 100,
+        turn_count: 150,
+        total_turns: 320,
+        section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
+        visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+      },
+    });
+
+    const msgs = useStore.getState().messages.get("s1")!;
+    expect(msgs.map((m) => m.id)).toEqual(["u-window", "a-window"]);
+    expect(useStore.getState().historyWindows.get("s1")).toEqual({
+      from_turn: 100,
+      turn_count: 150,
+      total_turns: 320,
+      section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
+      visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+    });
+  });
+
+  it("does not overwrite the session preview when loading an older history window", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+    useStore.getState().setSessionPreview("s1", "latest preview");
+
+    fireMessage({
+      type: "history_window_sync",
+      messages: [{ type: "user_message", id: "u-older", content: "older historical text", timestamp: 1000 }],
+      window: {
+        from_turn: 10,
+        turn_count: 50,
+        total_turns: 500,
+        section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
+        visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+      },
+    });
+
+    expect(useStore.getState().sessionPreviews.get("s1")).toBe("latest preview");
+  });
+
+  it("updates the session preview when the loaded window includes the latest turn", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+    useStore.getState().setSessionPreview("s1", "stale preview");
+
+    fireMessage({
+      type: "history_window_sync",
+      messages: [{ type: "user_message", id: "u-latest", content: "newest visible text", timestamp: 1000 }],
+      window: {
+        from_turn: 450,
+        turn_count: 50,
+        total_turns: 500,
+        section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
+        visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+      },
+    });
+
+    expect(useStore.getState().sessionPreviews.get("s1")).toBe("newest visible text");
+  });
+
+  it("clears window metadata when a full history_sync later arrives", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+    useStore.getState().setHistoryWindow("s1", {
+      from_turn: 10,
+      turn_count: 150,
+      total_turns: 200,
+      section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
+      visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+    });
+
+    fireMessage({
+      type: "history_sync",
+      frozen_base_count: 0,
+      frozen_delta: [{ type: "user_message", id: "u-full", content: "full history", timestamp: 1000 }],
+      hot_messages: [],
+      frozen_count: 1,
+      expected_frozen_hash: "full-frozen",
+      expected_full_hash: "full-hash",
+    });
+
+    expect(useStore.getState().historyWindows.has("s1")).toBe(false);
   });
 });
 

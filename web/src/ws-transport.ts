@@ -39,6 +39,9 @@ export interface WsTransportCallbacks {
   hasLocalMessages: (sessionId: string) => boolean;
   getKnownFrozenCount: (sessionId: string) => number;
   getKnownFrozenHash: (sessionId: string) => string | undefined;
+  getFreshHistoryWindow?: (
+    sessionId: string,
+  ) => { sectionTurnCount: number; visibleSectionCount: number } | null | undefined;
   onMessage: (sessionId: string, data: BrowserIncomingMessage) => void;
   onConnecting?: (sessionId: string) => void;
   onConnected?: (sessionId: string) => void;
@@ -116,12 +119,19 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
     const lastSeq = hasLocalMessages ? getLastSeq(sessionId) : 0;
     const knownFrozenCount = hasLocalMessages ? callbacks.getKnownFrozenCount(sessionId) : 0;
     const knownFrozenHash = hasLocalMessages ? callbacks.getKnownFrozenHash(sessionId) : undefined;
+    const freshWindow = !hasLocalMessages && !forceFullHistory ? callbacks.getFreshHistoryWindow?.(sessionId) : null;
     ws.send(
       JSON.stringify({
         type: "session_subscribe",
         last_seq: lastSeq,
         known_frozen_count: Math.max(0, Math.floor(knownFrozenCount)),
         ...(knownFrozenHash ? { known_frozen_hash: knownFrozenHash } : {}),
+        ...(freshWindow
+          ? {
+              history_window_section_turn_count: Math.max(1, Math.floor(freshWindow.sectionTurnCount)),
+              history_window_visible_section_count: Math.max(1, Math.floor(freshWindow.visibleSectionCount)),
+            }
+          : {}),
       }),
     );
     return true;

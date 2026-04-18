@@ -52,6 +52,7 @@ vi.mock("../store.js", () => {
       messageFrozenCounts: mockStoreValues.messageFrozenCounts ?? new Map(),
       messageFrozenRevisions: mockStoreValues.messageFrozenRevisions ?? new Map(),
       historyLoading: mockStoreValues.historyLoading ?? new Map(),
+      historyWindows: mockStoreValues.historyWindows ?? new Map(),
       streaming: mockStoreValues.streaming ?? new Map(),
       streamingByParentToolUseId: mockStoreValues.streamingByParentToolUseId ?? new Map(),
       streamingThinking: mockStoreValues.streamingThinking ?? new Map(),
@@ -366,6 +367,7 @@ function resetStore() {
   mockStoreValues.messages = new Map();
   mockStoreValues.messageFrozenCounts = new Map();
   mockStoreValues.messageFrozenRevisions = new Map();
+  mockStoreValues.historyWindows = new Map();
   mockStoreValues.streaming = new Map();
   mockStoreValues.streamingByParentToolUseId = new Map();
   mockStoreValues.streamingStartedAt = new Map();
@@ -529,6 +531,32 @@ describe("MessageFeed section windowing", () => {
     expect(screen.getByText("Section 2 marker")).toBeTruthy();
     expect(screen.getByText("Section 4 marker")).toBeTruthy();
     expect(container.querySelectorAll("[data-feed-section-id]")).toHaveLength(3);
+  });
+
+  it("requests an older history window from the server when the loaded feed is windowed", () => {
+    const sid = "test-windowed-history-request";
+    setStoreMessages(sid, makeSectionedMessages(3, 2));
+    const windows = new Map();
+    windows.set(sid, {
+      from_turn: 2,
+      turn_count: 6,
+      total_turns: 10,
+      section_turn_count: 2,
+      visible_section_count: 3,
+    });
+    mockStoreValues.historyWindows = windows;
+
+    render(<MessageFeed sessionId={sid} sectionTurnCount={2} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Load older section" }));
+
+    expect(mockSendToSession).toHaveBeenCalledWith(sid, {
+      type: "history_window_request",
+      from_turn: 0,
+      turn_count: 6,
+      section_turn_count: 2,
+      visible_section_count: 3,
+    });
   });
 
   it("remounts the correct section window before scrolling to an older turn", async () => {

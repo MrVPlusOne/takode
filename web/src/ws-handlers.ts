@@ -362,8 +362,13 @@ function normalizeHistoryMessages(
   return { chatMessages, frozenCount };
 }
 
-function updateSessionPreviewFromHistory(sessionId: string, historyMessages: BrowserIncomingMessage[]): void {
+function updateSessionPreviewFromHistory(
+  sessionId: string,
+  historyMessages: BrowserIncomingMessage[],
+  options?: { allowOlderHistory?: boolean },
+): void {
   const store = useStore.getState();
+  if (options?.allowOlderHistory === false) return;
   for (let i = historyMessages.length - 1; i >= 0; i--) {
     const msg = historyMessages[i];
     if (msg.type === "user_message" && msg.content) {
@@ -1328,6 +1333,7 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       resetAuthoritativeHistoryState(sessionId);
       const { chatMessages, frozenCount } = normalizeHistoryMessages(sessionId, data.messages);
       store.setMessages(sessionId, chatMessages, { frozenCount });
+      store.setHistoryWindow(sessionId, null);
       store.setHistoryLoading(sessionId, false);
       if (chatMessages.length > 0) {
         store.setCliEverConnected(sessionId);
@@ -1364,6 +1370,7 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
         frozenCount: nextFrozenCount,
         frozenHash: data.expected_frozen_hash,
       });
+      store.setHistoryWindow(sessionId, null);
       store.setHistoryLoading(sessionId, false);
       if (mergedMessages.length > 0) {
         store.setCliEverConnected(sessionId);
@@ -1372,6 +1379,24 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       taskCounters.delete(sessionId);
       updateSessionPreviewFromHistory(sessionId, [...data.frozen_delta, ...data.hot_messages]);
       resolvePendingMessageScroll(sessionId, mergedMessages);
+      break;
+    }
+
+    case "history_window_sync": {
+      resetAuthoritativeHistoryState(sessionId);
+      const { chatMessages, frozenCount } = normalizeHistoryMessages(sessionId, data.messages);
+      store.setMessages(sessionId, chatMessages, { frozenCount });
+      store.setHistoryWindow(sessionId, data.window);
+      store.setHistoryLoading(sessionId, false);
+      if (chatMessages.length > 0) {
+        store.setCliEverConnected(sessionId);
+      }
+      processedToolUseIds.delete(sessionId);
+      taskCounters.delete(sessionId);
+      updateSessionPreviewFromHistory(sessionId, data.messages, {
+        allowOlderHistory: data.window.from_turn + data.window.turn_count >= data.window.total_turns,
+      });
+      resolvePendingMessageScroll(sessionId, chatMessages);
       break;
     }
   }

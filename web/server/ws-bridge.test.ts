@@ -8646,6 +8646,22 @@ describe("Codex retries user message when turn is stale after disconnect", () =>
 // ─── handleSessionSubscribe — single message_history delivery ───────────────
 
 describe("handleSessionSubscribe — no double message_history", () => {
+  function makeResultData(uuid: string) {
+    return {
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      duration_ms: 100,
+      duration_api_ms: 50,
+      num_turns: 1,
+      total_cost_usd: 0.01,
+      stop_reason: "end_turn",
+      usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      uuid,
+      session_id: "s1",
+    };
+  }
+
   it("does NOT send message_history in handleBrowserOpen (even with history present)", () => {
     // CLI must connect first so the session exists when CLI messages arrive
     const cli = makeCliSocket("s1");
@@ -8741,6 +8757,151 @@ describe("handleSessionSubscribe — no double message_history", () => {
         permissionMode: expect.any(String),
       }),
     );
+  });
+
+  it("sends a windowed initial history slice when session_subscribe requests visible sections only", async () => {
+    const cli = makeCliSocket("s1");
+    bridge.handleCLIOpen(cli, "s1");
+    bridge.handleCLIMessage(cli, makeInitMsg());
+
+    const session = (bridge as any).sessions.get("s1");
+    session.messageHistory = [
+      { type: "user_message", id: "u1", content: "turn 1", timestamp: 1000 },
+      {
+        type: "assistant",
+        message: {
+          id: "a1",
+          type: "message",
+          role: "assistant",
+          model: "claude",
+          content: [{ type: "text", text: "reply 1" }],
+          stop_reason: "end_turn",
+          usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        },
+        parent_tool_use_id: null,
+        timestamp: 1010,
+      },
+      { type: "result", data: makeResultData("r1") },
+      { type: "user_message", id: "u2", content: "turn 2", timestamp: 2000 },
+      {
+        type: "assistant",
+        message: {
+          id: "a2",
+          type: "message",
+          role: "assistant",
+          model: "claude",
+          content: [{ type: "text", text: "reply 2" }],
+          stop_reason: "end_turn",
+          usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        },
+        parent_tool_use_id: null,
+        timestamp: 2010,
+      },
+      { type: "result", data: makeResultData("r2") },
+      { type: "user_message", id: "u3", content: "turn 3", timestamp: 3000 },
+      {
+        type: "assistant",
+        message: {
+          id: "a3",
+          type: "message",
+          role: "assistant",
+          model: "claude",
+          content: [{ type: "text", text: "reply 3" }],
+          stop_reason: "end_turn",
+          usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        },
+        parent_tool_use_id: null,
+        timestamp: 3010,
+      },
+      { type: "result", data: makeResultData("r3") },
+      { type: "user_message", id: "u4", content: "turn 4", timestamp: 4000 },
+      {
+        type: "assistant",
+        message: {
+          id: "a4",
+          type: "message",
+          role: "assistant",
+          model: "claude",
+          content: [{ type: "text", text: "reply 4" }],
+          stop_reason: "end_turn",
+          usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        },
+        parent_tool_use_id: null,
+        timestamp: 4010,
+      },
+      { type: "result", data: makeResultData("r4") },
+    ];
+    session.frozenCount = session.messageHistory.length;
+
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+    browser.send.mockClear();
+
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "session_subscribe",
+        last_seq: 0,
+        history_window_section_turn_count: 1,
+        history_window_visible_section_count: 2,
+      }),
+    );
+    await flushAsync();
+
+    const calls = browser.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
+    const windowSync = calls.find((m: any) => m.type === "history_window_sync");
+    expect(windowSync).toBeTruthy();
+    expect(windowSync.window).toEqual({
+      from_turn: 2,
+      turn_count: 2,
+      total_turns: 4,
+      section_turn_count: 1,
+      visible_section_count: 2,
+    });
+    expect(windowSync.messages.map((m: any) => m.id || m.message?.id)).toEqual(["u3", "a3", undefined, "u4", "a4", undefined]);
+  });
+
+  it("serves an older history window on history_window_request", () => {
+    const cli = makeCliSocket("s1");
+    bridge.handleCLIOpen(cli, "s1");
+    bridge.handleCLIMessage(cli, makeInitMsg());
+
+    const session = (bridge as any).sessions.get("s1");
+    session.messageHistory = [
+      { type: "user_message", id: "u1", content: "turn 1", timestamp: 1000 },
+      { type: "result", data: makeResultData("r1") },
+      { type: "user_message", id: "u2", content: "turn 2", timestamp: 2000 },
+      { type: "result", data: makeResultData("r2") },
+      { type: "user_message", id: "u3", content: "turn 3", timestamp: 3000 },
+      { type: "result", data: makeResultData("r3") },
+    ];
+    session.frozenCount = session.messageHistory.length;
+
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+    browser.send.mockClear();
+
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "history_window_request",
+        from_turn: 0,
+        turn_count: 2,
+        section_turn_count: 1,
+        visible_section_count: 2,
+      }),
+    );
+
+    const calls = browser.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
+    const windowSync = calls.find((m: any) => m.type === "history_window_sync");
+    expect(windowSync.window).toEqual({
+      from_turn: 0,
+      turn_count: 2,
+      total_turns: 3,
+      section_turn_count: 1,
+      visible_section_count: 2,
+    });
+    expect(windowSync.messages.map((m: any) => m.id)).toEqual(["u1", undefined, "u2", undefined]);
   });
 
   it("includes nextEventSeq in session_init", () => {

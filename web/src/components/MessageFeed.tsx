@@ -29,6 +29,11 @@ import { NotificationChip } from "./NotificationChip.js";
 import { useTextSelection } from "../hooks/useTextSelection.js";
 import { SelectionContextMenu } from "./SelectionContextMenu.js";
 import {
+  HISTORY_WINDOW_SECTION_TURN_COUNT,
+  HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+  getHistoryWindowTurnCount,
+} from "../../shared/history-window.js";
+import {
   isUserBoundaryEntry,
   useFeedModel,
   type FeedEntry,
@@ -39,8 +44,8 @@ import {
   type TurnStats,
 } from "../hooks/use-feed-model.js";
 
-const DEFAULT_VISIBLE_SECTION_COUNT = 3;
-const FEED_SECTION_TURN_COUNT = 50;
+const DEFAULT_VISIBLE_SECTION_COUNT = HISTORY_WINDOW_VISIBLE_SECTION_COUNT;
+const FEED_SECTION_TURN_COUNT = HISTORY_WINDOW_SECTION_TURN_COUNT;
 const LIVE_ACTIVITY_RAIL_DWELL_MS = 5_000;
 const FEED_EXTRA_SCROLL_SLACK_PX = 12;
 const FLOATING_STATUS_SPACER_MARGIN_PX = 4;
@@ -2510,6 +2515,7 @@ export function MessageFeed({
   const frozenCount = useStore((s) => s.messageFrozenCounts.get(sessionId) ?? 0);
   const frozenRevision = useStore((s) => s.messageFrozenRevisions.get(sessionId) ?? 0);
   const historyLoading = useStore((s) => s.historyLoading.get(sessionId) ?? false);
+  const historyWindow = useStore((s) => s.historyWindows.get(sessionId) ?? null);
   const streamingText = useStore((s) => s.streaming.get(sessionId));
   const isCodexSession = useStore((s) => s.sessions.get(sessionId)?.backend_type === "codex");
   const toolProgress = useStore((s) => s.toolProgress.get(sessionId));
@@ -2798,19 +2804,23 @@ export function MessageFeed({
   }, [findVisibleTurnAnchor, getRealContentBottom, sessionId]);
 
   const sections = useMemo(() => buildFeedSections(turns, sectionTurnCount), [sectionTurnCount, turns]);
+  const isWindowedHistory = historyWindow !== null;
   const totalSections = sections.length;
   const latestVisibleSectionStartIndex = useMemo(
     () => findVisibleSectionStartIndex(sections, DEFAULT_VISIBLE_SECTION_COUNT),
     [sections],
   );
-  const visibleSectionStartIndex = sectionWindowStart ?? latestVisibleSectionStartIndex;
+  const visibleSectionStartIndex = isWindowedHistory ? 0 : (sectionWindowStart ?? latestVisibleSectionStartIndex);
   const visibleSectionEndIndex = useMemo(
-    () => findVisibleSectionEndIndex(sections, visibleSectionStartIndex, DEFAULT_VISIBLE_SECTION_COUNT),
-    [sections, visibleSectionStartIndex],
+    () =>
+      isWindowedHistory
+        ? sections.length
+        : findVisibleSectionEndIndex(sections, visibleSectionStartIndex, DEFAULT_VISIBLE_SECTION_COUNT),
+    [isWindowedHistory, sections, visibleSectionStartIndex],
   );
   const visibleSections = useMemo(
-    () => sections.slice(visibleSectionStartIndex, visibleSectionEndIndex),
-    [sections, visibleSectionEndIndex, visibleSectionStartIndex],
+    () => (isWindowedHistory ? sections : sections.slice(visibleSectionStartIndex, visibleSectionEndIndex)),
+    [isWindowedHistory, sections, visibleSectionEndIndex, visibleSectionStartIndex],
   );
   const visibleTurns = useMemo(() => visibleSections.flatMap((section) => section.turns), [visibleSections]);
   const { turnStates, toggleTurn } = useCollapsePolicy({
@@ -2824,14 +2834,17 @@ export function MessageFeed({
   );
   const showConversationLoading = historyLoading && messages.length === 0 && !streamingText;
   const previousSectionStartIndex = useMemo(
-    () => findPreviousSectionStartIndex(sections, visibleSectionStartIndex),
-    [sections, visibleSectionStartIndex],
+    () => (isWindowedHistory ? null : findPreviousSectionStartIndex(sections, visibleSectionStartIndex)),
+    [isWindowedHistory, sections, visibleSectionStartIndex],
   );
   const nextSectionStartIndex = useMemo(() => {
+    if (isWindowedHistory) return null;
     return visibleSectionStartIndex + 1 < sections.length ? visibleSectionStartIndex + 1 : null;
-  }, [sections, visibleSectionStartIndex]);
-  const hasOlderSections = previousSectionStartIndex !== null;
-  const hasNewerSections = sectionWindowStart !== null && nextSectionStartIndex !== null;
+  }, [isWindowedHistory, sections, visibleSectionStartIndex]);
+  const hasOlderSections = historyWindow ? historyWindow.from_turn > 0 : previousSectionStartIndex !== null;
+  const hasNewerSections = historyWindow
+    ? historyWindow.from_turn + historyWindow.turn_count < historyWindow.total_turns
+    : sectionWindowStart !== null && nextSectionStartIndex !== null;
   // Collapsible turn IDs: all turns with agent content are collapsible (including the last).
   // Stats and text preview recompute as new messages stream in.
   const collapsibleTurnIds = useMemo(
@@ -2845,6 +2858,10 @@ export function MessageFeed({
   }, [sessionId, collapsibleTurnIds]);
 
   useEffect(() => {
+    if (isWindowedHistory) {
+      setSectionWindowStart(null);
+      return;
+    }
     setSectionWindowStart((current) => {
       if (current == null) return null;
       if (sections.length === 0) return null;
@@ -2852,7 +2869,7 @@ export function MessageFeed({
       const next = findSectionWindowStartIndexForTarget(sections, normalizedCurrent, DEFAULT_VISIBLE_SECTION_COUNT);
       return next === latestVisibleSectionStartIndex ? null : next;
     });
-  }, [latestVisibleSectionStartIndex, sections]);
+  }, [isWindowedHistory, latestVisibleSectionStartIndex, sections]);
 
   const getSectionWindowStartForTurnId = useCallback(
     (turnId: string): number | null => {
@@ -2981,20 +2998,68 @@ export function MessageFeed({
   );
 
   const handleLoadOlderSection = useCallback(() => {
+    if (historyWindow) {
+      const turnCount =
+        historyWindow.turn_count ||
+        getHistoryWindowTurnCount(historyWindow.visible_section_count, historyWindow.section_turn_count);
+      const nextFromTurn = Math.max(0, historyWindow.from_turn - historyWindow.section_turn_count);
+      autoFollowEnabledRef.current = false;
+      setShowScrollButton(true);
+      sendToSession(sessionId, {
+        type: "history_window_request",
+        from_turn: nextFromTurn,
+        turn_count: turnCount,
+        section_turn_count: historyWindow.section_turn_count,
+        visible_section_count: historyWindow.visible_section_count,
+      });
+      return;
+    }
     if (previousSectionStartIndex == null) return;
     autoFollowEnabledRef.current = false;
     setShowScrollButton(true);
     moveSectionWindow(previousSectionStartIndex);
-  }, [moveSectionWindow, previousSectionStartIndex]);
+  }, [historyWindow, moveSectionWindow, previousSectionStartIndex, sessionId]);
 
   const handleLoadNewerSection = useCallback(() => {
+    if (historyWindow) {
+      const turnCount =
+        historyWindow.turn_count ||
+        getHistoryWindowTurnCount(historyWindow.visible_section_count, historyWindow.section_turn_count);
+      const maxFromTurn = Math.max(0, historyWindow.total_turns - turnCount);
+      const nextFromTurn = Math.min(maxFromTurn, historyWindow.from_turn + historyWindow.section_turn_count);
+      if (nextFromTurn === historyWindow.from_turn) return;
+      autoFollowEnabledRef.current = false;
+      sendToSession(sessionId, {
+        type: "history_window_request",
+        from_turn: nextFromTurn,
+        turn_count: turnCount,
+        section_turn_count: historyWindow.section_turn_count,
+        visible_section_count: historyWindow.visible_section_count,
+      });
+      return;
+    }
     if (nextSectionStartIndex == null) return;
     autoFollowEnabledRef.current = false;
     moveSectionWindow(nextSectionStartIndex === latestVisibleSectionStartIndex ? null : nextSectionStartIndex);
-  }, [latestVisibleSectionStartIndex, moveSectionWindow, nextSectionStartIndex]);
+  }, [historyWindow, latestVisibleSectionStartIndex, moveSectionWindow, nextSectionStartIndex, sessionId]);
 
   const scrollToBottom = useCallback(
     (behavior: ScrollBehavior = "smooth") => {
+      if (historyWindow && hasNewerSections) {
+        const turnCount =
+          historyWindow.turn_count ||
+          getHistoryWindowTurnCount(historyWindow.visible_section_count, historyWindow.section_turn_count);
+        const latestFromTurn = Math.max(0, historyWindow.total_turns - turnCount);
+        autoFollowEnabledRef.current = true;
+        sendToSession(sessionId, {
+          type: "history_window_request",
+          from_turn: latestFromTurn,
+          turn_count: turnCount,
+          section_turn_count: historyWindow.section_turn_count,
+          visible_section_count: historyWindow.visible_section_count,
+        });
+        return;
+      }
       const performScroll = () => {
         const container = containerRef.current;
         if (!container) return;
@@ -3016,7 +3081,7 @@ export function MessageFeed({
       setSectionWindowStart(null);
       requestAnimationFrame(performScroll);
     },
-    [getRealContentBottom, scrollContainerTo, sectionWindowStart, totalSections],
+    [getRealContentBottom, hasNewerSections, historyWindow, scrollContainerTo, sectionWindowStart, sessionId, totalSections],
   );
 
   const handleScrollToBottomClick = useCallback(() => {
@@ -3025,6 +3090,21 @@ export function MessageFeed({
 
   const resetVisibleSectionsToLatest = useCallback(
     (behavior: ScrollBehavior = "auto") => {
+      if (historyWindow && hasNewerSections) {
+        const turnCount =
+          historyWindow.turn_count ||
+          getHistoryWindowTurnCount(historyWindow.visible_section_count, historyWindow.section_turn_count);
+        const latestFromTurn = Math.max(0, historyWindow.total_turns - turnCount);
+        autoFollowEnabledRef.current = true;
+        sendToSession(sessionId, {
+          type: "history_window_request",
+          from_turn: latestFromTurn,
+          turn_count: turnCount,
+          section_turn_count: historyWindow.section_turn_count,
+          visible_section_count: historyWindow.visible_section_count,
+        });
+        return;
+      }
       if (sectionWindowStart == null || totalSections <= DEFAULT_VISIBLE_SECTION_COUNT) return;
       autoFollowEnabledRef.current = true;
       setSectionWindowStart(null);
@@ -3037,7 +3117,7 @@ export function MessageFeed({
         scrollContainerTo(targetTop, behavior);
       });
     },
-    [getRealContentBottom, scrollContainerTo, sectionWindowStart, totalSections],
+    [getRealContentBottom, hasNewerSections, historyWindow, scrollContainerTo, sectionWindowStart, sessionId, totalSections],
   );
 
   const flushAutoFollow = useCallback(() => {
