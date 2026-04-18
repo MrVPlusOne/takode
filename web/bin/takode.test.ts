@@ -900,6 +900,60 @@ describe("takode send", () => {
       server.close();
     }
   });
+
+  it("fails clearly for archived target sessions before attempting delivery", async () => {
+    let posted = false;
+    const server = createServer(async (req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-archived", isOrchestrator: true }));
+        return;
+      }
+      if (method === "GET" && url === "/api/sessions/reviewer-archived") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            sessionId: "reviewer-archived",
+            sessionNum: 14,
+            name: "Reviewer Archived",
+            archived: true,
+            isGenerating: false,
+          }),
+        );
+        return;
+      }
+      if (method === "POST" && url === "/api/sessions/reviewer-archived/message") {
+        posted = true;
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true }));
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    try {
+      const result = await runTakode(["send", "reviewer-archived", "ping", "--port", String(port)], {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-archived",
+        COMPANION_AUTH_TOKEN: "auth-archived",
+      });
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("Cannot send to archived session #14 Reviewer Archived.");
+      expect(posted).toBe(false);
+    } finally {
+      server.close();
+    }
+  });
 });
 
 describe("takode herd", () => {
@@ -2739,6 +2793,88 @@ describe("takode board set --worker auto-clears waitFor", () => {
     expect(result.status).toBe(0);
     expect(capturedBodies).toHaveLength(1);
     expect(capturedBodies[0].waitFor).toEqual([]);
+  });
+});
+
+describe("takode board reviewer status output", () => {
+  it("shows worker and reviewer runtime status on board advance", async () => {
+    const server = createServer(async (req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-board", isOrchestrator: true }));
+        return;
+      }
+      if (method === "POST" && url === "/api/sessions/leader-board/board/q-1/advance") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            board: [
+              {
+                questId: "q-1",
+                title: "Fix archived reviewer send bug",
+                worker: "worker-1",
+                workerNum: 7,
+                status: "IMPLEMENTING",
+                createdAt: 1,
+                updatedAt: 2,
+              },
+              {
+                questId: "q-2",
+                title: "Queue next quest",
+                worker: "worker-2",
+                workerNum: 8,
+                status: "PLANNING",
+                createdAt: 3,
+                updatedAt: 4,
+              },
+            ],
+            previousState: "PLANNING",
+            newState: "IMPLEMENTING",
+            rowSessionStatuses: {
+              "q-1": {
+                worker: { sessionId: "worker-1", sessionNum: 7, status: "idle" },
+                reviewer: { sessionId: "reviewer-1", sessionNum: 17, status: "running" },
+              },
+              "q-2": {
+                worker: { sessionId: "worker-2", sessionNum: 8, status: "disconnected" },
+                reviewer: null,
+              },
+            },
+          }),
+        );
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    try {
+      const result = await runTakode(["board", "advance", "q-1", "--port", String(port)], {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-board",
+        COMPANION_AUTH_TOKEN: "auth-board",
+      });
+
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("q-1: PLANNING -> IMPLEMENTING");
+      expect(result.stdout).toContain("WORKER");
+      expect(result.stdout).toContain("REVIEWER");
+      expect(result.stdout).toContain("#7 idle");
+      expect(result.stdout).toContain("#17 running");
+      expect(result.stdout).toContain("#8 disconnected");
+      expect(result.stdout).toContain("no reviewer assigned");
+      expect(result.stdout).toContain('"rowSessionStatuses"');
+    } finally {
+      server.close();
+    }
   });
 });
 

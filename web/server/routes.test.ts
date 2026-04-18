@@ -286,6 +286,12 @@ function createMockBridge() {
     addTaskEntry: vi.fn(),
     updateQuestTaskEntries: vi.fn(),
     removeBoardRowFromAll: vi.fn(),
+    getBoard: vi.fn(() => []),
+    getCompletedBoard: vi.fn(() => []),
+    getCompletedBoardCount: vi.fn(() => 0),
+    upsertBoardRow: vi.fn(() => []),
+    removeBoardRows: vi.fn(() => []),
+    advanceBoardRow: vi.fn(() => null),
     prepareSessionForRevert: vi.fn(
       (sessionId: string, truncateIdx: number, options?: { clearCodexState?: boolean }) => {
         const session = bridge.getOrCreateSession.mock.results.at(-1)?.value;
@@ -7506,6 +7512,70 @@ describe("Takode server-authoritative auth", () => {
     });
     expect(allowed.status).toBe(200);
     expect(bridge.injectUserMessage).toHaveBeenCalledWith("worker-1", "ship it", { sessionId: "orch-1" });
+  });
+
+  it("rejects archived takode message targets before routing", async () => {
+    const sessions = setupTakodeSessions();
+    sessions["worker-1"].archived = true;
+
+    const res = await app.request("/api/sessions/worker-1/message", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ content: "ship it" }),
+    });
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: "Cannot send to archived session" });
+    expect(bridge.injectUserMessage).not.toHaveBeenCalled();
+  });
+
+  it("includes worker and reviewer session statuses in takode board responses", async () => {
+    const sessions = setupTakodeSessions();
+    sessions["worker-1"].sessionNum = 11;
+    sessions["worker-1"].state = "running";
+    sessions["reviewer-1"] = {
+      sessionId: "reviewer-1",
+      sessionNum: 12,
+      state: "running",
+      cwd: "/repo/r1",
+      createdAt: Date.now(),
+      herdedBy: "orch-1",
+      reviewerOf: 11,
+      archived: false,
+    };
+    sessions["worker-2"].sessionNum = 22;
+    sessions["worker-2"].state = "exited";
+    launcher.listSessions.mockReturnValue(Object.values(sessions));
+    launcher.getSession.mockImplementation((id: string) => sessions[id]);
+    launcher.getSessionNum.mockImplementation((id: string) => sessions[id]?.sessionNum);
+    bridge.isBackendConnected.mockImplementation((id: string) => id === "worker-1" || id === "reviewer-1");
+    bridge.getBoard.mockReturnValue([
+      { questId: "q-1", worker: "worker-1", workerNum: 11, status: "IMPLEMENTING", createdAt: 1, updatedAt: 1 },
+      { questId: "q-2", worker: "worker-2", workerNum: 22, status: "PLANNING", createdAt: 2, updatedAt: 2 },
+    ]);
+
+    const res = await app.request("/api/sessions/orch-1/board?resolve=true", {
+      method: "GET",
+      headers: authHeaders("orch-1", "tok-1"),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      board: [
+        { questId: "q-1", worker: "worker-1", workerNum: 11, status: "IMPLEMENTING" },
+        { questId: "q-2", worker: "worker-2", workerNum: 22, status: "PLANNING" },
+      ],
+      rowSessionStatuses: {
+        "q-1": {
+          worker: { sessionId: "worker-1", sessionNum: 11, status: "running" },
+          reviewer: { sessionId: "reviewer-1", sessionNum: 12, status: "running" },
+        },
+        "q-2": {
+          worker: { sessionId: "worker-2", sessionNum: 22, status: "disconnected" },
+          reviewer: null,
+        },
+      },
+    });
   });
 
   it("prefers launcher permissionMode over bridge default in takode info", async () => {

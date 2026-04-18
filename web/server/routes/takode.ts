@@ -20,6 +20,16 @@ import type { RouteContext } from "./context.js";
 export function createTakodeRoutes(ctx: RouteContext) {
   const api = new Hono();
   const { launcher, wsBridge, authenticateTakodeCaller, resolveId, timerManager } = ctx;
+  type BoardParticipantStatus = {
+    sessionId: string;
+    sessionNum?: number | null;
+    name?: string;
+    status: "running" | "idle" | "disconnected" | "archived";
+  };
+  type BoardRowSessionStatus = {
+    worker?: BoardParticipantStatus;
+    reviewer?: BoardParticipantStatus | null;
+  };
 
   const resolveReportedPermissionMode = (
     launcherMode: string | undefined,
@@ -95,6 +105,62 @@ export function createTakodeRoutes(ctx: RouteContext) {
         }
       }),
     );
+  };
+  type EnrichedSession = Awaited<ReturnType<typeof buildEnrichedSessions>>[number];
+
+  const deriveSessionStatusLabel = (session: { archived?: boolean; cliConnected?: boolean; state?: string | null }) => {
+    if (session.archived) return "archived" as const;
+    if (session.cliConnected) return session.state === "running" ? "running" as const : "idle" as const;
+    return "disconnected" as const;
+  };
+
+  const toBoardParticipantStatus = (
+    session: Pick<EnrichedSession, "sessionId" | "sessionNum" | "name" | "archived" | "state"> & {
+      cliConnected?: boolean;
+    },
+  ): BoardParticipantStatus => ({
+    sessionId: session.sessionId,
+    sessionNum: session.sessionNum,
+    name: session.name,
+    status: deriveSessionStatusLabel(session),
+  });
+
+  const buildBoardRowSessionStatuses = async (
+    rows: import("../session-types.js").BoardRow[],
+  ): Promise<Record<string, BoardRowSessionStatus>> => {
+    if (rows.length === 0) return {};
+
+    const sessions = await buildEnrichedSessions();
+    const sessionsById = new Map(sessions.map((session) => [session.sessionId, session]));
+    const sessionsByNum = new Map<number, EnrichedSession>();
+    const activeReviewersByParent = new Map<number, EnrichedSession>();
+
+    for (const session of sessions) {
+      if (session.sessionNum != null) sessionsByNum.set(session.sessionNum, session);
+      if (!session.archived && session.reviewerOf != null && !activeReviewersByParent.has(session.reviewerOf)) {
+        activeReviewersByParent.set(session.reviewerOf, session);
+      }
+    }
+
+    const statuses: Record<string, BoardRowSessionStatus> = {};
+    for (const row of rows) {
+      const workerSession =
+        (row.worker ? sessionsById.get(row.worker) : undefined) ??
+        (row.workerNum != null ? sessionsByNum.get(row.workerNum) : undefined);
+      const reviewerSession =
+        row.workerNum != null
+          ? activeReviewersByParent.get(row.workerNum)
+          : workerSession?.sessionNum != null
+            ? activeReviewersByParent.get(workerSession.sessionNum)
+            : undefined;
+
+      statuses[row.questId] = {
+        ...(workerSession ? { worker: toBoardParticipantStatus(workerSession) } : {}),
+        reviewer: reviewerSession ? toBoardParticipantStatus(reviewerSession) : null,
+      };
+    }
+
+    return statuses;
   };
 
   api.get("/takode/me", (c) => {
@@ -367,6 +433,9 @@ export function createTakodeRoutes(ctx: RouteContext) {
     if (!id) return c.json({ error: "Session not found" }, 404);
     const session = launcher.getSession(id);
     if (!session) return c.json({ error: "Session not found" }, 404);
+    if (session.archived) {
+      return c.json({ error: "Cannot send to archived session" }, 409);
+    }
     // Allow exited/disconnected sessions (including idle-killed ones) —
     // injectUserMessage will queue the message, clear killedByIdleManager,
     // and trigger a relaunch, matching the browser chat UI behavior.
@@ -829,7 +898,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
     return resolved;
   }
 
-  api.get("/sessions/:id/board", (c) => {
+  api.get("/sessions/:id/board", async (c) => {
     const auth = authenticateTakodeCaller(c);
     if ("response" in auth) return auth.response;
 
@@ -843,11 +912,14 @@ export function createTakodeRoutes(ctx: RouteContext) {
     const board = wsBridge.getBoard(id);
     const resolve = c.req.query("resolve") === "true";
     const includeCompleted = c.req.query("include_completed") === "true";
+    const completedBoard = includeCompleted ? wsBridge.getCompletedBoard(id) : [];
+    const rowSessionStatuses = await buildBoardRowSessionStatuses([...board, ...completedBoard]);
 
     return c.json({
       board,
       completedCount: wsBridge.getCompletedBoardCount(id),
-      ...(includeCompleted ? { completedBoard: wsBridge.getCompletedBoard(id) } : {}),
+      rowSessionStatuses,
+      ...(includeCompleted ? { completedBoard } : {}),
       ...(resolve ? { resolvedSessionDeps: resolveSessionDeps(board) } : {}),
     });
   });
@@ -905,10 +977,14 @@ export function createTakodeRoutes(ctx: RouteContext) {
       waitFor,
     });
     if (!board) return c.json({ error: "Session not found in bridge" }, 404);
-    return c.json({ board, resolvedSessionDeps: resolveSessionDeps(board) });
+    return c.json({
+      board,
+      rowSessionStatuses: await buildBoardRowSessionStatuses(board),
+      resolvedSessionDeps: resolveSessionDeps(board),
+    });
   });
 
-  api.delete("/sessions/:id/board/:questId", (c) => {
+  api.delete("/sessions/:id/board/:questId", async (c) => {
     const auth = authenticateTakodeCaller(c);
     if ("response" in auth) return auth.response;
 
@@ -937,11 +1013,12 @@ export function createTakodeRoutes(ctx: RouteContext) {
     return c.json({
       board,
       completedCount: wsBridge.getCompletedBoardCount(id),
+      rowSessionStatuses: await buildBoardRowSessionStatuses(board),
       resolvedSessionDeps: resolveSessionDeps(board),
     });
   });
 
-  api.post("/sessions/:id/board/:questId/advance", (c) => {
+  api.post("/sessions/:id/board/:questId/advance", async (c) => {
     const auth = authenticateTakodeCaller(c);
     if ("response" in auth) return auth.response;
 
@@ -962,6 +1039,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
     return c.json({
       ...result,
       completedCount: wsBridge.getCompletedBoardCount(id),
+      rowSessionStatuses: await buildBoardRowSessionStatuses(result.board),
       resolvedSessionDeps: resolveSessionDeps(result.board),
     });
   });

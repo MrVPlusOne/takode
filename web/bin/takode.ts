@@ -1715,8 +1715,15 @@ async function handleSend(base: string, args: string[]): Promise<void> {
         sessionNum?: number;
         name?: string;
         isGenerating?: boolean;
+        archived?: boolean;
       };
       const targetId = targetSession.sessionId;
+      if (targetSession.archived) {
+        const label = targetSession.name
+          ? `#${targetSession.sessionNum ?? "?"} ${targetSession.name}`
+          : `#${targetSession.sessionNum ?? sessionRef}`;
+        err(`Cannot send to archived session ${label}.`);
+      }
 
       // Guard: block sends to running sessions unless --correction is used
       if (targetSession.isGenerating && !isCorrection) {
@@ -1740,7 +1747,9 @@ async function handleSend(base: string, args: string[]): Promise<void> {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       // If error is from our own guards (herd check, running check), re-throw
-      if (msg.includes("not in your herd") || msg.includes("currently working")) throw e;
+      if (msg.includes("not in your herd") || msg.includes("currently working") || msg.includes("archived session")) {
+        throw e;
+      }
       // Other errors (session not found, etc.) — let the send call handle it
     }
   }
@@ -2587,16 +2596,44 @@ interface BoardRow {
   completedAt?: number;
 }
 
+interface BoardParticipantStatus {
+  sessionId: string;
+  sessionNum?: number | null;
+  name?: string;
+  status: "running" | "idle" | "disconnected" | "archived";
+}
+
+interface BoardRowSessionStatus {
+  worker?: BoardParticipantStatus;
+  reviewer?: BoardParticipantStatus | null;
+}
+
+function formatBoardParticipantStatus(
+  participant: BoardParticipantStatus | undefined,
+  fallbackNum?: number,
+  opts?: { empty?: string },
+): string {
+  if (participant) return `#${participant.sessionNum ?? fallbackNum ?? "?"} ${participant.status}`;
+  if (fallbackNum !== undefined) return `#${fallbackNum} unknown`;
+  return opts?.empty ?? "--";
+}
+
 /** Format board output as JSON with a marker for frontend detection. */
 function formatBoardOutput(
   board: BoardRow[],
-  opts?: { operation?: string; completedCount?: number; completedBoard?: BoardRow[] },
+  opts?: {
+    operation?: string;
+    completedCount?: number;
+    completedBoard?: BoardRow[];
+    rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
+  },
 ): string {
-  const { operation, completedCount, completedBoard } = opts ?? {};
+  const { operation, completedCount, completedBoard, rowSessionStatuses } = opts ?? {};
   return JSON.stringify(
     {
       __takode_board__: true,
       board,
+      ...(rowSessionStatuses ? { rowSessionStatuses } : {}),
       ...(operation ? { operation } : {}),
       ...(completedCount != null ? { completedCount } : {}),
       ...(completedBoard ? { completedBoard } : {}),
@@ -2609,7 +2646,11 @@ function formatBoardOutput(
 /** Print board in a human-readable table with Quest Journey state and next-action hints. */
 function printBoardText(
   board: BoardRow[],
-  opts?: { allBoardRows?: BoardRow[]; resolvedSessionDeps?: Set<string> },
+  opts?: {
+    allBoardRows?: BoardRow[];
+    resolvedSessionDeps?: Set<string>;
+    rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
+  },
 ): void {
   if (board.length === 0) {
     console.log("Board is empty.");
@@ -2617,26 +2658,38 @@ function printBoardText(
   }
 
   // Build a set of active quest IDs on the board (for resolving wait-for status)
-  const { allBoardRows, resolvedSessionDeps } = opts ?? {};
+  const { allBoardRows, resolvedSessionDeps, rowSessionStatuses } = opts ?? {};
   const activeQuestIds = new Set((allBoardRows || board).map((r) => r.questId));
 
   console.log("");
   const qCol = 8;
-  const tCol = 26;
-  const wCol = 8;
+  const tCol = 22;
+  const wCol = 18;
+  const rCol = 22;
   const sCol = 18;
-  const waitCol = 16;
+  const waitCol = 14;
   console.log(
-    `${"QUEST".padEnd(qCol)} ${"TITLE".padEnd(tCol)} ${"WORKER".padEnd(wCol)} ${"STATE".padEnd(sCol)} ${"WAIT-FOR".padEnd(waitCol)} NEXT ACTION`,
+    `${"QUEST".padEnd(qCol)} ${"TITLE".padEnd(tCol)} ${"WORKER".padEnd(wCol)} ${"REVIEWER".padEnd(rCol)} ${"STATE".padEnd(sCol)} ${"WAIT-FOR".padEnd(waitCol)} NEXT ACTION`,
   );
-  console.log("-".repeat(qCol + tCol + wCol + sCol + waitCol + 30));
+  console.log("-".repeat(qCol + tCol + wCol + rCol + sCol + waitCol + 30));
 
   for (const row of board) {
     const quest = row.questId.padEnd(qCol);
     // Truncate to (tCol - 3) to leave room for the "…" character and column padding
     const titleStr = row.title ? (row.title.length > tCol - 2 ? row.title.slice(0, tCol - 3) + "…" : row.title) : "--";
     const title = titleStr.padEnd(tCol);
-    const worker = row.worker ? `#${row.workerNum ?? "?"}`.padEnd(wCol) : "--".padEnd(wCol);
+    const rowStatus = rowSessionStatuses?.[row.questId];
+    const workerStr = row.worker || row.workerNum !== undefined
+      ? formatBoardParticipantStatus(rowStatus?.worker, row.workerNum)
+      : formatBoardParticipantStatus(undefined, undefined);
+    const reviewerStr =
+      row.worker || row.workerNum !== undefined
+        ? rowStatus?.reviewer
+          ? formatBoardParticipantStatus(rowStatus.reviewer, rowStatus.reviewer.sessionNum ?? undefined)
+          : "no reviewer assigned"
+        : "--";
+    const worker = workerStr.slice(0, wCol - 1).padEnd(wCol);
+    const reviewer = reviewerStr.slice(0, rCol - 1).padEnd(rCol);
     const state = (row.status || "--").padEnd(sCol);
 
     // Wait-for column: distinguish "no deps", "blocked", and "all resolved"
@@ -2664,7 +2717,7 @@ function printBoardText(
       if (nextAction !== "--") nextAction = `-> ${nextAction}`;
     }
 
-    console.log(`${quest} ${title} ${worker} ${state} ${waitForDisplay} ${nextAction}`);
+    console.log(`${quest} ${title} ${worker} ${reviewer} ${state} ${waitForDisplay} ${nextAction}`);
   }
   console.log("");
 }
@@ -2678,17 +2731,18 @@ function outputBoard(
     resolvedSessionDeps?: Set<string>;
     completedCount?: number;
     completedBoard?: BoardRow[];
+    rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
   },
 ): void {
-  const { operation, resolvedSessionDeps, completedCount, completedBoard } = opts ?? {};
+  const { operation, resolvedSessionDeps, completedCount, completedBoard, rowSessionStatuses } = opts ?? {};
   // Always emit the JSON marker so the Companion frontend can detect and render BoardBlock.
-  console.log(formatBoardOutput(board, { operation, completedCount, completedBoard }));
+  console.log(formatBoardOutput(board, { operation, completedCount, completedBoard, rowSessionStatuses }));
   if (!jsonMode) {
-    printBoardText(board, { allBoardRows: board, resolvedSessionDeps });
+    printBoardText(board, { allBoardRows: board, resolvedSessionDeps, rowSessionStatuses });
     // Print completed items table when --all flag includes them
     if (completedBoard && completedBoard.length > 0) {
       console.log("── Completed ──────────────────────────────────────────");
-      printBoardText(completedBoard);
+      printBoardText(completedBoard, { rowSessionStatuses });
     }
     // Always show a footer count when completed items exist
     if (completedCount && completedCount > 0 && !completedBoard) {
@@ -2711,12 +2765,14 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
       completedCount?: number;
       completedBoard?: BoardRow[];
       resolvedSessionDeps?: string[];
+      rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
     };
     const resolvedSessionDeps = new Set(result.resolvedSessionDeps ?? []);
     outputBoard(result.board, flags.json === true, {
       resolvedSessionDeps,
       completedCount: result.completedCount,
       completedBoard: includeCompleted ? result.completedBoard : undefined,
+      rowSessionStatuses: result.rowSessionStatuses,
     });
     return;
   }
@@ -2773,9 +2829,14 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
     const result = (await apiPost(base, `/sessions/${encodeURIComponent(selfId)}/board`, body)) as {
       board: BoardRow[];
       resolvedSessionDeps?: string[];
+      rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
     };
     const resolved = new Set(result.resolvedSessionDeps ?? []);
-    outputBoard(result.board, flags.json === true, { operation: `set ${questId}`, resolvedSessionDeps: resolved });
+    outputBoard(result.board, flags.json === true, {
+      operation: `set ${questId}`,
+      resolvedSessionDeps: resolved,
+      rowSessionStatuses: result.rowSessionStatuses,
+    });
     return;
   }
 
@@ -2795,6 +2856,7 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
       newState?: string;
       completedCount?: number;
       resolvedSessionDeps?: string[];
+      rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
     };
 
     let operation: string;
@@ -2812,6 +2874,7 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
       operation,
       resolvedSessionDeps: resolved,
       completedCount: result.completedCount,
+      rowSessionStatuses: result.rowSessionStatuses,
     });
     return;
   }
@@ -2828,12 +2891,14 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
       board: BoardRow[];
       completedCount?: number;
       resolvedSessionDeps?: string[];
+      rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
     };
     const resolved = new Set(result.resolvedSessionDeps ?? []);
     outputBoard(result.board, flags.json === true, {
       operation: `removed ${questIds.join(", ")}`,
       resolvedSessionDeps: resolved,
       completedCount: result.completedCount,
+      rowSessionStatuses: result.rowSessionStatuses,
     });
     return;
   }
