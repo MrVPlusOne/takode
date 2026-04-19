@@ -277,6 +277,7 @@ export function ElapsedTimer({
   const streamingPauseStartedAt = useStore((s) => s.streamingPauseStartedAt.get(sessionId));
   const sessionStatus = useStore((s) => s.sessionStatus.get(sessionId));
   const isStuck = useStore((s) => s.sessionStuck.get(sessionId) ?? false);
+  const codexImageSendStage = useStore((s) => s.sessions.get(sessionId)?.codex_image_send_stage ?? null);
   const [elapsed, setElapsed] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -296,7 +297,13 @@ export function ElapsedTimer({
     return () => clearInterval(interval);
   }, [streamingStartedAt, sessionStatus, streamingPausedDuration, streamingPauseStartedAt]);
 
-  const showTimer = sessionStatus === "running" && elapsed > 0;
+  const preStreamImageLabel =
+    !streamingStartedAt && (codexImageSendStage === "uploading" || codexImageSendStage === "processing")
+      ? codexImageSendStage === "uploading"
+        ? "uploading image"
+        : "processing image"
+      : null;
+  const showTimer = sessionStatus === "running" && (elapsed > 0 || preStreamImageLabel !== null);
   useLayoutEffect(() => {
     if (!onVisibleHeightChange) return;
     if (!showTimer) {
@@ -321,7 +328,11 @@ export function ElapsedTimer({
     api.relaunchSession(sessionId).catch(() => {});
   };
 
-  const label = isStuck ? "Session may be stuck" : streamingPauseStartedAt ? "Napping..." : "Purring...";
+  const label = isStuck
+    ? "Session may be stuck"
+    : streamingPauseStartedAt
+      ? "Napping..."
+      : preStreamImageLabel ?? "Purring...";
   const dotColor = isStuck
     ? "text-amber-400"
     : streamingPauseStartedAt
@@ -414,68 +425,21 @@ function FeedStatusPill({
   );
 }
 
-function getCodexImageStageMeta(stage: "uploading" | "processing" | "responding" | null): {
-  label: string;
-  detail: string;
-  dotClassName: string;
-} | null {
-  switch (stage) {
-    case "uploading":
-      return {
-        label: "Uploading image",
-        detail: "Sending the attached image to the server.",
-        dotClassName: "bg-sky-400",
-      };
-    case "processing":
-      return {
-        label: "Backend processing",
-        detail: "Preparing the image-backed turn for Codex.",
-        dotClassName: "bg-amber-400",
-      };
-    case "responding":
-      return {
-        label: "Model responding",
-        detail: "Codex is actively working on the image-backed request.",
-        dotClassName: "bg-emerald-400",
-      };
-    default:
-      return null;
-  }
-}
-
 function PendingCodexInputList({
   sessionId,
   inputs,
-  imageStage,
 }: {
   sessionId: string;
   inputs: PendingCodexInput[];
-  imageStage: "uploading" | "processing" | "responding" | null;
 }) {
-  const stageMeta = getCodexImageStageMeta(imageStage);
-  if (inputs.length === 0 && !stageMeta) return null;
+  if (inputs.length === 0) return null;
 
   return (
     <div className="space-y-2" data-feed-block-id={getFooterFeedBlockId("pending-codex-inputs")}>
       <div className="flex items-center gap-2 px-1 text-[10px] uppercase tracking-wider text-cc-muted/60">
         <span>Pending delivery</span>
-        {stageMeta && (
-          <>
-            <span className="text-cc-muted/40">•</span>
-            <span>{stageMeta.label}</span>
-          </>
-        )}
       </div>
       <div className="flex flex-col gap-2">
-        {stageMeta && (
-          <div className="flex items-center gap-2 rounded-2xl border border-sky-500/20 bg-sky-500/8 px-3 py-2 text-sm text-cc-fg">
-            <span className={`inline-flex h-2 w-2 shrink-0 rounded-full ${stageMeta.dotClassName}`} />
-            <div className="min-w-0">
-              <div className="font-medium">{stageMeta.label}</div>
-              <div className="text-xs text-cc-muted">{stageMeta.detail}</div>
-            </div>
-          </div>
-        )}
         {inputs.map((input) => {
           const preview = input.content.trim().replace(/\s+/g, " ");
           const truncated = preview.length > 120 ? `${preview.slice(0, 120)}...` : preview;
@@ -3846,7 +3810,6 @@ export function MessageFeed({
                   <PendingCodexInputList
                     sessionId={sessionId}
                     inputs={pendingCodexInputs}
-                    imageStage={codexImageSendStage}
                   />
                 )}
                 <FeedFooter sessionId={sessionId} />

@@ -1959,20 +1959,20 @@ export function Playground() {
 
         <Section
           title="Codex Image Send States"
-          description="Image-backed Codex turns show distinct message-feed stages for uploading, backend processing, and active model response."
+          description="Image-backed Codex turns keep upload and backend-processing feedback in the floating purring chip, then fall back to the normal purring label as soon as response streaming starts."
         >
           <div className="space-y-4">
-            <Card label="Uploading image">
+            <Card label="Uploading image chip">
               <div className="max-w-3xl border border-cc-border rounded-xl overflow-hidden bg-cc-card h-[220px]">
                 <MessageFeed sessionId={PLAYGROUND_CODEX_IMAGE_UPLOADING_SESSION_ID} />
               </div>
             </Card>
-            <Card label="Backend processing">
+            <Card label="Processing image chip">
               <div className="max-w-3xl border border-cc-border rounded-xl overflow-hidden bg-cc-card h-[260px]">
                 <MessageFeed sessionId={PLAYGROUND_CODEX_IMAGE_PROCESSING_SESSION_ID} />
               </div>
             </Card>
-            <Card label="Model responding">
+            <Card label="Response started">
               <div className="max-w-3xl border border-cc-border rounded-xl overflow-hidden bg-cc-card h-[260px]">
                 <MessageFeed sessionId={PLAYGROUND_CODEX_IMAGE_RESPONDING_SESSION_ID} />
               </div>

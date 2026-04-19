@@ -793,18 +793,21 @@ describe("MessageFeed - empty state", () => {
     const sid = "test-uploading-image-stage";
     setStoreMessages(sid, []);
     setStoreSessionState(sid, { backend_type: "codex", codex_image_send_stage: "uploading" });
+    setStoreStatus(sid, "running");
 
     render(<MessageFeed sessionId={sid} />);
 
     expect(screen.queryByText("Start a conversation")).toBeNull();
-    expect(screen.getAllByText("Uploading image")).toHaveLength(2);
-    expect(screen.getByText("Sending the attached image to the server.")).toBeTruthy();
+    expect(screen.queryByText("Pending delivery")).toBeNull();
+    expect(screen.getByText("uploading image")).toBeTruthy();
+    expect(screen.queryByText("Sending the attached image to the server.")).toBeNull();
   });
 
   it("shows backend-processing stage for pending Codex image delivery", () => {
     const sid = "test-processing-image-stage";
     setStoreMessages(sid, []);
     setStoreSessionState(sid, { backend_type: "codex", codex_image_send_stage: "processing" });
+    setStoreStatus(sid, "running");
     setStorePendingCodexInputs(sid, [
       {
         id: "pending-img-1",
@@ -817,8 +820,9 @@ describe("MessageFeed - empty state", () => {
 
     render(<MessageFeed sessionId={sid} />);
 
-    expect(screen.getAllByText("Backend processing")).toHaveLength(2);
-    expect(screen.getByText("Preparing the image-backed turn for Codex.")).toBeTruthy();
+    expect(screen.getByText("Pending delivery")).toBeTruthy();
+    expect(screen.getByText("processing image")).toBeTruthy();
+    expect(screen.queryByText("Preparing the image-backed turn for Codex.")).toBeNull();
   });
 });
 
@@ -857,11 +861,12 @@ describe("MessageFeed - message rendering", () => {
     setStoreSessionState(sid, { backend_type: "codex", codex_image_send_stage: "responding" });
     setStoreStatus(sid, "running");
     setStoreStreaming(sid, "Inspecting the uploaded image");
+    setStoreStreamingStartedAt(sid, Date.now() - 4_000);
 
     render(<MessageFeed sessionId={sid} />);
 
-    expect(screen.getAllByText("Model responding")).toHaveLength(2);
-    expect(screen.getByText("Codex is actively working on the image-backed request.")).toBeTruthy();
+    expect(screen.getByText("Purring...")).toBeTruthy();
+    expect(screen.queryByText("Model responding")).toBeNull();
   });
 
   it("shows only a date marker for same-day messages, no minute marks", () => {
@@ -2148,6 +2153,29 @@ describe("ElapsedTimer - generation stats bar", () => {
     expect(screen.getByText("Purring...")).toBeTruthy();
     // Should show "2.5k" token count
     expect(screen.getByText(/2\.5k/)).toBeTruthy();
+  });
+
+  it("uses image-send labels during the pre-stream Codex wait", () => {
+    const sid = "test-prestream-image-label";
+    setStoreStatus(sid, "running");
+    setStoreSessionState(sid, { backend_type: "codex", codex_image_send_stage: "uploading" });
+
+    render(<ElapsedTimer sessionId={sid} />);
+
+    expect(screen.getByText("uploading image")).toBeTruthy();
+    expect(screen.queryByText("Purring...")).toBeNull();
+  });
+
+  it("reverts to the normal purring label once Codex streaming starts", () => {
+    const sid = "test-prestream-image-label-clears";
+    setStoreStatus(sid, "running");
+    setStoreSessionState(sid, { backend_type: "codex", codex_image_send_stage: "processing" });
+    setStoreStreamingStartedAt(sid, Date.now() - 5_000);
+
+    render(<ElapsedTimer sessionId={sid} />);
+
+    expect(screen.getByText("Purring...")).toBeTruthy();
+    expect(screen.queryByText("processing image")).toBeNull();
   });
 });
 
