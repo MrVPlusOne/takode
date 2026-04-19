@@ -131,22 +131,17 @@ function NotificationMarker({ sessionId }: { sessionId: string }) {
   return null;
 }
 
-function SessionTimerMarker({ sessionId }: { sessionId: string }) {
-  const timerCount = useStore((s) => s.sessionTimers?.get(sessionId)?.length ?? 0);
-
-  if (timerCount === 0) return null;
-
+function ScheduledTimerStatusIcon({ timerCount }: { timerCount: number }) {
   return (
     <span
-      data-testid="session-timer-marker"
+      data-testid="session-status-timer-icon"
       data-count={String(timerCount)}
       title={`${timerCount} scheduled timer${timerCount === 1 ? "" : "s"}`}
-      className="absolute right-11 sm:right-2 top-1/2 -translate-y-1/2 h-[18px] inline-flex items-center gap-1 rounded-full border border-cc-primary/20 bg-cc-primary/10 px-1.5 text-[10px] font-medium text-cc-primary sm:group-hover:opacity-0 transition-opacity pointer-events-none"
+      className="inline-flex shrink-0 items-center justify-center text-emerald-500"
     >
-      <svg viewBox="0 0 16 16" fill="currentColor" className="w-2.5 h-2.5 shrink-0">
+      <svg viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 shrink-0">
         <path d="M8 1.75a.75.75 0 01.75.75v.88a4.75 4.75 0 11-1.5 0V2.5A.75.75 0 018 1.75zm0 3A3.25 3.25 0 108 11.25 3.25 3.25 0 008 4.75zm.75 1.5v1.44l1.02.61a.75.75 0 11-.77 1.28L7.62 8.8A.75.75 0 017.25 8V6.25a.75.75 0 011.5 0z" />
       </svg>
-      {timerCount > 1 && <span>{timerCount}</span>}
     </span>
   );
 }
@@ -260,7 +255,6 @@ export function SessionItem({
   const reviewerAttention = useStore((st) =>
     reviewerSession ? st.sessionAttention.get(reviewerSession.id) : undefined,
   );
-  const hasTimers = useStore((st) => (st.sessionTimers?.get(s.id)?.length ?? 0) > 0);
   const inboxUrgency = useNotificationUrgency(s.id);
   const canSwipeToArchive = !archived && !reorderMode;
 
@@ -413,9 +407,14 @@ export function SessionItem({
     hasUnread,
     idleKilled: s.idleKilled,
   });
-  const statusColorClass = STATUS_DOT_CLASS[visualStatus];
+  const timerCount = useStore((st) => st.sessionTimers?.get(s.id)?.length ?? 0);
+  const showScheduledTimerIcon =
+    !archived && visualStatus === "idle" && permCount === 0 && !attention && timerCount > 0 && inboxUrgency !== "needs-input";
+  const statusColorClass = showScheduledTimerIcon ? "bg-emerald-500" : STATUS_DOT_CLASS[visualStatus];
   const glowColor =
-    visualStatus === "permission"
+    showScheduledTimerIcon
+      ? ""
+      : visualStatus === "permission"
       ? "rgba(245, 158, 11, 0.7)"
       : visualStatus === "running" || visualStatus === "compacting"
         ? "rgba(34, 197, 94, 0.7)"
@@ -560,16 +559,20 @@ export function SessionItem({
           <div className="flex-1 min-w-0">
             {/* Row 1: Leader/herd/reviewer tag (inline) + title */}
             <div className="flex items-center gap-1.5">
-              {/* Status dot indicator (tree view only -- linear view uses left-edge stripe) */}
-              {!useStatusBar && (
-                <span
-                  className={`shrink-0 w-1.5 h-1.5 rounded-full ${statusColorClass} ${
-                    isActive ? "opacity-100" : "opacity-60 group-hover:opacity-85"
-                  } transition-opacity`}
-                  data-testid="session-status-dot"
-                  data-status={visualStatus}
-                  style={glowStyle}
-                />
+              {/* Status marker for sidebar rows. Scheduled timers replace the idle dot. */}
+              {showScheduledTimerIcon ? (
+                <ScheduledTimerStatusIcon timerCount={timerCount} />
+              ) : (
+                !useStatusBar && (
+                  <span
+                    className={`shrink-0 w-1.5 h-1.5 rounded-full ${statusColorClass} ${
+                      isActive ? "opacity-100" : "opacity-60 group-hover:opacity-85"
+                    } transition-opacity`}
+                    data-testid="session-status-dot"
+                    data-status={visualStatus}
+                    style={glowStyle}
+                  />
+                )
               )}
               {!isEditing && s.isOrchestrator && useStatusBar && (
                 <span
@@ -866,13 +869,10 @@ export function SessionItem({
         <span className="absolute right-11 sm:right-2 top-1/2 -translate-y-1/2 min-w-[6px] h-[6px] rounded-full bg-blue-500 sm:group-hover:opacity-0 transition-opacity pointer-events-none" />
       )}
 
-      {/* Notification inbox markers (shown when no server attention or permission badges are active).
+      {/* Notification inbox markers (shown when no server attention, permission, or timer-status icon is active).
           Derived from the per-session notification inbox -- surfaces unaddressed notifications
           on sidebar chips so the user can see which sessions need attention at a glance. */}
-      {!archived && !attention && permCount === 0 && hasTimers && inboxUrgency !== "needs-input" && (
-        <SessionTimerMarker sessionId={s.id} />
-      )}
-      {!archived && !attention && permCount === 0 && (!hasTimers || inboxUrgency === "needs-input") && (
+      {!archived && !attention && permCount === 0 && !showScheduledTimerIcon && (
         <NotificationMarker sessionId={s.id} />
       )}
 

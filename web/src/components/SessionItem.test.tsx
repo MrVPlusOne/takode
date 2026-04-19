@@ -237,6 +237,10 @@ describe("SessionItem herd role badges", () => {
 });
 
 describe("SessionItem status dot", () => {
+  beforeEach(() => {
+    mockStoreState.sessionTimers.clear();
+  });
+
   it("shows a breathing green dot while running", () => {
     renderSessionItem({
       session: makeSession({
@@ -270,6 +274,37 @@ describe("SessionItem status dot", () => {
     const dot = screen.getByTestId("session-status-dot");
     expect(dot).toHaveAttribute("data-status", "idle");
     expect(dot).not.toHaveStyle({ animation: "yarn-glow-breathe 2s ease-in-out infinite" });
+  });
+
+  it("replaces the idle dot with a timer icon when the session is waiting on timers", () => {
+    // Idle sessions with scheduled timers should advertise that waiting state
+    // in the primary status slot instead of the old hover-hidden side badge.
+    setSessionTimers("s1", ["t1", "t2"]);
+
+    const { container } = renderSessionItem({
+      session: makeSession({ status: "idle", sdkState: "connected" }),
+      permCount: 0,
+    });
+
+    const timerIcon = screen.getByTestId("session-status-timer-icon");
+    expect(timerIcon).toHaveAttribute("data-count", "2");
+    expect(timerIcon).toHaveAttribute("title", "2 scheduled timers");
+    expect(container.querySelector('[data-testid="session-status-dot"]')).toBeNull();
+  });
+
+  it("shows the timer icon in linear sidebar rows too", () => {
+    // Linear rows use the left status stripe instead of the dot, so the timer
+    // state still needs an inline icon to stay visible there.
+    setSessionTimers("s1", ["t1"]);
+
+    renderSessionItem({
+      session: makeSession({ status: "idle", sdkState: "connected" }),
+      permCount: 0,
+      useStatusBar: true,
+    });
+
+    const timerIcon = screen.getByTestId("session-status-timer-icon");
+    expect(timerIcon).toHaveAttribute("title", "1 scheduled timer");
   });
 });
 
@@ -317,29 +352,28 @@ describe("SessionItem notification marker", () => {
     expect(container.querySelector('[data-testid="session-notification-marker"]')).toBeNull();
   });
 
-  it("shows the timer marker when timers exist and no stronger badge is active", () => {
-    // A timed but otherwise idle session should surface a subtle inline timer
-    // badge so scheduled work remains visible in the sidebar.
+  it("uses the status icon instead of a side badge when timers exist", () => {
+    // A timed but otherwise idle session should use the primary status slot
+    // rather than a hover-hidden side badge.
     setSessionTimers("s1", ["t1", "t2"]);
 
-    renderSessionItem();
+    const { container } = renderSessionItem();
 
-    const marker = screen.getByTestId("session-timer-marker");
-    expect(marker).toHaveAttribute("data-count", "2");
-    expect(marker).toHaveAttribute("title", "2 scheduled timers");
-    expect(marker).toHaveTextContent("2");
+    const icon = screen.getByTestId("session-status-timer-icon");
+    expect(icon).toHaveAttribute("data-count", "2");
+    expect(container.querySelector('[data-testid="session-notification-marker"]')).toBeNull();
   });
 
-  it("suppresses the timer marker when a stronger permission badge is active", () => {
+  it("suppresses the timer icon when a stronger permission badge is active", () => {
     // Pending permissions should continue to own the badge lane because they
     // require immediate user attention.
     setSessionTimers("s1", ["t1"]);
 
     const { container } = renderSessionItem({ permCount: 1 });
-    expect(container.querySelector('[data-testid="session-timer-marker"]')).toBeNull();
+    expect(container.querySelector('[data-testid="session-status-timer-icon"]')).toBeNull();
   });
 
-  it("shows the timer marker instead of the lower-priority inbox marker", () => {
+  it("shows the timer icon instead of the lower-priority inbox marker", () => {
     // Timers should beat passive inbox markers so sessions with scheduled work
     // are still discoverable without hiding stronger action/review badges.
     setSessionNotifications("s1", [
@@ -348,7 +382,7 @@ describe("SessionItem notification marker", () => {
     setSessionTimers("s1", ["t1"]);
 
     const { container } = renderSessionItem();
-    expect(container.querySelector('[data-testid="session-timer-marker"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="session-status-timer-icon"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="session-notification-marker"]')).toBeNull();
   });
 
@@ -363,7 +397,7 @@ describe("SessionItem notification marker", () => {
     const { container } = renderSessionItem();
     const marker = screen.getByTestId("session-notification-marker");
     expect(marker).toHaveAttribute("data-urgency", "needs-input");
-    expect(container.querySelector('[data-testid="session-timer-marker"]')).toBeNull();
+    expect(container.querySelector('[data-testid="session-status-timer-icon"]')).toBeNull();
   });
 });
 

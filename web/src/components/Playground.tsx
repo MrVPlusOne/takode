@@ -2625,7 +2625,7 @@ export function Playground() {
 
         <Section
           title="Session List Herd Groups"
-          description="Leader and worker pills share a herd-group color, and the leading row includes a subtle timer badge sourced from the real sidebar timer store."
+          description="Leader and worker pills share a herd-group color, and the leading row shows the idle-with-timer status icon sourced from the real sidebar timer store."
         >
           <div className="max-w-md">
             <Card label="Session list pills">
