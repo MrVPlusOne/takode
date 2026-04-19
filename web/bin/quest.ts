@@ -311,6 +311,10 @@ function truncate(text: string, maxLen: number): string {
   return `${text.slice(0, maxLen - 3)}...`;
 }
 
+function compactSnippet(text: string, maxLen: number): string {
+  return truncate(text.replace(/\s+/g, " ").trim(), maxLen);
+}
+
 function timeAgo(ts: number): string {
   const seconds = Math.floor((Date.now() - ts) / 1000);
   if (seconds < 60) return `${seconds}s ago`;
@@ -523,9 +527,10 @@ async function cmdGrep(): Promise<void> {
 
   if (!query) die("Usage: quest grep <pattern> [--count N] [--json]");
 
+  const quests = await listQuests();
   let result;
   try {
-    result = grepQuests(await listQuests(), query, { limit });
+    result = grepQuests(quests, query, { limit });
   } catch (error) {
     die(error instanceof Error ? error.message : String(error));
   }
@@ -546,12 +551,48 @@ async function cmdGrep(): Promise<void> {
   );
   console.log("");
 
+  const groupedMatches = new Map<
+    string,
+    {
+      questId: string;
+      title: string;
+      status: QuestmasterTask["status"];
+      matches: (typeof result.matches)[number][];
+    }
+  >();
   for (const match of result.matches) {
-    const title = truncate(match.title, 48);
-    const fieldSuffix = match.feedbackAuthor ? ` (${match.feedbackAuthor})` : "";
-    console.log(`  ${match.questId.padEnd(6)} ${title}`);
-    console.log(`        field: ${match.matchedField}${fieldSuffix}`);
-    console.log(`        snippet: ${truncate(match.snippet, 140)}`);
+    const existing = groupedMatches.get(match.questId);
+    if (existing) {
+      existing.matches.push(match);
+      continue;
+    }
+    groupedMatches.set(match.questId, {
+      questId: match.questId,
+      title: match.title,
+      status: match.status,
+      matches: [match],
+    });
+  }
+
+  const questById = new Map(quests.map((quest) => [quest.questId, quest] as const));
+
+  for (const group of groupedMatches.values()) {
+    const title = truncate(group.title, 48);
+    const status = STATUS_LABELS[group.status] ?? group.status;
+    const questLabel = `${group.questId.padEnd(6)} ${title}`;
+    console.log(`  ${questLabel} (${status})`);
+    for (const match of group.matches) {
+      const parts = [match.matchedField];
+      if (match.feedbackAuthor) parts.push(match.feedbackAuthor);
+      const quest = questById.get(match.questId);
+      const feedbackEntries =
+        quest && "feedback" in quest ? (quest as { feedback?: Array<{ ts?: number }> }).feedback : undefined;
+      const feedbackTs =
+        match.feedbackIndex !== undefined ? feedbackEntries?.[match.feedbackIndex]?.ts : undefined;
+      if (feedbackTs) parts.push(timeAgo(feedbackTs));
+      console.log(`        ${parts.join(" | ")}`);
+      console.log(`        ${compactSnippet(match.snippet, 96)}`);
+    }
     console.log("");
   }
 

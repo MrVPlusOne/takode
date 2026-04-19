@@ -56,6 +56,7 @@ describe("grepQuests", () => {
       feedbackIndex: 0,
       feedbackAuthor: "human",
     });
+    expect(result.matches[2]).not.toHaveProperty("feedbackTs");
   });
 
   it("fails fast when the regex pattern is invalid", () => {

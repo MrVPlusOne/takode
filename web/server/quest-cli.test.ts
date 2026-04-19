@@ -371,7 +371,8 @@ describe("quest CLI grep", () => {
           title: "Feedback quest",
           createdAt: 2,
           status: "needs_verification",
-          description: "Ready for review.",
+          description:
+            "Beta appears in the description too, and the surrounding text is intentionally long so the rendered snippet has to be compact and easy to scan in grouped output.",
           sessionId: "session-2",
           claimedAt: 2,
           verificationItems: [{ text: "Visual review", checked: false }],
@@ -397,18 +398,20 @@ describe("quest CLI grep", () => {
       );
 
       expect(result.status).toBe(0);
-      expect(result.stdout).toContain('2 quest matches for "beta"');
-      expect(result.stdout).toContain("q-1");
-      expect(result.stdout).toContain("field: title");
-      expect(result.stdout).toContain("q-2");
-      expect(result.stdout).toContain("field: feedback[0] (human)");
-      expect(result.stdout).toContain("snippet:");
+      expect(result.stdout).toContain('3 quest matches for "beta"');
+      expect(result.stdout).toContain("q-1    Add beta search (refined)");
+      expect(result.stdout).toContain("title");
+      expect(result.stdout).toContain("q-2    Feedback quest (verification)");
+      expect(result.stdout).toContain("description");
+      expect(result.stdout).toContain("feedback[0] | human |");
+      expect(result.stdout).not.toContain("field:");
+      expect(result.stdout.match(/q-2    Feedback quest/g)?.length).toBe(1);
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }
   });
 
-  it("returns structured JSON with total match count and feedback metadata", async () => {
+  it("returns structured JSON without expanding the feedback-match contract", async () => {
     const tmp = mkdtempSync(join(tmpdir(), "quest-grep-json-"));
     const questDir = join(tmp, ".companion", "questmaster");
     mkdirSync(questDir, { recursive: true });
@@ -437,7 +440,7 @@ describe("quest CLI grep", () => {
 
     try {
       const result = await runQuest(
-        ["grep", "alpha", "--count", "1", "--json"],
+        ["grep", "alpha", "--count", "5", "--json"],
         {
           ...process.env,
           COMPANION_PORT: undefined,
@@ -449,20 +452,18 @@ describe("quest CLI grep", () => {
       );
 
       expect(result.status).toBe(0);
-      expect(JSON.parse(result.stdout)).toMatchObject({
-        query: "alpha",
-        totalMatches: 2,
-        matches: [
-          {
-            questId: "q-3",
-          },
-        ],
-      });
       const parsed = JSON.parse(result.stdout) as {
-        matches: Array<{ matchedField: string; feedbackAuthor?: string }>;
+        query: string;
+        totalMatches: number;
+        matches: Array<{ questId: string; matchedField: string; feedbackAuthor?: string; feedbackTs?: number }>;
       };
-      expect(parsed.matches).toHaveLength(1);
-      expect(["description", "feedback[0]"]).toContain(parsed.matches[0]?.matchedField);
+      expect(parsed.query).toBe("alpha");
+      expect(parsed.totalMatches).toBe(2);
+      expect(parsed.matches).toHaveLength(2);
+      expect(parsed.matches.every((match) => match.questId === "q-3")).toBe(true);
+      expect(parsed.matches.map((match) => match.matchedField)).toEqual(["description", "feedback[0]"]);
+      expect(parsed.matches[1]).toMatchObject({ feedbackAuthor: "agent" });
+      expect(parsed.matches[1]).not.toHaveProperty("feedbackTs");
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }
