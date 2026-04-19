@@ -2580,6 +2580,12 @@ async function handleHerd(base: string, args: string[]): Promise<void> {
 
   if (jsonMode) {
     console.log(JSON.stringify(result, null, 2));
+    if (result.conflicts?.length > 0 && !forceMode) {
+      const suggestionRefs = result.conflicts.map((c) => c.id).join(",");
+      err(
+        `Herd request conflicted with existing ownership. Rerun with \`takode herd --force ${suggestionRefs}\` if takeover is intended.`,
+      );
+    }
     return;
   }
 
@@ -2612,6 +2618,12 @@ async function handleHerd(base: string, args: string[]): Promise<void> {
     for (const c of result.conflicts) {
       console.log(
         `[${formatTime(Date.now())}] \u2717 Conflict: ${formatInlineText(c.id)} already herded by ${formatInlineText(c.herder)}`,
+      );
+    }
+    if (!forceMode) {
+      const suggestionRefs = result.conflicts.map((c) => c.id).join(",");
+      err(
+        `Herd request conflicted with existing ownership. Rerun with \`takode herd --force ${suggestionRefs}\` if takeover is intended.`,
       );
     }
   }

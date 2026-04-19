@@ -957,6 +957,116 @@ describe("takode send", () => {
 });
 
 describe("takode herd", () => {
+  it("fails clearly on non-force herd conflicts and suggests force takeover", async () => {
+    // Ordinary herd conflicts should stay non-force, exit nonzero, and tell the
+    // user exactly how to retry if they intend a takeover.
+    const herdBodies: JsonObject[] = [];
+    const server = createServer(async (req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-conflict", isOrchestrator: true }));
+        return;
+      }
+      if (method === "POST" && url === "/api/sessions/leader-conflict/herd") {
+        herdBodies.push(await readJson(req));
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            herded: [],
+            notFound: [],
+            conflicts: [{ id: "worker-conflict", herder: "leader-old" }],
+            reassigned: [],
+            leaders: [],
+          }),
+        );
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    try {
+      const result = await runTakode(["herd", "worker-conflict", "--port", String(port)], {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-conflict",
+        COMPANION_AUTH_TOKEN: "auth-conflict",
+      });
+
+      expect(result.status).toBe(1);
+      expect(herdBodies).toEqual([{ workerIds: ["worker-conflict"] }]);
+      expect(result.stdout).toContain("Conflict: worker-conflict already herded by leader-old");
+      expect(result.stderr).toContain("takode herd --force worker-conflict");
+    } finally {
+      server.close();
+    }
+  });
+
+  it("keeps json herd conflicts machine-readable while still exiting nonzero", async () => {
+    // JSON mode should preserve the raw herd payload on stdout while still
+    // failing the command when a non-force conflict is reported.
+    const herdBodies: JsonObject[] = [];
+    const server = createServer(async (req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-conflict-json", isOrchestrator: true }));
+        return;
+      }
+      if (method === "POST" && url === "/api/sessions/leader-conflict-json/herd") {
+        herdBodies.push(await readJson(req));
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            herded: [],
+            notFound: [],
+            conflicts: [{ id: "worker-conflict-json", herder: "leader-old" }],
+            reassigned: [],
+            leaders: [],
+          }),
+        );
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    try {
+      const result = await runTakode(["herd", "worker-conflict-json", "--json", "--port", String(port)], {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-conflict-json",
+        COMPANION_AUTH_TOKEN: "auth-conflict-json",
+      });
+
+      expect(result.status).toBe(1);
+      expect(herdBodies).toEqual([{ workerIds: ["worker-conflict-json"] }]);
+      expect(JSON.parse(result.stdout)).toEqual({
+        herded: [],
+        notFound: [],
+        conflicts: [{ id: "worker-conflict-json", herder: "leader-old" }],
+        reassigned: [],
+        leaders: [],
+      });
+      expect(result.stderr).toContain("takode herd --force worker-conflict-json");
+    } finally {
+      server.close();
+    }
+  });
+
   it("passes force through to the herd API and prints reassignment details", async () => {
     // Force herd must stay opt-in on the CLI surface and should print the
     // reassignment summary when the server reports a takeover.
