@@ -525,6 +525,17 @@ describe("getFileDiff", () => {
     expect(url).toBe(`/api/fs/diff?path=${encodeURIComponent("/repo/file.ts")}&base=main&includeContents=1`);
     expect(result).toEqual(diffData);
   });
+
+  it("includes sessionId when provided for session-anchored diffs", async () => {
+    const diffData = { path: "/repo/file.ts", diff: "+new line\n-old line" };
+    mockFetch.mockResolvedValueOnce(mockResponse(diffData));
+
+    const result = await api.getFileDiff("/repo/file.ts", "main", { sessionId: "sess-1" });
+
+    const [url] = mockFetch.mock.calls[0];
+    expect(url).toBe(`/api/fs/diff?path=${encodeURIComponent("/repo/file.ts")}&base=main&sessionId=sess-1`);
+    expect(result).toEqual(diffData);
+  });
 });
 
 // ===========================================================================

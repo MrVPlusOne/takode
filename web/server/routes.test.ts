@@ -4574,6 +4574,140 @@ line3`;
     expect(vi.mocked(execSync)).toHaveBeenCalledWith(expect.stringContaining('diff "main"'));
   });
 
+  it("uses the worktree anchor for file diffs when sessionId is provided", async () => {
+    bridge.getSession.mockReturnValue({
+      state: {
+        is_worktree: true,
+        diff_base_start_sha: "anchor-sha",
+        git_head_sha: "head-sha",
+      },
+    });
+
+    const diffOutput = `diff --git a/file.ts b/file.ts
+--- a/file.ts
++++ b/file.ts
+@@ -1 +1 @@
+-before
++after`;
+
+    vi.mocked(execSync).mockImplementation((cmd: string) => {
+      if (typeof cmd !== "string") throw new Error("non-string cmd");
+      if (cmd.includes("rev-parse --show-toplevel")) return "/repo\n";
+      if (cmd.includes("ls-files --full-name")) return "file.ts\n";
+      if (cmd.includes('diff "anchor-sha"')) return diffOutput;
+      if (cmd.includes('diff "main"')) throw new Error("should not diff against moving base tip");
+      return "";
+    });
+
+    const res = await app.request("/api/fs/diff?path=/repo/file.ts&base=main&sessionId=s1", { method: "GET" });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.diff).toBe(diffOutput);
+    expect(vi.mocked(execSync)).toHaveBeenCalledWith(expect.stringContaining('diff "anchor-sha"'));
+  });
+
+  it("falls back to the requested base ref when a worktree anchor is missing", async () => {
+    bridge.getSession.mockReturnValue({
+      state: {
+        is_worktree: true,
+        diff_base_start_sha: "",
+        git_head_sha: "head-sha",
+      },
+    });
+
+    const diffOutput = `diff --git a/file.ts b/file.ts
+--- a/file.ts
++++ b/file.ts
+@@ -1 +1 @@
+-before
++after`;
+
+    vi.mocked(execSync).mockImplementation((cmd: string) => {
+      if (typeof cmd !== "string") throw new Error("non-string cmd");
+      if (cmd.includes("rev-parse --show-toplevel")) return "/repo\n";
+      if (cmd.includes("ls-files --full-name")) return "file.ts\n";
+      if (cmd.includes('diff "main"')) return diffOutput;
+      if (cmd.includes('diff "head-sha"')) throw new Error("missing anchor should not collapse to HEAD");
+      return "";
+    });
+
+    const res = await app.request("/api/fs/diff?path=/repo/file.ts&base=main&sessionId=s1", { method: "GET" });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.diff).toBe(diffOutput);
+    expect(vi.mocked(execSync)).toHaveBeenCalledWith(expect.stringContaining('diff "main"'));
+  });
+
+  it("keeps direct-base diff behavior for non-worktree sessions", async () => {
+    bridge.getSession.mockReturnValue({
+      state: {
+        is_worktree: false,
+        diff_base_start_sha: "anchor-sha",
+        git_head_sha: "head-sha",
+      },
+    });
+
+    const diffOutput = `diff --git a/file.ts b/file.ts
+--- a/file.ts
++++ b/file.ts
+@@ -1 +1 @@
+-before
++after`;
+
+    vi.mocked(execSync).mockImplementation((cmd: string) => {
+      if (typeof cmd !== "string") throw new Error("non-string cmd");
+      if (cmd.includes("rev-parse --show-toplevel")) return "/repo\n";
+      if (cmd.includes("ls-files --full-name")) return "file.ts\n";
+      if (cmd.includes('diff "main"')) return diffOutput;
+      if (cmd.includes('diff "anchor-sha"')) throw new Error("non-worktree path should stay on base tip");
+      return "";
+    });
+
+    const res = await app.request("/api/fs/diff?path=/repo/file.ts&base=main&sessionId=s1", { method: "GET" });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.diff).toBe(diffOutput);
+    expect(vi.mocked(execSync)).toHaveBeenCalledWith(expect.stringContaining('diff "main"'));
+  });
+
+  it("preserves explicit commit-mode diffs for worktree sessions", async () => {
+    bridge.getSession.mockReturnValue({
+      state: {
+        is_worktree: true,
+        diff_base_start_sha: "anchor-sha",
+        git_head_sha: "head-sha",
+      },
+    });
+
+    const diffOutput = `diff --git a/file.ts b/file.ts
+--- a/file.ts
++++ b/file.ts
+@@ -1 +1 @@
+-before
++after`;
+
+    vi.mocked(execSync).mockImplementation((cmd: string) => {
+      if (typeof cmd !== "string") throw new Error("non-string cmd");
+      if (cmd.includes("rev-parse --show-toplevel")) return "/repo\n";
+      if (cmd.includes("ls-files --full-name")) return "file.ts\n";
+      if (cmd.includes('diff "abcdef1234567"')) return diffOutput;
+      if (cmd.includes('diff "anchor-sha"')) throw new Error("commit-mode should stay on explicit SHA");
+      return "";
+    });
+
+    const res = await app.request("/api/fs/diff?path=/repo/file.ts&base=abcdef1234567&sessionId=s1", {
+      method: "GET",
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.diff).toBe(diffOutput);
+    expect(vi.mocked(execSync)).toHaveBeenCalledWith(expect.stringContaining('diff "abcdef1234567"'));
+  });
+
   it("returns no-index diff for untracked files", async () => {
     // Untracked files have no base-branch diff content, so API must fallback to a full-file no-index diff.
     const untrackedDiff = `diff --git a/new.txt b/new.txt
@@ -4708,6 +4842,132 @@ describe("POST /api/fs/diff-stats", () => {
       "/repo/src/a.ts": { additions: 10, deletions: 3 },
       "/repo/src/b.ts": { additions: 1, deletions: 0 },
     });
+  });
+
+  it("uses the worktree anchor for diff stats when sessionId is provided", async () => {
+    bridge.getSession.mockReturnValue({
+      state: {
+        is_worktree: true,
+        diff_base_start_sha: "anchor-sha",
+        git_head_sha: "head-sha",
+      },
+    });
+
+    vi.mocked(execSync).mockImplementation((cmd: string) => {
+      if (typeof cmd !== "string") throw new Error("non-string cmd");
+      if (cmd.includes('diff --numstat "anchor-sha"')) return "7\t2\tsrc/a.ts\n";
+      if (cmd.includes('diff --numstat "jiayi"')) throw new Error("should not diff against moving base tip");
+      return "";
+    });
+
+    const res = await app.request("/api/fs/diff-stats", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        repoRoot: "/repo",
+        base: "jiayi",
+        sessionId: "s1",
+        files: ["/repo/src/a.ts"],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.stats).toEqual({
+      "/repo/src/a.ts": { additions: 7, deletions: 2 },
+    });
+    expect(vi.mocked(execSync)).toHaveBeenCalledWith(expect.stringContaining('diff --numstat "anchor-sha"'));
+  });
+
+  it("falls back to the requested base ref for diff stats when a worktree anchor is missing", async () => {
+    bridge.getSession.mockReturnValue({
+      state: {
+        is_worktree: true,
+        diff_base_start_sha: "",
+        git_head_sha: "head-sha",
+      },
+    });
+
+    vi.mocked(execSync).mockImplementation((cmd: string) => {
+      if (typeof cmd !== "string") throw new Error("non-string cmd");
+      if (cmd.includes('diff --numstat "jiayi"')) return "7\t2\tsrc/a.ts\n";
+      if (cmd.includes('diff --numstat "head-sha"')) throw new Error("missing anchor should not collapse to HEAD");
+      return "";
+    });
+
+    const res = await app.request("/api/fs/diff-stats", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        repoRoot: "/repo",
+        base: "jiayi",
+        sessionId: "s1",
+        files: ["/repo/src/a.ts"],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.stats).toEqual({
+      "/repo/src/a.ts": { additions: 7, deletions: 2 },
+    });
+    expect(vi.mocked(execSync)).toHaveBeenCalledWith(expect.stringContaining('diff --numstat "jiayi"'));
+  });
+});
+
+describe("GET /api/fs/diff-files", () => {
+  it("uses the worktree anchor for changed-file listing when sessionId is provided", async () => {
+    bridge.getSession.mockReturnValue({
+      state: {
+        is_worktree: true,
+        diff_base_start_sha: "anchor-sha",
+        git_head_sha: "head-sha",
+      },
+    });
+
+    vi.mocked(execSync).mockImplementation((cmd: string) => {
+      if (typeof cmd !== "string") throw new Error("non-string cmd");
+      if (cmd.includes('diff --name-status "anchor-sha"')) return "M\tsrc/a.ts\nD\tsrc/b.ts\n";
+      if (cmd.includes('diff --name-status "jiayi"')) throw new Error("should not diff against moving base tip");
+      return "";
+    });
+
+    const res = await app.request("/api/fs/diff-files?cwd=/repo&base=jiayi&sessionId=s1", { method: "GET" });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.files).toEqual([
+      { path: "/repo/src/a.ts", status: "M" },
+      { path: "/repo/src/b.ts", status: "D" },
+    ]);
+    expect(vi.mocked(execSync)).toHaveBeenCalledWith(expect.stringContaining('diff --name-status "anchor-sha"'));
+  });
+
+  it("falls back to the requested base ref for diff-files when a worktree anchor is missing", async () => {
+    bridge.getSession.mockReturnValue({
+      state: {
+        is_worktree: true,
+        diff_base_start_sha: "",
+        git_head_sha: "head-sha",
+      },
+    });
+
+    vi.mocked(execSync).mockImplementation((cmd: string) => {
+      if (typeof cmd !== "string") throw new Error("non-string cmd");
+      if (cmd.includes('diff --name-status "jiayi"')) return "M\tsrc/a.ts\nD\tsrc/b.ts\n";
+      if (cmd.includes('diff --name-status "head-sha"')) throw new Error("missing anchor should not collapse to HEAD");
+      return "";
+    });
+
+    const res = await app.request("/api/fs/diff-files?cwd=/repo&base=jiayi&sessionId=s1", { method: "GET" });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.files).toEqual([
+      { path: "/repo/src/a.ts", status: "M" },
+      { path: "/repo/src/b.ts", status: "D" },
+    ]);
+    expect(vi.mocked(execSync)).toHaveBeenCalledWith(expect.stringContaining('diff --name-status "jiayi"'));
   });
 });
 

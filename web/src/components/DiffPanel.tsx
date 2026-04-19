@@ -310,7 +310,7 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
       return;
     }
     api
-      .getDiffFiles(repoRoot, effectiveBranch)
+      .getDiffFiles(repoRoot, effectiveBranch, sessionId)
       .then((res) => {
         setGitDiffFiles(res.files);
       })
@@ -361,7 +361,7 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
           const batch = newFiles.slice(i, i + BATCH_SIZE);
           const results = await Promise.all(
             batch.map(({ abs }) =>
-              withTimeout(api.getFileDiff(abs, effectiveBranch), DIFF_REQUEST_TIMEOUT_MS)
+              withTimeout(api.getFileDiff(abs, effectiveBranch, { sessionId }), DIFF_REQUEST_TIMEOUT_MS)
                 .then((res) => ({
                   abs,
                   diff: res.diff,
@@ -429,7 +429,7 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
     void (async () => {
       const results = await Promise.all(
         toFetch.map((abs) =>
-          withTimeout(api.getFileDiff(abs, effectiveBranch, { includeContents: true }), DIFF_REQUEST_TIMEOUT_MS)
+          withTimeout(api.getFileDiff(abs, effectiveBranch, { includeContents: true, sessionId }), DIFF_REQUEST_TIMEOUT_MS)
             .then((res) => ({
               abs,
               diff: res.diff,

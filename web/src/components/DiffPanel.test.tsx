@@ -157,8 +157,12 @@ describe("DiffPanel", () => {
     const { container } = render(<DiffPanel sessionId="s1" />);
 
     await waitFor(() => {
+      expect(mockApi.getDiffFiles).toHaveBeenCalledWith("/repo", "main", "s1");
+    });
+
+    await waitFor(() => {
       // Phase 1: lightweight diff fetch (no includeContents)
-      expect(mockApi.getFileDiff).toHaveBeenCalledWith("/repo/src/app.ts", "main");
+      expect(mockApi.getFileDiff).toHaveBeenCalledWith("/repo/src/app.ts", "main", { sessionId: "s1" });
     });
 
     // DiffViewer should render the diff content (may appear in top bar + DiffViewer header)
@@ -302,7 +306,7 @@ describe("DiffPanel", () => {
 
     await waitFor(() => {
       // Phase 1: lightweight diff fetch (no includeContents)
-      expect(mockApi.getFileDiff).toHaveBeenCalledWith("/repo/src/app.ts", "develop");
+      expect(mockApi.getFileDiff).toHaveBeenCalledWith("/repo/src/app.ts", "develop", { sessionId: "s1" });
     });
   });
 
@@ -328,7 +332,7 @@ describe("DiffPanel", () => {
 
     await waitFor(() => {
       // Phase 1: lightweight diff fetch (no includeContents)
-      expect(mockApi.getFileDiff).toHaveBeenCalledWith("/repo/src/app.ts", "origin/jiayi");
+      expect(mockApi.getFileDiff).toHaveBeenCalledWith("/repo/src/app.ts", "origin/jiayi", { sessionId: "s1" });
     });
 
     const [branchSelect] = screen.getAllByRole("combobox") as HTMLSelectElement[];
@@ -354,7 +358,7 @@ describe("DiffPanel", () => {
     render(<DiffPanel sessionId="s1" />);
 
     await waitFor(() => {
-      expect(mockApi.getFileDiff).toHaveBeenCalledWith("/repo/src/app.ts", "main");
+      expect(mockApi.getFileDiff).toHaveBeenCalledWith("/repo/src/app.ts", "main", { sessionId: "s1" });
     });
 
     const [branchSelect] = screen.getAllByRole("combobox") as HTMLSelectElement[];
@@ -382,7 +386,7 @@ describe("DiffPanel", () => {
     const { rerender } = render(<DiffPanel sessionId="s1" />);
 
     await waitFor(() => {
-      expect(mockApi.getFileDiff).toHaveBeenCalledWith("/repo/src/app.ts", "develop");
+      expect(mockApi.getFileDiff).toHaveBeenCalledWith("/repo/src/app.ts", "develop", { sessionId: "s1" });
     });
 
     storeState.sessions = new Map([["s1", { cwd: "/repo", diff_base_branch: "", git_default_branch: "main" }]]);
@@ -394,7 +398,7 @@ describe("DiffPanel", () => {
     rerender(<DiffPanel sessionId="s1" />);
 
     await waitFor(() => {
-      expect(mockApi.getFileDiff).toHaveBeenCalledWith("/repo/src/app.ts", "main");
+      expect(mockApi.getFileDiff).toHaveBeenCalledWith("/repo/src/app.ts", "main", { sessionId: "s1" });
     });
 
     const [branchSelect] = screen.getAllByRole("combobox") as HTMLSelectElement[];
@@ -528,12 +532,12 @@ describe("DiffPanel", () => {
 
     // Phase 1: lightweight diff fetch should happen first (no includeContents)
     await waitFor(() => {
-      expect(mockApi.getFileDiff).toHaveBeenCalledWith("/repo/src/app.ts", "main");
+      expect(mockApi.getFileDiff).toHaveBeenCalledWith("/repo/src/app.ts", "main", { sessionId: "s1" });
     });
 
     // The first call should NOT have includeContents
     const firstCallArgs = mockApi.getFileDiff.mock.calls[0];
-    expect(firstCallArgs).toEqual(["/repo/src/app.ts", "main"]);
+    expect(firstCallArgs).toEqual(["/repo/src/app.ts", "main", { sessionId: "s1" }]);
   });
 
   it("renders placeholder for files outside the viewport", async () => {

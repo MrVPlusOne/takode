@@ -19,6 +19,20 @@ const DIFF_MAX_BUFFER = 10 * 1024 * 1024;
 const MAX_DIFF_BYTES = 512 * 1024;
 /** Cap file list returned by diff-files to avoid overwhelming the frontend. */
 const MAX_DIFF_FILES = 500;
+const GIT_SHA_REF_RE = /^[0-9a-f]{7,40}$/i;
+
+function resolveWorktreeDiffAnchor(
+  wsBridge: RouteContext["wsBridge"],
+  sessionId: string | undefined,
+  requestedBase: string,
+): string {
+  if (!sessionId) return requestedBase;
+  const session = wsBridge.getSession(sessionId);
+  const state = session?.state;
+  if (!state?.is_worktree) return requestedBase;
+  if (GIT_SHA_REF_RE.test(requestedBase.trim())) return requestedBase;
+  return state.diff_base_start_sha?.trim() || requestedBase;
+}
 
 export function createFilesystemRoutes(ctx: RouteContext) {
   const api = new Hono();
@@ -186,6 +200,7 @@ export function createFilesystemRoutes(ctx: RouteContext) {
     if (!filePath) return c.json({ error: "path required" }, 400);
     const base = c.req.query("base");
     if (!base) return c.json({ error: "base branch required" }, 400);
+    const sessionId = c.req.query("sessionId") || undefined;
     const includeContents = c.req.query("includeContents") === "1";
     const absPath = resolve(filePath);
     try {
@@ -193,12 +208,15 @@ export function createFilesystemRoutes(ctx: RouteContext) {
       const relPath =
         (await execAsync(`${SERVER_GIT_CMD} -C "${repoRoot}" ls-files --full-name -- "${absPath}"`, repoRoot)) ||
         absPath;
+      const diffRef = resolveWorktreeDiffAnchor(wsBridge, sessionId, base);
 
       let diff = "";
       try {
-        // Compare directly to the selected base ref tip. Using merge-base here
-        // makes cherry-picked commits appear as unsynced in the UI.
-        diff = await execCaptureStdoutAsync(`${SERVER_GIT_CMD} diff "${base}" -- "${relPath}"`, repoRoot, {
+        // Default behavior compares directly to the selected base ref tip.
+        // When sessionId points at a worktree session, use the session-owned
+        // anchor SHA instead so behind-the-branch drift does not pollute the
+        // detailed diff surfaces for that session.
+        diff = await execCaptureStdoutAsync(`${SERVER_GIT_CMD} diff "${diffRef}" -- "${relPath}"`, repoRoot, {
           maxBuffer: DIFF_MAX_BUFFER,
         });
       } catch {
@@ -226,7 +244,7 @@ export function createFilesystemRoutes(ctx: RouteContext) {
 
         try {
           const baseContent = await execCaptureStdoutAsync(
-            `${SERVER_GIT_CMD} show "${base}":"${escapedRelPath}"`,
+            `${SERVER_GIT_CMD} show "${diffRef}":"${escapedRelPath}"`,
             repoRoot,
             { maxBuffer: DIFF_MAX_BUFFER },
           );
@@ -285,7 +303,7 @@ export function createFilesystemRoutes(ctx: RouteContext) {
    * in a single `git diff --numstat` call. Much cheaper than fetching full diffs.
    */
   api.post("/fs/diff-stats", async (c) => {
-    const body = await c.req.json<{ files: string[]; base?: string; repoRoot: string }>();
+    const body = await c.req.json<{ files: string[]; base?: string; repoRoot: string; sessionId?: string }>();
     if (!body?.files?.length || !body.repoRoot) {
       return c.json({ error: "files[] and repoRoot required" }, 400);
     }
@@ -298,8 +316,9 @@ export function createFilesystemRoutes(ctx: RouteContext) {
       const rootPrefix = `${repoRoot}/`;
       const relFiles = body.files.map((f) => (f.startsWith(rootPrefix) ? f.slice(rootPrefix.length) : f));
       const fileArgs = relFiles.map((f) => `"${f}"`).join(" ");
+      const diffRef = resolveWorktreeDiffAnchor(wsBridge, body.sessionId, body.base);
       const raw = await execCaptureStdoutAsync(
-        `${SERVER_GIT_CMD} diff --numstat "${body.base}" -- ${fileArgs}`,
+        `${SERVER_GIT_CMD} diff --numstat "${diffRef}" -- ${fileArgs}`,
         repoRoot,
         { maxBuffer: DIFF_MAX_BUFFER },
       );
@@ -343,12 +362,14 @@ export function createFilesystemRoutes(ctx: RouteContext) {
     if (!cwd) return c.json({ error: "cwd required" }, 400);
     const base = c.req.query("base");
     if (!base) return c.json({ error: "base ref required" }, 400);
+    const sessionId = c.req.query("sessionId") || undefined;
 
     const repoRoot = resolve(cwd);
     try {
+      const diffRef = resolveWorktreeDiffAnchor(wsBridge, sessionId, base);
       // --no-optional-locks avoids NFS lock contention on .git/index.lock
       // No -M flag: rename detection is too expensive on NFS (reads full file contents)
-      const raw = await execCaptureStdoutAsync(`${SERVER_GIT_CMD} diff --name-status "${base}"`, repoRoot, {
+      const raw = await execCaptureStdoutAsync(`${SERVER_GIT_CMD} diff --name-status "${diffRef}"`, repoRoot, {
         maxBuffer: DIFF_MAX_BUFFER,
       });
 

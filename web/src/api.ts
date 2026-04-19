@@ -920,10 +920,11 @@ export const api = {
   readFile: (path: string) => get<{ path: string; content: string }>(`/fs/read?path=${encodeURIComponent(path)}`),
   getFsImageUrl: (path: string) => `${BASE}/fs/image?path=${encodeURIComponent(path)}`,
   writeFile: (path: string, content: string) => put<{ ok: boolean; path: string }>("/fs/write", { path, content }),
-  getFileDiff: (path: string, base?: string, opts?: { includeContents?: boolean }) => {
+  getFileDiff: (path: string, base?: string, opts?: { includeContents?: boolean; sessionId?: string }) => {
     let url = `/fs/diff?path=${encodeURIComponent(path)}`;
     if (base) url += `&base=${encodeURIComponent(base)}`;
     if (opts?.includeContents) url += "&includeContents=1";
+    if (opts?.sessionId) url += `&sessionId=${encodeURIComponent(opts.sessionId)}`;
     return get<{
       path: string;
       diff: string;
@@ -933,19 +934,24 @@ export const api = {
       newText?: string;
     }>(url);
   },
-  getDiffStats: (files: string[], repoRoot: string, base?: string) =>
+  getDiffStats: (files: string[], repoRoot: string, base?: string, sessionId?: string) =>
     post<{ stats: Record<string, { additions: number; deletions: number }>; baseBranch?: string }>("/fs/diff-stats", {
       files,
       repoRoot,
       base: base || undefined,
+      sessionId: sessionId || undefined,
     }),
-  getDiffFiles: (cwd: string, base: string) =>
+  getDiffFiles: (cwd: string, base: string, sessionId?: string) =>
     get<{
       files: Array<{ path: string; status: "A" | "M" | "D" | "R"; oldPath?: string }>;
       repoRoot: string;
       base: string;
       truncated?: boolean;
-    }>(`/fs/diff-files?cwd=${encodeURIComponent(cwd)}&base=${encodeURIComponent(base)}`),
+    }>(
+      `/fs/diff-files?cwd=${encodeURIComponent(cwd)}&base=${encodeURIComponent(base)}${
+        sessionId ? `&sessionId=${encodeURIComponent(sessionId)}` : ""
+      }`,
+    ),
   getClaudeMdFiles: (cwd: string) =>
     get<{ cwd: string; files: { path: string; content: string; writable?: boolean }[] }>(
       `/fs/claude-md?cwd=${encodeURIComponent(cwd)}`,
