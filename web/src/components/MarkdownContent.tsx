@@ -22,6 +22,14 @@ import { openFileWithEditorPreference, showEditorOpenError } from "../utils/vsco
 import { HighlightedText } from "./HighlightedText.js";
 import { SessionInlineLink } from "./SessionInlineLink.js";
 
+interface MarkdownAstNode {
+  type: string;
+  children?: MarkdownAstNode[];
+  ordered?: boolean;
+  start?: number | null;
+  spread?: boolean;
+}
+
 function parseQuestIdFromHref(href?: string): string | null {
   if (!href) return null;
   const trimmed = href.trim();
@@ -54,6 +62,88 @@ function parseSessionLinkFromHref(href?: string): SessionLinkTarget | null {
   const sessionNum = parseInt(match[1], 10);
   const messageIndex = match[2] != null ? parseInt(match[2], 10) : undefined;
   return { sessionNum, messageIndex };
+}
+
+function isMarkdownList(
+  node: MarkdownAstNode | undefined,
+  ordered: boolean,
+): node is MarkdownAstNode & { type: "list"; children: MarkdownAstNode[]; ordered: boolean } {
+  return Boolean(node && node.type === "list" && node.ordered === ordered && Array.isArray(node.children));
+}
+
+function isMarkdownListItem(
+  node: MarkdownAstNode | undefined,
+): node is MarkdownAstNode & { type: "listItem"; children: MarkdownAstNode[] } {
+  return Boolean(node && node.type === "listItem" && Array.isArray(node.children));
+}
+
+function appendListToLastItem(targetList: MarkdownAstNode, nestedList: MarkdownAstNode): boolean {
+  const lastItem = targetList.children?.[targetList.children.length - 1];
+  if (!isMarkdownListItem(lastItem)) return false;
+  lastItem.children = [...lastItem.children, nestedList];
+  targetList.spread = Boolean(targetList.spread || nestedList.spread);
+  return true;
+}
+
+function mergeOrderedListContinuations(children: MarkdownAstNode[]): void {
+  let index = 0;
+  while (index < children.length) {
+    const current = children[index];
+    if (!isMarkdownList(current, true)) {
+      index += 1;
+      continue;
+    }
+
+    let cursor = index + 1;
+    let didMerge = false;
+
+    while (true) {
+      const bulletList = children[cursor];
+      const nextOrderedList = children[cursor + 1];
+      if (
+        !isMarkdownList(bulletList, false) ||
+        !isMarkdownList(nextOrderedList, true) ||
+        (nextOrderedList.start != null && nextOrderedList.start !== 1)
+      ) {
+        break;
+      }
+
+      if (!appendListToLastItem(current, bulletList)) break;
+
+      current.children = [...current.children, ...nextOrderedList.children];
+      current.spread = Boolean(current.spread || nextOrderedList.spread);
+      cursor += 2;
+      didMerge = true;
+    }
+
+    if (!didMerge) {
+      index += 1;
+      continue;
+    }
+
+    while (isMarkdownList(children[cursor], false)) {
+      if (!appendListToLastItem(current, children[cursor])) break;
+      cursor += 1;
+    }
+
+    children.splice(index + 1, cursor - (index + 1));
+  }
+}
+
+function normalizeOrderedListContinuations(node: MarkdownAstNode): void {
+  if (!Array.isArray(node.children) || node.children.length === 0) return;
+
+  for (const child of node.children) {
+    normalizeOrderedListContinuations(child);
+  }
+
+  mergeOrderedListContinuations(node.children);
+}
+
+function remarkNormalizeOrderedListContinuations() {
+  return (tree: MarkdownAstNode) => {
+    normalizeOrderedListContinuations(tree);
+  };
 }
 
 interface FileLinkTarget {
@@ -413,7 +503,7 @@ export function MarkdownContent({
   return (
     <div className={`markdown-body ${sizeClass} text-cc-fg leading-relaxed overflow-hidden break-words`}>
       <Markdown
-        remarkPlugins={[remarkGfm, remarkBreaks]}
+        remarkPlugins={[remarkGfm, remarkBreaks, remarkNormalizeOrderedListContinuations]}
         urlTransform={transformMarkdownUrl}
         disallowedElements={
           isConservative
@@ -435,7 +525,11 @@ export function MarkdownContent({
             <h3 className="text-base font-semibold text-cc-fg mt-3 mb-1">{highlightChildren(children)}</h3>
           ),
           ul: ({ children }) => <ul className="list-disc pl-5 mb-3 space-y-1">{children}</ul>,
-          ol: ({ children }) => <ol className="list-decimal pl-5 mb-3 space-y-1">{children}</ol>,
+          ol: ({ children, start }) => (
+            <ol start={start} className="list-decimal pl-5 mb-3 space-y-1">
+              {children}
+            </ol>
+          ),
           li: ({ children }) => <li className="text-cc-fg">{highlightChildren(children)}</li>,
           a: ({ href, children }) => {
             const questId = parseQuestIdFromHref(href);

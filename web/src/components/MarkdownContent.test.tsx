@@ -45,6 +45,35 @@ describe("MarkdownContent line breaks", () => {
     expect(container.querySelectorAll("li")).toHaveLength(2);
   });
 
+  it("continues ordered-list numbering across bullet sublists", () => {
+    // Reproduces the screenshot case where unindented bullet sublists split a single
+    // logical ordered list into `[ol, ul, ol, ul]` sibling nodes in the markdown AST.
+    const { container } = render(
+      <MarkdownContent
+        text={
+          "What happened here was a combination of two things:\n\n1. Sessions became `idle` or `disconnected`\n\n- usually because of server restart or the idle manager killing the CLI process\n- that part is expected behaviour; disconnected sessions are supposed to be recoverable\n\n1. I failed to actively uninstall the board\n\n- q-362 stalled because the reviewer challenge existed, but I had not sent the required worker follow-up yet\n- q-427 stalled because the worker had already finished its investigation turn, but I had not advanced it into review\n"
+        }
+      />,
+    );
+
+    const markdownRoot = container.firstElementChild as HTMLElement | null;
+    const orderedList = container.querySelector("ol");
+    const orderedItems = orderedList?.querySelectorAll(":scope > li");
+    const firstNestedList = orderedItems?.[0]?.querySelector(":scope > ul");
+    const secondNestedList = orderedItems?.[1]?.querySelector(":scope > ul");
+
+    expect(orderedList).toBeTruthy();
+    expect(container.querySelectorAll("ol")).toHaveLength(1);
+    expect(orderedItems).toHaveLength(2);
+    expect(firstNestedList).toBeTruthy();
+    expect(secondNestedList).toBeTruthy();
+    expect(Array.from(markdownRoot?.children ?? []).filter((child) => child.tagName === "UL")).toHaveLength(0);
+    expect(firstNestedList?.textContent).toContain("usually because of server restart or the idle manager killing the CLI process");
+    expect(secondNestedList?.textContent).toContain(
+      "q-427 stalled because the worker had already finished its investigation turn, but I had not advanced it into review",
+    );
+  });
+
   it("preserves fenced code blocks while adding breaks only to surrounding prose", () => {
     // Ensures fenced code keeps raw newlines instead of being transformed into <br> tags.
     const { container } = render(
