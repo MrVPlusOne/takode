@@ -3701,6 +3701,10 @@ export class WsBridge {
         `[ws-bridge] Codex auto-recovery timeout for session ${sessionTag(session.id)} (${reason}) -- resetting to disconnected`,
       );
       this.setBackendState(session, "disconnected", null);
+      this.emitTakodeEvent(session.id, "session_disconnected", {
+        wasGenerating: session.isGenerating,
+        reason: "recovery_timeout",
+      });
       this.persistSession(session);
     }, CODEX_RECOVERY_TIMEOUT_MS);
     return true;
@@ -3712,6 +3716,10 @@ export class WsBridge {
     if (session.state.backend_state !== "recovering") return;
     if (this.backendAttached(session)) return;
     this.setBackendState(session, "disconnected", null);
+    this.emitTakodeEvent(sessionId, "session_disconnected", {
+      wasGenerating: session.isGenerating,
+      reason: "recovery_failed",
+    });
     this.persistSession(session);
   }
 
@@ -4455,13 +4463,27 @@ export class WsBridge {
           `[ws-bridge] Codex adapter disconnected for ${browserQualifier}; requesting relaunch for session ${sessionTag(sessionId)} (attempt ${session.consecutiveAdapterFailures}/${MAX_ADAPTER_RELAUNCH_FAILURES})`,
         );
         this.requestCodexAutoRecovery(session, "adapter_disconnect");
+      } else if (!intentionalRelaunch && idleKilled) {
+        this.emitTakodeEvent(sessionId, "session_disconnected", {
+          wasGenerating,
+          reason: "idle_limit",
+        });
       } else if (!intentionalRelaunch && session.consecutiveAdapterFailures > MAX_ADAPTER_RELAUNCH_FAILURES) {
         console.error(
           `[ws-bridge] Codex adapter for session ${sessionTag(sessionId)} exceeded ${MAX_ADAPTER_RELAUNCH_FAILURES} consecutive failures — stopping auto-relaunch`,
         );
+        this.emitTakodeEvent(sessionId, "session_disconnected", {
+          wasGenerating,
+          reason: "adapter_disconnect",
+        });
         this.broadcastToBrowsers(session, {
           type: "error",
           message: `Session stopped after ${MAX_ADAPTER_RELAUNCH_FAILURES} consecutive launch failures. Use the relaunch button to try again.`,
+        });
+      } else if (!intentionalRelaunch && !this.onCLIRelaunchNeeded) {
+        this.emitTakodeEvent(sessionId, "session_disconnected", {
+          wasGenerating,
+          reason: "adapter_disconnect",
         });
       }
     });

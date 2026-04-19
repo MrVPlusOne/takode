@@ -49,9 +49,10 @@ export interface LauncherHandle {
 // ─── Constants ──────────────────────────────────────────────────────────────────
 
 /** Events worth delivering to orchestrators.
- *  session_disconnected is excluded — disconnects are transient (CLI reconnects
- *  every 5 minutes for token refresh) and auto-relaunch handles recovery.
- *  Delivering disconnect events would flood the leader with noise.
+ *  session_disconnected is included for full disconnects after the backend has
+ *  actually dropped out of service. These events are distinct from transient
+ *  reconnect windows because the bridge only emits them after the disconnect is
+ *  considered actionable.
  *  user_message is excluded — individual messages are noisy and truncated.
  *  Instead, user message count + IDs are included in the turn_end event
  *  so the leader can peek at specific messages via [msg-id] if needed. */
@@ -61,6 +62,7 @@ const ACTIONABLE_EVENTS = new Set<TakodeEventType>([
   "permission_resolved",
   "herd_reassigned",
   "session_error",
+  "session_disconnected",
   "session_archived",
   "session_deleted",
   "notification_needs_input",

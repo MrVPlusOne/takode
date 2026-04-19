@@ -264,6 +264,29 @@ describe("HerdEventDispatcher", () => {
     dispatcher.destroy();
   });
 
+  it("delivers session_disconnected events for actionable worker stalls", () => {
+    const { bridge, launcher } = createMocks();
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+
+    triggerEvent(
+      makeEvent({
+        event: "session_disconnected",
+        data: { reason: "adapter_disconnect" },
+      }),
+    );
+    vi.advanceTimersByTime(600);
+
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+    const content = vi.mocked(bridge.injectUserMessage).mock.calls[0][1];
+    expect(content).toContain("session_disconnected");
+    expect(content).toContain("adapter_disconnect");
+
+    dispatcher.destroy();
+  });
+
   it("skips events triggered by the leader's own actions (actorSessionId)", () => {
     // When the leader runs takode archive or takode answer, the resulting
     // herd events should not bounce back to the leader (q-259).

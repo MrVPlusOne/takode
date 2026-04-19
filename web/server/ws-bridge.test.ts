@@ -12122,11 +12122,15 @@ describe("Codex disconnect auto-relaunch", () => {
     expect(session.consecutiveAdapterFailures).toBe(0);
     expect(crashRelaunchCb).not.toHaveBeenCalled();
 
+    const capturedEvents: any[] = [];
+    bridge.subscribeTakodeEvents(new Set([sid]), (evt) => capturedEvents.push(evt));
+
     vi.advanceTimersByTime(150);
     expect(settingsRelaunchCb).toHaveBeenCalledWith(sid);
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     expect(calls).toContainEqual(expect.objectContaining({ type: "backend_disconnected" }));
+    expect(capturedEvents.filter((e) => e.event === "session_disconnected")).toHaveLength(0);
     vi.useRealTimers();
   });
 
@@ -12616,11 +12620,20 @@ describe("Codex recovering state reset", () => {
     const sid = "s-codex-recovery-failed";
     const session = bridge.getOrCreateSession(sid, "codex");
     session.state.backend_state = "recovering";
+    const capturedEvents: any[] = [];
+    bridge.subscribeTakodeEvents(new Set([sid]), (evt) => capturedEvents.push(evt));
 
     (bridge as any).markCodexAutoRecoveryFailed(sid);
 
     expect(session.state.backend_state).toBe("disconnected");
     expect(session.state.backend_error).toBeNull();
+    expect(capturedEvents).toContainEqual(
+      expect.objectContaining({
+        sessionId: sid,
+        event: "session_disconnected",
+        data: expect.objectContaining({ reason: "recovery_failed", wasGenerating: false }),
+      }),
+    );
   });
 
   it("keeps recovering unchanged if a Codex adapter is already attached", () => {
@@ -12651,6 +12664,8 @@ describe("Codex recovery timeout (q-385)", () => {
 
     const session = bridge.getOrCreateSession(sid, "codex");
     session.state.backend_state = "disconnected";
+    const capturedEvents: any[] = [];
+    bridge.subscribeTakodeEvents(new Set([sid]), (evt) => capturedEvents.push(evt));
 
     (bridge as any).requestCodexAutoRecovery(session, "test_reason");
 
@@ -12661,6 +12676,13 @@ describe("Codex recovery timeout (q-385)", () => {
     await vi.advanceTimersByTimeAsync(31_000);
 
     expect(session.state.backend_state).toBe("disconnected");
+    expect(capturedEvents).toContainEqual(
+      expect.objectContaining({
+        sessionId: sid,
+        event: "session_disconnected",
+        data: expect.objectContaining({ reason: "recovery_timeout", wasGenerating: false }),
+      }),
+    );
     vi.useRealTimers();
   });
 
