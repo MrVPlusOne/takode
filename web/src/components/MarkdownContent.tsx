@@ -316,7 +316,7 @@ function MarkdownTableDialog({ children, onClose }: { children: ReactNode; onClo
         role="dialog"
         aria-modal="true"
         aria-label="Expanded table view"
-        className="w-full max-w-[min(1400px,calc(100vw-1.5rem))] max-h-[92vh] rounded-2xl border border-cc-border bg-cc-bg shadow-2xl overflow-hidden flex flex-col"
+        className="h-[calc(100vh-2rem)] w-[calc(100vw-1.5rem)] max-w-none rounded-2xl border border-cc-border bg-cc-bg shadow-2xl overflow-hidden flex flex-col sm:h-[calc(100vh-3rem)] sm:w-[calc(100vw-3rem)]"
         onClick={(e) => e.stopPropagation()}
         data-testid="markdown-table-dialog"
       >
@@ -336,7 +336,7 @@ function MarkdownTableDialog({ children, onClose }: { children: ReactNode; onClo
             </svg>
           </button>
         </div>
-        <div className="overflow-auto px-4 py-4 sm:px-5">
+        <div className="min-h-0 flex-1 overflow-auto px-3 py-3 sm:px-4">
           <MarkdownTable>{children}</MarkdownTable>
         </div>
       </div>

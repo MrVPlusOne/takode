@@ -88,10 +88,13 @@ describe("MarkdownContent tables", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "View table" }));
 
-    expect(screen.getByTestId("markdown-table-dialog")).toBeTruthy();
+    const dialog = screen.getByTestId("markdown-table-dialog");
+    expect(dialog).toBeTruthy();
     expect(screen.getByTestId("markdown-table-backdrop")).toBeTruthy();
     expect(document.body.style.overflow).toBe("hidden");
     expect(screen.getAllByText("RTG")).toHaveLength(2);
+    expect(dialog.className).toContain("max-w-none");
+    expect(dialog.className).toContain("h-[calc(100vh-2rem)]");
 
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByTestId("markdown-table-dialog")).toBeNull();
