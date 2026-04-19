@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { extname } from "node:path";
 import { randomBytes } from "node:crypto";
-import { resizeForStore } from "./image-store.js";
 import type {
   QuestmasterTask,
   QuestCreateInput,
@@ -867,6 +866,7 @@ export async function saveQuestImage(filename: string, data: Buffer, mimeType: s
   const ext = QUEST_MIME_TO_EXT[mimeType] || extname(filename) || ".bin";
   const diskName = `${id}${ext}`;
   const diskPath = join(IMAGES_DIR, diskName);
+  const { resizeForStore } = await import("./image-store.js");
   const finalData = await resizeForStore(data, mimeType);
   await writeFile(diskPath, finalData);
   return { id, filename, mimeType, path: diskPath };

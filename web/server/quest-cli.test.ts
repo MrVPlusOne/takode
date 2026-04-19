@@ -42,8 +42,15 @@ async function runQuest(
   stderr: string;
 }> {
   const questPath = fileURLToPath(new URL("../bin/quest.ts", import.meta.url));
+  const childEnv = {
+    ...env,
+    // Keep Bun's package cache on the real home directory even when tests
+    // override HOME to isolate the quest store under a temp directory.
+    BUN_INSTALL_CACHE_DIR:
+      env.BUN_INSTALL_CACHE_DIR || process.env.BUN_INSTALL_CACHE_DIR || join(process.env.HOME || "", ".bun/install/cache"),
+  };
   const child = spawn(process.execPath, [questPath, ...args], {
-    env,
+    env: childEnv,
     cwd,
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -324,6 +331,182 @@ describe("quest CLI parallel create", () => {
         .filter((name) => /^q-\d+-v1\.json$/.test(name))
         .sort((a, b) => Number(a.match(/^q-(\d+)-/)?.[1]) - Number(b.match(/^q-(\d+)-/)?.[1]));
       expect(questFiles).toEqual(["q-1-v1.json", "q-2-v1.json", "q-3-v1.json", "q-4-v1.json", "q-5-v1.json"]);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("quest CLI grep", () => {
+  it("prints quest ids, match fields, and contextual snippets in text mode", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "quest-grep-text-"));
+    const questDir = join(tmp, ".companion", "questmaster");
+    mkdirSync(questDir, { recursive: true });
+
+    writeFileSync(
+      join(questDir, "q-1-v1.json"),
+      JSON.stringify(
+        {
+          id: "q-1-v1",
+          questId: "q-1",
+          version: 1,
+          title: "Add beta search",
+          createdAt: 1,
+          status: "refined",
+          description: "Description without the keyword.",
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+    writeFileSync(
+      join(questDir, "q-2-v2.json"),
+      JSON.stringify(
+        {
+          id: "q-2-v2",
+          questId: "q-2",
+          version: 2,
+          prevId: "q-2-v1",
+          title: "Feedback quest",
+          createdAt: 2,
+          status: "needs_verification",
+          description: "Ready for review.",
+          sessionId: "session-2",
+          claimedAt: 2,
+          verificationItems: [{ text: "Visual review", checked: false }],
+          feedback: [{ author: "human", text: "Please keep beta context in the snippet output.", ts: 2 }],
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+
+    try {
+      const result = await runQuest(
+        ["grep", "beta"],
+        {
+          ...process.env,
+          COMPANION_PORT: undefined,
+          COMPANION_SESSION_ID: undefined,
+          COMPANION_AUTH_TOKEN: undefined,
+          HOME: tmp,
+        },
+        tmp,
+      );
+
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain('2 quest matches for "beta"');
+      expect(result.stdout).toContain("q-1");
+      expect(result.stdout).toContain("field: title");
+      expect(result.stdout).toContain("q-2");
+      expect(result.stdout).toContain("field: feedback[0] (human)");
+      expect(result.stdout).toContain("snippet:");
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("returns structured JSON with total match count and feedback metadata", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "quest-grep-json-"));
+    const questDir = join(tmp, ".companion", "questmaster");
+    mkdirSync(questDir, { recursive: true });
+
+    writeFileSync(
+      join(questDir, "q-3-v1.json"),
+      JSON.stringify(
+        {
+          id: "q-3-v1",
+          questId: "q-3",
+          version: 1,
+          title: "Context quest",
+          createdAt: 3,
+          status: "needs_verification",
+          description: "alpha in description",
+          sessionId: "session-3",
+          claimedAt: 3,
+          verificationItems: [{ text: "Check it", checked: false }],
+          feedback: [{ author: "agent", text: "Summary: alpha retained in follow-up note", ts: 3 }],
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+
+    try {
+      const result = await runQuest(
+        ["grep", "alpha", "--count", "1", "--json"],
+        {
+          ...process.env,
+          COMPANION_PORT: undefined,
+          COMPANION_SESSION_ID: undefined,
+          COMPANION_AUTH_TOKEN: undefined,
+          HOME: tmp,
+        },
+        tmp,
+      );
+
+      expect(result.status).toBe(0);
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        query: "alpha",
+        totalMatches: 2,
+        matches: [
+          {
+            questId: "q-3",
+          },
+        ],
+      });
+      const parsed = JSON.parse(result.stdout) as {
+        matches: Array<{ matchedField: string; feedbackAuthor?: string }>;
+      };
+      expect(parsed.matches).toHaveLength(1);
+      expect(["description", "feedback[0]"]).toContain(parsed.matches[0]?.matchedField);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("fails fast on invalid regex patterns with a clear error", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "quest-grep-invalid-"));
+    const questDir = join(tmp, ".companion", "questmaster");
+    mkdirSync(questDir, { recursive: true });
+
+    writeFileSync(
+      join(questDir, "q-4-v1.json"),
+      JSON.stringify(
+        {
+          id: "q-4-v1",
+          questId: "q-4",
+          version: 1,
+          title: "Regex failure quest",
+          createdAt: 4,
+          status: "refined",
+          description: "This data should not be searched when the pattern is invalid.",
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+
+    try {
+      const result = await runQuest(
+        ["grep", "foo[bar"],
+        {
+          ...process.env,
+          COMPANION_PORT: undefined,
+          COMPANION_SESSION_ID: undefined,
+          COMPANION_AUTH_TOKEN: undefined,
+          HOME: tmp,
+        },
+        tmp,
+      );
+
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain('Error: Invalid regex pattern "foo[bar"');
+      expect(result.stdout).not.toContain("No quest matches");
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }

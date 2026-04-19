@@ -46,6 +46,7 @@ import {
 } from "../server/quest-store.js";
 import type { QuestmasterTask } from "../server/quest-types.js";
 import { applyQuestListFilters } from "../server/quest-list-filters.js";
+import { grepQuests } from "../server/quest-grep.js";
 import { getName } from "../server/session-names.js";
 import { formatQuestDetail, formatQuestLine, formatSessionLabel } from "./quest-format.js";
 import { fetchSessionMetadataMap, type SessionMetadata } from "./quest-session-metadata.js";
@@ -305,6 +306,11 @@ function out(data: unknown): void {
   console.log(JSON.stringify(data, null, 2));
 }
 
+function truncate(text: string, maxLen: number): string {
+  if (text.length <= maxLen) return text;
+  return `${text.slice(0, maxLen - 3)}...`;
+}
+
 function timeAgo(ts: number): string {
   const seconds = Math.floor((Date.now() - ts) / 1000);
   if (seconds < 60) return `${seconds}s ago`;
@@ -414,6 +420,16 @@ function parseCommitShasFromFlags(): string[] {
   return result;
 }
 
+function parsePositiveIntegerFlag(name: string, fallback: number, label: string): number {
+  const value = option(name);
+  if (value === undefined) return fallback;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0 || !Number.isInteger(parsed)) {
+    die(`--${name} must be a positive integer for ${label}`);
+  }
+  return parsed;
+}
+
 async function uploadQuestImage(port: string, rawPath: string): Promise<QuestImageRef> {
   const filePath = resolve(rawPath);
   const data = await readFile(filePath);
@@ -483,6 +499,63 @@ async function cmdShow(): Promise<void> {
   }
   const sessionMetadata = await getSessionMetadataMap();
   console.log(formatQuestDetail(quest, sessionMetadata, { currentSessionId, getSessionName: getName }));
+}
+
+async function cmdGrep(): Promise<void> {
+  validateFlags(["count", "json"]);
+  const limit = parsePositiveIntegerFlag("count", 50, "match count");
+
+  const flagConsumed = new Set<number>();
+  for (let i = 1; i < args.length; i++) {
+    if (!args[i].startsWith("--")) continue;
+    flagConsumed.add(i);
+    if (args[i + 1] !== undefined && !args[i + 1].startsWith("--")) {
+      flagConsumed.add(i + 1);
+      i += 1;
+    }
+  }
+
+  const query = args
+    .slice(1)
+    .filter((_, index) => !flagConsumed.has(index + 1))
+    .join(" ")
+    .trim();
+
+  if (!query) die("Usage: quest grep <pattern> [--count N] [--json]");
+
+  let result;
+  try {
+    result = grepQuests(await listQuests(), query, { limit });
+  } catch (error) {
+    die(error instanceof Error ? error.message : String(error));
+  }
+  if (jsonOutput) {
+    out(result);
+    return;
+  }
+
+  if (result.totalMatches === 0) {
+    console.log(`No quest matches for "${query}".`);
+    if (result.warning) console.log(`Hint: ${result.warning}`);
+    return;
+  }
+
+  const shown = result.matches.length;
+  console.log(
+    `${result.totalMatches} quest match${result.totalMatches === 1 ? "" : "es"} for "${query}"${shown < result.totalMatches ? ` (showing first ${shown})` : ""}:`,
+  );
+  console.log("");
+
+  for (const match of result.matches) {
+    const title = truncate(match.title, 48);
+    const fieldSuffix = match.feedbackAuthor ? ` (${match.feedbackAuthor})` : "";
+    console.log(`  ${match.questId.padEnd(6)} ${title}`);
+    console.log(`        field: ${match.matchedField}${fieldSuffix}`);
+    console.log(`        snippet: ${truncate(match.snippet, 140)}`);
+    console.log("");
+  }
+
+  if (result.warning) console.log(`Hint: ${result.warning}`);
 }
 
 async function cmdHistory(): Promise<void> {
@@ -1173,6 +1246,7 @@ Commands:
   list   [--status <s1,s2>] [--tag <t>] [--tags "t1,t2"] [--session <sid>] [--text <q>] [--verification <scope>] [--json]
                                                          List quests with optional filters
   mine   [--json]                                        List quests owned by current session
+  grep   <pattern> [--count N] [--json]                  Search quest title, description, and feedback
   show   <id> [--json]                                   Show quest detail
   history <id> [--json]                                  Show version history
   tags   [--json]                                        List all existing tags with counts
@@ -1215,6 +1289,8 @@ async function main(): Promise<void> {
       return cmdList();
     case "mine":
       return cmdMine();
+    case "grep":
+      return cmdGrep();
     case "show":
       return cmdShow();
     case "history":
