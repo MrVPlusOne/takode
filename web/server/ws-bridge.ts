@@ -8810,7 +8810,7 @@ export class WsBridge {
           }
         } else {
           const effectiveWasGenerating = preMarkedImageRunning ? wasGeneratingBeforeUserMessage : !!ingested?.wasGenerating;
-          if (session.codexAdapter && effectiveWasGenerating) {
+          if (session.codexAdapter && effectiveWasGenerating && session.isGenerating) {
             this.persistSession(session);
           } else {
             this.queueCodexPendingStartBatch(session, "browser_user_message");

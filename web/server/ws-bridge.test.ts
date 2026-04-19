@@ -16472,6 +16472,85 @@ describe("Codex image transport", () => {
     expect(firstDispatch.inputs[0]?.content).toContain("Attachment 2:");
   });
 
+  it("dispatches an image-bearing follow-up if the current Codex turn finishes before async image ingest completes", async () => {
+    const adapter = makeCodexAdapterMock();
+    const imageStoreGate = deferred<{ imageId: string; media_type: string }>();
+    const mockImageStore = {
+      store: vi.fn().mockReturnValue(imageStoreGate.promise),
+    };
+    bridge.setImageStore(mockImageStore as any);
+    bridge.attachCodexAdapter("s1", adapter as any);
+    emitCodexSessionReady(adapter, { cliSessionId: "thread-image-overlap" });
+
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    await bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "user_message",
+        content: "finish the current answer",
+      }),
+    );
+    await Promise.resolve();
+    adapter.emitTurnStarted("turn-current");
+
+    adapter.sendBrowserMessage.mockClear();
+    browser.send.mockClear();
+
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "user_message",
+        content: "inspect this screenshot after the current sentence",
+        images: [{ media_type: "image/png", data: "overlap-image-data" }],
+      }),
+    );
+    await Promise.resolve();
+
+    adapter.getCurrentTurnId.mockReturnValue(null);
+    adapter.emitBrowserMessage({
+      type: "result",
+      data: {
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result: "done",
+        duration_ms: 1200,
+        duration_api_ms: 1200,
+        num_turns: 1,
+        total_cost_usd: 0,
+        stop_reason: "completed",
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        uuid: "codex-overlap-result",
+        session_id: "s1",
+        codex_turn_id: "turn-current",
+      },
+    } as any);
+    await flush();
+
+    expect(bridge.getSession("s1")!.isGenerating).toBe(false);
+    expect(adapter.sendBrowserMessage).not.toHaveBeenCalled();
+
+    imageStoreGate.resolve({ imageId: "img-overlap", media_type: "image/png" });
+    await flush();
+
+    expect(adapter.sendBrowserMessage).toHaveBeenCalledTimes(1);
+    const firstDispatch = adapter.sendBrowserMessage.mock.calls[0]?.[0] as any;
+    expect(firstDispatch?.type).toBe("codex_start_pending");
+    expect(firstDispatch.inputs[0]?.content).toContain("inspect this screenshot after the current sentence");
+    expect(firstDispatch.inputs[0]?.content).toContain(
+      `Attachment 1: ${join(homedir(), ".companion", "images", "s1", "img-overlap.orig.png")}`,
+    );
+
+    const session = bridge.getSession("s1")!;
+    expect(session.pendingCodexInputs).toHaveLength(1);
+    expect(getPendingCodexTurn(session)).toMatchObject({
+      status: "dispatched",
+      userContent: expect.stringContaining("inspect this screenshot after the current sentence"),
+    });
+  });
+
   it("queues injected herd events behind an in-flight delayed image send", async () => {
     const adapter = makeCodexAdapterMock();
     const imageStoreGate = deferred<{ imageId: string; media_type: string }>();
