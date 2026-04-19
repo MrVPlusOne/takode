@@ -8269,6 +8269,108 @@ describe("Takode server-authoritative auth", () => {
     });
   });
 
+  it("returns all active timers for the browser timers view", async () => {
+    // Verifies the scheduled page can load every live timer in one request,
+    // grouped with enough session metadata to navigate back into each session.
+    launcher.listSessions.mockReturnValue([
+      { sessionId: "worker-1", state: "connected", cwd: "/repo/a", backendType: "claude", name: "Build Fixer" },
+      { sessionId: "worker-2", state: "starting", cwd: "/repo/b", backendType: "codex", name: "Docs Pass" },
+      { sessionId: "worker-3", state: "connected", cwd: "/repo/c", backendType: "claude", name: "No Timers" },
+    ]);
+    launcher.getSessionNum.mockImplementation((sessionId: string) =>
+      sessionId === "worker-1" ? 12 : sessionId === "worker-2" ? 18 : undefined,
+    );
+    bridge.getAllSessions.mockReturnValue([
+      { session_id: "worker-1", git_branch: "fix/build", backend_type: "claude" },
+      { session_id: "worker-2", git_branch: "docs/timers", backend_type: "codex" },
+    ]);
+    bridge.getSession.mockImplementation((sessionId: string) =>
+      sessionId === "worker-1" ? ({ isGenerating: true } as any) : null,
+    );
+    bridge.isBackendConnected.mockImplementation((sessionId: string) => sessionId !== "worker-2");
+    timerManager.listTimers.mockImplementation((sessionId: string) => {
+      if (sessionId === "worker-1") {
+        return [
+          {
+            id: "t2",
+            sessionId,
+            title: "Second timer",
+            description: "later",
+            type: "delay",
+            originalSpec: "30m",
+            nextFireAt: 1_700_000_300_000,
+            createdAt: 1_700_000_000_000,
+            fireCount: 0,
+          },
+          {
+            id: "t1",
+            sessionId,
+            title: "First timer",
+            description: "soonest in worker-1",
+            type: "delay",
+            originalSpec: "5m",
+            nextFireAt: 1_700_000_100_000,
+            createdAt: 1_700_000_000_000,
+            fireCount: 0,
+          },
+        ];
+      }
+      if (sessionId === "worker-2") {
+        return [
+          {
+            id: "t9",
+            sessionId,
+            title: "Disconnected timer",
+            description: "still visible",
+            type: "recurring",
+            originalSpec: "10m",
+            nextFireAt: 1_700_000_200_000,
+            intervalMs: 600_000,
+            createdAt: 1_700_000_000_000,
+            fireCount: 4,
+          },
+        ];
+      }
+      return [];
+    });
+    vi.mocked(sessionNames.getAllNames).mockReturnValue({
+      "worker-1": "Build Fixer",
+      "worker-2": "Docs Pass",
+      "worker-3": "No Timers",
+    });
+
+    const res = await app.request("/api/timers/active", { method: "GET" });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual([
+      {
+        sessionId: "worker-1",
+        sessionNum: 12,
+        name: "Build Fixer",
+        backendType: "claude",
+        state: "running",
+        cliConnected: true,
+        cwd: "/repo/a",
+        gitBranch: "fix/build",
+        timers: [
+          expect.objectContaining({ id: "t1", nextFireAt: 1_700_000_100_000 }),
+          expect.objectContaining({ id: "t2", nextFireAt: 1_700_000_300_000 }),
+        ],
+      },
+      {
+        sessionId: "worker-2",
+        sessionNum: 18,
+        name: "Docs Pass",
+        backendType: "codex",
+        state: "starting",
+        cliConnected: false,
+        cwd: "/repo/b",
+        gitBranch: "docs/timers",
+        timers: [expect.objectContaining({ id: "t9", nextFireAt: 1_700_000_200_000 })],
+      },
+    ]);
+  });
+
   it("returns session timers via takode auth", async () => {
     // Verifies the dedicated timer inspection endpoint stays protected by Takode
     // auth while returning the raw timer details needed by takode timers.

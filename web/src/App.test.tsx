@@ -107,8 +107,8 @@ vi.mock("./components/EnvManager.js", () => ({
   EnvManager: () => <div data-testid="env-manager" />,
 }));
 
-vi.mock("./components/CronManager.js", () => ({
-  CronManager: () => <div data-testid="cron-manager" />,
+vi.mock("./components/ActiveTimersPage.js", () => ({
+  ActiveTimersPage: () => <div data-testid="active-timers-page" />,
 }));
 
 vi.mock("./components/TerminalPage.js", () => ({
@@ -165,5 +165,14 @@ describe("App hidden panels", () => {
 
     expect(screen.getByTestId("sidebar")).toBeInTheDocument();
     expect(screen.getByTestId("task-panel")).toBeInTheDocument();
+  });
+
+  it("mounts ActiveTimersPage on the scheduled route", () => {
+    window.location.hash = "#/scheduled";
+
+    render(<App />);
+
+    expect(screen.getByTestId("active-timers-page")).toBeInTheDocument();
+    expect(screen.queryByTestId("chat-view")).toBeNull();
   });
 });

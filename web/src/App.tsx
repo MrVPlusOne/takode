@@ -21,7 +21,7 @@ import { Playground } from "./components/Playground.js";
 import { SettingsPage } from "./components/SettingsPage.js";
 import { LogsPage } from "./components/LogsPage.js";
 import { EnvManager } from "./components/EnvManager.js";
-import { CronManager } from "./components/CronManager.js";
+import { ActiveTimersPage } from "./components/ActiveTimersPage.js";
 import { TerminalPage } from "./components/TerminalPage.js";
 import { SessionCreationView } from "./components/SessionCreationView.js";
 import { NewSessionModal } from "./components/NewSessionModal.js";
@@ -350,7 +350,7 @@ export default function App() {
 
           {isScheduledPage && (
             <div className="absolute inset-0">
-              <CronManager embedded />
+              <ActiveTimersPage embedded />
             </div>
           )}
 

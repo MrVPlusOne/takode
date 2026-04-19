@@ -44,7 +44,7 @@ primarily organized by feature area rather than strict design-system layering.
 
 - `NewSessionModal.tsx` / `SessionCreationView.tsx` / `SessionCreationProgress.tsx`
   - New session flow and progress states.
-- `SettingsPage.tsx`, `EnvManager.tsx`, `CronManager.tsx`, `TerminalPage.tsx`, `QuestmasterPage.tsx`
+- `SettingsPage.tsx`, `EnvManager.tsx`, `ActiveTimersPage.tsx`, `TerminalPage.tsx`, `QuestmasterPage.tsx`
   - App-level management pages.
 - `Playground.tsx`
   - Visual/component state sandbox for chat-related UI.

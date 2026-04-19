@@ -1,9 +1,48 @@
 import { Hono } from "hono";
+import * as sessionNames from "../session-names.js";
 import type { RouteContext } from "./context.js";
 
 export function createTimerRoutes(ctx: RouteContext) {
   const api = new Hono();
-  const { wsBridge, authenticateTakodeCaller, resolveId } = ctx;
+  const { launcher, wsBridge, authenticateTakodeCaller, resolveId } = ctx;
+
+  // GET /api/timers/active — list all active timers for the browser UI
+  api.get("/timers/active", async (c) => {
+    if (!ctx.timerManager) return c.json({ error: "Timer manager not available" }, 503);
+
+    const names = sessionNames.getAllNames();
+    const bridgeStates = wsBridge.getAllSessions();
+    const bridgeMap = new Map(bridgeStates.map((state) => [state.session_id, state]));
+    const sessions = launcher.listSessions();
+
+    const activeTimers = sessions
+      .filter((session) => !session.archived)
+      .map((session) => {
+        const timers = [...ctx.timerManager!.listTimers(session.sessionId)].sort((a, b) => a.nextFireAt - b.nextFireAt);
+        if (timers.length === 0) return null;
+
+        const bridge = bridgeMap.get(session.sessionId);
+        const bridgeSession = wsBridge.getSession(session.sessionId);
+        const cliConnected = wsBridge.isBackendConnected(session.sessionId);
+        const effectiveState = cliConnected && bridgeSession?.isGenerating ? "running" : session.state;
+
+        return {
+          sessionId: session.sessionId,
+          sessionNum: launcher.getSessionNum(session.sessionId) ?? null,
+          name: names[session.sessionId] ?? session.name,
+          backendType: bridge?.backend_type || session.backendType || "claude",
+          state: effectiveState,
+          cliConnected,
+          cwd: session.cwd,
+          gitBranch: bridge?.git_branch || "",
+          timers,
+        };
+      })
+      .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+      .sort((a, b) => a.timers[0]!.nextFireAt - b.timers[0]!.nextFireAt);
+
+    return c.json(activeTimers);
+  });
 
   // POST /api/sessions/:id/timers — create a timer
   api.post("/sessions/:id/timers", async (c) => {

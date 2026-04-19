@@ -1462,7 +1462,7 @@ export function Sidebar() {
             </svg>
           </button>
           <button
-            title="Scheduled"
+            title="Timers"
             onClick={() => {
               if (isScheduledPage) {
                 const sessionId = useStore.getState().currentSessionId;

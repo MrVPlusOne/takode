@@ -222,6 +222,18 @@ export interface BackendModelInfo {
   description: string;
 }
 
+export interface ActiveTimerSession {
+  sessionId: string;
+  sessionNum: number | null;
+  name?: string;
+  backendType: "claude" | "codex" | "claude-sdk";
+  state: string;
+  cliConnected: boolean;
+  cwd: string;
+  gitBranch: string;
+  timers: import("./types.js").SessionTimer[];
+}
+
 export interface GitRepoInfo {
   repoRoot: string;
   repoName: string;
@@ -678,6 +690,8 @@ export const api = {
     post<{ ok: boolean; archived: number; failed: number }>(`/sessions/${encodeURIComponent(sessionId)}/archive-group`),
 
   unarchiveSession: (sessionId: string) => post(`/sessions/${encodeURIComponent(sessionId)}/unarchive`),
+
+  listActiveTimers: () => get<ActiveTimerSession[]>("/timers/active"),
 
   cancelTimer: (sessionId: string, timerId: string) =>
     del(`/sessions/${encodeURIComponent(sessionId)}/timers/${encodeURIComponent(timerId)}`),
