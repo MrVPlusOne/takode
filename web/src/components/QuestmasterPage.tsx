@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo, useSyncExternalStore } from "react";
+import { memo, useState, useEffect, useCallback, useRef, useMemo, useSyncExternalStore } from "react";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
 import { questIdFromHash, withoutQuestIdInHash } from "../utils/routing.js";
@@ -92,6 +92,25 @@ function parseQuestSearchQuery(query: string): { searchText: string; negatedTags
 
 type EditorTarget = "newTitle" | "newDescription";
 
+function renderSearchHighlightText(text: string, searchText: string): React.ReactNode {
+  if (!searchText) return text;
+  const parts = getHighlightParts(text, searchText);
+  if (!parts.some((part) => part.matched)) return text;
+  return (
+    <>
+      {parts.map((part, index) =>
+        part.matched ? (
+          <mark key={`${part.text}-${index}`} className="bg-amber-300/25 text-amber-100 rounded-[2px] px-0.5">
+            {part.text}
+          </mark>
+        ) : (
+          <span key={`${part.text}-${index}`}>{part.text}</span>
+        ),
+      )}
+    </>
+  );
+}
+
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
@@ -114,7 +133,6 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
   const questsLoading = useStore((s) => s.questsLoading);
   const refreshQuests = useStore((s) => s.refreshQuests);
   const setQuests = useStore((s) => s.setQuests);
-  const replaceQuest = useStore((s) => s.replaceQuest);
   const questOverlayId = useStore((s) => s.questOverlayId);
 
   const [filter, setFilter] = useState<Set<QuestStatus>>(() => {
@@ -171,41 +189,47 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
   const searchText = parsedSearch.searchText;
   const negatedTags = parsedSearch.negatedTags;
 
-  // Load quests on mount, poll periodically as a fallback for cases where
-  // no session WebSocket is open (the `quest_list_updated` broadcast only
-  // reaches browsers that have an active session WS connection), and refetch
-  // when the tab regains visibility so switching back always shows fresh data.
+  // Load quests on mount, pause polling entirely while hidden, and resume with
+  // a foreground refresh when the tab becomes visible again.
   useEffect(() => {
     if (!isActive) return;
-    refreshQuests();
+    let timeoutId: number | null = null;
 
-    // Poll every 5 seconds as a fallback — lightweight GET that only triggers
-    // a React re-render when the returned data differs (Zustand shallow check).
-    const interval = setInterval(() => {
-      refreshQuests({ background: true });
-    }, 5_000);
+    const scheduleNextPoll = () => {
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+      if (document.visibilityState !== "visible") return;
+      timeoutId = window.setTimeout(() => {
+        void refreshQuests({ background: true });
+        scheduleNextPoll();
+      }, 5_000);
+    };
 
-    // Refetch when the tab becomes visible again (e.g. user switches back)
+    void refreshQuests();
+    scheduleNextPoll();
+
     function handleVisibility() {
       if (document.visibilityState === "visible") {
-        refreshQuests();
+        void refreshQuests();
+        scheduleNextPoll();
+      } else if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+        timeoutId = null;
       }
     }
     document.addEventListener("visibilitychange", handleVisibility);
 
-    // Refetch on window focus (covers cases where visibilitychange doesn't fire,
-    // e.g. switching between windows on the same desktop)
     function handleFocus() {
-      refreshQuests();
+      void refreshQuests();
+      scheduleNextPoll();
     }
     window.addEventListener("focus", handleFocus);
 
     return () => {
-      clearInterval(interval);
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
       document.removeEventListener("visibilitychange", handleVisibility);
       window.removeEventListener("focus", handleFocus);
     };
-  }, [isActive]);
+  }, [isActive, refreshQuests]);
 
   const refreshServerViewMode = useCallback(async () => {
     try {
@@ -641,25 +665,6 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
       // Enable collapsible groups when multiple statuses are visible
       ...(filter.size > 1 ? { collapseGroup: status } : {}),
     });
-  }
-
-  function renderSearchHighlight(text: string): React.ReactNode {
-    if (!searchText) return text;
-    const parts = getHighlightParts(text, searchText);
-    if (!parts.some((part) => part.matched)) return text;
-    return (
-      <>
-        {parts.map((part, index) =>
-          part.matched ? (
-            <mark key={`${part.text}-${index}`} className="bg-amber-300/25 text-amber-100 rounded-[2px] px-0.5">
-              {part.text}
-            </mark>
-          ) : (
-            <span key={`${part.text}-${index}`}>{part.text}</span>
-          ),
-        )}
-      </>
-    );
   }
 
   function handleEditorAutocompleteKeyDown(e: { key: string; preventDefault: () => void }): boolean {
@@ -1222,11 +1227,7 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
           ) : (
             <>
               {viewMode === "compact" && (
-                <CompactQuestTable
-                  quests={compactQuests}
-                  onOpenQuest={handleExpand}
-                  renderSearchHighlight={renderSearchHighlight}
-                />
+                <CompactQuestTable quests={compactQuests} onOpenQuest={handleExpand} searchText={searchText} />
               )}
               <div
                 className={viewMode === "compact" ? "hidden" : "contents"}
@@ -1276,141 +1277,15 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
                         ))}
                       {(!isCollapsed || viewMode === "compact") && (
                         <div className="space-y-2">
-                          {section.quests.map((quest) => {
-                            const isCancelled = "cancelled" in quest && !!(quest as { cancelled?: boolean }).cancelled;
-                            const cfg = STATUS_CONFIG[quest.status];
-                            const isExpanded = questOverlayId === quest.questId;
-                            const isInboxVerification = isVerificationInboxUnread(quest);
-                            const hasVerification = "verificationItems" in quest && quest.verificationItems?.length > 0;
-                            const vProgress = hasVerification ? verificationProgress(quest.verificationItems) : null;
-                            const questSessionId = getQuestOwnerSessionId(quest);
-                            const feedbackEntries =
-                              "feedback" in quest ? (quest as { feedback?: QuestFeedbackEntry[] }).feedback : undefined;
-                            const unaddressedFeedbackCount =
-                              feedbackEntries?.filter((e) => e.author === "human" && !e.addressed).length ?? 0;
-                            const addressedFeedbackCount =
-                              feedbackEntries?.filter((e) => e.author === "human" && e.addressed).length ?? 0;
-
-                            return (
-                              <div key={quest.id}>
-                                <div
-                                  data-quest-id={quest.questId}
-                                  className={`border rounded-xl transition-colors ${
-                                    isExpanded
-                                      ? "bg-cc-card border-cc-primary/30"
-                                      : `bg-cc-card border-cc-border hover:border-cc-border/80 ${isCancelled ? "opacity-60" : ""}`
-                                  }`}
-                                >
-                                  {/* Card header */}
-                                  <div
-                                    role="button"
-                                    tabIndex={0}
-                                    onClick={() => handleExpand(quest)}
-                                    onKeyDown={(e) => {
-                                      if (e.key === "Enter" || e.key === " ") {
-                                        e.preventDefault();
-                                        handleExpand(quest);
-                                      }
-                                    }}
-                                    className="w-full flex items-center gap-3 px-4 py-3 text-left cursor-pointer group"
-                                  >
-                                    {/* Status dot */}
-                                    <span
-                                      className={`w-2 h-2 rounded-full shrink-0 ${isCancelled ? "bg-red-400" : cfg.dot}`}
-                                    />
-
-                                    {/* Title + meta */}
-                                    <div className="flex-1 min-w-0">
-                                      <div className="flex items-center gap-2">
-                                        <span
-                                          className={`text-sm font-medium ${isExpanded ? "" : "truncate"} ${isCancelled ? "text-cc-muted line-through" : "text-cc-fg"}`}
-                                        >
-                                          {renderSearchHighlight(quest.title)}
-                                        </span>
-                                        {quest.parentId && (
-                                          <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-cc-hover text-cc-muted shrink-0">
-                                            sub:{quest.parentId}
-                                          </span>
-                                        )}
-                                      </div>
-                                      <div className="flex items-center gap-2 mt-0.5">
-                                        <CopyableQuestId questId={quest.questId} className="text-[10px] text-cc-muted/50 shrink-0">
-                                          {renderSearchHighlight(quest.questId)}
-                                        </CopyableQuestId>
-                                        {isInboxVerification && (
-                                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-cc-hover text-cc-muted border border-cc-border flex items-center gap-1">
-                                            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
-                                            Inbox
-                                          </span>
-                                        )}
-                                        {questSessionId && <SessionNumChip sessionId={questSessionId} />}
-                                        {vProgress && (
-                                          <span className="text-[10px] text-cc-muted flex items-center gap-1">
-                                            <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
-                                              <path d="M8 2a6 6 0 100 12A6 6 0 008 2zM0 8a8 8 0 1116 0A8 8 0 010 8zm11.354-1.646a.5.5 0 00-.708-.708L7 9.293 5.354 7.646a.5.5 0 10-.708.708l2 2a.5.5 0 00.708 0l4-4z" />
-                                            </svg>
-                                            {vProgress.checked}/{vProgress.total}
-                                          </span>
-                                        )}
-                                        {(unaddressedFeedbackCount > 0 || addressedFeedbackCount > 0) && (
-                                          <span className="text-[10px] flex items-center gap-1.5">
-                                            {unaddressedFeedbackCount > 0 && (
-                                              <span
-                                                className="flex items-center gap-0.5 text-amber-400"
-                                                aria-label={`${unaddressedFeedbackCount} pending feedback`}
-                                              >
-                                                <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
-                                                  <path d="M2.5 2A1.5 1.5 0 001 3.5v8A1.5 1.5 0 002.5 13H5l3 3 3-3h2.5a1.5 1.5 0 001.5-1.5v-8A1.5 1.5 0 0013.5 2h-11z" />
-                                                </svg>
-                                                {unaddressedFeedbackCount}
-                                              </span>
-                                            )}
-                                            {addressedFeedbackCount > 0 && (
-                                              <span
-                                                className="flex items-center gap-0.5 text-emerald-400/70"
-                                                aria-label={`${addressedFeedbackCount} addressed feedback`}
-                                              >
-                                                <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
-                                                  <path d="M2.5 2A1.5 1.5 0 001 3.5v8A1.5 1.5 0 002.5 13H5l3 3 3-3h2.5a1.5 1.5 0 001.5-1.5v-8A1.5 1.5 0 0013.5 2h-11z" />
-                                                </svg>
-                                                {addressedFeedbackCount}
-                                              </span>
-                                            )}
-                                          </span>
-                                        )}
-                                        <span className="text-[10px] text-cc-muted/50">
-                                          {timeAgo((quest as { updatedAt?: number }).updatedAt ?? quest.createdAt)}
-                                        </span>
-                                      </div>
-                                      {quest.tags && quest.tags.length > 0 && (
-                                        <div className="flex items-center gap-1.5 mt-0.5">
-                                          {quest.tags.map((tag) => (
-                                            <span
-                                              key={tag}
-                                              className="text-[10px] px-1.5 py-0.5 rounded-full bg-cc-hover text-cc-muted"
-                                            >
-                                              {tag.toLowerCase()}
-                                            </span>
-                                          ))}
-                                        </div>
-                                      )}
-                                    </div>
-
-                                    {/* Expand chevron */}
-                                    <svg
-                                      viewBox="0 0 16 16"
-                                      fill="currentColor"
-                                      className={`w-3.5 h-3.5 text-cc-muted/40 group-hover:text-cc-muted transition-transform ${
-                                        isExpanded ? "rotate-90" : ""
-                                      }`}
-                                    >
-                                      <path d="M6 4l4 4-4 4" />
-                                    </svg>
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })}
+                          {section.quests.map((quest) => (
+                            <QuestCard
+                              key={quest.id}
+                              quest={quest}
+                              isExpanded={questOverlayId === quest.questId}
+                              onOpenQuest={handleExpand}
+                              searchText={searchText}
+                            />
+                          ))}
                         </div>
                       )}
                     </div>
@@ -1426,14 +1301,147 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
   );
 }
 
+const QuestCard = memo(function QuestCard({
+  quest,
+  isExpanded,
+  onOpenQuest,
+  searchText,
+}: {
+  quest: QuestmasterTask;
+  isExpanded: boolean;
+  onOpenQuest: (quest: QuestmasterTask) => void;
+  searchText: string;
+}) {
+  const isCancelled = "cancelled" in quest && !!(quest as { cancelled?: boolean }).cancelled;
+  const cfg = STATUS_CONFIG[quest.status];
+  const isInboxVerification = isVerificationInboxUnread(quest);
+  const hasVerification = "verificationItems" in quest && quest.verificationItems?.length > 0;
+  const vProgress = hasVerification ? verificationProgress(quest.verificationItems) : null;
+  const questSessionId = getQuestOwnerSessionId(quest);
+  const feedbackEntries = "feedback" in quest ? (quest as { feedback?: QuestFeedbackEntry[] }).feedback : undefined;
+  const unaddressedFeedbackCount = feedbackEntries?.filter((entry) => entry.author === "human" && !entry.addressed).length ?? 0;
+  const addressedFeedbackCount = feedbackEntries?.filter((entry) => entry.author === "human" && entry.addressed).length ?? 0;
+
+  return (
+    <div>
+      <div
+        data-quest-id={quest.questId}
+        className={`border rounded-xl transition-colors ${
+          isExpanded
+            ? "bg-cc-card border-cc-primary/30"
+            : `bg-cc-card border-cc-border hover:border-cc-border/80 ${isCancelled ? "opacity-60" : ""}`
+        }`}
+      >
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => onOpenQuest(quest)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              onOpenQuest(quest);
+            }
+          }}
+          className="w-full flex items-center gap-3 px-4 py-3 text-left cursor-pointer group"
+        >
+          <span className={`w-2 h-2 rounded-full shrink-0 ${isCancelled ? "bg-red-400" : cfg.dot}`} />
+
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <span
+                className={`text-sm font-medium ${isExpanded ? "" : "truncate"} ${isCancelled ? "text-cc-muted line-through" : "text-cc-fg"}`}
+              >
+                {renderSearchHighlightText(quest.title, searchText)}
+              </span>
+              {quest.parentId && (
+                <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-cc-hover text-cc-muted shrink-0">
+                  sub:{quest.parentId}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2 mt-0.5">
+              <CopyableQuestId questId={quest.questId} className="text-[10px] text-cc-muted/50 shrink-0">
+                {renderSearchHighlightText(quest.questId, searchText)}
+              </CopyableQuestId>
+              {isInboxVerification && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-cc-hover text-cc-muted border border-cc-border flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+                  Inbox
+                </span>
+              )}
+              {questSessionId && <SessionNumChip sessionId={questSessionId} />}
+              {vProgress && (
+                <span className="text-[10px] text-cc-muted flex items-center gap-1">
+                  <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
+                    <path d="M8 2a6 6 0 100 12A6 6 0 008 2zM0 8a8 8 0 1116 0A8 8 0 010 8zm11.354-1.646a.5.5 0 00-.708-.708L7 9.293 5.354 7.646a.5.5 0 10-.708.708l2 2a.5.5 0 00.708 0l4-4z" />
+                  </svg>
+                  {vProgress.checked}/{vProgress.total}
+                </span>
+              )}
+              {(unaddressedFeedbackCount > 0 || addressedFeedbackCount > 0) && (
+                <span className="text-[10px] flex items-center gap-1.5">
+                  {unaddressedFeedbackCount > 0 && (
+                    <span
+                      className="flex items-center gap-0.5 text-amber-400"
+                      aria-label={`${unaddressedFeedbackCount} pending feedback`}
+                    >
+                      <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
+                        <path d="M2.5 2A1.5 1.5 0 001 3.5v8A1.5 1.5 0 002.5 13H5l3 3 3-3h2.5a1.5 1.5 0 001.5-1.5v-8A1.5 1.5 0 0013.5 2h-11z" />
+                      </svg>
+                      {unaddressedFeedbackCount}
+                    </span>
+                  )}
+                  {addressedFeedbackCount > 0 && (
+                    <span
+                      className="flex items-center gap-0.5 text-emerald-400/70"
+                      aria-label={`${addressedFeedbackCount} addressed feedback`}
+                    >
+                      <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
+                        <path d="M2.5 2A1.5 1.5 0 001 3.5v8A1.5 1.5 0 002.5 13H5l3 3 3-3h2.5a1.5 1.5 0 001.5-1.5v-8A1.5 1.5 0 0013.5 2h-11z" />
+                      </svg>
+                      {addressedFeedbackCount}
+                    </span>
+                  )}
+                </span>
+              )}
+              <span className="text-[10px] text-cc-muted/50">
+                {timeAgo((quest as { updatedAt?: number }).updatedAt ?? quest.createdAt)}
+              </span>
+            </div>
+            {quest.tags && quest.tags.length > 0 && (
+              <div className="flex items-center gap-1.5 mt-0.5">
+                {quest.tags.map((tag) => (
+                  <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded-full bg-cc-hover text-cc-muted">
+                    {tag.toLowerCase()}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <svg
+            viewBox="0 0 16 16"
+            fill="currentColor"
+            className={`w-3.5 h-3.5 text-cc-muted/40 group-hover:text-cc-muted transition-transform ${
+              isExpanded ? "rotate-90" : ""
+            }`}
+          >
+            <path d="M6 4l4 4-4 4" />
+          </svg>
+        </div>
+      </div>
+    </div>
+  );
+});
+
 function CompactQuestTable({
   quests,
   onOpenQuest,
-  renderSearchHighlight,
+  searchText,
 }: {
   quests: QuestmasterTask[];
   onOpenQuest: (quest: QuestmasterTask) => void;
-  renderSearchHighlight: (text: string) => React.ReactNode;
+  searchText: string;
 }) {
   return (
     <div className="overflow-x-auto rounded-xl border border-cc-border bg-cc-card">
@@ -1450,101 +1458,102 @@ function CompactQuestTable({
           </tr>
         </thead>
         <tbody>
-          {quests.map((quest) => {
-            const isCancelled = "cancelled" in quest && !!(quest as { cancelled?: boolean }).cancelled;
-            const cfg = STATUS_CONFIG[quest.status];
-            const questSessionId = getQuestOwnerSessionId(quest);
-            const hasVerification = "verificationItems" in quest && quest.verificationItems?.length > 0;
-            const vProgress = hasVerification ? verificationProgress(quest.verificationItems) : null;
-            const feedbackEntries =
-              "feedback" in quest ? (quest as { feedback?: QuestFeedbackEntry[] }).feedback : undefined;
-            const unaddressedFeedbackCount =
-              feedbackEntries?.filter((entry) => entry.author === "human" && !entry.addressed).length ?? 0;
-            const totalFeedbackCount = feedbackEntries?.filter((entry) => entry.author === "human").length ?? 0;
-            const isInboxVerification = isVerificationInboxUnread(quest);
-
-            return (
-              <tr
-                key={quest.id}
-                data-quest-id={quest.questId}
-                role="button"
-                tabIndex={0}
-                onClick={() => onOpenQuest(quest)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    onOpenQuest(quest);
-                  }
-                }}
-                className={`group border-b border-cc-border last:border-0 hover:bg-cc-hover/30 focus-visible:bg-cc-hover/40 focus-visible:outline-none cursor-pointer ${
-                  isCancelled ? "opacity-60" : ""
-                }`}
-              >
-                <td className="px-3 py-1.5 whitespace-nowrap align-middle">
-                  <CopyableQuestId
-                    questId={quest.questId}
-                    className="font-mono-code text-blue-400 group-hover:text-blue-300"
-                    onClick={(e) => {
-                      e.preventDefault();
-                    }}
-                  >
-                    {renderSearchHighlight(quest.questId)}
-                  </CopyableQuestId>
-                </td>
-                <td className="px-3 py-1.5 align-middle">
-                  <div
-                    className={`max-w-[360px] truncate font-medium ${
-                      isCancelled ? "text-cc-muted line-through" : "text-cc-fg"
-                    }`}
-                  >
-                    {renderSearchHighlight(quest.title)}
-                  </div>
-                  {quest.tags && quest.tags.length > 0 && (
-                    <div className="mt-0.5 flex items-center gap-1 overflow-hidden text-[10px] text-cc-muted/60">
-                      {quest.tags.slice(0, 3).map((tag) => (
-                        <span key={tag} className="truncate">
-                          #{tag.toLowerCase()}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </td>
-                <td className="px-3 py-1.5 whitespace-nowrap align-middle">
-                  {questSessionId ? (
-                    <SessionNumChip sessionId={questSessionId} />
-                  ) : (
-                    <span className="text-cc-muted">{"\u2014"}</span>
-                  )}
-                </td>
-                <td className="px-3 py-1.5 whitespace-nowrap align-middle">
-                  <span className="inline-flex items-center gap-1.5 text-cc-muted">
-                    <span className={`h-1.5 w-1.5 rounded-full ${isCancelled ? "bg-red-400" : cfg.dot}`} />
-                    <span>{isCancelled ? "Cancelled" : cfg.label}</span>
-                    {isInboxVerification && <span className="text-amber-300">Inbox</span>}
-                  </span>
-                </td>
-                <td className="px-3 py-1.5 whitespace-nowrap align-middle text-cc-muted tabular-nums">
-                  {vProgress ? `${vProgress.checked}/${vProgress.total}` : "\u2014"}
-                </td>
-                <td className="px-3 py-1.5 whitespace-nowrap align-middle tabular-nums">
-                  {totalFeedbackCount > 0 ? (
-                    <span className={unaddressedFeedbackCount > 0 ? "text-amber-400" : "text-emerald-400/70"}>
-                      {unaddressedFeedbackCount > 0
-                        ? `${unaddressedFeedbackCount} open / ${totalFeedbackCount}`
-                        : `${totalFeedbackCount} addressed`}
-                    </span>
-                  ) : (
-                    <span className="text-cc-muted">{"\u2014"}</span>
-                  )}
-                </td>
-                <td className="px-3 py-1.5 whitespace-nowrap align-middle text-cc-muted/70">
-                  {timeAgo((quest as { updatedAt?: number }).updatedAt ?? quest.createdAt)}
-                </td>
-              </tr>
-            );
-          })}
+          {quests.map((quest) => (
+            <CompactQuestRow key={quest.id} quest={quest} onOpenQuest={onOpenQuest} searchText={searchText} />
+          ))}
         </tbody>
       </table>
     </div>
   );
 }
+
+const CompactQuestRow = memo(function CompactQuestRow({
+  quest,
+  onOpenQuest,
+  searchText,
+}: {
+  quest: QuestmasterTask;
+  onOpenQuest: (quest: QuestmasterTask) => void;
+  searchText: string;
+}) {
+  const isCancelled = "cancelled" in quest && !!(quest as { cancelled?: boolean }).cancelled;
+  const cfg = STATUS_CONFIG[quest.status];
+  const questSessionId = getQuestOwnerSessionId(quest);
+  const hasVerification = "verificationItems" in quest && quest.verificationItems?.length > 0;
+  const vProgress = hasVerification ? verificationProgress(quest.verificationItems) : null;
+  const feedbackEntries = "feedback" in quest ? (quest as { feedback?: QuestFeedbackEntry[] }).feedback : undefined;
+  const unaddressedFeedbackCount = feedbackEntries?.filter((entry) => entry.author === "human" && !entry.addressed).length ?? 0;
+  const totalFeedbackCount = feedbackEntries?.filter((entry) => entry.author === "human").length ?? 0;
+  const isInboxVerification = isVerificationInboxUnread(quest);
+
+  return (
+    <tr
+      data-quest-id={quest.questId}
+      role="button"
+      tabIndex={0}
+      onClick={() => onOpenQuest(quest)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpenQuest(quest);
+        }
+      }}
+      className={`group border-b border-cc-border last:border-0 hover:bg-cc-hover/30 focus-visible:bg-cc-hover/40 focus-visible:outline-none cursor-pointer ${
+        isCancelled ? "opacity-60" : ""
+      }`}
+    >
+      <td className="px-3 py-1.5 whitespace-nowrap align-middle">
+        <CopyableQuestId
+          questId={quest.questId}
+          className="font-mono-code text-blue-400 group-hover:text-blue-300"
+          onClick={(e) => {
+            e.preventDefault();
+          }}
+        >
+          {renderSearchHighlightText(quest.questId, searchText)}
+        </CopyableQuestId>
+      </td>
+      <td className="px-3 py-1.5 align-middle">
+        <div className={`max-w-[360px] truncate font-medium ${isCancelled ? "text-cc-muted line-through" : "text-cc-fg"}`}>
+          {renderSearchHighlightText(quest.title, searchText)}
+        </div>
+        {quest.tags && quest.tags.length > 0 && (
+          <div className="mt-0.5 flex items-center gap-1 overflow-hidden text-[10px] text-cc-muted/60">
+            {quest.tags.slice(0, 3).map((tag) => (
+              <span key={tag} className="truncate">
+                #{tag.toLowerCase()}
+              </span>
+            ))}
+          </div>
+        )}
+      </td>
+      <td className="px-3 py-1.5 whitespace-nowrap align-middle">
+        {questSessionId ? <SessionNumChip sessionId={questSessionId} /> : <span className="text-cc-muted">{"\u2014"}</span>}
+      </td>
+      <td className="px-3 py-1.5 whitespace-nowrap align-middle">
+        <span className="inline-flex items-center gap-1.5 text-cc-muted">
+          <span className={`h-1.5 w-1.5 rounded-full ${isCancelled ? "bg-red-400" : cfg.dot}`} />
+          <span>{isCancelled ? "Cancelled" : cfg.label}</span>
+          {isInboxVerification && <span className="text-amber-300">Inbox</span>}
+        </span>
+      </td>
+      <td className="px-3 py-1.5 whitespace-nowrap align-middle text-cc-muted tabular-nums">
+        {vProgress ? `${vProgress.checked}/${vProgress.total}` : "\u2014"}
+      </td>
+      <td className="px-3 py-1.5 whitespace-nowrap align-middle tabular-nums">
+        {totalFeedbackCount > 0 ? (
+          <span className={unaddressedFeedbackCount > 0 ? "text-amber-400" : "text-emerald-400/70"}>
+            {unaddressedFeedbackCount > 0
+              ? `${unaddressedFeedbackCount} open / ${totalFeedbackCount}`
+              : `${totalFeedbackCount} addressed`}
+          </span>
+        ) : (
+          <span className="text-cc-muted">{"\u2014"}</span>
+        )}
+      </td>
+      <td className="px-3 py-1.5 whitespace-nowrap align-middle text-cc-muted/70">
+        {timeAgo((quest as { updatedAt?: number }).updatedAt ?? quest.createdAt)}
+      </td>
+    </tr>
+  );
+});

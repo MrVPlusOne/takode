@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 
+const mockListQuests = vi.fn();
+
 // vi.hoisted runs before any imports, ensuring browser globals are available when store.ts initializes.
 vi.hoisted(() => {
   // jsdom does not implement matchMedia
@@ -45,7 +47,18 @@ vi.hoisted(() => {
   }
 });
 
-import { useStore } from "./store.js";
+vi.mock("./api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./api.js")>();
+  return {
+    ...actual,
+    api: {
+      ...actual.api,
+      listQuests: (...args: unknown[]) => mockListQuests(...args),
+    },
+  };
+});
+
+import { resetQuestRefreshStateForTests, reconcileQuestList, useStore } from "./store.js";
 import type { SessionState, PermissionRequest, ChatMessage, TaskItem, SdkSessionInfo } from "./types.js";
 
 function makeSession(id: string): SessionState {
@@ -106,8 +119,22 @@ function makeTask(overrides: Partial<TaskItem> = {}): TaskItem {
   };
 }
 
+function makeQuest(overrides: Partial<import("./types.js").QuestmasterTask> = {}): import("./types.js").QuestmasterTask {
+  return {
+    id: "q-1-v1",
+    questId: "q-1",
+    version: 1,
+    title: "Quest",
+    createdAt: 1_000,
+    status: "idea",
+    ...overrides,
+  } as import("./types.js").QuestmasterTask;
+}
+
 beforeEach(() => {
   useStore.getState().reset();
+  resetQuestRefreshStateForTests();
+  mockListQuests.mockReset();
   localStorage.clear();
   localStorage.setItem("cc-server-id", "test-server");
 });
@@ -345,6 +372,74 @@ describe("Session management", () => {
     useStore.getState().setCurrentSession(null);
     expect(useStore.getState().currentSessionId).toBeNull();
     expect(localStorage.getItem("test-server:cc-current-session")).toBeNull();
+  });
+});
+
+describe("Questmaster refresh", () => {
+  it("reconcileQuestList preserves object identity for unchanged quests", () => {
+    const unchanged = makeQuest({ id: "q-1-v2", questId: "q-1", version: 2, updatedAt: 2000 });
+    const changed = makeQuest({ id: "q-2-v1", questId: "q-2", version: 1, title: "Before" });
+    const prev = [unchanged, changed];
+
+    const next = reconcileQuestList(prev, [
+      { ...unchanged },
+      { ...changed, id: "q-2-v2", version: 2, title: "After", updatedAt: 3000 },
+    ]);
+
+    expect(next[0]).toBe(unchanged);
+    expect(next[1]).not.toBe(changed);
+    expect(next[1].title).toBe("After");
+  });
+
+  it("refreshQuests skips hidden background polls entirely", async () => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "hidden",
+    });
+    mockListQuests.mockResolvedValue([makeQuest()]);
+
+    await useStore.getState().refreshQuests({ background: true });
+
+    expect(mockListQuests).not.toHaveBeenCalled();
+  });
+
+  it("refreshQuests preserves the empty quests array on empty background refreshes", async () => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "visible",
+    });
+
+    const previousRef = useStore.getState().quests;
+    mockListQuests.mockResolvedValue([]);
+
+    await useStore.getState().refreshQuests({ background: true, force: true });
+
+    expect(useStore.getState().quests).toBe(previousRef);
+  });
+
+  it("refreshQuests preserves unchanged quest references on background refresh", async () => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "visible",
+    });
+
+    const existing = makeQuest({ id: "q-1-v2", questId: "q-1", version: 2, updatedAt: 2_000 });
+    const untouched = makeQuest({ id: "q-2-v1", questId: "q-2", version: 1, updatedAt: 1_500 });
+    useStore.getState().setQuests([existing, untouched]);
+    const previousRef = useStore.getState().quests;
+
+    mockListQuests.mockResolvedValue([
+      { ...existing },
+      { ...untouched, id: "q-2-v2", version: 2, updatedAt: 3_000, title: "Updated title" },
+    ]);
+
+    await useStore.getState().refreshQuests({ background: true, force: true });
+
+    const quests = useStore.getState().quests;
+    expect(quests).not.toBe(previousRef);
+    expect(quests[0]).toBe(existing);
+    expect(quests[1]).not.toBe(untouched);
+    expect(quests[1].title).toBe("Updated title");
   });
 });
 

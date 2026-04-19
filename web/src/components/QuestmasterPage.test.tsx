@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { QuestmasterTask } from "../types.js";
 
@@ -265,6 +265,38 @@ describe("QuestmasterPage verification inbox", () => {
     expect(screen.queryByText("Verification Inbox")).not.toBeVisible();
     expect(screen.getByRole("button", { name: /q-1 Inbox quest/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /q-2 Regular verification quest/ })).toBeInTheDocument();
+  });
+
+  it("pauses fallback polling while the tab is hidden and resumes on visibility", async () => {
+    vi.useFakeTimers();
+    let visibilityState: DocumentVisibilityState = "hidden";
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => visibilityState,
+    });
+
+    try {
+      renderQuestmaster({ isActive: true });
+      expect(mockState.refreshQuests).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        vi.advanceTimersByTime(15_000);
+      });
+      expect(mockState.refreshQuests).toHaveBeenCalledTimes(1);
+
+      visibilityState = "visible";
+      act(() => {
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      expect(mockState.refreshQuests).toHaveBeenCalledTimes(2);
+
+      await act(async () => {
+        vi.advanceTimersByTime(5_000);
+      });
+      expect(mockState.refreshQuests).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("orders compact rows by newest update without grouping by status", async () => {

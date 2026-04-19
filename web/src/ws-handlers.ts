@@ -1168,7 +1168,7 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
     }
 
     case "quest_list_updated": {
-      store.refreshQuests({ background: true });
+      store.refreshQuests({ background: true, force: true });
       break;
     }
 

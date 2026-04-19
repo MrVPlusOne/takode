@@ -58,22 +58,41 @@ export function TopBar() {
   // WebSocket broadcast only reaches browsers with an active session WS connection,
   // so we also poll and refresh on tab visibility/focus as a fallback.
   useEffect(() => {
-    refreshQuests();
-    const interval = setInterval(() => refreshQuests({ background: true }), 15_000);
+    let timeoutId: number | null = null;
+
+    const scheduleNextPoll = () => {
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+      if (document.visibilityState !== "visible") return;
+      timeoutId = window.setTimeout(() => {
+        void refreshQuests({ background: true });
+        scheduleNextPoll();
+      }, 15_000);
+    };
+
+    void refreshQuests();
+    scheduleNextPoll();
+
     function handleVisibility() {
-      if (document.visibilityState === "visible") refreshQuests();
+      if (document.visibilityState === "visible") {
+        void refreshQuests();
+        scheduleNextPoll();
+      } else if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+        timeoutId = null;
+      }
     }
     function handleFocus() {
-      refreshQuests();
+      void refreshQuests();
+      scheduleNextPoll();
     }
     document.addEventListener("visibilitychange", handleVisibility);
     window.addEventListener("focus", handleFocus);
     return () => {
-      clearInterval(interval);
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
       document.removeEventListener("visibilitychange", handleVisibility);
       window.removeEventListener("focus", handleFocus);
     };
-  }, []);
+  }, [refreshQuests]);
 
   const cliSessionId = currentSessionVm?.cliSessionId ?? null;
 

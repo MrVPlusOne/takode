@@ -118,6 +118,32 @@ beforeEach(() => {
 });
 
 describe("TopBar", () => {
+  it("stops quest badge polling while the tab is hidden", async () => {
+    vi.useFakeTimers();
+    let visibilityState: DocumentVisibilityState = "hidden";
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => visibilityState,
+    });
+
+    try {
+      render(<TopBar />);
+      expect(storeState.refreshQuests).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(storeState.refreshQuests).toHaveBeenCalledTimes(1);
+
+      visibilityState = "visible";
+      fireEvent(document, new Event("visibilitychange"));
+      expect(storeState.refreshQuests).toHaveBeenCalledTimes(2);
+
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(storeState.refreshQuests).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("shows session number next to the session name in the title area", () => {
     resetStore({
       sessions: new Map([["s1", { cwd: "/repo", permissionMode: "acceptEdits", backend_type: "claude" }]]),

@@ -113,6 +113,42 @@ function claudeTokenDetailsEqual(
   );
 }
 
+function questSnapshotKey(quest: QuestmasterTask): string {
+  return `${quest.id}:${quest.version}:${(quest as { updatedAt?: number }).updatedAt ?? ""}`;
+}
+
+export function reconcileQuestList(prev: QuestmasterTask[], next: QuestmasterTask[]): QuestmasterTask[] {
+  if (prev.length === 0 && next.length === 0) return prev;
+  if (prev.length === 0 || next.length === 0) return next;
+
+  const prevByQuestId = new Map(prev.map((quest) => [quest.questId, quest]));
+  let changed = prev.length !== next.length;
+  const reconciled = next.map((quest, index) => {
+    const existing = prevByQuestId.get(quest.questId);
+    if (!existing || questSnapshotKey(existing) !== questSnapshotKey(quest)) {
+      changed = true;
+      return quest;
+    }
+    if (prev[index] !== existing) changed = true;
+    return existing;
+  });
+
+  return changed ? reconciled : prev;
+}
+
+function shouldPauseQuestBackgroundRefresh(): boolean {
+  return typeof document !== "undefined" && document.visibilityState === "hidden";
+}
+
+const QUEST_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 2_000;
+let pendingQuestBackgroundRefresh: Promise<void> | null = null;
+let lastQuestBackgroundRefreshAt = 0;
+
+export function resetQuestRefreshStateForTests(): void {
+  pendingQuestBackgroundRefresh = null;
+  lastQuestBackgroundRefreshAt = 0;
+}
+
 function sdkSessionInfoEqual(a: SdkSessionInfo, b: SdkSessionInfo): boolean {
   return (
     a.sessionId === b.sessionId &&
@@ -412,7 +448,7 @@ interface AppState {
   setQuests: (quests: QuestmasterTask[]) => void;
   /** Replace a single quest in the store by questId (find-replace + re-sort by createdAt desc). */
   replaceQuest: (updated: QuestmasterTask) => void;
-  refreshQuests: (opts?: { background?: boolean }) => Promise<void>;
+  refreshQuests: (opts?: { background?: boolean; force?: boolean }) => Promise<void>;
 
   // Pending sessions being created (client-only, keyed by "pending-{uuid}")
   pendingSessions: Map<string, PendingSession>;
@@ -899,32 +935,54 @@ export const useStore = create<AppState>((set) => ({
   expandedHerdNodes: getInitialCollapsedSet("cc-expanded-herd-nodes"),
   quests: [],
   questsLoading: false,
-  setQuests: (quests) => set({ quests }),
+  setQuests: (quests) =>
+    set((state) => {
+      const nextQuests = reconcileQuestList(state.quests, quests);
+      return nextQuests === state.quests ? {} : { quests: nextQuests };
+    }),
   replaceQuest: (updated) => {
-    const quests = useStore
-      .getState()
-      .quests.map((q) => (q.questId === updated.questId ? updated : q))
-      .sort((a, b) => b.createdAt - a.createdAt);
-    set({ quests });
+    set((state) => {
+      const quests = state.quests
+        .map((q) => (q.questId === updated.questId ? updated : q))
+        .sort((a, b) => b.createdAt - a.createdAt);
+      const nextQuests = reconcileQuestList(state.quests, quests);
+      return nextQuests === state.quests ? {} : { quests: nextQuests };
+    });
   },
   refreshQuests: async (opts) => {
+    if (opts?.background) {
+      if (shouldPauseQuestBackgroundRefresh()) return;
+      if (!opts.force && pendingQuestBackgroundRefresh) return pendingQuestBackgroundRefresh;
+      if (!opts.force && Date.now() - lastQuestBackgroundRefreshAt < QUEST_BACKGROUND_REFRESH_MIN_INTERVAL_MS) return;
+      lastQuestBackgroundRefreshAt = Date.now();
+      const refreshPromise = (async () => {
+        try {
+          const quests = await api.listQuests();
+          set((state) => {
+            const nextQuests = reconcileQuestList(state.quests, quests);
+            return nextQuests === state.quests ? {} : { quests: nextQuests };
+          });
+        } catch {
+          // Ignore background refresh failures and keep the current quest snapshot.
+        }
+      })();
+      const trackedRefresh = refreshPromise.finally(() => {
+        if (pendingQuestBackgroundRefresh === trackedRefresh) {
+          pendingQuestBackgroundRefresh = null;
+        }
+      });
+      pendingQuestBackgroundRefresh = trackedRefresh;
+      return trackedRefresh;
+    }
+
     if (!opts?.background) set({ questsLoading: true });
     try {
       const quests = await api.listQuests();
-      if (opts?.background) {
-        // Skip store update if quest list is unchanged (avoids unnecessary re-renders)
-        const prev = useStore.getState().quests;
-        if (
-          prev.length === quests.length &&
-          prev.every(
-            (p, i) =>
-              p.questId === quests[i].questId && p.version === quests[i].version && p.updatedAt === quests[i].updatedAt,
-          )
-        ) {
-          return;
-        }
-      }
-      set({ quests, questsLoading: false });
+      set((state) => {
+        const nextQuests = reconcileQuestList(state.quests, quests);
+        if (nextQuests === state.quests && !state.questsLoading) return {};
+        return { quests: nextQuests, questsLoading: false };
+      });
     } catch {
       set({ questsLoading: false });
     }
@@ -2478,7 +2536,8 @@ export const useStore = create<AppState>((set) => ({
   openTerminal: (cwd) => set({ terminalOpen: true, terminalCwd: cwd }),
   closeTerminal: () => set({ terminalOpen: false, terminalCwd: null, terminalId: null }),
 
-  reset: () =>
+  reset: () => {
+    resetQuestRefreshStateForTests();
     set({
       sessions: new Map(),
       sdkSessions: [],
@@ -2551,7 +2610,8 @@ export const useStore = create<AppState>((set) => ({
       terminalOpen: false,
       terminalCwd: null,
       terminalId: null,
-    }),
+    });
+  },
 }));
 
 /** Count permissions that need user attention (excludes those being LLM-evaluated, queued, or auto-approved). */
