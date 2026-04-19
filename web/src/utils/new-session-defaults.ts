@@ -18,6 +18,7 @@ export interface NewSessionDefaults {
   mode: string;
   askPermission: boolean;
   envSlug: string;
+  cwd: string;
   useWorktree: boolean;
   codexInternetAccess: boolean;
   codexReasoningEffort: string;
@@ -27,6 +28,7 @@ type StoredGroupDefaults = Partial<NewSessionDefaults> & { updatedAt?: number };
 
 const GROUP_DEFAULTS_KEY = "cc-new-session-groups";
 const MAX_GROUP_DEFAULTS = 50;
+const TREE_GROUP_DEFAULTS_PREFIX = "tree-group:";
 
 function normalizeAskPermission(raw: boolean | null | undefined): boolean {
   return raw ?? true;
@@ -84,6 +86,7 @@ function buildDefaults(candidate: Partial<NewSessionDefaults>): NewSessionDefaul
     mode,
     askPermission,
     envSlug: candidate.envSlug ?? "",
+    cwd: candidate.cwd?.trim() ?? "",
     useWorktree: candidate.useWorktree ?? true,
     codexInternetAccess: candidate.codexInternetAccess ?? false,
     codexReasoningEffort: candidate.codexReasoningEffort ?? "",
@@ -111,6 +114,11 @@ export function getGlobalNewSessionDefaults(): NewSessionDefaults {
     codexInternetAccess: scopedGetItem("cc-codex-internet-access") === "1",
     codexReasoningEffort: scopedGetItem("cc-codex-reasoning-effort") ?? "",
   });
+}
+
+export function getTreeGroupNewSessionDefaultsKey(treeGroupId: string): string {
+  const key = treeGroupId.trim();
+  return key ? `${TREE_GROUP_DEFAULTS_PREFIX}${key}` : "";
 }
 
 export function getGroupNewSessionDefaults(groupKey: string): NewSessionDefaults {

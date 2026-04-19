@@ -3,6 +3,11 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom";
 
+const mockQueuePendingSession = vi.fn();
+const mockGetGlobalNewSessionDefaults = vi.fn();
+const mockGetGroupNewSessionDefaults = vi.fn();
+const mockSaveGroupNewSessionDefaults = vi.fn();
+
 const mockApi = {
   getHome: vi.fn(),
   listEnvs: vi.fn(),
@@ -32,7 +37,7 @@ vi.mock("../utils/recent-dirs.js", () => ({
 }));
 
 vi.mock("../utils/pending-creation.js", () => ({
-  queuePendingSession: vi.fn(),
+  queuePendingSession: (...args: unknown[]) => mockQueuePendingSession(...args),
 }));
 
 vi.mock("../utils/scoped-storage.js", () => ({
@@ -41,27 +46,9 @@ vi.mock("../utils/scoped-storage.js", () => ({
 }));
 
 vi.mock("../utils/new-session-defaults.js", () => ({
-  getGlobalNewSessionDefaults: () => ({
-    backend: "claude",
-    model: "",
-    mode: "agent",
-    askPermission: true,
-    envSlug: "",
-    useWorktree: true,
-    codexInternetAccess: true,
-    codexReasoningEffort: "high",
-  }),
-  getGroupNewSessionDefaults: () => ({
-    backend: "claude",
-    model: "",
-    mode: "agent",
-    askPermission: true,
-    envSlug: "",
-    useWorktree: true,
-    codexInternetAccess: true,
-    codexReasoningEffort: "high",
-  }),
-  saveGroupNewSessionDefaults: vi.fn(),
+  getGlobalNewSessionDefaults: (...args: unknown[]) => mockGetGlobalNewSessionDefaults(...args),
+  getGroupNewSessionDefaults: (...args: unknown[]) => mockGetGroupNewSessionDefaults(...args),
+  saveGroupNewSessionDefaults: (...args: unknown[]) => mockSaveGroupNewSessionDefaults(...args),
 }));
 
 vi.mock("./EnvManager.js", () => ({
@@ -81,6 +68,28 @@ import { NewSessionModal } from "./NewSessionModal.js";
 describe("NewSessionModal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetGlobalNewSessionDefaults.mockReturnValue({
+      backend: "claude",
+      model: "",
+      mode: "agent",
+      askPermission: true,
+      envSlug: "",
+      cwd: "",
+      useWorktree: true,
+      codexInternetAccess: true,
+      codexReasoningEffort: "high",
+    });
+    mockGetGroupNewSessionDefaults.mockReturnValue({
+      backend: "claude",
+      model: "",
+      mode: "agent",
+      askPermission: true,
+      envSlug: "",
+      cwd: "",
+      useWorktree: true,
+      codexInternetAccess: true,
+      codexReasoningEffort: "high",
+    });
     mockApi.getHome.mockResolvedValue({ home: "/Users/test", cwd: "/tmp/project" });
     mockApi.listEnvs.mockResolvedValue([]);
     mockApi.getBackends.mockResolvedValue([
@@ -127,5 +136,55 @@ describe("NewSessionModal", () => {
     await waitFor(() => expect(mockApi.listCliSessions).toHaveBeenCalledWith("codex"));
     expect(await screen.findByText("codex-session")).toBeInTheDocument();
     expect(screen.queryByText("No Claude Code CLI sessions found")).not.toBeInTheDocument();
+  });
+
+  it("loads and saves defaults using the explicit group defaults key", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    mockGetGroupNewSessionDefaults.mockReturnValue({
+      backend: "claude",
+      model: "",
+      mode: "agent",
+      askPermission: true,
+      envSlug: "",
+      cwd: "/tmp/tree-saved-folder",
+      useWorktree: true,
+      codexInternetAccess: true,
+      codexReasoningEffort: "high",
+    });
+
+    render(
+      <NewSessionModal
+        open={true}
+        onClose={onClose}
+        treeGroupId="team-alpha"
+        newSessionDefaultsKey="tree-group:team-alpha"
+      />,
+    );
+
+    expect(mockGetGroupNewSessionDefaults).toHaveBeenCalledWith("tree-group:team-alpha");
+    expect(await screen.findByText("tree-saved-folder")).toBeInTheDocument();
+
+    await user.click(await screen.findByRole("button", { name: "Create Session" }));
+
+    await waitFor(() => {
+      expect(mockSaveGroupNewSessionDefaults).toHaveBeenCalledWith(
+        "tree-group:team-alpha",
+        expect.objectContaining({
+          backend: "claude",
+          mode: "agent",
+          askPermission: true,
+          cwd: "/tmp/tree-saved-folder",
+        }),
+      );
+    });
+    expect(onClose).toHaveBeenCalled();
+    expect(mockQueuePendingSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        backend: "claude",
+        cwd: "/tmp/tree-saved-folder",
+        treeGroupId: "team-alpha",
+      }),
+    );
   });
 });

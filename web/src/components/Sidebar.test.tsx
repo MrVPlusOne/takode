@@ -672,6 +672,30 @@ describe("Sidebar", { timeout: 10000 }, () => {
     expect(mockState.openNewSessionModal).toHaveBeenCalledWith({
       groupKey: "/home/user/projects/myapp",
       cwd: "/home/user/projects/myapp",
+      newSessionDefaultsKey: "/home/user/projects/myapp",
+    });
+  });
+
+  it("tree group plus button opens new session modal with a tree-scoped defaults key", () => {
+    const session = makeSession("s1", {
+      cwd: "/home/user/projects/myapp",
+      repo_root: "/home/user/projects/myapp",
+    });
+    const sdk = makeSdkSession("s1");
+    mockState = createMockState({
+      sessions: new Map([["s1", session]]),
+      sdkSessions: [sdk],
+      sidebarViewMode: "tree",
+      treeGroups: [{ id: "team-alpha", name: "Takode" }],
+      treeAssignments: new Map([["s1", "team-alpha"]]),
+    });
+
+    render(<Sidebar />);
+    fireEvent.click(screen.getByLabelText("Create session in Takode"));
+
+    expect(mockState.openNewSessionModal).toHaveBeenCalledWith({
+      treeGroupId: "team-alpha",
+      newSessionDefaultsKey: "tree-group:team-alpha",
     });
   });
 

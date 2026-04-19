@@ -374,6 +374,7 @@ export default function App() {
         groupKey={newSessionModalState?.groupKey}
         groupCwd={newSessionModalState?.cwd}
         treeGroupId={newSessionModalState?.treeGroupId}
+        newSessionDefaultsKey={newSessionModalState?.newSessionDefaultsKey}
         onClose={() => useStore.getState().closeNewSessionModal()}
       />
 

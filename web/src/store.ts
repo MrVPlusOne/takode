@@ -448,8 +448,8 @@ interface AppState {
   sessionSortMode: "created" | "activity";
   setSessionSortMode: (mode: "created" | "activity") => void;
   taskPanelOpen: boolean;
-  /** null = closed; {} = global new session; { groupKey, cwd } = group new session */
-  newSessionModalState: { groupKey?: string; cwd?: string; treeGroupId?: string } | null;
+  /** null = closed; {} = global new session; scoped opens can carry cwd, assignment, and defaults scope */
+  newSessionModalState: { groupKey?: string; cwd?: string; treeGroupId?: string; newSessionDefaultsKey?: string } | null;
   /** Quest ID to show in the global detail overlay, or null when closed. */
   questOverlayId: string | null;
   /** Optional search highlight text for the quest overlay (set by QuestmasterPage). */
@@ -473,7 +473,12 @@ interface AppState {
   setSessionInfoOpenSessionId: (sessionId: string | null) => void;
   setReorderMode: (v: boolean) => void;
   setTaskPanelOpen: (open: boolean) => void;
-  openNewSessionModal: (opts?: { groupKey?: string; cwd?: string; treeGroupId?: string }) => void;
+  openNewSessionModal: (opts?: {
+    groupKey?: string;
+    cwd?: string;
+    treeGroupId?: string;
+    newSessionDefaultsKey?: string;
+  }) => void;
   closeNewSessionModal: () => void;
   openQuestOverlay: (questId: string, searchHighlight?: string) => void;
   closeQuestOverlay: () => void;

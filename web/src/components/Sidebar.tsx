@@ -17,6 +17,7 @@ import { writeClipboardText } from "../utils/copy-utils.js";
 import { connectSession, disconnectSession } from "../ws.js";
 import { navigateToSession, navigateToMostRecentSession, parseHash } from "../utils/routing.js";
 import { cancelPendingCreation } from "../utils/pending-creation.js";
+import { getTreeGroupNewSessionDefaultsKey } from "../utils/new-session-defaults.js";
 import { bootstrapServerId, scopedGetItem } from "../utils/scoped-storage.js";
 import { ProjectGroup } from "./ProjectGroup.js";
 import { TreeViewGroup } from "./TreeViewGroup.js";
@@ -431,7 +432,11 @@ export function Sidebar() {
     const normalizedGroupKey = groupKey.trim();
     if (!normalizedGroupKey) return;
 
-    useStore.getState().openNewSessionModal({ groupKey: normalizedGroupKey, cwd: normalizedGroupKey });
+    useStore.getState().openNewSessionModal({
+      groupKey: normalizedGroupKey,
+      cwd: normalizedGroupKey,
+      newSessionDefaultsKey: normalizedGroupKey,
+    });
 
     if (!isDesktopLayout) {
       useStore.getState().setSidebarOpen(false);
@@ -440,9 +445,13 @@ export function Sidebar() {
 
   /** Tree view variant: assigns new session to the tree group after creation. */
   function handleCreateSessionInTreeGroup(treeGroupId: string) {
-    if (!treeGroupId.trim()) return;
+    const normalizedTreeGroupId = treeGroupId.trim();
+    if (!normalizedTreeGroupId) return;
 
-    useStore.getState().openNewSessionModal({ treeGroupId: treeGroupId.trim() });
+    useStore.getState().openNewSessionModal({
+      treeGroupId: normalizedTreeGroupId,
+      newSessionDefaultsKey: getTreeGroupNewSessionDefaultsKey(normalizedTreeGroupId),
+    });
 
     if (!isDesktopLayout) {
       useStore.getState().setSidebarOpen(false);

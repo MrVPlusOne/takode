@@ -60,6 +60,7 @@ export function NewSessionModal({
   groupKey,
   groupCwd,
   treeGroupId,
+  newSessionDefaultsKey,
 }: {
   open: boolean;
   onClose: () => void;
@@ -69,15 +70,18 @@ export function NewSessionModal({
   groupCwd?: string;
   /** Tree-view group to assign the new session to after creation */
   treeGroupId?: string;
+  /** Explicit storage key for per-group new-session defaults */
+  newSessionDefaultsKey?: string;
 }) {
   // Resolve defaults: group-specific when opening for a group, global otherwise
-  const defaults = groupKey ? getGroupNewSessionDefaults(groupKey) : getGlobalNewSessionDefaults();
+  const defaultsKey = newSessionDefaultsKey?.trim() || groupKey?.trim() || "";
+  const defaults = defaultsKey ? getGroupNewSessionDefaults(defaultsKey) : getGlobalNewSessionDefaults();
 
   const [backend, setBackend] = useState<BackendType>(() => defaults.backend);
   const [backends, setBackends] = useState<BackendInfo[]>([]);
   const [model, setModel] = useState(() => defaults.model);
   const [mode, setMode] = useState(() => defaults.mode);
-  const [cwd, setCwd] = useState(() => groupCwd || getRecentDirs()[0] || "");
+  const [cwd, setCwd] = useState(() => groupCwd || defaults.cwd || getRecentDirs()[0] || "");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [dynamicModels, setDynamicModels] = useState<ModelOption[] | null>(null);
@@ -131,11 +135,11 @@ export function NewSessionModal({
   // reinitialize when re-opening with different props.
   useEffect(() => {
     if (!open) return;
-    const d = groupKey ? getGroupNewSessionDefaults(groupKey) : getGlobalNewSessionDefaults();
+    const d = defaultsKey ? getGroupNewSessionDefaults(defaultsKey) : getGlobalNewSessionDefaults();
     setBackend(d.backend);
     setModel(d.model);
     setMode(d.mode);
-    setCwd(groupCwd || getRecentDirs()[0] || "");
+    setCwd(groupCwd || d.cwd || getRecentDirs()[0] || "");
     setAskPermission(d.askPermission);
     setSelectedEnv(d.envSlug);
     setUseWorktree(d.useWorktree);
@@ -151,7 +155,7 @@ export function NewSessionModal({
     setPullPrompt(null);
     setPullError("");
     setDynamicModels(null);
-  }, [open, groupKey, groupCwd, treeGroupId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open, defaultsKey, groupCwd, treeGroupId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load server home/cwd and available backends on mount
   useEffect(() => {
@@ -365,7 +369,7 @@ export function NewSessionModal({
       role: sessionRole === "leader" ? ("orchestrator" as const) : undefined,
     };
 
-    const defaultsGroupKey = (gitRepoInfo?.repoRoot || cwdSnapshot || "").trim();
+    const defaultsGroupKey = (defaultsKey || gitRepoInfo?.repoRoot || cwdSnapshot || "").trim();
     if (defaultsGroupKey) {
       saveGroupNewSessionDefaults(defaultsGroupKey, {
         backend: backend as NewSessionBackend,
@@ -373,6 +377,7 @@ export function NewSessionModal({
         mode,
         askPermission,
         envSlug: selectedEnv,
+        cwd: cwdSnapshot,
         useWorktree,
         codexInternetAccess,
         codexReasoningEffort,

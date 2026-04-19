@@ -4,6 +4,7 @@ import { scopedSetItem } from "./scoped-storage.js";
 import {
   getGlobalNewSessionDefaults,
   getGroupNewSessionDefaults,
+  getTreeGroupNewSessionDefaultsKey,
   saveGroupNewSessionDefaults,
 } from "./new-session-defaults.js";
 
@@ -29,6 +30,7 @@ describe("new-session-defaults", () => {
       mode: "agent",
       askPermission: false,
       envSlug: "prod",
+      cwd: "",
       useWorktree: false,
       codexInternetAccess: true,
       codexReasoningEffort: "high",
@@ -46,6 +48,7 @@ describe("new-session-defaults", () => {
       mode: "agent",
       askPermission: true,
       envSlug: "",
+      cwd: "",
       useWorktree: false,
       codexInternetAccess: false,
       codexReasoningEffort: "",
@@ -62,6 +65,7 @@ describe("new-session-defaults", () => {
       mode: "agent",
       askPermission: false,
       envSlug: "sandbox",
+      cwd: "/repo-a/worktrees/feature-x",
       useWorktree: true,
       codexInternetAccess: true,
       codexReasoningEffort: "medium",
@@ -73,6 +77,7 @@ describe("new-session-defaults", () => {
       mode: "agent",
       askPermission: false,
       envSlug: "sandbox",
+      cwd: "/repo-a/worktrees/feature-x",
       useWorktree: true,
       codexInternetAccess: true,
       codexReasoningEffort: "medium",
@@ -84,6 +89,7 @@ describe("new-session-defaults", () => {
       mode: "agent",
       askPermission: true,
       envSlug: "",
+      cwd: "",
       useWorktree: true,
       codexInternetAccess: false,
       codexReasoningEffort: "",
@@ -98,6 +104,12 @@ describe("new-session-defaults", () => {
       backend: "codex",
       mode: "agent",
       askPermission: false,
+      cwd: "",
     });
+  });
+
+  it("namespaces tree-group defaults keys separately from project paths", () => {
+    expect(getTreeGroupNewSessionDefaultsKey(" team-alpha ")).toBe("tree-group:team-alpha");
+    expect(getTreeGroupNewSessionDefaultsKey("")).toBe("");
   });
 });
