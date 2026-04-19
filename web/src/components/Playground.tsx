@@ -4111,6 +4111,48 @@ export function Playground() {
               </div>
             </Card>
             <div className="mt-4" />
+            <Card label="Mobile collapsed bar while streaming">
+              <div className="border-t border-cc-border bg-cc-card px-4 py-3">
+                <div className="max-w-3xl mx-auto flex items-center gap-2">
+                  <div className="flex-1 min-w-0 flex items-center gap-2 px-3 py-2.5 bg-cc-input-bg border border-cc-border rounded-[14px] cursor-text">
+                    <span className="flex items-center gap-1 text-[11px] font-medium text-cc-muted shrink-0">
+                      <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
+                        <path
+                          d="M2.5 4l4 4-4 4"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          fill="none"
+                        />
+                        <path
+                          d="M8.5 4l4 4-4 4"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          fill="none"
+                        />
+                      </svg>
+                      Agent
+                    </span>
+                    <span className="flex-1 text-sm text-cc-muted text-left truncate">Type a message...</span>
+                  </div>
+                  <div className="flex items-center justify-center w-10 h-10 rounded-lg text-cc-muted hover:text-cc-fg hover:bg-cc-hover cursor-pointer shrink-0">
+                    <svg viewBox="0 0 16 16" fill="currentColor" className="w-5 h-5">
+                      <path d="M8 1a2.5 2.5 0 0 0-2.5 2.5v4a2.5 2.5 0 0 0 5 0v-4A2.5 2.5 0 0 0 8 1z" />
+                      <path d="M3.5 7a.5.5 0 0 1 .5.5v.5a4 4 0 0 0 8 0v-.5a.5.5 0 0 1 1 0v.5a5 5 0 0 1-4.5 4.975V14.5h2a.5.5 0 0 1 0 1h-5a.5.5 0 0 1 0-1h2v-1.525A5 5 0 0 1 3 8v-.5a.5.5 0 0 1 .5-.5z" />
+                    </svg>
+                  </div>
+                  <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-cc-error/10 text-cc-error shrink-0">
+                    <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
+                      <rect x="3" y="3" width="10" height="10" rx="1" />
+                    </svg>
+                  </div>
+                </div>
+              </div>
+            </Card>
+            <div className="mt-4" />
             <Card label="Preparing mic (stream warming)">
               <div className="border-t border-cc-border bg-cc-card px-4 py-3">
                 <div className="bg-cc-input-bg border border-cc-border rounded-[14px] overflow-hidden">

@@ -1522,25 +1522,35 @@ export function Composer({ sessionId }: { sessionId: string }) {
 
   const isRunning = useStore((s) => s.sessionStatus.get(sessionId) === "running");
   const canSend = (text.trim().length > 0 || images.length > 0) && isConnected && !voiceEditProposal;
+  const isVoiceInteractionActive = isPreparing || isRecording || isTranscribing;
 
-  // Mobile collapsible composer — collapse when empty (no text, no images), regardless of streaming
-  const isCollapsed = usesTouchKeyboard && isNarrowLayout && !composerExpanded && !text.trim() && images.length === 0;
+  // Mobile collapsible composer — keep voice capture visible even when the draft is empty.
+  const isCollapsed =
+    usesTouchKeyboard &&
+    isNarrowLayout &&
+    !composerExpanded &&
+    !isVoiceInteractionActive &&
+    !text.trim() &&
+    images.length === 0;
 
-  // Auto-collapse when composer becomes empty (after send clears text)
+  // Auto-collapse when composer becomes empty (after send clears text), but
+  // never hide the voice UI while the capture/transcription flow is active.
   useEffect(() => {
     if (!usesTouchKeyboard || !isNarrowLayout) return;
+    if (isVoiceInteractionActive) return;
     if (!text.trim() && images.length === 0) {
       const timer = setTimeout(() => setComposerExpanded(false), 300);
       return () => clearTimeout(timer);
     }
-  }, [usesTouchKeyboard, isNarrowLayout, text, images.length]);
+  }, [usesTouchKeyboard, isNarrowLayout, isVoiceInteractionActive, text, images.length]);
 
   // Collapse on tap outside the composer when empty
   const composerRootRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (!usesTouchKeyboard || !isNarrowLayout || isCollapsed) return;
+    if (!usesTouchKeyboard || !isNarrowLayout || isCollapsed || isVoiceInteractionActive) return;
     const handler = (e: MouseEvent | TouchEvent) => {
       if (
+        !isVoiceInteractionActive &&
         !text.trim() &&
         images.length === 0 &&
         composerRootRef.current &&
@@ -1555,7 +1565,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
       document.removeEventListener("mousedown", handler);
       document.removeEventListener("touchstart", handler);
     };
-  }, [usesTouchKeyboard, isNarrowLayout, isCollapsed, text, images.length]);
+  }, [usesTouchKeyboard, isNarrowLayout, isCollapsed, isVoiceInteractionActive, text, images.length]);
 
   const expandComposer = useCallback(() => {
     textareaRef.current?.focus(); // synchronous focus triggers mobile virtual keyboard
@@ -1587,7 +1597,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
             ? "Accept or undo the voice edit first"
             : voiceIdleTitle);
   const voiceButtonDisabled = !isConnected || isTranscribing || isPreparing || !!voiceEditProposal;
-  const compactVoiceButtonDisabled = voiceButtonDisabled || isRunning;
+  const compactVoiceButtonDisabled = voiceButtonDisabled;
 
   useEffect(() => {
     if (voiceSupported || isRecording || isTranscribing) {

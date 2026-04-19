@@ -55,6 +55,9 @@ vi.mock("../api.js", () => ({
 
 const mockVoiceState = {
   isSupportedOverride: null as boolean | null,
+  isRecordingOverride: null as boolean | null,
+  isPreparingOverride: null as boolean | null,
+  isTranscribingOverride: null as boolean | null,
   unsupportedReasonOverride: null as
     | "insecure-context"
     | "missing-media-devices"
@@ -88,13 +91,16 @@ vi.mock("../hooks/useVoiceInput.js", async () => {
       const [error, setError] = React.useState<string | null>(null);
       const [isTranscribing, setIsTranscribing] = React.useState(false);
       const [transcriptionPhase, setTranscriptionPhase] = React.useState<string | null>(null);
+      const resolvedIsRecording = mockVoiceState.isRecordingOverride ?? false;
+      const resolvedIsPreparing = mockVoiceState.isPreparingOverride ?? false;
+      const resolvedIsTranscribing = mockVoiceState.isTranscribingOverride ?? isTranscribing;
       return {
-        isRecording: false,
-        isPreparing: false,
+        isRecording: resolvedIsRecording,
+        isPreparing: resolvedIsPreparing,
         isSupported,
         unsupportedReason,
         unsupportedMessage,
-        isTranscribing,
+        isTranscribing: resolvedIsTranscribing,
         transcriptionPhase,
         error,
         volumeLevel: 0,
@@ -319,6 +325,9 @@ function makeImageDataTransfer(file: File) {
 beforeEach(() => {
   vi.clearAllMocks();
   mockVoiceState.isSupportedOverride = null;
+  mockVoiceState.isRecordingOverride = null;
+  mockVoiceState.isPreparingOverride = null;
+  mockVoiceState.isTranscribingOverride = null;
   mockVoiceState.unsupportedReasonOverride = null;
   mockVoiceState.unsupportedMessageOverride = null;
   mockVoiceState.onAudioReady = null;
@@ -477,6 +486,42 @@ describe("Composer basic rendering", () => {
     const voiceButtons = screen.getAllByLabelText("Voice input");
     expect(voiceButtons.length).toBeGreaterThan(0);
     expect(screen.getByTitle("Voice needs HTTPS")).toBeTruthy();
+  });
+
+  it("keeps the mobile composer expanded once voice capture becomes active", () => {
+    vi.useFakeTimers();
+    try {
+      setViewportWidth(500);
+      mediaState.touchDevice = true;
+
+      const { rerender } = render(<Composer sessionId="s1" />);
+
+      fireEvent.click(screen.getAllByLabelText("Voice input")[0]);
+      mockVoiceState.isPreparingOverride = true;
+      rerender(<Composer sessionId="s1" />);
+
+      act(() => {
+        vi.advanceTimersByTime(350);
+      });
+
+      expect(screen.getByText("Preparing mic...")).toBeTruthy();
+      expect(screen.queryByText("Type a message...")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the collapsed mobile mic interactive while the session is streaming", () => {
+    setViewportWidth(500);
+    mediaState.touchDevice = true;
+    setupMockStore({ sessionStatus: "running" });
+
+    render(<Composer sessionId="s1" />);
+
+    const voiceButton = screen.getAllByLabelText("Voice input")[0];
+    expect(voiceButton.hasAttribute("disabled")).toBe(false);
+    expect(voiceButton.getAttribute("aria-disabled")).toBe("false");
+    expect(voiceButton.className).not.toContain("opacity-30");
   });
 
   it("shows the full unavailable-voice explanation only after pressing the voice button", () => {
