@@ -201,7 +201,7 @@ function deriveAttachmentPaths(sessionId: string, imageRefs: ImageRefForAttachme
 function formatAttachmentPathAnnotation(paths: string[]): string {
   if (paths.length === 0) return "";
   const numbered = paths.map((path, idx) => `Attachment ${idx + 1}: ${path}`).join("\n");
-  return `\n[📎 Image attachments -- use the Read tool to view these files:\n${numbered}]`;
+  return `\n[📎 Image attachments -- read these files with the Read tool before responding:\n${numbered}]`;
 }
 
 function buildPendingCodexImageDrafts(

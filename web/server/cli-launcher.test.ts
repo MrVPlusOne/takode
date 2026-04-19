@@ -2004,6 +2004,19 @@ describe("session identity injection", () => {
     expect(sysPrompt).toContain("For recurring timers, keep the description general");
     expect(sysPrompt).not.toContain("takode timer create <prompt>");
   });
+
+  it("requires reading attached user images before responding", async () => {
+    await launcher.launch({ cwd: "/tmp/project" });
+
+    const [cmdAndArgs] = mockSpawn.mock.calls[0];
+    const sysPromptIdx = cmdAndArgs.indexOf("--append-system-prompt");
+    expect(sysPromptIdx).toBeGreaterThan(-1);
+    const sysPrompt = String(cmdAndArgs[sysPromptIdx + 1] ?? "");
+
+    expect(sysPrompt).toContain("If a user message includes image attachments, read every attached image before you respond.");
+    expect(sysPrompt).toContain("Make that your first step for that turn.");
+    expect(sysPrompt).toContain("Only resize when the Read tool fails due to oversized dimensions.");
+  });
 });
 
 // ─── persistence ─────────────────────────────────────────────────────────────

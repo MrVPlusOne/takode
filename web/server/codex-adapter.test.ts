@@ -1245,7 +1245,7 @@ describe("CodexAdapter", () => {
       type: "user_message",
       content:
         "Describe these files\n" +
-        "[📎 Image attachments -- use the Read tool to view these files:\n" +
+        "[📎 Image attachments -- read these files with the Read tool before responding:\n" +
         "Attachment 1: /tmp/image-a.png\n" +
         "Attachment 2: /tmp/image-b.png]",
     });

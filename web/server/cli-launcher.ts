@@ -513,6 +513,7 @@ ${TAKODE_LINK_SYNTAX_INSTRUCTIONS}`);
   // Image reading guidance
   parts.push(
     "## Image Reading\n\n" +
+      "If a user message includes image attachments, read every attached image before you respond. Make that your first step for that turn.\n\n" +
       "Always try reading images directly first. Only resize when the Read tool fails due to oversized dimensions.",
   );
 

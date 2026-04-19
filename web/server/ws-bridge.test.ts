@@ -4553,7 +4553,7 @@ describe("Browser message routing", () => {
     expect(sent.message.content).toContain("Please compare these");
     expect(sent.message.content).toContain(`Attachment 1: ${expectedPath1}`);
     expect(sent.message.content).toContain(`Attachment 2: ${expectedPath2}`);
-    expect(sent.message.content).toContain("use the Read tool to view these files");
+    expect(sent.message.content).toContain("read these files with the Read tool before responding");
 
     expect(mockImageStore.store).toHaveBeenCalledTimes(2);
   });
@@ -13756,7 +13756,7 @@ describe("Codex resumed-turn recovery", () => {
     const expectedPath = join(homedir(), ".companion", "images", sid, "img-1.orig.png");
     expect((getPendingCodexTurn(bridge.getSession(sid)!) as any)?.userContent).toBe(
       "describe this screenshot\n" +
-        "[📎 Image attachments -- use the Read tool to view these files:\n" +
+        "[📎 Image attachments -- read these files with the Read tool before responding:\n" +
         `Attachment 1: ${expectedPath}]`,
     );
 
@@ -13787,7 +13787,7 @@ describe("Codex resumed-turn recovery", () => {
                   type: "text",
                   text:
                     "describe this screenshot\n" +
-                    "[📎 Image attachments -- use the Read tool to view these files:\n" +
+                    "[📎 Image attachments -- read these files with the Read tool before responding:\n" +
                     `Attachment 1: ${expectedPath}]`,
                 },
               ],
@@ -16988,7 +16988,7 @@ describe("Claude SDK image transport", () => {
     const expectedPath = join(homedir(), ".companion", "images", "s1", "img-1.orig.png");
     // SDK sessions use the Read-tool annotation instead of embedding images
     expect(sentMsg.content).toContain(`Attachment 1: ${expectedPath}`);
-    expect(sentMsg.content).toContain("use the Read tool to view these files");
+    expect(sentMsg.content).toContain("read these files with the Read tool before responding");
     // Images should be stripped — the CLI doesn't support image content blocks via stdin
     expect(sentMsg.images).toBeUndefined();
     expect(sentMsg.local_images).toBeUndefined();
