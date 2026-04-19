@@ -922,6 +922,7 @@ export class WsBridge {
     | null = null;
   private onSessionNamedByQuest: ((sessionId: string, title: string) => void) | null = null;
   private resolveQuestTitle: ((questId: string) => Promise<string | null>) | null = null;
+  private resolveQuestStatus: ((questId: string) => Promise<string | null>) | null = null;
   private userMsgCounter = 0;
   /** Per-project cache of slash commands, skills, and apps so new sessions get them
    *  before the CLI sends system/init (which only arrives after the first
@@ -1058,6 +1059,11 @@ export class WsBridge {
   /** Register a callback to resolve a quest title from authoritative server state. */
   setQuestTitleResolver(cb: (questId: string) => Promise<string | null>): void {
     this.resolveQuestTitle = cb;
+  }
+
+  /** Register a callback to resolve quest status from authoritative server state. */
+  setQuestStatusResolver(cb: (questId: string) => Promise<string | null>): void {
+    this.resolveQuestStatus = cb;
   }
 
   /** Register a callback for when git info is resolved and branch is known. */
@@ -2037,6 +2043,18 @@ export class WsBridge {
     };
   }
 
+  getBoardRow(sessionId: string, questId: string): BoardRow | null {
+    return this.sessions.get(sessionId)?.board.get(questId) ?? null;
+  }
+
+  getBoardStallSignature(sessionId: string, questId: string): string | null {
+    const session = this.sessions.get(sessionId);
+    if (!session) return null;
+    const row = session.board.get(questId);
+    if (!row) return null;
+    return this.buildBoardStallCandidate(session, row)?.signature ?? null;
+  }
+
   /** Check if a session is actively generating or has pending permission requests. */
   isSessionBusy(sessionId: string): boolean {
     const session = this.sessions.get(sessionId);
@@ -2207,6 +2225,7 @@ export class WsBridge {
       this.recoverToolStartTimesFromHistory(session);
       this.finalizeRecoveredDisconnectedTerminalTools(session, "restore_from_disk");
       this.scheduleCodexToolResultWatchdogs(session, "restore_from_disk");
+      await this.reconcileRestoredBoardState(session);
 
       this.sessions.set(p.id, session);
       count++;
@@ -2215,6 +2234,20 @@ export class WsBridge {
       console.log(`[ws-bridge] Restored ${count} session(s) from disk`);
     }
     return count;
+  }
+
+  private async reconcileRestoredBoardState(session: Session): Promise<void> {
+    if (!this.resolveQuestStatus || session.board.size === 0) return;
+    for (const [questId] of [...session.board]) {
+      try {
+        const status = await this.resolveQuestStatus(questId);
+        if (status === "refined" || status === "in_progress") continue;
+        session.board.delete(questId);
+        session.boardStallStates.delete(questId);
+      } catch {
+        // If quest status cannot be resolved, preserve the row and let normal runtime paths decide.
+      }
+    }
   }
 
   /** Persist a session to disk (debounced). */
@@ -3715,6 +3748,7 @@ export class WsBridge {
           questId: candidate.questId,
           ...(candidate.title ? { title: candidate.title } : {}),
           ...(candidate.stage ? { stage: candidate.stage } : {}),
+          signature: candidate.signature,
           workerStatus: candidate.workerStatus,
           reviewerStatus: candidate.reviewerStatus,
           stalledForMs: now - existing.stalledSince,

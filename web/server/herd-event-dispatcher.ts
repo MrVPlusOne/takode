@@ -40,6 +40,10 @@ export interface WsBridgeHandle {
   /** Retrieve a slice of a session's messageHistory for activity summaries.
    *  Returns null if the session doesn't exist. Indices are inclusive [from, to]. */
   getSessionMessages(sessionId: string, from: number, to: number): BrowserIncomingMessage[] | null;
+  /** Current active board row for a leader session + quest ID, if any. */
+  getBoardRow?(sessionId: string, questId: string): { status?: string } | null;
+  /** Current live stall signature for a leader board row, if it is still stalled. */
+  getBoardStallSignature?(sessionId: string, questId: string): string | null;
 }
 
 export interface LauncherHandle {
@@ -335,6 +339,7 @@ export class HerdEventDispatcher {
   forceFlushPendingEvents(orchId: string): number {
     const inbox = this.inboxes.get(orchId);
     if (!inbox) return 0;
+    this.pruneStaleBoardStallEntries(orchId, inbox);
     const pending = this.getPendingEntries(inbox);
     if (pending.length === 0) return 0;
 
@@ -399,6 +404,7 @@ export class HerdEventDispatcher {
   private flushInbox(orchId: string): void {
     const inbox = this.inboxes.get(orchId);
     if (!inbox) return;
+    this.pruneStaleBoardStallEntries(orchId, inbox);
 
     const pending = this.getPendingEntries(inbox);
     if (pending.length === 0) {
@@ -471,6 +477,19 @@ export class HerdEventDispatcher {
   /** Count of events waiting to be delivered. */
   private pendingCount(inbox: HerdInbox): number {
     return this.getPendingEntries(inbox).length;
+  }
+
+  /** Drop queued board_stalled events that no longer match the leader's active board. */
+  private pruneStaleBoardStallEntries(orchId: string, inbox: HerdInbox): void {
+    if (!this.wsBridge.getBoardRow) return;
+    inbox.entries = inbox.entries.filter((entry) => {
+      if (entry.event.event !== "board_stalled") return true;
+      const current = this.wsBridge.getBoardRow!(orchId, entry.event.data.questId);
+      if (!current) return false;
+      if (entry.event.data.stage && current.status !== entry.event.data.stage) return false;
+      if (!this.wsBridge.getBoardStallSignature || !entry.event.data.signature) return true;
+      return this.wsBridge.getBoardStallSignature(orchId, entry.event.data.questId) === entry.event.data.signature;
+    });
   }
 
   /** Retire an inbox once it has no workers and no queued/in-flight work left. */

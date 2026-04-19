@@ -75,6 +75,8 @@ function createMocks() {
     isSessionIdle: vi.fn(() => false),
     wakeIdleKilledSession: vi.fn(() => false),
     getSessionMessages: vi.fn(() => null),
+    getBoardRow: vi.fn(() => ({ status: "IMPLEMENTING" })),
+    getBoardStallSignature: vi.fn(() => "sig-1"),
   };
   const launcher: LauncherHandle = {
     getHerdedSessions: vi.fn(() => [{ sessionId: "worker-1" }, { sessionId: "worker-2" }]),
@@ -731,6 +733,70 @@ describe("HerdEventDispatcher", () => {
     expect(content).toContain("q-42");
     expect(content).toContain("worker disconnected");
     expect(content).toContain("next: inspect worker");
+
+    dispatcher.destroy();
+  });
+
+  it("drops queued board_stalled events once the leader board no longer has that row", () => {
+    const { bridge, launcher } = createMocks();
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(false);
+    triggerEvent(
+      makeEvent({
+        event: "board_stalled",
+        data: {
+          questId: "q-42",
+          title: "Fix auth drift",
+          stage: "IMPLEMENTING",
+          workerStatus: "disconnected",
+          reviewerStatus: "missing",
+          stalledForMs: 240_000,
+          reason: "worker disconnected",
+          action: "inspect worker; resume or re-dispatch before review",
+        },
+      }),
+    );
+
+    vi.mocked(bridge.getBoardRow!).mockReturnValue(null);
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+    dispatcher.onOrchestratorTurnEnd("orch-1");
+
+    expect(bridge.injectUserMessage).not.toHaveBeenCalled();
+
+    dispatcher.destroy();
+  });
+
+  it("drops queued board_stalled events when the row recovered in place", () => {
+    const { bridge, launcher } = createMocks();
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(false);
+    triggerEvent(
+      makeEvent({
+        event: "board_stalled",
+        data: {
+          questId: "q-42",
+          title: "Fix auth drift",
+          stage: "IMPLEMENTING",
+          signature: "sig-1",
+          workerStatus: "disconnected",
+          reviewerStatus: "missing",
+          stalledForMs: 240_000,
+          reason: "worker disconnected",
+          action: "inspect worker; resume or re-dispatch before review",
+        },
+      }),
+    );
+
+    vi.mocked(bridge.getBoardRow!).mockReturnValue({ status: "IMPLEMENTING" });
+    vi.mocked(bridge.getBoardStallSignature!).mockReturnValue(null);
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+    dispatcher.onOrchestratorTurnEnd("orch-1");
+
+    expect(bridge.injectUserMessage).not.toHaveBeenCalled();
 
     dispatcher.destroy();
   });

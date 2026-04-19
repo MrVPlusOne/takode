@@ -20807,6 +20807,86 @@ describe("board stall warnings", () => {
     injectSpy.mockRestore();
     dispatcher.destroy();
   });
+
+  it("does not emit stalled warnings for stale active board rows restored after restart", async () => {
+    const leaderId = "orch-board-stall-restore";
+    const workerId = "worker-board-stall-restore";
+    const now = Date.now();
+
+    bridge.getOrCreateSession(leaderId);
+    bridge.upsertBoardRow(leaderId, {
+      questId: "q-1",
+      title: "Already finished quest",
+      worker: workerId,
+      workerNum: 2,
+      status: "IMPLEMENTING",
+      updatedAt: now - 5 * 60_000,
+    });
+    bridge.persistSessionSync(leaderId);
+
+    const restored = new WsBridge();
+    restored.setStore(store);
+    restored.setQuestStatusResolver(async (questId) => (questId === "q-1" ? "done" : null));
+
+    const launcherSessions = new Map<string, any>([
+      [
+        leaderId,
+        {
+          sessionId: leaderId,
+          sessionNum: 1,
+          isOrchestrator: true,
+          backendType: "claude",
+          cwd: "/repo",
+          lastActivityAt: now,
+        },
+      ],
+      [
+        workerId,
+        {
+          sessionId: workerId,
+          sessionNum: 2,
+          herdedBy: leaderId,
+          backendType: "codex",
+          cwd: "/repo",
+          lastActivityAt: now - 5 * 60_000,
+        },
+      ],
+    ]);
+    const launcherMock = {
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn((id: string) => launcherSessions.get(id)),
+      getHerdedSessions: vi.fn((id: string) => (id === leaderId ? [{ sessionId: workerId }] : [])),
+      getSessionNum: vi.fn((id: string) => launcherSessions.get(id)?.sessionNum),
+      listSessions: vi.fn(() => Array.from(launcherSessions.values())),
+      resolveSessionId: vi.fn((ref: string) => (ref === "2" ? workerId : null)),
+    };
+    restored.setLauncher(launcherMock as any);
+    restored.setTimerManager({ listTimers: vi.fn(() => []) } as any);
+    const dispatcher = new HerdEventDispatcher(restored as any, launcherMock as any);
+    restored.setHerdEventDispatcher(dispatcher);
+
+    await restored.restoreFromDisk();
+    expect(restored.getBoard(leaderId)).toHaveLength(0);
+
+    const injectSpy = vi.spyOn(restored, "injectUserMessage");
+    dispatcher.setupForOrchestrator(leaderId);
+    const leaderCli = makeCliSocket(leaderId);
+    restored.handleCLIOpen(leaderCli, leaderId);
+    restored.handleCLIMessage(leaderCli, makeInitMsg({ session_id: "cli-orch-board-stall-restore" }));
+
+    restored.startStuckSessionWatchdog();
+    vi.advanceTimersByTime(181_000);
+    await Promise.resolve();
+
+    const herdCalls = injectSpy.mock.calls.filter(
+      ([sessionId, _content, source]) => sessionId === leaderId && source?.sessionId === "herd-events",
+    );
+    expect(herdCalls).toHaveLength(0);
+
+    injectSpy.mockRestore();
+    dispatcher.destroy();
+  });
 });
 
 // ─── SDK resume stall (q-220) ──────────────────────────────────────────────

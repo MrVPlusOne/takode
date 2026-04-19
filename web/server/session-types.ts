@@ -995,6 +995,8 @@ export interface TakodeBoardStalledEventData {
   questId: string;
   title?: string;
   stage?: string;
+  /** Internal stability key used to drop stale queued stall warnings. */
+  signature?: string;
   workerStatus?: "running" | "idle" | "disconnected" | "missing";
   reviewerStatus?: "running" | "idle" | "disconnected" | "missing";
   stalledForMs: number;

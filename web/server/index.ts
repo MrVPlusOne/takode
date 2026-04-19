@@ -124,6 +124,7 @@ wsBridge.setPushoverNotifier(pushoverNotifier);
 wsBridge.setLauncher(launcher);
 wsBridge.setSessionNameGetter((sessionId) => sessionNames.getName(sessionId) || sessionId.slice(0, 8));
 wsBridge.setQuestTitleResolver(async (questId) => (await getQuest(questId))?.title ?? null);
+wsBridge.setQuestStatusResolver(async (questId) => (await getQuest(questId))?.status ?? null);
 launcher.setStore(sessionStore);
 launcher.setRecorder(recorder);
 launcher.setEnvResolver(async (slug) => {
