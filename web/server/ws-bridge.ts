@@ -222,19 +222,28 @@ const CODEX_RETRY_SAFE_RESUME_ITEM_TYPES: ReadonlySet<string> = new Set(["reason
 const CODEX_TOOL_RESULT_WATCHDOG_MS = 120_000;
 
 // Injected into leader sessions after context compaction so they reload
-// orchestration skills and refresh herd state before making decisions.
-const LEADER_COMPACTION_RECOVERY_PROMPT = `Context was compacted. Before continuing, reload your orchestration state:
+// orchestration skills and recover enough self-history before making decisions.
+const LEADER_COMPACTION_RECOVERY_PROMPT = `Context was compacted. Before continuing, recover enough context to safely resume orchestration:
 
 1. Load skills: /takode-orchestration, /leader-dispatch, and /quest
 2. Run: takode board show && takode list
 3. Key rules:
-   - If you need earlier context from your own session, inspect it first with token-efficient Takode tools like \`takode scan <your-session-number>\`
+   - Inspect your own session history with Takode tools before resuming. Start with \`takode scan <your-session-number>\` and keep digging until you recover enough earlier context for the current orchestration state
    - Use \`takode spawn\` to create workers (never Agent tool)
    - Invoke /leader-dispatch before every dispatch
    - Follow quest-journey.md for lifecycle transitions
    - Update the board (\`takode board set/advance\`) at every stage transition
    - Make worker instructions stage-explicit: plan only, implement and stop, reviewer-groom/rework and report back, port only when explicitly told
    - Never implement non-trivial changes yourself -- delegate to workers`;
+
+// Injected into non-leader Takode sessions after context compaction so they
+// recover enough self-history before resuming their current role.
+const STANDARD_COMPACTION_RECOVERY_PROMPT = `Context was compacted. Before continuing, recover enough context from your own session history to safely resume work:
+
+1. Inspect your own session history with Takode tools. Start with \`takode scan <your-session-number>\`
+2. If you still need detail, inspect your own session further with Takode tools such as \`takode peek <your-session-number>\` or \`takode read <your-session-number>\`
+3. Re-read the quest or latest assignment only after you have recovered enough earlier context from your own session
+4. Keep your current role. If you are a worker or reviewer, continue the assigned task and do not switch into leader/orchestration behavior`;
 
 /** Extract structured Q&A pairs from an AskUserQuestion approval. */
 function extractAskUserAnswers(
@@ -3130,7 +3139,15 @@ export class WsBridge {
     return this.launcher?.getSession(session.id)?.isOrchestrator === true;
   }
 
-  private hasLeaderCompactionRecoveryAfterLatestMarker(session: Session): boolean {
+  private getCompactionRecoveryPrompt(session: Session): string {
+    return this.isLeaderSession(session) ? LEADER_COMPACTION_RECOVERY_PROMPT : STANDARD_COMPACTION_RECOVERY_PROMPT;
+  }
+
+  private isCompactionRecoveryPrompt(content: string): boolean {
+    return content === LEADER_COMPACTION_RECOVERY_PROMPT || content === STANDARD_COMPACTION_RECOVERY_PROMPT;
+  }
+
+  private hasCompactionRecoveryAfterLatestMarker(session: Session): boolean {
     let latestCompactIdx = -1;
     for (let i = session.messageHistory.length - 1; i >= 0; i--) {
       if (session.messageHistory[i]?.type === "compact_marker") {
@@ -3149,20 +3166,21 @@ export class WsBridge {
           }
         | undefined;
       if (entry?.type !== "user_message") continue;
-      if (entry.content !== LEADER_COMPACTION_RECOVERY_PROMPT) continue;
+      if (typeof entry.content !== "string" || !this.isCompactionRecoveryPrompt(entry.content)) continue;
       if (!this.isSystemSourceTag(entry.agentSource)) continue;
       return true;
     }
     return false;
   }
 
-  /** After compaction, re-inject orchestration context for leader sessions
-   *  so they reload skills and refresh herd state before continuing. */
-  private injectLeaderCompactionRecovery(session: Session): void {
-    if (!this.isLeaderSession(session)) return;
-    if (this.hasLeaderCompactionRecoveryAfterLatestMarker(session)) return;
-    console.log(`[ws-bridge] Injecting leader compaction recovery for session ${sessionTag(session.id)}`);
-    this.injectUserMessage(session.id, LEADER_COMPACTION_RECOVERY_PROMPT, {
+  /** After compaction, re-inject role-specific recovery guidance so sessions
+   *  restore enough self-history before resuming their current role. */
+  private injectCompactionRecovery(session: Session): void {
+    if (this.hasCompactionRecoveryAfterLatestMarker(session)) return;
+    const prompt = this.getCompactionRecoveryPrompt(session);
+    const role = this.isLeaderSession(session) ? "leader" : "standard";
+    console.log(`[ws-bridge] Injecting ${role} compaction recovery for session ${sessionTag(session.id)}`);
+    this.injectUserMessage(session.id, prompt, {
       sessionId: "system",
       sessionLabel: "System",
     });
@@ -4324,7 +4342,7 @@ export class WsBridge {
               ? { context_used_percent: session.state.context_used_percent }
               : {}),
           });
-          this.injectLeaderCompactionRecovery(session);
+          this.injectCompactionRecovery(session);
         }
         this.persistSession(session);
       } else if (msg.type === "assistant") {
@@ -5198,7 +5216,7 @@ export class WsBridge {
               ? { context_used_percent: session.state.context_used_percent }
               : {}),
           });
-          this.injectLeaderCompactionRecovery(session);
+          this.injectCompactionRecovery(session);
         }
         this.persistSession(session);
         // Suppress stale status broadcasts during --resume replay (q-220);
@@ -6700,7 +6718,7 @@ export class WsBridge {
             : {}),
         });
         if (session.backendType !== "claude" || session.claudeCompactBoundarySeen) {
-          this.injectLeaderCompactionRecovery(session);
+          this.injectCompactionRecovery(session);
         }
       }
       if (wasCompacting && msg.status !== "compacting" && session.backendType === "claude") {

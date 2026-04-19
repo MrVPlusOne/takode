@@ -8248,13 +8248,12 @@ describe("Claude SDK compaction handling", () => {
   });
 });
 
-// ─── Leader compaction recovery ─────────────────────────────────────────────
+// ─── Compaction recovery prompts ────────────────────────────────────────────
 
-describe("Leader compaction recovery", () => {
-  // After compaction finishes, leader sessions receive a [System] user message
-  // instructing them to reload orchestration skills and refresh herd state.
-  // This prevents post-compaction mistakes (wrong dispatch format, using
-  // subagents instead of takode spawn, skipping board updates, etc.).
+describe("Compaction recovery prompts", () => {
+  // After compaction finishes, Takode sessions receive a [System] user message
+  // reminding them to recover enough self-history before resuming. Leaders get
+  // orchestration-specific guidance; non-leaders get a general recovery prompt.
 
   it("injects recovery message for leader sessions after SDK compaction finishes", () => {
     // Leader sessions lose skill context after compaction. The recovery
@@ -8293,7 +8292,8 @@ describe("Leader compaction recovery", () => {
     expect(recoveryCalls[0][1]).toContain("/takode-orchestration");
     expect(recoveryCalls[0][1]).toContain("takode board show");
     expect(recoveryCalls[0][1]).toContain("takode scan <your-session-number>");
-    expect(recoveryCalls[0][1]).toContain("earlier context from your own session");
+    expect(recoveryCalls[0][1]).toContain("recover enough earlier context");
+    expect(recoveryCalls[0][1]).toContain("Inspect your own session history with Takode tools before resuming");
     expect(recoveryCalls[0][1]).toContain("stage-explicit");
     expect(recoveryCalls[0][1]).toContain("plan only");
     expect(recoveryCalls[0][1]).toContain("implement and stop");
@@ -8374,7 +8374,7 @@ describe("Leader compaction recovery", () => {
       (entry: any) =>
         entry.type === "user_message" &&
         typeof entry.content === "string" &&
-        entry.content.includes("Context was compacted. Before continuing, reload your orchestration state:") &&
+        entry.content.includes("Context was compacted. Before continuing, recover enough context to safely resume orchestration:") &&
         entry.agentSource?.sessionId === "system" &&
         entry.agentSource?.sessionLabel === "System",
     );
@@ -8409,15 +8409,16 @@ describe("Leader compaction recovery", () => {
       (entry: any) =>
         entry.type === "user_message" &&
         typeof entry.content === "string" &&
-        entry.content.includes("Context was compacted. Before continuing, reload your orchestration state:") &&
+        entry.content.includes("Context was compacted. Before continuing, recover enough context to safely resume orchestration:") &&
         entry.agentSource?.sessionId === "system" &&
         entry.agentSource?.sessionLabel === "System",
     );
     expect(recoveries).toHaveLength(2);
   });
 
-  it("does not inject recovery message for non-leader sessions", () => {
-    // Regular (standalone) sessions don't have orchestration skills to reload.
+  it("injects standard recovery message for non-leader sessions", () => {
+    // Regular standalone sessions should still recover their own session
+    // history after compaction, but they should not receive leader guidance.
     const adapter = makeClaudeSdkAdapterMock();
     bridge.attachClaudeSdkAdapter("s1", adapter as any);
     adapter.emitBrowserMessage({
@@ -8446,11 +8447,18 @@ describe("Leader compaction recovery", () => {
     const recoveryCalls = spy.mock.calls.filter(
       ([, , source]) => source?.sessionId === "system" && source?.sessionLabel === "System",
     );
-    expect(recoveryCalls).toHaveLength(0);
+    expect(recoveryCalls).toHaveLength(1);
+    expect(recoveryCalls[0][1]).toContain("recover enough context from your own session history");
+    expect(recoveryCalls[0][1]).toContain("takode scan <your-session-number>");
+    expect(recoveryCalls[0][1]).toContain("takode peek <your-session-number>");
+    expect(recoveryCalls[0][1]).toContain("takode read <your-session-number>");
+    expect(recoveryCalls[0][1]).toContain("Keep your current role");
+    expect(recoveryCalls[0][1]).not.toContain("/takode-orchestration");
   });
 
-  it("does not inject recovery for herded worker sessions", () => {
-    // Workers are not leaders -- they don't need orchestration recovery.
+  it("injects standard recovery for herded worker sessions without leader instructions", () => {
+    // Herded workers should recover their own history after compaction while
+    // staying in worker mode instead of switching into orchestration behavior.
     const adapter = makeClaudeSdkAdapterMock();
     bridge.attachClaudeSdkAdapter("s1", adapter as any);
     adapter.emitBrowserMessage({
@@ -8479,7 +8487,10 @@ describe("Leader compaction recovery", () => {
     const recoveryCalls = spy.mock.calls.filter(
       ([, , source]) => source?.sessionId === "system" && source?.sessionLabel === "System",
     );
-    expect(recoveryCalls).toHaveLength(0);
+    expect(recoveryCalls).toHaveLength(1);
+    expect(recoveryCalls[0][1]).toContain("recover enough context from your own session history");
+    expect(recoveryCalls[0][1]).toContain("do not switch into leader/orchestration behavior");
+    expect(recoveryCalls[0][1]).not.toContain("/leader-dispatch");
   });
 });
 
