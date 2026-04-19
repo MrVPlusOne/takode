@@ -3,6 +3,7 @@ import { deriveSessionStatus } from "../components/SessionStatusDot.js";
 
 export interface SessionItem {
   id: string;
+  claimedQuestStatus?: string;
   model: string;
   cwd: string;
   gitBranch: string;

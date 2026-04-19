@@ -1629,11 +1629,11 @@ export class WsBridge {
     session.state.claimedQuestId = quest?.id;
     session.state.claimedQuestTitle = quest?.title;
     session.state.claimedQuestStatus = quest?.status;
-    // Only cancel in-flight namer calls and take over session naming when the
-    // quest is actively being worked on (in_progress). When it transitions
-    // away (needs_verification, done), let the auto-namer resume so it can
-    // track subsequent agent actions.
-    const isQuestActive = quest?.title && quest?.status === "in_progress";
+    // Keep the quest-owned title stable through the review handoff so
+    // completed quest sessions retain their checkbox-prefixed names until
+    // the claim is fully cleared.
+    const isQuestActive =
+      !!quest?.title && (quest?.status === "in_progress" || quest?.status === "needs_verification");
     const isOrchestrator = this.launcher?.getSession(sessionId)?.isOrchestrator === true;
     if (isQuestActive && !isOrchestrator && this.onSessionNamedByQuest) {
       this.onSessionNamedByQuest(sessionId, quest.title);
@@ -1642,11 +1642,10 @@ export class WsBridge {
       type: "session_quest_claimed",
       quest,
     } as BrowserIncomingMessage);
-    // When a quest is actively in_progress, broadcast a session_name_update
+    // When a quest is actively in_progress or needs_verification, broadcast a session_name_update
     // with source "quest" so ALL paths (REST claim, Codex Bash detection,
     // transitions) consistently update the session name and the browser's
-    // questNamedSessions guard. Skip this for non-active statuses so the
-    // auto-namer can resume.
+    // questNamedSessions guard. Skip this only once the claim is cleared.
     if (isQuestActive && !isOrchestrator) {
       this.broadcastNameUpdate(sessionId, quest.title, "quest");
     }

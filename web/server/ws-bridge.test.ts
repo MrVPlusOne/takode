@@ -11249,6 +11249,14 @@ describe("Codex adapter result handling", () => {
       title: "Fix Codex quest lifecycle chips",
       status: "needs_verification",
     });
+    expect(
+      calls.find(
+        (c: any) =>
+          c.type === "session_name_update" &&
+          c.name === "Fix Codex quest lifecycle chips" &&
+          c.source === "quest",
+      ),
+    ).toBeDefined();
 
     const session = bridge.getSession("s1")!;
     expect(session.state.claimedQuestId).toBe("q-74");

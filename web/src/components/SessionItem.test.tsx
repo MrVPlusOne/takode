@@ -665,6 +665,27 @@ describe("SessionItem quest title label", () => {
     expect(screen.getByText("☑ Fix auth bug")).toBeInTheDocument();
   });
 
+  it("can derive the checked prefix from sidebar session data when bridge quest state is missing", () => {
+    renderSessionItem({
+      sessionName: "Fix auth bug",
+      session: makeSession({ claimedQuestStatus: "needs_verification" }),
+    });
+
+    expect(screen.getByText("☑ Fix auth bug")).toBeInTheDocument();
+  });
+
+  it("does not derive a quest checkbox prefix for orchestrator rows", () => {
+    renderSessionItem({
+      sessionName: "Leader 7",
+      session: makeSession({ isOrchestrator: true, claimedQuestStatus: "needs_verification" }),
+    });
+
+    const span = screen.getByText("Leader 7");
+    expect(span.textContent).toBe("Leader 7");
+    expect(screen.queryByText("☑ Leader 7")).not.toBeInTheDocument();
+    expect(screen.queryByText("☐ Leader 7")).not.toBeInTheDocument();
+  });
+
   it("shows plain name for non-quest sessions", () => {
     renderSessionItem({ sessionName: "Regular session" });
 

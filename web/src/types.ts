@@ -187,6 +187,8 @@ export interface SdkSessionInfo {
   taskHistory?: SessionTaskEntry[];
   /** Accumulated search keywords from the session auto-namer */
   keywords?: string[];
+  /** Current claimed quest status for sidebar/title rendering. */
+  claimedQuestStatus?: string | null;
   /** Epoch ms of last real activity (user/assistant message, not keep_alive) */
   lastActivityAt?: number;
   /** Epoch ms of last user message (for sidebar activity sort -- not updated by assistant/tool activity) */

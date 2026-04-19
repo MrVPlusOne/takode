@@ -4,7 +4,7 @@ import { deriveSessionStatus, type SessionVisualStatus } from "./SessionStatusDo
 import { useStore } from "../store.js";
 import { navigateToSession } from "../utils/routing.js";
 import { getHighlightParts } from "../utils/highlight.js";
-import { questLabel } from "../utils/quest-helpers.js";
+import { questLabel, questOwnsSessionName } from "../utils/quest-helpers.js";
 import type { HerdGroupBadgeTheme } from "../utils/herd-group-theme.js";
 import { getHighestNotificationUrgency } from "../utils/notification-urgency.js";
 
@@ -250,8 +250,10 @@ export function SessionItem({
   const shortId = s.id.slice(0, 8);
   const label = sessionName || s.model || shortId;
   const isEditing = editingSessionId === s.id;
-  const isQuestNamed = useStore((st) => st.questNamedSessions.has(s.id));
-  const questStatus = useStore((st) => st.sessions.get(s.id)?.claimedQuestStatus);
+  const storeQuestNamed = useStore((st) => st.questNamedSessions.has(s.id));
+  const bridgeQuestStatus = useStore((st) => st.sessions.get(s.id)?.claimedQuestStatus);
+  const questStatus = s.claimedQuestStatus ?? bridgeQuestStatus;
+  const isQuestNamed = !s.isOrchestrator && (storeQuestNamed || questOwnsSessionName(questStatus));
   const reviewerAttention = useStore((st) =>
     reviewerSession ? st.sessionAttention.get(reviewerSession.id) : undefined,
   );

@@ -4,6 +4,7 @@ import type { BrowserIncomingMessage, ContentBlock, ChatMessage, TaskItem } from
 import { generateUniqueSessionName } from "./utils/names.js";
 import { playNotificationSound, playReviewSound, playNeedsInputSound } from "./utils/notification-sound.js";
 import { extractTextFromBlocks, normalizeHistoryMessageToChatMessages } from "./utils/history-message-normalization.js";
+import { questOwnsSessionName } from "./utils/quest-helpers.js";
 
 const taskCounters = new Map<string, number>();
 const pendingCliDisconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -407,10 +408,19 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       // Restore quest name and styling from persisted session state (on reconnect).
       // This is the most reliable path since session_init fires on every WS connect.
       const isOrchestrator = data.session.isOrchestrator === true;
-      if (data.session.claimedQuestId && data.session.claimedQuestTitle && !isOrchestrator) {
+      if (
+        data.session.claimedQuestId &&
+        data.session.claimedQuestTitle &&
+        !isOrchestrator &&
+        questOwnsSessionName(data.session.claimedQuestStatus)
+      ) {
         store.setSessionName(sessionId, data.session.claimedQuestTitle);
         store.markQuestNamed(sessionId);
-      } else if (data.session.claimedQuestId && !isOrchestrator) {
+      } else if (
+        data.session.claimedQuestId &&
+        !isOrchestrator &&
+        questOwnsSessionName(data.session.claimedQuestStatus)
+      ) {
         store.markQuestNamed(sessionId);
       } else {
         store.clearQuestNamed(sessionId);
@@ -1131,12 +1141,20 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
     case "session_name_update": {
       // Server is authoritative for all name updates (auto-naming, manual rename, etc.)
       const prevName = store.sessionNames.get(sessionId);
+      const claimedQuest = store.sessions.get(sessionId);
+      const claimedQuestStatus = claimedQuest?.claimedQuestStatus;
+      const claimedQuestTitle = claimedQuest?.claimedQuestTitle;
       console.log(
         `[ws] session_name_update for ${sessionId}: "${prevName}" → "${data.name}" source=${(data as Record<string, unknown>).source ?? "none"}`,
       );
       // When a quest is actively claiming the session name, ignore non-quest name updates
       // (prevents auto-namer race conditions from overwriting the quest title)
-      if (store.questNamedSessions.has(sessionId) && data.source !== "quest") {
+      if (
+        store.questNamedSessions.has(sessionId) &&
+        data.source !== "quest" &&
+        questOwnsSessionName(claimedQuestStatus) &&
+        (!claimedQuestTitle || data.name === claimedQuestTitle)
+      ) {
         console.log(`[ws] Ignoring non-quest name update for quest-named session ${sessionId}`);
         break;
       }
@@ -1145,7 +1163,10 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
         store.markRecentlyRenamed(sessionId);
       }
       // Track whether this name was set by a quest claim (for amber styling)
-      if (data.source === "quest") {
+      if (
+        data.source === "quest" ||
+        (questOwnsSessionName(claimedQuestStatus) && !!claimedQuestTitle && data.name === claimedQuestTitle)
+      ) {
         store.markQuestNamed(sessionId);
       } else {
         store.clearQuestNamed(sessionId);
@@ -1232,11 +1253,10 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       const isOrchestrator =
         store.sdkSessions.find((sdk) => sdk.sessionId === sessionId)?.isOrchestrator === true ||
         store.sessions.get(sessionId)?.isOrchestrator === true;
-      if (data.quest?.id && data.quest?.title && data.quest?.status === "in_progress" && !isOrchestrator) {
+      if (data.quest?.id && data.quest?.title && questOwnsSessionName(data.quest?.status) && !isOrchestrator) {
         // Override session name with quest title and mark as quest-named
-        // only while the quest is actively in_progress. Once it transitions
-        // away (needs_verification, done), clear the guard so the auto-namer
-        // can resume tracking subsequent agent actions.
+        // through review handoff so the checkbox prefix stays stable until
+        // the quest claim is actually cleared.
         store.setSessionName(sessionId, data.quest.title);
         store.markRecentlyRenamed(sessionId);
         store.markQuestNamed(sessionId);

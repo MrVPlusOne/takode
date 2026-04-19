@@ -338,7 +338,7 @@ describe("Sidebar", { timeout: 10000 }, () => {
         keywords: [],
       }),
     ];
-    mockApi.listSessions.mockResolvedValueOnce(listed);
+    mockApi.listSessions.mockResolvedValue(listed);
 
     render(<Sidebar />);
 

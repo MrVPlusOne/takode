@@ -8,6 +8,11 @@ export function questLabel(name: string, isQuestNamed: boolean, questStatus: str
   return questStatus === "needs_verification" ? `☑ ${name}` : `☐ ${name}`;
 }
 
+/** Quest-owned session titles stay sticky through review handoff until the claim is cleared. */
+export function questOwnsSessionName(questStatus: string | undefined): boolean {
+  return questStatus === "in_progress" || questStatus === "needs_verification";
+}
+
 /** Relative time display (e.g. "5m ago", "2h ago", "3d ago"). */
 export function timeAgo(ts: number): string {
   const diff = Date.now() - ts;

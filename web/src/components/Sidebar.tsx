@@ -32,6 +32,7 @@ import type { SessionTaskEntry, SdkSessionInfo } from "../types.js";
 import { groupSessionsByProject, type SessionItem as SessionItemType } from "../utils/project-grouping.js";
 import { buildTreeViewGroups } from "../utils/tree-grouping.js";
 import { isDesktopShellLayout } from "../utils/layout.js";
+import { questOwnsSessionName } from "../utils/quest-helpers.js";
 import {
   buildHerdGroupBadgeThemes,
   getHerdGroupLeaderId,
@@ -225,6 +226,11 @@ export function Sidebar() {
                   store.markRecentlyRenamed(s.sessionId);
                 }
               }
+            }
+            if (!s.isOrchestrator && questOwnsSessionName(s.claimedQuestStatus ?? undefined)) {
+              store.markQuestNamed(s.sessionId);
+            } else {
+              store.clearQuestNamed(s.sessionId);
             }
             // Hydrate last message preview from server (only if client doesn't have one yet)
             if (s.lastMessagePreview && !store.sessionPreviews.has(s.sessionId)) {
@@ -686,6 +692,7 @@ export function Sidebar() {
           : serverLinesRemoved;
       return {
         id,
+        claimedQuestStatus: bridgeState?.claimedQuestStatus ?? sdkInfo?.claimedQuestStatus ?? undefined,
         model: bridgeState?.model || sdkInfo?.model || "",
         cwd: bridgeState?.cwd || sdkInfo?.cwd || "",
         gitBranch: bridgeState?.git_branch || sdkInfo?.gitBranch || "",

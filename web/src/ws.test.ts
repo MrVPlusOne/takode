@@ -456,6 +456,22 @@ describe("handleMessage: session_quest_claimed", () => {
     expect(state.questNamedSessions.has("s1")).toBe(true);
   });
 
+  it("keeps needs_verification quest titles quest-named for checked-box rendering", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+    useStore.getState().setSessionName("s1", "Worker Session");
+
+    fireMessage({
+      type: "session_quest_claimed",
+      quest: { id: "q-348", title: "Prevent leader auto-renames", status: "needs_verification" },
+    });
+
+    const state = useStore.getState();
+    expect(state.sessionNames.get("s1")).toBe("Prevent leader auto-renames");
+    expect(state.questNamedSessions.has("s1")).toBe(true);
+    expect(state.sessions.get("s1")?.claimedQuestStatus).toBe("needs_verification");
+  });
+
   it("does not rename or mark orchestrator sessions as quest-named", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: { ...makeSession("s1"), isOrchestrator: true } });
@@ -2920,6 +2936,22 @@ describe("handleMessage: session_name_update", () => {
     useStore.getState().clearRecentlyRenamed("s1");
     fireMessage({ type: "session_name_update", name: "Another Auto Title" });
     expect(useStore.getState().sessionNames.get("s1")).toBe("Another Auto Title");
+  });
+
+  it("keeps the quest-owned marker on same-title updates during needs_verification", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    fireMessage({
+      type: "session_quest_claimed",
+      quest: { id: "q-348", title: "Fix Authentication Bug", status: "needs_verification" },
+    });
+
+    fireMessage({ type: "session_name_update", name: "Fix Authentication Bug" });
+
+    const state = useStore.getState();
+    expect(state.sessionNames.get("s1")).toBe("Fix Authentication Bug");
+    expect(state.questNamedSessions.has("s1")).toBe(true);
   });
 });
 
