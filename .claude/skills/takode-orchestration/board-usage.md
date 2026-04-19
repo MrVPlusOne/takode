@@ -34,3 +34,4 @@ Stages follow the Quest Journey lifecycle (see [quest-journey.md](quest-journey.
 - Rows are auto-removed when a quest transitions to `needs_verification` or `done`.
 - **Always use `takode board` commands.** Never manually render markdown board tables in messages -- the CLI is the source of truth.
 - The board is stored server-side per leader session and persists across server restarts.
+- **Idle/disconnected active rows need judgment.** An active quest whose worker or reviewer is `idle` or `disconnected` is not automatically “fine.” After checking `takode list`, decide whether the row is genuinely waiting or whether the next legal instruction should be sent now. Active timers are part of that judgment: an idle/disconnected session with live timers may still be waiting on expected future work rather than stalled.
