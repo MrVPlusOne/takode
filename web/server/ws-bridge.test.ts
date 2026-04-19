@@ -20606,6 +20606,209 @@ describe("work board", () => {
   });
 });
 
+describe("board stall warnings", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-19T12:00:00Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function setupBoardStallHarness(opts?: { reviewer?: boolean; workerHasTimer?: boolean; blocked?: boolean }) {
+    const leaderId = "orch-board-stall";
+    const workerId = "worker-board-stall";
+    const reviewerId = "reviewer-board-stall";
+    const now = Date.now();
+    const launcherSessions = new Map<string, any>([
+      [
+        leaderId,
+        {
+          sessionId: leaderId,
+          sessionNum: 1,
+          isOrchestrator: true,
+          backendType: "claude",
+          cwd: "/repo",
+          lastActivityAt: now,
+        },
+      ],
+      [
+        workerId,
+        {
+          sessionId: workerId,
+          sessionNum: 2,
+          herdedBy: leaderId,
+          backendType: "codex",
+          cwd: "/repo",
+          lastActivityAt: now - 5 * 60_000,
+        },
+      ],
+    ]);
+    if (opts?.reviewer) {
+      launcherSessions.set(reviewerId, {
+        sessionId: reviewerId,
+        sessionNum: 3,
+        reviewerOf: 2,
+        herdedBy: leaderId,
+        backendType: "codex",
+        cwd: "/repo",
+        lastActivityAt: now - 5 * 60_000,
+      });
+    }
+
+    const launcherMock = {
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn((id: string) => launcherSessions.get(id)),
+      getHerdedSessions: vi.fn((id: string) =>
+        id === leaderId
+          ? Array.from(launcherSessions.values())
+              .filter((session: any) => session.herdedBy === leaderId)
+              .map((session: any) => ({ sessionId: session.sessionId }))
+          : [],
+      ),
+      getSessionNum: vi.fn((id: string) => launcherSessions.get(id)?.sessionNum),
+      listSessions: vi.fn(() => Array.from(launcherSessions.values())),
+      resolveSessionId: vi.fn((ref: string) => {
+        if (ref === "2") return workerId;
+        if (ref === "3") return reviewerId;
+        return null;
+      }),
+    };
+    bridge.setLauncher(launcherMock as any);
+    bridge.setTimerManager({
+      listTimers: vi.fn((sessionId: string) => (opts?.workerHasTimer && sessionId === workerId ? [{ id: "t1" }] : [])),
+    } as any);
+
+    const dispatcher = new HerdEventDispatcher(bridge as any, launcherMock as any);
+    bridge.setHerdEventDispatcher(dispatcher);
+    dispatcher.setupForOrchestrator(leaderId);
+
+    const leaderCli = makeCliSocket(leaderId);
+    bridge.handleCLIOpen(leaderCli, leaderId);
+    bridge.handleCLIMessage(leaderCli, makeInitMsg({ session_id: "cli-orch-board-stall" }));
+
+    bridge.getOrCreateSession(workerId);
+    if (opts?.reviewer) bridge.getOrCreateSession(reviewerId);
+    bridge.upsertBoardRow(leaderId, {
+      questId: "q-1",
+      title: "Investigate stall warning",
+      worker: workerId,
+      workerNum: 2,
+      status: opts?.reviewer ? "SKEPTIC_REVIEWING" : "IMPLEMENTING",
+      ...(opts?.blocked ? { waitFor: ["#9"] } : {}),
+      updatedAt: now - 5 * 60_000,
+    });
+    return { leaderId, dispatcher };
+  }
+
+  it("emits a one-shot herd warning for a stalled implementing row", async () => {
+    const { leaderId, dispatcher } = setupBoardStallHarness();
+    const injectSpy = vi.spyOn(bridge, "injectUserMessage");
+
+    bridge.startStuckSessionWatchdog();
+    vi.advanceTimersByTime(61_000);
+    await Promise.resolve();
+
+    const herdCalls = injectSpy.mock.calls.filter(
+      ([sessionId, _content, source]) => sessionId === leaderId && source?.sessionId === "herd-events",
+    );
+    expect(herdCalls).toHaveLength(1);
+    expect(herdCalls[0][1]).toContain("board_stalled");
+    expect(herdCalls[0][1]).toContain("q-1");
+    expect(herdCalls[0][1]).toContain("worker disconnected");
+
+    vi.advanceTimersByTime(120_000);
+    await Promise.resolve();
+    const repeated = injectSpy.mock.calls.filter(
+      ([sessionId, _content, source]) => sessionId === leaderId && source?.sessionId === "herd-events",
+    );
+    expect(repeated).toHaveLength(1);
+
+    injectSpy.mockRestore();
+    dispatcher.destroy();
+  });
+
+  it("suppresses stalled-row warnings when the worker has an active timer", async () => {
+    const { leaderId, dispatcher } = setupBoardStallHarness({ workerHasTimer: true });
+    const injectSpy = vi.spyOn(bridge, "injectUserMessage");
+
+    bridge.startStuckSessionWatchdog();
+    vi.advanceTimersByTime(181_000);
+    await Promise.resolve();
+
+    const herdCalls = injectSpy.mock.calls.filter(
+      ([sessionId, _content, source]) => sessionId === leaderId && source?.sessionId === "herd-events",
+    );
+    expect(herdCalls).toHaveLength(0);
+
+    injectSpy.mockRestore();
+    dispatcher.destroy();
+  });
+
+  it("does not warn for blocked rows even when the worker is disconnected", async () => {
+    const { leaderId, dispatcher } = setupBoardStallHarness({ blocked: true });
+    const injectSpy = vi.spyOn(bridge, "injectUserMessage");
+
+    bridge.startStuckSessionWatchdog();
+    vi.advanceTimersByTime(181_000);
+    await Promise.resolve();
+
+    const herdCalls = injectSpy.mock.calls.filter(
+      ([sessionId, _content, source]) => sessionId === leaderId && source?.sessionId === "herd-events",
+    );
+    expect(herdCalls).toHaveLength(0);
+
+    injectSpy.mockRestore();
+    dispatcher.destroy();
+  });
+
+  it("warns when a review-stage row has a stalled reviewer", async () => {
+    const { leaderId, dispatcher } = setupBoardStallHarness({ reviewer: true });
+    const injectSpy = vi.spyOn(bridge, "injectUserMessage");
+
+    bridge.startStuckSessionWatchdog();
+    vi.advanceTimersByTime(61_000);
+    await Promise.resolve();
+
+    const herdCalls = injectSpy.mock.calls.filter(
+      ([sessionId, _content, source]) => sessionId === leaderId && source?.sessionId === "herd-events",
+    );
+    expect(herdCalls).toHaveLength(1);
+    expect(herdCalls[0][1]).toContain("reviewer disconnected");
+    expect(herdCalls[0][1]).toContain("re-dispatch skeptic review");
+
+    injectSpy.mockRestore();
+    dispatcher.destroy();
+  });
+
+  it("warns when a review-stage row has no attached reviewer", async () => {
+    const { leaderId, dispatcher } = setupBoardStallHarness({ reviewer: false });
+    const injectSpy = vi.spyOn(bridge, "injectUserMessage");
+
+    const leaderSession = bridge.getSession(leaderId)!;
+    const row = leaderSession.board.get("q-1")!;
+    row.status = "SKEPTIC_REVIEWING";
+    row.updatedAt = Date.now() - 5 * 60_000;
+    leaderSession.board.set("q-1", row);
+
+    bridge.startStuckSessionWatchdog();
+    vi.advanceTimersByTime(61_000);
+    await Promise.resolve();
+
+    const herdCalls = injectSpy.mock.calls.filter(
+      ([sessionId, _content, source]) => sessionId === leaderId && source?.sessionId === "herd-events",
+    );
+    expect(herdCalls).toHaveLength(1);
+    expect(herdCalls[0][1]).toContain("reviewer missing");
+    expect(herdCalls[0][1]).toContain("attach skeptic reviewer");
+
+    injectSpy.mockRestore();
+    dispatcher.destroy();
+  });
+});
+
 // ─── SDK resume stall (q-220) ──────────────────────────────────────────────
 
 describe("SDK resume stall: cliResuming guards (q-220)", () => {

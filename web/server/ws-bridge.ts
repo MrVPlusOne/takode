@@ -447,6 +447,8 @@ interface Session {
   board: Map<string, BoardRow>;
   /** Completed board items (moved here by rm/advance instead of being deleted). Newest-first by completedAt. */
   completedBoard: Map<string, BoardRow>;
+  /** Per-row stall tracking for board warnings (not persisted). */
+  boardStallStates: Map<string, { signature: string; stalledSince: number; warnedAt: number | null }>;
   /** Per-session notification inbox entries from `takode notify`. */
   notifications: SessionNotification[];
   /** Monotonic counter for notification IDs (survives deletion without collisions). */
@@ -480,6 +482,23 @@ interface LeaderGroupIdleTimerState {
   notifiedWhileIdle: boolean;
   leaderUnreadSetByGroupIdle: boolean;
 }
+
+type BoardStallStatus = "running" | "idle" | "disconnected" | "missing";
+
+interface BoardStallCandidate {
+  signature: string;
+  sourceSessionId: string;
+  questId: string;
+  title?: string;
+  stage?: string;
+  workerStatus: BoardStallStatus;
+  reviewerStatus: BoardStallStatus;
+  stalledSince: number;
+  reason: string;
+  action: string;
+}
+
+const BOARD_STALL_THRESHOLD_MS = 3 * 60_000;
 
 type GitSessionKey =
   | "git_branch"
@@ -1553,6 +1572,8 @@ export class WsBridge {
           this.broadcastToBrowsers(session, { type: "session_unstuck" } as BrowserIncomingMessage);
         }
       }
+
+      this.sweepBoardStallWarnings(now);
     }, CHECK_INTERVAL_MS);
     if (timer.unref) timer.unref();
   }
@@ -2143,6 +2164,7 @@ export class WsBridge {
         completedBoard: new Map(
           Array.isArray(p.completedBoard) ? p.completedBoard.map((row: BoardRow) => [row.questId, row]) : [],
         ),
+        boardStallStates: new Map(),
         notifications: Array.isArray(p.notifications) ? p.notifications : [],
         notificationCounter: Array.isArray(p.notifications)
           ? p.notifications.reduce((max: number, n: SessionNotification) => {
@@ -2772,6 +2794,7 @@ export class WsBridge {
         keywords: [],
         board: new Map(),
         completedBoard: new Map(),
+        boardStallStates: new Map(),
         notifications: [],
         notificationCounter: 0,
         diffStatsDirty: true,
@@ -3507,6 +3530,200 @@ export class WsBridge {
     this.broadcastToBrowsers(session, { type: "board_updated", board, completedBoard });
     this.persistSession(session);
     return board;
+  }
+
+  private resolveBoardSessionId(sessionId: string | undefined, sessionNum: number | undefined): string | undefined {
+    if (sessionId) return sessionId;
+    if (sessionNum === undefined) return undefined;
+    const byRef = this.launcher?.resolveSessionId?.(String(sessionNum));
+    if (byRef) return byRef;
+    const sessions = this.launcher?.listSessions?.() ?? [];
+    return sessions.find((candidate: any) => candidate.sessionNum === sessionNum && !candidate.archived)?.sessionId;
+  }
+
+  private resolveBoardReviewerSessionId(workerNum: number | undefined): string | undefined {
+    if (workerNum === undefined) return undefined;
+    const sessions = this.launcher?.listSessions?.() ?? [];
+    return sessions.find((candidate: any) => candidate.reviewerOf === workerNum && !candidate.archived)?.sessionId;
+  }
+
+  private getBoardParticipantRuntime(sessionId: string | undefined): {
+    status: BoardStallStatus;
+    lastActivityAt: number;
+    hasActiveTimer: boolean;
+  } {
+    if (!sessionId) return { status: "missing", lastActivityAt: 0, hasActiveTimer: false };
+    const launcherInfo = this.launcher?.getSession?.(sessionId) as { archived?: boolean; lastActivityAt?: number } | undefined;
+    if (launcherInfo?.archived) {
+      return { status: "missing", lastActivityAt: launcherInfo.lastActivityAt ?? 0, hasActiveTimer: false };
+    }
+
+    const session = this.sessions.get(sessionId);
+    const hasActiveTimer = (this.timerManager?.listTimers(sessionId).length ?? 0) > 0;
+    if (!session || !this.backendConnected(session)) {
+      return { status: launcherInfo ? "disconnected" : "missing", lastActivityAt: launcherInfo?.lastActivityAt ?? 0, hasActiveTimer };
+    }
+    if (session.isGenerating || session.pendingPermissions.size > 0) {
+      return { status: "running", lastActivityAt: launcherInfo?.lastActivityAt ?? 0, hasActiveTimer };
+    }
+    return { status: "idle", lastActivityAt: launcherInfo?.lastActivityAt ?? 0, hasActiveTimer };
+  }
+
+  private getBlockedBoardDeps(session: Session, row: BoardRow): string[] {
+    const activeQuestIds = new Set(session.board.keys());
+    const blocked: string[] = [];
+    for (const dep of row.waitFor ?? []) {
+      if (dep.startsWith("#")) {
+        const sessionId = this.launcher?.resolveSessionId?.(dep.slice(1));
+        if (!sessionId || !this.isSessionIdle(sessionId)) blocked.push(dep);
+      } else if (activeQuestIds.has(dep)) {
+        blocked.push(dep);
+      }
+    }
+    return blocked;
+  }
+
+  private buildBoardStallCandidate(session: Session, row: BoardRow): BoardStallCandidate | null {
+    const stage = (row.status || "").trim();
+    if (!stage || stage === "QUEUED") return null;
+    if (this.getBlockedBoardDeps(session, row).length > 0) return null;
+
+    const workerSessionId = this.resolveBoardSessionId(row.worker, row.workerNum);
+    const workerRuntime = this.getBoardParticipantRuntime(workerSessionId);
+    const reviewerSessionId = this.resolveBoardReviewerSessionId(row.workerNum);
+    const reviewerRuntime = this.getBoardParticipantRuntime(reviewerSessionId);
+
+    const stalledSinceFrom = (...times: number[]) => Math.max(row.updatedAt, ...times, 0);
+    const title = row.title?.trim() || undefined;
+
+    if (stage === "PLANNING") {
+      if (!workerSessionId || workerRuntime.hasActiveTimer || workerRuntime.status === "running") return null;
+      return {
+        signature: `${row.questId}|${stage}|${workerRuntime.status}`,
+        sourceSessionId: workerSessionId,
+        questId: row.questId,
+        title,
+        stage,
+        workerStatus: workerRuntime.status,
+        reviewerStatus: reviewerRuntime.status,
+        stalledSince: stalledSinceFrom(workerRuntime.lastActivityAt),
+        reason: `worker ${workerRuntime.status}`,
+        action: "inspect worker; review plan or re-dispatch",
+      };
+    }
+
+    if (stage === "IMPLEMENTING") {
+      if (!workerSessionId || workerRuntime.hasActiveTimer || workerRuntime.status === "running") return null;
+      return {
+        signature: `${row.questId}|${stage}|${workerRuntime.status}`,
+        sourceSessionId: workerSessionId,
+        questId: row.questId,
+        title,
+        stage,
+        workerStatus: workerRuntime.status,
+        reviewerStatus: reviewerRuntime.status,
+        stalledSince: stalledSinceFrom(workerRuntime.lastActivityAt),
+        reason: `worker ${workerRuntime.status}`,
+        action: "inspect worker; resume or re-dispatch before review",
+      };
+    }
+
+    if (stage === "SKEPTIC_REVIEWING" || stage === "GROOM_REVIEWING") {
+      if (reviewerSessionId) {
+        if (reviewerRuntime.hasActiveTimer || reviewerRuntime.status === "running") return null;
+        return {
+          signature: `${row.questId}|${stage}|reviewer|${reviewerRuntime.status}`,
+          sourceSessionId: workerSessionId || reviewerSessionId,
+          questId: row.questId,
+          title,
+          stage,
+          workerStatus: workerRuntime.status,
+          reviewerStatus: reviewerRuntime.status,
+          stalledSince: stalledSinceFrom(workerRuntime.lastActivityAt, reviewerRuntime.lastActivityAt),
+          reason: `reviewer ${reviewerRuntime.status}`,
+          action:
+            stage === "SKEPTIC_REVIEWING"
+              ? "inspect reviewer; re-dispatch skeptic review if needed"
+              : "inspect reviewer; re-dispatch groom review if needed",
+        };
+      }
+      if (!workerSessionId || workerRuntime.hasActiveTimer || workerRuntime.status === "running") return null;
+      return {
+        signature: `${row.questId}|${stage}|reviewer-missing|${workerRuntime.status}`,
+        sourceSessionId: workerSessionId,
+        questId: row.questId,
+        title,
+        stage,
+        workerStatus: workerRuntime.status,
+        reviewerStatus: "missing",
+        stalledSince: stalledSinceFrom(workerRuntime.lastActivityAt),
+        reason: "reviewer missing",
+        action: stage === "SKEPTIC_REVIEWING" ? "attach skeptic reviewer" : "attach groom reviewer",
+      };
+    }
+
+    if (stage === "PORTING") {
+      if (!workerSessionId || workerRuntime.hasActiveTimer || workerRuntime.status === "running") return null;
+      return {
+        signature: `${row.questId}|${stage}|${workerRuntime.status}`,
+        sourceSessionId: workerSessionId,
+        questId: row.questId,
+        title,
+        stage,
+        workerStatus: workerRuntime.status,
+        reviewerStatus: reviewerRuntime.status,
+        stalledSince: stalledSinceFrom(workerRuntime.lastActivityAt),
+        reason: `worker ${workerRuntime.status}`,
+        action: "inspect worker; resume port or remove if already synced",
+      };
+    }
+
+    return null;
+  }
+
+  private sweepBoardStallWarnings(now: number): void {
+    for (const session of this.sessions.values()) {
+      const launcherInfo = this.launcher?.getSession?.(session.id);
+      if (!launcherInfo?.isOrchestrator) continue;
+
+      const activeQuestIds = new Set(session.board.keys());
+      for (const questId of [...session.boardStallStates.keys()]) {
+        if (!activeQuestIds.has(questId)) session.boardStallStates.delete(questId);
+      }
+
+      for (const row of session.board.values()) {
+        const candidate = this.buildBoardStallCandidate(session, row);
+        if (!candidate) {
+          session.boardStallStates.delete(row.questId);
+          continue;
+        }
+
+        const existing = session.boardStallStates.get(row.questId);
+        if (!existing || existing.signature !== candidate.signature) {
+          session.boardStallStates.set(row.questId, {
+            signature: candidate.signature,
+            stalledSince: candidate.stalledSince,
+            warnedAt: null,
+          });
+          continue;
+        }
+
+        if (existing.warnedAt) continue;
+        if (now - existing.stalledSince < BOARD_STALL_THRESHOLD_MS) continue;
+
+        this.emitTakodeEvent(candidate.sourceSessionId, "board_stalled", {
+          questId: candidate.questId,
+          ...(candidate.title ? { title: candidate.title } : {}),
+          ...(candidate.stage ? { stage: candidate.stage } : {}),
+          workerStatus: candidate.workerStatus,
+          reviewerStatus: candidate.reviewerStatus,
+          stalledForMs: now - existing.stalledSince,
+          reason: candidate.reason,
+          action: candidate.action,
+        });
+        existing.warnedAt = now;
+      }
+    }
   }
 
   /** Downgrade "action" attention to null when all pending permissions are resolved. */

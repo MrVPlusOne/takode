@@ -701,6 +701,40 @@ describe("HerdEventDispatcher", () => {
     dispatcher.destroy();
   });
 
+  it("delivers board_stalled events with a leader-actionable summary", () => {
+    const { bridge, launcher } = createMocks();
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+
+    triggerEvent(
+      makeEvent({
+        event: "board_stalled",
+        data: {
+          questId: "q-42",
+          title: "Fix auth drift",
+          stage: "IMPLEMENTING",
+          workerStatus: "disconnected",
+          reviewerStatus: "missing",
+          stalledForMs: 240_000,
+          reason: "worker disconnected",
+          action: "inspect worker; resume or re-dispatch before review",
+        },
+      }),
+    );
+
+    vi.advanceTimersByTime(600);
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+    const content = vi.mocked(bridge.injectUserMessage).mock.calls[0][1];
+    expect(content).toContain("board_stalled");
+    expect(content).toContain("q-42");
+    expect(content).toContain("worker disconnected");
+    expect(content).toContain("next: inspect worker");
+
+    dispatcher.destroy();
+  });
+
   it("delivers turn_end events without turn_source (backwards compatibility)", () => {
     // Events from older sessions that don't have turn_source should still be
     // delivered — absence of the field means "don't filter".

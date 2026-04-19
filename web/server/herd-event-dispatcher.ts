@@ -65,6 +65,7 @@ const ACTIONABLE_EVENTS = new Set<TakodeEventType>([
   "session_disconnected",
   "session_archived",
   "session_deleted",
+  "board_stalled",
   "notification_needs_input",
 ]);
 
@@ -657,6 +658,13 @@ function formatSingleEvent(evt: TakodeEvent, nowTs: number, options?: FormatBatc
     case "notification_needs_input": {
       const summary = typeof evt.data.summary === "string" ? ` | "${truncate(evt.data.summary, 80)}"` : "";
       return `${label} | notification_needs_input${summary}${ageSuffix}`;
+    }
+    case "board_stalled": {
+      const quest = evt.data.title ? `${evt.data.questId} ${truncate(evt.data.title, 40)}` : evt.data.questId;
+      const stage = evt.data.stage ? ` | ${evt.data.stage}` : "";
+      const stalledForMins = Math.max(1, Math.round(evt.data.stalledForMs / 60_000));
+      const action = typeof evt.data.action === "string" ? ` | next: ${truncate(evt.data.action, 80)}` : "";
+      return `${label} | board_stalled | ${quest}${stage} | ${evt.data.reason} | stalled ${stalledForMins}m${action}${ageSuffix}`;
     }
     default:
       return `${label} | ${evt.event}${ageSuffix}`;

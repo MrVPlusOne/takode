@@ -891,6 +891,7 @@ export type TakodeEventType =
   | "session_archived"
   | "session_deleted"
   | "user_message"
+  | "board_stalled"
   | "notification_needs_input";
 
 export interface TakodeTurnEndMsgRange {
@@ -990,6 +991,17 @@ export interface TakodeNotificationNeedsInputEventData {
   summary?: string;
 }
 
+export interface TakodeBoardStalledEventData {
+  questId: string;
+  title?: string;
+  stage?: string;
+  workerStatus?: "running" | "idle" | "disconnected" | "missing";
+  reviewerStatus?: "running" | "idle" | "disconnected" | "missing";
+  stalledForMs: number;
+  reason: string;
+  action?: string;
+}
+
 export interface TakodeEventDataByType {
   turn_end: TakodeTurnEndEventData;
   turn_start: TakodeTurnStartEventData;
@@ -1003,6 +1015,7 @@ export interface TakodeEventDataByType {
   session_archived: TakodeSessionArchivedEventData;
   session_deleted: TakodeSessionLifecycleEventData;
   user_message: TakodeUserMessageEventData;
+  board_stalled: TakodeBoardStalledEventData;
   notification_needs_input: TakodeNotificationNeedsInputEventData;
 }
 
