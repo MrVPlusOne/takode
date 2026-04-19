@@ -23,7 +23,9 @@ import { api } from "../api.js";
 import { CODEX_LOCAL_SLASH_COMMANDS } from "../../shared/codex-slash-commands.js";
 import {
   buildVsCodeSelectionPrompt,
+  formatVsCodeSelectionAttachmentLabel,
   formatVsCodeSelectionSummary,
+  getVsCodeSelectionDismissKey,
   getVsCodeSelectionSessionRoot,
   resolveVsCodeSelectionForSession,
   type VsCodeSelectionContextPayload,
@@ -579,9 +581,15 @@ export function Composer({ sessionId }: { sessionId: string }) {
     return raw.filter((m) => m.value !== "");
   }, [dynamicClaudeModels]);
   const sessionSelectionRoot = getVsCodeSelectionSessionRoot(sessionView.repoRoot, sessionView.cwd);
-  const vscodeSelectionPayload: VsCodeSelectionContextPayload | null = vscodeSelectionState?.selection
-    ? resolveVsCodeSelectionForSession(vscodeSelectionState.selection, sessionSelectionRoot)
-    : null;
+  const dismissedVsCodeSelectionKey = useStore((s) => s.dismissedVsCodeSelectionKey);
+  const currentVsCodeSelectionKey = useMemo(
+    () => getVsCodeSelectionDismissKey(vscodeSelectionState),
+    [vscodeSelectionState],
+  );
+  const vscodeSelectionPayload: VsCodeSelectionContextPayload | null =
+    vscodeSelectionState?.selection && currentVsCodeSelectionKey !== dismissedVsCodeSelectionKey
+      ? resolveVsCodeSelectionForSession(vscodeSelectionState.selection, sessionSelectionRoot)
+      : null;
 
   useEffect(() => {
     if (!isCodex) return;
@@ -2083,6 +2091,46 @@ export function Composer({ sessionId }: { sessionId: string }) {
               />
             )}
 
+            {vscodeSelectionPayload && (
+              <div className="mb-2 flex">
+                <div
+                  className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-cc-border/80 bg-cc-hover/70 px-2 py-1 text-[11px] text-cc-muted"
+                  title={buildVsCodeSelectionPrompt(vscodeSelectionPayload)}
+                >
+                  <svg viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 shrink-0 opacity-70">
+                    <path d="M3.75 1.5A2.25 2.25 0 001.5 3.75v8.5A2.25 2.25 0 003.75 14.5h8.5a2.25 2.25 0 002.25-2.25v-5a.75.75 0 00-1.5 0v5A.75.75 0 0112.25 13h-8.5a.75.75 0 01-.75-.75v-8.5A.75.75 0 013.75 3h5a.75.75 0 000-1.5h-5z" />
+                    <path d="M9.53 1.47a.75.75 0 011.06 0l3.94 3.94a.75.75 0 010 1.06l-5.5 5.5a.75.75 0 01-.33.2l-2.5.63a.75.75 0 01-.91-.91l.63-2.5a.75.75 0 01.2-.33l5.5-5.5z" />
+                  </svg>
+                  <span className="truncate font-mono-code">
+                    {formatVsCodeSelectionAttachmentLabel(vscodeSelectionPayload)}
+                  </span>
+                  <span className="text-cc-muted/60">&middot;</span>
+                  <span className="truncate">{formatVsCodeSelectionSummary(vscodeSelectionPayload)}</span>
+                  <button
+                    type="button"
+                    className="shrink-0 rounded p-0.5 hover:bg-cc-border/60 cursor-pointer"
+                    title="Dismiss selection"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      useStore.getState().dismissVsCodeSelection(currentVsCodeSelectionKey);
+                    }}
+                  >
+                    <svg
+                      width="10"
+                      height="10"
+                      viewBox="0 0 10 10"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                    >
+                      <path d="M2.5 2.5L7.5 7.5M7.5 2.5L2.5 7.5" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="relative">
               <textarea
                 ref={textareaRef}
@@ -2121,7 +2169,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
             </div>
 
             {/* Git branch + model + lines info */}
-            {(sessionView.gitBranch || sessionView.model || vscodeSelectionPayload) && (
+            {(sessionView.gitBranch || sessionView.model) && (
               <div className="flex items-center gap-2 px-2 sm:px-4 pb-1 text-[11px] text-cc-muted">
                 {sessionView.gitBranch && (
                   <span className="flex items-center gap-1 truncate min-w-0">
@@ -2265,38 +2313,6 @@ export function Composer({ sessionId }: { sessionId: string }) {
                         </div>
                       </>
                     )}
-                  </>
-                )}
-                {vscodeSelectionPayload && (
-                  <>
-                    {(sessionView.gitBranch || sessionView.model) && <span className="text-cc-muted/40">&middot;</span>}
-                    <span
-                      className="inline-flex max-w-[160px] shrink min-w-0 items-center gap-0.5 rounded-md border border-cc-border/70 bg-cc-hover/55 px-1.5 py-0.5 text-[10px] font-medium text-cc-muted"
-                      title={buildVsCodeSelectionPrompt(vscodeSelectionPayload)}
-                    >
-                      <span className="truncate">{formatVsCodeSelectionSummary(vscodeSelectionPayload)}</span>
-                      <button
-                        type="button"
-                        className="ml-0.5 shrink-0 rounded hover:bg-cc-border/60 p-px cursor-pointer"
-                        title="Clear selection"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          useStore.getState().setVsCodeSelectionContext(null);
-                        }}
-                      >
-                        <svg
-                          width="10"
-                          height="10"
-                          viewBox="0 0 10 10"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.5"
-                          strokeLinecap="round"
-                        >
-                          <path d="M2.5 2.5L7.5 7.5M7.5 2.5L2.5 7.5" />
-                        </svg>
-                      </button>
-                    </span>
                   </>
                 )}
               </div>

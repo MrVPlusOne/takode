@@ -102,6 +102,23 @@ export function buildVsCodeSelectionPrompt(context: VsCodeSelectionContext | VsC
   return `[user selection in VSCode: ${context.relativePath} lines ${context.startLine}-${context.endLine}] (this may or may not be relevant)`;
 }
 
+export function getVsCodeSelectionDismissKey(
+  state: Pick<VsCodeSelectionState, "selection" | "updatedAt" | "sourceId"> | null,
+): string | null {
+  if (!state?.selection) {
+    return null;
+  }
+  const { selection } = state;
+  return [
+    state.sourceId,
+    state.updatedAt,
+    selection.absolutePath,
+    selection.startLine,
+    selection.endLine,
+    selection.lineCount,
+  ].join(":");
+}
+
 export function maybeReadVsCodeSelectionContext(value: unknown): VsCodeSelectionContextPayload | null | undefined {
   if (!value || typeof value !== "object") {
     return undefined;

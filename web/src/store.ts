@@ -485,7 +485,12 @@ interface AppState {
   setSessionSortMode: (mode: "created" | "activity") => void;
   taskPanelOpen: boolean;
   /** null = closed; {} = global new session; scoped opens can carry cwd, assignment, and defaults scope */
-  newSessionModalState: { groupKey?: string; cwd?: string; treeGroupId?: string; newSessionDefaultsKey?: string } | null;
+  newSessionModalState: {
+    groupKey?: string;
+    cwd?: string;
+    treeGroupId?: string;
+    newSessionDefaultsKey?: string;
+  } | null;
   /** Quest ID to show in the global detail overlay, or null when closed. */
   questOverlayId: string | null;
   /** Optional search highlight text for the quest overlay (set by QuestmasterPage). */
@@ -493,6 +498,7 @@ interface AppState {
   activeTab: "chat" | "diff";
   diffPanelSelectedFile: Map<string, string>;
   vscodeSelectionContext: VsCodeSelectionState | null;
+  dismissedVsCodeSelectionKey: string | null;
 
   // Actions
   setColorTheme: (theme: ColorTheme) => void;
@@ -519,6 +525,7 @@ interface AppState {
   openQuestOverlay: (questId: string, searchHighlight?: string) => void;
   closeQuestOverlay: () => void;
   setVsCodeSelectionContext: (context: VsCodeSelectionState | null) => void;
+  dismissVsCodeSelection: (key: string | null) => void;
   newSession: () => void;
 
   // Session actions
@@ -1014,6 +1021,7 @@ export const useStore = create<AppState>((set) => ({
   activeTab: "chat",
   diffPanelSelectedFile: new Map(),
   vscodeSelectionContext: null,
+  dismissedVsCodeSelectionKey: null,
   feedScrollPosition: new Map(),
   composerDrafts: new Map(),
   replyContexts: new Map(),
@@ -1129,6 +1137,7 @@ export const useStore = create<AppState>((set) => ({
     set({ questOverlayId: questId, questOverlaySearchHighlight: searchHighlight ?? null }),
   closeQuestOverlay: () => set({ questOverlayId: null, questOverlaySearchHighlight: null }),
   setVsCodeSelectionContext: (context) => set({ vscodeSelectionContext: context }),
+  dismissVsCodeSelection: (key) => set({ dismissedVsCodeSelectionKey: key }),
   newSession: () => {
     scopedRemoveItem("cc-current-session");
     set({ currentSessionId: null });

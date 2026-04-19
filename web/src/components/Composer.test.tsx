@@ -258,6 +258,7 @@ function setupMockStore(
     requestBottomAlignOnNextUserMessage: mockRequestBottomAlignOnNextUserMessage,
     zoomLevel,
     vscodeSelectionContext,
+    dismissedVsCodeSelectionKey: null,
     sdkSessions: sdkSessionTotals
       ? [
           {
@@ -276,6 +277,10 @@ function setupMockStore(
       notifyMockStore();
     }),
     setReplyContext: vi.fn(),
+    dismissVsCodeSelection: vi.fn((key: string | null) => {
+      mockStoreState.dismissedVsCodeSelectionKey = key;
+      notifyMockStore();
+    }),
     collapsibleTurnIds: new Map(),
     turnActivityOverrides: new Map(),
     collapseAllTurnActivity: vi.fn(),
@@ -1179,7 +1184,7 @@ describe("Composer ask permission toggle", () => {
 });
 
 describe("Composer VS Code context", () => {
-  it("renders the current VS Code selection line when context is available", () => {
+  it("renders the current VS Code selection as an attachment chip", () => {
     setupMockStore({
       vscodeSelectionContext: {
         selection: {
@@ -1194,6 +1199,74 @@ describe("Composer VS Code context", () => {
       },
     });
     render(<Composer sessionId="s1" />);
+
+    expect(screen.getByText("3 lines selected")).toBeTruthy();
+    expect(screen.getByText("Composer.tsx:12-14")).toBeTruthy();
+    expect(
+      screen.getByTitle(
+        "[user selection in VSCode: web/src/components/Composer.tsx lines 12-14] (this may or may not be relevant)",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("keeps a dismissed selection hidden when the composer remounts", () => {
+    setupMockStore({
+      vscodeSelectionContext: {
+        selection: {
+          absolutePath: "/test/web/src/components/Composer.tsx",
+          startLine: 12,
+          endLine: 14,
+          lineCount: 3,
+        },
+        updatedAt: 1,
+        sourceId: "vscode:window-3",
+        sourceType: "vscode-window",
+      },
+    });
+    const firstRender = render(<Composer sessionId="s1" />);
+
+    fireEvent.click(screen.getByTitle("Dismiss selection"));
+
+    expect(screen.queryByText("3 lines selected")).toBeNull();
+    firstRender.unmount();
+
+    render(<Composer sessionId="s1" />);
+    expect(screen.queryByText("3 lines selected")).toBeNull();
+  });
+
+  it("shows the selection chip again when a fresh selection update arrives", () => {
+    setupMockStore({
+      vscodeSelectionContext: {
+        selection: {
+          absolutePath: "/test/web/src/components/Composer.tsx",
+          startLine: 12,
+          endLine: 14,
+          lineCount: 3,
+        },
+        updatedAt: 1,
+        sourceId: "vscode:window-3",
+        sourceType: "vscode-window",
+      },
+    });
+    render(<Composer sessionId="s1" />);
+
+    fireEvent.click(screen.getByTitle("Dismiss selection"));
+    expect(screen.queryByText("3 lines selected")).toBeNull();
+
+    act(() => {
+      mockStoreState.vscodeSelectionContext = {
+        selection: {
+          absolutePath: "/test/web/src/components/Composer.tsx",
+          startLine: 12,
+          endLine: 14,
+          lineCount: 3,
+        },
+        updatedAt: 2,
+        sourceId: "vscode:window-3",
+        sourceType: "vscode-window",
+      };
+      notifyMockStore();
+    });
 
     expect(screen.getByText("3 lines selected")).toBeTruthy();
   });

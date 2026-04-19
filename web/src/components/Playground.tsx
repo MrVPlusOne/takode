@@ -2847,6 +2847,34 @@ export function Playground() {
             <Card label="Connected — code mode">
               <div className="border-t border-cc-border bg-cc-card px-4 py-3">
                 <div className="bg-cc-input-bg border border-cc-border rounded-[14px] overflow-hidden">
+                  <div className="px-4 pt-3 pb-2">
+                    <div className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-cc-border/80 bg-cc-hover/70 px-2 py-1 text-[11px] text-cc-muted">
+                      <svg viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 shrink-0 opacity-70">
+                        <path d="M3.75 1.5A2.25 2.25 0 001.5 3.75v8.5A2.25 2.25 0 003.75 14.5h8.5a2.25 2.25 0 002.25-2.25v-5a.75.75 0 00-1.5 0v5A.75.75 0 0112.25 13h-8.5a.75.75 0 01-.75-.75v-8.5A.75.75 0 013.75 3h5a.75.75 0 000-1.5h-5z" />
+                        <path d="M9.53 1.47a.75.75 0 011.06 0l3.94 3.94a.75.75 0 010 1.06l-5.5 5.5a.75.75 0 01-.33.2l-2.5.63a.75.75 0 01-.91-.91l.63-2.5a.75.75 0 01.2-.33l5.5-5.5z" />
+                      </svg>
+                      <span className="font-mono-code">Composer.tsx:438-444</span>
+                      <span className="text-cc-muted/60">&middot;</span>
+                      <span>7 lines selected</span>
+                      <button
+                        type="button"
+                        className="shrink-0 rounded p-0.5 hover:bg-cc-border/60 cursor-pointer"
+                        aria-label="Dismiss selection"
+                      >
+                        <svg
+                          width="10"
+                          height="10"
+                          viewBox="0 0 10 10"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                          strokeLinecap="round"
+                        >
+                          <path d="M2.5 2.5L7.5 7.5M7.5 2.5L2.5 7.5" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
                   <textarea
                     readOnly
                     value="Can you refactor the auth module to use JWT?"
@@ -2854,17 +2882,6 @@ export function Playground() {
                     className="w-full px-4 pt-3 pb-1 text-sm bg-transparent resize-none text-cc-fg font-sans-ui"
                     style={{ minHeight: "36px" }}
                   />
-                  <div className="flex items-center justify-between gap-2 px-4 pb-1 text-[11px]">
-                    <div className="min-w-0 flex items-center gap-2 text-cc-muted">
-                      <span className="shrink-0 inline-flex items-center rounded-full border border-amber-500/20 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-amber-300/90">
-                        VS Code
-                      </span>
-                      <span className="truncate">Selection: web/src/Composer.tsx:438:7-444:31 click send</span>
-                    </div>
-                    <span className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium bg-cc-primary/15 text-cc-primary">
-                      Attach on
-                    </span>
-                  </div>
                   <div className="flex items-center justify-between px-2.5 pb-2.5">
                     <div className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[12px] font-medium text-cc-muted">
                       <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
@@ -2915,6 +2932,17 @@ export function Playground() {
             <Card label="Connected — VS Code preview only">
               <div className="border-t border-cc-border bg-cc-card px-4 py-3">
                 <div className="bg-cc-input-bg border border-cc-border rounded-[14px] overflow-hidden">
+                  <div className="px-4 pt-3 pb-2">
+                    <div className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-cc-border/80 bg-cc-hover/70 px-2 py-1 text-[11px] text-cc-muted">
+                      <svg viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 shrink-0 opacity-70">
+                        <path d="M3.75 1.5A2.25 2.25 0 001.5 3.75v8.5A2.25 2.25 0 003.75 14.5h8.5a2.25 2.25 0 002.25-2.25v-5a.75.75 0 00-1.5 0v5A.75.75 0 0112.25 13h-8.5a.75.75 0 01-.75-.75v-8.5A.75.75 0 013.75 3h5a.75.75 0 000-1.5h-5z" />
+                        <path d="M9.53 1.47a.75.75 0 011.06 0l3.94 3.94a.75.75 0 010 1.06l-5.5 5.5a.75.75 0 01-.33.2l-2.5.63a.75.75 0 01-.91-.91l.63-2.5a.75.75 0 01.2-.33l5.5-5.5z" />
+                      </svg>
+                      <span className="font-mono-code">App.tsx:58</span>
+                      <span className="text-cc-muted/60">&middot;</span>
+                      <span>1 line selected</span>
+                    </div>
+                  </div>
                   <textarea
                     readOnly
                     value="Does this selection matter?"
@@ -2922,17 +2950,6 @@ export function Playground() {
                     className="w-full px-4 pt-3 pb-1 text-sm bg-transparent resize-none text-cc-fg font-sans-ui"
                     style={{ minHeight: "36px" }}
                   />
-                  <div className="flex items-center justify-between gap-2 px-4 pb-1 text-[11px]">
-                    <div className="min-w-0 flex items-center gap-2 text-cc-muted">
-                      <span className="shrink-0 inline-flex items-center rounded-full border border-amber-500/20 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-amber-300/90">
-                        VS Code
-                      </span>
-                      <span className="truncate">Cursor: web/src/App.tsx:58:11 navigateToMostRecentSession()</span>
-                    </div>
-                    <span className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium bg-cc-hover text-cc-muted">
-                      Attach off
-                    </span>
-                  </div>
                   <div className="flex items-center justify-between px-2.5 pb-2.5">
                     <div className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[12px] font-medium text-cc-muted">
                       <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
