@@ -3,6 +3,8 @@
 // jsdom does not implement scrollIntoView; polyfill it before any React rendering
 const mockScrollIntoView = vi.fn();
 const mockScrollTo = vi.fn();
+const mediaState = { touchDevice: false };
+
 beforeAll(() => {
   Element.prototype.scrollIntoView = mockScrollIntoView;
   Element.prototype.scrollTo = mockScrollTo;
@@ -11,6 +13,19 @@ beforeAll(() => {
     return 1;
   });
   vi.stubGlobal("cancelAnimationFrame", vi.fn());
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches: query === "(hover: none) and (pointer: coarse)" ? mediaState.touchDevice : false,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  });
 });
 
 import { render, screen, fireEvent, act, within } from "@testing-library/react";
@@ -84,6 +99,7 @@ vi.mock("../store.js", () => {
       activeTaskTurnId: mockStoreValues.activeTaskTurnId ?? new Map(),
       setActiveTaskTurnId: mockSetActiveTaskTurnId,
       backgroundAgentNotifs: mockStoreValues.backgroundAgentNotifs ?? new Map(),
+      sessionNotifications: mockStoreValues.sessionNotifications ?? new Map(),
       sessionSearch: mockStoreValues.sessionSearch ?? new Map(),
     };
     return selector(state);
@@ -227,6 +243,12 @@ function setStorePendingCodexInputs(sessionId: string, inputs: Array<Record<stri
   const map = new Map();
   map.set(sessionId, inputs);
   mockStoreValues.pendingCodexInputs = map;
+}
+
+function setStoreNotifications(sessionId: string, notifications: Array<Record<string, unknown>>) {
+  const map = new Map();
+  map.set(sessionId, notifications);
+  mockStoreValues.sessionNotifications = map;
 }
 
 function setStoreHistoryLoading(sessionId: string, loading: boolean) {
@@ -453,7 +475,22 @@ beforeEach(() => {
   resetStore();
   mockScrollIntoView.mockClear();
   mockScrollTo.mockClear();
+  mediaState.touchDevice = false;
 });
+
+function makeDomRect(height: number, width = 0): DOMRect {
+  return {
+    x: 0,
+    y: 0,
+    top: 0,
+    left: 0,
+    bottom: height,
+    right: width,
+    width,
+    height,
+    toJSON: () => ({}),
+  } as DOMRect;
+}
 
 describe("findActiveTaskTurnIdForScroll", () => {
   it("returns the last turn whose top is above the reference line", () => {
@@ -2192,6 +2229,47 @@ describe("MessageFeed - floating status pill", () => {
     expect(screen.getByText("Purring...")).toBeTruthy();
     expect(screen.getByText("10s")).toBeTruthy();
     expect(screen.getByText(/2\.5k/)).toBeTruthy();
+  });
+
+  it("lifts the mobile nav buttons above the floating notification chip stack", () => {
+    const sid = "test-feed-mobile-nav-clearance";
+    mediaState.touchDevice = true;
+    setStoreMessages(sid, [makeMessage({ role: "assistant", content: "Scroll target" })]);
+    setStoreFeedScrollPosition(sid, {
+      scrollTop: 120,
+      scrollHeight: 600,
+      isAtBottom: false,
+    });
+    setStoreNotifications(sid, [
+      {
+        id: "notif-1",
+        category: "review",
+        summary: "Quest q-464 ready for verification",
+        timestamp: Date.now(),
+        messageId: "msg-anchor",
+        done: false,
+      },
+    ]);
+
+    // q-464: the mobile nav stack should reserve clearance above the measured
+    // lower-right floating-status chips. Stub that stack's rect directly so the
+    // test validates the offset math without depending on jsdom layout.
+    const getBoundingClientRectSpy = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        if (this.getAttribute("data-testid") === "feed-status-pill-right") {
+          return makeDomRect(26, 144);
+        }
+        return makeDomRect(0, 0);
+      });
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByLabelText("Go to top")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /1 notification/i })).toBeTruthy();
+    expect(screen.getByTestId("message-feed-nav-fabs").style.bottom).toBe("42px");
+
+    getBoundingClientRectSpy.mockRestore();
   });
 });
 

@@ -3938,6 +3938,46 @@ export function Playground() {
                 </p>
               </div>
             </Card>
+
+            <Card label="Mobile nav clearance">
+              <div className="p-3 space-y-2">
+                <p className="text-[10px] text-cc-muted mb-2">
+                  On touch layouts, the feed navigation arrows should float above the lower-right status chips instead
+                  of colliding with them.
+                </p>
+                <div className="relative h-32 rounded-lg border border-cc-border bg-cc-bg overflow-hidden">
+                  <div className="absolute right-2 flex flex-col gap-1.5" style={{ bottom: "42px" }}>
+                    <button
+                      type="button"
+                      className="w-8 h-8 rounded-full bg-cc-card border border-cc-border shadow-lg flex items-center justify-center text-cc-muted"
+                      aria-label="Playground go to top"
+                    >
+                      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
+                        <path d="M4 8l4-4 4 4" strokeLinecap="round" strokeLinejoin="round" />
+                        <path d="M4 12h8" strokeLinecap="round" />
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      className="w-8 h-8 rounded-full bg-cc-card border border-cc-border shadow-lg flex items-center justify-center text-cc-muted"
+                      aria-label="Playground go to bottom"
+                    >
+                      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
+                        <path d="M4 8l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+                        <path d="M4 4h8" strokeLinecap="round" />
+                      </svg>
+                    </button>
+                  </div>
+                  <div className="pointer-events-none absolute bottom-2 right-2 flex flex-row items-end gap-1.5 sm:bottom-3 sm:right-3">
+                    <TimerChip sessionId="playground-timers" />
+                    <NotificationChip sessionId="playground-notifs" />
+                  </div>
+                </div>
+                <p className="text-[10px] text-cc-muted">
+                  The nav stack now reserves vertical clearance above the measured chip row on mobile.
+                </p>
+              </div>
+            </Card>
           </div>
         </Section>
 

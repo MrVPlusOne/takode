@@ -49,6 +49,9 @@ const FEED_SECTION_TURN_COUNT = HISTORY_WINDOW_SECTION_TURN_COUNT;
 const LIVE_ACTIVITY_RAIL_DWELL_MS = 5_000;
 const FEED_EXTRA_SCROLL_SLACK_PX = 12;
 const FLOATING_STATUS_SPACER_MARGIN_PX = 4;
+const FLOATING_STATUS_MOBILE_BOTTOM_PX = 8;
+const MOBILE_NAV_BASE_BOTTOM_PX = 12;
+const MOBILE_NAV_STATUS_CLEARANCE_GAP_PX = 8;
 const CODEX_TERMINAL_INSPECTOR_MARGIN_PX = 16;
 const CODEX_TERMINAL_INSPECTOR_MIN_WIDTH_PX = 320;
 const CODEX_TERMINAL_INSPECTOR_MIN_HEIGHT_PX = 240;
@@ -410,14 +413,44 @@ function FeedStatusPill({
   sessionId: string;
   onVisibleHeightChange?: (height: number) => void;
 }) {
+  const leftStackRef = useRef<HTMLDivElement>(null);
+  const rightStackRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    if (!onVisibleHeightChange) return;
+    const reportHeight = () => {
+      const visibleHeight = Math.max(
+        Math.ceil(leftStackRef.current?.getBoundingClientRect().height ?? 0),
+        Math.ceil(rightStackRef.current?.getBoundingClientRect().height ?? 0),
+      );
+      onVisibleHeightChange(visibleHeight);
+    };
+
+    reportHeight();
+    if (typeof ResizeObserver === "undefined") return;
+
+    const observer = new ResizeObserver(reportHeight);
+    if (leftStackRef.current) observer.observe(leftStackRef.current);
+    if (rightStackRef.current) observer.observe(rightStackRef.current);
+    return () => observer.disconnect();
+  }, [onVisibleHeightChange, sessionId]);
+
   return (
     <>
       {/* Purring chip — lower left (original position) */}
-      <div className="pointer-events-none absolute bottom-2 left-2 z-10 sm:bottom-3 sm:left-3">
-        <ElapsedTimer sessionId={sessionId} variant="floating" onVisibleHeightChange={onVisibleHeightChange} />
+      <div
+        ref={leftStackRef}
+        data-testid="feed-status-pill-left"
+        className="pointer-events-none absolute bottom-2 left-2 z-10 sm:bottom-3 sm:left-3"
+      >
+        <ElapsedTimer sessionId={sessionId} variant="floating" />
       </div>
       {/* Timer + Notification chips — lower right, same line */}
-      <div className="pointer-events-none absolute bottom-2 right-2 z-10 flex flex-row items-end gap-1.5 sm:bottom-3 sm:right-3">
+      <div
+        ref={rightStackRef}
+        data-testid="feed-status-pill-right"
+        className="pointer-events-none absolute bottom-2 right-2 z-10 flex flex-row items-end gap-1.5 sm:bottom-3 sm:right-3"
+      >
         <TimerChip sessionId={sessionId} />
         <NotificationChip sessionId={sessionId} />
       </div>
@@ -2646,6 +2679,16 @@ export function MessageFeed({
     [codexTerminalEntries, selectedCodexTerminalId],
   );
   const latestMessage = messages[messages.length - 1] ?? null;
+  const mobileNavBottomOffsetPx = useMemo(
+    () =>
+      Math.max(
+        MOBILE_NAV_BASE_BOTTOM_PX,
+        floatingStatusHeight > 0
+          ? FLOATING_STATUS_MOBILE_BOTTOM_PX + floatingStatusHeight + MOBILE_NAV_STATUS_CLEARANCE_GAP_PX
+          : 0,
+      ),
+    [floatingStatusHeight],
+  );
   const feedEndScrollSlack = Math.max(
     FEED_EXTRA_SCROLL_SLACK_PX,
     floatingStatusHeight > 0 ? floatingStatusHeight + FLOATING_STATUS_SPACER_MARGIN_PX : 0,
@@ -3872,9 +3915,11 @@ export function MessageFeed({
         {/* Navigation FABs — desktop: top, prev/next, bottom; mobile: top/bottom only, auto-hide */}
         {showScrollButton && (
           <div
+            data-testid="message-feed-nav-fabs"
             className={`absolute bottom-3 right-3 z-10 flex flex-col transition-opacity duration-300 ${
               isTouch ? `gap-1.5 ${isScrolling ? "opacity-60" : "opacity-0 pointer-events-none"}` : "gap-4"
             }`}
+            style={isTouch ? { bottom: `${mobileNavBottomOffsetPx}px` } : undefined}
           >
             {/* Go to top */}
             <button
