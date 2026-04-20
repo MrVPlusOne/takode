@@ -1,26 +1,148 @@
 <p align="center">
-  <img src="screenshot.png" alt="Takode" width="100%" />
+  <img src="docs/screenshots/readme-leader-workflow.jpeg" alt="Takode leader session with live work board" width="100%" />
 </p>
 
 <h1 align="center">Takode</h1>
-<p align="center"><strong>A web workspace for running and coordinating Claude Code and Codex sessions.</strong></p>
-<p align="center">See every tool call. Run agents in parallel. Let a leader session orchestrate the whole team.</p>
+<p align="center"><strong>A better local workspace for Claude Code and Codex.</strong></p>
+<p align="center">Use either backend through one cleaner UI on desktop or mobile, keep full visibility into tool calls, and stay in control of your data. When you want more, add quests and leader-managed parallel work.</p>
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT License" /></a>
 </p>
 
+Takode is useful even if you only want one session.
+
+It gives you a cleaner way to run Claude Code or Codex on your own machine:
+
+- **One consistent UI** for both Claude Code and Codex
+- **Full tool-call visibility** instead of opaque terminal output
+- **Multi-session management** in one workspace, including mobile
+- **Local-first operation**: everything runs on your laptop
+- **Optional quest and leader workflows** when one session is no longer enough
+
 ---
 
-You're juggling five terminal tabs, each running an AI coding agent. One finished ten minutes ago but you missed it. Another is waiting for permission. A third just edited the same file as the fourth.
+## Why Switch
 
-**Takode gives you one place to see it all** -- and a leader agent that manages the rest of the team for you.
+### A nicer everyday interface
+
+If you already use Claude Code or Codex directly, Takode gives you a better surface for the same core workflows:
+
+- grouped, readable tool calls in chat
+- easier session switching and monitoring
+- a UI that works well on desktop and mobile
+- persistent session history that survives restarts
+
+You can use Takode as a better front-end for a single coding agent and stop there.
+
+### Works with both backends
+
+Takode supports **Claude Code** and **Codex** side by side. Each session can use a different backend, and the workspace gives them a consistent interface for sessions, chat, permissions, and tool visibility.
+
+### Local-first and under your control
+
+Takode runs on your machine and works with local project directories.
+
+- your sessions run locally
+- your files stay local
+- your session coordination, quest state, and history stay under your control
+- there is no Takode-hosted backend you have to trust with your code
+
+The only external dependency you need is the model provider used by Claude Code or Codex.
+
+## When You Need More Than One Chat
+
+### Quest-driven work when chat is not enough
+
+When a request should survive beyond one chat turn, Takode can track it as a **quest**: a persistent task with status, history, feedback, screenshots, and verification items.
+
+- You can ask an agent to write, polish, split, or update quests for you, similar to how you would manage GitHub issues
+- A bug report or feature idea can become a quest
+- An existing quest like `q-430` can be reassigned, reviewed, or sent back for rework
+- Completed work lands in a **verification inbox** instead of disappearing into chat history
+- New user feedback can restart the same quest cleanly instead of creating messy side conversations
+
+<p align="center">
+  <img src="docs/screenshots/readme-quests.jpeg" alt="Takode quest inbox and search" width="72%" />
+</p>
+
+### A leader session can coordinate the team
+
+Takode's most powerful workflow is optional, not required. One session can act as a **leader** that coordinates the rest:
+
+1. It turns your request into one or more refined quests
+2. It dispatches workers, usually in isolated **git worktrees**
+3. It reacts to worker updates as work finishes, gets blocked, or needs review
+4. It pushes each quest through planning, implementation, review, and porting
+
+That makes Takode feel much closer to working with a small engineering team than with a single coding chat.
+
+<p align="center">
+  <img src="docs/screenshots/readme-leader-workflow.jpeg" alt="Takode leader session with live work board" width="100%" />
+</p>
+
+### Review is part of the workflow
+
+Takode is built around a quest journey, not just “agent says done”:
+
+`PLANNING → IMPLEMENTING → SKEPTIC REVIEW → GROOM REVIEW → PORTING → NEEDS VERIFICATION`
+
+In plain terms: one worker does the change, a reviewer pressure-tests it, a final quality pass checks follow-up fixes, and only then does the change get ported back. That gives user feedback and rework a real place in the workflow.
+
+### You can actually see what your agents are doing
+
+Every session is a real Claude Code or Codex instance with its own conversation, working directory, and git branch. Takode puts them in one workspace and exposes the details that matter:
+
+- live tool calls, grouped in chat
+- session status and pending actions
+- permission banners and plan approvals
+- notifications when a session needs your attention
+- a mobile-friendly UI for checking in away from your desk
+
+<p align="center">
+  <img src="docs/screenshots/readme-mobile.jpeg" alt="Takode running on mobile" width="36%" />
+</p>
+
+> Most Takode features -- quests, orchestration, session management, notifications -- are accessible to agents via built-in CLI tools. That is what lets leader sessions coordinate workers autonomously.
+
+---
+
+## The Typical Workflow
+
+**Solo use:** Create a session, point it at your repo, and use Takode as a better window into Claude Code or Codex: grouped tool calls, persistent session history, permissions UI, and multi-session visibility.
+
+**Quest workflow:** When you need more structure, create quests for bugs or features and work through them in Takode. You can also ask an agent to draft or refine those quests for you so the task description stays clean and actionable.
+
+**Leader workflow:** When you want parallel execution, start a leader session and give it a bug, idea, screenshot, or quest ID. The leader turns that into tracked work, dispatches the right workers, routes review, and moves finished work into verification. You stay focused on direction and feedback instead of micromanaging every terminal.
+
+```
+You
+ └─ Leader session
+      ├─ Worker #1 (fix/mobile)    → worktree, own branch
+      ├─ Worker #2 (search/cli)    → worktree, own branch
+      ├─ Worker #3 (investigation) → worktree, own branch
+      └─ Reviewer sessions         → skeptic + groom review
+```
+
+---
+
+## Also Included
+
+- **Permission controls**: run in agent mode or plan mode, with optional per-tool approvals
+- **Voice input**: dictate prompts directly in the app
+- **Notifications**: in-app badges and optional Pushover alerts
+- **Responsive UI**: check on sessions, approve work, and send messages from mobile
+- **Bonus: VS Code integration**: Takode can build and install the VS Code extension for you, and once installed, VS Code cursor selections can be streamed into Takode in real time even if Takode is open in a separate browser window
+
+<p align="center">
+  <img src="docs/screenshots/readme-vscode.jpeg" alt="Takode running alongside VS Code with editor context" width="100%" />
+</p>
 
 ---
 
 ## Quick Start
 
-**Requirements:** [Bun](https://bun.sh) and either [Claude Code](https://docs.anthropic.com/en/docs/claude-code) or [Codex](https://github.com/openai/codex) CLI installed.
+**Requirements:** [Bun](https://bun.sh) and either [Claude Code](https://docs.anthropic.com/en/docs/claude-code) or [Codex](https://github.com/openai/codex) CLI installed and already authenticated.
 
 ```bash
 git clone https://github.com/MrVPlusOne/takode.git
@@ -28,82 +150,17 @@ cd takode && bun install --cwd web
 make serve
 ```
 
-Open <http://localhost:3456>. Create a session, point it at your project, and start chatting.
+`make serve` starts the local Takode server and web app.
 
----
+Then:
 
-## What You Can Do
+1. Open <http://localhost:3456>
+2. Create a session
+3. Choose Claude Code or Codex as the backend
+4. Select the local project directory you want the session to work in
+5. Start chatting
 
-### 🐑 Let a leader herd workers
-
-This is Takode's signature workflow. One session acts as a **leader** that spawns and manages **worker** sessions:
-
-1. The leader creates worker sessions, each in an isolated **git worktree**
-2. Workers get dispatched to quests (persistent tasks) and work independently
-3. The leader receives **herd events** whenever a worker finishes, needs permission, or hits an issue
-4. The leader reviews work, sends follow-up instructions, and coordinates porting changes to the main branch
-
-Workers can't interfere with each other -- each worktree is its own branch. No Docker needed.
-
-### 📋 Track work with quests
-
-Quests are persistent tasks that survive server restarts and span across sessions:
-
-- Create quests from the built-in UI, or ask any agent to create one for you
-- Quests have a lifecycle: **idea** → **refined** → **in progress** → **needs verification** → **done**
-- A verification inbox collects completed work for your review, with checklists and a feedback loop
-
-The leader can run a full **Quest Journey** -- dispatching, reviewing with a skeptic, grooming for quality, porting, and verifying -- all through coordinated sessions.
-
-> Most Takode features -- quests, orchestration, session management, notifications -- are accessible to agents via built-in CLI tools. This is how leader sessions coordinate workers autonomously.
-
-### 🪟 Run multiple sessions at once
-
-Each session is a full Claude Code or Codex instance with its own conversation, working directory, and git branch. Organize them into sidebar groups by project. Switch between sessions instantly -- multiple browser tabs work too.
-
-### 🔍 See everything the agent does
-
-Every tool call is visible in the chat: file edits, bash commands, grep searches, file reads. Tool calls are grouped and collapsible, so you can skim the high-level flow or expand any tool block to see exactly what happened. Results stream in real time.
-
-### 🔒 Two permission modes
-
-Each session runs in either **agent mode** (the agent executes tools freely) or **plan mode** (the agent proposes a plan for your approval before making changes). An **ask flag** can be toggled on to require approval for individual tool calls. Permission requests show up as banners -- approve, reject, or add feedback with a click.
-
-### 🎙️ Talk to your agents
-
-Click the microphone to dictate a prompt. Takode transcribes and sends it as text. Transcription is conversation-context aware, so it handles technical terms and project-specific names more accurately.
-
-### 🔔 Get notified when you're needed
-
-- **In-app badges** with summary text on sessions that need your attention
-- **Pushover notifications** for mobile alerts when you're away from the screen
-
-### 📱 Mobile friendly
-
-Takode works on your phone. Check on your agents, approve permissions, and send messages from anywhere. The responsive UI adapts to small screens so you can stay in the loop without being at your desk.
-
----
-
-## The Typical Workflow
-
-**Solo use:** Create a session, point it at your repo, chat with it. You get the full Claude Code / Codex experience with better visibility into tool calls and a persistent conversation that survives server restarts.
-
-**Team of agents:** Start a leader session. Tell it what you want built. It creates quests, spawns workers, reviews their output, and ports clean commits to your main branch. You approve plans, verify results, and give feedback -- the leader handles the rest.
-
-```
-You
- └─ Leader session
-      ├─ Worker #1 (feat/auth)     → worktree, own branch
-      ├─ Worker #2 (fix/sidebar)   → worktree, own branch
-      ├─ Worker #3 (refactor/api)  → worktree, own branch
-      └─ Reviewer sessions         → skeptic + reviewer-groom passes
-```
-
----
-
-## Works with Both Backends
-
-Takode supports **Claude Code** and **Codex** side by side. Each session can use a different backend. The UI works identically regardless of which CLI is behind it.
+Takode runs locally. There is no required third-party service besides the model provider behind the CLI you choose.
 
 ---
 
