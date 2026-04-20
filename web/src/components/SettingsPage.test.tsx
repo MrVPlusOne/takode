@@ -119,6 +119,7 @@ beforeEach(() => {
     serverId: "test-id",
     pushoverConfigured: false,
     pushoverEnabled: true,
+    pushoverEventFilters: { needsInput: true, review: true, error: true },
     pushoverDelaySeconds: 30,
     pushoverBaseUrl: "",
     claudeBinary: "",
@@ -132,6 +133,7 @@ beforeEach(() => {
     serverId: "test-id",
     pushoverConfigured: false,
     pushoverEnabled: true,
+    pushoverEventFilters: { needsInput: true, review: true, error: true },
     pushoverDelaySeconds: 30,
     pushoverBaseUrl: "",
     claudeBinary: "",
@@ -197,6 +199,78 @@ describe("SettingsPage", () => {
 
     await waitFor(() => {
       expect(screen.getByLabelText("Custom Vocabulary")).toHaveValue("Takode, WsBridge, Questmaster");
+    });
+  });
+
+  it("loads and saves pushover event filters", async () => {
+    mockApi.getSettings.mockResolvedValue({
+      serverName: "",
+      serverId: "test-id",
+      pushoverConfigured: true,
+      pushoverEnabled: true,
+      pushoverEventFilters: { needsInput: true, review: false, error: true },
+      pushoverDelaySeconds: 30,
+      pushoverBaseUrl: "",
+      claudeBinary: "",
+      codexBinary: "",
+      maxKeepAlive: 0,
+      heavyRepoModeEnabled: false,
+      namerConfig: { backend: "claude" },
+      autoNamerEnabled: true,
+      transcriptionConfig: {
+        apiKey: "",
+        baseUrl: "https://api.openai.com/v1",
+        enhancementEnabled: true,
+        enhancementModel: "gpt-5-mini",
+      },
+      editorConfig: { editor: "none" },
+    });
+    mockApi.updateSettings.mockResolvedValue({
+      serverName: "",
+      serverId: "test-id",
+      pushoverConfigured: true,
+      pushoverEnabled: true,
+      pushoverEventFilters: { needsInput: true, review: true, error: true },
+      pushoverDelaySeconds: 30,
+      pushoverBaseUrl: "",
+      claudeBinary: "",
+      codexBinary: "",
+      maxKeepAlive: 0,
+      heavyRepoModeEnabled: false,
+      namerConfig: { backend: "claude" },
+      autoNamerEnabled: true,
+      transcriptionConfig: {
+        apiKey: "",
+        baseUrl: "https://api.openai.com/v1",
+        enhancementEnabled: true,
+        enhancementModel: "gpt-5-mini",
+      },
+      editorConfig: { editor: "none" },
+    });
+
+    render(<SettingsPage />);
+
+    const pushoverToggle = await screen.findByRole("button", { name: "Push Notifications (Pushover)" });
+    const pushoverForm = pushoverToggle.closest("form")!;
+    if (within(pushoverForm).queryAllByRole("checkbox").length === 0) {
+      fireEvent.click(pushoverToggle);
+    }
+
+    await waitFor(() => {
+      expect(within(pushoverForm).getAllByRole("checkbox").length).toBeGreaterThanOrEqual(3);
+    });
+    const reviewToggle = within(pushoverForm).getAllByRole("checkbox")[1] as HTMLInputElement;
+    expect(reviewToggle).not.toBeChecked();
+
+    fireEvent.click(reviewToggle);
+    fireEvent.submit(reviewToggle.closest("form")!);
+
+    await waitFor(() => {
+      expect(mockApi.updateSettings).toHaveBeenCalledWith(
+        expect.objectContaining({
+          pushoverEventFilters: { needsInput: true, review: true, error: true },
+        }),
+      );
     });
   });
 

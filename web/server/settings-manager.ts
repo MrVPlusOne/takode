@@ -3,6 +3,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join, dirname, basename, extname } from "node:path";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
+import { DEFAULT_PUSHOVER_EVENT_FILTERS, type PushoverEventFilters } from "./pushover.js";
 
 export interface CompanionSettings {
   /** Display name for this server instance */
@@ -17,6 +18,8 @@ export interface CompanionSettings {
   pushoverDelaySeconds: number;
   /** Whether Pushover notifications are enabled (default: true) */
   pushoverEnabled: boolean;
+  /** Per-category Pushover notification preferences. */
+  pushoverEventFilters?: PushoverEventFilters;
   /** External base URL for deep links in push notifications */
   pushoverBaseUrl: string;
   /** Custom Claude Code CLI binary path or command (empty = auto-detect "claude") */
@@ -119,6 +122,7 @@ let settings: CompanionSettings = {
   pushoverApiToken: "",
   pushoverDelaySeconds: 30,
   pushoverEnabled: true,
+  pushoverEventFilters: { ...DEFAULT_PUSHOVER_EVENT_FILTERS },
   pushoverBaseUrl: "",
   claudeBinary: "",
   codexBinary: "",
@@ -254,6 +258,16 @@ function normalizeSecrets(raw: Record<string, unknown> | null | undefined): Comp
   };
 }
 
+function normalizePushoverEventFilters(raw: unknown): PushoverEventFilters {
+  const filters = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+  return {
+    needsInput:
+      typeof filters.needsInput === "boolean" ? filters.needsInput : DEFAULT_PUSHOVER_EVENT_FILTERS.needsInput,
+    review: typeof filters.review === "boolean" ? filters.review : DEFAULT_PUSHOVER_EVENT_FILTERS.review,
+    error: typeof filters.error === "boolean" ? filters.error : DEFAULT_PUSHOVER_EVENT_FILTERS.error,
+  };
+}
+
 function mergeSecretsIntoSettings(base: CompanionSettings, nextSecrets: CompanionSecrets): CompanionSettings {
   return {
     ...base,
@@ -295,6 +309,7 @@ function normalize(raw: Partial<CompanionSettings> | null | undefined): Companio
     pushoverDelaySeconds:
       typeof raw?.pushoverDelaySeconds === "number" && raw.pushoverDelaySeconds >= 5 ? raw.pushoverDelaySeconds : 30,
     pushoverEnabled: typeof raw?.pushoverEnabled === "boolean" ? raw.pushoverEnabled : true,
+    pushoverEventFilters: normalizePushoverEventFilters(raw?.pushoverEventFilters),
     pushoverBaseUrl: typeof raw?.pushoverBaseUrl === "string" ? raw.pushoverBaseUrl : "",
     claudeBinary: typeof raw?.claudeBinary === "string" ? raw.claudeBinary : "",
     codexBinary: typeof raw?.codexBinary === "string" ? raw.codexBinary : "",
@@ -407,6 +422,7 @@ export function updateSettings(
       | "pushoverApiToken"
       | "pushoverDelaySeconds"
       | "pushoverEnabled"
+      | "pushoverEventFilters"
       | "pushoverBaseUrl"
       | "claudeBinary"
       | "codexBinary"
@@ -431,6 +447,9 @@ export function updateSettings(
   ensureLoaded();
   // Filter out undefined values so they don't overwrite existing settings
   const defined = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
+  if (defined.pushoverEventFilters) {
+    defined.pushoverEventFilters = normalizePushoverEventFilters(defined.pushoverEventFilters);
+  }
 
   if (defined.namerConfig) {
     const nextNamerConfig = defined.namerConfig as NamerConfig;

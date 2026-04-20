@@ -17,6 +17,7 @@ import {
   type EnhancementMode,
   type QuestmasterViewMode,
 } from "../settings-manager.js";
+import { DEFAULT_PUSHOVER_EVENT_FILTERS, type PushoverEventFilters } from "../pushover.js";
 import { getLogPath } from "../server-logger.js";
 import type { RouteContext } from "./context.js";
 
@@ -130,23 +131,35 @@ export function createSettingsRoutes(ctx: RouteContext) {
     return mode === "compact" ? "compact" : "cards";
   }
 
-  // ─── Caffeinate status ──────────────────────────────────────────
+  function normalizePushoverEventFilters(filters: unknown): PushoverEventFilters {
+    const raw = filters && typeof filters === "object" && !Array.isArray(filters) ? (filters as Record<string, unknown>) : {};
+    return {
+      needsInput:
+        typeof raw.needsInput === "boolean" ? raw.needsInput : DEFAULT_PUSHOVER_EVENT_FILTERS.needsInput,
+      review: typeof raw.review === "boolean" ? raw.review : DEFAULT_PUSHOVER_EVENT_FILTERS.review,
+      error: typeof raw.error === "boolean" ? raw.error : DEFAULT_PUSHOVER_EVENT_FILTERS.error,
+    };
+  }
 
-  api.get("/caffeinate-status", (c) => {
-    if (!ctx.sleepInhibitor) {
-      return c.json({ active: false, engagedAt: null, expiresAt: null });
-    }
-    return c.json(ctx.sleepInhibitor.getStatus());
-  });
+  function parsePushoverEventFiltersFromBody(raw: Record<string, unknown>): PushoverEventFilters {
+    const current = normalizePushoverEventFilters(getSettings().pushoverEventFilters);
+    return {
+      needsInput: typeof raw.needsInput === "boolean" ? raw.needsInput : current.needsInput,
+      review: typeof raw.review === "boolean" ? raw.review : current.review,
+      error: typeof raw.error === "boolean" ? raw.error : current.error,
+    };
+  }
 
-  api.get("/settings", async (c) => {
-    const settings = getSettings();
-    const claudeDefaultModel = await getClaudeUserDefaultModel();
-    return c.json({
+  function buildSettingsResponse(
+    settings: ReturnType<typeof getSettings>,
+    extras?: { claudeDefaultModel?: string; includeRuntimeInfo?: boolean },
+  ): Record<string, unknown> {
+    return {
       serverName: getServerName(),
       serverId: getServerId(),
       pushoverConfigured: !!(settings.pushoverUserKey.trim() && settings.pushoverApiToken.trim()),
       pushoverEnabled: settings.pushoverEnabled,
+      pushoverEventFilters: normalizePushoverEventFilters(settings.pushoverEventFilters),
       pushoverDelaySeconds: settings.pushoverDelaySeconds,
       pushoverBaseUrl: settings.pushoverBaseUrl,
       claudeBinary: settings.claudeBinary,
@@ -164,10 +177,29 @@ export function createSettingsRoutes(ctx: RouteContext) {
       sleepInhibitorDurationMinutes: settings.sleepInhibitorDurationMinutes,
       questmasterViewMode: normalizeQuestmasterViewMode(settings.questmasterViewMode),
       herdLeaderFirstEnabled: settings.herdLeaderFirstEnabled === true,
-      restartSupported: !!process.env.COMPANION_SUPERVISED,
-      logFile: getLogPath(),
-      claudeDefaultModel,
-    });
+      ...(extras?.includeRuntimeInfo
+        ? {
+            restartSupported: !!process.env.COMPANION_SUPERVISED,
+            logFile: getLogPath(),
+          }
+        : {}),
+      ...(extras?.claudeDefaultModel !== undefined ? { claudeDefaultModel: extras.claudeDefaultModel } : {}),
+    };
+  }
+
+  // ─── Caffeinate status ──────────────────────────────────────────
+
+  api.get("/caffeinate-status", (c) => {
+    if (!ctx.sleepInhibitor) {
+      return c.json({ active: false, engagedAt: null, expiresAt: null });
+    }
+    return c.json(ctx.sleepInhibitor.getStatus());
+  });
+
+  api.get("/settings", async (c) => {
+    const settings = getSettings();
+    const claudeDefaultModel = await getClaudeUserDefaultModel();
+    return c.json(buildSettingsResponse(settings, { claudeDefaultModel, includeRuntimeInfo: true }));
   });
 
   api.put("/settings", async (c) => {
@@ -191,6 +223,25 @@ export function createSettingsRoutes(ctx: RouteContext) {
     }
     if (body.pushoverEnabled !== undefined && typeof body.pushoverEnabled !== "boolean") {
       return c.json({ error: "pushoverEnabled must be a boolean" }, 400);
+    }
+    if (body.pushoverEventFilters !== undefined) {
+      if (
+        typeof body.pushoverEventFilters !== "object" ||
+        body.pushoverEventFilters === null ||
+        Array.isArray(body.pushoverEventFilters)
+      ) {
+        return c.json({ error: "pushoverEventFilters must be an object" }, 400);
+      }
+      const filters = body.pushoverEventFilters as Record<string, unknown>;
+      if (filters.needsInput !== undefined && typeof filters.needsInput !== "boolean") {
+        return c.json({ error: "pushoverEventFilters.needsInput must be a boolean" }, 400);
+      }
+      if (filters.review !== undefined && typeof filters.review !== "boolean") {
+        return c.json({ error: "pushoverEventFilters.review must be a boolean" }, 400);
+      }
+      if (filters.error !== undefined && typeof filters.error !== "boolean") {
+        return c.json({ error: "pushoverEventFilters.error must be a boolean" }, 400);
+      }
     }
     if (body.pushoverBaseUrl !== undefined && typeof body.pushoverBaseUrl !== "string") {
       return c.json({ error: "pushoverBaseUrl must be a string" }, 400);
@@ -288,6 +339,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       "pushoverApiToken",
       "pushoverDelaySeconds",
       "pushoverEnabled",
+      "pushoverEventFilters",
       "pushoverBaseUrl",
       "claudeBinary",
       "codexBinary",
@@ -318,6 +370,9 @@ export function createSettingsRoutes(ctx: RouteContext) {
       pushoverApiToken: typeof body.pushoverApiToken === "string" ? body.pushoverApiToken.trim() : undefined,
       pushoverDelaySeconds: typeof body.pushoverDelaySeconds === "number" ? body.pushoverDelaySeconds : undefined,
       pushoverEnabled: typeof body.pushoverEnabled === "boolean" ? body.pushoverEnabled : undefined,
+      pushoverEventFilters: body.pushoverEventFilters
+        ? parsePushoverEventFiltersFromBody(body.pushoverEventFilters as Record<string, unknown>)
+        : undefined,
       pushoverBaseUrl: typeof body.pushoverBaseUrl === "string" ? body.pushoverBaseUrl.trim() : undefined,
       claudeBinary: typeof body.claudeBinary === "string" ? body.claudeBinary.trim() : undefined,
       codexBinary: typeof body.codexBinary === "string" ? body.codexBinary.trim() : undefined,
@@ -346,29 +401,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
         typeof body.herdLeaderFirstEnabled === "boolean" ? body.herdLeaderFirstEnabled : undefined,
     });
 
-    return c.json({
-      serverName: getServerName(),
-      serverId: getServerId(),
-      pushoverConfigured: !!(settings.pushoverUserKey.trim() && settings.pushoverApiToken.trim()),
-      pushoverEnabled: settings.pushoverEnabled,
-      pushoverDelaySeconds: settings.pushoverDelaySeconds,
-      pushoverBaseUrl: settings.pushoverBaseUrl,
-      claudeBinary: settings.claudeBinary,
-      codexBinary: settings.codexBinary,
-      maxKeepAlive: settings.maxKeepAlive,
-      heavyRepoModeEnabled: settings.heavyRepoModeEnabled,
-      autoApprovalEnabled: settings.autoApprovalEnabled,
-      autoApprovalModel: settings.autoApprovalModel,
-      namerConfig: maskNamerConfig(settings.namerConfig),
-      autoNamerEnabled: settings.autoNamerEnabled,
-      transcriptionConfig: maskTranscriptionConfig(settings.transcriptionConfig),
-      editorConfig: settings.editorConfig,
-      defaultClaudeBackend: settings.defaultClaudeBackend,
-      sleepInhibitorEnabled: settings.sleepInhibitorEnabled,
-      sleepInhibitorDurationMinutes: settings.sleepInhibitorDurationMinutes,
-      questmasterViewMode: normalizeQuestmasterViewMode(settings.questmasterViewMode),
-      herdLeaderFirstEnabled: settings.herdLeaderFirstEnabled === true,
-    });
+    return c.json(buildSettingsResponse(settings));
   });
 
   // ─── Binary test ──────────────────────────────────────────────────

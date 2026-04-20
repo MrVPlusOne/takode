@@ -103,6 +103,7 @@ const pushoverNotifier = new PushoverNotifier({
       pushoverApiToken: s.pushoverApiToken,
       pushoverDelaySeconds: s.pushoverDelaySeconds,
       pushoverEnabled: s.pushoverEnabled,
+      pushoverEventFilters: s.pushoverEventFilters,
     };
   },
   getBaseUrl: () => getSettings().pushoverBaseUrl || `http://localhost:${port}`,

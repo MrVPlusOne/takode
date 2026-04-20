@@ -112,6 +112,7 @@ vi.mock("./settings-manager.js", () => ({
     pushoverApiToken: "",
     pushoverDelaySeconds: 30,
     pushoverEnabled: true,
+    pushoverEventFilters: { needsInput: true, review: true, error: true },
     pushoverBaseUrl: "",
     claudeBinary: "",
     codexBinary: "",
@@ -143,6 +144,7 @@ vi.mock("./settings-manager.js", () => ({
     pushoverApiToken: patch.pushoverApiToken ?? "",
     pushoverDelaySeconds: patch.pushoverDelaySeconds ?? 30,
     pushoverEnabled: patch.pushoverEnabled ?? true,
+    pushoverEventFilters: patch.pushoverEventFilters ?? { needsInput: true, review: true, error: true },
     pushoverBaseUrl: patch.pushoverBaseUrl ?? "",
     claudeBinary: patch.claudeBinary ?? "",
     codexBinary: patch.codexBinary ?? "",
@@ -3143,6 +3145,7 @@ describe("GET /api/settings", () => {
       pushoverApiToken: "t456",
       pushoverDelaySeconds: 60,
       pushoverEnabled: true,
+      pushoverEventFilters: { needsInput: true, review: true, error: true },
       pushoverBaseUrl: "http://localhost:3456",
       claudeBinary: "",
       codexBinary: "",
@@ -3176,6 +3179,7 @@ describe("GET /api/settings", () => {
       serverId: "test-server-id",
       pushoverConfigured: true,
       pushoverEnabled: true,
+      pushoverEventFilters: { needsInput: true, review: true, error: true },
       pushoverDelaySeconds: 60,
       pushoverBaseUrl: "http://localhost:3456",
       claudeBinary: "",
@@ -3212,6 +3216,7 @@ describe("GET /api/settings", () => {
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,
       pushoverEnabled: true,
+      pushoverEventFilters: { needsInput: true, review: true, error: true },
       pushoverBaseUrl: "",
       claudeBinary: "",
       codexBinary: "",
@@ -3245,6 +3250,7 @@ describe("GET /api/settings", () => {
       serverId: "test-server-id",
       pushoverConfigured: false,
       pushoverEnabled: true,
+      pushoverEventFilters: { needsInput: true, review: true, error: true },
       pushoverDelaySeconds: 30,
       pushoverBaseUrl: "",
       claudeBinary: "",
@@ -3282,6 +3288,7 @@ describe("GET /api/settings", () => {
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,
       pushoverEnabled: true,
+      pushoverEventFilters: { needsInput: true, review: true, error: true },
       pushoverBaseUrl: "",
       claudeBinary: "",
       codexBinary: "",
@@ -3322,6 +3329,7 @@ describe("GET /api/settings", () => {
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,
       pushoverEnabled: true,
+      pushoverEventFilters: { needsInput: true, review: true, error: true },
       pushoverBaseUrl: "",
       claudeBinary: "",
       codexBinary: "",
@@ -3381,6 +3389,7 @@ describe("PUT /api/settings", () => {
       pushoverApiToken: "t456",
       pushoverDelaySeconds: 60,
       pushoverEnabled: true,
+      pushoverEventFilters: { needsInput: true, review: true, error: true },
       pushoverBaseUrl: "",
       claudeBinary: "",
       codexBinary: "",
@@ -3417,6 +3426,7 @@ describe("PUT /api/settings", () => {
       pushoverApiToken: "t456",
       pushoverDelaySeconds: 60,
       pushoverEnabled: undefined,
+      pushoverEventFilters: undefined,
       pushoverBaseUrl: undefined,
       claudeBinary: undefined,
       codexBinary: undefined,
@@ -3440,6 +3450,7 @@ describe("PUT /api/settings", () => {
       serverId: "test-server-id",
       pushoverConfigured: true,
       pushoverEnabled: true,
+      pushoverEventFilters: { needsInput: true, review: true, error: true },
       pushoverDelaySeconds: 60,
       pushoverBaseUrl: "",
       claudeBinary: "",
@@ -3465,6 +3476,71 @@ describe("PUT /api/settings", () => {
     });
   });
 
+  it("updates pushover event filters", async () => {
+    vi.mocked(settingsManager.updateSettings).mockReturnValue({
+      serverName: "",
+      serverId: "",
+      pushoverUserKey: "",
+      pushoverApiToken: "",
+      pushoverDelaySeconds: 30,
+      pushoverEnabled: true,
+      pushoverEventFilters: { needsInput: true, review: false, error: true },
+      pushoverBaseUrl: "",
+      claudeBinary: "",
+      codexBinary: "",
+      maxKeepAlive: 0,
+      heavyRepoModeEnabled: false,
+      autoApprovalEnabled: false,
+      autoApprovalModel: "haiku",
+      autoApprovalMaxConcurrency: 4,
+      autoApprovalTimeoutSeconds: 45,
+      namerConfig: { backend: "claude" },
+      autoNamerEnabled: true,
+      transcriptionConfig: {
+        apiKey: "",
+        baseUrl: "https://api.openai.com/v1",
+        enhancementEnabled: true,
+        enhancementModel: "gpt-5-mini",
+      },
+      editorConfig: { editor: "none" },
+      defaultClaudeBackend: "claude",
+      sleepInhibitorEnabled: false,
+      sleepInhibitorDurationMinutes: 5,
+      updatedAt: 456,
+    });
+
+    const res = await app.request("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pushoverEventFilters: { review: false } }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(settingsManager.updateSettings).toHaveBeenCalledWith({
+      pushoverUserKey: undefined,
+      pushoverApiToken: undefined,
+      pushoverDelaySeconds: undefined,
+      pushoverEnabled: undefined,
+      pushoverEventFilters: { needsInput: true, review: false, error: true },
+      pushoverBaseUrl: undefined,
+      claudeBinary: undefined,
+      codexBinary: undefined,
+      maxKeepAlive: undefined,
+      heavyRepoModeEnabled: undefined,
+      autoApprovalEnabled: undefined,
+      autoApprovalModel: undefined,
+      namerConfig: undefined,
+      autoNamerEnabled: undefined,
+      transcriptionConfig: undefined,
+      editorConfig: undefined,
+      defaultClaudeBackend: undefined,
+      sleepInhibitorEnabled: undefined,
+      sleepInhibitorDurationMinutes: undefined,
+      questmasterViewMode: undefined,
+      herdLeaderFirstEnabled: undefined,
+    });
+  });
+
   it("trims pushover keys", async () => {
     vi.mocked(settingsManager.updateSettings).mockReturnValue({
       serverName: "",
@@ -3473,6 +3549,7 @@ describe("PUT /api/settings", () => {
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,
       pushoverEnabled: true,
+      pushoverEventFilters: { needsInput: true, review: true, error: true },
       pushoverBaseUrl: "",
       claudeBinary: "",
       codexBinary: "",
@@ -3509,6 +3586,7 @@ describe("PUT /api/settings", () => {
       pushoverApiToken: undefined,
       pushoverDelaySeconds: undefined,
       pushoverEnabled: undefined,
+      pushoverEventFilters: undefined,
       pushoverBaseUrl: undefined,
       claudeBinary: undefined,
       codexBinary: undefined,
@@ -3536,6 +3614,7 @@ describe("PUT /api/settings", () => {
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,
       pushoverEnabled: true,
+      pushoverEventFilters: { needsInput: true, review: true, error: true },
       pushoverBaseUrl: "",
       claudeBinary: "",
       codexBinary: "",
@@ -3609,6 +3688,18 @@ describe("PUT /api/settings", () => {
     expect(res.status).toBe(400);
     const json = await res.json();
     expect(json).toEqual({ error: "pushoverDelaySeconds must be a number between 5 and 300" });
+  });
+
+  it("returns 400 for invalid pushoverEventFilters value", async () => {
+    const res = await app.request("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pushoverEventFilters: { review: "nope" } }),
+    });
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json).toEqual({ error: "pushoverEventFilters.review must be a boolean" });
   });
 
   it("returns 400 when no settings fields are provided", async () => {

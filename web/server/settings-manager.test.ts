@@ -40,6 +40,7 @@ describe("settings-manager", () => {
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,
       pushoverEnabled: true,
+      pushoverEventFilters: { needsInput: true, review: true, error: true },
       pushoverBaseUrl: "",
       claudeBinary: "",
       codexBinary: "",
@@ -78,6 +79,15 @@ describe("settings-manager", () => {
     await _flushForTest();
     const saved = JSON.parse(readFileSync(settingsPath, "utf-8"));
     expect(saved.pushoverUserKey).toBe("po-user");
+  });
+
+  it("normalizes and persists pushover event filters", async () => {
+    const updated = updateSettings({ pushoverEventFilters: { needsInput: false, review: true, error: false } });
+    expect(updated.pushoverEventFilters).toEqual({ needsInput: false, review: true, error: false });
+
+    await _flushForTest();
+    const saved = JSON.parse(readFileSync(settingsPath, "utf-8"));
+    expect(saved.pushoverEventFilters).toEqual({ needsInput: false, review: true, error: false });
   });
 
   it("stores OpenAI API keys in a separate secrets file", async () => {
@@ -321,6 +331,7 @@ describe("settings-manager", () => {
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,
       pushoverEnabled: true,
+      pushoverEventFilters: { needsInput: true, review: true, error: true },
       pushoverBaseUrl: "",
       claudeBinary: "",
       codexBinary: "",

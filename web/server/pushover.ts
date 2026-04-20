@@ -7,12 +7,26 @@
  */
 
 export type PushoverEventType = "permission" | "question" | "completed" | "error";
+export type PushoverNotificationCategory = "needs-input" | "review" | "error";
+
+export interface PushoverEventFilters {
+  needsInput: boolean;
+  review: boolean;
+  error: boolean;
+}
+
+export const DEFAULT_PUSHOVER_EVENT_FILTERS: Readonly<PushoverEventFilters> = {
+  needsInput: true,
+  review: true,
+  error: true,
+};
 
 export interface PushoverSettings {
   pushoverUserKey: string;
   pushoverApiToken: string;
   pushoverDelaySeconds: number;
   pushoverEnabled: boolean;
+  pushoverEventFilters?: PushoverEventFilters;
 }
 
 export interface PushoverNotifierOpts {
@@ -68,8 +82,15 @@ const EVENT_PRIORITY: Record<PushoverEventType, number> = {
 const EVENT_TITLE: Record<PushoverEventType, string> = {
   permission: "Permission needed",
   question: "Question from Claude",
-  completed: "Session completed",
+  completed: "Ready for review",
   error: "Session error",
+};
+
+const EVENT_CATEGORY: Record<PushoverEventType, PushoverNotificationCategory> = {
+  permission: "needs-input",
+  question: "needs-input",
+  completed: "review",
+  error: "error",
 };
 
 export class PushoverNotifier {
@@ -88,6 +109,23 @@ export class PushoverNotifier {
     return !!(s.pushoverEnabled && s.pushoverUserKey.trim() && s.pushoverApiToken.trim());
   }
 
+  private getEventFilters(settings: PushoverSettings): PushoverEventFilters {
+    const raw = settings.pushoverEventFilters;
+    return {
+      needsInput: raw?.needsInput ?? DEFAULT_PUSHOVER_EVENT_FILTERS.needsInput,
+      review: raw?.review ?? DEFAULT_PUSHOVER_EVENT_FILTERS.review,
+      error: raw?.error ?? DEFAULT_PUSHOVER_EVENT_FILTERS.error,
+    };
+  }
+
+  private isEventEnabled(eventType: PushoverEventType, settings: PushoverSettings): boolean {
+    const filters = this.getEventFilters(settings);
+    const category = EVENT_CATEGORY[eventType];
+    if (category === "needs-input") return filters.needsInput;
+    if (category === "review") return filters.review;
+    return filters.error;
+  }
+
   /**
    * Schedule a notification for a session event.
    * For permissions/questions, multiple rapid-fire events are batched.
@@ -99,7 +137,8 @@ export class PushoverNotifier {
     requestId?: string,
     options?: { skipReadCheck?: boolean },
   ): void {
-    if (!this.isConfigured()) return;
+    const settings = this.opts.getSettings();
+    if (!this.isConfigured() || !this.isEventEnabled(eventType, settings)) return;
 
     const isBatchable = eventType === "permission" || eventType === "question";
     const key = `${sessionId}:${eventType}`;
@@ -115,7 +154,6 @@ export class PushoverNotifier {
         }
       }
       // Extend the batch window, but don't exceed the configured delay from original creation
-      const settings = this.opts.getSettings();
       const maxFireAt = existing.createdAt + settings.pushoverDelaySeconds * 1000;
       const batchFireAt = Math.min(Date.now() + PERMISSION_BATCH_WINDOW_MS, maxFireAt);
       const newDelay = Math.max(0, batchFireAt - Date.now());
@@ -129,8 +167,6 @@ export class PushoverNotifier {
       clearTimeout(existing.timer);
       this.pending.delete(key);
     }
-
-    const settings = this.opts.getSettings();
     const delayMs = settings.pushoverDelaySeconds * 1000;
     const now = Date.now();
 
@@ -200,7 +236,14 @@ export class PushoverNotifier {
     if (!pending) return;
     this.pending.delete(key);
 
+    const settings = this.opts.getSettings();
     if (!this.isConfigured()) return;
+    if (!this.isEventEnabled(pending.eventType, settings)) {
+      console.log(
+        `[pushover] Suppressed ${pending.eventType} for ${pending.sessionId.slice(0, 8)}: category disabled in settings`,
+      );
+      return;
+    }
 
     // Skip notification if the user has read the session since the event was created,
     // unless this is an explicit notification (e.g. takode notify) that should always fire.
@@ -219,7 +262,6 @@ export class PushoverNotifier {
       return;
     }
 
-    const settings = this.opts.getSettings();
     const { sessionId, eventType } = pending;
 
     // Build title

@@ -7,6 +7,7 @@ import {
   type NamerConfig,
   type TranscriptionConfig,
   type EditorKind,
+  type PushoverEventFilters,
 } from "../api.js";
 import { useStore, COLOR_THEMES } from "../store.js";
 import { NamerDebugPanel } from "./NamerDebugPanel.js";
@@ -20,6 +21,11 @@ import { EDIT_BLOCKS_EXPANDED_KEY } from "./ToolBlock.js";
 import { navigateToSession, navigateToMostRecentSession } from "../utils/routing.js";
 
 const SCROLL_STORAGE_KEY = "cc-settings-scroll";
+const DEFAULT_PUSHOVER_EVENT_FILTERS: PushoverEventFilters = {
+  needsInput: true,
+  review: true,
+  error: true,
+};
 
 interface SettingsPageProps {
   embedded?: boolean;
@@ -117,6 +123,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
   const [poBaseUrl, setPoBaseUrl] = useState("");
   const [poDelay, setPoDelay] = useState(30);
   const [poEnabled, setPoEnabled] = useState(true);
+  const [poEventFilters, setPoEventFilters] = useState<PushoverEventFilters>(DEFAULT_PUSHOVER_EVENT_FILTERS);
   const [poConfigured, setPoConfigured] = useState(false);
   const [poSaving, setPoSaving] = useState(false);
   const [poSaved, setPoSaved] = useState(false);
@@ -203,6 +210,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
         setSleepInhibitorDuration(s.sleepInhibitorDurationMinutes ?? 5);
         setPoConfigured(s.pushoverConfigured);
         setPoEnabled(s.pushoverEnabled);
+        setPoEventFilters(s.pushoverEventFilters ?? DEFAULT_PUSHOVER_EVENT_FILTERS);
         setPoDelay(s.pushoverDelaySeconds);
         setPoBaseUrl(s.pushoverBaseUrl || "");
         setRestartSupported(s.restartSupported);
@@ -317,6 +325,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
       const payload: Record<string, unknown> = {
         pushoverDelaySeconds: poDelay,
         pushoverEnabled: poEnabled,
+        pushoverEventFilters: poEventFilters,
         pushoverBaseUrl: poBaseUrl.trim(),
       };
       if (poUserKey.trim()) payload.pushoverUserKey = poUserKey.trim();
@@ -325,6 +334,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
       const res = await api.updateSettings(payload as Parameters<typeof api.updateSettings>[0]);
       setPoConfigured(res.pushoverConfigured);
       setPoEnabled(res.pushoverEnabled);
+      setPoEventFilters(res.pushoverEventFilters ?? DEFAULT_PUSHOVER_EVENT_FILTERS);
       setPoDelay(res.pushoverDelaySeconds);
       setPoBaseUrl(res.pushoverBaseUrl || "");
       setPoUserKey("");
@@ -350,6 +360,10 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
       setPoTesting(false);
       setTimeout(() => setPoTestResult(null), 3000);
     }
+  }
+
+  function setPoEventFilter<K extends keyof PushoverEventFilters>(key: K, value: boolean) {
+    setPoEventFilters((current) => ({ ...current, [key]: value }));
   }
 
   // Debounced auto-save for CLI binaries (fires 800ms after last keystroke)
@@ -1171,6 +1185,51 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
             <span>Enabled</span>
             <span className="text-xs text-cc-muted">{poEnabled ? "On" : "Off"}</span>
           </button>
+
+          <div className="space-y-2">
+            <div>
+              <div className="text-sm font-medium">Event types</div>
+              <p className="mt-1 text-xs text-cc-muted">Choose which categories can send a Pushover notification.</p>
+            </div>
+            <div className="rounded-lg border border-cc-border overflow-hidden">
+              <label className="flex items-start gap-3 px-3 py-3 bg-cc-hover/40 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={poEventFilters.needsInput}
+                  onChange={(e) => setPoEventFilter("needsInput", e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span className="min-w-0">
+                  <span className="block text-sm text-cc-fg">Needs user input</span>
+                  <span className="block text-xs text-cc-muted">Questions and permission requests.</span>
+                </span>
+              </label>
+              <label className="flex items-start gap-3 px-3 py-3 border-t border-cc-border bg-cc-panel cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={poEventFilters.review}
+                  onChange={(e) => setPoEventFilter("review", e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span className="min-w-0">
+                  <span className="block text-sm text-cc-fg">Ready for review</span>
+                  <span className="block text-xs text-cc-muted">Completed turns that need your eyes.</span>
+                </span>
+              </label>
+              <label className="flex items-start gap-3 px-3 py-3 border-t border-cc-border bg-cc-hover/40 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={poEventFilters.error}
+                  onChange={(e) => setPoEventFilter("error", e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span className="min-w-0">
+                  <span className="block text-sm text-cc-fg">Errors</span>
+                  <span className="block text-xs text-cc-muted">Turn failures that require attention.</span>
+                </span>
+              </label>
+            </div>
+          </div>
 
           {poError && (
             <div className="px-3 py-2 rounded-lg bg-cc-error/10 border border-cc-error/20 text-xs text-cc-error">

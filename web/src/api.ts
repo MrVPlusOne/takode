@@ -340,6 +340,7 @@ export interface AppSettings {
   serverId: string;
   pushoverConfigured: boolean;
   pushoverEnabled: boolean;
+  pushoverEventFilters?: PushoverEventFilters;
   pushoverDelaySeconds: number;
   pushoverBaseUrl: string;
   claudeBinary: string;
@@ -362,6 +363,12 @@ export interface AppSettings {
   restartSupported: boolean;
   logFile?: string | null;
   claudeDefaultModel?: string;
+}
+
+export interface PushoverEventFilters {
+  needsInput: boolean;
+  review: boolean;
+  error: boolean;
 }
 
 export type QuestmasterViewMode = "cards" | "compact";
@@ -843,6 +850,7 @@ export const api = {
     pushoverApiToken?: string;
     pushoverDelaySeconds?: number;
     pushoverEnabled?: boolean;
+    pushoverEventFilters?: Partial<PushoverEventFilters>;
     pushoverBaseUrl?: string;
     claudeBinary?: string;
     codexBinary?: string;

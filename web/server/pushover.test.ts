@@ -91,6 +91,32 @@ describe("PushoverNotifier", () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
+  it("does not schedule notifications for disabled categories", async () => {
+    notifier = new PushoverNotifier(
+      makeOpts({
+        getSettings: () => makeSettings({ pushoverEventFilters: { needsInput: true, review: false, error: true } }),
+      }),
+    );
+    notifier.scheduleNotification("sess-1", "completed");
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("re-checks filters before firing pending notifications", async () => {
+    let filters = { needsInput: true, review: true, error: true };
+    notifier = new PushoverNotifier(
+      makeOpts({
+        getSettings: () => makeSettings({ pushoverEventFilters: filters }),
+      }),
+    );
+    notifier.scheduleNotification("sess-1", "completed");
+    filters = { needsInput: true, review: false, error: true };
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   // ── Message format ──────────────────────────────────────────────────
 
   it("includes server name, session name, activity, and detail in message", async () => {
@@ -272,7 +298,7 @@ describe("PushoverNotifier", () => {
     // Only completed should fire
     expect(fetch).toHaveBeenCalledTimes(1);
     const body = lastFetchBody();
-    expect(body.get("title")).toBe("Session completed");
+    expect(body.get("title")).toBe("Ready for review");
   });
 
   // ── Read suppression ──────────────────────────────────────────────
