@@ -99,9 +99,11 @@ function makeDoneQuest(): QuestmasterTask {
 }
 
 function advanceQuestUpdate<T extends QuestmasterTask>(quest: T, deltaMs = 1): T {
+  const baseUpdatedAt =
+    quest.updatedAt ?? ("completedAt" in quest ? quest.completedAt : quest.createdAt);
   return {
     ...quest,
-    updatedAt: (quest.updatedAt ?? quest.completedAt ?? quest.createdAt ?? Date.now()) + deltaMs,
+    updatedAt: baseUpdatedAt + deltaMs,
   } as T;
 }
 

@@ -29,7 +29,7 @@ describe("BoardBlock", () => {
 
     render(<BoardBlock board={board} operation="advanced q-42 to SKEPTIC_REVIEWING" />);
 
-    expect(screen.getByText("-- advanced q-42 to Skeptic Review")).toBeInTheDocument();
+    expect(screen.getByText("-- advanced q-42 to Addressing Skeptic")).toBeInTheDocument();
     expect(screen.queryByText(/SKEPTIC_REVIEWING/)).toBeNull();
   });
 });
