@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 
 const mockMarkNotificationDone = vi.fn(async (_sessionId: string, _notifId: string, _done = true) => ({ ok: true }));
@@ -72,33 +72,42 @@ describe("NotificationChip", () => {
   });
 
   it("colors the bell blue when review is the highest active urgency", () => {
-    // Review-only inboxes keep the pill behavior but switch the bell to the
-    // lower-priority review color used elsewhere in the UI.
+    // Review-only inboxes should render a compact per-type review badge while
+    // keeping the lower-priority blue review color.
     setNotifications("s1", [
       { id: "review-1", category: "review", summary: "Needs review", timestamp: Date.now(), done: false },
       { id: "review-2", category: "review", summary: "Also review", timestamp: Date.now(), done: true },
     ]);
     render(<NotificationChip sessionId="s1" />);
 
-    const chip = screen.getByRole("button", { name: /1 notification/i });
-    const bell = chip.querySelector("svg");
+    const chip = screen.getByRole("button", { name: "Notification inbox: 1 review notification" });
+    const badge = within(chip).getByTestId("notification-chip-review");
+    const bell = badge.querySelector("svg");
     expect(bell?.className.baseVal ?? bell?.getAttribute("class")).toContain("text-blue-500");
-    expect(chip).toHaveTextContent("1 notification");
+    expect(badge).toHaveTextContent("1");
   });
 
-  it("colors the bell amber when needs-input is present, even with reviews", () => {
-    // needs-input takes precedence over review so mixed inboxes must render
-    // the bell in the higher-urgency amber tone.
+  it("renders a compact per-type breakdown when needs-input and review are both active", () => {
+    // Mixed inboxes should break counts out by category instead of collapsing
+    // them into a single total.
     setNotifications("s1", [
       { id: "review-1", category: "review", summary: "Needs review", timestamp: Date.now(), done: false },
       { id: "input-1", category: "needs-input", summary: "Need answer", timestamp: Date.now(), done: false },
+      { id: "input-2", category: "needs-input", summary: "Need second answer", timestamp: Date.now(), done: false },
     ]);
     render(<NotificationChip sessionId="s1" />);
 
-    const chip = screen.getByRole("button", { name: /2 notifications/i });
-    const bell = chip.querySelector("svg");
-    expect(bell?.className.baseVal ?? bell?.getAttribute("class")).toContain("text-amber-400");
-    expect(chip).toHaveTextContent("2 notifications");
+    const chip = screen.getByRole("button", {
+      name: "Notification inbox: 2 needs-input notifications, 1 review notification",
+    });
+    const needsInputBadge = within(chip).getByTestId("notification-chip-needs-input");
+    const reviewBadge = within(chip).getByTestId("notification-chip-review");
+    const needsInputBell = needsInputBadge.querySelector("svg");
+    const reviewBell = reviewBadge.querySelector("svg");
+    expect(needsInputBell?.className.baseVal ?? needsInputBell?.getAttribute("class")).toContain("text-amber-400");
+    expect(reviewBell?.className.baseVal ?? reviewBell?.getAttribute("class")).toContain("text-blue-500");
+    expect(needsInputBadge).toHaveTextContent("2");
+    expect(reviewBadge).toHaveTextContent("1");
   });
 
   it("preserves popover behavior while using urgency color", () => {
@@ -108,7 +117,7 @@ describe("NotificationChip", () => {
     ]);
     render(<NotificationChip sessionId="s1" />);
 
-    fireEvent.click(screen.getByRole("button", { name: /1 notification/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 review notification" }));
     expect(screen.getByRole("dialog", { name: "Notification inbox" })).toBeInTheDocument();
     expect(screen.getByText("Needs review")).toBeInTheDocument();
   });
@@ -133,7 +142,7 @@ describe("NotificationChip", () => {
     ]);
 
     render(<NotificationChip sessionId="s1" />);
-    fireEvent.click(screen.getByRole("button", { name: /1 notification/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 review notification" }));
 
     const questLink = screen.getByRole("link", { name: "q-345" });
     expect(questLink).toHaveAttribute("href", "#/?quest=q-345");
@@ -172,7 +181,7 @@ describe("NotificationChip", () => {
     ]);
 
     render(<NotificationChip sessionId="s1" />);
-    fireEvent.click(screen.getByRole("button", { name: /1 notification/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 review notification" }));
     fireEvent.mouseEnter(screen.getByRole("button", { name: /q-345 ready for review/i }));
 
     expect(screen.queryByText("Hidden hover preview body")).toBeNull();
@@ -201,7 +210,7 @@ describe("NotificationChip", () => {
     ]);
 
     render(<NotificationChip sessionId="s1" />);
-    fireEvent.click(screen.getByRole("button", { name: /1 notification/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 review notification" }));
     fireEvent.mouseEnter(screen.getByRole("link", { name: "q-345" }));
 
     expect(screen.getByText("Compress herd events more aggressively")).toBeInTheDocument();
@@ -215,7 +224,7 @@ describe("NotificationChip", () => {
     ]);
 
     render(<NotificationChip sessionId="s1" />);
-    fireEvent.click(screen.getByRole("button", { name: /2 notifications/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 2 review notifications" }));
     fireEvent.click(screen.getByRole("button", { name: "Read All" }));
 
     expect(mockMarkAllNotificationsDone).toHaveBeenCalledWith("s1", true);

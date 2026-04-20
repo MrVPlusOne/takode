@@ -4,9 +4,9 @@ import { useStore } from "../store.js";
 import { api } from "../api.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
 import type { SessionNotification } from "../types.js";
-import { getHighestNotificationUrgency } from "../utils/notification-urgency.js";
 
 const EMPTY: SessionNotification[] = [];
+type NotificationCategory = SessionNotification["category"];
 
 function useNotifications(sessionId: string) {
   const all = useStore((s) => s.sessionNotifications?.get(sessionId)) ?? EMPTY;
@@ -21,6 +21,57 @@ function formatRelativeTime(ts: number): string {
   if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
   if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
   return `${Math.floor(diff / 86_400_000)}d ago`;
+}
+
+function getNotificationBreakdown(notifications: ReadonlyArray<Pick<SessionNotification, "category">>) {
+  let needsInput = 0;
+  let review = 0;
+  for (const notification of notifications) {
+    if (notification.category === "needs-input") needsInput += 1;
+    else if (notification.category === "review") review += 1;
+  }
+  return { needsInput, review };
+}
+
+function formatChipAriaLabel({
+  needsInput,
+  review,
+}: {
+  needsInput: number;
+  review: number;
+}): string {
+  const parts: string[] = [];
+  if (needsInput > 0) parts.push(`${needsInput} ${needsInput === 1 ? "needs-input notification" : "needs-input notifications"}`);
+  if (review > 0) parts.push(`${review} ${review === 1 ? "review notification" : "review notifications"}`);
+  return `Notification inbox: ${parts.join(", ")}`;
+}
+
+function NotificationCountBadge({ category, count }: { category: NotificationCategory; count: number }) {
+  const isNeedsInput = category === "needs-input";
+  const iconClassName = isNeedsInput ? "text-amber-400" : "text-blue-500";
+  const label = isNeedsInput ? "Needs input" : "Review";
+
+  return (
+    <span
+      data-testid={`notification-chip-${category}`}
+      className="relative inline-flex items-center gap-1 rounded-full border border-white/8 bg-black/10 px-1.5 py-0.5"
+      aria-hidden="true"
+      title={`${label}: ${count}`}
+    >
+      <svg
+        className={`h-3.5 w-3.5 shrink-0 ${iconClassName}`}
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      >
+        <path d="M8 1.5a4.5 4.5 0 0 0-4.5 4.5c0 2.5-1.5 4-1.5 4h12s-1.5-1.5-1.5-4A4.5 4.5 0 0 0 8 1.5z" />
+        <path d="M6 12a2 2 0 0 0 4 0" />
+      </svg>
+      <span className="min-w-[0.5rem] text-center text-cc-fg/95">{count}</span>
+    </span>
+  );
 }
 
 function parseSingleQuestSummary(summary?: string): { before: string; questId: string; after: string } | null {
@@ -265,7 +316,8 @@ function NotificationPopover({ sessionId, onClose }: { sessionId: string; onClos
 export function NotificationChip({ sessionId }: { sessionId: string }) {
   const { active } = useNotifications(sessionId);
   const [open, setOpen] = useState(false);
-  const urgency = getHighestNotificationUrgency(active);
+  const { needsInput, review } = useMemo(() => getNotificationBreakdown(active), [active]);
+  const ariaLabel = useMemo(() => formatChipAriaLabel({ needsInput, review }), [needsInput, review]);
 
   const toggle = useCallback(() => setOpen((p) => !p), []);
   const close = useCallback(() => setOpen(false), []);
@@ -276,24 +328,13 @@ export function NotificationChip({ sessionId }: { sessionId: string }) {
     <>
       <button
         onClick={toggle}
+        aria-label={ariaLabel}
         className="pointer-events-auto relative inline-flex max-w-[min(18rem,calc(100vw-2.75rem))] items-center gap-1.5 overflow-hidden rounded-[18px] border border-white/8 bg-[linear-gradient(135deg,rgba(255,255,255,0.08),rgba(255,255,255,0.02))] px-2.5 py-1 text-[11px] text-cc-muted font-mono-code shadow-[0_10px_30px_rgba(0,0,0,0.28)] backdrop-blur-md cursor-pointer hover:border-white/15 transition-colors"
       >
         <span className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.10),transparent_55%)]" />
-        <span className="relative">
-          <svg
-            className={`w-3.5 h-3.5 ${urgency === "needs-input" ? "text-amber-400" : urgency === "review" ? "text-blue-500" : ""}`}
-            viewBox="0 0 16 16"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-          >
-            <path d="M8 1.5a4.5 4.5 0 0 0-4.5 4.5c0 2.5-1.5 4-1.5 4h12s-1.5-1.5-1.5-4A4.5 4.5 0 0 0 8 1.5z" />
-            <path d="M6 12a2 2 0 0 0 4 0" />
-          </svg>
-        </span>
-        <span className="relative truncate text-cc-fg/90">
-          {active.length} {active.length === 1 ? "notification" : "notifications"}
+        <span className="relative inline-flex items-center gap-1">
+          {needsInput > 0 && <NotificationCountBadge category="needs-input" count={needsInput} />}
+          {review > 0 && <NotificationCountBadge category="review" count={review} />}
         </span>
       </button>
 

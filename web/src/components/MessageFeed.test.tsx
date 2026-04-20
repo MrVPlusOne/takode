@@ -2263,7 +2263,7 @@ describe("MessageFeed - floating status pill", () => {
     render(<MessageFeed sessionId={sid} />);
 
     expect(screen.getByLabelText("Go to top")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /1 notification/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Notification inbox: 1 review notification" })).toBeTruthy();
     expect(screen.getByTestId("message-feed-nav-fabs").style.bottom).toBe("42px");
 
     getBoundingClientRectSpy.mockRestore();

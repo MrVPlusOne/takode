@@ -213,7 +213,7 @@ describe("QuestDetailPanel", () => {
       </>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /1 notification/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 review notification" }));
     fireEvent.click(screen.getByRole("link", { name: "q-42" }));
     expect(screen.getByTestId("quest-detail-panel")).toBeTruthy();
 
@@ -252,7 +252,7 @@ describe("QuestDetailPanel", () => {
       </>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /1 notification/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 review notification" }));
     fireEvent.click(screen.getByRole("link", { name: "q-42" }));
     expect(screen.getByTestId("quest-detail-panel")).toBeTruthy();
 
@@ -292,7 +292,7 @@ describe("QuestDetailPanel", () => {
       </>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /1 notification/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 review notification" }));
     fireEvent.click(screen.getByRole("link", { name: "q-42" }));
     expect(screen.getByTestId("quest-detail-panel")).toBeTruthy();
 
