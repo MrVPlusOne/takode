@@ -137,9 +137,9 @@ function ScheduledTimerStatusIcon({ timerCount }: { timerCount: number }) {
       data-testid="session-status-timer-icon"
       data-count={String(timerCount)}
       title={`${timerCount} scheduled timer${timerCount === 1 ? "" : "s"}`}
-      className="inline-flex shrink-0 items-center justify-center text-emerald-500"
+      className="inline-flex h-3 w-3 shrink-0 self-center items-center justify-center leading-none text-emerald-500"
     >
-      <svg viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 shrink-0">
+      <svg viewBox="0 0 16 16" fill="currentColor" className="block h-3 w-3 shrink-0 -translate-y-px">
         <path d="M8 1.75a.75.75 0 01.75.75v.88a4.75 4.75 0 11-1.5 0V2.5A.75.75 0 018 1.75zm0 3A3.25 3.25 0 108 11.25 3.25 3.25 0 008 4.75zm.75 1.5v1.44l1.02.61a.75.75 0 11-.77 1.28L7.62 8.8A.75.75 0 017.25 8V6.25a.75.75 0 011.5 0z" />
       </svg>
     </span>

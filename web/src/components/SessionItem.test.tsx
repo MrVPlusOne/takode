@@ -292,6 +292,21 @@ describe("SessionItem status dot", () => {
     expect(container.querySelector('[data-testid="session-status-dot"]')).toBeNull();
   });
 
+  it("uses the dedicated alignment classes for the timer icon slot", () => {
+    setSessionTimers("s1", ["t1"]);
+
+    renderSessionItem({
+      session: makeSession({ status: "idle", sdkState: "connected" }),
+      permCount: 0,
+    });
+
+    const timerIcon = screen.getByTestId("session-status-timer-icon");
+    expect(timerIcon.className).toContain("h-3");
+    expect(timerIcon.className).toContain("w-3");
+    expect(timerIcon.className).toContain("leading-none");
+    expect(timerIcon.firstElementChild).toHaveClass("-translate-y-px");
+  });
+
   it("shows the timer icon in linear sidebar rows too", () => {
     // Linear rows use the left status stripe instead of the dot, so the timer
     // state still needs an inline icon to stay visible there.
