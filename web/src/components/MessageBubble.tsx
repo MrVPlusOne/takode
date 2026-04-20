@@ -1017,35 +1017,6 @@ function groupContentBlocks(blocks: ContentBlock[]): GroupedBlock[] {
   return groups;
 }
 
-const LEADER_TAG_SUFFIX_RE = /\s*@to\((?:user|self)\)\s*$/gm;
-
-function stripLeaderAddressSuffix(text: string): string {
-  return text.replace(LEADER_TAG_SUFFIX_RE, "");
-}
-
-function stripLeaderSuffixFromLastTextBlock(blocks: ContentBlock[]): ContentBlock[] {
-  let changed = false;
-  const result = blocks.map((block) => {
-    if (block.type !== "text") return block;
-    const stripped = stripLeaderAddressSuffix(block.text);
-    if (stripped === block.text) return block;
-    changed = true;
-    return { ...block, text: stripped };
-  });
-  return changed ? result : blocks;
-}
-
-function LeaderUserAddressedMarker() {
-  return (
-    <div
-      data-testid="leader-user-addressed-marker"
-      className="mb-1 flex items-center text-[10px] font-mono-code tracking-[0.08em] text-cc-primary/40"
-    >
-      @to(user)
-    </div>
-  );
-}
-
 function AssistantMessage({
   message,
   sessionId,
@@ -1059,52 +1030,29 @@ function AssistantMessage({
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
   const hidePaw = useContext(HidePawContext);
-  const userAddressed = message.leaderUserAddressed === true;
-  const userAddressedBodyClass = userAddressed
-    ? "border-y border-cc-primary/10 bg-cc-primary/[0.03] ml-1 py-2.5 px-2"
-    : "";
-  const displayMessage = useMemo(() => {
-    const strippedContent = stripLeaderAddressSuffix(message.content);
-    const originalBlocks = message.contentBlocks || [];
-    const strippedBlocks = stripLeaderSuffixFromLastTextBlock(originalBlocks);
-
-    const contentChanged = strippedContent !== message.content;
-    const blocksChanged = strippedBlocks !== originalBlocks;
-    if (!contentChanged && !blocksChanged) return message;
-    return {
-      ...message,
-      content: strippedContent,
-      contentBlocks: blocksChanged ? strippedBlocks : message.contentBlocks,
-    };
-  }, [message]);
-  const blocks = (displayMessage.contentBlocks || []).filter(
+  const blocks = (message.contentBlocks || []).filter(
     (block) => !(block.type === "tool_use" && isToolHiddenFromChat(block.name)),
   );
 
   const grouped = useMemo(() => groupContentBlocks(blocks), [blocks]);
   const hasTextBlock = blocks.some((b) => b.type === "text" && b.text.trim().length > 0);
   const hasThinkingBlock = blocks.some((b) => b.type === "thinking" && b.thinking.trim().length > 0);
-  const shouldRenderContentFallback = displayMessage.content.trim().length > 0 && !hasTextBlock && !hasThinkingBlock;
-  const suppressToolNotificationMarker = !!displayMessage.notification;
+  const shouldRenderContentFallback = message.content.trim().length > 0 && !hasTextBlock && !hasThinkingBlock;
+  const suppressToolNotificationMarker = !!message.notification;
 
   // Only show copy-message button when there's actual text content to copy
-  const hasTextContent = displayMessage.content || blocks.some((b) => b.type === "text" || b.type === "thinking");
+  const hasTextContent = message.content || blocks.some((b) => b.type === "text" || b.type === "thinking");
 
-  if (blocks.length === 0 && !displayMessage.content.trim() && !message.notification) {
+  if (blocks.length === 0 && !message.content.trim() && !message.notification) {
     return null;
   }
 
-  if (blocks.length === 0 && displayMessage.content) {
+  if (blocks.length === 0 && message.content) {
     return (
       <div className={`group/msg relative flex items-start ${hidePaw ? "" : "gap-3"}`}>
         {!hidePaw && <PawTrailAvatar />}
-        <div
-          ref={contentRef}
-          data-testid={userAddressed ? "leader-user-addressed-body" : undefined}
-          className={`flex-1 min-w-0 pr-6 ${userAddressedBodyClass}`}
-        >
-          {userAddressed && <LeaderUserAddressedMarker />}
-          <MarkdownContent text={displayMessage.content} sessionId={sessionId} searchHighlight={searchHighlight} />
+        <div ref={contentRef} className="flex-1 min-w-0 pr-6">
+          <MarkdownContent text={message.content} sessionId={sessionId} searchHighlight={searchHighlight} />
           {message.notification && (
             <NotificationMarker
               category={message.notification.category}
@@ -1113,11 +1061,9 @@ function AssistantMessage({
               messageId={message.id}
             />
           )}
-          {showTimestamp && (
-            <MessageTimestamp timestamp={displayMessage.timestamp} turnDurationMs={displayMessage.turnDurationMs} />
-          )}
+          {showTimestamp && <MessageTimestamp timestamp={message.timestamp} turnDurationMs={message.turnDurationMs} />}
         </div>
-        <MessageActionBar message={displayMessage} contentRef={contentRef} sessionId={sessionId} />
+        <MessageActionBar message={message} contentRef={contentRef} sessionId={sessionId} />
       </div>
     );
   }
@@ -1125,14 +1071,9 @@ function AssistantMessage({
   return (
     <div className={`group/msg relative flex items-start ${hidePaw ? "" : "gap-3"}`}>
       {!hidePaw && <PawTrailAvatar />}
-      <div
-        ref={contentRef}
-        data-testid={userAddressed ? "leader-user-addressed-body" : undefined}
-        className={`flex-1 min-w-0 space-y-3 pr-6 ${userAddressedBodyClass}`}
-      >
-        {userAddressed && <LeaderUserAddressedMarker />}
+      <div ref={contentRef} className="flex-1 min-w-0 space-y-3 pr-6">
         {shouldRenderContentFallback && (
-          <MarkdownContent text={displayMessage.content} sessionId={sessionId} searchHighlight={searchHighlight} />
+          <MarkdownContent text={message.content} sessionId={sessionId} searchHighlight={searchHighlight} />
         )}
         {grouped.map((group, i) => {
           if (group.kind === "content") {
@@ -1181,11 +1122,9 @@ function AssistantMessage({
             messageId={message.id}
           />
         )}
-        {showTimestamp && (
-          <MessageTimestamp timestamp={displayMessage.timestamp} turnDurationMs={displayMessage.turnDurationMs} />
-        )}
+        {showTimestamp && <MessageTimestamp timestamp={message.timestamp} turnDurationMs={message.turnDurationMs} />}
       </div>
-      {hasTextContent && <MessageActionBar message={displayMessage} contentRef={contentRef} sessionId={sessionId} />}
+      {hasTextContent && <MessageActionBar message={message} contentRef={contentRef} sessionId={sessionId} />}
     </div>
   );
 }

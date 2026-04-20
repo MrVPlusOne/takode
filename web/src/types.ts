@@ -111,8 +111,6 @@ export interface ChatMessage {
   agentSource?: { sessionId: string; sessionLabel?: string };
   /** Assistant message UUID from CLI, for revert support */
   cliUuid?: string;
-  /** Leader session assistant message explicitly addressed to the human via @to(user) suffix. */
-  leaderUserAddressed?: boolean;
   /** Notification anchored to this message (set by takode notify). */
   notification?: { category: "needs-input" | "review"; timestamp: number; summary?: string };
   /** Browser-only message not present in server messageHistory; excluded from sync hash verification. */

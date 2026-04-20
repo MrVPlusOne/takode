@@ -476,7 +476,6 @@ export type BrowserIncomingMessageBase =
       uuid?: string;
       tool_start_times?: Record<string, number>;
       turn_duration_ms?: number;
-      leader_user_addressed?: boolean;
       notification?: { category: "needs-input" | "review"; timestamp: number };
     }
   | { type: "stream_event"; event: unknown; parent_tool_use_id: string | null }

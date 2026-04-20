@@ -52,7 +52,7 @@ export function buildOrchestratorSystemPrompt(backend: "claude" | "codex" | "cla
       ? `**Role**: Keep your own work to triage, coordination, and short spot checks. Delegate non-trivial implementation, investigation, and verification to worker sessions. ` +
         `Use the orchestration instructions already loaded in this session as your source of truth. Do not assume Claude-specific tools or files exist.\n\n`
       : `**Role**: Keep your own work lightweight and stay responsive to herd events. Delegate larger work to worker sessions. ` +
-        `Read your project's instruction files for full orchestration documentation and workflow guidelines.\n\n`) +
+        `Use the orchestration instructions already loaded in this session as your source of truth, even if repo-local docs still mention deprecated leader reply tags like \`@to(user)\` or \`@to(self)\`.\n\n`) +
     `**Quest Journey**: Use \`takode board show\` to track each quest's stage (QUEUED -> PLANNING -> IMPLEMENTING -> SKEPTIC_REVIEWING -> GROOM_REVIEWING -> PORTING -> removed). ` +
     `Use \`takode board advance <quest-id>\` to transition quests through the lifecycle.\n\n` +
     `**Key disciplines**:\n` +

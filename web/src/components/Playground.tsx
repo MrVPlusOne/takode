@@ -751,7 +751,6 @@ const MSG_ASSISTANT_LEADER_USER: ChatMessage = {
   id: "msg-leader-user",
   role: "assistant",
   content: "Worker #7 finished q-126 and opened a PR. Please review the leader chat behavior. @to(user)",
-  leaderUserAddressed: true,
   timestamp: Date.now() - 48000,
 };
 
@@ -2065,7 +2064,7 @@ export function Playground() {
             <Card label="Assistant message (markdown)">
               <MessageBubble message={MSG_ASSISTANT} />
             </Card>
-            <Card label="Assistant message (@to(user))">
+            <Card label="Assistant message (deprecated tag shown raw)">
               <MessageBubble message={MSG_ASSISTANT_LEADER_USER} />
             </Card>
             <Card label="Assistant message (with tool calls)">
@@ -5067,7 +5066,7 @@ export function Playground() {
                 </button>
               </div>
             </Card>
-            <Card label="Collapsed leader turn — @to(user) rendered outside collapsed card">
+            <Card label="Collapsed leader turn — deprecated tags stay in raw text">
               <div className="space-y-3">
                 {/* Collapsed activity card */}
                 <div className="flex items-start gap-3">
@@ -5087,14 +5086,12 @@ export function Playground() {
                     </button>
                   </div>
                 </div>
-                {/* @to(user) message rendered outside the collapsed card as a standalone bubble */}
                 <MessageBubble
                   message={{
                     id: "playground-collapsed-touser",
                     role: "assistant",
                     content:
                       "Approved #70's plan for q-43. It's a clean unification: resize once at store time (1920px max). @to(user)",
-                    leaderUserAddressed: true,
                     timestamp: Date.now() - 60000,
                   }}
                 />

@@ -55,7 +55,6 @@ export function normalizeHistoryMessageToChatMessages(
         model: msg.model,
         stopReason: msg.stop_reason,
         cliUuid: (histMsg as Record<string, unknown>).uuid as string | undefined,
-        leaderUserAddressed: (histMsg as { leader_user_addressed?: boolean }).leader_user_addressed === true,
         ...((histMsg as Record<string, unknown>).notification
           ? { notification: (histMsg as Record<string, unknown>).notification as ChatMessage["notification"] }
           : {}),

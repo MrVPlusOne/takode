@@ -337,7 +337,6 @@ export interface Turn {
   /** Messages with notification chips -- always visible even when the turn is collapsed. */
   notificationEntries: FeedEntry[];
   responseEntry: FeedEntry | null;
-  promotedEntries: FeedEntry[];
   /** Sub-conclusions: assistant messages that precede herd events, shown in collapsed view */
   subConclusions: SubConclusion[];
   stats: TurnStats;
@@ -520,14 +519,13 @@ function extractSubConclusions(entries: FeedEntry[], responseEntry: FeedEntry | 
 }
 
 function isLeaderBoundaryEntry(entry: FeedEntry): boolean {
-  // Only split at user messages — NOT at @to(user) assistant messages.
-  // When a turn contains @to(user), earlier text blocks should stay in the
-  // same turn and be promoted to user-facing (see makeTurn promotedEntries).
+  // Only split at user messages. Deprecated assistant suffix tags are treated
+  // as literal text and do not affect turn boundaries.
   return isUserBoundaryEntry(entry);
 }
 
 /** Build a Turn from accumulated entries */
-function makeTurn(userEntry: FeedEntry | null, entries: FeedEntry[], turnIndex: number, leaderMode = false): Turn {
+function makeTurn(userEntry: FeedEntry | null, entries: FeedEntry[], turnIndex: number, _leaderMode = false): Turn {
   // Separate system messages (always visible) from collapsible agent activity
   const agentEntries: FeedEntry[] = [];
   const systemEntries: FeedEntry[] = [];
@@ -554,67 +552,21 @@ function makeTurn(userEntry: FeedEntry | null, entries: FeedEntry[], turnIndex: 
   }
 
   // Extract the default-visible response entry (last assistant text message).
-  // This is the preview shown when a turn is collapsed. Both normal and leader
-  // sessions use the same rule: pick the last assistant message with text content,
-  // skipping @to(self) messages in leader mode (those are always hidden).
-  // Leader sessions previously required leaderUserAddressed === true here, which
-  // caused blank collapsed previews once @to(user) tags were replaced by
-  // `takode notify`. The @to(user) promotion logic below still handles surfacing
-  // user-addressed messages in collapsed view for backward compatibility.
+  // Deprecated @to(user)/@to(self) suffixes are treated as literal text and do
+  // not affect which message becomes the collapsed preview.
   let responseEntry: FeedEntry | null = null;
   for (let i = agentEntries.length - 1; i >= 0; i--) {
     const e = agentEntries[i];
     if (e.kind === "message" && e.msg.role === "assistant" && e.msg.content?.trim()) {
-      // Skip @to(self) messages -- they should never be the collapsed preview
-      if (leaderMode && e.msg.content.trimEnd().endsWith("@to(self)")) continue;
       responseEntry = e;
       agentEntries.splice(i, 1);
       break;
     }
   }
 
-  // Leader mode backward compat: promote @to(user) entries so they're visible
-  // when collapsed. Hide @to(self) entries entirely. Non-addressed assistant
-  // text stays in agentEntries (visible expanded, hidden collapsed).
-  let promotedEntries: FeedEntry[] = [];
-  let selfAddressedCount = 0;
-  let allEntries: FeedEntry[] = entries;
-  if (leaderMode) {
-    const isSelfAddressed = (e: FeedEntry) =>
-      e.kind === "message" && e.msg.role === "assistant" && e.msg.content?.trimEnd().endsWith("@to(self)");
-
-    // Collect indices to splice: promote (@to(user)) or hide (@to(self))
-    const toSplice: { i: number; promote: boolean }[] = [];
-    for (let i = 0; i < agentEntries.length; i++) {
-      const e = agentEntries[i];
-      if (e.kind === "message" && e.msg.role === "assistant" && e.msg.content?.trim()) {
-        if (isSelfAddressed(e)) {
-          toSplice.push({ i, promote: false });
-        } else if (e.msg.leaderUserAddressed === true) {
-          toSplice.push({ i, promote: true });
-        }
-        // Unmarked internal text: leave in agentEntries (no splice)
-      }
-    }
-    // Single reverse pass keeps indices stable
-    for (let j = toSplice.length - 1; j >= 0; j--) {
-      const [entry] = agentEntries.splice(toSplice[j].i, 1);
-      if (toSplice[j].promote) {
-        promotedEntries.unshift(entry);
-      } else {
-        selfAddressedCount++;
-      }
-    }
-    // Filter @to(self) from allEntries so expanded view also hides them
-    if (selfAddressedCount > 0) {
-      allEntries = entries.filter((e) => !isSelfAddressed(e));
-    }
-  }
-
   // Extract sub-conclusions: assistant messages immediately before herd event injections.
   // These represent intermediate conclusions worth showing in collapsed view.
-  // Scan allEntries (post-@to(self) filtering) so hidden messages don't appear as sub-conclusions.
-  const subConclusions = extractSubConclusions(allEntries, responseEntry);
+  const subConclusions = extractSubConclusions(entries, responseEntry);
 
   // Stable ID: prefer user message ID, fall back to first agent entry ID, then synthetic
   const id = userEntry
@@ -628,19 +580,16 @@ function makeTurn(userEntry: FeedEntry | null, entries: FeedEntry[], turnIndex: 
   return {
     id,
     userEntry,
-    allEntries,
+    allEntries: entries,
     agentEntries,
     systemEntries,
     notificationEntries,
     responseEntry,
-    promotedEntries,
     subConclusions,
     stats: {
-      // Subtract responseEntry, promotedEntries (@to(user)), notificationEntries,
-      // and hidden @to(self) entries; remaining count reflects unmarked internal
-      // messages still in agentEntries.
-      messageCount:
-        s.messages - (responseEntry ? 1 : 0) - promotedEntries.length - notificationEntries.length - selfAddressedCount,
+      // Subtract responseEntry and notificationEntries; remaining count reflects
+      // messages still inside the collapsible agent activity section.
+      messageCount: s.messages - (responseEntry ? 1 : 0) - notificationEntries.length,
       toolCount: s.tools,
       subagentCount: s.subagents,
       herdEventCount: s.herdEvents,

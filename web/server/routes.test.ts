@@ -5272,13 +5272,14 @@ describe("buildOrchestratorSystemPrompt", () => {
     expect(prompt).toContain("takode-orchestration");
     expect(prompt).toContain("quest");
     expect(prompt).toContain("wait for the user's instructions");
+    expect(prompt).toContain("Use the orchestration instructions already loaded in this session as your source of truth");
+    expect(prompt).toContain("repo-local docs still mention deprecated leader reply tags");
     // These were moved to system prompt and should NOT appear in user message
     expect(prompt).not.toContain("Delegation principle");
     expect(prompt).not.toContain("Quest refinement");
     expect(prompt).not.toContain("Quest lifecycle");
     expect(prompt).not.toContain("Permission requests");
-    expect(prompt).not.toContain("@to(user)");
-    expect(prompt).not.toContain("@to(self)");
+    expect(prompt).not.toContain("Read your project's instruction files");
   });
 
   it("injects the Codex-specific startup prompt for connected leader sessions", async () => {

@@ -2592,6 +2592,8 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("takode notify");
     expect(guardrails).toContain("needs-input");
     expect(guardrails).toContain("review");
+    expect(guardrails).toContain("Do not rely on deprecated leader reply suffixes");
+    expect(guardrails).toContain("use normal assistant text plus `takode notify` instead");
     expect(guardrails).toContain("Every time you ask the user a question");
     expect(guardrails).toContain("also call `takode notify needs-input`");
     expect(guardrails).toContain("so the user never misses the leader's question");
@@ -2639,6 +2641,7 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("Every time you ask the user a question");
     expect(guardrails).toContain("also call `takode notify needs-input`");
     expect(guardrails).toContain("so the user never misses the leader's question");
+    expect(guardrails).toContain("Do not rely on deprecated leader reply suffixes");
     expect(guardrails).toContain("Do **not** call `takode notify review` for quest completion");
     expect(guardrails).toContain("Takode already sends that review notification automatically");
     // No verbose CLI command docs

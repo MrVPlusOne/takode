@@ -10808,9 +10808,6 @@ export class WsBridge {
           },
           parent_tool_use_id: null,
           timestamp: ++syntheticTimestamp,
-          ...(this.classifyLeaderAssistantAddressing(session, [{ type: "text", text }]) === "user"
-            ? { leader_user_addressed: true }
-            : {}),
         };
         session.messageHistory.push(assistant);
         this.broadcastToBrowsers(session, assistant);
@@ -10825,21 +10822,6 @@ export class WsBridge {
       this.persistSession(session);
     }
     return hydrated;
-  }
-
-  private classifyLeaderAssistantAddressing(
-    session: Session,
-    blocks: Array<{ type?: string; text?: string }>,
-  ): "user" | "self" | null {
-    if (!this.launcher?.getSession?.(session.id)?.isOrchestrator) return null;
-    const text = blocks
-      .filter((block) => block.type === "text" && typeof block.text === "string")
-      .map((block) => block.text)
-      .join("\n")
-      .trimEnd();
-    if (text.endsWith("@to(user)")) return "user";
-    if (text.endsWith("@to(self)")) return "self";
-    return null;
   }
 
   private reconcileRecoveredQueuedTurnLifecycle(

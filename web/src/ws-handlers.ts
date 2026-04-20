@@ -186,7 +186,7 @@ function shouldNotifyOnResult(sessionId: string, store: ReturnType<typeof useSto
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
     if (msg.role !== "assistant") continue;
-    return msg.leaderUserAddressed === true;
+    return !!msg.notification;
   }
   return false;
 }
@@ -489,7 +489,6 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
         stopReason: msg.stop_reason,
         turnDurationMs: data.turn_duration_ms,
         cliUuid: (data as Record<string, unknown>).uuid as string | undefined,
-        leaderUserAddressed: data.leader_user_addressed === true,
         ...(data.notification ? { notification: data.notification } : {}),
       };
       // Server accumulates content blocks for same-ID messages (parallel tool calls).
@@ -505,9 +504,6 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
           contentBlocks: mergedBlocks,
           timestamp: data.timestamp || existing.timestamp,
           stopReason: msg.stop_reason || existing.stopReason,
-          ...(data.leader_user_addressed !== undefined
-            ? { leaderUserAddressed: data.leader_user_addressed === true }
-            : {}),
           ...(typeof data.turn_duration_ms === "number" ? { turnDurationMs: data.turn_duration_ms } : {}),
         });
       } else {

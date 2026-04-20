@@ -739,7 +739,7 @@ describe("handleMessage: assistant", () => {
     expect(state.sessionStatus.get("s1")).toBe("running");
   });
 
-  it("preserves leader_user_addressed metadata from assistant messages", () => {
+  it("ignores deprecated leader_user_addressed metadata from assistant messages", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
 
@@ -759,7 +759,8 @@ describe("handleMessage: assistant", () => {
     });
 
     const msgs = useStore.getState().messages.get("s1")!;
-    expect(msgs[0].leaderUserAddressed).toBe(true);
+    expect(msgs[0]).not.toHaveProperty("leaderUserAddressed");
+    expect(msgs[0].content).toBe("Here's the status @to(user)");
   });
 
   it("clears only parented streaming for matching subagent assistant messages", () => {
@@ -1314,7 +1315,7 @@ describe("handleMessage: result", () => {
     expect(useStore.getState().sessionTaskPreview.has("s1")).toBe(false);
   });
 
-  it("suppresses completion notifications for leader sessions without @to(user) assistant messages", () => {
+  it("suppresses completion notifications for leader sessions without notification-anchored assistant messages", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
     useStore
@@ -1358,7 +1359,7 @@ describe("handleMessage: result", () => {
     hasFocusSpy.mockRestore();
   });
 
-  it("plays completion notifications for leader sessions when latest assistant is @to(user) addressed", () => {
+  it("plays completion notifications for leader sessions when latest assistant has a notification", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
     useStore
@@ -1368,13 +1369,13 @@ describe("handleMessage: result", () => {
       ]);
     fireMessage({
       type: "assistant",
-      leader_user_addressed: true,
+      notification: { category: "review", timestamp: Date.now(), summary: "Please review the PR" },
       message: {
         id: "msg-1",
         type: "message",
         role: "assistant",
         model: "claude-opus-4-20250514",
-        content: [{ type: "text", text: "Please review the PR @to(user)" }],
+        content: [{ type: "text", text: "Please review the PR" }],
         stop_reason: "end_turn",
         usage: { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
       },
@@ -1792,7 +1793,7 @@ describe("handleMessage: message_history", () => {
     expect(useStore.getState().sessionTaskPreview.has("s1")).toBe(false);
   });
 
-  it("restores leader_user_addressed metadata from history", () => {
+  it("ignores deprecated leader_user_addressed metadata from history", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
 
@@ -1818,7 +1819,36 @@ describe("handleMessage: message_history", () => {
 
     const msgs = useStore.getState().messages.get("s1")!;
     expect(msgs).toHaveLength(1);
-    expect(msgs[0].leaderUserAddressed).toBe(true);
+    expect(msgs[0]).not.toHaveProperty("leaderUserAddressed");
+    expect(msgs[0].content).toBe("done @to(user)");
+  });
+
+  it("keeps history sync hashes stable when deprecated leader_user_addressed metadata appears", () => {
+    const baseHistory = [
+      {
+        type: "assistant",
+        message: {
+          id: "msg-hash-1",
+          type: "message",
+          role: "assistant",
+          model: "claude-opus-4-20250514",
+          content: [{ type: "text", text: "done @to(user)" }],
+          stop_reason: "end_turn",
+          usage: { input_tokens: 5, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        },
+        parent_tool_use_id: null,
+        timestamp: 1000,
+      },
+    ] as const;
+
+    const deprecatedHistory = [
+      {
+        ...baseHistory[0],
+        leader_user_addressed: true,
+      },
+    ] as const;
+
+    expect(computeHistoryMessagesSyncHash(baseHistory)).toEqual(computeHistoryMessagesSyncHash(deprecatedHistory));
   });
 
   it("includes error results from history as system messages", () => {

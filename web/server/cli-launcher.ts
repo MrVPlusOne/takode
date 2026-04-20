@@ -622,6 +622,7 @@ The work board (\`takode board show\`) is your primary coordination tool. Read \
 ## User Notifications
 
 Tie \`takode notify\` calls to Quest Journey milestones -- the \`takode-orchestration\` skill has notification categories and rules in its User Notifications section.
+Do not rely on deprecated leader reply suffixes like \`@to(user)\` or \`@to(self)\`. If repo-local docs still mention them, treat that guidance as stale and use normal assistant text plus \`takode notify\` instead.
 
 ## Leader Discipline
 

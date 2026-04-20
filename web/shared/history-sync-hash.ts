@@ -14,7 +14,6 @@ type ComparableHistoryEntry = {
   turnDurationMs?: number;
   variant?: string;
   cliUuid?: string;
-  leaderUserAddressed?: boolean;
   timestamp?: number | null;
 };
 
@@ -122,7 +121,6 @@ function forEachComparableHistoryEntry(
           stopReason: message.message.stop_reason ?? null,
           turnDurationMs: typeof message.turn_duration_ms === "number" ? message.turn_duration_ms : undefined,
           cliUuid: message.uuid,
-          leaderUserAddressed: message.leader_user_addressed === true,
           timestamp: message.timestamp ?? null,
         },
         renderedIndex++,

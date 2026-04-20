@@ -2394,11 +2394,6 @@ const TurnEntries = memo(function TurnEntries({
         appendTimedMessagesFromEntries(turn.systemEntries, visibleTimedMessages);
         // Sub-conclusions and responseEntry are inside the collapsed card where
         // centered minute markers are suppressed -- don't include them here.
-        for (const pe of turn.promotedEntries) {
-          if (pe.kind === "message" && isTimedChatMessage(pe.msg)) {
-            visibleTimedMessages.push(pe.msg);
-          }
-        }
       }
     }
 
@@ -2463,7 +2458,7 @@ const TurnEntries = memo(function TurnEntries({
                             onOpenCodexTerminal={onOpenCodexTerminal}
                           />
                         )}
-                        {/* Collapsed: activity bar (with optional response) in a card, @to(user) messages rendered outside */}
+                        {/* Collapsed: activity bar with optional notification/response previews in a card */}
                         {(turn.agentEntries.length > 0 ||
                           turn.responseEntry ||
                           turn.notificationEntries.length > 0) && (
@@ -2527,17 +2522,6 @@ const TurnEntries = memo(function TurnEntries({
                               )}
                             </div>
                           </div>
-                        )}
-                        {/* @to(user) promoted messages — always visible outside the collapsed card */}
-                        {turn.promotedEntries.length > 0 && (
-                          <FeedEntries
-                            entries={turn.promotedEntries}
-                            sessionId={sessionId}
-                            minuteBoundaryLabels={minuteBoundaryLabels}
-                            isCodexSession={isCodexSession}
-                            activeCodexTerminalIds={activeCodexTerminalIds}
-                            onOpenCodexTerminal={onOpenCodexTerminal}
-                          />
                         )}
                       </>
                     )}
