@@ -18,6 +18,7 @@ This skill covers leader discipline and the step-by-step dispatch process. Invok
 - **User feedback on completed quests triggers a full rework cycle.** When a user reports issues with a completed quest, record the feedback, set the quest back to `refined`, and dispatch with a full quest journey. Never treat feedback fixes as "quick patches" that skip review. See quest-journey.md in /takode-orchestration.
 - **Fresh human feedback overrides stale in-flight work.** If new human feedback lands while the quest is still on the board or while an older review/port turn is still completing, treat that feedback as the new source of truth. Reset the board row to the earliest valid stage for the fresh rework cycle, then stop or ignore stale completion from the older scope instead of letting it advance the quest.
 - **Dispatch immediately when capacity exists.** When a quest is refined and ready, check your herd count before saying "I'll dispatch later." If you have open slots, dispatch now. Don't defer without a concrete reason (e.g., waiting for user input, worker with better context is about to free up).
+- **Do not treat reclaimable completed workers as real capacity blockers.** When a quest is `QUEUED`, compare the active board to the herd. If it has no unresolved `--wait-for` blocker and the only thing keeping worker slots at `5/5` is completed or off-board work sitting in `needs_verification`, archive one of those completed workers and dispatch immediately. Alternatively, if the work would significantly benefit from the context of an existing busy worker, keep it queued only with an explicit `--wait-for #N` or `--wait-for q-N` dependency.
 - **Fresh worker by default.** Reuse is the exception, not the default. Do not reuse a worker just because it is idle, disconnected, or already available.
 
 ### Faithful Communication
@@ -89,6 +90,8 @@ When doing that inspection yourself, prefer the plain-text CLI output first. Rea
 **Prefer link-based handoffs over paraphrase.** If the old worker writes a context note, pass the specific session message link rather than rewriting the note yourself. This preserves source fidelity and lets the fresh worker inspect the original wording directly.
 
 **Queue** when you intentionally want a specific busy worker's context later. Add the quest to the board yourself as `QUEUED` with `--wait-for #N` (session) or `--wait-for q-N` (quest). Do not ask workers to "queue" work.
+
+Do not leave a quest in `QUEUED` just because `takode list` says `Worker slots used: 5/5`. First distinguish active worker slots (quests still on the active board) from reclaimable completed workers. If the quest is otherwise ready and only reclaimable completed workers are consuming capacity, archive one and dispatch now. Alternatively, if the work would significantly benefit from the context of an existing busy worker, keep it queued only with an explicit `--wait-for #N` or `--wait-for q-N` dependency.
 
 **Spawn fresh** when there is no strong context advantage for reuse, or when the context can be recovered safely from artifacts and history. Point the new worker to relevant quests or past sessions for context:
 
