@@ -11,7 +11,7 @@ import { navigateToSession } from "../utils/routing.js";
 import { QUEST_JOURNEY_STATES, getQuestJourneyPresentation } from "../../shared/quest-journey.js";
 import { QuestHoverCard } from "./QuestHoverCard.js";
 import { SessionHoverCard } from "./SessionHoverCard.js";
-import type { SessionItem as SessionItemType } from "../utils/project-grouping.js";
+import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
 
 /** A row in the leader's work board (matches server BoardRow). */
 export interface BoardRowData {

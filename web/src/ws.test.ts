@@ -2895,47 +2895,6 @@ describe("task extraction: TaskUpdate", () => {
 });
 
 // ===========================================================================
-// handleMessage: session_order_update
-// ===========================================================================
-describe("handleMessage: session_order_update", () => {
-  it("replaces session order from server snapshot", () => {
-    wsModule.connectSession("s1");
-    fireMessage({ type: "session_init", session: makeSession("s1") });
-
-    fireMessage({
-      type: "session_order_update",
-      sessionOrder: {
-        "/repo-a": ["s2", "s1"],
-        "/repo-b": ["s3"],
-      },
-    });
-
-    expect(useStore.getState().sessionOrder).toEqual(
-      new Map([
-        ["/repo-a", ["s2", "s1"]],
-        ["/repo-b", ["s3"]],
-      ]),
-    );
-  });
-
-  it("overwrites stale local order when a new snapshot arrives", () => {
-    wsModule.connectSession("s1");
-    fireMessage({ type: "session_init", session: makeSession("s1") });
-
-    useStore.getState().setSessionOrderMap(new Map([["/repo-a", ["stale-1", "stale-2"]]]));
-
-    fireMessage({
-      type: "session_order_update",
-      sessionOrder: {
-        "/repo-a": ["s1", "s2"],
-      },
-    });
-
-    expect(useStore.getState().sessionOrder).toEqual(new Map([["/repo-a", ["s1", "s2"]]]));
-  });
-});
-
-// ===========================================================================
 // handleMessage: session_name_update
 // ===========================================================================
 describe("handleMessage: session_name_update", () => {

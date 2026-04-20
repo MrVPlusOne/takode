@@ -426,16 +426,7 @@ interface AppState {
   // Attention tracking (server-authoritative, synced via session_update/state_snapshot)
   sessionAttention: Map<string, "action" | "error" | "review" | null>;
 
-  // Manual session ordering per project group
-  sessionOrder: Map<string, string[]>;
-  // Manual ordering for project groups in sidebar
-  groupOrder: string[];
-
-  // Sidebar project grouping
-  collapsedProjects: Set<string>;
-
-  // Tree view mode (herd-centric grouping)
-  sidebarViewMode: "linear" | "tree";
+  // Tree grouping (herd-centric sidebar)
   treeGroups: import("./types.js").TreeGroup[];
   treeAssignments: Map<string, string>; // sessionId -> groupId
   treeNodeOrder: Map<string, string[]>; // groupId -> ordered root session IDs
@@ -651,16 +642,7 @@ interface AppState {
   markAllSessionsViewed: () => void;
   clearSessionAttention: (sessionId: string) => void;
 
-  // Manual session ordering actions (server-authoritative snapshot)
-  setSessionOrderMap: (sessionOrder: Map<string, string[]>) => void;
-  // Manual group ordering action (server-authoritative snapshot)
-  setGroupOrder: (groupOrder: string[]) => void;
-
-  // Sidebar project grouping actions
-  toggleProjectCollapse: (projectKey: string) => void;
-
-  // Tree view mode actions
-  setSidebarViewMode: (mode: "linear" | "tree") => void;
+  // Tree grouping actions
   setTreeGroups: (
     groups: import("./types.js").TreeGroup[],
     assignments: Record<string, string>,
@@ -818,20 +800,6 @@ function getInitialZoomLevel(): number {
   return 0.9;
 }
 
-function getInitialCollapsedProjects(): Set<string> {
-  if (typeof window === "undefined") return new Set();
-  try {
-    return new Set(JSON.parse(scopedGetItem("cc-collapsed-projects") || "[]"));
-  } catch {
-    return new Set();
-  }
-}
-
-function getInitialSidebarViewMode(): "linear" | "tree" {
-  if (typeof window === "undefined") return "linear";
-  return localStorage.getItem("cc-sidebar-view-mode") === "tree" ? "tree" : "linear";
-}
-
 function getInitialCollapsedSet(key: string): Set<string> {
   if (typeof window === "undefined") return new Set();
   try {
@@ -931,10 +899,6 @@ export const useStore = create<AppState>((set) => ({
   backgroundAgentNotifs: new Map(),
   toolStartTimestamps: new Map(),
   sessionAttention: new Map(),
-  sessionOrder: new Map(),
-  groupOrder: [],
-  collapsedProjects: getInitialCollapsedProjects(),
-  sidebarViewMode: getInitialSidebarViewMode(),
   treeGroups: [],
   treeAssignments: new Map(),
   treeNodeOrder: new Map(),
@@ -2293,27 +2257,6 @@ export const useStore = create<AppState>((set) => ({
       return { sessionAttention };
     }),
 
-  setSessionOrderMap: (sessionOrder) => set(() => ({ sessionOrder: new Map(sessionOrder) })),
-
-  setGroupOrder: (groupOrder) => set(() => ({ groupOrder: [...groupOrder] })),
-
-  toggleProjectCollapse: (projectKey) =>
-    set((s) => {
-      const collapsedProjects = new Set(s.collapsedProjects);
-      if (collapsedProjects.has(projectKey)) {
-        collapsedProjects.delete(projectKey);
-      } else {
-        collapsedProjects.add(projectKey);
-      }
-      scopedSetItem("cc-collapsed-projects", JSON.stringify(Array.from(collapsedProjects)));
-      return { collapsedProjects };
-    }),
-
-  setSidebarViewMode: (mode) => {
-    localStorage.setItem("cc-sidebar-view-mode", mode);
-    set({ sidebarViewMode: mode });
-  },
-
   setTreeGroups: (groups, assignments, nodeOrder) =>
     set(() => ({
       treeGroups: groups,
@@ -2601,8 +2544,6 @@ export const useStore = create<AppState>((set) => ({
       toolStartTimestamps: new Map(),
       prStatus: new Map(),
       sessionAttention: new Map(),
-      sessionOrder: new Map(),
-      groupOrder: [],
       treeGroups: [],
       treeAssignments: new Map(),
       treeNodeOrder: new Map(),

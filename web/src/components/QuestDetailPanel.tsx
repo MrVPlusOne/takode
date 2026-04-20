@@ -26,7 +26,7 @@ import { QuestImageThumbnail } from "./QuestImageThumbnail.js";
 import { DiffViewer } from "./DiffViewer.js";
 import { buildQuestAssignDraft } from "./quest-assign.js";
 import { buildQuestReworkDraft } from "./quest-rework.js";
-import type { SessionItem as SessionItemType } from "../utils/project-grouping.js";
+import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
 import type { QuestmasterTask, QuestStatus, QuestVerificationItem, QuestImage } from "../types.js";
 import type { QuestCommitLookup } from "../api.js";
 

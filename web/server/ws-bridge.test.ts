@@ -1783,42 +1783,6 @@ describe("Browser handlers", () => {
     expect(firstMsg.session.session_id).toBe("s1");
   });
 
-  it("handleBrowserOpen: sends server-authoritative session order snapshot", () => {
-    bridge.setSessionOrderState({
-      "/repo-a": ["s2", "s1"],
-      "/repo-b": ["s3"],
-    });
-    bridge.getOrCreateSession("s1");
-    const browser = makeBrowserSocket("s1");
-
-    bridge.handleBrowserOpen(browser, "s1");
-
-    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    const orderMsg = calls.find((m: any) => m.type === "session_order_update");
-    expect(orderMsg).toEqual({
-      type: "session_order_update",
-      sessionOrder: {
-        "/repo-a": ["s2", "s1"],
-        "/repo-b": ["s3"],
-      },
-    });
-  });
-
-  it("handleBrowserOpen: sends server-authoritative group order snapshot", () => {
-    bridge.setGroupOrderState(["/repo-b", "/repo-a"]);
-    bridge.getOrCreateSession("s1");
-    const browser = makeBrowserSocket("s1");
-
-    bridge.handleBrowserOpen(browser, "s1");
-
-    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    const orderMsg = calls.find((m: any) => m.type === "group_order_update");
-    expect(orderMsg).toEqual({
-      type: "group_order_update",
-      groupOrder: ["/repo-b", "/repo-a"],
-    });
-  });
-
   it("handleBrowserOpen: sends the latest global VSCode selection state", () => {
     bridge.getOrCreateSession("s1");
     const seedBrowser = makeBrowserSocket("s1");
@@ -6611,60 +6575,6 @@ describe("broadcastNameUpdate", () => {
   it("does nothing for unknown sessions", () => {
     // Should not throw
     bridge.broadcastNameUpdate("nonexistent", "Name");
-  });
-});
-
-describe("session order updates", () => {
-  it("broadcastSessionOrderUpdate sends the latest order to connected browsers", () => {
-    const browser1 = makeBrowserSocket("s1");
-    const browser2 = makeBrowserSocket("s2");
-    bridge.handleBrowserOpen(browser1, "s1");
-    bridge.handleBrowserOpen(browser2, "s2");
-    browser1.send.mockClear();
-    browser2.send.mockClear();
-
-    const snapshot = bridge.updateSessionOrder("/repo-a", ["s2", "s1"]);
-    expect(snapshot).toEqual({ "/repo-a": ["s2", "s1"] });
-
-    bridge.broadcastSessionOrderUpdate();
-
-    const calls1 = browser1.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    const calls2 = browser2.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    expect(calls1).toContainEqual({
-      type: "session_order_update",
-      sessionOrder: { "/repo-a": ["s2", "s1"] },
-    });
-    expect(calls2).toContainEqual({
-      type: "session_order_update",
-      sessionOrder: { "/repo-a": ["s2", "s1"] },
-    });
-  });
-});
-
-describe("group order updates", () => {
-  it("broadcastGroupOrderUpdate sends the latest order to connected browsers", () => {
-    const browser1 = makeBrowserSocket("s1");
-    const browser2 = makeBrowserSocket("s2");
-    bridge.handleBrowserOpen(browser1, "s1");
-    bridge.handleBrowserOpen(browser2, "s2");
-    browser1.send.mockClear();
-    browser2.send.mockClear();
-
-    const snapshot = bridge.updateGroupOrder(["/repo-c", "/repo-a", "/repo-b"]);
-    expect(snapshot).toEqual(["/repo-c", "/repo-a", "/repo-b"]);
-
-    bridge.broadcastGroupOrderUpdate();
-
-    const calls1 = browser1.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    const calls2 = browser2.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    expect(calls1).toContainEqual({
-      type: "group_order_update",
-      groupOrder: ["/repo-c", "/repo-a", "/repo-b"],
-    });
-    expect(calls2).toContainEqual({
-      type: "group_order_update",
-      groupOrder: ["/repo-c", "/repo-a", "/repo-b"],
-    });
   });
 });
 

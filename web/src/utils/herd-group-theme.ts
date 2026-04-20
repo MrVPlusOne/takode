@@ -1,4 +1,4 @@
-import type { SessionItem } from "./project-grouping.js";
+import type { SidebarSessionItem as SessionItem } from "./sidebar-session-item.js";
 
 export interface HerdGroupBadgeTheme {
   token: string;

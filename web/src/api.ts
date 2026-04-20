@@ -307,16 +307,6 @@ export interface DirListResult {
   error?: string;
 }
 
-export interface SessionOrderResponse {
-  ok: boolean;
-  sessionOrder: Record<string, string[]>;
-}
-
-export interface GroupOrderResponse {
-  ok: boolean;
-  groupOrder: string[];
-}
-
 export interface TreeNode {
   name: string;
   path: string;
@@ -359,7 +349,6 @@ export interface AppSettings {
   sleepInhibitorEnabled: boolean;
   sleepInhibitorDurationMinutes: number;
   questmasterViewMode: QuestmasterViewMode;
-  herdLeaderFirstEnabled: boolean;
   restartSupported: boolean;
   logFile?: string | null;
   claudeDefaultModel?: string;
@@ -711,12 +700,6 @@ export const api = {
   renameSession: (sessionId: string, name: string) =>
     patch<{ ok: boolean; name: string }>(`/sessions/${encodeURIComponent(sessionId)}/name`, { name }),
 
-  updateSessionOrder: (groupKey: string, orderedIds: string[]) =>
-    patch<SessionOrderResponse>("/sessions/order", { groupKey, orderedIds }),
-
-  updateGroupOrder: (orderedGroupKeys: string[]) =>
-    patch<GroupOrderResponse>("/sessions/groups/order", { orderedGroupKeys }),
-
   markSessionRead: (sessionId: string) => patch<{ ok: boolean }>(`/sessions/${encodeURIComponent(sessionId)}/read`),
 
   markSessionUnread: (sessionId: string) => patch<{ ok: boolean }>(`/sessions/${encodeURIComponent(sessionId)}/unread`),
@@ -868,7 +851,6 @@ export const api = {
     sleepInhibitorEnabled?: boolean;
     sleepInhibitorDurationMinutes?: number;
     questmasterViewMode?: QuestmasterViewMode;
-    herdLeaderFirstEnabled?: boolean;
   }) => put<AppSettings>("/settings", data),
   testBinary: (binary: string) =>
     post<{ ok: boolean; resolvedPath?: string; version?: string }>("/settings/test-binary", { binary }),

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildTreeViewGroups, type TreeNode } from "./tree-grouping.js";
-import type { SessionItem } from "./project-grouping.js";
+import type { SidebarSessionItem as SessionItem } from "./sidebar-session-item.js";
 import type { TreeGroup } from "../types.js";
 
 // Helper to create a minimal SessionItem for testing
@@ -278,7 +278,7 @@ describe("buildTreeViewGroups", () => {
   });
 
   it("accepts reviewerSessions as a separate parameter (Sidebar pre-filters reviewers)", () => {
-    // The Sidebar filters reviewers out of `activeSessions` for the linear view,
+    // The Sidebar filters reviewers out of the top-level session list,
     // so reviewers must be passed separately via the reviewerSessions param.
     // This tests the real data flow where `sessions` has NO reviewers in it.
     const sessions = [

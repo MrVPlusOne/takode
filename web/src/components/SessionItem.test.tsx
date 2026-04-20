@@ -2,7 +2,7 @@
 import { render, fireEvent, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { ComponentProps } from "react";
-import type { SessionItem as SessionItemType } from "../utils/project-grouping.js";
+import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
 import type { HerdGroupBadgeTheme } from "../utils/herd-group-theme.js";
 
 const mockStoreState = {
@@ -210,8 +210,8 @@ describe("SessionItem search match context", () => {
 
 describe("SessionItem herd role badges", () => {
   it("renders a themed leader badge for leader sessions", () => {
-    // Leader badge is only shown in linear view (useStatusBar=true);
-    // in tree view, tree structure already communicates leadership.
+    // Leader badges only render in status-bar row variants; herd-group rows
+    // already communicate leadership structurally.
     renderSessionItem({
       session: makeSession({ isOrchestrator: true }),
       herdGroupBadgeTheme: SAGE_THEME,
@@ -309,9 +309,9 @@ describe("SessionItem status dot", () => {
     expect(timerIcon.firstElementChild).toHaveClass("-translate-y-px");
   });
 
-  it("shows the timer icon in linear sidebar rows too", () => {
-    // Linear rows use the left status stripe instead of the dot, so the timer
-    // state still needs an inline icon to stay visible there.
+  it("shows the timer icon in status-bar sidebar rows too", () => {
+    // Status-bar rows use the left status stripe instead of the dot, so the
+    // timer state still needs an inline icon to stay visible there.
     setSessionTimers("s1", ["t1"]);
 
     renderSessionItem({

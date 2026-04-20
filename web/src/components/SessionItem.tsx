@@ -1,5 +1,5 @@
 import { useRef, useCallback, useState, type RefObject } from "react";
-import type { SessionItem as SessionItemType } from "../utils/project-grouping.js";
+import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
 import { deriveSessionStatus, type SessionVisualStatus } from "./SessionStatusDot.js";
 import { useStore } from "../store.js";
 import { navigateToSession } from "../utils/routing.js";
@@ -523,7 +523,7 @@ export function SessionItem({
               : "bg-cc-hover/20 border-cc-border/80 hover:bg-cc-hover/35 sm:bg-transparent sm:hover:bg-cc-hover"
         } ${herdHighlightClass}`}
       >
-        {/* Left-edge status stripe (linear view only) */}
+        {/* Left-edge status stripe for status-bar row variants. */}
         {useStatusBar && (
           <span
             className={`absolute left-0 top-2 bottom-2 w-[3px] rounded-full block ${statusColorClass} ${

@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api } from "../api.js";
 import type { ChatMessage } from "../types.js";
-import type { SessionItem as SessionItemType } from "../utils/project-grouping.js";
+import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
 import { MessageBubble } from "./MessageBubble.js";
 import { HidePawContext } from "./PawTrail.js";
 import { useStore } from "../store.js";

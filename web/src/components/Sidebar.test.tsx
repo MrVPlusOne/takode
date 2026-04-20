@@ -30,7 +30,7 @@ const mockApi = {
     .fn()
     .mockResolvedValue({ herded: ["worker-1"], notFound: [], conflicts: [], reassigned: [], leaders: [] }),
   getSettings: vi.fn().mockResolvedValue({ serverName: "" }),
-  updateSettings: vi.fn().mockResolvedValue({ herdLeaderFirstEnabled: false }),
+  updateSettings: vi.fn().mockResolvedValue({}),
   getTreeGroups: vi
     .fn()
     .mockResolvedValue({ groups: [{ id: "default", name: "Default" }], assignments: {}, nodeOrder: {} }),
@@ -78,28 +78,24 @@ interface MockStoreState {
   recentlyRenamed: Set<string>;
   questNamedSessions: Set<string>;
   pendingPermissions: Map<string, Map<string, unknown>>;
-  collapsedProjects: Set<string>;
   sessionAttention: Map<string, "action" | "error" | "review" | null>;
   diffFileStats: Map<string, Map<string, { additions: number; deletions: number }>>;
-  sessionOrder: Map<string, string[]>;
   sessionInfoOpenSessionId: string | null;
   reorderMode: boolean;
   setReorderMode: ReturnType<typeof vi.fn>;
   pendingSessions: Map<string, unknown>;
   serverName: string;
-  // Tree view mode
-  sidebarViewMode: "linear" | "tree";
   treeGroups: Array<{ id: string; name: string }>;
   treeAssignments: Map<string, string>;
   treeNodeOrder: Map<string, string[]>;
   collapsedTreeGroups: Set<string>;
   collapsedTreeNodes: Set<string>;
-  setSidebarViewMode: ReturnType<typeof vi.fn>;
+  expandedHerdNodes: Set<string>;
   toggleTreeGroupCollapse: ReturnType<typeof vi.fn>;
   toggleTreeNodeCollapse: ReturnType<typeof vi.fn>;
+  toggleHerdNodeExpand: ReturnType<typeof vi.fn>;
   setServerName: ReturnType<typeof vi.fn>;
   setCurrentSession: ReturnType<typeof vi.fn>;
-  toggleProjectCollapse: ReturnType<typeof vi.fn>;
   removeSession: ReturnType<typeof vi.fn>;
   newSession: ReturnType<typeof vi.fn>;
   setSidebarOpen: ReturnType<typeof vi.fn>;
@@ -178,28 +174,24 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
     recentlyRenamed: new Set(),
     questNamedSessions: new Set(),
     pendingPermissions: new Map(),
-    collapsedProjects: new Set(),
     sessionAttention: new Map(),
     diffFileStats: new Map(),
-    sessionOrder: new Map(),
     sessionInfoOpenSessionId: null,
     reorderMode: false,
     setReorderMode: vi.fn(),
     pendingSessions: new Map(),
     serverName: "",
-    // Tree view mode defaults
-    sidebarViewMode: "linear" as const,
     treeGroups: [],
     treeAssignments: new Map(),
     treeNodeOrder: new Map(),
     collapsedTreeGroups: new Set(),
     collapsedTreeNodes: new Set(),
-    setSidebarViewMode: vi.fn(),
+    expandedHerdNodes: new Set(),
     toggleTreeGroupCollapse: vi.fn(),
     toggleTreeNodeCollapse: vi.fn(),
+    toggleHerdNodeExpand: vi.fn(),
     setServerName: vi.fn(),
     setCurrentSession: vi.fn(),
-    toggleProjectCollapse: vi.fn(),
     removeSession: vi.fn(),
     newSession: vi.fn(),
     setSidebarOpen: vi.fn(),
@@ -326,7 +318,7 @@ describe("Sidebar", { timeout: 10000 }, () => {
     expect(mockState.setSessionKeywords).not.toHaveBeenCalled();
   });
 
-  it("polling clears stale task history and keywords when the server reports empty metadata", async () => {
+  it("polling still strips empty task metadata from sdk sessions", async () => {
     mockState = createMockState({
       sessionTaskHistory: new Map([["s1", [{ title: "Old", action: "new", timestamp: 1, triggerMessageId: "m1" }]]]),
       sessionKeywords: new Map([["s1", ["stale"]]]),
@@ -343,8 +335,12 @@ describe("Sidebar", { timeout: 10000 }, () => {
     render(<Sidebar />);
 
     await waitFor(() => {
-      expect(mockState.setSessionTaskHistory).toHaveBeenCalledWith("s1", []);
-      expect(mockState.setSessionKeywords).toHaveBeenCalledWith("s1", []);
+      expect(mockState.setSdkSessions).toHaveBeenCalledWith([
+        expect.not.objectContaining({
+          taskHistory: expect.anything(),
+          keywords: expect.anything(),
+        }),
+      ]);
     });
   });
 
@@ -492,17 +488,18 @@ describe("Sidebar", { timeout: 10000 }, () => {
     expect(screen.getByText("abcdef12")).toBeInTheDocument();
   });
 
-  it("session items show project name in group header (not in session row)", () => {
+  it("session items show tree group name in the sidebar header", () => {
     const session = makeSession("s1", { cwd: "/home/user/projects/myapp" });
     const sdk = makeSdkSession("s1");
     mockState = createMockState({
       sessions: new Map([["s1", session]]),
       sdkSessions: [sdk],
+      treeGroups: [{ id: "team-alpha", name: "Takode" }],
+      treeAssignments: new Map([["s1", "team-alpha"]]),
     });
 
     render(<Sidebar />);
-    // "myapp" appears in the project group header
-    expect(screen.getByText("myapp")).toBeInTheDocument();
+    expect(screen.getByLabelText("Create session in Takode")).toBeInTheDocument();
   });
 
   it("session items do not show git branch text when available", () => {
@@ -654,7 +651,7 @@ describe("Sidebar", { timeout: 10000 }, () => {
     expect(mockState.openNewSessionModal).toHaveBeenCalledWith();
   });
 
-  it("group header plus button opens new session modal with group context", () => {
+  it("default tree group plus button opens new session modal with tree defaults", () => {
     const session = makeSession("s1", {
       cwd: "/home/user/projects/myapp",
       repo_root: "/home/user/projects/myapp",
@@ -666,13 +663,11 @@ describe("Sidebar", { timeout: 10000 }, () => {
     });
 
     render(<Sidebar />);
-    fireEvent.click(screen.getByLabelText("Create session in myapp"));
+    fireEvent.click(screen.getByLabelText("Create session in Default"));
 
-    // Opens the same modal as the global "+ New Session" button, but with group context
     expect(mockState.openNewSessionModal).toHaveBeenCalledWith({
-      groupKey: "/home/user/projects/myapp",
-      cwd: "/home/user/projects/myapp",
-      newSessionDefaultsKey: "/home/user/projects/myapp",
+      treeGroupId: "default",
+      newSessionDefaultsKey: "tree-group:default",
     });
   });
 
@@ -685,7 +680,6 @@ describe("Sidebar", { timeout: 10000 }, () => {
     mockState = createMockState({
       sessions: new Map([["s1", session]]),
       sdkSessions: [sdk],
-      sidebarViewMode: "tree",
       treeGroups: [{ id: "team-alpha", name: "Takode" }],
       treeAssignments: new Map([["s1", "team-alpha"]]),
     });
@@ -697,6 +691,20 @@ describe("Sidebar", { timeout: 10000 }, () => {
       treeGroupId: "team-alpha",
       newSessionDefaultsKey: "tree-group:team-alpha",
     });
+  });
+
+  it("does not render the old sidebar view mode toggle", () => {
+    const session = makeSession("s1");
+    const sdk = makeSdkSession("s1");
+    mockState = createMockState({
+      sessions: new Map([["s1", session]]),
+      sdkSessions: [sdk],
+    });
+
+    render(<Sidebar />);
+
+    expect(screen.queryByTitle("Tree view (herd groups)")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Linear view (project groups)")).not.toBeInTheDocument();
   });
 
   it("double-clicking a session enters edit mode", async () => {
@@ -1223,15 +1231,24 @@ describe("Sidebar", { timeout: 10000 }, () => {
         ["s3", session3],
       ]),
       sdkSessions: [sdk1, sdk2, sdk3],
+      treeGroups: [
+        { id: "alpha", name: "Alpha" },
+        { id: "beta", name: "Beta" },
+      ],
+      treeAssignments: new Map([
+        ["s1", "alpha"],
+        ["s2", "alpha"],
+        ["s3", "beta"],
+      ]),
     });
 
     render(<Sidebar />);
-    // Project group headers should be visible (also appears as dirName in session items)
-    expect(screen.getAllByText("project-a").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText("project-b").length).toBeGreaterThanOrEqual(1);
+    // Tree group headers should be visible for the assigned herd groups.
+    expect(screen.getByText("Alpha")).toBeInTheDocument();
+    expect(screen.getByText("Beta")).toBeInTheDocument();
   });
 
-  it("project group header shows running count as colored dot", () => {
+  it("tree group header shows running count as colored dot", () => {
     const session1 = makeSession("s1", { cwd: "/home/user/myapp" });
     const session2 = makeSession("s2", { cwd: "/home/user/myapp" });
     const sdk1 = makeSdkSession("s1", { cwd: "/home/user/myapp" });
@@ -1250,6 +1267,11 @@ describe("Sidebar", { timeout: 10000 }, () => {
         ["s1", true],
         ["s2", true],
       ]),
+      treeGroups: [{ id: "team-alpha", name: "Takode" }],
+      treeAssignments: new Map([
+        ["s1", "team-alpha"],
+        ["s2", "team-alpha"],
+      ]),
     });
 
     const { container } = render(<Sidebar />);
@@ -1258,18 +1280,19 @@ describe("Sidebar", { timeout: 10000 }, () => {
     expect(greenDots.length).toBeGreaterThanOrEqual(1);
   });
 
-  it("collapsing a project group hides its sessions", () => {
+  it("collapsing a tree group hides its sessions", () => {
     const session = makeSession("s1", { cwd: "/home/user/myapp", model: "hidden-model" });
     const sdk = makeSdkSession("s1", { cwd: "/home/user/myapp" });
     mockState = createMockState({
       sessions: new Map([["s1", session]]),
       sdkSessions: [sdk],
-      collapsedProjects: new Set(["/home/user/myapp"]),
+      treeGroups: [{ id: "team-alpha", name: "Takode" }],
+      treeAssignments: new Map([["s1", "team-alpha"]]),
+      collapsedTreeGroups: new Set(["team-alpha"]),
     });
 
     render(<Sidebar />);
-    // Group header should still be visible
-    expect(screen.getByText("myapp")).toBeInTheDocument();
+    expect(screen.getByLabelText("Create session in Takode")).toBeInTheDocument();
     // But the session inside it should be hidden
     expect(screen.queryByText("hidden-model")).not.toBeInTheDocument();
   });
@@ -1327,6 +1350,7 @@ describe("Sidebar", { timeout: 10000 }, () => {
         ["worker-1", "Target Worker"],
         ["leader-9", "Previous Leader"],
       ]),
+      expandedHerdNodes: new Set(["leader-9"]),
     });
 
     render(<Sidebar />);
@@ -1528,6 +1552,7 @@ describe("Sidebar", { timeout: 10000 }, () => {
         [leaderSessionId, "Leader Session"],
         [workerSessionId, "Worker Session"],
       ]),
+      expandedHerdNodes: new Set([leaderSessionId]),
     });
 
     render(<Sidebar />);
@@ -1535,17 +1560,13 @@ describe("Sidebar", { timeout: 10000 }, () => {
     fireEvent.mouseEnter(workerButton);
 
     await waitFor(() => {
-      const leaderButton = document.querySelector("button.ring-amber-400\\/70");
-      expect(leaderButton).not.toBeNull();
-      expect(leaderButton).toHaveTextContent("Leader Session");
-      expect(leaderButton).toHaveClass("ring-amber-400/70");
       expect(screen.getByText("Herded by")).toBeInTheDocument();
       const section = screen.getByTestId("session-hover-herded-by");
       expect(within(section).getByRole("button", { name: "#7" })).toBeInTheDocument();
     });
   });
 
-  it("assigns the same herd-group tone to a leader and its workers while keeping different leaders distinct", () => {
+  it("keeps workers grouped under the correct leader when multiple herds are expanded", () => {
     const leaderAlphaId = "leader-alpha";
     const workerAlphaId = "worker-alpha";
     const leaderBetaId = "leader-beta";
@@ -1569,39 +1590,21 @@ describe("Sidebar", { timeout: 10000 }, () => {
         [leaderBetaId, "Leader Beta"],
         [workerBetaId, "Worker Beta"],
       ]),
+      expandedHerdNodes: new Set([leaderAlphaId, leaderBetaId]),
     });
 
     render(<Sidebar />);
 
-    const alphaLeaderTone = screen
-      .getByText("Leader Alpha")
-      .closest("button")
-      ?.querySelector("[data-herd-group-tone]")
-      ?.getAttribute("data-herd-group-tone");
-    const alphaWorkerTone = screen
-      .getByText("Worker Alpha")
-      .closest("button")
-      ?.querySelector("[data-herd-group-tone]")
-      ?.getAttribute("data-herd-group-tone");
-    const betaLeaderTone = screen
-      .getByText("Leader Beta")
-      .closest("button")
-      ?.querySelector("[data-herd-group-tone]")
-      ?.getAttribute("data-herd-group-tone");
-    const betaWorkerTone = screen
-      .getByText("Worker Beta")
-      .closest("button")
-      ?.querySelector("[data-herd-group-tone]")
-      ?.getAttribute("data-herd-group-tone");
+    const leaderAlphaButton = screen.getByText("Leader Alpha").closest("button")!;
+    const workerAlphaButton = screen.getByText("Worker Alpha").closest("button")!;
+    const leaderBetaButton = screen.getByText("Leader Beta").closest("button")!;
+    const workerBetaButton = screen.getByText("Worker Beta").closest("button")!;
 
-    expect(alphaLeaderTone).toBeTruthy();
-    expect(alphaLeaderTone).toBe(alphaWorkerTone);
-    expect(betaLeaderTone).toBeTruthy();
-    expect(betaLeaderTone).toBe(betaWorkerTone);
-    expect(alphaLeaderTone).not.toBe(betaLeaderTone);
+    expect(leaderAlphaButton.compareDocumentPosition(workerAlphaButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(leaderBetaButton.compareDocumentPosition(workerBetaButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("keeps herd highlights active when leader info panel is open", () => {
+  it("does not add redundant herd highlight rings when leader info panel is open in tree view", () => {
     const leaderSessionId = "leader-2";
     const workerSessionId = "worker-2";
     const leaderSession = makeSession(leaderSessionId, { model: "leader-open-model" });
@@ -1627,14 +1630,15 @@ describe("Sidebar", { timeout: 10000 }, () => {
         [workerSessionId, "Worker Open"],
       ]),
       sessionInfoOpenSessionId: leaderSessionId,
+      expandedHerdNodes: new Set([leaderSessionId]),
     });
 
     render(<Sidebar />);
     const workerButton = screen.getByText("Worker Open").closest("button");
-    expect(workerButton).toHaveClass("ring-amber-400/45");
+    expect(workerButton).not.toHaveClass("ring-amber-400/45");
   });
 
-  it("keeps herd highlights active when worker info panel is open", () => {
+  it("does not add redundant herd highlight rings when worker info panel is open in tree view", () => {
     const leaderSessionId = "leader-3";
     const workerSessionId = "worker-3";
     const leaderSession = makeSession(leaderSessionId, { model: "leader-worker-open-model" });
@@ -1660,24 +1664,19 @@ describe("Sidebar", { timeout: 10000 }, () => {
         [workerSessionId, "Worker Worker Open"],
       ]),
       sessionInfoOpenSessionId: workerSessionId,
+      expandedHerdNodes: new Set([leaderSessionId]),
     });
 
     render(<Sidebar />);
     const leaderButton = screen.getByText("Leader Worker Open").closest("button");
-    expect(leaderButton).toHaveClass("ring-amber-400/70");
+    expect(leaderButton).not.toHaveClass("ring-amber-400/70");
   });
 
-  it("toggles server-persisted leader-first herd ordering", async () => {
-    // The leader-first toggle button was removed from the sidebar UI (q-165),
-    // but the ordering logic still works via the herdLeaderFirstEnabled setting.
-    // This test verifies that when the setting is enabled (via getSettings on mount),
-    // leaders sort above their workers.
+  it("tree view renders herd leaders before expanded worker rows", () => {
     const leaderSessionId = "leader-first";
     const workerSessionId = "worker-first";
     const leaderSession = makeSession(leaderSessionId, { model: "leader-first-model" });
     const workerSession = makeSession(workerSessionId, { model: "worker-first-model" });
-    // Mock getSettings to return herdLeaderFirstEnabled: true on mount
-    mockApi.getSettings.mockResolvedValueOnce({ serverName: "", herdLeaderFirstEnabled: true });
     mockState = createMockState({
       sessions: new Map([
         [leaderSessionId, leaderSession],
@@ -1699,30 +1698,23 @@ describe("Sidebar", { timeout: 10000 }, () => {
         [leaderSessionId, "Leader First"],
         [workerSessionId, "Worker First"],
       ]),
+      expandedHerdNodes: new Set([leaderSessionId]),
     });
 
     render(<Sidebar />);
 
-    // Wait for the settings fetch to complete and re-render with leader-first enabled
-    await waitFor(() => {
-      const leaderAfter = screen.getByText("Leader First").closest("button")!;
-      const workerAfter = screen.getByText("Worker First").closest("button")!;
-      expect(leaderAfter.compareDocumentPosition(workerAfter) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    });
+    const leaderAfter = screen.getByText("Leader First").closest("button")!;
+    const workerAfter = screen.getByText("Worker First").closest("button")!;
+    expect(leaderAfter.compareDocumentPosition(workerAfter) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("leader-first ordering keeps leaders inside their existing project group", async () => {
-    // Regression: enabling leader-first should reorder rows inside the leader's header,
-    // not move the leader under the worker's project header.
-    // The toggle button was removed (q-165) -- test now seeds via getSettings mock.
+  it("tree view keeps workers in their leader's assigned group across projects", () => {
     const leaderSessionId = "leader-cross-project";
     const leaderPeerSessionId = "leader-peer";
     const workerSessionId = "worker-cross-project";
     const leaderSession = makeSession(leaderSessionId, { cwd: "/home/user/project-leader" });
     const leaderPeerSession = makeSession(leaderPeerSessionId, { cwd: "/home/user/project-leader" });
     const workerSession = makeSession(workerSessionId, { cwd: "/home/user/project-worker" });
-    // Mock getSettings to return herdLeaderFirstEnabled: true on mount
-    mockApi.getSettings.mockResolvedValueOnce({ serverName: "", herdLeaderFirstEnabled: true });
     mockState = createMockState({
       sessions: new Map([
         [leaderSessionId, leaderSession],
@@ -1753,19 +1745,22 @@ describe("Sidebar", { timeout: 10000 }, () => {
         [leaderPeerSessionId, "Newer Leader-Project Peer"],
         [workerSessionId, "Cross Project Worker"],
       ]),
+      treeGroups: [
+        { id: "alpha", name: "Alpha" },
+        { id: "beta", name: "Beta" },
+      ],
+      treeAssignments: new Map([
+        [leaderSessionId, "alpha"],
+        [leaderPeerSessionId, "alpha"],
+        [workerSessionId, "beta"],
+      ]),
+      expandedHerdNodes: new Set([leaderSessionId]),
     });
 
     render(<Sidebar />);
 
-    // Wait for settings fetch to enable leader-first, then verify ordering
-    await waitFor(() => {
-      expectDocumentOrder([
-        screen.getByText("project-leader"),
-        screen.getByText("Cross Project Leader").closest("button")!,
-        screen.getByText("Newer Leader-Project Peer").closest("button")!,
-        screen.getByText("project-worker"),
-        screen.getByText("Cross Project Worker").closest("button")!,
-      ]);
-    });
+    const workerButton = screen.getByText("Cross Project Worker").closest("button")!;
+    const betaHeader = screen.getByText("Beta");
+    expect(workerButton.compareDocumentPosition(betaHeader) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });

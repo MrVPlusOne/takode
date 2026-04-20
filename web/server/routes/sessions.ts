@@ -9,8 +9,6 @@ import type { CliLauncher, LaunchOptions } from "../cli-launcher.js";
 import * as envManager from "../env-manager.js";
 import * as gitUtils from "../git-utils.js";
 import * as sessionNames from "../session-names.js";
-import * as sessionOrderStore from "../session-order.js";
-import * as groupOrderStore from "../group-order.js";
 import * as treeGroupStore from "../tree-group-store.js";
 import { recreateWorktreeIfMissing } from "../migration.js";
 import { containerManager, ContainerManager, type ContainerConfig, type ContainerInfo } from "../container-manager.js";
@@ -1197,44 +1195,6 @@ export function createSessionsRoutes(ctx: RouteContext) {
     sessionNames.setName(id, body.name.trim());
     wsBridge.broadcastSessionUpdate(id, { name: body.name.trim() });
     return c.json({ ok: true, name: body.name.trim() });
-  });
-
-  api.patch("/sessions/order", async (c) => {
-    const body = await c.req.json().catch(() => ({}));
-    const groupKey = typeof body.groupKey === "string" ? body.groupKey.trim() : "";
-    if (!groupKey) {
-      return c.json({ error: "groupKey is required" }, 400);
-    }
-    if (!Array.isArray(body.orderedIds)) {
-      return c.json({ error: "orderedIds must be an array" }, 400);
-    }
-
-    const orderedIds = body.orderedIds
-      .filter((value: unknown): value is string => typeof value === "string")
-      .map((value: string) => value.trim())
-      .filter(Boolean);
-
-    const sessionOrder = wsBridge.updateSessionOrder(groupKey, orderedIds);
-    await sessionOrderStore.setAllOrder(sessionOrder);
-    wsBridge.broadcastSessionOrderUpdate();
-    return c.json({ ok: true, sessionOrder });
-  });
-
-  api.patch("/sessions/groups/order", async (c) => {
-    const body = await c.req.json().catch(() => ({}));
-    if (!Array.isArray(body.orderedGroupKeys)) {
-      return c.json({ error: "orderedGroupKeys must be an array" }, 400);
-    }
-
-    const orderedGroupKeys = body.orderedGroupKeys
-      .filter((value: unknown): value is string => typeof value === "string")
-      .map((value: string) => value.trim())
-      .filter(Boolean);
-
-    const groupOrder = wsBridge.updateGroupOrder(orderedGroupKeys);
-    await groupOrderStore.setAllOrder(groupOrder);
-    wsBridge.broadcastGroupOrderUpdate();
-    return c.json({ ok: true, groupOrder });
   });
 
   // ─── Tree Groups (herd-centric grouping) ─────────────────────────────

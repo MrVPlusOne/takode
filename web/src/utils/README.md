@@ -25,7 +25,7 @@ local persistence helpers, and feature-specific pure calculations.
   - Shared tool input/result parsing helpers used by multiple components.
 - `usage-bars.ts`
   - Shared usage percentage math/rendering helpers.
-- `project-grouping.ts`
+- `tree-grouping.ts`
   - Session grouping/ordering helpers used by sidebar views.
 - `scoped-storage.ts`
   - Server-ID-scoped localStorage access helpers.

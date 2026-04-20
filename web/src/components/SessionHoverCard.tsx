@@ -1,4 +1,4 @@
-import type { SessionItem as SessionItemType } from "../utils/project-grouping.js";
+import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
 import type { SessionState, SessionTaskEntry } from "../../server/session-types.js";
 import { useRef, useLayoutEffect, useMemo, useEffect } from "react";
 import { createPortal } from "react-dom";

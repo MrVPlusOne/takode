@@ -27,7 +27,6 @@ const GLOBAL_KEYS = new Set([
   "cc-settings-collapsed",
   "cc-settings-scroll",
   "cc-session-sort-mode",
-  "cc-sidebar-view-mode",
 ]);
 
 /** Server-scoped key names (without dynamic suffixes) for migration */
@@ -35,7 +34,6 @@ const SCOPED_KEYS = [
   "cc-show-usage",
   "cc-current-session",
   "cc-session-names",
-  "cc-collapsed-projects",
   "cc-backend",
   "cc-mode",
   "cc-codex-internet-access",

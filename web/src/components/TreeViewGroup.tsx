@@ -3,7 +3,7 @@ import { type DraggableAttributes } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { TreeViewGroupData, TreeNode } from "../utils/tree-grouping.js";
-import type { SessionItem as SessionItemType } from "../utils/project-grouping.js";
+import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
 import { SessionItem, StatusCountDots, type ArchiveConfirmationState, type StatusCounts } from "./SessionItem.js";
 import { deriveSessionStatus } from "./SessionStatusDot.js";
 import { useStore, countUserPermissions } from "../store.js";

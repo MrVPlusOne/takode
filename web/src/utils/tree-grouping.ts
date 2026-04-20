@@ -1,4 +1,4 @@
-import type { SessionItem } from "./project-grouping.js";
+import type { SidebarSessionItem as SessionItem } from "./sidebar-session-item.js";
 import type { TreeGroup } from "../types.js";
 import { deriveSessionStatus } from "../components/SessionStatusDot.js";
 
@@ -61,7 +61,7 @@ export function buildTreeViewGroups(
   sessionAttention?: Map<string, "action" | "error" | "review" | null>,
   sortMode?: "created" | "activity",
   treeNodeOrder?: Map<string, string[]>,
-  /** Reviewer sessions, supplied separately since they're filtered from `sessions` for the linear view. */
+  /** Reviewer sessions, supplied separately since the Sidebar filters them out of the top-level session list. */
   reviewerSessions?: SessionItem[],
 ): TreeViewGroupData[] {
   const assignments = treeAssignments ?? new Map<string, string>();

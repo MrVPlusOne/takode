@@ -90,20 +90,6 @@ vi.mock("./session-names.js", () => ({
   _resetForTest: vi.fn(),
 }));
 
-vi.mock("./session-order.js", () => ({
-  getAllOrder: vi.fn(async () => ({})),
-  setAllOrder: vi.fn(async () => {}),
-  _resetForTest: vi.fn(),
-  _flushForTest: vi.fn(async () => {}),
-}));
-
-vi.mock("./group-order.js", () => ({
-  getAllOrder: vi.fn(async () => []),
-  setAllOrder: vi.fn(async () => {}),
-  _resetForTest: vi.fn(),
-  _flushForTest: vi.fn(async () => {}),
-}));
-
 vi.mock("./settings-manager.js", () => ({
   getSettings: vi.fn(() => ({
     serverName: "",
@@ -167,7 +153,6 @@ vi.mock("./settings-manager.js", () => ({
     sleepInhibitorEnabled: patch.sleepInhibitorEnabled ?? false,
     sleepInhibitorDurationMinutes: patch.sleepInhibitorDurationMinutes ?? 5,
     questmasterViewMode: patch.questmasterViewMode ?? "cards",
-    herdLeaderFirstEnabled: patch.herdLeaderFirstEnabled ?? false,
     updatedAt: Date.now(),
   })),
   getServerName: vi.fn(() => ""),
@@ -196,8 +181,6 @@ import * as envManager from "./env-manager.js";
 import * as gitUtils from "./git-utils.js";
 import * as questStore from "./quest-store.js";
 import * as sessionNames from "./session-names.js";
-import * as sessionOrderStore from "./session-order.js";
-import * as groupOrderStore from "./group-order.js";
 import * as settingsManager from "./settings-manager.js";
 import { containerManager } from "./container-manager.js";
 
@@ -280,10 +263,6 @@ function createMockBridge() {
     pollVsCodeOpenFileCommands: vi.fn(() => []),
     resolveVsCodeOpenFileResult: vi.fn(() => true),
     requestVsCodeOpenFile: vi.fn(async () => ({ sourceId: "window-a", commandId: "cmd-1" })),
-    updateSessionOrder: vi.fn((_groupKey: string, _orderedIds: string[]) => ({})),
-    broadcastSessionOrderUpdate: vi.fn(),
-    updateGroupOrder: vi.fn((_orderedGroupKeys: string[]) => []),
-    broadcastGroupOrderUpdate: vi.fn(),
     setSessionClaimedQuest: vi.fn(),
     addTaskEntry: vi.fn(),
     updateQuestTaskEntries: vi.fn(),
@@ -3201,7 +3180,6 @@ describe("GET /api/settings", () => {
       sleepInhibitorEnabled: false,
       sleepInhibitorDurationMinutes: 5,
       questmasterViewMode: "cards",
-      herdLeaderFirstEnabled: false,
       restartSupported: expect.any(Boolean),
       logFile: expect.any(Object), // null or string depending on logger init
       claudeDefaultModel: expect.any(String),
@@ -3272,7 +3250,6 @@ describe("GET /api/settings", () => {
       sleepInhibitorEnabled: false,
       sleepInhibitorDurationMinutes: 5,
       questmasterViewMode: "cards",
-      herdLeaderFirstEnabled: false,
       restartSupported: expect.any(Boolean),
       logFile: expect.any(Object), // null or string depending on logger init
       claudeDefaultModel: expect.any(String),
@@ -3442,7 +3419,6 @@ describe("PUT /api/settings", () => {
       sleepInhibitorEnabled: undefined,
       sleepInhibitorDurationMinutes: undefined,
       questmasterViewMode: undefined,
-      herdLeaderFirstEnabled: undefined,
     });
     const json = await res.json();
     expect(json).toEqual({
@@ -3472,7 +3448,6 @@ describe("PUT /api/settings", () => {
       sleepInhibitorEnabled: false,
       sleepInhibitorDurationMinutes: 5,
       questmasterViewMode: "cards",
-      herdLeaderFirstEnabled: false,
     });
   });
 
@@ -3602,7 +3577,6 @@ describe("PUT /api/settings", () => {
       sleepInhibitorEnabled: undefined,
       sleepInhibitorDurationMinutes: undefined,
       questmasterViewMode: undefined,
-      herdLeaderFirstEnabled: undefined,
     });
   });
 
@@ -3743,7 +3717,6 @@ describe("PUT /api/settings", () => {
       sleepInhibitorEnabled: undefined,
       sleepInhibitorDurationMinutes: undefined,
       questmasterViewMode: undefined,
-      herdLeaderFirstEnabled: undefined,
     });
   });
 
@@ -3974,39 +3947,6 @@ describe("PUT /api/settings", () => {
     expect(res.status).toBe(400);
     const json = await res.json();
     expect(json).toEqual({ error: 'questmasterViewMode must be "cards" or "compact"' });
-  });
-
-  it("updates herd leader-first sidebar ordering preference", async () => {
-    vi.mocked(settingsManager.updateSettings).mockReturnValue({
-      ...settingsManager.getSettings(),
-      herdLeaderFirstEnabled: true,
-      updatedAt: Date.now(),
-    });
-
-    const res = await app.request("/api/settings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ herdLeaderFirstEnabled: true }),
-    });
-
-    expect(res.status).toBe(200);
-    expect(settingsManager.updateSettings).toHaveBeenCalledWith(
-      expect.objectContaining({ herdLeaderFirstEnabled: true }),
-    );
-    const json = await res.json();
-    expect(json.herdLeaderFirstEnabled).toBe(true);
-  });
-
-  it("returns 400 for non-boolean herd leader-first preference", async () => {
-    const res = await app.request("/api/settings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ herdLeaderFirstEnabled: "true" }),
-    });
-
-    expect(res.status).toBe(400);
-    const json = await res.json();
-    expect(json).toEqual({ error: "herdLeaderFirstEnabled must be a boolean" });
   });
 
   it("preserves custom transcription vocabulary when saving settings", async () => {
@@ -4519,83 +4459,6 @@ describe("PATCH /api/sessions/:id/name", () => {
     });
 
     expect(res.status).toBe(400);
-  });
-});
-
-describe("PATCH /api/sessions/order", () => {
-  it("updates session order, persists it, and broadcasts to browsers", async () => {
-    vi.mocked(bridge.updateSessionOrder).mockReturnValueOnce({
-      "/repo-a": ["s2", "s1"],
-    });
-
-    const res = await app.request("/api/sessions/order", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ groupKey: "/repo-a", orderedIds: ["s2", "s1"] }),
-    });
-
-    expect(res.status).toBe(200);
-    expect(bridge.updateSessionOrder).toHaveBeenCalledWith("/repo-a", ["s2", "s1"]);
-    expect(sessionOrderStore.setAllOrder).toHaveBeenCalledWith({ "/repo-a": ["s2", "s1"] });
-    expect(bridge.broadcastSessionOrderUpdate).toHaveBeenCalled();
-    await expect(res.json()).resolves.toEqual({
-      ok: true,
-      sessionOrder: { "/repo-a": ["s2", "s1"] },
-    });
-  });
-
-  it("returns 400 when groupKey is missing", async () => {
-    const res = await app.request("/api/sessions/order", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ orderedIds: ["s1"] }),
-    });
-
-    expect(res.status).toBe(400);
-    await expect(res.json()).resolves.toEqual({ error: "groupKey is required" });
-  });
-
-  it("returns 400 when orderedIds is not an array", async () => {
-    const res = await app.request("/api/sessions/order", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ groupKey: "/repo-a", orderedIds: "s1" }),
-    });
-
-    expect(res.status).toBe(400);
-    await expect(res.json()).resolves.toEqual({ error: "orderedIds must be an array" });
-  });
-});
-
-describe("PATCH /api/sessions/groups/order", () => {
-  it("updates group order, persists it, and broadcasts to browsers", async () => {
-    vi.mocked(bridge.updateGroupOrder).mockReturnValueOnce(["/repo-b", "/repo-a"]);
-
-    const res = await app.request("/api/sessions/groups/order", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ orderedGroupKeys: ["/repo-b", "/repo-a"] }),
-    });
-
-    expect(res.status).toBe(200);
-    expect(bridge.updateGroupOrder).toHaveBeenCalledWith(["/repo-b", "/repo-a"]);
-    expect(groupOrderStore.setAllOrder).toHaveBeenCalledWith(["/repo-b", "/repo-a"]);
-    expect(bridge.broadcastGroupOrderUpdate).toHaveBeenCalled();
-    await expect(res.json()).resolves.toEqual({
-      ok: true,
-      groupOrder: ["/repo-b", "/repo-a"],
-    });
-  });
-
-  it("returns 400 when orderedGroupKeys is not an array", async () => {
-    const res = await app.request("/api/sessions/groups/order", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ orderedGroupKeys: "/repo-a" }),
-    });
-
-    expect(res.status).toBe(400);
-    await expect(res.json()).resolves.toEqual({ error: "orderedGroupKeys must be an array" });
   });
 });
 

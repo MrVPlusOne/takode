@@ -1,0 +1,35 @@
+export interface SidebarSessionItem {
+  id: string;
+  claimedQuestStatus?: string;
+  model: string;
+  cwd: string;
+  gitBranch: string;
+  isContainerized: boolean;
+  gitAhead: number;
+  gitBehind: number;
+  linesAdded: number;
+  linesRemoved: number;
+  isConnected: boolean;
+  status: "idle" | "running" | "compacting" | "reverting" | null;
+  sdkState: "starting" | "connected" | "running" | "exited" | null;
+  createdAt: number;
+  archived: boolean;
+  archivedAt?: number;
+  backendType: "claude" | "codex" | "claude-sdk";
+  repoRoot: string;
+  permCount: number;
+  pendingTimerCount?: number;
+  cronJobId?: string;
+  cronJobName?: string;
+  isWorktree?: boolean;
+  worktreeExists?: boolean;
+  worktreeDirty?: boolean;
+  askPermission?: boolean;
+  idleKilled?: boolean;
+  lastActivityAt?: number;
+  lastUserMessageAt?: number;
+  isOrchestrator?: boolean;
+  herdedBy?: string;
+  sessionNum?: number | null;
+  reviewerOf?: number;
+}

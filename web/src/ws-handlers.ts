@@ -1103,27 +1103,6 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       break;
     }
 
-    case "session_order_update": {
-      const nextOrder = new Map<string, string[]>();
-      for (const [groupKey, orderedIds] of Object.entries(data.sessionOrder || {})) {
-        if (!Array.isArray(orderedIds)) continue;
-        nextOrder.set(
-          groupKey,
-          orderedIds.filter((id): id is string => typeof id === "string"),
-        );
-      }
-      store.setSessionOrderMap(nextOrder);
-      break;
-    }
-
-    case "group_order_update": {
-      const nextOrder = Array.isArray(data.groupOrder)
-        ? data.groupOrder.filter((key): key is string => typeof key === "string")
-        : [];
-      store.setGroupOrder(nextOrder);
-      break;
-    }
-
     case "tree_groups_update": {
       const groups = Array.isArray(data.treeGroups) ? data.treeGroups : [];
       const assignments =

@@ -176,7 +176,6 @@ export function createSettingsRoutes(ctx: RouteContext) {
       sleepInhibitorEnabled: settings.sleepInhibitorEnabled,
       sleepInhibitorDurationMinutes: settings.sleepInhibitorDurationMinutes,
       questmasterViewMode: normalizeQuestmasterViewMode(settings.questmasterViewMode),
-      herdLeaderFirstEnabled: settings.herdLeaderFirstEnabled === true,
       ...(extras?.includeRuntimeInfo
         ? {
             restartSupported: !!process.env.COMPANION_SUPERVISED,
@@ -328,9 +327,6 @@ export function createSettingsRoutes(ctx: RouteContext) {
     ) {
       return c.json({ error: 'questmasterViewMode must be "cards" or "compact"' }, 400);
     }
-    if (body.herdLeaderFirstEnabled !== undefined && typeof body.herdLeaderFirstEnabled !== "boolean") {
-      return c.json({ error: "herdLeaderFirstEnabled must be a boolean" }, 400);
-    }
 
     // Check that at least one known field is present
     const knownFields = [
@@ -355,7 +351,6 @@ export function createSettingsRoutes(ctx: RouteContext) {
       "sleepInhibitorEnabled",
       "sleepInhibitorDurationMinutes",
       "questmasterViewMode",
-      "herdLeaderFirstEnabled",
     ];
     if (!knownFields.some((f) => body[f] !== undefined)) {
       return c.json({ error: "At least one settings field is required" }, 400);
@@ -397,11 +392,34 @@ export function createSettingsRoutes(ctx: RouteContext) {
         body.questmasterViewMode === "cards" || body.questmasterViewMode === "compact"
           ? body.questmasterViewMode
           : undefined,
-      herdLeaderFirstEnabled:
-        typeof body.herdLeaderFirstEnabled === "boolean" ? body.herdLeaderFirstEnabled : undefined,
     });
 
+<<<<<<< HEAD
     return c.json(buildSettingsResponse(settings));
+=======
+    return c.json({
+      serverName: getServerName(),
+      serverId: getServerId(),
+      pushoverConfigured: !!(settings.pushoverUserKey.trim() && settings.pushoverApiToken.trim()),
+      pushoverEnabled: settings.pushoverEnabled,
+      pushoverDelaySeconds: settings.pushoverDelaySeconds,
+      pushoverBaseUrl: settings.pushoverBaseUrl,
+      claudeBinary: settings.claudeBinary,
+      codexBinary: settings.codexBinary,
+      maxKeepAlive: settings.maxKeepAlive,
+      heavyRepoModeEnabled: settings.heavyRepoModeEnabled,
+      autoApprovalEnabled: settings.autoApprovalEnabled,
+      autoApprovalModel: settings.autoApprovalModel,
+      namerConfig: maskNamerConfig(settings.namerConfig),
+      autoNamerEnabled: settings.autoNamerEnabled,
+      transcriptionConfig: maskTranscriptionConfig(settings.transcriptionConfig),
+      editorConfig: settings.editorConfig,
+      defaultClaudeBackend: settings.defaultClaudeBackend,
+      sleepInhibitorEnabled: settings.sleepInhibitorEnabled,
+      sleepInhibitorDurationMinutes: settings.sleepInhibitorDurationMinutes,
+      questmasterViewMode: normalizeQuestmasterViewMode(settings.questmasterViewMode),
+    });
+>>>>>>> 428007ee (fix(sidebar): remove legacy linear session view)
   });
 
   // ─── Binary test ──────────────────────────────────────────────────

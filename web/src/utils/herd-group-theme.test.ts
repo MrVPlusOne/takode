@@ -1,5 +1,5 @@
 import { buildHerdGroupBadgeThemes, getHerdGroupLeaderId } from "./herd-group-theme.js";
-import type { SessionItem } from "./project-grouping.js";
+import type { SidebarSessionItem as SessionItem } from "./sidebar-session-item.js";
 
 function makeSession(overrides: Partial<SessionItem> = {}): SessionItem {
   return {

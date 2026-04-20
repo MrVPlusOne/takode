@@ -18,7 +18,7 @@ import { generateReplyPreview } from "../utils/reply-preview.js";
 import { parseReplyContext } from "../utils/reply-context.js";
 import { FILE_TOOL_NAMES, isToolHiddenFromChat } from "../hooks/use-feed-model.js";
 import { SessionHoverCard } from "./SessionHoverCard.js";
-import type { SessionItem as SessionItemType } from "../utils/project-grouping.js";
+import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
 
 const EMPTY_MESSAGES: ChatMessage[] = [];
 

@@ -42,7 +42,7 @@ import { FolderPicker } from "./FolderPicker.js";
 import { ReplyChip } from "./Composer.js";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
 import { PawTrailAvatar, HidePawContext } from "./PawTrail.js";
-import type { SessionItem as SidebarSessionItem } from "../utils/project-grouping.js";
+import type { SidebarSessionItem } from "../utils/sidebar-session-item.js";
 import { buildHerdGroupBadgeThemes, getHerdGroupLeaderId } from "../utils/herd-group-theme.js";
 
 // ─── Mock Data ──────────────────────────────────────────────────────────────

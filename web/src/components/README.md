@@ -18,7 +18,7 @@ primarily organized by feature area rather than strict design-system layering.
 
 ### Shell and workspace
 
-- `Sidebar.tsx` / `SessionItem.tsx` / `ProjectGroup.tsx`
+- `Sidebar.tsx` / `SessionItem.tsx` / `TreeViewGroup.tsx`
   - Session list rendering, grouping, ordering, and per-session affordances.
 - `TopBar.tsx`
   - Active session metadata and top-level session actions.

@@ -2,7 +2,7 @@ import { useRef, useMemo, useEffect, useState, type MouseEvent, type ReactNode }
 import { useStore, countUserPermissions } from "../store.js";
 import { navigateToSession, navigateToSessionMessage, sessionHash } from "../utils/routing.js";
 import { SessionHoverCard } from "./SessionHoverCard.js";
-import type { SessionItem as SessionItemType } from "../utils/project-grouping.js";
+import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
 import { MessageLinkHoverCard } from "./MessageLinkHoverCard.js";
 
 export function SessionInlineLink({

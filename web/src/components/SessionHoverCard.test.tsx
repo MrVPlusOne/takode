@@ -2,7 +2,7 @@
 import { render, screen, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { SessionState } from "../types.js";
-import type { SessionItem as SessionItemType } from "../utils/project-grouping.js";
+import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
 
 const mockStoreState = {
   zoomLevel: 1,
