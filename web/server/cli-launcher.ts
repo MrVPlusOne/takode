@@ -2289,9 +2289,11 @@ export class CliLauncher {
    * On every launch:
    * - If the worktree file doesn't exist → create symlink to main repo file
    * - If the worktree file is already a symlink → leave it (previous run)
-   * - If the worktree file is a real file → merge its contents into the main
-   *   repo file, replace with symlink. This handles the case where Claude Code's
-   *   atomic write (write-to-temp-then-rename) broke a previous symlink.
+   * - If the worktree file is a tracked repo file → leave it alone
+   * - If the worktree file is an untracked real file → merge its contents into
+   *   the main repo file, replace with symlink. This handles the case where
+   *   Claude Code's atomic write (write-to-temp-then-rename) broke a previous
+   *   launcher-managed symlink without clobbering real tracked project files.
    */
   private async symlinkProjectSettings(worktreePath: string, repoRoot: string): Promise<void> {
     if (!repoRoot) return;
@@ -2311,16 +2313,9 @@ export class CliLauncher {
     for (const filename of SETTINGS_FILES) {
       const worktreeFile = join(worktreeClaudeDir, filename);
       const repoFile = join(repoClaudeDir, filename);
+      const relativeSettingsPath = `.claude/${filename}`;
 
       try {
-        // Seed the target file if it doesn't exist, so the symlink is never
-        // dangling. A dangling symlink gets replaced by a real file when the
-        // CLI does an atomic write (write-temp-then-rename).
-        if (!(await fileExists(repoFile))) {
-          await writeFile(repoFile, "{}\n", "utf-8");
-          console.log(`[cli-launcher] Seeded ${repoFile} for symlink target`);
-        }
-
         // Use lstat (doesn't follow symlinks) to detect dangling symlinks
         // and real files that replaced a previous symlink.
         let worktreeFileStat: import("node:fs").Stats | null = null;
@@ -2335,22 +2330,70 @@ export class CliLauncher {
             continue; // already a symlink (from previous run) — leave it
           }
 
+          const trackingState = await this.getWorktreeFileTrackingState(worktreePath, relativeSettingsPath);
+          if (trackingState !== "untracked") {
+            const reason = trackingState === "tracked" ? "tracked" : "uncertain";
+            console.log(`[cli-launcher] Leaving ${reason} ${worktreeFile} in place`);
+            continue;
+          }
+
           // Real file exists — Claude Code's atomic write broke a previous
           // symlink. Merge its contents into the main repo file, then replace.
+          if (!(await fileExists(repoFile))) {
+            await writeFile(repoFile, "{}\n", "utf-8");
+            console.log(`[cli-launcher] Seeded ${repoFile} for symlink target`);
+          }
           await this.mergeSettingsIntoRepo(worktreeFile, repoFile);
           await unlink(worktreeFile);
           console.log(`[cli-launcher] Merged and removed real ${worktreeFile} (was broken symlink)`);
+        }
+
+        // Seed the target file if it doesn't exist, so the symlink is never
+        // dangling. A dangling symlink gets replaced by a real file when the
+        // CLI does an atomic write (write-temp-then-rename).
+        if (!(await fileExists(repoFile))) {
+          await writeFile(repoFile, "{}\n", "utf-8");
+          console.log(`[cli-launcher] Seeded ${repoFile} for symlink target`);
         }
 
         await symlink(repoFile, worktreeFile);
         console.log(`[cli-launcher] Symlinked ${worktreeFile} → ${repoFile}`);
 
         // Add to git exclude so symlink doesn't show as untracked
-        await this.addWorktreeGitExclude(worktreePath, `.claude/${filename}`);
+        await this.addWorktreeGitExclude(worktreePath, relativeSettingsPath);
       } catch (e) {
         console.warn(`[cli-launcher] Failed to symlink .claude/${filename}:`, e);
       }
     }
+  }
+
+  private async getWorktreeFileTrackingState(
+    worktreePath: string,
+    relativePath: string,
+  ): Promise<"tracked" | "untracked" | "unknown"> {
+    try {
+      await execPromise(`git --no-optional-locks ls-files --error-unmatch -- "${relativePath}"`, {
+        cwd: worktreePath,
+        timeout: 5000,
+      });
+      return "tracked";
+    } catch (error) {
+      if (this.isExpectedGitUntrackedPathError(error)) return "untracked";
+      console.warn(`[cli-launcher] Failed to determine git tracking state for ${relativePath}; preserving file`, error);
+      return "unknown";
+    }
+  }
+
+  private isExpectedGitUntrackedPathError(error: unknown): boolean {
+    if (!error || typeof error !== "object") return false;
+    const gitError = error as { message?: string; stderr?: string; code?: number | string };
+    const stderr = typeof gitError.stderr === "string" ? gitError.stderr : "";
+    const message = typeof gitError.message === "string" ? gitError.message : "";
+    const text = `${stderr}\n${message}`.toLowerCase();
+    return (
+      gitError.code === 1 &&
+      (text.includes("did not match any file(s) known to git") || text.includes("pathspec") || text.includes("error: pathspec"))
+    );
   }
 
   /**

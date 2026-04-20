@@ -18,6 +18,21 @@ vi.mock("node:crypto", async (importOriginal) => {
 // Mock child_process.exec to prevent actual git commands from running in tests
 const mockExec = vi.hoisted(() =>
   vi.fn((_cmd: string, _opts: any, cb: any) => {
+    if (_cmd.includes("git --no-optional-locks ls-files --error-unmatch --")) {
+      const err = Object.assign(
+        new Error("Command failed: git ls-files"),
+        {
+          code: 1,
+          stderr: "error: pathspec '.claude/settings.json' did not match any file(s) known to git",
+        },
+      );
+      if (typeof _opts === "function") {
+        _opts(err, "", "");
+        return;
+      }
+      if (cb) cb(err, "", "");
+      return;
+    }
     // Simulate immediate success (exec callback signature: err, stdout, stderr)
     if (typeof _opts === "function") {
       _opts(null, "", "");
@@ -2315,6 +2330,129 @@ describe("symlinkProjectSettings", () => {
       join(REPO_ROOT, ".claude", "settings.json"),
       expect.stringContaining("git reset"),
       "utf-8",
+    );
+  });
+
+  it("leaves a tracked settings.json file in place instead of replacing it with a symlink", async () => {
+    mockLstatSync.mockImplementation((path: any) => {
+      if (path === join(WORKTREE, ".claude", "settings.json")) {
+        return { isSymbolicLink: () => false };
+      }
+      throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+    });
+    mockExistsSync.mockImplementation((path: string) => {
+      if (path === WORKTREE) return true;
+      return false;
+    });
+    mockExec.mockImplementation((cmd: string, opts: any, cb: any) => {
+      const callback = typeof opts === "function" ? opts : cb;
+      if (cmd.includes('git --no-optional-locks ls-files --error-unmatch -- ".claude/settings.json"')) {
+        callback(null, ".claude/settings.json\n", "");
+        return;
+      }
+      if (cmd.includes("git --no-optional-locks ls-files --error-unmatch --")) {
+        callback(
+          Object.assign(new Error("Command failed: git ls-files"), {
+            code: 1,
+            stderr: "error: pathspec '.claude/settings.local.json' did not match any file(s) known to git",
+          }),
+          "",
+          "",
+        );
+        return;
+      }
+      callback(null, "", "");
+    });
+
+    await launcher.launch({
+      cwd: WORKTREE,
+      worktreeInfo: {
+        isWorktree: true,
+        repoRoot: REPO_ROOT,
+        branch: "feature-x",
+        actualBranch: "feature-x",
+        worktreePath: WORKTREE,
+      },
+    });
+
+    expect(mockUnlinkSync).not.toHaveBeenCalledWith(join(WORKTREE, ".claude", "settings.json"));
+    expect(mockSymlinkSync).not.toHaveBeenCalledWith(
+      join(REPO_ROOT, ".claude", "settings.json"),
+      join(WORKTREE, ".claude", "settings.json"),
+    );
+    expect(mockWriteFileSync).not.toHaveBeenCalledWith(
+      join(REPO_ROOT, ".claude", "settings.json"),
+      expect.anything(),
+      "utf-8",
+    );
+    expect(mockSymlinkSync).toHaveBeenCalledWith(
+      join(REPO_ROOT, ".claude", "settings.local.json"),
+      join(WORKTREE, ".claude", "settings.local.json"),
+    );
+  });
+
+  it("preserves a real settings.json file when git tracking check fails operationally", async () => {
+    mockLstatSync.mockImplementation((path: any) => {
+      if (path === join(WORKTREE, ".claude", "settings.json")) {
+        return { isSymbolicLink: () => false };
+      }
+      throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+    });
+    mockExistsSync.mockImplementation((path: string) => {
+      if (path === WORKTREE) return true;
+      return false;
+    });
+    mockExec.mockImplementation((cmd: string, opts: any, cb: any) => {
+      const callback = typeof opts === "function" ? opts : cb;
+      if (cmd.includes('git --no-optional-locks ls-files --error-unmatch -- ".claude/settings.json"')) {
+        callback(
+          Object.assign(new Error("Command failed: git ls-files"), {
+            code: 128,
+            stderr: "fatal: not a git repository (or any of the parent directories): .git",
+          }),
+          "",
+          "",
+        );
+        return;
+      }
+      if (cmd.includes("git --no-optional-locks ls-files --error-unmatch --")) {
+        callback(
+          Object.assign(new Error("Command failed: git ls-files"), {
+            code: 1,
+            stderr: "error: pathspec '.claude/settings.local.json' did not match any file(s) known to git",
+          }),
+          "",
+          "",
+        );
+        return;
+      }
+      callback(null, "", "");
+    });
+
+    await launcher.launch({
+      cwd: WORKTREE,
+      worktreeInfo: {
+        isWorktree: true,
+        repoRoot: REPO_ROOT,
+        branch: "feature-x",
+        actualBranch: "feature-x",
+        worktreePath: WORKTREE,
+      },
+    });
+
+    expect(mockUnlinkSync).not.toHaveBeenCalledWith(join(WORKTREE, ".claude", "settings.json"));
+    expect(mockSymlinkSync).not.toHaveBeenCalledWith(
+      join(REPO_ROOT, ".claude", "settings.json"),
+      join(WORKTREE, ".claude", "settings.json"),
+    );
+    expect(mockWriteFileSync).not.toHaveBeenCalledWith(
+      join(REPO_ROOT, ".claude", "settings.json"),
+      expect.anything(),
+      "utf-8",
+    );
+    expect(mockSymlinkSync).toHaveBeenCalledWith(
+      join(REPO_ROOT, ".claude", "settings.local.json"),
+      join(WORKTREE, ".claude", "settings.local.json"),
     );
   });
 
