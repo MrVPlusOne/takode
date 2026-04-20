@@ -20750,6 +20750,92 @@ describe("work board", () => {
     expect(notifUpdates).toHaveLength(0);
   });
 
+  it("advanceBoardRow keeps queued wait-for dependents on the active board", () => {
+    // Regression for q-466: removing q-459 should unblock q-460 without
+    // dropping q-461, and advancing q-460 later must still leave q-461 on the
+    // board waiting on q-460. This mirrors the exact q-459/q-460/q-461 chain
+    // reported from session #638.
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    bridge.upsertBoardRow("s1", { questId: "q-459", title: "Upstream quest", status: "PORTING" });
+    bridge.upsertBoardRow("s1", { questId: "q-460", title: "Middle quest", status: "QUEUED", waitFor: ["q-459"] });
+    bridge.upsertBoardRow("s1", { questId: "q-461", title: "Dependent quest", status: "QUEUED", waitFor: ["q-460"] });
+
+    bridge.removeBoardRows("s1", ["q-459"]);
+    bridge.upsertBoardRow("s1", {
+      questId: "q-460",
+      worker: "worker-618",
+      workerNum: 618,
+      status: "PLANNING",
+      waitFor: [],
+    });
+
+    const result = bridge.advanceBoardRow("s1", "q-460");
+
+    expect(result).not.toBeNull();
+    expect(result?.removed).toBe(false);
+    expect(result?.newState).toBe("IMPLEMENTING");
+    expect(result?.board.map((row) => row.questId)).toEqual(["q-460", "q-461"]);
+    expect(result?.board.find((row) => row.questId === "q-461")).toEqual(
+      expect.objectContaining({
+        status: "QUEUED",
+        waitFor: ["q-460"],
+      }),
+    );
+    expect(bridge.getCompletedBoardCount("s1")).toBe(1);
+  });
+
+  it("preserves full takode board previews so dependent rows stay visible to the agent", () => {
+    // Regression for q-466: the bridge state was intact, but the 300-char tail
+    // preview for `takode board advance` hid q-461 and made the model think the
+    // row disappeared. Board commands should keep the small full table preview.
+    const session = bridge.getOrCreateSession("board-preview");
+    session.messageHistory.push({
+      type: "assistant",
+      message: {
+        id: "assistant-board-preview",
+        content: [
+          {
+            type: "tool_use",
+            id: "tool-board-preview",
+            name: "Bash",
+            input: { command: "takode board advance q-460" },
+          },
+        ],
+      },
+      parent_tool_use_id: null,
+      timestamp: Date.now(),
+    } as any);
+    session.toolStartTimes.set("tool-board-preview", Date.now() - 1000);
+
+    const longBoardOutput = [
+      "",
+      "QUEST    TITLE                WORKER / REVIEWER               STATE              WAIT-FOR         ACTION",
+      "--------------------------------------------------------------------------------------------------------------",
+      "q-460    Re-unroll Frank d…   #618 running / #647 idle       IMPLEMENTING       --               wait for turn_end, then spawn skeptic reviewer",
+      "q-461    Launch Nex AGI da…   #618 running / #647 idle       QUEUED             wait q-460       wait for q-460",
+      "",
+      "1 quest completed",
+    ].join("\n");
+    expect(longBoardOutput.length).toBeGreaterThan(300);
+
+    const previews = (bridge as any).buildToolResultPreviews(session, [
+      {
+        type: "tool_result",
+        tool_use_id: "tool-board-preview",
+        content: longBoardOutput,
+        is_error: false,
+      },
+    ]);
+
+    expect(previews).toHaveLength(1);
+    expect(previews[0].is_truncated).toBe(false);
+    expect(previews[0].content).toContain("q-460");
+    expect(previews[0].content).toContain("q-461");
+    expect(previews[0].content).toContain("1 quest completed");
+  });
+
   it("advanceBoardRow walks through all Quest Journey stages", () => {
     // Validates the full state machine progression
     const browser = makeBrowserSocket("s1");
@@ -21010,6 +21096,71 @@ describe("work board", () => {
     expect(completed[0].questId).toBe("q-42");
     expect(completed[0].title).toBe("Fix sidebar");
     expect(completed[0].completedAt).toBeGreaterThan(0);
+  });
+
+  it("restore keeps queued idea dependents so a later board advance does not drop them", async () => {
+    // Real q-466 repro from session #638:
+    // - q-460 stayed active with status in_progress
+    // - q-461 was a queued dependent but its quest status was still idea
+    // The old restore reconciliation silently pruned q-461 before the later
+    // `takode board advance q-460`, producing a one-row board_updated event.
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    bridge.upsertBoardRow("s1", {
+      questId: "q-460",
+      title: "Re-unroll Frank datasets with accurate tokenizer",
+      worker: "worker-618",
+      workerNum: 618,
+      status: "PLANNING",
+    });
+    bridge.upsertBoardRow("s1", {
+      questId: "q-461",
+      title: "Launch Nex AGI datagen on ~100 nodes",
+      worker: "worker-618",
+      workerNum: 618,
+      status: "QUEUED",
+      waitFor: ["q-460"],
+    });
+
+    await new Promise((r) => setTimeout(r, 200));
+
+    const restored = new WsBridge();
+    restored.setStore(store);
+    restored.setQuestStatusResolver(async (questId) => {
+      if (questId === "q-460") return "in_progress";
+      if (questId === "q-461") return "idea";
+      return null;
+    });
+    await restored.restoreFromDisk();
+
+    const restoredBrowser = makeBrowserSocket("s1");
+    restored.handleBrowserOpen(restoredBrowser, "s1");
+    expect(restored.getBoard("s1").map((row) => row.questId)).toEqual(["q-460", "q-461"]);
+
+    restoredBrowser.send.mockClear();
+    const result = restored.advanceBoardRow("s1", "q-460");
+
+    expect(result?.removed).toBe(false);
+    expect(result?.newState).toBe("IMPLEMENTING");
+    expect(result?.board.map((row) => row.questId)).toEqual(["q-460", "q-461"]);
+    expect(result?.board.find((row) => row.questId === "q-461")).toEqual(
+      expect.objectContaining({
+        status: "QUEUED",
+        waitFor: ["q-460"],
+      }),
+    );
+
+    const boardUpdates = restoredBrowser.send.mock.calls
+      .map((call: any[]) => {
+        try {
+          return JSON.parse(call[0]);
+        } catch {
+          return null;
+        }
+      })
+      .filter((msg: any) => msg?.type === "board_updated");
+    expect(boardUpdates.at(-1)?.board.map((row: any) => row.questId)).toEqual(["q-460", "q-461"]);
   });
 });
 

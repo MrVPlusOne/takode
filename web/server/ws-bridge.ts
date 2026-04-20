@@ -92,6 +92,11 @@ import {
   isSensitiveBashCommand as isSensitiveBashCommandPolicy,
   isSensitiveConfigPath as isSensitiveConfigPathPolicy,
 } from "./bridge/permission-pipeline.js";
+
+// `takode board` output is compact, high-signal state that agents routinely
+// reason about. A 300-char tail preview can hide dependent rows and make the
+// model think a row disappeared when only the preview was truncated.
+const TAKODE_BOARD_RESULT_PREVIEW_LIMIT = 12_000;
 import { detectQuestEvent, type QuestLifecycleStatus } from "./bridge/quest-detector.js";
 import {
   clearOptimisticRunningTimer as clearOptimisticRunningTimerLifecycle,
@@ -2256,9 +2261,14 @@ export class WsBridge {
     for (const [questId] of [...session.board]) {
       try {
         const status = await this.resolveQuestStatus(questId);
-        if (status === "refined" || status === "in_progress") continue;
-        session.board.delete(questId);
-        session.boardStallStates.delete(questId);
+        // q-112: the board lifecycle is decoupled from most quest statuses.
+        // Restore should only drop rows that are definitely terminal/missing,
+        // not queued ideas or verification-stage items that are still active on
+        // the leader's board.
+        if (status === "done" || status === null) {
+          session.board.delete(questId);
+          session.boardStallStates.delete(questId);
+        }
       } catch {
         // If quest status cannot be resolved, preserve the row and let normal runtime paths decide.
       }
@@ -7897,8 +7907,9 @@ export class WsBridge {
       content = retainedOutput;
     }
 
+    const previewLimit = this.getToolResultPreviewLimit(session, toolUseId);
     const totalSize = Buffer.byteLength(content, "utf-8");
-    const isTruncated = content.length > TOOL_RESULT_PREVIEW_LIMIT;
+    const isTruncated = content.length > previewLimit;
     const startedAt = session.toolStartTimes.get(toolUseId);
     const durationSeconds = startedAt != null ? Math.round((Date.now() - startedAt) / 100) / 10 : undefined;
     session.toolStartTimes.delete(toolUseId);
@@ -7911,7 +7922,7 @@ export class WsBridge {
 
     const preview: ToolResultPreview = {
       tool_use_id: toolUseId,
-      content: isTruncated ? content.slice(-TOOL_RESULT_PREVIEW_LIMIT) : content,
+      content: isTruncated ? content.slice(-previewLimit) : content,
       is_error: isError,
       total_size: totalSize,
       is_truncated: isTruncated,
@@ -7948,19 +7959,34 @@ export class WsBridge {
     }
   }
 
-  private findToolUseNameInHistory(session: Session, toolUseId: string): string | null {
+  private findToolUseBlockInHistory(
+    session: Session,
+    toolUseId: string,
+  ): Extract<ContentBlock, { type: "tool_use" }> | null {
     for (let i = session.messageHistory.length - 1; i >= 0; i--) {
       const msg = session.messageHistory[i];
       if (msg.type !== "assistant") continue;
       const content = (msg as { message?: { content?: ContentBlock[] } }).message?.content;
       if (!Array.isArray(content)) continue;
       for (const block of content) {
-        if (block.type === "tool_use" && block.id === toolUseId) {
-          return typeof block.name === "string" ? block.name : null;
-        }
+        if (block.type === "tool_use" && block.id === toolUseId) return block;
       }
     }
     return null;
+  }
+
+  private findToolUseNameInHistory(session: Session, toolUseId: string): string | null {
+    return this.findToolUseBlockInHistory(session, toolUseId)?.name ?? null;
+  }
+
+  private getToolResultPreviewLimit(session: Session, toolUseId: string): number {
+    const block = this.findToolUseBlockInHistory(session, toolUseId);
+    if (!block || block.name !== "Bash") return TOOL_RESULT_PREVIEW_LIMIT;
+    const command = typeof block.input.command === "string" ? block.input.command.trim() : "";
+    if (/^takode\s+board(?:\s|$)/.test(command)) {
+      return TAKODE_BOARD_RESULT_PREVIEW_LIMIT;
+    }
+    return TOOL_RESULT_PREVIEW_LIMIT;
   }
 
   private pruneToolResultsForCurrentHistory(session: Session): void {
@@ -8231,8 +8257,9 @@ export class WsBridge {
         resultContent = WsBridge.deduplicateCliErrorOutput(resultContent);
       }
 
+      const previewLimit = this.getToolResultPreviewLimit(session, block.tool_use_id);
       const totalSize = Buffer.byteLength(resultContent, "utf-8");
-      const isTruncated = resultContent.length > TOOL_RESULT_PREVIEW_LIMIT;
+      const isTruncated = resultContent.length > previewLimit;
 
       // Compute wall-clock duration from tool_use start time
       const startTime = session.toolStartTimes.get(block.tool_use_id);
@@ -8250,7 +8277,7 @@ export class WsBridge {
 
       previews.push({
         tool_use_id: block.tool_use_id,
-        content: isTruncated ? resultContent.slice(-TOOL_RESULT_PREVIEW_LIMIT) : resultContent,
+        content: isTruncated ? resultContent.slice(-previewLimit) : resultContent,
         is_error: !!block.is_error,
         total_size: totalSize,
         is_truncated: isTruncated,
