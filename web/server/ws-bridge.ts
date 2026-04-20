@@ -5504,13 +5504,7 @@ export class WsBridge {
     const launcherInfo = this.launcher?.getSession(sessionId);
     const isResuming = !!launcherInfo?.cliSessionId;
     if (session.pendingMessages.length > 0 && !isResuming) {
-      console.log(
-        `[ws-bridge] Flushing ${session.pendingMessages.length} queued message(s) on CLI connect for session ${sessionTag(sessionId)}`,
-      );
-      const queued = session.pendingMessages.splice(0);
-      for (const ndjson of queued) {
-        this.sendToCLI(session, ndjson);
-      }
+      this.flushQueuedCliMessages(session, "on CLI connect");
     } else if (session.pendingMessages.length > 0) {
       console.log(
         `[ws-bridge] ${session.pendingMessages.length} queued message(s) deferred until init for session ${sessionTag(sessionId)} (resuming)`,
@@ -6017,7 +6011,7 @@ export class WsBridge {
     // handleBrowserOpen — neither of which run for REST-injected messages.
     if (!backendLive && this.onCLIRelaunchNeeded) {
       const launcherInfo = this.launcher?.getSession(sessionId);
-      if (launcherInfo && launcherInfo.state === "exited" && session.state.backend_state !== "broken") {
+      if (session.backendType !== "codex" && launcherInfo && launcherInfo.state === "exited" && session.state.backend_state !== "broken") {
         // Clear killedByIdleManager so the relaunch callback proceeds.
         // Sending a message is an explicit intent to wake the session,
         // matching how wakeIdleKilledSession() works for herd events.
@@ -6585,13 +6579,7 @@ export class WsBridge {
           // silently drops user messages received mid-replay, so we wait until
           // the last replayed system.init + 2s debounce before delivering.
           if (session.pendingMessages.length > 0) {
-            console.log(
-              `[ws-bridge] Flushing ${session.pendingMessages.length} deferred message(s) after replay done for session ${sessionTag(session.id)}`,
-            );
-            const queued = session.pendingMessages.splice(0);
-            for (const ndjson of queued) {
-              this.sendToCLI(session, ndjson);
-            }
+            this.flushQueuedCliMessages(session, "after replay done");
           }
           // Flush herd events deferred from system.init during replay.
           if (this.herdEventDispatcher) {
@@ -6685,13 +6673,7 @@ export class WsBridge {
       // lose them permanently (the splice empties the queue).
       if (!session.cliResuming) {
         if (session.pendingMessages.length > 0) {
-          console.log(
-            `[ws-bridge] Flushing ${session.pendingMessages.length} queued message(s) after init for session ${sessionTag(session.id)}`,
-          );
-          const queued = session.pendingMessages.splice(0);
-          for (const ndjson of queued) {
-            this.sendToCLI(session, ndjson);
-          }
+          this.flushQueuedCliMessages(session, "after init");
         }
         if (this.herdEventDispatcher) {
           const launcherInfo = this.launcher?.getSession(session.id);
@@ -9475,7 +9457,9 @@ export class WsBridge {
       parent_tool_use_id: null,
       session_id: msg.session_id || session.state.session_id || "",
     });
-    const turnTarget = this.sendToCLI(session, ndjson);
+    const turnTarget = this.sendToCLI(session, ndjson, {
+      deferUntilCliReady: this.isHerdEventSource(msg.agentSource),
+    });
     this.trackUserMessageForTurn(session, userMsgHistoryIdx, turnTarget ?? "current");
     // Track the outbound user message so we can re-queue it if the CLI
     // disconnects mid-turn (before sending a result). On --resume reconnect,
@@ -10135,15 +10119,34 @@ export class WsBridge {
 
   // ── Transport helpers ───────────────────────────────────────────────────
 
-  private sendToCLI(session: Session, ndjson: string): UserDispatchTurnTarget | null {
+  private sendToCLI(
+    session: Session,
+    ndjson: string,
+    opts?: {
+      deferUntilCliReady?: boolean;
+      skipUserDispatchLifecycle?: boolean;
+    },
+  ): UserDispatchTurnTarget | null {
     let turnTarget: UserDispatchTurnTarget | null = null;
-    if (this.isCliUserMessagePayload(ndjson)) {
+    if (!opts?.skipUserDispatchLifecycle && this.isCliUserMessagePayload(ndjson)) {
       turnTarget = this.markRunningFromUserDispatch(session, "user_message_dispatch");
     }
     if (!session.backendSocket) {
       // Queue the message — CLI might still be starting up.
       // Don't record here; the message will be recorded when flushed.
       console.log(`[ws-bridge] CLI not yet connected for session ${sessionTag(session.id)}, queuing message`);
+      session.pendingMessages.push(ndjson);
+      return turnTarget;
+    }
+    if (opts?.deferUntilCliReady && (!session.cliInitReceived || session.cliResuming)) {
+      // Herd-event messages are synthetic wakeups, not the bootstrap message that
+      // drives Claude reconnect readiness. In the q-467 replay window, the leader
+      // already looked idle enough for herd delivery (`cliInitReceived=true`) but
+      // the CLI was still replaying history, so sending the wakeup immediately
+      // could drop it after the browser had already committed the herd preview.
+      console.log(
+        `[ws-bridge] CLI not ready for injected herd event in session ${sessionTag(session.id)}, queuing until init/replay completes`,
+      );
       session.pendingMessages.push(ndjson);
       return turnTarget;
     }
@@ -10175,6 +10178,17 @@ export class WsBridge {
       }
     }
     return turnTarget;
+  }
+
+  private flushQueuedCliMessages(session: Session, reason: string): void {
+    if (session.pendingMessages.length === 0) return;
+    console.log(
+      `[ws-bridge] Flushing ${session.pendingMessages.length} queued message(s) ${reason} for session ${sessionTag(session.id)}`,
+    );
+    const queued = session.pendingMessages.splice(0);
+    for (const ndjson of queued) {
+      this.sendToCLI(session, ndjson, { skipUserDispatchLifecycle: true });
+    }
   }
 
   /** Push a partial session state update to all connected browsers for a session. */

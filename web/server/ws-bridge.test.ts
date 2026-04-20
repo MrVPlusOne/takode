@@ -918,6 +918,105 @@ describe("CLI handlers", () => {
     expect(userMsgAfterInit).toBeUndefined();
   });
 
+  it("defers injected herd events during Claude WebSocket replay without creating a phantom queued turn", async () => {
+    // q-467 regression: the unsafe window is after reconnect init when the
+    // leader already passes `isSessionIdle()` but is still in cliResuming
+    // replay. The herd preview reaches browser history immediately, while the
+    // synthetic wakeup must stay queued until replay completes.
+    vi.useFakeTimers();
+    const leaderId = "orch-ws-herd-replay";
+    const workerId = "worker-ws-herd-replay";
+    const launcherSessions = new Map<string, any>([
+      [
+        leaderId,
+        { sessionId: leaderId, isOrchestrator: true, backendType: "claude", cwd: "/test", cliSessionId: "cli-prev" },
+      ],
+      [workerId, { sessionId: workerId, herdedBy: leaderId, backendType: "claude", cwd: "/test" }],
+    ]);
+    const launcherMock = {
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn((id: string) => launcherSessions.get(id)),
+      getHerdedSessions: vi.fn((id: string) => (id === leaderId ? [{ sessionId: workerId }] : [])),
+      getSessionNum: vi.fn((id: string) => (id === leaderId ? 1 : 2)),
+    };
+    bridge.setLauncher(launcherMock as any);
+
+    const dispatcher = new HerdEventDispatcher(bridge as any, launcherMock as any);
+    bridge.setHerdEventDispatcher(dispatcher);
+    dispatcher.setupForOrchestrator(leaderId);
+
+    const session = bridge.getOrCreateSession(leaderId);
+    session.messageHistory.push({ type: "assistant", message: { id: "prev-msg", role: "assistant", content: [] } } as any);
+
+    const leaderCli = makeCliSocket(leaderId);
+    bridge.handleCLIOpen(leaderCli, leaderId);
+    bridge.handleCLIMessage(leaderCli, makeInitMsg({ session_id: "cli-orch-ws-herd-replay" }));
+    expect(session.cliInitReceived).toBe(true);
+    expect(session.cliResuming).toBe(true);
+    leaderCli.send.mockClear();
+
+    bridge.emitTakodeEvent(workerId, "turn_end", { duration_ms: 1000 });
+    vi.advanceTimersByTime(600);
+    await Promise.resolve();
+
+    expect(bridge.getLastUserMessage(leaderId)).toContain("1 event from 1 session");
+    const outboundDuringReplay = leaderCli.send.mock.calls
+      .map(([arg]: [string]) => arg as string)
+      .find((line: string) => line.includes('"type":"user"'));
+    expect(outboundDuringReplay).toBeUndefined();
+    expect(session.pendingMessages).toHaveLength(1);
+    expect(session.isGenerating).toBe(true);
+    expect(session.queuedTurnStarts).toBe(0);
+    expect(JSON.parse(session.pendingMessages[0]!)).toMatchObject({
+      type: "user",
+      message: expect.objectContaining({
+        role: "user",
+      }),
+    });
+
+    vi.advanceTimersByTime(2100);
+    await Promise.resolve();
+
+    expect(session.cliResuming).toBe(false);
+    expect(session.isGenerating).toBe(true);
+    expect(session.queuedTurnStarts).toBe(0);
+    const outboundAfterReplay = leaderCli.send.mock.calls
+      .map(([arg]: [string]) => arg as string)
+      .filter((line: string) => line.includes('"type":"user"'));
+    expect(outboundAfterReplay).toHaveLength(1);
+    expect(outboundAfterReplay[0]).toContain("1 event from 1 session");
+    expect(session.pendingMessages).toHaveLength(0);
+
+    bridge.handleCLIMessage(
+      leaderCli,
+      JSON.stringify({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result: "processed herd wakeup",
+        duration_ms: 400,
+        duration_api_ms: 350,
+        num_turns: 1,
+        total_cost_usd: 0,
+        stop_reason: "end_turn",
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        uuid: "uuid-herd-replay-result",
+        session_id: "cli-orch-ws-herd-replay",
+      }),
+    );
+
+    expect(session.isGenerating).toBe(false);
+    expect(session.queuedTurnStarts).toBe(0);
+    expect(session.queuedTurnReasons).toEqual([]);
+    expect(session.queuedTurnUserMessageIds).toEqual([]);
+    expect(session.queuedTurnInterruptSources).toEqual([]);
+
+    dispatcher.destroy();
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  });
+
   it("handleCLIMessage: system.init does not emit turn_end for an in-flight user dispatch", () => {
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
@@ -12603,7 +12702,7 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     expect(relaunchCb).not.toHaveBeenCalled();
   });
 
-  it("requests relaunch when injectUserMessage targets an adapter-missing Codex session whose launcher still says connected", async () => {
+  it("requests Codex auto-recovery only once when injectUserMessage targets an adapter-missing connected session", async () => {
     const sid = "s-inject-codex-missing-adapter";
     const relaunchCb = vi.fn();
     const recoverySpy = vi.spyOn(bridge as any, "requestCodexAutoRecovery");
@@ -12620,10 +12719,10 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
 
     const delivery = bridge.injectUserMessage(sid, "inject wake missing adapter");
     await Promise.resolve();
-    await Promise.resolve();
 
     expect(delivery).toBe("queued");
     expect(recoverySpy).toHaveBeenCalledTimes(1);
+    expect(recoverySpy).toHaveBeenCalledWith(session, "queued_user_message_adapter_missing");
     expect(relaunchCb).toHaveBeenCalledTimes(1);
     expect(relaunchCb).toHaveBeenCalledWith(sid);
     expect(session.state.backend_state).toBe("recovering");
