@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 
 interface MockStoreState {
@@ -49,6 +49,7 @@ const mockApi = {
   getNamerLogs: vi.fn(),
   getNamerLogEntry: vi.fn(),
   testPushover: vi.fn(),
+  getCaffeinateStatus: vi.fn(),
   getAutoApprovalConfigs: vi.fn().mockResolvedValue([]),
   getAutoApprovalConfig: vi.fn(),
   createAutoApprovalConfig: vi.fn(),
@@ -65,6 +66,7 @@ vi.mock("../api.js", () => ({
     getNamerLogs: (...args: unknown[]) => mockApi.getNamerLogs(...args),
     getNamerLogEntry: (...args: unknown[]) => mockApi.getNamerLogEntry(...args),
     testPushover: (...args: unknown[]) => mockApi.testPushover(...args),
+    getCaffeinateStatus: (...args: unknown[]) => mockApi.getCaffeinateStatus(...args),
     getAutoApprovalConfigs: (...args: unknown[]) => mockApi.getAutoApprovalConfigs(...args),
     getAutoApprovalConfig: (...args: unknown[]) => mockApi.getAutoApprovalConfig(...args),
     createAutoApprovalConfig: (...args: unknown[]) => mockApi.createAutoApprovalConfig(...args),
@@ -139,6 +141,7 @@ beforeEach(() => {
     editorConfig: { editor: "none" },
   });
   mockApi.getNamerLogs.mockResolvedValue([]);
+  mockApi.getCaffeinateStatus.mockResolvedValue({ active: false, engagedAt: null, expiresAt: null });
 });
 
 describe("SettingsPage", () => {
@@ -314,6 +317,155 @@ describe("SettingsPage", () => {
       expect(mockApi.updateSettings).toHaveBeenCalledWith({ heavyRepoModeEnabled: true });
     });
     expect(screen.getByRole("button", { name: /Heavy Repo Mode On/ })).toBeInTheDocument();
+  });
+
+  it("does not poll sleep inhibitor status while the Sessions section is collapsed", async () => {
+    vi.useFakeTimers();
+    localStorage.setItem("cc-settings-collapsed", JSON.stringify(["sessions"]));
+    mockApi.getSettings.mockResolvedValue({
+      serverName: "",
+      serverId: "test-id",
+      pushoverConfigured: false,
+      pushoverEnabled: true,
+      pushoverDelaySeconds: 30,
+      pushoverBaseUrl: "",
+      claudeBinary: "",
+      codexBinary: "",
+      maxKeepAlive: 0,
+      heavyRepoModeEnabled: false,
+      sleepInhibitorEnabled: true,
+      sleepInhibitorDurationMinutes: 5,
+      editorConfig: { editor: "none" },
+    });
+
+    try {
+      render(<SettingsPage />);
+      expect(screen.getByText("Notifications")).toBeInTheDocument();
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(mockApi.getCaffeinateStatus).not.toHaveBeenCalled();
+
+      await act(async () => {
+        vi.advanceTimersByTime(20_000);
+      });
+
+      expect(mockApi.getCaffeinateStatus).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("pauses sleep inhibitor polling while the tab is hidden and resumes on visibility", async () => {
+    vi.useFakeTimers();
+    let visibilityState: DocumentVisibilityState = "hidden";
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => visibilityState,
+    });
+    mockApi.getSettings.mockResolvedValue({
+      serverName: "",
+      serverId: "test-id",
+      pushoverConfigured: false,
+      pushoverEnabled: true,
+      pushoverDelaySeconds: 30,
+      pushoverBaseUrl: "",
+      claudeBinary: "",
+      codexBinary: "",
+      maxKeepAlive: 0,
+      heavyRepoModeEnabled: false,
+      sleepInhibitorEnabled: true,
+      sleepInhibitorDurationMinutes: 5,
+      editorConfig: { editor: "none" },
+    });
+
+    try {
+      render(<SettingsPage />);
+      expect(screen.getByText("Notifications")).toBeInTheDocument();
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(mockApi.getCaffeinateStatus).not.toHaveBeenCalled();
+
+      await act(async () => {
+        vi.advanceTimersByTime(20_000);
+      });
+      expect(mockApi.getCaffeinateStatus).not.toHaveBeenCalled();
+
+      visibilityState = "visible";
+      act(() => {
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(mockApi.getCaffeinateStatus).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        vi.advanceTimersByTime(5_000);
+      });
+      expect(mockApi.getCaffeinateStatus).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("pauses the sleep inhibitor countdown while the tab is hidden", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-19T12:00:00.000Z"));
+    let visibilityState: DocumentVisibilityState = "visible";
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => visibilityState,
+    });
+    mockApi.getSettings.mockResolvedValue({
+      serverName: "",
+      serverId: "test-id",
+      pushoverConfigured: false,
+      pushoverEnabled: true,
+      pushoverDelaySeconds: 30,
+      pushoverBaseUrl: "",
+      claudeBinary: "",
+      codexBinary: "",
+      maxKeepAlive: 0,
+      heavyRepoModeEnabled: false,
+      sleepInhibitorEnabled: true,
+      sleepInhibitorDurationMinutes: 5,
+      editorConfig: { editor: "none" },
+    });
+    mockApi.getCaffeinateStatus.mockResolvedValue({
+      active: true,
+      engagedAt: Date.now(),
+      expiresAt: Date.now() + 60_000,
+    });
+
+    try {
+      render(<SettingsPage />);
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(screen.getByText("Awake for 0s · expires in 1m 0s")).toBeInTheDocument();
+
+      await act(async () => {
+        vi.advanceTimersByTime(1_000);
+      });
+      expect(screen.getByText("Awake for 1s · expires in 59s")).toBeInTheDocument();
+
+      visibilityState = "hidden";
+      act(() => {
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(5_000);
+      });
+      expect(screen.getByText("Awake for 1s · expires in 59s")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("requests desktop permission before enabling desktop alerts", async () => {

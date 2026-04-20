@@ -1,4 +1,4 @@
-import { useState, type ReactNode, type FormEvent } from "react";
+import { useEffect, useState, type ReactNode, type FormEvent } from "react";
 
 // ── Collapse state persistence ──────────────────────────────────────────────
 // Stored as a JSON array of collapsed section IDs in localStorage.
@@ -18,6 +18,10 @@ function writeCollapsed(set: Set<string>): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify([...set]));
 }
 
+export function isCollapsibleSectionCollapsed(id: string): boolean {
+  return readCollapsed().has(id);
+}
+
 // ── Component ───────────────────────────────────────────────────────────────
 
 interface CollapsibleSectionProps {
@@ -31,6 +35,8 @@ interface CollapsibleSectionProps {
   as?: "div" | "form";
   /** Form onSubmit handler (only when as="form") */
   onSubmit?: (e: FormEvent) => void;
+  /** Optional callback when persisted collapsed state changes */
+  onCollapsedChange?: (collapsed: boolean) => void;
   children: ReactNode;
 }
 
@@ -40,9 +46,14 @@ export function CollapsibleSection({
   description,
   as: Tag = "div",
   onSubmit,
+  onCollapsedChange,
   children,
 }: CollapsibleSectionProps) {
   const [collapsed, setCollapsed] = useState(() => readCollapsed().has(id));
+
+  useEffect(() => {
+    onCollapsedChange?.(collapsed);
+  }, [collapsed, onCollapsedChange]);
 
   function toggle() {
     setCollapsed((prev) => {

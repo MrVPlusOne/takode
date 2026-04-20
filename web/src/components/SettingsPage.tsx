@@ -13,7 +13,7 @@ import { NamerDebugPanel } from "./NamerDebugPanel.js";
 import { AutoApprovalDebugPanel } from "./AutoApprovalDebugPanel.js";
 import { TranscriptionDebugPanel } from "./TranscriptionDebugPanel.js";
 import { EnhancementTester } from "./EnhancementTester.js";
-import { CollapsibleSection } from "./CollapsibleSection.js";
+import { CollapsibleSection, isCollapsibleSectionCollapsed } from "./CollapsibleSection.js";
 import { FolderPicker } from "./FolderPicker.js";
 import { EDIT_BLOCKS_EXPANDED_KEY } from "./ToolBlock.js";
 
@@ -102,6 +102,10 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
   }>({ active: false, engagedAt: null, expiresAt: null });
   const [caffeinateTick, setCaffeinateTick] = useState(0);
   const lifecycleDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [sessionsCollapsed, setSessionsCollapsed] = useState(() => isCollapsibleSectionCollapsed("sessions"));
+  const [documentVisible, setDocumentVisible] = useState(
+    () => typeof document === "undefined" || document.visibilityState === "visible",
+  );
 
   // Auto-namer toggle state
   const [namerEnabled, setNamerEnabled] = useState(true);
@@ -231,13 +235,25 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
     loadAutoApprovalConfigs();
   }, [isActive]);
 
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const handleVisibility = () => {
+      setDocumentVisible(document.visibilityState === "visible");
+    };
+    handleVisibility();
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, []);
+
   // Poll caffeinate status every 5s when sleep inhibitor is enabled
   useEffect(() => {
-    if (!isActive) return;
     if (!sleepInhibitorEnabled) {
       setCaffeinateStatus({ active: false, engagedAt: null, expiresAt: null });
       return;
     }
+    if (!isActive || sessionsCollapsed || !documentVisible) return;
     let cancelled = false;
     const poll = () => {
       api
@@ -253,15 +269,15 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
       cancelled = true;
       clearInterval(id);
     };
-  }, [isActive, sleepInhibitorEnabled]);
+  }, [documentVisible, isActive, sessionsCollapsed, sleepInhibitorEnabled]);
 
   // Tick every second to update elapsed/countdown display
   useEffect(() => {
-    if (!isActive) return;
+    if (!isActive || sessionsCollapsed || !documentVisible) return;
     if (!sleepInhibitorEnabled || !caffeinateStatus.active) return;
     const id = setInterval(() => setCaffeinateTick((t) => t + 1), 1_000);
     return () => clearInterval(id);
-  }, [caffeinateStatus.active, isActive, sleepInhibitorEnabled]);
+  }, [caffeinateStatus.active, documentVisible, isActive, sessionsCollapsed, sleepInhibitorEnabled]);
 
   // Restore scroll position on mount, save on scroll (debounced) and unmount
   useEffect(() => {
@@ -818,7 +834,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
         </CollapsibleSection>
 
         {/* ── 4. Sessions ──────────────────────────────────────── */}
-        <CollapsibleSection id="sessions" title="Sessions">
+        <CollapsibleSection id="sessions" title="Sessions" onCollapsedChange={setSessionsCollapsed}>
           {/* Session Lifecycle — auto-saves on change */}
           <div className="space-y-3">
             <div>
