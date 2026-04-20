@@ -50,8 +50,10 @@ function questRecencyTs(quest: QuestmasterTask): number {
   return (quest as { updatedAt?: number }).updatedAt ?? quest.createdAt;
 }
 
-function classifyQuestSearchToken(token: string): { kind: "positiveTag" | "negatedTag" | "text"; value: string } {
-  const negatedMatch = token.match(/^-#([^\s#]+)$/);
+function classifyQuestSearchToken(
+  token: string,
+): { kind: "positiveTag" | "negatedTag" | "text"; value: string } {
+  const negatedMatch = token.match(/^(?:!#|-#)([^\s#]*)$/);
   if (negatedMatch) return { kind: "negatedTag", value: negatedMatch[1].toLowerCase() };
   const positiveMatch = token.match(/^#([^\s#]*)$/);
   if (positiveMatch) return { kind: "positiveTag", value: positiveMatch[1].toLowerCase() };
@@ -59,9 +61,10 @@ function classifyQuestSearchToken(token: string): { kind: "positiveTag" | "negat
 }
 
 function getTrailingQuestSearchToken(query: string): { kind: "positiveTag" | "negatedTag"; value: string } | null {
-  const match = query.match(/(?:^|\s)(-?#([^\s#]*))$/);
+  const match = query.match(/(?:^|\s)(\S*)$/);
   if (!match) return null;
   const rawToken = match[1];
+  if (!rawToken) return null;
   const classified = classifyQuestSearchToken(rawToken);
   if (classified.kind === "text") return null;
   return { kind: classified.kind, value: classified.value };
@@ -74,7 +77,7 @@ function parseQuestSearchQuery(query: string): { searchText: string; negatedTags
   for (const token of query.trim().split(/\s+/).filter(Boolean)) {
     const classified = classifyQuestSearchToken(token);
     if (classified.kind === "negatedTag") {
-      negatedTags.add(classified.value);
+      if (classified.value) negatedTags.add(classified.value);
       continue;
     }
     positiveTokens.push(token);
@@ -88,6 +91,11 @@ function parseQuestSearchQuery(query: string): { searchText: string; negatedTags
     .replace(/(?:^|\s)#[^\s]*$/, "")
     .trim();
   return { searchText, negatedTags };
+}
+
+function getQuestSearchAutocompleteMatches(query: string, allTags: string[], selectedTags: Set<string>): string[] {
+  const q = query.toLowerCase();
+  return allTags.filter((t) => (!q || t.includes(q)) && !selectedTags.has(t));
 }
 
 type EditorTarget = "newTitle" | "newDescription";
@@ -155,7 +163,6 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
 
   // Hashtag autocomplete state
   const [hashtagQuery, setHashtagQuery] = useState("");
-  const [hashtagAutocompleteActive, setHashtagAutocompleteActive] = useState(false);
   const [autocompleteIndex, setAutocompleteIndex] = useState(0);
   const [searchFocused, setSearchFocused] = useState(false);
   const autocompleteRef = useRef<HTMLDivElement>(null);
@@ -503,10 +510,11 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
 
   // Compute autocomplete matches for hashtag query
   const autocompleteMatches = useMemo(() => {
-    if (!hashtagAutocompleteActive) return [];
-    const q = hashtagQuery.toLowerCase();
-    return allTags.filter((t) => (!q || t.includes(q)) && !selectedTags.has(t));
-  }, [hashtagAutocompleteActive, hashtagQuery, allTags, selectedTags]);
+    const activeSearchToken = getTrailingQuestSearchToken(searchQuery);
+    if (!activeSearchToken) return [];
+    return getQuestSearchAutocompleteMatches(hashtagQuery, allTags, selectedTags);
+  }, [searchQuery, hashtagQuery, allTags, selectedTags]);
+  const activeSearchToken = useMemo(() => getTrailingQuestSearchToken(searchQuery), [searchQuery]);
 
   const editorAutocompleteMatches = useMemo(() => {
     if (!editorHashtagQuery) return [];
@@ -573,6 +581,13 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
       node.setSelectionRange(nextCursor, nextCursor);
       autoResizeTextarea(node);
     });
+  }
+
+  function replaceTrailingSearchToken(query: string, replacement: string): string {
+    const match = query.match(/^(.*?)(\S*)$/s);
+    if (!match) return replacement;
+    const prefix = match[1];
+    return `${prefix}${replacement}`;
   }
 
   // ─── Filtering ────────────────────────────────────────────────────────
@@ -909,7 +924,6 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
                     // Delay closing autocomplete to allow click on item
                     setTimeout(() => {
                       setHashtagQuery("");
-                      setHashtagAutocompleteActive(false);
                       setAutocompleteIndex(0);
                     }, 150);
                   }}
@@ -919,23 +933,26 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
                     // Negated tags (`-#tag`) stay in the raw query and should not
                     // create positive tag pills.
                     const trailingToken = getTrailingQuestSearchToken(val);
-                    if (trailingToken?.kind === "positiveTag") {
+                    if (trailingToken) {
                       setHashtagQuery(trailingToken.value);
-                      setHashtagAutocompleteActive(true);
                       setAutocompleteIndex(0);
                       setSearchQuery(val);
                       return;
                     }
                     setHashtagQuery("");
-                    setHashtagAutocompleteActive(false);
                     setSearchQuery(val);
                   }}
                   onKeyDown={(e) => {
+                    const currentSearchValue = (e.currentTarget as HTMLInputElement).value;
+                    const currentTrailingToken = getTrailingQuestSearchToken(currentSearchValue);
+                    const currentAutocompleteMatches = currentTrailingToken
+                      ? getQuestSearchAutocompleteMatches(currentTrailingToken.value, allTags, selectedTags)
+                      : [];
                     // Autocomplete navigation
-                    if (hashtagAutocompleteActive && autocompleteMatches.length > 0) {
+                    if (currentTrailingToken && currentAutocompleteMatches.length > 0) {
                       if (e.key === "ArrowDown") {
                         e.preventDefault();
-                        setAutocompleteIndex((i) => Math.min(i + 1, autocompleteMatches.length - 1));
+                        setAutocompleteIndex((i) => Math.min(i + 1, currentAutocompleteMatches.length - 1));
                         return;
                       }
                       if (e.key === "ArrowUp") {
@@ -945,23 +962,25 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
                       }
                       if (e.key === "Enter" || e.key === "Tab") {
                         e.preventDefault();
-                        const tag = autocompleteMatches[autocompleteIndex];
+                        const tag = currentAutocompleteMatches[autocompleteIndex];
                         if (tag) {
-                          setSelectedTags((prev) => new Set([...prev, tag]));
-                          // Remove #query from search text
-                          const hashIdx = searchQuery.lastIndexOf("#");
-                          setSearchQuery(hashIdx > 0 ? searchQuery.slice(0, hashIdx).trimEnd() : "");
+                          if (currentTrailingToken?.kind === "negatedTag") {
+                            setSearchQuery(replaceTrailingSearchToken(currentSearchValue, `!#${tag}`));
+                          } else {
+                            setSelectedTags((prev) => new Set([...prev, tag]));
+                            // Remove #query from search text
+                            const hashIdx = currentSearchValue.lastIndexOf("#");
+                            setSearchQuery(hashIdx > 0 ? currentSearchValue.slice(0, hashIdx).trimEnd() : "");
+                          }
                           setHashtagQuery("");
-                          setHashtagAutocompleteActive(false);
                           setAutocompleteIndex(0);
                         }
                         return;
                       }
                     }
                     if (e.key === "Escape") {
-                      if (hashtagAutocompleteActive) {
+                      if (currentTrailingToken) {
                         setHashtagQuery("");
-                        setHashtagAutocompleteActive(false);
                         setAutocompleteIndex(0);
                       } else {
                         setSearchQuery("");
@@ -985,7 +1004,6 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
                       setSearchQuery("");
                       setSelectedTags(new Set());
                       setHashtagQuery("");
-                      setHashtagAutocompleteActive(false);
                       searchInputRef.current?.focus();
                     }}
                     className="text-cc-muted hover:text-cc-fg cursor-pointer shrink-0"
@@ -1004,21 +1022,29 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
               </div>
 
               {/* Hashtag autocomplete dropdown */}
-              {hashtagAutocompleteActive && autocompleteMatches.length > 0 && searchFocused && (
+              {activeSearchToken && autocompleteMatches.length > 0 && searchFocused && (
                 <div
                   ref={autocompleteRef}
                   className="absolute top-full left-0 right-0 mt-1 bg-cc-card border border-cc-border rounded-lg shadow-xl z-30 py-1 max-h-48 overflow-y-auto"
                 >
+                  {activeSearchToken?.kind === "negatedTag" && (
+                    <div className="px-3 pb-1 text-[10px] font-medium uppercase tracking-wide text-cc-muted/70">
+                      excluding:
+                    </div>
+                  )}
                   {autocompleteMatches.map((tag, i) => (
                     <button
                       key={tag}
                       onMouseDown={(e) => {
                         e.preventDefault(); // Prevent blur
-                        setSelectedTags((prev) => new Set([...prev, tag]));
-                        const hashIdx = searchQuery.lastIndexOf("#");
-                        setSearchQuery(hashIdx > 0 ? searchQuery.slice(0, hashIdx).trimEnd() : "");
+                        if (activeSearchToken?.kind === "negatedTag") {
+                          setSearchQuery(replaceTrailingSearchToken(searchQuery, `!#${tag}`));
+                        } else {
+                          setSelectedTags((prev) => new Set([...prev, tag]));
+                          const hashIdx = searchQuery.lastIndexOf("#");
+                          setSearchQuery(hashIdx > 0 ? searchQuery.slice(0, hashIdx).trimEnd() : "");
+                        }
                         setHashtagQuery("");
-                        setHashtagAutocompleteActive(false);
                         setAutocompleteIndex(0);
                         searchInputRef.current?.focus();
                       }}
@@ -1026,7 +1052,7 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
                         i === autocompleteIndex ? "bg-cc-primary/10 text-cc-primary" : "text-cc-fg hover:bg-cc-hover"
                       }`}
                     >
-                      <span className="text-cc-muted">#</span>
+                      <span className="text-cc-muted">{activeSearchToken?.kind === "negatedTag" ? "!#" : "#"}</span>
                       {tag}
                     </button>
                   ))}

@@ -571,6 +571,37 @@ describe("QuestmasterPage verification inbox", () => {
     expect(searchInput.value).toBe("");
   });
 
+  it("shows an excluding hint and keeps negated autocomplete in the raw query", () => {
+    // The clearer negated syntax uses `!#tag`. While typing it, the dropdown
+    // should hint that the user is excluding a tag and selecting an option
+    // should keep that negated token in the raw query instead of creating a
+    // positive tag pill.
+    mockState.quests = [
+      {
+        ...buildVerificationQuest({ id: "q-57-v1", questId: "q-57", title: "Alpha quest" }),
+        verificationInboxUnread: false,
+        tags: ["alpha"],
+      } as QuestmasterTask,
+      {
+        ...buildVerificationQuest({ id: "q-58-v1", questId: "q-58", title: "Beta quest" }),
+        verificationInboxUnread: false,
+        tags: ["beta"],
+      } as QuestmasterTask,
+    ];
+
+    renderQuestmaster();
+
+    const searchInput = screen.getByPlaceholderText("Search or #tag...") as HTMLInputElement;
+    fireEvent.focus(searchInput);
+    fireEvent.change(searchInput, { target: { value: "!#" } });
+
+    expect(screen.getByText("excluding:")).toBeInTheDocument();
+    fireEvent.keyDown(searchInput, { key: "Enter" });
+
+    expect(searchInput.value).toBe("!#alpha");
+    expect(screen.queryByText("#alpha")).toBeNull();
+  });
+
   it("supports -#tag to exclude quests with matching tags", () => {
     // q-331: the search box should support explicit negated tags that exclude
     // matching quests without requiring users to mutate the positive tag pills.
@@ -595,7 +626,7 @@ describe("QuestmasterPage verification inbox", () => {
     renderQuestmaster();
 
     const searchInput = screen.getByPlaceholderText("Search or #tag...");
-    fireEvent.change(searchInput, { target: { value: "-#mobile" } });
+    fireEvent.change(searchInput, { target: { value: "!#mobile" } });
 
     expect(document.querySelector('[data-quest-id="q-61"]')).toBeTruthy();
     expect(document.querySelector('[data-quest-id="q-60"]')).toBeNull();
@@ -603,7 +634,7 @@ describe("QuestmasterPage verification inbox", () => {
   });
 
   it("does not convert negated hashtags into positive tag pills via autocomplete", () => {
-    // Negated tags should stay in the raw search query. Hitting Enter on `-#mob`
+    // Negated tags should stay in the raw search query. Hitting Enter on `!#mob`
     // must not create the positive `#mobile` tag pill or clear the search text.
     mockState.quests = [
       {
@@ -621,15 +652,15 @@ describe("QuestmasterPage verification inbox", () => {
     renderQuestmaster();
 
     const searchInput = screen.getByPlaceholderText("Search or #tag...") as HTMLInputElement;
-    fireEvent.change(searchInput, { target: { value: "-#mob" } });
+    fireEvent.change(searchInput, { target: { value: "!#mob" } });
     fireEvent.keyDown(searchInput, { key: "Enter" });
 
-    expect(searchInput.value).toBe("-#mob");
+    expect(searchInput.value).toBe("!#mobile");
     expect(screen.queryByText("#mobile")).toBeNull();
   });
 
   it("supports mixed free-text plus negated-tag queries and only highlights the positive text", () => {
-    // Mixed queries like `auth -#mobile` should preserve the positive text
+    // Mixed queries like `auth !#mobile` should preserve the positive text
     // match while excluding the negated tag, and highlight only the positive
     // free-text portion of the query.
     mockState.quests = [
@@ -653,7 +684,7 @@ describe("QuestmasterPage verification inbox", () => {
     const { container } = renderQuestmaster();
 
     const searchInput = screen.getByPlaceholderText("Search or #tag...");
-    fireEvent.change(searchInput, { target: { value: "auth -#mobile" } });
+    fireEvent.change(searchInput, { target: { value: "auth !#mobile" } });
 
     expect(document.querySelector('[data-quest-id="q-71"]')).toBeTruthy();
     expect(document.querySelector('[data-quest-id="q-70"]')).toBeNull();
@@ -666,7 +697,7 @@ describe("QuestmasterPage verification inbox", () => {
 
   it("supports mixed positive #tag pills plus negated-tag queries", () => {
     // Users should be able to select a positive tag via the existing pill flow
-    // and then further narrow the result with a raw `-#tag` exclusion query.
+    // and then further narrow the result with a raw `!#tag` exclusion query.
     mockState.quests = [
       {
         ...buildVerificationQuest({ id: "q-80-v1", questId: "q-80", title: "Auth mobile quest" }),
@@ -692,7 +723,7 @@ describe("QuestmasterPage verification inbox", () => {
     fireEvent.keyDown(searchInput, { key: "Enter" });
     expect(screen.getByText("#auth")).toBeInTheDocument();
 
-    fireEvent.change(searchInput, { target: { value: "-#backend" } });
+    fireEvent.change(searchInput, { target: { value: "!#backend" } });
 
     expect(document.querySelector('[data-quest-id="q-80"]')).toBeTruthy();
     expect(document.querySelector('[data-quest-id="q-81"]')).toBeNull();
@@ -701,7 +732,7 @@ describe("QuestmasterPage verification inbox", () => {
 
   it("passes only the positive/free-text portion of a mixed negated query into the quest overlay", () => {
     // The detail overlay highlight should reuse the parsed positive search text,
-    // not the raw query with `-#tag` suffixes.
+    // not the raw query with `!#tag` suffixes.
     mockState.quests = [
       {
         ...buildVerificationQuest({ id: "q-90-v1", questId: "q-90", title: "Auth mobile quest" }),
@@ -718,7 +749,7 @@ describe("QuestmasterPage verification inbox", () => {
     renderQuestmaster();
 
     const searchInput = screen.getByPlaceholderText("Search or #tag...");
-    fireEvent.change(searchInput, { target: { value: "auth -#mobile" } });
+    fireEvent.change(searchInput, { target: { value: "auth !#mobile" } });
 
     const cardButton = document.querySelector('[data-quest-id="q-91"] [role="button"]') as HTMLElement | null;
     expect(cardButton).toBeTruthy();
