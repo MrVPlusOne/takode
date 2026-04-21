@@ -2721,7 +2721,8 @@ async function handlePending(base: string, args: string[]): Promise<void> {
 
   const buildAnswerTargetHint = (pendingItem: (typeof result.pending)[number]): string => {
     if (typeof pendingItem.msg_index === "number") return ` --message ${pendingItem.msg_index}`;
-    if (typeof pendingItem.request_id === "string" && pendingItem.request_id) return ` --target ${pendingItem.request_id}`;
+    if (typeof pendingItem.request_id === "string" && pendingItem.request_id)
+      return ` --target ${pendingItem.request_id}`;
     if (typeof pendingItem.notification_id === "string" && pendingItem.notification_id) {
       return ` --target ${pendingItem.notification_id}`;
     }
@@ -3176,7 +3177,8 @@ function printBoardText(
       const kind = getWaitForRefKind(wf);
       if (kind === "session") return !resolvedSessionDeps?.has(wf);
       if (kind === "quest") return activeQuestIds.has(wf);
-      if (kind === "free-worker") return (workerSlotUsage?.used ?? workerSlotUsage?.limit ?? 0) >= (workerSlotUsage?.limit ?? 0);
+      if (kind === "free-worker")
+        return (workerSlotUsage?.used ?? workerSlotUsage?.limit ?? 0) >= (workerSlotUsage?.limit ?? 0);
       return true;
     });
     let waitForStr: string;
@@ -3216,9 +3218,26 @@ function outputBoard(
     workerSlotUsage?: { used: number; limit: number };
   },
 ): void {
-  const { operation, resolvedSessionDeps, completedCount, completedBoard, rowSessionStatuses, queueWarnings, workerSlotUsage } = opts ?? {};
+  const {
+    operation,
+    resolvedSessionDeps,
+    completedCount,
+    completedBoard,
+    rowSessionStatuses,
+    queueWarnings,
+    workerSlotUsage,
+  } = opts ?? {};
   if (jsonMode) {
-    console.log(formatBoardOutput(board, { operation, completedCount, completedBoard, rowSessionStatuses, queueWarnings, workerSlotUsage }));
+    console.log(
+      formatBoardOutput(board, {
+        operation,
+        completedCount,
+        completedBoard,
+        rowSessionStatuses,
+        queueWarnings,
+        workerSlotUsage,
+      }),
+    );
     return;
   }
 

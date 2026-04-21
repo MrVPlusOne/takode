@@ -1544,7 +1544,10 @@ export function Playground() {
         content: "Look at the attached error dialog screenshot and explain what failed.",
       }),
     ]);
-    store.setStreaming(PLAYGROUND_CODEX_IMAGE_RESPONDING_SESSION_ID, "The screenshot shows the request failing after auth refresh.");
+    store.setStreaming(
+      PLAYGROUND_CODEX_IMAGE_RESPONDING_SESSION_ID,
+      "The screenshot shows the request failing after auth refresh.",
+    );
     store.setStreamingStats(PLAYGROUND_CODEX_IMAGE_RESPONDING_SESSION_ID, {
       startedAt: Date.now() - 6_000,
       outputTokens: 184,
@@ -3331,14 +3334,26 @@ export function Playground() {
                       >
                         <span className="flex items-center justify-center w-6 h-6 rounded-md bg-cc-hover text-cc-muted shrink-0">
                           {entry.kind === "quest" ? (
-                            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5">
+                            <svg
+                              viewBox="0 0 16 16"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="1.5"
+                              className="w-3.5 h-3.5"
+                            >
                               <path d="M5 3.5h6" strokeLinecap="round" />
                               <path d="M5 8h6" strokeLinecap="round" />
                               <path d="M5 12.5h4" strokeLinecap="round" />
                               <rect x="2.5" y="1.75" width="11" height="12.5" rx="2" />
                             </svg>
                           ) : (
-                            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5">
+                            <svg
+                              viewBox="0 0 16 16"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="1.5"
+                              className="w-3.5 h-3.5"
+                            >
                               <circle cx="8" cy="8" r="5.5" />
                               <path d="M8 5v3l2 1.5" strokeLinecap="round" strokeLinejoin="round" />
                             </svg>
@@ -4029,8 +4044,8 @@ export function Playground() {
                   Click &quot;Seed notification data&quot; first. Shows a compact single-height pill with inline
                   comma-separated colored bell counts for active review and needs-input notifications, ending in
                   &quot;unreads&quot;. Click to open the inbox modal with active notifications (amber = needs-input,
-                  green = review), compact quest-first review rows, and a collapsible Done section. On mobile, the
-                  modal stretches across the viewport while staying scrollable and height-capped.
+                  green = review), compact quest-first review rows, and a collapsible Done section. On mobile, the modal
+                  stretches across the viewport while staying scrollable and height-capped.
                 </p>
               </div>
             </Card>

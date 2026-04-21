@@ -2033,7 +2033,9 @@ export function createSessionsRoutes(ctx: RouteContext) {
       return c.json({ error: "Each image must include mediaType and data" }, 400);
     }
 
-    const imageRefs = await Promise.all(images.map((img) => imageStore.store(id, img.data as string, img.mediaType as string)));
+    const imageRefs = await Promise.all(
+      images.map((img) => imageStore.store(id, img.data as string, img.mediaType as string)),
+    );
     const paths = deriveAttachmentPaths(id, imageRefs);
     return c.json({
       imageRefs,

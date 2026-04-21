@@ -119,7 +119,9 @@ function makeTask(overrides: Partial<TaskItem> = {}): TaskItem {
   };
 }
 
-function makeQuest(overrides: Partial<import("./types.js").QuestmasterTask> = {}): import("./types.js").QuestmasterTask {
+function makeQuest(
+  overrides: Partial<import("./types.js").QuestmasterTask> = {},
+): import("./types.js").QuestmasterTask {
   return {
     id: "q-1-v1",
     questId: "q-1",

@@ -3430,7 +3430,10 @@ export class CodexAdapter
       if (typeof value === "object") {
         const previousValue = merged[key];
         if (previousValue && typeof previousValue === "object" && !Array.isArray(previousValue)) {
-          merged[key] = this.mergeToolUseInput(previousValue as Record<string, unknown>, value as Record<string, unknown>);
+          merged[key] = this.mergeToolUseInput(
+            previousValue as Record<string, unknown>,
+            value as Record<string, unknown>,
+          );
         } else if (!(key in merged) || Object.keys(value as Record<string, unknown>).length > 0) {
           merged[key] = value;
         }

@@ -587,8 +587,7 @@ async function cmdGrep(): Promise<void> {
       const quest = questById.get(match.questId);
       const feedbackEntries =
         quest && "feedback" in quest ? (quest as { feedback?: Array<{ ts?: number }> }).feedback : undefined;
-      const feedbackTs =
-        match.feedbackIndex !== undefined ? feedbackEntries?.[match.feedbackIndex]?.ts : undefined;
+      const feedbackTs = match.feedbackIndex !== undefined ? feedbackEntries?.[match.feedbackIndex]?.ts : undefined;
       if (feedbackTs) parts.push(timeAgo(feedbackTs));
       console.log(`        ${parts.join(" | ")}`);
       console.log(`        ${compactSnippet(match.snippet, 96)}`);

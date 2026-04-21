@@ -24,7 +24,8 @@ function countScopedChangedFiles(state: TopBarState, sessionId: string, sessionV
   if (!sessionCwd) return files.size;
 
   // Use repo_root only when it's an ancestor of cwd (worktrees have a different root).
-  const scope = sessionVm?.repoRoot && sessionCwd.startsWith(sessionVm.repoRoot + "/") ? sessionVm.repoRoot : sessionCwd;
+  const scope =
+    sessionVm?.repoRoot && sessionCwd.startsWith(sessionVm.repoRoot + "/") ? sessionVm.repoRoot : sessionCwd;
   const prefix = `${scope}/`;
   const scopedFiles = [...files].filter((fp) => fp === scope || fp.startsWith(prefix));
   const stats = state.diffFileStats.get(sessionId);
@@ -109,9 +110,7 @@ export function getCurrentTopBarSessionState(state: TopBarState) {
     currentSdkState: currentSessionVm?.state ?? null,
     currentHasUnread: !!state.sessionAttention.get(currentSessionId),
     sessionName:
-      state.sessionNames.get(currentSessionId) ||
-      currentSessionVm?.name ||
-      `Session ${currentSessionId.slice(0, 8)}`,
+      state.sessionNames.get(currentSessionId) || currentSessionVm?.name || `Session ${currentSessionId.slice(0, 8)}`,
     sessionNum: currentSessionVm?.sessionNum ?? null,
     isQuestNamed: state.questNamedSessions.has(currentSessionId),
     questStatus: currentSessionVm?.claimedQuestStatus,

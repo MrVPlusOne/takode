@@ -25,11 +25,7 @@ function getSessionLabel(session: ActiveTimerSession): string {
   return session.name?.trim() || session.sessionId.slice(0, 8);
 }
 
-function TimerRow({
-  timer,
-}: {
-  timer: ActiveTimerSession["timers"][number];
-}) {
+function TimerRow({ timer }: { timer: ActiveTimerSession["timers"][number] }) {
   const scheduleLabel = describeTimer(timer);
 
   return (
@@ -90,7 +86,9 @@ export function ActiveTimersPage({ embedded = false }: { embedded?: boolean }) {
   const content = (
     <div className="space-y-4">
       {error && (
-        <div className="rounded-xl border border-cc-error/20 bg-cc-error/10 px-4 py-3 text-sm text-cc-error">{error}</div>
+        <div className="rounded-xl border border-cc-error/20 bg-cc-error/10 px-4 py-3 text-sm text-cc-error">
+          {error}
+        </div>
       )}
       {loading ? (
         <div className="rounded-xl border border-cc-border bg-cc-card px-4 py-10 text-center text-sm text-cc-muted">
@@ -169,7 +167,9 @@ export function ActiveTimersPage({ embedded = false }: { embedded?: boolean }) {
       <div className="mx-auto max-w-5xl px-4 py-6 sm:px-8 sm:py-10">
         <div className="mb-6">
           <h1 className="text-xl font-semibold text-cc-fg">Active Timers</h1>
-          <p className="mt-1 text-sm text-cc-muted">See which sessions are waiting on timers and jump back into the right conversation fast.</p>
+          <p className="mt-1 text-sm text-cc-muted">
+            See which sessions are waiting on timers and jump back into the right conversation fast.
+          </p>
         </div>
         {content}
       </div>

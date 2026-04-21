@@ -413,12 +413,16 @@ export function SessionItem({
   });
   const timerCount = s.id === currentSessionId ? liveTimerCount : (s.pendingTimerCount ?? 0);
   const showScheduledTimerIcon =
-    !archived && visualStatus === "idle" && permCount === 0 && !attention && timerCount > 0 && inboxUrgency !== "needs-input";
+    !archived &&
+    visualStatus === "idle" &&
+    permCount === 0 &&
+    !attention &&
+    timerCount > 0 &&
+    inboxUrgency !== "needs-input";
   const statusColorClass = showScheduledTimerIcon ? "bg-emerald-500" : STATUS_DOT_CLASS[visualStatus];
-  const glowColor =
-    showScheduledTimerIcon
-      ? ""
-      : visualStatus === "permission"
+  const glowColor = showScheduledTimerIcon
+    ? ""
+    : visualStatus === "permission"
       ? "rgba(245, 158, 11, 0.7)"
       : visualStatus === "running" || visualStatus === "compacting"
         ? "rgba(34, 197, 94, 0.7)"
@@ -876,9 +880,7 @@ export function SessionItem({
       {/* Notification inbox markers (shown when no server attention, permission, or timer-status icon is active).
           Derived from the per-session notification inbox -- surfaces unaddressed notifications
           on sidebar chips so the user can see which sessions need attention at a glance. */}
-      {!archived && !attention && permCount === 0 && !showScheduledTimerIcon && (
-        <NotificationMarker sessionId={s.id} />
-      )}
+      {!archived && !attention && permCount === 0 && !showScheduledTimerIcon && <NotificationMarker sessionId={s.id} />}
 
       {/* Action buttons */}
       {archived ? (

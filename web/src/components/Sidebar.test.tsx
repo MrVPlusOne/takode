@@ -1600,7 +1600,9 @@ describe("Sidebar", { timeout: 10000 }, () => {
     const leaderBetaButton = screen.getByText("Leader Beta").closest("button")!;
     const workerBetaButton = screen.getByText("Worker Beta").closest("button")!;
 
-    expect(leaderAlphaButton.compareDocumentPosition(workerAlphaButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(
+      leaderAlphaButton.compareDocumentPosition(workerAlphaButton) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     expect(leaderBetaButton.compareDocumentPosition(workerBetaButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
