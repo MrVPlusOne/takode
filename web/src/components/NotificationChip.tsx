@@ -88,6 +88,34 @@ function parseSingleQuestSummary(summary?: string): { before: string; questId: s
   };
 }
 
+function getCompactReviewSummary(summary?: string): { text: string; questSummary: { before: string; questId: string; after: string } | null } | null {
+  if (!summary) return null;
+
+  const singleQuestMatch = summary.match(/^\s*(q-\d+)\s+ready\s+for\s+review(?:\s*:\s*(.+?))?\s*$/i);
+  if (singleQuestMatch) {
+    const questId = singleQuestMatch[1];
+    const title = singleQuestMatch[2]?.trim();
+    return {
+      text: title ? `${questId}: ${title}` : questId,
+      questSummary: {
+        before: "",
+        questId,
+        after: title ? `: ${title}` : "",
+      },
+    };
+  }
+
+  const multiQuestMatch = summary.match(/^\s*\d+\s+quests?\s+ready\s+for\s+review\s*:\s*(.+?)\s*$/i);
+  if (multiQuestMatch) {
+    return {
+      text: multiQuestMatch[1].trim(),
+      questSummary: null,
+    };
+  }
+
+  return { text: summary, questSummary: parseSingleQuestSummary(summary) };
+}
+
 // ─── Notification Item ───────────────────────────────────────────────────────
 
 function NotificationItem({ notif, sessionId }: { notif: SessionNotification; sessionId: string }) {
@@ -104,17 +132,18 @@ function NotificationItem({ notif, sessionId }: { notif: SessionNotification; se
   }, [sessionId, notif.messageId]);
 
   const isNeedsInput = notif.category === "needs-input";
-  const label = notif.summary || (isNeedsInput ? "Needs your input" : "Ready for review");
-  const questSummary = !isNeedsInput ? parseSingleQuestSummary(notif.summary) : null;
+  const compactReviewSummary = !isNeedsInput ? getCompactReviewSummary(notif.summary) : null;
+  const label = compactReviewSummary?.text || notif.summary || (isNeedsInput ? "Needs your input" : "Ready for review");
+  const questSummary = compactReviewSummary?.questSummary ?? null;
   const labelClassName = notif.done ? "text-cc-muted/60 line-through" : "text-cc-fg/90";
 
   const renderLabel = () => {
     if (!questSummary) {
-      return <span className={`block truncate max-w-[240px] ${labelClassName}`}>{label}</span>;
+      return <span className={`block max-w-full truncate ${labelClassName}`}>{label}</span>;
     }
 
     return (
-      <span className={`block truncate max-w-[240px] ${labelClassName}`}>
+      <span className={`block max-w-full truncate ${labelClassName}`}>
         {questSummary.before}
         <QuestInlineLink
           questId={questSummary.questId}
@@ -226,7 +255,7 @@ function NotificationPopover({ sessionId, onClose }: { sessionId: string; onClos
   return createPortal(
     <div
       ref={popoverRef}
-      className="fixed bottom-14 right-3 z-50 w-80 max-w-[calc(100vw-1.5rem)] max-h-[50vh] flex flex-col rounded-2xl border border-cc-border bg-cc-card/95 shadow-[0_25px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl overflow-hidden"
+      className="fixed inset-x-3 bottom-14 z-50 flex max-h-[min(60vh,28rem)] flex-col overflow-hidden rounded-2xl border border-cc-border bg-cc-card/95 shadow-[0_25px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl sm:inset-x-auto sm:right-3 sm:w-80 sm:max-w-[calc(100vw-1.5rem)] sm:max-h-[50vh]"
       role="dialog"
       aria-label="Notification inbox"
     >

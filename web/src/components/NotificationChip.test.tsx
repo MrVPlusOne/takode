@@ -145,15 +145,51 @@ describe("NotificationChip", () => {
     fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 review notification" }));
 
     const questLink = screen.getByRole("link", { name: "q-345" });
+    const rowButton = screen.getByRole("button", { name: /q-345: Compress herd events/i });
     expect(questLink).toHaveAttribute("href", "#/?quest=q-345");
+    expect(rowButton).toBeInTheDocument();
+    expect(screen.queryByText(/ready for review/i)).toBeNull();
 
-    fireEvent.click(screen.getByText(/ready for review: Compress herd events/i));
+    fireEvent.click(rowButton);
     expect(mockRequestScrollToMessage).toHaveBeenCalledWith("s1", "msg-123");
     expect(mockSetExpandAllInTurn).toHaveBeenCalledWith("s1", "msg-123");
 
     fireEvent.click(questLink);
     expect(mockOpenQuestOverlay).toHaveBeenCalledWith("q-345");
     expect(mockRequestScrollToMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("compacts multi-quest ready-for-review summaries in the inbox row", () => {
+    setNotifications("s1", [
+      {
+        id: "review-batch-1",
+        category: "review",
+        summary: "2 quests ready for review: q-345, q-346",
+        timestamp: Date.now(),
+        done: false,
+      },
+    ]);
+
+    render(<NotificationChip sessionId="s1" />);
+    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 review notification" }));
+
+    expect(screen.getByText("q-345, q-346")).toBeInTheDocument();
+    expect(screen.queryByText(/2 quests ready for review/i)).toBeNull();
+  });
+
+  it("uses a full-width mobile popover shell while staying height-capped", () => {
+    setNotifications("s1", [
+      { id: "review-1", category: "review", summary: "Needs review", timestamp: Date.now(), done: false },
+    ]);
+
+    render(<NotificationChip sessionId="s1" />);
+    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 review notification" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Notification inbox" });
+    expect(dialog.className).toContain("inset-x-3");
+    expect(dialog.className).toContain("max-h-[min(60vh,28rem)]");
+    expect(dialog.className).toContain("sm:w-80");
+    expect(dialog.className).toContain("sm:max-h-[50vh]");
   });
 
   it("does not show a message preview when hovering a notification row", () => {
@@ -182,7 +218,7 @@ describe("NotificationChip", () => {
 
     render(<NotificationChip sessionId="s1" />);
     fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 review notification" }));
-    fireEvent.mouseEnter(screen.getByRole("button", { name: /q-345 ready for review/i }));
+    fireEvent.mouseEnter(screen.getByRole("button", { name: /^q-345$/i }));
 
     expect(screen.queryByText("Hidden hover preview body")).toBeNull();
     expect(screen.queryByTestId("message-link-hover-card")).toBeNull();

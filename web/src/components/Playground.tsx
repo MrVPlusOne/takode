@@ -3973,7 +3973,7 @@ export function Playground() {
                             {
                               id: "n-1",
                               category: "review" as const,
-                              summary: "Quest q-235 implementation is complete and ready for review",
+                              summary: "q-235 ready for review: Compact notification inbox copy",
                               timestamp: now - 600_000,
                               messageId: "mock-msg-42",
                               done: false,
@@ -4011,8 +4011,9 @@ export function Playground() {
                 <p className="text-[10px] text-cc-muted">
                   Click &quot;Seed notification data&quot; first. Shows a compact per-type pill with separate colored
                   bell counts for active needs-input and review notifications. Click to open the inbox modal with active
-                  notifications (amber = needs-input, green = review) and a collapsible Done section. Each item has a
-                  checkbox and jumps to the anchored message on click.
+                  notifications (amber = needs-input, green = review), compact quest-first review rows, and a
+                  collapsible Done section. On mobile, the modal stretches across the viewport while staying
+                  scrollable and height-capped.
                 </p>
               </div>
             </Card>
