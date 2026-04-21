@@ -224,7 +224,9 @@ function makeQuest(overrides: Partial<QuestmasterTask> & { questId: string; titl
   } as QuestmasterTask;
 }
 
-function makeSdkSession(overrides: Partial<SdkSessionInfo> & { sessionId: string; sessionNum: number }): SdkSessionInfo {
+function makeSdkSession(
+  overrides: Partial<SdkSessionInfo> & { sessionId: string; sessionNum: number },
+): SdkSessionInfo {
   const { sessionId, sessionNum, ...rest } = overrides;
   return {
     sessionId,
@@ -392,10 +394,7 @@ function setupMockStore(
           previewText: string;
         } | null,
       ) => {
-        const replyContexts = mockStoreState.replyContexts as Map<
-          string,
-          { messageId: string; previewText: string }
-        >;
+        const replyContexts = mockStoreState.replyContexts as Map<string, { messageId: string; previewText: string }>;
         if (context) {
           replyContexts.set(sessionId, context);
         } else {
@@ -789,7 +788,10 @@ describe("Composer voice edit mode", () => {
 
   it("waits for the initial settings fetch before the first non-empty recording so the persisted mode wins", async () => {
     setupMockStore({ draftText: "Keep this draft" });
-    const settingsLoad = deferred<{ claudeDefaultModel: string; transcriptionConfig: { voiceCaptureMode: "append" } }>();
+    const settingsLoad = deferred<{
+      claudeDefaultModel: string;
+      transcriptionConfig: { voiceCaptureMode: "append" };
+    }>();
     mockGetSettings.mockReturnValueOnce(settingsLoad.promise);
 
     render(<Composer sessionId="s1" />);
@@ -818,7 +820,10 @@ describe("Composer voice edit mode", () => {
 
   it("ignores repeated pre-hydration mic clicks so only one recording start survives", async () => {
     setupMockStore({ draftText: "Keep this draft" });
-    const settingsLoad = deferred<{ claudeDefaultModel: string; transcriptionConfig: { voiceCaptureMode: "append" } }>();
+    const settingsLoad = deferred<{
+      claudeDefaultModel: string;
+      transcriptionConfig: { voiceCaptureMode: "append" };
+    }>();
     mockGetSettings.mockReturnValueOnce(settingsLoad.promise);
 
     render(<Composer sessionId="s1" />);
@@ -1236,7 +1241,7 @@ describe("Composer sending messages", () => {
         imageRefs: [{ imageId: "img-1", media_type: "image/png" }],
         paths: ["/Users/test/.companion/images/s1/img-1.orig.png"],
         attachmentAnnotation:
-          '\n[📎 Image attachments -- read these files with the Read tool before responding:\nAttachment 1: /Users/test/.companion/images/s1/img-1.orig.png]',
+          "\n[📎 Image attachments -- read these files with the Read tool before responding:\nAttachment 1: /Users/test/.companion/images/s1/img-1.orig.png]",
       });
       await prepared.promise;
     });
@@ -2098,9 +2103,7 @@ describe("Composer quest/session reference autocomplete", () => {
         ["worker-recent", "Recent worker"],
         ["worker-busy", "Busy worker"],
       ]),
-      messages: [
-        makeMessage({ id: "m1", content: "Please sync with [#12](session:12) before merging." }),
-      ],
+      messages: [makeMessage({ id: "m1", content: "Please sync with [#12](session:12) before merging." })],
     });
     const { container } = render(<Composer sessionId="s1" />);
     const textarea = container.querySelector("textarea")! as HTMLTextAreaElement;

@@ -287,9 +287,7 @@ function normalizeHistoryMessages(
   const store = useStore.getState();
   const pendingUploads = store.pendingUserUploads.get(sessionId) ?? [];
   const pendingLocalImagesByClientMsgId = new Map(
-    pendingUploads
-      .filter((upload) => upload.images.length > 0)
-      .map((upload) => [upload.id, upload.images] as const),
+    pendingUploads.filter((upload) => upload.images.length > 0).map((upload) => [upload.id, upload.images] as const),
   );
   const chatMessages: ChatMessage[] = [];
   let frozenCount = 0;

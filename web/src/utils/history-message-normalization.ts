@@ -76,7 +76,9 @@ export function normalizeHistoryMessageToChatMessages(
 
   if (histMsg.type === "user_message") {
     const localImages =
-      typeof histMsg.client_msg_id === "string" ? pendingLocalImagesByClientMsgId?.get(histMsg.client_msg_id) : undefined;
+      typeof histMsg.client_msg_id === "string"
+        ? pendingLocalImagesByClientMsgId?.get(histMsg.client_msg_id)
+        : undefined;
     return [
       {
         id: histMsg.id || `hist-user-${historyIndex}`,

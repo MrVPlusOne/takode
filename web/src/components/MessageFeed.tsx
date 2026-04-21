@@ -337,7 +337,7 @@ export function ElapsedTimer({
     ? "Session may be stuck"
     : streamingPauseStartedAt
       ? "Napping..."
-      : preStreamImageLabel ?? "Purring...";
+      : (preStreamImageLabel ?? "Purring...");
   const dotColor = isStuck
     ? "text-amber-400"
     : streamingPauseStartedAt
@@ -460,13 +460,7 @@ function FeedStatusPill({
   );
 }
 
-function PendingCodexInputList({
-  sessionId,
-  inputs,
-}: {
-  sessionId: string;
-  inputs: PendingCodexInput[];
-}) {
+function PendingCodexInputList({ sessionId, inputs }: { sessionId: string; inputs: PendingCodexInput[] }) {
   if (inputs.length === 0) return null;
 
   return (
@@ -514,13 +508,7 @@ function PendingCodexInputList({
   );
 }
 
-function PendingUserUploadList({
-  sessionId,
-  uploads,
-}: {
-  sessionId: string;
-  uploads: PendingUserUpload[];
-}) {
+function PendingUserUploadList({ sessionId, uploads }: { sessionId: string; uploads: PendingUserUpload[] }) {
   if (uploads.length === 0) return null;
 
   return (
@@ -538,7 +526,8 @@ function PendingUserUploadList({
             timestamp: upload.timestamp,
             ...(upload.vscodeSelection ? { metadata: { vscodeSelection: upload.vscodeSelection } } : {}),
             ephemeral: true,
-            pendingState: upload.stage === "uploading" ? "uploading" : upload.stage === "delivering" ? "delivering" : "failed",
+            pendingState:
+              upload.stage === "uploading" ? "uploading" : upload.stage === "delivering" ? "delivering" : "failed",
             pendingError: upload.error,
             clientMsgId: upload.id,
           };
@@ -3945,16 +3934,10 @@ export function MessageFeed({
                   </div>
                 )}
                 {pendingUserUploads.length > 0 && (
-                  <PendingUserUploadList
-                    sessionId={sessionId}
-                    uploads={pendingUserUploads}
-                  />
+                  <PendingUserUploadList sessionId={sessionId} uploads={pendingUserUploads} />
                 )}
                 {isCodexSession && (pendingCodexInputs.length > 0 || codexImageSendStage) && (
-                  <PendingCodexInputList
-                    sessionId={sessionId}
-                    inputs={pendingCodexInputs}
-                  />
+                  <PendingCodexInputList sessionId={sessionId} inputs={pendingCodexInputs} />
                 )}
                 <FeedFooter sessionId={sessionId} />
                 <div

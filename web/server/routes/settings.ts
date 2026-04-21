@@ -132,10 +132,10 @@ export function createSettingsRoutes(ctx: RouteContext) {
   }
 
   function normalizePushoverEventFilters(filters: unknown): PushoverEventFilters {
-    const raw = filters && typeof filters === "object" && !Array.isArray(filters) ? (filters as Record<string, unknown>) : {};
+    const raw =
+      filters && typeof filters === "object" && !Array.isArray(filters) ? (filters as Record<string, unknown>) : {};
     return {
-      needsInput:
-        typeof raw.needsInput === "boolean" ? raw.needsInput : DEFAULT_PUSHOVER_EVENT_FILTERS.needsInput,
+      needsInput: typeof raw.needsInput === "boolean" ? raw.needsInput : DEFAULT_PUSHOVER_EVENT_FILTERS.needsInput,
       review: typeof raw.review === "boolean" ? raw.review : DEFAULT_PUSHOVER_EVENT_FILTERS.review,
       error: typeof raw.error === "boolean" ? raw.error : DEFAULT_PUSHOVER_EVENT_FILTERS.error,
     };

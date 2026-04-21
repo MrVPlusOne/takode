@@ -40,7 +40,10 @@ import type {
   QuestmasterTask,
   SdkSessionInfo,
 } from "../types.js";
-import { clearPendingUserUploadController, registerPendingUserUploadController } from "../pending-user-upload-manager.js";
+import {
+  clearPendingUserUploadController,
+  registerPendingUserUploadController,
+} from "../pending-user-upload-manager.js";
 
 const EMPTY_STRING_ARRAY: string[] = [];
 const EMPTY_SKILL_REFERENCES: CodexSkillReference[] = [];

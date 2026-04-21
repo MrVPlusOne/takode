@@ -429,7 +429,10 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
     void (async () => {
       const results = await Promise.all(
         toFetch.map((abs) =>
-          withTimeout(api.getFileDiff(abs, effectiveBranch, { includeContents: true, sessionId }), DIFF_REQUEST_TIMEOUT_MS)
+          withTimeout(
+            api.getFileDiff(abs, effectiveBranch, { includeContents: true, sessionId }),
+            DIFF_REQUEST_TIMEOUT_MS,
+          )
             .then((res) => ({
               abs,
               diff: res.diff,

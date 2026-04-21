@@ -20,12 +20,7 @@
  * state that survives any CLI disconnect/reconnect cycle.
  */
 
-import type {
-  TakodeEvent,
-  TakodeEventType,
-  BrowserIncomingMessage,
-  TakodeHerdBatchSnapshot,
-} from "./session-types.js";
+import type { TakodeEvent, TakodeEventType, BrowserIncomingMessage, TakodeHerdBatchSnapshot } from "./session-types.js";
 import { formatActivitySummaryDetailed } from "./herd-activity-formatter.js";
 
 // ─── Interfaces (for testability — avoids importing full WsBridge/CliLauncher) ──
@@ -511,7 +506,9 @@ export class HerdEventDispatcher {
         return this.wsBridge.getBoardStallSignature(orchId, entry.event.data.questId) === entry.event.data.signature;
       }
       if (!this.wsBridge.getBoardDispatchableSignature || !entry.event.data.signature) return true;
-      return this.wsBridge.getBoardDispatchableSignature(orchId, entry.event.data.questId) === entry.event.data.signature;
+      return (
+        this.wsBridge.getBoardDispatchableSignature(orchId, entry.event.data.questId) === entry.event.data.signature
+      );
     });
   }
 

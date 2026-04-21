@@ -4459,7 +4459,9 @@ describe("POST /api/sessions/:id/images/prepare-user-message", () => {
     const json = await res.json();
     expect(json.imageRefs).toEqual([{ imageId: "img-1", media_type: "image/png" }]);
     expect(json.paths).toEqual([join(homedir(), ".companion", "images", sid, "img-1.orig.png")]);
-    expect(json.attachmentAnnotation).toContain(`Attachment 1: ${join(homedir(), ".companion", "images", sid, "img-1.orig.png")}`);
+    expect(json.attachmentAnnotation).toContain(
+      `Attachment 1: ${join(homedir(), ".companion", "images", sid, "img-1.orig.png")}`,
+    );
   });
 });
 
@@ -5428,7 +5430,9 @@ describe("buildOrchestratorSystemPrompt", () => {
     expect(prompt).toContain("takode-orchestration");
     expect(prompt).toContain("quest");
     expect(prompt).toContain("wait for the user's instructions");
-    expect(prompt).toContain("Use the orchestration instructions already loaded in this session as your source of truth");
+    expect(prompt).toContain(
+      "Use the orchestration instructions already loaded in this session as your source of truth",
+    );
     expect(prompt).toContain("repo-local docs still mention deprecated leader reply tags");
     // These were moved to system prompt and should NOT appear in user message
     expect(prompt).not.toContain("Delegation principle");
@@ -8187,7 +8191,14 @@ describe("Takode server-authoritative auth", () => {
     bridge.getSession.mockReturnValue({
       pendingPermissions: new Map(),
       notifications: [
-        { id: "n-1", category: "needs-input", summary: "Need decision on rollout", timestamp: 1000, messageId: "asst-1", done: false },
+        {
+          id: "n-1",
+          category: "needs-input",
+          summary: "Need decision on rollout",
+          timestamp: 1000,
+          messageId: "asst-1",
+          done: false,
+        },
       ],
       messageHistory: [{ type: "assistant", message: { id: "asst-1" } }],
     });
@@ -8218,7 +8229,14 @@ describe("Takode server-authoritative auth", () => {
     bridge.getSession.mockReturnValue({
       pendingPermissions: new Map(),
       notifications: [
-        { id: "n-1", category: "needs-input", summary: "Need decision on rollout", timestamp: 1000, messageId: "asst-1", done: false },
+        {
+          id: "n-1",
+          category: "needs-input",
+          summary: "Need decision on rollout",
+          timestamp: 1000,
+          messageId: "asst-1",
+          done: false,
+        },
       ],
       messageHistory: [{ type: "assistant", message: { id: "asst-1" } }],
     });
@@ -8255,12 +8273,21 @@ describe("Takode server-authoritative auth", () => {
             request_id: "req-1",
             tool_name: "AskUserQuestion",
             timestamp: 1000,
-            input: { questions: [{ question: "Which rollout?", options: [{ label: "Staged" }, { label: "Immediate" }] }] },
+            input: {
+              questions: [{ question: "Which rollout?", options: [{ label: "Staged" }, { label: "Immediate" }] }],
+            },
           },
         ],
       ]),
       notifications: [
-        { id: "n-1", category: "needs-input", summary: "Need decision on logging", timestamp: 1100, messageId: "asst-2", done: false },
+        {
+          id: "n-1",
+          category: "needs-input",
+          summary: "Need decision on logging",
+          timestamp: 1100,
+          messageId: "asst-2",
+          done: false,
+        },
       ],
       messageHistory: [
         { type: "permission_request", request: { request_id: "req-1" } },
@@ -8292,7 +8319,9 @@ describe("Takode server-authoritative auth", () => {
             request_id: "req-older",
             tool_name: "AskUserQuestion",
             timestamp: 1000,
-            input: { questions: [{ question: "Which rollout?", options: [{ label: "Staged" }, { label: "Immediate" }] }] },
+            input: {
+              questions: [{ question: "Which rollout?", options: [{ label: "Staged" }, { label: "Immediate" }] }],
+            },
           },
         ],
         [
@@ -8301,7 +8330,9 @@ describe("Takode server-authoritative auth", () => {
             request_id: "req-target",
             tool_name: "AskUserQuestion",
             timestamp: 1100,
-            input: { questions: [{ question: "Which logger?", options: [{ label: "Structured" }, { label: "Plain" }] }] },
+            input: {
+              questions: [{ question: "Which logger?", options: [{ label: "Structured" }, { label: "Plain" }] }],
+            },
           },
         ],
       ]),

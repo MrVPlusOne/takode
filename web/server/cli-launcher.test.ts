@@ -19,13 +19,10 @@ vi.mock("node:crypto", async (importOriginal) => {
 const mockExec = vi.hoisted(() =>
   vi.fn((_cmd: string, _opts: any, cb: any) => {
     if (_cmd.includes("git --no-optional-locks ls-files --error-unmatch --")) {
-      const err = Object.assign(
-        new Error("Command failed: git ls-files"),
-        {
-          code: 1,
-          stderr: "error: pathspec '.claude/settings.json' did not match any file(s) known to git",
-        },
-      );
+      const err = Object.assign(new Error("Command failed: git ls-files"), {
+        code: 1,
+        stderr: "error: pathspec '.claude/settings.json' did not match any file(s) known to git",
+      });
       if (typeof _opts === "function") {
         _opts(err, "", "");
         return;
@@ -2028,7 +2025,9 @@ describe("session identity injection", () => {
     expect(sysPromptIdx).toBeGreaterThan(-1);
     const sysPrompt = String(cmdAndArgs[sysPromptIdx + 1] ?? "");
 
-    expect(sysPrompt).toContain("If a user message includes image attachments, read every attached image before you respond.");
+    expect(sysPrompt).toContain(
+      "If a user message includes image attachments, read every attached image before you respond.",
+    );
     expect(sysPrompt).toContain("Make that your first step for that turn.");
     expect(sysPrompt).toContain("Only resize when the Read tool fails due to oversized dimensions.");
   });

@@ -50,9 +50,7 @@ function questRecencyTs(quest: QuestmasterTask): number {
   return (quest as { updatedAt?: number }).updatedAt ?? quest.createdAt;
 }
 
-function classifyQuestSearchToken(
-  token: string,
-): { kind: "positiveTag" | "negatedTag" | "text"; value: string } {
+function classifyQuestSearchToken(token: string): { kind: "positiveTag" | "negatedTag" | "text"; value: string } {
   const negatedMatch = token.match(/^(?:!#|-#)([^\s#]*)$/);
   if (negatedMatch) return { kind: "negatedTag", value: negatedMatch[1].toLowerCase() };
   const positiveMatch = token.match(/^#([^\s#]*)$/);
@@ -1345,8 +1343,10 @@ const QuestCard = memo(function QuestCard({
   const vProgress = hasVerification ? verificationProgress(quest.verificationItems) : null;
   const questSessionId = getQuestOwnerSessionId(quest);
   const feedbackEntries = "feedback" in quest ? (quest as { feedback?: QuestFeedbackEntry[] }).feedback : undefined;
-  const unaddressedFeedbackCount = feedbackEntries?.filter((entry) => entry.author === "human" && !entry.addressed).length ?? 0;
-  const addressedFeedbackCount = feedbackEntries?.filter((entry) => entry.author === "human" && entry.addressed).length ?? 0;
+  const unaddressedFeedbackCount =
+    feedbackEntries?.filter((entry) => entry.author === "human" && !entry.addressed).length ?? 0;
+  const addressedFeedbackCount =
+    feedbackEntries?.filter((entry) => entry.author === "human" && entry.addressed).length ?? 0;
 
   return (
     <div>
@@ -1508,7 +1508,8 @@ const CompactQuestRow = memo(function CompactQuestRow({
   const hasVerification = "verificationItems" in quest && quest.verificationItems?.length > 0;
   const vProgress = hasVerification ? verificationProgress(quest.verificationItems) : null;
   const feedbackEntries = "feedback" in quest ? (quest as { feedback?: QuestFeedbackEntry[] }).feedback : undefined;
-  const unaddressedFeedbackCount = feedbackEntries?.filter((entry) => entry.author === "human" && !entry.addressed).length ?? 0;
+  const unaddressedFeedbackCount =
+    feedbackEntries?.filter((entry) => entry.author === "human" && !entry.addressed).length ?? 0;
   const totalFeedbackCount = feedbackEntries?.filter((entry) => entry.author === "human").length ?? 0;
   const isInboxVerification = isVerificationInboxUnread(quest);
 
@@ -1540,7 +1541,9 @@ const CompactQuestRow = memo(function CompactQuestRow({
         </CopyableQuestId>
       </td>
       <td className="px-3 py-1.5 align-middle">
-        <div className={`max-w-[360px] truncate font-medium ${isCancelled ? "text-cc-muted line-through" : "text-cc-fg"}`}>
+        <div
+          className={`max-w-[360px] truncate font-medium ${isCancelled ? "text-cc-muted line-through" : "text-cc-fg"}`}
+        >
           {renderSearchHighlightText(quest.title, searchText)}
         </div>
         {quest.tags && quest.tags.length > 0 && (
@@ -1554,7 +1557,11 @@ const CompactQuestRow = memo(function CompactQuestRow({
         )}
       </td>
       <td className="px-3 py-1.5 whitespace-nowrap align-middle">
-        {questSessionId ? <SessionNumChip sessionId={questSessionId} /> : <span className="text-cc-muted">{"\u2014"}</span>}
+        {questSessionId ? (
+          <SessionNumChip sessionId={questSessionId} />
+        ) : (
+          <span className="text-cc-muted">{"\u2014"}</span>
+        )}
       </td>
       <td className="px-3 py-1.5 whitespace-nowrap align-middle">
         <span className="inline-flex items-center gap-1.5 text-cc-muted">

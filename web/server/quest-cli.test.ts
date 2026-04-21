@@ -47,7 +47,9 @@ async function runQuest(
     // Keep Bun's package cache on the real home directory even when tests
     // override HOME to isolate the quest store under a temp directory.
     BUN_INSTALL_CACHE_DIR:
-      env.BUN_INSTALL_CACHE_DIR || process.env.BUN_INSTALL_CACHE_DIR || join(process.env.HOME || "", ".bun/install/cache"),
+      env.BUN_INSTALL_CACHE_DIR ||
+      process.env.BUN_INSTALL_CACHE_DIR ||
+      join(process.env.HOME || "", ".bun/install/cache"),
   };
   const child = spawn(process.execPath, [questPath, ...args], {
     env: childEnv,
@@ -785,9 +787,12 @@ describe("quest CLI completion reminder", () => {
   });
 
   it("rejects combining --no-code with commit metadata", async () => {
-    const result = await runQuest(["complete", "q-1", "--items", "Review artifact", "--no-code", "--commit", "abc1234"], {
-      ...process.env,
-    });
+    const result = await runQuest(
+      ["complete", "q-1", "--items", "Review artifact", "--no-code", "--commit", "abc1234"],
+      {
+        ...process.env,
+      },
+    );
 
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain("--no-code cannot be combined with --commit/--commits");

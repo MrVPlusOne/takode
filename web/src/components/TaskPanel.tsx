@@ -975,24 +975,23 @@ export function HerdDiagnosticsSection({ sessionId }: { sessionId: string }) {
 }
 
 export function TaskPanel({ sessionId }: { sessionId: string }) {
-  const { tasks, taskPanelOpen, setTaskPanelOpen, backendType, cwd, repoRoot, isLeaderSession, hasSession } =
-    useStore(
-      useShallow((s) => {
-        const session = s.sessions.get(sessionId);
-        const sdkSession = s.sdkSessions.find((x) => x.sessionId === sessionId);
-        const sessionVm = coalesceSessionViewModel(session, sdkSession);
-        return {
-          tasks: s.sessionTasks.get(sessionId) || EMPTY_TASKS,
-          taskPanelOpen: s.taskPanelOpen,
-          setTaskPanelOpen: s.setTaskPanelOpen,
-          backendType: sessionVm?.backendType ?? null,
-          cwd: sessionVm?.cwd ?? null,
-          repoRoot: sessionVm?.repoRoot,
-          isLeaderSession: sdkSession?.isOrchestrator === true,
-          hasSession: !!session,
-        };
-      }),
-    );
+  const { tasks, taskPanelOpen, setTaskPanelOpen, backendType, cwd, repoRoot, isLeaderSession, hasSession } = useStore(
+    useShallow((s) => {
+      const session = s.sessions.get(sessionId);
+      const sdkSession = s.sdkSessions.find((x) => x.sessionId === sessionId);
+      const sessionVm = coalesceSessionViewModel(session, sdkSession);
+      return {
+        tasks: s.sessionTasks.get(sessionId) || EMPTY_TASKS,
+        taskPanelOpen: s.taskPanelOpen,
+        setTaskPanelOpen: s.setTaskPanelOpen,
+        backendType: sessionVm?.backendType ?? null,
+        cwd: sessionVm?.cwd ?? null,
+        repoRoot: sessionVm?.repoRoot,
+        isLeaderSession: sdkSession?.isOrchestrator === true,
+        hasSession: !!session,
+      };
+    }),
+  );
 
   if (!taskPanelOpen) return null;
 

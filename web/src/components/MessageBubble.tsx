@@ -450,7 +450,10 @@ function TimerMessage({
   showTimestamp: boolean;
   searchHighlight?: SearchHighlightInfo;
 }) {
-  const { title, description, timerId, kind } = useMemo(() => parseTimerMessageContent(message.content), [message.content]);
+  const { title, description, timerId, kind } = useMemo(
+    () => parseTimerMessageContent(message.content),
+    [message.content],
+  );
   const [expanded, setExpanded] = useState(false);
   const hasDescription = description.length > 0;
   const timerLabel = timerId ?? message.agentSource?.sessionLabel ?? "timer";

@@ -596,7 +596,9 @@ describe("MessageBubble - timer messages", () => {
     });
 
     try {
-      const { container } = render(<MessageBubble message={msg} sessionId="timer-search-session" showTimestamp={false} />);
+      const { container } = render(
+        <MessageBubble message={msg} sessionId="timer-search-session" showTimestamp={false} />,
+      );
 
       fireEvent.click(screen.getByRole("button", { name: "Expand timer description" }));
 
@@ -629,7 +631,9 @@ describe("MessageBubble - timer messages", () => {
     });
 
     try {
-      const { container } = render(<MessageBubble message={msg} sessionId="timer-search-session" showTimestamp={false} />);
+      const { container } = render(
+        <MessageBubble message={msg} sessionId="timer-search-session" showTimestamp={false} />,
+      );
 
       const marks = Array.from(container.querySelectorAll("mark")).map((node) => node.textContent);
       expect(marks).toContain("t2");
@@ -659,7 +663,9 @@ describe("MessageBubble - timer messages", () => {
     });
 
     try {
-      const { container } = render(<MessageBubble message={msg} sessionId="timer-search-session" showTimestamp={false} />);
+      const { container } = render(
+        <MessageBubble message={msg} sessionId="timer-search-session" showTimestamp={false} />,
+      );
 
       const marks = Array.from(container.querySelectorAll("mark")).map((node) => node.textContent);
       expect(marks).toContain("Timer t2");

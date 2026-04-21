@@ -68,7 +68,9 @@ describe("MarkdownContent line breaks", () => {
     expect(firstNestedList).toBeTruthy();
     expect(secondNestedList).toBeTruthy();
     expect(Array.from(markdownRoot?.children ?? []).filter((child) => child.tagName === "UL")).toHaveLength(0);
-    expect(firstNestedList?.textContent).toContain("usually because of server restart or the idle manager killing the CLI process");
+    expect(firstNestedList?.textContent).toContain(
+      "usually because of server restart or the idle manager killing the CLI process",
+    );
     expect(secondNestedList?.textContent).toContain(
       "q-427 stalled because the worker had already finished its investigation turn, but I had not advanced it into review",
     );

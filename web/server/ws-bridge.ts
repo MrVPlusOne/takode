@@ -1523,8 +1523,7 @@ export class WsBridge {
     // Keep the quest-owned title stable through the review handoff so
     // completed quest sessions retain their checkbox-prefixed names until
     // the claim is fully cleared.
-    const isQuestActive =
-      !!quest?.title && (quest?.status === "in_progress" || quest?.status === "needs_verification");
+    const isQuestActive = !!quest?.title && (quest?.status === "in_progress" || quest?.status === "needs_verification");
     const isOrchestrator = this.launcher?.getSession(sessionId)?.isOrchestrator === true;
     if (isQuestActive && !isOrchestrator && this.onSessionNamedByQuest) {
       this.onSessionNamedByQuest(sessionId, quest.title);
@@ -2776,8 +2775,8 @@ export class WsBridge {
         keywords: [],
         board: new Map(),
         completedBoard: new Map(),
-          boardStallStates: new Map(),
-          boardDispatchStates: new Map(),
+        boardStallStates: new Map(),
+        boardDispatchStates: new Map(),
         notifications: [],
         notificationCounter: 0,
         diffStatsDirty: true,
@@ -3260,7 +3259,7 @@ export class WsBridge {
     const anchoredAssistant =
       lastTopLevelAssistant ??
       (session.messageHistory.findLast(
-      (m) => m.type === "assistant" && (m as { parent_tool_use_id?: string | null }).parent_tool_use_id == null,
+        (m) => m.type === "assistant" && (m as { parent_tool_use_id?: string | null }).parent_tool_use_id == null,
       ) as (BrowserIncomingMessage & { type: "assistant"; message: { id: string } }) | undefined);
     const anchoredAssistantIndex =
       lastTopLevelAssistant && lastAssistantIndex !== undefined
@@ -3612,7 +3611,9 @@ export class WsBridge {
     hasActiveTimer: boolean;
   } {
     if (!sessionId) return { status: "missing", lastActivityAt: 0, hasActiveTimer: false };
-    const launcherInfo = this.launcher?.getSession?.(sessionId) as { archived?: boolean; lastActivityAt?: number } | undefined;
+    const launcherInfo = this.launcher?.getSession?.(sessionId) as
+      | { archived?: boolean; lastActivityAt?: number }
+      | undefined;
     if (launcherInfo?.archived) {
       return { status: "missing", lastActivityAt: launcherInfo.lastActivityAt ?? 0, hasActiveTimer: false };
     }
@@ -3620,7 +3621,11 @@ export class WsBridge {
     const session = this.sessions.get(sessionId);
     const hasActiveTimer = (this.timerManager?.listTimers(sessionId).length ?? 0) > 0;
     if (!session || !this.backendConnected(session)) {
-      return { status: launcherInfo ? "disconnected" : "missing", lastActivityAt: launcherInfo?.lastActivityAt ?? 0, hasActiveTimer };
+      return {
+        status: launcherInfo ? "disconnected" : "missing",
+        lastActivityAt: launcherInfo?.lastActivityAt ?? 0,
+        hasActiveTimer,
+      };
     }
     if (session.isGenerating || session.pendingPermissions.size > 0) {
       return { status: "running", lastActivityAt: launcherInfo?.lastActivityAt ?? 0, hasActiveTimer };
@@ -3719,7 +3724,10 @@ export class WsBridge {
     if (actionableDeps.length === 0) return null;
 
     return {
-      signature: `${row.questId}|dispatchable|${actionableDeps.map((dep) => dep.toLowerCase()).sort().join(",")}`,
+      signature: `${row.questId}|dispatchable|${actionableDeps
+        .map((dep) => dep.toLowerCase())
+        .sort()
+        .join(",")}`,
       questId: row.questId,
       title: row.title?.trim() || undefined,
       summary: warning.summary,
@@ -4388,10 +4396,7 @@ export class WsBridge {
       this.launcher?.touchActivity(session.id);
       session.lastCliMessageAt = Date.now();
       this.clearOptimisticRunningTimer(session, `codex_output:${msg.type}`);
-      if (
-        session.state.codex_image_send_stage &&
-        (msg.type === "stream_event" || msg.type === "assistant")
-      ) {
+      if (session.state.codex_image_send_stage && (msg.type === "stream_event" || msg.type === "assistant")) {
         this.setCodexImageSendStage(session, "responding", { persist: false });
       }
       let outgoing: BrowserIncomingMessage | null = msg;
@@ -6111,7 +6116,12 @@ export class WsBridge {
     // handleBrowserOpen — neither of which run for REST-injected messages.
     if (!backendLive && this.onCLIRelaunchNeeded) {
       const launcherInfo = this.launcher?.getSession(sessionId);
-      if (session.backendType !== "codex" && launcherInfo && launcherInfo.state === "exited" && session.state.backend_state !== "broken") {
+      if (
+        session.backendType !== "codex" &&
+        launcherInfo &&
+        launcherInfo.state === "exited" &&
+        session.state.backend_state !== "broken"
+      ) {
         // Clear killedByIdleManager so the relaunch callback proceeds.
         // Sending a message is an explicit intent to wake the session,
         // matching how wakeIdleKilledSession() works for herd events.
@@ -6199,7 +6209,9 @@ export class WsBridge {
     this.broadcastPendingCodexInputs(session);
     this.rebuildQueuedCodexPendingStartBatch(session);
     this.persistSession(session);
-    console.log(`[ws-bridge] Pruned stale queued board_stalled herd input(s) for session ${sessionTag(session.id)} (${reason})`);
+    console.log(
+      `[ws-bridge] Pruned stale queued board_stalled herd input(s) for session ${sessionTag(session.id)} (${reason})`,
+    );
     return true;
   }
 
@@ -9105,7 +9117,9 @@ export class WsBridge {
             this.rebuildQueuedCodexPendingStartBatch(session);
           }
         } else {
-          const effectiveWasGenerating = preMarkedImageRunning ? wasGeneratingBeforeUserMessage : !!ingested?.wasGenerating;
+          const effectiveWasGenerating = preMarkedImageRunning
+            ? wasGeneratingBeforeUserMessage
+            : !!ingested?.wasGenerating;
           if (session.codexAdapter && effectiveWasGenerating && session.isGenerating) {
             // Async image ingest can finish after Codex has already dropped the
             // active turn ID but before the old turn has fully settled. Keep a
@@ -11262,7 +11276,8 @@ export class WsBridge {
       }
       rebuiltEntries.push({
         reason: nextEntries[nextEntryIdx]?.reason ?? "queued_user_message",
-        userMessageIds: nextEntries[nextEntryIdx]?.userMessageIds ?? (turn.historyIndex >= 0 ? [turn.historyIndex] : []),
+        userMessageIds:
+          nextEntries[nextEntryIdx]?.userMessageIds ?? (turn.historyIndex >= 0 ? [turn.historyIndex] : []),
         interruptSource: nextEntries[nextEntryIdx]?.interruptSource ?? null,
       });
       nextEntryIdx += 1;

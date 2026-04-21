@@ -310,9 +310,9 @@ describe("visibility reconnect", () => {
   });
 
   it("reconnects the current session when resume finds a closed socket still tracked", () => {
-    useStore.getState().setSdkSessions([
-      { sessionId: "s1", cwd: "/tmp/s1", createdAt: Date.now(), archived: false, state: "exited" },
-    ]);
+    useStore
+      .getState()
+      .setSdkSessions([{ sessionId: "s1", cwd: "/tmp/s1", createdAt: Date.now(), archived: false, state: "exited" }]);
     useStore.getState().setCurrentSession("s1");
     wsModule.connectSession("s1");
     lastWs.readyState = MockWebSocket.CLOSED;
@@ -335,9 +335,11 @@ describe("visibility reconnect", () => {
       get: () => visibilityState,
     });
 
-    useStore.getState().setSdkSessions([
-      { sessionId: "s1", cwd: "/tmp/s1", createdAt: Date.now(), archived: false, state: "connected" },
-    ]);
+    useStore
+      .getState()
+      .setSdkSessions([
+        { sessionId: "s1", cwd: "/tmp/s1", createdAt: Date.now(), archived: false, state: "connected" },
+      ]);
     useStore.getState().setCurrentSession("s1");
     wsModule.connectSession("s1");
     const firstSocket = lastWs;
@@ -362,9 +364,11 @@ describe("visibility reconnect", () => {
       get: () => visibilityState,
     });
 
-    useStore.getState().setSdkSessions([
-      { sessionId: "s1", cwd: "/tmp/s1", createdAt: Date.now(), archived: false, state: "connected" },
-    ]);
+    useStore
+      .getState()
+      .setSdkSessions([
+        { sessionId: "s1", cwd: "/tmp/s1", createdAt: Date.now(), archived: false, state: "connected" },
+      ]);
     useStore.getState().setCurrentSession("s1");
     wsModule.connectSession("s1");
     const firstSocket = lastWs;

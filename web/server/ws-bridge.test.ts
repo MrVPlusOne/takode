@@ -947,7 +947,10 @@ describe("CLI handlers", () => {
     dispatcher.setupForOrchestrator(leaderId);
 
     const session = bridge.getOrCreateSession(leaderId);
-    session.messageHistory.push({ type: "assistant", message: { id: "prev-msg", role: "assistant", content: [] } } as any);
+    session.messageHistory.push({
+      type: "assistant",
+      message: { id: "prev-msg", role: "assistant", content: [] },
+    } as any);
 
     const leaderCli = makeCliSocket(leaderId);
     bridge.handleCLIOpen(leaderCli, leaderId);
@@ -8383,7 +8386,9 @@ describe("Compaction recovery prompts", () => {
       (entry: any) =>
         entry.type === "user_message" &&
         typeof entry.content === "string" &&
-        entry.content.includes("Context was compacted. Before continuing, recover enough context to safely resume orchestration:") &&
+        entry.content.includes(
+          "Context was compacted. Before continuing, recover enough context to safely resume orchestration:",
+        ) &&
         entry.agentSource?.sessionId === "system" &&
         entry.agentSource?.sessionLabel === "System",
     );
@@ -8418,7 +8423,9 @@ describe("Compaction recovery prompts", () => {
       (entry: any) =>
         entry.type === "user_message" &&
         typeof entry.content === "string" &&
-        entry.content.includes("Context was compacted. Before continuing, recover enough context to safely resume orchestration:") &&
+        entry.content.includes(
+          "Context was compacted. Before continuing, recover enough context to safely resume orchestration:",
+        ) &&
         entry.agentSource?.sessionId === "system" &&
         entry.agentSource?.sessionLabel === "System",
     );
@@ -11457,9 +11464,7 @@ describe("Codex adapter result handling", () => {
     expect(
       calls.find(
         (c: any) =>
-          c.type === "session_name_update" &&
-          c.name === "Fix Codex quest lifecycle chips" &&
-          c.source === "quest",
+          c.type === "session_name_update" && c.name === "Fix Codex quest lifecycle chips" && c.source === "quest",
       ),
     ).toBeDefined();
 
@@ -16569,7 +16574,9 @@ describe("Codex image transport", () => {
 
     const sentMsg = adapter.sendBrowserMessage.mock.calls[0]?.[0] as any;
     expect(sentMsg.type).toBe("codex_start_pending");
-    expect(sentMsg.inputs[0]?.content).toContain(`Attachment 1: ${join(homedir(), ".companion", "images", "s1", "img-1.orig.png")}`);
+    expect(sentMsg.inputs[0]?.content).toContain(
+      `Attachment 1: ${join(homedir(), ".companion", "images", "s1", "img-1.orig.png")}`,
+    );
     expect(sentMsg.images).toBeUndefined();
 
     const session = bridge.getSession("s1")!;
@@ -16690,7 +16697,9 @@ describe("Codex image transport", () => {
     const calls = browser.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
     expect(calls.find((m: any) => m.type === "status_change" && m.status === "running")).toBeDefined();
     expect(calls.find((m: any) => m.type === "status_change" && m.status === "idle")).toBeDefined();
-    expect(calls.find((m: any) => m.type === "error" && String(m.message).includes("Image failed to send"))).toBeDefined();
+    expect(
+      calls.find((m: any) => m.type === "error" && String(m.message).includes("Image failed to send")),
+    ).toBeDefined();
     expect(bridge.getSession("s1")!.isGenerating).toBe(false);
     expect(adapter.sendBrowserMessage).not.toHaveBeenCalled();
   });
@@ -16700,10 +16709,7 @@ describe("Codex image transport", () => {
     const firstImageGate = deferred<{ imageId: string; media_type: string }>();
     const secondImageGate = deferred<{ imageId: string; media_type: string }>();
     const mockImageStore = {
-      store: vi
-        .fn()
-        .mockReturnValueOnce(firstImageGate.promise)
-        .mockReturnValueOnce(secondImageGate.promise),
+      store: vi.fn().mockReturnValueOnce(firstImageGate.promise).mockReturnValueOnce(secondImageGate.promise),
     };
     bridge.setImageStore(mockImageStore as any);
     bridge.attachCodexAdapter("s1", adapter as any);
@@ -17692,7 +17698,9 @@ describe("Claude SDK adapter queue handoff", () => {
     );
 
     expect(delivered).toHaveLength(1);
-    expect(delivered[0].content).toMatch(/^\[Leader #22 Leader (?:\w{3}, \w{3} \d{1,2} )?\d{1,2}:\d{2}\s*[AP]M\] do the task$/);
+    expect(delivered[0].content).toMatch(
+      /^\[Leader #22 Leader (?:\w{3}, \w{3} \d{1,2} )?\d{1,2}:\d{2}\s*[AP]M\] do the task$/,
+    );
   });
 });
 // These are private static methods — access via `any` cast for testing.
@@ -21937,7 +21945,9 @@ describe("board stall warnings", () => {
     vi.advanceTimersByTime(31_000);
     await Promise.resolve();
 
-    const dispatchNotif = leaderSession.notifications.find((notif: any) => notif.summary.includes("q-2 can be dispatched now"));
+    const dispatchNotif = leaderSession.notifications.find((notif: any) =>
+      notif.summary.includes("q-2 can be dispatched now"),
+    );
     expect(dispatchNotif?.done).toBe(false);
     expect(leaderSession.attentionReason).toBe("action");
 
@@ -21985,7 +21995,9 @@ describe("board stall warnings", () => {
     vi.advanceTimersByTime(31_000);
     await Promise.resolve();
 
-    expect(leaderSession.notifications.some((notif: any) => notif.summary.includes("q-3 can be dispatched now"))).toBe(true);
+    expect(leaderSession.notifications.some((notif: any) => notif.summary.includes("q-3 can be dispatched now"))).toBe(
+      true,
+    );
     const herdCalls = injectSpy.mock.calls.filter(
       ([sessionId, content, source]) =>
         sessionId === leaderId && source?.sessionId === "herd-events" && String(content).includes("q-3"),
@@ -22022,7 +22034,9 @@ describe("board stall warnings", () => {
     vi.advanceTimersByTime(31_000);
     await Promise.resolve();
 
-    const dispatchNotif = leaderSession.notifications.find((notif: any) => notif.summary.includes("q-4 can be dispatched now"));
+    const dispatchNotif = leaderSession.notifications.find((notif: any) =>
+      notif.summary.includes("q-4 can be dispatched now"),
+    );
     expect(dispatchNotif?.done).toBe(false);
     expect(leaderSession.attentionReason).toBe("action");
 
@@ -22464,7 +22478,9 @@ describe("SDK resume stall: cliResuming guards (q-220)", () => {
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     expect(calls.filter((m: any) => m.type === "compact_boundary")).toHaveLength(1);
-    expect(calls).toContainEqual(expect.objectContaining({ type: "compact_summary", summary: "Compaction summary after replay" }));
+    expect(calls).toContainEqual(
+      expect.objectContaining({ type: "compact_summary", summary: "Compaction summary after replay" }),
+    );
 
     vi.clearAllTimers();
     vi.useRealTimers();

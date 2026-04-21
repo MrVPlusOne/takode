@@ -2393,7 +2393,9 @@ export class CliLauncher {
     const text = `${stderr}\n${message}`.toLowerCase();
     return (
       gitError.code === 1 &&
-      (text.includes("did not match any file(s) known to git") || text.includes("pathspec") || text.includes("error: pathspec"))
+      (text.includes("did not match any file(s) known to git") ||
+        text.includes("pathspec") ||
+        text.includes("error: pathspec"))
     );
   }
 

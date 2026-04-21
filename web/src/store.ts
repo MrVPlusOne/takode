@@ -700,7 +700,11 @@ interface AppState {
   clearComposerDraft: (sessionId: string) => void;
   pendingUserUploads: Map<string, PendingUserUpload[]>;
   addPendingUserUpload: (sessionId: string, upload: PendingUserUpload) => void;
-  updatePendingUserUpload: (sessionId: string, uploadId: string, updater: (upload: PendingUserUpload) => PendingUserUpload) => void;
+  updatePendingUserUpload: (
+    sessionId: string,
+    uploadId: string,
+    updater: (upload: PendingUserUpload) => PendingUserUpload,
+  ) => void;
   removePendingUserUpload: (sessionId: string, uploadId: string) => void;
   consumePendingUserUpload: (sessionId: string, uploadId: string) => PendingUserUpload | null;
 
