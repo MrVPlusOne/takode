@@ -323,19 +323,39 @@ export function SessionHoverCard({
             {s.archived && s.isWorktree && s.worktreeExists !== undefined && (
               <div
                 className={`flex items-center gap-1.5 mt-1 text-[11px] ${
-                  s.worktreeExists ? (s.worktreeDirty ? "text-amber-500" : "text-green-500") : "text-cc-muted"
+                  s.worktreeCleanupStatus === "failed"
+                    ? "text-red-400"
+                    : s.worktreeCleanupStatus === "pending"
+                      ? "text-amber-500"
+                      : s.worktreeExists
+                        ? s.worktreeDirty
+                          ? "text-amber-500"
+                          : "text-green-500"
+                        : "text-cc-muted"
                 }`}
               >
                 <span
                   className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                    s.worktreeExists ? (s.worktreeDirty ? "bg-amber-500" : "bg-green-500") : "bg-cc-muted/50"
+                    s.worktreeCleanupStatus === "failed"
+                      ? "bg-red-400"
+                      : s.worktreeCleanupStatus === "pending"
+                        ? "bg-amber-500"
+                        : s.worktreeExists
+                          ? s.worktreeDirty
+                            ? "bg-amber-500"
+                            : "bg-green-500"
+                          : "bg-cc-muted/50"
                   }`}
                 />
-                {s.worktreeExists
-                  ? s.worktreeDirty
-                    ? "Worktree preserved (uncommitted changes)"
-                    : "Worktree preserved"
-                  : "Worktree deleted"}
+                {s.worktreeCleanupStatus === "pending"
+                  ? "Worktree cleanup in progress"
+                  : s.worktreeCleanupStatus === "failed"
+                    ? s.worktreeCleanupError || "Worktree cleanup failed"
+                    : s.worktreeExists
+                      ? s.worktreeDirty
+                        ? "Worktree preserved (uncommitted changes)"
+                        : "Worktree preserved"
+                      : "Worktree deleted"}
               </div>
             )}
           </div>

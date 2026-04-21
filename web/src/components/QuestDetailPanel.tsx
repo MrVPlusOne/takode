@@ -767,6 +767,8 @@ export function QuestDetailPanel() {
           isWorktree: bridgeState?.is_worktree || sdkInfo.isWorktree || false,
           worktreeExists: sdkInfo.worktreeExists,
           worktreeDirty: sdkInfo.worktreeDirty,
+          worktreeCleanupStatus: sdkInfo.worktreeCleanupStatus,
+          worktreeCleanupError: sdkInfo.worktreeCleanupError,
           askPermission: askPermissionMap?.get(sdkInfo.sessionId),
           idleKilled: cliDisconnectReason.get(sdkInfo.sessionId) === "idle_limit",
           isOrchestrator: sdkInfo.isOrchestrator || false,

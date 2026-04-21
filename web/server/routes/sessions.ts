@@ -4,7 +4,6 @@ import { resolveBinary, expandTilde } from "../path-resolver.js";
 import { readFile, writeFile, stat, readdir, access as accessAsync } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { homedir } from "node:os";
-import { existsSync } from "node:fs";
 import type { CliLauncher, LaunchOptions } from "../cli-launcher.js";
 import * as envManager from "../env-manager.js";
 import * as gitUtils from "../git-utils.js";
@@ -55,12 +54,27 @@ export function createSessionsRoutes(ctx: RouteContext) {
   } = ctx;
 
   // ─── Worktree cleanup helper ────────────────────────────────────
+  type WorktreeCleanupStatus = "pending" | "done" | "failed";
+  type WorktreeCleanupResult = { cleaned?: boolean; dirty?: boolean; path?: string; reason?: string } | undefined;
+  const pendingWorktreeCleanups = new Map<string, Promise<void>>();
 
-  function cleanupWorktree(
+  const setWorktreeCleanupState = (
+    sessionId: string,
+    updates: {
+      status?: WorktreeCleanupStatus;
+      error?: string;
+      startedAt?: number;
+      finishedAt?: number;
+    },
+  ) => {
+    launcher.setWorktreeCleanupState(sessionId, updates);
+  };
+
+  async function cleanupWorktree(
     sessionId: string,
     force?: boolean,
     options?: { archiveBranch?: boolean },
-  ): { cleaned?: boolean; dirty?: boolean; path?: string } | undefined {
+  ): Promise<WorktreeCleanupResult> {
     const mapping = worktreeTracker.getBySession(sessionId);
     if (!mapping) return undefined;
 
@@ -71,7 +85,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
     }
 
     // Auto-remove if clean, or force-remove if requested
-    const dirty = gitUtils.isWorktreeDirty(mapping.worktreePath);
+    const dirty = await gitUtils.isWorktreeDirtyAsync(mapping.worktreePath);
     if (dirty && !force) {
       return { cleaned: false, dirty: true, path: mapping.worktreePath };
     }
@@ -83,27 +97,119 @@ export function createSessionsRoutes(ctx: RouteContext) {
     // refs/companion/archived/ so it doesn't appear in `git branch` output
     // but can be restored on unarchive. Then delete the branch normally.
     if (options?.archiveBranch && managedBranch) {
-      gitUtils.archiveBranch(mapping.repoRoot, managedBranch);
+      await gitUtils.archiveBranchAsync(mapping.repoRoot, managedBranch);
       // archiveBranch already deleted the branch, so skip branchToDelete
-      const result = gitUtils.removeWorktree(mapping.repoRoot, mapping.worktreePath, {
+      const result = await gitUtils.removeWorktreeAsync(mapping.repoRoot, mapping.worktreePath, {
         force: dirty,
       });
       if (result.removed) {
         worktreeTracker.removeBySession(sessionId);
       }
-      return { cleaned: result.removed, path: mapping.worktreePath };
+      return { cleaned: result.removed, path: mapping.worktreePath, reason: result.reason };
     }
 
     // Permanent delete: remove worktree and delete the branch
-    const result = gitUtils.removeWorktree(mapping.repoRoot, mapping.worktreePath, {
+    const result = await gitUtils.removeWorktreeAsync(mapping.repoRoot, mapping.worktreePath, {
       force: dirty,
       branchToDelete: managedBranch,
     });
     if (result.removed) {
       worktreeTracker.removeBySession(sessionId);
     }
-    return { cleaned: result.removed, path: mapping.worktreePath };
+    return { cleaned: result.removed, path: mapping.worktreePath, reason: result.reason };
   }
+
+  const queueArchivedWorktreeCleanup = (
+    sessionId: string,
+    options?: { archiveBranch?: boolean },
+  ): { status: WorktreeCleanupStatus; path?: string } | undefined => {
+    const mapping = worktreeTracker.getBySession(sessionId);
+    if (!mapping) return undefined;
+
+    if (pendingWorktreeCleanups.has(sessionId)) {
+      return { status: "pending", path: mapping.worktreePath };
+    }
+
+    const startedAt = Date.now();
+    setWorktreeCleanupState(sessionId, {
+      status: "pending",
+      error: undefined,
+      startedAt,
+      finishedAt: undefined,
+    });
+
+    const task = (async () => {
+      try {
+        const result = await cleanupWorktree(sessionId, true, options);
+        const finishedAt = Date.now();
+        const cleanupStatus: WorktreeCleanupStatus = result?.reason ? "failed" : "done";
+        setWorktreeCleanupState(sessionId, {
+          status: cleanupStatus,
+          error: result?.reason,
+          startedAt,
+          finishedAt,
+        });
+        if (result?.path) {
+          console.log(
+            `[routes] Archived worktree cleanup ${cleanupStatus} for ${sessionId}: ${result.path}${result.reason ? ` (${result.reason})` : ""}`,
+          );
+        }
+      } catch (e) {
+        const finishedAt = Date.now();
+        const error = e instanceof Error ? e.message : String(e);
+        setWorktreeCleanupState(sessionId, {
+          status: "failed",
+          error,
+          startedAt,
+          finishedAt,
+        });
+        console.error(`[routes] Archived worktree cleanup failed for ${sessionId}:`, e);
+      } finally {
+        pendingWorktreeCleanups.delete(sessionId);
+      }
+    })();
+
+    pendingWorktreeCleanups.set(sessionId, task);
+    void task;
+    return { status: "pending", path: mapping.worktreePath };
+  };
+
+  const withProgressHeartbeat = async <T>(
+    emit:
+      | ((
+          step: CreationStepId,
+          label: string,
+          status: "in_progress" | "done" | "error",
+          detail?: string,
+        ) => Promise<void>)
+      | undefined,
+    config: { step: CreationStepId; label: string; detail: string },
+    run: () => Promise<T>,
+  ): Promise<T> => {
+    if (!emit) return run();
+
+    let stopped = false;
+    let stopWaiting = () => {};
+    const stopSignal = new Promise<void>((resolve) => {
+      stopWaiting = resolve;
+    });
+
+    const heartbeatLoop = (async () => {
+      while (!stopped) {
+        await Promise.race([new Promise<void>((resolve) => setTimeout(resolve, 5_000)), stopSignal]);
+        if (stopped) break;
+        await emit(config.step, config.label, "in_progress", config.detail);
+      }
+    })();
+
+    try {
+      return await run();
+    } finally {
+      stopped = true;
+      stopWaiting();
+      await heartbeatLoop;
+    }
+  };
 
   function buildCodexTurnSegments(
     messageHistory: Array<{ type: string; id?: string }>,
@@ -439,11 +545,20 @@ export function createSessionsRoutes(ctx: RouteContext) {
         if (!targetBranch) {
           throwPreparationError("Unable to determine branch for worktree session", 400, "creating_worktree");
         }
-        const result = await gitUtils.ensureWorktreeAsync(repoInfo.repoRoot, targetBranch, {
-          baseBranch: repoInfo.defaultBranch,
-          createBranch: body.createBranch,
-          forceNew: true,
-        });
+        const result = await withProgressHeartbeat(
+          emit,
+          {
+            step: "creating_worktree",
+            label: "Creating worktree...",
+            detail: `Still preparing ${targetBranch}...`,
+          },
+          () =>
+            gitUtils.ensureWorktreeAsync(repoInfo.repoRoot, targetBranch, {
+              baseBranch: repoInfo.defaultBranch,
+              createBranch: body.createBranch,
+              forceNew: true,
+            }),
+        );
         cwd = result.worktreePath;
         worktreeInfo = {
           isWorktree: true,
@@ -789,7 +904,15 @@ export function createSessionsRoutes(ctx: RouteContext) {
           "in_progress",
         );
 
-        const session = await launcher.launch(sessionConfig.launchOptions);
+        const session = await withProgressHeartbeat(
+          (step, label, status, detail) => emitProgress(stream, step, label, status, detail),
+          {
+            step: "launching_cli",
+            label: sessionConfig.resumeCliSessionId ? "Resuming CLI session..." : "Launching Claude Code...",
+            detail: sessionConfig.worktreeInfo ? "Finishing worktree setup..." : "Still launching CLI...",
+          },
+          () => launcher.launch(sessionConfig.launchOptions),
+        );
         applySessionPostLaunch(session, sessionConfig);
 
         await emitProgress(
@@ -1018,6 +1141,16 @@ export function createSessionsRoutes(ctx: RouteContext) {
       pool.map(async (s) => {
         const pendingTimerCount = ctx.timerManager?.listTimers(s.sessionId).length ?? 0;
         try {
+          if (s.worktreeCleanupStatus === "pending" && !pendingWorktreeCleanups.has(s.sessionId)) {
+            launcher.setWorktreeCleanupState(s.sessionId, {
+              status: "failed",
+              error: s.worktreeCleanupError || "Cleanup was interrupted before completion.",
+              startedAt: s.worktreeCleanupStartedAt,
+              finishedAt: Date.now(),
+            });
+            s = launcher.getSession(s.sessionId) ?? s;
+          }
+
           const { sessionAuthToken: _token, injectedSystemPrompt: _prompt, ...safeSession } = s;
           const bridgeSession = wsBridge.getSession(s.sessionId);
           if (bridgeSession?.state?.is_worktree && !safeSession.archived && !heavyRepoModeEnabled) {
@@ -1726,10 +1859,10 @@ export function createSessionsRoutes(ctx: RouteContext) {
     // Clean up container if any
     containerManager.removeContainer(id);
 
-    const worktreeResult = cleanupWorktree(id, true);
+    const worktreeResult = await cleanupWorktree(id, true);
     // Clean up any stale archived ref from a previous archive cycle (q-329)
     if (sessionInfo?.isWorktree && sessionInfo.repoRoot && sessionInfo.actualBranch) {
-      gitUtils.deleteArchivedRef(sessionInfo.repoRoot, sessionInfo.actualBranch);
+      await gitUtils.deleteArchivedRefAsync(sessionInfo.repoRoot, sessionInfo.actualBranch);
     }
     prPoller?.unwatch(id);
     launcher.removeSession(id);
@@ -1771,7 +1904,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
     // Force-delete the worktree directory on archive. The branch tip is saved
     // as an archived ref (refs/companion/archived/) so committed work can be
     // restored on unarchive without polluting the active branch list (q-329).
-    const worktreeResult = cleanupWorktree(id, true, { archiveBranch: true });
+    const worktreeResult = queueArchivedWorktreeCleanup(id, { archiveBranch: true });
     launcher.setArchived(id, true);
     await sessionStore.setArchived(id, true);
 
@@ -1793,7 +1926,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
           console.log(`[routes] Auto-stopping reviewer session ${s.sessionId} (reviewerOf=#${archivedNum})`);
           await launcher.kill(s.sessionId);
           containerManager.removeContainer(s.sessionId);
-          cleanupWorktree(s.sessionId, true);
+          queueArchivedWorktreeCleanup(s.sessionId, { archiveBranch: true });
           launcher.setArchived(s.sessionId, true);
           await sessionStore.setArchived(s.sessionId, true);
           // Emit after kill so the leader doesn't query a still-alive session
@@ -1873,6 +2006,17 @@ export function createSessionsRoutes(ctx: RouteContext) {
     if (!id) return c.json({ error: "Session not found" }, 404);
     const info = launcher.getSession(id);
     if (!info) return c.json({ error: "Session not found" }, 404);
+    if (info.worktreeCleanupStatus === "pending") {
+      if (pendingWorktreeCleanups.has(id)) {
+        return c.json({ error: "Worktree cleanup is still running. Try unarchiving again in a few seconds." }, 409);
+      }
+      launcher.setWorktreeCleanupState(id, {
+        status: "failed",
+        error: info.worktreeCleanupError || "Cleanup was interrupted before completion.",
+        startedAt: info.worktreeCleanupStartedAt,
+        finishedAt: Date.now(),
+      });
+    }
 
     launcher.setArchived(id, false);
     await sessionStore.setArchived(id, false);

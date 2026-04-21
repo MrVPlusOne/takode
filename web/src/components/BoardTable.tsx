@@ -246,6 +246,8 @@ export function WorkerLink({ sessionId, sessionNum }: { sessionId: string; sessi
       isWorktree: bridgeState?.is_worktree || sdkInfo?.isWorktree || false,
       worktreeExists: sdkInfo?.worktreeExists,
       worktreeDirty: sdkInfo?.worktreeDirty,
+      worktreeCleanupStatus: sdkInfo?.worktreeCleanupStatus,
+      worktreeCleanupError: sdkInfo?.worktreeCleanupError,
       askPermission: askPermission.get(sessionId),
       idleKilled: cliDisconnectReason.get(sessionId) === "idle_limit",
       lastActivityAt: sdkInfo?.lastActivityAt,
