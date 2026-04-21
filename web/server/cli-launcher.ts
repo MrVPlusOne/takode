@@ -307,6 +307,14 @@ export interface SdkSessionInfo {
   archived?: boolean;
   /** Epoch ms when this session was archived */
   archivedAt?: number;
+  /** Async cleanup state for archived worktree sessions. */
+  worktreeCleanupStatus?: "pending" | "done" | "failed";
+  /** Last background cleanup error, if any. */
+  worktreeCleanupError?: string;
+  /** Epoch ms when background cleanup started. */
+  worktreeCleanupStartedAt?: number;
+  /** Epoch ms when background cleanup finished (success or failure). */
+  worktreeCleanupFinishedAt?: number;
   /** User-facing session name */
   name?: string;
   /** Which backend this session uses */
@@ -2661,6 +2669,12 @@ export class CliLauncher {
     if (info) {
       info.archived = archived;
       info.archivedAt = archived ? Date.now() : undefined;
+      if (!archived) {
+        info.worktreeCleanupStatus = undefined;
+        info.worktreeCleanupError = undefined;
+        info.worktreeCleanupStartedAt = undefined;
+        info.worktreeCleanupFinishedAt = undefined;
+      }
       // Clean up herd relationships when a leader is archived
       if (archived && info.isOrchestrator) {
         for (const worker of this.sessions.values()) {
@@ -2672,6 +2686,24 @@ export class CliLauncher {
       }
       this.persistState();
     }
+  }
+
+  setWorktreeCleanupState(
+    sessionId: string,
+    updates: {
+      status?: "pending" | "done" | "failed";
+      error?: string;
+      startedAt?: number;
+      finishedAt?: number;
+    },
+  ): void {
+    const info = this.sessions.get(sessionId);
+    if (!info) return;
+    info.worktreeCleanupStatus = updates.status;
+    info.worktreeCleanupError = updates.error;
+    info.worktreeCleanupStartedAt = updates.startedAt;
+    info.worktreeCleanupFinishedAt = updates.finishedAt;
+    this.persistState();
   }
 
   // ─── Cat herding (orchestrator→worker relationships) ─────────────────────

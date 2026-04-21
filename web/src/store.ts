@@ -163,6 +163,10 @@ function sdkSessionInfoEqual(a: SdkSessionInfo, b: SdkSessionInfo): boolean {
     a.cliSessionId === b.cliSessionId &&
     a.archived === b.archived &&
     a.archivedAt === b.archivedAt &&
+    a.worktreeCleanupStatus === b.worktreeCleanupStatus &&
+    a.worktreeCleanupError === b.worktreeCleanupError &&
+    a.worktreeCleanupStartedAt === b.worktreeCleanupStartedAt &&
+    a.worktreeCleanupFinishedAt === b.worktreeCleanupFinishedAt &&
     a.containerId === b.containerId &&
     a.containerName === b.containerName &&
     a.containerImage === b.containerImage &&

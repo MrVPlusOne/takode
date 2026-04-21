@@ -24,6 +24,8 @@ export interface SidebarSessionItem {
   isWorktree?: boolean;
   worktreeExists?: boolean;
   worktreeDirty?: boolean;
+  worktreeCleanupStatus?: "pending" | "done" | "failed";
+  worktreeCleanupError?: string;
   askPermission?: boolean;
   idleKilled?: boolean;
   lastActivityAt?: number;

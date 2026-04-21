@@ -709,12 +709,20 @@ export function SessionItem({
                 {s.isWorktree && (
                   <span
                     className={`text-[9px] px-1 rounded shrink-0 ${
-                      archived && s.worktreeExists === false
+                      archived && s.worktreeCleanupStatus === "failed"
+                        ? "bg-red-500/10 text-red-400"
+                        : archived && s.worktreeCleanupStatus === "pending"
+                          ? "bg-amber-500/10 text-amber-400"
+                          : archived && s.worktreeExists === false
                         ? "bg-cc-muted/10 text-cc-muted"
                         : "bg-cc-primary/10 text-cc-primary"
                     }`}
                     title={
-                      archived && s.worktreeExists !== undefined
+                      archived && s.worktreeCleanupStatus === "pending"
+                        ? "Worktree cleanup is still running"
+                        : archived && s.worktreeCleanupStatus === "failed"
+                          ? s.worktreeCleanupError || "Worktree cleanup failed"
+                          : archived && s.worktreeExists !== undefined
                         ? s.worktreeExists
                           ? s.worktreeDirty
                             ? "Worktree preserved (uncommitted changes)"

@@ -161,6 +161,14 @@ export interface SdkSessionInfo {
   archived?: boolean;
   /** Epoch ms when this session was archived */
   archivedAt?: number;
+  /** Async cleanup state for archived worktree sessions. */
+  worktreeCleanupStatus?: "pending" | "done" | "failed";
+  /** Last background cleanup error, if any. */
+  worktreeCleanupError?: string;
+  /** Epoch ms when background cleanup started. */
+  worktreeCleanupStartedAt?: number;
+  /** Epoch ms when background cleanup finished. */
+  worktreeCleanupFinishedAt?: number;
   containerId?: string;
   containerName?: string;
   containerImage?: string;

@@ -88,6 +88,8 @@ export function SessionInlineLink({
       isWorktree: bridgeState?.is_worktree || sdkInfo?.isWorktree || false,
       worktreeExists: sdkInfo?.worktreeExists,
       worktreeDirty: sdkInfo?.worktreeDirty,
+      worktreeCleanupStatus: sdkInfo?.worktreeCleanupStatus,
+      worktreeCleanupError: sdkInfo?.worktreeCleanupError,
       askPermission: askPermission.get(resolvedSessionId),
       idleKilled: cliDisconnectReason.get(resolvedSessionId) === "idle_limit",
       lastActivityAt: sdkInfo?.lastActivityAt,

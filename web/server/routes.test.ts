@@ -75,10 +75,13 @@ vi.mock("./git-utils.js", () => ({
   checkoutBranch: vi.fn(),
   checkoutBranchAsync: vi.fn(async () => {}),
   removeWorktree: vi.fn(),
+  removeWorktreeAsync: vi.fn(async () => ({ removed: true })),
   isWorktreeDirty: vi.fn(() => false),
   isWorktreeDirtyAsync: vi.fn(async () => false),
+  archiveBranchAsync: vi.fn(async () => true),
   resolveDefaultBranch: vi.fn(() => "main"),
   getBranchStatus: vi.fn(() => ({ ahead: 0, behind: 0 })),
+  deleteArchivedRefAsync: vi.fn(async () => {}),
 }));
 
 vi.mock("./session-names.js", () => ({
@@ -202,6 +205,7 @@ function createMockLauncher() {
     listSessions: vi.fn(() => []),
     getSession: vi.fn(),
     setArchived: vi.fn(),
+    setWorktreeCleanupState: vi.fn(),
     updateWorktree: vi.fn(),
     removeSession: vi.fn(),
     getOrchestratorGuardrails: vi.fn(() => "# Takode — Cross-Session Orchestration\n..."),
@@ -1718,8 +1722,8 @@ describe("DELETE /api/sessions/:id", () => {
       createdAt: 1000,
     });
     tracker.isWorktreeInUse.mockReturnValue(false);
-    vi.mocked(gitUtils.isWorktreeDirty).mockReturnValue(false);
-    vi.mocked(gitUtils.removeWorktree).mockReturnValue({ removed: true });
+    vi.mocked(gitUtils.isWorktreeDirtyAsync).mockResolvedValue(false);
+    vi.mocked(gitUtils.removeWorktreeAsync).mockResolvedValue({ removed: true });
 
     const res = await app.request("/api/sessions/s1", { method: "DELETE" });
 
@@ -1731,7 +1735,7 @@ describe("DELETE /api/sessions/:id", () => {
     expect(launcher.removeSession).toHaveBeenCalledWith("s1");
     expect(bridge.closeSession).toHaveBeenCalledWith("s1");
     expect(tracker.removeBySession).toHaveBeenCalledWith("s1");
-    expect(gitUtils.removeWorktree).toHaveBeenCalledWith("/repo", "/wt/feat", {
+    expect(gitUtils.removeWorktreeAsync).toHaveBeenCalledWith("/repo", "/wt/feat", {
       force: false,
       branchToDelete: undefined,
     });
@@ -1747,13 +1751,13 @@ describe("DELETE /api/sessions/:id", () => {
       createdAt: 1000,
     });
     tracker.isWorktreeInUse.mockReturnValue(false);
-    vi.mocked(gitUtils.isWorktreeDirty).mockReturnValue(false);
-    vi.mocked(gitUtils.removeWorktree).mockReturnValue({ removed: true });
+    vi.mocked(gitUtils.isWorktreeDirtyAsync).mockResolvedValue(false);
+    vi.mocked(gitUtils.removeWorktreeAsync).mockResolvedValue({ removed: true });
 
     const res = await app.request("/api/sessions/s1", { method: "DELETE" });
 
     expect(res.status).toBe(200);
-    expect(gitUtils.removeWorktree).toHaveBeenCalledWith("/repo", "/wt/feat", {
+    expect(gitUtils.removeWorktreeAsync).toHaveBeenCalledWith("/repo", "/wt/feat", {
       force: false,
       branchToDelete: "feat-wt-1234",
     });
@@ -1822,6 +1826,52 @@ describe("POST /api/sessions/:id/archive", () => {
     expect(launcher.kill).toHaveBeenCalledWith("s1");
     expect(launcher.setArchived).toHaveBeenCalledWith("s1", true);
     expect(sessionStore.setArchived).toHaveBeenCalledWith("s1", true);
+  });
+
+  it("returns immediately while archived worktree cleanup continues in the background", async () => {
+    tracker.getBySession.mockReturnValue({
+      sessionId: "s1",
+      repoRoot: "/repo",
+      branch: "feat",
+      actualBranch: "feat-wt-1234",
+      worktreePath: "/wt/feat",
+      createdAt: 1000,
+    });
+    tracker.isWorktreeInUse.mockReturnValue(false);
+    vi.mocked(gitUtils.isWorktreeDirtyAsync).mockResolvedValue(false);
+    vi.mocked(gitUtils.archiveBranchAsync).mockResolvedValue(true);
+
+    let resolveCleanup = (_value: { removed: boolean; reason?: string }) => {};
+    vi.mocked(gitUtils.removeWorktreeAsync).mockImplementation(
+      () =>
+        new Promise<{ removed: boolean; reason?: string }>((resolve) => {
+          resolveCleanup = resolve;
+        }),
+    );
+
+    const res = await app.request("/api/sessions/s1/archive", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.worktree).toEqual({ status: "pending", path: "/wt/feat" });
+    expect(launcher.setArchived).toHaveBeenCalledWith("s1", true);
+    expect(launcher.setWorktreeCleanupState).toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({ status: "pending", startedAt: expect.any(Number) }),
+    );
+
+    resolveCleanup({ removed: true });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(launcher.setWorktreeCleanupState).toHaveBeenLastCalledWith(
+      "s1",
+      expect.objectContaining({ status: "done", finishedAt: expect.any(Number) }),
+    );
   });
 
   it("auto-stops and archives reviewer sessions when parent is archived", async () => {
@@ -2126,6 +2176,60 @@ describe("POST /api/sessions/:id/unarchive", () => {
     expect(launcher.setArchived).toHaveBeenCalledWith("s1", false);
     expect(sessionStore.setArchived).toHaveBeenCalledWith("s1", false);
     expect(launcher.relaunch).toHaveBeenCalledWith("s1");
+  });
+
+  it("rejects unarchive while archived worktree cleanup is still pending", async () => {
+    const sessionInfo = {
+      sessionId: "s1",
+      state: "exited",
+      cwd: "/repo/wt",
+      createdAt: Date.now(),
+      archived: false,
+      isWorktree: true,
+      repoRoot: "/repo",
+      branch: "feat",
+      actualBranch: "feat-wt-1234",
+    };
+    launcher.getSession.mockImplementation(() => sessionInfo as any);
+    launcher.setArchived.mockImplementation((_id: string, archived: boolean) => {
+      sessionInfo.archived = archived;
+    });
+    launcher.setWorktreeCleanupState.mockImplementation((_id: string, updates: any) => {
+      Object.assign(sessionInfo, {
+        worktreeCleanupStatus: updates.status,
+        worktreeCleanupError: updates.error,
+        worktreeCleanupStartedAt: updates.startedAt,
+        worktreeCleanupFinishedAt: updates.finishedAt,
+      });
+    });
+    tracker.getBySession.mockReturnValue({
+      sessionId: "s1",
+      repoRoot: "/repo",
+      branch: "feat",
+      actualBranch: "feat-wt-1234",
+      worktreePath: "/repo/wt",
+      createdAt: 1000,
+    });
+    tracker.isWorktreeInUse.mockReturnValue(false);
+    vi.mocked(gitUtils.isWorktreeDirtyAsync).mockResolvedValue(false);
+    vi.mocked(gitUtils.archiveBranchAsync).mockResolvedValue(true);
+    vi.mocked(gitUtils.removeWorktreeAsync).mockImplementation(
+      () => new Promise(() => {}) as Promise<{ removed: boolean; reason?: string }>,
+    );
+
+    const archiveRes = await app.request("/api/sessions/s1/archive", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    expect(archiveRes.status).toBe(200);
+
+    const res = await app.request("/api/sessions/s1/unarchive", { method: "POST" });
+
+    expect(res.status).toBe(409);
+    const json = await res.json();
+    expect(json.error).toContain("Worktree cleanup is still running");
+    expect(launcher.relaunch).not.toHaveBeenCalled();
   });
 
   it("returns 404 when session not found", async () => {
@@ -5819,6 +5923,98 @@ describe("POST /api/sessions/create-stream", () => {
     expect(steps).toContain("launching_cli");
     // Should NOT have fetch/checkout/pull since it uses worktree
     expect(steps).not.toContain("fetching_git");
+  });
+
+  it("keeps create-stream progress alive during slow worktree setup", async () => {
+    // Protects the original q-362 failure mode: very large repos can make
+    // worktree creation stall long enough that the UI looks dead or failed.
+    vi.useFakeTimers();
+    try {
+      vi.mocked(gitUtils.getRepoInfoAsync).mockResolvedValueOnce({
+        repoRoot: "/test",
+        currentBranch: "main",
+        defaultBranch: "main",
+      } as any);
+
+      let resolveWorktree = (_value: { worktreePath: string; actualBranch: string; created?: boolean }) => {};
+      vi.mocked(gitUtils.ensureWorktreeAsync).mockImplementationOnce(
+        () =>
+          new Promise<any>((resolve) => {
+            resolveWorktree = resolve;
+          }) as Promise<any>,
+      );
+
+      const response = await app.request("/api/sessions/create-stream", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cwd: "/test", branch: "feat/auth", useWorktree: true }),
+      });
+      const eventsPromise = parseSSE(response);
+
+      await vi.advanceTimersByTimeAsync(10_500);
+      resolveWorktree({ worktreePath: "/test-wt-keepalive", actualBranch: "feat/auth" });
+      await vi.runAllTimersAsync();
+
+      const events = await eventsPromise;
+      const launchProgress = events
+        .filter((e) => e.event === "progress")
+        .map((e) => JSON.parse(e.data))
+        .filter((event) => event.step === "creating_worktree");
+      const creatingWorktreeEvents = launchProgress.filter((event) => event.status === "in_progress");
+
+      expect(creatingWorktreeEvents.length).toBeGreaterThan(1);
+      expect(creatingWorktreeEvents.at(-1)?.detail).toContain("Still preparing feat/auth");
+      expect(launchProgress.at(-1)?.status).toBe("done");
+      expect(events.find((e) => e.event === "done")).toBeDefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps create-stream progress alive during slow launch and does not regress launching_cli back to in-progress", async () => {
+    // Protects the second long-running path added in the fix: launch can also
+    // be slow, and a late heartbeat must not overwrite the final done state.
+    vi.useFakeTimers();
+    try {
+      let resolveLaunch = (_session: { sessionId: string; state: string; cwd: string; createdAt: number }) => {};
+      launcher.launch.mockImplementationOnce(
+        () =>
+          new Promise<any>((resolve) => {
+            resolveLaunch = resolve;
+          }),
+      );
+
+      const response = await app.request("/api/sessions/create-stream", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cwd: "/test" }),
+      });
+      const eventsPromise = parseSSE(response);
+
+      await vi.advanceTimersByTimeAsync(10_500);
+      resolveLaunch({
+        sessionId: "session-1",
+        state: "starting",
+        cwd: "/test",
+        createdAt: Date.now(),
+      });
+      await vi.runAllTimersAsync();
+
+      const events = await eventsPromise;
+      const launchingCliProgress = events
+        .filter((e) => e.event === "progress")
+        .map((e) => JSON.parse(e.data))
+        .filter((event) => event.step === "launching_cli");
+
+      expect(launchingCliProgress.filter((event) => event.status === "in_progress").length).toBeGreaterThan(1);
+      expect(launchingCliProgress.at(-2)?.detail).toContain("Still launching CLI");
+      expect(launchingCliProgress.at(-1)?.status).toBe("done");
+      expect(launchingCliProgress.slice(launchingCliProgress.findIndex((event) => event.status === "done") + 1)).toEqual(
+        [],
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("uses current branch for worktree create-stream when branch is omitted", async () => {
