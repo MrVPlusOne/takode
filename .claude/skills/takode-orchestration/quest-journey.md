@@ -142,5 +142,6 @@ When new human feedback lands on a quest:
 6. **Prefer the original worker** if still available -- it has the most context from the first implementation. Check `takode list` for idle/disconnected workers with matching quest history.
 7. **Use the rework dispatch template** from `/leader-dispatch`, which explicitly tells the worker to check and address feedback and return a fresh plan before implementing.
 8. **The worker must mark each feedback entry as addressed**: `quest address <id> <index>` after fixing each item. This is a hard requirement -- the leader should verify via `quest show <id>` that all feedback entries are marked addressed before accepting the rework.
+9. **If the old-scope worker is still actively generating, interrupt before re-steering.** After resetting the board for fresh human feedback, use `takode interrupt <N>` before sending the new planning/rework instruction. A normal queued correction can arrive too late and let stale old-scope work keep running.
 
 This loop can repeat multiple times. Each round is a full quest journey.

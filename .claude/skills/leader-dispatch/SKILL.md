@@ -191,6 +191,8 @@ This ensures workers know about pending feedback and explicitly mark each item a
 - `PLANNING` if the same worker is still the intended owner and should produce a fresh plan
 - `QUEUED` if you need to choose a worker again or the prior ownership is no longer valid
 
+**Interrupt before redirecting active stale work.** If the old-scope worker is still actively generating when fresh human feedback or an urgent correction changes the source of truth, interrupt it first with `takode interrupt <N>`. Then send the corrected instruction as a fresh message. Do not rely on a queued correction to outrun the old turn.
+
 Do not let a stale review acceptance, stale port confirmation, or any other old-scope completion advance the board after that reset. Those completions are now historical context, not the active quest state.
 
 **Forward user screenshots.** When the user provides screenshots alongside a task request, attach them to the quest via `quest feedback q-XX --image <path>` before dispatching. If no quest exists (e.g. ad-hoc investigation), send the image file path to the worker via `takode send` so they can Read it. `takode spawn` does not support images -- always use a follow-up message or quest attachment.
