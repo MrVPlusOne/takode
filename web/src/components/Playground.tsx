@@ -5374,10 +5374,10 @@ export function Playground() {
         </Section>
         <Section
           title="Timer Messages"
-          description="Timer injections render as compact left-side cards: the timer title stays visible while the description remains collapsed until expanded."
+          description="Timer injections render as lightweight inline event rows: fired timers stay on one line with the timer id and title, while cancellations read as simpler muted events."
         >
           <div className="space-y-4 max-w-3xl">
-            <Card label="Timer with collapsed description">
+            <Card label="Fired timer with collapsed description">
               <div className="py-2">
                 <MessageBubble
                   showTimestamp={false}
@@ -5392,7 +5392,7 @@ export function Playground() {
                 />
               </div>
             </Card>
-            <Card label="Timer without description">
+            <Card label="Cancelled timer event">
               <div className="py-2">
                 <MessageBubble
                   showTimestamp={false}

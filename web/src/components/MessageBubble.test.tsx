@@ -534,18 +534,18 @@ describe("MessageBubble - agent source badge", () => {
   it("does not render the generic interactive badge for timer sources", () => {
     const msg = makeMessage({
       role: "user",
-      content: "Timer ping",
+      content: "[⏰ Timer t2] Timer ping",
       agentSource: { sessionId: "timer:t2", sessionLabel: "Timer t2" },
     });
     render(<MessageBubble message={msg} />);
 
     expect(screen.queryByTestId("agent-source-badge")).toBeNull();
-    expect(screen.getByText("via Timer t2")).toBeTruthy();
+    expect(screen.getByText("t2")).toBeTruthy();
   });
 });
 
 describe("MessageBubble - timer messages", () => {
-  it("renders timer title prominently and keeps the description collapsed by default", () => {
+  it("renders fired timers as a single inline row and keeps the description collapsed by default", () => {
     const msg = makeMessage({
       role: "user",
       content: "[⏰ Timer t2] Monitor RTG datagen\n\nCheck squeue for RTG jobs and report shard status.",
@@ -553,7 +553,8 @@ describe("MessageBubble - timer messages", () => {
     });
     render(<MessageBubble message={msg} showTimestamp={false} />);
 
-    expect(screen.getByText("via Timer t2")).toBeTruthy();
+    expect(screen.queryByText("via Timer t2")).toBeNull();
+    expect(screen.getByText("t2")).toBeTruthy();
     expect(screen.getByText("Monitor RTG datagen")).toBeTruthy();
     expect(screen.queryByText(/Check squeue for RTG jobs/)).toBeNull();
     expect(screen.getByRole("button", { name: "Expand timer description" })).toBeTruthy();
@@ -607,10 +608,40 @@ describe("MessageBubble - timer messages", () => {
     }
   });
 
-  it("preserves search highlighting for the visible timer source label when the query matches the timer header", () => {
+  it("preserves search highlighting for the visible timer id when the query matches the inline timer row", () => {
     const prevSessionSearch = useStore.getState().sessionSearch;
     const msg = makeMessage({
       id: "timer-source-search-msg",
+      role: "user",
+      content: "[⏰ Timer t2] Monitor RTG datagen\n\nCheck squeue for RTG jobs and report shard status.",
+      agentSource: { sessionId: "timer:t2", sessionLabel: "Timer t2" },
+    });
+
+    useStore.setState({
+      sessionSearch: new Map(prevSessionSearch).set("timer-search-session", {
+        query: "t2",
+        isOpen: true,
+        mode: "strict",
+        category: "all",
+        matches: [{ messageId: msg.id }],
+        currentMatchIndex: 0,
+      }),
+    });
+
+    try {
+      const { container } = render(<MessageBubble message={msg} sessionId="timer-search-session" showTimestamp={false} />);
+
+      const marks = Array.from(container.querySelectorAll("mark")).map((node) => node.textContent);
+      expect(marks).toContain("t2");
+    } finally {
+      useStore.setState({ sessionSearch: prevSessionSearch });
+    }
+  });
+
+  it("restores visible highlighting for strict full timer-header matches", () => {
+    const prevSessionSearch = useStore.getState().sessionSearch;
+    const msg = makeMessage({
+      id: "timer-header-search-msg",
       role: "user",
       content: "[⏰ Timer t2] Monitor RTG datagen\n\nCheck squeue for RTG jobs and report shard status.",
       agentSource: { sessionId: "timer:t2", sessionLabel: "Timer t2" },
@@ -637,7 +668,7 @@ describe("MessageBubble - timer messages", () => {
     }
   });
 
-  it("renders timer messages without descriptions as compact static cards", () => {
+  it("renders cancelled timers as simpler cancellation events instead of replaying the fired row", () => {
     const msg = makeMessage({
       role: "user",
       content: "[⏰ Timer t2 cancelled] Monitor RTG datagen",
@@ -645,6 +676,9 @@ describe("MessageBubble - timer messages", () => {
     });
     render(<MessageBubble message={msg} showTimestamp={false} />);
 
+    expect(screen.queryByText("via Timer t2")).toBeNull();
+    expect(screen.getByText("t2")).toBeTruthy();
+    expect(screen.getByText("cancelled")).toBeTruthy();
     expect(screen.getByText("Monitor RTG datagen")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /timer description/i })).toBeNull();
   });

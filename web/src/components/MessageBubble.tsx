@@ -389,47 +389,54 @@ function AgentSourceBadge({ source }: { source: { sessionId: string; sessionLabe
   );
 }
 
-function TimerSourceLabel({
-  source,
-  searchHighlight,
-}: {
-  source: { sessionId: string; sessionLabel?: string };
-  searchHighlight?: SearchHighlightInfo;
-}) {
-  const label = source.sessionLabel || source.sessionId.slice(0, 8);
-  return (
-    <div className="mb-2 flex items-center gap-1 text-[10px] text-cc-muted/70 font-mono-code">
-      <svg viewBox="0 0 16 16" fill="currentColor" className="w-2.5 h-2.5 text-orange-400/60 shrink-0">
-        <path d="M9.5 2L3 9.5h5L6.5 14l7.5-7.5h-5L9.5 2z" />
-      </svg>
-      <span>
-        via{" "}
-        {searchHighlight?.query ? (
-          <HighlightedText
-            text={label}
-            query={searchHighlight.query}
-            mode={searchHighlight.mode}
-            isCurrent={searchHighlight.isCurrent}
-          />
-        ) : (
-          label
-        )}
-      </span>
-    </div>
-  );
-}
+type ParsedTimerMessage = {
+  kind: "fired" | "cancelled" | "unknown";
+  title: string;
+  description: string;
+  timerId: string | null;
+};
 
-function parseTimerMessageContent(content: string): { title: string; description: string } {
+function parseTimerMessageContent(content: string): ParsedTimerMessage {
   const trimmed = content.trim();
   const parts = trimmed.split(/\n{2,}/);
   const header = parts[0]?.trim() ?? "";
   const description = parts.slice(1).join("\n\n").trim();
-  const match = header.match(/^\[[^\]]+\]\s*(.*)$/);
-  const title = (match?.[1] ?? header).trim();
+  const cancelledMatch = header.match(/^\[⏰ Timer ([^\]\s]+) cancelled\]\s*(.*)$/);
+  if (cancelledMatch) {
+    return {
+      kind: "cancelled",
+      timerId: cancelledMatch[1],
+      title: (cancelledMatch[2] || header).trim(),
+      description,
+    };
+  }
+
+  const firedMatch = header.match(/^\[⏰ Timer ([^\]\s]+)\]\s*(.*)$/);
+  if (firedMatch) {
+    return {
+      kind: "fired",
+      timerId: firedMatch[1],
+      title: (firedMatch[2] || header).trim(),
+      description,
+    };
+  }
+
+  const fallbackMatch = header.match(/^\[[^\]]+\]\s*(.*)$/);
+  const title = (fallbackMatch?.[1] ?? header).trim();
   return {
+    kind: "unknown",
+    timerId: null,
     title: title || trimmed,
     description,
   };
+}
+
+function TimerEventIcon({ muted = false }: { muted?: boolean }) {
+  return (
+    <span aria-hidden="true" className={`shrink-0 text-[13px] leading-none ${muted ? "opacity-50" : ""}`}>
+      ⏰
+    </span>
+  );
 }
 
 function TimerMessage({
@@ -443,64 +450,92 @@ function TimerMessage({
   showTimestamp: boolean;
   searchHighlight?: SearchHighlightInfo;
 }) {
-  const { title, description } = useMemo(() => parseTimerMessageContent(message.content), [message.content]);
+  const { title, description, timerId, kind } = useMemo(() => parseTimerMessageContent(message.content), [message.content]);
   const [expanded, setExpanded] = useState(false);
   const hasDescription = description.length > 0;
+  const timerLabel = timerId ?? message.agentSource?.sessionLabel ?? "timer";
+  const fullTimerLabel = message.agentSource?.sessionLabel ?? (timerId ? `Timer ${timerId}` : timerLabel);
+  const titleClassName = kind === "cancelled" ? "text-cc-muted/85" : "text-cc-fg/95";
+  const normalizedQuery = searchHighlight?.query.trim().toLowerCase() ?? "";
+  const shouldShowFullTimerLabel =
+    normalizedQuery.length > 0 &&
+    searchHighlight?.mode === "strict" &&
+    !timerLabel.toLowerCase().includes(normalizedQuery) &&
+    fullTimerLabel.toLowerCase().includes(normalizedQuery);
+  const visibleTimerLabel = shouldShowFullTimerLabel ? fullTimerLabel : timerLabel;
+
+  const renderedTimerLabel = searchHighlight?.query ? (
+    <HighlightedText
+      text={visibleTimerLabel}
+      query={searchHighlight.query}
+      mode={searchHighlight.mode}
+      isCurrent={searchHighlight.isCurrent}
+    />
+  ) : (
+    visibleTimerLabel
+  );
+
+  const renderedTitle = searchHighlight?.query ? (
+    <HighlightedText
+      text={title}
+      query={searchHighlight.query}
+      mode={searchHighlight.mode}
+      isCurrent={searchHighlight.isCurrent}
+    />
+  ) : (
+    title
+  );
 
   return (
-    <div className="pl-9 animate-[fadeSlideIn_0.2s_ease-out]">
-      <div className="max-w-3xl rounded-[22px] border border-cc-border/30 bg-cc-card/75 px-4 py-3 shadow-[0_10px_30px_rgba(0,0,0,0.16)]">
-        {message.agentSource && <TimerSourceLabel source={message.agentSource} searchHighlight={searchHighlight} />}
+    <div className="pl-9 py-0.5 animate-[fadeSlideIn_0.2s_ease-out]">
+      <div className="max-w-3xl">
         <div className="flex items-start gap-3">
           <div className="min-w-0 flex-1">
-            {hasDescription ? (
+            {hasDescription && kind !== "cancelled" ? (
               <button
                 type="button"
                 onClick={() => setExpanded((v) => !v)}
                 aria-expanded={expanded}
                 aria-label={expanded ? "Collapse timer description" : "Expand timer description"}
-                className="w-full text-left cursor-pointer"
+                className="flex w-full min-w-0 items-start gap-2 text-left cursor-pointer"
               >
-                <div className="flex items-start gap-2">
-                  <p className="min-w-0 flex-1 text-[15px] font-medium leading-snug text-cc-fg break-words">
-                    {searchHighlight?.query ? (
-                      <HighlightedText
-                        text={title}
-                        query={searchHighlight.query}
-                        mode={searchHighlight.mode}
-                        isCurrent={searchHighlight.isCurrent}
-                      />
-                    ) : (
-                      title
-                    )}
-                  </p>
-                  <svg
-                    viewBox="0 0 16 16"
-                    fill="currentColor"
-                    className={`mt-0.5 h-3.5 w-3.5 shrink-0 text-cc-muted/50 transition-transform ${
-                      expanded ? "rotate-90" : ""
-                    }`}
-                  >
-                    <path d="M6 3l5 5-5 5V3z" />
-                  </svg>
-                </div>
+                <TimerEventIcon />
+                <span className="shrink-0 pt-0.5 font-mono-code text-[11px] leading-none text-orange-300/85">
+                  {renderedTimerLabel}
+                </span>
+                <span className={`min-w-0 flex-1 break-words text-[13px] font-medium leading-snug ${titleClassName}`}>
+                  {renderedTitle}
+                </span>
+                <svg
+                  viewBox="0 0 16 16"
+                  fill="currentColor"
+                  className={`mt-0.5 h-3 w-3 shrink-0 text-cc-muted/45 transition-transform ${expanded ? "rotate-90" : ""}`}
+                >
+                  <path d="M6 3l5 5-5 5V3z" />
+                </svg>
               </button>
             ) : (
-              <p className="text-[15px] font-medium leading-snug text-cc-fg break-words">
-                {searchHighlight?.query ? (
-                  <HighlightedText
-                    text={title}
-                    query={searchHighlight.query}
-                    mode={searchHighlight.mode}
-                    isCurrent={searchHighlight.isCurrent}
-                  />
-                ) : (
-                  title
+              <div className="flex min-w-0 items-start gap-2">
+                <TimerEventIcon muted={kind === "cancelled"} />
+                <span
+                  className={`shrink-0 pt-0.5 font-mono-code text-[11px] leading-none ${
+                    kind === "cancelled" ? "text-cc-muted/60" : "text-orange-300/85"
+                  }`}
+                >
+                  {renderedTimerLabel}
+                </span>
+                {kind === "cancelled" && (
+                  <span className="shrink-0 pt-[1px] text-[10px] uppercase tracking-[0.18em] text-cc-muted/45">
+                    cancelled
+                  </span>
                 )}
-              </p>
+                <span className={`min-w-0 flex-1 break-words text-[13px] font-medium leading-snug ${titleClassName}`}>
+                  {renderedTitle}
+                </span>
+              </div>
             )}
-            {expanded && hasDescription && (
-              <div className="mt-3 rounded-2xl border border-cc-border/20 bg-cc-card/45 px-3 py-2.5">
+            {expanded && hasDescription && kind !== "cancelled" && (
+              <div className="ml-6 mt-2 rounded-2xl border border-cc-border/20 bg-cc-card/45 px-3 py-2.5">
                 <MarkdownContent
                   text={description}
                   variant="conservative"
