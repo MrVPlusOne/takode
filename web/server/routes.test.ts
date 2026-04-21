@@ -2930,6 +2930,59 @@ describe("POST /api/transcribe", () => {
     );
   });
 
+  it("emits an early phase ack before stt_complete so uploading can end before STT finishes", async () => {
+    vi.mocked(settingsManager.getSettings).mockReturnValue({
+      serverName: "",
+      serverId: "",
+      pushoverUserKey: "",
+      pushoverApiToken: "",
+      pushoverDelaySeconds: 30,
+      pushoverEnabled: true,
+      pushoverBaseUrl: "",
+      claudeBinary: "",
+      codexBinary: "",
+      maxKeepAlive: 0,
+      heavyRepoModeEnabled: false,
+      autoApprovalEnabled: false,
+      autoApprovalModel: "haiku",
+      autoApprovalMaxConcurrency: 4,
+      autoApprovalTimeoutSeconds: 45,
+      namerConfig: { backend: "claude" },
+      autoNamerEnabled: true,
+      transcriptionConfig: {
+        apiKey: "transcription-secret",
+        baseUrl: "https://api.openai.com/v1",
+        enhancementEnabled: false,
+        enhancementModel: "gpt-5-mini",
+      },
+      editorConfig: { editor: "none" },
+      defaultClaudeBackend: "claude",
+      sleepInhibitorEnabled: false,
+      sleepInhibitorDurationMinutes: 5,
+      updatedAt: 123,
+    });
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ text: "phase-acked transcript" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    const form = new FormData();
+    form.append("audio", new File([new Uint8Array([0x52, 0x49, 0x46, 0x46])], "recording.wav", { type: "audio/wav" }));
+    form.append("backend", "openai");
+
+    const res = await app.request("/api/transcribe", { method: "POST", body: form });
+
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    const phaseIndex = body.indexOf("event: phase");
+    const resultIndex = body.indexOf("event: result");
+    expect(phaseIndex).toBeGreaterThanOrEqual(0);
+    expect(resultIndex).toBeGreaterThan(phaseIndex);
+    expect(body).toContain('"phase":"transcribing"');
+  });
+
   it("supports voice-edit mode by transcribing the instruction then applying it to the current draft", async () => {
     vi.mocked(settingsManager.getSettings).mockReturnValue({
       serverName: "",
@@ -2996,6 +3049,7 @@ describe("POST /api/transcribe", () => {
 
     expect(res.status).toBe(200);
     const body = await res.text();
+    expect(body).toContain("event: phase");
     expect(body).toContain("event: stt_complete");
     expect(body).toContain('"nextPhase":"editing"');
     expect(body).toContain("event: result");

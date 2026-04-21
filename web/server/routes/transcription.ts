@@ -161,6 +161,13 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
     // the client treats this pre-response window as a distinct "uploading" phase.
     return streamSSE(c, async (stream: SSEStreamingApi) => {
       try {
+        // Send an immediate body chunk so the client can leave "uploading" as
+        // soon as the SSE stream is actually flowing, before STT completes.
+        await stream.writeSSE({
+          event: "phase",
+          data: JSON.stringify({ phase: "transcribing", mode }),
+        });
+
         let rawText: string;
         const usedBackend = backend;
         let sttModel = "unknown";

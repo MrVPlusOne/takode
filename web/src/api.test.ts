@@ -353,10 +353,11 @@ describe("transcribe", () => {
 
   it("surfaces uploading before the SSE response opens, then switches to transcribing", async () => {
     // q-485: mobile upload time happens before the server can open the SSE
-    // stream, so the client must expose that pre-response window separately
-    // instead of labeling the whole wait as "Transcribing...".
+    // stream, so the client must stay in "Uploading..." until the server
+    // actually flushes the first SSE chunk acknowledging STT has started.
     const encoder = new TextEncoder();
     let resolveResponse: ((value: Response | PromiseLike<Response>) => void) | undefined;
+    let streamController: ReadableStreamDefaultController<Uint8Array> | undefined;
     mockFetch.mockImplementationOnce(
       () =>
         new Promise<Response>((resolve) => {
@@ -374,21 +375,28 @@ describe("transcribe", () => {
       new Response(
         new ReadableStream({
           start(controller) {
-            controller.enqueue(
-              encoder.encode(
-                `event: result\ndata: ${JSON.stringify({
-                  text: "hello",
-                  backend: "openai",
-                  enhanced: false,
-                } satisfies VoiceTranscriptionResult)}\n\n`,
-              ),
-            );
-            controller.close();
+            streamController = controller;
           },
         }),
         { status: 200, headers: { "Content-Type": "text/event-stream" } },
       ),
     );
+
+    await Promise.resolve();
+    expect(onPhase.mock.calls).toEqual([["uploading"]]);
+
+    if (!streamController) throw new Error("stream controller was not initialized");
+    streamController.enqueue(encoder.encode('event: phase\ndata: {"phase":"transcribing","mode":"dictation"}\n\n'));
+    streamController.enqueue(
+      encoder.encode(
+        `event: result\ndata: ${JSON.stringify({
+          text: "hello",
+          backend: "openai",
+          enhanced: false,
+        } satisfies VoiceTranscriptionResult)}\n\n`,
+      ),
+    );
+    streamController.close();
 
     await pending;
     expect(onPhase.mock.calls).toEqual([["uploading"], ["transcribing"]]);
@@ -400,6 +408,7 @@ describe("transcribe", () => {
     const encoder = new TextEncoder();
     const body = new ReadableStream({
       start(controller) {
+        controller.enqueue(encoder.encode('event: phase\ndata: {"phase":"transcribing","mode":"edit"}\n\n'));
         controller.enqueue(
           encoder.encode(
             'event: stt_complete\ndata: {"rawText":"turn this into bullets","nextPhase":"editing","mode":"edit"}\n\n',

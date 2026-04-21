@@ -973,7 +973,7 @@ export const api = {
       mode?: VoiceTranscriptionMode;
       sessionId?: string;
       composerText?: string;
-      /** Called when transcription phase changes (e.g. "enhancing" after STT completes) */
+      /** Called when transcription phase changes (e.g. first stream ack -> "transcribing"). */
       onPhase?: (phase: VoiceTranscriptionPhase) => void;
     },
   ): Promise<VoiceTranscriptionResult> => {
@@ -1011,11 +1011,11 @@ export const api = {
 
     // Parse SSE stream for phase-aware progress
     if (!res.body) throw new Error("No response body");
-    options?.onPhase?.("transcribing");
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
     let result: VoiceTranscriptionResult | null = null;
+    let phaseAcked = false;
 
     while (true) {
       const { done, value } = await reader.read();
@@ -1034,9 +1034,19 @@ export const api = {
           else if (line.startsWith("data:")) data = line.slice(5).trim();
         }
         if (!data) continue;
+        if (!phaseAcked && eventType !== "phase") {
+          options?.onPhase?.("transcribing");
+          phaseAcked = true;
+        }
 
         const parsed = JSON.parse(data);
-        if (eventType === "stt_complete") {
+        if (eventType === "phase") {
+          const nextPhase = parsed.phase as VoiceTranscriptionPhase | null | undefined;
+          if (nextPhase) {
+            options?.onPhase?.(nextPhase);
+            phaseAcked = true;
+          }
+        } else if (eventType === "stt_complete") {
           const nextPhase = parsed.nextPhase as VoiceTranscriptionPhase | null | undefined;
           if (nextPhase) {
             options?.onPhase?.(nextPhase);
