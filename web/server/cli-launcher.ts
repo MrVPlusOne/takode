@@ -1024,6 +1024,7 @@ export class CliLauncher {
           }
         : {}),
       extraInstructions: options.extraInstructions,
+      backend: "claude",
     });
     if (companionInstructions) {
       args.push("--append-system-prompt", companionInstructions);
@@ -1178,6 +1179,7 @@ export class CliLauncher {
           }
         : {}),
       extraInstructions: options.extraInstructions,
+      backend: "claude",
     });
     if (sdkInstructions) info.injectedSystemPrompt = sdkInstructions;
     info.sdkDebugLogPath ||= getClaudeSdkDebugLogPath(this.port, sessionId);
@@ -1275,6 +1277,7 @@ export class CliLauncher {
           }
         : {}),
       extraInstructions: options.extraInstructions,
+      backend: "codex",
     });
     if (codexInstructions) info.injectedSystemPrompt = codexInstructions;
     const adapter = new CodexAdapter(proc, sessionId, {

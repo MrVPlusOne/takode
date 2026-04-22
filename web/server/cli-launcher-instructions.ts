@@ -11,6 +11,7 @@ export function buildCompanionInstructions(opts?: {
   sessionNum?: number;
   worktree?: { branch: string; repoRoot: string; parentBranch?: string };
   extraInstructions?: string;
+  backend?: BackendType;
 }): string {
   const parts: string[] = [];
 
@@ -53,6 +54,19 @@ Use \`/port-changes\` when asked to port, sync, or push commits to the main repo
       "User messages are prefixed with a source tag: `[User <time>]` = human operator, " +
       "`[Leader <session> <time>]` = orchestrator session managing this worker, including the leader session number when available.",
   );
+
+  // Claude workers sometimes try to use SendMessage tools to reply to their
+  // leader, but those messages are never delivered. Codex doesn't have this
+  // problem because it lacks those tools entirely.
+  if (opts?.backend !== "codex") {
+    parts.push(
+      "## Responding to Leaders\n\n" +
+        "When you receive a message from a leader (tagged `[Leader ...]`), reply in your **normal assistant response text**. " +
+        "Do NOT use `SendMessage`, `SendMessageToLeader`, `Agent`, or any other tool to \"send a message back\" to the leader. " +
+        "Those tool-originated messages are never delivered to the leader. " +
+        "Your turn output is automatically delivered to the leader via herd events -- no extra tool call is needed.",
+    );
+  }
 
   parts.push(
     "## User notifications\n\n" +
