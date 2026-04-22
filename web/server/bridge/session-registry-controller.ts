@@ -57,6 +57,7 @@ export interface SessionRegistryDeps {
   resolveQuestTitle?: (questId: string) => Promise<string | undefined>;
   broadcastTaskHistory?: (session: SessionLike) => void;
   onSessionNamedByQuest?: (sessionId: string, title: string) => void;
+  finalizeCodexRecoveringTurn?: (session: SessionLike, reason: "recovery_timeout" | "recovery_failed") => void;
 }
 
 type SessionRuntimeOptions = {
@@ -636,6 +637,7 @@ export function requestCodexAutoRecovery(
     | "getLauncherSessionInfo"
     | "broadcastSessionUpdate"
     | "recoveryTimeoutMs"
+    | "finalizeCodexRecoveringTurn"
   >,
 ): boolean {
   const launcherInfo = deps.getLauncherSessionInfo?.(session.id);
@@ -657,6 +659,7 @@ export function requestCodexAutoRecovery(
       wasGenerating: session.isGenerating,
       reason: "recovery_timeout",
     });
+    deps.finalizeCodexRecoveringTurn?.(session, "recovery_timeout");
     deps.persistSession(session);
   }, deps.recoveryTimeoutMs ?? 30000);
   return true;
@@ -664,7 +667,10 @@ export function requestCodexAutoRecovery(
 
 export function markCodexAutoRecoveryFailed(
   session: SessionLike,
-  deps: Pick<SessionRegistryDeps, "attached" | "emitTakodeEvent" | "persistSession" | "broadcastSessionUpdate">,
+  deps: Pick<
+    SessionRegistryDeps,
+    "attached" | "emitTakodeEvent" | "persistSession" | "broadcastSessionUpdate" | "finalizeCodexRecoveringTurn"
+  >,
 ): void {
   if (session.backendType !== "codex") return;
   if (session.state.backend_state !== "recovering") return;
@@ -674,6 +680,7 @@ export function markCodexAutoRecoveryFailed(
     wasGenerating: session.isGenerating,
     reason: "recovery_failed",
   });
+  deps.finalizeCodexRecoveringTurn?.(session, "recovery_failed");
   deps.persistSession(session);
 }
 
