@@ -70,9 +70,15 @@ git -C <BASE_REPO> push origin <BASE_BRANCH>
   git -C <BASE_REPO> checkout <BASE_BRANCH> && git -C <BASE_REPO> merge --ff-only origin/<BASE_BRANCH>
   ```
 
-### 7. Run tests post-merge
+### 7. Run required post-port verification
 
-After resetting, run the project's unit tests in the worktree to verify nothing broke. If tests fail:
+After resetting, run the required post-port verification in the worktree to verify nothing broke. For refactor quests, the current full pre-commit-equivalent automated gate is:
+
+- `cd web && bun run typecheck`
+- `cd web && bun run test`
+- `cd web && bun run format:check`
+
+`format:check` is the current lint/format-equivalent gate in this repo; there is no separate `lint` script right now. If a full run is infeasible, document the exception explicitly in your report before calling the sync ready. If the required post-port verification fails:
 - (a) If the fix is straightforward, fix it, commit, and re-sync following steps 1-6
 - (b) Otherwise, explain the failures to the user and ask how to proceed
 
@@ -81,7 +87,7 @@ After resetting, run the project's unit tests in the worktree to verify nothing 
 Do NOT report the sync as complete until ALL of the following are true:
 - [ ] Main repo log shows the cherry-picked commits
 - [ ] Worktree has been reset to match the main repo branch
-- [ ] Tests have been run **after the reset** AND passed (or failures reported to user)
+- [ ] Required post-port verification has been run **after the reset** AND passed, or an explicitly documented full-run exception has been reported
 - [ ] Changes have been pushed to the remote
 
 ## Quest Status Rule

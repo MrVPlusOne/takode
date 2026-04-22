@@ -123,7 +123,9 @@ The `--reviewer` flag automatically:
 
 - Tell the worker to run `/port-changes` only when you are explicitly ready for porting. Do not assume they will self-port once review is done.
 - Zero-code quests do not enter `PORTING`. After the accepted artifact is ready, complete them directly with verification items about the artifact/result and without `/port-changes`, synced SHAs, or port-summary noise. If you pass `--no-code`, use it only to suppress the local CLI's port reminder noise.
-- Wait for the worker to confirm sync is complete (commits landed, tests passed, pushed to remote) **and include the ordered synced SHAs from the main repo as a dedicated `Synced SHAs: sha1,sha2` line**
+- Wait for the worker to confirm sync is complete (commits landed, required post-port verification passed, pushed to remote) **and include the ordered synced SHAs from the main repo as a dedicated `Synced SHAs: sha1,sha2` line**
+- For refactor quests, the required post-port verification gate is `cd web && bun run typecheck`, `cd web && bun run test`, and `cd web && bun run format:check`. `format:check` is the current lint/format-equivalent gate in this repo; there is no separate `lint` script right now. If a full run is infeasible, the exception must be documented explicitly in the worker's report-back.
+- If the required post-port verification run fails, dispatch a suitable worker to fix `main` immediately rather than waiting for the human to notice or ask.
 - Only after port is confirmed: transition the quest to `needs_verification` and attach those SHAs explicitly with `quest complete q-N --items "..." --commits "sha1,sha2"`. Structured commit metadata should carry routine port information; add a second prose port comment only when something exceptional about the port is materially worth noting.
 - `takode board advance <quest-id>` -- this removes the row from the board
 - Do **not** run `takode notify review` for quest completion -- when the work board item is completed, Takode already fires the review notification automatically. Sending another one duplicates the quest-completion notification.

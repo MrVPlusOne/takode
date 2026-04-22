@@ -155,7 +155,7 @@ If the worker needs additional context (related sessions, rejected approaches, u
 - **Initial dispatch**: planning only. The worker returns a plan and stops.
 - **Plan approval**: say "implement now, then stop and report back." Do not imply review, porting, or quest transitions are authorized.
 - **Review or rework follow-up**: say exactly what the worker should do now, then tell them to report back and wait. Do not imply porting is authorized.
-- **Porting**: send a separate, explicit `/port-changes` instruction only after reviewer ACCEPT. Require the worker's report-back to include a dedicated `Synced SHAs: sha1,sha2` line with the ordered synced SHAs from the main repo.
+- **Porting**: send a separate, explicit `/port-changes` instruction only after reviewer ACCEPT. Require the worker's report-back to include a dedicated `Synced SHAs: sha1,sha2` line with the ordered synced SHAs from the main repo and the status of required post-port verification. For refactor quests, that gate is `cd web && bun run typecheck`, `cd web && bun run test`, and `cd web && bun run format:check`. `format:check` is the current lint/format-equivalent gate in this repo; there is no separate `lint` script right now. If a full run is infeasible, the worker must document the exception explicitly. If the required post-port verification run fails, dispatch a suitable worker to fix `main` immediately rather than waiting.
 - **Investigation/design/no-code quests**: say what artifact to produce, then tell the worker to stop and report back. Do not assume the worker should self-complete or self-transition the quest.
 
 **Use explicit phrasing when steering between stages.** Good defaults:

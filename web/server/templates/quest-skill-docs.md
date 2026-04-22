@@ -226,7 +226,7 @@ When the user asks you to work on a quest — whether via the Companion "Assign"
    - Title rule: concise, **less than 10 words**. Move details to description.
    - Reuse existing tags. Only create new tags when no existing tag fits.
 4. **Work**: Implement the changes. Use TodoWrite for sub-step tracking if needed. **If there is human feedback**, address each entry, then mark it: `quest address q-N <index>` and reply with what you did: `quest feedback q-N --text "Addressed: ..."`. Run `quest show q-N` to confirm entries show `addressed`.
-5. **Self-check**: Before submitting, verify everything you can yourself (tests, typecheck, code review). Do not include self-verifiable items in the verification checklist. **Verify all human feedback entries are marked addressed** — run `quest show q-N` and check.
+5. **Self-check**: Before submitting, verify everything you can yourself. For refactor quests, the current full pre-commit-equivalent automated gate is `cd web && bun run typecheck`, `cd web && bun run test`, and `cd web && bun run format:check`. `format:check` is the current lint/format-equivalent gate in this repo; there is no separate `lint` script right now. If a full run is infeasible, document the exception explicitly in your summary or handoff before submitting. Do not include self-verifiable items in the verification checklist. **Verify all human feedback entries are marked addressed** — run `quest show q-N` and check.
 6. **Submit**: `quest complete q-N --items "..."` — only list items that truly require human verification (UI appearance, UX feel, edge cases needing judgment). Keep items concise — one short sentence each, scannable at a glance.
    - **Worktree sessions:** If you're working in a git worktree, do **not** run `quest complete` or move the quest to `needs_verification` until your changes are synced to the main repo checkout and pushed. The human verifies from the main repo, not your worktree.
 
@@ -283,7 +283,9 @@ idea → refined → in_progress → needs_verification → done
 
 ### in_progress → needs_verification
 - Is the implementation actually complete?
-- Run tests, typecheck, linting yourself first.
+- Run the required self-checks yourself before handoff. For refactor quests, the current full pre-commit-equivalent automated gate is `cd web && bun run typecheck`, `cd web && bun run test`, and `cd web && bun run format:check`.
+- `format:check` is the current lint/format-equivalent gate in this repo; there is no separate `lint` script right now.
+- If a full run is infeasible, document the exception explicitly in your summary or handoff before asking for verification.
 - **Worktree sessions:** If you made the change in a git worktree, finish the full sync-to-main workflow first (rebase/cherry-pick/push/reset/post-reset verification) before running `quest complete` or describing the work as ready for verification.
 - **If the quest produced zero code changes** (investigation, reporting, design artifact, or similar), complete it with artifact-focused verification items and no placeholder port notes or synced SHA lines. If you are using the CLI locally and want the completion reminder to omit port noise, pass `quest complete ... --no-code`; that flag is only a local reminder switch and does not persist quest metadata.
 - **If the work was ported/synced:** attach the ordered synced SHAs during the verification handoff with `quest complete q-N --items "..." --commits "sha1,sha2"`. Use the merged/cherry-picked SHAs from the main repo, not the pre-port worktree-only SHAs.
