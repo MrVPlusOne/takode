@@ -8851,6 +8851,92 @@ describe("Takode server-authoritative auth", () => {
     });
   });
 
+  it("completes a true zero-code board row via advance-no-groom from skeptic review", async () => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].board = new Map([
+      [
+        "q-9",
+        {
+          questId: "q-9",
+          title: "Investigate board lifecycle",
+          noCode: true,
+          status: "SKEPTIC_REVIEWING",
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    ]);
+
+    const res = await app.request("/api/sessions/orch-1/board/q-9/advance-no-groom", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      removed: true,
+      previousState: "SKEPTIC_REVIEWING",
+      skippedStates: ["GROOM_REVIEWING", "PORTING"],
+      board: [],
+      completedCount: 1,
+    });
+  });
+
+  it("rejects advance-no-groom outside skeptic review", async () => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].board = new Map([
+      [
+        "q-9",
+        {
+          questId: "q-9",
+          title: "Implement board lifecycle",
+          status: "IMPLEMENTING",
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    ]);
+
+    const res = await app.request("/api/sessions/orch-1/board/q-9/advance-no-groom", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+    });
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({
+      error: expect.stringContaining("only allowed from SKEPTIC_REVIEWING"),
+      previousState: "IMPLEMENTING",
+    });
+  });
+
+  it("rejects advance-no-groom for a code-changing quest already in skeptic review", async () => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].board = new Map([
+      [
+        "q-9",
+        {
+          questId: "q-9",
+          title: "Implement board lifecycle",
+          noCode: false,
+          status: "SKEPTIC_REVIEWING",
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    ]);
+
+    const res = await app.request("/api/sessions/orch-1/board/q-9/advance-no-groom", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+    });
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({
+      error: expect.stringContaining("explicitly marked no-code"),
+      previousState: "SKEPTIC_REVIEWING",
+    });
+  });
+
   it("prefers launcher permissionMode over bridge default in takode info", async () => {
     const sessions = setupTakodeSessions();
     sessions["worker-1"].backendType = "codex";

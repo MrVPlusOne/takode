@@ -649,7 +649,7 @@ Categories:
   review       Ready for user review
 `;
 
-const BOARD_HELP = `Usage: takode board [show|set|advance|rm] ...
+const BOARD_HELP = `Usage: takode board [show|set|advance|advance-no-groom|rm] ...
 
 Quest Journey work board for the current leader session.
 
@@ -657,19 +657,22 @@ Subcommands:
   show                    Show the board (default)
   set <quest-id>          Add or update a board row
   advance <quest-id>      Move a quest to the next Journey state
+  advance-no-groom <quest-id>  Complete a true zero-code quest from skeptic review
   rm <quest-id> [...]     Remove quests from the active board
 
 Examples:
   takode board show
   takode board set q-12 --status PLANNING
+  takode board set q-12 --no-code
   takode board set q-12 --status QUEUED --wait-for ${FREE_WORKER_WAIT_FOR_TOKEN}
   takode board set q-12 --worker 5 --wait-for q-7,#9
   takode board advance q-12
+  takode board advance-no-groom q-12
   takode board rm q-12
 `;
 
-const BOARD_SET_HELP = `Usage: takode board set <quest-id> [--worker <session>] [--status <state>] [--title <title>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--json]
-       takode board add <quest-id> [--worker <session>] [--status <state>] [--title <title>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--json]
+const BOARD_SET_HELP = `Usage: takode board set <quest-id> [--worker <session>] [--status <state>] [--title <title>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--no-code|--code-change] [--json]
+       takode board add <quest-id> [--worker <session>] [--status <state>] [--title <title>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--no-code|--code-change] [--json]
 
 Add or update a board row for a quest.
 `;
@@ -677,6 +680,12 @@ Add or update a board row for a quest.
 const BOARD_ADVANCE_HELP = `Usage: takode board advance <quest-id> [--json]
 
 Advance a quest to the next Quest Journey state.
+`;
+
+const BOARD_ADVANCE_NO_GROOM_HELP = `Usage: takode board advance-no-groom <quest-id> [--json]
+
+Explicitly complete a true zero-code quest from SKEPTIC_REVIEWING, skipping reviewer-groom and porting.
+This narrow exception is only valid after skeptic review accepts a quest with zero code changes and the board row has already been marked with \`takode board set <quest-id> --no-code\`.
 `;
 
 const BOARD_RM_HELP = `Usage: takode board rm <quest-id> [<quest-id> ...] [--json]
@@ -815,6 +824,8 @@ function printCommandHelp(command: string, argv: string[]): boolean {
         console.log(BOARD_SET_HELP);
       } else if (sub === "advance") {
         console.log(BOARD_ADVANCE_HELP);
+      } else if (sub === "advance-no-groom") {
+        console.log(BOARD_ADVANCE_NO_GROOM_HELP);
       } else if (sub === "rm") {
         console.log(BOARD_RM_HELP);
       } else {
@@ -3290,14 +3301,19 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
     const questId = args[1];
     if (!questId)
       err(
-        `Usage: takode board ${sub} <quest-id> [--worker <session>] [--status "..."] [--title "..."] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--json]`,
+        `Usage: takode board ${sub} <quest-id> [--worker <session>] [--status "..."] [--title "..."] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--no-code|--code-change] [--json]`,
       );
     if (!isValidQuestId(questId)) err(`Invalid quest ID "${questId}": must match q-NNN format (e.g., q-1, q-42)`);
     const flags = parseFlags(args.slice(2));
+    if (flags["no-code"] === true && flags["code-change"] === true) {
+      err("Use either --no-code or --code-change, not both.");
+    }
 
     const body: Record<string, unknown> = { questId };
     if (typeof flags.status === "string") body.status = flags.status;
     if (typeof flags.title === "string") body.title = flags.title;
+    if (flags["no-code"] === true) body.noCode = true;
+    if (flags["code-change"] === true) body.noCode = false;
     if (typeof flags["wait-for"] === "string") {
       const waitFor = flags["wait-for"]
         .split(",")
@@ -3355,20 +3371,25 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
     return;
   }
 
-  if (sub === "advance") {
+  if (sub === "advance" || sub === "advance-no-groom") {
     const questId = args[1];
-    if (!questId) err("Usage: takode board advance <quest-id> [--json]");
+    const usage =
+      sub === "advance"
+        ? "Usage: takode board advance <quest-id> [--json]"
+        : "Usage: takode board advance-no-groom <quest-id> [--json]";
+    if (!questId) err(usage);
     if (!isValidQuestId(questId)) err(`Invalid quest ID "${questId}": must match q-NNN format (e.g., q-1, q-42)`);
     const flags = parseFlags(args.slice(2));
 
     const result = (await apiPost(
       base,
-      `/sessions/${encodeURIComponent(selfId)}/board/${encodeURIComponent(questId)}/advance`,
+      `/sessions/${encodeURIComponent(selfId)}/board/${encodeURIComponent(questId)}/${sub}`,
     )) as {
       board: BoardRow[];
       removed: boolean;
       previousState?: string;
       newState?: string;
+      skippedStates?: string[];
       completedCount?: number;
       resolvedSessionDeps?: string[];
       rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
@@ -3378,8 +3399,14 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
 
     let operation: string;
     if (result.removed) {
-      console.log(`${questId}: completed (moved to history)`);
-      operation = `completed ${questId}`;
+      if (sub === "advance-no-groom") {
+        const skipped = result.skippedStates?.join(" and ") ?? "reviewer-groom and porting";
+        console.log(`${questId}: completed via no-code path (skipped ${skipped})`);
+        operation = `completed ${questId} via no-code skip-groom path`;
+      } else {
+        console.log(`${questId}: completed (moved to history)`);
+        operation = `completed ${questId}`;
+      }
     } else if (result.previousState && result.newState) {
       console.log(`${questId}: ${result.previousState} -> ${result.newState}`);
       operation = `advanced ${questId} to ${result.newState}`;
@@ -3426,7 +3453,7 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
     return;
   }
 
-  err(`Unknown board subcommand: ${sub}\nUsage: takode board [show|set|advance|rm] ...`);
+  err(`Unknown board subcommand: ${sub}\nUsage: takode board [show|set|advance|advance-no-groom|rm] ...`);
 }
 
 async function handleRefreshBranch(base: string, args: string[]): Promise<void> {
@@ -4009,7 +4036,7 @@ Commands:
   refresh-branch Refresh git branch info for a session after checkout/rebase
   branch         Branch info and management for the current session
   notify         Alert the user (e.g. takode notify review "ready for verification")
-  board          Quest Journey work board (e.g. takode board show, takode board set q-12 --status PLANNING)
+  board          Quest Journey work board (e.g. takode board show, takode board advance-no-groom q-12)
   timer          Session-scoped timers (create, list, cancel)
   help           Show detailed help for a command or nested subcommand
 
@@ -4053,6 +4080,7 @@ Examples:
   takode branch status
   takode branch set-base origin/main
   takode board --help
+  takode board advance-no-groom q-12
   takode help timer create
 `);
 }
