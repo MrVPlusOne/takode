@@ -150,6 +150,19 @@ export function buildBoardCompletionSummary(rows: BoardRow[]): string {
   return `${rows.length} quests ready for review: ${rows.map((row) => row.questId).join(", ")}`;
 }
 
+function completeBoardRow(
+  session: SessionLike,
+  questId: string,
+  deps: WorkBoardStateDeps,
+): { board: BoardRow[]; completed: BoardRow | null } {
+  const completed = moveBoardRowToCompleted(session, questId);
+  const board = commitBoard(session, deps);
+  if (completed) {
+    deps.notifyReview(session.id, buildBoardCompletionSummary([completed]));
+  }
+  return { board, completed };
+}
+
 export function moveBoardRowToCompleted(session: SessionLike, questId: string): BoardRow | null {
   const row = session.board.get(questId);
   if (!row) return null;
@@ -207,6 +220,7 @@ export function upsertBoardRow(
     title: mergeStr(row.title, existing?.title),
     worker: mergeStr(row.worker, existing?.worker),
     workerNum: clearingWorker ? undefined : (row.workerNum ?? existing?.workerNum),
+    noCode: row.noCode !== undefined ? row.noCode : existing?.noCode,
     status: mergeStr(row.status, existing?.status),
     waitFor: row.waitFor !== undefined ? (row.waitFor.length > 0 ? row.waitFor : undefined) : existing?.waitFor,
     createdAt: existing?.createdAt ?? now,
@@ -287,11 +301,7 @@ export function advanceBoardRow(
   const previousState = row.status;
 
   if (currentIdx >= states.length - 1) {
-    const completed = moveBoardRowToCompleted(session, questId);
-    const board = commitBoard(session, deps);
-    if (completed) {
-      deps.notifyReview(session.id, buildBoardCompletionSummary([completed]));
-    }
+    const { board } = completeBoardRow(session, questId, deps);
     return { board, removed: true, previousState, newState: undefined };
   }
 
@@ -301,6 +311,43 @@ export function advanceBoardRow(
   session.board.set(questId, row);
   const board = commitBoard(session, deps);
   return { board, removed: false, previousState, newState: row.status };
+}
+
+export function advanceBoardRowNoGroom(
+  session: SessionLike,
+  questId: string,
+  deps: WorkBoardStateDeps,
+):
+  | { board: BoardRow[]; removed: true; previousState?: string; newState?: undefined; skippedStates: string[] }
+  | { error: string; previousState?: string }
+  | null {
+  const row = session.board.get(questId);
+  if (!row) return null;
+
+  const previousState = row.status;
+  if (previousState !== "SKEPTIC_REVIEWING") {
+    return {
+      error:
+        "No-code skip-groom is only allowed from SKEPTIC_REVIEWING after a true zero-code quest has passed skeptic review.",
+      previousState,
+    };
+  }
+  if (row.noCode !== true) {
+    return {
+      error:
+        "No-code skip-groom requires the board row to be explicitly marked no-code before use and is not allowed for code-changing quests.",
+      previousState,
+    };
+  }
+
+  const { board } = completeBoardRow(session, questId, deps);
+  return {
+    board,
+    removed: true,
+    previousState,
+    newState: undefined,
+    skippedStates: ["GROOM_REVIEWING", "PORTING"],
+  };
 }
 
 export function advanceBoardRowForSession(

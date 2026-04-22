@@ -20,6 +20,7 @@ import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime } from "./herd-event-dispatcher.js";
 import {
   advanceBoardRow as advanceBoardRowController,
+  advanceBoardRowNoGroom as advanceBoardRowNoGroomController,
   getBoard as getBoardController,
   getCompletedBoard as getCompletedBoardController,
   removeBoardRows as removeBoardRowsController,
@@ -231,6 +232,7 @@ type TestBridge = WsBridge & {
   upsertBoardRow(sessionId: string, row: any): any[] | null;
   removeBoardRows(sessionId: string, questIds: string[]): any[] | null;
   advanceBoardRow(sessionId: string, questId: string): any;
+  advanceBoardRowNoGroom(sessionId: string, questId: string): any;
   getCompletedBoard(sessionId: string): any[];
   getCompletedBoardCount(sessionId: string): number;
   getVsCodeSelectionState(): any;
@@ -395,6 +397,10 @@ function attachBoardFacade(bridge: WsBridge): TestBridge {
           ["QUEUED", "PLANNING", "IMPLEMENTING", "SKEPTIC_REVIEWING", "GROOM_REVIEWING", "PORTING"],
           workBoardStateDeps,
         )
+      : null;
+  anyBridge.advanceBoardRowNoGroom = (sessionId: string, questId: string) =>
+    bridge.getSession(sessionId)
+      ? advanceBoardRowNoGroomController(bridge.getSession(sessionId)!, questId, workBoardStateDeps)
       : null;
   anyBridge.getCompletedBoard = (sessionId: string) =>
     bridge.getSession(sessionId) ? getCompletedBoardController(bridge.getSession(sessionId)!) : [];
@@ -21507,6 +21513,108 @@ describe("work board", () => {
       })
       .filter((message: any) => message?.type === "notification_update");
     expect(notifUpdates).toHaveLength(0);
+  });
+
+  it("advanceBoardRowNoGroom completes a true zero-code quest from SKEPTIC_REVIEWING", () => {
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    const session = (bridge as any).sessions.get("s1");
+    session.messageHistory.push({
+      type: "assistant",
+      message: { id: "asst-no-groom", content: [{ type: "text", text: "Investigation finished" }] },
+      timestamp: Date.now(),
+    });
+
+    bridge.upsertBoardRow("s1", {
+      questId: "q-1",
+      title: "Investigate flaky session auth",
+      noCode: true,
+      status: "SKEPTIC_REVIEWING",
+    });
+    browser.send.mockClear();
+
+    const result = bridge.advanceBoardRowNoGroom("s1", "q-1");
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        removed: true,
+        previousState: "SKEPTIC_REVIEWING",
+        skippedStates: ["GROOM_REVIEWING", "PORTING"],
+      }),
+    );
+    expect(result?.board).toHaveLength(0);
+    expect(bridge.getCompletedBoard("s1")).toEqual([
+      expect.objectContaining({
+        questId: "q-1",
+        status: "SKEPTIC_REVIEWING",
+      }),
+    ]);
+    expect(session.notifications).toHaveLength(1);
+    expect(session.notifications[0]).toEqual(
+      expect.objectContaining({
+        category: "review",
+        summary: "q-1 ready for review: Investigate flaky session auth",
+        messageId: "asst-no-groom",
+      }),
+    );
+  });
+
+  it("advanceBoardRowNoGroom rejects non-skeptic stages even for explicitly marked no-code rows", () => {
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    bridge.upsertBoardRow("s1", {
+      questId: "q-1",
+      title: "Investigate board command",
+      noCode: true,
+      status: "IMPLEMENTING",
+    });
+
+    const result = bridge.advanceBoardRowNoGroom("s1", "q-1");
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        error: expect.stringContaining("only allowed from SKEPTIC_REVIEWING"),
+        previousState: "IMPLEMENTING",
+      }),
+    );
+    expect(bridge.getBoard("s1")).toEqual([
+      expect.objectContaining({
+        questId: "q-1",
+        status: "IMPLEMENTING",
+      }),
+    ]);
+    expect(bridge.getCompletedBoard("s1")).toHaveLength(0);
+  });
+
+  it("advanceBoardRowNoGroom rejects a code-changing quest already in SKEPTIC_REVIEWING", () => {
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    bridge.upsertBoardRow("s1", {
+      questId: "q-1",
+      title: "Implement board command",
+      noCode: false,
+      status: "SKEPTIC_REVIEWING",
+    });
+
+    const result = bridge.advanceBoardRowNoGroom("s1", "q-1");
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        error: expect.stringContaining("explicitly marked no-code"),
+        previousState: "SKEPTIC_REVIEWING",
+      }),
+    );
+    expect(bridge.getBoard("s1")).toEqual([
+      expect.objectContaining({
+        questId: "q-1",
+        noCode: false,
+        status: "SKEPTIC_REVIEWING",
+      }),
+    ]);
+    expect(bridge.getCompletedBoard("s1")).toHaveLength(0);
   });
 
   it("advanceBoardRow keeps queued wait-for dependents on the active board", () => {

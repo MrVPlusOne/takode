@@ -1,6 +1,6 @@
 # Quest Journey Lifecycle
 
-Every dispatched task follows the Quest Journey lifecycle. The work board (`takode board show`) tracks each quest's stage and shows the next required leader action. **Do not skip stages -- no exceptions, regardless of change size.** If a change is too small to justify the full journey, it's too small to need a quest. Every quest gets the full lifecycle.
+Every dispatched task follows the Quest Journey lifecycle. The work board (`takode board show`) tracks each quest's stage and shows the next required leader action. Code-changing quests do not skip stages. The only exception is a true zero-code quest that has passed skeptic review and was explicitly marked with `takode board set <quest-id> --no-code`: it may then use `takode board advance-no-groom <quest-id>` to complete without reviewer-groom or porting.
 
 ## Stage Overview
 
@@ -9,7 +9,7 @@ Every dispatched task follows the Quest Journey lifecycle. The work board (`tako
 | `QUEUED` | Quest is ready, waiting for dispatch | Dispatch to a worker |
 | `PLANNING` | Worker is planning | Wait for the plan via `permission_request` or plain-text `turn_end`, then review it |
 | `IMPLEMENTING` | Worker is implementing | Wait for `turn_end`, then spawn skeptic reviewer |
-| `SKEPTIC_REVIEWING` | Skeptic reviewer is evaluating | Wait for reviewer ACCEPT; skeptic-review dispatches must explicitly say `Use the installed /skeptic-review workflow for this review.` |
+| `SKEPTIC_REVIEWING` | Skeptic reviewer is evaluating | Wait for reviewer ACCEPT; skeptic-review dispatches must explicitly say `Use the installed /skeptic-review workflow for this review.` True zero-code quests that were explicitly marked `--no-code` may then use `takode board advance-no-groom <quest-id>` instead of entering groom review. |
 | `GROOM_REVIEWING` | Reviewer owns the quality pass and follow-up judgment | Wait for reviewer ACCEPT on the worker's response, then send a separate explicit port instruction when ready |
 | `PORTING` | Worker is porting to main repo | Wait for port confirmation, then remove from board |
 
@@ -17,7 +17,7 @@ Every dispatched task follows the Quest Journey lifecycle. The work board (`tako
 
 **Update the board immediately.** When a herd event arrives that changes quest state (turn_end, permission_request, etc.), update the board as your FIRST action -- before reviewing content, reading messages, or composing responses. The board must always reflect real-time state.
 
-**Mandatory stages:** Skeptic review and groom review are mandatory for ALL quests with code changes -- no exceptions for "small" or "trivial" changes. The default groom path is reviewer-owned via `/reviewer-groom`. `/self-groom` is an escalation path, not the default. Investigation or other no-code quests may skip reviewer-groom only when they truly produce zero code changes, but they still need a clear explicit completion path and must not grow fake port noise.
+**Mandatory stages:** Skeptic review and groom review are mandatory for ALL quests with code changes -- no exceptions for "small" or "trivial" changes. The default groom path is reviewer-owned via `/reviewer-groom`. `/self-groom` is an escalation path, not the default. Investigation or other no-code quests may skip reviewer-groom only when they truly produce zero code changes; first mark the board row with `takode board set <quest-id> --no-code`, then use the explicit board command `takode board advance-no-groom <quest-id>` from `SKEPTIC_REVIEWING`, and complete without porting or fake port noise.
 
 ## Stage-Explicit Worker Steering
 
@@ -100,6 +100,7 @@ The `--reviewer` flag automatically:
 - **This stage is iterative.** Do not advance until the reviewer issues ACCEPT.
 - If the reviewer CHALLENGEs: send findings to the worker for rework, then send the reworked result back to the reviewer. Repeat until ACCEPT.
 - If you send rework, tell the worker to address the findings, report back, and stop again. Do not imply porting is authorized.
+- **True zero-code exception:** if the skeptic reviewer ACCEPTs a quest that produced zero code changes, mark the board row with `takode board set <quest-id> --no-code` if it is not already marked, then use `takode board advance-no-groom <quest-id>` to complete the board row directly. Unmarked rows and code-changing quests must continue into `GROOM_REVIEWING`.
 - On ACCEPT: send the same reviewer a concise review request, then have the reviewer self-invoke `/reviewer-groom "<scope>"`.
 - The best scope strings usually identify the quest, the worker, and the worker message range that contains the follow-up being reviewed.
 - Example scope: `Review [q-324](quest:q-324) for reviewer-groom follow-up after worker #469's update in [#469 msg 723](session:469:723) through [#469 msg 746](session:469:746)`.
@@ -122,7 +123,7 @@ The `--reviewer` flag automatically:
 ## PORTING -> (removed)
 
 - Tell the worker to run `/port-changes` only when you are explicitly ready for porting. Do not assume they will self-port once review is done.
-- Zero-code quests do not enter `PORTING`. After the accepted artifact is ready, complete them directly with verification items about the artifact/result and without `/port-changes`, synced SHAs, or port-summary noise. If you pass `--no-code`, use it only to suppress the local CLI's port reminder noise.
+- Zero-code quests do not enter `PORTING`. After the accepted artifact is ready, complete them directly with verification items about the artifact/result and without `/port-changes`, synced SHAs, or port-summary noise. On the board, that means explicitly marking the row with `takode board set <quest-id> --no-code` and then using `takode board advance-no-groom <quest-id>` from `SKEPTIC_REVIEWING` rather than advancing into `GROOM_REVIEWING` or `PORTING`. If you pass `--no-code`, use it only to suppress the local CLI's port reminder noise.
 - Wait for the worker to confirm sync is complete (commits landed, required post-port verification passed, pushed to remote) **and include the ordered synced SHAs from the main repo as a dedicated `Synced SHAs: sha1,sha2` line**
 - For refactor quests, the required post-port verification gate is `cd web && bun run typecheck`, `cd web && bun run test`, and `cd web && bun run format:check`. `format:check` is the current lint/format-equivalent gate in this repo; there is no separate `lint` script right now. If a full run is infeasible, the exception must be documented explicitly in the worker's report-back.
 - If the required post-port verification run fails, dispatch a suitable worker to fix `main` immediately rather than waiting for the human to notice or ask.

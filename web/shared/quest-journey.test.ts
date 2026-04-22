@@ -6,6 +6,7 @@ import {
   getWaitForRefKind,
   isValidQuestId,
   isValidWaitForRef,
+  QUEST_JOURNEY_HINTS,
 } from "./quest-journey.js";
 
 describe("isValidQuestId", () => {
@@ -66,5 +67,12 @@ describe("formatQuestJourneyText", () => {
 
   it("leaves unrelated text unchanged", () => {
     expect(formatQuestJourneyText("advanced q-42 to CUSTOM_STATUS")).toBe("advanced q-42 to CUSTOM_STATUS");
+  });
+});
+
+describe("QUEST_JOURNEY_HINTS", () => {
+  it("documents the explicit no-code skip-groom path at skeptic review", () => {
+    expect(QUEST_JOURNEY_HINTS.SKEPTIC_REVIEWING).toContain("advance-no-groom");
+    expect(QUEST_JOURNEY_HINTS.SKEPTIC_REVIEWING).toContain("explicitly marked");
   });
 });

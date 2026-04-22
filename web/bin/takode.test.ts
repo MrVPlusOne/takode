@@ -2944,9 +2944,10 @@ describe("takode watch deprecation", () => {
   });
 
   it.each([
-    [["board", "--help"], "Usage: takode board [show|set|advance|rm] ..."],
+    [["board", "--help"], "Usage: takode board [show|set|advance|advance-no-groom|rm] ..."],
     [["board", "set", "--help"], "Usage: takode board set <quest-id>"],
     [["board", "advance", "--help"], "Usage: takode board advance <quest-id>"],
+    [["board", "advance-no-groom", "--help"], "Usage: takode board advance-no-groom <quest-id>"],
     [["branch", "--help"], "Usage: takode branch <status|set-base> ..."],
     [["branch", "status", "--help"], "Usage: takode branch status [--json]"],
     [["branch", "set-base", "--help"], "Usage: takode branch set-base <branch> [--json]"],
@@ -3040,6 +3041,17 @@ describe("takode board quest ID validation", () => {
 
   it.each(["foo", "123", "q-"])("board advance rejects invalid quest ID: %j", async (badId) => {
     const result = await runTakode(["board", "advance", badId, "--port", String(port)], {
+      ...process.env,
+      COMPANION_SESSION_ID: "leader-1",
+      COMPANION_AUTH_TOKEN: "auth-1",
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("q-NNN");
+  });
+
+  it.each(["foo", "123", "q-"])("board advance-no-groom rejects invalid quest ID: %j", async (badId) => {
+    const result = await runTakode(["board", "advance-no-groom", badId, "--port", String(port)], {
       ...process.env,
       COMPANION_SESSION_ID: "leader-1",
       COMPANION_AUTH_TOKEN: "auth-1",
@@ -3158,6 +3170,92 @@ describe("takode board set --worker auto-clears waitFor", () => {
     expect(result.status).toBe(0);
     expect(capturedBodies).toHaveLength(1);
     expect(capturedBodies[0].waitFor).toEqual([]);
+  });
+
+  it("sends noCode: true when --no-code is provided", async () => {
+    const result = await runTakode(["board", "set", "q-1", "--no-code", "--port", String(port)], {
+      ...process.env,
+      COMPANION_SESSION_ID: "leader-1",
+      COMPANION_AUTH_TOKEN: "auth-1",
+    });
+
+    expect(result.status).toBe(0);
+    expect(capturedBodies).toHaveLength(1);
+    expect(capturedBodies[0].noCode).toBe(true);
+  });
+
+  it("sends noCode: false when --code-change is provided", async () => {
+    const result = await runTakode(["board", "set", "q-1", "--code-change", "--port", String(port)], {
+      ...process.env,
+      COMPANION_SESSION_ID: "leader-1",
+      COMPANION_AUTH_TOKEN: "auth-1",
+    });
+
+    expect(result.status).toBe(0);
+    expect(capturedBodies).toHaveLength(1);
+    expect(capturedBodies[0].noCode).toBe(false);
+  });
+
+  it("rejects --no-code and --code-change together", async () => {
+    const result = await runTakode(["board", "set", "q-1", "--no-code", "--code-change", "--port", String(port)], {
+      ...process.env,
+      COMPANION_SESSION_ID: "leader-1",
+      COMPANION_AUTH_TOKEN: "auth-1",
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Use either --no-code or --code-change");
+  });
+});
+
+describe("takode board advance-no-groom", () => {
+  it("calls the dedicated no-code endpoint and prints the explicit skip-groom completion message", async () => {
+    const requests: string[] = [];
+    const server = createServer(async (req, res) => {
+      const url = req.url || "";
+      requests.push(`${req.method || ""} ${url}`);
+
+      if (req.method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-board", isOrchestrator: true }));
+        return;
+      }
+      if (req.method === "POST" && url === "/api/sessions/leader-board/board/q-1/advance-no-groom") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            board: [],
+            removed: true,
+            previousState: "SKEPTIC_REVIEWING",
+            skippedStates: ["GROOM_REVIEWING", "PORTING"],
+            completedCount: 1,
+          }),
+        );
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    try {
+      const result = await runTakode(["board", "advance-no-groom", "q-1", "--port", String(port)], {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-board",
+        COMPANION_AUTH_TOKEN: "auth-1",
+      });
+
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("q-1: completed via no-code path");
+      expect(result.stdout).toContain("skipped GROOM_REVIEWING and PORTING");
+      expect(requests).toContain("POST /api/sessions/leader-board/board/q-1/advance-no-groom");
+    } finally {
+      server.close();
+    }
   });
 });
 

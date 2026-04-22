@@ -437,6 +437,8 @@ export interface BoardRow {
   worker?: string;
   /** Session number of the assigned worker (optional, cached for display). */
   workerNum?: number;
+  /** True when the leader explicitly marked this row as a zero-code / no-code quest. */
+  noCode?: boolean;
   /** Quest Journey state -- each state = a leader action that just happened. */
   status?: string;
   /** Quest IDs (q-N) or session numbers (#N) this quest is blocked on. */
