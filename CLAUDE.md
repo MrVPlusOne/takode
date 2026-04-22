@@ -64,11 +64,20 @@ cd web && bun run test
 
 # Watch mode
 cd web && bun run test:watch
+
+# Current lint/format-equivalent gate
+cd web && bun run format:check
 ```
 
 - All new backend (`web/server/`) and frontend (`web/src/`) code **must** include tests when possible.
 - Tests use Vitest. Server tests live alongside source files (e.g. `routes.test.ts` next to `routes.ts`).
 - A husky pre-commit hook runs typecheck and tests automatically before each commit.
+- For refactor quests, the current full pre-commit-equivalent automated gate before merge or final acceptance is:
+  - `cd web && bun run typecheck`
+  - `cd web && bun run test`
+  - `cd web && bun run format:check`
+- `format:check` is the current lint/format-equivalent gate in this repo; there is no separate `lint` script right now.
+- If a full run is infeasible, document the exception explicitly in your quest summary, review handoff, or other acceptance notes before asking for merge or final acceptance.
 - **Never remove or delete existing tests.** If a test is failing, fix the code or the test. If you believe a test should be removed, you must first explain to the user why and get explicit approval before removing it.
 - When creating test, make sure to document what the test is validating, and any important context or edge cases in comments within the test code.
 
