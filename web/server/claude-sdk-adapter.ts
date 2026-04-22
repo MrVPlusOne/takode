@@ -167,7 +167,7 @@ export class ClaudeSdkAdapter
     const mergedEnv: Record<string, string | undefined> = {
       ...process.env,
       ...(this.options.env || {}),
-      PATH: getEnrichedPath(),
+      PATH: getEnrichedPath({ serverId: this.options.env?.COMPANION_SERVER_ID }),
     };
 
     // Build the plugins list from pluginDirs

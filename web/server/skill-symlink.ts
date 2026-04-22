@@ -1,10 +1,9 @@
 import { existsSync, mkdirSync, symlinkSync, lstatSync, readlinkSync, unlinkSync, rmSync } from "node:fs";
-import { join, dirname, resolve } from "node:path";
+import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { execSync } from "node:child_process";
 import { getLegacyCodexHome } from "./codex-home.js";
-import { SERVER_GIT_CMD } from "./constants.js";
+import { resolveStableWrapperRepoRoot } from "./cli-wrapper-paths.js";
 
 /**
  * Resolve the main repository root, not the current worktree.
@@ -13,17 +12,8 @@ import { SERVER_GIT_CMD } from "./constants.js";
  * .git directory, from which we derive a stable root.
  */
 function resolveMainRepoRoot(): string {
-  const localRoot = dirname(dirname(fileURLToPath(import.meta.url)));
-  try {
-    // sync-ok: startup cold path, one-shot git query
-    const gitCommonDir = execSync(`${SERVER_GIT_CMD} rev-parse --git-common-dir`, {
-      cwd: localRoot,
-      encoding: "utf-8",
-    }).trim();
-    return gitCommonDir === ".git" ? localRoot : dirname(resolve(localRoot, gitCommonDir));
-  } catch {
-    return localRoot;
-  }
+  const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
+  return resolveStableWrapperRepoRoot(packageRoot);
 }
 
 const MAIN_REPO_ROOT = resolveMainRepoRoot();

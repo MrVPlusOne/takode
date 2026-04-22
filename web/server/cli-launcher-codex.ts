@@ -14,6 +14,7 @@ import {
 import { join, resolve, relative, dirname } from "node:path";
 import { homedir } from "node:os";
 import { getLegacyCodexHome, resolveCompanionCodexHome, resolveCompanionCodexSessionHome } from "./codex-home.js";
+import { getServerWrapperDir } from "./cli-wrapper-paths.js";
 import { resolveBinary, getEnrichedPath, captureUserShellEnv, captureUserShellPath } from "./path-resolver.js";
 import { sessionTag } from "./session-tag.js";
 
@@ -464,6 +465,7 @@ export async function prepareCodexSpawn(
   info: CodexLaunchInfo,
   options: CodexLaunchOptions,
 ): Promise<CodexSpawnSpec> {
+  const serverId = options.env?.COMPANION_SERVER_ID;
   const isContainerized = !!options.containerId;
   const codexHomeRoot = resolveCompanionCodexHome(options.codexHome);
 
@@ -516,7 +518,7 @@ export async function prepareCodexSpawn(
 
     return {
       spawnCmd: dockerArgs,
-      spawnEnv: { ...process.env, PATH: getEnrichedPath() },
+      spawnEnv: { ...process.env, PATH: getEnrichedPath({ serverId }) },
       spawnCwd: undefined,
       sandboxMode,
     };
@@ -524,12 +526,21 @@ export async function prepareCodexSpawn(
 
   const binaryDir = resolve(binary, "..");
   const siblingNode = join(binaryDir, "node");
+  const serverBinDir = getServerWrapperDir(serverId) || undefined;
   const companionBinDir = join(homedir(), ".companion", "bin");
   const localBinDir = join(homedir(), ".local", "bin");
   const bunBinDir = join(homedir(), ".bun", "bin");
-  const enrichedPath = getEnrichedPath();
+  const enrichedPath = getEnrichedPath({ serverId });
   const userShellPath = captureUserShellPath();
-  const spawnPath = mergePathStrings([binaryDir, companionBinDir, localBinDir, bunBinDir, userShellPath, enrichedPath]);
+  const spawnPath = mergePathStrings([
+    binaryDir,
+    serverBinDir,
+    companionBinDir,
+    localBinDir,
+    bunBinDir,
+    userShellPath,
+    enrichedPath,
+  ]);
 
   let spawnCmd: string[];
   if ((await fileExists(siblingNode)) && (await shouldInvokeCodexWithSiblingNode(binary))) {

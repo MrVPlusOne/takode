@@ -78,9 +78,10 @@ initServerLogger(port);
 const serverLog = createLogger("server");
 
 await initWithPort(port);
+const serverId = getServerId();
 const sessionStore = new SessionStore(undefined, port);
 const wsBridge = new WsBridge();
-const launcher = new CliLauncher(port, { serverId: getServerId() });
+const launcher = new CliLauncher(port, { serverId });
 const worktreeTracker = new WorktreeTracker();
 const CONTAINER_STATE_PATH = join(homedir(), ".companion", "containers.json");
 const terminalManager = new TerminalManager();
@@ -831,8 +832,8 @@ await cronScheduler.startAll();
 await timerManager.startAll();
 
 // ── Questmaster CLI integration ─────────────────────────────────────────────
-await ensureQuestmasterIntegration(port, packageRoot);
-ensureTakodeIntegration(packageRoot);
+await ensureQuestmasterIntegration(port, packageRoot, serverId);
+ensureTakodeIntegration(packageRoot, serverId);
 ensureSkillSymlinks([
   "takode-orchestration",
   "leader-dispatch",
