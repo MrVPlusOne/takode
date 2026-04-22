@@ -826,6 +826,14 @@ export function registerCodexAdapterRecoveryLifecycle(
       (session as any).codexDisconnectGraceTimer = setTimeout(() => {
         (session as any).codexDisconnectGraceTimer = null;
         if (session.codexAdapter || !session.isGenerating) return;
+        if (session.state.backend_state === "recovering") {
+          console.log(
+            `[ws-bridge] Codex disconnect grace expired for session ${sessionTag(session.id)} ` +
+              `while recovery is still in flight; keeping the turn resumable`,
+          );
+          deps.persistSession(session);
+          return;
+        }
         deps.markTurnInterrupted(session, "system");
         deps.setGenerating(session, false, "codex_disconnect");
         deps.persistSession(session);

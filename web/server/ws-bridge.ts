@@ -1124,6 +1124,8 @@ export class WsBridge {
       onSessionNamedByQuest: this.onSessionNamedByQuest
         ? (sessionId: string, title: string) => this.onSessionNamedByQuest?.(sessionId, title)
         : undefined,
+      finalizeCodexRecoveringTurn: (targetSession: unknown, reason: "recovery_timeout" | "recovery_failed") =>
+        this.finalizeCodexRecoveringTurn(targetSession as Session, reason),
     };
   }
 
@@ -1496,6 +1498,19 @@ export class WsBridge {
     clearTimeout(session.codexDisconnectGraceTimer);
     session.codexDisconnectGraceTimer = null;
     console.log(`[ws-bridge] Cleared Codex disconnect grace timer for session ${sessionTag(session.id)} (${reason})`);
+  }
+
+  private finalizeCodexRecoveringTurn(session: Session, reason: "recovery_timeout" | "recovery_failed"): void {
+    this.clearCodexDisconnectGraceTimer(session, `codex_${reason}`);
+    if (session.codexAdapter || !session.isGenerating) return;
+    if (!getCodexTurnInRecoveryState(session)) return;
+    this.markTurnInterrupted(session, "system");
+    setGeneratingLifecycle(this.getGenerationLifecycleDeps(), session, false, "codex_disconnect");
+    this.persistSession(session);
+    console.log(
+      `[ws-bridge] Finalized deferred Codex disconnect interruption for session ${sessionTag(session.id)} ` +
+        `after ${reason}`,
+    );
   }
 
   markCodexAutoRecoveryFailed(sessionId: string): void {

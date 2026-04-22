@@ -13259,6 +13259,63 @@ describe("Codex recovery timeout (q-385)", () => {
     vi.useRealTimers();
   });
 
+  it("finalizes a recoverable Codex planning turn only when recovery times out", async () => {
+    vi.useFakeTimers();
+    const sid = "s-recovery-timeout-generating";
+    const relaunchCb = vi.fn();
+    bridge.onCLIRelaunchNeededCallback(relaunchCb);
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn(() => ({ state: "exited", killedByIdleManager: false })),
+    } as any);
+
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter as any);
+    emitCodexSessionReady(adapter, { cliSessionId: "thread-recovery-timeout-generating" });
+
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+
+    const spy = vi.spyOn(bridge, "emitTakodeEvent");
+
+    await bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "user_message",
+        content: "keep planning",
+      }),
+    );
+    await Promise.resolve();
+    adapter.emitTurnStarted("turn-timeout-generating");
+    adapter.emitDisconnect("turn-timeout-generating");
+    await Promise.resolve();
+
+    vi.advanceTimersByTime(16_000);
+    await Promise.resolve();
+
+    let turnEndCalls = spy.mock.calls.filter(([eventSid, eventType]) => eventSid === sid && eventType === "turn_end");
+    expect(turnEndCalls).toHaveLength(0);
+    expect(bridge.getSession(sid)!.isGenerating).toBe(true);
+    expect(bridge.getSession(sid)!.state.backend_state).toBe("recovering");
+
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    turnEndCalls = spy.mock.calls.filter(([eventSid, eventType]) => eventSid === sid && eventType === "turn_end");
+    expect(turnEndCalls).toHaveLength(1);
+    expect(turnEndCalls[0]?.[2]).toEqual(
+      expect.objectContaining({
+        interrupted: true,
+        interrupt_source: "system",
+      }),
+    );
+    expect(bridge.getSession(sid)!.isGenerating).toBe(false);
+    expect(bridge.getSession(sid)!.state.backend_state).toBe("disconnected");
+
+    spy.mockRestore();
+    vi.useRealTimers();
+  });
+
   it("does not reset if adapter attaches within timeout", async () => {
     // The timeout should be a no-op if the adapter reconnects in time.
     vi.useFakeTimers();
@@ -16139,10 +16196,17 @@ describe("Codex user_message takode events", () => {
     }
   });
 
-  it("still emits interrupted (by system) when a recoverable Codex disconnect never resumes", async () => {
+  it("keeps a recoverable Codex planning turn resumable while auto-recovery is still in flight", async () => {
     vi.useFakeTimers();
     try {
       const sid = "s-codex-disconnect-grace-expiry";
+      const relaunchCb = vi.fn();
+      bridge.onCLIRelaunchNeededCallback(relaunchCb);
+      bridge.setLauncher({
+        touchActivity: vi.fn(),
+        touchUserMessage: vi.fn(),
+        getSession: vi.fn(() => ({ state: "exited", killedByIdleManager: false })),
+      } as any);
       const adapter = makeCodexAdapterMock();
       bridge.attachCodexAdapter(sid, adapter as any);
       emitCodexSessionReady(adapter, { cliSessionId: "thread-grace-expiry" });
@@ -16166,6 +16230,7 @@ describe("Codex user_message takode events", () => {
       await Promise.resolve();
 
       expect(bridge.getSession(sid)!.isGenerating).toBe(true);
+      expect(bridge.getSession(sid)!.state.backend_state).toBe("recovering");
 
       vi.advanceTimersByTime(16_000);
       await Promise.resolve();
@@ -16173,8 +16238,16 @@ describe("Codex user_message takode events", () => {
       const turnEndCalls = spy.mock.calls.filter(
         ([eventSid, eventType]) => eventSid === sid && eventType === "turn_end",
       );
-      expect(turnEndCalls).toHaveLength(1);
-      expect(turnEndCalls[0]?.[2]).toEqual(
+      expect(turnEndCalls).toHaveLength(0);
+      expect(bridge.getSession(sid)!.isGenerating).toBe(true);
+
+      (bridge as any).markCodexAutoRecoveryFailed(sid);
+
+      const turnEndCallsAfterFailure = spy.mock.calls.filter(
+        ([eventSid, eventType]) => eventSid === sid && eventType === "turn_end",
+      );
+      expect(turnEndCallsAfterFailure).toHaveLength(1);
+      expect(turnEndCallsAfterFailure[0]?.[2]).toEqual(
         expect.objectContaining({
           interrupted: true,
           interrupt_source: "system",
