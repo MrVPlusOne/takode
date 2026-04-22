@@ -1057,7 +1057,7 @@ export class CliLauncher {
 
       spawnCmd = dockerArgs;
       // Host env for the docker CLI itself
-      spawnEnv = { ...process.env, PATH: getEnrichedPath() };
+      spawnEnv = { ...process.env, PATH: getEnrichedPath({ serverId: this.serverId }) };
       spawnCwd = undefined; // cwd is set inside the container via -w at creation
     } else {
       // Host-based spawn (original behavior)
@@ -1066,7 +1066,7 @@ export class CliLauncher {
         ...process.env,
         CLAUDECODE: undefined,
         ...options.env,
-        PATH: getEnrichedPath(),
+        PATH: getEnrichedPath({ serverId: this.serverId }),
       };
       spawnCwd = info.cwd;
     }

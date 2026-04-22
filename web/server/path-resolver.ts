@@ -12,6 +12,7 @@ import { execSync } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { getServerWrapperDir } from "./cli-wrapper-paths.js";
 
 /**
  * Capture the user's full interactive shell PATH by spawning a login shell.
@@ -195,15 +196,17 @@ export function _resetShellEnvCache(): void {
 
 // ─── Enriched PATH (cached) ───────────────────────────────────────────────────
 
-let _cachedPath: string | null = null;
+const _cachedPaths = new Map<string, string>();
 
 /**
  * Returns an enriched PATH that merges the user's shell PATH (or probed common
  * directories) with the current process PATH. Deduplicates entries.
  * Result is cached after the first call.
  */
-export function getEnrichedPath(): string {
-  if (_cachedPath) return _cachedPath;
+export function getEnrichedPath(options?: { serverId?: string }): string {
+  const cacheKey = options?.serverId?.trim() || "";
+  const cached = _cachedPaths.get(cacheKey);
+  if (cached) return cached;
 
   const currentPath = process.env.PATH || "";
   const userPath = captureUserShellPath();
@@ -211,11 +214,13 @@ export function getEnrichedPath(): string {
   // Agent-facing shims always come first so built-in commands remain
   // discoverable even when the user's shell PATH omits ~/.companion/bin
   // or ~/.local/bin.
+  const serverBin = getServerWrapperDir(options?.serverId);
   const companionBin = join(homedir(), ".companion", "bin");
   const localBin = join(homedir(), ".local", "bin");
 
-  // Merge: companion/local shims first, then user shell PATH, then current process PATH
-  const allDirs = [companionBin, localBin, ...userPath.split(":"), ...currentPath.split(":")];
+  // Merge: server-specific shims first for launched sessions, then shared
+  // companion/local shims, then user shell PATH, then current process PATH.
+  const allDirs = [serverBin, companionBin, localBin, ...userPath.split(":"), ...currentPath.split(":")];
   const seen = new Set<string>();
   const deduped: string[] = [];
   for (const dir of allDirs) {
@@ -225,13 +230,14 @@ export function getEnrichedPath(): string {
     }
   }
 
-  _cachedPath = deduped.join(":");
-  return _cachedPath;
+  const enriched = deduped.join(":");
+  _cachedPaths.set(cacheKey, enriched);
+  return enriched;
 }
 
 /** Reset the cached PATH (for testing). */
 export function _resetPathCache(): void {
-  _cachedPath = null;
+  _cachedPaths.clear();
 }
 
 // ─── Binary resolution ────────────────────────────────────────────────────────
