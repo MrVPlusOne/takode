@@ -210,7 +210,11 @@ export function ComposerStatusBlocks({
               </div>
             </div>
             <div className="mt-3">
-              <DiffViewer oldText={voiceEditProposal.originalText} newText={voiceEditProposal.editedText} mode="compact" />
+              <DiffViewer
+                oldText={voiceEditProposal.originalText}
+                newText={voiceEditProposal.editedText}
+                mode="compact"
+              />
             </div>
           </div>
         </div>
@@ -235,7 +239,15 @@ export function ComposerStatusBlocks({
               title="Dismiss selection"
               onClick={onDismissVsCodeSelection}
             >
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+              <svg
+                width="10"
+                height="10"
+                viewBox="0 0 10 10"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+              >
                 <path d="M2.5 2.5L7.5 7.5M7.5 2.5L2.5 7.5" />
               </svg>
             </button>

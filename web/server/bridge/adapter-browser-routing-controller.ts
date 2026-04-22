@@ -15,10 +15,7 @@ import type {
   SessionState,
 } from "../session-types.js";
 import { sessionTag } from "../session-tag.js";
-import type {
-  BrowserTransportSessionLike,
-  BrowserTransportSocketLike,
-} from "./browser-transport-controller.js";
+import type { BrowserTransportSessionLike, BrowserTransportSocketLike } from "./browser-transport-controller.js";
 import type { UserDispatchTurnTarget } from "./generation-lifecycle.js";
 import { extractAskUserAnswers } from "./compaction-recovery.js";
 import {
@@ -93,19 +90,15 @@ export interface AdapterBrowserRoutingSessionLike {
   lastUserMessageDateTag: string;
   lastOutboundUserNdjson: string | null;
   consecutiveAdapterFailures: number;
-  codexAdapter:
-    | {
-        sendBrowserMessage(msg: unknown): boolean;
-        getCurrentTurnId(): string | null;
-        isConnected(): boolean;
-      }
-    | null;
-  claudeSdkAdapter:
-    | {
-        sendBrowserMessage(msg: unknown): boolean;
-        isConnected?(): boolean;
-      }
-    | null;
+  codexAdapter: {
+    sendBrowserMessage(msg: unknown): boolean;
+    getCurrentTurnId(): string | null;
+    isConnected(): boolean;
+  } | null;
+  claudeSdkAdapter: {
+    sendBrowserMessage(msg: unknown): boolean;
+    isConnected?(): boolean;
+  } | null;
 }
 
 export interface AdapterBrowserRoutingDeps {
@@ -118,18 +111,11 @@ export interface AdapterBrowserRoutingDeps {
     },
   ) => UserDispatchTurnTarget | null;
   broadcastToBrowsers: (session: AdapterBrowserRoutingSessionLike, msg: BrowserIncomingMessage) => void;
-  emitTakodeEvent: (
-    sessionId: string,
-    type: string,
-    data: Record<string, unknown>,
-    actorSessionId?: string,
-  ) => void;
+  emitTakodeEvent: (sessionId: string, type: string, data: Record<string, unknown>, actorSessionId?: string) => void;
   persistSession: (session: AdapterBrowserRoutingSessionLike) => void;
   sessionNotificationDeps: SessionNotificationDeps;
   onAgentPaused?: (sessionId: string, history: AdapterBrowserRoutingSessionLike["messageHistory"], cwd: string) => void;
-  getCurrentTurnTriggerSource: (
-    session: AdapterBrowserRoutingSessionLike,
-  ) => "user" | "leader" | "system" | "unknown";
+  getCurrentTurnTriggerSource: (session: AdapterBrowserRoutingSessionLike) => "user" | "leader" | "system" | "unknown";
   abortAutoApproval: (session: AdapterBrowserRoutingSessionLike, requestId: string) => void;
   preInterrupt: (session: AdapterBrowserRoutingSessionLike, source: InterruptSource) => void;
   touchUserMessage: (sessionId: string) => void;
@@ -167,11 +153,7 @@ export interface AdapterBrowserRoutingDeps {
   isHerdEventSource: (agentSource: BrowserUserMessage["agentSource"]) => boolean;
   onSessionActivityStateChanged: (sessionId: string, reason: string) => void;
   markTurnInterrupted: (session: AdapterBrowserRoutingSessionLike, source: InterruptSource) => void;
-  armCodexFreshTurnRequirement: (
-    session: AdapterBrowserRoutingSessionLike,
-    turnId: string,
-    reason: string,
-  ) => void;
+  armCodexFreshTurnRequirement: (session: AdapterBrowserRoutingSessionLike, turnId: string, reason: string) => void;
   clearCodexFreshTurnRequirement: (session: AdapterBrowserRoutingSessionLike, reason: string) => void;
   addPendingCodexInput: (session: AdapterBrowserRoutingSessionLike, input: PendingCodexInput) => void;
   getCancelablePendingCodexInputs: (session: AdapterBrowserRoutingSessionLike) => PendingCodexInput[];
@@ -181,9 +163,7 @@ export interface AdapterBrowserRoutingDeps {
   rebuildQueuedCodexPendingStartBatch: (session: AdapterBrowserRoutingSessionLike) => void;
   trySteerPendingCodexInputs: (session: AdapterBrowserRoutingSessionLike, reason: string) => boolean;
   sendToBrowser: (ws: unknown, msg: BrowserIncomingMessage) => void;
-  getLauncherSessionInfo: (
-    sessionId: string,
-  ) =>
+  getLauncherSessionInfo: (sessionId: string) =>
     | {
         archived?: boolean;
         askPermission?: boolean;
@@ -267,9 +247,7 @@ function buildTimestampTag(
   return `[User ${timeWithDate}] `;
 }
 
-export function buildPermissionPreview(
-  request: PermissionRequest,
-): Record<string, unknown> {
+export function buildPermissionPreview(request: PermissionRequest): Record<string, unknown> {
   if (request.tool_name === "AskUserQuestion") {
     const questions = request.input.questions as
       | Array<{ question: string; options?: Array<{ label: string }> }>
@@ -293,9 +271,7 @@ export function buildPermissionPreview(
   return {};
 }
 
-export function findLastAssistantMessageIndex(
-  session: AdapterBrowserRoutingSessionLike,
-): number | undefined {
+export function findLastAssistantMessageIndex(session: AdapterBrowserRoutingSessionLike): number | undefined {
   for (let i = session.messageHistory.length - 1; i >= 0; i--) {
     if (session.messageHistory[i].type === "assistant") return i;
   }
@@ -1047,10 +1023,7 @@ export function handlePermissionResponse(
   deps.persistSession(session);
 }
 
-export function handleMcpGetStatus(
-  session: AdapterBrowserRoutingSessionLike,
-  deps: AdapterBrowserRoutingDeps,
-): void {
+export function handleMcpGetStatus(session: AdapterBrowserRoutingSessionLike, deps: AdapterBrowserRoutingDeps): void {
   deps.sendControlRequest(
     session,
     { subtype: "mcp_status" },
@@ -1213,14 +1186,27 @@ export async function handleUserMessage(
   let content: string | unknown[];
   if (typeof msg.deliveryContent === "string" && msg.deliveryContent.length > 0) {
     content = selectionText
-      ? [{ type: "text", text: msg.deliveryContent }, { type: "text", text: selectionText }]
+      ? [
+          { type: "text", text: msg.deliveryContent },
+          { type: "text", text: selectionText },
+        ]
       : msg.deliveryContent;
   } else if (msg.images?.length && ingested.imageRefs?.length) {
     const paths = deriveAttachmentPaths(session.id, ingested.imageRefs);
     const textContent = (msg.content || "") + formatAttachmentPathAnnotation(paths);
-    content = selectionText ? [{ type: "text", text: textContent }, { type: "text", text: selectionText }] : textContent;
+    content = selectionText
+      ? [
+          { type: "text", text: textContent },
+          { type: "text", text: selectionText },
+        ]
+      : textContent;
   } else {
-    content = selectionText ? [{ type: "text", text: msg.content }, { type: "text", text: selectionText }] : msg.content;
+    content = selectionText
+      ? [
+          { type: "text", text: msg.content },
+          { type: "text", text: selectionText },
+        ]
+      : msg.content;
   }
   if (typeof content === "string") {
     content = buildTimestampTag(session, ingested.timestamp, deps.getLauncherSessionInfo, msg.agentSource) + content;
@@ -1437,9 +1423,7 @@ function handleCodexPermissionResponse(
   clearActionAttentionIfNoPermissionsSessionRegistryController(session, deps.sessionNotificationDeps);
   if (msg.behavior === "allow" && pending && NOTABLE_APPROVALS.has(pending.tool_name)) {
     const answers =
-      pending.tool_name === "AskUserQuestion"
-        ? extractAskUserAnswers(pending.input, msg.updated_input)
-        : undefined;
+      pending.tool_name === "AskUserQuestion" ? extractAskUserAnswers(pending.input, msg.updated_input) : undefined;
     if (pending.tool_name !== "AskUserQuestion" || answers) {
       const approvedMsg: BrowserIncomingMessage = {
         type: "permission_approved",
@@ -1496,8 +1480,9 @@ function normalizeAdapterUserMessage(
   userImageRefs: ImageRef[] | undefined,
   deps: AdapterBrowserRoutingDeps,
 ): BrowserOutgoingMessage | null {
-  let adapterMsg: BrowserOutgoingMessage =
-    msg.takodeHerdBatch ? (({ takodeHerdBatch: _takodeHerdBatch, ...rest }) => rest)(msg) : msg;
+  let adapterMsg: BrowserOutgoingMessage = msg.takodeHerdBatch
+    ? (({ takodeHerdBatch: _takodeHerdBatch, ...rest }) => rest)(msg)
+    : msg;
   if (typeof msg.deliveryContent === "string") {
     const delivered = { ...adapterMsg, content: msg.deliveryContent } as BrowserOutgoingMessage;
     delete (delivered as { deliveryContent?: unknown }).deliveryContent;
@@ -1690,7 +1675,9 @@ export function routeAdapterBrowserMessage(
           deps.rebuildQueuedCodexPendingStartBatch(session);
         }
       } else {
-        const effectiveWasGenerating = preMarkedImageRunning ? wasGeneratingBeforeUserMessage : !!ingested.wasGenerating;
+        const effectiveWasGenerating = preMarkedImageRunning
+          ? wasGeneratingBeforeUserMessage
+          : !!ingested.wasGenerating;
         if (session.codexAdapter && effectiveWasGenerating && session.isGenerating) {
           deps.rebuildQueuedCodexPendingStartBatch(session);
           deps.persistSession(session);

@@ -56,7 +56,9 @@ export class IdleManager {
     const killable = alive
       .filter((s) => {
         const bridge = this.wsBridge as unknown as {
-          getSession?: (sessionId: string) => { isGenerating?: boolean; pendingPermissions?: { size: number } } | null | undefined;
+          getSession?: (
+            sessionId: string,
+          ) => { isGenerating?: boolean; pendingPermissions?: { size: number } } | null | undefined;
           isSessionBusy?: (sessionId: string) => boolean;
         };
         if (typeof bridge.getSession === "function") {

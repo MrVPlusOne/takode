@@ -7,10 +7,7 @@ import { CatPawAvatar, CatPawLeft, CatPawRight, YarnBallDot, YarnBallSpinner, Sl
 import { HighlightedText } from "../HighlightedText.js";
 import { PawTrailAvatar } from "../PawTrail.js";
 import type { CreationProgressEvent } from "../../types.js";
-import {
-  MOCK_SUBAGENT_TOOL_ITEMS,
-  MOCK_TOOL_GROUP_ITEMS,
-} from "./fixtures.js";
+import { MOCK_SUBAGENT_TOOL_ITEMS, MOCK_TOOL_GROUP_ITEMS } from "./fixtures.js";
 import {
   Card,
   PlaygroundClaudeMdButton,
@@ -65,13 +62,7 @@ export function PlaygroundStateSections() {
                   </div>
                   <div className="flex items-center gap-3 sm:gap-1">
                     <div className="flex items-center justify-center w-8 h-8 rounded-lg text-cc-muted">
-                      <svg
-                        viewBox="0 0 16 16"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                        className="w-4 h-4"
-                      >
+                      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
                         <rect x="2" y="2" width="12" height="12" rx="2" />
                         <circle cx="5.5" cy="5.5" r="1" fill="currentColor" stroke="none" />
                         <path d="M2 11l3-3 2 2 3-4 4 5" strokeLinecap="round" strokeLinejoin="round" />
@@ -139,13 +130,7 @@ export function PlaygroundStateSections() {
                   </div>
                   <div className="flex items-center gap-3 sm:gap-1">
                     <div className="flex items-center justify-center w-8 h-8 rounded-lg text-cc-muted">
-                      <svg
-                        viewBox="0 0 16 16"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                        className="w-4 h-4"
-                      >
+                      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
                         <rect x="2" y="2" width="12" height="12" rx="2" />
                         <circle cx="5.5" cy="5.5" r="1" fill="currentColor" stroke="none" />
                         <path d="M2 11l3-3 2 2 3-4 4 5" strokeLinecap="round" strokeLinejoin="round" />
@@ -255,13 +240,7 @@ export function PlaygroundStateSections() {
                   </div>
                   <div className="flex items-center gap-1">
                     <div className="flex items-center justify-center w-8 h-8 rounded-lg text-cc-muted">
-                      <svg
-                        viewBox="0 0 16 16"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                        className="w-4 h-4"
-                      >
+                      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
                         <rect x="2" y="2" width="12" height="12" rx="2" />
                         <circle cx="5.5" cy="5.5" r="1" fill="currentColor" stroke="none" />
                         <path d="M2 11l3-3 2 2 3-4 4 5" strokeLinecap="round" strokeLinejoin="round" />
@@ -325,13 +304,7 @@ export function PlaygroundStateSections() {
                   </div>
                   <div className="flex items-center gap-1">
                     <div className="flex items-center justify-center w-8 h-8 rounded-lg text-cc-muted">
-                      <svg
-                        viewBox="0 0 16 16"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                        className="w-4 h-4"
-                      >
+                      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
                         <rect x="2" y="2" width="12" height="12" rx="2" />
                         <circle cx="5.5" cy="5.5" r="1" fill="currentColor" stroke="none" />
                         <path d="M2 11l3-3 2 2 3-4 4 5" strokeLinecap="round" strokeLinejoin="round" />
@@ -543,13 +516,7 @@ export function PlaygroundStateSections() {
                   </div>
                   <div className="flex items-center gap-1">
                     <div className="flex items-center justify-center w-8 h-8 rounded-lg text-cc-muted">
-                      <svg
-                        viewBox="0 0 16 16"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                        className="w-4 h-4"
-                      >
+                      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
                         <rect x="2" y="2" width="12" height="12" rx="2" />
                         <circle cx="5.5" cy="5.5" r="1" fill="currentColor" stroke="none" />
                         <path d="M2 11l3-3 2 2 3-4 4 5" strokeLinecap="round" strokeLinejoin="round" />
@@ -612,13 +579,7 @@ export function PlaygroundStateSections() {
                   </div>
                   <div className="flex items-center gap-1">
                     <div className="flex items-center justify-center w-8 h-8 rounded-lg text-cc-muted">
-                      <svg
-                        viewBox="0 0 16 16"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                        className="w-4 h-4"
-                      >
+                      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
                         <rect x="2" y="2" width="12" height="12" rx="2" />
                         <circle cx="5.5" cy="5.5" r="1" fill="currentColor" stroke="none" />
                         <path d="M2 11l3-3 2 2 3-4 4 5" strokeLinecap="round" strokeLinejoin="round" />
@@ -807,13 +768,7 @@ export function PlaygroundStateSections() {
                       aria-label="Dismiss transcription error"
                       title="Dismiss"
                     >
-                      <svg
-                        viewBox="0 0 16 16"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                        className="w-3 h-3"
-                      >
+                      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3 h-3">
                         <path d="M4 4l8 8M12 4l-8 8" />
                       </svg>
                     </button>
@@ -886,13 +841,7 @@ export function PlaygroundStateSections() {
                   </div>
                   <div className="flex items-center gap-1">
                     <div className="flex items-center justify-center w-8 h-8 rounded-lg text-cc-muted">
-                      <svg
-                        viewBox="0 0 16 16"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                        className="w-4 h-4"
-                      >
+                      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
                         <rect x="2" y="2" width="12" height="12" rx="2" />
                         <circle cx="5.5" cy="5.5" r="1" fill="currentColor" stroke="none" />
                         <path d="M2 11l3-3 2 2 3-4 4 5" strokeLinecap="round" strokeLinejoin="round" />
@@ -919,10 +868,7 @@ export function PlaygroundStateSections() {
       </Section>
 
       {/* ─── Streaming Indicator ──────────────────────────────── */}
-      <Section
-        title="Streaming Indicator"
-        description="Live typing animation shown while the assistant is generating"
-      >
+      <Section title="Streaming Indicator" description="Live typing animation shown while the assistant is generating">
         <div className="space-y-4 max-w-3xl">
           <Card label="Codex streaming (complete lines only)">
             <div className="flex items-start gap-3">
@@ -1663,13 +1609,13 @@ export function PlaygroundStateSections() {
                 navigation arrows, close button (Escape)
               </p>
               <p>
-                <span className="font-medium text-cc-fg">Mode toggle:</span> Strict (exact substring) ↔ Fuzzy
-                (per-word) via button in the search bar
+                <span className="font-medium text-cc-fg">Mode toggle:</span> Strict (exact substring) ↔ Fuzzy (per-word)
+                via button in the search bar
               </p>
               <p>
                 <span className="font-medium text-cc-fg">Category filters:</span> Inline segmented pills for `All`,
-                `User`, `Assistant`, and `System` keep the bar compact while narrowing matches and highlights by
-                message role
+                `User`, `Assistant`, and `System` keep the bar compact while narrowing matches and highlights by message
+                role
               </p>
             </div>
           </Card>

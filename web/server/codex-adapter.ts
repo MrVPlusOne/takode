@@ -1406,5 +1406,4 @@ export class CodexAdapter
     this.turnStartFailedCb(msg);
     return true;
   }
-
 }

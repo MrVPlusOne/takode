@@ -50,10 +50,7 @@ export interface ClaudeCliTransportSessionLike {
 
 export interface ClaudeCliTransportDeps {
   broadcastToBrowsers: (session: ClaudeCliTransportSessionLike, msg: BrowserIncomingMessage) => void;
-  refreshGitInfoThenRecomputeDiff: (
-    session: ClaudeCliTransportSessionLike,
-    options: { notifyPoller: boolean },
-  ) => void;
+  refreshGitInfoThenRecomputeDiff: (session: ClaudeCliTransportSessionLike, options: { notifyPoller: boolean }) => void;
   getLauncherSessionInfo: (sessionId: string) => ClaudeCliTransportLauncherInfoLike | null | undefined;
   onSessionActivityStateChanged: (sessionId: string, reason: string) => void;
   routeCLIMessage: (session: ClaudeCliTransportSessionLike, msg: CLIMessage) => void;
@@ -332,10 +329,7 @@ export function sendControlRequest(
   );
 }
 
-export function handleControlResponse(
-  session: ClaudeCliTransportSessionLike,
-  msg: CLIControlResponseMessage,
-): void {
+export function handleControlResponse(session: ClaudeCliTransportSessionLike, msg: CLIControlResponseMessage): void {
   const reqId = msg.response.request_id;
   const pending = session.pendingControlRequests.get(reqId);
   if (!pending) return;

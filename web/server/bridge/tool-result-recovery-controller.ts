@@ -34,10 +34,7 @@ export interface ToolResultRecoveryDeps {
   takodeBoardResultPreviewLimit: number;
   defaultToolResultPreviewLimit: number;
 }
-export function clearCodexToolResultWatchdog(
-  session: ToolResultRecoverySessionLike,
-  toolUseId: string,
-): void {
+export function clearCodexToolResultWatchdog(session: ToolResultRecoverySessionLike, toolUseId: string): void {
   const timer = session.codexToolResultWatchdogs.get(toolUseId);
   if (!timer) return;
   clearTimeout(timer);
@@ -186,7 +183,9 @@ export function pruneToolResultsForCurrentHistory(session: ToolResultRecoverySes
   }
   session.toolResults = nextToolResults;
 }
-export function collectUnresolvedToolStartTimesFromHistory(session: ToolResultRecoverySessionLike): Map<string, number> {
+export function collectUnresolvedToolStartTimesFromHistory(
+  session: ToolResultRecoverySessionLike,
+): Map<string, number> {
   const starts = new Map<string, number>();
   const resolved = new Set<string>();
   for (const msg of session.messageHistory) {

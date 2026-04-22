@@ -22,7 +22,10 @@ interface SessionsArchiveRoutesDeps {
   pathExists: RouteContext["pathExists"];
   pendingWorktreeCleanups: Map<string, Promise<void>>;
   prPoller?: RouteContext["prPoller"];
-  queueArchivedWorktreeCleanup: (sessionId: string, options?: { archiveBranch?: boolean }) => QueuedWorktreeCleanupResult;
+  queueArchivedWorktreeCleanup: (
+    sessionId: string,
+    options?: { archiveBranch?: boolean },
+  ) => QueuedWorktreeCleanupResult;
   resolveId: RouteContext["resolveId"];
   sessionStore: RouteContext["sessionStore"];
   timerManager?: RouteContext["timerManager"];

@@ -38,14 +38,12 @@ export interface CodexRecoveryOrchestratorSessionLike {
   queuedTurnUserMessageIds: number[][];
   queuedTurnInterruptSources: Array<InterruptSource | null>;
   lastUserMessage?: string;
-  codexAdapter:
-    | {
-        getCurrentTurnId(): string | null;
-        isConnected(): boolean;
-        sendBrowserMessage(msg: BrowserOutgoingMessage): boolean;
-        disconnect(): Promise<void>;
-      }
-    | null;
+  codexAdapter: {
+    getCurrentTurnId(): string | null;
+    isConnected(): boolean;
+    sendBrowserMessage(msg: BrowserOutgoingMessage): boolean;
+    disconnect(): Promise<void>;
+  } | null;
 }
 export interface CodexRecoveryOrchestratorDeps {
   codexAssistantReplayScanLimit: number;
@@ -572,9 +570,7 @@ export function rebuildQueuedCodexPendingStartBatch(
     acknowledgedAt: null,
     turnTarget: null,
     lastError:
-      session.state.backend_state === "broken"
-        ? "Codex session needs relaunch before queued messages can run."
-        : null,
+      session.state.backend_state === "broken" ? "Codex session needs relaunch before queued messages can run." : null,
     turnId: null,
     disconnectedAt: null,
     resumeConfirmedAt: null,
@@ -626,7 +622,9 @@ export function trySteerPendingCodexInputs(
     setPendingCodexInputsCancelable(session, ids, true, deps);
     return false;
   }
-  console.log(`[ws-bridge] Steered ${ids.length} pending Codex input(s) for session ${sessionTag(session.id)} (${reason})`);
+  console.log(
+    `[ws-bridge] Steered ${ids.length} pending Codex input(s) for session ${sessionTag(session.id)} (${reason})`,
+  );
   return true;
 }
 
@@ -702,12 +700,20 @@ export function registerCodexAdapterRecoveryLifecycle(
     if (session.codexAdapter !== adapter) return;
     const pending = deps.getCodexTurnAwaitingAck(session);
     if (!pending) return;
-    const committedHistoryIndexes = commitPendingCodexInputs(session, pending.pendingInputIds ?? [pending.userMessageId], deps);
+    const committedHistoryIndexes = commitPendingCodexInputs(
+      session,
+      pending.pendingInputIds ?? [pending.userMessageId],
+      deps,
+    );
     if (committedHistoryIndexes.length > 0) {
       pending.historyIndex = committedHistoryIndexes[0];
     }
     const trackedHistoryIndexes =
-      committedHistoryIndexes.length > 0 ? committedHistoryIndexes : pending.historyIndex >= 0 ? [pending.historyIndex] : [];
+      committedHistoryIndexes.length > 0
+        ? committedHistoryIndexes
+        : pending.historyIndex >= 0
+          ? [pending.historyIndex]
+          : [];
     pending.turnId = turnId;
     pending.status = "backend_acknowledged";
     pending.acknowledgedAt = Date.now();
@@ -804,15 +810,17 @@ export function registerCodexAdapterRecoveryLifecycle(
     deps.rebuildQueuedCodexPendingStartBatch(session);
     deps.setBackendState(session, "disconnected", null);
     if (!intentionalRelaunch) {
-      if (session.lastAdapterFailureAt !== null && now - session.lastAdapterFailureAt > deps.adapterFailureResetWindowMs) {
+      if (
+        session.lastAdapterFailureAt !== null &&
+        now - session.lastAdapterFailureAt > deps.adapterFailureResetWindowMs
+      ) {
         session.consecutiveAdapterFailures = 0;
       }
       session.lastAdapterFailureAt = now;
       session.consecutiveAdapterFailures++;
     }
     const idleKilled = deps.getLauncherSessionInfo(sessionId)?.killedByIdleManager;
-    const shouldDeferDisconnectInterruption =
-      wasGenerating && pending !== null && !intentionalRelaunch && !idleKilled;
+    const shouldDeferDisconnectInterruption = wasGenerating && pending !== null && !intentionalRelaunch && !idleKilled;
     if (shouldDeferDisconnectInterruption) {
       deps.clearCodexDisconnectGraceTimer(session, "codex_disconnect_rearm");
       (session as any).codexDisconnectGraceTimer = setTimeout(() => {
@@ -982,7 +990,12 @@ export function reconcileCodexResumedTurn(
   const matchesTurnId = !!pending.turnId && pending.turnId === lastTurn.id;
   const matchesText = !!pendingText && pendingText === resumedUserText;
   if (!matchesTurnId && !matchesText) {
-    if (!pending.turnId && lastTurn.status === "inProgress" && snapshot.threadStatus === "idle" && lastTurn.items.length === 0) {
+    if (
+      !pending.turnId &&
+      lastTurn.status === "inProgress" &&
+      snapshot.threadStatus === "idle" &&
+      lastTurn.items.length === 0
+    ) {
       console.log(
         `[ws-bridge] Resumed Codex turn ${lastTurn.id} for session ${sessionTag(session.id)} ` +
           "lost local turn identity after turn/start; thread is idle and turn has no items, retrying user message",
@@ -998,7 +1011,11 @@ export function reconcileCodexResumedTurn(
     }
     return;
   }
-  const completedHistoryIndexes = commitPendingCodexInputs(session, pending.pendingInputIds ?? [pending.userMessageId], deps);
+  const completedHistoryIndexes = commitPendingCodexInputs(
+    session,
+    pending.pendingInputIds ?? [pending.userMessageId],
+    deps,
+  );
   if (completedHistoryIndexes.length > 0 && pending.historyIndex < 0) {
     pending.historyIndex = completedHistoryIndexes[0];
   }
@@ -1184,7 +1201,8 @@ export function reconcileRecoveredQueuedTurnLifecycle(
       nextEntries.shift();
     }
   }
-  const rebuiltEntries: Array<{ reason: string; userMessageIds: number[]; interruptSource: InterruptSource | null }> = [];
+  const rebuiltEntries: Array<{ reason: string; userMessageIds: number[]; interruptSource: InterruptSource | null }> =
+    [];
   let nextEntryIdx = 0;
   for (const turn of liveTurns) {
     const isExplicitQueuedTurn = turn.turnTarget === "queued";
@@ -1199,8 +1217,7 @@ export function reconcileRecoveredQueuedTurnLifecycle(
     }
     rebuiltEntries.push({
       reason: nextEntries[nextEntryIdx]?.reason ?? "queued_user_message",
-      userMessageIds:
-        nextEntries[nextEntryIdx]?.userMessageIds ?? (turn.historyIndex >= 0 ? [turn.historyIndex] : []),
+      userMessageIds: nextEntries[nextEntryIdx]?.userMessageIds ?? (turn.historyIndex >= 0 ? [turn.historyIndex] : []),
       interruptSource: nextEntries[nextEntryIdx]?.interruptSource ?? null,
     });
     nextEntryIdx += 1;
@@ -1221,7 +1238,10 @@ export function rearmRecoveredQueuedHeadTurn(
   session: CodexRecoveryOrchestratorSessionLike,
   pending: CodexOutboundTurn,
   reason: string,
-  deps: Pick<CodexRecoveryOrchestratorDeps, "markRunningFromUserDispatch" | "promoteNextQueuedTurn" | "trackUserMessageForTurn">,
+  deps: Pick<
+    CodexRecoveryOrchestratorDeps,
+    "markRunningFromUserDispatch" | "promoteNextQueuedTurn" | "trackUserMessageForTurn"
+  >,
 ): void {
   if (pending.turnTarget !== "queued" || session.isGenerating) return;
   if (deps.promoteNextQueuedTurn(session)) {
@@ -1298,7 +1318,9 @@ type QueuedTurnLifecycleEntry = {
 function getQueuedTurnLifecycleEntries(session: CodexRecoveryOrchestratorSessionLike): QueuedTurnLifecycleEntry[] {
   return Array.from({ length: session.queuedTurnStarts }, (_, idx) => ({
     reason: session.queuedTurnReasons[idx] ?? "queued_user_message",
-    userMessageIds: Array.isArray(session.queuedTurnUserMessageIds[idx]) ? [...session.queuedTurnUserMessageIds[idx]!] : [],
+    userMessageIds: Array.isArray(session.queuedTurnUserMessageIds[idx])
+      ? [...session.queuedTurnUserMessageIds[idx]!]
+      : [],
     interruptSource: session.queuedTurnInterruptSources[idx] ?? null,
   }));
 }

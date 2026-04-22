@@ -15,7 +15,9 @@ function readFile(relativePath: string): string {
  */
 function extractMethodBody(source: string, methodName: string): string {
   // Match the method definition, not call sites like `this.methodName(`
-  const definitionPattern = new RegExp(`(?:(?:private|public|protected)\\s+|export\\s+function\\s+)${methodName}\\s*\\(`);
+  const definitionPattern = new RegExp(
+    `(?:(?:private|public|protected)\\s+|export\\s+function\\s+)${methodName}\\s*\\(`,
+  );
   const match = definitionPattern.exec(source);
   if (!match) return "";
   const idx = match.index;

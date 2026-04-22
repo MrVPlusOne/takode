@@ -8,12 +8,7 @@ import { YarnBallDot } from "./CatIcons.js";
 import { MessageBubble } from "./MessageBubble.js";
 import { NotificationChip } from "./NotificationChip.js";
 import { TimerChip } from "./TimerWidget.js";
-import {
-  formatElapsed,
-  formatTokens,
-  getFooterFeedBlockId,
-  getPendingCodexFeedBlockId,
-} from "./message-feed-utils.js";
+import { formatElapsed, formatTokens, getFooterFeedBlockId, getPendingCodexFeedBlockId } from "./message-feed-utils.js";
 
 export function ElapsedTimer({
   sessionId,

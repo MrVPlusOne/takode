@@ -58,9 +58,7 @@ describe("branch-session-index", () => {
       ["feature", new Set(["s1"])],
       ["origin/main", new Set(["s1"])],
     ]);
-    const sessionBranches = new Map<string, Set<string>>([
-      ["s1", new Set(["feature", "origin/main"])],
-    ]);
+    const sessionBranches = new Map<string, Set<string>>([["s1", new Set(["feature", "origin/main"])]]);
     const lastCrossSessionRefreshAt = new Map<string, number>([["s1", 123]]);
 
     cleanupBranchState("s1", {

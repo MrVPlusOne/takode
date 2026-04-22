@@ -106,7 +106,9 @@ export function PickerSessionChip({
                 herd
               </span>
             )}
-            {s.sessionNum != null && <span className="text-[9px] font-mono text-cc-muted/60 shrink-0">#{s.sessionNum}</span>}
+            {s.sessionNum != null && (
+              <span className="text-[9px] font-mono text-cc-muted/60 shrink-0">#{s.sessionNum}</span>
+            )}
             {s.gitBranch && (
               <>
                 {s.isWorktree ? (

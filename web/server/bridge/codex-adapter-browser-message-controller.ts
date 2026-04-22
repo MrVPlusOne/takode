@@ -23,10 +23,7 @@ export interface CodexAdapterBrowserMessageDeps {
     options?: { persist?: boolean },
   ) => void;
   sanitizeCodexSessionPatch: (patch: Record<string, unknown>) => Record<string, unknown>;
-  cacheSlashCommandState: (
-    session: CodexBrowserMessageSessionLike,
-    sanitized: Record<string, unknown>,
-  ) => void;
+  cacheSlashCommandState: (session: CodexBrowserMessageSessionLike, sanitized: Record<string, unknown>) => void;
   refreshGitInfoThenRecomputeDiff: (
     session: CodexBrowserMessageSessionLike,
     options: { notifyPoller?: boolean; broadcastUpdate?: boolean },

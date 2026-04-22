@@ -161,10 +161,7 @@ export interface CliUserReplaySessionLike {
 }
 
 interface CliMessageRouteDeps {
-  handleSystemMessage: (
-    session: CliMessageRouteSessionLike,
-    msg: SystemMessage,
-  ) => void;
+  handleSystemMessage: (session: CliMessageRouteSessionLike, msg: SystemMessage) => void;
   handleAssistantMessage: (session: CliMessageRouteSessionLike, msg: CLIAssistantMessage) => void;
   handleResultMessage: (session: CliMessageRouteSessionLike, msg: CLIResultMessage) => void;
   handleControlRequest: (session: CliMessageRouteSessionLike, msg: CLIControlRequestMessage) => void;
@@ -322,7 +319,12 @@ export function handleAssistantMessage(
     };
     session.messageHistory.push(browserMsg);
     deps.broadcastToBrowsers(session, browserMsg);
-    maybeUpdateContextUsedPercentFromAssistantUsage(session, msg.message.usage, msg.message.model, deps.broadcastToBrowsers);
+    maybeUpdateContextUsedPercentFromAssistantUsage(
+      session,
+      msg.message.usage,
+      msg.message.model,
+      deps.broadcastToBrowsers,
+    );
     deps.persistSession(session);
     return;
   }
@@ -368,7 +370,11 @@ export function handleAssistantMessage(
       | undefined;
     if (!historyEntry) return;
 
-    const newBlocks = getAssistantContentAppendBlocks(historyEntry.message.content, msg.message.content, acc.contentBlockIds);
+    const newBlocks = getAssistantContentAppendBlocks(
+      historyEntry.message.content,
+      msg.message.content,
+      acc.contentBlockIds,
+    );
     if (newBlocks.length > 0) {
       for (const block of newBlocks) {
         if (block.type === "tool_use" && block.id) {
@@ -417,7 +423,12 @@ export function handleAssistantMessage(
       }
     }
   }
-  maybeUpdateContextUsedPercentFromAssistantUsage(session, msg.message.usage, msg.message.model, deps.broadcastToBrowsers);
+  maybeUpdateContextUsedPercentFromAssistantUsage(
+    session,
+    msg.message.usage,
+    msg.message.model,
+    deps.broadcastToBrowsers,
+  );
   deps.persistSession(session);
 }
 
@@ -458,7 +469,8 @@ export function handleResultMessage(
   session.state.num_turns = msg.num_turns;
 
   const lastAssistant = session.messageHistory.findLast(
-    (entry) => entry.type === "assistant" && (entry as { parent_tool_use_id?: string | null }).parent_tool_use_id == null,
+    (entry) =>
+      entry.type === "assistant" && (entry as { parent_tool_use_id?: string | null }).parent_tool_use_id == null,
   ) as { message?: { usage?: TokenUsage } } | undefined;
   const nextContextPct = computeResultContextUsedPercent(session.state.model, msg, lastAssistant?.message?.usage);
   if (typeof nextContextPct === "number") {
@@ -502,7 +514,8 @@ export function handleResultMessage(
 
   if (typeof turnDurationMs === "number") {
     const latestAssistant = session.messageHistory.findLast(
-      (entry) => entry.type === "assistant" && (entry as { parent_tool_use_id?: string | null }).parent_tool_use_id == null,
+      (entry) =>
+        entry.type === "assistant" && (entry as { parent_tool_use_id?: string | null }).parent_tool_use_id == null,
     ) as (BrowserIncomingMessage & { type: "assistant"; turn_duration_ms?: number }) | undefined;
     if (latestAssistant) {
       latestAssistant.turn_duration_ms = turnDurationMs;
@@ -535,11 +548,7 @@ export function handleResultMessage(
   deps.onTurnCompleted(session);
 }
 
-export function routeCLIMessage(
-  session: CliMessageRouteSessionLike,
-  msg: CLIMessage,
-  deps: CliMessageRouteDeps,
-): void {
+export function routeCLIMessage(session: CliMessageRouteSessionLike, msg: CLIMessage, deps: CliMessageRouteDeps): void {
   switch (msg.type) {
     case "system":
       deps.handleSystemMessage(session, msg);
@@ -611,9 +620,7 @@ export function extractUserPromptFromCLI(
   const cliUuid = msg.uuid;
   if (cliUuid && deps.hasUserPromptReplay(session, cliUuid)) {
     if (session.cliResuming) {
-      console.log(
-        `[revert] Replay user msg DEDUPED (cliUuid=${cliUuid}, historyLen=${session.messageHistory.length})`,
-      );
+      console.log(`[revert] Replay user msg DEDUPED (cliUuid=${cliUuid}, historyLen=${session.messageHistory.length})`);
     }
     return;
   }
@@ -712,7 +719,10 @@ export function handleClaudeCliUserMessage(
 
 export function createClaudeMessageHandlers(
   deps: SystemMessageDeps &
-    Pick<HandleAssistantRuntimeDeps, "hasAssistantReplay" | "broadcastToBrowsers" | "persistSession" | "setGenerating"> &
+    Pick<
+      HandleAssistantRuntimeDeps,
+      "hasAssistantReplay" | "broadcastToBrowsers" | "persistSession" | "setGenerating"
+    > &
     ResultMessageDeps &
     ClaudeCliUserMessageDeps,
 ): {
@@ -750,7 +760,8 @@ export function createClaudeMessageHandlers(
     broadcastToBrowsers: deps.broadcastToBrowsers,
     persistSession: deps.persistSession,
     setGenerating: deps.setGenerating,
-    broadcastStatusRunning: (session) => deps.broadcastToBrowsers(session, { type: "status_change", status: "running" }),
+    broadcastStatusRunning: (session) =>
+      deps.broadcastToBrowsers(session, { type: "status_change", status: "running" }),
   };
   const resultMessageDeps: ResultMessageDeps = {
     hasResultReplay: deps.hasResultReplay,
@@ -796,7 +807,14 @@ export function createClaudeMessageHandlers(
     handleClaudeCliUserMessage: (session: CliMessageRouteSessionLike, msg: CLIUserMessage) =>
       handleClaudeCliUserMessage(session as unknown as CliUserReplaySessionLike, msg, cliUserMessageDeps),
     handleSdkBrowserMessage: (session: ClaudeSdkBrowserMessageSessionLike, msg: any) =>
-      handleSdkBrowserMessage(session, msg, systemMessageDeps, assistantMessageDeps, resultMessageDeps, cliUserMessageDeps),
+      handleSdkBrowserMessage(
+        session,
+        msg,
+        systemMessageDeps,
+        assistantMessageDeps,
+        resultMessageDeps,
+        cliUserMessageDeps,
+      ),
   };
 }
 
@@ -1071,7 +1089,8 @@ function handleSystemInit(session: SystemMessageSessionLike, msg: CLISystemInitM
   }
   if (session.isGenerating && (!session.seamlessReconnect || seamlessButStuck)) {
     const hasInFlightUserDispatch =
-      typeof session.lastOutboundUserNdjson === "string" && deps.isCliUserMessagePayload(session.lastOutboundUserNdjson);
+      typeof session.lastOutboundUserNdjson === "string" &&
+      deps.isCliUserMessagePayload(session.lastOutboundUserNdjson);
     if (!hasInFlightUserDispatch) {
       deps.markTurnInterrupted(session, "system");
       deps.setGenerating(session, false, "system_init_reset");
@@ -1225,7 +1244,11 @@ function handleControlCancelRequestMessage(
   msg: CLIControlCancelRequestMessage,
   deps: Pick<
     CliMessageRouteDeps,
-    "abortAutoApproval" | "broadcastToBrowsers" | "cancelPermissionNotification" | "clearActionAttentionIfNoPermissions" | "persistSession"
+    | "abortAutoApproval"
+    | "broadcastToBrowsers"
+    | "cancelPermissionNotification"
+    | "clearActionAttentionIfNoPermissions"
+    | "persistSession"
   >,
 ): void {
   const reqId = msg.request_id;

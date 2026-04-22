@@ -704,7 +704,13 @@ export function CodexTerminalInspector({
           </button>
         </div>
         <div className="min-h-0 flex-1 overflow-auto p-3">
-          <ToolBlock name="Bash" input={terminal.input} toolUseId={terminal.toolUseId} sessionId={sessionId} defaultOpen />
+          <ToolBlock
+            name="Bash"
+            input={terminal.input}
+            toolUseId={terminal.toolUseId}
+            sessionId={sessionId}
+            defaultOpen
+          />
         </div>
         <button
           type="button"

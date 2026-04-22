@@ -21,7 +21,11 @@ export interface ClaudeSdkAdapterLifecycleDeps {
   adapterFailureResetWindowMs: number;
 }
 
-export function attachClaudeSdkAdapterLifecycle(sessionId: string, adapter: any, deps: ClaudeSdkAdapterLifecycleDeps): void {
+export function attachClaudeSdkAdapterLifecycle(
+  sessionId: string,
+  adapter: any,
+  deps: ClaudeSdkAdapterLifecycleDeps,
+): void {
   const session = deps.getOrCreateSession(sessionId, "claude-sdk");
   session.backendType = "claude-sdk";
   session.state.backend_type = "claude-sdk";
@@ -173,7 +177,10 @@ export function attachClaudeSdkAdapterLifecycle(sessionId: string, adapter: any,
     options?: { idleKilled?: boolean; error?: string },
   ): void => {
     const now = Date.now();
-    if (session.lastAdapterFailureAt !== null && now - session.lastAdapterFailureAt > deps.adapterFailureResetWindowMs) {
+    if (
+      session.lastAdapterFailureAt !== null &&
+      now - session.lastAdapterFailureAt > deps.adapterFailureResetWindowMs
+    ) {
       session.consecutiveAdapterFailures = 0;
     }
     session.lastAdapterFailureAt = now;

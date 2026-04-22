@@ -78,10 +78,7 @@ export interface BrowserTransportTreeGroupState {
 }
 
 export interface BrowserTransportDeps {
-  refreshGitInfoThenRecomputeDiff: (
-    session: BrowserTransportSessionLike,
-    options: { notifyPoller: boolean },
-  ) => void;
+  refreshGitInfoThenRecomputeDiff: (session: BrowserTransportSessionLike, options: { notifyPoller: boolean }) => void;
   prefillSlashCommands: (session: BrowserTransportSessionLike) => void;
   getTreeGroupState: () => Promise<BrowserTransportTreeGroupState>;
   getVsCodeSelectionState: () => unknown;
@@ -139,11 +136,11 @@ export function handleBrowserOpen(
   ws: BrowserTransportSocketLike,
   deps: BrowserTransportDeps,
 ): void {
-  const data = ((ws.data ??= {}) as {
+  const data = (ws.data ??= {}) as {
     sessionId?: string;
     subscribed?: boolean;
     lastAckSeq?: number;
-  });
+  };
   data.subscribed = false;
   data.lastAckSeq = 0;
   session.browserSockets.add(ws);
@@ -197,13 +194,10 @@ export function handleBrowserOpen(
     }
 
     const idleKilled = launcherInfo?.killedByIdleManager;
-    sendToBrowser(
-      ws,
-      {
-        type: "backend_disconnected",
-        ...(idleKilled ? { reason: "idle_limit" } : {}),
-      } as BrowserIncomingMessage,
-    );
+    sendToBrowser(ws, {
+      type: "backend_disconnected",
+      ...(idleKilled ? { reason: "idle_limit" } : {}),
+    } as BrowserIncomingMessage);
     if (session.backendType === "codex") {
       console.log(
         `[ws-bridge] Browser connected but backend is dead for session ${sessionTag(session.id)}, requesting relaunch`,
@@ -223,13 +217,10 @@ export function handleBrowserOpen(
     return;
   }
 
-  sendToBrowser(
-    ws,
-    {
-      type: "backend_disconnected",
-      ...(session.state.backend_state === "broken" ? { reason: "broken" } : {}),
-    } as BrowserIncomingMessage,
-  );
+  sendToBrowser(ws, {
+    type: "backend_disconnected",
+    ...(session.state.backend_state === "broken" ? { reason: "broken" } : {}),
+  } as BrowserIncomingMessage);
 }
 
 export function handleBrowserClose(
@@ -254,8 +245,7 @@ export async function handleBrowserIngressMessage(
 ): Promise<void> {
   const routeTask = async () => {
     const maybeProtocolHandled = handleBrowserProtocolMessage(session, msg, ws, deps);
-    const protocolHandled =
-      maybeProtocolHandled instanceof Promise ? await maybeProtocolHandled : maybeProtocolHandled;
+    const protocolHandled = maybeProtocolHandled instanceof Promise ? await maybeProtocolHandled : maybeProtocolHandled;
     if (protocolHandled) return;
     return deps.routeBrowserMessage(session, msg, ws);
   };
@@ -470,17 +460,13 @@ export function isHerdEventSource(agentSource: AgentSource | undefined): boolean
   return agentSource?.sessionId === "herd-events";
 }
 
-export function sameAgentSource(
-  left: AgentSource | undefined,
-  right: AgentSource | undefined,
-): boolean {
-  return (left?.sessionId ?? "") === (right?.sessionId ?? "") && (left?.sessionLabel ?? "") === (right?.sessionLabel ?? "");
+export function sameAgentSource(left: AgentSource | undefined, right: AgentSource | undefined): boolean {
+  return (
+    (left?.sessionId ?? "") === (right?.sessionId ?? "") && (left?.sessionLabel ?? "") === (right?.sessionLabel ?? "")
+  );
 }
 
-export function normalizePendingCodexDedupContent(
-  content: string,
-  agentSource?: AgentSource,
-): string {
+export function normalizePendingCodexDedupContent(content: string, agentSource?: AgentSource): string {
   if (!isHerdEventSource(agentSource)) return content;
   return content.replace(/ \| \d+[smhd] ago(?=$|\n)/g, "");
 }
@@ -529,25 +515,22 @@ export function sendStateSnapshot(
   ws: BrowserTransportSocketLike,
   deps: BrowserTransportDeps,
 ): void {
-  sendToBrowser(
-    ws,
-    {
-      type: "state_snapshot",
-      sessionStatus: deriveSessionStatus(session, deps),
-      permissionMode: session.state.permissionMode,
-      backendConnected: deps.backendConnected(session),
-      backendState: deps.deriveBackendState(session),
-      backendError: session.state.backend_error ?? null,
-      uiMode: session.state.uiMode ?? null,
-      askPermission: session.state.askPermission ?? true,
-      lastReadAt: session.lastReadAt,
-      attentionReason: session.attentionReason,
-      generationStartedAt: session.generationStartedAt ?? null,
-      board: deps.getBoard(session.id),
-      completedBoard: deps.getCompletedBoard(session.id),
-      notifications: session.notifications,
-    } as BrowserIncomingMessage,
-  );
+  sendToBrowser(ws, {
+    type: "state_snapshot",
+    sessionStatus: deriveSessionStatus(session, deps),
+    permissionMode: session.state.permissionMode,
+    backendConnected: deps.backendConnected(session),
+    backendState: deps.deriveBackendState(session),
+    backendError: session.state.backend_error ?? null,
+    uiMode: session.state.uiMode ?? null,
+    askPermission: session.state.askPermission ?? true,
+    lastReadAt: session.lastReadAt,
+    attentionReason: session.attentionReason,
+    generationStartedAt: session.generationStartedAt ?? null,
+    board: deps.getBoard(session.id),
+    completedBoard: deps.getCompletedBoard(session.id),
+    notifications: session.notifications,
+  } as BrowserIncomingMessage);
 }
 
 /** Yield so large history hashing does not monopolize the event loop. */
@@ -654,7 +637,9 @@ export function sendHistoryWindowSync(
   const normalizedVisibleSectionCount = Math.max(1, Math.floor(options.visibleSectionCount));
   const normalizedTurnCount = Math.max(
     1,
-    Math.floor(options.turnCount || getHistoryWindowTurnCount(normalizedVisibleSectionCount, normalizedSectionTurnCount)),
+    Math.floor(
+      options.turnCount || getHistoryWindowTurnCount(normalizedVisibleSectionCount, normalizedSectionTurnCount),
+    ),
   );
   const turns = findTurnBoundaries(session.messageHistory);
   const totalTurns = turns.length;
@@ -668,8 +653,7 @@ export function sendHistoryWindowSync(
     turnCount = Math.max(0, endTurnExclusive - fromTurn);
     const startIdx = turns[fromTurn]?.startIdx ?? 0;
     const lastTurn = turns[endTurnExclusive - 1];
-    const endIdx =
-      lastTurn && lastTurn.endIdx >= 0 ? lastTurn.endIdx : Math.max(0, session.messageHistory.length - 1);
+    const endIdx = lastTurn && lastTurn.endIdx >= 0 ? lastTurn.endIdx : Math.max(0, session.messageHistory.length - 1);
     messages = session.messageHistory.slice(startIdx, endIdx + 1);
   }
 
@@ -697,7 +681,7 @@ export async function handleSessionSubscribe(
   deps: BrowserTransportDeps,
 ): Promise<void> {
   if (!ws) return;
-  const data = ((ws.data ??= {}) as { subscribed?: boolean; lastAckSeq?: number });
+  const data = (ws.data ??= {}) as { subscribed?: boolean; lastAckSeq?: number };
   data.subscribed = true;
   const lastAckSeq = Number.isFinite(lastSeq) ? Math.max(0, Math.floor(lastSeq)) : 0;
   data.lastAckSeq = lastAckSeq;
@@ -752,7 +736,9 @@ export async function handleSessionSubscribe(
       }
     }
     if (session.eventBuffer.length > 0) {
-      const transient = session.eventBuffer.filter((evt) => !isHistoryBackedEvent(evt.message as ReplayableBrowserIncomingMessage));
+      const transient = session.eventBuffer.filter(
+        (evt) => !isHistoryBackedEvent(evt.message as ReplayableBrowserIncomingMessage),
+      );
       if (transient.length > 0) {
         sendToBrowser(ws, { type: "event_replay", events: transient } as BrowserIncomingMessage);
       }
@@ -805,7 +791,7 @@ export function handleSessionAck(
 ): void {
   const normalized = Number.isFinite(lastSeq) ? Math.max(0, Math.floor(lastSeq)) : 0;
   if (ws) {
-    const data = ((ws.data ??= {}) as { subscribed?: boolean; lastAckSeq?: number });
+    const data = (ws.data ??= {}) as { subscribed?: boolean; lastAckSeq?: number };
     const prior = typeof data.lastAckSeq === "number" ? data.lastAckSeq : 0;
     data.lastAckSeq = Math.max(prior, normalized);
   }
@@ -870,7 +856,12 @@ export function sendToBrowser(ws: BrowserTransportSocketLike, msg: BrowserIncomi
   try {
     const json = JSON.stringify(msg);
     ws.send(json);
-    deferBrowserTrafficStats(json, (ws.data as { sessionId?: string } | undefined)?.sessionId ?? "unknown", msg.type, 1);
+    deferBrowserTrafficStats(
+      json,
+      (ws.data as { sessionId?: string } | undefined)?.sessionId ?? "unknown",
+      msg.type,
+      1,
+    );
   } catch {
     // socket cleanup handled elsewhere
   }
@@ -879,7 +870,12 @@ export function sendToBrowser(ws: BrowserTransportSocketLike, msg: BrowserIncomi
 export function sendToBrowserRaw(ws: BrowserTransportSocketLike, json: string, messageType: string): void {
   try {
     ws.send(json);
-    deferBrowserTrafficStats(json, (ws.data as { sessionId?: string } | undefined)?.sessionId ?? "unknown", messageType, 1);
+    deferBrowserTrafficStats(
+      json,
+      (ws.data as { sessionId?: string } | undefined)?.sessionId ?? "unknown",
+      messageType,
+      1,
+    );
   } catch {
     // socket cleanup handled elsewhere
   }
@@ -1015,7 +1011,10 @@ export function updateVsCodeSelectionState(
   return true;
 }
 
-export function getVsCodeWindowStates(state: BrowserTransportStateLike, deps: BrowserTransportDeps): VsCodeWindowState[] {
+export function getVsCodeWindowStates(
+  state: BrowserTransportStateLike,
+  deps: BrowserTransportDeps,
+): VsCodeWindowState[] {
   return getActiveVsCodeWindows(state, deps.windowStaleMs)
     .map((window) => cloneVsCodeWindowState(window))
     .sort((a, b) => {
@@ -1148,10 +1147,7 @@ export async function requestVsCodeOpenFile(
   };
 }
 
-function shouldAcceptVsCodeSelectionUpdate(
-  current: VsCodeSelectionState | null,
-  next: VsCodeSelectionState,
-): boolean {
+function shouldAcceptVsCodeSelectionUpdate(current: VsCodeSelectionState | null, next: VsCodeSelectionState): boolean {
   if (!current) return true;
   if (next.updatedAt !== current.updatedAt) {
     return next.updatedAt > current.updatedAt;

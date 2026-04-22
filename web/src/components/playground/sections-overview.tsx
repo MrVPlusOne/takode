@@ -135,11 +135,7 @@ export function PlaygroundOverviewSections() {
         description="Collapsed permission banners shown while the LLM auto-approver is evaluating. Click to expand for manual override."
       >
         <Card label="Bash — evaluating (short cmd)">
-          <EvaluatingCollapsedChip
-            permission={PERM_EVALUATING_BASH}
-            sessionId={MOCK_SESSION_ID}
-            onExpand={() => {}}
-          />
+          <EvaluatingCollapsedChip permission={PERM_EVALUATING_BASH} sessionId={MOCK_SESSION_ID} onExpand={() => {}} />
         </Card>
         <Card label="Bash — evaluating (long cmd)">
           <EvaluatingCollapsedChip
@@ -149,11 +145,7 @@ export function PlaygroundOverviewSections() {
           />
         </Card>
         <Card label="Edit — evaluating">
-          <EvaluatingCollapsedChip
-            permission={PERM_EVALUATING_EDIT}
-            sessionId={MOCK_SESSION_ID}
-            onExpand={() => {}}
-          />
+          <EvaluatingCollapsedChip permission={PERM_EVALUATING_EDIT} sessionId={MOCK_SESSION_ID} onExpand={() => {}} />
         </Card>
         <Card label="PermissionBanner with evaluating (starts collapsed, click expand)">
           <PermissionBanner permission={PERM_EVALUATING_BASH} sessionId={MOCK_SESSION_ID} />
@@ -890,13 +882,7 @@ export function PlaygroundOverviewSections() {
                   MCP Servers
                 </span>
                 <span className="text-[11px] text-cc-muted">
-                  <svg
-                    viewBox="0 0 16 16"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    className="w-3.5 h-3.5"
-                  >
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5">
                     <path d="M2.5 8a5.5 5.5 0 019.78-3.5M13.5 8a5.5 5.5 0 01-9.78 3.5" strokeLinecap="round" />
                     <path d="M12.5 2v3h-3M3.5 14v-3h3" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
@@ -1007,13 +993,7 @@ export function PlaygroundOverviewSections() {
                 <span className="text-xs text-blue-500 font-semibold">Needs Review</span>
               </div>
               <div className="flex items-center gap-2">
-                <SessionStatusDot
-                  archived={false}
-                  permCount={0}
-                  isConnected={false}
-                  sdkState="exited"
-                  status={null}
-                />
+                <SessionStatusDot archived={false} permCount={0} isConnected={false} sdkState="exited" status={null} />
                 <span className="text-xs text-cc-muted">Disconnected</span>
               </div>
               <div className="flex items-center gap-2">
@@ -1153,9 +1133,7 @@ export function PlaygroundOverviewSections() {
                 <PlaygroundHerdSummaryBar isExpanded={true} />
                 {/* Workers container */}
                 <div className="border-t border-cc-border/30">
-                  {PLAYGROUND_SESSION_ROWS.filter(
-                    ({ session }) => session.herdedBy && session.reviewerOf === undefined,
-                  )
+                  {PLAYGROUND_SESSION_ROWS.filter(({ session }) => session.herdedBy && session.reviewerOf === undefined)
                     .slice(0, 3)
                     .map(({ session, sessionName, preview }) => (
                       <SessionItem

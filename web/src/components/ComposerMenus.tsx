@@ -74,13 +74,7 @@ export function ComposerMenus({
                     <path d="M8 1l1.796 3.64L14 5.255l-3 2.924.708 4.126L8 10.5l-3.708 1.805L5 8.18 2 5.255l4.204-.615L8 1z" />
                   </svg>
                 ) : (
-                  <svg
-                    viewBox="0 0 16 16"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    className="w-3.5 h-3.5"
-                  >
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5">
                     <path d="M5 12L10 4" strokeLinecap="round" />
                   </svg>
                 )}
@@ -136,7 +130,9 @@ export function ComposerMenus({
                     <span className="text-[13px] font-medium text-cc-fg truncate">${cmd.name}</span>
                     <span className="text-[11px] text-cc-muted shrink-0">{cmd.type}</span>
                   </div>
-                  {cmd.description && <div className="mt-0.5 text-[11px] text-cc-muted truncate">{cmd.description}</div>}
+                  {cmd.description && (
+                    <div className="mt-0.5 text-[11px] text-cc-muted truncate">{cmd.description}</div>
+                  )}
                 </div>
               </button>
             ))
@@ -166,14 +162,26 @@ export function ComposerMenus({
               >
                 <span className="flex items-center justify-center w-6 h-6 rounded-md bg-cc-hover text-cc-muted shrink-0">
                   {suggestion.kind === "quest" ? (
-                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5">
+                    <svg
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      className="w-3.5 h-3.5"
+                    >
                       <path d="M5 3.5h6" strokeLinecap="round" />
                       <path d="M5 8h6" strokeLinecap="round" />
                       <path d="M5 12.5h4" strokeLinecap="round" />
                       <rect x="2.5" y="1.75" width="11" height="12.5" rx="2" />
                     </svg>
                   ) : (
-                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5">
+                    <svg
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      className="w-3.5 h-3.5"
+                    >
                       <circle cx="8" cy="8" r="5.5" />
                       <path d="M8 5v3l2 1.5" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>

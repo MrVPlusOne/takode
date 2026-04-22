@@ -33,13 +33,11 @@ export function createSettingsRoutes(ctx: RouteContext) {
       return c.json({ error: "Restart not supported in this mode" }, 503);
     }
     // Block restart while sessions are actively running to prevent stuck sessions
-    const busySessions = launcher
-      .listSessions()
-      .filter((s) => {
-        if (s.state === "exited") return false;
-        const bridgeSession = wsBridge.getSession(s.sessionId);
-        return !!(bridgeSession?.isGenerating || bridgeSession?.pendingPermissions.size);
-      });
+    const busySessions = launcher.listSessions().filter((s) => {
+      if (s.state === "exited") return false;
+      const bridgeSession = wsBridge.getSession(s.sessionId);
+      return !!(bridgeSession?.isGenerating || bridgeSession?.pendingPermissions.size);
+    });
     if (busySessions.length > 0) {
       const names = busySessions.map((s) => {
         const num = launcher.getSessionNum(s.sessionId);

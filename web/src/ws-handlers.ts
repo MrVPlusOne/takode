@@ -483,16 +483,15 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
     }
 
     case "codex_pending_input_cancelled": {
-      const fallbackImages =
-        data.input.draftImages?.length
-          ? data.input.draftImages.map((img) => ({
-              name: img.name,
-              base64: img.base64,
-              mediaType: img.mediaType,
-            }))
-          : (data.input.clientMsgId
-              ? useStore.getState().getPendingUserUploadRestoration(sessionId, data.input.clientMsgId)?.images
-              : undefined) || [];
+      const fallbackImages = data.input.draftImages?.length
+        ? data.input.draftImages.map((img) => ({
+            name: img.name,
+            base64: img.base64,
+            mediaType: img.mediaType,
+          }))
+        : (data.input.clientMsgId
+            ? useStore.getState().getPendingUserUploadRestoration(sessionId, data.input.clientMsgId)?.images
+            : undefined) || [];
       store.setComposerDraft(sessionId, {
         text: data.input.content,
         images: fallbackImages,

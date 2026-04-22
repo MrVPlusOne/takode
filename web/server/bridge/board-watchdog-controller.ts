@@ -230,11 +230,7 @@ export function upsertBoardRowForSession(
   return upsertBoardRow(session, row, deps);
 }
 
-export function removeBoardRows(
-  session: SessionLike,
-  questIds: string[],
-  deps: WorkBoardStateDeps,
-): BoardRow[] {
+export function removeBoardRows(session: SessionLike, questIds: string[], deps: WorkBoardStateDeps): BoardRow[] {
   const completedRows: BoardRow[] = [];
   for (const questId of questIds) {
     const completed = moveBoardRowToCompleted(session, questId);
@@ -326,7 +322,11 @@ export function getBoardQueueWarnings(session: SessionLike, deps: BoardWatchdogD
     .filter((warning): warning is BoardQueueWarning => warning !== null);
 }
 
-export function getBoardDispatchableSignature(session: SessionLike, questId: string, deps: BoardWatchdogDeps): string | null {
+export function getBoardDispatchableSignature(
+  session: SessionLike,
+  questId: string,
+  deps: BoardWatchdogDeps,
+): string | null {
   const row = session.board.get(questId);
   if (!row) return null;
   return buildBoardDispatchableCandidate(session, row, deps)?.signature ?? null;
@@ -384,7 +384,11 @@ export function sweepBoardStallWarnings(sessions: Iterable<SessionLike>, now: nu
   }
 }
 
-export function sweepBoardDispatchableWarnings(sessions: Iterable<SessionLike>, now: number, deps: BoardWatchdogDeps): void {
+export function sweepBoardDispatchableWarnings(
+  sessions: Iterable<SessionLike>,
+  now: number,
+  deps: BoardWatchdogDeps,
+): void {
   for (const session of sessions) {
     const launcherInfo = deps.getLauncherSessionInfo(session.id);
     if (!launcherInfo?.isOrchestrator) continue;
@@ -533,7 +537,11 @@ function getBlockedBoardDeps(session: SessionLike, row: BoardRow, deps: BoardWat
   return blocked;
 }
 
-function buildQueuedBoardWarning(session: SessionLike, row: BoardRow, deps: BoardWatchdogDeps): BoardQueueWarning | null {
+function buildQueuedBoardWarning(
+  session: SessionLike,
+  row: BoardRow,
+  deps: BoardWatchdogDeps,
+): BoardQueueWarning | null {
   if ((row.status || "").trim() !== "QUEUED") return null;
   const waitFor = row.waitFor ?? [];
   const title = row.title?.trim() || undefined;
@@ -566,12 +574,20 @@ function buildQueuedBoardWarning(session: SessionLike, row: BoardRow, deps: Boar
   };
 }
 
-function resolveCompletedQuestWorkerSessionId(session: SessionLike, questId: string, deps: BoardWatchdogDeps): string | undefined {
+function resolveCompletedQuestWorkerSessionId(
+  session: SessionLike,
+  questId: string,
+  deps: BoardWatchdogDeps,
+): string | undefined {
   const completedRow = session.completedBoard.get(questId);
   return resolveBoardSessionId(completedRow?.worker, completedRow?.workerNum, deps);
 }
 
-function findBoardDispatchSourceSessionId(session: SessionLike, row: BoardRow, deps: BoardWatchdogDeps): string | undefined {
+function findBoardDispatchSourceSessionId(
+  session: SessionLike,
+  row: BoardRow,
+  deps: BoardWatchdogDeps,
+): string | undefined {
   return (row.waitFor ?? [])
     .map((dep) => {
       const kind = getWaitForRefKind(dep);
@@ -582,18 +598,25 @@ function findBoardDispatchSourceSessionId(session: SessionLike, row: BoardRow, d
     .find((sessionId): sessionId is string => typeof sessionId === "string" && sessionId.length > 0);
 }
 
-function buildBoardDispatchableCandidate(session: SessionLike, row: BoardRow, deps: BoardWatchdogDeps): BoardDispatchableCandidate | null {
+function buildBoardDispatchableCandidate(
+  session: SessionLike,
+  row: BoardRow,
+  deps: BoardWatchdogDeps,
+): BoardDispatchableCandidate | null {
   const warning = buildQueuedBoardWarning(session, row, deps);
   if (!warning || warning.kind !== "dispatchable") return null;
   const waitFor = row.waitFor ?? [];
-    const actionableDeps = waitFor.filter((dep: string) => {
+  const actionableDeps = waitFor.filter((dep: string) => {
     const kind = getWaitForRefKind(dep);
     return kind === "quest" || kind === "session";
   });
   if (actionableDeps.length === 0) return null;
 
   return {
-    signature: `${row.questId}|dispatchable|${actionableDeps.map((dep) => dep.toLowerCase()).sort().join(",")}`,
+    signature: `${row.questId}|dispatchable|${actionableDeps
+      .map((dep) => dep.toLowerCase())
+      .sort()
+      .join(",")}`,
     questId: row.questId,
     title: row.title?.trim() || undefined,
     summary: warning.summary,
@@ -601,7 +624,11 @@ function buildBoardDispatchableCandidate(session: SessionLike, row: BoardRow, de
   };
 }
 
-function buildBoardStallCandidate(session: SessionLike, row: BoardRow, deps: BoardWatchdogDeps): BoardStallCandidate | null {
+function buildBoardStallCandidate(
+  session: SessionLike,
+  row: BoardRow,
+  deps: BoardWatchdogDeps,
+): BoardStallCandidate | null {
   const stage = (row.status || "").trim();
   if (!stage || stage === "QUEUED") return null;
   if (getBlockedBoardDeps(session, row, deps).length > 0) return null;
@@ -672,23 +699,31 @@ function buildBoardStallCandidate(session: SessionLike, row: BoardRow, deps: Boa
   return null;
 }
 
-function resolveBoardSessionId(sessionId: string | undefined, sessionNum: number | undefined, deps: BoardWatchdogDeps): string | undefined {
+function resolveBoardSessionId(
+  sessionId: string | undefined,
+  sessionNum: number | undefined,
+  deps: BoardWatchdogDeps,
+): string | undefined {
   if (sessionId) return sessionId;
   if (sessionNum === undefined) return undefined;
   const byRef = deps.resolveSessionId(String(sessionNum));
   if (byRef) return byRef;
-  return deps.listSessions().find((candidate: any) => candidate.sessionNum === sessionNum && !candidate.archived)?.sessionId;
+  return deps.listSessions().find((candidate: any) => candidate.sessionNum === sessionNum && !candidate.archived)
+    ?.sessionId;
 }
 
 function resolveBoardReviewerSessionId(workerNum: number | undefined, deps: BoardWatchdogDeps): string | undefined {
   if (workerNum === undefined) return undefined;
-  return deps.listSessions().find((candidate: any) => candidate.reviewerOf === workerNum && !candidate.archived)?.sessionId;
+  return deps.listSessions().find((candidate: any) => candidate.reviewerOf === workerNum && !candidate.archived)
+    ?.sessionId;
 }
 
 function getLeaderWorkerSlotUsage(sessionId: string, deps: BoardWatchdogDeps): number {
-  return deps.listSessions().filter(
-    (candidate: any) => !candidate.archived && candidate.herdedBy === sessionId && candidate.reviewerOf === undefined,
-  ).length;
+  return deps
+    .listSessions()
+    .filter(
+      (candidate: any) => !candidate.archived && candidate.herdedBy === sessionId && candidate.reviewerOf === undefined,
+    ).length;
 }
 
 function getBoardParticipantRuntime(

@@ -249,7 +249,8 @@ export function prepareSessionForRevert(
   const lastUser = [...session.messageHistory]
     .reverse()
     .find((msg) => msg.type === "user_message" && typeof msg.content === "string");
-  session.lastUserMessage = lastUser && typeof lastUser.content === "string" ? lastUser.content.slice(0, 80) : undefined;
+  session.lastUserMessage =
+    lastUser && typeof lastUser.content === "string" ? lastUser.content.slice(0, 80) : undefined;
 
   if (session.taskHistory?.length) {
     const remainingUserMsgIds = new Set(
@@ -261,7 +262,10 @@ export function prepareSessionForRevert(
     const prevCount = session.taskHistory.length;
     session.taskHistory = session.taskHistory.filter((task: any) => remainingUserMsgIds.has(task.triggerMessageId));
     if (session.taskHistory.length !== prevCount) {
-      deps.broadcastToSession(session.id, { type: "session_task_history", tasks: session.taskHistory } as BrowserIncomingMessage);
+      deps.broadcastToSession(session.id, {
+        type: "session_task_history",
+        tasks: session.taskHistory,
+      } as BrowserIncomingMessage);
     }
   }
 
@@ -302,10 +306,7 @@ export function prepareSessionForRevert(
 
 export function finalizeCodexRollback(
   session: SessionLike,
-  deps: Pick<
-    SessionRegistryDeps,
-    "recomputeAndBroadcastHistoryBytes" | "persistSessionSync" | "broadcastToSession"
-  >,
+  deps: Pick<SessionRegistryDeps, "recomputeAndBroadcastHistoryBytes" | "persistSessionSync" | "broadcastToSession">,
   revertedSession: SessionLike | null,
 ): void {
   const waiter = session.pendingCodexRollbackWaiter;
@@ -316,7 +317,10 @@ export function finalizeCodexRollback(
   if (!revertedSession) return;
   deps.recomputeAndBroadcastHistoryBytes(session);
   deps.persistSessionSync(session.id);
-  deps.broadcastToSession(session.id, { type: "message_history", messages: revertedSession.messageHistory } as BrowserIncomingMessage);
+  deps.broadcastToSession(session.id, {
+    type: "message_history",
+    messages: revertedSession.messageHistory,
+  } as BrowserIncomingMessage);
   deps.broadcastToSession(session.id, { type: "status_change", status: "idle" } as BrowserIncomingMessage);
 }
 
@@ -375,7 +379,9 @@ function normalizePersistedCodexTurn(turn: any, now = Date.now()): any {
   return {
     ...turn,
     pendingInputIds:
-      Array.isArray(turn.pendingInputIds) && turn.pendingInputIds.length > 0 ? turn.pendingInputIds : [turn.userMessageId],
+      Array.isArray(turn.pendingInputIds) && turn.pendingInputIds.length > 0
+        ? turn.pendingInputIds
+        : [turn.userMessageId],
     historyIndex: turn.historyIndex ?? -1,
     status: turn.status ?? "queued",
     dispatchCount: turn.dispatchCount ?? 0,
@@ -407,9 +413,7 @@ export async function restorePersistedSessions(
       pendingPermissions: new Map(p.pendingPermissions || []),
       messageHistory: p.messageHistory || [],
       frozenCount:
-        typeof p._frozenCount === "number"
-          ? Math.max(0, Math.min(p._frozenCount, (p.messageHistory || []).length))
-          : 0,
+        typeof p._frozenCount === "number" ? Math.max(0, Math.min(p._frozenCount, (p.messageHistory || []).length)) : 0,
       pendingMessages: p.pendingMessages || [],
       forceCompactPending:
         typeof (p as { forceCompactPending?: unknown }).forceCompactPending === "boolean"
@@ -444,7 +448,9 @@ export async function restorePersistedSessions(
       taskHistory: Array.isArray(p.taskHistory) ? p.taskHistory : [],
       keywords: Array.isArray(p.keywords) ? p.keywords : [],
       board: new Map(Array.isArray(p.board) ? p.board.map((row: any) => [row.questId, row]) : []),
-      completedBoard: new Map(Array.isArray(p.completedBoard) ? p.completedBoard.map((row: any) => [row.questId, row]) : []),
+      completedBoard: new Map(
+        Array.isArray(p.completedBoard) ? p.completedBoard.map((row: any) => [row.questId, row]) : [],
+      ),
       notifications: Array.isArray(p.notifications) ? p.notifications : [],
       notificationCounter: Array.isArray(p.notifications)
         ? p.notifications.reduce((max: number, n: SessionNotification) => {
@@ -623,7 +629,13 @@ export function requestCodexAutoRecovery(
   reason: string,
   deps: Pick<
     SessionRegistryDeps,
-    "requestCliRelaunch" | "persistSession" | "emitTakodeEvent" | "attached" | "getLauncherSessionInfo" | "broadcastSessionUpdate" | "recoveryTimeoutMs"
+    | "requestCliRelaunch"
+    | "persistSession"
+    | "emitTakodeEvent"
+    | "attached"
+    | "getLauncherSessionInfo"
+    | "broadcastSessionUpdate"
+    | "recoveryTimeoutMs"
   >,
 ): boolean {
   const launcherInfo = deps.getLauncherSessionInfo?.(session.id);
@@ -695,7 +707,9 @@ export function hasToolResultPreviewReplay(session: SessionLike, toolUseId: stri
     (message): message is BrowserIncomingMessage & { type: "tool_result_preview"; previews?: ToolResultPreview[] } =>
       message.type === "tool_result_preview" &&
       Array.isArray((message as { previews?: ToolResultPreview[] }).previews) &&
-      ((message as { previews?: ToolResultPreview[] }).previews || []).some((preview) => preview.tool_use_id === toolUseId),
+      ((message as { previews?: ToolResultPreview[] }).previews || []).some(
+        (preview) => preview.tool_use_id === toolUseId,
+      ),
   );
 }
 
@@ -923,7 +937,10 @@ export function markNotificationDone(
   const notif = session.notifications.find((entry: SessionNotification) => entry.id === notifId);
   if (!notif) return false;
   notif.done = done;
-  deps.broadcastToBrowsers?.(session, { type: "notification_update", notifications: session.notifications } as BrowserIncomingMessage);
+  deps.broadcastToBrowsers?.(session, {
+    type: "notification_update",
+    notifications: session.notifications,
+  } as BrowserIncomingMessage);
   if (done) clearActionAttentionIfNoNotifications(session, deps);
   deps.persistSession(session);
   return true;
@@ -953,7 +970,10 @@ export function markAllNotificationsDone(
     count += 1;
   }
   if (count > 0) {
-    deps.broadcastToBrowsers?.(session, { type: "notification_update", notifications: session.notifications } as BrowserIncomingMessage);
+    deps.broadcastToBrowsers?.(session, {
+      type: "notification_update",
+      notifications: session.notifications,
+    } as BrowserIncomingMessage);
     if (done) clearActionAttentionIfNoNotifications(session, deps);
     deps.persistSession(session);
   }
@@ -976,10 +996,15 @@ export function clearActionAttentionIfNoNotifications(
   deps: Pick<SessionRegistryDeps, "broadcastToBrowsers">,
 ): void {
   if (session.pendingPermissions.size > 0) return;
-  const hasOpenNeedsInput = session.notifications.some((notif: SessionNotification) => !notif.done && notif.category === "needs-input");
+  const hasOpenNeedsInput = session.notifications.some(
+    (notif: SessionNotification) => !notif.done && notif.category === "needs-input",
+  );
   if (!hasOpenNeedsInput && session.attentionReason === "action") {
     session.attentionReason = null;
-    deps.broadcastToBrowsers?.(session, { type: "session_update", session: { attentionReason: null } } as BrowserIncomingMessage);
+    deps.broadcastToBrowsers?.(session, {
+      type: "session_update",
+      session: { attentionReason: null },
+    } as BrowserIncomingMessage);
   }
 }
 
@@ -1021,10 +1046,7 @@ export function getAllSessionStates(sessions: Map<string, SessionLike>): Session
   return Array.from(sessions.values()).map((session) => session.state);
 }
 
-export function isSessionBusy(
-  sessions: Map<string, SessionLike>,
-  sessionId: string,
-): boolean {
+export function isSessionBusy(sessions: Map<string, SessionLike>, sessionId: string): boolean {
   const session = sessions.get(sessionId);
   if (!session) return false;
   return session.isGenerating || session.pendingPermissions.size > 0;
@@ -1044,10 +1066,7 @@ export async function killSession(
   return deps.killLauncher(sessionId);
 }
 
-export function getLastUserMessage(
-  sessions: Map<string, SessionLike>,
-  sessionId: string,
-): string | undefined {
+export function getLastUserMessage(sessions: Map<string, SessionLike>, sessionId: string): string | undefined {
   return sessions.get(sessionId)?.lastUserMessage;
 }
 
@@ -1073,24 +1092,15 @@ export function getSessionMessages(
   return history.slice(clampedFrom, clampedTo + 1);
 }
 
-export function getSessionActivityPreview(
-  sessions: Map<string, SessionLike>,
-  sessionId: string,
-): string | undefined {
+export function getSessionActivityPreview(sessions: Map<string, SessionLike>, sessionId: string): string | undefined {
   return sessions.get(sessionId)?.lastActivityPreview;
 }
 
-export function getSessionKeywords(
-  sessions: Map<string, SessionLike>,
-  sessionId: string,
-): string[] {
+export function getSessionKeywords(sessions: Map<string, SessionLike>, sessionId: string): string[] {
   return sessions.get(sessionId)?.keywords ?? [];
 }
 
-export function getSessionTaskHistory(
-  sessions: Map<string, SessionLike>,
-  sessionId: string,
-): SessionTaskEntry[] {
+export function getSessionTaskHistory(sessions: Map<string, SessionLike>, sessionId: string): SessionTaskEntry[] {
   return sessions.get(sessionId)?.taskHistory ?? [];
 }
 
@@ -1138,13 +1148,20 @@ export function broadcastNameUpdate(
   console.log(
     `[ws-bridge] broadcastNameUpdate: "${name}" source=${source ?? "none"} browsers=${session.browserSockets.size} session=${sessionTag(session.id)}`,
   );
-  deps.broadcastToBrowsers?.(session, { type: "session_name_update", name, ...(source && { source }) } as BrowserIncomingMessage);
+  deps.broadcastToBrowsers?.(session, {
+    type: "session_name_update",
+    name,
+    ...(source && { source }),
+  } as BrowserIncomingMessage);
 }
 
 export function setSessionClaimedQuest(
   session: SessionLike,
   quest: { id: string; title: string; status?: string } | null,
-  deps: Pick<SessionRegistryDeps, "broadcastToBrowsers" | "persistSession" | "getLauncherSessionInfo" | "onSessionNamedByQuest">,
+  deps: Pick<
+    SessionRegistryDeps,
+    "broadcastToBrowsers" | "persistSession" | "getLauncherSessionInfo" | "onSessionNamedByQuest"
+  >,
 ): void {
   console.log(
     `[ws-bridge] setSessionClaimedQuest: quest=${quest?.id ?? "null"} title="${quest?.title ?? ""}" status=${quest?.status ?? "null"} browsers=${session.browserSockets.size} session=${session.id}`,
@@ -1180,7 +1197,10 @@ export function setSessionClaimedQuestBySessionId(
   sessions: Map<string, SessionLike>,
   sessionId: string,
   quest: { id: string; title: string; status?: string } | null,
-  deps: Pick<SessionRegistryDeps, "broadcastToBrowsers" | "persistSession" | "getLauncherSessionInfo" | "onSessionNamedByQuest">,
+  deps: Pick<
+    SessionRegistryDeps,
+    "broadcastToBrowsers" | "persistSession" | "getLauncherSessionInfo" | "onSessionNamedByQuest"
+  >,
 ): void {
   const session = sessions.get(sessionId);
   if (!session) {
@@ -1205,10 +1225,7 @@ export function broadcastNameUpdateBySessionId(
   broadcastNameUpdate(session, name, source, deps);
 }
 
-export function getNotifications(
-  sessions: Map<string, SessionLike>,
-  sessionId: string,
-): SessionNotification[] {
+export function getNotifications(sessions: Map<string, SessionLike>, sessionId: string): SessionNotification[] {
   return sessions.get(sessionId)?.notifications ?? [];
 }
 
@@ -1409,7 +1426,12 @@ export function updateLeaderGroupIdleState(
     const now = Date.now();
     const idleForMs = idleState.idleSince ? Math.max(0, now - idleState.idleSince) : deps.delayMs;
     const name = deps.getSessionName(leaderId);
-    const leaderLabel = leaderNum !== undefined && name ? `#${leaderNum} ${name}` : leaderNum !== undefined ? `#${leaderNum}` : name || leaderId.slice(0, 8);
+    const leaderLabel =
+      leaderNum !== undefined && name
+        ? `#${leaderNum} ${name}`
+        : leaderNum !== undefined
+          ? `#${leaderNum}`
+          : name || leaderId.slice(0, 8);
     const detail = `${leaderLabel} is idle and waiting for attention`;
     const priorAttention = leaderSession.attentionReason;
     deps.setAttentionReview(leaderSession);
@@ -1454,7 +1476,12 @@ export async function reconcileCodexQuestToolResult(
   toolResult: Extract<ContentBlock, { type: "tool_result" }>,
   deps: Pick<
     SessionRegistryDeps,
-    "resolveQuestTitle" | "broadcastTaskHistory" | "persistSession" | "broadcastToBrowsers" | "getLauncherSessionInfo" | "onSessionNamedByQuest"
+    | "resolveQuestTitle"
+    | "broadcastTaskHistory"
+    | "persistSession"
+    | "broadcastToBrowsers"
+    | "getLauncherSessionInfo"
+    | "onSessionNamedByQuest"
   >,
 ): Promise<void> {
   const pending = session.pendingQuestCommands.get(toolResult.tool_use_id);
@@ -1476,7 +1503,9 @@ export async function reconcileCodexQuestToolResult(
   }
   setSessionClaimedQuest(session, { id: questId, title, status }, deps);
   if (status !== "in_progress") return;
-  const alreadyTracked = session.taskHistory.some((entry: SessionTaskEntry) => entry.source === "quest" && entry.questId === questId);
+  const alreadyTracked = session.taskHistory.some(
+    (entry: SessionTaskEntry) => entry.source === "quest" && entry.questId === questId,
+  );
   if (alreadyTracked) return;
   let triggerMsgId = `quest-${questId}`;
   for (let i = session.messageHistory.length - 1; i >= 0; i--) {

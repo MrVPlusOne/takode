@@ -29,10 +29,7 @@ export function removeBranchIndexEntries(
   sessionBranches.delete(sessionId);
 }
 
-export function updateBranchIndex(
-  session: BranchSessionLike,
-  args: BranchIndexArgs & { isArchived: boolean },
-): void {
+export function updateBranchIndex(session: BranchSessionLike, args: BranchIndexArgs & { isArchived: boolean }): void {
   if (args.isArchived) {
     removeBranchIndexEntries(session.id, args);
     return;

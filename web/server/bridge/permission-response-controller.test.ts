@@ -203,11 +203,7 @@ describe("permission response handling in browser routing", () => {
       }),
     );
     expect(deps.markTurnInterrupted).toHaveBeenCalledWith(session, "user");
-    expect(deps.armCodexFreshTurnRequirement).toHaveBeenCalledWith(
-      session,
-      "turn-codex",
-      "exit_plan_mode_denied",
-    );
+    expect(deps.armCodexFreshTurnRequirement).toHaveBeenCalledWith(session, "turn-codex", "exit_plan_mode_denied");
     expect(codexAdapter.sendBrowserMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "interrupt",
@@ -217,7 +213,8 @@ describe("permission response handling in browser routing", () => {
     expect(session.messageHistory.at(-1)).toEqual(expect.objectContaining({ type: "permission_denied" }));
 
     const cancelOrder = (deps.sessionNotificationDeps.cancelPermissionNotification as any).mock.invocationCallOrder[0];
-    const attentionBroadcastOrder = (deps.sessionNotificationDeps.broadcastToBrowsers as any).mock.invocationCallOrder[0];
+    const attentionBroadcastOrder = (deps.sessionNotificationDeps.broadcastToBrowsers as any).mock
+      .invocationCallOrder[0];
     const interruptOrder = (codexAdapter.sendBrowserMessage as any).mock.invocationCallOrder[0];
     const takodeOrder = (deps.emitTakodeEvent as any).mock.invocationCallOrder[0];
     expect(cancelOrder).toBeLessThan(interruptOrder);

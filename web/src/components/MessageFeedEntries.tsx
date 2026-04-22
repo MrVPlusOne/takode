@@ -17,10 +17,7 @@ import { EVENT_HEADER_RE, HERD_CHIP_BASE, HERD_CHIP_INTERACTIVE } from "../utils
 import { ToolBlock, getToolIcon, getToolLabel, ToolIcon } from "./ToolBlock.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { CollapseFooter, TurnCollapseFooter } from "./CollapseFooter.js";
-import {
-  LiveCodexTerminalStub,
-  LiveDurationBadge,
-} from "./MessageFeedLiveActivity.js";
+import { LiveCodexTerminalStub, LiveDurationBadge } from "./MessageFeedLiveActivity.js";
 import {
   appendTimedMessagesFromEntries,
   buildMinuteBoundaryLabelMap,
@@ -1166,7 +1163,9 @@ export const TurnEntries = memo(function TurnEntries({
                             onOpenCodexTerminal={onOpenCodexTerminal}
                           />
                         )}
-                        {(turn.agentEntries.length > 0 || turn.responseEntry || turn.notificationEntries.length > 0) && (
+                        {(turn.agentEntries.length > 0 ||
+                          turn.responseEntry ||
+                          turn.notificationEntries.length > 0) && (
                           <div className="flex items-start gap-3">
                             <PawTrailAvatar />
                             <div className="flex-1 min-w-0 rounded-xl border border-cc-border/20 bg-cc-card/20 overflow-hidden">
