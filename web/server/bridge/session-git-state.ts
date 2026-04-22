@@ -252,10 +252,7 @@ interface RefreshGitInfoPublicDeps {
   persistSession: (session: SessionDiffRefreshLike) => void;
 }
 
-export async function updateDiffBaseStartSha(
-  session: SessionDiffStateLike,
-  previousHeadSha: string,
-): Promise<boolean> {
+export async function updateDiffBaseStartSha(session: SessionDiffStateLike, previousHeadSha: string): Promise<boolean> {
   if (!session.state.is_worktree) return false;
   const cwd = session.state.cwd;
   const currentHeadSha = session.state.git_head_sha?.trim() || "";
@@ -375,12 +372,13 @@ export async function computeDiffStatsAsync(session: SessionDiffStateLike): Prom
   }
 }
 
-export function recomputeDiffIfDirty(
-  session: SessionDiffRefreshLike,
-  deps: RecomputeDiffIfDirtyDeps,
-): void {
+export function recomputeDiffIfDirty(session: SessionDiffRefreshLike, deps: RecomputeDiffIfDirtyDeps): void {
   if (!session.diffStatsDirty) return;
-  if (!session.backendSocket && !session.codexAdapter && !(session.state.is_worktree && session.browserSockets.size > 0)) {
+  if (
+    !session.backendSocket &&
+    !session.codexAdapter &&
+    !(session.state.is_worktree && session.browserSockets.size > 0)
+  ) {
     return;
   }
   computeDiffStatsAsync(session)
@@ -395,11 +393,7 @@ export function recomputeDiffIfDirty(
     });
 }
 
-export function setDiffBaseBranch(
-  session: SessionDiffRefreshLike,
-  branch: string,
-  deps: SetDiffBaseBranchDeps,
-): void {
+export function setDiffBaseBranch(session: SessionDiffRefreshLike, branch: string, deps: SetDiffBaseBranchDeps): void {
   session.state.diff_base_branch = branch;
   session.state.diff_base_branch_explicit = true;
   deps.broadcastSessionUpdate(session, { diff_base_branch: branch });
@@ -432,7 +426,12 @@ export async function refreshGitInfo(
   deps: RefreshGitInfoDeps,
   options: { broadcastUpdate?: boolean; notifyPoller?: boolean; force?: boolean } = {},
 ): Promise<void> {
-  if (!options.force && !session.backendSocket && !session.codexAdapter && !(session.state.is_worktree && session.browserSockets.size > 0)) {
+  if (
+    !options.force &&
+    !session.backendSocket &&
+    !session.codexAdapter &&
+    !(session.state.is_worktree && session.browserSockets.size > 0)
+  ) {
     return;
   }
 

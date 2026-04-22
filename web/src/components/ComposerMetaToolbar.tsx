@@ -1,9 +1,5 @@
 import type { RefObject, ReactNode } from "react";
-import {
-  CODEX_REASONING_EFFORTS,
-  formatModel,
-  type ModelOption,
-} from "../utils/backends.js";
+import { CODEX_REASONING_EFFORTS, formatModel, type ModelOption } from "../utils/backends.js";
 import { CatPawAvatar } from "./CatIcons.js";
 
 function PaperPlaneIcon({ className = "w-4 h-4" }: { className?: string }) {
@@ -115,7 +111,9 @@ export function ComposerMetaToolbar({
                 <path d="M11.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.116.862a2.25 2.25 0 10-.862.862A4.48 4.48 0 007.25 7.5h-1.5A2.25 2.25 0 003.5 9.75v.318a2.25 2.25 0 101.5 0V9.75a.75.75 0 01.75-.75h1.5a5.98 5.98 0 003.884-1.435A2.25 2.25 0 109.634 3.362zM4.25 12a.75.75 0 100 1.5.75.75 0 000-1.5z" />
               </svg>
               <span className="truncate max-w-[100px] sm:max-w-[160px]">{sessionView.gitBranch}</span>
-              {sessionView.isContainerized && <span className="text-[10px] bg-blue-500/10 text-blue-400 px-1 rounded">container</span>}
+              {sessionView.isContainerized && (
+                <span className="text-[10px] bg-blue-500/10 text-blue-400 px-1 rounded">container</span>
+              )}
             </span>
           )}
           {(sessionView.gitAhead > 0 || sessionView.gitBehind > 0) && (
@@ -214,7 +212,10 @@ export function ComposerMetaToolbar({
                       }`}
                       title="Reasoning effort (relaunch required)"
                     >
-                      <span>{CODEX_REASONING_EFFORTS.find((x) => x.value === codexReasoningEffort)?.label.toLowerCase() || "default"}</span>
+                      <span>
+                        {CODEX_REASONING_EFFORTS.find((x) => x.value === codexReasoningEffort)?.label.toLowerCase() ||
+                          "default"}
+                      </span>
                       <svg viewBox="0 0 16 16" fill="currentColor" className="w-2.5 h-2.5 shrink-0 opacity-50">
                         <path d="M4 6l4 4 4-4" />
                       </svg>
@@ -316,7 +317,13 @@ export function ComposerMetaToolbar({
                   />
                 </svg>
               ) : (
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" className="w-4 h-4 text-cc-muted">
+                <svg
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.2"
+                  className="w-4 h-4 text-cc-muted"
+                >
                   <path d="M8 1L2 4v4c0 3.5 2.6 6.4 6 7 3.4-.6 6-3.5 6-7V4L8 1z" />
                 </svg>
               )}
@@ -327,7 +334,8 @@ export function ComposerMetaToolbar({
                   {askPermission ? "Disable permission prompts?" : "Enable permission prompts?"}
                 </p>
                 <p className="text-[11px] text-cc-muted mb-3 leading-relaxed">
-                  This will restart the CLI session. Any in-progress operation will be interrupted. Your conversation will be preserved.
+                  This will restart the CLI session. Any in-progress operation will be interrupted. Your conversation
+                  will be preserved.
                 </p>
                 <div className="flex items-center justify-end gap-2">
                   <button
@@ -355,11 +363,19 @@ export function ComposerMetaToolbar({
             onClick={onOpenFilePicker}
             disabled={!isConnected}
             className={`flex items-center justify-center w-11 h-11 sm:w-8 sm:h-8 rounded-lg transition-colors ${
-              isConnected ? "text-cc-muted hover:text-cc-fg hover:bg-cc-hover cursor-pointer" : "text-cc-muted opacity-30 cursor-not-allowed"
+              isConnected
+                ? "text-cc-muted hover:text-cc-fg hover:bg-cc-hover cursor-pointer"
+                : "text-cc-muted opacity-30 cursor-not-allowed"
             }`}
             title="Upload image"
           >
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-5 h-5 sm:w-4 sm:h-4">
+            <svg
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              className="w-5 h-5 sm:w-4 sm:h-4"
+            >
               <rect x="2" y="2" width="12" height="12" rx="2" />
               <circle cx="5.5" cy="5.5" r="1" fill="currentColor" stroke="none" />
               <path d="M2 11l3-3 2 2 3-4 4 5" strokeLinecap="round" strokeLinejoin="round" />
@@ -408,11 +424,17 @@ export function ComposerMetaToolbar({
               onClick={handleSend}
               disabled={!canSend}
               className={`flex items-center justify-center w-11 h-11 sm:w-8 sm:h-8 rounded-full transition-colors ${
-                canSend ? "bg-cc-primary hover:bg-cc-primary-hover text-white cursor-pointer" : "bg-cc-hover text-cc-muted cursor-not-allowed"
+                canSend
+                  ? "bg-cc-primary hover:bg-cc-primary-hover text-white cursor-pointer"
+                  : "bg-cc-hover text-cc-muted cursor-not-allowed"
               } ${sendPressing ? "animate-[send-morph_500ms_ease-out]" : ""}`}
               title={activePendingUploadStage === "uploading" ? "Uploading image" : "Send message"}
             >
-              {sendPressing ? <CatPawAvatar className="w-5 h-5 sm:w-4 sm:h-4" /> : <PaperPlaneIcon className="w-5 h-5 sm:w-4 sm:h-4" />}
+              {sendPressing ? (
+                <CatPawAvatar className="w-5 h-5 sm:w-4 sm:h-4" />
+              ) : (
+                <PaperPlaneIcon className="w-5 h-5 sm:w-4 sm:h-4" />
+              )}
             </button>
           )}
         </div>

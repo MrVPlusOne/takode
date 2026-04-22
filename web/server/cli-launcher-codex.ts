@@ -1,4 +1,16 @@
-import { mkdir, access, copyFile, cp, readFile, realpath, writeFile, unlink, open, readdir, stat } from "node:fs/promises";
+import {
+  mkdir,
+  access,
+  copyFile,
+  cp,
+  readFile,
+  realpath,
+  writeFile,
+  unlink,
+  open,
+  readdir,
+  stat,
+} from "node:fs/promises";
 import { join, resolve, relative, dirname } from "node:path";
 import { homedir } from "node:os";
 import { getLegacyCodexHome, resolveCompanionCodexHome, resolveCompanionCodexSessionHome } from "./codex-home.js";
@@ -517,14 +529,7 @@ export async function prepareCodexSpawn(
   const bunBinDir = join(homedir(), ".bun", "bin");
   const enrichedPath = getEnrichedPath();
   const userShellPath = captureUserShellPath();
-  const spawnPath = mergePathStrings([
-    binaryDir,
-    companionBinDir,
-    localBinDir,
-    bunBinDir,
-    userShellPath,
-    enrichedPath,
-  ]);
+  const spawnPath = mergePathStrings([binaryDir, companionBinDir, localBinDir, bunBinDir, userShellPath, enrichedPath]);
 
   let spawnCmd: string[];
   if ((await fileExists(siblingNode)) && (await shouldInvokeCodexWithSiblingNode(binary))) {

@@ -30,7 +30,10 @@ import {
   removeBoardRows as removeBoardRowsController,
   upsertBoardRow as upsertBoardRowController,
 } from "../bridge/board-watchdog-controller.js";
-import { refreshGitInfoPublic as refreshGitInfoPublicController, setDiffBaseBranch as setDiffBaseBranchController } from "../bridge/session-git-state.js";
+import {
+  refreshGitInfoPublic as refreshGitInfoPublicController,
+  setDiffBaseBranch as setDiffBaseBranchController,
+} from "../bridge/session-git-state.js";
 import { getSettings } from "../settings-manager.js";
 import { QUEST_JOURNEY_STATES } from "../session-types.js";
 import { isSessionIdleRuntime } from "../herd-event-dispatcher.js";
@@ -95,9 +98,14 @@ export function createTakodeRoutes(ctx: RouteContext) {
     isHerdedWorkerSession: (session: BridgeSession) => !!launcher.getSession(session.id)?.herdedBy,
     broadcastToBrowsers: (session: BridgeSession, msg: unknown) => wsBridge.broadcastToSession(session.id, msg as any),
     persistSession: (session: BridgeSession) => wsBridge.persistSessionById(session.id),
-    emitTakodeEvent: (sessionId: string, type: string, data: Record<string, unknown>) => wsBridge.emitTakodeEvent(sessionId, type as any, data as any),
-    scheduleNotification: (sessionId: string, category: "question" | "completed", detail: string, options?: { skipReadCheck?: boolean }) =>
-      pushoverNotifier?.scheduleNotification(sessionId, category, detail, undefined, options),
+    emitTakodeEvent: (sessionId: string, type: string, data: Record<string, unknown>) =>
+      wsBridge.emitTakodeEvent(sessionId, type as any, data as any),
+    scheduleNotification: (
+      sessionId: string,
+      category: "question" | "completed",
+      detail: string,
+      options?: { skipReadCheck?: boolean },
+    ) => pushoverNotifier?.scheduleNotification(sessionId, category, detail, undefined, options),
   };
   const notificationPersistDeps = {
     broadcastToBrowsers: (session: BridgeSession, msg: unknown) => wsBridge.broadcastToSession(session.id, msg as any),
@@ -115,9 +123,12 @@ export function createTakodeRoutes(ctx: RouteContext) {
     },
     notifyUser: (sessionId: string, category: "needs-input" | "review", summary: string) => {
       const session = wsBridge.getSession(sessionId);
-      return session ? notifyUserController(session, category, summary, notificationRouteDeps) : { ok: false as const, error: "Session not found" };
+      return session
+        ? notifyUserController(session, category, summary, notificationRouteDeps)
+        : { ok: false as const, error: "Session not found" };
     },
-    emitTakodeEvent: (sessionId: string, type: string, data: Record<string, unknown>) => wsBridge.emitTakodeEvent(sessionId, type as any, data as any),
+    emitTakodeEvent: (sessionId: string, type: string, data: Record<string, unknown>) =>
+      wsBridge.emitTakodeEvent(sessionId, type as any, data as any),
     markNotificationDone: (sessionId: string, notifId: string, done: boolean) => {
       const session = wsBridge.getSession(sessionId);
       return session ? markNotificationDoneController(session, notifId, done, notificationPersistDeps) : false;
@@ -973,7 +984,8 @@ export function createTakodeRoutes(ctx: RouteContext) {
     const session = wsBridge.getSession(id);
     const bridgeDiag = session
       ? getHerdDiagnosticsController(new Map([[id, session]]), id, Date.now(), {
-          getHerdDispatcherDiagnostics: (targetSessionId) => (wsBridge as any).herdEventDispatcher?.getDiagnostics?.(targetSessionId) ?? {},
+          getHerdDispatcherDiagnostics: (targetSessionId) =>
+            (wsBridge as any).herdEventDispatcher?.getDiagnostics?.(targetSessionId) ?? {},
         })
       : null;
     const herded = info.isOrchestrator ? launcher.getHerdedSessions(id) : [];

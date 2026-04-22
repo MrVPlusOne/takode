@@ -351,13 +351,17 @@ function createMockBridge() {
     routeExternalInterrupt: vi.fn(async () => {}),
     routeBrowserMessage: vi.fn(function (this: any, session: any, msg: any) {
       if (msg?.type === "permission_response") {
-        return this.routeExternalPermissionResponse(session, {
-          type: "permission_response",
-          request_id: msg.request_id,
-          behavior: msg.behavior,
-          ...(msg.updated_input ? { updated_input: msg.updated_input } : {}),
-          ...(msg.message ? { message: msg.message } : {}),
-        }, msg.actorSessionId);
+        return this.routeExternalPermissionResponse(
+          session,
+          {
+            type: "permission_response",
+            request_id: msg.request_id,
+            behavior: msg.behavior,
+            ...(msg.updated_input ? { updated_input: msg.updated_input } : {}),
+            ...(msg.message ? { message: msg.message } : {}),
+          },
+          msg.actorSessionId,
+        );
       }
       if (msg?.type === "interrupt") {
         return this.routeExternalInterrupt(session, msg.interruptSource);
@@ -390,8 +394,25 @@ function createMockBridge() {
   } as any;
 }
 
-function ensureBridgeSession(bridge: ReturnType<typeof createMockBridge>, sessionId: string, overrides: Record<string, unknown> = {}) {
-  return (bridge._sessions[sessionId] = { id: sessionId, state: {}, browserSockets: new Set(), messageHistory: [], notifications: [], pendingPermissions: new Map(), taskHistory: [], keywords: [], lastReadAt: 0, attentionReason: null, isGenerating: false, ...overrides });
+function ensureBridgeSession(
+  bridge: ReturnType<typeof createMockBridge>,
+  sessionId: string,
+  overrides: Record<string, unknown> = {},
+) {
+  return (bridge._sessions[sessionId] = {
+    id: sessionId,
+    state: {},
+    browserSockets: new Set(),
+    messageHistory: [],
+    notifications: [],
+    pendingPermissions: new Map(),
+    taskHistory: [],
+    keywords: [],
+    lastReadAt: 0,
+    attentionReason: null,
+    isGenerating: false,
+    ...overrides,
+  });
 }
 
 function createMockStore() {
@@ -6078,9 +6099,9 @@ describe("POST /api/sessions/create-stream", () => {
       expect(launchingCliProgress.filter((event) => event.status === "in_progress").length).toBeGreaterThan(1);
       expect(launchingCliProgress.at(-2)?.detail).toContain("Still launching CLI");
       expect(launchingCliProgress.at(-1)?.status).toBe("done");
-      expect(launchingCliProgress.slice(launchingCliProgress.findIndex((event) => event.status === "done") + 1)).toEqual(
-        [],
-      );
+      expect(
+        launchingCliProgress.slice(launchingCliProgress.findIndex((event) => event.status === "done") + 1),
+      ).toEqual([]);
     } finally {
       vi.useRealTimers();
     }
@@ -8782,7 +8803,10 @@ describe("Takode server-authoritative auth", () => {
     launcher.getSessionNum.mockImplementation((id: string) => sessions[id]?.sessionNum);
     bridge.isBackendConnected.mockImplementation((id: string) => id === "worker-1" || id === "reviewer-1");
     bridge._sessions["orch-1"].board = new Map([
-      ["q-1", { questId: "q-1", worker: "worker-1", workerNum: 11, status: "IMPLEMENTING", createdAt: 1, updatedAt: 1 }],
+      [
+        "q-1",
+        { questId: "q-1", worker: "worker-1", workerNum: 11, status: "IMPLEMENTING", createdAt: 1, updatedAt: 1 },
+      ],
       ["q-2", { questId: "q-2", worker: "worker-2", workerNum: 22, status: "PLANNING", createdAt: 2, updatedAt: 2 }],
     ]);
 

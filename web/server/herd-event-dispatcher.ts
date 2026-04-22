@@ -121,9 +121,7 @@ export interface WsBridgeHandle {
   isSessionIdle?(sessionId: string): boolean;
   /** Test-only escape hatch while production callers move to the shared idle helper. */
   wakeIdleKilledSession?(sessionId: string): boolean;
-  getSession(
-    sessionId: string,
-  ):
+  getSession(sessionId: string):
     | {
         messageHistory: BrowserIncomingMessage[];
         backendSocket?: unknown;
@@ -158,7 +156,11 @@ export function isSessionIdleRuntime(
     | undefined,
 ): boolean {
   if (!session) return false;
-  return !!(session.backendSocket || session.codexAdapter || session.claudeSdkAdapter) && !!session.cliInitReceived && !session.isGenerating;
+  return (
+    !!(session.backendSocket || session.codexAdapter || session.claudeSdkAdapter) &&
+    !!session.cliInitReceived &&
+    !session.isGenerating
+  );
 }
 
 // ─── Constants ──────────────────────────────────────────────────────────────────
@@ -692,7 +694,11 @@ export class HerdEventDispatcher {
       return this.wsBridge.wakeIdleKilledSession(sessionId);
     }
     return this.launcher.getSession
-      ? wakeIdleKilledSessionController(this.launcher as Pick<LauncherHandle, "getSession"> as any, sessionId, this.runtime?.requestCliRelaunch)
+      ? wakeIdleKilledSessionController(
+          this.launcher as Pick<LauncherHandle, "getSession"> as any,
+          sessionId,
+          this.runtime?.requestCliRelaunch,
+        )
       : false;
   }
 

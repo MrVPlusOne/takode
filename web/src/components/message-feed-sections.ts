@@ -82,5 +82,5 @@ export function findActiveTaskTurnIdForScroll(
     }
   }
 
-  return best >= 0 ? turnOffsets[best]?.turnId ?? fallbackTurnId : fallbackTurnId;
+  return best >= 0 ? (turnOffsets[best]?.turnId ?? fallbackTurnId) : fallbackTurnId;
 }

@@ -28,7 +28,10 @@ import {
   markSessionUnread as markSessionUnreadController,
   summarizePendingPermissions,
 } from "../bridge/session-registry-controller.js";
-import { refreshGitInfoPublic as refreshGitInfoPublicController, setDiffBaseBranch as setDiffBaseBranchController } from "../bridge/session-git-state.js";
+import {
+  refreshGitInfoPublic as refreshGitInfoPublicController,
+  setDiffBaseBranch as setDiffBaseBranchController,
+} from "../bridge/session-git-state.js";
 import {
   SessionBackend,
   SessionPreparationError,
@@ -292,11 +295,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
   }
 
   const markOrchestratorSession = (sessionId: string, backend: SessionBackend) =>
-    markOrchestratorSessionAfterConnect(
-      { launcher, wsBridge },
-      sessionId,
-      buildOrchestratorSystemPrompt(backend),
-    );
+    markOrchestratorSessionAfterConnect({ launcher, wsBridge }, sessionId, buildOrchestratorSystemPrompt(backend));
 
   const applySessionPostLaunch = (
     session: Awaited<ReturnType<CliLauncher["launch"]>>,

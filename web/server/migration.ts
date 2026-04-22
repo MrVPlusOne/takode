@@ -514,7 +514,14 @@ export async function recreateWorktreeIfMissing(
           worktreePath: targetPath,
           createdAt: Date.now(),
         });
-        seedWorktreeBridgeState(deps.wsBridge, sessionId, info.repoRoot, targetPath, repoInfo.defaultBranch, info.branch);
+        seedWorktreeBridgeState(
+          deps.wsBridge,
+          sessionId,
+          info.repoRoot,
+          targetPath,
+          repoInfo.defaultBranch,
+          info.branch,
+        );
 
         console.log(
           `[migration] Restored worktree from archived ref ${actualBranch} for session ${sessionId}: ${targetPath}`,
@@ -553,7 +560,14 @@ export async function recreateWorktreeIfMissing(
     worktreePath: result.worktreePath,
     createdAt: Date.now(),
   });
-  seedWorktreeBridgeState(deps.wsBridge, sessionId, info.repoRoot, result.worktreePath, repoInfo.defaultBranch, info.branch);
+  seedWorktreeBridgeState(
+    deps.wsBridge,
+    sessionId,
+    info.repoRoot,
+    result.worktreePath,
+    repoInfo.defaultBranch,
+    info.branch,
+  );
 
   console.log(`[migration] Recreated worktree for session ${sessionId}: ${result.worktreePath}`);
   return { recreated: true };
@@ -575,13 +589,17 @@ function seedWorktreeBridgeState(
   const session = wsBridge.getOrCreateSession(sessionId);
   const prefill = bridgeAny.prefillSlashCommands;
   if (session && typeof prefill === "function") {
-    applyInitialSessionStateController(session as any, {
-      cwd: worktreeCwd,
-      worktree: { repoRoot, defaultBranch, diffBaseBranch },
-    }, {
-      persistSession: (targetSession) => wsBridge.persistSessionById((targetSession as any).id),
-      prefillSlashCommands: (targetSession) => prefill.call(bridgeAny, targetSession),
-    });
+    applyInitialSessionStateController(
+      session as any,
+      {
+        cwd: worktreeCwd,
+        worktree: { repoRoot, defaultBranch, diffBaseBranch },
+      },
+      {
+        persistSession: (targetSession) => wsBridge.persistSessionById((targetSession as any).id),
+        prefillSlashCommands: (targetSession) => prefill.call(bridgeAny, targetSession),
+      },
+    );
     return;
   }
   bridgeAny.markWorktree?.(sessionId, repoRoot, worktreeCwd, defaultBranch, diffBaseBranch);

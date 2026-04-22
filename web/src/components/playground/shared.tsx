@@ -140,7 +140,15 @@ export function PlaygroundFolderPicker() {
   );
 }
 
-export function Section({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
+export function Section({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description: string;
+  children: React.ReactNode;
+}) {
   return (
     <section>
       <div className="mb-4">

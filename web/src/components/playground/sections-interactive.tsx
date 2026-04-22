@@ -87,13 +87,7 @@ export function PlaygroundInteractiveSections() {
                   </div>
                   <div className="flex items-center gap-1">
                     <div className="flex items-center justify-center w-8 h-8 rounded-lg text-cc-muted">
-                      <svg
-                        viewBox="0 0 16 16"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                        className="w-4 h-4"
-                      >
+                      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
                         <rect x="2" y="2" width="12" height="12" rx="2" />
                         <circle cx="5.5" cy="5.5" r="1" fill="currentColor" stroke="none" />
                         <path d="M2 11l3-3 2 2 3-4 4 5" strokeLinecap="round" strokeLinejoin="round" />
@@ -155,13 +149,7 @@ export function PlaygroundInteractiveSections() {
                   </div>
                   <div className="flex items-center gap-1">
                     <div className="flex items-center justify-center w-8 h-8 rounded-lg text-cc-muted">
-                      <svg
-                        viewBox="0 0 16 16"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                        className="w-4 h-4"
-                      >
+                      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
                         <rect x="2" y="2" width="12" height="12" rx="2" />
                         <circle cx="5.5" cy="5.5" r="1" fill="currentColor" stroke="none" />
                         <path d="M2 11l3-3 2 2 3-4 4 5" strokeLinecap="round" strokeLinejoin="round" />
@@ -217,13 +205,7 @@ export function PlaygroundInteractiveSections() {
                   </div>
                   <div className="flex items-center gap-1">
                     <div className="flex items-center justify-center w-8 h-8 rounded-lg text-cc-primary bg-cc-primary/10">
-                      <svg
-                        viewBox="0 0 16 16"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                        className="w-4 h-4"
-                      >
+                      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
                         <rect x="2" y="2" width="12" height="12" rx="2" />
                         <circle cx="5.5" cy="5.5" r="1" fill="currentColor" stroke="none" />
                         <path d="M2 11l3-3 2 2 3-4 4 5" strokeLinecap="round" strokeLinejoin="round" />
@@ -464,13 +446,7 @@ export function PlaygroundInteractiveSections() {
                   </div>
                   <div className="flex items-center gap-1">
                     <div className="flex items-center justify-center w-8 h-8 rounded-lg text-cc-muted">
-                      <svg
-                        viewBox="0 0 16 16"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                        className="w-4 h-4"
-                      >
+                      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
                         <rect x="2" y="2" width="12" height="12" rx="2" />
                         <circle cx="5.5" cy="5.5" r="1" fill="currentColor" stroke="none" />
                         <path d="M2 11l3-3 2 2 3-4 4 5" strokeLinecap="round" strokeLinejoin="round" />
@@ -509,13 +485,7 @@ export function PlaygroundInteractiveSections() {
                   </div>
                   <div className="flex items-center gap-1">
                     <div className="flex items-center justify-center w-8 h-8 rounded-lg text-cc-muted">
-                      <svg
-                        viewBox="0 0 16 16"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                        className="w-4 h-4"
-                      >
+                      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
                         <rect x="2" y="2" width="12" height="12" rx="2" />
                         <circle cx="5.5" cy="5.5" r="1" fill="currentColor" stroke="none" />
                         <path d="M2 11l3-3 2 2 3-4 4 5" strokeLinecap="round" strokeLinejoin="round" />
@@ -648,13 +618,7 @@ export function PlaygroundInteractiveSections() {
                   </div>
                   <div className="flex items-center gap-3 sm:gap-1">
                     <div className="flex items-center justify-center w-8 h-8 rounded-lg text-cc-muted">
-                      <svg
-                        viewBox="0 0 16 16"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                        className="w-4 h-4"
-                      >
+                      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
                         <rect x="2" y="2" width="12" height="12" rx="2" />
                         <circle cx="5.5" cy="5.5" r="1" fill="currentColor" stroke="none" />
                         <path d="M2 11l3-3 2 2 3-4 4 5" strokeLinecap="round" strokeLinejoin="round" />
@@ -909,9 +873,9 @@ export function PlaygroundInteractiveSections() {
                 <WorkBoardBar sessionId="playground-board-bar" />
               </div>
               <p className="text-[10px] text-cc-muted">
-                Click "Seed board data" first, then click the bar to toggle between collapsed summary and expanded
-                table view. The expanded state is intended to persist per session and stay open while you interact
-                with the composer.
+                Click "Seed board data" first, then click the bar to toggle between collapsed summary and expanded table
+                view. The expanded state is intended to persist per session and stay open while you interact with the
+                composer.
               </p>
             </div>
           </Card>
@@ -996,8 +960,8 @@ export function PlaygroundInteractiveSections() {
             <div className="p-3 space-y-2">
               <TimerModalDemo />
               <p className="text-[10px] text-cc-muted">
-                Opens the timer detail modal. Seed timer data above first to see entries. Shows full prompt text,
-                timer type, countdown, and per-timer cancel button.
+                Opens the timer detail modal. Seed timer data above first to see entries. Shows full prompt text, timer
+                type, countdown, and per-timer cancel button.
               </p>
             </div>
           </Card>
@@ -1062,8 +1026,8 @@ export function PlaygroundInteractiveSections() {
               <p className="text-[10px] text-cc-muted">
                 Click &quot;Seed notification data&quot; first. Shows a compact single-height pill with inline
                 comma-separated colored bell counts for active review and needs-input notifications, ending in
-                &quot;unreads&quot;. Click to open the inbox modal with active notifications (amber = needs-input,
-                green = review), compact quest-first review rows, and a collapsible Done section. On mobile, the modal
+                &quot;unreads&quot;. Click to open the inbox modal with active notifications (amber = needs-input, green
+                = review), compact quest-first review rows, and a collapsible Done section. On mobile, the modal
                 stretches across the viewport while staying scrollable and height-capped.
               </p>
             </div>
@@ -1089,8 +1053,8 @@ export function PlaygroundInteractiveSections() {
           <Card label="Mobile nav clearance">
             <div className="p-3 space-y-2">
               <p className="text-[10px] text-cc-muted mb-2">
-                On touch layouts, the feed navigation arrows should float above the lower-right status chips instead
-                of colliding with them.
+                On touch layouts, the feed navigation arrows should float above the lower-right status chips instead of
+                colliding with them.
               </p>
               <div className="relative h-32 rounded-lg border border-cc-border bg-cc-bg overflow-hidden">
                 <div className="absolute right-2 flex flex-col gap-1.5" style={{ bottom: "42px" }}>

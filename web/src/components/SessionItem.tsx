@@ -714,8 +714,8 @@ export function SessionItem({
                         : archived && s.worktreeCleanupStatus === "pending"
                           ? "bg-amber-500/10 text-amber-400"
                           : archived && s.worktreeExists === false
-                        ? "bg-cc-muted/10 text-cc-muted"
-                        : "bg-cc-primary/10 text-cc-primary"
+                            ? "bg-cc-muted/10 text-cc-muted"
+                            : "bg-cc-primary/10 text-cc-primary"
                     }`}
                     title={
                       archived && s.worktreeCleanupStatus === "pending"
@@ -723,12 +723,12 @@ export function SessionItem({
                         : archived && s.worktreeCleanupStatus === "failed"
                           ? s.worktreeCleanupError || "Worktree cleanup failed"
                           : archived && s.worktreeExists !== undefined
-                        ? s.worktreeExists
-                          ? s.worktreeDirty
-                            ? "Worktree preserved (uncommitted changes)"
-                            : "Worktree preserved"
-                          : "Worktree deleted"
-                        : undefined
+                            ? s.worktreeExists
+                              ? s.worktreeDirty
+                                ? "Worktree preserved (uncommitted changes)"
+                                : "Worktree preserved"
+                              : "Worktree deleted"
+                            : undefined
                     }
                   >
                     wt

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { computeContextUsedPercent, computeResultContextUsedPercent, extractClaudeTokenDetails } from "./context-usage.js";
+import {
+  computeContextUsedPercent,
+  computeResultContextUsedPercent,
+  extractClaudeTokenDetails,
+} from "./context-usage.js";
 
 describe("context-usage helpers", () => {
   it("treats cache tokens as already included when they fit within input tokens", () => {

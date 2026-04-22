@@ -3832,7 +3832,8 @@ describe("handleMessage: codex_pending_input_cancelled", () => {
         },
       ],
       prepared: {
-        deliveryContent: "restore this image\n[📎 Image attachments -- read these files with the Read tool before responding:\nAttachment 1: /tmp/img.png]",
+        deliveryContent:
+          "restore this image\n[📎 Image attachments -- read these files with the Read tool before responding:\nAttachment 1: /tmp/img.png]",
         imageRefs: [{ imageId: "img-1", media_type: "image/png" }],
       },
     });

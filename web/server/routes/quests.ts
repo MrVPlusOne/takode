@@ -75,7 +75,13 @@ export function createQuestRoutes(ctx: RouteContext) {
   const setClaimedQuest = (sessionId: string, quest: { id: string; title: string; status?: string } | null) => {
     const session = wsBridge.getSession(sessionId);
     if (!session) return;
-    setSessionClaimedQuestController(session, quest, { broadcastToBrowsers: (_session, msg) => wsBridge.broadcastToSession(sessionId, msg as any), persistSession: () => wsBridge.persistSessionById(sessionId), getLauncherSessionInfo: (targetSessionId) => launcher.getSession(targetSessionId), onSessionNamedByQuest: (targetSessionId, title) => (wsBridge as any).onSessionNamedByQuest?.(targetSessionId, title) });
+    setSessionClaimedQuestController(session, quest, {
+      broadcastToBrowsers: (_session, msg) => wsBridge.broadcastToSession(sessionId, msg as any),
+      persistSession: () => wsBridge.persistSessionById(sessionId),
+      getLauncherSessionInfo: (targetSessionId) => launcher.getSession(targetSessionId),
+      onSessionNamedByQuest: (targetSessionId, title) =>
+        (wsBridge as any).onSessionNamedByQuest?.(targetSessionId, title),
+    });
   };
 
   const persistSessionTaskHistory = (sessionId: string) => {
@@ -364,17 +370,21 @@ export function createQuestRoutes(ctx: RouteContext) {
       }
       const trackedSession = wsBridge.getSession(sessionId);
       if (trackedSession) {
-        addTaskEntryController(trackedSession, {
-        title: quest.title,
-        action: "new",
-        timestamp: Date.now(),
-        triggerMessageId: triggerMsgId,
-        source: "quest",
-        questId: quest.questId,
-        }, {
-          broadcastTaskHistory: () => persistSessionTaskHistory(sessionId),
-          persistSession: () => wsBridge.persistSessionById(sessionId),
-        });
+        addTaskEntryController(
+          trackedSession,
+          {
+            title: quest.title,
+            action: "new",
+            timestamp: Date.now(),
+            triggerMessageId: triggerMsgId,
+            source: "quest",
+            questId: quest.questId,
+          },
+          {
+            broadcastTaskHistory: () => persistSessionTaskHistory(sessionId),
+            persistSession: () => wsBridge.persistSessionById(sessionId),
+          },
+        );
       }
       return c.json(quest);
     } catch (e: unknown) {

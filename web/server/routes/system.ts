@@ -265,7 +265,9 @@ export function createSystemRoutes(ctx: RouteContext) {
 
   api.get("/vscode/selection", (c) => {
     return c.json({
-      state: browserTransportState() ? getVsCodeSelectionStateController(browserTransportState()!) : bridgeAny.getVsCodeSelectionState?.(),
+      state: browserTransportState()
+        ? getVsCodeSelectionStateController(browserTransportState()!)
+        : bridgeAny.getVsCodeSelectionState?.(),
     });
   });
 
@@ -346,15 +348,18 @@ export function createSystemRoutes(ctx: RouteContext) {
 
     return c.json({
       ok: true,
-      state: browserTransportState() ? getVsCodeSelectionStateController(browserTransportState()!) : bridgeAny.getVsCodeSelectionState?.(),
+      state: browserTransportState()
+        ? getVsCodeSelectionStateController(browserTransportState()!)
+        : bridgeAny.getVsCodeSelectionState?.(),
     });
   });
 
   api.get("/vscode/windows", (c) => {
     return c.json({
-      windows: browserTransportState() && browserTransportDeps()
-        ? getVsCodeWindowStatesController(browserTransportState()!, browserTransportDeps()!)
-        : bridgeAny.getVsCodeWindowStates?.(),
+      windows:
+        browserTransportState() && browserTransportDeps()
+          ? getVsCodeWindowStatesController(browserTransportState()!, browserTransportDeps()!)
+          : bridgeAny.getVsCodeWindowStates?.(),
     });
   });
 
@@ -441,7 +446,12 @@ export function createSystemRoutes(ctx: RouteContext) {
 
     const result = { ok: record.ok, ...(typeof record.error === "string" ? { error: record.error } : {}) };
     const handled = browserTransportState()
-      ? resolveVsCodeOpenFileResultController(browserTransportState()!, c.req.param("sourceId"), c.req.param("commandId"), result)
+      ? resolveVsCodeOpenFileResultController(
+          browserTransportState()!,
+          c.req.param("sourceId"),
+          c.req.param("commandId"),
+          result,
+        )
       : bridgeAny.resolveVsCodeOpenFileResult?.(c.req.param("sourceId"), c.req.param("commandId"), result);
     if (!handled) {
       return c.json({ error: "VSCode open-file command not found" }, 404);

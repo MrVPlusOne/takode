@@ -35,10 +35,7 @@ export function getCodexTurnInRecovery(session: CodexTurnQueueSessionLike): Code
   return null;
 }
 
-export function enqueueCodexTurn(
-  session: CodexTurnQueueSessionLike,
-  turn: CodexOutboundTurn,
-): CodexOutboundTurn {
+export function enqueueCodexTurn(session: CodexTurnQueueSessionLike, turn: CodexOutboundTurn): CodexOutboundTurn {
   session.pendingCodexTurns.push(turn);
   return turn;
 }
@@ -87,10 +84,7 @@ export function completeCodexTurnsForResult(
   return { matched: true, codexTurnId: null };
 }
 
-export function armCodexFreshTurnRequirement(
-  session: CodexTurnQueueSessionLike,
-  turnId: string,
-): boolean {
+export function armCodexFreshTurnRequirement(session: CodexTurnQueueSessionLike, turnId: string): boolean {
   if (session.codexFreshTurnRequiredUntilTurnId === turnId) return false;
   session.codexFreshTurnRequiredUntilTurnId = turnId;
   return true;

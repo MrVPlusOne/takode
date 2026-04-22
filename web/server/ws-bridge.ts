@@ -38,11 +38,7 @@ import type {
   SessionNotification,
   TakodeHerdBatchSnapshot,
 } from "./session-types.js";
-import {
-  TOOL_RESULT_PREVIEW_LIMIT,
-  assertNever,
-  formatVsCodeSelectionPrompt,
-} from "./session-types.js";
+import { TOOL_RESULT_PREVIEW_LIMIT, assertNever, formatVsCodeSelectionPrompt } from "./session-types.js";
 import type { QuestJourneyState } from "./session-types.js";
 import type { SessionStore } from "./session-store.js";
 import type { CodexResumeSnapshot, CodexResumeTurnSnapshot, CodexSessionMeta } from "./codex-adapter.js";
@@ -53,23 +49,15 @@ import type { CliLauncher } from "./cli-launcher.js";
 import * as gitUtils from "./git-utils.js";
 import { sessionTag } from "./session-tag.js";
 import type { PerfTracer } from "./perf-tracer.js";
-import {
-  HerdEventDispatcher,
-  isSessionIdleRuntime,
-} from "./herd-event-dispatcher.js";
-import {
-  injectCompactionRecovery as injectCompactionRecoveryController,
-} from "./bridge/compaction-recovery.js";
+import { HerdEventDispatcher, isSessionIdleRuntime } from "./herd-event-dispatcher.js";
+import { injectCompactionRecovery as injectCompactionRecoveryController } from "./bridge/compaction-recovery.js";
 import {
   handlePermissionRequest as handlePermissionRequestPipeline,
   type PermissionPipelineResult,
   isSensitiveBashCommand as isSensitiveBashCommandPolicy,
   isSensitiveConfigPath as isSensitiveConfigPathPolicy,
 } from "./bridge/permission-pipeline.js";
-import {
-  getApprovalSummary,
-  getDenialSummary,
-} from "./bridge/permission-summaries.js";
+import { getApprovalSummary, getDenialSummary } from "./bridge/permission-summaries.js";
 import {
   cleanupBranchState as cleanupBranchStateIndex,
   invalidateSessionsSharingBranch as invalidateSessionsSharingBranchIndex,
@@ -580,18 +568,16 @@ export class WsBridge {
   imageStore: ImageStore | null = null;
   pushoverNotifier: PushoverNotifier | null = null;
   launcher: CliLauncher | null = null;
-  herdEventDispatcher:
-    | Pick<
-        HerdEventDispatcher,
-        | "emitTakodeEvent"
-        | "subscribeTakodeEvents"
-        | "onSessionActivityStateChanged"
-        | "onOrchestratorTurnEnd"
-        | "onOrchestratorDisconnect"
-        | "getDiagnostics"
-        | "forceFlushPendingEvents"
-      >
-    | null = null;
+  herdEventDispatcher: Pick<
+    HerdEventDispatcher,
+    | "emitTakodeEvent"
+    | "subscribeTakodeEvents"
+    | "onSessionActivityStateChanged"
+    | "onOrchestratorTurnEnd"
+    | "onOrchestratorDisconnect"
+    | "getDiagnostics"
+    | "forceFlushPendingEvents"
+  > | null = null;
   perfTracer: PerfTracer | null = null;
   onCLISessionId: ((sessionId: string, cliSessionId: string) => void) | null = null;
   onCLIRelaunchNeeded: ((sessionId: string) => void) | null = null;
@@ -782,10 +768,15 @@ export class WsBridge {
         autoRecoverMs: 300_000,
         autoRecoverOrchestratorMs: STUCK_GENERATION_THRESHOLD_MS,
         requestCodexAutoRecovery: (session, reason) => this.requestCodexAutoRecovery(session as Session, reason),
-        broadcastMessage: (session, msg) =>
-          this.broadcastToBrowsers(session as Session, msg as BrowserIncomingMessage),
+        broadcastMessage: (session, msg) => this.broadcastToBrowsers(session as Session, msg as BrowserIncomingMessage),
         recordServerEvent: (session, reason, payload) =>
-          this.recorder?.recordServerEvent(session.id, reason, payload, session.backendType as BackendType, session.state.cwd),
+          this.recorder?.recordServerEvent(
+            session.id,
+            reason,
+            payload,
+            session.backendType as BackendType,
+            session.state.cwd,
+          ),
         getLauncherSessionInfo: (sessionId) => this.launcher?.getSession(sessionId),
         forceFlushPendingEvents: (sessionId) => this.herdEventDispatcher?.forceFlushPendingEvents?.(sessionId) ?? 0,
         backendConnected: (session) => backendConnectedController(session as Session),
@@ -866,7 +857,8 @@ export class WsBridge {
    */
   async killSession(sessionId: string): Promise<boolean> {
     return killSessionController(this.sessions, sessionId, {
-      killLauncher: async (targetSessionId: string) => (this.launcher ? await this.launcher.kill(targetSessionId) : false),
+      killLauncher: async (targetSessionId: string) =>
+        this.launcher ? await this.launcher.kill(targetSessionId) : false,
     });
   }
 
@@ -987,8 +979,10 @@ export class WsBridge {
           );
         }
       },
-      refreshGitInfo: (targetSession: unknown, options: { broadcastUpdate?: boolean; notifyPoller?: boolean; force?: boolean }) =>
-        this.refreshGitInfo(targetSession as Session, options),
+      refreshGitInfo: (
+        targetSession: unknown,
+        options: { broadcastUpdate?: boolean; notifyPoller?: boolean; force?: boolean },
+      ) => this.refreshGitInfo(targetSession as Session, options),
     };
   }
 
@@ -1032,8 +1026,7 @@ export class WsBridge {
 
   private getSessionCleanupDeps() {
     return {
-      clearOptimisticRunningTimer: (session: Session, _reason: string) =>
-        clearOptimisticRunningTimerLifecycle(session),
+      clearOptimisticRunningTimer: (session: Session, _reason: string) => clearOptimisticRunningTimerLifecycle(session),
       clearAllCodexToolResultWatchdogs: (session: Session, _reason: string) =>
         clearAllCodexToolResultWatchdogsController(session),
       cleanupBranchState: (sessionId: string) =>
@@ -1059,11 +1052,17 @@ export class WsBridge {
   private getSessionNotificationDeps() {
     return {
       isHerdedWorkerSession: (targetSession: unknown) => this.isHerdedWorkerSession(targetSession as Session),
-      broadcastToBrowsers: (targetSession: unknown, msg: BrowserIncomingMessage) => this.broadcastToBrowsers(targetSession as Session, msg),
+      broadcastToBrowsers: (targetSession: unknown, msg: BrowserIncomingMessage) =>
+        this.broadcastToBrowsers(targetSession as Session, msg),
       persistSession: (targetSession: unknown) => this.persistSession(targetSession as Session),
-      emitTakodeEvent: (sessionId: string, type: string, data: Record<string, unknown>) => this.emitTakodeEvent(sessionId, type as TakodeEventType, data as any),
-      scheduleNotification: (sessionId: string, category: "question" | "completed", detail: string, options?: { skipReadCheck?: boolean }) =>
-        this.pushoverNotifier?.scheduleNotification(sessionId, category, detail, undefined, options),
+      emitTakodeEvent: (sessionId: string, type: string, data: Record<string, unknown>) =>
+        this.emitTakodeEvent(sessionId, type as TakodeEventType, data as any),
+      scheduleNotification: (
+        sessionId: string,
+        category: "question" | "completed",
+        detail: string,
+        options?: { skipReadCheck?: boolean },
+      ) => this.pushoverNotifier?.scheduleNotification(sessionId, category, detail, undefined, options),
     };
   }
 
@@ -1104,12 +1103,19 @@ export class WsBridge {
         deriveSessionStatusController(targetSession as Session, {
           backendConnected: (concreteSession: unknown) => backendConnectedController(concreteSession as Session),
         }),
-      clearAttentionAndMarkRead: (targetSession: unknown) => clearAttentionAndMarkReadController(targetSession as Session, notificationDeps),
-      setAttentionReview: (targetSession: unknown) => setAttentionController(targetSession as Session, "review", notificationDeps),
+      clearAttentionAndMarkRead: (targetSession: unknown) =>
+        clearAttentionAndMarkReadController(targetSession as Session, notificationDeps),
+      setAttentionReview: (targetSession: unknown) =>
+        setAttentionController(targetSession as Session, "review", notificationDeps),
       broadcastLeaderGroupIdle: (targetSession: unknown, payload: Record<string, unknown>) =>
         this.broadcastToBrowsers(targetSession as Session, payload as BrowserIncomingMessage),
-      recordServerEvent: (sessionId: string, eventReason: string, payload: Record<string, unknown>, backendType: string, cwd: string) =>
-        this.recorder?.recordServerEvent(sessionId, eventReason, payload, backendType as BackendType, cwd),
+      recordServerEvent: (
+        sessionId: string,
+        eventReason: string,
+        payload: Record<string, unknown>,
+        backendType: string,
+        cwd: string,
+      ) => this.recorder?.recordServerEvent(sessionId, eventReason, payload, backendType as BackendType, cwd),
       delayMs: WsBridge.LEADER_GROUP_IDLE_NOTIFY_DELAY_MS,
       isHerdedWorkerSession: notificationDeps.isHerdedWorkerSession,
       scheduleNotification: notificationDeps.scheduleNotification,
@@ -1236,13 +1242,18 @@ export class WsBridge {
     return false;
   }
 
-  private isHerdedWorkerSession(session: Session): boolean { return !!this.launcher?.getSession(session.id)?.herdedBy; }
+  private isHerdedWorkerSession(session: Session): boolean {
+    return !!this.launcher?.getSession(session.id)?.herdedBy;
+  }
 
-  private formatVsCodeSelectionPrompt(selection: import("./session-types.js").VsCodeSelectionMetadata): string { return formatVsCodeSelectionPrompt(selection); }
+  private formatVsCodeSelectionPrompt(selection: import("./session-types.js").VsCodeSelectionMetadata): string {
+    return formatVsCodeSelectionPrompt(selection);
+  }
 
   private getCompactionRecoveryRuntimeDeps() {
     return {
-      isLeaderSession: (session: unknown) => this.launcher?.getSession((session as Session).id)?.isOrchestrator === true,
+      isLeaderSession: (session: unknown) =>
+        this.launcher?.getSession((session as Session).id)?.isOrchestrator === true,
       isSystemSourceTag: (agentSource: { sessionId: string; sessionLabel?: string } | undefined) =>
         this.isSystemSourceTag(agentSource),
       injectUserMessage: (
@@ -1266,7 +1277,8 @@ export class WsBridge {
         this.markTurnInterrupted(targetSession as Session, source),
       setGenerating: (targetSession: unknown, generating: boolean, reason: string) =>
         setGeneratingLifecycle(generationDeps, targetSession as Session, generating, reason),
-      onSessionActivityStateChanged: (sessionId: string, reason: string) => this.onSessionActivityStateChanged(sessionId, reason),
+      onSessionActivityStateChanged: (sessionId: string, reason: string) =>
+        this.onSessionActivityStateChanged(sessionId, reason),
     };
   }
 
@@ -1281,12 +1293,8 @@ export class WsBridge {
       persistSession: (targetSession: unknown) => this.persistSession(targetSession as Session),
       touchUserMessage: (sessionId: string) => this.launcher?.touchUserMessage(sessionId),
       onUserMessage: this.onUserMessage
-        ? (
-            sessionId: string,
-            history: Session["messageHistory"],
-            cwd: string,
-            wasGenerating: boolean,
-          ) => this.onUserMessage?.(sessionId, history, cwd, wasGenerating)
+        ? (sessionId: string, history: Session["messageHistory"], cwd: string, wasGenerating: boolean) =>
+            this.onUserMessage?.(sessionId, history, cwd, wasGenerating)
         : undefined,
       refreshGitInfoThenRecomputeDiff: (
         targetSession: unknown,
@@ -1317,7 +1325,8 @@ export class WsBridge {
           apps: [],
         });
       },
-      backfillSlashCommands: (projectKey: string, sourceSessionId: string) => this.backfillSlashCommands(projectKey, sourceSessionId),
+      backfillSlashCommands: (projectKey: string, sourceSessionId: string) =>
+        this.backfillSlashCommands(projectKey, sourceSessionId),
       ...runtime,
       broadcastToBrowsers: (
         targetSession: unknown,
@@ -1334,7 +1343,11 @@ export class WsBridge {
       injectCompactionRecovery: (targetSession: unknown) =>
         injectCompactionRecoveryController(targetSession as Session, this.getCompactionRecoveryRuntimeDeps()),
       hasCompactBoundaryReplay: (targetSession: unknown, cliUuid: string | undefined, meta: unknown) =>
-        this.hasCompactBoundaryReplay(targetSession as Session, cliUuid, meta as CLISystemCompactBoundaryMessage["compact_metadata"]),
+        this.hasCompactBoundaryReplay(
+          targetSession as Session,
+          cliUuid,
+          meta as CLISystemCompactBoundaryMessage["compact_metadata"],
+        ),
       freezeHistoryThroughCurrentTail: (targetSession: unknown) =>
         freezeHistoryThroughCurrentTailController(targetSession as Session),
       hasTaskNotificationReplay: (targetSession: unknown, taskId: string, toolUseId: string) =>
@@ -1345,7 +1358,11 @@ export class WsBridge {
       hasResultReplay: (targetSession: unknown, resultUuid: string) =>
         this.hasResultReplay(targetSession as Session, resultUuid),
       reconcileReplayState: (targetSession: unknown) =>
-        reconcileTerminalResultStateLifecycle(this.getGenerationLifecycleDeps(), targetSession as Session, "result_replay"),
+        reconcileTerminalResultStateLifecycle(
+          this.getGenerationLifecycleDeps(),
+          targetSession as Session,
+          "result_replay",
+        ),
       drainInlineQueuedClaudeTurns: (targetSession: unknown, reason: string) =>
         drainInlineQueuedClaudeTurnsController(targetSession as Session, reason, {
           getQueuedTurnLifecycleEntries: (session) => getQueuedTurnLifecycleEntriesLifecycle(session as Session),
@@ -1364,7 +1381,11 @@ export class WsBridge {
         this.finalizeOrphanedTerminalToolsOnResult(targetSession as Session, resultMsg),
       cancelPermissionNotification: (sessionId: string, requestId: string) =>
         this.pushoverNotifier?.cancelPermission(sessionId, requestId),
-      onResultAttentionAndNotifications: (targetSession: unknown, resultMsg: CLIResultMessage, turnTriggerSource: unknown) =>
+      onResultAttentionAndNotifications: (
+        targetSession: unknown,
+        resultMsg: CLIResultMessage,
+        turnTriggerSource: unknown,
+      ) =>
         handleResultAttentionAndNotificationsController(
           targetSession as Session,
           resultMsg,
@@ -1376,11 +1397,7 @@ export class WsBridge {
               this.broadcastToBrowsers(concreteSession as Session, browserMsg),
             persistSession: (concreteSession) => this.persistSession(concreteSession as Session),
             emitTakodeEvent: (sessionId, type, data) =>
-              this.emitTakodeEvent(
-                sessionId,
-                type as TakodeEventType,
-                data as TakodeEventDataByType[TakodeEventType],
-              ),
+              this.emitTakodeEvent(sessionId, type as TakodeEventType, data as TakodeEventDataByType[TakodeEventType]),
             scheduleErrorNotification: this.pushoverNotifier
               ? (sessionId, detail) => this.pushoverNotifier!.scheduleNotification(sessionId, "error", detail)
               : undefined,
@@ -1527,7 +1544,8 @@ export class WsBridge {
         this.setBackendState(targetSession as Session, state as NonNullable<SessionState["backend_state"]>, error),
       persistSession: (targetSession) => this.persistSession(targetSession as Session),
       getLauncherSessionInfo: (targetSessionId: string) => this.launcher?.getSession(targetSessionId),
-      onOrchestratorTurnEnd: (targetSessionId: string) => this.herdEventDispatcher?.onOrchestratorTurnEnd(targetSessionId),
+      onOrchestratorTurnEnd: (targetSessionId: string) =>
+        this.herdEventDispatcher?.onOrchestratorTurnEnd(targetSessionId),
       handleCodexAdapterBrowserMessage: (targetSession, msg) =>
         handleCodexAdapterBrowserMessageController(
           targetSession as Session,
@@ -1547,7 +1565,11 @@ export class WsBridge {
   private flushQueuedMessagesToCodexAdapter(session: Session, adapter: CodexBridgeAdapter, reason: string): void {
     flushQueuedMessagesToCodexAdapterController(session, adapter, reason, {
       dispatchQueuedCodexTurns: (targetSession, dispatchReason) =>
-        dispatchQueuedCodexTurnsController(targetSession as Session, dispatchReason, this.getCodexRecoveryOrchestratorDeps()),
+        dispatchQueuedCodexTurnsController(
+          targetSession as Session,
+          dispatchReason,
+          this.getCodexRecoveryOrchestratorDeps(),
+        ),
     });
   }
 
@@ -1599,11 +1621,7 @@ export class WsBridge {
   handleBrowserOpen(ws: ServerWebSocket<SocketData>, sessionId: string) {
     const session = this.getOrCreateSession(sessionId);
     this.syncBackendTypeFromLauncher(session, "browser_open");
-    handleBrowserOpenController(
-      session,
-      ws,
-      this.getBrowserTransportDeps(),
-    );
+    handleBrowserOpenController(session, ws, this.getBrowserTransportDeps());
   }
 
   handleBrowserMessage(ws: ServerWebSocket<SocketData>, raw: string | Buffer) {
@@ -1613,12 +1631,7 @@ export class WsBridge {
     const session = this.sessions.get(sessionId);
     if (!session) return;
     this.syncBackendTypeFromLauncher(session, "browser_message");
-    const messageType = handleBrowserMessageTransportController(
-      session,
-      data,
-      ws,
-      this.getBrowserTransportDeps(),
-    );
+    const messageType = handleBrowserMessageTransportController(session, data, ws, this.getBrowserTransportDeps());
 
     if (this.perfTracer) {
       const perfMs = performance.now() - perfStart;
@@ -1655,13 +1668,7 @@ export class WsBridge {
       return "no_session";
     }
     this.syncBackendTypeFromLauncher(session, "inject_user_message");
-    return injectUserMessageController(
-      session,
-      content,
-      agentSource,
-      takodeHerdBatch,
-      this.getBrowserTransportDeps(),
-    );
+    return injectUserMessageController(session, content, agentSource, takodeHerdBatch, this.getBrowserTransportDeps());
   }
 
   private isLiveBoardStalledEvent(session: Session, event: TakodeEvent): boolean {
@@ -1681,21 +1688,19 @@ export class WsBridge {
   }
 
   private pruneStalePendingCodexHerdInputs(session: Session, reason: string): boolean {
-    return pruneStalePendingCodexHerdInputsController(
-      session,
-      reason,
-      this.getBoardWatchdogDeps(),
-      {
-        broadcastPendingCodexInputs: (targetSession) =>
-          this.broadcastToBrowsers(targetSession as Session, {
-            type: "codex_pending_inputs",
-            inputs: (targetSession as Session).pendingCodexInputs,
-          }),
-        rebuildQueuedCodexPendingStartBatch: (targetSession) =>
-          rebuildQueuedCodexPendingStartBatchController(targetSession as Session, this.getCodexRecoveryOrchestratorDeps()),
-        persistSession: (targetSession) => this.persistSession(targetSession as Session),
-      },
-    );
+    return pruneStalePendingCodexHerdInputsController(session, reason, this.getBoardWatchdogDeps(), {
+      broadcastPendingCodexInputs: (targetSession) =>
+        this.broadcastToBrowsers(targetSession as Session, {
+          type: "codex_pending_inputs",
+          inputs: (targetSession as Session).pendingCodexInputs,
+        }),
+      rebuildQueuedCodexPendingStartBatch: (targetSession) =>
+        rebuildQueuedCodexPendingStartBatchController(
+          targetSession as Session,
+          this.getCodexRecoveryOrchestratorDeps(),
+        ),
+      persistSession: (targetSession) => this.persistSession(targetSession as Session),
+    });
   }
 
   private isSystemSourceTag(agentSource: { sessionId: string; sessionLabel?: string } | undefined): boolean {
@@ -1912,7 +1917,11 @@ export class WsBridge {
       broadcastError: (targetSession: unknown, message: string) =>
         this.broadcastToBrowsers(targetSession as Session, { type: "error", message }),
       queueCodexPendingStartBatch: (targetSession: unknown, reason: string) =>
-        queueCodexPendingStartBatchController(targetSession as Session, reason, this.getCodexRecoveryOrchestratorDeps()),
+        queueCodexPendingStartBatchController(
+          targetSession as Session,
+          reason,
+          this.getCodexRecoveryOrchestratorDeps(),
+        ),
       deriveBackendState: (targetSession: unknown) => deriveBackendStateController(targetSession as Session),
       getBoard: (sessionId: string) => getBoardForSessionController(this.sessions, sessionId),
       getCompletedBoard: (sessionId: string) => getCompletedBoardForSessionController(this.sessions, sessionId),
@@ -2001,7 +2010,8 @@ export class WsBridge {
     const handlers = this.getClaudeMessageHandlers();
     return {
       ...runtime,
-      getOrCreateSession: (sessionId: string, backendType: "claude-sdk") => this.getOrCreateSession(sessionId, backendType),
+      getOrCreateSession: (sessionId: string, backendType: "claude-sdk") =>
+        this.getOrCreateSession(sessionId, backendType),
       onOrchestratorTurnEnd: (sessionId: string) => this.herdEventDispatcher?.onOrchestratorTurnEnd(sessionId),
       touchActivity: (sessionId: string) => this.launcher?.touchActivity(sessionId),
       clearOptimisticRunningTimer: (targetSession: unknown, reason: string) =>
@@ -2012,7 +2022,8 @@ export class WsBridge {
       handleSdkBrowserMessage: handlers.handleSdkBrowserMessage,
       handleSdkPermissionRequest: (targetSession: unknown, request: PermissionRequest) =>
         handleSdkPermissionRequestController(targetSession as Session, request, this.getBrowserRoutingDeps()),
-      setCliSessionId: (sessionId: string, cliSessionId: string) => this.launcher?.setCLISessionId(sessionId, cliSessionId),
+      setCliSessionId: (sessionId: string, cliSessionId: string) =>
+        this.launcher?.setCLISessionId(sessionId, cliSessionId),
       requestCliRelaunch: this.onCLIRelaunchNeeded
         ? (sessionId: string) => this.onCLIRelaunchNeeded?.(sessionId)
         : undefined,
@@ -2059,8 +2070,10 @@ export class WsBridge {
         injectCompactionRecoveryController(targetSession as Session, this.getCompactionRecoveryRuntimeDeps()),
       trackCodexQuestCommands: (targetSession: unknown, content: ContentBlock[]) =>
         this.trackCodexQuestCommands(targetSession as Session, content),
-      reconcileCodexQuestToolResult: (targetSession: unknown, toolResult: Extract<ContentBlock, { type: "tool_result" }>) =>
-        this.reconcileCodexQuestToolResult(targetSession as Session, toolResult),
+      reconcileCodexQuestToolResult: (
+        targetSession: unknown,
+        toolResult: Extract<ContentBlock, { type: "tool_result" }>,
+      ) => this.reconcileCodexQuestToolResult(targetSession as Session, toolResult),
       collectCompletedToolStartTimes: (
         targetSession: unknown,
         toolResults: Extract<ContentBlock, { type: "tool_result" }>[],
@@ -2136,20 +2149,10 @@ export class WsBridge {
       ) => sendToCLITransportController(targetSession as Session, ndjson, opts, this.getClaudeCliTransportDeps()),
       broadcastToBrowsers: (targetSession: unknown, browserMsg: BrowserIncomingMessage) =>
         this.broadcastToBrowsers(targetSession as Session, browserMsg),
-      emitTakodeEvent: (
-        sessionId: string,
-        type: string,
-        data: Record<string, unknown>,
-        actorSessionId?: string,
-      ) =>
+      emitTakodeEvent: (sessionId: string, type: string, data: Record<string, unknown>, actorSessionId?: string) =>
         actorSessionId === undefined
           ? this.emitTakodeEvent(sessionId, type as TakodeEventType, data as Record<string, unknown>)
-          : this.emitTakodeEvent(
-              sessionId,
-              type as TakodeEventType,
-              data as Record<string, unknown>,
-              actorSessionId,
-            ),
+          : this.emitTakodeEvent(sessionId, type as TakodeEventType, data as Record<string, unknown>, actorSessionId),
       persistSession: (targetSession: unknown) => this.persistSession(targetSession as Session),
       sessionNotificationDeps: {
         ...notificationDeps,
@@ -2157,13 +2160,19 @@ export class WsBridge {
           if (!this.pushoverNotifier) return;
           const eventType = request.tool_name === "AskUserQuestion" ? ("question" as const) : ("permission" as const);
           const detail = request.tool_name + (request.description ? `: ${request.description}` : "");
-          this.pushoverNotifier.scheduleNotification((targetSession as Session).id, eventType, detail, request.request_id);
+          this.pushoverNotifier.scheduleNotification(
+            (targetSession as Session).id,
+            eventType,
+            detail,
+            request.request_id,
+          );
         },
         cancelPermissionNotification: (sessionId: string, requestId: string) =>
           this.pushoverNotifier?.cancelPermission(sessionId, requestId),
       },
       onAgentPaused: this.onAgentPaused
-        ? (sessionId: string, history: Session["messageHistory"], cwd: string) => this.onAgentPaused?.(sessionId, history, cwd)
+        ? (sessionId: string, history: Session["messageHistory"], cwd: string) =>
+            this.onAgentPaused?.(sessionId, history, cwd)
         : undefined,
       getCurrentTurnTriggerSource: (targetSession: unknown) =>
         getCurrentTurnTriggerSourceController(targetSession as Session, {
@@ -2197,12 +2206,8 @@ export class WsBridge {
         ? (sessionId: string, data: string, mediaType: string) => this.imageStore!.store(sessionId, data, mediaType)
         : undefined,
       onUserMessage: this.onUserMessage
-        ? (
-            sessionId: string,
-            history: Session["messageHistory"],
-            cwd: string,
-            wasGenerating: boolean,
-          ) => this.onUserMessage?.(sessionId, history, cwd, wasGenerating)
+        ? (sessionId: string, history: Session["messageHistory"], cwd: string, wasGenerating: boolean) =>
+            this.onUserMessage?.(sessionId, history, cwd, wasGenerating)
         : undefined,
       markRunningFromUserDispatch: (targetSession: unknown, reason: string, interruptSource?: InterruptSource | null) =>
         markRunningFromUserDispatchLifecycle(generationDeps, targetSession as Session, reason, interruptSource),
@@ -2210,10 +2215,8 @@ export class WsBridge {
         trackUserMessageForTurnLifecycle(targetSession as Session, historyIndex, turnTarget),
       setGenerating: (targetSession: unknown, generating: boolean, reason: string) =>
         setGeneratingLifecycle(generationDeps, targetSession as Session, generating, reason),
-      broadcastStatusChange: (
-        targetSession: unknown,
-        status: "idle" | "running" | "compacting" | "reverting" | null,
-      ) => this.broadcastToBrowsers(targetSession as Session, { type: "status_change", status }),
+      broadcastStatusChange: (targetSession: unknown, status: "idle" | "running" | "compacting" | "reverting" | null) =>
+        this.broadcastToBrowsers(targetSession as Session, { type: "status_change", status }),
       setCodexImageSendStage: (
         targetSession: unknown,
         stage: SessionState["codex_image_send_stage"],
@@ -2223,7 +2226,8 @@ export class WsBridge {
         this.notifyImageSendFailure(targetSession as Session, err),
       isHerdEventSource: (agentSource: { sessionId: string; sessionLabel?: string } | undefined) =>
         isHerdEventSourceBrowserTransportController(agentSource),
-      onSessionActivityStateChanged: (sessionId: string, reason: string) => this.onSessionActivityStateChanged(sessionId, reason),
+      onSessionActivityStateChanged: (sessionId: string, reason: string) =>
+        this.onSessionActivityStateChanged(sessionId, reason),
       markTurnInterrupted: (targetSession: unknown, source: InterruptSource) =>
         this.markTurnInterrupted(targetSession as Session, source),
       armCodexFreshTurnRequirement: (targetSession: unknown, turnId: string, reason: string) =>
@@ -2232,7 +2236,8 @@ export class WsBridge {
         clearCodexFreshTurnRequirementController(targetSession as Session, reason, codexRecoveryDeps),
       addPendingCodexInput: (targetSession: unknown, input: PendingCodexInput) =>
         addPendingCodexInputController(targetSession as Session, input, codexRecoveryDeps),
-      getCancelablePendingCodexInputs: (targetSession: unknown) => getCancelablePendingCodexInputsController(targetSession as Session),
+      getCancelablePendingCodexInputs: (targetSession: unknown) =>
+        getCancelablePendingCodexInputsController(targetSession as Session),
       removePendingCodexInput: (targetSession: unknown, id: string) =>
         removePendingCodexInputController(targetSession as Session, id, codexRecoveryDeps),
       clearQueuedTurnLifecycleEntries: (targetSession: unknown) =>
@@ -2265,10 +2270,18 @@ export class WsBridge {
         targetSession: unknown,
         request: Record<string, unknown>,
         onResponse?: { subtype: string; resolve: (response: unknown) => void },
-      ) => sendControlRequestTransportController(targetSession as Session, request, onResponse, this.getClaudeCliTransportDeps()),
+      ) =>
+        sendControlRequestTransportController(
+          targetSession as Session,
+          request,
+          onResponse,
+          this.getClaudeCliTransportDeps(),
+        ),
       requestCodexAutoRecovery: (targetSession: unknown, reason: string) =>
         this.requestCodexAutoRecovery(targetSession as Session, reason),
-      requestCliRelaunch: this.onCLIRelaunchNeeded ? (sessionId: string) => this.onCLIRelaunchNeeded?.(sessionId) : undefined,
+      requestCliRelaunch: this.onCLIRelaunchNeeded
+        ? (sessionId: string) => this.onCLIRelaunchNeeded?.(sessionId)
+        : undefined,
       handleSetModel: (targetSession: unknown, model: string) =>
         handleSetModelController(targetSession as Session, model, this.getBrowserRoutingDeps()),
       handleCodexSetModel: (targetSession: unknown, model: string) =>
@@ -2309,21 +2322,11 @@ export class WsBridge {
         targetSession: unknown,
         reason: string,
         options?: { completedTurnId?: string | null },
-      ) =>
-        clearCodexFreshTurnRequirementController(
-          targetSession as Session,
-          reason,
-          codexRecoveryDeps,
-          options,
-        ),
+      ) => clearCodexFreshTurnRequirementController(targetSession as Session, reason, codexRecoveryDeps, options),
       dispatchQueuedCodexTurns: (targetSession: unknown, reason: string) =>
         dispatchQueuedCodexTurnsController(targetSession as Session, reason, codexRecoveryDeps),
       maybeFlushQueuedCodexMessages: (targetSession: unknown, reason: string) =>
-        maybeFlushQueuedCodexMessagesController(
-          targetSession as Session,
-          reason,
-          codexRecoveryDeps,
-        ),
+        maybeFlushQueuedCodexMessagesController(targetSession as Session, reason, codexRecoveryDeps),
       pruneStalePendingCodexHerdInputs: (targetSession: unknown, reason: string) =>
         this.pruneStalePendingCodexHerdInputs(targetSession as Session, reason),
       synthesizeCodexToolResultsFromResumedTurn: (
@@ -2356,8 +2359,10 @@ export class WsBridge {
         ),
       setBackendState: (targetSession: unknown, state: string, error: string | null) =>
         this.setBackendState(targetSession as Session, state as NonNullable<SessionState["backend_state"]>, error),
-      refreshGitInfoThenRecomputeDiff: (targetSession: unknown, options: { notifyPoller?: boolean; broadcastUpdate?: boolean }) =>
-        this.refreshGitInfoThenRecomputeDiff(targetSession as Session, options),
+      refreshGitInfoThenRecomputeDiff: (
+        targetSession: unknown,
+        options: { notifyPoller?: boolean; broadcastUpdate?: boolean },
+      ) => this.refreshGitInfoThenRecomputeDiff(targetSession as Session, options),
       finalizeCodexRollback: (targetSession: unknown) => this.finalizeCodexRollback(targetSession as Session),
       flushQueuedMessagesToCodexAdapter: (targetSession: unknown, adapter: unknown, reason: string) =>
         this.flushQueuedMessagesToCodexAdapter(targetSession as Session, adapter as CodexBridgeAdapter, reason),
