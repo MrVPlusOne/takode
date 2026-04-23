@@ -298,6 +298,31 @@ describe("hasDangerousShellConstructs", () => {
   it("returns false for safe commands", () => {
     expect(hasDangerousShellConstructs("ls -la /tmp")).toBe(false);
   });
+
+  it("allows safe heredoc $(cat <<'EOF' ... EOF)", () => {
+    const cmd = `takode send 16 "$(cat <<'EOF'\nHello world\nMulti-line message\nEOF\n)"`;
+    expect(hasDangerousShellConstructs(cmd)).toBe(false);
+  });
+
+  it("rejects unquoted heredoc $(cat <<EOF ... EOF) because the body still expands", () => {
+    const cmd = `takode send 16 "$(cat <<EOF\nHello $(printf injected)\nEOF\n)"`;
+    expect(hasDangerousShellConstructs(cmd)).toBe(true);
+  });
+
+  it("allows heredoc with indent-stripping <<-", () => {
+    const cmd = `git commit -m "$(cat <<-'EOF'\n  Commit message here.\n  EOF\n  )"`;
+    expect(hasDangerousShellConstructs(cmd)).toBe(false);
+  });
+
+  it("still detects $() when mixed with heredoc", () => {
+    const cmd = `takode send 16 "$(cat <<'EOF'\nhello\nEOF\n)" && echo $(whoami)`;
+    expect(hasDangerousShellConstructs(cmd)).toBe(true);
+  });
+
+  it("still detects backticks outside heredoc command", () => {
+    const cmd = "echo `whoami` && takode send 16 \"$(cat <<'EOF'\nhello\nEOF\n)\"";
+    expect(hasDangerousShellConstructs(cmd)).toBe(true);
+  });
 });
 
 describe("isDangerousFirstToken", () => {
