@@ -108,6 +108,21 @@ export function handleCLIOpen(
   deps.broadcastToBrowsers(session, { type: "backend_connected" });
   deps.refreshGitInfoThenRecomputeDiff(session, { notifyPoller: true });
 
+  // Clear stale pendingPermissions on non-seamless reconnect (relaunch or server
+  // restart).  The relaunched CLI generates fresh request_ids via --resume, so any
+  // entries carried over from before the disconnect (or restored from disk after a
+  // server restart) will never be resolved.  Seamless reconnects keep the same CLI
+  // process, so their request_ids remain valid.
+  if (!session.seamlessReconnect && session.pendingPermissions.size > 0) {
+    console.log(
+      `[ws-bridge] Clearing ${session.pendingPermissions.size} stale pendingPermission(s) on CLI reconnect for session ${sessionTag(sessionId)}`,
+    );
+    for (const [reqId] of session.pendingPermissions) {
+      deps.broadcastToBrowsers(session, { type: "permission_cancelled", request_id: reqId });
+    }
+    session.pendingPermissions.clear();
+  }
+
   if (session.backendType === "claude" && !session.cliInitializeSent) {
     const launcherInfoForInit = deps.getLauncherSessionInfo(sessionId);
     const instructions = launcherInfoForInit?.injectedSystemPrompt;
