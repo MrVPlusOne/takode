@@ -28,7 +28,6 @@ import {
   setAttention as setAttentionSessionRegistryController,
 } from "./session-registry-controller.js";
 import {
-  buildPendingCodexImageDrafts,
   getApprovalSummary,
   getAutoApprovalSummary,
   getDenialSummary,
@@ -567,11 +566,6 @@ export async function routeBrowserMessage(
   ws: BrowserTransportSocketLike | undefined,
   deps: AdapterBrowserRoutingDeps,
 ): Promise<void> {
-  if (msg.type === "user_message" && msg.images?.length && !deps.storeImage) {
-    deps.notifyImageSendFailure(session, new Error("image store unavailable"));
-    return;
-  }
-
   if (msg.type === "user_message") {
     if (maybeAutoAnswerPendingQuestionForUserMessage(session, msg, deps)) return;
     maybeAutoRejectPendingPlanForUserMessage(session, msg, deps);
@@ -581,7 +575,7 @@ export async function routeBrowserMessage(
     msg.type === "user_message" &&
     typeof msg.content === "string" &&
     msg.content.trim().toLowerCase() === "/compact" &&
-    !msg.images?.length &&
+    !msg.imageRefs?.length &&
     session.backendType !== "codex"
   ) {
     handleForceCompact(session, deps);
@@ -591,7 +585,7 @@ export async function routeBrowserMessage(
   if (
     msg.type === "user_message" &&
     typeof msg.content === "string" &&
-    !msg.images?.length &&
+    !msg.imageRefs?.length &&
     session.backendType !== "codex" &&
     isCliSlashCommand(session, msg.content.trim())
   ) {
@@ -603,19 +597,20 @@ export async function routeBrowserMessage(
   const adapterRouted = maybeAdapterRouted instanceof Promise ? await maybeAdapterRouted : maybeAdapterRouted;
   if (adapterRouted) return;
 
-  switch (msg.type) {
-    case "user_message":
-      try {
-        await handleUserMessage(session, msg, deps);
-      } catch (err) {
-        if (msg.images?.length) {
-          deps.notifyImageSendFailure(session, err);
-          break;
-        }
-        throw err;
+  if (msg.type === "user_message") {
+    try {
+      await handleUserMessage(session, msg, deps);
+    } catch (err) {
+      if (msg.imageRefs?.length) {
+        deps.notifyImageSendFailure(session, err);
+        return;
       }
-      break;
+      throw err;
+    }
+    return;
+  }
 
+  switch (msg.type) {
     case "permission_response":
       handlePermissionResponse(session, msg, deps, msg.actorSessionId);
       break;
@@ -1402,16 +1397,6 @@ export function ingestUserMessage(
   if (msg.imageRefs?.length) {
     return finalize(msg.imageRefs);
   }
-  if (msg.images?.length) {
-    if (!deps.storeImage) {
-      throw new Error("image store unavailable");
-    }
-    const images = msg.images;
-    return (async () => {
-      const imageRefs = await Promise.all(images.map((img) => deps.storeImage!(session.id, img.data, img.media_type)));
-      return finalize(imageRefs);
-    })();
-  }
   return finalize();
 }
 export async function handleUserMessage(
@@ -1430,7 +1415,7 @@ export async function handleUserMessage(
           { type: "text", text: selectionText },
         ]
       : msg.deliveryContent;
-  } else if (msg.images?.length && ingested.imageRefs?.length) {
+  } else if (ingested.imageRefs?.length) {
     const paths = deriveAttachmentPaths(session.id, ingested.imageRefs);
     const textContent = (msg.content || "") + formatAttachmentPathAnnotation(paths);
     content = selectionText
@@ -1733,15 +1718,12 @@ function normalizeAdapterUserMessage(
     delete (delivered as { images?: unknown }).images;
     return delivered;
   }
-  if (!msg.images?.length) {
+  const resolvedImageRefs = userImageRefs ?? msg.imageRefs;
+  if (!resolvedImageRefs?.length) {
     return adapterMsg;
   }
-  if (userImageRefs?.length !== msg.images.length) {
-    deps.notifyImageSendFailure(session, new Error("uploaded images missing from image store"));
-    return null;
-  }
   let annotatedContent = msg.content || "";
-  const resolvedPaths = deriveAttachmentPaths(session.id, userImageRefs);
+  const resolvedPaths = deriveAttachmentPaths(session.id, resolvedImageRefs);
   if (resolvedPaths.length > 0) {
     annotatedContent += formatAttachmentPathAnnotation(resolvedPaths);
   }
@@ -1773,7 +1755,7 @@ function maybeRequestAdapterRelaunchForUserMessage(
   }
   session.consecutiveAdapterFailures = 0;
   console.log(
-    `[ws-bridge] User message queued for adapter-missing ${session.backendType} session ${sessionTag(session.id)}, requesting relaunch`,
+    `[ws-bridge] User message queued while ${session.backendType} session ${sessionTag(session.id)} is not ready, requesting relaunch`,
   );
   if (session.backendType === "codex") {
     deps.requestCodexAutoRecovery(session, "queued_user_message_adapter_missing");
@@ -1794,11 +1776,9 @@ export function routeAdapterBrowserMessage(
     handleSdkPermissionResponse(session, msg, deps);
   }
   let userImageRefs: ImageRef[] | undefined;
-  let preMarkedImageRunning = false;
-  let wasGeneratingBeforeUserMessage = session.isGenerating;
   const finishRouting = (ingested?: IngestedUserMessage): boolean => {
     userImageRefs = ingested?.imageRefs;
-    if (session.backendType === "codex" && msg.type === "user_message" && msg.images?.length) {
+    if (session.backendType === "codex" && msg.type === "user_message" && userImageRefs?.length) {
       deps.setCodexImageSendStage(session, "processing", { persist: false });
     }
     if (ingested && deps.onUserMessage && session.backendType !== "codex") {
@@ -1874,24 +1854,20 @@ export function routeAdapterBrowserMessage(
       session.state.backend_state !== "broken" &&
       !(session.backendType === "codex" && deps.isHerdEventSource(msg.agentSource))
     ) {
-      const effectiveWasGenerating = preMarkedImageRunning ? wasGeneratingBeforeUserMessage : ingested.wasGenerating;
-      const interruptSource = effectiveWasGenerating
+      const interruptSource = ingested.wasGenerating
         ? msg.agentSource
           ? isSystemSourceTag(msg.agentSource)
             ? "system"
             : "leader"
           : "user"
         : undefined;
-      pendingTurnTarget = preMarkedImageRunning
-        ? "current"
-        : deps.markRunningFromUserDispatch(session, "user_message", interruptSource ?? null);
+      pendingTurnTarget = deps.markRunningFromUserDispatch(session, "user_message", interruptSource ?? null);
       if (ingested.historyIndex >= 0) {
         deps.trackUserMessageForTurn(session, ingested.historyIndex, pendingTurnTarget ?? "current");
       }
     }
     if (session.backendType === "codex" && msg.type === "user_message" && ingested) {
       if (ingested.historyEntry.id) {
-        const draftImages = buildPendingCodexImageDrafts(msg.images);
         deps.addPendingCodexInput(session, {
           id: ingested.historyEntry.id,
           ...(msg.client_msg_id ? { clientMsgId: msg.client_msg_id } : {}),
@@ -1899,7 +1875,6 @@ export function routeAdapterBrowserMessage(
           timestamp: ingested.timestamp,
           cancelable: true,
           ...(userImageRefs?.length ? { imageRefs: userImageRefs } : {}),
-          ...(draftImages?.length ? { draftImages } : {}),
           ...(adapterMsg.type === "user_message" ? { deliveryContent: adapterMsg.content } : {}),
           ...(msg.agentSource ? { agentSource: msg.agentSource } : {}),
           ...(msg.takodeHerdBatch ? { takodeHerdBatch: msg.takodeHerdBatch } : {}),
@@ -1917,10 +1892,7 @@ export function routeAdapterBrowserMessage(
           deps.rebuildQueuedCodexPendingStartBatch(session);
         }
       } else {
-        const effectiveWasGenerating = preMarkedImageRunning
-          ? wasGeneratingBeforeUserMessage
-          : !!ingested.wasGenerating;
-        if (session.codexAdapter && effectiveWasGenerating && session.isGenerating) {
+        if (session.codexAdapter && !!ingested.wasGenerating && session.isGenerating) {
           deps.rebuildQueuedCodexPendingStartBatch(session);
           deps.persistSession(session);
         } else {
@@ -1936,6 +1908,17 @@ export function routeAdapterBrowserMessage(
       if (!session.codexAdapter) {
         console.log(
           `[ws-bridge] Codex adapter not yet attached for session ${sessionTag(session.id)}, queued user_message`,
+        );
+        maybeRequestAdapterRelaunchForUserMessage(session, deps);
+      } else if (
+        msg.type === "user_message" &&
+        userImageRefs?.length &&
+        !session.codexAdapter.isConnected() &&
+        session.state.backend_state !== "recovering" &&
+        session.state.backend_state !== "broken"
+      ) {
+        console.log(
+          `[ws-bridge] Codex image send queued during reconnect window for session ${sessionTag(session.id)}`,
         );
         maybeRequestAdapterRelaunchForUserMessage(session, deps);
       }
@@ -1976,41 +1959,11 @@ export function routeAdapterBrowserMessage(
   if (msg.type !== "user_message") {
     return finishRouting(undefined);
   }
-  wasGeneratingBeforeUserMessage = session.isGenerating;
-  if (
-    session.backendType === "codex" &&
-    msg.images?.length &&
-    !session.isGenerating &&
-    session.state.backend_state !== "broken" &&
-    !deps.isHerdEventSource(msg.agentSource)
-  ) {
-    session.lastUserMessage = (msg.content || "").slice(0, 80);
-    deps.setCodexImageSendStage(session, "uploading", { persist: false });
-    deps.markRunningFromUserDispatch(session, "user_message");
-    preMarkedImageRunning = true;
+  const maybeIngested = ingestUserMessage(session, msg, deps, {
+    commit: session.backendType !== "codex",
+  });
+  if (maybeIngested instanceof Promise) {
+    return maybeIngested.then((resolved) => finishRouting(resolved));
   }
-  const handleImageSendFailure = (err: unknown): true => {
-    if (msg.images?.length) {
-      if (preMarkedImageRunning) {
-        deps.setCodexImageSendStage(session, null, { persist: false });
-        deps.setGenerating(session, false, "image_send_failed");
-        deps.broadcastStatusChange(session, "idle");
-        deps.persistSession(session);
-      }
-      deps.notifyImageSendFailure(session, err);
-      return true;
-    }
-    throw err;
-  };
-  try {
-    const maybeIngested = ingestUserMessage(session, msg, deps, {
-      commit: session.backendType !== "codex",
-    });
-    if (maybeIngested instanceof Promise) {
-      return maybeIngested.then((resolved) => finishRouting(resolved)).catch((err) => handleImageSendFailure(err));
-    }
-    return finishRouting(maybeIngested);
-  } catch (err) {
-    return handleImageSendFailure(err);
-  }
+  return finishRouting(maybeIngested);
 }

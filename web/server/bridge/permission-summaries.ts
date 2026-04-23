@@ -1,5 +1,4 @@
 import { NEVER_AUTO_APPROVE } from "./permission-pipeline.js";
-import type { PendingCodexInputImageDraft } from "../session-types.js";
 
 /** Tools whose approvals appear as chat messages (same set — interactive tools need visible records). */
 export const NOTABLE_APPROVALS = NEVER_AUTO_APPROVE;
@@ -47,30 +46,4 @@ export function getAutoApprovalSummary(toolName: string, input: Record<string, u
     return `Auto-approved: ${toolName} \u2014 ${input.file_path}`;
   }
   return `Auto-approved: ${toolName}`;
-}
-
-/** MIME type to file extension mapping for image file path derivation (must match image-store.ts). */
-const MIME_TO_EXT: Record<string, string> = {
-  "image/png": "png",
-  "image/jpeg": "jpeg",
-  "image/jpg": "jpg",
-  "image/gif": "gif",
-  "image/webp": "webp",
-  "image/svg+xml": "svg",
-  "image/bmp": "bmp",
-  "image/tiff": "tiff",
-  "image/avif": "avif",
-  "image/heic": "heic",
-  "image/heif": "heif",
-};
-
-export function buildPendingCodexImageDrafts(
-  images: { media_type: string; data: string }[] | undefined,
-): PendingCodexInputImageDraft[] | undefined {
-  if (!images?.length) return undefined;
-  return images.map((img, idx) => ({
-    name: `attachment-${idx + 1}.${MIME_TO_EXT[img.media_type] || "bin"}`,
-    base64: img.data,
-    mediaType: img.media_type,
-  }));
 }

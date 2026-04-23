@@ -257,7 +257,7 @@ export async function handleBrowserIngressMessage(
   try {
     await routePromise;
   } catch (err) {
-    if (msg.type === "user_message" && msg.images?.length) {
+    if (msg.type === "user_message" && msg.imageRefs?.length) {
       deps.notifyImageSendFailure(session, err);
       return;
     }
@@ -882,7 +882,7 @@ export function sendToBrowserRaw(ws: BrowserTransportSocketLike, json: string, m
 }
 
 function shouldSerializeBrowserMessage(msg: BrowserOutgoingMessage): boolean {
-  return msg.type === "user_message" && !!msg.images?.length;
+  return msg.type === "user_message" && !!msg.imageRefs?.length;
 }
 
 function hasSessionRouteInFlight(sessionId: string, deps: BrowserTransportDeps): boolean {

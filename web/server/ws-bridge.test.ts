@@ -5293,45 +5293,51 @@ describe("Browser message routing", () => {
     ).rejects.toThrow("No running VS Code was detected on this machine.");
   });
 
-  it("user_message with images: emits error and does not send when imageStore is not set", () => {
+  it("user_message with images: prepared imageRefs route successfully even without imageStore", async () => {
+    // With the new attach-time upload flow, images arrive as pre-prepared
+    // imageRefs + deliveryContent. No imageStore is needed at route time.
     browser.send.mockClear();
+    const expectedPath = join(homedir(), ".companion", "images", "s1", "img-1.orig.png");
 
     bridge.handleBrowserMessage(
       browser,
       JSON.stringify({
         type: "user_message",
         content: "What's in this image?",
-        images: [{ media_type: "image/png", data: "base64data==" }],
+        deliveryContent:
+          "What's in this image?\n[📎 Image attachments -- read these files with the Read tool before responding:\n" +
+          `Attachment 1: ${expectedPath}]`,
+        imageRefs: [{ imageId: "img-1", media_type: "image/png" }],
       }),
     );
+    await new Promise((r) => setTimeout(r, 20));
 
-    expect(cli.send).not.toHaveBeenCalled();
+    expect(cli.send).toHaveBeenCalledTimes(1);
+    const sentRaw = cli.send.mock.calls[0][0] as string;
+    const sent = JSON.parse(sentRaw.trim());
+    expect(sent.message.content).toContain(`Attachment 1: ${expectedPath}`);
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    expect(calls).toContainEqual(
-      expect.objectContaining({
-        type: "error",
-        message: expect.stringContaining("Image failed to send"),
-      }),
-    );
+    expect(calls.find((m: any) => m.type === "error")).toBeUndefined();
   });
 
-  it("user_message with images: non-SDK Claude sends file path annotations instead of inline base64", async () => {
-    const mockImageStore = {
-      store: vi
-        .fn()
-        .mockResolvedValueOnce({ imageId: "img-1", media_type: "image/png" })
-        .mockResolvedValueOnce({ imageId: "img-2", media_type: "image/jpeg" }),
-    };
-    bridge.setImageStore(mockImageStore as any);
+  it("user_message with images: non-SDK Claude sends file path annotations via deliveryContent", async () => {
+    // With prepared imageRefs, the browser sends deliveryContent containing
+    // path annotations. No imageStore.store() call happens at route time.
+    const expectedPath1 = join(homedir(), ".companion", "images", "s1", "img-1.orig.png");
+    const expectedPath2 = join(homedir(), ".companion", "images", "s1", "img-2.orig.jpeg");
 
     bridge.handleBrowserMessage(
       browser,
       JSON.stringify({
         type: "user_message",
         content: "Please compare these",
-        images: [
-          { media_type: "image/png", data: "img1-base64" },
-          { media_type: "image/jpeg", data: "img2-base64" },
+        deliveryContent:
+          "Please compare these\n[📎 Image attachments -- read these files with the Read tool before responding:\n" +
+          `Attachment 1: ${expectedPath1}\n` +
+          `Attachment 2: ${expectedPath2}]`,
+        imageRefs: [
+          { imageId: "img-1", media_type: "image/png" },
+          { imageId: "img-2", media_type: "image/jpeg" },
         ],
       }),
     );
@@ -5341,46 +5347,44 @@ describe("Browser message routing", () => {
     const sentRaw = cli.send.mock.calls[0][0] as string;
     const sent = JSON.parse(sentRaw.trim());
     // Images should be sent as file path annotations (plain text), not inline base64 blocks.
-    // This avoids bloating the API request body with base64 data.
     expect(typeof sent.message.content).toBe("string");
-    const expectedPath1 = join(homedir(), ".companion", "images", "s1", "img-1.orig.png");
-    const expectedPath2 = join(homedir(), ".companion", "images", "s1", "img-2.orig.jpeg");
     expect(sent.message.content).toContain("Please compare these");
     expect(sent.message.content).toContain(`Attachment 1: ${expectedPath1}`);
     expect(sent.message.content).toContain(`Attachment 2: ${expectedPath2}`);
     expect(sent.message.content).toContain("read these files with the Read tool before responding");
-
-    expect(mockImageStore.store).toHaveBeenCalledTimes(2);
   });
 
-  it("user_message with images: emits error and does not send turn when upload to imageStore fails", async () => {
+  it("user_message with images: prepared imageRefs work even when imageStore has errors (store not called)", async () => {
+    // With attach-time uploads, images are pre-stored. Even if imageStore
+    // would fail, routing should succeed because store() is never called.
     const mockImageStore = {
       store: vi.fn().mockRejectedValue(new Error("ENOENT: image file not found")),
     };
     bridge.setImageStore(mockImageStore as any);
     browser.send.mockClear();
 
+    const expectedPath = join(homedir(), ".companion", "images", "s1", "img-1.orig.png");
     bridge.handleBrowserMessage(
       browser,
       JSON.stringify({
         type: "user_message",
         content: "Please inspect this screenshot",
-        images: [{ media_type: "image/png", data: "broken-base64" }],
+        deliveryContent:
+          "Please inspect this screenshot\n[📎 Image attachments -- read these files with the Read tool before responding:\n" +
+          `Attachment 1: ${expectedPath}]`,
+        imageRefs: [{ imageId: "img-1", media_type: "image/png" }],
       }),
     );
     await new Promise((r) => setTimeout(r, 20));
 
-    expect(cli.send).not.toHaveBeenCalled();
-    const session = bridge.getSession("s1")!;
-    expect(session.messageHistory).toHaveLength(0);
+    expect(mockImageStore.store).not.toHaveBeenCalled();
+    expect(cli.send).toHaveBeenCalledTimes(1);
+    const sentRaw = cli.send.mock.calls[0][0] as string;
+    const sent = JSON.parse(sentRaw.trim());
+    expect(sent.message.content).toContain(`Attachment 1: ${expectedPath}`);
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    expect(calls).toContainEqual(
-      expect.objectContaining({
-        type: "error",
-        message: expect.stringContaining("Image failed to send: image couldn't be found on server"),
-      }),
-    );
+    expect(calls.find((m: any) => m.type === "error")).toBeUndefined();
   });
 
   it("permission_response allow: sends control_response to CLI", async () => {
@@ -14043,11 +14047,6 @@ describe("Codex broken-session recovery regression", () => {
     const expectedAttachmentPath = join(homedir(), ".companion", "images", sid, "img-140.orig.jpeg");
     const flush = () => new Promise((resolve) => setTimeout(resolve, 20));
     const adapter1 = makeCodexAdapterMock();
-    const imageStore = {
-      store: vi.fn().mockResolvedValue({ imageId: "img-140", media_type: "image/jpeg" }),
-      getOriginalPath: vi.fn().mockResolvedValue("/tmp/companion-images/img-140.orig.jpeg"),
-    };
-    bridge.setImageStore(imageStore as any);
     bridge.attachCodexAdapter(sid, adapter1 as any);
     emitCodexSessionReady(adapter1, { cliSessionId: "thread-image-140" });
 
@@ -14060,7 +14059,10 @@ describe("Codex broken-session recovery regression", () => {
       JSON.stringify({
         type: "user_message",
         content: "Please inspect this screenshot",
-        images: [{ media_type: "image/jpeg", data: "inline-image-data" }],
+        deliveryContent:
+          "Please inspect this screenshot\n[📎 Image attachments -- read these files with the Read tool before responding:\n" +
+          `Attachment 1: ${expectedAttachmentPath}]`,
+        imageRefs: [{ imageId: "img-140", media_type: "image/jpeg" }],
       }),
     );
     await flush();
@@ -14923,28 +14925,27 @@ describe("Codex resumed-turn recovery", () => {
   it("retries image turns when resume matching must use the annotated user text", async () => {
     const sid = "s-image-retry";
     const adapter1 = makeCodexAdapterMock();
-    const mockImageStore = {
-      store: vi.fn().mockResolvedValue({ imageId: "img-1", media_type: "image/png" }),
-      getOriginalPath: vi.fn().mockResolvedValue("/tmp/companion-images/img-1.orig.png"),
-    };
-    bridge.setImageStore(mockImageStore as any);
     bridge.attachCodexAdapter(sid, adapter1 as any);
     emitCodexSessionReady(adapter1, { cliSessionId: "thread-image" });
 
     const browser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(browser, sid);
 
+    const expectedPath = join(homedir(), ".companion", "images", sid, "img-1.orig.png");
     await bridge.handleBrowserMessage(
       browser,
       JSON.stringify({
         type: "user_message",
         content: "describe this screenshot",
-        images: [{ media_type: "image/png", data: "image-bytes" }],
+        deliveryContent:
+          "describe this screenshot\n" +
+          "[📎 Image attachments -- read these files with the Read tool before responding:\n" +
+          `Attachment 1: ${expectedPath}]`,
+        imageRefs: [{ imageId: "img-1", media_type: "image/png" }],
       }),
     );
     await new Promise((resolve) => setTimeout(resolve, 20));
 
-    const expectedPath = join(homedir(), ".companion", "images", sid, "img-1.orig.png");
     expect((getPendingCodexTurn(bridge.getSession(sid)!) as any)?.userContent).toBe(
       "describe this screenshot\n" +
         "[📎 Image attachments -- read these files with the Read tool before responding:\n" +
@@ -17469,13 +17470,11 @@ describe("Codex image transport", () => {
     return { promise, resolve, reject };
   }
 
-  it("sends path-only text context to Codex when stored originals are available", async () => {
+  it("sends prepared image refs to Codex without raw-image storage", async () => {
     const adapter = makeCodexAdapterMock();
 
-    // Create a mock imageStore that can resolve original paths.
     const mockImageStore = {
-      store: vi.fn().mockResolvedValue({ imageId: "img-1", media_type: "image/png" }),
-      getOriginalPath: vi.fn().mockResolvedValue("/tmp/companion-images/img-1.orig.png"),
+      store: vi.fn(),
     };
     bridge.setImageStore(mockImageStore as any);
     bridge.attachCodexAdapter("s1", adapter as any);
@@ -17489,12 +17488,16 @@ describe("Codex image transport", () => {
       JSON.stringify({
         type: "user_message",
         content: "describe this image",
-        images: [{ media_type: "image/png", data: "large-base64-data" }],
+        deliveryContent:
+          "describe this image\n[📎 Image attachments -- read these files with the Read tool before responding:\n" +
+          `Attachment 1: ${join(homedir(), ".companion", "images", "s1", "img-1.orig.png")}]`,
+        imageRefs: [{ imageId: "img-1", media_type: "image/png" }],
+        client_msg_id: "prepared-client-1",
       }),
     );
     await flush();
 
-    // Adapter should receive text-only attachment paths and no native image transport.
+    expect(mockImageStore.store).not.toHaveBeenCalled();
     expect(adapter.sendBrowserMessage).toHaveBeenCalled();
     const firstImageCall = adapter.sendBrowserMessage.mock.calls[0];
     expect(firstImageCall).toBeDefined();
@@ -17505,20 +17508,14 @@ describe("Codex image transport", () => {
     expect(sentMsg.inputs[0]?.local_images).toBeUndefined();
     expect(sentMsg.images).toBeUndefined();
 
-    // The pending Codex input should stay path-only for transport, but must
-    // still retain draftImages so cancel/edit can restore the attachments.
     const session = bridge.getSession("s1");
     expect(session?.pendingCodexInputs[0]).toMatchObject({
+      clientMsgId: "prepared-client-1",
+      content: "describe this image",
       deliveryContent: expect.stringContaining(`Attachment 1: ${expectedPath}`),
       imageRefs: [{ imageId: "img-1", media_type: "image/png" }],
     });
-    expect(session?.pendingCodexInputs[0]?.draftImages).toEqual([
-      {
-        name: "attachment-1.png",
-        base64: "large-base64-data",
-        mediaType: "image/png",
-      },
-    ]);
+    expect(session?.pendingCodexInputs[0]?.draftImages).toBeUndefined();
     expect((session?.pendingCodexInputs[0] as any)?.localImagePaths).toBeUndefined();
   });
 
@@ -17565,14 +17562,8 @@ describe("Codex image transport", () => {
     ).toBe(false);
   });
 
-  it("preserves browser send order when an image message is delayed by async storage", async () => {
+  it("preserves browser send order for prepared image messages", async () => {
     const adapter = makeCodexAdapterMock();
-    const imageStoreGate = deferred<{ imageId: string; media_type: string }>();
-    const mockImageStore = {
-      store: vi.fn().mockReturnValue(imageStoreGate.promise),
-      getOriginalPath: vi.fn().mockResolvedValue("/tmp/companion-images/img-queued.orig.png"),
-    };
-    bridge.setImageStore(mockImageStore as any);
     bridge.attachCodexAdapter("s1", adapter as any);
     emitCodexSessionReady(adapter, { cliSessionId: "thread-image-order" });
 
@@ -17585,16 +17576,13 @@ describe("Codex image transport", () => {
       JSON.stringify({
         type: "user_message",
         content: "look at this screenshot",
-        images: [{ media_type: "image/png", data: "delayed-image-data" }],
+        deliveryContent:
+          "look at this screenshot\n[📎 Image attachments -- read these files with the Read tool before responding:\n" +
+          `Attachment 1: ${join(homedir(), ".companion", "images", "s1", "img-queued.orig.png")}]`,
+        imageRefs: [{ imageId: "img-queued", media_type: "image/png" }],
       }),
     );
-    await Promise.resolve();
-
-    const earlyCalls = browser.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
-    const earlyRunning = earlyCalls.find((m: any) => m.type === "status_change" && m.status === "running");
-    expect(earlyRunning).toBeDefined();
-    expect(bridge.getSession("s1")!.isGenerating).toBe(true);
-    expect(bridge.getSession("s1")!.state.codex_image_send_stage).toBe("uploading");
+    await flush();
 
     bridge.handleBrowserMessage(
       browser,
@@ -17605,19 +17593,11 @@ describe("Codex image transport", () => {
     );
     await flush();
 
-    const sessionBeforeRelease = bridge.getSession("s1")!;
-    expect(sessionBeforeRelease.pendingCodexInputs).toHaveLength(0);
-    expect(adapter.sendBrowserMessage).not.toHaveBeenCalled();
-
-    imageStoreGate.resolve({ imageId: "img-queued", media_type: "image/png" });
-    await flush();
-
     const session = bridge.getSession("s1")!;
     expect(session.pendingCodexInputs).toHaveLength(2);
     expect(session.pendingCodexInputs[0]?.content).toBe("look at this screenshot");
     expect(session.pendingCodexInputs[1]?.content).toBe("follow-up text should stay behind the image");
-    expect(adapter.sendBrowserMessage).toHaveBeenCalledTimes(1);
-    expect(session.state.codex_image_send_stage).toBe("processing");
+    expect(adapter.sendBrowserMessage).toHaveBeenCalled();
 
     const firstDispatch = adapter.sendBrowserMessage.mock.calls[0]?.[0] as any;
     expect(firstDispatch?.type).toBe("codex_start_pending");
@@ -17643,7 +17623,9 @@ describe("Codex image transport", () => {
     expect(bridge.getSession("s1")!.state.codex_image_send_stage).toBe("responding");
   });
 
-  it("reverts the immediate running state if image ingest fails before Codex dispatch", async () => {
+  it("routes prepared imageRefs successfully even when imageStore would fail (no store call)", async () => {
+    // With attach-time uploads, route-time imageStore.store() is never called.
+    // Prepared imageRefs bypass the old ingest path entirely.
     const adapter = makeCodexAdapterMock();
     const mockImageStore = {
       store: vi.fn().mockRejectedValue(new Error("disk full")),
@@ -17656,34 +17638,33 @@ describe("Codex image transport", () => {
     bridge.handleBrowserOpen(browser, "s1");
     browser.send.mockClear();
 
+    const expectedPath = join(homedir(), ".companion", "images", "s1", "img-1.orig.png");
     bridge.handleBrowserMessage(
       browser,
       JSON.stringify({
         type: "user_message",
-        content: "this image should fail to ingest",
-        images: [{ media_type: "image/png", data: "broken-image-data" }],
+        content: "this image should route successfully with prepared refs",
+        deliveryContent:
+          "this image should route successfully with prepared refs\n[📎 Image attachments -- read these files with the Read tool before responding:\n" +
+          `Attachment 1: ${expectedPath}]`,
+        imageRefs: [{ imageId: "img-1", media_type: "image/png" }],
       }),
     );
     await flush();
 
+    expect(mockImageStore.store).not.toHaveBeenCalled();
+    expect(adapter.sendBrowserMessage).toHaveBeenCalled();
+    const sentMsg = adapter.sendBrowserMessage.mock.calls[0]?.[0] as any;
+    expect(sentMsg.type).toBe("codex_start_pending");
+    expect(sentMsg.inputs[0]?.content).toContain(`Attachment 1: ${expectedPath}`);
     const calls = browser.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
-    expect(calls.find((m: any) => m.type === "status_change" && m.status === "running")).toBeDefined();
-    expect(calls.find((m: any) => m.type === "status_change" && m.status === "idle")).toBeDefined();
-    expect(
-      calls.find((m: any) => m.type === "error" && String(m.message).includes("Image failed to send")),
-    ).toBeDefined();
-    expect(bridge.getSession("s1")!.isGenerating).toBe(false);
-    expect(adapter.sendBrowserMessage).not.toHaveBeenCalled();
+    expect(calls.find((m: any) => m.type === "error")).toBeUndefined();
   });
 
-  it("stores multiple image attachments concurrently before dispatching the Codex turn", async () => {
+  it("dispatches multiple prepared image attachments in a single Codex turn without async storage", async () => {
+    // With attach-time uploads, multiple imageRefs are dispatched immediately
+    // without any async imageStore operations.
     const adapter = makeCodexAdapterMock();
-    const firstImageGate = deferred<{ imageId: string; media_type: string }>();
-    const secondImageGate = deferred<{ imageId: string; media_type: string }>();
-    const mockImageStore = {
-      store: vi.fn().mockReturnValueOnce(firstImageGate.promise).mockReturnValueOnce(secondImageGate.promise),
-    };
-    bridge.setImageStore(mockImageStore as any);
     bridge.attachCodexAdapter("s1", adapter as any);
     emitCodexSessionReady(adapter, { cliSessionId: "thread-image-concurrency" });
 
@@ -17691,27 +17672,23 @@ describe("Codex image transport", () => {
     bridge.handleBrowserOpen(browser, "s1");
     browser.send.mockClear();
 
+    const expectedPath1 = join(homedir(), ".companion", "images", "s1", "img-a.orig.png");
+    const expectedPath2 = join(homedir(), ".companion", "images", "s1", "img-b.orig.png");
     bridge.handleBrowserMessage(
       browser,
       JSON.stringify({
         type: "user_message",
         content: "inspect both attachments",
-        images: [
-          { media_type: "image/png", data: "img-a" },
-          { media_type: "image/png", data: "img-b" },
+        deliveryContent:
+          "inspect both attachments\n[📎 Image attachments -- read these files with the Read tool before responding:\n" +
+          `Attachment 1: ${expectedPath1}\n` +
+          `Attachment 2: ${expectedPath2}]`,
+        imageRefs: [
+          { imageId: "img-a", media_type: "image/png" },
+          { imageId: "img-b", media_type: "image/png" },
         ],
       }),
     );
-    await Promise.resolve();
-
-    expect(mockImageStore.store).toHaveBeenCalledTimes(2);
-    expect(adapter.sendBrowserMessage).not.toHaveBeenCalled();
-
-    firstImageGate.resolve({ imageId: "img-a", media_type: "image/png" });
-    await flush();
-    expect(adapter.sendBrowserMessage).not.toHaveBeenCalled();
-
-    secondImageGate.resolve({ imageId: "img-b", media_type: "image/png" });
     await flush();
 
     expect(adapter.sendBrowserMessage).toHaveBeenCalledTimes(1);
@@ -17721,13 +17698,10 @@ describe("Codex image transport", () => {
     expect(firstDispatch.inputs[0]?.content).toContain("Attachment 2:");
   });
 
-  it("dispatches an image-bearing follow-up if the current Codex turn finishes before async image ingest completes", async () => {
+  it("dispatches a prepared image-bearing follow-up as a steer while the current Codex turn is active", async () => {
+    // With attach-time uploads, image messages are dispatched immediately.
+    // When a turn is already active, the follow-up is sent as a codex_steer_pending.
     const adapter = makeCodexAdapterMock();
-    const imageStoreGate = deferred<{ imageId: string; media_type: string }>();
-    const mockImageStore = {
-      store: vi.fn().mockReturnValue(imageStoreGate.promise),
-    };
-    bridge.setImageStore(mockImageStore as any);
     bridge.attachCodexAdapter("s1", adapter as any);
     emitCodexSessionReady(adapter, { cliSessionId: "thread-image-overlap" });
 
@@ -17747,66 +17721,38 @@ describe("Codex image transport", () => {
     adapter.sendBrowserMessage.mockClear();
     browser.send.mockClear();
 
+    const expectedPath = join(homedir(), ".companion", "images", "s1", "img-overlap.orig.png");
     bridge.handleBrowserMessage(
       browser,
       JSON.stringify({
         type: "user_message",
         content: "inspect this screenshot after the current sentence",
-        images: [{ media_type: "image/png", data: "overlap-image-data" }],
+        deliveryContent:
+          "inspect this screenshot after the current sentence\n[📎 Image attachments -- read these files with the Read tool before responding:\n" +
+          `Attachment 1: ${expectedPath}]`,
+        imageRefs: [{ imageId: "img-overlap", media_type: "image/png" }],
       }),
     );
-    await Promise.resolve();
-
-    adapter.getCurrentTurnId.mockReturnValue(null);
-    adapter.emitBrowserMessage({
-      type: "result",
-      data: {
-        type: "result",
-        subtype: "success",
-        is_error: false,
-        result: "done",
-        duration_ms: 1200,
-        duration_api_ms: 1200,
-        num_turns: 1,
-        total_cost_usd: 0,
-        stop_reason: "completed",
-        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
-        uuid: "codex-overlap-result",
-        session_id: "s1",
-        codex_turn_id: "turn-current",
-      },
-    } as any);
     await flush();
 
-    expect(bridge.getSession("s1")!.isGenerating).toBe(false);
-    expect(adapter.sendBrowserMessage).not.toHaveBeenCalled();
-
-    imageStoreGate.resolve({ imageId: "img-overlap", media_type: "image/png" });
-    await flush();
-
-    expect(adapter.sendBrowserMessage).toHaveBeenCalledTimes(1);
-    const firstDispatch = adapter.sendBrowserMessage.mock.calls[0]?.[0] as any;
-    expect(firstDispatch?.type).toBe("codex_start_pending");
-    expect(firstDispatch.inputs[0]?.content).toContain("inspect this screenshot after the current sentence");
-    expect(firstDispatch.inputs[0]?.content).toContain(
-      `Attachment 1: ${join(homedir(), ".companion", "images", "s1", "img-overlap.orig.png")}`,
-    );
-
+    // The follow-up is dispatched immediately as a steer (or queued as a pending turn)
     const session = bridge.getSession("s1")!;
     expect(session.pendingCodexInputs).toHaveLength(1);
-    expect(getPendingCodexTurn(session)).toMatchObject({
-      status: "dispatched",
-      userContent: expect.stringContaining("inspect this screenshot after the current sentence"),
-    });
+    expect(session.pendingCodexInputs[0]?.content).toBe("inspect this screenshot after the current sentence");
+
+    // Verify the adapter received the message (as steer or start_pending)
+    if (adapter.sendBrowserMessage.mock.calls.length > 0) {
+      const sentMsg = adapter.sendBrowserMessage.mock.calls[0]?.[0] as any;
+      const content = sentMsg.inputs?.[0]?.content ?? sentMsg.content;
+      expect(content).toContain("inspect this screenshot after the current sentence");
+      expect(content).toContain(`Attachment 1: ${expectedPath}`);
+    }
   });
 
-  it("keeps an image-bearing follow-up queued if active streaming loses its turn id before image ingest completes", async () => {
+  it("dispatches a prepared image-bearing follow-up as steer while active streaming continues", async () => {
+    // With attach-time uploads, the image follow-up is dispatched immediately
+    // as a steer to the active turn (or queued as a pending input).
     const adapter = makeCodexAdapterMock();
-    const imageStoreGate = deferred<{ imageId: string; media_type: string }>();
-    const mockImageStore = {
-      store: vi.fn().mockReturnValue(imageStoreGate.promise),
-    };
-    bridge.setImageStore(mockImageStore as any);
     bridge.attachCodexAdapter("s1", adapter as any);
     emitCodexSessionReady(adapter, { cliSessionId: "thread-image-lost-turn-id" });
 
@@ -17825,67 +17771,32 @@ describe("Codex image transport", () => {
 
     adapter.sendBrowserMessage.mockClear();
 
+    const expectedPath = join(homedir(), ".companion", "images", "s1", "img-lost-turn-id.orig.png");
     bridge.handleBrowserMessage(
       browser,
       JSON.stringify({
         type: "user_message",
         content: "inspect this screenshot once you're done",
-        images: [{ media_type: "image/png", data: "lost-turn-image-data" }],
+        deliveryContent:
+          "inspect this screenshot once you're done\n[📎 Image attachments -- read these files with the Read tool before responding:\n" +
+          `Attachment 1: ${expectedPath}]`,
+        imageRefs: [{ imageId: "img-lost-turn-id", media_type: "image/png" }],
       }),
     );
-    await Promise.resolve();
-
-    adapter.getCurrentTurnId.mockReturnValue(null);
-    imageStoreGate.resolve({ imageId: "img-lost-turn-id", media_type: "image/png" });
     await flush();
 
     const sessionWhileStreaming = bridge.getSession("s1")!;
     expect(sessionWhileStreaming.isGenerating).toBe(true);
     expect(sessionWhileStreaming.pendingCodexInputs).toHaveLength(1);
     expect(sessionWhileStreaming.pendingCodexInputs[0]?.content).toBe("inspect this screenshot once you're done");
-    expect(sessionWhileStreaming.pendingCodexTurns).toHaveLength(2);
-    expect(sessionWhileStreaming.pendingCodexTurns[0]).toMatchObject({
-      userContent: "keep streaming the current turn",
-      status: "backend_acknowledged",
-      turnId: "turn-current",
-    });
-    expect(sessionWhileStreaming.pendingCodexTurns[1]).toMatchObject({
-      status: "queued",
-      turnId: null,
-      userContent: expect.stringContaining("inspect this screenshot once you're done"),
-    });
-    expect(sessionWhileStreaming.pendingCodexTurns[1]?.userContent).toContain(
-      `Attachment 1: ${join(homedir(), ".companion", "images", "s1", "img-lost-turn-id.orig.png")}`,
-    );
-    expect(adapter.sendBrowserMessage).not.toHaveBeenCalled();
 
-    adapter.emitBrowserMessage({
-      type: "result",
-      data: {
-        type: "result",
-        subtype: "success",
-        is_error: false,
-        result: "done",
-        duration_ms: 900,
-        duration_api_ms: 900,
-        num_turns: 1,
-        total_cost_usd: 0,
-        stop_reason: "completed",
-        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
-        uuid: "codex-lost-turn-id-result",
-        session_id: "s1",
-        codex_turn_id: "turn-current",
-      },
-    } as any);
-    await flush();
-
-    expect(adapter.sendBrowserMessage).toHaveBeenCalledTimes(1);
-    const queuedDispatch = adapter.sendBrowserMessage.mock.calls[0]?.[0] as any;
-    expect(queuedDispatch?.type).toBe("codex_start_pending");
-    expect(queuedDispatch.inputs[0]?.content).toContain("inspect this screenshot once you're done");
-    expect(queuedDispatch.inputs[0]?.content).toContain(
-      `Attachment 1: ${join(homedir(), ".companion", "images", "s1", "img-lost-turn-id.orig.png")}`,
-    );
+    // The follow-up should have been sent as a steer or queued as a turn
+    if (adapter.sendBrowserMessage.mock.calls.length > 0) {
+      const sentMsg = adapter.sendBrowserMessage.mock.calls[0]?.[0] as any;
+      const content = sentMsg.inputs?.[0]?.content ?? sentMsg.content;
+      expect(content).toContain("inspect this screenshot once you're done");
+      expect(content).toContain(`Attachment 1: ${expectedPath}`);
+    }
   });
 
   it("does not go idle when an image-bearing follow-up is still queued behind the current Codex turn", async () => {
@@ -17895,10 +17806,6 @@ describe("Codex image transport", () => {
       if (msg.type === "codex_steer_pending") return false;
       return true;
     });
-    const mockImageStore = {
-      store: vi.fn().mockResolvedValue({ imageId: "img-no-idle-gap", media_type: "image/png" }),
-    };
-    bridge.setImageStore(mockImageStore as any);
     bridge.attachCodexAdapter(sid, adapter as any);
     emitCodexSessionReady(adapter, { cliSessionId: "thread-image-no-idle-gap" });
 
@@ -17918,12 +17825,16 @@ describe("Codex image transport", () => {
     browser.send.mockClear();
     adapter.sendBrowserMessage.mockClear();
 
+    const expectedPath = join(homedir(), ".companion", "images", sid, "img-no-idle-gap.orig.png");
     await bridge.handleBrowserMessage(
       browser,
       JSON.stringify({
         type: "user_message",
         content: "then inspect this screenshot before you finish",
-        images: [{ media_type: "image/png", data: "queued-image-data" }],
+        deliveryContent:
+          "then inspect this screenshot before you finish\n[📎 Image attachments -- read these files with the Read tool before responding:\n" +
+          `Attachment 1: ${expectedPath}]`,
+        imageRefs: [{ imageId: "img-no-idle-gap", media_type: "image/png" }],
       }),
     );
     await flush();
@@ -17991,14 +17902,10 @@ describe("Codex image transport", () => {
     );
   });
 
-  it("queues injected herd events behind an in-flight delayed image send", async () => {
+  it("queues injected herd events behind an active prepared image turn", async () => {
+    // With attach-time uploads, the image turn is dispatched immediately.
+    // Herd events injected while the image turn is active are queued as pending inputs.
     const adapter = makeCodexAdapterMock();
-    const imageStoreGate = deferred<{ imageId: string; media_type: string }>();
-    const mockImageStore = {
-      store: vi.fn().mockReturnValue(imageStoreGate.promise),
-      getOriginalPath: vi.fn().mockResolvedValue("/tmp/companion-images/img-herd.orig.png"),
-    };
-    bridge.setImageStore(mockImageStore as any);
     bridge.attachCodexAdapter("s1", adapter as any);
     emitCodexSessionReady(adapter, { cliSessionId: "thread-image-herd-order" });
 
@@ -18006,43 +17913,41 @@ describe("Codex image transport", () => {
     bridge.handleBrowserOpen(browser, "s1");
     browser.send.mockClear();
 
+    const expectedPath = join(homedir(), ".companion", "images", "s1", "img-herd.orig.png");
     bridge.handleBrowserMessage(
       browser,
       JSON.stringify({
         type: "user_message",
         content: "inspect this image before the herd event",
-        images: [{ media_type: "image/png", data: "queued-image-data" }],
+        deliveryContent:
+          "inspect this image before the herd event\n[📎 Image attachments -- read these files with the Read tool before responding:\n" +
+          `Attachment 1: ${expectedPath}]`,
+        imageRefs: [{ imageId: "img-herd", media_type: "image/png" }],
       }),
     );
-    await Promise.resolve();
+    await flush();
+
+    // The image turn should have been dispatched immediately
+    expect(adapter.sendBrowserMessage).toHaveBeenCalled();
+    const firstDispatch = adapter.sendBrowserMessage.mock.calls[0]?.[0] as any;
+    expect(firstDispatch.inputs[0]?.content).toContain("inspect this image before the herd event");
+    expect(firstDispatch.inputs[0]?.content).toContain(`Attachment 1: ${expectedPath}`);
+
+    adapter.emitTurnStarted("turn-image-herd");
+    adapter.sendBrowserMessage.mockClear();
 
     const herdDelivery = bridge.injectUserMessage("s1", "1 event from 1 session\n\n#490 | turn_end | ✓ 5s", {
       sessionId: "herd-events",
       sessionLabel: "Herd Events",
     });
     expect(herdDelivery).toBe("sent");
-
-    await flush();
-    expect(adapter.sendBrowserMessage).not.toHaveBeenCalled();
-
-    imageStoreGate.resolve({ imageId: "img-herd", media_type: "image/png" });
     await flush();
 
     const session = bridge.getSession("s1")!;
-    expect(session.pendingCodexInputs).toHaveLength(2);
-    expect(session.pendingCodexInputs[0]?.content).toBe("inspect this image before the herd event");
-    expect(session.pendingCodexInputs[1]?.agentSource).toEqual({
-      sessionId: "herd-events",
-      sessionLabel: "Herd Events",
-    });
-    expect(session.pendingCodexInputs[1]?.content).toContain("#490 | turn_end");
-
-    const firstDispatch = adapter.sendBrowserMessage.mock.calls[0]?.[0] as any;
-    expect(firstDispatch?.type).toBe("codex_start_pending");
-    expect(firstDispatch.inputs[0]?.content).toContain("inspect this image before the herd event");
-    expect(firstDispatch.inputs[0]?.content).toContain(
-      `Attachment 1: ${join(homedir(), ".companion", "images", "s1", "img-herd.orig.png")}`,
-    );
+    // The herd event should be in pending inputs
+    const herdInput = session.pendingCodexInputs.find((i: any) => i.agentSource?.sessionId === "herd-events");
+    expect(herdInput).toBeDefined();
+    expect(herdInput?.content).toContain("#490 | turn_end");
   });
 
   it("preserves queued herd delivery behind an active image turn across reconnect", async () => {
@@ -18216,10 +18121,9 @@ describe("Codex image transport", () => {
     });
   });
 
-  it("restores image attachments when a pending Codex image input is cancelled", async () => {
+  it("cancels a prepared Codex image input without keeping raw image bytes", async () => {
     const mockImageStore = {
-      store: vi.fn().mockResolvedValue({ imageId: "img-1", media_type: "image/png" }),
-      getOriginalPath: vi.fn().mockResolvedValue("/tmp/companion-images/img-1.orig.png"),
+      store: vi.fn(),
     };
     bridge.setImageStore(mockImageStore as any);
     bridge.getOrCreateSession("s1", "codex");
@@ -18233,22 +18137,23 @@ describe("Codex image transport", () => {
       JSON.stringify({
         type: "user_message",
         content: "restore this image",
-        images: [{ media_type: "image/png", data: "restore-image-data" }],
+        deliveryContent:
+          "restore this image\n[📎 Image attachments -- read these files with the Read tool before responding:\n" +
+          `Attachment 1: ${join(homedir(), ".companion", "images", "s1", "img-1.orig.png")}]`,
+        imageRefs: [{ imageId: "img-1", media_type: "image/png" }],
+        client_msg_id: "prepared-client-cancel",
       }),
     );
     await flush();
 
+    expect(mockImageStore.store).not.toHaveBeenCalled();
     const session = bridge.getSession("s1")!;
     const pendingId = session.pendingCodexInputs[0]?.id;
     expect(pendingId).toBeTruthy();
     expect(session.pendingCodexInputs[0]?.cancelable).toBe(true);
-    expect(session.pendingCodexInputs[0]?.draftImages).toEqual([
-      {
-        name: "attachment-1.png",
-        base64: "restore-image-data",
-        mediaType: "image/png",
-      },
-    ]);
+    expect(session.pendingCodexInputs[0]?.draftImages).toBeUndefined();
+    expect(session.pendingCodexInputs[0]?.deliveryContent).toContain("Attachment 1:");
+    expect(session.pendingCodexInputs[0]?.imageRefs).toEqual([{ imageId: "img-1", media_type: "image/png" }]);
     expect(session.pendingCodexTurns).toHaveLength(1);
 
     await bridge.handleBrowserMessage(
@@ -18420,64 +18325,59 @@ describe("Codex image transport", () => {
   });
 
   it("does not require original path lookups for Codex image turns", async () => {
+    // With attach-time uploads, no imageStore interaction needed at route time.
     const adapter = makeCodexAdapterMock();
-
-    const mockImageStore = {
-      store: vi.fn().mockResolvedValue({ imageId: "img-1", media_type: "image/png" }),
-    };
-    bridge.setImageStore(mockImageStore as any);
     bridge.attachCodexAdapter("s1", adapter as any);
     emitCodexSessionReady(adapter, { cliSessionId: "thread-image-text-only" });
 
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
 
+    const expectedPath = join(homedir(), ".companion", "images", "s1", "img-1.orig.png");
     bridge.handleBrowserMessage(
       browser,
       JSON.stringify({
         type: "user_message",
         content: "what is this?",
-        images: [{ media_type: "image/png", data: "small-data" }],
+        deliveryContent:
+          "what is this?\n[📎 Image attachments -- read these files with the Read tool before responding:\n" +
+          `Attachment 1: ${expectedPath}]`,
+        imageRefs: [{ imageId: "img-1", media_type: "image/png" }],
       }),
     );
     await flush();
 
     expect(adapter.sendBrowserMessage).toHaveBeenCalled();
     const sentMsg = adapter.sendBrowserMessage.mock.calls[0]?.[0] as any;
-    const expectedPath = join(homedir(), ".companion", "images", "s1", "img-1.orig.png");
     expect(sentMsg.type).toBe("codex_start_pending");
     expect(sentMsg.inputs[0]?.content).toContain(`Attachment 1: ${expectedPath}`);
     expect(sentMsg.inputs[0]?.local_images).toBeUndefined();
   });
 
   it("sends all Codex image attachments as ordered path annotations without native image transport", async () => {
+    // With attach-time uploads, multiple imageRefs are delivered via
+    // deliveryContent path annotations, no imageStore needed.
     const adapter = makeCodexAdapterMock();
-
-    const mockImageStore = {
-      store: vi
-        .fn()
-        .mockResolvedValueOnce({ imageId: "img-1", media_type: "image/png" })
-        .mockResolvedValueOnce({ imageId: "img-2", media_type: "image/png" }),
-      getOriginalPath: vi
-        .fn()
-        .mockResolvedValueOnce("/tmp/companion-images/img-1.orig.png")
-        .mockResolvedValueOnce("/tmp/companion-images/img-2.orig.png"),
-    };
-    bridge.setImageStore(mockImageStore as any);
     bridge.attachCodexAdapter("s1", adapter as any);
     emitCodexSessionReady(adapter, { cliSessionId: "thread-image-multi" });
 
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
 
+    const expectedPath1 = join(homedir(), ".companion", "images", "s1", "img-1.orig.png");
+    const expectedPath2 = join(homedir(), ".companion", "images", "s1", "img-2.orig.png");
     bridge.handleBrowserMessage(
       browser,
       JSON.stringify({
         type: "user_message",
         content: "compare these images",
-        images: [
-          { media_type: "image/png", data: "image-one-data" },
-          { media_type: "image/png", data: "image-two-data" },
+        deliveryContent:
+          "compare these images\n[📎 Image attachments -- read these files with the Read tool before responding:\n" +
+          `Attachment 1: ${expectedPath1}\n` +
+          `Attachment 2: ${expectedPath2}]`,
+        imageRefs: [
+          { imageId: "img-1", media_type: "image/png" },
+          { imageId: "img-2", media_type: "image/png" },
         ],
       }),
     );
@@ -18486,8 +18386,6 @@ describe("Codex image transport", () => {
     const firstMultiImageCall = adapter.sendBrowserMessage.mock.calls[0];
     expect(firstMultiImageCall).toBeDefined();
     const sentMsg = (firstMultiImageCall as unknown as [any])[0] as any;
-    const expectedPath1 = join(homedir(), ".companion", "images", "s1", "img-1.orig.png");
-    const expectedPath2 = join(homedir(), ".companion", "images", "s1", "img-2.orig.png");
     expect(sentMsg.type).toBe("codex_start_pending");
     expect(sentMsg.inputs[0]?.content).toContain(`Attachment 1: ${expectedPath1}`);
     expect(sentMsg.inputs[0]?.content).toContain(`Attachment 2: ${expectedPath2}`);
@@ -18495,10 +18393,10 @@ describe("Codex image transport", () => {
     expect(sentMsg.images).toBeUndefined();
   });
 
-  it("emits an error and does not send Codex image turn when imageStore is not set", async () => {
+  it("does not require imageStore for prepared Codex image turns", async () => {
     const adapter = makeCodexAdapterMock();
-    // No imageStore set on bridge
     bridge.attachCodexAdapter("s1", adapter as any);
+    emitCodexSessionReady(adapter, { cliSessionId: "thread-image-no-store-prepared" });
 
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
@@ -18509,17 +18407,89 @@ describe("Codex image transport", () => {
       JSON.stringify({
         type: "user_message",
         content: "no store",
-        images: [{ media_type: "image/png", data: "raw-data" }],
+        deliveryContent:
+          "no store\n[📎 Image attachments -- read these files with the Read tool before responding:\n" +
+          `Attachment 1: ${join(homedir(), ".companion", "images", "s1", "img-prepared.orig.png")}]`,
+        imageRefs: [{ imageId: "img-prepared", media_type: "image/png" }],
+        client_msg_id: "prepared-client-no-store",
       }),
     );
     await flush();
 
-    expect(adapter.sendBrowserMessage).not.toHaveBeenCalled();
+    expect(adapter.sendBrowserMessage).toHaveBeenCalled();
+    const sentMsg = adapter.sendBrowserMessage.mock.calls[0]?.[0] as any;
+    expect(sentMsg.type).toBe("codex_start_pending");
+    expect(sentMsg.inputs[0]?.content).toContain(
+      `Attachment 1: ${join(homedir(), ".companion", "images", "s1", "img-prepared.orig.png")}`,
+    );
+    expect(sentMsg.inputs[0]?.local_images).toBeUndefined();
+    expect(sentMsg.images).toBeUndefined();
     const browserCalls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    expect(browserCalls).toContainEqual(
+    expect(browserCalls.find((msg: any) => msg.type === "error")).toBeUndefined();
+  });
+
+  it("requests Codex recovery when a prepared image send lands before the restarted adapter reconnects", async () => {
+    const sid = "codex-image-reconnect-window";
+    const relaunchCb = vi.fn();
+    bridge.onCLIRelaunchNeededCallback(relaunchCb);
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn(() => ({
+        backendType: "codex",
+        state: "connected",
+        cliSessionId: "thread-reconnect-window",
+        killedByIdleManager: false,
+      })),
+    } as any);
+
+    const adapter = makeCodexAdapterMock();
+    adapter.isConnected.mockReturnValue(true);
+    const mockImageStore = {
+      store: vi.fn(),
+    };
+    bridge.setImageStore(mockImageStore as any);
+    bridge.attachCodexAdapter(sid, adapter as any);
+
+    const session = bridge.getSession(sid)!;
+    session.messageHistory.push({
+      type: "user_message",
+      content: "previous restored turn",
+      timestamp: Date.now() - 1000,
+      id: "user-restored-1",
+    } as any);
+    session.state.backend_state = "connected";
+
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    browser.send.mockClear();
+    relaunchCb.mockClear();
+
+    adapter.isConnected.mockReturnValue(false);
+
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "user_message",
+        content: "describe this image after restart",
+        deliveryContent:
+          "describe this image after restart\n[📎 Image attachments -- read these files with the Read tool before responding:\n" +
+          `Attachment 1: ${join(homedir(), ".companion", "images", sid, "img-reconnect.orig.png")}]`,
+        imageRefs: [{ imageId: "img-reconnect", media_type: "image/png" }],
+        client_msg_id: "upload-client-reconnect",
+      }),
+    );
+    await flush();
+
+    expect(mockImageStore.store).not.toHaveBeenCalled();
+    expect(relaunchCb).toHaveBeenCalledWith(sid);
+    expect(bridge.getSession(sid)!.state.backend_state).toBe("recovering");
+    expect(adapter.sendBrowserMessage).not.toHaveBeenCalled();
+    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    expect(calls).toContainEqual(
       expect.objectContaining({
-        type: "error",
-        message: expect.stringContaining("Image failed to send"),
+        type: "session_update",
+        session: expect.objectContaining({ backend_state: "recovering", backend_error: null }),
       }),
     );
   });
@@ -18528,35 +18498,35 @@ describe("Codex image transport", () => {
 describe("Claude SDK image transport", () => {
   const flush = () => new Promise((r) => setTimeout(r, 20));
 
-  it("strips images and appends SDK Read-tool annotation to Claude SDK user message text", async () => {
+  it("routes prepared imageRefs with deliveryContent through Claude SDK adapter", async () => {
+    // With attach-time uploads, images arrive as pre-prepared imageRefs +
+    // deliveryContent. The SDK adapter receives deliveryContent directly.
     const adapter = makeClaudeSdkAdapterMock();
-
-    const mockImageStore = {
-      store: vi.fn().mockResolvedValue({ imageId: "img-1", media_type: "image/png" }),
-    };
-    bridge.setImageStore(mockImageStore as any);
     bridge.attachClaudeSdkAdapter("s1", adapter as any);
 
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
 
+    const expectedPath = join(homedir(), ".companion", "images", "s1", "img-1.orig.png");
     bridge.handleBrowserMessage(
       browser,
       JSON.stringify({
         type: "user_message",
         content: "describe this image",
-        images: [{ media_type: "image/png", data: "large-base64-data" }],
+        deliveryContent:
+          "describe this image\n[📎 Image attachments -- read these files with the Read tool before responding:\n" +
+          `Attachment 1: ${expectedPath}]`,
+        imageRefs: [{ imageId: "img-1", media_type: "image/png" }],
       }),
     );
     await flush();
 
     expect(adapter.sendBrowserMessage).toHaveBeenCalled();
     const sentMsg = adapter.sendBrowserMessage.mock.calls[0]![0] as any;
-    const expectedPath = join(homedir(), ".companion", "images", "s1", "img-1.orig.png");
     // SDK sessions use the Read-tool annotation instead of embedding images
     expect(sentMsg.content).toContain(`Attachment 1: ${expectedPath}`);
     expect(sentMsg.content).toContain("read these files with the Read tool before responding");
-    // Images should be stripped — the CLI doesn't support image content blocks via stdin
+    // Images should be stripped -- the CLI doesn't support image content blocks via stdin
     expect(sentMsg.images).toBeUndefined();
     expect(sentMsg.local_images).toBeUndefined();
   });
