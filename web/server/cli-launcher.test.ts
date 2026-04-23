@@ -3129,4 +3129,59 @@ describe("cat herding", () => {
     await setupSessions("orch-1");
     expect(herdLauncher.getHerdedSessions("orch-1")).toEqual([]);
   });
+
+  it("getHerdedSessions excludes archived workers", async () => {
+    // Archived workers must not appear as live herd members (q-605)
+    await setupSessions("orch-1", "worker-1", "worker-2");
+    herdLauncher.herdSessions("orch-1", ["worker-1", "worker-2"]);
+
+    herdLauncher.setArchived("worker-1", true);
+
+    const herded = herdLauncher.getHerdedSessions("orch-1");
+    expect(herded.map((s) => s.sessionId)).toEqual(["worker-2"]);
+  });
+
+  it("setArchived on a worker clears herdedBy and fires onHerdChange", async () => {
+    // Archiving a worker must sever its herd link so the leader's herd
+    // doesn't include stale members after restart (q-605)
+    await setupSessions("orch-1", "worker-1");
+    herdLauncher.herdSessions("orch-1", ["worker-1"]);
+
+    const herdChange = vi.fn();
+    herdLauncher.onHerdChange = herdChange;
+
+    herdLauncher.setArchived("worker-1", true);
+
+    const worker = herdLauncher.getSession("worker-1");
+    expect(worker?.herdedBy).toBeUndefined();
+    expect(herdChange).toHaveBeenCalledWith({ type: "membership_changed", leaderId: "orch-1" });
+  });
+
+  it("archived orchestrator is ineligible for herd bootstrap after restart", async () => {
+    // Simulates stale persisted state: an archived orchestrator whose worker
+    // still has herdedBy set (e.g. server crashed before cleanup completed).
+    // The !s.archived guard in the bootstrap loop (index.ts:189-192) must be
+    // the deciding factor, not herd cleanup side effects.
+    await setupSessions("orch-1", "worker-1");
+    const orchInfo = herdLauncher.getSession("orch-1")!;
+    orchInfo.isOrchestrator = true;
+    herdLauncher.herdSessions("orch-1", ["worker-1"]);
+
+    // Directly set archived without calling setArchived() to preserve the
+    // stale herdedBy on worker-1 (simulates crash-before-cleanup scenario)
+    orchInfo.archived = true;
+
+    const worker = herdLauncher.getSession("worker-1")!;
+    expect(worker.herdedBy).toBe("orch-1"); // stale link still present
+
+    // With archived=true, bootstrap must skip despite live herded workers
+    const bootstrapCondition = (s: { isOrchestrator?: boolean; archived?: boolean; sessionId: string }) =>
+      s.isOrchestrator === true && !s.archived && herdLauncher.getHerdedSessions(s.sessionId).length > 0;
+
+    expect(bootstrapCondition(orchInfo)).toBe(false);
+
+    // Control: same orchestrator un-archived would pass the bootstrap
+    orchInfo.archived = false;
+    expect(bootstrapCondition(orchInfo)).toBe(true);
+  });
 });

@@ -1600,6 +1600,12 @@ export class CliLauncher {
         }
         this.onHerdChange?.({ type: "membership_changed", leaderId: sessionId });
       }
+      // Clean up herd relationship when a worker is archived
+      if (archived && info.herdedBy) {
+        const leaderId = info.herdedBy;
+        info.herdedBy = undefined;
+        this.onHerdChange?.({ type: "membership_changed", leaderId });
+      }
       this.persistState();
     }
   }
@@ -1721,7 +1727,7 @@ export class CliLauncher {
   getHerdedSessions(orchId: string): SdkSessionInfo[] {
     const result: SdkSessionInfo[] = [];
     for (const s of this.sessions.values()) {
-      if (s.herdedBy === orchId) result.push(s);
+      if (s.herdedBy === orchId && !s.archived) result.push(s);
     }
     return result;
   }
