@@ -4,9 +4,6 @@ import type { SessionState } from "../../types.js";
 import {
   MOCK_SESSION_ID,
   PLAYGROUND_BROKEN_SESSION_ID,
-  PLAYGROUND_CODEX_IMAGE_PROCESSING_SESSION_ID,
-  PLAYGROUND_CODEX_IMAGE_RESPONDING_SESSION_ID,
-  PLAYGROUND_CODEX_IMAGE_UPLOADING_SESSION_ID,
   PLAYGROUND_CODEX_PENDING_SESSION_ID,
   PLAYGROUND_CODEX_TERMINAL_SESSION_ID,
   PLAYGROUND_LOADING_SESSION_ID,
@@ -37,9 +34,6 @@ export function usePlaygroundSeed() {
       PLAYGROUND_LOADING_SESSION_ID,
       PLAYGROUND_CODEX_TERMINAL_SESSION_ID,
       PLAYGROUND_CODEX_PENDING_SESSION_ID,
-      PLAYGROUND_CODEX_IMAGE_UPLOADING_SESSION_ID,
-      PLAYGROUND_CODEX_IMAGE_PROCESSING_SESSION_ID,
-      PLAYGROUND_CODEX_IMAGE_RESPONDING_SESSION_ID,
       PLAYGROUND_STARTING_SESSION_ID,
       PLAYGROUND_RESUMING_SESSION_ID,
       PLAYGROUND_BROKEN_SESSION_ID,
@@ -290,94 +284,6 @@ export function usePlaygroundSeed() {
         draftImages: [],
       },
     ]);
-
-    store.addSession({
-      ...session,
-      session_id: PLAYGROUND_CODEX_IMAGE_UPLOADING_SESSION_ID,
-      backend_type: "codex",
-      backend_state: "connected",
-      backend_error: null,
-      model: "gpt-5.4",
-      num_turns: 5,
-      context_used_percent: 41,
-      codex_image_send_stage: "uploading",
-    });
-    store.setConnectionStatus(PLAYGROUND_CODEX_IMAGE_UPLOADING_SESSION_ID, "connected");
-    store.setCliConnected(PLAYGROUND_CODEX_IMAGE_UPLOADING_SESSION_ID, true);
-    store.setSessionStatus(PLAYGROUND_CODEX_IMAGE_UPLOADING_SESSION_ID, "running");
-    store.setMessages(PLAYGROUND_CODEX_IMAGE_UPLOADING_SESSION_ID, [
-      makePlaygroundMessage({
-        id: "playground-codex-image-uploading-user",
-        role: "user",
-        content: "Compare the attached screenshot with the current dashboard state.",
-      }),
-    ]);
-
-    store.addSession({
-      ...session,
-      session_id: PLAYGROUND_CODEX_IMAGE_PROCESSING_SESSION_ID,
-      backend_type: "codex",
-      backend_state: "connected",
-      backend_error: null,
-      model: "gpt-5.4",
-      num_turns: 5,
-      context_used_percent: 42,
-      codex_image_send_stage: "processing",
-    });
-    store.setConnectionStatus(PLAYGROUND_CODEX_IMAGE_PROCESSING_SESSION_ID, "connected");
-    store.setCliConnected(PLAYGROUND_CODEX_IMAGE_PROCESSING_SESSION_ID, true);
-    store.setSessionStatus(PLAYGROUND_CODEX_IMAGE_PROCESSING_SESSION_ID, "running");
-    store.setMessages(PLAYGROUND_CODEX_IMAGE_PROCESSING_SESSION_ID, [
-      makePlaygroundMessage({
-        id: "playground-codex-image-processing-user",
-        role: "user",
-        content: "Check the attached mobile screenshot for layout regressions.",
-      }),
-      makePlaygroundMessage({
-        id: "playground-codex-image-processing-assistant",
-        role: "assistant",
-        content: "Preparing the image-backed request now.",
-      }),
-    ]);
-    store.setPendingCodexInputs(PLAYGROUND_CODEX_IMAGE_PROCESSING_SESSION_ID, [
-      {
-        id: "playground-codex-image-processing-pending",
-        content: "Inspect the attached screenshot for the collapsed toolbar bug.",
-        timestamp: Date.now(),
-        cancelable: false,
-        draftImages: [],
-      },
-    ]);
-
-    store.addSession({
-      ...session,
-      session_id: PLAYGROUND_CODEX_IMAGE_RESPONDING_SESSION_ID,
-      backend_type: "codex",
-      backend_state: "connected",
-      backend_error: null,
-      model: "gpt-5.4",
-      num_turns: 6,
-      context_used_percent: 44,
-      codex_image_send_stage: "responding",
-    });
-    store.setConnectionStatus(PLAYGROUND_CODEX_IMAGE_RESPONDING_SESSION_ID, "connected");
-    store.setCliConnected(PLAYGROUND_CODEX_IMAGE_RESPONDING_SESSION_ID, true);
-    store.setSessionStatus(PLAYGROUND_CODEX_IMAGE_RESPONDING_SESSION_ID, "running");
-    store.setMessages(PLAYGROUND_CODEX_IMAGE_RESPONDING_SESSION_ID, [
-      makePlaygroundMessage({
-        id: "playground-codex-image-responding-user",
-        role: "user",
-        content: "Look at the attached error dialog screenshot and explain what failed.",
-      }),
-    ]);
-    store.setStreaming(
-      PLAYGROUND_CODEX_IMAGE_RESPONDING_SESSION_ID,
-      "The screenshot shows the request failing after auth refresh.",
-    );
-    store.setStreamingStats(PLAYGROUND_CODEX_IMAGE_RESPONDING_SESSION_ID, {
-      startedAt: Date.now() - 6_000,
-      outputTokens: 184,
-    });
 
     // Mock tool results for ToolResultSection demo
     store.setToolResult(sessionId, "tu-1", {

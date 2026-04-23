@@ -68,9 +68,6 @@ import {
   PERM_READ,
   PERM_WRITE,
   PLAYGROUND_BROKEN_SESSION_ID,
-  PLAYGROUND_CODEX_IMAGE_PROCESSING_SESSION_ID,
-  PLAYGROUND_CODEX_IMAGE_RESPONDING_SESSION_ID,
-  PLAYGROUND_CODEX_IMAGE_UPLOADING_SESSION_ID,
   PLAYGROUND_CODEX_PENDING_SESSION_ID,
   PLAYGROUND_CODEX_TERMINAL_SESSION_ID,
   PLAYGROUND_HERD_GROUP_THEMES,
@@ -234,21 +231,6 @@ export function PlaygroundOverviewSections() {
                   <div className="text-sm">Compare this screenshot with the current mobile header state.</div>
                 </div>
               </div>
-            </div>
-          </Card>
-          <Card label="Uploading image chip">
-            <div className="max-w-3xl border border-cc-border rounded-xl overflow-hidden bg-cc-card h-[220px]">
-              <MessageFeed sessionId={PLAYGROUND_CODEX_IMAGE_UPLOADING_SESSION_ID} />
-            </div>
-          </Card>
-          <Card label="Processing image chip">
-            <div className="max-w-3xl border border-cc-border rounded-xl overflow-hidden bg-cc-card h-[260px]">
-              <MessageFeed sessionId={PLAYGROUND_CODEX_IMAGE_PROCESSING_SESSION_ID} />
-            </div>
-          </Card>
-          <Card label="Response started">
-            <div className="max-w-3xl border border-cc-border rounded-xl overflow-hidden bg-cc-card h-[260px]">
-              <MessageFeed sessionId={PLAYGROUND_CODEX_IMAGE_RESPONDING_SESSION_ID} />
             </div>
           </Card>
         </div>

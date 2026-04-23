@@ -28,7 +28,6 @@ export function ElapsedTimer({
   const streamingPauseStartedAt = useStore((s) => s.streamingPauseStartedAt.get(sessionId));
   const sessionStatus = useStore((s) => s.sessionStatus.get(sessionId));
   const isStuck = useStore((s) => s.sessionStuck.get(sessionId) ?? false);
-  const codexImageSendStage = useStore((s) => s.sessions.get(sessionId)?.codex_image_send_stage ?? null);
   const [elapsed, setElapsed] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -48,13 +47,7 @@ export function ElapsedTimer({
     return () => clearInterval(interval);
   }, [streamingStartedAt, sessionStatus, streamingPausedDuration, streamingPauseStartedAt]);
 
-  const preStreamImageLabel =
-    !streamingStartedAt && (codexImageSendStage === "uploading" || codexImageSendStage === "processing")
-      ? codexImageSendStage === "uploading"
-        ? "uploading image"
-        : "processing image"
-      : null;
-  const showTimer = sessionStatus === "running" && (elapsed > 0 || preStreamImageLabel !== null);
+  const showTimer = sessionStatus === "running" && elapsed > 0;
 
   useLayoutEffect(() => {
     if (!onVisibleHeightChange) return;
@@ -80,11 +73,7 @@ export function ElapsedTimer({
     api.relaunchSession(sessionId).catch(() => {});
   };
 
-  const label = isStuck
-    ? "Session may be stuck"
-    : streamingPauseStartedAt
-      ? "Napping..."
-      : (preStreamImageLabel ?? "Purring...");
+  const label = isStuck ? "Session may be stuck" : streamingPauseStartedAt ? "Napping..." : "Purring...";
   const dotColor = isStuck
     ? "text-amber-400"
     : streamingPauseStartedAt

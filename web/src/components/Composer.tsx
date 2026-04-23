@@ -2189,7 +2189,6 @@ export function Composer({ sessionId }: { sessionId: string }) {
                 vscodeSelectionTitle={
                   vscodeSelectionPayload ? buildVsCodeSelectionPrompt(vscodeSelectionPayload) : null
                 }
-                attachmentBlockReason={attachmentBlockReason}
                 onRetryTranscription={retryTranscription}
                 onDismissVoiceError={() => {
                   setFailedTranscription(null);
@@ -2256,7 +2255,6 @@ export function Composer({ sessionId }: { sessionId: string }) {
               isRunning={isRunning}
               handleInterrupt={handleInterrupt}
               handleSend={handleSend}
-              activePendingUploadStage={activePendingUserUpload?.stage}
               sendButtonTitle={sendButtonTitle}
               sendPressing={sendPressing}
             />
