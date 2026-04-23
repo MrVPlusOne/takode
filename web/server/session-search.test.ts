@@ -251,4 +251,103 @@ describe("searchSessionDocuments", () => {
     // Should match on name, not message
     expect(out.results[0].matchedField).toBe("name");
   });
+
+  it("searches assistant text responses in full history", () => {
+    const docs: SessionSearchDocument[] = [
+      {
+        sessionId: "s-assistant",
+        archived: false,
+        createdAt: 100,
+        messageHistory: [
+          {
+            type: "assistant",
+            message: {
+              id: "a1",
+              role: "assistant",
+              type: "message",
+              model: "test",
+              content: [{ type: "text", text: "The fibonacci sequence implementation looks correct" }],
+              stop_reason: "end_turn",
+              usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+            },
+            parent_tool_use_id: null,
+            timestamp: 2000,
+          },
+        ],
+      },
+    ];
+
+    const out = searchSessionDocuments(docs, { query: "fibonacci" });
+    expect(out.totalMatches).toBe(1);
+    expect(out.results[0].matchedField).toBe("assistant");
+    expect(out.results[0].messageMatch?.snippet).toContain("fibonacci");
+  });
+
+  it("searches assistant text via excerpts for search-data-only sessions", () => {
+    const docs: SessionSearchDocument[] = [
+      {
+        sessionId: "s-archived-assistant",
+        archived: true,
+        createdAt: 100,
+        messageHistory: [],
+        searchExcerpts: [
+          {
+            type: "assistant",
+            content: "The fibonacci sequence implementation looks correct",
+            timestamp: 2000,
+            id: "a1",
+          },
+          { type: "user_message", content: "check the algorithm", timestamp: 1000, id: "m1" },
+        ],
+      },
+    ];
+
+    const out = searchSessionDocuments(docs, { query: "fibonacci" });
+    expect(out.totalMatches).toBe(1);
+    expect(out.results[0].matchedField).toBe("assistant");
+  });
+
+  it("ranks user_message above assistant above compact_marker", () => {
+    const docs: SessionSearchDocument[] = [
+      {
+        sessionId: "s-user",
+        archived: false,
+        createdAt: 100,
+        messageHistory: [{ type: "user_message", content: "query about deploy", timestamp: 1000 }],
+      },
+      {
+        sessionId: "s-assistant",
+        archived: false,
+        createdAt: 100,
+        messageHistory: [
+          {
+            type: "assistant",
+            message: {
+              id: "a1",
+              role: "assistant",
+              type: "message",
+              model: "test",
+              content: [{ type: "text", text: "deploy completed successfully" }],
+              stop_reason: "end_turn",
+              usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+            },
+            parent_tool_use_id: null,
+            timestamp: 1000,
+          },
+        ],
+      },
+      {
+        sessionId: "s-compact",
+        archived: false,
+        createdAt: 100,
+        messageHistory: [{ type: "compact_marker", summary: "discussed deploy strategy", timestamp: 1000 }],
+      },
+    ];
+
+    const out = searchSessionDocuments(docs, { query: "deploy" });
+    expect(out.totalMatches).toBe(3);
+    expect(out.results[0].matchedField).toBe("user_message");
+    expect(out.results[1].matchedField).toBe("assistant");
+    expect(out.results[2].matchedField).toBe("compact_marker");
+  });
 });
