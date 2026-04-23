@@ -388,21 +388,25 @@ In that case:
 
 1. Re-read your prior `Critical` and `Recommended` findings.
 2. Read the worker's latest report and latest diff.
-3. Re-establish the checklist for the follow-up review, reusing prior relevant aspects and adding any new ones the follow-up diff introduces.
-4. Check whether each required finding was:
+3. Check whether the worker created a checkpoint commit before the follow-up fixes. When they did, use that split to review only the new work first.
+4. Re-establish the checklist for the follow-up review, reusing prior relevant aspects and adding any new ones the follow-up diff introduces.
+5. Check whether each required finding was:
    - fixed, or
    - intentionally not fixed with a solid justification
-5. Ignore unresolved `Suggestions` unless they expose a deeper required issue.
+6. Ignore unresolved `Suggestions` unless they expose a deeper required issue.
 
 As part of that follow-up check, re-run:
 
 ```bash
 git --no-optional-locks -C <worktree_path> status --short
+git --no-optional-locks -C <worktree_path> log --oneline --decorate -n 8
 git --no-optional-locks -C <worktree_path> diff --stat <base_branch>
 git --no-optional-locks -C <worktree_path> diff <base_branch>
 ```
 
 Again, do not miss `??` untracked files or new directories.
+
+If the worker made a checkpoint commit before the reviewer follow-up, identify that commit from `git log` and review `git diff <checkpoint_commit>..HEAD` first. That narrower diff is the primary evidence for whether the worker addressed the follow-up findings cleanly.
 
 Re-check the worker's response against the same checklist mindset:
 

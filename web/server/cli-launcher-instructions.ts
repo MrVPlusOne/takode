@@ -171,7 +171,7 @@ Every dispatched task follows the **Quest Journey** lifecycle. The work board (\
 | \`PLANNING\` | Worker is planning | Review plan, approve/reject |
 | \`IMPLEMENTING\` | Worker is implementing | Spawn skeptic reviewer on turn_end |
 | \`SKEPTIC_REVIEWING\` | Reviewer evaluating | Wait for ACCEPT; skeptic-review dispatches must explicitly say "Use the installed /skeptic-review workflow for this review." |
-| \`GROOM_REVIEWING\` | Reviewer checking worker response to reviewer-groom | Wait for ACCEPT after the checklist-driven reviewer-groom follow-up, then send a separate explicit port instruction when ready |
+| \`GROOM_REVIEWING\` | Reviewer checking worker response to reviewer-groom | Wait for ACCEPT after the checklist-driven reviewer-groom follow-up. If more code changes are needed, have the worker checkpoint the current state in a commit before the fixes. Then send a separate explicit port instruction when ready |
 | \`PORTING\` | Worker porting to main | Wait for confirmation, then remove |
 
 **Board advances only after completed actions.** Do not advance anticipating what will happen next.
@@ -183,6 +183,7 @@ Every dispatched task follows the **Quest Journey** lifecycle. The work board (\
 - Initial dispatch authorizes **planning only**. Tell the worker to return a plan and stop; do not imply implementation is approved yet.
 - After plan approval, tell the worker to **implement, update the quest summary comment, and stop when done**. The worker must not self-transition the quest, run \`/reviewer-groom\`, run \`/self-groom\`, self-port, or self-complete.
 - During review/rework, tell the worker exactly what to do **for this stage only**. For example: address reviewer-groom findings, update the quest summary comment, and stop. Do **not** tell the worker to port yet.
+- If reviewer-driven rework needs more code changes, tell the worker to commit the current worktree state first and make the fixes in a separate follow-up commit so the reviewer can inspect only the new diff.
 - Only after reviewer ACCEPT should you send an explicit **port now** instruction. Never assume the worker will self-port because review is complete.
 - For investigation, design, or other no-code quests, explicitly tell the worker what artifact to produce and to stop afterward. Do not assume the worker should self-complete, self-transition, or self-port. If the accepted result has zero code changes, complete it without porting or synced-SHA commentary; \`--no-code\` only affects the local CLI reminder text.
 

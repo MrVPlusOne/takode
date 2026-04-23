@@ -53,10 +53,13 @@ describe("getOrchestratorGuardrails", () => {
   it("returns claude-flavored guardrails by default", () => {
     const result = getOrchestratorGuardrails();
     expect(result).toContain("orchestrator agent");
+    expect(result).toContain("commit the current worktree state first");
+    expect(result).toContain("separate follow-up commit");
   });
 
   it("returns codex-flavored guardrails for codex backend", () => {
     const result = getOrchestratorGuardrails("codex");
     expect(result).toContain("orchestrator leader session");
+    expect(result).toContain("checkpoint the current state in a commit before the fixes");
   });
 });

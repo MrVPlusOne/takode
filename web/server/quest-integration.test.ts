@@ -71,6 +71,8 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("Both steps are required");
     expect(skill).toContain("Add a summary comment");
     expect(skill).toContain("required worker deliverable");
+    expect(skill).toContain("first commit the current worktree state");
+    expect(skill).toContain("separate commit so the reviewer can inspect only the new diff");
   });
 
   it("requires titles under 10 words for refined and later stages", async () => {
