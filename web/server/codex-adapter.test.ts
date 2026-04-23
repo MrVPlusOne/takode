@@ -1486,7 +1486,8 @@ describe("CodexAdapter", () => {
           }
         ).message.content;
         return content.some(
-          (b) => b.type === "tool_use" && b.id === "fc_add" && b.name === "Write" && b.input?.file_path === "/tmp/added.ts",
+          (b) =>
+            b.type === "tool_use" && b.id === "fc_add" && b.name === "Write" && b.input?.file_path === "/tmp/added.ts",
         );
       });
     expect(addWriteMsg).toBeDefined();
@@ -1833,9 +1834,8 @@ describe("CodexAdapter", () => {
 
     const fileChangeMessages = messages.filter((m) => {
       if (m.type !== "assistant") return false;
-      const content = (
-        m as { message: { content: Array<{ type: string; id?: string; tool_use_id?: string }> } }
-      ).message.content;
+      const content = (m as { message: { content: Array<{ type: string; id?: string; tool_use_id?: string }> } })
+        .message.content;
       return content.some(
         (block) =>
           (block.type === "tool_use" && block.id === "fc_unrenderable") ||

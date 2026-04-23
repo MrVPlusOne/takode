@@ -170,12 +170,7 @@ export class CodexItemEventManager {
         if (!fileChangeTool) {
           break;
         }
-        this.emitToolUseStart(
-          item.id,
-          fileChangeTool.toolName,
-          fileChangeTool.input,
-          { parentToolUseId },
-        );
+        this.emitToolUseStart(item.id, fileChangeTool.toolName, fileChangeTool.input, { parentToolUseId });
         break;
       }
 

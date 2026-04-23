@@ -305,7 +305,9 @@ function extractChangeContent(change: Record<string, unknown>): string {
 
 export function isWriteLikeFileChangeKind(kind: unknown): boolean {
   const normalizedKind = safeKind(kind).trim().toLowerCase();
-  return normalizedKind === "create" || normalizedKind === "created" || normalizedKind === "add" || normalizedKind === "new";
+  return (
+    normalizedKind === "create" || normalizedKind === "created" || normalizedKind === "add" || normalizedKind === "new"
+  );
 }
 
 export function mapFileChangesForTool(changes: Array<Record<string, unknown>>): ToolFileChange[] {

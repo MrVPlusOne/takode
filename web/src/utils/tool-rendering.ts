@@ -36,7 +36,9 @@ function firstNonEmptyString(obj: Record<string, unknown>, keys: string[]): stri
 function isWriteLikeChangeKind(change: Record<string, unknown>): boolean {
   const kind = typeof change.kind === "string" ? change.kind : typeof change.type === "string" ? change.type : "";
   const normalizedKind = kind.trim().toLowerCase();
-  return normalizedKind === "create" || normalizedKind === "created" || normalizedKind === "add" || normalizedKind === "new";
+  return (
+    normalizedKind === "create" || normalizedKind === "created" || normalizedKind === "add" || normalizedKind === "new"
+  );
 }
 
 function extractChangeContent(change: Record<string, unknown>): string {

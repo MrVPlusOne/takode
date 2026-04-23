@@ -581,7 +581,7 @@ export function PlaygroundOverviewSections() {
                 {
                   path: "src/generated-from-codex.ts",
                   kind: "add",
-                  content: ['export const generated = true;', 'export const source = "codex";'].join("\n"),
+                  content: ["export const generated = true;", 'export const source = "codex";'].join("\n"),
                 },
               ],
             }}
