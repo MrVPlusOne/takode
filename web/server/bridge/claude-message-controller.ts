@@ -487,7 +487,7 @@ export function handleResultMessage(
   if (typeof nextContextPct === "number") {
     session.state.context_used_percent = nextContextPct;
   }
-  const nextClaudeTokenDetails = extractClaudeTokenDetails(msg.modelUsage);
+  const nextClaudeTokenDetails = extractClaudeTokenDetails(msg.modelUsage, session.state.model);
   if (nextClaudeTokenDetails) {
     session.state.claude_token_details = nextClaudeTokenDetails;
   }
@@ -1033,13 +1033,20 @@ function handleSystemInit(session: SystemMessageSessionLike, msg: CLISystemInitM
   }
   session.state.model = msg.model;
   const inferredContextWindow = inferContextWindowFromModel(msg.model);
-  if (inferredContextWindow && !session.state.claude_token_details) {
-    session.state.claude_token_details = {
-      inputTokens: 0,
-      outputTokens: 0,
-      cachedInputTokens: 0,
-      modelContextWindow: inferredContextWindow,
-    };
+  if (inferredContextWindow) {
+    if (session.state.claude_token_details) {
+      session.state.claude_token_details.modelContextWindow = Math.max(
+        session.state.claude_token_details.modelContextWindow,
+        inferredContextWindow,
+      );
+    } else {
+      session.state.claude_token_details = {
+        inputTokens: 0,
+        outputTokens: 0,
+        cachedInputTokens: 0,
+        modelContextWindow: inferredContextWindow,
+      };
+    }
   }
   if (!session.state.is_containerized) {
     session.state.cwd = msg.cwd;

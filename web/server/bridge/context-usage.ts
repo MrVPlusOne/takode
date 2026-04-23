@@ -79,6 +79,7 @@ export function computeResultContextUsedPercent(
 
 export function extractClaudeTokenDetails(
   modelUsage: CLIResultMessage["modelUsage"],
+  model?: string,
 ): SessionState["claude_token_details"] | undefined {
   if (!modelUsage) return undefined;
   const usage = Object.values(modelUsage).find((entry) => entry && typeof entry === "object");
@@ -87,7 +88,9 @@ export function extractClaudeTokenDetails(
   const inputTokens = Number(usage.inputTokens || 0);
   const outputTokens = Number(usage.outputTokens || 0);
   const cachedInputTokens = Number(usage.cacheReadInputTokens || 0) + Number(usage.cacheCreationInputTokens || 0);
-  const modelContextWindow = Number(usage.contextWindow || 0);
+  const rawContextWindow = Number(usage.contextWindow || 0);
+  const inferredContextWindow = inferContextWindowFromModel(model) ?? 0;
+  const modelContextWindow = Math.max(rawContextWindow, inferredContextWindow);
 
   if (inputTokens <= 0 && outputTokens <= 0 && cachedInputTokens <= 0 && modelContextWindow <= 0) {
     return undefined;
