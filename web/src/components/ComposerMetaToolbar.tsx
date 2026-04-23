@@ -50,7 +50,6 @@ export function ComposerMetaToolbar({
   isRunning,
   handleInterrupt,
   handleSend,
-  activePendingUploadStage,
   sendButtonTitle,
   sendPressing,
 }: {
@@ -99,7 +98,6 @@ export function ComposerMetaToolbar({
   isRunning: boolean;
   handleInterrupt: () => void;
   handleSend: () => void;
-  activePendingUploadStage?: string;
   sendButtonTitle: string;
   sendPressing: boolean;
 }) {
@@ -435,22 +433,31 @@ export function ComposerMetaToolbar({
             </svg>
           </button>
         ) : (
-          <button
-            onClick={handleSend}
-            disabled={!canSend}
-            className={`flex items-center justify-center w-11 h-11 sm:w-8 sm:h-8 rounded-full transition-colors ${
-              canSend
-                ? "bg-cc-primary hover:bg-cc-primary-hover text-white cursor-pointer"
-                : "bg-cc-hover text-cc-muted cursor-not-allowed"
-            } ${sendPressing ? "animate-[send-morph_500ms_ease-out]" : ""}`}
-            title={activePendingUploadStage === "uploading" ? "Uploading image" : sendButtonTitle}
-          >
-            {sendPressing ? (
-              <CatPawAvatar className="w-5 h-5 sm:w-4 sm:h-4" />
-            ) : (
-              <PaperPlaneIcon className="w-5 h-5 sm:w-4 sm:h-4" />
+          <div className="relative group">
+            <button
+              onClick={handleSend}
+              disabled={!canSend}
+              className={`flex items-center justify-center w-11 h-11 sm:w-8 sm:h-8 rounded-full transition-colors ${
+                canSend
+                  ? "bg-cc-primary hover:bg-cc-primary-hover text-white cursor-pointer"
+                  : "bg-cc-hover text-cc-muted cursor-not-allowed"
+              } ${sendPressing ? "animate-[send-morph_500ms_ease-out]" : ""}`}
+              title="Send message"
+            >
+              {sendPressing ? (
+                <CatPawAvatar className="w-5 h-5 sm:w-4 sm:h-4" />
+              ) : (
+                <PaperPlaneIcon className="w-5 h-5 sm:w-4 sm:h-4" />
+              )}
+            </button>
+            {!canSend && sendButtonTitle !== "Send message" && (
+              <div className="pointer-events-none absolute bottom-full right-0 mb-2 hidden group-hover:block">
+                <div className="whitespace-nowrap rounded-lg border border-cc-border bg-cc-card px-3 py-1.5 text-[11px] text-cc-muted shadow-lg">
+                  {sendButtonTitle}
+                </div>
+              </div>
             )}
-          </button>
+          </div>
         )}
       </div>
     </div>

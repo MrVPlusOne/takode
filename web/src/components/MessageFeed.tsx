@@ -207,7 +207,6 @@ export function MessageFeed({
   const historyWindow = useStore((s) => s.historyWindows.get(sessionId) ?? null);
   const streamingText = useStore((s) => s.streaming.get(sessionId));
   const isCodexSession = useStore((s) => s.sessions.get(sessionId)?.backend_type === "codex");
-  const codexImageSendStage = useStore((s) => s.sessions.get(sessionId)?.codex_image_send_stage ?? null);
   const toolProgress = useStore((s) => s.toolProgress.get(sessionId));
   const toolResults = useStore((s) => s.toolResults.get(sessionId));
   const toolStartTimestamps = useStore((s) => s.toolStartTimestamps.get(sessionId));
@@ -1468,13 +1467,7 @@ export function MessageFeed({
     );
   }
 
-  if (
-    messages.length === 0 &&
-    pendingUserUploads.length === 0 &&
-    pendingCodexInputs.length === 0 &&
-    !streamingText &&
-    !codexImageSendStage
-  ) {
+  if (messages.length === 0 && pendingUserUploads.length === 0 && pendingCodexInputs.length === 0 && !streamingText) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-4 select-none px-6">
         <SleepingCat className="w-20 h-14" />
@@ -1539,7 +1532,7 @@ export function MessageFeed({
                 {pendingUserUploads.length > 0 && (
                   <PendingUserUploadList sessionId={sessionId} uploads={pendingUserUploads} />
                 )}
-                {isCodexSession && (pendingCodexInputs.length > 0 || codexImageSendStage) && (
+                {isCodexSession && pendingCodexInputs.length > 0 && (
                   <PendingCodexInputList sessionId={sessionId} inputs={pendingCodexInputs} />
                 )}
                 <FeedFooter sessionId={sessionId} />

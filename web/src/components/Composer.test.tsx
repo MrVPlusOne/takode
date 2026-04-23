@@ -1436,7 +1436,7 @@ describe("Composer sending messages", () => {
       expect(screen.getByAltText("screenshot.png")).toBeTruthy();
     });
     expect(screen.getByText("Uploading...")).toBeTruthy();
-    expect(screen.getByTitle("1 image still uploading.")).toBeTruthy();
+    expect(screen.getByTitle("Send message").closest("button")!.hasAttribute("disabled")).toBe(true);
 
     fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
     expect(mockSendToSession).not.toHaveBeenCalledWith(
