@@ -1575,10 +1575,7 @@ export function addTaskEntry(
   deps.persistSession(session);
 }
 
-function isConsecutiveDuplicateTaskEntry(
-  previous: SessionTaskEntry | undefined,
-  next: SessionTaskEntry,
-): boolean {
+function isConsecutiveDuplicateTaskEntry(previous: SessionTaskEntry | undefined, next: SessionTaskEntry): boolean {
   if (!previous) return false;
   return (
     previous.action === next.action &&
