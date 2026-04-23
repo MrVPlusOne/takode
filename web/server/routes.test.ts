@@ -7398,7 +7398,10 @@ describe("POST /api/quests/:questId/claim", () => {
     expect(
       bridge.broadcastToSession.mock.calls.filter(
         ([sid, msg]: [string, { type?: string; tasks?: unknown[] }]) =>
-          sid === "session-2" && msg.type === "session_task_history" && Array.isArray(msg.tasks) && msg.tasks.length === 1,
+          sid === "session-2" &&
+          msg.type === "session_task_history" &&
+          Array.isArray(msg.tasks) &&
+          msg.tasks.length === 1,
       ),
     ).toHaveLength(1);
   });
