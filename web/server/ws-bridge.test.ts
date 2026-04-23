@@ -1249,6 +1249,119 @@ describe("CLI handlers", () => {
     expect(initMsg2!.request.appendSystemPrompt).toBe(instructions);
   });
 
+  it("handleCLIOpen: clears stale pendingPermissions on relaunch reconnect", () => {
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    const cli1 = makeCliSocket("s1");
+    bridge.handleCLIOpen(cli1, "s1");
+    const session = bridge.getSession("s1")!;
+
+    // Simulate a pending ExitPlanMode permission
+    session.pendingPermissions.set("stale-plan-1", {
+      request_id: "stale-plan-1",
+      tool_name: "ExitPlanMode",
+      input: { plan: "## Plan\n\nDo stuff" },
+      tool_use_id: "tool-1",
+      timestamp: Date.now(),
+    });
+
+    // Disconnect
+    bridge.handleCLIClose(cli1, 1006, "relaunch");
+    // handleCLIClose clears them, but simulate server-restart scenario where
+    // they were restored from disk before close handler ran
+    session.pendingPermissions.set("stale-plan-1", {
+      request_id: "stale-plan-1",
+      tool_name: "ExitPlanMode",
+      input: { plan: "## Plan\n\nDo stuff" },
+      tool_use_id: "tool-1",
+      timestamp: Date.now(),
+    });
+
+    session.relaunchPending = true;
+    browser.send.mockClear();
+
+    const cli2 = makeCliSocket("s1");
+    bridge.handleCLIOpen(cli2, "s1");
+
+    expect(session.pendingPermissions.size).toBe(0);
+    const cancelled = browser.send.mock.calls
+      .map(([raw]: [string]) => JSON.parse(raw))
+      .filter((msg: any) => msg.type === "permission_cancelled");
+    expect(cancelled).toEqual([expect.objectContaining({ type: "permission_cancelled", request_id: "stale-plan-1" })]);
+  });
+
+  it("handleCLIOpen: clears stale pendingPermissions restored from disk on server restart", () => {
+    // Simulate server restart: session is restored from disk with stale permissions,
+    // then CLI connects fresh (no disconnectGraceTimer set).
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+    const session = bridge.getSession("s1")!;
+
+    // Inject stale permission as if restored from disk
+    session.pendingPermissions.set("stale-ask-1", {
+      request_id: "stale-ask-1",
+      tool_name: "AskUserQuestion",
+      input: { questions: [{ question: "Which?", options: [] }] },
+      tool_use_id: "tool-ask-1",
+      timestamp: Date.now(),
+    });
+
+    browser.send.mockClear();
+
+    const cli = makeCliSocket("s1");
+    bridge.handleCLIOpen(cli, "s1");
+
+    expect(session.pendingPermissions.size).toBe(0);
+    const cancelled = browser.send.mock.calls
+      .map(([raw]: [string]) => JSON.parse(raw))
+      .filter((msg: any) => msg.type === "permission_cancelled");
+    expect(cancelled).toEqual([expect.objectContaining({ type: "permission_cancelled", request_id: "stale-ask-1" })]);
+  });
+
+  it("handleCLIOpen: preserves pendingPermissions on seamless reconnect", () => {
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    const cli1 = makeCliSocket("s1");
+    bridge.handleCLIOpen(cli1, "s1");
+    const session = bridge.getSession("s1")!;
+
+    session.pendingPermissions.set("valid-perm-1", {
+      request_id: "valid-perm-1",
+      tool_name: "Bash",
+      input: { command: "ls" },
+      tool_use_id: "tool-bash-1",
+      timestamp: Date.now(),
+    });
+
+    // Simulate disconnect with grace period (seamless reconnect path)
+    bridge.handleCLIClose(cli1, 1006, "transient");
+    // Re-add permission since handleCLIClose cleared it -- in a true seamless
+    // reconnect the CLI process stays alive and the permission is still valid.
+    // We test the handleCLIOpen logic by setting seamlessReconnect directly.
+    session.pendingPermissions.set("valid-perm-1", {
+      request_id: "valid-perm-1",
+      tool_name: "Bash",
+      input: { command: "ls" },
+      tool_use_id: "tool-bash-1",
+      timestamp: Date.now(),
+    });
+    session.seamlessReconnect = true;
+
+    browser.send.mockClear();
+    const cli2 = makeCliSocket("s1");
+    bridge.handleCLIOpen(cli2, "s1");
+
+    // Permission should still be there
+    expect(session.pendingPermissions.size).toBe(1);
+    expect(session.pendingPermissions.has("valid-perm-1")).toBe(true);
+    const cancelled = browser.send.mock.calls
+      .map(([raw]: [string]) => JSON.parse(raw))
+      .filter((msg: any) => msg.type === "permission_cancelled");
+    expect(cancelled).toHaveLength(0);
+  });
+
   it("handleCLIClose ignores a stale socket after a newer CLI socket is attached", () => {
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
@@ -7136,7 +7249,10 @@ describe("Restore from disk with pendingPermissions", () => {
     expect(perm2.agent_id).toBe("agent-1");
   });
 
-  it("restored pending permissions are sent to newly connected browsers", async () => {
+  it("restored pending permissions are cleared when CLI reconnects after server restart", async () => {
+    // After a server restart, pendingPermissions are restored from disk but
+    // become stale because the relaunched CLI generates fresh request_ids.
+    // handleCLIOpen must clear them and broadcast permission_cancelled.
     store.saveSync({
       id: "perm-replay",
       state: {
@@ -7179,25 +7295,35 @@ describe("Restore from disk with pendingPermissions", () => {
       ],
     });
 
-    await store.flushAll(); // ensure fire-and-forget writeFile completes before reading back
+    await store.flushAll();
     await bridge.restoreFromDisk();
 
-    // Connect a CLI so we don't trigger relaunch
+    // Verify permissions were restored from disk
+    const session = bridge.getSession("perm-replay")!;
+    expect(session.pendingPermissions.size).toBe(1);
+
+    // Connect a browser first to observe the cancellation broadcast
+    const browser = makeBrowserSocket("perm-replay");
+    bridge.handleBrowserOpen(browser, "perm-replay");
+    browser.send.mockClear();
+
+    // CLI connects (non-seamless, simulating server restart) -- stale perms cleared
     const cli = makeCliSocket("perm-replay");
     bridge.handleCLIOpen(cli, "perm-replay");
 
-    // Now connect a browser and send session_subscribe (permissions are
-    // delivered via handleSessionSubscribe, not handleBrowserOpen)
-    const browser = makeBrowserSocket("perm-replay");
-    bridge.handleBrowserOpen(browser, "perm-replay");
-    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+    expect(session.pendingPermissions.size).toBe(0);
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    const permMsg = calls.find((c: any) => c.type === "permission_request");
-    expect(permMsg).toBeDefined();
-    expect(permMsg.request.request_id).toBe("req-replay");
-    expect(permMsg.request.tool_name).toBe("Bash");
-    expect(permMsg.request.input).toEqual({ command: "echo test" });
+    const cancelledMsgs = calls.filter((c: any) => c.type === "permission_cancelled");
+    expect(cancelledMsgs).toEqual([
+      expect.objectContaining({ type: "permission_cancelled", request_id: "req-replay" }),
+    ]);
+
+    // No permission_request should be sent to the browser after subscribe
+    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+    const postSubscribe = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    const permMsgs = postSubscribe.filter((c: any) => c.type === "permission_request");
+    expect(permMsgs).toHaveLength(0);
   });
 
   it("restores sessions with empty pendingPermissions array", async () => {
