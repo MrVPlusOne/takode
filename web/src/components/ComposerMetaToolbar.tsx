@@ -232,13 +232,13 @@ export function ComposerMetaToolbar({
               </span>
             )}
             {(sessionView.gitAhead > 0 || sessionView.gitBehind > 0) && (
-              <span className="flex shrink-0 items-center gap-0.5 text-[10px]">
+              <span className="hidden sm:flex shrink-0 items-center gap-0.5 text-[10px]">
                 {sessionView.gitAhead > 0 && <span className="text-green-500">{sessionView.gitAhead}&#8593;</span>}
                 {sessionView.gitBehind > 0 && <span className="text-cc-warning">{sessionView.gitBehind}&#8595;</span>}
               </span>
             )}
             {(diffLinesAdded > 0 || diffLinesRemoved > 0) && (
-              <span className="flex shrink-0 items-center gap-1">
+              <span className="hidden sm:flex shrink-0 items-center gap-1">
                 <span className="text-green-500">+{diffLinesAdded}</span>
                 <span className="text-red-400">-{diffLinesRemoved}</span>
               </span>
@@ -371,7 +371,7 @@ export function ComposerMetaToolbar({
         )}
       </div>
 
-      <div className="ml-auto flex shrink-0 items-center gap-3 sm:gap-1">
+      <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-1">
         <button
           onClick={onOpenFilePicker}
           disabled={!isConnected}
