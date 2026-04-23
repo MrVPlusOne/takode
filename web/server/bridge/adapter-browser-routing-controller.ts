@@ -254,6 +254,34 @@ function getPendingPlanRejectionMessage(msg: BrowserUserMessage): string {
   return "Plan rejected — user sent a new message";
 }
 
+const EXIT_PLAN_INTERNAL_DENIAL_MESSAGES = new Set([
+  "Denied by user",
+  "Plan rejected — user sent a new message",
+  "Plan rejected — leader sent a new message",
+]);
+
+function getExitPlanFollowUpMessage(message: string | undefined, actorSessionId?: string): string | null {
+  const trimmed = message?.trim();
+  if (!trimmed || EXIT_PLAN_INTERNAL_DENIAL_MESSAGES.has(trimmed)) return null;
+  if (actorSessionId && isSystemSourceTag({ sessionId: actorSessionId })) return null;
+  return trimmed;
+}
+
+function maybeInjectExitPlanFollowUp(
+  session: AdapterBrowserRoutingSessionLike,
+  message: string | undefined,
+  actorSessionId: string | undefined,
+  deps: Pick<AdapterBrowserRoutingDeps, "injectUserMessage">,
+): void {
+  const followUp = getExitPlanFollowUpMessage(message, actorSessionId);
+  if (!followUp) return;
+  deps.injectUserMessage(
+    session.id,
+    followUp,
+    actorSessionId && !isSystemSourceTag({ sessionId: actorSessionId }) ? { sessionId: actorSessionId } : undefined,
+  );
+}
+
 function maybeAutoRejectPendingPlanForUserMessage(
   session: AdapterBrowserRoutingSessionLike,
   msg: BrowserUserMessage,
@@ -1226,6 +1254,9 @@ export function handlePermissionResponse(
     session.messageHistory.push(deniedMsg);
     deps.broadcastToBrowsers(session, deniedMsg);
     emitTakodePermissionResolved(session.id, pending?.tool_name || "unknown", "denied", deps, actorSessionId);
+    if (pending?.tool_name === "ExitPlanMode") {
+      maybeInjectExitPlanFollowUp(session, msg.message, actorSessionId, deps);
+    }
   }
 
   deps.persistSession(session);
@@ -1598,6 +1629,9 @@ function handleSdkPermissionResponse(
     };
     session.messageHistory.push(deniedMsg);
     deps.broadcastToBrowsers(session, deniedMsg);
+    if (pending.tool_name === "ExitPlanMode") {
+      maybeInjectExitPlanFollowUp(session, msg.message, msg.actorSessionId, deps);
+    }
   }
   if (msg.behavior === "allow" && pending.tool_name === "ExitPlanMode") {
     const askPerm = session.state.askPermission !== false;

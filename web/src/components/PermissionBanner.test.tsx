@@ -719,7 +719,7 @@ describe("PlanReviewOverlay", () => {
     expect(screen.getByText("Plan approval requested")).toBeTruthy();
   });
 
-  it("sends deny + interrupt when Deny is clicked", async () => {
+  it("sends only the deny permission response when Deny is clicked", async () => {
     const { PlanReviewOverlay } = await import("./PermissionBanner.js");
     const perm = makePermission({
       tool_name: "ExitPlanMode",
@@ -729,7 +729,7 @@ describe("PlanReviewOverlay", () => {
 
     fireEvent.click(screen.getByText("Deny"));
 
-    // Should send deny permission_response AND interrupt
+    expect(mockSendToSession).toHaveBeenCalledTimes(1);
     expect(mockSendToSession).toHaveBeenCalledWith(
       "s1",
       expect.objectContaining({
@@ -737,7 +737,6 @@ describe("PlanReviewOverlay", () => {
         behavior: "deny",
       }),
     );
-    expect(mockSendToSession).toHaveBeenCalledWith("s1", { type: "interrupt" });
   });
 
   it("calls onCollapse when header bar is clicked", async () => {

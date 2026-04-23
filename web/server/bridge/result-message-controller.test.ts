@@ -127,4 +127,33 @@ describe("result-message-controller", () => {
     expect(deps.onResultAttentionAndNotifications).toHaveBeenCalled();
     expect(deps.onTurnCompleted).toHaveBeenCalledWith(session);
   });
+
+  it("marks Claude user-control diagnostics as interrupted so they do not trigger error handling", () => {
+    const session = makeSession();
+    const deps = makeDeps();
+
+    handleResultMessage(
+      session,
+      makeResult({
+        subtype: "error_during_execution",
+        is_error: true,
+        result: "[ede_diagnostic] result_type=user last_content_type=n/a stop_reason=tool_use",
+        stop_reason: "tool_use",
+      }),
+      deps,
+    );
+
+    expect(session.messageHistory.at(-1)).toEqual(
+      expect.objectContaining({
+        type: "result",
+        interrupted: true,
+        data: expect.objectContaining({
+          is_error: true,
+          stop_reason: "tool_use",
+        }),
+      }),
+    );
+    expect(deps.onResultAttentionAndNotifications).not.toHaveBeenCalled();
+    expect(deps.onTurnCompleted).toHaveBeenCalledWith(session);
+  });
 });
