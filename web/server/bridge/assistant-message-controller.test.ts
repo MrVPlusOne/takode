@@ -11,6 +11,7 @@ function makeSession(): AssistantMessageSessionLike {
     id: "s-assistant",
     backendType: "claude",
     cliResuming: false,
+    dropReplayHistoryAfterRevert: false,
     isGenerating: false,
     messageHistory: [],
     assistantAccumulator: new Map(),
@@ -136,5 +137,39 @@ describe("assistant-message-controller", () => {
     );
 
     expect(observed).toEqual(["tool-1", "tool-2"]);
+  });
+
+  it("drops id-less assistant replay while post-revert replay suppression is active", () => {
+    const session = makeSession();
+    session.cliResuming = true;
+    session.dropReplayHistoryAfterRevert = true;
+    const deps = {
+      hasAssistantReplay: () => false,
+      broadcastToBrowsers: () => {},
+      persistSession: () => {},
+      setGenerating: () => {},
+      broadcastStatusRunning: () => {},
+      onToolUseObserved: () => {},
+    };
+
+    handleAssistantMessageWithRuntime(
+      session,
+      {
+        type: "assistant",
+        uuid: "sdk-replayed-no-id",
+        parent_tool_use_id: null,
+        message: {
+          type: "message",
+          role: "assistant",
+          model: "claude-sonnet-4-5-20250929",
+          content: [{ type: "text", text: "stale replayed assistant" }],
+          stop_reason: "end_turn",
+          usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        },
+      } as any,
+      deps,
+    );
+
+    expect(session.messageHistory).toHaveLength(0);
   });
 });

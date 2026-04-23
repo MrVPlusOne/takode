@@ -23845,6 +23845,43 @@ describe("SDK resume stall: cliResuming guards (q-220)", () => {
     expect(session.state.is_compacting).toBe(true);
   });
 
+  it("drops id-less assistant replay during SDK resume when revert suppression is armed", () => {
+    createResumedSdkSession("s1");
+    const adapter = makeClaudeSdkAdapterMock();
+    bridge.attachClaudeSdkAdapter("s1", adapter as any);
+
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+    browser.send.mockClear();
+
+    const session = bridge.getSession("s1")!;
+    session.dropReplayHistoryAfterRevert = true;
+    expect(session.cliResuming).toBe(true);
+
+    adapter.emitBrowserMessage({
+      type: "assistant",
+      uuid: "sdk-replayed-no-id",
+      parent_tool_use_id: null,
+      message: {
+        type: "message",
+        role: "assistant",
+        model: "claude-sonnet-4-5-20250929",
+        content: [{ type: "text", text: "stale replayed assistant" }],
+        stop_reason: "end_turn",
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+    });
+
+    expect(
+      session.messageHistory.find((entry: any) => entry.type === "assistant" && entry.uuid === "sdk-replayed-no-id"),
+    ).toBeUndefined();
+    const assistantCalls = browser.send.mock.calls.filter(([arg]: [string]) => {
+      const msg = JSON.parse(arg);
+      return msg.type === "assistant" && msg.uuid === "sdk-replayed-no-id";
+    });
+    expect(assistantCalls).toHaveLength(0);
+  });
+
   it("clears cliResuming after 2s debounce and flushes deferred messages", () => {
     vi.useFakeTimers();
 
