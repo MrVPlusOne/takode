@@ -147,7 +147,7 @@ Maintain at most **5 worker slots** in your herd. Reviewer sessions do **not** u
 **Use this exact template. Do not add extra context, file paths, or investigation instructions.**
 
 ```
-Work on [q-XX](quest:q-XX). Read the quest and claim it: `quest show q-XX && quest claim q-XX`.
+Work on [q-XX](quest:q-XX). Load the quest skill first, then read the quest and claim it: `quest show q-XX && quest claim q-XX`.
 Return a plan for approval before implementing. After you send the plan, stop and wait for approval.
 ```
 
@@ -186,12 +186,12 @@ Port now using /port-changes, then report back when sync is complete. Include a 
 **For feedback rework dispatches**, use this extended template instead:
 
 ```
-Work on [q-XX](quest:q-XX). Read the quest and check unaddressed feedback: `quest show q-XX && quest claim q-XX`.
-Address all unaddressed feedback items. After fixing each item, mark it as addressed: `quest address q-XX <index>`.
+Work on [q-XX](quest:q-XX). Load the quest skill first, then read the quest and claim it: `quest show q-XX && quest claim q-XX`.
+The quest has unaddressed human feedback -- read it carefully and factor it into your plan.
 Return a plan for approval before implementing. After you send the plan, stop and wait for approval.
 ```
 
-This ensures workers know about pending feedback and explicitly mark each item as addressed after fixing it.
+This ensures workers load the quest skill (so CLI commands work), read pending feedback before planning, and stop at the planning boundary. Feedback addressing happens during implementation, not planning.
 
 **Feedback rework resets the board cycle.** When new human feedback arrives for a quest that is already on the board, immediately reset that row to the earliest valid stage for the new cycle before doing anything else with stale worker/reviewer completions:
 
