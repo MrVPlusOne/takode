@@ -10,6 +10,7 @@ export type SessionSearchMatchedField =
   | "path"
   | "repo"
   | "user_message"
+  | "assistant"
   | "compact_marker";
 
 export interface SessionSearchDocument {
@@ -93,6 +94,19 @@ function pushIfBetter(current: SessionSearchResult | null, next: SessionSearchRe
   return compareCandidates(current, next) <= 0 ? current : next;
 }
 
+function extractAssistantText(msg: BrowserIncomingMessage): string {
+  if (msg.type !== "assistant" || !msg.message?.content) return "";
+  const blocks = msg.message.content;
+  if (!Array.isArray(blocks)) return "";
+  const texts: string[] = [];
+  for (const block of blocks) {
+    if (block.type === "text" && typeof block.text === "string") {
+      texts.push(block.text);
+    }
+  }
+  return texts.join(" ").trim();
+}
+
 function messageMatchCandidate(
   doc: SessionSearchDocument,
   qWords: string[],
@@ -111,9 +125,14 @@ function messageMatchCandidate(
       if (!matches(excerpt.content)) continue;
 
       const matchedField: SessionSearchMatchedField =
-        excerpt.type === "user_message" ? "user_message" : "compact_marker";
-      const score = excerpt.type === "user_message" ? 500 : 450;
-      const prefix = excerpt.type === "user_message" ? "message" : "compaction";
+        excerpt.type === "user_message"
+          ? "user_message"
+          : excerpt.type === "assistant"
+            ? "assistant"
+            : "compact_marker";
+      const score = excerpt.type === "user_message" ? 500 : excerpt.type === "assistant" ? 470 : 450;
+      const prefix =
+        excerpt.type === "user_message" ? "message" : excerpt.type === "assistant" ? "assistant" : "compaction";
       return {
         sessionId: doc.sessionId,
         score,
@@ -167,6 +186,21 @@ function messageMatchCandidate(
         matchContext: `compaction: ${buildSnippet(content, qWords)}`,
         matchedAt: timestamp,
         messageMatch: { id: msg.id, timestamp, snippet: buildSnippet(content, qWords) },
+      };
+    }
+
+    if (msg.type === "assistant") {
+      const text = extractAssistantText(msg);
+      if (!text || !matches(text)) continue;
+
+      const timestamp = typeof msg.timestamp === "number" ? msg.timestamp : (doc.lastActivityAt ?? doc.createdAt);
+      return {
+        sessionId: doc.sessionId,
+        score: 470,
+        matchedField: "assistant",
+        matchContext: `assistant: ${buildSnippet(text, qWords)}`,
+        matchedAt: timestamp,
+        messageMatch: { id: msg.message?.id, timestamp, snippet: buildSnippet(text, qWords) },
       };
     }
   }

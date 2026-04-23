@@ -1308,12 +1308,22 @@ describe("property-based: frozen history correctness", () => {
   });
 
   describe("search-data-only archived sessions", () => {
-    it("extractSearchExcerpts returns user_message and compact_marker content", () => {
+    it("extractSearchExcerpts returns user_message, assistant, and compact_marker content", () => {
       const messages = [
         { type: "user_message", content: "What is the status?", timestamp: 1000, id: "msg-1" },
         {
           type: "assistant",
-          message: { id: "a1", role: "assistant", model: "test", content: [], stop_reason: "end_turn", usage: {} },
+          message: {
+            id: "a1",
+            role: "assistant",
+            model: "test",
+            content: [
+              { type: "text", text: "The project is on track." },
+              { type: "tool_use", id: "tu-1", name: "Read", input: {} },
+            ],
+            stop_reason: "end_turn",
+            usage: {},
+          },
           parent_tool_use_id: null,
           timestamp: 1500,
         },
@@ -1323,10 +1333,11 @@ describe("property-based: frozen history correctness", () => {
       ] as PersistedSession["messageHistory"];
 
       const excerpts = SessionStore.extractSearchExcerpts(messages);
-      expect(excerpts).toHaveLength(3);
+      expect(excerpts).toHaveLength(4);
       expect(excerpts[0]).toMatchObject({ type: "user_message", content: "What is the status?", id: "msg-1" });
-      expect(excerpts[1]).toMatchObject({ type: "compact_marker", content: "Discussed project status", id: "cm-1" });
-      expect(excerpts[2]).toMatchObject({ type: "user_message", content: "Tell me more", id: "msg-2" });
+      expect(excerpts[1]).toMatchObject({ type: "assistant", content: "The project is on track.", id: "a1" });
+      expect(excerpts[2]).toMatchObject({ type: "compact_marker", content: "Discussed project status", id: "cm-1" });
+      expect(excerpts[3]).toMatchObject({ type: "user_message", content: "Tell me more", id: "msg-2" });
     });
 
     it("extractSearchExcerpts truncates content to 500 chars", () => {

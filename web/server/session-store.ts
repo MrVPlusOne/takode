@@ -15,7 +15,7 @@ import type {
 } from "./session-types.js";
 
 export interface SearchExcerpt {
-  type: "user_message" | "compact_marker";
+  type: "user_message" | "assistant" | "compact_marker";
   content: string;
   timestamp: number;
   id?: string;
@@ -385,6 +385,19 @@ export class SessionStore {
 
   // ─── Public API ─────────────────────────────────────────────────────────
 
+  private static extractAssistantText(msg: BrowserIncomingMessage): string {
+    if (msg.type !== "assistant" || !msg.message?.content) return "";
+    const blocks = msg.message.content;
+    if (!Array.isArray(blocks)) return "";
+    const texts: string[] = [];
+    for (const block of blocks) {
+      if (block.type === "text" && typeof block.text === "string") {
+        texts.push(block.text);
+      }
+    }
+    return texts.join(" ").trim();
+  }
+
   static extractSearchExcerpts(messages: BrowserIncomingMessage[]): SearchExcerpt[] {
     const excerpts: SearchExcerpt[] = [];
     const MAX_CONTENT_LEN = 500;
@@ -406,6 +419,15 @@ export class SessionStore {
           content: summary.slice(0, MAX_CONTENT_LEN),
           timestamp: typeof msg.timestamp === "number" ? msg.timestamp : 0,
           id: msg.id,
+        });
+      } else if (msg.type === "assistant") {
+        const text = SessionStore.extractAssistantText(msg);
+        if (!text) continue;
+        excerpts.push({
+          type: "assistant",
+          content: text.slice(0, MAX_CONTENT_LEN),
+          timestamp: typeof msg.timestamp === "number" ? msg.timestamp : 0,
+          id: msg.message?.id,
         });
       }
     }
