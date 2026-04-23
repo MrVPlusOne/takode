@@ -152,6 +152,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
   const menuRef = useRef<HTMLDivElement>(null);
   const dollarMenuRef = useRef<HTMLDivElement>(null);
   const referenceMenuRef = useRef<HTMLDivElement>(null);
+  const slashAnchorRef = useRef<number>(-1);
   const dollarAnchorRef = useRef<number>(-1);
   const referenceAnchorRef = useRef<number>(-1);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
@@ -680,27 +681,56 @@ export function Composer({ sessionId }: { sessionId: string }) {
     api.refreshSessionSkills(sessionId).catch(() => {});
   }, [isCodex, isConnected, sessionId, sessionView.apps, sessionView.skillMetadata]);
 
+  // Detect slash command trigger at cursor position (mirrors dollar detection)
+  const detectSlashQuery = useCallback(
+    (inputText: string, cursorPos: number) => {
+      if (allCommands.length === 0) {
+        setSlashMenuOpen(false);
+        slashAnchorRef.current = -1;
+        return;
+      }
+
+      // Scan backward from cursor to find a `/` preceded by start-of-string or whitespace
+      let slashPos = -1;
+      for (let i = cursorPos - 1; i >= 0; i--) {
+        const ch = inputText[i];
+        if (ch === " " || ch === "\n" || ch === "\t") break;
+        if (ch === "/") {
+          if (i === 0 || /\s/.test(inputText[i - 1])) {
+            slashPos = i;
+          }
+          break;
+        }
+      }
+
+      if (slashPos === -1) {
+        setSlashMenuOpen(false);
+        slashAnchorRef.current = -1;
+        return;
+      }
+
+      slashAnchorRef.current = slashPos;
+      if (!slashMenuOpen) {
+        setSlashMenuIndex(0);
+      }
+      setSlashMenuOpen(true);
+    },
+    [allCommands.length, slashMenuOpen],
+  );
+
+  useEffect(() => {
+    const cursorPos = textareaRef.current?.selectionStart ?? text.length;
+    detectSlashQuery(text, cursorPos);
+  }, [detectSlashQuery, text]);
+
   // Filter commands based on what the user typed after /
   const filteredCommands = useMemo(() => {
-    if (!slashMenuOpen) return [];
-    // Extract the slash query: text starts with / and we match the part after /
-    const match = text.match(/^\/(\S*)$/);
-    if (!match) return [];
-    const query = match[1].toLowerCase();
+    if (!slashMenuOpen || slashAnchorRef.current === -1) return [];
+    const cursorPos = textareaRef.current?.selectionStart ?? text.length;
+    const query = text.slice(slashAnchorRef.current + 1, cursorPos).toLowerCase();
     if (query === "") return allCommands;
     return allCommands.filter((cmd) => cmd.name.toLowerCase().includes(query));
   }, [text, slashMenuOpen, allCommands]);
-
-  // Open/close menu based on text
-  useEffect(() => {
-    const shouldOpen = text.startsWith("/") && /^\/\S*$/.test(text) && allCommands.length > 0;
-    if (shouldOpen && !slashMenuOpen) {
-      setSlashMenuOpen(true);
-      setSlashMenuIndex(0);
-    } else if (!shouldOpen && slashMenuOpen) {
-      setSlashMenuOpen(false);
-    }
-  }, [text, allCommands.length, slashMenuOpen]);
 
   // Keep selected index in bounds
   useEffect(() => {
@@ -1127,9 +1157,19 @@ export function Composer({ sessionId }: { sessionId: string }) {
         return;
       }
 
-      setText(`${cmd.insertText} `);
+      const anchor = slashAnchorRef.current;
+      const cursorPos = textareaRef.current?.selectionStart ?? text.length;
+      const before = text.slice(0, anchor);
+      const after = text.slice(cursorPos);
+      const inserted = `${cmd.insertText} `;
+      setText(before + inserted + after);
       setSlashMenuOpen(false);
-      textareaRef.current?.focus();
+      slashAnchorRef.current = -1;
+      requestAnimationFrame(() => {
+        const newPos = before.length + inserted.length;
+        textareaRef.current?.setSelectionRange(newPos, newPos);
+        textareaRef.current?.focus();
+      });
     },
     [setText, text],
   );
@@ -1180,6 +1220,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
       store.removePermission(sessionId, pendingAskUserPerm.request_id);
       store.clearComposerDraft(sessionId);
       setSlashMenuOpen(false);
+      slashAnchorRef.current = -1;
       setDollarMenuOpen(false);
       setDollarQuery("");
       dollarAnchorRef.current = -1;
@@ -1217,6 +1258,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
         if (!switched) return;
         store.clearComposerDraft(sessionId);
         setSlashMenuOpen(false);
+        slashAnchorRef.current = -1;
         setDollarMenuOpen(false);
         setDollarQuery("");
         dollarAnchorRef.current = -1;
@@ -1239,6 +1281,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
 
     const clearComposerUi = () => {
       setSlashMenuOpen(false);
+      slashAnchorRef.current = -1;
       setDollarMenuOpen(false);
       setDollarQuery("");
       dollarAnchorRef.current = -1;
@@ -1436,6 +1479,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
       if (e.key === "Escape") {
         e.preventDefault();
         setSlashMenuOpen(false);
+        slashAnchorRef.current = -1;
         return;
       }
     }
@@ -1569,6 +1613,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
     ta.style.height = Math.min(ta.scrollHeight, 200) + "px";
     // Trigger @ mention detection at current cursor position
     detectMentionQuery(newText, cursorPos);
+    detectSlashQuery(newText, cursorPos);
     detectDollarQuery(newText, cursorPos);
     detectReferenceQuery(newText, cursorPos);
   }
