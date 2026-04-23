@@ -574,6 +574,21 @@ export function PlaygroundOverviewSections() {
             sessionId={MOCK_SESSION_ID}
           />
           <ToolBlock
+            name="Write"
+            input={{
+              file_path: "src/generated-from-codex.ts",
+              changes: [
+                {
+                  path: "src/generated-from-codex.ts",
+                  kind: "add",
+                  content: ['export const generated = true;', 'export const source = "codex";'].join("\n"),
+                },
+              ],
+            }}
+            toolUseId="tb-4b"
+            sessionId={MOCK_SESSION_ID}
+          />
+          <ToolBlock
             name="Glob"
             input={{ pattern: "**/*.tsx", path: "/Users/stan/Dev/project/src" }}
             toolUseId="tb-5"

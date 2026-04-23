@@ -638,6 +638,31 @@ describe("ToolBlock", () => {
     expect(screen.queryByText("No changes")).toBeNull();
   });
 
+  it("renders Write diffs from Codex add-kind change content when no patch is provided", () => {
+    const { container } = render(
+      <ToolBlock
+        name="Write"
+        input={{
+          file_path: "/home/user/src/new-add-file.ts",
+          changes: [
+            {
+              path: "/home/user/src/new-add-file.ts",
+              kind: "add",
+              content: ["export const answer = 42;", "export const created = true;"].join("\n"),
+            },
+          ],
+        }}
+        toolUseId="tool-7c-codex-write-add-content"
+        defaultOpen={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Write File.*new-add-file\.ts/ }));
+    expect(screen.getByText("new-add-file.ts")).toBeTruthy();
+    expect(container.querySelector(".diff-line-add")).toBeTruthy();
+    expect(screen.queryByText("No changes")).toBeNull();
+  });
+
   it("renders Edit diffs for Codex create patches without unified diff headers", () => {
     const { container } = render(
       <ToolBlock

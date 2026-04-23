@@ -17,6 +17,7 @@ import {
   firstNonEmptyString,
   formatCommandForDisplay,
   hasAnyPatchDiff,
+  isWriteLikeFileChangeKind,
   mapUnknownFileChangesForTool,
   parseToolArguments,
   safeKind,
@@ -165,19 +166,14 @@ export class CodexItemEventManager {
 
       case "fileChange": {
         const fc = item as CodexFileChangeItem;
-        const changes = this.resolveFileChangesForTool(item.id, fc.changes);
-        if (changes.length === 0 || !hasAnyPatchDiff(changes)) {
+        const fileChangeTool = this.buildFileChangeTool(item.id, fc.changes);
+        if (!fileChangeTool) {
           break;
         }
-        const firstChange = changes[0];
-        const toolName = safeKind(firstChange?.kind) === "create" ? "Write" : "Edit";
         this.emitToolUseStart(
           item.id,
-          toolName,
-          {
-            file_path: firstChange?.path || "",
-            changes,
-          },
+          fileChangeTool.toolName,
+          fileChangeTool.input,
           { parentToolUseId },
         );
         break;
@@ -462,18 +458,19 @@ export class CodexItemEventManager {
 
       case "fileChange": {
         const fc = item as CodexFileChangeItem;
-        const changes = this.resolveFileChangesForTool(item.id, fc.changes);
-        const firstChange = changes[0];
-        const toolName = safeKind(firstChange?.kind) === "create" ? "Write" : "Edit";
-        this.ensureToolUseEmitted(
-          item.id,
-          toolName,
-          {
-            file_path: firstChange?.path || "",
-            changes,
-          },
-          { parentToolUseId },
-        );
+        const fileChangeTool = this.buildFileChangeTool(item.id, fc.changes);
+        if (fileChangeTool) {
+          this.ensureToolUseEmitted(item.id, fileChangeTool.toolName, fileChangeTool.input, { parentToolUseId });
+        }
+        if (!fileChangeTool && !this.emittedToolUseIds.has(item.id)) {
+          this.patchChangesByCallId.delete(item.id);
+          break;
+        }
+        const changes = fileChangeTool
+          ? Array.isArray(fileChangeTool.input.changes)
+            ? (fileChangeTool.input.changes as ToolFileChange[])
+            : []
+          : this.resolveFileChangesForTool(item.id, fc.changes);
         const summary = changes.map((c) => `${safeKind(c.kind)}: ${c.path}`).join("\n");
         this.emitToolResult(item.id, summary || "File changes applied", fc.status === "failed", parentToolUseId);
         this.patchChangesByCallId.delete(item.id);
@@ -666,6 +663,51 @@ export class CodexItemEventManager {
     if (direct.length === 0) return cached;
     if (!hasAnyPatchDiff(direct) && hasAnyPatchDiff(cached)) return cached;
     return direct;
+  }
+
+  private buildFileChangeTool(
+    toolUseId: string,
+    rawChanges: unknown,
+  ): { toolName: "Edit" | "Write"; input: { file_path: string; changes: ToolFileChange[] } } | null {
+    const changes = this.resolveFileChangesForTool(toolUseId, rawChanges);
+    const firstChange = changes[0];
+    if (!firstChange) return null;
+
+    const toolName: "Edit" | "Write" = isWriteLikeFileChangeKind(firstChange.kind) ? "Write" : "Edit";
+    const input = {
+      file_path: firstChange.path || "",
+      changes,
+    };
+    return this.hasRenderableFileChangeInput(input) ? { toolName, input } : null;
+  }
+
+  private hasRenderableFileChangeInput(input: { file_path: string; changes: ToolFileChange[] }): boolean {
+    if (
+      firstNonEmptyString(input as Record<string, unknown>, [
+        "content",
+        "text",
+        "new_string",
+        "newText",
+        "new_content",
+        "newContent",
+      ])
+    ) {
+      return true;
+    }
+
+    return input.changes.some((change) => {
+      if (typeof change.diff === "string" && change.diff.trim()) return true;
+      return (
+        firstNonEmptyString(change as Record<string, unknown>, [
+          "content",
+          "text",
+          "new_string",
+          "newText",
+          "new_content",
+          "newContent",
+        ]) !== ""
+      );
+    });
   }
 
   private getThreadIdFromRecord(record: Record<string, unknown> | undefined): string | null {
