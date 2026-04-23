@@ -326,6 +326,12 @@ export function handleAssistantMessage(
   const msgId = msg.message?.id;
 
   if (!msgId) {
+    if (shouldDropReplayHistoryAfterRevert(session)) {
+      console.log(
+        `[revert] Replay assistant DROPPED (msgId=NONE, uuid=${msg.uuid ?? "NONE"}, historyLen=${session.messageHistory.length})`,
+      );
+      return;
+    }
     const browserMsg: BrowserIncomingMessage = {
       type: "assistant",
       message: msg.message,
