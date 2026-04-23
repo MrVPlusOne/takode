@@ -52,9 +52,15 @@ function questRecencyTs(quest: QuestmasterTask): number {
 
 function classifyQuestSearchToken(token: string): { kind: "positiveTag" | "negatedTag" | "text"; value: string } {
   const negatedMatch = token.match(/^(?:!#|-#)([^\s#]*)$/);
-  if (negatedMatch) return { kind: "negatedTag", value: negatedMatch[1].toLowerCase() };
+  if (negatedMatch) {
+    const value = negatedMatch[1].toLowerCase();
+    if (!/^\d/.test(value)) return { kind: "negatedTag", value };
+  }
   const positiveMatch = token.match(/^#([^\s#]*)$/);
-  if (positiveMatch) return { kind: "positiveTag", value: positiveMatch[1].toLowerCase() };
+  if (positiveMatch) {
+    const value = positiveMatch[1].toLowerCase();
+    if (!/^\d/.test(value)) return { kind: "positiveTag", value };
+  }
   return { kind: "text", value: token };
 }
 
@@ -71,12 +77,17 @@ function getTrailingQuestSearchToken(query: string): { kind: "positiveTag" | "ne
 function parseQuestSearchQuery(query: string): { searchText: string; negatedTags: Set<string> } {
   const negatedTags = new Set<string>();
   const positiveTokens: string[] = [];
+  let trailingPositiveTag = false;
 
-  for (const token of query.trim().split(/\s+/).filter(Boolean)) {
+  const tokens = query.trim().split(/\s+/).filter(Boolean);
+  for (const [index, token] of tokens.entries()) {
     const classified = classifyQuestSearchToken(token);
     if (classified.kind === "negatedTag") {
       if (classified.value) negatedTags.add(classified.value);
       continue;
+    }
+    if (classified.kind === "positiveTag" && index === tokens.length - 1) {
+      trailingPositiveTag = true;
     }
     positiveTokens.push(token);
   }
@@ -84,10 +95,7 @@ function parseQuestSearchQuery(query: string): { searchText: string; negatedTags
   // Preserve the existing positive #tag autocomplete flow by keeping a trailing
   // positive hashtag token out of plain-text matching/highlighting until the
   // user selects it into the positive tag pill set.
-  const searchText = positiveTokens
-    .join(" ")
-    .replace(/(?:^|\s)#[^\s]*$/, "")
-    .trim();
+  const searchText = (trailingPositiveTag ? positiveTokens.slice(0, -1) : positiveTokens).join(" ").trim();
   return { searchText, negatedTags };
 }
 
