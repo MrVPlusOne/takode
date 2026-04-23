@@ -1439,9 +1439,6 @@ export class WsBridge {
       hasToolResultPreviewReplay: (targetSession: unknown, toolUseId: string) =>
         this.hasToolResultPreviewReplay(targetSession as Session, toolUseId),
       nextUserMessageId: (timestamp: number) => `cli-user-${timestamp}-${this.userMsgCounter++}`,
-      storeImage: this.imageStore
-        ? (sessionId: string, data: string, mediaType: string) => this.imageStore!.store(sessionId, data, mediaType)
-        : undefined,
       clearCodexToolResultWatchdog: (targetSession: unknown, toolUseId: string) =>
         clearCodexToolResultWatchdogController(targetSession as Session, toolUseId),
       buildToolResultPreviews: (
@@ -2296,9 +2293,6 @@ export class WsBridge {
         return this.launcher?.getSession(session.id)?.cliSessionId || session.state.session_id || "";
       },
       nextUserMessageId: (ts: number) => `user-${ts}-${this.userMsgCounter++}`,
-      storeImage: this.imageStore
-        ? (sessionId: string, data: string, mediaType: string) => this.imageStore!.store(sessionId, data, mediaType)
-        : undefined,
       onUserMessage: this.onUserMessage
         ? (sessionId: string, history: Session["messageHistory"], cwd: string, wasGenerating: boolean) =>
             this.onUserMessage?.(sessionId, history, cwd, wasGenerating)

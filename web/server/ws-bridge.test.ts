@@ -9306,22 +9306,19 @@ describe("Codex retries user message when turn is stale after disconnect", () =>
   it("retries image user message when resumed turn is inProgress but thread is idle", async () => {
     const sid = "s-stale-image-retry";
     const adapter1 = makeCodexAdapterMock();
-    const mockImageStore = {
-      store: vi.fn().mockResolvedValue({ imageId: "img-1", media_type: "image/png" }),
-      getOriginalPath: vi.fn().mockResolvedValue("/tmp/companion-images/img-1.orig.png"),
-    };
-    bridge.setImageStore(mockImageStore as any);
     bridge.attachCodexAdapter(sid, adapter1 as any);
 
     const browser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(browser, sid);
 
+    const imgPath = join(homedir(), ".companion", "images", sid, "img-retry-1.orig.png");
     await bridge.handleBrowserMessage(
       browser,
       JSON.stringify({
         type: "user_message",
         content: "implement the fix from this screenshot",
-        images: [{ media_type: "image/png", data: "image-bytes" }],
+        deliveryContent: `implement the fix from this screenshot\n[📎 Image attachments -- read these files with the Read tool before responding:\nAttachment 1: ${imgPath}]`,
+        imageRefs: [{ imageId: "img-retry-1", media_type: "image/png" }],
       }),
     );
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -17959,11 +17956,6 @@ describe("Codex image transport", () => {
       if (msg.type === "codex_steer_pending") return false;
       return true;
     });
-    const mockImageStore = {
-      store: vi.fn().mockResolvedValue({ imageId: "img-reconnect", media_type: "image/png" }),
-      getOriginalPath: vi.fn().mockResolvedValue(expectedPath),
-    };
-    bridge.setImageStore(mockImageStore as any);
     bridge.attachCodexAdapter(sid, adapter1 as any);
     emitCodexSessionReady(adapter1, { cliSessionId: "thread-image-herd-reconnect" });
 
@@ -17976,7 +17968,8 @@ describe("Codex image transport", () => {
       JSON.stringify({
         type: "user_message",
         content: "inspect this screenshot before reconnect",
-        images: [{ media_type: "image/png", data: "reconnect-image-data" }],
+        deliveryContent: `inspect this screenshot before reconnect\n[📎 Image attachments -- read these files with the Read tool before responding:\nAttachment 1: ${expectedPath}]`,
+        imageRefs: [{ imageId: "img-reconnect", media_type: "image/png" }],
       }),
     );
     await flush();
@@ -18056,11 +18049,6 @@ describe("Codex image transport", () => {
       if (msg.type === "codex_steer_pending") return false;
       return true;
     });
-    const mockImageStore = {
-      store: vi.fn().mockResolvedValue({ imageId: "img-cancel", media_type: "image/png" }),
-      getOriginalPath: vi.fn().mockResolvedValue("/tmp/companion-images/img-cancel.orig.png"),
-    };
-    bridge.setImageStore(mockImageStore as any);
     bridge.attachCodexAdapter(sid, adapter as any);
     emitCodexSessionReady(adapter, { cliSessionId: "thread-image-herd-cancel" });
 
@@ -18068,12 +18056,14 @@ describe("Codex image transport", () => {
     bridge.handleBrowserOpen(browser, sid);
     browser.send.mockClear();
 
+    const imgPath = join(homedir(), ".companion", "images", sid, "img-cancel.orig.png");
     bridge.handleBrowserMessage(
       browser,
       JSON.stringify({
         type: "user_message",
         content: "hold this screenshot turn open",
-        images: [{ media_type: "image/png", data: "cancel-image-data" }],
+        deliveryContent: `hold this screenshot turn open\n[📎 Image attachments -- read these files with the Read tool before responding:\nAttachment 1: ${imgPath}]`,
+        imageRefs: [{ imageId: "img-cancel", media_type: "image/png" }],
       }),
     );
     await flush();
@@ -18254,11 +18244,6 @@ describe("Codex image transport", () => {
       }
       return true;
     });
-    const mockImageStore = {
-      store: vi.fn().mockResolvedValue({ imageId: "img-1", media_type: "image/png" }),
-      getOriginalPath: vi.fn().mockResolvedValue("/tmp/companion-images/img-1.orig.png"),
-    };
-    bridge.setImageStore(mockImageStore as any);
     bridge.attachCodexAdapter("s1", adapter as any);
     emitCodexSessionReady(adapter, { cliSessionId: "thread-q326-cancel-mixup" });
 
@@ -18266,12 +18251,14 @@ describe("Codex image transport", () => {
     bridge.handleBrowserOpen(browser, "s1");
     browser.send.mockClear();
 
+    const imgPath = join(homedir(), ".companion", "images", "s1", "img-1.orig.png");
     bridge.handleBrowserMessage(
       browser,
       JSON.stringify({
         type: "user_message",
         content: "Please inspect this screenshot",
-        images: [{ media_type: "image/png", data: "raw-image-data" }],
+        deliveryContent: `Please inspect this screenshot\n[📎 Image attachments -- read these files with the Read tool before responding:\nAttachment 1: ${imgPath}]`,
+        imageRefs: [{ imageId: "img-1", media_type: "image/png" }],
       }),
     );
     await flush();
@@ -18305,7 +18292,7 @@ describe("Codex image transport", () => {
     expect(startPendingAttempts).toBe(1);
     expect(session.pendingCodexInputs).toHaveLength(1);
     expect(session.pendingCodexInputs[0]?.id).toBe(imagePendingId);
-    expect(session.pendingCodexInputs[0]?.content).toBe("Please inspect this screenshot");
+    expect(session.pendingCodexInputs[0]?.content).toContain("Please inspect this screenshot");
     expect(session.pendingCodexTurns).toHaveLength(1);
     expect(getPendingCodexTurn(session)).toMatchObject({
       status: "queued",
