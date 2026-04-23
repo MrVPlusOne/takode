@@ -191,6 +191,7 @@ interface SessionItemProps {
   matchContext?: string | null;
   matchedField?: SearchMatchedField;
   matchQuery?: string;
+  isSearchSelected?: boolean;
   /** Indentation level for tree view (0 = root, 1 = worker under leader). */
   indentLevel?: number;
   /** When true, renders a compact chip (no preview, no herd badge, no shield). Tree view workers only. */
@@ -236,6 +237,7 @@ export function SessionItem({
   matchContext,
   matchedField,
   matchQuery,
+  isSearchSelected,
   indentLevel = 0,
   compact,
   useStatusBar,
@@ -484,6 +486,8 @@ export function SessionItem({
       )}
       <button
         ref={buttonRef}
+        aria-selected={isSearchSelected ? "true" : undefined}
+        data-search-selected={isSearchSelected ? "true" : undefined}
         onClick={handleSelect}
         onDoubleClick={(e) => {
           e.preventDefault();
@@ -516,7 +520,7 @@ export function SessionItem({
         } transition-all duration-100 select-none ${
           isDraggable ? "cursor-pointer sm:cursor-grab sm:active:cursor-grabbing" : "cursor-pointer"
         } ${
-          isActive
+          isActive || isSearchSelected
             ? "bg-cc-active border-cc-primary/25"
             : reorderMode
               ? "bg-cc-hover/50 border-cc-border/80"

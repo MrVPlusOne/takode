@@ -458,6 +458,81 @@ describe("Sidebar", { timeout: 10000 }, () => {
     await waitFor(() => expect(signals[0]?.aborted).toBe(true));
   });
 
+  it("selects the first global-search result by default and moves selection with arrow keys", async () => {
+    const session1 = makeSession("s1", { cwd: "/repo/a" });
+    const session2 = makeSession("s2", { cwd: "/repo/b" });
+    mockState = createMockState({
+      sessions: new Map([
+        ["s1", session1],
+        ["s2", session2],
+      ]),
+      sdkSessions: [makeSdkSession("s1", { createdAt: 1000 }), makeSdkSession("s2", { createdAt: 900 })],
+      sessionNames: new Map([
+        ["s1", "Alpha"],
+        ["s2", "Beta"],
+      ]),
+    });
+    mockApi.searchSessions.mockResolvedValueOnce({
+      query: "a",
+      tookMs: 2,
+      totalMatches: 2,
+      results: [
+        { sessionId: "s1", score: 10, matchedField: "name", matchContext: "name: Alpha", matchedAt: 1 },
+        { sessionId: "s2", score: 9, matchedField: "name", matchContext: "name: Beta", matchedAt: 1 },
+      ],
+    });
+
+    render(<Sidebar />);
+    const input = screen.getByPlaceholderText("Search...");
+    fireEvent.change(input, { target: { value: "a" } });
+
+    const alphaRow = await screen.findByText("Alpha");
+    const betaRow = await screen.findByText("Beta");
+    expect(alphaRow.closest("button")).toHaveAttribute("data-search-selected", "true");
+    expect(betaRow.closest("button")).not.toHaveAttribute("data-search-selected", "true");
+
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(betaRow.closest("button")).toHaveAttribute("data-search-selected", "true");
+
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    expect(alphaRow.closest("button")).toHaveAttribute("data-search-selected", "true");
+  });
+
+  it("opens the selected global-search result on Enter", async () => {
+    const session1 = makeSession("s1", { cwd: "/repo/a" });
+    const session2 = makeSession("s2", { cwd: "/repo/b" });
+    mockState = createMockState({
+      sessions: new Map([
+        ["s1", session1],
+        ["s2", session2],
+      ]),
+      sdkSessions: [makeSdkSession("s1", { createdAt: 1000 }), makeSdkSession("s2", { createdAt: 900 })],
+      sessionNames: new Map([
+        ["s1", "Alpha"],
+        ["s2", "Beta"],
+      ]),
+    });
+    mockApi.searchSessions.mockResolvedValueOnce({
+      query: "a",
+      tookMs: 2,
+      totalMatches: 2,
+      results: [
+        { sessionId: "s1", score: 10, matchedField: "name", matchContext: "name: Alpha", matchedAt: 1 },
+        { sessionId: "s2", score: 9, matchedField: "name", matchContext: "name: Beta", matchedAt: 1 },
+      ],
+    });
+
+    render(<Sidebar />);
+    const input = screen.getByPlaceholderText("Search...");
+    fireEvent.change(input, { target: { value: "a" } });
+    await screen.findByText("Alpha");
+
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(window.location.hash).toBe("#/session/s2");
+  });
+
   it("renders session items for active sessions", () => {
     const session = makeSession("s1");
     const sdk = makeSdkSession("s1", { model: "claude-sonnet-4-5-20250929" });

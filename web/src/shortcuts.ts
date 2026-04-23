@@ -44,6 +44,12 @@ export interface ShortcutSessionSummary {
   cronJobId?: string | null;
 }
 
+export interface ShortcutNewSessionContext {
+  cwd?: string;
+  treeGroupId?: string;
+  newSessionDefaultsKey?: string;
+}
+
 export interface ShortcutRuntime {
   route: Route;
   currentSessionId: string | null;
@@ -55,7 +61,8 @@ export interface ShortcutRuntime {
   focusGlobalSearch: () => void;
   openSearch: (sessionId: string) => void;
   closeSearch: (sessionId: string) => void;
-  openNewSessionModal: () => void;
+  lastNewSessionContext?: ShortcutNewSessionContext | null;
+  openNewSessionModal: (context?: ShortcutNewSessionContext) => void;
   openTerminal: (cwd: string, sessionId?: string | null) => void;
   setActiveTab: (tab: "chat" | "diff") => void;
   toggleSidebar: () => void;
@@ -450,6 +457,21 @@ export function getAdjacentShortcutSessionId(
   return ordered[nextIndex]!.sessionId;
 }
 
+export function resolveShortcutNewSessionContext(
+  currentSessionCwd: string | null,
+  lastContext?: ShortcutNewSessionContext | null,
+): ShortcutNewSessionContext | undefined {
+  const cwd = currentSessionCwd ?? lastContext?.cwd ?? "";
+  const treeGroupId = lastContext?.treeGroupId;
+  const newSessionDefaultsKey = lastContext?.newSessionDefaultsKey;
+  if (!cwd && !treeGroupId && !newSessionDefaultsKey) return undefined;
+  return {
+    ...(cwd ? { cwd } : {}),
+    ...(treeGroupId ? { treeGroupId } : {}),
+    ...(newSessionDefaultsKey ? { newSessionDefaultsKey } : {}),
+  };
+}
+
 function getPrimaryShortcutSessionId(runtime: ShortcutRuntime): string | null {
   if (runtime.currentSessionId) return runtime.currentSessionId;
   return getShortcutSessions(runtime.sessions)[0]?.sessionId ?? null;
@@ -474,11 +496,17 @@ export function performShortcutAction(actionId: ShortcutActionId, runtime: Short
       runtime.toggleSidebar();
       return true;
     case "open_terminal": {
+      if (runtime.route.page === "terminal") {
+        if (runtime.currentSessionId) {
+          runtime.navigateToSession(runtime.currentSessionId);
+          runtime.setActiveTab("chat");
+          return true;
+        }
+        return runtime.navigateToMostRecentSession();
+      }
       const cwd = runtime.currentSessionCwd ?? runtime.terminalCwd;
       if (cwd) runtime.openTerminal(cwd, runtime.currentSessionId);
-      if (runtime.route.page !== "terminal") {
-        runtime.navigateTo("/terminal");
-      }
+      runtime.navigateTo("/terminal");
       return true;
     }
     case "previous_session":
@@ -490,7 +518,7 @@ export function performShortcutAction(actionId: ShortcutActionId, runtime: Short
       return true;
     }
     case "new_session":
-      runtime.openNewSessionModal();
+      runtime.openNewSessionModal(resolveShortcutNewSessionContext(runtime.currentSessionCwd, runtime.lastNewSessionContext));
       return true;
     default:
       return false;

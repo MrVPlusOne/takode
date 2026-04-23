@@ -7,6 +7,7 @@ import {
   getMatchingShortcutAction,
   getShortcutHint,
   performShortcutAction,
+  resolveShortcutNewSessionContext,
   shouldBlurVimEscape,
 } from "./shortcuts.js";
 
@@ -26,7 +27,7 @@ describe("shortcuts", () => {
     expect(formatShortcut("Ctrl+`", "MacIntel")).toBe("Ctrl+`");
   });
 
-  it("opens terminal without using the same action as terminal back", () => {
+  it("opens terminal from a thread and returns to the thread from terminal", () => {
     const openTerminal = vi.fn();
     const navigateTo = vi.fn();
     const navigateToSession = vi.fn();
@@ -46,6 +47,7 @@ describe("shortcuts", () => {
       focusGlobalSearch,
       openSearch: vi.fn(),
       closeSearch: vi.fn(),
+      lastNewSessionContext: null,
       openNewSessionModal: vi.fn(),
       openTerminal,
       toggleSidebar,
@@ -58,6 +60,31 @@ describe("shortcuts", () => {
     expect(opened).toBe(true);
     expect(openTerminal).toHaveBeenCalledWith("/repo", "s1");
     expect(navigateTo).toHaveBeenCalledWith("/terminal");
+
+    const returned = performShortcutAction("open_terminal", {
+      route: { page: "terminal" },
+      currentSessionId: "s1",
+      currentSessionCwd: "/repo",
+      terminalCwd: "/repo",
+      activeTab: "chat",
+      isSearchOpen: false,
+      sessions: [{ sessionId: "s1", createdAt: 1 }],
+      focusGlobalSearch,
+      openSearch: vi.fn(),
+      closeSearch: vi.fn(),
+      lastNewSessionContext: null,
+      openNewSessionModal: vi.fn(),
+      openTerminal,
+      toggleSidebar,
+      setActiveTab,
+      navigateTo,
+      navigateToSession,
+      navigateToMostRecentSession,
+    });
+
+    expect(returned).toBe(true);
+    expect(navigateToSession).toHaveBeenCalledWith("s1");
+    expect(setActiveTab).toHaveBeenCalledWith("chat");
   });
 
   it("wraps between active sessions", () => {
@@ -78,6 +105,7 @@ describe("shortcuts", () => {
       focusGlobalSearch: vi.fn(),
       openSearch: vi.fn(),
       closeSearch: vi.fn(),
+      lastNewSessionContext: null,
       openNewSessionModal: vi.fn(),
       openTerminal: vi.fn(),
       toggleSidebar: vi.fn(),
@@ -120,6 +148,7 @@ describe("shortcuts", () => {
       focusGlobalSearch,
       openSearch: vi.fn(),
       closeSearch: vi.fn(),
+      lastNewSessionContext: null,
       openNewSessionModal: vi.fn(),
       openTerminal: vi.fn(),
       toggleSidebar,
@@ -139,6 +168,7 @@ describe("shortcuts", () => {
       focusGlobalSearch,
       openSearch: vi.fn(),
       closeSearch: vi.fn(),
+      lastNewSessionContext: null,
       openNewSessionModal: vi.fn(),
       openTerminal: vi.fn(),
       toggleSidebar,
@@ -152,6 +182,20 @@ describe("shortcuts", () => {
     expect(sidebarHandled).toBe(true);
     expect(focusGlobalSearch).toHaveBeenCalledTimes(1);
     expect(toggleSidebar).toHaveBeenCalledTimes(1);
+  });
+
+  it("prefers the current session cwd when opening a new session", () => {
+    expect(
+      resolveShortcutNewSessionContext("/repo/current", {
+        cwd: "/repo/old",
+        treeGroupId: "frontend",
+        newSessionDefaultsKey: "tree-group:frontend",
+      }),
+    ).toEqual({
+      cwd: "/repo/current",
+      treeGroupId: "frontend",
+      newSessionDefaultsKey: "tree-group:frontend",
+    });
   });
 
   it("only blurs editable targets on Escape in vim mode", () => {

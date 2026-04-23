@@ -189,6 +189,7 @@ export function Sidebar() {
   const [searchFocused, setSearchFocused] = useState(false);
   const [searchResults, setSearchResults] = useState<SessionSearchResult[] | null>(null);
   const [isSearching, setIsSearching] = useState(false);
+  const [activeSearchResultIndex, setActiveSearchResultIndex] = useState(0);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const route = parseHash(hash);
   const isSettingsPage = route.page === "settings";
@@ -803,6 +804,7 @@ export function Sidebar() {
     if (!q) {
       setSearchResults(null);
       setIsSearching(false);
+      setActiveSearchResultIndex(0);
       return;
     }
 
@@ -855,6 +857,14 @@ export function Sidebar() {
     }
     return results;
   }, [searchQuery, searchResults, allSessionList]);
+
+  useEffect(() => {
+    if (!filteredSessions || filteredSessions.length === 0) {
+      setActiveSearchResultIndex(0);
+      return;
+    }
+    setActiveSearchResultIndex((prev) => Math.min(prev, filteredSessions.length - 1));
+  }, [filteredSessions]);
 
   // Show sort/reorder controls when the session list is visible and has multiple sessions.
   const showSortControls = !searchFocused && !searchQuery && !filteredSessions && activeSessions.length > 1;
@@ -989,13 +999,37 @@ export function Sidebar() {
                 ref={searchInputRef}
                 type="text"
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => {
+                  setActiveSearchResultIndex(0);
+                  setSearchQuery(e.target.value);
+                }}
                 onFocus={() => setSearchFocused(true)}
                 onBlur={() => setSearchFocused(false)}
                 onKeyDown={(e) => {
                   if (e.key === "Escape") {
                     setSearchQuery("");
                     searchInputRef.current?.blur();
+                    return;
+                  }
+                  if (!filteredSessions || filteredSessions.length === 0) {
+                    return;
+                  }
+                  if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    setActiveSearchResultIndex((prev) => (prev + 1) % filteredSessions.length);
+                    return;
+                  }
+                  if (e.key === "ArrowUp") {
+                    e.preventDefault();
+                    setActiveSearchResultIndex((prev) => (prev - 1 + filteredSessions.length) % filteredSessions.length);
+                    return;
+                  }
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    const selected = filteredSessions[activeSearchResultIndex];
+                    if (selected) {
+                      handleSelectSession(selected.session.id);
+                    }
                   }
                 }}
                 placeholder="Search..."
@@ -1066,6 +1100,7 @@ export function Sidebar() {
                   key={s.id}
                   session={s}
                   isActive={currentSessionId === s.id}
+                  isSearchSelected={filteredSessions[activeSearchResultIndex]?.session.id === s.id}
                   isArchived={s.archived}
                   sessionName={sessionNames.get(s.id)}
                   sessionPreview={sessionPreviews.get(s.id)}
