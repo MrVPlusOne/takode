@@ -122,7 +122,6 @@ export interface AdapterBrowserRoutingDeps {
   formatVsCodeSelectionPrompt: (selection: NonNullable<BrowserUserMessage["vscodeSelection"]>) => string;
   getCliSessionId: (session: AdapterBrowserRoutingSessionLike) => string;
   nextUserMessageId: (ts: number) => string;
-  storeImage?: (sessionId: string, data: string, mediaType: string) => Promise<ImageRef>;
   onUserMessage?: (
     sessionId: string,
     history: AdapterBrowserRoutingSessionLike["messageHistory"],
@@ -567,6 +566,17 @@ export async function routeBrowserMessage(
   deps: AdapterBrowserRoutingDeps,
 ): Promise<void> {
   if (msg.type === "user_message") {
+    // Reject legacy raw-image payloads -- images must be pre-uploaded via the
+    // attach-time flow and arrive as imageRefs + deliveryContent.
+    if ((msg as any).images?.length) {
+      deps.notifyImageSendFailure(
+        session,
+        new Error(
+          "Raw image payloads are no longer supported. Use the attach-time upload flow (imageRefs + deliveryContent).",
+        ),
+      );
+      return;
+    }
     if (maybeAutoAnswerPendingQuestionForUserMessage(session, msg, deps)) return;
     maybeAutoRejectPendingPlanForUserMessage(session, msg, deps);
   }
