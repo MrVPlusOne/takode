@@ -1306,4 +1306,117 @@ describe("property-based: frozen history correctness", () => {
       await store.flushAll();
     }
   });
+
+  describe("search-data-only archived sessions", () => {
+    it("extractSearchExcerpts returns user_message and compact_marker content", () => {
+      const messages = [
+        { type: "user_message", content: "What is the status?", timestamp: 1000, id: "msg-1" },
+        {
+          type: "assistant",
+          message: { id: "a1", role: "assistant", model: "test", content: [], stop_reason: "end_turn", usage: {} },
+          parent_tool_use_id: null,
+          timestamp: 1500,
+        },
+        { type: "result", data: { type: "result", subtype: "success", uuid: "r1" } },
+        { type: "compact_marker", summary: "Discussed project status", timestamp: 2000, id: "cm-1" },
+        { type: "user_message", content: "Tell me more", timestamp: 3000, id: "msg-2" },
+      ] as PersistedSession["messageHistory"];
+
+      const excerpts = SessionStore.extractSearchExcerpts(messages);
+      expect(excerpts).toHaveLength(3);
+      expect(excerpts[0]).toMatchObject({ type: "user_message", content: "What is the status?", id: "msg-1" });
+      expect(excerpts[1]).toMatchObject({ type: "compact_marker", content: "Discussed project status", id: "cm-1" });
+      expect(excerpts[2]).toMatchObject({ type: "user_message", content: "Tell me more", id: "msg-2" });
+    });
+
+    it("extractSearchExcerpts truncates content to 500 chars", () => {
+      const longContent = "x".repeat(800);
+      const messages = [
+        { type: "user_message", content: longContent, timestamp: 1000 },
+      ] as PersistedSession["messageHistory"];
+
+      const excerpts = SessionStore.extractSearchExcerpts(messages);
+      expect(excerpts[0].content).toHaveLength(500);
+    });
+
+    it("setArchived persists _searchExcerpts when archiving", async () => {
+      const session = makeSession("archive-test", {
+        messageHistory: [
+          { type: "user_message", content: "search this text", timestamp: 1000, id: "m1" },
+          { type: "result", data: { type: "result", subtype: "success", uuid: "r1" } },
+        ] as PersistedSession["messageHistory"],
+      });
+      store.saveSync(session);
+      await store.flushAll();
+
+      await store.setArchived("archive-test", true);
+      await store.flushAll();
+
+      const loaded = await store.load("archive-test");
+      expect(loaded).not.toBeNull();
+      expect(loaded!.archived).toBe(true);
+      expect(loaded!._searchExcerpts).toHaveLength(1);
+      expect(loaded!._searchExcerpts![0]).toMatchObject({
+        type: "user_message",
+        content: "search this text",
+      });
+    });
+
+    it("loadSearchDataOnly returns metadata without messageHistory", async () => {
+      // Create a session with history, archive it, then load search-data-only
+      const messages = makeTurnMessages(1);
+      const session = makeSession("sdo-test", {
+        archived: true,
+        archivedAt: Date.now(),
+        messageHistory: messages,
+        taskHistory: [{ title: "Fix bug", timestamp: 1000 }] as any,
+        keywords: ["bugfix"],
+        _searchExcerpts: [{ type: "user_message" as const, content: "Turn 1 question", timestamp: 1000 }],
+      });
+      store.saveSync(session);
+      await store.flushAll();
+
+      const loaded = await store.loadSearchDataOnly("sdo-test");
+      expect(loaded).not.toBeNull();
+      expect(loaded!._searchDataOnly).toBe(true);
+      expect(loaded!.messageHistory).toHaveLength(0);
+      expect(loaded!.toolResults).toHaveLength(0);
+      expect(loaded!.taskHistory).toHaveLength(1);
+      expect(loaded!.keywords).toEqual(["bugfix"]);
+      expect(loaded!._searchExcerpts).toHaveLength(1);
+    });
+
+    it("loadAll uses search-data-only for archived, full for active", async () => {
+      // Create an active session with history
+      const activeMessages = makeTurnMessages(1);
+      const activeSession = makeSession("active-sess", {
+        messageHistory: activeMessages,
+      });
+      store.saveSync(activeSession);
+
+      // Create an archived session with history
+      const archivedMessages = makeTurnMessages(2);
+      const archivedSession = makeSession("archived-sess", {
+        archived: true,
+        archivedAt: Date.now(),
+        messageHistory: archivedMessages,
+        _searchExcerpts: [{ type: "user_message" as const, content: "Turn 2 question", timestamp: 2000 }],
+      });
+      store.saveSync(archivedSession);
+      await store.flushAll();
+
+      const all = await store.loadAll();
+      const active = all.find((s) => s.id === "active-sess");
+      const archived = all.find((s) => s.id === "archived-sess");
+
+      expect(active).not.toBeNull();
+      expect(active!.messageHistory.length).toBeGreaterThan(0);
+      expect(active!._searchDataOnly).toBeUndefined();
+
+      expect(archived).not.toBeNull();
+      expect(archived!.messageHistory).toHaveLength(0);
+      expect(archived!._searchDataOnly).toBe(true);
+      expect(archived!._searchExcerpts).toHaveLength(1);
+    });
+  });
 });

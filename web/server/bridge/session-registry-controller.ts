@@ -165,6 +165,8 @@ function createSessionRuntime(
     notifications: options.notifications ?? [],
     notificationCounter: options.notificationCounter ?? 0,
     diffStatsDirty: true,
+    searchDataOnly: false,
+    searchExcerpts: [],
     evaluatingAborts: new Map(),
     cliInitializeSent: false,
     cliResuming: false,
@@ -415,6 +417,51 @@ export async function restorePersistedSessions(
   let count = 0;
   for (const p of persisted) {
     if (sessions.has(p.id)) continue;
+
+    // Archived sessions loaded with search-data-only: skip heavyweight restore
+    if (p._searchDataOnly) {
+      const session = createSessionRuntime(p.id, p.state.backend_type || "claude", p.state, {
+        pendingPermissions: new Map(),
+        messageHistory: [],
+        frozenCount: 0,
+        pendingMessages: [],
+        forceCompactPending: false,
+        pendingCodexTurns: [],
+        pendingCodexInputs: [],
+        pendingCodexRollback: null,
+        pendingCodexRollbackError: null,
+        codexFreshTurnRequiredUntilTurnId: null,
+        nextEventSeq: 1,
+        eventBuffer: [],
+        lastAckSeq: 0,
+        processedClientMessageIds: [],
+        toolResults: new Map(),
+        lastReadAt: typeof p.lastReadAt === "number" ? p.lastReadAt : 0,
+        attentionReason: p.attentionReason ?? null,
+        taskHistory: Array.isArray(p.taskHistory) ? p.taskHistory : [],
+        keywords: Array.isArray(p.keywords) ? p.keywords : [],
+        board: new Map(Array.isArray(p.board) ? p.board.map((row: any) => [row.questId, row]) : []),
+        completedBoard: new Map(
+          Array.isArray(p.completedBoard) ? p.completedBoard.map((row: any) => [row.questId, row]) : [],
+        ),
+        notifications: Array.isArray(p.notifications) ? p.notifications : [],
+        notificationCounter: Array.isArray(p.notifications)
+          ? p.notifications.reduce((max: number, n: SessionNotification) => {
+              const num = parseInt(n.id.replace("n-", ""), 10);
+              return Number.isFinite(num) && num > max ? num : max;
+            }, 0)
+          : 0,
+      });
+      session.state.backend_type = session.backendType;
+      session.state.backend_state = session.state.backend_state ?? "disconnected";
+      session.state.backend_error = session.state.backend_error ?? null;
+      session.searchDataOnly = true;
+      session.searchExcerpts = p._searchExcerpts ?? [];
+      sessions.set(p.id, session);
+      count += 1;
+      continue;
+    }
+
     const restoredCodexTurns = Array.isArray(p.pendingCodexTurns)
       ? p.pendingCodexTurns.map((turn: any) => normalizePersistedCodexTurn(turn))
       : [];

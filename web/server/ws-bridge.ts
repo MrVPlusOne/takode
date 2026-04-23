@@ -40,7 +40,7 @@ import type {
 } from "./session-types.js";
 import { TOOL_RESULT_PREVIEW_LIMIT, assertNever, formatVsCodeSelectionPrompt } from "./session-types.js";
 import type { QuestJourneyState } from "./session-types.js";
-import type { SessionStore } from "./session-store.js";
+import { SessionStore } from "./session-store.js";
 import type { CodexResumeSnapshot, CodexResumeTurnSnapshot, CodexSessionMeta } from "./codex-adapter.js";
 import type { ClaudeSdkSessionMeta } from "./claude-sdk-adapter.js";
 import type { RecorderManager } from "./recorder.js";
@@ -464,6 +464,11 @@ interface Session {
   notificationCounter: number;
   /** Whether agent activity has occurred since the last diff computation */
   diffStatsDirty: boolean;
+  /** True when this archived session was loaded with only search-relevant data.
+   *  Full messageHistory will be lazy-loaded on first browser subscribe. */
+  searchDataOnly: boolean;
+  /** Lightweight search excerpts for search-data-only sessions. */
+  searchExcerpts: import("./session-store.js").SearchExcerpt[];
   /** Whether this session was created by resuming an external CLI session (VS Code/terminal) */
   resumedFromExternal?: boolean;
   /** AbortControllers for in-flight LLM auto-approval evaluations, keyed by request_id.
@@ -2040,6 +2045,35 @@ export class WsBridge {
       getSessions: () => this.sessions.values(),
       windowStaleMs: WsBridge.VSCODE_WINDOW_STALE_MS,
       openFileTimeoutMs: WsBridge.VSCODE_OPEN_FILE_TIMEOUT_MS,
+      lazyLoadFullHistory: async (targetSession: unknown) => {
+        const session = targetSession as Session;
+        if (!session.searchDataOnly || !this.store) return;
+        const persisted = await this.store.load(session.id);
+        if (!persisted) return;
+        session.messageHistory = persisted.messageHistory;
+        session.frozenCount =
+          typeof persisted._frozenCount === "number"
+            ? Math.max(0, Math.min(persisted._frozenCount, persisted.messageHistory.length))
+            : 0;
+        session.toolResults = new Map(Array.isArray(persisted.toolResults) ? persisted.toolResults : []);
+        // Lazy-backfill search excerpts for pre-existing archived sessions
+        if (!persisted._searchExcerpts && persisted.archived) {
+          const excerpts = SessionStore.extractSearchExcerpts(persisted.messageHistory);
+          session.searchExcerpts = excerpts;
+          // Persist excerpts for future startups (fire-and-forget)
+          this.store
+            .load(session.id)
+            .then((fresh) => {
+              if (fresh && !fresh._searchExcerpts) {
+                fresh._searchExcerpts = excerpts;
+                this.store!.saveSync(fresh);
+              }
+            })
+            .catch(() => {});
+        }
+        session.searchDataOnly = false;
+        session.searchExcerpts = [];
+      },
     };
   }
 

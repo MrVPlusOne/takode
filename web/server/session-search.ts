@@ -1,4 +1,5 @@
 import type { BrowserIncomingMessage, SessionTaskEntry } from "./session-types.js";
+import type { SearchExcerpt } from "./session-store.js";
 import { multiWordMatch, normalizeForSearch } from "../shared/search-utils.js";
 
 export type SessionSearchMatchedField =
@@ -23,6 +24,8 @@ export interface SessionSearchDocument {
   cwd?: string;
   repoRoot?: string;
   messageHistory?: BrowserIncomingMessage[] | null;
+  /** Lightweight search excerpts for search-data-only archived sessions. */
+  searchExcerpts?: SearchExcerpt[];
 }
 
 export interface SessionSearchResult {
@@ -97,6 +100,36 @@ function messageMatchCandidate(
   maxMessagesToScan: number,
 ): SessionSearchResult | null {
   const history = doc.messageHistory;
+
+  // Search-data-only path: use lightweight excerpts instead of full history
+  if ((!history || history.length === 0) && doc.searchExcerpts && doc.searchExcerpts.length > 0) {
+    let scanned = 0;
+    for (let i = doc.searchExcerpts.length - 1; i >= 0; i--) {
+      if (scanned >= maxMessagesToScan) break;
+      scanned++;
+      const excerpt = doc.searchExcerpts[i];
+      if (!matches(excerpt.content)) continue;
+
+      const matchedField: SessionSearchMatchedField =
+        excerpt.type === "user_message" ? "user_message" : "compact_marker";
+      const score = excerpt.type === "user_message" ? 500 : 450;
+      const prefix = excerpt.type === "user_message" ? "message" : "compaction";
+      return {
+        sessionId: doc.sessionId,
+        score,
+        matchedField,
+        matchContext: `${prefix}: ${buildSnippet(excerpt.content, qWords)}`,
+        matchedAt: excerpt.timestamp || (doc.lastActivityAt ?? doc.createdAt),
+        messageMatch: {
+          id: excerpt.id,
+          timestamp: excerpt.timestamp || (doc.lastActivityAt ?? doc.createdAt),
+          snippet: buildSnippet(excerpt.content, qWords),
+        },
+      };
+    }
+    return null;
+  }
+
   if (!history || history.length === 0) return null;
 
   let scanned = 0;

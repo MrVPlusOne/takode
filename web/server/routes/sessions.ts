@@ -1237,6 +1237,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
         cwd: bridge?.cwd || s.cwd || "",
         repoRoot: bridge?.repo_root || s.repoRoot || "",
         messageHistory: bridgeSession?.messageHistory || [],
+        searchExcerpts: bridgeSession?.searchExcerpts ?? [],
       };
     });
 
