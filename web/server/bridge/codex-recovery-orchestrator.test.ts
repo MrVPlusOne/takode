@@ -6,9 +6,7 @@ import {
 } from "./codex-recovery-orchestrator.js";
 import type { PendingCodexInput, BrowserIncomingMessage } from "../session-types.js";
 
-function makeSession(
-  pendingInputs: PendingCodexInput[],
-): CodexRecoveryOrchestratorSessionLike {
+function makeSession(pendingInputs: PendingCodexInput[]): CodexRecoveryOrchestratorSessionLike {
   return {
     id: "test-session",
     backendType: "codex",
