@@ -951,6 +951,7 @@ function commitPendingCodexInput(
     timestamp: pending.timestamp,
     id: pending.id,
     ...(pending.imageRefs?.length ? { images: pending.imageRefs } : {}),
+    ...(pending.clientMsgId ? { client_msg_id: pending.clientMsgId } : {}),
     ...(pending.vscodeSelection ? { vscodeSelection: pending.vscodeSelection } : {}),
     ...(pending.agentSource ? { agentSource: pending.agentSource } : {}),
   };
