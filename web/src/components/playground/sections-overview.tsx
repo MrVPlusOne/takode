@@ -91,12 +91,13 @@ import {
   PlaygroundHerdSummaryBar,
   PlaygroundLightboxDemo,
   PlaygroundMcpRow,
+  PlaygroundSectionGroup,
   TaskRow,
 } from "./shared.js";
 
 export function PlaygroundOverviewSections() {
   return (
-    <>
+    <PlaygroundSectionGroup groupId="overview">
       {/* ─── Permission Banners ──────────────────────────────── */}
       <Section
         title="Permission Banners"
@@ -1259,6 +1260,6 @@ export function PlaygroundOverviewSections() {
           </Card>
         </div>
       </Section>
-    </>
+    </PlaygroundSectionGroup>
   );
 }

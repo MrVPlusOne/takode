@@ -29,6 +29,12 @@ function normalizeQuestId(raw: string | null): string | null {
   return QUEST_ID_PATTERN.test(trimmed) ? trimmed : null;
 }
 
+function normalizePlaygroundSectionId(raw: string | null): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  return trimmed ? trimmed : null;
+}
+
 /**
  * Parse a window.location.hash string into a typed Route.
  */
@@ -82,6 +88,37 @@ export function withQuestIdInHash(hash: string, questId: string): string {
 export function withoutQuestIdInHash(hash: string): string {
   const { path, params } = splitHash(hash);
   params.delete("quest");
+  const query = params.toString();
+  return query ? `${path}?${query}` : path;
+}
+
+/**
+ * Read playground section ID from the hash query (if present).
+ */
+export function playgroundSectionIdFromHash(hash: string): string | null {
+  if (parseHash(hash).page !== "playground") return null;
+  const { params } = splitHash(hash);
+  return normalizePlaygroundSectionId(params.get("section"));
+}
+
+/**
+ * Return a hash string with playground section query param set.
+ */
+export function withPlaygroundSectionInHash(hash: string, sectionId: string): string {
+  const normalized = normalizePlaygroundSectionId(sectionId);
+  const { path, params } = splitHash(hash);
+  if (!normalized) return path;
+  params.set("section", normalized);
+  const query = params.toString();
+  return query ? `${path}?${query}` : path;
+}
+
+/**
+ * Return a hash string with playground section query param removed.
+ */
+export function withoutPlaygroundSectionInHash(hash: string): string {
+  const { path, params } = splitHash(hash);
+  params.delete("section");
   const query = params.toString();
   return query ? `${path}?${query}` : path;
 }

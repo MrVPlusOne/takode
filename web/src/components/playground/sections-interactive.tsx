@@ -14,6 +14,7 @@ import {
   PlaygroundHoverCrossLinkDemo,
   PlaygroundMessageLinkHoverDemo,
   PlaygroundReviewNotificationMarker,
+  PlaygroundSectionGroup,
   PlaygroundSelectionContextMenu,
   Section,
   TimerModalDemo,
@@ -21,7 +22,7 @@ import {
 
 export function PlaygroundInteractiveSections() {
   return (
-    <>
+    <PlaygroundSectionGroup groupId="interactive">
       {/* ─── Composer ──────────────────────────────── */}
       <Section title="Composer" description="Message input bar with mode toggle, image upload, and send/stop buttons">
         <div className="max-w-3xl">
@@ -1299,6 +1300,6 @@ export function PlaygroundInteractiveSections() {
           </Card>
         </div>
       </Section>
-    </>
+    </PlaygroundSectionGroup>
   );
 }

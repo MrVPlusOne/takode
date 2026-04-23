@@ -13,6 +13,7 @@ import {
   PlaygroundClaudeMdButton,
   PlaygroundFolderPicker,
   PlaygroundHerdEventDemo,
+  PlaygroundSectionGroup,
   PlaygroundSelectionContextMenu,
   PlaygroundSubagentGroup,
   PlaygroundToolGroup,
@@ -21,7 +22,7 @@ import {
 
 export function PlaygroundStateSections() {
   return (
-    <>
+    <PlaygroundSectionGroup groupId="states">
       {/* ─── Composer — Voice Recording ──────────────────────────────── */}
       <Section
         title="Composer — Voice Recording"
@@ -1667,6 +1668,6 @@ export function PlaygroundStateSections() {
           </Card>
         </div>
       </Section>
-    </>
+    </PlaygroundSectionGroup>
   );
 }

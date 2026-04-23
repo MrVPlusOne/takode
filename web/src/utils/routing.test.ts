@@ -13,6 +13,9 @@ import {
   questIdFromHash,
   withQuestIdInHash,
   withoutQuestIdInHash,
+  playgroundSectionIdFromHash,
+  withPlaygroundSectionInHash,
+  withoutPlaygroundSectionInHash,
 } from "./routing.js";
 import { useStore } from "../store.js";
 
@@ -108,6 +111,30 @@ describe("quest hash helpers", () => {
   it("removes quest query while preserving other params", () => {
     expect(withoutQuestIdInHash("#/session/s1?foo=1&quest=q-12&bar=2")).toBe("#/session/s1?foo=1&bar=2");
     expect(withoutQuestIdInHash("#/session/s1?quest=q-12")).toBe("#/session/s1");
+  });
+});
+
+describe("playground hash helpers", () => {
+  it("extracts the playground section from the route query", () => {
+    expect(playgroundSectionIdFromHash("#/playground?section=states-timer-messages")).toBe("states-timer-messages");
+    expect(playgroundSectionIdFromHash("#/playground?section=interactive-composer&foo=1")).toBe("interactive-composer");
+    expect(playgroundSectionIdFromHash("#/session/s1?section=states-timer-messages")).toBeNull();
+  });
+
+  it("adds the playground section query while preserving the route and existing params", () => {
+    expect(withPlaygroundSectionInHash("#/playground", "states-timer-messages")).toBe(
+      "#/playground?section=states-timer-messages",
+    );
+    expect(withPlaygroundSectionInHash("#/playground?foo=1", "interactive-composer")).toBe(
+      "#/playground?foo=1&section=interactive-composer",
+    );
+  });
+
+  it("removes the playground section query while preserving other params", () => {
+    expect(withoutPlaygroundSectionInHash("#/playground?foo=1&section=states-timer-messages&bar=2")).toBe(
+      "#/playground?foo=1&bar=2",
+    );
+    expect(withoutPlaygroundSectionInHash("#/playground?section=states-timer-messages")).toBe("#/playground");
   });
 });
 
