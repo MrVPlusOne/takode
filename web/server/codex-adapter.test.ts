@@ -4736,6 +4736,145 @@ describe("CodexAdapter", () => {
     expect(responseLine).not.toContain('"decline"');
   });
 
+  // ── MCP elicitation (mcpServer/elicitation/request) ───────────────────
+
+  it("emits permission_request with mcp:server:tool format for elicitation", async () => {
+    const messages: BrowserIncomingMessage[] = [];
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
+    adapter.onBrowserMessage((msg) => messages.push(msg));
+
+    await initializeAdapter(stdout);
+
+    stdout.push(
+      JSON.stringify({
+        method: "mcpServer/elicitation/request",
+        id: 500,
+        params: {
+          serverName: "slack",
+          message: 'Allow the slack MCP server to run tool "slack_send_message"?',
+          _meta: {
+            tool_description: "Send a message to a Slack channel",
+            tool_params: { channel: "#general", text: "hello" },
+          },
+        },
+      }) + "\n",
+    );
+    await tick();
+
+    const permReqs = messages.filter((m) => m.type === "permission_request");
+    expect(permReqs.length).toBe(1);
+
+    const perm = permReqs[0] as unknown as {
+      request: { tool_name: string; input: Record<string, unknown>; description: string };
+    };
+    expect(perm.request.tool_name).toBe("mcp:slack:slack_send_message");
+    expect(perm.request.input).toEqual({ channel: "#general", text: "hello" });
+    expect(perm.request.description).toContain("Send a message to a Slack channel");
+  });
+
+  it("maps allow to accept and deny to decline for elicitation responses", async () => {
+    const messages: BrowserIncomingMessage[] = [];
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
+    adapter.onBrowserMessage((msg) => messages.push(msg));
+
+    await initializeAdapter(stdout);
+
+    stdout.push(
+      JSON.stringify({
+        method: "mcpServer/elicitation/request",
+        id: 501,
+        params: {
+          serverName: "slack",
+          message: 'Allow the slack MCP server to run tool "slack_send_message"?',
+          _meta: { tool_params: {} },
+        },
+      }) + "\n",
+    );
+    await tick();
+
+    const permReq = messages.find((m) => m.type === "permission_request") as unknown as {
+      request: { request_id: string };
+    };
+
+    adapter.sendBrowserMessage({
+      type: "permission_response",
+      request_id: permReq.request.request_id,
+      behavior: "allow",
+    });
+    await tick();
+
+    let responseLine = stdin.chunks
+      .join("")
+      .split("\n")
+      .find((l) => l.includes('"id":501'));
+    expect(responseLine).toBeDefined();
+    expect(responseLine).toContain('"action"');
+    expect(responseLine).toContain('"accept"');
+    expect(responseLine).not.toContain('"decision"');
+
+    stdout.push(
+      JSON.stringify({
+        method: "mcpServer/elicitation/request",
+        id: 502,
+        params: {
+          serverName: "slack",
+          message: 'Allow the slack MCP server to run tool "slack_send_message"?',
+          _meta: { tool_params: {} },
+        },
+      }) + "\n",
+    );
+    await tick();
+
+    const secondPermReq = messages.filter((m) => m.type === "permission_request").at(-1) as unknown as {
+      request: { request_id: string };
+    };
+
+    adapter.sendBrowserMessage({
+      type: "permission_response",
+      request_id: secondPermReq.request.request_id,
+      behavior: "deny",
+    });
+    await tick();
+
+    responseLine = stdin.chunks
+      .join("")
+      .split("\n")
+      .find((l) => l.includes('"id":502'));
+    expect(responseLine).toBeDefined();
+    expect(responseLine).toContain('"action"');
+    expect(responseLine).toContain('"decline"');
+    expect(responseLine).not.toContain('"decision"');
+  });
+
+  it("falls back to 'elicitation' tool name when message format is unexpected", async () => {
+    const messages: BrowserIncomingMessage[] = [];
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
+    adapter.onBrowserMessage((msg) => messages.push(msg));
+
+    await initializeAdapter(stdout);
+
+    stdout.push(
+      JSON.stringify({
+        method: "mcpServer/elicitation/request",
+        id: 503,
+        params: {
+          serverName: "custom-server",
+          message: "Some unexpected elicitation message format",
+          _meta: { tool_params: { key: "value" } },
+        },
+      }) + "\n",
+    );
+    await tick();
+
+    const permReqs = messages.filter((m) => m.type === "permission_request");
+    expect(permReqs.length).toBe(1);
+
+    const perm = permReqs[0] as unknown as {
+      request: { tool_name: string };
+    };
+    expect(perm.request.tool_name).toBe("mcp:custom-server:elicitation");
+  });
+
   // ── MCP server management (Codex app-server methods) ───────────────────
 
   it("surfaces MCP startup failure as failed MCP status without failing Codex init", async () => {

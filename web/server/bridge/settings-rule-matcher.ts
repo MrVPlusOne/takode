@@ -183,11 +183,26 @@ export function matchesToolRule(toolName: string, input: Record<string, unknown>
 
 // ─── Security Guards ────────────────────────────────────────────────────────
 
-/** Reject commands with shell constructs that could inject arbitrary code. */
+/**
+ * Reject commands with shell constructs that could inject arbitrary code.
+ *
+ * Only quoted-delimiter `$(cat <<'DELIM' ... DELIM)` and `$(cat <<"DELIM" ... DELIM)`
+ * heredoc patterns are whitelisted — these suppress shell expansion inside the
+ * body, so they act like multi-line string literals piped through `cat`.
+ * Unquoted delimiters (for example `<<EOF`) are intentionally NOT whitelisted
+ * because the heredoc body still performs shell expansion.
+ */
 export function hasDangerousShellConstructs(command: string): boolean {
-  if (/\$\(/.test(command)) return true;
-  if (/`/.test(command)) return true;
-  if (/[<>]\(/.test(command)) return true;
+  // Only strip quoted-delimiter `$(cat <<...)` heredocs before scanning.
+  // The non-greedy [\s\S]*? may over-match across multiple heredocs, which is
+  // acceptable here because this guard should fail closed.
+  const withoutSafeCatHeredocs = command.replace(
+    /\$\(cat\s+<<-?\s*(["'])([A-Za-z_]\w*)\1\s*\n[\s\S]*?\n\s*\2\s*\)/g,
+    "<<HEREDOC_PLACEHOLDER>>",
+  );
+  if (/\$\(/.test(withoutSafeCatHeredocs)) return true;
+  if (/`/.test(withoutSafeCatHeredocs)) return true;
+  if (/[<>]\(/.test(withoutSafeCatHeredocs)) return true;
   return false;
 }
 

@@ -21,6 +21,7 @@ type PendingDynamicToolCall = {
 export class CodexApprovalManager {
   private pendingApprovals = new Map<string, number>();
   private pendingUserInputQuestionIds = new Map<string, string[]>();
+  private pendingElicitations = new Set<string>();
   private pendingReviewDecisions = new Set<string>();
   private pendingDynamicToolCalls = new Map<string, PendingDynamicToolCall>();
 
@@ -46,6 +47,7 @@ export class CodexApprovalManager {
     }
     this.pendingDynamicToolCalls.clear();
     this.pendingApprovals.clear();
+    this.pendingElicitations.clear();
     this.pendingReviewDecisions.clear();
     this.pendingUserInputQuestionIds.clear();
   }
@@ -97,6 +99,13 @@ export class CodexApprovalManager {
       return;
     }
 
+    if (this.pendingElicitations.has(msg.request_id)) {
+      this.pendingElicitations.delete(msg.request_id);
+      const action = msg.behavior === "allow" ? "accept" : "decline";
+      await this.transport.respond(jsonRpcId, { action });
+      return;
+    }
+
     if (this.pendingReviewDecisions.has(msg.request_id)) {
       this.pendingReviewDecisions.delete(msg.request_id);
       const decision = msg.behavior === "allow" ? "approved" : "denied";
@@ -125,6 +134,9 @@ export class CodexApprovalManager {
           break;
         case "item/tool/requestUserInput":
           this.handleUserInputRequest(id, params);
+          break;
+        case "mcpServer/elicitation/request":
+          this.handleMcpElicitationRequest(id, params);
           break;
         case "applyPatchApproval":
           this.handleApplyPatchApproval(id, params);
@@ -335,6 +347,39 @@ export class CodexApprovalManager {
       },
       description: questions[0]?.question || "User input requested",
       tool_use_id: (params.itemId as string) || requestId,
+      timestamp: Date.now(),
+    };
+
+    this.emit({ type: "permission_request", request: perm });
+  }
+
+  /**
+   * MCP servers use elicitation requests to ask for approval before a tool call.
+   * Codex expects `{ action: "accept" | "decline" }` in response rather than
+   * the normal approval payload shapes used by other request types.
+   */
+  private handleMcpElicitationRequest(jsonRpcId: number, params: Record<string, unknown>): void {
+    const requestId = `codex-elicit-${randomUUID()}`;
+    this.pendingApprovals.set(requestId, jsonRpcId);
+    this.pendingElicitations.add(requestId);
+
+    const serverName = (params.serverName as string) || "unknown";
+    const message = (params.message as string) || "MCP server elicitation request";
+    const meta = (params._meta as Record<string, unknown>) || {};
+    const toolDescription = (meta.tool_description as string) || "";
+    const toolParams = (meta.tool_params as Record<string, unknown>) || {};
+
+    // This regex depends on Codex's current English phrasing. If that drifts,
+    // we intentionally fall back to a generic tool name rather than failing.
+    const toolMatch = message.match(/run tool "([^"]+)"/);
+    const toolName = toolMatch ? toolMatch[1] : "elicitation";
+
+    const perm: PermissionRequest = {
+      request_id: requestId,
+      tool_name: `mcp:${serverName}:${toolName}`,
+      input: toolParams,
+      description: toolDescription ? `${message}\n\n${toolDescription}` : message,
+      tool_use_id: requestId,
       timestamp: Date.now(),
     };
 
