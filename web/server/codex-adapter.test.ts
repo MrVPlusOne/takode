@@ -1460,6 +1460,37 @@ describe("CodexAdapter", () => {
     });
     expect(writeMsg).toBeDefined();
 
+    // fileChange with "add" kind should also normalize to Write tool
+    stdout.push(
+      JSON.stringify({
+        method: "item/completed",
+        params: {
+          item: {
+            type: "fileChange",
+            id: "fc_add",
+            changes: [{ path: "/tmp/added.ts", kind: "add", diff: "+export const added = true;\n" }],
+            status: "completed",
+          },
+        },
+      }) + "\n",
+    );
+
+    await tick();
+
+    const addWriteMsg = messages
+      .filter((m) => m.type === "assistant")
+      .find((m) => {
+        const content = (
+          m as {
+            message: { content: Array<{ type: string; id?: string; name?: string; input?: { file_path?: string } }> };
+          }
+        ).message.content;
+        return content.some(
+          (b) => b.type === "tool_use" && b.id === "fc_add" && b.name === "Write" && b.input?.file_path === "/tmp/added.ts",
+        );
+      });
+    expect(addWriteMsg).toBeDefined();
+
     // fileChange with "modify" kind → Edit tool
     stdout.push(
       JSON.stringify({
@@ -1772,6 +1803,46 @@ describe("CodexAdapter", () => {
       );
     });
     expect(toolUse).toBeDefined();
+  });
+
+  it("suppresses fileChange tool_use when completed payload still has no renderable diff or content", async () => {
+    const messages: BrowserIncomingMessage[] = [];
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
+    adapter.onBrowserMessage((msg) => messages.push(msg));
+
+    await tick();
+    stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
+    await tick();
+    stdout.push(JSON.stringify({ id: 2, result: { thread: { id: "thr_123" } } }) + "\n");
+    await tick();
+
+    stdout.push(
+      JSON.stringify({
+        method: "item/completed",
+        params: {
+          item: {
+            type: "fileChange",
+            id: "fc_unrenderable",
+            changes: [{ path: "/tmp/placeholder.ts", kind: "add" }],
+            status: "completed",
+          },
+        },
+      }) + "\n",
+    );
+    await tick();
+
+    const fileChangeMessages = messages.filter((m) => {
+      if (m.type !== "assistant") return false;
+      const content = (
+        m as { message: { content: Array<{ type: string; id?: string; tool_use_id?: string }> } }
+      ).message.content;
+      return content.some(
+        (block) =>
+          (block.type === "tool_use" && block.id === "fc_unrenderable") ||
+          (block.type === "tool_result" && block.tool_use_id === "fc_unrenderable"),
+      );
+    });
+    expect(fileChangeMessages).toHaveLength(0);
   });
 
   it("sends turn/interrupt on interrupt message", async () => {

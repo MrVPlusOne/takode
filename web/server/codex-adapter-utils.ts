@@ -37,6 +37,13 @@ export function toSafeText(value: unknown): string {
   return "";
 }
 
+function firstNonEmptyStringValue(...values: unknown[]): string {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  return "";
+}
+
 function stripOuterShellQuotes(text: string): string {
   const trimmed = text.trim();
   if (trimmed.length < 2) return trimmed;
@@ -249,6 +256,7 @@ export type ToolFileChange = {
   path: string;
   kind: string;
   diff?: string;
+  content?: string;
 };
 
 function extractChangeDiff(change: Record<string, unknown>): string {
@@ -269,15 +277,48 @@ function extractChangeDiff(change: Record<string, unknown>): string {
   return "";
 }
 
+function extractChangeContent(change: Record<string, unknown>): string {
+  const direct = firstNonEmptyStringValue(
+    change.content,
+    change.text,
+    change.new_string,
+    change.newText,
+    change.new_content,
+    change.newContent,
+  );
+  if (direct) return direct;
+
+  const kind = change.kind;
+  if (kind && typeof kind === "object") {
+    return firstNonEmptyStringValue(
+      (kind as Record<string, unknown>).content,
+      (kind as Record<string, unknown>).text,
+      (kind as Record<string, unknown>).new_string,
+      (kind as Record<string, unknown>).newText,
+      (kind as Record<string, unknown>).new_content,
+      (kind as Record<string, unknown>).newContent,
+    );
+  }
+
+  return "";
+}
+
+export function isWriteLikeFileChangeKind(kind: unknown): boolean {
+  const normalizedKind = safeKind(kind).trim().toLowerCase();
+  return normalizedKind === "create" || normalizedKind === "created" || normalizedKind === "add" || normalizedKind === "new";
+}
+
 export function mapFileChangesForTool(changes: Array<Record<string, unknown>>): ToolFileChange[] {
   return changes.map((c) => {
     const path = typeof c.path === "string" ? c.path : "";
     const kind = safeKind(c.kind ?? c.type);
     const diff = extractChangeDiff(c);
+    const content = extractChangeContent(c);
     return {
       path,
       kind,
       ...(diff ? { diff } : {}),
+      ...(content ? { content } : {}),
     };
   });
 }
@@ -287,10 +328,12 @@ export function mapFileChangesObjectForTool(fileChanges: Record<string, unknown>
     const rec = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
     const kind = safeKind(rec.kind ?? rec.type);
     const diff = extractChangeDiff(rec);
+    const content = extractChangeContent(rec);
     return {
       path,
       kind,
       ...(diff ? { diff } : {}),
+      ...(content ? { content } : {}),
     };
   });
 }
