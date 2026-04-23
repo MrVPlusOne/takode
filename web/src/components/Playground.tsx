@@ -26,13 +26,7 @@ function getPlaygroundHashSectionId() {
   return sectionId && PLAYGROUND_NAV_ITEM_IDS.has(sectionId) ? sectionId : DEFAULT_PLAYGROUND_SECTION_ID;
 }
 
-function PlaygroundGroupBlock({
-  group,
-  children,
-}: {
-  group: PlaygroundNavGroup;
-  children: React.ReactNode;
-}) {
+function PlaygroundGroupBlock({ group, children }: { group: PlaygroundNavGroup; children: React.ReactNode }) {
   return (
     <section aria-labelledby={`playground-group-${group.id}-heading`} className="space-y-8">
       <div className="rounded-2xl border border-cc-border bg-cc-card/70 px-5 py-4">
@@ -112,7 +106,8 @@ export function Playground() {
           .filter((entry) => entry.isIntersecting)
           .sort(
             (a, b) =>
-              b.intersectionRatio - a.intersectionRatio || Math.abs(a.boundingClientRect.top) - Math.abs(b.boundingClientRect.top),
+              b.intersectionRatio - a.intersectionRatio ||
+              Math.abs(a.boundingClientRect.top) - Math.abs(b.boundingClientRect.top),
           );
         const nextSectionId = visibleEntries[0]?.target.getAttribute("data-playground-section-id");
         if (nextSectionId && PLAYGROUND_NAV_ITEM_IDS.has(nextSectionId)) {
@@ -189,7 +184,9 @@ export function Playground() {
             >
               <div className="border-b border-cc-border px-4 py-4">
                 <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-cc-muted">Navigation</p>
-                <h2 className="mt-1 text-sm font-semibold text-cc-fg">Jump directly to the component state you need.</h2>
+                <h2 className="mt-1 text-sm font-semibold text-cc-fg">
+                  Jump directly to the component state you need.
+                </h2>
               </div>
               <div className="max-h-[calc(100vh-9rem)] space-y-4 overflow-y-auto px-3 py-3">
                 {PLAYGROUND_NAV_GROUPS.map((group) => (
