@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 import { api } from "../../api.js";
 import { useStore } from "../../store.js";
 import type { ChatMessage, McpServerDetail, TaskItem } from "../../types.js";
@@ -16,6 +16,19 @@ import { CodexRateLimitsSection, CodexTokenDetailsSection } from "../TaskPanel.j
 import { TimerModal } from "../TimerWidget.js";
 import { ToolBlock, getToolIcon, getToolLabel, getPreview, ToolIcon, formatDuration } from "../ToolBlock.js";
 import { PLAYGROUND_SESSION_ROWS } from "./fixtures.js";
+import { getPlaygroundSectionId, type PlaygroundSectionGroupId } from "./navigation.js";
+
+const PlaygroundSectionGroupContext = createContext<PlaygroundSectionGroupId | null>(null);
+
+export function PlaygroundSectionGroup({
+  groupId,
+  children,
+}: {
+  groupId: PlaygroundSectionGroupId;
+  children: React.ReactNode;
+}) {
+  return <PlaygroundSectionGroupContext.Provider value={groupId}>{children}</PlaygroundSectionGroupContext.Provider>;
+}
 
 export function PlaygroundHerdSummaryBar({ isExpanded }: { isExpanded: boolean }) {
   return (
@@ -149,8 +162,11 @@ export function Section({
   description: string;
   children: React.ReactNode;
 }) {
+  const groupId = useContext(PlaygroundSectionGroupContext);
+  const sectionId = groupId ? getPlaygroundSectionId(groupId, title) : undefined;
+
   return (
-    <section>
+    <section id={sectionId} data-playground-section-id={sectionId} className="scroll-mt-28">
       <div className="mb-4">
         <h2 className="text-base font-semibold text-cc-fg">{title}</h2>
         <p className="text-xs text-cc-muted mt-0.5">{description}</p>

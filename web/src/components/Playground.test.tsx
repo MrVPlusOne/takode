@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { useStore } from "../store.js";
 import { MOCK_SESSION_ID, PLAYGROUND_SECTIONED_SESSION_ID } from "./playground/fixtures.js";
 import { usePlaygroundSeed } from "./playground/usePlaygroundSeed.js";
@@ -37,24 +37,57 @@ function PlaygroundSeedHarness() {
 describe("Playground", () => {
   beforeEach(() => {
     useStore.getState().reset();
+    window.history.replaceState(null, "", "/");
   });
 
   afterEach(() => {
     useStore.getState().reset();
+    window.history.replaceState(null, "", "/");
   });
 
   it("renders the real chat stack section with integrated chat components", () => {
     render(<Playground />);
 
     expect(screen.getByText("Component Playground")).toBeTruthy();
-    expect(screen.getByText("Real Chat Stack")).toBeTruthy();
-    expect(screen.getByText("Notification Marker")).toBeTruthy();
-    expect(screen.getByText("Timer Messages")).toBeTruthy();
+    expect(screen.getAllByText("Real Chat Stack").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Notification Marker").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Timer Messages").length).toBeGreaterThan(0);
+    expect(screen.getByText("Attachment processing states")).toBeTruthy();
     expect(screen.getByText("Pending local upload bubble")).toBeTruthy();
 
     const realChat = screen.getByTestId("playground-real-chat-stack");
     expect(realChat).toBeTruthy();
     expect(within(realChat).getAllByText(/ChatView|MessageFeed/).length).toBeGreaterThan(0);
+  });
+
+  it("renders grouped navigation and scrolls to the selected section", () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+
+    render(<Playground />);
+
+    const navigation = screen.getByRole("navigation", { name: "Playground navigation" });
+    expect(within(navigation).getByText("Overview")).toBeTruthy();
+    expect(within(navigation).getByText("Interactive")).toBeTruthy();
+    expect(within(navigation).getByText("States")).toBeTruthy();
+
+    const timerMessagesButton = within(navigation).getByRole("button", { name: "Timer Messages" });
+    fireEvent.click(timerMessagesButton);
+
+    expect(timerMessagesButton.getAttribute("aria-current")).toBe("true");
+    expect(window.location.hash).toBe("#/playground?section=states-timer-messages");
+    expect(scrollIntoView).toHaveBeenCalled();
+    expect(document.getElementById("states-timer-messages")).toBeTruthy();
+  });
+
+  it("uses the hash target as the initial active navigation item", () => {
+    window.history.replaceState(null, "", "#/playground?section=interactive-notification-inbox");
+
+    render(<Playground />);
+
+    const navigation = screen.getByRole("navigation", { name: "Playground navigation" });
+    const notificationInboxButton = within(navigation).getByRole("button", { name: "Notification Inbox" });
+    expect(notificationInboxButton.getAttribute("aria-current")).toBe("true");
   });
 
   it("seeds demo session state on mount and restores prior values on unmount", () => {
