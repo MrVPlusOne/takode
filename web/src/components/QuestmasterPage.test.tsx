@@ -659,6 +659,32 @@ describe("QuestmasterPage verification inbox", () => {
     expect(screen.queryByText("#mobile")).toBeNull();
   });
 
+  it("treats numeric-leading hashtag tokens as plain text search", () => {
+    // Session-style references like #123 should remain searchable literal text
+    // instead of being stripped as tag syntax or turned into tag autocomplete.
+    mockState.quests = [
+      {
+        ...buildVerificationQuest({ id: "q-67-v1", questId: "q-67", title: "Follow up on #123 reconnect report" }),
+        verificationInboxUnread: false,
+        tags: ["alpha"],
+      } as QuestmasterTask,
+      {
+        ...buildVerificationQuest({ id: "q-68-v1", questId: "q-68", title: "Follow up on #456 reconnect report" }),
+        verificationInboxUnread: false,
+        tags: ["alpha"],
+      } as QuestmasterTask,
+    ];
+
+    renderQuestmaster();
+
+    const searchInput = screen.getByPlaceholderText("Search or #tag...");
+    fireEvent.change(searchInput, { target: { value: "#123" } });
+
+    expect(document.querySelector('[data-quest-id="q-67"]')).toBeTruthy();
+    expect(document.querySelector('[data-quest-id="q-68"]')).toBeNull();
+    expect(screen.queryByText("excluding:")).toBeNull();
+  });
+
   it("supports mixed free-text plus negated-tag queries and only highlights the positive text", () => {
     // Mixed queries like `auth !#mobile` should preserve the positive text
     // match while excluding the negated tag, and highlight only the positive
@@ -780,6 +806,30 @@ describe("QuestmasterPage verification inbox", () => {
       expect(mockState.questOverlayId).toBe("q-3");
     });
     expect(screen.queryByPlaceholderText("Quest title")).toBeNull();
+  });
+
+  it("does not extract numeric-leading session references as quest tags on create", async () => {
+    // Numeric-leading references like #123 often point to sessions, so create
+    // flow extraction should keep them out of the saved tag list.
+    renderQuestmaster();
+
+    fireEvent.click(screen.getByRole("button", { name: /New Quest/i }));
+    fireEvent.change(screen.getByPlaceholderText("Quest title"), {
+      target: { value: "Follow session #123 and tag #alpha" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("Description (optional)"), {
+      target: { value: "Need context from #456 before #beta ships." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() => {
+      expect(mockCreateQuest).toHaveBeenCalledWith({
+        title: "Follow session #123 and tag #alpha",
+        description: "Need context from #456 before #beta ships.",
+        tags: ["alpha", "beta"],
+        images: undefined,
+      });
+    });
   });
 
   it("opens create-form image previews in a lightbox instead of a new tab", async () => {
