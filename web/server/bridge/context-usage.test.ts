@@ -80,4 +80,30 @@ describe("context-usage helpers", () => {
       modelContextWindow: 200_000,
     });
   });
+
+  it("overrides modelContextWindow with 1M for [1m] model variants", () => {
+    // CLI reports contextWindow: 200000 for the base model, but the session
+    // model string contains [1m] indicating the 1M context variant.
+    expect(
+      extractClaudeTokenDetails(
+        {
+          "claude-opus-4-6": {
+            inputTokens: 100,
+            outputTokens: 50,
+            cacheReadInputTokens: 0,
+            cacheCreationInputTokens: 0,
+            contextWindow: 200_000,
+            maxOutputTokens: 32_000,
+            costUSD: 0,
+          },
+        },
+        "claude-opus-4-6[1m]",
+      ),
+    ).toEqual({
+      inputTokens: 100,
+      outputTokens: 50,
+      cachedInputTokens: 0,
+      modelContextWindow: 1_000_000,
+    });
+  });
 });

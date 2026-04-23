@@ -3,6 +3,7 @@ import { evaluatePermission, type RecentToolCall } from "../auto-approver.js";
 import type { AutoApprovalConfig } from "../auto-approval-store.js";
 import { deriveAttachmentPaths, formatAttachmentPathAnnotation } from "../attachment-paths.js";
 import type { ImageRef } from "../image-store.js";
+import { inferContextWindowFromModel } from "./context-usage.js";
 import type {
   BrowserIncomingMessage,
   BrowserOutgoingMessage,
@@ -68,6 +69,7 @@ export interface AdapterBrowserRoutingSessionLike {
     | "askPermission"
     | "backend_error"
     | "backend_state"
+    | "claude_token_details"
     | "codex_image_send_stage"
     | "codex_reasoning_effort"
     | "cwd"
@@ -973,6 +975,19 @@ export function handleSetModel(
     );
   }
   session.state.model = model;
+  const inferredWindow = inferContextWindowFromModel(model);
+  if (inferredWindow) {
+    if (session.state.claude_token_details) {
+      session.state.claude_token_details.modelContextWindow = inferredWindow;
+    } else {
+      session.state.claude_token_details = {
+        inputTokens: 0,
+        outputTokens: 0,
+        cachedInputTokens: 0,
+        modelContextWindow: inferredWindow,
+      };
+    }
+  }
   deps.broadcastToBrowsers(session, {
     type: "session_update",
     session: { model },
