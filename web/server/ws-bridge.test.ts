@@ -22704,10 +22704,11 @@ describe("board stall warnings", () => {
     vi.advanceTimersByTime(31_000);
     await Promise.resolve();
 
-    expect(leaderSession.notifications.some((notif: any) => notif.summary.includes("q-2 can be dispatched now"))).toBe(
-      false,
+    const dispatchNotif = leaderSession.notifications.find((notif: any) =>
+      notif.summary.includes("worker slots are available"),
     );
-    expect(leaderSession.attentionReason).toBe("review");
+    expect(dispatchNotif?.done).toBe(false);
+    expect(leaderSession.attentionReason).toBe("action");
 
     bridge.upsertBoardRow(leaderId, {
       questId: "q-2",
@@ -22716,15 +22717,13 @@ describe("board stall warnings", () => {
       status: "PLANNING",
     });
 
-    expect(leaderSession.notifications.some((notif: any) => notif.summary.includes("q-2 can be dispatched now"))).toBe(
-      false,
-    );
-    expect(leaderSession.attentionReason).toBe("review");
+    expect(leaderSession.notifications.find((notif: any) => notif.id === dispatchNotif.id)?.done).toBe(true);
+    expect(leaderSession.attentionReason).toBeNull();
 
     dispatcher.destroy();
   });
 
-  it("does not create a leader notification when a resolved quest dependency has no source session to attribute", async () => {
+  it("still creates a leader notification when a resolved quest dependency has no source session to attribute", async () => {
     const { leaderId, dispatcher } = setupBoardStallHarness();
     const injectSpy = vi.spyOn(bridge, "injectUserMessage");
     const leaderSession = (bridge as any).sessions.get(leaderId);
@@ -22754,10 +22753,10 @@ describe("board stall warnings", () => {
     vi.advanceTimersByTime(31_000);
     await Promise.resolve();
 
-    expect(leaderSession.notifications.some((notif: any) => notif.summary.includes("q-3 can be dispatched now"))).toBe(
-      false,
+    expect(leaderSession.notifications.some((notif: any) => notif.summary.includes("worker slots are available"))).toBe(
+      true,
     );
-    expect(leaderSession.attentionReason).toBe("review");
+    expect(leaderSession.attentionReason).toBe("action");
     const herdCalls = injectSpy.mock.calls.filter(
       ([sessionId, content, source]) =>
         sessionId === leaderId && source?.sessionId === "herd-events" && String(content).includes("q-3"),
