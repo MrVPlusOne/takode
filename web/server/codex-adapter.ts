@@ -2284,6 +2284,9 @@ export class CodexAdapter
     const toolParams = (meta.tool_params as Record<string, unknown>) || {};
 
     // Extract the tool name from the message if possible (format: 'Allow the X MCP server to run tool "Y"?')
+    // NOTE: This regex is coupled to Codex's exact English phrasing. If the
+    // wording changes, we silently fall back to "elicitation" — the permission
+    // UI is less informative but still functional. This is intentional.
     const toolMatch = message.match(/run tool "([^"]+)"/);
     const toolName = toolMatch ? toolMatch[1] : "elicitation";
 

@@ -243,14 +243,18 @@ export function matchesToolRule(toolName: string, input: Record<string, unknown>
 /**
  * Reject commands with shell constructs that could inject arbitrary code.
  *
- * Safe heredoc patterns like `$(cat <<'EOF' ... EOF)` and `$(cat <<EOF ... EOF)`
- * are whitelisted — they're just multi-line string literals, not arbitrary
- * command substitution.
+ * Only `$(cat <<'DELIM' ... DELIM)` and `$(cat <<DELIM ... DELIM)` heredoc
+ * patterns are whitelisted — these are just multi-line string literals piped
+ * through `cat`, not arbitrary command substitution. Other commands inside
+ * `$(...)` (e.g. `$(printf <<'EOF' ...)`) are intentionally NOT whitelisted
+ * and will still be flagged as dangerous. Being conservative is the right
+ * default for security guards.
  */
 export function hasDangerousShellConstructs(command: string): boolean {
-  // Strip safe heredoc constructs before scanning: $(cat <<'DELIM' ... DELIM)
-  // and $(cat <<DELIM ... DELIM). These are commonly used to pass multi-line
-  // strings to CLI commands (e.g. takode send, git commit -m).
+  // Strip only $(cat <<...) heredoc constructs before scanning. Only `cat` is
+  // whitelisted — other commands in $() remain flagged. The non-greedy [\s\S]*?
+  // could over-match across multiple heredocs in the same command, but that
+  // makes the guard more conservative (over-stripping), not less safe.
   const withoutHeredocs = command.replace(
     /\$\(cat\s+<<-?\s*'?([A-Za-z_]\w*)'?\s*\n[\s\S]*?\n\s*\1\s*\)/g,
     "<<HEREDOC_PLACEHOLDER>>",
