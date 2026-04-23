@@ -187,7 +187,7 @@ launcher.onHerdChange = createLauncherHerdChangeHandler({
 });
 // Bootstrap for existing orchestrators (server restart recovery)
 for (const s of launcher.listSessions()) {
-  if (s.isOrchestrator && launcher.getHerdedSessions(s.sessionId).length > 0) {
+  if (s.isOrchestrator && !s.archived && launcher.getHerdedSessions(s.sessionId).length > 0) {
     herdEventDispatcher.onHerdChanged(s.sessionId);
   }
 }
