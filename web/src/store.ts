@@ -484,6 +484,7 @@ interface AppState {
   sessionSortMode: "created" | "activity";
   setSessionSortMode: (mode: "created" | "activity") => void;
   taskPanelOpen: boolean;
+  searchPreviewSessionId: string | null;
   /** null = closed; {} = global new session; scoped opens can carry cwd, assignment, and defaults scope */
   newSessionModalState: {
     groupKey?: string;
@@ -519,6 +520,7 @@ interface AppState {
   setSessionInfoOpenSessionId: (sessionId: string | null) => void;
   setReorderMode: (v: boolean) => void;
   setTaskPanelOpen: (open: boolean) => void;
+  setSearchPreviewSessionId: (sessionId: string | null) => void;
   openNewSessionModal: (opts?: {
     groupKey?: string;
     cwd?: string;
@@ -1022,6 +1024,7 @@ export const useStore = create<AppState>((set) => ({
       ? "activity"
       : "created",
   taskPanelOpen: false,
+  searchPreviewSessionId: null,
   newSessionModalState: null,
   questOverlayId: null,
   questOverlaySearchHighlight: null,
@@ -1173,6 +1176,7 @@ export const useStore = create<AppState>((set) => ({
     set({ sessionSortMode: mode });
   },
   setTaskPanelOpen: (open) => set({ taskPanelOpen: open }),
+  setSearchPreviewSessionId: (sessionId) => set({ searchPreviewSessionId: sessionId }),
   openNewSessionModal: (opts) => set({ newSessionModalState: opts ?? {} }),
   closeNewSessionModal: () => set({ newSessionModalState: null }),
   openQuestOverlay: (questId, searchHighlight) =>
@@ -2628,6 +2632,7 @@ export const useStore = create<AppState>((set) => ({
       shortcutSettings: DEFAULT_SHORTCUT_SETTINGS,
       sessionInfoOpenSessionId: null,
       activeTab: "chat" as const,
+      searchPreviewSessionId: null,
       diffPanelSelectedFile: new Map(),
       feedScrollPosition: new Map(),
       composerDrafts: new Map(),

@@ -183,6 +183,7 @@ export function Sidebar() {
   const diffFileStats = useStore((s) => s.diffFileStats);
   const serverName = useStore((s) => s.serverName);
   const setServerName = useStore((s) => s.setServerName);
+  const setSearchPreviewSessionId = useStore((s) => s.setSearchPreviewSessionId);
   const zoomLevel = useStore((s) => s.zoomLevel ?? 1);
   const shortcutSettings = useStore((s) => s.shortcutSettings);
   const [searchQuery, setSearchQuery] = useState("");
@@ -385,6 +386,7 @@ export function Sidebar() {
 
   function handleSelectSession(sessionId: string) {
     setContextMenu(null);
+    setSearchPreviewSessionId(null);
     useStore.getState().markSessionViewed(sessionId);
     api.markSessionRead?.(sessionId).catch(() => {});
     // Navigate to session hash — App.tsx hash effect handles setCurrentSession + connectSession
@@ -393,6 +395,14 @@ export function Sidebar() {
     if (!isDesktopLayout) {
       useStore.getState().setSidebarOpen(false);
     }
+  }
+
+  function handlePreviewSearchSession(sessionId: string) {
+    if (currentSessionId === sessionId) {
+      setSearchPreviewSessionId(null);
+      return;
+    }
+    setSearchPreviewSessionId(sessionId);
   }
 
   function handleNewSession() {
@@ -805,6 +815,7 @@ export function Sidebar() {
       setSearchResults(null);
       setIsSearching(false);
       setActiveSearchResultIndex(0);
+      setSearchPreviewSessionId(null);
       return;
     }
 
@@ -861,10 +872,18 @@ export function Sidebar() {
   useEffect(() => {
     if (!filteredSessions || filteredSessions.length === 0) {
       setActiveSearchResultIndex(0);
+      setSearchPreviewSessionId(null);
       return;
     }
     setActiveSearchResultIndex((prev) => Math.min(prev, filteredSessions.length - 1));
   }, [filteredSessions]);
+
+  useEffect(() => {
+    if (!filteredSessions || filteredSessions.length === 0) return;
+    const selected = filteredSessions[activeSearchResultIndex];
+    if (!selected) return;
+    handlePreviewSearchSession(selected.session.id);
+  }, [activeSearchResultIndex, filteredSessions]);
 
   // Show sort/reorder controls when the session list is visible and has multiple sessions.
   const showSortControls = !searchFocused && !searchQuery && !filteredSessions && activeSessions.length > 1;
@@ -1008,6 +1027,7 @@ export function Sidebar() {
                 onKeyDown={(e) => {
                   if (e.key === "Escape") {
                     setSearchQuery("");
+                    setSearchPreviewSessionId(null);
                     searchInputRef.current?.blur();
                     return;
                   }
@@ -1028,6 +1048,9 @@ export function Sidebar() {
                     e.preventDefault();
                     const selected = filteredSessions[activeSearchResultIndex];
                     if (selected) {
+                      setSearchQuery("");
+                      setActiveSearchResultIndex(0);
+                      setSearchPreviewSessionId(null);
                       handleSelectSession(selected.session.id);
                     }
                   }
@@ -1040,6 +1063,7 @@ export function Sidebar() {
                 <button
                   onClick={() => {
                     setSearchQuery("");
+                    setSearchPreviewSessionId(null);
                     searchInputRef.current?.focus();
                   }}
                   className="absolute right-1.5 top-1/2 -translate-y-1/2 text-cc-muted hover:text-cc-fg cursor-pointer"

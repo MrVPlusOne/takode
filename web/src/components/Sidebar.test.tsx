@@ -85,6 +85,7 @@ interface MockStoreState {
     preset: "standard" | "vscode-light" | "vim-light";
     overrides: Record<string, string | null>;
   };
+  searchPreviewSessionId: string | null;
   sessionInfoOpenSessionId: string | null;
   reorderMode: boolean;
   setReorderMode: ReturnType<typeof vi.fn>;
@@ -100,6 +101,7 @@ interface MockStoreState {
   toggleTreeNodeCollapse: ReturnType<typeof vi.fn>;
   toggleHerdNodeExpand: ReturnType<typeof vi.fn>;
   setServerName: ReturnType<typeof vi.fn>;
+  setSearchPreviewSessionId: ReturnType<typeof vi.fn>;
   setCurrentSession: ReturnType<typeof vi.fn>;
   removeSession: ReturnType<typeof vi.fn>;
   newSession: ReturnType<typeof vi.fn>;
@@ -182,6 +184,7 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
     sessionAttention: new Map(),
     diffFileStats: new Map(),
     shortcutSettings: { enabled: false, preset: "standard", overrides: {} },
+    searchPreviewSessionId: null,
     sessionInfoOpenSessionId: null,
     reorderMode: false,
     setReorderMode: vi.fn(),
@@ -197,6 +200,7 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
     toggleTreeNodeCollapse: vi.fn(),
     toggleHerdNodeExpand: vi.fn(),
     setServerName: vi.fn(),
+    setSearchPreviewSessionId: vi.fn(),
     setCurrentSession: vi.fn(),
     removeSession: vi.fn(),
     newSession: vi.fn(),
@@ -458,7 +462,7 @@ describe("Sidebar", { timeout: 10000 }, () => {
     await waitFor(() => expect(signals[0]?.aborted).toBe(true));
   });
 
-  it("selects the first global-search result by default and moves selection with arrow keys", async () => {
+  it("selects the first global-search result by default and previews with arrow keys without committing selection side effects", async () => {
     const session1 = makeSession("s1", { cwd: "/repo/a" });
     const session2 = makeSession("s2", { cwd: "/repo/b" });
     mockState = createMockState({
@@ -490,15 +494,24 @@ describe("Sidebar", { timeout: 10000 }, () => {
     const betaRow = await screen.findByText("Beta");
     expect(alphaRow.closest("button")).toHaveAttribute("data-search-selected", "true");
     expect(betaRow.closest("button")).not.toHaveAttribute("data-search-selected", "true");
+    expect(mockState.setSearchPreviewSessionId).toHaveBeenCalledWith("s1");
+    expect(mockState.markSessionViewed).not.toHaveBeenCalled();
+    expect(window.location.hash).toBe("");
 
     fireEvent.keyDown(input, { key: "ArrowDown" });
     expect(betaRow.closest("button")).toHaveAttribute("data-search-selected", "true");
+    expect(mockState.setSearchPreviewSessionId).toHaveBeenLastCalledWith("s2");
+    expect(mockState.markSessionViewed).not.toHaveBeenCalled();
+    expect(window.location.hash).toBe("");
 
     fireEvent.keyDown(input, { key: "ArrowUp" });
     expect(alphaRow.closest("button")).toHaveAttribute("data-search-selected", "true");
+    expect(mockState.setSearchPreviewSessionId).toHaveBeenLastCalledWith("s1");
+    expect(mockState.markSessionViewed).not.toHaveBeenCalled();
+    expect(window.location.hash).toBe("");
   });
 
-  it("opens the selected global-search result on Enter", async () => {
+  it("opens the selected global-search result on Enter and exits search mode", async () => {
     const session1 = makeSession("s1", { cwd: "/repo/a" });
     const session2 = makeSession("s2", { cwd: "/repo/b" });
     mockState = createMockState({
@@ -531,6 +544,10 @@ describe("Sidebar", { timeout: 10000 }, () => {
     fireEvent.keyDown(input, { key: "Enter" });
 
     expect(window.location.hash).toBe("#/session/s2");
+    expect(input).toHaveValue("");
+    expect(screen.queryByText("name:")).not.toBeInTheDocument();
+    expect(mockState.markSessionViewed).toHaveBeenCalledWith("s2");
+    expect(mockState.setSearchPreviewSessionId).toHaveBeenLastCalledWith(null);
   });
 
   it("renders session items for active sessions", () => {

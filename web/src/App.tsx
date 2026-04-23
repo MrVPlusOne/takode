@@ -67,6 +67,7 @@ export default function App() {
     darkMode,
     zoomLevel,
     currentSessionId,
+    searchPreviewSessionId,
     currentSessionConnectionStatus,
     shortcutSettings,
     sidebarOpen,
@@ -81,6 +82,7 @@ export default function App() {
       darkMode: s.darkMode,
       zoomLevel: s.zoomLevel,
       currentSessionId: s.currentSessionId,
+      searchPreviewSessionId: s.searchPreviewSessionId,
       currentSessionConnectionStatus: s.currentSessionId ? (s.connectionStatus.get(s.currentSessionId) ?? null) : null,
       shortcutSettings: s.shortcutSettings,
       sidebarOpen: s.sidebarOpen,
@@ -109,6 +111,7 @@ export default function App() {
     !isPendingId(currentSessionId) &&
     currentSessionConnectionStatus === "connected";
   const showServerUnreachableBanner = !serverReachable && !suppressServerUnreachableBanner;
+  const displayedSessionId = searchPreviewSessionId ?? currentSessionId;
 
   useEffect(() => {
     const el = document.documentElement;
@@ -442,11 +445,15 @@ export default function App() {
           {isSessionView && (
             <>
               {/* Chat tab — visible when activeTab is "chat" or no session */}
-              <div className={`absolute inset-0 ${activeTab === "chat" || !currentSessionId ? "" : "hidden"}`}>
-                {currentSessionId && isPendingId(currentSessionId) ? (
-                  <SessionCreationView pendingId={currentSessionId} />
-                ) : currentSessionId ? (
-                  <ChatView key={currentSessionId} sessionId={currentSessionId} />
+              <div className={`absolute inset-0 ${activeTab === "chat" || !displayedSessionId ? "" : "hidden"}`}>
+                {displayedSessionId && isPendingId(displayedSessionId) ? (
+                  <SessionCreationView pendingId={displayedSessionId} />
+                ) : displayedSessionId ? (
+                  <ChatView
+                    key={displayedSessionId}
+                    sessionId={displayedSessionId}
+                    preview={searchPreviewSessionId === displayedSessionId}
+                  />
                 ) : (
                   <EmptyState />
                 )}

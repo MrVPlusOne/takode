@@ -1918,6 +1918,15 @@ export function Playground() {
         </Section>
 
         <Section
+          title="Search Preview Chat"
+          description="Read-only right-pane preview shown while navigating global-search results before Enter commits selection."
+        >
+          <div className="max-w-3xl border border-cc-border rounded-xl overflow-hidden bg-cc-card h-[420px]">
+            <ChatView sessionId={MOCK_SESSION_ID} preview />
+          </div>
+        </Section>
+
+        <Section
           title="Shortcut Hints"
           description="Hover helper titles for the first shortcut-enabled chat controls."
         >

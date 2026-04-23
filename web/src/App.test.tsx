@@ -7,6 +7,7 @@ interface MockStoreState {
   darkMode: boolean;
   zoomLevel: number;
   currentSessionId: string | null;
+  searchPreviewSessionId: string | null;
   connectionStatus: Map<string, "connecting" | "connected" | "disconnected">;
   sidebarOpen: boolean;
   taskPanelOpen: boolean;
@@ -30,6 +31,7 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     darkMode: true,
     zoomLevel: 1,
     currentSessionId: "s1",
+    searchPreviewSessionId: null,
     connectionStatus: new Map([["s1", "connected"]]),
     sidebarOpen: false,
     taskPanelOpen: false,
@@ -82,7 +84,9 @@ vi.mock("./components/TopBar.js", () => ({
 }));
 
 vi.mock("./components/ChatView.js", () => ({
-  ChatView: () => <div data-testid="chat-view" />,
+  ChatView: ({ sessionId, preview }: { sessionId: string; preview?: boolean }) => (
+    <div data-testid="chat-view" data-session-id={sessionId} data-preview={preview ? "true" : "false"} />
+  ),
 }));
 
 vi.mock("./components/EmptyState.js", () => ({
@@ -202,5 +206,58 @@ describe("App hidden panels", () => {
     render(<App />);
 
     expect(screen.getByText("Server unreachable")).toBeInTheDocument();
+  });
+
+  it("renders the right-pane chat in preview mode when searchPreviewSessionId is set", () => {
+    resetStore({
+      currentSessionId: "s1",
+      searchPreviewSessionId: "s2",
+      connectionStatus: new Map([
+        ["s1", "connected"],
+        ["s2", "disconnected"],
+      ]),
+      sessions: new Map([
+        ["s1", { backend_type: "claude" }],
+        ["s2", { backend_type: "claude" }],
+      ]),
+    });
+    window.location.hash = "#/session/s1";
+
+    render(<App />);
+
+    const chatView = screen.getByTestId("chat-view");
+    expect(chatView).toHaveAttribute("data-session-id", "s2");
+    expect(chatView).toHaveAttribute("data-preview", "true");
+  });
+
+  it("cleans up preview mode when searchPreviewSessionId is cleared", () => {
+    resetStore({
+      currentSessionId: "s1",
+      searchPreviewSessionId: "s2",
+      connectionStatus: new Map([
+        ["s1", "connected"],
+        ["s2", "disconnected"],
+      ]),
+      sessions: new Map([
+        ["s1", { backend_type: "claude" }],
+        ["s2", { backend_type: "claude" }],
+      ]),
+    });
+    window.location.hash = "#/session/s1";
+
+    const view = render(<App />);
+    expect(screen.getByTestId("chat-view")).toHaveAttribute("data-session-id", "s2");
+
+    resetStore({
+      currentSessionId: "s1",
+      searchPreviewSessionId: null,
+      connectionStatus: new Map([["s1", "connected"]]),
+      sessions: new Map([["s1", { backend_type: "claude" }]]),
+    });
+    view.rerender(<App />);
+
+    const chatView = screen.getByTestId("chat-view");
+    expect(chatView).toHaveAttribute("data-session-id", "s1");
+    expect(chatView).toHaveAttribute("data-preview", "false");
   });
 });

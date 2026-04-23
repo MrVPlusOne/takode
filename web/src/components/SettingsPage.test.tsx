@@ -173,15 +173,32 @@ describe("SettingsPage", () => {
     await screen.findByText("Notifications");
   });
 
-  it("shows shortcuts disabled by default and exposes preset controls", async () => {
+  it("shows shortcuts disabled by default in a compact state", async () => {
     render(<SettingsPage />);
 
     await screen.findByText("Notifications");
-    const preset = screen.getByLabelText("Preset");
-    const shortcutsSection = preset.closest("section") ?? preset.parentElement?.parentElement;
-    expect(preset).toHaveValue("standard");
+    const shortcutsHeading = screen.getByText("Shortcuts");
+    const shortcutsSection = shortcutsHeading.closest("section") ?? shortcutsHeading.parentElement?.parentElement;
     expect(within(shortcutsSection as HTMLElement).getByText("Off")).toBeInTheDocument();
-    expect(within(shortcutsSection as HTMLElement).getByText("Search Current Session")).toBeInTheDocument();
+    expect(within(shortcutsSection as HTMLElement).getByText("Enable shortcuts to edit presets and bindings.")).toBeInTheDocument();
+    expect(within(shortcutsSection as HTMLElement).queryByLabelText("Preset")).not.toBeInTheDocument();
+    expect(within(shortcutsSection as HTMLElement).queryByText("Search Current Session")).not.toBeInTheDocument();
+  });
+
+  it("shows shortcut preset controls when shortcuts are enabled", async () => {
+    mockState = createMockState({
+      shortcutSettings: {
+        enabled: true,
+        preset: "standard",
+        overrides: {},
+      },
+    });
+
+    render(<SettingsPage />);
+
+    await screen.findByText("Notifications");
+    expect(screen.getByLabelText("Preset")).toHaveValue("standard");
+    expect(screen.getByText("Search Current Session")).toBeInTheDocument();
   });
 
   it("does not start settings-page background work while inactive", () => {
