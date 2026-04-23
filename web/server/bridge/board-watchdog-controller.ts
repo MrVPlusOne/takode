@@ -473,6 +473,11 @@ export function sweepBoardDispatchableWarnings(
 
       const current = session.boardDispatchStates.get(row.questId);
       if (!current || current.warnedAt) continue;
+      const shouldNotifyLeader = (row.waitFor ?? []).some((dep: string) => getWaitForRefKind(dep) === "free-worker");
+      if (shouldNotifyLeader) {
+        const notifResult = deps.notifyUser(session.id, "needs-input", candidate.summary);
+        if (notifResult.ok) current.notificationId = notifResult.notificationId;
+      }
       const sourceSessionId = findBoardDispatchSourceSessionId(session, row, deps);
       if (sourceSessionId) {
         deps.emitTakodeEvent(sourceSessionId, "board_dispatchable", {
