@@ -135,8 +135,6 @@ export function PlanReviewOverlay({
       behavior: "deny",
       message: "Denied by user",
     });
-    // Also interrupt so CLI stops and waits for new input (vanilla behavior)
-    sendToSession(sessionId, { type: "interrupt" });
     removePermission(sessionId, permission.request_id);
   }
 
@@ -300,7 +298,6 @@ export function PlanCollapsedChip({
       behavior: "deny",
       message: "Denied by user",
     });
-    sendToSession(sessionId, { type: "interrupt" });
     removePermission(sessionId, permission.request_id);
   }
 

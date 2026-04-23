@@ -508,10 +508,15 @@ export function handleResultMessage(
     typeof session.generationStartedAt === "number" ? Math.max(0, Date.now() - session.generationStartedAt) : undefined;
   const stopReason = typeof msg.stop_reason === "string" ? msg.stop_reason.toLowerCase() : "";
   const resultInterrupted = stopReason.includes("interrupt") || stopReason.includes("cancel");
+  const resultIsUserControlDiagnostic =
+    msg.is_error &&
+    typeof msg.result === "string" &&
+    msg.result.includes("[ede_diagnostic]") &&
+    msg.result.includes("result_type=user");
   if (resultInterrupted && !session.interruptedDuringTurn && session.queuedTurnStarts > 0) {
     deps.markTurnInterrupted(session, session.queuedTurnInterruptSources[0] ?? "user");
   }
-  const turnWasInterrupted = session.interruptedDuringTurn || resultInterrupted;
+  const turnWasInterrupted = session.interruptedDuringTurn || resultInterrupted || resultIsUserControlDiagnostic;
   deps.drainInlineQueuedClaudeTurns(session, "result");
 
   const turnTriggerSource = deps.getCurrentTurnTriggerSource(session);

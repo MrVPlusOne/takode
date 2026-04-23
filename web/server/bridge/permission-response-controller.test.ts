@@ -168,6 +168,57 @@ describe("permission response handling in browser routing", () => {
     );
   });
 
+  it("injects a follow-up user message when ExitPlanMode denial includes extra feedback", () => {
+    const session = makeSession();
+    session.pendingPermissions.set("req-2b", {
+      request_id: "req-2b",
+      tool_name: "ExitPlanMode",
+      input: {},
+      tool_use_id: "tool-2b",
+      timestamp: 1,
+    });
+    const deps = makeDeps();
+
+    handlePermissionResponse(
+      session,
+      {
+        type: "permission_response",
+        request_id: "req-2b",
+        behavior: "deny",
+        message: "Keep planning around the websocket error path",
+      },
+      deps,
+    );
+
+    expect(session.messageHistory.at(-1)).toEqual(expect.objectContaining({ type: "permission_denied" }));
+    expect(deps.injectUserMessage).toHaveBeenCalledWith("s1", "Keep planning around the websocket error path", undefined);
+  });
+
+  it("does not inject a follow-up user message for the default ExitPlanMode denial text", () => {
+    const session = makeSession();
+    session.pendingPermissions.set("req-2c", {
+      request_id: "req-2c",
+      tool_name: "ExitPlanMode",
+      input: {},
+      tool_use_id: "tool-2c",
+      timestamp: 1,
+    });
+    const deps = makeDeps();
+
+    handlePermissionResponse(
+      session,
+      {
+        type: "permission_response",
+        request_id: "req-2c",
+        behavior: "deny",
+        message: "Denied by user",
+      },
+      deps,
+    );
+
+    expect(deps.injectUserMessage).not.toHaveBeenCalled();
+  });
+
   it("auto-rejects pending ExitPlanMode before /compact interception returns early", async () => {
     const session = makeSession();
     session.pendingPermissions.set("req-compact", {
