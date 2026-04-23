@@ -457,6 +457,81 @@ describe("disconnectSession", () => {
   });
 });
 
+describe("sendVsCodeSelectionUpdate", () => {
+  it("replays the latest VSCode selection update once a session socket connects", () => {
+    useStore.getState().setCurrentSession("s1");
+
+    const firstDelivered = wsModule.sendVsCodeSelectionUpdate({
+      type: "vscode_selection_update",
+      selection: {
+        absolutePath: "/repo/src/Old.tsx",
+        startLine: 1,
+        endLine: 1,
+        lineCount: 1,
+      },
+      updatedAt: 100,
+      sourceId: "browser:test",
+      sourceType: "browser-panel",
+      sourceLabel: "embedded-browser",
+      client_msg_id: "cmsg-old",
+    });
+
+    const secondDelivered = wsModule.sendVsCodeSelectionUpdate({
+      type: "vscode_selection_update",
+      selection: {
+        absolutePath: "/repo/src/App.tsx",
+        startLine: 12,
+        endLine: 14,
+        lineCount: 3,
+      },
+      updatedAt: 200,
+      sourceId: "browser:test",
+      sourceType: "browser-panel",
+      sourceLabel: "embedded-browser",
+      client_msg_id: "cmsg-latest",
+    });
+
+    expect(firstDelivered).toBe(false);
+    expect(secondDelivered).toBe(false);
+
+    wsModule.connectSession("s1");
+    lastWs.onopen?.(new Event("open"));
+
+    expect(lastWs.send.mock.calls.map(([payload]) => JSON.parse(payload))).toEqual(
+      expect.arrayContaining([
+        {
+          type: "vscode_selection_update",
+          selection: {
+            absolutePath: "/repo/src/App.tsx",
+            startLine: 12,
+            endLine: 14,
+            lineCount: 3,
+          },
+          updatedAt: 200,
+          sourceId: "browser:test",
+          sourceType: "browser-panel",
+          sourceLabel: "embedded-browser",
+          client_msg_id: "cmsg-latest",
+        },
+        {
+          type: "session_subscribe",
+          last_seq: 0,
+          known_frozen_count: 0,
+          history_window_section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
+          history_window_visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+        },
+      ]),
+    );
+    expect(lastWs.send.mock.calls.map(([payload]) => JSON.parse(payload))).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          client_msg_id: "cmsg-old",
+        }),
+      ]),
+    );
+  });
+});
+
 // ===========================================================================
 // handleMessage: session_init
 // ===========================================================================
