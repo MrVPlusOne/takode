@@ -550,6 +550,42 @@ describe("Sidebar", { timeout: 10000 }, () => {
     expect(mockState.setSearchPreviewSessionId).toHaveBeenLastCalledWith(null);
   });
 
+  it("opens the clicked global-search result and exits search mode", async () => {
+    const session1 = makeSession("s1", { cwd: "/repo/a" });
+    const session2 = makeSession("s2", { cwd: "/repo/b" });
+    mockState = createMockState({
+      sessions: new Map([
+        ["s1", session1],
+        ["s2", session2],
+      ]),
+      sdkSessions: [makeSdkSession("s1", { createdAt: 1000 }), makeSdkSession("s2", { createdAt: 900 })],
+      sessionNames: new Map([
+        ["s1", "Alpha"],
+        ["s2", "Beta"],
+      ]),
+    });
+    mockApi.searchSessions.mockResolvedValueOnce({
+      query: "a",
+      tookMs: 2,
+      totalMatches: 2,
+      results: [
+        { sessionId: "s1", score: 10, matchedField: "name", matchContext: "name: Alpha", matchedAt: 1 },
+        { sessionId: "s2", score: 9, matchedField: "name", matchContext: "name: Beta", matchedAt: 1 },
+      ],
+    });
+
+    render(<Sidebar />);
+    const input = screen.getByPlaceholderText("Search...");
+    fireEvent.change(input, { target: { value: "a" } });
+
+    fireEvent.click((await screen.findByText("Beta")).closest("button")!);
+
+    expect(window.location.hash).toBe("#/session/s2");
+    expect(input).toHaveValue("");
+    expect(mockState.markSessionViewed).toHaveBeenCalledWith("s2");
+    expect(mockState.setSearchPreviewSessionId).toHaveBeenLastCalledWith(null);
+  });
+
   it("renders session items for active sessions", () => {
     const session = makeSession("s1");
     const sdk = makeSdkSession("s1", { model: "claude-sonnet-4-5-20250929" });

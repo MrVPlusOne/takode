@@ -386,6 +386,8 @@ export function Sidebar() {
 
   function handleSelectSession(sessionId: string) {
     setContextMenu(null);
+    setSearchQuery("");
+    setActiveSearchResultIndex(0);
     setSearchPreviewSessionId(null);
     useStore.getState().markSessionViewed(sessionId);
     api.markSessionRead?.(sessionId).catch(() => {});

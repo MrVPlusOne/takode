@@ -294,6 +294,7 @@ export default function App() {
   // so the mount logic can use it even if the hash-sync branch would clear it.
   const restoredIdRef = useRef(useStore.getState().currentSessionId);
   const connectedSessionIdRef = useRef<string | null>(null);
+  const previewConnectedSessionIdRef = useRef<string | null>(null);
 
   // Sync hash → store. On mount, restore a localStorage session into the URL first.
   useEffect(() => {
@@ -352,10 +353,41 @@ export default function App() {
   }, [route]);
 
   useEffect(() => {
+    const previewSessionId =
+      searchPreviewSessionId &&
+      !isPendingId(searchPreviewSessionId) &&
+      searchPreviewSessionId !== currentSessionId
+        ? searchPreviewSessionId
+        : null;
+
+    const previousPreviewSessionId = previewConnectedSessionIdRef.current;
+    if (previousPreviewSessionId && previousPreviewSessionId !== previewSessionId) {
+      disconnectSession(previousPreviewSessionId);
+      previewConnectedSessionIdRef.current = null;
+    }
+
+    if (!previewSessionId) return;
+
+    connectSession(previewSessionId);
+    previewConnectedSessionIdRef.current = previewSessionId;
+
+    return () => {
+      if (previewConnectedSessionIdRef.current === previewSessionId && previewSessionId !== currentSessionId) {
+        disconnectSession(previewSessionId);
+        previewConnectedSessionIdRef.current = null;
+      }
+    };
+  }, [searchPreviewSessionId, currentSessionId]);
+
+  useEffect(() => {
     return () => {
       if (connectedSessionIdRef.current) {
         disconnectSession(connectedSessionIdRef.current);
         connectedSessionIdRef.current = null;
+      }
+      if (previewConnectedSessionIdRef.current) {
+        disconnectSession(previewConnectedSessionIdRef.current);
+        previewConnectedSessionIdRef.current = null;
       }
     };
   }, []);

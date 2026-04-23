@@ -15,8 +15,9 @@ import {
   SHORTCUT_PRESET_OPTIONS,
   formatShortcut,
   getEffectiveShortcutBinding,
-  getShortcutBindingOptions,
   getShortcutPresetBindings,
+  recordShortcutBindingFromEvent,
+  type ShortcutActionId,
 } from "../shortcuts.js";
 import { NamerDebugPanel } from "./NamerDebugPanel.js";
 import { AutoApprovalDebugPanel } from "./AutoApprovalDebugPanel.js";
@@ -60,6 +61,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
   const resetShortcutOverrides = useStore((s) => s.resetShortcutOverrides);
   const notificationApiAvailable = typeof Notification !== "undefined";
   const shortcutPlatform = typeof navigator === "undefined" ? undefined : navigator.platform;
+  const [recordingShortcutActionId, setRecordingShortcutActionId] = useState<ShortcutActionId | null>(null);
 
   // Edit/Write blocks default-expanded preference (localStorage, global)
   const [editBlocksExpanded, setEditBlocksExpanded] = useState(() => {
@@ -574,6 +576,27 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
       shortcutSettings.overrides[action.id] !== shortcutPresetBindings[action.id],
   );
 
+  useEffect(() => {
+    if (!recordingShortcutActionId) return;
+
+    function handleShortcutRecord(event: KeyboardEvent) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!recordingShortcutActionId) return;
+      if (event.key === "Escape") {
+        setRecordingShortcutActionId(null);
+        return;
+      }
+      const binding = recordShortcutBindingFromEvent(event);
+      if (!binding) return;
+      setShortcutOverride(recordingShortcutActionId, binding);
+      setRecordingShortcutActionId(null);
+    }
+
+    window.addEventListener("keydown", handleShortcutRecord, true);
+    return () => window.removeEventListener("keydown", handleShortcutRecord, true);
+  }, [recordingShortcutActionId, setShortcutOverride]);
+
   return (
     <div
       ref={scrollRef}
@@ -750,10 +773,9 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
               <div className="rounded-xl border border-cc-border overflow-hidden">
                 {SHORTCUT_ACTIONS.map((action, index) => {
                   const effectiveBinding = getEffectiveShortcutBinding(shortcutSettings, action.id);
-                  const overrideValue = Object.prototype.hasOwnProperty.call(shortcutSettings.overrides, action.id)
-                    ? shortcutSettings.overrides[action.id] ?? "__off__"
-                    : "__preset__";
-                  const options = getShortcutBindingOptions(action.id, shortcutPlatform, shortcutSettings.preset);
+                  const hasOverride = Object.prototype.hasOwnProperty.call(shortcutSettings.overrides, action.id);
+                  const isOffOverride = shortcutSettings.overrides[action.id] === null;
+                  const isRecording = recordingShortcutActionId === action.id;
                   return (
                     <div
                       key={action.id}
@@ -768,31 +790,48 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
                           {effectiveBinding ? formatShortcut(effectiveBinding, shortcutPlatform) : "Off"}
                         </span>
                       </div>
-                      <label className="block">
-                        <span className="sr-only">{action.label} binding</span>
-                        <select
-                          value={overrideValue}
-                          onChange={(e) => {
-                            const next = e.target.value;
-                            if (next === "__preset__") {
-                              setShortcutOverride(action.id, undefined);
-                              return;
-                            }
-                            setShortcutOverride(action.id, next === "__off__" ? null : next);
-                          }}
-                          className="w-full px-3 py-2 text-xs bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/60"
-                        >
-                          <option value="__preset__">Preset default</option>
-                          {options.map((option) => (
-                            <option
-                              key={`${action.id}-${option.source}-${option.value ?? "off"}`}
-                              value={option.value ?? "__off__"}
-                            >
-                              {option.label} - {option.source}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
+                      {isRecording ? (
+                        <div className="flex items-center justify-between gap-3 rounded-lg border border-cc-primary/35 bg-cc-primary/10 px-3 py-2 text-xs">
+                          <span className="text-cc-primary">Press a shortcut for {action.label}. Esc cancels.</span>
+                          <button
+                            type="button"
+                            onClick={() => setRecordingShortcutActionId(null)}
+                            className="px-2 py-1 rounded bg-cc-hover text-cc-fg hover:bg-cc-active transition-colors cursor-pointer"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => setRecordingShortcutActionId(action.id)}
+                            className="px-3 py-2 rounded-lg text-xs font-medium bg-cc-hover text-cc-fg hover:bg-cc-active transition-colors cursor-pointer"
+                          >
+                            {hasOverride ? "Record new shortcut" : "Record shortcut"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setShortcutOverride(action.id, null)}
+                            className="px-3 py-2 rounded-lg text-xs font-medium bg-cc-hover text-cc-fg hover:bg-cc-active transition-colors cursor-pointer"
+                          >
+                            Off
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setShortcutOverride(action.id, undefined)}
+                            disabled={!hasOverride}
+                            className="px-3 py-2 rounded-lg text-xs font-medium bg-cc-hover text-cc-fg hover:bg-cc-active transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            Use preset default
+                          </button>
+                          {hasOverride && (
+                            <span className="text-[11px] text-cc-muted">
+                              {isOffOverride ? "Shortcut disabled for this action" : "Custom override active"}
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })}

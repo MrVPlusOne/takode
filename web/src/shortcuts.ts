@@ -240,6 +240,23 @@ function keyFromKeyboardEvent(event: Pick<KeyboardEvent, "key">): string {
   return key.toUpperCase();
 }
 
+export function isModifierOnlyKey(key: string): boolean {
+  return ["SHIFT", "CONTROL", "CTRL", "ALT", "META", "CMD"].includes(key.toUpperCase());
+}
+
+export function recordShortcutBindingFromEvent(event: Pick<KeyboardEvent, "key" | "altKey" | "ctrlKey" | "metaKey" | "shiftKey">): ShortcutBinding | null {
+  const key = keyFromKeyboardEvent(event);
+  if (isModifierOnlyKey(key)) return null;
+
+  const tokens: string[] = [];
+  if (event.metaKey) tokens.push("Cmd");
+  if (event.ctrlKey) tokens.push("Ctrl");
+  if (event.altKey) tokens.push("Alt");
+  if (event.shiftKey) tokens.push("Shift");
+  tokens.push(key.length === 1 ? key : key.charAt(0) + key.slice(1).toLowerCase());
+  return tokens.join("+");
+}
+
 function bindingMatchesEventKey(
   bindingKey: string,
   event: Pick<KeyboardEvent, "key"> & { code?: string },

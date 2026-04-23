@@ -2,6 +2,9 @@
 import { render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
 
+const mockConnectSession = vi.fn();
+const mockDisconnectSession = vi.fn();
+
 interface MockStoreState {
   colorTheme: string;
   darkMode: boolean;
@@ -66,8 +69,8 @@ vi.mock("./api.js", () => ({
 }));
 
 vi.mock("./ws.js", () => ({
-  connectSession: vi.fn(),
-  disconnectSession: vi.fn(),
+  connectSession: (...args: unknown[]) => mockConnectSession(...args),
+  disconnectSession: (...args: unknown[]) => mockDisconnectSession(...args),
   sendVsCodeSelectionUpdate: vi.fn(),
 }));
 
@@ -228,6 +231,7 @@ describe("App hidden panels", () => {
     const chatView = screen.getByTestId("chat-view");
     expect(chatView).toHaveAttribute("data-session-id", "s2");
     expect(chatView).toHaveAttribute("data-preview", "true");
+    expect(mockConnectSession).toHaveBeenCalledWith("s2");
   });
 
   it("cleans up preview mode when searchPreviewSessionId is cleared", () => {
@@ -259,5 +263,6 @@ describe("App hidden panels", () => {
     const chatView = screen.getByTestId("chat-view");
     expect(chatView).toHaveAttribute("data-session-id", "s1");
     expect(chatView).toHaveAttribute("data-preview", "false");
+    expect(mockDisconnectSession).toHaveBeenCalledWith("s2");
   });
 });

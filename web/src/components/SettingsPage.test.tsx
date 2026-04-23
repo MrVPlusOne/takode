@@ -201,6 +201,48 @@ describe("SettingsPage", () => {
     expect(screen.getByText("Search Current Session")).toBeInTheDocument();
   });
 
+  it("records and clears a custom shortcut override", async () => {
+    mockState = createMockState({
+      shortcutSettings: {
+        enabled: true,
+        preset: "standard",
+        overrides: { search_session: "Ctrl+K" },
+      },
+    });
+
+    render(<SettingsPage />);
+
+    await screen.findByText("Notifications");
+    fireEvent.click(screen.getByRole("button", { name: "Record new shortcut" }));
+    fireEvent.keyDown(window, { key: "l", ctrlKey: true });
+
+    expect(mockState.setShortcutOverride).toHaveBeenCalledWith("search_session", "Ctrl+L");
+
+    const resetButton = screen
+      .getAllByRole("button", { name: "Use preset default" })
+      .find((button) => !button.hasAttribute("disabled"));
+    fireEvent.click(resetButton as HTMLButtonElement);
+    expect(mockState.setShortcutOverride).toHaveBeenCalledWith("search_session", undefined);
+  });
+
+  it("allows disabling an individual shortcut with Off", async () => {
+    mockState = createMockState({
+      shortcutSettings: {
+        enabled: true,
+        preset: "standard",
+        overrides: {},
+      },
+    });
+
+    render(<SettingsPage />);
+
+    await screen.findByText("Notifications");
+    const offButtons = screen.getAllByRole("button", { name: "Off" });
+    fireEvent.click(offButtons[0]);
+
+    expect(mockState.setShortcutOverride).toHaveBeenCalledWith("global_search", null);
+  });
+
   it("does not start settings-page background work while inactive", () => {
     vi.useFakeTimers();
     try {
