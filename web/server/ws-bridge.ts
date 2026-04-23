@@ -483,6 +483,10 @@ interface Session {
    *  so we can't clear cliResuming on the first one — must wait for the replay
    *  to finish (no more system.init within the debounce window). */
   cliResumingClearTimer: ReturnType<typeof setTimeout> | null;
+  /** True only for the first replay after a revert. While set, replayed
+   *  history-backed Claude messages that are no longer present in the truncated
+   *  messageHistory must be ignored instead of being re-appended. */
+  dropReplayHistoryAfterRevert: boolean;
 }
 
 type BoardStallStatus = "running" | "idle" | "disconnected" | "missing";

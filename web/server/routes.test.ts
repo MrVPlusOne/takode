@@ -294,26 +294,35 @@ function createMockBridge() {
         if (!session) return null;
         session.messageHistory = session.messageHistory.slice(0, truncateIdx);
         session.frozenCount = Math.min(session.frozenCount ?? 0, session.messageHistory.length);
+        session.assistantAccumulator?.clear?.();
+        session.pendingMessages = [];
+        session.lastOutboundUserNdjson = null;
+        session.userMessageIdsThisTurn = [];
+        session.queuedTurnStarts = 0;
+        session.queuedTurnReasons = [];
+        session.queuedTurnUserMessageIds = [];
+        session.queuedTurnInterruptSources = [];
+        session.interruptedDuringTurn = false;
+        session.interruptSourceDuringTurn = null;
+        session.isGenerating = false;
+        session.generationStartedAt = null;
+        session.disconnectWasGenerating = false;
+        session.seamlessReconnect = false;
+        session.toolStartTimes?.clear?.();
+        session.toolProgressOutput?.clear?.();
+        session.dropReplayHistoryAfterRevert = session.backendType === "claude" || session.backendType === "claude-sdk";
         session.pendingPermissions?.clear?.();
         session.eventBuffer = [];
         session.awaitingCompactSummary = false;
+        session.claudeCompactBoundarySeen = false;
         session.compactedDuringTurn = false;
+        session.forceCompactPending = false;
         if (session.state) session.state.is_compacting = false;
         if (options?.clearCodexState) {
           session.pendingCodexTurns = [];
           session.pendingCodexInputs = [];
-          session.pendingMessages = [];
           session.pendingCodexRollback = null;
           session.pendingCodexRollbackError = null;
-          session.userMessageIdsThisTurn = [];
-          session.queuedTurnStarts = 0;
-          session.queuedTurnReasons = [];
-          session.queuedTurnUserMessageIds = [];
-          session.queuedTurnInterruptSources = [];
-          session.interruptedDuringTurn = false;
-          session.interruptSourceDuringTurn = null;
-          session.isGenerating = false;
-          session.generationStartedAt = null;
           if (session.optimisticRunningTimer) session.optimisticRunningTimer = null;
           bridge.broadcastToSession(sessionId, { type: "codex_pending_inputs", inputs: [] });
         }
@@ -6497,6 +6506,7 @@ describe("POST /api/sessions/:id/revert", () => {
     launcher.getSession.mockReturnValue(sessionInfo);
 
     const mockSession: any = {
+      backendType: sessionInfo.backendType,
       messageHistory: [
         { type: "user_message", id: "user-msg-1", content: "Hello" },
         {
@@ -6570,6 +6580,49 @@ describe("POST /api/sessions/:id/revert", () => {
       type: "message_history",
       messages: mockSession.messageHistory,
     });
+  });
+
+  it("clears stale Claude replay state so reverted input cannot be resent after relaunch", async () => {
+    const { mockSession } = setupRevertSession();
+    mockSession.pendingMessages = [JSON.stringify({ type: "user_message", content: "stale queued follow-up" })];
+    mockSession.lastOutboundUserNdjson = JSON.stringify({ type: "user_message", content: "stale in-flight prompt" });
+    mockSession.assistantAccumulator = new Map([["asst-msg-2", { contentBlockIds: new Set(["tool-1"]) }]]);
+    mockSession.userMessageIdsThisTurn = [2];
+    mockSession.queuedTurnStarts = 1;
+    mockSession.queuedTurnReasons = ["follow_up"];
+    mockSession.queuedTurnUserMessageIds = [[2]];
+    mockSession.queuedTurnInterruptSources = ["user"];
+    mockSession.interruptedDuringTurn = true;
+    mockSession.interruptSourceDuringTurn = "user";
+    mockSession.isGenerating = true;
+    mockSession.generationStartedAt = 123;
+    mockSession.disconnectWasGenerating = true;
+    mockSession.toolStartTimes = new Map([["tool-1", 123]]);
+    mockSession.toolProgressOutput = new Map([["tool-1", "running"]]);
+
+    const res = await app.request("/api/sessions/session-1/revert", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messageId: "user-msg-2" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockSession.pendingMessages).toEqual([]);
+    expect(mockSession.lastOutboundUserNdjson).toBeNull();
+    expect(mockSession.assistantAccumulator.size).toBe(0);
+    expect(mockSession.userMessageIdsThisTurn).toEqual([]);
+    expect(mockSession.queuedTurnStarts).toBe(0);
+    expect(mockSession.queuedTurnReasons).toEqual([]);
+    expect(mockSession.queuedTurnUserMessageIds).toEqual([]);
+    expect(mockSession.queuedTurnInterruptSources).toEqual([]);
+    expect(mockSession.interruptedDuringTurn).toBe(false);
+    expect(mockSession.interruptSourceDuringTurn).toBeNull();
+    expect(mockSession.isGenerating).toBe(false);
+    expect(mockSession.generationStartedAt).toBeNull();
+    expect(mockSession.disconnectWasGenerating).toBe(false);
+    expect(mockSession.toolStartTimes.size).toBe(0);
+    expect(mockSession.toolProgressOutput.size).toBe(0);
+    expect(mockSession.dropReplayHistoryAfterRevert).toBe(true);
   });
 
   // Reverting to the first user message (no preceding assistant) should

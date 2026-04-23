@@ -19948,6 +19948,125 @@ describe("prepareSessionForRevert", () => {
     expect(session.toolResults.has("tool-stale")).toBe(false);
     expect(session.toolResults.has("tool-replacement")).toBe(false);
   });
+
+  it("drops replayed Claude history that no longer exists after revert truncation", () => {
+    const bridge = attachBoardFacade(new WsBridge());
+    const cli = makeCliSocket("revert-drops-truncated-replay");
+    bridge.handleCLIOpen(cli, "revert-drops-truncated-replay");
+
+    const session = bridge.getSession("revert-drops-truncated-replay");
+    expect(session).toBeDefined();
+    if (!session) return;
+
+    session.messageHistory = [
+      { type: "user_message", id: "user-1", content: "keep this" } as any,
+      {
+        type: "assistant",
+        message: {
+          id: "assistant-keep",
+          type: "message",
+          role: "assistant",
+          model: "claude-sonnet-4-5-20250929",
+          content: [{ type: "text", text: "kept assistant" }],
+        },
+        uuid: "assistant-keep-uuid",
+        parent_tool_use_id: null,
+      } as any,
+      {
+        type: "result",
+        data: {
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          result: "kept result",
+          duration_ms: 1,
+          duration_api_ms: 1,
+          num_turns: 1,
+          total_cost_usd: 0,
+          stop_reason: "end_turn",
+          usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+          uuid: "result-keep",
+          session_id: "revert-drops-truncated-replay",
+        },
+      } as any,
+      { type: "user_message", id: "user-2", content: "drop this" } as any,
+    ];
+    session.pendingMessages = [JSON.stringify({ type: "user_message", content: "stale" })];
+
+    bridge.prepareSessionForRevert("revert-drops-truncated-replay", 3);
+    expect(session.messageHistory).toHaveLength(3);
+    expect(session.dropReplayHistoryAfterRevert).toBe(true);
+
+    session.cliResuming = true;
+
+    bridge.handleCLIMessage(
+      cli,
+      JSON.stringify({
+        type: "assistant",
+        uuid: "assistant-drop-uuid",
+        parent_tool_use_id: null,
+        message: {
+          id: "assistant-drop",
+          type: "message",
+          role: "assistant",
+          model: "claude-sonnet-4-5-20250929",
+          content: [{ type: "text", text: "stale assistant replay" }],
+          stop_reason: "end_turn",
+          usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        },
+        session_id: "revert-drops-truncated-replay",
+      }),
+    );
+    bridge.handleCLIMessage(
+      cli,
+      JSON.stringify({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result: "stale result replay",
+        duration_ms: 1,
+        duration_api_ms: 1,
+        num_turns: 2,
+        total_cost_usd: 0,
+        stop_reason: "end_turn",
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        uuid: "result-drop",
+        session_id: "revert-drops-truncated-replay",
+      }),
+    );
+    bridge.handleCLIMessage(
+      cli,
+      JSON.stringify({
+        type: "user",
+        uuid: "tool-result-drop",
+        parent_tool_use_id: null,
+        session_id: "revert-drops-truncated-replay",
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "tool-drop",
+              content: "stale preview replay",
+              is_error: false,
+            },
+          ],
+        },
+      }),
+    );
+
+    expect(session.messageHistory).toHaveLength(3);
+    expect(session.messageHistory.find((entry: any) => entry.message?.id === "assistant-drop")).toBeUndefined();
+    expect(session.messageHistory.find((entry: any) => entry.data?.uuid === "result-drop")).toBeUndefined();
+    expect(
+      session.messageHistory.find(
+        (entry: any) =>
+          entry.type === "tool_result_preview" &&
+          Array.isArray(entry.previews) &&
+          entry.previews.some((preview: any) => preview.tool_use_id === "tool-drop"),
+      ),
+    ).toBeUndefined();
+  });
 });
 
 // ─── cliResuming guards status_change broadcast (q-213) ───────────────────
