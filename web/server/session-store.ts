@@ -14,6 +14,13 @@ import type {
   SessionNotification,
 } from "./session-types.js";
 
+export interface SearchExcerpt {
+  type: "user_message" | "compact_marker";
+  content: string;
+  timestamp: number;
+  id?: string;
+}
+
 // ─── Two-Tier Persistence Design ────────────────────────────────────────────
 //
 // Problem: JSON.stringify(entireSession) blocked the event loop for 50-75ms on
@@ -100,6 +107,15 @@ export interface PersistedSession {
   completedBoard?: BoardRow[];
   /** Per-session notification inbox entries */
   notifications?: SessionNotification[];
+
+  /** Lightweight search excerpts extracted at archive time. Only user_message
+   *  content and compact_marker summaries — enough for search without loading
+   *  the full messageHistory from the frozen JSONL log. */
+  _searchExcerpts?: SearchExcerpt[];
+
+  /** Set when this session was loaded with only search-relevant data (archived
+   *  sessions at startup). Full messageHistory was not loaded from disk. */
+  _searchDataOnly?: boolean;
 
   // ── Append-only history bookkeeping (managed by SessionStore) ───────────
   /**
@@ -369,6 +385,33 @@ export class SessionStore {
 
   // ─── Public API ─────────────────────────────────────────────────────────
 
+  static extractSearchExcerpts(messages: BrowserIncomingMessage[]): SearchExcerpt[] {
+    const excerpts: SearchExcerpt[] = [];
+    const MAX_CONTENT_LEN = 500;
+    for (const msg of messages) {
+      if (msg.type === "user_message") {
+        const content = (msg.content || "").trim();
+        if (!content) continue;
+        excerpts.push({
+          type: "user_message",
+          content: content.slice(0, MAX_CONTENT_LEN),
+          timestamp: typeof msg.timestamp === "number" ? msg.timestamp : 0,
+          id: msg.id,
+        });
+      } else if (msg.type === "compact_marker") {
+        const summary = (msg.summary || "").trim();
+        if (!summary) continue;
+        excerpts.push({
+          type: "compact_marker",
+          content: summary.slice(0, MAX_CONTENT_LEN),
+          timestamp: typeof msg.timestamp === "number" ? msg.timestamp : 0,
+          id: msg.id,
+        });
+      }
+    }
+    return excerpts;
+  }
+
   /** Debounced write — batches rapid changes (e.g. multiple stream events). */
   save(session: PersistedSession): void {
     const existing = this.debounceTimers.get(session.id);
@@ -582,6 +625,40 @@ export class SessionStore {
     };
   }
 
+  /** Load only search-relevant data for an archived session (skips JSONL frozen log). */
+  async loadSearchDataOnly(sessionId: string): Promise<PersistedSession | null> {
+    let hot: PersistedSession;
+    try {
+      const raw = await readFile(this.filePath(sessionId), "utf-8");
+      hot = JSON.parse(raw) as PersistedSession;
+    } catch {
+      return null;
+    }
+
+    return {
+      id: hot.id,
+      state: hot.state,
+      messageHistory: [],
+      pendingMessages: [],
+      pendingPermissions: [],
+      toolResults: [],
+      eventBuffer: [],
+      archived: hot.archived,
+      archivedAt: hot.archivedAt,
+      lastReadAt: hot.lastReadAt,
+      attentionReason: hot.attentionReason,
+      taskHistory: hot.taskHistory,
+      keywords: hot.keywords,
+      board: hot.board,
+      completedBoard: hot.completedBoard,
+      notifications: hot.notifications,
+      _searchExcerpts: hot._searchExcerpts,
+      _searchDataOnly: true,
+      _frozenCount: 0,
+      _frozenToolResultCount: 0,
+    };
+  }
+
   /** Load all sessions from disk. */
   async loadAll(): Promise<PersistedSession[]> {
     const sessions: PersistedSession[] = [];
@@ -590,8 +667,43 @@ export class SessionStore {
       for (const file of files) {
         const sessionId = file.replace(/\.json$/, "");
         try {
-          const session = await this.load(sessionId);
-          if (session) sessions.push(session);
+          // Peek at hot JSON to check archived flag before deciding load path
+          let raw: string;
+          try {
+            raw = await readFile(this.filePath(sessionId), "utf-8");
+          } catch {
+            continue;
+          }
+          const hot = JSON.parse(raw) as PersistedSession;
+
+          if (hot.archived) {
+            // Search-data-only: skip JSONL frozen log entirely
+            sessions.push({
+              id: hot.id,
+              state: hot.state,
+              messageHistory: [],
+              pendingMessages: [],
+              pendingPermissions: [],
+              toolResults: [],
+              eventBuffer: [],
+              archived: hot.archived,
+              archivedAt: hot.archivedAt,
+              lastReadAt: hot.lastReadAt,
+              attentionReason: hot.attentionReason,
+              taskHistory: hot.taskHistory,
+              keywords: hot.keywords,
+              board: hot.board,
+              completedBoard: hot.completedBoard,
+              notifications: hot.notifications,
+              _searchExcerpts: hot._searchExcerpts,
+              _searchDataOnly: true,
+              _frozenCount: 0,
+              _frozenToolResultCount: 0,
+            });
+          } else {
+            const session = await this.load(sessionId);
+            if (session) sessions.push(session);
+          }
         } catch {
           // Skip corrupt files
         }
@@ -602,12 +714,15 @@ export class SessionStore {
     return sessions;
   }
 
-  /** Set the archived flag on a persisted session. */
+  /** Set the archived flag on a persisted session. Extracts search excerpts when archiving. */
   async setArchived(sessionId: string, archived: boolean): Promise<boolean> {
     const session = await this.load(sessionId);
     if (!session) return false;
     session.archived = archived;
     session.archivedAt = archived ? Date.now() : undefined;
+    if (archived) {
+      session._searchExcerpts = SessionStore.extractSearchExcerpts(session.messageHistory);
+    }
     this.saveSync(session);
     return true;
   }

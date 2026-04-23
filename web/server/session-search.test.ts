@@ -187,4 +187,68 @@ describe("searchSessionDocuments", () => {
     expect(out.totalMatches).toBe(1);
     expect(out.results[0].sessionId).toBe("s-match");
   });
+
+  it("searches archived sessions via searchExcerpts when messageHistory is empty", () => {
+    // Simulates search-data-only archived session: no messageHistory, only excerpts
+    const docs: SessionSearchDocument[] = [
+      {
+        sessionId: "s-archived",
+        archived: true,
+        createdAt: 100,
+        messageHistory: [],
+        searchExcerpts: [
+          { type: "user_message", content: "deploy the new auth service", timestamp: 1000 },
+          { type: "compact_marker", content: "Session discussed auth deployment strategy", timestamp: 2000 },
+        ],
+      },
+      {
+        sessionId: "s-active",
+        archived: false,
+        createdAt: 200,
+        messageHistory: [{ type: "user_message", content: "deploy the new auth service", timestamp: 3000 }],
+      },
+    ];
+
+    const out = searchSessionDocuments(docs, { query: "auth" });
+    expect(out.totalMatches).toBe(2);
+    const ids = out.results.map((r) => r.sessionId);
+    expect(ids).toContain("s-archived");
+    expect(ids).toContain("s-active");
+  });
+
+  it("prefers messageHistory over searchExcerpts when both are present", () => {
+    const docs: SessionSearchDocument[] = [
+      {
+        sessionId: "s-both",
+        archived: false,
+        createdAt: 100,
+        messageHistory: [{ type: "user_message", content: "real message about deploy", timestamp: 5000 }],
+        searchExcerpts: [{ type: "user_message", content: "excerpt about deploy", timestamp: 1000 }],
+      },
+    ];
+
+    const out = searchSessionDocuments(docs, { query: "deploy" });
+    expect(out.totalMatches).toBe(1);
+    // Should use messageHistory match (timestamp 5000), not excerpt
+    expect(out.results[0].messageMatch?.timestamp).toBe(5000);
+  });
+
+  it("returns no message match when archived session has no excerpts and no history", () => {
+    // Pre-existing archived session without backfilled excerpts
+    const docs: SessionSearchDocument[] = [
+      {
+        sessionId: "s-old-archived",
+        archived: true,
+        createdAt: 50,
+        name: "old session about deploy",
+        messageHistory: [],
+        searchExcerpts: [],
+      },
+    ];
+
+    const out = searchSessionDocuments(docs, { query: "deploy" });
+    expect(out.totalMatches).toBe(1);
+    // Should match on name, not message
+    expect(out.results[0].matchedField).toBe("name");
+  });
 });

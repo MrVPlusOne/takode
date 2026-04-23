@@ -120,6 +120,7 @@ export interface BrowserTransportDeps {
   getSessions: () => Iterable<{ browserSockets: Set<unknown> }>;
   windowStaleMs: number;
   openFileTimeoutMs: number;
+  lazyLoadFullHistory?: (session: BrowserTransportSessionLike) => Promise<void>;
 }
 
 const BROWSER_ACTIVITY_TYPES: ReadonlySet<string> = new Set([
@@ -685,6 +686,11 @@ export async function handleSessionSubscribe(
   data.subscribed = true;
   const lastAckSeq = Number.isFinite(lastSeq) ? Math.max(0, Math.floor(lastSeq)) : 0;
   data.lastAckSeq = lastAckSeq;
+
+  // Lazy-load full history for search-data-only archived sessions
+  if ((session as unknown as Record<string, unknown>).searchDataOnly && deps.lazyLoadFullHistory) {
+    await deps.lazyLoadFullHistory(session);
+  }
 
   deps.recoverToolStartTimesFromHistory(session);
   deps.finalizeRecoveredDisconnectedTerminalTools(session, "session_subscribe");
