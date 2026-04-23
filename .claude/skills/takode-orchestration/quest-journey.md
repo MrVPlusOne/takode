@@ -25,7 +25,7 @@ Every dispatched task follows the Quest Journey lifecycle. The work board (`tako
 - **Initial dispatch = planning only.** The worker returns a plan and stops. Do not imply implementation is approved.
 - **Quest ownership stays with the worker.** The worker doing the job claims and completes the quest. The leader coordinates the journey but does not claim the quest on the worker's behalf.
 - **Plan approval = implement, keep one substantive quest summary comment current, and stop.** Tell the worker to implement, add or refresh the final quest summary comment, report back, and wait. Do not let the worker infer review, porting, or quest transitions.
-- **Review/rework = do the named work, refresh that same summary comment, and stop.** If you send reviewer findings, also tell the worker to refresh the quest summary comment before reporting back and waiting. Do not imply porting is authorized.
+- **Review/rework = do the named work, refresh that same summary comment, and stop.** If you send reviewer findings, also tell the worker to refresh the quest summary comment before reporting back and waiting. When the rework needs more code changes, tell the worker to commit the current worktree state first and make the follow-up fixes in a separate commit so the reviewer can inspect only the new diff. Do not imply porting is authorized.
 - **Porting requires an explicit instruction.** Only tell the worker to run `/port-changes` after the reviewer ACCEPTs and you are ready for porting.
 - **Investigation/design/no-code quests still need explicit boundaries.** Tell the worker what artifact to produce, have them stop afterward, and choose the next step yourself. Do not assume the worker should self-complete, self-transition, or self-port.
 - **Zero-code quests complete without porting.** If the accepted result is an investigation/report/design artifact with zero code changes, complete it directly with artifact-focused verification items. Do not invent synced SHA lines or port-summary comments. If you use `quest complete ... --no-code`, treat it only as a local CLI reminder switch, not durable quest metadata.
@@ -99,7 +99,7 @@ The `--reviewer` flag automatically:
 
 - **This stage is iterative.** Do not advance until the reviewer issues ACCEPT.
 - If the reviewer CHALLENGEs: send findings to the worker for rework, then send the reworked result back to the reviewer. Repeat until ACCEPT.
-- If you send rework, tell the worker to address the findings, report back, and stop again. Do not imply porting is authorized.
+- If you send rework that needs more code changes, tell the worker to commit the current worktree state first, then make the fixes in a separate follow-up commit, refresh the quest summary comment, report back, and stop again. Do not imply porting is authorized.
 - **True zero-code exception:** if the skeptic reviewer ACCEPTs a quest that produced zero code changes, mark the board row with `takode board set <quest-id> --no-code` if it is not already marked, then use `takode board advance-no-groom <quest-id>` to complete the board row directly. Unmarked rows and code-changing quests must continue into `GROOM_REVIEWING`.
 - On ACCEPT: send the same reviewer a concise review request, then have the reviewer self-invoke `/reviewer-groom "<scope>"`.
 - The best scope strings usually identify the quest, the worker, and the worker message range that contains the follow-up being reviewed.
@@ -115,7 +115,7 @@ The `--reviewer` flag automatically:
 - **ALWAYS** send the worker's response back to the same reviewer for compliance check. The reviewer verifies that no important Critical or Recommended suggestion was skipped without justification.
 - **This stage is iterative.** Do not advance until the reviewer ACCEPTs.
 - If CHALLENGE: send findings back to the worker, have them address the issues, then re-send to reviewer. Repeat until ACCEPT.
-- Keep the worker waiting while the reviewer checks compliance. If more changes are needed, tell the worker exactly what to do and to stop again afterward.
+- Keep the worker waiting while the reviewer checks compliance. If more changes are needed and they require code edits, tell the worker to checkpoint the current worktree state in a commit before starting the fixes, then make the follow-up changes separately and stop again afterward.
 - On reviewer ACCEPT: tell the worker to port changes using `/port-changes`. Porting must be a separate, explicit instruction, and the worker's report-back must include `Synced SHAs: sha1,sha2` with the ordered synced SHAs from the main repo.
 - `takode board advance <quest-id>`
 - **NEVER combine "reviewer-groom/rework" and "port" in the same instruction to the worker.** Each is a separate gate.
