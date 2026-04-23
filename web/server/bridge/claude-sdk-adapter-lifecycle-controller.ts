@@ -86,6 +86,7 @@ export function attachClaudeSdkAdapterLifecycle(
         if (!isActiveAdapter()) return;
         session.cliResumingClearTimer = null;
         session.cliResuming = false;
+        session.dropReplayHistoryAfterRevert = false;
         console.log(`[ws-bridge] cliResuming cleared for SDK session ${sessionTag(session.id)} — replay done`);
         const compactPending = deps.hasPendingForceCompact(session);
         session.forceCompactPending = compactPending;

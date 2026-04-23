@@ -41,6 +41,7 @@ export interface ClaudeCliTransportSessionLike {
   seamlessReconnect: boolean;
   cliResumingClearTimer: ReturnType<typeof setTimeout> | null;
   cliResuming: boolean;
+  dropReplayHistoryAfterRevert?: boolean;
   cliInitReceived: boolean;
   lastCliMessageAt: number | null;
   lastCliPingAt: number | null;
@@ -101,6 +102,8 @@ export function handleCLIOpen(
       session.cliResumingClearTimer = null;
     }
     session.cliResuming = true;
+  } else {
+    session.dropReplayHistoryAfterRevert = false;
   }
   console.log(
     `[ws-bridge] CLI connected for session ${sessionTag(sessionId)}${session.cliResuming ? " (resuming)" : ""}`,

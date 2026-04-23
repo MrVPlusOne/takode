@@ -169,6 +169,7 @@ function createSessionRuntime(
     cliInitializeSent: false,
     cliResuming: false,
     cliResumingClearTimer: null,
+    dropReplayHistoryAfterRevert: false,
     claudeCompactBoundarySeen: false,
   };
 }
@@ -246,6 +247,23 @@ export function prepareSessionForRevert(
   session.messageHistory = session.messageHistory.slice(0, truncateIdx);
   session.frozenCount = Math.min(session.frozenCount, session.messageHistory.length);
   deps.pruneToolResultsForCurrentHistory(session);
+  session.assistantAccumulator?.clear?.();
+  session.pendingMessages = [];
+  session.lastOutboundUserNdjson = null;
+  session.userMessageIdsThisTurn = [];
+  session.queuedTurnStarts = 0;
+  session.queuedTurnReasons = [];
+  session.queuedTurnUserMessageIds = [];
+  session.queuedTurnInterruptSources = [];
+  session.interruptedDuringTurn = false;
+  session.interruptSourceDuringTurn = null;
+  session.isGenerating = false;
+  session.generationStartedAt = null;
+  session.disconnectWasGenerating = false;
+  session.seamlessReconnect = false;
+  session.toolStartTimes?.clear?.();
+  session.toolProgressOutput?.clear?.();
+  session.dropReplayHistoryAfterRevert = session.backendType === "claude" || session.backendType === "claude-sdk";
 
   const lastUser = [...session.messageHistory]
     .reverse()
@@ -283,18 +301,8 @@ export function prepareSessionForRevert(
   if (options?.clearCodexState) {
     session.pendingCodexTurns = [];
     session.pendingCodexInputs = [];
-    session.pendingMessages = [];
     session.pendingCodexRollback = null;
     session.pendingCodexRollbackError = null;
-    session.userMessageIdsThisTurn = [];
-    session.queuedTurnStarts = 0;
-    session.queuedTurnReasons = [];
-    session.queuedTurnUserMessageIds = [];
-    session.queuedTurnInterruptSources = [];
-    session.interruptedDuringTurn = false;
-    session.interruptSourceDuringTurn = null;
-    session.isGenerating = false;
-    session.generationStartedAt = null;
     if (session.optimisticRunningTimer) {
       clearTimeout(session.optimisticRunningTimer);
       session.optimisticRunningTimer = null;

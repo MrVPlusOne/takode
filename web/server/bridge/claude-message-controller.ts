@@ -47,6 +47,7 @@ export interface SystemMessageSessionLike {
   backendType: "claude" | "codex" | "claude-sdk";
   cliInitReceived: boolean;
   cliResuming: boolean;
+  dropReplayHistoryAfterRevert?: boolean;
   cliResumingClearTimer: ReturnType<typeof setTimeout> | null;
   forceCompactPending: boolean;
   compactedDuringTurn: boolean;
@@ -100,6 +101,7 @@ export interface AssistantMessageSessionLike {
   id: string;
   backendType: BackendType;
   cliResuming: boolean;
+  dropReplayHistoryAfterRevert?: boolean;
   isGenerating: boolean;
   messageHistory: BrowserIncomingMessage[];
   assistantAccumulator: Map<string, { contentBlockIds: Set<string> }>;
@@ -136,6 +138,7 @@ export interface ResultMessageSessionLike {
   id: string;
   backendType: "claude" | "codex" | "claude-sdk";
   cliResuming: boolean;
+  dropReplayHistoryAfterRevert?: boolean;
   messageHistory: BrowserIncomingMessage[];
   state: Pick<SessionState, "model" | "total_cost_usd" | "num_turns" | "context_used_percent" | "claude_token_details">;
   diffStatsDirty: boolean;
@@ -159,6 +162,7 @@ export interface CliMessageRouteSessionLike {
 export interface CliUserReplaySessionLike {
   id: string;
   cliResuming: boolean;
+  dropReplayHistoryAfterRevert?: boolean;
   resumedFromExternal?: boolean;
   awaitingCompactSummary?: boolean;
   messageHistory: BrowserIncomingMessage[];
@@ -216,6 +220,13 @@ interface DrainInlineQueuedClaudeTurnsSessionLike {
   id: string;
   backendType: BackendType;
   pendingMessages: string[];
+}
+
+function shouldDropReplayHistoryAfterRevert(session: {
+  cliResuming: boolean;
+  dropReplayHistoryAfterRevert?: boolean;
+}): boolean {
+  return session.cliResuming && session.dropReplayHistoryAfterRevert === true;
 }
 
 interface DrainInlineQueuedClaudeTurnsDeps {
@@ -337,7 +348,14 @@ export function handleAssistantMessage(
   const acc = session.assistantAccumulator.get(msgId);
   const newlyObservedToolUses: Array<Extract<ContentBlock, { type: "tool_use" }>> = [];
   if (!acc) {
-    if (deps.hasAssistantReplay(session, msgId)) return;
+    const hasReplay = !!msgId && deps.hasAssistantReplay(session, msgId);
+    if (hasReplay) return;
+    if (shouldDropReplayHistoryAfterRevert(session)) {
+      console.log(
+        `[revert] Replay assistant DROPPED (msgId=${msgId ?? "NONE"}, uuid=${msg.uuid ?? "NONE"}, historyLen=${session.messageHistory.length})`,
+      );
+      return;
+    }
 
     const contentBlockIds = new Set<string>();
     const now = Date.now();
@@ -466,13 +484,20 @@ export function handleResultMessage(
   msg: CLIResultMessage,
   deps: ResultMessageDeps,
 ): void {
-  if (msg.uuid && deps.hasResultReplay(session, msg.uuid)) {
+  const hasReplay = !!msg.uuid && deps.hasResultReplay(session, msg.uuid);
+  if (hasReplay) {
     const reconciled = deps.reconcileReplayState(session);
     const drainedQueuedTurns = deps.drainInlineQueuedClaudeTurns(session, "result_replay");
     if (drainedQueuedTurns || reconciled.clearedResidualState) {
       deps.broadcastToBrowsers(session, { type: "status_change", status: "idle" });
       deps.persistSession(session);
     }
+    return;
+  }
+  if (shouldDropReplayHistoryAfterRevert(session)) {
+    console.log(
+      `[revert] Replay result DROPPED (uuid=${msg.uuid ?? "NONE"}, historyLen=${session.messageHistory.length})`,
+    );
     return;
   }
 
@@ -634,10 +659,17 @@ export function extractUserPromptFromCLI(
   if (textParts.length === 0 && imageBlocks.length === 0) return;
 
   const cliUuid = msg.uuid;
-  if (cliUuid && deps.hasUserPromptReplay(session, cliUuid)) {
+  const hasReplay = !!cliUuid && deps.hasUserPromptReplay(session, cliUuid);
+  if (hasReplay) {
     if (session.cliResuming) {
       console.log(`[revert] Replay user msg DEDUPED (cliUuid=${cliUuid}, historyLen=${session.messageHistory.length})`);
     }
+    return;
+  }
+  if (shouldDropReplayHistoryAfterRevert(session)) {
+    console.log(
+      `[revert] Replay user msg DROPPED (cliUuid=${cliUuid ?? "NONE"}, text=${textParts[0]?.slice(0, 60) ?? ""}, historyLen=${session.messageHistory.length})`,
+    );
     return;
   }
 
@@ -684,14 +716,28 @@ export function handleToolResultMessage(
   const toolResults = content.filter(
     (block): block is Extract<ContentBlock, { type: "tool_result" }> => block.type === "tool_result",
   );
+  let droppedAfterRevert = 0;
   const newToolResults = toolResults.filter((block) => {
     if (!deps.hasToolResultPreviewReplay(session, block.tool_use_id)) return true;
     deps.clearCodexToolResultWatchdog(session, block.tool_use_id);
     session.toolStartTimes.delete(block.tool_use_id);
     return false;
   });
-  const completedToolStartTimes = deps.collectCompletedToolStartTimes(session, newToolResults);
-  const previews = deps.buildToolResultPreviews(session, newToolResults);
+  const filteredToolResults = shouldDropReplayHistoryAfterRevert(session)
+    ? newToolResults.filter((block) => {
+        droppedAfterRevert++;
+        deps.clearCodexToolResultWatchdog(session, block.tool_use_id);
+        session.toolStartTimes.delete(block.tool_use_id);
+        return false;
+      })
+    : newToolResults;
+  if (droppedAfterRevert > 0) {
+    console.log(
+      `[revert] Replay tool_result_preview DROPPED (${droppedAfterRevert} block(s), historyLen=${session.messageHistory.length})`,
+    );
+  }
+  const completedToolStartTimes = deps.collectCompletedToolStartTimes(session, filteredToolResults);
+  const previews = deps.buildToolResultPreviews(session, filteredToolResults);
   if (previews.length === 0) return;
 
   const browserMsg: BrowserIncomingMessage = {
@@ -1065,6 +1111,7 @@ function handleSystemInit(session: SystemMessageSessionLike, msg: CLISystemInitM
     session.cliResumingClearTimer = setTimeout(() => {
       session.cliResumingClearTimer = null;
       session.cliResuming = false;
+      session.dropReplayHistoryAfterRevert = false;
       const compactPending = deps.hasPendingForceCompact(session);
       session.forceCompactPending = compactPending;
       session.state.is_compacting = compactPending;
