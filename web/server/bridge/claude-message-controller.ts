@@ -950,6 +950,9 @@ function handleSdkCompactBoundary(
     existingMarker.cliUuid = cliUuid;
     existingMarker.trigger = meta?.trigger;
     existingMarker.preTokens = meta?.pre_tokens;
+    if (session.backendType === "claude") {
+      session.claudeCompactBoundarySeen = true;
+    }
     deps.persistSession(session);
     return;
   }

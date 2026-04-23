@@ -114,6 +114,90 @@ describe("system-message-controller", () => {
     expect(deps.onSessionActivityStateChanged).toHaveBeenCalledWith("s1", "system_status");
   });
 
+  // The SDK path enriches an existing compact_marker when compact_boundary arrives
+  // after status:"compacting" already created the marker. The enrichment must still
+  // set claudeCompactBoundarySeen so that the post-compaction recovery injection fires.
+  it("injects compaction recovery after SDK enrichment path", () => {
+    const session = makeSession();
+    const deps = makeDeps();
+
+    // 1. Enter compacting — creates compact_marker, resets claudeCompactBoundarySeen
+    handleSystemMessage(
+      session,
+      {
+        type: "system",
+        subtype: "status",
+        status: "compacting",
+        uuid: "status-2",
+        session_id: "s1",
+      } as CLISystemStatusMessage,
+      deps,
+    );
+    expect(session.state.is_compacting).toBe(true);
+    expect(session.claudeCompactBoundarySeen).toBe(false);
+
+    // 2. compact_boundary arrives — sets claudeCompactBoundarySeen = true
+    handleSystemMessage(
+      session,
+      {
+        type: "system",
+        subtype: "compact_boundary",
+        uuid: "cb-1",
+        session_id: "s1",
+      } as any,
+      deps,
+    );
+    expect(session.claudeCompactBoundarySeen).toBe(true);
+
+    // 3. Status transitions out of compacting — should trigger injection
+    handleSystemMessage(
+      session,
+      {
+        type: "system",
+        subtype: "status",
+        status: null,
+        uuid: "status-3",
+        session_id: "s1",
+      } as CLISystemStatusMessage,
+      deps,
+    );
+    expect(session.state.is_compacting).toBe(false);
+    expect(deps.injectCompactionRecovery).toHaveBeenCalledWith(session);
+  });
+
+  // Verifies that when claudeCompactBoundarySeen is never set (e.g. no compact_boundary
+  // message arrives), the recovery injection is skipped for Claude backend sessions.
+  it("skips compaction recovery when compact boundary was never seen", () => {
+    const session = makeSession();
+    const deps = makeDeps();
+
+    handleSystemMessage(
+      session,
+      {
+        type: "system",
+        subtype: "status",
+        status: "compacting",
+        uuid: "status-4",
+        session_id: "s1",
+      } as CLISystemStatusMessage,
+      deps,
+    );
+
+    // Transition out of compacting without a compact_boundary
+    handleSystemMessage(
+      session,
+      {
+        type: "system",
+        subtype: "status",
+        status: null,
+        uuid: "status-5",
+        session_id: "s1",
+      } as CLISystemStatusMessage,
+      deps,
+    );
+    expect(deps.injectCompactionRecovery).not.toHaveBeenCalled();
+  });
+
   // Resume replay can resend old task notifications; this confirms the controller
   // drops those duplicates instead of re-adding completion cards to history.
   it("deduplicates replayed task notifications", () => {
