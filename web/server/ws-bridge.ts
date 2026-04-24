@@ -1712,7 +1712,12 @@ export class WsBridge {
     const session = this.sessions.get(sessionId);
     if (!session) return;
     this.syncBackendTypeFromLauncher(session, "browser_message");
-    const { messageType, completion } = handleBrowserMessageTransportController(session, data, ws, this.getBrowserTransportDeps());
+    const { messageType, completion } = handleBrowserMessageTransportController(
+      session,
+      data,
+      ws,
+      this.getBrowserTransportDeps(),
+    );
     if (completion) {
       await completion;
     }
