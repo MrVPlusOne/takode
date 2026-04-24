@@ -165,6 +165,138 @@ describe("permission pipeline takode event emission (q-205)", () => {
     expect(deps.emitTakodePermissionRequest).not.toHaveBeenCalled();
   });
 
+  it("auto-approves sensitive ordinary tools in bypassPermissions mode", () => {
+    // Regression coverage for q-626: no-ask Claude WebSocket sessions should
+    // not turn sensitive file protection into a manual gate for ordinary tools.
+    const session = makeSession({
+      state: { permissionMode: "bypassPermissions", cwd: "/tmp/test" },
+    });
+    const deps = makeDeps();
+
+    const result = handlePermissionRequest(
+      session,
+      {
+        request_id: "req-sensitive-bypass",
+        tool_name: "Write",
+        input: { file_path: "/tmp/test/CLAUDE.md", content: "updated instructions" },
+        tool_use_id: "tu-sensitive-bypass",
+      },
+      "claude-ws",
+      deps,
+      { activityReason: "permission_request" },
+    );
+
+    expect(result).not.toBeInstanceOf(Promise);
+    expect((result as { kind: string }).kind).toBe("mode_auto_approved");
+    expect(session.pendingPermissions.size).toBe(0);
+    expect(deps.broadcastPermissionRequest).not.toHaveBeenCalled();
+    expect(deps.emitTakodePermissionRequest).not.toHaveBeenCalled();
+  });
+
+  it("auto-approves sensitive file edits covered by acceptEdits mode", () => {
+    // acceptEdits is still a mode-level auto-approval path for file edits. If a
+    // sensitive edit reaches the pipeline, it should match that mode instead of
+    // falling through to the sensitive manual deferral path.
+    const session = makeSession({
+      state: { permissionMode: "acceptEdits", cwd: "/tmp/test" },
+    });
+    const deps = makeDeps();
+
+    const result = handlePermissionRequest(
+      session,
+      {
+        request_id: "req-sensitive-accept-edits",
+        tool_name: "Edit",
+        input: { file_path: "/tmp/test/CLAUDE.md", old_string: "old", new_string: "new" },
+        tool_use_id: "tu-sensitive-accept-edits",
+      },
+      "claude-ws",
+      deps,
+      { activityReason: "permission_request" },
+    );
+
+    expect(result).not.toBeInstanceOf(Promise);
+    expect((result as { kind: string }).kind).toBe("mode_auto_approved");
+    expect(session.pendingPermissions.size).toBe(0);
+    expect(deps.broadcastPermissionRequest).not.toHaveBeenCalled();
+  });
+
+  it("keeps sensitive ordinary tools pending for manual approval outside auto-approve modes", async () => {
+    // Sensitive protection still matters in manual sessions: edits to approval
+    // rules/instructions should be visible to a human instead of LLM-approved.
+    const session = makeSession({
+      state: { permissionMode: "default", cwd: "/tmp/test" },
+    });
+    const deps = makeDeps();
+
+    const result = await handlePermissionRequest(
+      session,
+      {
+        request_id: "req-sensitive-manual",
+        tool_name: "Write",
+        input: { file_path: "/tmp/test/CLAUDE.md", content: "updated instructions" },
+        tool_use_id: "tu-sensitive-manual",
+      },
+      "claude-ws",
+      deps,
+      { activityReason: "permission_request" },
+    );
+
+    expect(result.kind).toBe("pending_human");
+    expect(result.request.deferralReason).toBe("Sensitive file — requires manual approval");
+    expect(session.pendingPermissions.has("req-sensitive-manual")).toBe(true);
+    expect(deps.broadcastPermissionRequest).toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({
+        request_id: "req-sensitive-manual",
+        deferralReason: "Sensitive file — requires manual approval",
+      }),
+    );
+  });
+
+  it("keeps interactive tools answerable in bypassPermissions mode", () => {
+    // AskUserQuestion and ExitPlanMode are control-flow interactions, not
+    // ordinary tool permissions, so no-ask mode must still surface them.
+    const session = makeSession({
+      state: { permissionMode: "bypassPermissions", cwd: "/tmp/test" },
+    });
+    const deps = makeDeps();
+
+    const askResult = handlePermissionRequest(
+      session,
+      {
+        request_id: "req-ask-interactive",
+        tool_name: "AskUserQuestion",
+        input: { questions: [{ question: "Which approach?", options: ["A", "B"] }] },
+        tool_use_id: "tu-ask-interactive",
+      },
+      "claude-ws",
+      deps,
+      { activityReason: "permission_request" },
+    );
+
+    const planResult = handlePermissionRequest(
+      session,
+      {
+        request_id: "req-plan-interactive",
+        tool_name: "ExitPlanMode",
+        input: { plan: "Proceed with implementation" },
+        tool_use_id: "tu-plan-interactive",
+      },
+      "claude-ws",
+      deps,
+      { activityReason: "permission_request" },
+    );
+
+    expect(askResult).not.toBeInstanceOf(Promise);
+    expect(planResult).not.toBeInstanceOf(Promise);
+    expect((askResult as { kind: string }).kind).toBe("pending_human");
+    expect((planResult as { kind: string }).kind).toBe("pending_human");
+    expect(session.pendingPermissions.has("req-ask-interactive")).toBe(true);
+    expect(session.pendingPermissions.has("req-plan-interactive")).toBe(true);
+    expect(deps.broadcastPermissionRequest).toHaveBeenCalledTimes(2);
+  });
+
   it("schedules notification only for pending_human, not for queued_for_llm", async () => {
     // Notifications should only fire when a human needs to act. When the LLM
     // is evaluating, the notification is premature.
