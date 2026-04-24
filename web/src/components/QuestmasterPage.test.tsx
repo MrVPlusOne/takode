@@ -477,6 +477,25 @@ describe("QuestmasterPage verification inbox", () => {
     expect(mockState.questOverlayId).toBe("q-2");
   });
 
+  it("cancels the pending deep-link scroll frame on unmount", () => {
+    // The deep-link scroll is asynchronous; cleanup must cancel it so no
+    // browser globals are touched after Vitest tears down jsdom.
+    window.location.hash = "#/questmaster?quest=q-2";
+    const requestFrameSpy = vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 123);
+    const cancelFrameSpy = vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
+
+    try {
+      const { unmount } = renderQuestmaster();
+      unmount();
+
+      expect(requestFrameSpy).toHaveBeenCalled();
+      expect(cancelFrameSpy).toHaveBeenCalledWith(123);
+    } finally {
+      requestFrameSpy.mockRestore();
+      cancelFrameSpy.mockRestore();
+    }
+  });
+
   it("highlights card with primary border when overlay is open for that quest", () => {
     // The card's appearance should reflect the overlay state from the store.
     mockState.questOverlayId = "q-1";

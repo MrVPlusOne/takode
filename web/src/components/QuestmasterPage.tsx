@@ -367,12 +367,13 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
     });
     useStore.getState().openQuestOverlay(targetQuestId);
     setShowCreateForm(false);
-    requestAnimationFrame(() => {
+    const scrollFrameId = window.requestAnimationFrame(() => {
       const el = document.querySelector(`[data-quest-id="${targetQuestId}"]`);
       if (el instanceof HTMLElement && typeof el.scrollIntoView === "function") {
         el.scrollIntoView({ behavior: "smooth", block: "center" });
       }
     });
+    return () => window.cancelAnimationFrame(scrollFrameId);
   }, [hash, quests]);
 
   // Focus title input when create form opens
