@@ -2180,6 +2180,36 @@ describe("Composer slash menu", () => {
     expect(screen.getByText("/accept-edits")).toBeTruthy();
     expect(screen.getByText("/auto")).toBeTruthy();
     expect(screen.getByText("/compact")).toBeTruthy();
+    expect(screen.getByText("/status")).toBeTruthy();
+  });
+
+  it("sends /status as a normal Codex user message", () => {
+    setupMockStore({
+      session: {
+        backend_type: "codex",
+        model: "gpt-5.3-codex",
+      },
+    });
+    const { container } = render(<Composer sessionId="s1" />);
+    const textarea = container.querySelector("textarea")!;
+
+    fireEvent.change(textarea, { target: { value: "/status" } });
+    fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
+    fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
+
+    expect(mockSendToSession).toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({
+        type: "user_message",
+        content: "/status",
+      }),
+    );
+    expect(mockSendToSession).not.toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({
+        type: "set_permission_mode",
+      }),
+    );
   });
 
   it("double-prefixes slash-prefixed skill names from session data", () => {

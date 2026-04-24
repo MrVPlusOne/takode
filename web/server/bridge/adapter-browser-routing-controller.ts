@@ -70,8 +70,11 @@ export interface AdapterBrowserRoutingSessionLike {
     | "backend_error"
     | "backend_state"
     | "claude_token_details"
+    | "codex_rate_limits"
     | "codex_image_send_stage"
     | "codex_reasoning_effort"
+    | "codex_token_details"
+    | "context_used_percent"
     | "cwd"
     | "is_compacting"
     | "model"
@@ -581,6 +584,19 @@ export async function routeBrowserMessage(
     }
     if (maybeAutoAnswerPendingQuestionForUserMessage(session, msg, deps)) return;
     maybeAutoRejectPendingPlanForUserMessage(session, msg, deps);
+  }
+
+  if (
+    msg.type === "user_message" &&
+    typeof msg.content === "string" &&
+    msg.content.trim().toLowerCase() === "/status" &&
+    !msg.imageRefs?.length &&
+    session.backendType === "codex"
+  ) {
+    // Serve Codex `/status` from Takode's server-held session state so the
+    // command stays available even though Codex user turns are queued here.
+    handleCodexStatusCommand(session, deps);
+    return;
   }
 
   if (
@@ -1570,6 +1586,126 @@ export function handleCliSlashCommand(
   deps.broadcastStatusChange(session, "running");
   deps.persistSession(session);
 }
+
+function formatStatusTokenCount(count: number): string {
+  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
+  if (count >= 1_000) return `${(count / 1_000).toFixed(1)}k`;
+  return String(count);
+}
+
+function formatRateLimitStatus(
+  label: string,
+  limit: NonNullable<NonNullable<SessionState["codex_rate_limits"]>[keyof NonNullable<SessionState["codex_rate_limits"]>]>,
+): string {
+  const windowLabel =
+    limit.windowDurationMins >= 60 && limit.windowDurationMins % 60 === 0
+      ? `${limit.windowDurationMins / 60}h`
+      : `${limit.windowDurationMins}m`;
+  return `${label} ${limit.usedPercent}% of ${windowLabel} window`;
+}
+
+function buildCodexStatusText(session: AdapterBrowserRoutingSessionLike): string {
+  const lines = ["Codex status", ""];
+  const sessionState = session.codexAdapter?.getCurrentTurnId() || session.isGenerating ? "active" : "idle";
+  lines.push(`- Session: ${sessionState}`);
+
+  const model = session.state.model?.trim();
+  if (model) lines.push(`- Model: ${model}`);
+
+  const cwd = session.state.cwd?.trim();
+  if (cwd) lines.push(`- Directory: ${cwd}`);
+
+  const contextPercent = typeof session.state.context_used_percent === "number" ? session.state.context_used_percent : 0;
+  const contextWindow =
+    session.state.codex_token_details?.modelContextWindow || inferContextWindowFromModel(session.state.model || "") || 0;
+  if (contextWindow > 0) {
+    lines.push(`- Context: ${contextPercent}% used (${formatStatusTokenCount(contextWindow)} window)`);
+  } else {
+    lines.push(`- Context: ${contextPercent}% used`);
+  }
+
+  const tokenDetails = session.state.codex_token_details;
+  if (tokenDetails) {
+    const tokenParts = [
+      `${formatStatusTokenCount(tokenDetails.inputTokens)} input`,
+      `${formatStatusTokenCount(tokenDetails.cachedInputTokens)} cached`,
+      `${formatStatusTokenCount(tokenDetails.outputTokens)} output`,
+    ];
+    if (tokenDetails.reasoningOutputTokens > 0) {
+      tokenParts.push(`${formatStatusTokenCount(tokenDetails.reasoningOutputTokens)} reasoning`);
+    }
+    lines.push(`- Tokens: ${tokenParts.join(", ")}`);
+  }
+
+  const rateLimits = session.state.codex_rate_limits;
+  const rateLimitParts: string[] = [];
+  if (rateLimits?.primary) rateLimitParts.push(formatRateLimitStatus("primary", rateLimits.primary));
+  if (rateLimits?.secondary) rateLimitParts.push(formatRateLimitStatus("secondary", rateLimits.secondary));
+  if (rateLimitParts.length > 0) {
+    lines.push(`- Rate limits: ${rateLimitParts.join("; ")}`);
+  }
+
+  const reasoningEffort = session.state.codex_reasoning_effort?.trim();
+  if (reasoningEffort) {
+    lines.push(`- Reasoning effort: ${reasoningEffort}`);
+  }
+
+  return lines.join("\n");
+}
+
+function handleCodexStatusCommand(
+  session: AdapterBrowserRoutingSessionLike,
+  deps: AdapterBrowserRoutingDeps,
+): void {
+  const ts = Date.now();
+  const userHistoryEntry: Extract<BrowserIncomingMessage, { type: "user_message" }> = {
+    type: "user_message",
+    content: "/status",
+    timestamp: ts,
+    id: deps.nextUserMessageId(ts),
+  };
+  session.messageHistory.push(userHistoryEntry);
+  session.lastUserMessage = "/status";
+  deps.touchUserMessage(session.id);
+  deps.broadcastToBrowsers(session, userHistoryEntry);
+  deps.emitTakodeEvent(session.id, "user_message", { content: "/status" });
+
+  const wasGenerating = session.isGenerating;
+  if (!wasGenerating) {
+    deps.setGenerating(session, true, "codex_status_command");
+    deps.broadcastStatusChange(session, "running");
+  }
+
+  const assistantMessage: Extract<BrowserIncomingMessage, { type: "assistant" }> = {
+    type: "assistant",
+    message: {
+      id: `codex-status-${randomUUID()}`,
+      type: "message",
+      role: "assistant",
+      model: session.state.model || "",
+      content: [{ type: "text", text: buildCodexStatusText(session) }],
+      stop_reason: null,
+      usage: {
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+      },
+    },
+    parent_tool_use_id: null,
+    timestamp: ts,
+    uuid: randomUUID(),
+  };
+  session.messageHistory.push(assistantMessage);
+  deps.broadcastToBrowsers(session, assistantMessage);
+
+  if (!wasGenerating) {
+    deps.setGenerating(session, false, "codex_status_command");
+    deps.broadcastStatusChange(session, "idle");
+  }
+  deps.persistSession(session);
+}
+
 export function handleForceCompact(session: AdapterBrowserRoutingSessionLike, deps: AdapterBrowserRoutingDeps): void {
   console.log(`[ws-bridge] /compact intercepted for session ${sessionTag(session.id)}, triggering force-compact`);
   const ts = Date.now();

@@ -20,8 +20,11 @@ function makeSession(): AdapterBrowserRoutingSessionLike {
       askPermission: true,
       backend_error: null,
       backend_state: "connected",
+      codex_rate_limits: undefined,
       codex_image_send_stage: null,
       codex_reasoning_effort: undefined,
+      codex_token_details: undefined,
+      context_used_percent: 0,
       cwd: "/tmp/session",
       is_compacting: false,
       model: "sonnet",
@@ -776,5 +779,74 @@ describe("permission response handling in browser routing", () => {
       sessionId: "system:long-sleep-guard",
       sessionLabel: "System",
     });
+  });
+
+  it("answers Codex /status from server state without queueing a Codex turn", async () => {
+    const session = makeSession();
+    session.backendType = "codex";
+    session.state.model = "gpt-5.5";
+    session.state.cwd = "/repo/project";
+    session.state.context_used_percent = 41;
+    session.state.codex_reasoning_effort = "high";
+    session.state.codex_token_details = {
+      inputTokens: 1_150_000,
+      outputTokens: 50_000,
+      cachedInputTokens: 930_000,
+      reasoningOutputTokens: 2_000,
+      modelContextWindow: 258_400,
+    };
+    session.state.codex_rate_limits = {
+      primary: { usedPercent: 62, windowDurationMins: 300, resetsAt: 1_700_000_000_000 },
+      secondary: null,
+    };
+    session.codexAdapter = {
+      sendBrowserMessage: vi.fn(() => true),
+      getCurrentTurnId: vi.fn(() => null),
+      isConnected: vi.fn(() => true),
+    };
+    const deps = makeDeps();
+
+    await routeBrowserMessage(
+      session as any,
+      {
+        type: "user_message",
+        content: "/status",
+      },
+      undefined,
+      deps,
+    );
+
+    expect(session.messageHistory.map((entry) => entry.type)).toEqual(["user_message", "assistant"]);
+    expect(deps.broadcastToBrowsers).toHaveBeenNthCalledWith(
+      1,
+      session,
+      expect.objectContaining({
+        type: "user_message",
+        content: "/status",
+      }),
+    );
+    expect(deps.broadcastToBrowsers).toHaveBeenNthCalledWith(
+      2,
+      session,
+      expect.objectContaining({
+        type: "assistant",
+        message: expect.objectContaining({
+          role: "assistant",
+          content: [
+            expect.objectContaining({
+              type: "text",
+              text: expect.stringContaining("Codex status"),
+            }),
+          ],
+        }),
+      }),
+    );
+    const statusText = ((session.messageHistory[1] as any).message.content[0].text ?? "") as string;
+    expect(statusText).toContain("Context: 41% used (258.4k window)");
+    expect(statusText).toContain("Tokens: 1.1M input, 930.0k cached, 50.0k output, 2.0k reasoning");
+    expect(statusText).toContain("Rate limits: primary 62% of 5h window");
+    expect(statusText).toContain("Reasoning effort: high");
+    expect(deps.queueCodexPendingStartBatch).not.toHaveBeenCalled();
+    expect(session.codexAdapter.sendBrowserMessage).not.toHaveBeenCalled();
   });
 });
