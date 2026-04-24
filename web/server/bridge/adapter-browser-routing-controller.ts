@@ -978,7 +978,7 @@ export function handleInterrupt(
 export function handleSetModel(
   session: AdapterBrowserRoutingSessionLike,
   model: string,
-  deps: Pick<AdapterBrowserRoutingDeps, "sendToCLI" | "broadcastToBrowsers" | "persistSession">,
+  deps: Pick<AdapterBrowserRoutingDeps, "sendToCLI" | "getLauncherSessionInfo" | "broadcastToBrowsers" | "persistSession">,
 ): void {
   if (session.backendType === "claude-sdk" && session.claudeSdkAdapter) {
     session.claudeSdkAdapter.sendBrowserMessage({ type: "set_model", model } as any);
@@ -993,6 +993,8 @@ export function handleSetModel(
     );
   }
   session.state.model = model;
+  const launchInfo = deps.getLauncherSessionInfo(session.id);
+  if (launchInfo) launchInfo.model = model;
   const inferredWindow = inferContextWindowFromModel(model);
   if (inferredWindow) {
     if (session.state.claude_token_details) {
