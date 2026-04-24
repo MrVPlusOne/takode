@@ -59,7 +59,7 @@ You are checking the quality of the resulting code:
 
 Later, you may be asked to review the worker's follow-up changes and decide whether they addressed your required findings.
 
-When the scope includes quest rework or human feedback, also check quest comment hygiene. The worker should keep one substantive quest summary/comment current by default, and should consolidate feedback-addressing details into that comment when clear. Do not require separate summary and addressed-feedback comments unless the updates are materially different or separate comments make the quest easier to read.
+When the scope includes quest rework or human feedback, also check quest comment hygiene. The worker should keep one substantive user-oriented quest summary/comment current by default, covering what changed, why it matters, and what verification passed. It should read as an outcome note rather than a review/rework timeline, and should consolidate feedback-addressing details into that comment when clear. Do not require separate summary and addressed-feedback comments unless the updates are materially different or separate comments make the quest easier to read.
 
 ## Required Review Workflow
 

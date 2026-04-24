@@ -2720,10 +2720,13 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("worker doing the job claims and completes the quest");
     expect(guardrails).toContain("Archiving a worktree worker removes its worktree and any uncommitted changes");
     expect(guardrails).toContain("ported, committed, or otherwise synced");
-    expect(guardrails).toContain("implement, update the quest summary comment, and stop when done");
+    expect(guardrails).toContain("implement, update the user-oriented quest summary comment, and stop when done");
+    expect(guardrails).toContain("what changed, why it matters, and what verification passed");
     expect(guardrails).toContain("Do **not** tell the worker to port yet");
     expect(guardrails).toContain("investigation, design, or other no-code quests");
-    expect(guardrails).toContain("address reviewer-groom findings, update the quest summary comment, and stop");
+    expect(guardrails).toContain(
+      "address reviewer-groom findings, update the user-oriented quest summary comment, and stop",
+    );
     expect(guardrails).toContain("what artifact to produce and to stop afterward");
     expect(guardrails).toContain("`--no-code` only affects the local CLI reminder text");
     expect(guardrails).toContain("send a separate explicit port instruction when ready");
@@ -2781,9 +2784,12 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("worker doing the job claims and completes the quest");
     expect(guardrails).toContain("Archiving a worktree worker removes its worktree and any uncommitted changes");
     expect(guardrails).toContain("ported, committed, or otherwise synced");
-    expect(guardrails).toContain("implement, update the quest summary comment, and stop when done");
+    expect(guardrails).toContain("implement, update the user-oriented quest summary comment, and stop when done");
+    expect(guardrails).toContain("what changed, why it matters, and what verification passed");
     expect(guardrails).toContain("Do **not** tell the worker to port yet");
-    expect(guardrails).toContain("address reviewer-groom findings, update the quest summary comment, and stop");
+    expect(guardrails).toContain(
+      "address reviewer-groom findings, update the user-oriented quest summary comment, and stop",
+    );
     expect(guardrails).toContain("what artifact to produce and to stop afterward");
     expect(guardrails).toContain("send a separate explicit port instruction when ready");
     expect(guardrails).toContain("Every time you ask the user a question");
