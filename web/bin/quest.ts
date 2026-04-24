@@ -983,12 +983,12 @@ function formatCompletionReminder(questId: string, options: { noCode: boolean })
   if (options.noCode) {
     return (
       summaryLine +
-      " You used `--no-code` for this local CLI handoff, so do not add port commentary or synced SHA placeholders."
+      " You used `--no-code` for this local CLI handoff, so do not add port commentary or synced SHA placeholders. Only use `--no-code` when the quest produced zero git-tracked changes."
     );
   }
   return (
     summaryLine +
-    " Use `--commit/--commits` structured metadata for routine port info; only add a second prose port comment when the port was exceptional."
+    " Use `--commit/--commits` structured metadata for routine port info, including docs, skills, prompts, templates, and other text-only tracked-file commits; only add a second prose port comment when the port was exceptional."
   );
 }
 

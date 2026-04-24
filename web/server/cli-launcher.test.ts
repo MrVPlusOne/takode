@@ -2715,6 +2715,11 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("Fresh human feedback resets the active cycle");
     expect(guardrails).toContain("do not let stale old-scope completions advance the quest");
     expect(guardrails).toContain("Zero-code quests do not need port noise");
+    expect(guardrails).toContain("zero git-tracked changes");
+    expect(guardrails).toContain(
+      "Docs, skills, prompts, templates, and other text-only tracked-file edits are commit-producing work",
+    );
+    expect(guardrails).toContain("attach their synced SHAs with `quest complete ... --commit/--commits`");
     expect(guardrails).toContain("local CLI reminder switch");
     expect(guardrails).toContain("Leaders do not own worker quests");
     expect(guardrails).toContain("worker doing the job claims and completes the quest");

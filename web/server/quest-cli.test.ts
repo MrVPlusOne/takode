@@ -1529,6 +1529,9 @@ describe("quest CLI completion reminder", () => {
       );
       expect(result.stdout).toContain("Avoid review/rework timelines unless essential");
       expect(result.stdout).toContain("Use `--commit/--commits` structured metadata for routine port info");
+      expect(result.stdout).toContain(
+        "including docs, skills, prompts, templates, and other text-only tracked-file commits",
+      );
     } finally {
       server.close();
       rmSync(tmp, { recursive: true, force: true });
@@ -1590,6 +1593,7 @@ describe("quest CLI completion reminder", () => {
         verificationItems: [{ text: "Review artifact", checked: false }],
       });
       expect(result.stdout).toContain("You used `--no-code` for this local CLI handoff");
+      expect(result.stdout).toContain("Only use `--no-code` when the quest produced zero git-tracked changes");
       expect(result.stdout).not.toContain("Use `--commit/--commits` structured metadata for routine port info");
     } finally {
       server.close();

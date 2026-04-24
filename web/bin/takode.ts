@@ -744,7 +744,7 @@ Advance a quest to the next Quest Journey state.
 const BOARD_ADVANCE_NO_GROOM_HELP = `Usage: takode board advance-no-groom <quest-id> [--json]
 
 Explicitly complete a true zero-code quest from SKEPTIC_REVIEWING, skipping reviewer-groom and porting.
-This narrow exception is only valid after skeptic review accepts a quest with zero code changes and the board row has already been marked with \`takode board set <quest-id> --no-code\`.
+This narrow exception is only valid after skeptic review accepts a quest with zero git-tracked changes and the board row has already been marked with \`takode board set <quest-id> --no-code\`. Git-tracked docs, skills, prompts, templates, and other text-only edits do not qualify for this path.
 `;
 
 const BOARD_RM_HELP = `Usage: takode board rm <quest-id> [<quest-id> ...] [--json]

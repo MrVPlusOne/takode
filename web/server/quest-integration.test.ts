@@ -117,6 +117,11 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("pass `quest complete ... --no-code`");
     expect(skill).toContain("only a local reminder switch");
     expect(skill).toContain("no placeholder port notes or synced SHA lines");
+    expect(skill).toContain("zero git-tracked changes");
+    expect(skill).toContain(
+      "Docs, skills, prompts, templates, and other text-only tracked-file edits are commit-producing work",
+    );
+    expect(skill).toContain("Do not use `--no-code` for these quests");
   });
 
   it("instructs agents to use quest directly before PATH fallbacks", async () => {

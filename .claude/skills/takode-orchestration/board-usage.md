@@ -24,7 +24,7 @@ Transition to the next Quest Journey stage. At the final stage (PORTING), advanc
 ### `takode board advance-no-groom <quest-id>`
 
 Explicitly complete a true zero-code quest from `SKEPTIC_REVIEWING`, skipping reviewer-groom and porting.
-Use this only after skeptic review accepts a quest that produced zero code changes and the row has already been marked with `takode board set <quest-id> --no-code`.
+Use this only after skeptic review accepts a quest that produced zero git-tracked changes and the row has already been marked with `takode board set <quest-id> --no-code`. Git-tracked docs, skills, prompts, templates, and other text-only edits do not qualify for this path.
 
 ### `takode board rm <quest-id> [<quest-id> ...]`
 
@@ -40,7 +40,7 @@ True zero-code quests have one explicit exception: after marking the row with `t
 - Every command outputs the full board after the operation
 - **Always set `--worker N` when adding a quest to the board.** The board must show which session is working on each quest.
 - **Use `takode board advance` for stage transitions**, not `takode board set --status`. `advance` enforces the correct lifecycle order; `set --status` bypasses it.
-- **Use `takode board advance-no-groom` only for rows explicitly marked `--no-code` and currently in `SKEPTIC_REVIEWING`.** It is a narrow explicit exception, not a shortcut for code-changing work.
+- **Use `takode board advance-no-groom` only for rows explicitly marked `--no-code` and currently in `SKEPTIC_REVIEWING`.** It is a narrow explicit exception, not a shortcut for git-tracked changes, including text-only tracked-file edits.
 - **Reset backwards with `takode board set --status` only for fresh rework cycles.** If new human feedback lands while an older review/port cycle is still in flight, reset the row to the earliest valid stage for the new scope right away: usually `PLANNING` when the same worker should re-plan, or `QUEUED` when ownership needs to be reconsidered.
 - **Board advances only after completed actions.** Do not advance anticipating what will happen next. Only advance after the action for that stage is actually done.
 - **A stale completion does not outrank fresh feedback.** After a rework reset, old-scope review ACCEPTs, port confirmations, or delayed worker turn completions are historical context only. Do not use them to advance the board.
