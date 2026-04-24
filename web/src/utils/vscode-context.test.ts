@@ -34,6 +34,20 @@ describe("VS Code selection formatting", () => {
     expect(formatVsCodeSelectionAttachmentLabel(context)).toBe("App.tsx:42-44");
   });
 
+  it("renders only the basename when the display path is absolute", () => {
+    expect(
+      formatVsCodeSelectionAttachmentLabel({
+        ...context,
+        absolutePath: "/workspace/other/really/deep/App.tsx",
+        relativePath: "/workspace/other/really/deep/App.tsx",
+        displayPath: "/workspace/other/really/deep/App.tsx",
+        startLine: 42,
+        endLine: 42,
+        lineCount: 1,
+      }),
+    ).toBe("App.tsx:42");
+  });
+
   it("builds the separate model prompt with the full relative path", () => {
     expect(buildVsCodeSelectionPrompt(context)).toBe(
       "[user selection in VSCode: web/src/App.tsx lines 42-44] (this may or may not be relevant)",
