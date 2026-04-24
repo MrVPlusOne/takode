@@ -3234,6 +3234,22 @@ describe("takode watch deprecation", () => {
     expect(result.stdout).not.toContain("Cannot connect to Companion server");
   });
 
+  it("documents advance-no-groom as only for zero git-tracked changes", async () => {
+    const result = await runTakode(["board", "advance-no-groom", "--help"], {
+      ...process.env,
+      COMPANION_SESSION_ID: undefined,
+      COMPANION_AUTH_TOKEN: undefined,
+      COMPANION_PORT: undefined,
+      TAKODE_API_PORT: undefined,
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("zero git-tracked changes");
+    expect(result.stdout).toContain(
+      "Git-tracked docs, skills, prompts, templates, and other text-only edits do not qualify",
+    );
+  });
+
   it("keeps unknown commands with --help as an error", async () => {
     const result = await runTakode(["wat", "--help"], {
       ...process.env,
