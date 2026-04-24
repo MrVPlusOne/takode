@@ -24599,8 +24599,7 @@ describe("search-data-only archived session restore", () => {
     const browser = makeBrowserSocket(sid);
     restored.handleBrowserOpen(browser, sid);
     browser.send.mockClear();
-    restored.handleBrowserMessage(browser, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
-    await flushAsync();
+    await restored.handleBrowserMessage(browser, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
 
     // Session should now have full history loaded
     expect(session.searchDataOnly).toBe(false);

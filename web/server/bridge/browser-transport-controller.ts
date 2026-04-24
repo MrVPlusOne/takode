@@ -272,7 +272,7 @@ export function handleBrowserMessage(
   data: string,
   ws: BrowserTransportSocketLike | undefined,
   deps: BrowserTransportDeps,
-): string {
+): { messageType: string; completion: Promise<void> | null } {
   deps.recordIncomingRaw?.(session.id, data, session.backendType, session.state.cwd);
 
   let msg: BrowserOutgoingMessage;
@@ -287,7 +287,7 @@ export function handleBrowserMessage(
       payloadBytes: Buffer.byteLength(data, "utf-8"),
     });
     console.warn(`[ws-bridge] Failed to parse browser message: ${data.substring(0, 200)}`);
-    return "invalid_json";
+    return { messageType: "invalid_json", completion: null };
   }
 
   trafficStats.record({
@@ -298,8 +298,10 @@ export function handleBrowserMessage(
     payloadBytes: Buffer.byteLength(data, "utf-8"),
   });
 
-  void handleBrowserIngressMessage(session, msg, ws, deps);
-  return msg.type;
+  return {
+    messageType: msg.type,
+    completion: handleBrowserIngressMessage(session, msg, ws, deps),
+  };
 }
 
 export function handleBrowserProtocolMessage(
