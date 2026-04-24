@@ -33,15 +33,10 @@ function getNotificationBreakdown(notifications: ReadonlyArray<Pick<SessionNotif
   return { needsInput, review };
 }
 
-function formatChipAriaLabel({
-  needsInput,
-  review,
-}: {
-  needsInput: number;
-  review: number;
-}): string {
+function formatChipAriaLabel({ needsInput, review }: { needsInput: number; review: number }): string {
   const parts: string[] = [];
-  if (needsInput > 0) parts.push(`${needsInput} ${needsInput === 1 ? "needs-input notification" : "needs-input notifications"}`);
+  if (needsInput > 0)
+    parts.push(`${needsInput} ${needsInput === 1 ? "needs-input notification" : "needs-input notifications"}`);
   if (review > 0) parts.push(`${review} ${review === 1 ? "review notification" : "review notifications"}`);
   return `Notification inbox: ${parts.join(", ")}`;
 }
@@ -88,7 +83,9 @@ function parseSingleQuestSummary(summary?: string): { before: string; questId: s
   };
 }
 
-function getCompactReviewSummary(summary?: string): { text: string; questSummary: { before: string; questId: string; after: string } | null } | null {
+function getCompactReviewSummary(
+  summary?: string,
+): { text: string; questSummary: { before: string; questId: string; after: string } | null } | null {
   if (!summary) return null;
 
   const singleQuestMatch = summary.match(/^\s*(q-\d+)\s+ready\s+for\s+review(?:\s*:\s*(.+?))?\s*$/i);

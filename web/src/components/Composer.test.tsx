@@ -36,7 +36,11 @@ const mockTranscribe = vi
   .fn()
   .mockResolvedValue({ mode: "dictation", text: "transcribed text", backend: "openai", enhanced: false });
 const mockGetBackendModels = vi.fn().mockResolvedValue([]);
+const mockGetSettings = vi.fn().mockResolvedValue({ claudeDefaultModel: "" });
+const mockUpdateSettings = vi.fn().mockResolvedValue({});
 const mockRefreshSessionSkills = vi.fn().mockResolvedValue({ ok: true, skills: [] });
+const mockPrepareUserMessageImages = vi.fn();
+const mockDeletePreparedUserMessageImage = vi.fn().mockResolvedValue({ ok: true });
 
 // Build a controllable mock store state
 let mockStoreState: Record<string, unknown> = {};
@@ -49,8 +53,11 @@ vi.mock("../api.js", () => ({
   api: {
     gitPull: vi.fn().mockResolvedValue({ success: true, output: "", git_ahead: 0, git_behind: 0 }),
     getBackendModels: (...args: unknown[]) => mockGetBackendModels(...args),
-    getSettings: vi.fn().mockResolvedValue({ claudeDefaultModel: "" }),
+    getSettings: (...args: unknown[]) => mockGetSettings(...args),
+    updateSettings: (...args: unknown[]) => mockUpdateSettings(...args),
     refreshSessionSkills: (...args: unknown[]) => mockRefreshSessionSkills(...args),
+    prepareUserMessageImages: (...args: unknown[]) => mockPrepareUserMessageImages(...args),
+    deletePreparedUserMessageImage: (...args: unknown[]) => mockDeletePreparedUserMessageImage(...args),
     transcribe: (...args: unknown[]) => mockTranscribe(...args),
   },
 }));
@@ -219,7 +226,9 @@ function makeQuest(overrides: Partial<QuestmasterTask> & { questId: string; titl
   } as QuestmasterTask;
 }
 
-function makeSdkSession(overrides: Partial<SdkSessionInfo> & { sessionId: string; sessionNum: number }): SdkSessionInfo {
+function makeSdkSession(
+  overrides: Partial<SdkSessionInfo> & { sessionId: string; sessionNum: number },
+): SdkSessionInfo {
   const { sessionId, sessionNum, ...rest } = overrides;
   return {
     sessionId,
@@ -248,6 +257,7 @@ function setupMockStore(
     sessionStatus?: "idle" | "running" | "compacting" | null;
     session?: Partial<SessionState>;
     draftText?: string;
+    draft?: { text: string; images: unknown[] };
     zoomLevel?: number;
     sdkSessionTotals?: { added: number; removed: number };
     sdkSessions?: SdkSessionInfo[];
@@ -273,6 +283,7 @@ function setupMockStore(
     sessionStatus = "idle",
     session = {},
     draftText = "",
+    draft,
     zoomLevel = 1,
     sdkSessionTotals,
     sdkSessions = [],
@@ -303,7 +314,11 @@ function setupMockStore(
     sessionStatus: sessionStatusMap,
     previousPermissionMode: previousPermissionModeMap,
     askPermission: askPermissionMap,
-    composerDrafts: draftText ? new Map([["s1", { text: draftText, images: [] }]]) : new Map(),
+    composerDrafts: draft
+      ? new Map([["s1", draft]])
+      : draftText
+        ? new Map([["s1", { text: draftText, images: [] }]])
+        : new Map(),
     replyContexts: new Map(),
     appendMessage: mockAppendMessage,
     updateSession: mockUpdateSession,
@@ -311,6 +326,7 @@ function setupMockStore(
     setSessionPreview: mockSetSessionPreview,
     setAskPermission: mockSetAskPermission,
     requestBottomAlignOnNextUserMessage: mockRequestBottomAlignOnNextUserMessage,
+    pendingUserUploads: new Map(),
     zoomLevel,
     vscodeSelectionContext,
     dismissedVsCodeSelectionKey: null,
@@ -337,6 +353,47 @@ function setupMockStore(
       (mockStoreState.composerDrafts as Map<string, unknown>).delete(sessionId);
       notifyMockStore();
     }),
+    addPendingUserUpload: vi.fn((sessionId: string, upload: unknown) => {
+      const pending = (mockStoreState.pendingUserUploads as Map<string, unknown[]>) ?? new Map();
+      const current = pending.get(sessionId) ?? [];
+      pending.set(sessionId, [...current, upload]);
+      mockStoreState.pendingUserUploads = pending;
+      notifyMockStore();
+    }),
+    updatePendingUserUpload: vi.fn((sessionId: string, uploadId: string, updater: (upload: any) => any) => {
+      const pending = (mockStoreState.pendingUserUploads as Map<string, any[]>) ?? new Map();
+      const current = pending.get(sessionId) ?? [];
+      pending.set(
+        sessionId,
+        current.map((upload) => (upload.id === uploadId ? updater(upload) : upload)),
+      );
+      mockStoreState.pendingUserUploads = pending;
+      notifyMockStore();
+    }),
+    removePendingUserUpload: vi.fn((sessionId: string, uploadId: string) => {
+      const pending = (mockStoreState.pendingUserUploads as Map<string, any[]>) ?? new Map();
+      const current = pending.get(sessionId) ?? [];
+      const next = current.filter((upload) => upload.id !== uploadId);
+      if (next.length > 0) pending.set(sessionId, next);
+      else pending.delete(sessionId);
+      mockStoreState.pendingUserUploads = pending;
+      notifyMockStore();
+    }),
+    consumePendingUserUpload: vi.fn((sessionId: string, uploadId: string) => {
+      const pending = (mockStoreState.pendingUserUploads as Map<string, any[]>) ?? new Map();
+      const current = pending.get(sessionId) ?? [];
+      let consumed: any = null;
+      const next = current.filter((upload) => {
+        if (upload.id !== uploadId) return true;
+        consumed = upload;
+        return false;
+      });
+      if (next.length > 0) pending.set(sessionId, next);
+      else pending.delete(sessionId);
+      mockStoreState.pendingUserUploads = pending;
+      notifyMockStore();
+      return consumed;
+    }),
     setReplyContext: vi.fn(
       (
         sessionId: string,
@@ -345,10 +402,7 @@ function setupMockStore(
           previewText: string;
         } | null,
       ) => {
-        const replyContexts = mockStoreState.replyContexts as Map<
-          string,
-          { messageId: string; previewText: string }
-        >;
+        const replyContexts = mockStoreState.replyContexts as Map<string, { messageId: string; previewText: string }>;
         if (context) {
           replyContexts.set(sessionId, context);
         } else {
@@ -367,6 +421,7 @@ function setupMockStore(
     pendingPermissions: new Map(),
     removePermission: vi.fn(),
     diffFileStats: new Map(),
+    focusComposer: vi.fn(),
   };
 }
 
@@ -379,8 +434,27 @@ function setViewportWidth(width: number) {
   window.dispatchEvent(new Event("resize"));
 }
 
+function expectNoOverflowHiddenAncestorWithin(node: HTMLElement, stopAt: HTMLElement) {
+  let current: HTMLElement | null = node.parentElement;
+  while (current && current !== stopAt) {
+    expect(current.className).not.toContain("overflow-hidden");
+    current = current.parentElement;
+  }
+  expect(current).toBe(stopAt);
+}
+
 function makeImageFile(name: string, type = "image/png") {
   return new File(["fake-image-bytes"], name, { type });
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
 }
 
 function makeImageDataTransfer(file: File) {
@@ -410,7 +484,27 @@ beforeEach(() => {
   mockVoiceState.cancelRecording.mockReset();
   mockTranscribe.mockResolvedValue({ mode: "dictation", text: "transcribed text", backend: "openai", enhanced: false });
   mockGetBackendModels.mockResolvedValue([]);
+  mockGetSettings.mockResolvedValue({ claudeDefaultModel: "" });
+  mockUpdateSettings.mockResolvedValue({});
   mockRefreshSessionSkills.mockResolvedValue({ ok: true, skills: [] });
+  mockPrepareUserMessageImages.mockReset();
+  mockDeletePreparedUserMessageImage.mockReset();
+  mockDeletePreparedUserMessageImage.mockResolvedValue({ ok: true });
+  mockPrepareUserMessageImages.mockImplementation(
+    async (sessionId: string, images: Array<{ mediaType: string }>, _signal?: AbortSignal) => ({
+      imageRefs: images.map((image, index) => ({
+        imageId: `img-${index + 1}`,
+        media_type: image.mediaType,
+      })),
+      paths: images.map((_image, index) => `/Users/test/.companion/images/${sessionId}/img-${index + 1}.orig.png`),
+      attachmentAnnotation: images
+        .map(
+          (_image, index) =>
+            `Attachment ${index + 1}: /Users/test/.companion/images/${sessionId}/img-${index + 1}.orig.png`,
+        )
+        .join("\n"),
+    }),
+  );
   mockRequestBottomAlignOnNextUserMessage.mockReset();
   mediaState.touchDevice = false;
   setViewportWidth(1024);
@@ -456,7 +550,7 @@ describe("Composer basic rendering", () => {
     expect(textarea?.getAttribute("spellcheck")).toBe("false");
   });
 
-  it("does not rerender for unrelated sessions and sdkSessions churn", () => {
+  it("does not rerender for unrelated sessions and sdkSessions churn", async () => {
     setupMockStore({
       session: { git_branch: "main", model: "claude-sonnet-4-5-20250929" },
       sdkSessionTotals: { added: 5, removed: 2 },
@@ -481,7 +575,15 @@ describe("Composer basic rendering", () => {
       </Profiler>,
     );
 
-    expect(composerCommits).toBe(1);
+    // Let mount-time async hydration settle before capturing the baseline.
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // After mount-time hydration settles, unrelated session churn must not
+    // commit the active Composer subtree at all.
+    const baselineCommits = composerCommits;
+    expect(baselineCommits).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("main")).toBeTruthy();
     expect(screen.getByText("sonnet-4.5")).toBeTruthy();
 
@@ -504,7 +606,7 @@ describe("Composer basic rendering", () => {
       notifyMockStore();
     });
 
-    expect(composerCommits).toBe(1);
+    expect(composerCommits).toBe(baselineCommits);
     expect(screen.getByText("main")).toBeTruthy();
     expect(screen.getByText("sonnet-4.5")).toBeTruthy();
     expect(screen.queryByText("+99")).toBeNull();
@@ -519,6 +621,69 @@ describe("Composer basic rendering", () => {
 
     expect(screen.queryByText("+34")).toBeNull();
     expect(screen.queryByText("-8")).toBeNull();
+  });
+
+  it("renders the composer footer after the textarea and keeps session metadata there", () => {
+    setupMockStore({
+      session: {
+        backend_type: "codex",
+        permissionMode: "plan",
+        git_branch: "feature/composer-footer",
+        model: "gpt-5.4",
+        codex_reasoning_effort: "high",
+      },
+    });
+
+    const { container } = render(<Composer sessionId="s1" />);
+    const textarea = container.querySelector("textarea");
+    const footer = screen.getByTestId("composer-footer-toolbar");
+    const meta = screen.getByTestId("composer-footer-meta");
+    const sendButton = screen.getByTitle("Send message");
+    const modeToggle = screen.getByTitle("Plan mode: agent creates a plan before executing (Shift+Tab to toggle)");
+
+    expect(textarea).toBeTruthy();
+    expect(Boolean(textarea && textarea.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    expect(sendButton.closest('[data-testid="composer-footer-toolbar"]')).toBe(footer);
+    expect(modeToggle.closest('[data-testid="composer-footer-toolbar"]')).toBe(footer);
+    expect(within(meta).getByText("feature/composer-footer")).toBeTruthy();
+    expect(within(meta).getByText("gpt-5.4")).toBeTruthy();
+    expect(within(meta).getByText("high")).toBeTruthy();
+  });
+
+  it("keeps the moved footer popovers outside overflow-hidden ancestors", async () => {
+    setupMockStore({
+      session: {
+        git_branch: "main",
+        model: "claude-sonnet-4-5-20250929",
+        permissionMode: "acceptEdits",
+      },
+    });
+
+    render(<Composer sessionId="s1" />);
+
+    const footer = screen.getByTestId("composer-footer-toolbar");
+    await userEvent.click(screen.getByTitle("Permissions: asking before tool use (click to change)"));
+    expectNoOverflowHiddenAncestorWithin(screen.getByTestId("composer-permission-popover"), footer);
+
+    await userEvent.click(screen.getByTitle("Model: claude-sonnet-4-5-20250929 (click to change)"));
+    expectNoOverflowHiddenAncestorWithin(screen.getByTestId("composer-model-menu"), footer);
+  });
+
+  it("keeps the moved codex reasoning menu outside overflow-hidden ancestors", async () => {
+    setupMockStore({
+      session: {
+        backend_type: "codex",
+        git_branch: "feature/reasoning-menu",
+        model: "gpt-5.4",
+        permissionMode: "plan",
+      },
+    });
+
+    render(<Composer sessionId="s1" />);
+
+    const footer = screen.getByTestId("composer-footer-toolbar");
+    await userEvent.click(screen.getByTitle("Reasoning effort (relaunch required)"));
+    expectNoOverflowHiddenAncestorWithin(screen.getByTestId("composer-reasoning-menu"), footer);
   });
 
   it("does not switch to the collapsed composer on narrow desktop layouts", () => {
@@ -718,8 +883,102 @@ describe("Composer voice edit mode", () => {
     expect(options?.composerText).toBeUndefined();
   });
 
-  it("shows an uploading state before the transcription stream switches to STT", async () => {
-    // q-485: keep the pre-response wait visible as an upload step instead of
+  it("waits for the initial settings fetch before the first non-empty recording so the persisted mode wins", async () => {
+    setupMockStore({ draftText: "Keep this draft" });
+    const settingsLoad = deferred<{
+      claudeDefaultModel: string;
+      transcriptionConfig: { voiceCaptureMode: "append" };
+    }>();
+    mockGetSettings.mockReturnValueOnce(settingsLoad.promise);
+
+    render(<Composer sessionId="s1" />);
+    fireEvent.click(screen.getByLabelText("Voice input"));
+
+    expect(mockVoiceState.toggleRecording).not.toHaveBeenCalled();
+
+    settingsLoad.resolve({
+      claudeDefaultModel: "",
+      transcriptionConfig: { voiceCaptureMode: "append" },
+    });
+
+    await waitFor(() => {
+      expect(mockVoiceState.toggleRecording).toHaveBeenCalledTimes(1);
+      expect(mockTranscribe).toHaveBeenCalledWith(
+        expect.any(Blob),
+        expect.objectContaining({
+          mode: "append",
+          sessionId: "s1",
+          composerText: "Keep this draft",
+        }),
+      );
+    });
+    expect(mockGetSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores repeated pre-hydration mic clicks so only one recording start survives", async () => {
+    setupMockStore({ draftText: "Keep this draft" });
+    const settingsLoad = deferred<{
+      claudeDefaultModel: string;
+      transcriptionConfig: { voiceCaptureMode: "append" };
+    }>();
+    mockGetSettings.mockReturnValueOnce(settingsLoad.promise);
+
+    render(<Composer sessionId="s1" />);
+    const voiceButton = screen.getByLabelText("Voice input");
+    fireEvent.click(voiceButton);
+    fireEvent.click(voiceButton);
+
+    expect(mockVoiceState.toggleRecording).not.toHaveBeenCalled();
+
+    settingsLoad.resolve({
+      claudeDefaultModel: "",
+      transcriptionConfig: { voiceCaptureMode: "append" },
+    });
+
+    await waitFor(() => {
+      expect(mockVoiceState.toggleRecording).toHaveBeenCalledTimes(1);
+      expect(mockTranscribe).toHaveBeenCalledTimes(1);
+      expect(mockTranscribe).toHaveBeenCalledWith(
+        expect.any(Blob),
+        expect.objectContaining({
+          mode: "append",
+          sessionId: "s1",
+          composerText: "Keep this draft",
+        }),
+      );
+    });
+    expect(mockGetSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it("hydrates the persisted voice mode for Codex sessions too", async () => {
+    setupMockStore({
+      draftText: "Codex should respect append",
+      session: { backend_type: "codex" },
+    });
+    mockGetSettings.mockResolvedValueOnce({
+      claudeDefaultModel: "",
+      transcriptionConfig: { voiceCaptureMode: "append" },
+    });
+
+    render(<Composer sessionId="s1" />);
+    fireEvent.click(screen.getByLabelText("Voice input"));
+
+    await waitFor(() => {
+      expect(mockTranscribe).toHaveBeenCalledWith(
+        expect.any(Blob),
+        expect.objectContaining({
+          mode: "append",
+          sessionId: "s1",
+          composerText: "Codex should respect append",
+        }),
+      );
+    });
+    expect(mockGetSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows a preparation state before the transcription stream switches to STT", async () => {
+    // q-485/q-566: keep the pre-response wait visible, but avoid claiming the
+    // whole period is only network upload work.
     // immediately claiming transcription is already in progress.
     let resolveTranscription: ((value: VoiceTranscriptionResult) => void) | undefined;
     mockTranscribe.mockImplementationOnce(
@@ -733,13 +992,13 @@ describe("Composer voice edit mode", () => {
     fireEvent.click(screen.getByLabelText("Voice input"));
 
     await waitFor(() => {
-      expect(screen.getByText("Uploading...")).toBeTruthy();
+      expect(screen.getByText("Preparing transcript...")).toBeTruthy();
     });
 
     if (!resolveTranscription) throw new Error("mock transcription resolver was not initialized");
     resolveTranscription({ mode: "dictation", text: "done", backend: "openai", enhanced: false });
     await waitFor(() => {
-      expect(screen.queryByText("Uploading...")).toBeNull();
+      expect(screen.queryByText("Preparing transcript...")).toBeNull();
     });
   });
 
@@ -904,6 +1163,65 @@ describe("Composer send button state", () => {
 });
 
 describe("Composer image attachments", () => {
+  it("blocks send as soon as an image is attached, before local file reading finishes", async () => {
+    const previousFileReader = window.FileReader;
+    const pendingReaders: Array<{
+      complete: () => void;
+    }> = [];
+    Object.defineProperty(window, "FileReader", {
+      configurable: true,
+      writable: true,
+      value: class MockFileReader {
+        result: string | ArrayBuffer | null = null;
+        onload: ((this: FileReader, ev: ProgressEvent<FileReader>) => unknown) | null = null;
+        onerror: ((this: FileReader, ev: ProgressEvent<FileReader>) => unknown) | null = null;
+
+        readAsDataURL(file: Blob) {
+          pendingReaders.push({
+            complete: () => {
+              this.result = `data:${(file as File).type || "image/png"};base64,ZmFrZQ==`;
+              this.onload?.call(this as unknown as FileReader, new ProgressEvent("load") as ProgressEvent<FileReader>);
+            },
+          });
+        }
+      },
+    });
+
+    try {
+      const { container } = render(<Composer sessionId="s1" />);
+      const textarea = container.querySelector("textarea")!;
+      const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+
+      fireEvent.change(textarea, { target: { value: "inspect this screenshot" } });
+      fireEvent.change(fileInput, { target: { files: [makeImageFile("slow.png")] } });
+
+      await waitFor(() => {
+        expect(screen.getByText("Preparing 1 image before upload.")).toBeTruthy();
+        expect(screen.getAllByText("Preparing...").length).toBeGreaterThan(0);
+      });
+
+      fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
+      expect(mockSendToSession).not.toHaveBeenCalledWith(
+        "s1",
+        expect.objectContaining({
+          type: "user_message",
+          content: "inspect this screenshot",
+        }),
+      );
+
+      await act(async () => {
+        pendingReaders[0]?.complete();
+        await Promise.resolve();
+      });
+    } finally {
+      Object.defineProperty(window, "FileReader", {
+        configurable: true,
+        writable: true,
+        value: previousFileReader,
+      });
+    }
+  });
+
   it("attaches selected image files through the upload input", async () => {
     const { container } = render(<Composer sessionId="s1" />);
     const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
@@ -960,6 +1278,58 @@ describe("Composer image attachments", () => {
     await waitFor(() => {
       expect(screen.queryByText("Drop images to attach")).toBeNull();
     });
+  });
+
+  it("retries a real local read failure and resumes normal upload preparation", async () => {
+    const previousFileReader = window.FileReader;
+    let readAttempts = 0;
+    Object.defineProperty(window, "FileReader", {
+      configurable: true,
+      writable: true,
+      value: class MockFileReader {
+        result: string | ArrayBuffer | null = null;
+        onload: ((this: FileReader, ev: ProgressEvent<FileReader>) => unknown) | null = null;
+        onerror: ((this: FileReader, ev: ProgressEvent<FileReader>) => unknown) | null = null;
+
+        readAsDataURL(file: Blob) {
+          readAttempts += 1;
+          if (readAttempts === 1) {
+            this.onerror?.call(this as unknown as FileReader, new ProgressEvent("error") as ProgressEvent<FileReader>);
+            return;
+          }
+          this.result = `data:${(file as File).type || "image/png"};base64,ZmFrZQ==`;
+          this.onload?.call(this as unknown as FileReader, new ProgressEvent("load") as ProgressEvent<FileReader>);
+        }
+      },
+    });
+
+    try {
+      const { container } = render(<Composer sessionId="s1" />);
+      const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+
+      fireEvent.change(fileInput, { target: { files: [makeImageFile("read-fail.png")] } });
+
+      await waitFor(() => {
+        expect(screen.getByText("Upload failed")).toBeTruthy();
+      });
+      expect(mockPrepareUserMessageImages).not.toHaveBeenCalled();
+
+      fireEvent.click(screen.getByText("Retry"));
+
+      await waitFor(() => {
+        expect(readAttempts).toBe(2);
+        expect(mockPrepareUserMessageImages).toHaveBeenCalledTimes(1);
+      });
+      await waitFor(() => {
+        expect(screen.getByText("Ready")).toBeTruthy();
+      });
+    } finally {
+      Object.defineProperty(window, "FileReader", {
+        configurable: true,
+        writable: true,
+        value: previousFileReader,
+      });
+    }
   });
 });
 
@@ -1034,6 +1404,173 @@ describe("Composer sending messages", () => {
         content: "click send",
       }),
     );
+  });
+
+  it("uploads image attachments immediately and only enables send after preparation completes", async () => {
+    const prepared = deferred<{
+      imageRefs: Array<{ imageId: string; media_type: string }>;
+      paths: string[];
+      attachmentAnnotation: string;
+    }>();
+    mockPrepareUserMessageImages.mockReturnValue(prepared.promise);
+
+    const { container } = render(<Composer sessionId="s1" />);
+    const textarea = container.querySelector("textarea")!;
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+
+    fireEvent.change(textarea, { target: { value: "inspect this screenshot" } });
+    await act(async () => {
+      fireEvent.change(fileInput, { target: { files: [makeImageFile("screenshot.png")] } });
+    });
+    expect(mockPrepareUserMessageImages).toHaveBeenCalledWith(
+      "s1",
+      [
+        expect.objectContaining({
+          mediaType: "image/png",
+          data: expect.any(String),
+        }),
+      ],
+      expect.any(AbortSignal),
+    );
+    await waitFor(() => {
+      expect(screen.getByAltText("screenshot.png")).toBeTruthy();
+    });
+    expect(screen.getByText("Uploading...")).toBeTruthy();
+    expect(screen.getByTitle("Send message").closest("button")!.hasAttribute("disabled")).toBe(true);
+
+    fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
+    expect(mockSendToSession).not.toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({
+        type: "user_message",
+      }),
+    );
+
+    await act(async () => {
+      prepared.resolve({
+        imageRefs: [{ imageId: "img-1", media_type: "image/png" }],
+        paths: ["/Users/test/.companion/images/s1/img-1.orig.png"],
+        attachmentAnnotation:
+          "\n[📎 Image attachments -- read these files with the Read tool before responding:\nAttachment 1: /Users/test/.companion/images/s1/img-1.orig.png]",
+      });
+      await prepared.promise;
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Ready")).toBeTruthy();
+      expect(screen.getByTitle("Send message")).toBeTruthy();
+    });
+
+    fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
+
+    expect(mockSendToSession).toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({
+        type: "user_message",
+        content: "inspect this screenshot",
+        deliveryContent: expect.stringContaining("Attachment 1: /Users/test/.companion/images/s1/img-1.orig.png"),
+        imageRefs: [{ imageId: "img-1", media_type: "image/png" }],
+        session_id: "s1",
+        client_msg_id: expect.any(String),
+      }),
+    );
+  });
+
+  it("blocks send on failed image preparation until the image is retried or removed", async () => {
+    mockPrepareUserMessageImages.mockRejectedValueOnce(new Error("server rejected image")).mockResolvedValueOnce({
+      imageRefs: [{ imageId: "img-1", media_type: "image/png" }],
+      paths: ["/Users/test/.companion/images/s1/img-1.orig.png"],
+      attachmentAnnotation:
+        "\n[📎 Image attachments -- read these files with the Read tool before responding:\nAttachment 1: /Users/test/.companion/images/s1/img-1.orig.png]",
+    });
+
+    const { container } = render(<Composer sessionId="s1" />);
+    const textarea = container.querySelector("textarea")!;
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+
+    fireEvent.change(textarea, { target: { value: "inspect this screenshot" } });
+    await act(async () => {
+      fireEvent.change(fileInput, { target: { files: [makeImageFile("broken.png")] } });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Upload failed")).toBeTruthy();
+      expect(screen.getByText("server rejected image")).toBeTruthy();
+    });
+    expect(screen.getByText("Remove or retry 1 failed image before sending.")).toBeTruthy();
+
+    fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
+    expect(mockSendToSession).not.toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({
+        type: "user_message",
+        content: "inspect this screenshot",
+      }),
+    );
+
+    fireEvent.click(screen.getByText("Retry"));
+    await waitFor(() => {
+      expect(screen.getByText("Ready")).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByTitle("Send message"));
+    expect(mockSendToSession).toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({
+        type: "user_message",
+        content: "inspect this screenshot",
+        imageRefs: [{ imageId: "img-1", media_type: "image/png" }],
+      }),
+    );
+  });
+
+  it("cleans up a prepared attachment when the user removes it before sending", async () => {
+    const { container } = render(<Composer sessionId="s1" />);
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+
+    await act(async () => {
+      fireEvent.change(fileInput, { target: { files: [makeImageFile("cleanup.png")] } });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Ready")).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByLabelText("Remove image cleanup.png"));
+
+    await waitFor(() => {
+      expect(mockDeletePreparedUserMessageImage).toHaveBeenCalledWith("s1", "img-1");
+    });
+  });
+
+  it("cleans up a previously prepared attachment before retrying it", async () => {
+    setupMockStore({
+      draft: {
+        text: "retry this image",
+        images: [
+          {
+            id: "retry-1",
+            name: "retry.png",
+            base64: "ZmFrZQ==",
+            mediaType: "image/png",
+            status: "failed",
+            error: "previous upload failed",
+            prepared: {
+              imageRef: { imageId: "img-stale", media_type: "image/png" },
+              path: "/Users/test/.companion/images/s1/img-stale.orig.png",
+            },
+          },
+        ],
+      },
+    });
+
+    render(<Composer sessionId="s1" />);
+    fireEvent.click(screen.getByText("Retry"));
+
+    await waitFor(() => {
+      expect(mockDeletePreparedUserMessageImage).toHaveBeenCalledWith("s1", "img-stale");
+      expect(mockPrepareUserMessageImages).toHaveBeenCalled();
+    });
   });
 
   it("rejects a pending plan without sending a redundant interrupt before the new user message", () => {
@@ -1397,6 +1934,29 @@ describe("Composer ask permission toggle", () => {
 });
 
 describe("Composer VS Code context", () => {
+  it("renders a cursor-only VS Code location as a single-line chip", () => {
+    setupMockStore({
+      vscodeSelectionContext: {
+        selection: {
+          absolutePath: "/test/web/src/App.tsx",
+          startLine: 42,
+          endLine: 42,
+          lineCount: 1,
+        },
+        updatedAt: 1,
+        sourceId: "vscode:window-3",
+        sourceType: "vscode-window",
+      },
+    });
+    render(<Composer sessionId="s1" />);
+
+    expect(screen.getByText("1 line selected")).toBeTruthy();
+    expect(screen.getByText("App.tsx:42")).toBeTruthy();
+    expect(
+      screen.getByTitle("[user selection in VSCode: web/src/App.tsx line 42] (this may or may not be relevant)"),
+    ).toBeTruthy();
+  });
+
   it("renders the current VS Code selection as an attachment chip", () => {
     setupMockStore({
       vscodeSelectionContext: {
@@ -1620,6 +2180,36 @@ describe("Composer slash menu", () => {
     expect(screen.getByText("/accept-edits")).toBeTruthy();
     expect(screen.getByText("/auto")).toBeTruthy();
     expect(screen.getByText("/compact")).toBeTruthy();
+    expect(screen.getByText("/status")).toBeTruthy();
+  });
+
+  it("sends /status as a normal Codex user message", () => {
+    setupMockStore({
+      session: {
+        backend_type: "codex",
+        model: "gpt-5.3-codex",
+      },
+    });
+    const { container } = render(<Composer sessionId="s1" />);
+    const textarea = container.querySelector("textarea")!;
+
+    fireEvent.change(textarea, { target: { value: "/status" } });
+    fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
+    fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
+
+    expect(mockSendToSession).toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({
+        type: "user_message",
+        content: "/status",
+      }),
+    );
+    expect(mockSendToSession).not.toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({
+        type: "set_permission_mode",
+      }),
+    );
   });
 
   it("double-prefixes slash-prefixed skill names from session data", () => {
@@ -1655,6 +2245,41 @@ describe("Composer slash menu", () => {
     // Each command should display its type
     expect(screen.getByText("command")).toBeTruthy();
     expect(screen.getByText("skill")).toBeTruthy();
+  });
+
+  it("slash menu opens when / is typed after whitespace mid-sentence", () => {
+    // Validates inline slash trigger: q-579
+    setupMockStore({
+      session: {
+        slash_commands: ["help", "clear"],
+        skills: ["commit"],
+      },
+    });
+    const { container } = render(<Composer sessionId="s1" />);
+    const textarea = container.querySelector("textarea")!;
+
+    fireEvent.change(textarea, { target: { value: "hello /", selectionStart: "hello /".length } });
+
+    expect(screen.getByText("/help")).toBeTruthy();
+    expect(screen.getByText("/clear")).toBeTruthy();
+    expect(screen.getByText("/commit")).toBeTruthy();
+  });
+
+  it("selecting an inline slash command preserves surrounding text", () => {
+    // Validates that command insertion replaces only the /query portion: q-579
+    setupMockStore({
+      session: {
+        slash_commands: ["help", "clear"],
+        skills: ["commit"],
+      },
+    });
+    const { container } = render(<Composer sessionId="s1" />);
+    const textarea = container.querySelector("textarea")! as HTMLTextAreaElement;
+
+    fireEvent.change(textarea, { target: { value: "please run /cl", selectionStart: "please run /cl".length } });
+    fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" });
+
+    expect(textarea.value).toBe("please run /clear ");
   });
 });
 
@@ -1873,9 +2498,7 @@ describe("Composer quest/session reference autocomplete", () => {
         ["worker-recent", "Recent worker"],
         ["worker-busy", "Busy worker"],
       ]),
-      messages: [
-        makeMessage({ id: "m1", content: "Please sync with [#12](session:12) before merging." }),
-      ],
+      messages: [makeMessage({ id: "m1", content: "Please sync with [#12](session:12) before merging." })],
     });
     const { container } = render(<Composer sessionId="s1" />);
     const textarea = container.querySelector("textarea")! as HTMLTextAreaElement;

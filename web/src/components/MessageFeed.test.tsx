@@ -95,6 +95,7 @@ vi.mock("../store.js", () => {
       clearExpandAllInTurn: vi.fn(),
       bottomAlignNextUserMessage: mockStoreValues.bottomAlignNextUserMessage ?? new Set(),
       sessionTaskHistory: mockStoreValues.sessionTaskHistory ?? new Map(),
+      pendingUserUploads: mockStoreValues.pendingUserUploads ?? new Map(),
       pendingCodexInputs: mockStoreValues.pendingCodexInputs ?? new Map(),
       activeTaskTurnId: mockStoreValues.activeTaskTurnId ?? new Map(),
       setActiveTaskTurnId: mockSetActiveTaskTurnId,
@@ -116,6 +117,9 @@ vi.mock("../store.js", () => {
     keepTurnExpanded: mockKeepTurnExpanded,
     clearBottomAlignOnNextUserMessage: mockClearBottomAlignOnNextUserMessage,
     setComposerDraft: mockSetComposerDraft,
+    removePendingUserUpload: vi.fn(),
+    updatePendingUserUpload: vi.fn(),
+    focusComposer: vi.fn(),
   });
   return {
     useStore,
@@ -241,6 +245,12 @@ function setStorePendingCodexInputs(sessionId: string, inputs: Array<Record<stri
   const map = new Map();
   map.set(sessionId, inputs);
   mockStoreValues.pendingCodexInputs = map;
+}
+
+function setStorePendingUserUploads(sessionId: string, uploads: Array<Record<string, unknown>>) {
+  const map = new Map();
+  map.set(sessionId, uploads);
+  mockStoreValues.pendingUserUploads = map;
 }
 
 function setStoreNotifications(sessionId: string, notifications: Array<Record<string, unknown>>) {
@@ -824,40 +834,38 @@ describe("MessageFeed - empty state", () => {
     expect(screen.getByText(/Steer the active turn toward auth fixes/)).toBeTruthy();
   });
 
-  it("shows an uploading-image stage instead of the empty state for Codex image sends", () => {
-    const sid = "test-uploading-image-stage";
+  it("renders pending local upload messages with immediate local image previews", () => {
+    const sid = "test-pending-local-upload";
     setStoreMessages(sid, []);
-    setStoreSessionState(sid, { backend_type: "codex", codex_image_send_stage: "uploading" });
-    setStoreStatus(sid, "running");
-
-    render(<MessageFeed sessionId={sid} />);
-
-    expect(screen.queryByText("Start a conversation")).toBeNull();
-    expect(screen.queryByText("Pending delivery")).toBeNull();
-    expect(screen.getByText("uploading image")).toBeTruthy();
-    expect(screen.queryByText("Sending the attached image to the server.")).toBeNull();
-  });
-
-  it("shows backend-processing stage for pending Codex image delivery", () => {
-    const sid = "test-processing-image-stage";
-    setStoreMessages(sid, []);
-    setStoreSessionState(sid, { backend_type: "codex", codex_image_send_stage: "processing" });
-    setStoreStatus(sid, "running");
-    setStorePendingCodexInputs(sid, [
+    setStorePendingUserUploads(sid, [
       {
-        id: "pending-img-1",
-        content: "Inspect the attached screenshot",
+        id: "pending-upload-1",
+        content: "Inspect this screenshot",
         timestamp: Date.now(),
-        cancelable: true,
-        draftImages: [{ name: "attachment-1.png", base64: "x", mediaType: "image/png" }],
+        stage: "delivering",
+        images: [
+          {
+            id: "draft-image-1",
+            name: "attachment-1.png",
+            base64: "ZmFrZQ==",
+            mediaType: "image/png",
+            status: "ready",
+            prepared: {
+              imageRef: { imageId: "img-1", media_type: "image/png" },
+              path: "/tmp/img.png",
+            },
+          },
+        ],
       },
     ]);
 
     render(<MessageFeed sessionId={sid} />);
 
-    expect(screen.getByText("Pending delivery")).toBeTruthy();
-    expect(screen.getByText("processing image")).toBeTruthy();
-    expect(screen.queryByText("Preparing the image-backed turn for Codex.")).toBeNull();
+    expect(screen.queryByText("Start a conversation")).toBeNull();
+    expect(screen.getByText("Pending upload")).toBeTruthy();
+    expect(screen.getByText("Sending…")).toBeTruthy();
+    const image = screen.getByAltText("attachment-1.png") as HTMLImageElement;
+    expect(image.src).toContain("data:image/png;base64,ZmFrZQ==");
   });
 });
 
@@ -2372,29 +2380,6 @@ describe("ElapsedTimer - generation stats bar", () => {
     // Should show "2.5k" token count
     expect(screen.getByText(/2\.5k/)).toBeTruthy();
   });
-
-  it("uses image-send labels during the pre-stream Codex wait", () => {
-    const sid = "test-prestream-image-label";
-    setStoreStatus(sid, "running");
-    setStoreSessionState(sid, { backend_type: "codex", codex_image_send_stage: "uploading" });
-
-    render(<ElapsedTimer sessionId={sid} />);
-
-    expect(screen.getByText("uploading image")).toBeTruthy();
-    expect(screen.queryByText("Purring...")).toBeNull();
-  });
-
-  it("reverts to the normal purring label once Codex streaming starts", () => {
-    const sid = "test-prestream-image-label-clears";
-    setStoreStatus(sid, "running");
-    setStoreSessionState(sid, { backend_type: "codex", codex_image_send_stage: "processing" });
-    setStoreStreamingStartedAt(sid, Date.now() - 5_000);
-
-    render(<ElapsedTimer sessionId={sid} />);
-
-    expect(screen.getByText("Purring...")).toBeTruthy();
-    expect(screen.queryByText("processing image")).toBeNull();
-  });
 });
 
 describe("MessageFeed - floating status pill", () => {
@@ -2412,7 +2397,7 @@ describe("MessageFeed - floating status pill", () => {
     expect(screen.getByText(/2\.5k/)).toBeTruthy();
   });
 
-  it("lifts the mobile nav buttons above the floating notification chip stack", () => {
+  it("shows all four mobile nav buttons with touch spacing and lifts them above the floating notification chip stack", () => {
     const sid = "test-feed-mobile-nav-clearance";
     mediaState.touchDevice = true;
     setStoreMessages(sid, [makeMessage({ role: "assistant", content: "Scroll target" })]);
@@ -2446,9 +2431,24 @@ describe("MessageFeed - floating status pill", () => {
 
     render(<MessageFeed sessionId={sid} />);
 
-    expect(screen.getByLabelText("Go to top")).toBeTruthy();
+    const navFabs = screen.getByTestId("message-feed-nav-fabs");
+    const topButton = within(navFabs).getByLabelText("Go to top");
+    const previousButton = within(navFabs).getByLabelText("Previous user message");
+    const nextButton = within(navFabs).getByLabelText("Next user message");
+    const bottomButton = within(navFabs).getByLabelText("Go to bottom");
+
+    expect(topButton).toBeTruthy();
+    expect(previousButton).toBeTruthy();
+    expect(nextButton).toBeTruthy();
+    expect(bottomButton).toBeTruthy();
     expect(screen.getByRole("button", { name: "Notification inbox: 1 review notification" })).toBeTruthy();
-    expect(screen.getByTestId("message-feed-nav-fabs").style.bottom).toBe("42px");
+    expect(navFabs.style.bottom).toBe("42px");
+    expect(navFabs.className).toContain("gap-2");
+    expect(topButton.className).toContain("h-10");
+    expect(topButton.className).toContain("w-10");
+    expect(previousButton.className).toContain("h-10");
+    expect(nextButton.className).toContain("w-10");
+    expect(bottomButton.className).toContain("h-10");
 
     getBoundingClientRectSpy.mockRestore();
   });

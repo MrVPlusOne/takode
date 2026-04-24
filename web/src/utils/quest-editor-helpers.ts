@@ -41,7 +41,7 @@ export function extractPastedImages(e: React.ClipboardEvent): File[] {
 /** Extract #hashtag tokens from text. Returns lowercase tag names (without #). */
 export function extractHashtags(text: string): string[] {
   const tags = new Set<string>();
-  const matches = text.matchAll(/(^|\s)#([a-zA-Z0-9][a-zA-Z0-9_-]*)/g);
+  const matches = text.matchAll(/(^|\s)#([a-zA-Z][a-zA-Z0-9_-]*)/g);
   for (const match of matches) tags.add(match[2].toLowerCase());
   return Array.from(tags);
 }
@@ -61,6 +61,7 @@ export function findHashtagTokenAtCursor(
   }
   const token = beforeCursor.slice(hashPos + 1);
   if (/\s/.test(token)) return null;
+  if (/^\d/.test(token)) return null;
   return { start: hashPos, end: clamped, query: token };
 }
 

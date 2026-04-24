@@ -11,7 +11,7 @@ import {
 } from "../utils/questmaster-view-state.js";
 import type { QuestmasterCollapsedGroup } from "../utils/questmaster-view-state.js";
 import { getHighlightParts } from "../utils/highlight.js";
-import { normalizeForSearch } from "../../shared/search-utils.js";
+import { multiWordMatch } from "../../shared/search-utils.js";
 import { QUEST_STATUS_THEME } from "../utils/quest-status-theme.js";
 import { timeAgo, verificationProgress, getQuestOwnerSessionId, CopyableQuestId } from "../utils/quest-helpers.js";
 import {
@@ -50,13 +50,17 @@ function questRecencyTs(quest: QuestmasterTask): number {
   return (quest as { updatedAt?: number }).updatedAt ?? quest.createdAt;
 }
 
-function classifyQuestSearchToken(
-  token: string,
-): { kind: "positiveTag" | "negatedTag" | "text"; value: string } {
+function classifyQuestSearchToken(token: string): { kind: "positiveTag" | "negatedTag" | "text"; value: string } {
   const negatedMatch = token.match(/^(?:!#|-#)([^\s#]*)$/);
-  if (negatedMatch) return { kind: "negatedTag", value: negatedMatch[1].toLowerCase() };
+  if (negatedMatch) {
+    const value = negatedMatch[1].toLowerCase();
+    if (!/^\d/.test(value)) return { kind: "negatedTag", value };
+  }
   const positiveMatch = token.match(/^#([^\s#]*)$/);
-  if (positiveMatch) return { kind: "positiveTag", value: positiveMatch[1].toLowerCase() };
+  if (positiveMatch) {
+    const value = positiveMatch[1].toLowerCase();
+    if (!/^\d/.test(value)) return { kind: "positiveTag", value };
+  }
   return { kind: "text", value: token };
 }
 
@@ -73,12 +77,17 @@ function getTrailingQuestSearchToken(query: string): { kind: "positiveTag" | "ne
 function parseQuestSearchQuery(query: string): { searchText: string; negatedTags: Set<string> } {
   const negatedTags = new Set<string>();
   const positiveTokens: string[] = [];
+  let trailingPositiveTag = false;
 
-  for (const token of query.trim().split(/\s+/).filter(Boolean)) {
+  const tokens = query.trim().split(/\s+/).filter(Boolean);
+  for (const [index, token] of tokens.entries()) {
     const classified = classifyQuestSearchToken(token);
     if (classified.kind === "negatedTag") {
       if (classified.value) negatedTags.add(classified.value);
       continue;
+    }
+    if (classified.kind === "positiveTag" && index === tokens.length - 1) {
+      trailingPositiveTag = true;
     }
     positiveTokens.push(token);
   }
@@ -86,10 +95,7 @@ function parseQuestSearchQuery(query: string): { searchText: string; negatedTags
   // Preserve the existing positive #tag autocomplete flow by keeping a trailing
   // positive hashtag token out of plain-text matching/highlighting until the
   // user selects it into the positive tag pill set.
-  const searchText = positiveTokens
-    .join(" ")
-    .replace(/(?:^|\s)#[^\s]*$/, "")
-    .trim();
+  const searchText = (trailingPositiveTag ? positiveTokens.slice(0, -1) : positiveTokens).join(" ").trim();
   return { searchText, negatedTags };
 }
 
@@ -148,13 +154,33 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
     return persisted ? new Set(persisted) : new Set(ALL_STATUSES);
   });
   const allSelected = filter.size === ALL_STATUSES.length;
-  const [viewMode, setViewMode] = useState<QuestmasterViewMode>("cards");
   const [viewModeSaving, setViewModeSaving] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
 
-  // Search & tag filter state
-  const [searchQuery, setSearchQuery] = useState("");
-  const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
+  // Search, tags, and view mode -- local state initialized from store, synced back on every change.
+  // Local state ensures React re-renders on every keystroke; store persists across navigation.
+  const [searchQuery, setSearchQueryLocal] = useState(() => useStore.getState().questmasterSearchQuery ?? "");
+  const [selectedTags, setSelectedTagsLocal] = useState<Set<string>>(
+    () => new Set(useStore.getState().questmasterSelectedTags ?? []),
+  );
+  const [viewMode, setViewModeLocal] = useState<QuestmasterViewMode>(
+    () => useStore.getState().questmasterViewMode ?? "cards",
+  );
+  const setSearchQuery = useCallback((val: string) => {
+    setSearchQueryLocal(val);
+    useStore.getState().setQuestmasterSearchQuery(val);
+  }, []);
+  const setSelectedTags = useCallback((update: Set<string> | ((prev: Set<string>) => Set<string>)) => {
+    setSelectedTagsLocal((prev) => {
+      const next = typeof update === "function" ? update(prev) : update;
+      useStore.getState().setQuestmasterSelectedTags(Array.from(next));
+      return next;
+    });
+  }, []);
+  const setViewMode = useCallback((mode: QuestmasterViewMode) => {
+    setViewModeLocal(mode);
+    useStore.getState().setQuestmasterViewMode(mode);
+  }, []);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Status dropdown state
@@ -595,12 +621,12 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
   // Layer 1: text search (case-insensitive on quest ID + title + description)
   // Negated tags like `-#mobile` are parsed separately so free-text matching
   // and highlighting stay focused on the positive portion of the query.
-  const searchNormalized = normalizeForSearch(searchText);
+  const searchNormalized = searchText.trim();
   const afterSearch = searchNormalized
     ? quests.filter((q) => {
-        if (normalizeForSearch(q.questId).includes(searchNormalized)) return true;
-        if (normalizeForSearch(q.title).includes(searchNormalized)) return true;
-        if (q.description && normalizeForSearch(q.description).includes(searchNormalized)) return true;
+        if (multiWordMatch(q.questId, searchText)) return true;
+        if (multiWordMatch(q.title, searchText)) return true;
+        if (q.description && multiWordMatch(q.description, searchText)) return true;
         return false;
       })
     : quests;
@@ -1345,8 +1371,10 @@ const QuestCard = memo(function QuestCard({
   const vProgress = hasVerification ? verificationProgress(quest.verificationItems) : null;
   const questSessionId = getQuestOwnerSessionId(quest);
   const feedbackEntries = "feedback" in quest ? (quest as { feedback?: QuestFeedbackEntry[] }).feedback : undefined;
-  const unaddressedFeedbackCount = feedbackEntries?.filter((entry) => entry.author === "human" && !entry.addressed).length ?? 0;
-  const addressedFeedbackCount = feedbackEntries?.filter((entry) => entry.author === "human" && entry.addressed).length ?? 0;
+  const unaddressedFeedbackCount =
+    feedbackEntries?.filter((entry) => entry.author === "human" && !entry.addressed).length ?? 0;
+  const addressedFeedbackCount =
+    feedbackEntries?.filter((entry) => entry.author === "human" && entry.addressed).length ?? 0;
 
   return (
     <div>
@@ -1508,7 +1536,8 @@ const CompactQuestRow = memo(function CompactQuestRow({
   const hasVerification = "verificationItems" in quest && quest.verificationItems?.length > 0;
   const vProgress = hasVerification ? verificationProgress(quest.verificationItems) : null;
   const feedbackEntries = "feedback" in quest ? (quest as { feedback?: QuestFeedbackEntry[] }).feedback : undefined;
-  const unaddressedFeedbackCount = feedbackEntries?.filter((entry) => entry.author === "human" && !entry.addressed).length ?? 0;
+  const unaddressedFeedbackCount =
+    feedbackEntries?.filter((entry) => entry.author === "human" && !entry.addressed).length ?? 0;
   const totalFeedbackCount = feedbackEntries?.filter((entry) => entry.author === "human").length ?? 0;
   const isInboxVerification = isVerificationInboxUnread(quest);
 
@@ -1540,7 +1569,9 @@ const CompactQuestRow = memo(function CompactQuestRow({
         </CopyableQuestId>
       </td>
       <td className="px-3 py-1.5 align-middle">
-        <div className={`max-w-[360px] truncate font-medium ${isCancelled ? "text-cc-muted line-through" : "text-cc-fg"}`}>
+        <div
+          className={`max-w-[360px] truncate font-medium ${isCancelled ? "text-cc-muted line-through" : "text-cc-fg"}`}
+        >
           {renderSearchHighlightText(quest.title, searchText)}
         </div>
         {quest.tags && quest.tags.length > 0 && (
@@ -1554,7 +1585,11 @@ const CompactQuestRow = memo(function CompactQuestRow({
         )}
       </td>
       <td className="px-3 py-1.5 whitespace-nowrap align-middle">
-        {questSessionId ? <SessionNumChip sessionId={questSessionId} /> : <span className="text-cc-muted">{"\u2014"}</span>}
+        {questSessionId ? (
+          <SessionNumChip sessionId={questSessionId} />
+        ) : (
+          <span className="text-cc-muted">{"\u2014"}</span>
+        )}
       </td>
       <td className="px-3 py-1.5 whitespace-nowrap align-middle">
         <span className="inline-flex items-center gap-1.5 text-cc-muted">

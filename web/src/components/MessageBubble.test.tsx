@@ -6,6 +6,7 @@ import type { ChatMessage, ContentBlock } from "../types.js";
 
 const revertToMessageMock = vi.hoisted(() => vi.fn(async () => ({})));
 const markNotificationDoneMock = vi.hoisted(() => vi.fn(async () => ({})));
+const writeClipboardTextMock = vi.hoisted(() => vi.fn(async () => undefined));
 vi.mock("../api.js", () => ({
   api: {
     revertToMessage: revertToMessageMock,
@@ -36,6 +37,17 @@ vi.mock("remark-gfm", () => ({
 import { MessageBubble, NotificationMarker, HerdEventMessage } from "./MessageBubble.js";
 import { parseHerdEvents } from "../utils/herd-event-parser.js";
 import { useStore } from "../store.js";
+
+beforeEach(() => {
+  writeClipboardTextMock.mockClear();
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: {
+      writeText: writeClipboardTextMock,
+      write: vi.fn(),
+    },
+  });
+});
 
 function makeMessage(overrides: Partial<ChatMessage> & { role: ChatMessage["role"] }): ChatMessage {
   return {
@@ -313,6 +325,29 @@ describe("MessageBubble - user messages", () => {
     expect(screen.queryByText("Revert to here")).toBeNull();
   });
 
+  it("copies a stable message link for user messages", async () => {
+    const prevSdkSessions = useStore.getState().sdkSessions;
+    useStore.setState({
+      sdkSessions: [
+        { sessionId: "session-abc", state: "connected", cwd: "/repo", createdAt: 1, sessionNum: 123 } as any,
+      ],
+    });
+
+    try {
+      const msg = makeMessage({ id: "user-msg-42", role: "user", content: "Link me" });
+      render(<MessageBubble message={msg} sessionId="session-abc" />);
+
+      fireEvent.click(screen.getByTitle("Message options"));
+      fireEvent.click(screen.getByText("Copy message link"));
+
+      await waitFor(() => {
+        expect(writeClipboardTextMock).toHaveBeenCalledWith("http://localhost:3000/#/session/123/msg/user-msg-42");
+      });
+    } finally {
+      useStore.setState({ sdkSessions: prevSdkSessions });
+    }
+  });
+
   it("restores image attachments into the composer draft after revert", async () => {
     const prevSessions = useStore.getState().sessions;
     const nextSessions = new Map(prevSessions);
@@ -320,7 +355,7 @@ describe("MessageBubble - user messages", () => {
     useStore.setState({ sessions: nextSessions });
     useStore.getState().setComposerDraft("codex-session", {
       text: "stale draft text",
-      images: [{ name: "stale.png", base64: "stale-data", mediaType: "image/png" }],
+      images: [{ id: "stale-1", name: "stale.png", base64: "stale-data", mediaType: "image/png", status: "ready" }],
     });
 
     const fetchMock = vi.fn(async () => ({
@@ -353,6 +388,7 @@ describe("MessageBubble - user messages", () => {
         expect(draft?.images[0]?.name).toBe("attachment-1.png");
         expect(draft?.images[0]?.mediaType).toBe("image/png");
         expect(draft?.images[0]?.base64).toBeTruthy();
+        expect(draft?.images[0]?.status).toBe("uploading");
       });
       const finalDraft = useStore.getState().composerDrafts.get("codex-session");
       expect(finalDraft?.images?.[0]?.name).not.toBe("stale.png");
@@ -370,7 +406,7 @@ describe("MessageBubble - user messages", () => {
     useStore.setState({ sessions: nextSessions });
     useStore.getState().setComposerDraft("codex-session", {
       text: "stale draft text",
-      images: [{ name: "stale.png", base64: "stale-data", mediaType: "image/png" }],
+      images: [{ id: "stale-2", name: "stale.png", base64: "stale-data", mediaType: "image/png", status: "ready" }],
     });
 
     const fetchMock = vi.fn(async () => ({
@@ -414,7 +450,7 @@ describe("MessageBubble - user messages", () => {
     useStore.setState({ sessions: nextSessions });
     useStore.getState().setComposerDraft("codex-session", {
       text: "stale draft text",
-      images: [{ name: "stale.png", base64: "stale-data", mediaType: "image/png" }],
+      images: [{ id: "stale-3", name: "stale.png", base64: "stale-data", mediaType: "image/png", status: "ready" }],
     });
 
     try {
@@ -534,18 +570,18 @@ describe("MessageBubble - agent source badge", () => {
   it("does not render the generic interactive badge for timer sources", () => {
     const msg = makeMessage({
       role: "user",
-      content: "Timer ping",
+      content: "[⏰ Timer t2] Timer ping",
       agentSource: { sessionId: "timer:t2", sessionLabel: "Timer t2" },
     });
     render(<MessageBubble message={msg} />);
 
     expect(screen.queryByTestId("agent-source-badge")).toBeNull();
-    expect(screen.getByText("via Timer t2")).toBeTruthy();
+    expect(screen.getByText("t2")).toBeTruthy();
   });
 });
 
 describe("MessageBubble - timer messages", () => {
-  it("renders timer title prominently and keeps the description collapsed by default", () => {
+  it("renders fired timers as a single inline row and keeps the description collapsed by default", () => {
     const msg = makeMessage({
       role: "user",
       content: "[⏰ Timer t2] Monitor RTG datagen\n\nCheck squeue for RTG jobs and report shard status.",
@@ -553,7 +589,8 @@ describe("MessageBubble - timer messages", () => {
     });
     render(<MessageBubble message={msg} showTimestamp={false} />);
 
-    expect(screen.getByText("via Timer t2")).toBeTruthy();
+    expect(screen.queryByText("via Timer t2")).toBeNull();
+    expect(screen.getByText("t2")).toBeTruthy();
     expect(screen.getByText("Monitor RTG datagen")).toBeTruthy();
     expect(screen.queryByText(/Check squeue for RTG jobs/)).toBeNull();
     expect(screen.getByRole("button", { name: "Expand timer description" })).toBeTruthy();
@@ -595,7 +632,9 @@ describe("MessageBubble - timer messages", () => {
     });
 
     try {
-      const { container } = render(<MessageBubble message={msg} sessionId="timer-search-session" showTimestamp={false} />);
+      const { container } = render(
+        <MessageBubble message={msg} sessionId="timer-search-session" showTimestamp={false} />,
+      );
 
       fireEvent.click(screen.getByRole("button", { name: "Expand timer description" }));
 
@@ -607,10 +646,42 @@ describe("MessageBubble - timer messages", () => {
     }
   });
 
-  it("preserves search highlighting for the visible timer source label when the query matches the timer header", () => {
+  it("preserves search highlighting for the visible timer id when the query matches the inline timer row", () => {
     const prevSessionSearch = useStore.getState().sessionSearch;
     const msg = makeMessage({
       id: "timer-source-search-msg",
+      role: "user",
+      content: "[⏰ Timer t2] Monitor RTG datagen\n\nCheck squeue for RTG jobs and report shard status.",
+      agentSource: { sessionId: "timer:t2", sessionLabel: "Timer t2" },
+    });
+
+    useStore.setState({
+      sessionSearch: new Map(prevSessionSearch).set("timer-search-session", {
+        query: "t2",
+        isOpen: true,
+        mode: "strict",
+        category: "all",
+        matches: [{ messageId: msg.id }],
+        currentMatchIndex: 0,
+      }),
+    });
+
+    try {
+      const { container } = render(
+        <MessageBubble message={msg} sessionId="timer-search-session" showTimestamp={false} />,
+      );
+
+      const marks = Array.from(container.querySelectorAll("mark")).map((node) => node.textContent);
+      expect(marks).toContain("t2");
+    } finally {
+      useStore.setState({ sessionSearch: prevSessionSearch });
+    }
+  });
+
+  it("restores visible highlighting for strict full timer-header matches", () => {
+    const prevSessionSearch = useStore.getState().sessionSearch;
+    const msg = makeMessage({
+      id: "timer-header-search-msg",
       role: "user",
       content: "[⏰ Timer t2] Monitor RTG datagen\n\nCheck squeue for RTG jobs and report shard status.",
       agentSource: { sessionId: "timer:t2", sessionLabel: "Timer t2" },
@@ -628,7 +699,9 @@ describe("MessageBubble - timer messages", () => {
     });
 
     try {
-      const { container } = render(<MessageBubble message={msg} sessionId="timer-search-session" showTimestamp={false} />);
+      const { container } = render(
+        <MessageBubble message={msg} sessionId="timer-search-session" showTimestamp={false} />,
+      );
 
       const marks = Array.from(container.querySelectorAll("mark")).map((node) => node.textContent);
       expect(marks).toContain("Timer t2");
@@ -637,7 +710,7 @@ describe("MessageBubble - timer messages", () => {
     }
   });
 
-  it("renders timer messages without descriptions as compact static cards", () => {
+  it("renders cancelled timers as simpler cancellation events instead of replaying the fired row", () => {
     const msg = makeMessage({
       role: "user",
       content: "[⏰ Timer t2 cancelled] Monitor RTG datagen",
@@ -645,6 +718,9 @@ describe("MessageBubble - timer messages", () => {
     });
     render(<MessageBubble message={msg} showTimestamp={false} />);
 
+    expect(screen.queryByText("via Timer t2")).toBeNull();
+    expect(screen.getByText("t2")).toBeTruthy();
+    expect(screen.getByText("cancelled")).toBeTruthy();
     expect(screen.getByText("Monitor RTG datagen")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /timer description/i })).toBeNull();
   });
@@ -748,6 +824,29 @@ describe("MessageBubble - assistant messages", () => {
 
     const markdown = screen.getByTestId("markdown");
     expect(markdown.textContent).toBe("Here is the answer");
+  });
+
+  it("copies a stable message link for assistant messages", async () => {
+    const prevSdkSessions = useStore.getState().sdkSessions;
+    useStore.setState({
+      sdkSessions: [
+        { sessionId: "session-abc", state: "connected", cwd: "/repo", createdAt: 1, sessionNum: 123 } as any,
+      ],
+    });
+
+    try {
+      const msg = makeMessage({ id: "asst-msg-42", role: "assistant", content: "Assistant link target" });
+      render(<MessageBubble message={msg} sessionId="session-abc" />);
+
+      fireEvent.click(screen.getByTitle("Copy message"));
+      fireEvent.click(screen.getByText("Copy message link"));
+
+      await waitFor(() => {
+        expect(writeClipboardTextMock).toHaveBeenCalledWith("http://localhost:3000/#/session/123/msg/asst-msg-42");
+      });
+    } finally {
+      useStore.setState({ sdkSessions: prevSdkSessions });
+    }
   });
 
   it("renders tool_use content blocks as ToolBlock components", () => {
@@ -961,6 +1060,50 @@ describe("MessageBubble - assistant messages", () => {
 
       expect(screen.getAllByText("Ready for review")).toHaveLength(1);
       expect(screen.getAllByRole("button", { name: /Mark as reviewed|Mark as not reviewed/ })).toHaveLength(1);
+    } finally {
+      useStore.setState({ sessionNotifications: prevNotifications });
+    }
+  });
+
+  it("promotes a matching inbox notification into the rich banner when message metadata has not landed yet", () => {
+    // q-568: notification_update can arrive before the assistant message has its
+    // inline `notification` metadata. When the inbox already has exactly one
+    // notification for this message, the richer summary-bearing banner should
+    // win immediately and suppress the fallback `takode notify` chip.
+    const prevNotifications = useStore.getState().sessionNotifications;
+    const nextNotifications = new Map(prevNotifications);
+    nextNotifications.set("review-session", [
+      {
+        id: "n-review-store-fallback",
+        category: "review",
+        timestamp: Date.now(),
+        messageId: "asst-review-store-fallback",
+        summary: "q-568 single rich chip",
+        done: false,
+      },
+    ]);
+    useStore.setState({ sessionNotifications: nextNotifications });
+
+    try {
+      const msg = makeMessage({
+        id: "asst-review-store-fallback",
+        role: "assistant",
+        content: "The verification summary is ready.",
+        contentBlocks: [
+          {
+            type: "tool_use",
+            id: "tu-review-store-fallback",
+            name: "Bash",
+            input: { command: 'TAKODE_API_PORT=3455 takode notify review "q-568 single rich chip"' },
+          },
+        ],
+      });
+
+      render(<MessageBubble message={msg} sessionId="review-session" />);
+
+      expect(screen.getAllByText("q-568 single rich chip")).toHaveLength(1);
+      expect(screen.getAllByRole("button", { name: /Mark as reviewed|Mark as not reviewed/ })).toHaveLength(1);
+      expect(screen.queryByText("Ready for review")).toBeNull();
     } finally {
       useStore.setState({ sessionNotifications: prevNotifications });
     }

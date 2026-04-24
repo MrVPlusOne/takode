@@ -109,13 +109,17 @@ describe("splitShellCommand", () => {
     expect(splitShellCommand("echo a; echo b")).toEqual(["echo a", "echo b"]);
   });
 
+  it("splits on background operator &", () => {
+    expect(splitShellCommand("sleep 61 & echo hi")).toEqual(["sleep 61", "echo hi"]);
+  });
+
   it("splits on |", () => {
     expect(splitShellCommand("cat file | grep foo")).toEqual(["cat file", "grep foo"]);
   });
 
   it("splits on | with COMMAND_SPLIT_OPS keeps pipe intact", () => {
     // When using COMMAND_SPLIT_OPS (no pipes), the pipe stays as part of the command
-    const COMMAND_SPLIT_OPS = new Set(["&&", "||", ";"]);
+    const COMMAND_SPLIT_OPS = new Set(["&&", "||", ";", "&"]);
     expect(splitShellCommand("cat file | grep foo", COMMAND_SPLIT_OPS)).toEqual(["cat file | grep foo"]);
   });
 
@@ -154,8 +158,14 @@ describe("splitShellCommand", () => {
   });
 
   it("handles multiple operators with COMMAND_SPLIT_OPS (pipes preserved)", () => {
-    const COMMAND_SPLIT_OPS = new Set(["&&", "||", ";"]);
+    const COMMAND_SPLIT_OPS = new Set(["&&", "||", ";", "&"]);
     const result = splitShellCommand("a && b | c && d", COMMAND_SPLIT_OPS);
+    expect(result).toEqual(["a", "b | c", "d"]);
+  });
+
+  it("handles background operators with COMMAND_SPLIT_OPS while preserving pipes", () => {
+    const COMMAND_SPLIT_OPS = new Set(["&&", "||", ";", "&"]);
+    const result = splitShellCommand("a & b | c & d", COMMAND_SPLIT_OPS);
     expect(result).toEqual(["a", "b | c", "d"]);
   });
 });
@@ -294,9 +304,9 @@ describe("hasDangerousShellConstructs", () => {
     expect(hasDangerousShellConstructs(cmd)).toBe(false);
   });
 
-  it("allows safe heredoc $(cat <<EOF ... EOF) without quotes", () => {
-    const cmd = `takode send 16 "$(cat <<EOF\nHello world\nEOF\n)"`;
-    expect(hasDangerousShellConstructs(cmd)).toBe(false);
+  it("rejects unquoted heredoc $(cat <<EOF ... EOF) because the body still expands", () => {
+    const cmd = `takode send 16 "$(cat <<EOF\nHello $(printf injected)\nEOF\n)"`;
+    expect(hasDangerousShellConstructs(cmd)).toBe(true);
   });
 
   it("allows heredoc with indent-stripping <<-", () => {
@@ -305,13 +315,11 @@ describe("hasDangerousShellConstructs", () => {
   });
 
   it("still detects $() when mixed with heredoc", () => {
-    // Heredoc is safe but there's ALSO a separate $() outside it
     const cmd = `takode send 16 "$(cat <<'EOF'\nhello\nEOF\n)" && echo $(whoami)`;
     expect(hasDangerousShellConstructs(cmd)).toBe(true);
   });
 
-  it("still detects backticks inside heredoc command", () => {
-    // The heredoc content is fine but backticks outside are dangerous
+  it("still detects backticks outside heredoc command", () => {
     const cmd = "echo `whoami` && takode send 16 \"$(cat <<'EOF'\nhello\nEOF\n)\"";
     expect(hasDangerousShellConstructs(cmd)).toBe(true);
   });

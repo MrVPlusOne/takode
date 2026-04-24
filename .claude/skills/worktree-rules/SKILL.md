@@ -70,9 +70,15 @@ git -C <BASE_REPO> push origin <BASE_BRANCH>
   git -C <BASE_REPO> checkout <BASE_BRANCH> && git -C <BASE_REPO> merge --ff-only origin/<BASE_BRANCH>
   ```
 
-### 7. Run tests post-merge
+### 7. Run required post-port verification
 
-After resetting, run the project's unit tests in the worktree to verify nothing broke. If tests fail:
+After resetting, run the required post-port verification in the worktree to verify nothing broke. For refactor quests, the current full pre-commit-equivalent automated gate is:
+
+- `cd web && bun run typecheck`
+- `cd web && bun run test`
+- `cd web && bun run format:check`
+
+`format:check` is the current lint/format-equivalent gate in this repo; there is no separate `lint` script right now. If a full run is infeasible, document the exception explicitly in your report before calling the sync ready. If the required post-port verification fails:
 - (a) If the fix is straightforward, fix it, commit, and re-sync following steps 1-6
 - (b) Otherwise, explain the failures to the user and ask how to proceed
 
@@ -81,7 +87,7 @@ After resetting, run the project's unit tests in the worktree to verify nothing 
 Do NOT report the sync as complete until ALL of the following are true:
 - [ ] Main repo log shows the cherry-picked commits
 - [ ] Worktree has been reset to match the main repo branch
-- [ ] Tests have been run **after the reset** AND passed (or failures reported to user)
+- [ ] Required post-port verification has been run **after the reset** AND passed, or an explicitly documented full-run exception has been reported
 - [ ] Changes have been pushed to the remote
 
 ## Quest Status Rule
@@ -95,4 +101,6 @@ quest complete q-N --items "..." --commits "sha1,sha2"
 
 If a leader controls the quest transition, report back with the ordered synced SHAs explicitly so the later handoff can attach them. Put them on a dedicated `Synced SHAs: sha1,sha2` line so the later `quest complete` call can copy them directly. Do **not** rely on `/port-changes` logs being parsed after the fact.
 
-The quest should usually keep one substantive prose summary comment. Structured commit metadata should carry routine port information, so do not add a second long port-summary comment unless the porting itself was exceptional and materially worth calling out. The later verification handoff should attach those SHAs with `quest complete ... --commits ...`, not leave them only in feedback comments.
+Documentation, skill, prompt, template, and other text-only tracked-file edits still count as commit-producing work. If they produced commits, they must be ported and attached to the quest with `quest complete ... --commit/--commits`; the zero-code/no-code path is only for quests that produced no git-tracked changes at all.
+
+The quest should usually keep one substantive prose summary comment for the human reader: what changed, why it matters, and what verification passed. Structured commit metadata should carry routine port information, so do not add a second long port-summary or commit-by-commit timeline unless the porting itself was exceptional and materially worth calling out. The later verification handoff should attach those SHAs with `quest complete ... --commits ...`, not leave them only in feedback comments.

@@ -5,6 +5,8 @@
  */
 
 import { readFileSync, readdirSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { getDefaultModelForBackend } from "../shared/backend-defaults.js";
 import type { HerdSessionsResponse } from "../shared/herd-types.js";
 import {
@@ -296,13 +298,68 @@ function err(message: string): never {
   process.exit(1);
 }
 
+let stdinTextPromise: Promise<string> | null = null;
+
 async function readStdinText(): Promise<string> {
-  process.stdin.setEncoding("utf8");
-  let data = "";
-  for await (const chunk of process.stdin) {
-    data += chunk;
+  if (!stdinTextPromise) {
+    process.stdin.setEncoding("utf8");
+    stdinTextPromise = (async () => {
+      let data = "";
+      for await (const chunk of process.stdin) {
+        data += chunk;
+      }
+      return data;
+    })();
   }
-  return data;
+  return stdinTextPromise;
+}
+
+async function readOptionTextFile(pathOrDash: string, flagName: string): Promise<string> {
+  if (pathOrDash === "-") {
+    return readStdinText();
+  }
+
+  try {
+    return await readFile(resolve(pathOrDash), "utf-8");
+  } catch (error) {
+    const detail = error instanceof Error && error.message ? `: ${error.message}` : "";
+    err(`Cannot read ${flagName} input from ${pathOrDash}${detail}`);
+  }
+}
+
+async function readOptionalRichTextOption(
+  flags: Record<string, string | boolean>,
+  args: {
+    inlineFlag: string;
+    fileFlag: string;
+    label: string;
+  },
+): Promise<string | undefined> {
+  const inlineValue = flags[args.inlineFlag];
+  const fileValue = flags[args.fileFlag];
+
+  if (inlineValue === true) {
+    err(`--${args.inlineFlag} requires a value`);
+  }
+  if (fileValue === true) {
+    err(`--${args.fileFlag} requires a path or '-' for stdin`);
+  }
+  if (inlineValue !== undefined && fileValue !== undefined) {
+    err(`Use either --${args.inlineFlag} or --${args.fileFlag}, not both`);
+  }
+
+  const value =
+    typeof fileValue === "string"
+      ? await readOptionTextFile(fileValue, `--${args.fileFlag}`)
+      : typeof inlineValue === "string"
+        ? inlineValue
+        : undefined;
+
+  if (value !== undefined && !value.trim()) {
+    err(`${args.label} is required`);
+  }
+
+  return value;
 }
 
 /** Parse --key value pairs from argv. Supports --flag (boolean true). */
@@ -643,13 +700,15 @@ Refresh git branch info for a session after checkout, rebase, or other branch ch
 `;
 
 const NOTIFY_HELP = `Usage: takode notify <category> <summary> [--json]
+       takode notify list [--json]
+       takode notify resolve <notification-id> [--json]
 
 Categories:
   needs-input  User decision or information required
   review       Ready for user review
 `;
 
-const BOARD_HELP = `Usage: takode board [show|set|advance|rm] ...
+const BOARD_HELP = `Usage: takode board [show|set|advance|advance-no-groom|rm] ...
 
 Quest Journey work board for the current leader session.
 
@@ -657,19 +716,22 @@ Subcommands:
   show                    Show the board (default)
   set <quest-id>          Add or update a board row
   advance <quest-id>      Move a quest to the next Journey state
+  advance-no-groom <quest-id>  Complete a true zero-code quest from skeptic review
   rm <quest-id> [...]     Remove quests from the active board
 
 Examples:
   takode board show
   takode board set q-12 --status PLANNING
+  takode board set q-12 --no-code
   takode board set q-12 --status QUEUED --wait-for ${FREE_WORKER_WAIT_FOR_TOKEN}
   takode board set q-12 --worker 5 --wait-for q-7,#9
   takode board advance q-12
+  takode board advance-no-groom q-12
   takode board rm q-12
 `;
 
-const BOARD_SET_HELP = `Usage: takode board set <quest-id> [--worker <session>] [--status <state>] [--title <title>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--json]
-       takode board add <quest-id> [--worker <session>] [--status <state>] [--title <title>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--json]
+const BOARD_SET_HELP = `Usage: takode board set <quest-id> [--worker <session>] [--status <state>] [--title <title>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--no-code|--code-change] [--json]
+       takode board add <quest-id> [--worker <session>] [--status <state>] [--title <title>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--no-code|--code-change] [--json]
 
 Add or update a board row for a quest.
 `;
@@ -677,6 +739,12 @@ Add or update a board row for a quest.
 const BOARD_ADVANCE_HELP = `Usage: takode board advance <quest-id> [--json]
 
 Advance a quest to the next Quest Journey state.
+`;
+
+const BOARD_ADVANCE_NO_GROOM_HELP = `Usage: takode board advance-no-groom <quest-id> [--json]
+
+Explicitly complete a true zero-code quest from SKEPTIC_REVIEWING, skipping reviewer-groom and porting.
+This narrow exception is only valid after skeptic review accepts a quest with zero git-tracked changes and the board row has already been marked with \`takode board set <quest-id> --no-code\`. Git-tracked docs, skills, prompts, templates, and other text-only edits do not qualify for this path.
 `;
 
 const BOARD_RM_HELP = `Usage: takode board rm <quest-id> [<quest-id> ...] [--json]
@@ -815,6 +883,8 @@ function printCommandHelp(command: string, argv: string[]): boolean {
         console.log(BOARD_SET_HELP);
       } else if (sub === "advance") {
         console.log(BOARD_ADVANCE_HELP);
+      } else if (sub === "advance-no-groom") {
+        console.log(BOARD_ADVANCE_NO_GROOM_HELP);
       } else if (sub === "rm") {
         console.log(BOARD_RM_HELP);
       } else {
@@ -2199,7 +2269,8 @@ Options:
   --backend <type>             AI backend: "claude", "codex", or "claude-sdk" (default: inherit from leader)
   --cwd <path>                 Working directory (default: current directory)
   --count <n>                  Number of sessions to spawn (default: 1)
-  --message <text>             Initial message to send to spawned sessions
+  --message <text>             Short inline initial message
+  --message-file <path>|-      Read the initial message from a file or stdin
   --model <id>                 Override the session model
   --ask / --no-ask             Override inherited ask mode
   --internet / --no-internet   Codex-only: enable or disable internet access
@@ -2213,13 +2284,15 @@ Examples:
   takode spawn --backend claude-sdk --count 2
   takode spawn --backend codex --model gpt-5.4 --reasoning-effort high --internet
   takode spawn --count 3 --no-worktree
-  takode spawn --reviewer 42 --message "Review the changes for q-10"`;
+  takode spawn --message-file /tmp/dispatch.txt
+  printf '%s\n' 'Review q-10' 'Treat \`$(nope)\` as literal text.' | takode spawn --reviewer 42 --message-file -`;
 
 const SPAWN_ALLOWED_FLAGS = new Set([
   "backend",
   "cwd",
   "count",
   "message",
+  "message-file",
   "model",
   "ask",
   "no-ask",
@@ -2326,7 +2399,12 @@ async function handleSpawn(base: string, args: string[]): Promise<void> {
   if (flags["fixed-name"] !== undefined && !fixedName) {
     err("--fixed-name requires a non-empty name value.");
   }
-  const message = typeof flags.message === "string" ? flags.message.trim() : "";
+  const message =
+    (await readOptionalRichTextOption(flags, {
+      inlineFlag: "message",
+      fileFlag: "message-file",
+      label: "Initial message",
+    })) ?? "";
   const model = resolveStringFlag(flags, "model", "model");
   const askOverride = resolveBooleanToggleFlag(flags, "ask", "no-ask");
   const internetOverride = resolveBooleanToggleFlag(flags, "internet", "no-internet");
@@ -2721,7 +2799,8 @@ async function handlePending(base: string, args: string[]): Promise<void> {
 
   const buildAnswerTargetHint = (pendingItem: (typeof result.pending)[number]): string => {
     if (typeof pendingItem.msg_index === "number") return ` --message ${pendingItem.msg_index}`;
-    if (typeof pendingItem.request_id === "string" && pendingItem.request_id) return ` --target ${pendingItem.request_id}`;
+    if (typeof pendingItem.request_id === "string" && pendingItem.request_id)
+      return ` --target ${pendingItem.request_id}`;
     if (typeof pendingItem.notification_id === "string" && pendingItem.notification_id) {
       return ` --target ${pendingItem.notification_id}`;
     }
@@ -3012,9 +3091,74 @@ async function handleSetBase(base: string, args: string[]): Promise<void> {
 }
 
 async function handleNotify(base: string, args: string[]): Promise<void> {
-  const category = args[0];
+  const subcommand = args[0];
+  const selfId = getCallerSessionId();
+
+  if (subcommand === "list") {
+    const flags = parseFlags(args.slice(1));
+    const jsonMode = flags.json === true;
+    const result = (await apiGet(base, `/sessions/${encodeURIComponent(selfId)}/notifications/needs-input/self`)) as {
+      notifications: Array<{
+        notificationId: number;
+        rawNotificationId: string;
+        summary?: string;
+        timestamp: number;
+        messageId: string | null;
+      }>;
+      resolvedCount: number;
+    };
+    if (jsonMode) {
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+    if (result.notifications.length === 0) {
+      console.log(`No unresolved same-session needs-input notifications. Resolved: ${result.resolvedCount}.`);
+      return;
+    }
+    console.log(
+      `Unresolved same-session needs-input notifications: ${result.notifications.length}. Resolved: ${result.resolvedCount}.`,
+    );
+    for (const notification of result.notifications) {
+      const summary = notification.summary?.trim() || "(no summary)";
+      console.log(`  ${notification.notificationId}. ${formatInlineText(summary)}`);
+    }
+    return;
+  }
+
+  if (subcommand === "resolve") {
+    const notificationArg = args.slice(1).find((arg) => !arg.startsWith("--"));
+    if (!notificationArg) err("Usage: takode notify resolve <notification-id> [--json]");
+    const notificationId = Number.parseInt(notificationArg, 10);
+    if (!Number.isInteger(notificationId) || notificationId <= 0) {
+      err("Usage: takode notify resolve <notification-id> [--json]");
+    }
+    const flags = parseFlags(args.slice(1));
+    const jsonMode = flags.json === true;
+    const result = (await apiPost(
+      base,
+      `/sessions/${encodeURIComponent(selfId)}/notifications/needs-input/${notificationId}/resolve`,
+      {},
+    )) as {
+      ok: boolean;
+      notificationId: number;
+      rawNotificationId: string;
+      changed: boolean;
+    };
+    if (jsonMode) {
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+    if (result.changed) {
+      console.log(`Resolved needs-input notification ${result.notificationId}.`);
+    } else {
+      console.log(`Needs-input notification ${result.notificationId} was already resolved.`);
+    }
+    return;
+  }
+
+  const category = subcommand;
   if (!category || (category !== "needs-input" && category !== "review")) {
-    err("Usage: takode notify <category> <summary>\nCategories: needs-input, review");
+    err(`${NOTIFY_HELP.trim()}\n`);
   }
   const remaining = args.slice(1).filter((a) => !a.startsWith("--"));
   const summary = remaining.length > 0 ? remaining.join(" ") : undefined;
@@ -3023,19 +3167,24 @@ async function handleNotify(base: string, args: string[]): Promise<void> {
   }
   const flags = parseFlags(args.slice(1));
   const jsonMode = flags.json === true;
-  const selfId = getCallerSessionId();
   const payload: Record<string, unknown> = { category };
   if (summary) payload.summary = summary;
   const result = (await apiPost(base, `/sessions/${encodeURIComponent(selfId)}/notify`, payload)) as {
     ok: boolean;
     category: string;
     anchoredMessageId: string | null;
+    notificationId: number | null;
+    rawNotificationId: string;
   };
   if (jsonMode) {
     console.log(JSON.stringify(result, null, 2));
     return;
   }
-  console.log(`Notification sent (${category})`);
+  const notificationLabel =
+    typeof result.notificationId === "number"
+      ? String(result.notificationId)
+      : formatInlineText(result.rawNotificationId);
+  console.log(`Notification sent (${category}, id ${notificationLabel})`);
 }
 
 // ─── Board ─────────────────────────────────────────────────────────────────
@@ -3137,6 +3286,7 @@ function printBoardText(
     allBoardRows?: BoardRow[];
     resolvedSessionDeps?: Set<string>;
     rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
+    queueWarnings?: BoardQueueWarning[];
     workerSlotUsage?: { used: number; limit: number };
   },
 ): void {
@@ -3146,8 +3296,11 @@ function printBoardText(
   }
 
   // Build a set of active quest IDs on the board (for resolving wait-for status)
-  const { allBoardRows, resolvedSessionDeps, rowSessionStatuses, workerSlotUsage } = opts ?? {};
+  const { allBoardRows, resolvedSessionDeps, rowSessionStatuses, queueWarnings, workerSlotUsage } = opts ?? {};
   const activeQuestIds = new Set((allBoardRows || board).map((r) => r.questId));
+  const dispatchableQuestIds = new Set(
+    (queueWarnings ?? []).filter((warning) => warning.kind === "dispatchable").map((warning) => warning.questId),
+  );
 
   console.log("");
   const qCol = 8;
@@ -3176,14 +3329,15 @@ function printBoardText(
       const kind = getWaitForRefKind(wf);
       if (kind === "session") return !resolvedSessionDeps?.has(wf);
       if (kind === "quest") return activeQuestIds.has(wf);
-      if (kind === "free-worker") return (workerSlotUsage?.used ?? workerSlotUsage?.limit ?? 0) >= (workerSlotUsage?.limit ?? 0);
+      if (kind === "free-worker")
+        return (workerSlotUsage?.used ?? workerSlotUsage?.limit ?? 0) >= (workerSlotUsage?.limit ?? 0);
       return true;
     });
     let waitForStr: string;
-    if (blockedDeps.length > 0) {
+    if (dispatchableQuestIds.has(row.questId)) {
+      waitForStr = "ready";
+    } else if (blockedDeps.length > 0) {
       waitForStr = `wait ${blockedDeps.map((dep) => formatWaitForRefLabel(dep)).join(", ")}`;
-    } else if (allDeps.length > 0) {
-      waitForStr = `clear ${allDeps.map((dep) => formatWaitForRefLabel(dep)).join(", ")}`;
     } else {
       waitForStr = "--";
     }
@@ -3191,7 +3345,9 @@ function printBoardText(
 
     // Next action hint: if blocked, show "blocked"; otherwise show state hint
     let nextAction: string;
-    if (blockedDeps.length > 0) {
+    if (dispatchableQuestIds.has(row.questId)) {
+      nextAction = "dispatch now";
+    } else if (blockedDeps.length > 0) {
       nextAction = `wait for ${blockedDeps.map((dep) => formatWaitForRefLabel(dep)).join(", ")}`;
     } else {
       nextAction = QUEST_JOURNEY_HINTS[row.status || ""] || "--";
@@ -3216,17 +3372,40 @@ function outputBoard(
     workerSlotUsage?: { used: number; limit: number };
   },
 ): void {
-  const { operation, resolvedSessionDeps, completedCount, completedBoard, rowSessionStatuses, queueWarnings, workerSlotUsage } = opts ?? {};
+  const {
+    operation,
+    resolvedSessionDeps,
+    completedCount,
+    completedBoard,
+    rowSessionStatuses,
+    queueWarnings,
+    workerSlotUsage,
+  } = opts ?? {};
   if (jsonMode) {
-    console.log(formatBoardOutput(board, { operation, completedCount, completedBoard, rowSessionStatuses, queueWarnings, workerSlotUsage }));
+    console.log(
+      formatBoardOutput(board, {
+        operation,
+        completedCount,
+        completedBoard,
+        rowSessionStatuses,
+        queueWarnings,
+        workerSlotUsage,
+      }),
+    );
     return;
   }
 
-  printBoardText(board, { allBoardRows: board, resolvedSessionDeps, rowSessionStatuses, workerSlotUsage });
+  printBoardText(board, {
+    allBoardRows: board,
+    resolvedSessionDeps,
+    rowSessionStatuses,
+    queueWarnings,
+    workerSlotUsage,
+  });
   // Print completed items table when --all flag includes them
   if (completedBoard && completedBoard.length > 0) {
     console.log("── Completed ──────────────────────────────────────────");
-    printBoardText(completedBoard, { rowSessionStatuses, workerSlotUsage });
+    printBoardText(completedBoard, { rowSessionStatuses, queueWarnings, workerSlotUsage });
   }
   // Always show a footer count when completed items exist
   if (completedCount && completedCount > 0 && !completedBoard) {
@@ -3271,14 +3450,19 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
     const questId = args[1];
     if (!questId)
       err(
-        `Usage: takode board ${sub} <quest-id> [--worker <session>] [--status "..."] [--title "..."] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--json]`,
+        `Usage: takode board ${sub} <quest-id> [--worker <session>] [--status "..."] [--title "..."] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--no-code|--code-change] [--json]`,
       );
     if (!isValidQuestId(questId)) err(`Invalid quest ID "${questId}": must match q-NNN format (e.g., q-1, q-42)`);
     const flags = parseFlags(args.slice(2));
+    if (flags["no-code"] === true && flags["code-change"] === true) {
+      err("Use either --no-code or --code-change, not both.");
+    }
 
     const body: Record<string, unknown> = { questId };
     if (typeof flags.status === "string") body.status = flags.status;
     if (typeof flags.title === "string") body.title = flags.title;
+    if (flags["no-code"] === true) body.noCode = true;
+    if (flags["code-change"] === true) body.noCode = false;
     if (typeof flags["wait-for"] === "string") {
       const waitFor = flags["wait-for"]
         .split(",")
@@ -3336,20 +3520,25 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
     return;
   }
 
-  if (sub === "advance") {
+  if (sub === "advance" || sub === "advance-no-groom") {
     const questId = args[1];
-    if (!questId) err("Usage: takode board advance <quest-id> [--json]");
+    const usage =
+      sub === "advance"
+        ? "Usage: takode board advance <quest-id> [--json]"
+        : "Usage: takode board advance-no-groom <quest-id> [--json]";
+    if (!questId) err(usage);
     if (!isValidQuestId(questId)) err(`Invalid quest ID "${questId}": must match q-NNN format (e.g., q-1, q-42)`);
     const flags = parseFlags(args.slice(2));
 
     const result = (await apiPost(
       base,
-      `/sessions/${encodeURIComponent(selfId)}/board/${encodeURIComponent(questId)}/advance`,
+      `/sessions/${encodeURIComponent(selfId)}/board/${encodeURIComponent(questId)}/${sub}`,
     )) as {
       board: BoardRow[];
       removed: boolean;
       previousState?: string;
       newState?: string;
+      skippedStates?: string[];
       completedCount?: number;
       resolvedSessionDeps?: string[];
       rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
@@ -3359,8 +3548,14 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
 
     let operation: string;
     if (result.removed) {
-      console.log(`${questId}: completed (moved to history)`);
-      operation = `completed ${questId}`;
+      if (sub === "advance-no-groom") {
+        const skipped = result.skippedStates?.join(" and ") ?? "reviewer-groom and porting";
+        console.log(`${questId}: completed via no-code path (skipped ${skipped})`);
+        operation = `completed ${questId} via no-code skip-groom path`;
+      } else {
+        console.log(`${questId}: completed (moved to history)`);
+        operation = `completed ${questId}`;
+      }
     } else if (result.previousState && result.newState) {
       console.log(`${questId}: ${result.previousState} -> ${result.newState}`);
       operation = `advanced ${questId} to ${result.newState}`;
@@ -3407,7 +3602,7 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
     return;
   }
 
-  err(`Unknown board subcommand: ${sub}\nUsage: takode board [show|set|advance|rm] ...`);
+  err(`Unknown board subcommand: ${sub}\nUsage: takode board [show|set|advance|advance-no-groom|rm] ...`);
 }
 
 async function handleRefreshBranch(base: string, args: string[]): Promise<void> {
@@ -3990,7 +4185,7 @@ Commands:
   refresh-branch Refresh git branch info for a session after checkout/rebase
   branch         Branch info and management for the current session
   notify         Alert the user (e.g. takode notify review "ready for verification")
-  board          Quest Journey work board (e.g. takode board show, takode board set q-12 --status PLANNING)
+  board          Quest Journey work board (e.g. takode board show, takode board advance-no-groom q-12)
   timer          Session-scoped timers (create, list, cancel)
   help           Show detailed help for a command or nested subcommand
 
@@ -4014,6 +4209,7 @@ Examples:
   takode info 1 --json
   takode spawn --backend claude-sdk --count 2
   takode spawn --backend codex --count 3 --message "Check flaky tests"
+  takode spawn --message-file /tmp/dispatch.txt
   takode tasks 1
   takode timers 1
   takode scan 1
@@ -4034,6 +4230,7 @@ Examples:
   takode branch status
   takode branch set-base origin/main
   takode board --help
+  takode board advance-no-groom q-12
   takode help timer create
 `);
 }

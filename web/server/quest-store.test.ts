@@ -389,8 +389,9 @@ describe("backward transitions", () => {
     ]);
   });
 
-  it("drops previous verification commit SHAs when a quest re-enters in_progress", async () => {
-    await questStore.createQuest({ title: "Rework resets SHAs" });
+  it("preserves previous verification commit SHAs when a quest re-enters in_progress", async () => {
+    // Commit metadata is append-style review history and should remain visible during rework.
+    await questStore.createQuest({ title: "Rework keeps SHAs" });
     await questStore.transitionQuest("q-1", {
       status: "refined",
       description: "Original plan",
@@ -406,7 +407,28 @@ describe("backward transitions", () => {
     });
 
     expect(rework?.status).toBe("in_progress");
-    expect(rework?.commitShas).toBeUndefined();
+    expect(rework?.commitShas).toEqual(["abc1234", "deadbeef"]);
+  });
+
+  it("preserves previous verification commit SHAs when a quest returns to refined", async () => {
+    // Resetting a verification quest to refined should not detach prior synced diffs from inspection.
+    await questStore.createQuest({ title: "Refined rework keeps SHAs" });
+    await questStore.transitionQuest("q-1", {
+      status: "refined",
+      description: "Original plan",
+    });
+    await questStore.claimQuest("q-1", "sess-1");
+    await questStore.completeQuest("q-1", [{ text: "Check UI", checked: false }], {
+      commitShas: ["abc1234", "deadbeef"],
+    });
+
+    const refined = await questStore.transitionQuest("q-1", {
+      status: "refined",
+      description: "Needs another pass",
+    });
+
+    expect(refined?.status).toBe("refined");
+    expect(refined?.commitShas).toEqual(["abc1234", "deadbeef"]);
   });
 });
 
@@ -772,15 +794,16 @@ describe("transition validation", () => {
     ).rejects.toThrow("commitShas can only be set when transitioning to needs_verification");
   });
 
-  it("does not silently inherit old commit SHAs on a re-submitted verification handoff", async () => {
-    await questStore.createQuest({ title: "Fresh handoff SHAs" });
+  it("preserves and appends commit SHAs on a re-submitted verification handoff", async () => {
+    // Re-submission should keep earlier handoff commits and add new ones without duplicating overlap.
+    await questStore.createQuest({ title: "Append handoff SHAs" });
     await questStore.transitionQuest("q-1", {
       status: "refined",
       description: "Ready",
     });
     await questStore.claimQuest("q-1", "sess-1");
     await questStore.completeQuest("q-1", [{ text: "Verify v1", checked: false }], {
-      commitShas: ["abc1234"],
+      commitShas: ["abc1234", "deadbeef"],
     });
     await questStore.transitionQuest("q-1", {
       status: "in_progress",
@@ -791,10 +814,11 @@ describe("transition validation", () => {
       status: "needs_verification",
       sessionId: "sess-1",
       verificationItems: [{ text: "Verify v2", checked: false }],
+      commitShas: ["DEADBEEF", "cafebabe"],
     });
 
     expect(resubmitted?.status).toBe("needs_verification");
-    expect(resubmitted?.commitShas).toBeUndefined();
+    expect(resubmitted?.commitShas).toEqual(["abc1234", "deadbeef", "cafebabe"]);
   });
 
   it("allows done transition from in_progress when verificationItems are provided", async () => {
@@ -885,6 +909,24 @@ describe("feedback", () => {
     const fb = (result as { feedback?: { text: string }[] }).feedback;
     expect(fb).toHaveLength(1);
     expect(fb![0].text).toBe("Fix this");
+  });
+
+  it("carries forward feedback on needs_verification → refined transition", async () => {
+    await setupVerificationQuest();
+    const entries = [
+      { author: "human" as const, text: "Please reopen this for rework", ts: Date.now() },
+      { author: "agent" as const, text: "Investigating the regression path", ts: Date.now() + 1 },
+    ];
+    await questStore.patchQuest("q-1", { feedback: entries });
+
+    const result = await questStore.transitionQuest("q-1", {
+      status: "refined",
+      description: "Updated scope for another rework cycle",
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!.status).toBe("refined");
+    expect(result?.feedback).toEqual(entries);
   });
 
   it("carries forward feedback on in_progress → needs_verification transition", async () => {

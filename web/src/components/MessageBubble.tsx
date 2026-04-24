@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useCallback, useContext, useLayoutEffect, useEffect, memo } from "react";
-import type { ChatMessage, ContentBlock } from "../types.js";
+import type { ChatMessage, ComposerDraftImage, ContentBlock, SdkSessionInfo } from "../types.js";
 import { isSubagentToolName } from "../types.js";
 import { ToolBlock, getToolIcon, getToolLabel, ToolIcon } from "./ToolBlock.js";
 import { MarkdownContent } from "./MarkdownContent.js";
@@ -11,15 +11,17 @@ import { getMessageMarkdown, getMessagePlainText, copyRichText, writeClipboardTe
 import { EVENT_HEADER_RE, HERD_CHIP_BASE, HERD_CHIP_INTERACTIVE, parseHerdEvents } from "../utils/herd-event-parser.js";
 import { useStore, getSessionSearchState, countUserPermissions } from "../store.js";
 import { formatVsCodeSelectionAttachmentLabel } from "../utils/vscode-context.js";
-import { navigateToSession } from "../utils/routing.js";
+import { absoluteUrlForHash, navigateToSession, routeSessionRefForId, sessionMessageHash } from "../utils/routing.js";
 import { api } from "../api.js";
 import { PawTrailAvatar, HidePawContext } from "./PawTrail.js";
 import { QuestClaimBlock } from "./QuestClaimBlock.js";
 import { generateReplyPreview } from "../utils/reply-preview.js";
 import { parseReplyContext } from "../utils/reply-context.js";
+import { getSingleAnchoredNotification } from "../utils/anchored-notifications.js";
 import { FILE_TOOL_NAMES, isToolHiddenFromChat } from "../hooks/use-feed-model.js";
 import { SessionHoverCard } from "./SessionHoverCard.js";
 import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
+import { createComposerDraftImage } from "./composer-image-utils.js";
 
 const EMPTY_MESSAGES: ChatMessage[] = [];
 
@@ -71,6 +73,12 @@ function formatTurnDuration(ms: number): string {
   return `${mins}m ${secs}s`;
 }
 
+function buildCopyMessageLink(sessionId: string | undefined, messageId: string, sdkSessions: SdkSessionInfo[]) {
+  if (!sessionId) return null;
+  const sessionRef = routeSessionRefForId(sessionId, sdkSessions);
+  return absoluteUrlForHash(sessionMessageHash(sessionRef, messageId));
+}
+
 function buildDraftImageName(mediaType: string, index: number): string {
   const ext = mediaType.split("/")[1]?.replace("jpeg", "jpg").replace("svg+xml", "svg") || "bin";
   return `attachment-${index + 1}.${ext}`;
@@ -79,7 +87,7 @@ function buildDraftImageName(mediaType: string, index: number): string {
 async function restoreMessageImagesToDraft(
   sessionId: string,
   images: NonNullable<ChatMessage["images"]>,
-): Promise<Array<{ name: string; base64: string; mediaType: string }>> {
+): Promise<ComposerDraftImage[]> {
   const restored = await Promise.all(
     images.map(async (img, idx) => {
       const res = await fetch(`/api/images/${encodeURIComponent(sessionId)}/${encodeURIComponent(img.imageId)}/full`);
@@ -90,9 +98,14 @@ async function restoreMessageImagesToDraft(
       let binary = "";
       for (const byte of bytes) binary += String.fromCharCode(byte);
       return {
-        name: buildDraftImageName(img.media_type, idx),
-        base64: btoa(binary),
-        mediaType: blob.type || img.media_type,
+        ...createComposerDraftImage(
+          {
+            name: buildDraftImageName(img.media_type, idx),
+            base64: btoa(binary),
+            mediaType: blob.type || img.media_type,
+          },
+          { status: "uploading" },
+        ),
       };
     }),
   );
@@ -389,47 +402,54 @@ function AgentSourceBadge({ source }: { source: { sessionId: string; sessionLabe
   );
 }
 
-function TimerSourceLabel({
-  source,
-  searchHighlight,
-}: {
-  source: { sessionId: string; sessionLabel?: string };
-  searchHighlight?: SearchHighlightInfo;
-}) {
-  const label = source.sessionLabel || source.sessionId.slice(0, 8);
-  return (
-    <div className="mb-2 flex items-center gap-1 text-[10px] text-cc-muted/70 font-mono-code">
-      <svg viewBox="0 0 16 16" fill="currentColor" className="w-2.5 h-2.5 text-orange-400/60 shrink-0">
-        <path d="M9.5 2L3 9.5h5L6.5 14l7.5-7.5h-5L9.5 2z" />
-      </svg>
-      <span>
-        via{" "}
-        {searchHighlight?.query ? (
-          <HighlightedText
-            text={label}
-            query={searchHighlight.query}
-            mode={searchHighlight.mode}
-            isCurrent={searchHighlight.isCurrent}
-          />
-        ) : (
-          label
-        )}
-      </span>
-    </div>
-  );
-}
+type ParsedTimerMessage = {
+  kind: "fired" | "cancelled" | "unknown";
+  title: string;
+  description: string;
+  timerId: string | null;
+};
 
-function parseTimerMessageContent(content: string): { title: string; description: string } {
+function parseTimerMessageContent(content: string): ParsedTimerMessage {
   const trimmed = content.trim();
   const parts = trimmed.split(/\n{2,}/);
   const header = parts[0]?.trim() ?? "";
   const description = parts.slice(1).join("\n\n").trim();
-  const match = header.match(/^\[[^\]]+\]\s*(.*)$/);
-  const title = (match?.[1] ?? header).trim();
+  const cancelledMatch = header.match(/^\[⏰ Timer ([^\]\s]+) cancelled\]\s*(.*)$/);
+  if (cancelledMatch) {
+    return {
+      kind: "cancelled",
+      timerId: cancelledMatch[1],
+      title: (cancelledMatch[2] || header).trim(),
+      description,
+    };
+  }
+
+  const firedMatch = header.match(/^\[⏰ Timer ([^\]\s]+)\]\s*(.*)$/);
+  if (firedMatch) {
+    return {
+      kind: "fired",
+      timerId: firedMatch[1],
+      title: (firedMatch[2] || header).trim(),
+      description,
+    };
+  }
+
+  const fallbackMatch = header.match(/^\[[^\]]+\]\s*(.*)$/);
+  const title = (fallbackMatch?.[1] ?? header).trim();
   return {
+    kind: "unknown",
+    timerId: null,
     title: title || trimmed,
     description,
   };
+}
+
+function TimerEventIcon({ muted = false }: { muted?: boolean }) {
+  return (
+    <span aria-hidden="true" className={`shrink-0 text-[13px] leading-none ${muted ? "opacity-50" : ""}`}>
+      ⏰
+    </span>
+  );
 }
 
 function TimerMessage({
@@ -443,64 +463,95 @@ function TimerMessage({
   showTimestamp: boolean;
   searchHighlight?: SearchHighlightInfo;
 }) {
-  const { title, description } = useMemo(() => parseTimerMessageContent(message.content), [message.content]);
+  const { title, description, timerId, kind } = useMemo(
+    () => parseTimerMessageContent(message.content),
+    [message.content],
+  );
   const [expanded, setExpanded] = useState(false);
   const hasDescription = description.length > 0;
+  const timerLabel = timerId ?? message.agentSource?.sessionLabel ?? "timer";
+  const fullTimerLabel = message.agentSource?.sessionLabel ?? (timerId ? `Timer ${timerId}` : timerLabel);
+  const titleClassName = kind === "cancelled" ? "text-cc-muted/85" : "text-cc-fg/95";
+  const normalizedQuery = searchHighlight?.query.trim().toLowerCase() ?? "";
+  const shouldShowFullTimerLabel =
+    normalizedQuery.length > 0 &&
+    searchHighlight?.mode === "strict" &&
+    !timerLabel.toLowerCase().includes(normalizedQuery) &&
+    fullTimerLabel.toLowerCase().includes(normalizedQuery);
+  const visibleTimerLabel = shouldShowFullTimerLabel ? fullTimerLabel : timerLabel;
+
+  const renderedTimerLabel = searchHighlight?.query ? (
+    <HighlightedText
+      text={visibleTimerLabel}
+      query={searchHighlight.query}
+      mode={searchHighlight.mode}
+      isCurrent={searchHighlight.isCurrent}
+    />
+  ) : (
+    visibleTimerLabel
+  );
+
+  const renderedTitle = searchHighlight?.query ? (
+    <HighlightedText
+      text={title}
+      query={searchHighlight.query}
+      mode={searchHighlight.mode}
+      isCurrent={searchHighlight.isCurrent}
+    />
+  ) : (
+    title
+  );
 
   return (
-    <div className="pl-9 animate-[fadeSlideIn_0.2s_ease-out]">
-      <div className="max-w-3xl rounded-[22px] border border-cc-border/30 bg-cc-card/75 px-4 py-3 shadow-[0_10px_30px_rgba(0,0,0,0.16)]">
-        {message.agentSource && <TimerSourceLabel source={message.agentSource} searchHighlight={searchHighlight} />}
+    <div className="pl-9 py-0.5 animate-[fadeSlideIn_0.2s_ease-out]">
+      <div className="max-w-3xl">
         <div className="flex items-start gap-3">
           <div className="min-w-0 flex-1">
-            {hasDescription ? (
+            {hasDescription && kind !== "cancelled" ? (
               <button
                 type="button"
                 onClick={() => setExpanded((v) => !v)}
                 aria-expanded={expanded}
                 aria-label={expanded ? "Collapse timer description" : "Expand timer description"}
-                className="w-full text-left cursor-pointer"
+                className="flex w-full min-w-0 items-start gap-2 text-left cursor-pointer"
               >
-                <div className="flex items-start gap-2">
-                  <p className="min-w-0 flex-1 text-[15px] font-medium leading-snug text-cc-fg break-words">
-                    {searchHighlight?.query ? (
-                      <HighlightedText
-                        text={title}
-                        query={searchHighlight.query}
-                        mode={searchHighlight.mode}
-                        isCurrent={searchHighlight.isCurrent}
-                      />
-                    ) : (
-                      title
-                    )}
-                  </p>
-                  <svg
-                    viewBox="0 0 16 16"
-                    fill="currentColor"
-                    className={`mt-0.5 h-3.5 w-3.5 shrink-0 text-cc-muted/50 transition-transform ${
-                      expanded ? "rotate-90" : ""
-                    }`}
-                  >
-                    <path d="M6 3l5 5-5 5V3z" />
-                  </svg>
-                </div>
+                <TimerEventIcon />
+                <span className="shrink-0 pt-0.5 font-mono-code text-[11px] leading-none text-orange-300/85">
+                  {renderedTimerLabel}
+                </span>
+                <span className={`min-w-0 flex-1 break-words text-[13px] font-medium leading-snug ${titleClassName}`}>
+                  {renderedTitle}
+                </span>
+                <svg
+                  viewBox="0 0 16 16"
+                  fill="currentColor"
+                  className={`mt-0.5 h-3 w-3 shrink-0 text-cc-muted/45 transition-transform ${expanded ? "rotate-90" : ""}`}
+                >
+                  <path d="M6 3l5 5-5 5V3z" />
+                </svg>
               </button>
             ) : (
-              <p className="text-[15px] font-medium leading-snug text-cc-fg break-words">
-                {searchHighlight?.query ? (
-                  <HighlightedText
-                    text={title}
-                    query={searchHighlight.query}
-                    mode={searchHighlight.mode}
-                    isCurrent={searchHighlight.isCurrent}
-                  />
-                ) : (
-                  title
+              <div className="flex min-w-0 items-start gap-2">
+                <TimerEventIcon muted={kind === "cancelled"} />
+                <span
+                  className={`shrink-0 pt-0.5 font-mono-code text-[11px] leading-none ${
+                    kind === "cancelled" ? "text-cc-muted/60" : "text-orange-300/85"
+                  }`}
+                >
+                  {renderedTimerLabel}
+                </span>
+                {kind === "cancelled" && (
+                  <span className="shrink-0 pt-[1px] text-[10px] uppercase tracking-[0.18em] text-cc-muted/45">
+                    cancelled
+                  </span>
                 )}
-              </p>
+                <span className={`min-w-0 flex-1 break-words text-[13px] font-medium leading-snug ${titleClassName}`}>
+                  {renderedTitle}
+                </span>
+              </div>
             )}
-            {expanded && hasDescription && (
-              <div className="mt-3 rounded-2xl border border-cc-border/20 bg-cc-card/45 px-3 py-2.5">
+            {expanded && hasDescription && kind !== "cancelled" && (
+              <div className="ml-6 mt-2 rounded-2xl border border-cc-border/20 bg-cc-card/45 px-3 py-2.5">
                 <MarkdownContent
                   text={description}
                   variant="conservative"
@@ -624,6 +675,8 @@ function HerdEventEntry({ header, activity }: { header: string; activity: string
       isWorktree: bridgeState?.is_worktree || sdkInfo?.isWorktree || false,
       worktreeExists: sdkInfo?.worktreeExists,
       worktreeDirty: sdkInfo?.worktreeDirty,
+      worktreeCleanupStatus: sdkInfo?.worktreeCleanupStatus,
+      worktreeCleanupError: sdkInfo?.worktreeCleanupError,
       askPermission: askPermission.get(resolvedSessionId),
       idleKilled: cliDisconnectReason.get(resolvedSessionId) === "idle_limit",
       lastActivityAt: sdkInfo?.lastActivityAt,
@@ -954,6 +1007,16 @@ function UserMessage({
   // Parse reply-to context from message content (display only -- raw text still goes to assistant)
   const replyContext = useMemo(() => parseReplyContext(message.content), [message.content]);
   const displayContent = replyContext ? replyContext.userMessage : message.content;
+  const localImageEntries = message.localImages ?? [];
+  const remoteImageEntries = message.images ?? [];
+  const pendingLabel =
+    message.pendingState === "uploading"
+      ? "Uploading image…"
+      : message.pendingState === "delivering"
+        ? "Sending…"
+        : message.pendingState === "failed"
+          ? message.pendingError || "Upload failed"
+          : null;
 
   return (
     <div className="flex justify-end items-start gap-1 group/msg animate-[fadeSlideIn_0.2s_ease-out]">
@@ -976,9 +1039,28 @@ function UserMessage({
             </div>
           </div>
         )}
-        {message.images && message.images.length > 0 && sessionId && (
+        {localImageEntries.length > 0 && (
           <div className="flex gap-2 flex-wrap mb-2">
-            {message.images.map((img) => {
+            {localImageEntries.map((img, idx) => {
+              const src = `data:${img.mediaType};base64,${img.base64}`;
+              return (
+                <img
+                  key={`${img.name}-${idx}`}
+                  src={src}
+                  alt={img.name || "attachment"}
+                  className="max-w-[150px] sm:max-w-[200px] max-h-[120px] sm:max-h-[150px] rounded-lg object-cover cursor-zoom-in hover:opacity-80 transition-opacity"
+                  onClick={() => setLightboxSrc(src)}
+                  loading="lazy"
+                  decoding="async"
+                  data-testid="image-thumbnail"
+                />
+              );
+            })}
+          </div>
+        )}
+        {localImageEntries.length === 0 && remoteImageEntries.length > 0 && sessionId && (
+          <div className="flex gap-2 flex-wrap mb-2">
+            {remoteImageEntries.map((img) => {
               const thumbSrc = `/api/images/${sessionId}/${img.imageId}/thumb`;
               const fullSrc = `/api/images/${sessionId}/${img.imageId}/full`;
               return (
@@ -996,6 +1078,7 @@ function UserMessage({
             })}
           </div>
         )}
+        {pendingLabel && <div className="mb-2 text-[11px] text-cc-muted/80 font-mono-code">{pendingLabel}</div>}
         <CollapsibleContent>
           <MarkdownContent
             text={displayContent}
@@ -1006,7 +1089,9 @@ function UserMessage({
         </CollapsibleContent>
         {showTimestamp && <MessageTimestamp timestamp={message.timestamp} />}
       </div>
-      <UserMessageMenu message={message} sessionId={sessionId} canRevert={canRevert} isCodex={isCodex} />
+      {!message.pendingState && (
+        <UserMessageMenu message={message} sessionId={sessionId} canRevert={canRevert} isCodex={isCodex} />
+      )}
       {lightboxSrc && <Lightbox src={lightboxSrc} alt="attachment" onClose={() => setLightboxSrc(null)} />}
     </div>
   );
@@ -1029,15 +1114,22 @@ function UserMessageMenu({
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
   const [copied, setCopied] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
+  const sdkSessions = useStore((s) => s.sdkSessions);
+
+  const showCopied = useCallback(() => {
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }, []);
 
   const handleCopy = useCallback(() => {
-    writeClipboardText(message.content)
-      .then(() => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
-      })
-      .catch(console.error);
-  }, [message.content]);
+    writeClipboardText(message.content).then(showCopied).catch(console.error);
+  }, [message.content, showCopied]);
+
+  const handleCopyLink = useCallback(() => {
+    const link = buildCopyMessageLink(sessionId, message.id, sdkSessions);
+    if (!link) return;
+    writeClipboardText(link).then(showCopied).catch(console.error);
+  }, [message.id, sdkSessions, sessionId, showCopied]);
 
   const handleRevert = useCallback(async () => {
     if (!sessionId || !message.id) return;
@@ -1070,6 +1162,9 @@ function UserMessageMenu({
 
   const items = useMemo(() => {
     const list: ContextMenuItem[] = [{ label: "Copy message", onClick: handleCopy }];
+    if (sessionId) {
+      list.push({ label: "Copy message link", onClick: handleCopyLink });
+    }
     if (canRevert) {
       list.push({
         label: "Revert to here",
@@ -1083,7 +1178,7 @@ function UserMessageMenu({
       });
     }
     return list;
-  }, [handleCopy, handleRevert, canRevert]);
+  }, [canRevert, handleCopy, handleCopyLink, handleRevert, sessionId]);
 
   return (
     <div className="shrink-0 self-start mt-1">
@@ -1180,12 +1275,17 @@ function AssistantMessage({
   const hasTextBlock = blocks.some((b) => b.type === "text" && b.text.trim().length > 0);
   const hasThinkingBlock = blocks.some((b) => b.type === "thinking" && b.thinking.trim().length > 0);
   const shouldRenderContentFallback = message.content.trim().length > 0 && !hasTextBlock && !hasThinkingBlock;
-  const suppressToolNotificationMarker = !!message.notification;
+  const inboxAnchoredNotification = useStore((s) => {
+    if (!sessionId || message.notification || !message.id) return null;
+    return getSingleAnchoredNotification(s.sessionNotifications?.get(sessionId), message.id);
+  });
+  const resolvedNotification = message.notification ?? inboxAnchoredNotification;
+  const suppressToolNotificationMarker = !!resolvedNotification;
 
   // Only show copy-message button when there's actual text content to copy
   const hasTextContent = message.content || blocks.some((b) => b.type === "text" || b.type === "thinking");
 
-  if (blocks.length === 0 && !message.content.trim() && !message.notification) {
+  if (blocks.length === 0 && !message.content.trim() && !resolvedNotification) {
     return null;
   }
 
@@ -1195,10 +1295,10 @@ function AssistantMessage({
         {!hidePaw && <PawTrailAvatar />}
         <div ref={contentRef} className="flex-1 min-w-0 pr-6">
           <MarkdownContent text={message.content} sessionId={sessionId} searchHighlight={searchHighlight} />
-          {message.notification && (
+          {resolvedNotification && (
             <NotificationMarker
-              category={message.notification.category}
-              summary={message.notification.summary}
+              category={resolvedNotification.category}
+              summary={resolvedNotification.summary}
               sessionId={sessionId}
               messageId={message.id}
             />
@@ -1256,10 +1356,10 @@ function AssistantMessage({
             />
           );
         })}
-        {message.notification && (
+        {resolvedNotification && (
           <NotificationMarker
-            category={message.notification.category}
-            summary={message.notification.summary}
+            category={resolvedNotification.category}
+            summary={resolvedNotification.summary}
             sessionId={sessionId}
             messageId={message.id}
           />
@@ -1284,7 +1384,7 @@ function MessageActionBar({
   return (
     <div className="absolute top-0 right-0 shrink-0 flex items-center opacity-100 sm:opacity-0 sm:group-hover/msg:opacity-100 transition-opacity">
       {sessionId && <ReplyButton message={message} sessionId={sessionId} />}
-      <CopyMessageButton message={message} contentRef={contentRef} />
+      <CopyMessageButton message={message} contentRef={contentRef} sessionId={sessionId} />
     </div>
   );
 }
@@ -1327,13 +1427,16 @@ function ReplyButton({ message, sessionId }: { message: ChatMessage; sessionId: 
 function CopyMessageButton({
   message,
   contentRef,
+  sessionId,
 }: {
   message: ChatMessage;
   contentRef: React.RefObject<HTMLDivElement | null>;
+  sessionId?: string;
 }) {
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
+  const sdkSessions = useStore((s) => s.sdkSessions);
 
   const showFeedback = useCallback((label: string) => {
     setCopied(label);
@@ -1362,6 +1465,14 @@ function CopyMessageButton({
       .catch(console.error);
   }, [message, contentRef, showFeedback]);
 
+  const handleCopyLink = useCallback(() => {
+    const link = buildCopyMessageLink(sessionId, message.id, sdkSessions);
+    if (!link) return;
+    writeClipboardText(link)
+      .then(() => showFeedback("Link"))
+      .catch(console.error);
+  }, [message.id, sdkSessions, sessionId, showFeedback]);
+
   const toggle = useCallback(() => {
     if (menuPos) {
       setMenuPos(null);
@@ -1376,8 +1487,9 @@ function CopyMessageButton({
       { label: "Copy as Markdown", onClick: handleCopyMarkdown },
       { label: "Copy as Rich Text", onClick: handleCopyRichText },
       { label: "Copy as Plain Text", onClick: handleCopyPlainText },
+      ...(sessionId ? [{ label: "Copy message link", onClick: handleCopyLink }] : []),
     ],
-    [handleCopyMarkdown, handleCopyRichText, handleCopyPlainText],
+    [handleCopyLink, handleCopyMarkdown, handleCopyPlainText, handleCopyRichText, sessionId],
   );
 
   return (

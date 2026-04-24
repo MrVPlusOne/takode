@@ -1460,6 +1460,38 @@ describe("CodexAdapter", () => {
     });
     expect(writeMsg).toBeDefined();
 
+    // fileChange with "add" kind should also normalize to Write tool
+    stdout.push(
+      JSON.stringify({
+        method: "item/completed",
+        params: {
+          item: {
+            type: "fileChange",
+            id: "fc_add",
+            changes: [{ path: "/tmp/added.ts", kind: "add", diff: "+export const added = true;\n" }],
+            status: "completed",
+          },
+        },
+      }) + "\n",
+    );
+
+    await tick();
+
+    const addWriteMsg = messages
+      .filter((m) => m.type === "assistant")
+      .find((m) => {
+        const content = (
+          m as {
+            message: { content: Array<{ type: string; id?: string; name?: string; input?: { file_path?: string } }> };
+          }
+        ).message.content;
+        return content.some(
+          (b) =>
+            b.type === "tool_use" && b.id === "fc_add" && b.name === "Write" && b.input?.file_path === "/tmp/added.ts",
+        );
+      });
+    expect(addWriteMsg).toBeDefined();
+
     // fileChange with "modify" kind → Edit tool
     stdout.push(
       JSON.stringify({
@@ -1772,6 +1804,45 @@ describe("CodexAdapter", () => {
       );
     });
     expect(toolUse).toBeDefined();
+  });
+
+  it("suppresses fileChange tool_use when completed payload still has no renderable diff or content", async () => {
+    const messages: BrowserIncomingMessage[] = [];
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
+    adapter.onBrowserMessage((msg) => messages.push(msg));
+
+    await tick();
+    stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
+    await tick();
+    stdout.push(JSON.stringify({ id: 2, result: { thread: { id: "thr_123" } } }) + "\n");
+    await tick();
+
+    stdout.push(
+      JSON.stringify({
+        method: "item/completed",
+        params: {
+          item: {
+            type: "fileChange",
+            id: "fc_unrenderable",
+            changes: [{ path: "/tmp/placeholder.ts", kind: "add" }],
+            status: "completed",
+          },
+        },
+      }) + "\n",
+    );
+    await tick();
+
+    const fileChangeMessages = messages.filter((m) => {
+      if (m.type !== "assistant") return false;
+      const content = (m as { message: { content: Array<{ type: string; id?: string; tool_use_id?: string }> } })
+        .message.content;
+      return content.some(
+        (block) =>
+          (block.type === "tool_use" && block.id === "fc_unrenderable") ||
+          (block.type === "tool_result" && block.tool_use_id === "fc_unrenderable"),
+      );
+    });
+    expect(fileChangeMessages).toHaveLength(0);
   });
 
   it("sends turn/interrupt on interrupt message", async () => {
@@ -4668,17 +4739,11 @@ describe("CodexAdapter", () => {
   // ── MCP elicitation (mcpServer/elicitation/request) ───────────────────
 
   it("emits permission_request with mcp:server:tool format for elicitation", async () => {
-    // Verifies that MCP elicitation requests are surfaced to the permission UI
-    // with the correct tool_name format and that tool params are forwarded.
     const messages: BrowserIncomingMessage[] = [];
     const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
     adapter.onBrowserMessage((msg) => messages.push(msg));
 
-    await tick();
-    stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
-    await tick();
-    stdout.push(JSON.stringify({ id: 2, result: { thread: { id: "thr_123" } } }) + "\n");
-    await tick();
+    await initializeAdapter(stdout);
 
     stdout.push(
       JSON.stringify({
@@ -4707,20 +4772,13 @@ describe("CodexAdapter", () => {
     expect(perm.request.description).toContain("Send a message to a Slack channel");
   });
 
-  it("maps allow → accept and deny → decline for elicitation responses", async () => {
-    // Verifies that the ElicitResult format ({ action }) is used, not the
-    // standard approval format ({ decision }).
+  it("maps allow to accept and deny to decline for elicitation responses", async () => {
     const messages: BrowserIncomingMessage[] = [];
     const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
     adapter.onBrowserMessage((msg) => messages.push(msg));
 
-    await tick();
-    stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
-    await tick();
-    stdout.push(JSON.stringify({ id: 2, result: { thread: { id: "thr_123" } } }) + "\n");
-    await tick();
+    await initializeAdapter(stdout);
 
-    // Send elicitation request
     stdout.push(
       JSON.stringify({
         method: "mcpServer/elicitation/request",
@@ -4734,10 +4792,10 @@ describe("CodexAdapter", () => {
     );
     await tick();
 
-    // Allow the request
     const permReq = messages.find((m) => m.type === "permission_request") as unknown as {
       request: { request_id: string };
     };
+
     adapter.sendBrowserMessage({
       type: "permission_response",
       request_id: permReq.request.request_id,
@@ -4745,32 +4803,60 @@ describe("CodexAdapter", () => {
     });
     await tick();
 
-    const allWritten = stdin.chunks.join("");
-    const responseLine = allWritten.split("\n").find((l) => l.includes('"id":501'));
+    let responseLine = stdin.chunks
+      .join("")
+      .split("\n")
+      .find((l) => l.includes('"id":501'));
     expect(responseLine).toBeDefined();
-    // ElicitResult uses "action", not "decision"
     expect(responseLine).toContain('"action"');
     expect(responseLine).toContain('"accept"');
     expect(responseLine).not.toContain('"decision"');
-  });
-
-  it("falls back to 'elicitation' tool name when message format is unexpected", async () => {
-    // Verifies that an unrecognized message format doesn't break — the tool
-    // name gracefully falls back to "elicitation".
-    const messages: BrowserIncomingMessage[] = [];
-    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
-    adapter.onBrowserMessage((msg) => messages.push(msg));
-
-    await tick();
-    stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
-    await tick();
-    stdout.push(JSON.stringify({ id: 2, result: { thread: { id: "thr_123" } } }) + "\n");
-    await tick();
 
     stdout.push(
       JSON.stringify({
         method: "mcpServer/elicitation/request",
         id: 502,
+        params: {
+          serverName: "slack",
+          message: 'Allow the slack MCP server to run tool "slack_send_message"?',
+          _meta: { tool_params: {} },
+        },
+      }) + "\n",
+    );
+    await tick();
+
+    const secondPermReq = messages.filter((m) => m.type === "permission_request").at(-1) as unknown as {
+      request: { request_id: string };
+    };
+
+    adapter.sendBrowserMessage({
+      type: "permission_response",
+      request_id: secondPermReq.request.request_id,
+      behavior: "deny",
+    });
+    await tick();
+
+    responseLine = stdin.chunks
+      .join("")
+      .split("\n")
+      .find((l) => l.includes('"id":502'));
+    expect(responseLine).toBeDefined();
+    expect(responseLine).toContain('"action"');
+    expect(responseLine).toContain('"decline"');
+    expect(responseLine).not.toContain('"decision"');
+  });
+
+  it("falls back to 'elicitation' tool name when message format is unexpected", async () => {
+    const messages: BrowserIncomingMessage[] = [];
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
+    adapter.onBrowserMessage((msg) => messages.push(msg));
+
+    await initializeAdapter(stdout);
+
+    stdout.push(
+      JSON.stringify({
+        method: "mcpServer/elicitation/request",
+        id: 503,
         params: {
           serverName: "custom-server",
           message: "Some unexpected elicitation message format",
@@ -4786,7 +4872,6 @@ describe("CodexAdapter", () => {
     const perm = permReqs[0] as unknown as {
       request: { tool_name: string };
     };
-    // Falls back to "elicitation" when regex doesn't match
     expect(perm.request.tool_name).toBe("mcp:custom-server:elicitation");
   });
 

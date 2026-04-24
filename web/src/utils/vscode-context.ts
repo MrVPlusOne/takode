@@ -39,6 +39,10 @@ function normalizePath(value: string): string {
   return value.replace(/\\/g, "/").replace(/\/+$/, "");
 }
 
+function basename(value: string): string {
+  return normalizePath(value).split("/").filter(Boolean).pop() || value;
+}
+
 export function getVsCodeSelectionSessionRoot(repoRoot?: string | null, cwd?: string | null): string | null {
   const normalizedRepoRoot = repoRoot ? normalizePath(repoRoot) : "";
   const normalizedCwd = cwd ? normalizePath(cwd) : "";
@@ -89,10 +93,11 @@ export function formatVsCodeSelectionSummary(context: VsCodeSelectionContext | V
 export function formatVsCodeSelectionAttachmentLabel(
   context: VsCodeSelectionContext | VsCodeSelectionContextPayload,
 ): string {
+  const fileName = basename(context.displayPath || context.absolutePath || context.relativePath);
   if (context.startLine === context.endLine) {
-    return `${context.displayPath}:${context.startLine}`;
+    return `${fileName}:${context.startLine}`;
   }
-  return `${context.displayPath}:${context.startLine}-${context.endLine}`;
+  return `${fileName}:${context.startLine}-${context.endLine}`;
 }
 
 export function buildVsCodeSelectionPrompt(context: VsCodeSelectionContext | VsCodeSelectionContextPayload): string {

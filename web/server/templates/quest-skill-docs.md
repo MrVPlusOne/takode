@@ -32,6 +32,32 @@ These are completely different systems. Do NOT confuse them.
 - **Working on an existing quest**: Use the exact quest ID provided by the user or from `quest list`/`quest mine` output. Before running `quest edit q-N`, always run `quest show q-N` first to confirm the quest title matches what you expect. If the title doesn't match, STOP — you have the wrong quest ID.
 - **Do NOT assume sequential IDs.** If you see `q-3` in the list, the next quest is NOT necessarily `q-4` — IDs may have gaps. Always let `quest create` assign the ID.
 
+## Required `/quest-design` before quest creation or refinement
+
+Before any agent creates a new quest or refines an `idea` quest into a worker-ready quest, invoke `/quest-design` and complete its confirmation round with the user. This applies to normal sessions, leader sessions, and worker sessions.
+
+Use `/quest-design` before:
+- `quest create`
+- `quest edit` or `quest transition --status refined` when refining an `idea` quest
+- materially rewriting title, description, or tags as part of quest refinement
+
+The `/quest-design` confirmation must be concise and include:
+- **Intended goal/scope**: what the quest or update will ask for.
+- **Major assumptions**: important interpretation choices the agent is making.
+- **Non-goals** when relevant: what should stay out of scope.
+- **Highest-leverage clarification questions**: ask only questions that could materially change the quest.
+
+Then stop and wait for the user to confirm or correct the understanding before creating or refining the quest. If the user corrects the understanding and ambiguity remains, do another short `/quest-design` round before writing the quest. If the user has already approved a plan that explicitly covers the quest creation or refinement text, that plan approval can count as the confirmation round.
+
+Operations that do not require `/quest-design`:
+- Read-only commands: `quest show`, `quest list`, `quest grep`, `quest history`, and `quest tags`.
+- Ownership and already-approved workflow bookkeeping: `quest claim`, `quest later`, `quest inbox`, and board operations.
+- Routine progress bookkeeping after approved work: `quest complete`, `quest check`, `quest address`, and `quest feedback` entries that summarize completed work or address already-provided feedback.
+- Adding human or agent feedback to an existing quest.
+- Status transitions that are explicitly required by an already-confirmed workflow step, such as moving an assigned quest to `in_progress` after claim or reopening a completed quest to `refined` after the user has clearly provided rework feedback.
+
+When in doubt about whether a change is quest creation/refinement or routine bookkeeping, invoke `/quest-design` before writing quest title, description, or tag changes.
+
 ## Commands (Quick Reference)
 
 ```
@@ -40,16 +66,17 @@ quest grep   <pattern> [--count N] [--json]                  Search quest title,
 quest show   <id> [--json]                                    Show quest detail
 quest history <id> [--json]                                   Show version history
 quest tags   [--json]                                         List all existing tags with counts
-quest create <title> [--desc "..."] [--tags "t1,t2"] [--image <path>] [--images "p1,p2"] [--json] Create a quest (auto-assigns ID)
+quest create [<title> | --title "..." | --title-file <path>|-] [--desc "..." | --desc-file <path>|-] [--tags "t1,t2"] [--image <path>] [--images "p1,p2"] [--json] Create a quest (auto-assigns ID)
 quest claim  <id> [--session <sid>] [--json]                  Claim for your session
-quest complete <id> --items "c1,c2" [--no-code] [--commit <sha>] [--commits "c1,c2"] [--json]  Submit for verification
-quest done   <id> [--notes "..."] [--cancelled] [--json]      Mark as done/cancelled
-quest transition <id> --status <s> [--desc "..."] [--json]    Change status
+quest complete <id> [--items "c1,c2" | --items-file <path>|-] [--no-code] [--commit <sha>] [--commits "c1,c2"] [--json]  Submit for verification
+quest done   <id> [--notes "..." | --notes-file <path>|-] [--cancelled] [--json]      Mark as done/cancelled
+quest cancel <id> [--notes "reason" | --notes-file <path>|-] [--json]                Cancel from any status
+quest transition <id> --status <s> [--desc "..." | --desc-file <path>|-] [--json]    Change status
 quest later  <id> [--json]                                    Move quest out of Verification Inbox
 quest inbox  <id> [--json]                                    Move quest back to Verification Inbox
-quest edit   <id> [--title "..."] [--desc "..."] [--tags "t1,t2"] [--json]     Edit in place (NEVER use to create)
+quest edit   <id> [--title "..." | --title-file <path>|-] [--desc "..." | --desc-file <path>|-] [--tags "t1,t2"] [--json]     Edit in place (NEVER use to create)
 quest check  <id> <index> [--json]                            Toggle verification item
-quest feedback <id> --text "..." [--author agent|human] [--image <path>] [--images "p1,p2"] [--json]  Add feedback entry
+quest feedback <id> [--text "..." | --text-file <path>|-] [--author agent|human] [--image <path>] [--images "p1,p2"] [--json]  Add feedback entry
 quest address <id> <index> [--json]                          Toggle feedback addressed status
 quest delete <id> [--json]                                    Delete quest
 quest resize-image <path> [--max-dim 1920] [--json]           Resize an image to fit within max dimension
@@ -68,10 +95,14 @@ Unknown flags are rejected with a "Did you mean?" suggestion.
 
 ## Complete Flag Reference
 
-### quest create <title> [flags]
+### quest create [<title> | --title "..." | --title-file <path>|-] [flags]
 | Flag | Description |
 |------|-------------|
+| `<title>` | Positional quest title for short inline input |
+| `--title "..."` | Quest title as an explicit flag |
+| `--title-file <path>` | Read the title from a file, or use `-` to read from stdin |
 | `--desc "..."` | Quest description (markdown supported) |
+| `--desc-file <path>` | Read the description from a file, or use `-` to read from stdin |
 | `--tags "t1,t2"` | Comma-separated tags |
 | `--image <path>` | Attach an image (can repeat: --image a.png --image b.png) |
 | `--images "a.png,b.png"` | Attach multiple images (comma-separated) |
@@ -81,7 +112,9 @@ Unknown flags are rejected with a "Did you mean?" suggestion.
 | Flag | Description |
 |------|-------------|
 | `--title "..."` | New title |
+| `--title-file <path>` | Read the new title from a file, or use `-` to read from stdin |
 | `--desc "..."` | New description |
+| `--desc-file <path>` | Read the new description from a file, or use `-` to read from stdin |
 | `--tags "t1,t2"` | New tags (replaces all) |
 | `--json` | Output JSON |
 
@@ -110,31 +143,55 @@ Use `quest grep` when you need to search **inside** quest titles, descriptions, 
 | `--session <id>` | Session ID to claim for (required if COMPANION_SESSION_ID not set) |
 | `--json` | Output JSON |
 
-### quest feedback <id> --text "..." [flags]
+**Shell quoting safety:** if quest titles or descriptions may contain backticks, `$(...)`, quotes, braces, copied CLI output, or other shell-sensitive content, prefer `--title-file` / `--desc-file` instead of inline shell quoting:
+
+```bash
+cat >/tmp/quest-title.txt <<'EOF'
+Fix copied `quest create` snippets
+EOF
+
+cat >/tmp/quest-description.md <<'EOF'
+Treat `$(echo nope)` and {"json":true} as literal text, not shell.
+EOF
+
+quest create --title-file /tmp/quest-title.txt --desc-file /tmp/quest-description.md --tags "questmaster,cli"
+
+printf '%s\n' 'Copied `$(snippet)` stays literal' | \
+  quest create "Quest title" --desc-file -
+
+quest edit q-12 --desc-file /tmp/quest-description.md
+quest transition q-12 --status in_progress --desc-file /tmp/quest-description.md
+```
+
+### quest feedback <id> [--text "..." | --text-file <path>|-] [flags]
 | Flag | Description |
 |------|-------------|
-| `--text "..."` | Feedback text (REQUIRED) |
+| `--text "..."` | Short inline feedback text |
+| `--text-file <path>` | Read feedback text from a file, or use `-` to read from stdin |
 | `--author agent\|human` | Who wrote this (default: "agent") |
 | `--session <id>` | Session ID |
 | `--image <path>` | Attach an image (can repeat: --image a.png --image b.png) |
 | `--images "a.png,b.png"` | Attach multiple images (comma-separated) |
 | `--json` | Output JSON |
 
-**Shell quoting safety:** if feedback text may contain backticks, `$(...)`, quotes, braces, copied CLI output, or other shell-sensitive content, do not inline it directly in double quotes. Build the text with a single-quoted heredoc and pass the variable instead:
+**Shell quoting safety:** if feedback text may contain backticks, `$(...)`, quotes, braces, copied CLI output, or other shell-sensitive content, prefer `--text-file <path>` or `--text-file -` instead of inline shell quoting:
 
 ```bash
-msg=$(cat <<'EOF'
+cat >/tmp/quest-feedback.txt <<'EOF'
 Port summary: commit abc123 ...
 Treat `foo $(bar)` as literal text, not shell.
 EOF
-)
-quest feedback q-12 --text "$msg"
+quest feedback q-12 --text-file /tmp/quest-feedback.txt
+
+printf '%s\n' 'Port summary: commit abc123 ...' 'Treat `foo $(bar)` as literal text, not shell.' | \
+  quest feedback q-12 --text-file -
 ```
 
-### quest complete <id> --items "item1,item2"
+### quest complete <id> [--items "item1,item2" | --items-file <path>|-]
 | Flag | Description |
 |------|-------------|
-| `--items "i1,i2"` | Comma-separated verification checklist items (REQUIRED) |
+| `--items "i1,i2"` | Comma-separated verification checklist items |
+| `--items-file <path>` | Read verification items from a file, or use `-` to read from stdin. Supports one item per line or a JSON array of strings / `{ "text": "..." }` objects |
 | `--no-code` | Local CLI reminder switch for zero-code / artifact-only handoffs; it suppresses port-noise reminders but does not persist quest metadata |
 | `--commit <sha>` | Attach one synced commit SHA (repeatable) |
 | `--commits "s1,s2"` | Attach multiple synced commit SHAs in order |
@@ -144,6 +201,7 @@ quest feedback q-12 --text "$msg"
 | Flag | Description |
 |------|-------------|
 | `--notes "..."` | Closure notes |
+| `--notes-file <path>` | Read closure notes from a file, or use `-` to read from stdin |
 | `--cancelled` | Mark as cancelled instead of done |
 | `--json` | Output JSON |
 
@@ -151,13 +209,29 @@ quest feedback q-12 --text "$msg"
 | Flag | Description |
 |------|-------------|
 | `--notes "..."` | Cancellation reason |
+| `--notes-file <path>` | Read the cancellation reason from a file, or use `-` to read from stdin |
 | `--json` | Output JSON |
+
+**Shell quoting safety:** if closure notes or cancellation reasons may contain backticks, `$(...)`, quotes, braces, copied CLI output, or other shell-sensitive content, prefer `--notes-file <path>` or `--notes-file -` instead of inline shell quoting:
+
+```bash
+cat >/tmp/quest-closeout.txt <<'EOF'
+Closed after verifying copied `quest done` snippets stay literal.
+Keep `$(echo nope)` and {"json":true} as plain text.
+EOF
+
+quest done q-12 --notes-file /tmp/quest-closeout.txt
+
+printf '%s\n' 'Superseded by q-13 with copied `$(note)` text' | \
+  quest cancel q-12 --notes-file -
+```
 
 ### quest transition <id> --status <s> [flags]
 | Flag | Description |
 |------|-------------|
 | `--status <s>` | Target status (REQUIRED) |
 | `--desc "..."` | Optional description update |
+| `--desc-file <path>` | Read the description update from a file, or use `-` to read from stdin |
 | `--session <id>` | Session ID |
 | `--json` | Output JSON |
 
@@ -169,6 +243,9 @@ These commands accept only `--json` for JSON output.
 ```bash
 # Create a quest with description and tags
 quest create "Fix mobile sidebar" --desc "Sidebar overflows on screens <400px" --tags "ui,bugfix,mobile"
+
+# Create a quest from files when the text includes shell-sensitive content
+quest create --title-file /tmp/quest-title.txt --desc-file /tmp/quest-description.md --tags "questmaster,cli"
 
 # List in-progress quests
 quest list --status in_progress
@@ -186,15 +263,21 @@ quest grep "sidebar|overflow"
 # Claim and start working on a quest
 quest claim q-12
 quest transition q-12 --status in_progress
+quest transition q-12 --status in_progress --desc-file /tmp/quest-description.md
 
 # Edit a quest's title and tags
 quest edit q-12 --title "Fix sidebar overflow" --tags "ui,bugfix"
+quest edit q-12 --desc-file /tmp/quest-description.md
 
 # Add feedback with an image attachment
 quest feedback q-12 --text "Fixed with flex-wrap, see screenshot" --image /tmp/screenshot.png
 
 # Submit for verification
-quest complete q-12 --items "Sidebar fits on iPhone SE,No horizontal scroll on mobile"
+cat >/tmp/verify-items.txt <<'EOF'
+Sidebar fits on iPhone SE
+No horizontal scroll on mobile
+EOF
+quest complete q-12 --items-file /tmp/verify-items.txt
 
 # Acknowledge a verification quest (move it out of inbox)
 quest later q-12
@@ -204,9 +287,11 @@ quest inbox q-12
 
 # Mark as done with notes
 quest done q-12 --notes "Fixed in commit abc123, tested on iOS Safari"
+quest done q-12 --notes-file /tmp/quest-closeout.txt
 
 # Cancel a quest
 quest cancel q-5 --notes "Superseded by q-12"
+quest cancel q-5 --notes-file /tmp/quest-closeout.txt
 ```
 
 ## When assigned a quest
@@ -221,13 +306,14 @@ When the user asks you to work on a quest — whether via the Companion "Assign"
    - Ask the user clarifying questions if the quest is ambiguous or underspecified.
    - If the quest is in `refined` or any later state (`in_progress`, `needs_verification`, `done`), enforce a short title before proceeding.
    - Run `quest tags` to reuse existing tags.
-   - Apply updates with `quest edit q-N --title "..." --desc "..." --tags "t1,t2"`.
+   - If metadata changes are part of creating or refining the quest, invoke `/quest-design` before applying them unless the user's approved plan already covered those exact updates.
+   - Apply confirmed updates with `quest edit q-N --title "..." --desc "..." --tags "t1,t2"`.
    - Immediately re-run `quest show q-N` and verify the final title/description/tags are clean.
    - Title rule: concise, **less than 10 words**. Move details to description.
    - Reuse existing tags. Only create new tags when no existing tag fits.
-4. **Work**: Implement the changes. Use TodoWrite for sub-step tracking if needed. **If there is human feedback**, address each entry, then mark it: `quest address q-N <index>` and reply with what you did: `quest feedback q-N --text "Addressed: ..."`. Run `quest show q-N` to confirm entries show `addressed`.
-5. **Self-check**: Before submitting, verify everything you can yourself (tests, typecheck, code review). Do not include self-verifiable items in the verification checklist. **Verify all human feedback entries are marked addressed** — run `quest show q-N` and check.
-6. **Submit**: `quest complete q-N --items "..."` — only list items that truly require human verification (UI appearance, UX feel, edge cases needing judgment). Keep items concise — one short sentence each, scannable at a glance.
+4. **Work**: Implement the changes. Use TodoWrite for sub-step tracking if needed. If you need additional code changes after a reviewer or human review pass, first commit the current worktree state, then make the follow-up fixes in a separate commit so the reviewer can inspect only the new diff. **If there is human feedback**, address each entry, explain what you did in an agent feedback entry, then mark it with `quest address q-N <index>`. Prefer one consolidated feedback entry when the same update can both summarize the work and explain how human feedback was addressed, for example `quest feedback q-N --text "Summary: fixed the layout issue and addressed feedback #0 by adding flex-wrap"` for short replies, or `quest feedback q-N --text-file -` / `--text-file <path>` when your response includes copied logs or shell-like text. Add separate feedback entries only when the updates are materially different or separation makes the quest easier to read. Run `quest show q-N` to confirm entries show `addressed`.
+5. **Self-check**: Before submitting, verify everything you can yourself. For refactor quests, the current full pre-commit-equivalent automated gate is `cd web && bun run typecheck`, `cd web && bun run test`, and `cd web && bun run format:check`. `format:check` is the current lint/format-equivalent gate in this repo; there is no separate `lint` script right now. If a full run is infeasible, document the exception explicitly in your summary or handoff before submitting. Do not include self-verifiable items in the verification checklist. **Verify all human feedback entries are marked addressed** — run `quest show q-N` and check.
+6. **Submit**: `quest complete q-N --items "..."` for simple inline lists, or `quest complete q-N --items-file <path>` / `--items-file -` for comma-heavy or copied verification text. Only list items that truly require human verification (UI appearance, UX feel, edge cases needing judgment). Keep items concise — one short sentence each, scannable at a glance.
    - **Worktree sessions:** If you're working in a git worktree, do **not** run `quest complete` or move the quest to `needs_verification` until your changes are synced to the main repo checkout and pushed. The human verifies from the main repo, not your worktree.
 
 ## Tags
@@ -271,11 +357,14 @@ idea → refined → in_progress → needs_verification → done
 **Title rule for refined and later:** Whenever a quest is `refined`, `in_progress`, `needs_verification`, or `done`, the title must be **less than 10 words**. If not, shorten it first with `quest edit` before other updates.
 
 ### idea → refined
-**Must polish the quest.** Ask the user clarifying questions if ambiguous, then:
+**Must polish the quest.** Follow this order:
+- Ask clarifying questions until the goal, scope, and non-goals are clear enough to draft.
+- Draft the refined title, description, and tags, then invoke `/quest-design`.
+- Wait for user confirmation or correction. If the user corrects the draft and ambiguity remains, repeat `/quest-design` before writing the quest.
 - Title: concise, less than 10 words. Move detail to description.
 - Description: clear, actionable. Define what "done" looks like.
 - Tags: run `quest tags`, reuse existing tags. Every quest needs at least one tag.
-- Apply via `quest edit <id> --title "..." --desc "..." --tags "t1,t2"`
+- Apply confirmed updates via `quest edit <id> --title "..." --desc "..." --tags "t1,t2"`
 
 ### refined → in_progress
 - The quest should already be claimed (claiming is always the first step when assigned).
@@ -283,9 +372,12 @@ idea → refined → in_progress → needs_verification → done
 
 ### in_progress → needs_verification
 - Is the implementation actually complete?
-- Run tests, typecheck, linting yourself first.
+- Run the required self-checks yourself before handoff. For refactor quests, the current full pre-commit-equivalent automated gate is `cd web && bun run typecheck`, `cd web && bun run test`, and `cd web && bun run format:check`.
+- `format:check` is the current lint/format-equivalent gate in this repo; there is no separate `lint` script right now.
+- If a full run is infeasible, document the exception explicitly in your summary or handoff before asking for verification.
 - **Worktree sessions:** If you made the change in a git worktree, finish the full sync-to-main workflow first (rebase/cherry-pick/push/reset/post-reset verification) before running `quest complete` or describing the work as ready for verification.
-- **If the quest produced zero code changes** (investigation, reporting, design artifact, or similar), complete it with artifact-focused verification items and no placeholder port notes or synced SHA lines. If you are using the CLI locally and want the completion reminder to omit port noise, pass `quest complete ... --no-code`; that flag is only a local reminder switch and does not persist quest metadata.
+- **If the quest produced zero git-tracked changes** (investigation, reporting, design artifact, or similar), complete it with artifact-focused verification items and no placeholder port notes or synced SHA lines. If you are using the CLI locally and want the completion reminder to omit port noise, pass `quest complete ... --no-code`; that flag is only a local reminder switch and does not persist quest metadata.
+- **Docs, skills, prompts, templates, and other text-only tracked-file edits are commit-producing work.** If they produce git-tracked commits, they must be synced and attached as structured commit metadata like any code change. Do not use `--no-code` for these quests.
 - **If the work was ported/synced:** attach the ordered synced SHAs during the verification handoff with `quest complete q-N --items "..." --commits "sha1,sha2"`. Use the merged/cherry-picked SHAs from the main repo, not the pre-port worktree-only SHAs.
 - **If a leader controls the handoff:** report the ordered synced SHAs explicitly on a dedicated `Synced SHAs: sha1,sha2` line so the later `quest complete` call can attach them. Do not rely on log parsing or memory.
 - **Do not leave commit info only in comments:** summary comments and quest feedback can describe the port, but the verification handoff must still attach those SHAs as structured commit metadata with `--commit`/`--commits`.
@@ -293,22 +385,28 @@ idea → refined → in_progress → needs_verification → done
 **Pre-submission checklist (all three required -- the skeptic reviewer will verify each one and CHALLENGE if any are missing):**
 
 1. **Address all human feedback.** For each human feedback entry on the quest:
-   - Post an explicit reply explaining HOW you addressed it: `quest feedback q-N --text "Addressed: fixed mobile layout with flex-wrap"`
+   - Add or refresh an explicit agent feedback entry explaining HOW you addressed it: `quest feedback q-N --text "Summary: fixed mobile layout with flex-wrap; addressed feedback #0 by preserving the compact breakpoint"` for short replies, or `quest feedback q-N --text-file -` when quoting logs or shell-like text
+   - Prefer one consolidated feedback entry when the same update can both summarize the work and address one or more human feedback entries
+   - Add separate feedback entries only when they are materially different or necessary for readability
    - Mark the entry as addressed: `quest address q-N <index>` (run `quest show q-N` after to confirm it shows `addressed`)
-   - Both steps are required -- a reply without marking, or marking without explaining, is incomplete
+   - Both steps are required -- an explanation without marking, or marking without explaining, is incomplete
    - Do not claim feedback was addressed unless both happened
 
-2. **Add a summary comment.** Before submitting, add a final feedback entry summarizing the work:
-   - `quest feedback q-N --text "Summary: <what was done>"`
-   - Briefly describe the changes made and why
+2. **Add or refresh a user-oriented summary comment.** Before submitting, keep a final feedback entry summarizing the outcome for the human reader:
+   - `quest feedback q-N --text "Summary: <what changed, why it matters, and what verification passed>"`
+   - Briefly describe what changed, why it matters to the user or project, and what verification passed
    - This should be the one substantive quest-level prose summary by default
+   - Write the summary as an outcome note, not a review or rework timeline
+   - This summary may also be the explanation for addressed human feedback when it clearly names what feedback was handled and how
    - Re-running the same summary-style feedback (`Summary:` or `Refreshed summary:`) updates the latest agent summary comment instead of appending another near-duplicate summary entry
+   - Before adding a new agent feedback entry, check whether the latest summary or worker update can be refreshed instead
    - If the work was ported normally, rely on structured metadata (`commitShas` via `quest complete ... --commit/--commits ...`) for routine port information instead of adding a second long prose port comment
    - Only add a second port-specific comment when the porting itself was exceptional and materially worth noting
+   - Avoid review-process timelines, duplicate near-identical comments, and excessive commit-by-commit narration unless that detail is essential to understand the result
    - The goal: someone reading only the quest (not the session conversation) should understand what happened
    - Treat this as a required worker deliverable before you report back that the quest is ready
 
-3. **Verification items must require human eyes only.** When writing `quest complete --items "..."`:
+3. **Verification items must require human eyes only.** When writing `quest complete --items "..."` or `quest complete --items-file ...`:
    - Do NOT include items you can verify yourself: "tests pass", "typecheck clean", "code compiles", "no regressions in test suite"
    - DO include items needing human judgment: "popover appears correctly on mobile", "notification chip matches TimerChip styling", "scroll-to-message highlights the right message"
    - If you can self-verify an item, verify it yourself and don't add it to the checklist
@@ -329,7 +427,7 @@ When you verify a quest (either your own or another agent's), you **MUST** check
 1. Run `quest show q-N` to see the verification checklist
 2. For each item you can confirm is working, run `quest check q-N <index>` (0-based index)
 3. Run `quest show q-N` again to confirm the item is now checked (`[x]`)
-4. Add feedback explaining what you verified and how: `quest feedback q-N --text "Verified item 0: ..."`
+4. Add feedback explaining what you verified and how: `quest feedback q-N --text "Verified item 0: ..."`; combine related verified items into one concise comment when that is clearer than several near-duplicate entries
 
 **Never leave verification items unchecked if you have evidence they pass.** Attaching feedback alone is not enough — you must also check off the corresponding items.
 
@@ -342,4 +440,5 @@ When you verify a quest (either your own or another agent's), you **MUST** check
 
 ### needs_verification → in_progress (rework)
 - Human found issues and left feedback. Run `quest show q-N` and read the full feedback thread before resuming work. Address every point raised.
+- If fixing the feedback requires more code changes after an earlier implementation pass, first commit the current worktree state, then make the rework in a separate follow-up commit so the next reviewer can inspect that diff directly.
 - Before re-submitting, ensure resolved human feedback entries are marked addressed with `quest address`.

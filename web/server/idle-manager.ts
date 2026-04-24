@@ -1,6 +1,20 @@
 import type { CliLauncher } from "./cli-launcher.js";
 import type { WsBridge } from "./ws-bridge.js";
 
+export function wakeIdleKilledSession(
+  launcher: Pick<CliLauncher, "getSession">,
+  sessionId: string,
+  requestCliRelaunch?: (sessionId: string) => void,
+): boolean {
+  const launcherInfo = launcher.getSession(sessionId);
+  if (!launcherInfo) return false;
+  if (launcherInfo.state !== "exited" || !launcherInfo.killedByIdleManager) return false;
+  launcherInfo.killedByIdleManager = false;
+  console.log(`[idle-manager] Waking idle-killed session ${sessionId} for pending herd events`);
+  requestCliRelaunch?.(sessionId);
+  return true;
+}
+
 export class IdleManager {
   private timer: ReturnType<typeof setInterval> | null = null;
 
@@ -40,7 +54,22 @@ export class IdleManager {
 
     // Sort non-busy sessions by lastActivityAt ascending (oldest first)
     const killable = alive
-      .filter((s) => !this.wsBridge.isSessionBusy(s.sessionId))
+      .filter((s) => {
+        const bridge = this.wsBridge as unknown as {
+          getSession?: (
+            sessionId: string,
+          ) => { isGenerating?: boolean; pendingPermissions?: { size: number } } | null | undefined;
+          isSessionBusy?: (sessionId: string) => boolean;
+        };
+        if (typeof bridge.getSession === "function") {
+          const bridgeSession = bridge.getSession(s.sessionId);
+          return !(bridgeSession?.isGenerating || bridgeSession?.pendingPermissions?.size);
+        }
+        if (typeof bridge.isSessionBusy === "function") {
+          return !bridge.isSessionBusy(s.sessionId);
+        }
+        return true;
+      })
       .sort((a, b) => (a.lastActivityAt ?? a.createdAt) - (b.lastActivityAt ?? b.createdAt));
 
     const toKill = alive.length - maxKeepAlive;

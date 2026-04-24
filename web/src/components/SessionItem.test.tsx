@@ -180,6 +180,35 @@ describe("SessionItem archive confirmation copy", () => {
   });
 });
 
+describe("SessionItem archived worktree cleanup status", () => {
+  it("shows pending cleanup tooltip for archived worktrees", () => {
+    // Protects the new async archive UX: users need a clear explanation that
+    // archive succeeded but background worktree deletion is still running.
+    renderSessionItem({
+      session: makeSession({ archived: true, isWorktree: true, worktreeCleanupStatus: "pending" }),
+      isArchived: true,
+    });
+
+    expect(screen.getByText("wt")).toHaveAttribute("title", "Worktree cleanup is still running");
+  });
+
+  it("shows failed cleanup tooltip for archived worktrees", () => {
+    // Protects the surfaced failure path so an archive doesn't look half-done
+    // with no reason when background worktree cleanup fails.
+    renderSessionItem({
+      session: makeSession({
+        archived: true,
+        isWorktree: true,
+        worktreeCleanupStatus: "failed",
+        worktreeCleanupError: "git worktree remove failed",
+      }),
+      isArchived: true,
+    });
+
+    expect(screen.getByText("wt")).toHaveAttribute("title", "git worktree remove failed");
+  });
+});
+
 describe("SessionItem search match context", () => {
   it("shows matched field label and highlights matched query text", () => {
     renderSessionItem({

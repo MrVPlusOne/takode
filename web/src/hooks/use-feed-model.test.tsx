@@ -341,6 +341,69 @@ describe("sub-conclusions in collapsed turns", () => {
     // a2 is the immediately preceding assistant, not a1
     expect((turn.subConclusions[0].entry as { msg: ChatMessage }).msg.id).toBe("a2");
   });
+
+  it("does not duplicate a notification-bearing assistant message as a sub-conclusion", () => {
+    // q-524: a notification-bearing assistant message can remain visible in the
+    // collapsed turn, but it must not also be promoted into subConclusions when
+    // a herd event follows it.
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "what changed?", timestamp: 1 }),
+      makeMessage({
+        id: "a1",
+        role: "assistant",
+        content: "q-514 is complete and q-521 is unblocked.",
+        timestamp: 2,
+        notification: {
+          category: "review",
+          summary: "q-521 can be dispatched now",
+          timestamp: 2,
+        },
+      }),
+      makeHerdEvent("h1", "#514 | wait_for_resolved | ✓ q-521 unblocked", 3),
+      makeMessage({ id: "u2", role: "user", content: "next", timestamp: 4 }),
+    ];
+
+    const model = buildFeedModel(messages, true);
+    const turn = model.turns[0];
+
+    expect(turn.notificationEntries).toHaveLength(1);
+    expect((turn.notificationEntries[0] as { kind: "message"; msg: ChatMessage }).msg.id).toBe("a1");
+    expect(turn.subConclusions).toHaveLength(0);
+    expect(turn.responseEntry).toBeNull();
+  });
+
+  it("keeps a tool-only assistant message out of tool grouping when the store already has an anchored notification", () => {
+    // q-568: during the lag window, the inbox notification can already be
+    // anchored to the message before `msg.notification` lands on the assistant
+    // payload. The feed model must preserve the assistant message so the richer
+    // notification UI can render, rather than flattening it into a tool group.
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "Tell me when the fix is ready.", timestamp: 1 }),
+      makeMessage({
+        id: "a1",
+        role: "assistant",
+        content: "",
+        timestamp: 2,
+        contentBlocks: [
+          {
+            type: "tool_use",
+            id: "tu-review",
+            name: "Bash",
+            input: { command: 'TAKODE_API_PORT=3455 takode notify review "q-568 ready"' },
+          },
+        ],
+      }),
+    ];
+
+    const model = buildFeedModel(messages, false, 0, ["a1"]);
+
+    expect(model.entries).toHaveLength(2);
+    expect(model.entries[1]?.kind).toBe("message");
+    expect((model.entries[1] as { kind: "message"; msg: ChatMessage }).msg.id).toBe("a1");
+    expect(model.turns[0]?.notificationEntries).toHaveLength(1);
+    expect((model.turns[0]?.notificationEntries[0] as { kind: "message"; msg: ChatMessage }).msg.id).toBe("a1");
+    expect(model.turns[0]?.agentEntries).toHaveLength(0);
+  });
 });
 
 describe("summarizeHerdEvents", () => {

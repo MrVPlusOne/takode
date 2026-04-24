@@ -59,6 +59,8 @@ You are checking the quality of the resulting code:
 
 Later, you may be asked to review the worker's follow-up changes and decide whether they addressed your required findings.
 
+When the scope includes quest rework or human feedback, also check quest comment hygiene. The worker should keep one substantive user-oriented quest summary/comment current by default, covering what changed, why it matters, and what verification passed. It should read as an outcome note rather than a review/rework timeline, and should consolidate feedback-addressing details into that comment when clear. Do not require separate summary and addressed-feedback comments unless the updates are materially different or separate comments make the quest easier to read.
+
 ## Required Review Workflow
 
 This workflow is mandatory.
@@ -388,21 +390,25 @@ In that case:
 
 1. Re-read your prior `Critical` and `Recommended` findings.
 2. Read the worker's latest report and latest diff.
-3. Re-establish the checklist for the follow-up review, reusing prior relevant aspects and adding any new ones the follow-up diff introduces.
-4. Check whether each required finding was:
+3. Check whether the worker created a checkpoint commit before the follow-up fixes. When they did, use that split to review only the new work first.
+4. Re-establish the checklist for the follow-up review, reusing prior relevant aspects and adding any new ones the follow-up diff introduces.
+5. Check whether each required finding was:
    - fixed, or
    - intentionally not fixed with a solid justification
-5. Ignore unresolved `Suggestions` unless they expose a deeper required issue.
+6. Ignore unresolved `Suggestions` unless they expose a deeper required issue.
 
 As part of that follow-up check, re-run:
 
 ```bash
 git --no-optional-locks -C <worktree_path> status --short
+git --no-optional-locks -C <worktree_path> log --oneline --decorate -n 8
 git --no-optional-locks -C <worktree_path> diff --stat <base_branch>
 git --no-optional-locks -C <worktree_path> diff <base_branch>
 ```
 
 Again, do not miss `??` untracked files or new directories.
+
+If the worker made a checkpoint commit before the reviewer follow-up, identify that commit from `git log` and review `git diff <checkpoint_commit>..HEAD` first. That narrower diff is the primary evidence for whether the worker addressed the follow-up findings cleanly.
 
 Re-check the worker's response against the same checklist mindset:
 
@@ -410,6 +416,7 @@ Re-check the worker's response against the same checklist mindset:
 - each prior `Recommended` must now pass or be explicitly justified
 - unresolved `Suggestions` are only blocking if they expose a deeper required issue
 - any newly introduced relevant review aspect must also be checked instead of being silently ignored
+- for quest feedback follow-up, the quest should not accumulate multiple duplicated or overly similar worker comments; require consolidation if readability regressed
 
 For a follow-up review, return exactly one of:
 

@@ -274,6 +274,44 @@ describe("getEnrichedPath", () => {
     expect(dirs[1]).toBe("/home/testuser/.local/bin");
     expect(dirs).toContain("/opt/homebrew/bin");
   });
+
+  it("does not add server-specific wrapper dirs when serverId is provided", () => {
+    process.env.PATH = "/usr/bin:/bin";
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (typeof cmd === "string" && cmd.includes("-lic")) {
+        return "___PATH_START___/opt/homebrew/bin:/usr/bin___PATH_END___\n";
+      }
+      return "";
+    });
+
+    const result = getEnrichedPath({ serverId: "server-a" });
+    const dirs = result.split(":");
+    expect(dirs[0]).toBe("/home/testuser/.companion/bin");
+    expect(dirs[1]).toBe("/home/testuser/.local/bin");
+    expect(dirs).not.toContain("/home/testuser/.companion/bin/servers/server-a");
+  });
+
+  it("reuses the same cached PATH regardless of serverId hints", () => {
+    process.env.PATH = "/usr/bin";
+    let callCount = 0;
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (typeof cmd === "string" && cmd.includes("-lic")) {
+        callCount++;
+        return `___PATH_START___/usr/bin:/call-${callCount}___PATH_END___\n`;
+      }
+      return "";
+    });
+
+    const serverAFirst = getEnrichedPath({ serverId: "server-a" });
+    const serverASecond = getEnrichedPath({ serverId: "server-a" });
+    const serverB = getEnrichedPath({ serverId: "server-b" });
+
+    expect(serverAFirst).toBe(serverASecond);
+    expect(serverAFirst).toBe(serverB);
+    expect(serverAFirst).not.toContain("/servers/server-a");
+    expect(serverB).not.toContain("/servers/server-b");
+    expect(callCount).toBe(1);
+  });
 });
 
 // ─── resolveBinary ──────────────────────────────────────────────────────────

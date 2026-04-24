@@ -9,6 +9,7 @@ import {
   setServerName,
   getServerId,
   getClaudeUserDefaultModel,
+  getCodexUserDefaultModel,
   STT_MODELS,
   type NamerConfig,
   type TranscriptionConfig,
@@ -33,9 +34,11 @@ export function createSettingsRoutes(ctx: RouteContext) {
       return c.json({ error: "Restart not supported in this mode" }, 503);
     }
     // Block restart while sessions are actively running to prevent stuck sessions
-    const busySessions = launcher
-      .listSessions()
-      .filter((s) => s.state !== "exited" && wsBridge.isSessionBusy(s.sessionId));
+    const busySessions = launcher.listSessions().filter((s) => {
+      if (s.state === "exited") return false;
+      const bridgeSession = wsBridge.getSession(s.sessionId);
+      return !!(bridgeSession?.isGenerating || bridgeSession?.pendingPermissions.size);
+    });
     if (busySessions.length > 0) {
       const names = busySessions.map((s) => {
         const num = launcher.getSessionNum(s.sessionId);
@@ -132,10 +135,10 @@ export function createSettingsRoutes(ctx: RouteContext) {
   }
 
   function normalizePushoverEventFilters(filters: unknown): PushoverEventFilters {
-    const raw = filters && typeof filters === "object" && !Array.isArray(filters) ? (filters as Record<string, unknown>) : {};
+    const raw =
+      filters && typeof filters === "object" && !Array.isArray(filters) ? (filters as Record<string, unknown>) : {};
     return {
-      needsInput:
-        typeof raw.needsInput === "boolean" ? raw.needsInput : DEFAULT_PUSHOVER_EVENT_FILTERS.needsInput,
+      needsInput: typeof raw.needsInput === "boolean" ? raw.needsInput : DEFAULT_PUSHOVER_EVENT_FILTERS.needsInput,
       review: typeof raw.review === "boolean" ? raw.review : DEFAULT_PUSHOVER_EVENT_FILTERS.review,
       error: typeof raw.error === "boolean" ? raw.error : DEFAULT_PUSHOVER_EVENT_FILTERS.error,
     };
@@ -199,6 +202,11 @@ export function createSettingsRoutes(ctx: RouteContext) {
     const settings = getSettings();
     const claudeDefaultModel = await getClaudeUserDefaultModel();
     return c.json(buildSettingsResponse(settings, { claudeDefaultModel, includeRuntimeInfo: true }));
+  });
+
+  api.get("/settings/codex-default-model", async (c) => {
+    const model = await getCodexUserDefaultModel();
+    return c.json({ model });
   });
 
   api.put("/settings", async (c) => {

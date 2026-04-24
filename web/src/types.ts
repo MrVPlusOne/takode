@@ -76,12 +76,29 @@ export function isSubagentToolName(name: string): boolean {
   return SUBAGENT_TOOL_NAMES.has(name);
 }
 
+export interface LocalImageAttachment {
+  name: string;
+  base64: string;
+  mediaType: string;
+}
+
+export interface ComposerDraftImage extends LocalImageAttachment {
+  id: string;
+  status: "reading" | "uploading" | "ready" | "failed";
+  error?: string;
+  prepared?: {
+    imageRef: ImageRef;
+    path: string;
+  };
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant" | "system";
   content: string;
   contentBlocks?: ContentBlock[];
   images?: ImageRef[];
+  localImages?: LocalImageAttachment[];
   timestamp: number;
   parentToolUseId?: string | null;
   isStreaming?: boolean;
@@ -115,6 +132,24 @@ export interface ChatMessage {
   notification?: { category: "needs-input" | "review"; timestamp: number; summary?: string };
   /** Browser-only message not present in server messageHistory; excluded from sync hash verification. */
   ephemeral?: boolean;
+  /** Browser-only pending upload/send state for local user messages. */
+  pendingState?: "uploading" | "delivering" | "failed";
+  pendingError?: string;
+  clientMsgId?: string;
+}
+
+export interface PendingUserUpload {
+  id: string;
+  content: string;
+  images: ComposerDraftImage[];
+  timestamp: number;
+  stage: "delivering" | "failed";
+  error?: string;
+  vscodeSelection?: VsCodeSelectionMetadata;
+  prepared?: {
+    deliveryContent: string;
+    imageRefs: ImageRef[];
+  };
 }
 
 export interface TaskItem {
@@ -141,6 +176,14 @@ export interface SdkSessionInfo {
   archived?: boolean;
   /** Epoch ms when this session was archived */
   archivedAt?: number;
+  /** Async cleanup state for archived worktree sessions. */
+  worktreeCleanupStatus?: "pending" | "done" | "failed";
+  /** Last background cleanup error, if any. */
+  worktreeCleanupError?: string;
+  /** Epoch ms when background cleanup started. */
+  worktreeCleanupStartedAt?: number;
+  /** Epoch ms when background cleanup finished. */
+  worktreeCleanupFinishedAt?: number;
   containerId?: string;
   containerName?: string;
   containerImage?: string;
@@ -183,6 +226,10 @@ export interface SdkSessionInfo {
   attentionReason?: "action" | "error" | "review" | null;
   /** Epoch ms when user last viewed this session */
   lastReadAt?: number;
+  /** Number of pending permission requests needing human attention. */
+  pendingPermissionCount?: number;
+  /** Human-readable summary of pending permission state (e.g. "pending plan"). */
+  pendingPermissionSummary?: string | null;
   /** Task history from the session auto-namer */
   taskHistory?: SessionTaskEntry[];
   /** Accumulated search keywords from the session auto-namer */

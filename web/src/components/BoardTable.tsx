@@ -8,7 +8,12 @@
 import { useState, useRef, useCallback, useMemo, useEffect, memo, type MouseEvent } from "react";
 import { useStore, countUserPermissions } from "../store.js";
 import { navigateToSession } from "../utils/routing.js";
-import { QUEST_JOURNEY_STATES, formatWaitForRefLabel, getQuestJourneyPresentation, getWaitForRefKind } from "../../shared/quest-journey.js";
+import {
+  QUEST_JOURNEY_STATES,
+  formatWaitForRefLabel,
+  getQuestJourneyPresentation,
+  getWaitForRefKind,
+} from "../../shared/quest-journey.js";
 import { QuestHoverCard } from "./QuestHoverCard.js";
 import { SessionHoverCard } from "./SessionHoverCard.js";
 import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
@@ -241,6 +246,8 @@ export function WorkerLink({ sessionId, sessionNum }: { sessionId: string; sessi
       isWorktree: bridgeState?.is_worktree || sdkInfo?.isWorktree || false,
       worktreeExists: sdkInfo?.worktreeExists,
       worktreeDirty: sdkInfo?.worktreeDirty,
+      worktreeCleanupStatus: sdkInfo?.worktreeCleanupStatus,
+      worktreeCleanupError: sdkInfo?.worktreeCleanupError,
       askPermission: askPermission.get(sessionId),
       idleKilled: cliDisconnectReason.get(sessionId) === "idle_limit",
       lastActivityAt: sdkInfo?.lastActivityAt,

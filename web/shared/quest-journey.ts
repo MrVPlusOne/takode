@@ -93,7 +93,8 @@ export const QUEST_JOURNEY_HINTS: Record<QuestJourneyState, string> = {
   QUEUED: "dispatch to a worker",
   PLANNING: "wait for ExitPlanMode, then review plan",
   IMPLEMENTING: "wait for turn_end, then spawn skeptic reviewer",
-  SKEPTIC_REVIEWING: "wait for reviewer ACCEPT; skeptic-review dispatches must explicitly say to use /skeptic-review",
+  SKEPTIC_REVIEWING:
+    "wait for reviewer ACCEPT; then use board advance, or board advance-no-groom for an explicitly marked true zero-code quest",
   GROOM_REVIEWING: "wait for reviewer ACCEPT on the worker response, then tell worker to port",
   PORTING: "wait for port confirmation, then remove from board",
 };

@@ -86,6 +86,7 @@ export function NewSessionModal({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [dynamicModels, setDynamicModels] = useState<ModelOption[] | null>(null);
+  const [codexDefaultModel, setCodexDefaultModel] = useState("");
   const [codexInternetAccess, setCodexInternetAccess] = useState(() => defaults.codexInternetAccess);
   const [codexReasoningEffort, setCodexReasoningEffort] = useState(() => defaults.codexReasoningEffort);
   const [askPermission, setAskPermission] = useState(() => defaults.askPermission);
@@ -174,6 +175,10 @@ export function NewSessionModal({
       .then(setEnvs)
       .catch(() => {});
     api
+      .getCodexDefaultModel()
+      .then(({ model }) => setCodexDefaultModel(model || ""))
+      .catch(() => setCodexDefaultModel(""));
+    api
       .getBackends()
       .then(setBackends)
       .catch(() => {});
@@ -194,7 +199,7 @@ export function NewSessionModal({
     if (savedModel && (statics.some((m) => m.value === savedModel) || newBackend === "codex")) {
       setModel(savedModel);
     } else {
-      setModel(getDefaultModel(newBackend));
+      setModel(newBackend === "codex" ? "" : getDefaultModel(newBackend));
     }
 
     updateMode(getDefaultMode(newBackend));
@@ -320,7 +325,18 @@ export function NewSessionModal({
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [open, onClose]);
 
-  const selectedModel = MODELS.find((m) => m.value === model) || MODELS[0];
+  const displayModels =
+    backend === "codex"
+      ? MODELS.map((entry) =>
+          entry.value === ""
+            ? {
+                ...entry,
+                label: codexDefaultModel ? `Default (${codexDefaultModel})` : "Default",
+              }
+            : entry,
+        )
+      : MODELS;
+  const selectedModel = displayModels.find((m) => m.value === model) || displayModels[0];
 
   const dirLabel = cwd ? cwd.split("/").pop() || cwd : "Select folder";
 
@@ -355,7 +371,7 @@ export function NewSessionModal({
 
     // Build creation opts (stored in pending session for retry)
     const createOpts = {
-      model,
+      model: backend === "codex" && model === "" ? codexDefaultModel || undefined : model,
       permissionMode,
       cwd: cwdSnapshot || undefined,
       envSlug: selectedEnv || undefined,
@@ -1217,7 +1233,7 @@ export function NewSessionModal({
                     </button>
                     {showModelDropdown && (
                       <div className="absolute left-0 top-full mt-1 w-48 bg-cc-card border border-cc-border rounded-[10px] shadow-lg z-10 py-1">
-                        {MODELS.map((m) => (
+                        {displayModels.map((m) => (
                           <button
                             key={m.value}
                             onClick={() => {

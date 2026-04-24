@@ -404,6 +404,42 @@ describe("ToolBlock", () => {
     expect(screen.getByRole("button", { name: "Mark handled" }).hasAttribute("disabled")).toBe(true);
   });
 
+  it("uses the anchored store summary for a lagged takode notify tool marker", () => {
+    // q-568: if the inbox notification is already anchored to this message
+    // before `msg.notification` lands, ToolBlock should still surface the rich
+    // summary instead of a generic "Ready for review" placeholder.
+    const previousNotifications = useStore.getState().sessionNotifications;
+    const sessionNotifications = new Map(previousNotifications);
+    sessionNotifications.set("review-session", [
+      {
+        id: "n-review-lagged",
+        category: "review",
+        timestamp: Date.now(),
+        messageId: "asst-review-lagged",
+        summary: "q-568 single rich chip",
+        done: false,
+      },
+    ]);
+    useStore.setState({ sessionNotifications });
+
+    try {
+      render(
+        <ToolBlock
+          name="Bash"
+          input={{ command: 'TAKODE_API_PORT=3455 takode notify review "q-568 single rich chip"' }}
+          toolUseId="tool-notify-lagged"
+          sessionId="review-session"
+          parentMessageId="asst-review-lagged"
+        />,
+      );
+
+      expect(screen.getByText("q-568 single rich chip")).toBeTruthy();
+      expect(screen.queryByText("Ready for review")).toBeNull();
+    } finally {
+      useStore.setState({ sessionNotifications: previousNotifications });
+    }
+  });
+
   it("renders a lightweight raw affordance for takode board tool blocks", async () => {
     const boardOutput = [
       JSON.stringify(
@@ -634,6 +670,31 @@ describe("ToolBlock", () => {
     // Header shows smart-truncated path: "Write File .../user/src/ new-file.ts"
     fireEvent.click(screen.getByRole("button", { name: /Write File.*new-file\.ts/ }));
     expect(screen.getByText("new-file.ts")).toBeTruthy();
+    expect(container.querySelector(".diff-line-add")).toBeTruthy();
+    expect(screen.queryByText("No changes")).toBeNull();
+  });
+
+  it("renders Write diffs from Codex add-kind change content when no patch is provided", () => {
+    const { container } = render(
+      <ToolBlock
+        name="Write"
+        input={{
+          file_path: "/home/user/src/new-add-file.ts",
+          changes: [
+            {
+              path: "/home/user/src/new-add-file.ts",
+              kind: "add",
+              content: ["export const answer = 42;", "export const created = true;"].join("\n"),
+            },
+          ],
+        }}
+        toolUseId="tool-7c-codex-write-add-content"
+        defaultOpen={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Write File.*new-add-file\.ts/ }));
+    expect(screen.getByText("new-add-file.ts")).toBeTruthy();
     expect(container.querySelector(".diff-line-add")).toBeTruthy();
     expect(screen.queryByText("No changes")).toBeNull();
   });

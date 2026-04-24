@@ -653,6 +653,43 @@ export function removeWorktree(
   }
 }
 
+export async function removeWorktreeAsync(
+  repoRoot: string,
+  worktreePath: string,
+  options?: { force?: boolean; branchToDelete?: string },
+): Promise<{ removed: boolean; reason?: string }> {
+  try {
+    await access(worktreePath);
+  } catch {
+    await gitSafeAsync("worktree prune", repoRoot);
+    if (options?.branchToDelete) {
+      await gitSafeAsync(`branch -D ${options.branchToDelete}`, repoRoot);
+    }
+    return { removed: true };
+  }
+
+  if (!options?.force && (await isWorktreeDirtyAsync(worktreePath))) {
+    return {
+      removed: false,
+      reason: "Worktree has uncommitted changes. Use force to remove anyway.",
+    };
+  }
+
+  try {
+    const forceFlag = options?.force ? " --force" : "";
+    await gitAsync(`worktree remove "${worktreePath}"${forceFlag}`, repoRoot);
+    if (options?.branchToDelete) {
+      await gitSafeAsync(`branch -D ${options.branchToDelete}`, repoRoot);
+    }
+    return { removed: true };
+  } catch (e: unknown) {
+    return {
+      removed: false,
+      reason: e instanceof Error ? e.message : String(e),
+    };
+  }
+}
+
 export function isWorktreeDirty(worktreePath: string): boolean {
   if (!existsSync(worktreePath)) return false; // sync-ok: session setup, not called during message handling
   const status = gitSafe("status --porcelain", worktreePath);
@@ -745,4 +782,9 @@ export async function restoreArchivedBranchAsync(repoRoot: string, branchName: s
 export function deleteArchivedRef(repoRoot: string, branchName: string): void {
   const ref = `${ARCHIVED_REF_PREFIX}/${branchName}`;
   gitSafe(`update-ref -d ${ref}`, repoRoot);
+}
+
+export async function deleteArchivedRefAsync(repoRoot: string, branchName: string): Promise<void> {
+  const ref = `${ARCHIVED_REF_PREFIX}/${branchName}`;
+  await gitSafeAsync(`update-ref -d ${ref}`, repoRoot);
 }

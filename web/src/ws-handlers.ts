@@ -1,5 +1,6 @@
 import { useStore } from "./store.js";
 import { api } from "./api.js";
+import { createComposerDraftImage } from "./components/composer-image-utils.js";
 import type { BrowserIncomingMessage, ContentBlock, ChatMessage, TaskItem } from "./types.js";
 import { generateUniqueSessionName } from "./utils/names.js";
 import { playNotificationSound, playReviewSound, playNeedsInputSound } from "./utils/notification-sound.js";
@@ -285,6 +286,23 @@ function normalizeHistoryMessages(
   startIndex = 0,
 ): { chatMessages: ChatMessage[]; frozenCount: number } {
   const store = useStore.getState();
+  const pendingUploads = store.pendingUserUploads.get(sessionId) ?? [];
+  const restorationUploads = [...(store.pendingUserUploadRestorations.get(sessionId)?.values() ?? [])];
+  const pendingLocalImagesByClientMsgId = new Map(
+    [...pendingUploads, ...restorationUploads]
+      .filter((upload) => upload.images.length > 0)
+      .map(
+        (upload) =>
+          [
+            upload.id,
+            upload.images.map(({ name, base64, mediaType }) => ({
+              name,
+              base64,
+              mediaType,
+            })),
+          ] as const,
+      ),
+  );
   const chatMessages: ChatMessage[] = [];
   let frozenCount = 0;
 
@@ -305,7 +323,11 @@ function normalizeHistoryMessages(
         store.setToolStartTimestamps(sessionId, histToolStartTimes);
       }
     } else if (histMsg.type === "user_message") {
-      chatMessages.push(...normalizeHistoryMessageToChatMessages(histMsg, historyIndex));
+      chatMessages.push(
+        ...normalizeHistoryMessageToChatMessages(histMsg, historyIndex, {
+          pendingLocalImagesByClientMsgId,
+        }),
+      );
     } else if (histMsg.type === "tool_result_preview") {
       for (const preview of histMsg.previews) {
         store.setToolResult(sessionId, preview.tool_use_id, preview);
@@ -352,6 +374,19 @@ function updateSessionPreviewFromHistory(
   }
 }
 
+function clearPendingUploadsCoveredByHistory(sessionId: string, historyMessages: BrowserIncomingMessage[]): void {
+  const pendingIds = new Set<string>();
+  for (const msg of historyMessages) {
+    if (msg.type !== "user_message" || typeof msg.client_msg_id !== "string") continue;
+    pendingIds.add(msg.client_msg_id);
+  }
+  if (pendingIds.size === 0) return;
+  const store = useStore.getState();
+  for (const pendingId of pendingIds) {
+    store.consumePendingUserUpload(sessionId, pendingId);
+  }
+}
+
 function collectRetainedToolUseIds(messages: ChatMessage[]): Set<string> {
   const retained = new Set<string>();
   for (const message of messages) {
@@ -374,6 +409,17 @@ function resetAuthoritativeHistoryState(
 /** Resolve a pending message-index scroll from deep link navigation (session:N:M). */
 function resolvePendingMessageScroll(sessionId: string, messages: ChatMessage[]): void {
   const store = useStore.getState();
+
+  // Resolve pending message ID scroll (from /msg/<id> deep links in new tabs).
+  const pendingMsgId = store.pendingScrollToMessageId.get(sessionId);
+  if (pendingMsgId) {
+    store.clearPendingScrollToMessageId(sessionId);
+    store.requestScrollToMessage(sessionId, pendingMsgId);
+    store.setExpandAllInTurn(sessionId, pendingMsgId);
+    return; // ID-based scroll takes precedence over index-based
+  }
+
+  // Resolve pending message index scroll (from legacy ?msg=N deep links).
   const pendingIdx = store.pendingScrollToMessageIndex.get(sessionId);
   if (pendingIdx == null) return;
   store.clearPendingScrollToMessageIndex(sessionId);
@@ -453,19 +499,59 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       break;
     }
 
+    case "session_activity_update": {
+      const targetSessionId = data.session_id;
+      if (!targetSessionId) break;
+      const update = data.session ?? {};
+      store.updateSdkSession(targetSessionId, {
+        ...(update.attentionReason !== undefined ? { attentionReason: update.attentionReason } : {}),
+        ...(update.lastReadAt !== undefined ? { lastReadAt: update.lastReadAt } : {}),
+        ...(update.pendingPermissionCount !== undefined
+          ? { pendingPermissionCount: update.pendingPermissionCount }
+          : {}),
+        ...(update.pendingPermissionSummary !== undefined
+          ? { pendingPermissionSummary: update.pendingPermissionSummary }
+          : {}),
+      });
+      if (update.status !== undefined) {
+        store.setSessionStatus(targetSessionId, update.status === "compacting" ? "compacting" : update.status);
+      }
+      if (update.attentionReason !== undefined) {
+        const isViewing = useStore.getState().currentSessionId === targetSessionId;
+        if (isViewing && update.attentionReason) {
+          api.markSessionRead?.(targetSessionId).catch(() => {});
+        } else {
+          const sessionAttention = new Map(useStore.getState().sessionAttention);
+          sessionAttention.set(targetSessionId, update.attentionReason ?? null);
+          useStore.setState({ sessionAttention });
+        }
+      }
+      break;
+    }
+
     case "codex_pending_inputs": {
       store.setPendingCodexInputs(sessionId, data.inputs);
       break;
     }
 
     case "codex_pending_input_cancelled": {
+      const fallbackImages = data.input.draftImages?.length
+        ? data.input.draftImages.map((img) => ({
+            ...createComposerDraftImage(
+              {
+                name: img.name,
+                base64: img.base64,
+                mediaType: img.mediaType,
+              },
+              { status: "uploading" },
+            ),
+          }))
+        : (data.input.clientMsgId
+            ? useStore.getState().getPendingUserUploadRestoration(sessionId, data.input.clientMsgId)?.images
+            : undefined) || [];
       store.setComposerDraft(sessionId, {
         text: data.input.content,
-        images: (data.input.draftImages ?? []).map((img) => ({
-          name: img.name,
-          base64: img.base64,
-          mediaType: img.mediaType,
-        })),
+        images: fallbackImages,
       });
       break;
     }
@@ -504,6 +590,7 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
           contentBlocks: mergedBlocks,
           timestamp: data.timestamp || existing.timestamp,
           stopReason: msg.stop_reason || existing.stopReason,
+          ...(data.notification ? { notification: data.notification } : {}),
           ...(typeof data.turn_duration_ms === "number" ? { turnDurationMs: data.turn_duration_ms } : {}),
         });
       } else {
@@ -870,12 +957,26 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
     case "user_message": {
       // Server-authoritative: user messages are broadcast by the server to all
       // browsers. The browser never adds user messages to the store locally.
+      const pendingUpload =
+        typeof data.client_msg_id === "string"
+          ? useStore.getState().consumePendingUserUpload(sessionId, data.client_msg_id)
+          : null;
       const userMsg: ChatMessage = {
         id: data.id || nextId(),
         role: "user",
         content: data.content,
         timestamp: data.timestamp || Date.now(),
         ...(data.images?.length ? { images: data.images } : {}),
+        ...(pendingUpload?.images?.length
+          ? {
+              localImages: pendingUpload.images.map(({ name, base64, mediaType }) => ({
+                name,
+                base64,
+                mediaType,
+              })),
+            }
+          : {}),
+        ...(typeof data.client_msg_id === "string" ? { clientMsgId: data.client_msg_id } : {}),
         ...(data.vscodeSelection ? { metadata: { vscodeSelection: data.vscodeSelection } } : {}),
         ...(data.agentSource ? { agentSource: data.agentSource } : {}),
       };
@@ -1303,6 +1404,7 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       resetAuthoritativeHistoryState(sessionId);
       const { chatMessages, frozenCount } = normalizeHistoryMessages(sessionId, data.messages);
       store.setMessages(sessionId, chatMessages, { frozenCount });
+      clearPendingUploadsCoveredByHistory(sessionId, data.messages);
       store.setHistoryWindow(sessionId, null);
       store.setHistoryLoading(sessionId, false);
       if (chatMessages.length > 0) {
@@ -1340,6 +1442,7 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
         frozenCount: nextFrozenCount,
         frozenHash: data.expected_frozen_hash,
       });
+      clearPendingUploadsCoveredByHistory(sessionId, [...data.frozen_delta, ...data.hot_messages]);
       store.setHistoryWindow(sessionId, null);
       store.setHistoryLoading(sessionId, false);
       if (mergedMessages.length > 0) {
@@ -1356,6 +1459,7 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       resetAuthoritativeHistoryState(sessionId);
       const { chatMessages, frozenCount } = normalizeHistoryMessages(sessionId, data.messages);
       store.setMessages(sessionId, chatMessages, { frozenCount });
+      clearPendingUploadsCoveredByHistory(sessionId, data.messages);
       store.setHistoryWindow(sessionId, data.window);
       store.setHistoryLoading(sessionId, false);
       if (chatMessages.length > 0) {

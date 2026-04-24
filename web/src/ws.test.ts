@@ -310,9 +310,9 @@ describe("visibility reconnect", () => {
   });
 
   it("reconnects the current session when resume finds a closed socket still tracked", () => {
-    useStore.getState().setSdkSessions([
-      { sessionId: "s1", cwd: "/tmp/s1", createdAt: Date.now(), archived: false, state: "exited" },
-    ]);
+    useStore
+      .getState()
+      .setSdkSessions([{ sessionId: "s1", cwd: "/tmp/s1", createdAt: Date.now(), archived: false, state: "exited" }]);
     useStore.getState().setCurrentSession("s1");
     wsModule.connectSession("s1");
     lastWs.readyState = MockWebSocket.CLOSED;
@@ -335,9 +335,11 @@ describe("visibility reconnect", () => {
       get: () => visibilityState,
     });
 
-    useStore.getState().setSdkSessions([
-      { sessionId: "s1", cwd: "/tmp/s1", createdAt: Date.now(), archived: false, state: "connected" },
-    ]);
+    useStore
+      .getState()
+      .setSdkSessions([
+        { sessionId: "s1", cwd: "/tmp/s1", createdAt: Date.now(), archived: false, state: "connected" },
+      ]);
     useStore.getState().setCurrentSession("s1");
     wsModule.connectSession("s1");
     const firstSocket = lastWs;
@@ -362,9 +364,11 @@ describe("visibility reconnect", () => {
       get: () => visibilityState,
     });
 
-    useStore.getState().setSdkSessions([
-      { sessionId: "s1", cwd: "/tmp/s1", createdAt: Date.now(), archived: false, state: "connected" },
-    ]);
+    useStore
+      .getState()
+      .setSdkSessions([
+        { sessionId: "s1", cwd: "/tmp/s1", createdAt: Date.now(), archived: false, state: "connected" },
+      ]);
     useStore.getState().setCurrentSession("s1");
     wsModule.connectSession("s1");
     const firstSocket = lastWs;
@@ -450,6 +454,81 @@ describe("disconnectSession", () => {
     // Sending after disconnect should be a no-op
     wsModule.sendToSession("s1", { type: "interrupt" });
     expect(ws.send).not.toHaveBeenCalled();
+  });
+});
+
+describe("sendVsCodeSelectionUpdate", () => {
+  it("replays the latest VSCode selection update once a session socket connects", () => {
+    useStore.getState().setCurrentSession("s1");
+
+    const firstDelivered = wsModule.sendVsCodeSelectionUpdate({
+      type: "vscode_selection_update",
+      selection: {
+        absolutePath: "/repo/src/Old.tsx",
+        startLine: 1,
+        endLine: 1,
+        lineCount: 1,
+      },
+      updatedAt: 100,
+      sourceId: "browser:test",
+      sourceType: "browser-panel",
+      sourceLabel: "embedded-browser",
+      client_msg_id: "cmsg-old",
+    });
+
+    const secondDelivered = wsModule.sendVsCodeSelectionUpdate({
+      type: "vscode_selection_update",
+      selection: {
+        absolutePath: "/repo/src/App.tsx",
+        startLine: 12,
+        endLine: 14,
+        lineCount: 3,
+      },
+      updatedAt: 200,
+      sourceId: "browser:test",
+      sourceType: "browser-panel",
+      sourceLabel: "embedded-browser",
+      client_msg_id: "cmsg-latest",
+    });
+
+    expect(firstDelivered).toBe(false);
+    expect(secondDelivered).toBe(false);
+
+    wsModule.connectSession("s1");
+    lastWs.onopen?.(new Event("open"));
+
+    expect(lastWs.send.mock.calls.map(([payload]) => JSON.parse(payload))).toEqual(
+      expect.arrayContaining([
+        {
+          type: "vscode_selection_update",
+          selection: {
+            absolutePath: "/repo/src/App.tsx",
+            startLine: 12,
+            endLine: 14,
+            lineCount: 3,
+          },
+          updatedAt: 200,
+          sourceId: "browser:test",
+          sourceType: "browser-panel",
+          sourceLabel: "embedded-browser",
+          client_msg_id: "cmsg-latest",
+        },
+        {
+          type: "session_subscribe",
+          last_seq: 0,
+          known_frozen_count: 0,
+          history_window_section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
+          history_window_visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+        },
+      ]),
+    );
+    expect(lastWs.send.mock.calls.map(([payload]) => JSON.parse(payload))).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          client_msg_id: "cmsg-old",
+        }),
+      ]),
+    );
   });
 });
 
@@ -582,6 +661,52 @@ describe("handleMessage: session_update", () => {
     fireMessage({ type: "session_update", session: { model: "claude-sonnet-4-20250514" } });
 
     expect(useStore.getState().sessions.get("s1")!.model).toBe("claude-sonnet-4-20250514");
+  });
+});
+
+describe("handleMessage: session_activity_update", () => {
+  it("updates inactive session sidebar state from another session socket", () => {
+    wsModule.connectSession("leader");
+    fireMessage({ type: "session_init", session: makeSession("leader") });
+    useStore.getState().setCurrentSession("leader");
+    useStore.getState().setSdkSessions([
+      { sessionId: "leader", state: "connected", cwd: "/home/user", createdAt: 1, archived: false },
+      { sessionId: "worker", state: "connected", cwd: "/home/user", createdAt: 2, archived: false },
+    ]);
+
+    fireMessage({
+      type: "session_activity_update",
+      session_id: "worker",
+      session: {
+        pendingPermissionCount: 1,
+        pendingPermissionSummary: "pending plan",
+        attentionReason: "action",
+        status: "running",
+      },
+    });
+
+    const worker = useStore.getState().sdkSessions.find((session) => session.sessionId === "worker")!;
+    expect(worker.pendingPermissionCount).toBe(1);
+    expect(worker.pendingPermissionSummary).toBe("pending plan");
+    expect(useStore.getState().sessionAttention.get("worker")).toBe("action");
+    expect(useStore.getState().sessionStatus.get("worker")).toBe("running");
+
+    fireMessage({
+      type: "session_activity_update",
+      session_id: "worker",
+      session: {
+        pendingPermissionCount: 0,
+        pendingPermissionSummary: null,
+        attentionReason: null,
+        status: "idle",
+      },
+    });
+
+    const updatedWorker = useStore.getState().sdkSessions.find((session) => session.sessionId === "worker")!;
+    expect(updatedWorker.pendingPermissionCount).toBe(0);
+    expect(updatedWorker.pendingPermissionSummary).toBeNull();
+    expect(useStore.getState().sessionAttention.get("worker")).toBeNull();
+    expect(useStore.getState().sessionStatus.get("worker")).toBe("idle");
   });
 });
 
@@ -1277,6 +1402,53 @@ describe("handleMessage: result", () => {
     expect(state.streamingStartedAt.has("s1")).toBe(false);
     expect(state.sessionStatus.get("s1")).toBe("idle");
     expect(state.messageFrozenCounts.get("s1")).toBe(2);
+  });
+
+  it("clears synthetic Codex /status streaming state when the terminal result arrives", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "codex" } });
+
+    vi.setSystemTime(new Date(1700000000000));
+    fireMessage({
+      type: "assistant",
+      timestamp: 1000,
+      message: {
+        id: "status-msg-1",
+        type: "message",
+        role: "assistant",
+        model: "gpt-5.5",
+        content: [{ type: "text", text: "Codex status\n\n- Session: idle" }],
+        stop_reason: null,
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+    });
+
+    expect(useStore.getState().streamingStartedAt.get("s1")).toBe(1700000000000);
+    expect(useStore.getState().sessionStatus.get("s1")).toBe("running");
+
+    fireMessage({
+      type: "result",
+      data: {
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        duration_ms: 0,
+        duration_api_ms: 0,
+        num_turns: 4,
+        total_cost_usd: 0.25,
+        stop_reason: "end_turn",
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        uuid: "synthetic-status-result",
+        session_id: "s1",
+      },
+    });
+
+    const state = useStore.getState();
+    expect(state.streamingStartedAt.has("s1")).toBe(false);
+    expect(state.sessionStatus.get("s1")).toBe("idle");
+    expect(state.sessions.get("s1")?.num_turns).toBe(4);
+    expect(state.sessions.get("s1")?.total_cost_usd).toBe(0.25);
   });
 
   it("clears transient todo state when a turn completes", () => {
@@ -3802,11 +3974,80 @@ describe("handleMessage: codex_pending_input_cancelled", () => {
     expect(draft).toEqual({
       text: "restore this image",
       images: [
-        {
+        expect.objectContaining({
           name: "attachment-1.png",
           base64: "restore-image-data",
           mediaType: "image/png",
+          status: "uploading",
+        }),
+      ],
+    });
+  });
+
+  it("restores browser-local upload images when a cancelled pending Codex input no longer carries draftImages", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    useStore.getState().addPendingUserUpload("s1", {
+      id: "pending-upload-restore-1",
+      content: "restore this image",
+      timestamp: Date.now(),
+      stage: "delivering",
+      images: [
+        {
+          id: "draft-image-restore-1",
+          name: "attachment-1.png",
+          base64: "restore-image-data",
+          mediaType: "image/png",
+          status: "ready",
+          prepared: {
+            imageRef: { imageId: "img-1", media_type: "image/png" },
+            path: "/tmp/img.png",
+          },
         },
+      ],
+      prepared: {
+        deliveryContent:
+          "restore this image\n[📎 Image attachments -- read these files with the Read tool before responding:\nAttachment 1: /tmp/img.png]",
+        imageRefs: [{ imageId: "img-1", media_type: "image/png" }],
+      },
+    });
+
+    fireMessage({
+      type: "user_message",
+      content: "restore this image",
+      timestamp: Date.now(),
+      id: "user-restore-1",
+      client_msg_id: "pending-upload-restore-1",
+      images: [{ imageId: "img-1", media_type: "image/png" }],
+    });
+
+    fireMessage({
+      type: "codex_pending_input_cancelled",
+      input: {
+        id: "pending-restore-1",
+        clientMsgId: "pending-upload-restore-1",
+        content: "restore this image",
+        timestamp: Date.now(),
+        cancelable: true,
+      },
+    });
+
+    const draft = useStore.getState().composerDrafts.get("s1");
+    expect(draft).toEqual({
+      text: "restore this image",
+      images: [
+        expect.objectContaining({
+          id: "draft-image-restore-1",
+          name: "attachment-1.png",
+          base64: "restore-image-data",
+          mediaType: "image/png",
+          status: "ready",
+          prepared: {
+            imageRef: { imageId: "img-1", media_type: "image/png" },
+            path: "/tmp/img.png",
+          },
+        }),
       ],
     });
   });
@@ -3982,6 +4223,112 @@ describe("agentSource propagation", () => {
     const msgs = useStore.getState().messages.get("s1")!;
     expect(msgs).toHaveLength(1);
     expect(msgs[0].agentSource).toBeUndefined();
+  });
+
+  it("replaces a pending local upload with the authoritative user message while preserving local image previews", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    useStore.getState().addPendingUserUpload("s1", {
+      id: "pending-upload-1",
+      content: "Inspect this screenshot",
+      timestamp: 1000,
+      stage: "delivering",
+      images: [
+        {
+          id: "draft-image-1",
+          name: "attachment-1.png",
+          base64: "restore-image-data",
+          mediaType: "image/png",
+          status: "ready",
+          prepared: {
+            imageRef: { imageId: "img-1", media_type: "image/png" },
+            path: "/tmp/img.png",
+          },
+        },
+      ],
+      prepared: {
+        deliveryContent:
+          "Inspect this screenshot\n[📎 Image attachments -- read these files with the Read tool before responding:\nAttachment 1: /tmp/img.png]",
+        imageRefs: [{ imageId: "img-1", media_type: "image/png" }],
+      },
+    });
+
+    fireMessage({
+      type: "user_message",
+      content: "Inspect this screenshot",
+      timestamp: 1001,
+      id: "user-1001-0",
+      client_msg_id: "pending-upload-1",
+      images: [{ imageId: "img-1", media_type: "image/png" }],
+    });
+
+    expect(useStore.getState().pendingUserUploads.get("s1")).toBeUndefined();
+    const msgs = useStore.getState().messages.get("s1")!;
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].images).toEqual([{ imageId: "img-1", media_type: "image/png" }]);
+    expect(msgs[0].localImages).toEqual([
+      { name: "attachment-1.png", base64: "restore-image-data", mediaType: "image/png" },
+    ]);
+    expect(msgs[0].clientMsgId).toBe("pending-upload-1");
+  });
+
+  it("preserves local image previews when history_sync replaces the hot tail for a pending upload", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    useStore.getState().addPendingUserUpload("s1", {
+      id: "pending-upload-2",
+      content: "Inspect this screenshot",
+      timestamp: 1000,
+      stage: "delivering",
+      images: [
+        {
+          id: "draft-image-2",
+          name: "attachment-1.png",
+          base64: "restore-image-data",
+          mediaType: "image/png",
+          status: "ready",
+          prepared: {
+            imageRef: { imageId: "img-2", media_type: "image/png" },
+            path: "/tmp/img.png",
+          },
+        },
+      ],
+      prepared: {
+        deliveryContent:
+          "Inspect this screenshot\n[📎 Image attachments -- read these files with the Read tool before responding:\nAttachment 1: /tmp/img.png]",
+        imageRefs: [{ imageId: "img-2", media_type: "image/png" }],
+      },
+    });
+
+    fireMessage({
+      type: "history_sync",
+      frozen_base_count: 0,
+      frozen_delta: [],
+      hot_messages: [
+        {
+          type: "user_message",
+          content: "Inspect this screenshot",
+          timestamp: 1001,
+          id: "user-1001-1",
+          client_msg_id: "pending-upload-2",
+          images: [{ imageId: "img-2", media_type: "image/png" }],
+        },
+      ],
+      frozen_count: 0,
+      expected_frozen_hash: "hash-frozen",
+      expected_full_hash: "hash-full",
+    });
+
+    expect(useStore.getState().pendingUserUploads.get("s1")).toBeUndefined();
+    const msgs = useStore.getState().messages.get("s1")!;
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].images).toEqual([{ imageId: "img-2", media_type: "image/png" }]);
+    expect(msgs[0].localImages).toEqual([
+      { name: "attachment-1.png", base64: "restore-image-data", mediaType: "image/png" },
+    ]);
+    expect(msgs[0].clientMsgId).toBe("pending-upload-2");
   });
 
   it("does not treat user message metadata as the authoritative VS Code selection state", () => {

@@ -322,6 +322,7 @@ export interface PendingCodexInputImageDraft {
 
 export interface PendingCodexInput {
   id: string;
+  clientMsgId?: string;
   content: string;
   timestamp: number;
   cancelable: boolean;
@@ -347,6 +348,8 @@ export type BrowserOutgoingMessage =
       content: string;
       session_id?: string;
       images?: { media_type: string; data: string }[];
+      imageRefs?: import("./image-store.js").ImageRef[];
+      deliveryContent?: string;
       vscodeSelection?: VsCodeSelectionMetadata;
       client_msg_id?: string;
       /** Present when the message was injected programmatically (e.g. via takode CLI or cron). */
@@ -434,6 +437,8 @@ export interface BoardRow {
   worker?: string;
   /** Session number of the assigned worker (optional, cached for display). */
   workerNum?: number;
+  /** True when the leader explicitly marked this row as a zero-code / no-code quest. */
+  noCode?: boolean;
   /** Quest Journey state -- each state = a leader action that just happened. */
   status?: string;
   /** Quest IDs (q-N) or session numbers (#N) this quest is blocked on. */
@@ -506,6 +511,7 @@ export type BrowserIncomingMessageBase =
       content: string;
       timestamp: number;
       id?: string;
+      client_msg_id?: string;
       cliUuid?: string;
       images?: import("./image-store.js").ImageRef[];
       agentSource?: { sessionId: string; sessionLabel?: string };
@@ -625,6 +631,17 @@ export type BrowserIncomingMessageBase =
   | { type: "board_updated"; board: BoardRow[]; completedBoard: BoardRow[] }
   | { type: "notification_update"; notifications: SessionNotification[] }
   | { type: "timer_update"; timers: import("./timer-types.js").SessionTimer[] }
+  | {
+      type: "session_activity_update";
+      session_id: string;
+      session: {
+        status?: "compacting" | "reverting" | "idle" | "running" | null;
+        attentionReason?: "action" | "error" | "review" | null;
+        lastReadAt?: number;
+        pendingPermissionCount?: number;
+        pendingPermissionSummary?: string | null;
+      };
+    }
   | {
       type: "tree_groups_update";
       treeGroups: import("./tree-group-store.js").TreeGroup[];

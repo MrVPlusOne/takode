@@ -1451,6 +1451,266 @@ describe("takode spawn", () => {
     expect(parsed.sessions.map((s) => s.sessionNum)).toEqual([31, 32]);
   });
 
+  it("reads multiline shell-sensitive initial messages from --message-file without mangling them", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "takode-spawn-message-file-"));
+    const messagePath = join(tmp, "dispatch.txt");
+    const createBodies: JsonObject[] = [];
+    const messageCalls: Array<{ id: string; body: JsonObject }> = [];
+    const shellSensitiveMessage =
+      "First line with $HOME\nSecond line with `code` and $(danger)\nThird line with {json: true}\n";
+    writeFileSync(messagePath, shellSensitiveMessage, "utf-8");
+
+    const server = createServer(async (req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-file", isOrchestrator: true }));
+        return;
+      }
+
+      if (method === "GET" && url === "/api/sessions/leader-file") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({ sessionId: "leader-file", sessionNum: 13, name: "File Leader", backendType: "claude" }),
+        );
+        return;
+      }
+
+      if (method === "POST" && url === "/api/sessions/create") {
+        createBodies.push(await readJson(req));
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "worker-file" }));
+        return;
+      }
+
+      if (method === "GET" && url === "/api/sessions/worker-file/info") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            sessionId: "worker-file",
+            sessionNum: 33,
+            name: "Worker File",
+            state: "running",
+            backendType: "claude",
+            model: "",
+            cwd: "/tmp/spawn-test",
+            createdAt: Date.now(),
+            cliConnected: true,
+            isGenerating: false,
+            askPermission: true,
+            isWorktree: true,
+          }),
+        );
+        return;
+      }
+
+      if (method === "POST" && url === "/api/sessions/worker-file/message") {
+        messageCalls.push({ id: "worker-file", body: await readJson(req) });
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true }));
+        return;
+      }
+
+      if (method === "GET" && url === "/api/takode/sessions") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify([]));
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    try {
+      const result = await runTakode(
+        ["spawn", "--port", String(port), "--message-file", messagePath, "--json"],
+        {
+          ...process.env,
+          COMPANION_SESSION_ID: "leader-file",
+          COMPANION_AUTH_TOKEN: "auth-file",
+        },
+        tmp,
+      );
+
+      expect(result.status).toBe(0);
+      expect(createBodies).toHaveLength(1);
+      expect(messageCalls).toEqual([
+        {
+          id: "worker-file",
+          body: {
+            content: shellSensitiveMessage,
+            agentSource: { sessionId: "leader-file", sessionLabel: "#13 File Leader" },
+          },
+        },
+      ]);
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        count: 1,
+        message: shellSensitiveMessage,
+      });
+    } finally {
+      server.close();
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("reads multiline shell-sensitive initial messages from stdin via --message-file -", async () => {
+    const createBodies: JsonObject[] = [];
+    const messageCalls: Array<{ id: string; body: JsonObject }> = [];
+    const stdinMessage =
+      "First line from stdin with $HOME\nSecond line with `code` and $(danger)\nThird line with {json: true}\n";
+
+    const server = createServer(async (req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-stdin-file", isOrchestrator: true }));
+        return;
+      }
+
+      if (method === "GET" && url === "/api/sessions/leader-stdin-file") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            sessionId: "leader-stdin-file",
+            sessionNum: 14,
+            name: "Stdin File Leader",
+            backendType: "claude",
+          }),
+        );
+        return;
+      }
+
+      if (method === "POST" && url === "/api/sessions/create") {
+        createBodies.push(await readJson(req));
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "worker-stdin-file" }));
+        return;
+      }
+
+      if (method === "GET" && url === "/api/sessions/worker-stdin-file/info") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            sessionId: "worker-stdin-file",
+            sessionNum: 34,
+            name: "Worker Stdin File",
+            state: "running",
+            backendType: "claude",
+            model: "",
+            cwd: "/tmp/spawn-test",
+            createdAt: Date.now(),
+            cliConnected: true,
+            isGenerating: false,
+            askPermission: true,
+            isWorktree: true,
+          }),
+        );
+        return;
+      }
+
+      if (method === "POST" && url === "/api/sessions/worker-stdin-file/message") {
+        messageCalls.push({ id: "worker-stdin-file", body: await readJson(req) });
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true }));
+        return;
+      }
+
+      if (method === "GET" && url === "/api/takode/sessions") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify([]));
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    try {
+      const result = await runTakode(
+        ["spawn", "--port", String(port), "--message-file", "-", "--json"],
+        {
+          ...process.env,
+          COMPANION_SESSION_ID: "leader-stdin-file",
+          COMPANION_AUTH_TOKEN: "auth-stdin-file",
+        },
+        process.cwd(),
+        stdinMessage,
+      );
+
+      expect(result.status).toBe(0);
+      expect(createBodies).toHaveLength(1);
+      expect(messageCalls).toEqual([
+        {
+          id: "worker-stdin-file",
+          body: {
+            content: stdinMessage,
+            agentSource: { sessionId: "leader-stdin-file", sessionLabel: "#14 Stdin File Leader" },
+          },
+        },
+      ]);
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        count: 1,
+        message: stdinMessage,
+      });
+    } finally {
+      server.close();
+    }
+  });
+
+  it("rejects mixing --message with --message-file", async () => {
+    const server = createServer(async (req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-mix", isOrchestrator: true }));
+        return;
+      }
+
+      if (method === "GET" && url === "/api/sessions/leader-mix") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-mix", backendType: "claude" }));
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    try {
+      const result = await runTakode(
+        ["spawn", "--port", String(port), "--message", "inline", "--message-file", "-", "--json"],
+        {
+          ...process.env,
+          COMPANION_SESSION_ID: "leader-mix",
+          COMPANION_AUTH_TOKEN: "auth-mix",
+        },
+      );
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("Use either --message or --message-file, not both");
+    } finally {
+      server.close();
+    }
+  });
+
   it("claude leader spawns claude workers by default (no --backend needed)", async () => {
     // Regression test: previously, omitting --backend always defaulted to codex,
     // even when the leader was a Claude session.
@@ -2944,9 +3204,10 @@ describe("takode watch deprecation", () => {
   });
 
   it.each([
-    [["board", "--help"], "Usage: takode board [show|set|advance|rm] ..."],
+    [["board", "--help"], "Usage: takode board [show|set|advance|advance-no-groom|rm] ..."],
     [["board", "set", "--help"], "Usage: takode board set <quest-id>"],
     [["board", "advance", "--help"], "Usage: takode board advance <quest-id>"],
+    [["board", "advance-no-groom", "--help"], "Usage: takode board advance-no-groom <quest-id>"],
     [["branch", "--help"], "Usage: takode branch <status|set-base> ..."],
     [["branch", "status", "--help"], "Usage: takode branch status [--json]"],
     [["branch", "set-base", "--help"], "Usage: takode branch set-base <branch> [--json]"],
@@ -2971,6 +3232,22 @@ describe("takode watch deprecation", () => {
     expect(result.stdout).not.toContain("Board is empty.");
     expect(result.stdout).not.toContain("No active sessions.");
     expect(result.stdout).not.toContain("Cannot connect to Companion server");
+  });
+
+  it("documents advance-no-groom as only for zero git-tracked changes", async () => {
+    const result = await runTakode(["board", "advance-no-groom", "--help"], {
+      ...process.env,
+      COMPANION_SESSION_ID: undefined,
+      COMPANION_AUTH_TOKEN: undefined,
+      COMPANION_PORT: undefined,
+      TAKODE_API_PORT: undefined,
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("zero git-tracked changes");
+    expect(result.stdout).toContain(
+      "Git-tracked docs, skills, prompts, templates, and other text-only edits do not qualify",
+    );
   });
 
   it("keeps unknown commands with --help as an error", async () => {
@@ -3040,6 +3317,17 @@ describe("takode board quest ID validation", () => {
 
   it.each(["foo", "123", "q-"])("board advance rejects invalid quest ID: %j", async (badId) => {
     const result = await runTakode(["board", "advance", badId, "--port", String(port)], {
+      ...process.env,
+      COMPANION_SESSION_ID: "leader-1",
+      COMPANION_AUTH_TOKEN: "auth-1",
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("q-NNN");
+  });
+
+  it.each(["foo", "123", "q-"])("board advance-no-groom rejects invalid quest ID: %j", async (badId) => {
+    const result = await runTakode(["board", "advance-no-groom", badId, "--port", String(port)], {
       ...process.env,
       COMPANION_SESSION_ID: "leader-1",
       COMPANION_AUTH_TOKEN: "auth-1",
@@ -3158,6 +3446,92 @@ describe("takode board set --worker auto-clears waitFor", () => {
     expect(result.status).toBe(0);
     expect(capturedBodies).toHaveLength(1);
     expect(capturedBodies[0].waitFor).toEqual([]);
+  });
+
+  it("sends noCode: true when --no-code is provided", async () => {
+    const result = await runTakode(["board", "set", "q-1", "--no-code", "--port", String(port)], {
+      ...process.env,
+      COMPANION_SESSION_ID: "leader-1",
+      COMPANION_AUTH_TOKEN: "auth-1",
+    });
+
+    expect(result.status).toBe(0);
+    expect(capturedBodies).toHaveLength(1);
+    expect(capturedBodies[0].noCode).toBe(true);
+  });
+
+  it("sends noCode: false when --code-change is provided", async () => {
+    const result = await runTakode(["board", "set", "q-1", "--code-change", "--port", String(port)], {
+      ...process.env,
+      COMPANION_SESSION_ID: "leader-1",
+      COMPANION_AUTH_TOKEN: "auth-1",
+    });
+
+    expect(result.status).toBe(0);
+    expect(capturedBodies).toHaveLength(1);
+    expect(capturedBodies[0].noCode).toBe(false);
+  });
+
+  it("rejects --no-code and --code-change together", async () => {
+    const result = await runTakode(["board", "set", "q-1", "--no-code", "--code-change", "--port", String(port)], {
+      ...process.env,
+      COMPANION_SESSION_ID: "leader-1",
+      COMPANION_AUTH_TOKEN: "auth-1",
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Use either --no-code or --code-change");
+  });
+});
+
+describe("takode board advance-no-groom", () => {
+  it("calls the dedicated no-code endpoint and prints the explicit skip-groom completion message", async () => {
+    const requests: string[] = [];
+    const server = createServer(async (req, res) => {
+      const url = req.url || "";
+      requests.push(`${req.method || ""} ${url}`);
+
+      if (req.method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-board", isOrchestrator: true }));
+        return;
+      }
+      if (req.method === "POST" && url === "/api/sessions/leader-board/board/q-1/advance-no-groom") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            board: [],
+            removed: true,
+            previousState: "SKEPTIC_REVIEWING",
+            skippedStates: ["GROOM_REVIEWING", "PORTING"],
+            completedCount: 1,
+          }),
+        );
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    try {
+      const result = await runTakode(["board", "advance-no-groom", "q-1", "--port", String(port)], {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-board",
+        COMPANION_AUTH_TOKEN: "auth-1",
+      });
+
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("q-1: completed via no-code path");
+      expect(result.stdout).toContain("skipped GROOM_REVIEWING and PORTING");
+      expect(requests).toContain("POST /api/sessions/leader-board/board/q-1/advance-no-groom");
+    } finally {
+      server.close();
+    }
   });
 });
 
@@ -3331,6 +3705,14 @@ describe("takode board output modes", () => {
                 updatedAt: 2,
               },
             ],
+            queueWarnings: [
+              {
+                questId: "q-12",
+                kind: "dispatchable",
+                summary: "q-12 can be dispatched now: wait-for resolved (q-9).",
+                action: "Dispatch it now or replace QUEUED with the next active board stage.",
+              },
+            ],
             rowSessionStatuses: {
               "q-12": {
                 worker: { sessionId: "worker-1", sessionNum: 5, status: "idle" },
@@ -3363,7 +3745,8 @@ describe("takode board output modes", () => {
       expect(result.stdout).toContain("ACTION");
       expect(result.stdout).toContain("q-12");
       expect(result.stdout).toContain("#5 idle / no reviewer");
-      expect(result.stdout).toContain("clear q-9");
+      expect(result.stdout).toContain("ready");
+      expect(result.stdout).toContain("dispatch now");
       expect(result.stdout).not.toContain("__takode_board__");
       expect(result.stdout).not.toContain('"rowSessionStatuses"');
     } finally {
@@ -3474,8 +3857,8 @@ describe("takode board output modes", () => {
       });
 
       expect(result.status).toBe(0);
-      expect(result.stdout).toContain("clear free work");
-      expect(result.stdout).toContain("dispatch to a worker");
+      expect(result.stdout).toContain("ready");
+      expect(result.stdout).toContain("dispatch now");
       expect(result.stdout).toContain("q-88 can be dispatched now");
       expect(result.stdout).toContain("Next: Dispatch it now or replace QUEUED");
     } finally {
@@ -3742,6 +4125,126 @@ describe("takode list reviewer nesting", () => {
     } finally {
       server.close();
     }
+  });
+});
+
+describe("takode notify self-resolution workflow", () => {
+  let server: ReturnType<typeof createServer>;
+  let port: number;
+  let requestBodies: JsonObject[];
+
+  beforeAll(async () => {
+    requestBodies = [];
+    server = createServer(async (req, res) => {
+      const method = req.method ?? "GET";
+      const url = req.url ?? "/";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "worker-7", isOrchestrator: false }));
+        return;
+      }
+
+      if (method === "POST" && url === "/api/sessions/worker-7/notify") {
+        requestBodies.push(await readJson(req));
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            ok: true,
+            category: "needs-input",
+            anchoredMessageId: "asst-1",
+            notificationId: 7,
+            rawNotificationId: "n-7",
+          }),
+        );
+        return;
+      }
+
+      if (method === "GET" && url === "/api/sessions/worker-7/notifications/needs-input/self") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            notifications: [
+              {
+                notificationId: 2,
+                rawNotificationId: "n-2",
+                summary: "Need rollout decision",
+                timestamp: 1000,
+                messageId: "asst-2",
+              },
+              {
+                notificationId: 7,
+                rawNotificationId: "n-7",
+                summary: "Need config confirmation",
+                timestamp: 1001,
+                messageId: "asst-7",
+              },
+            ],
+            resolvedCount: 3,
+          }),
+        );
+        return;
+      }
+
+      if (method === "POST" && url === "/api/sessions/worker-7/notifications/needs-input/7/resolve") {
+        requestBodies.push(await readJson(req));
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true, notificationId: 7, rawNotificationId: "n-7", changed: false }));
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    port = (server.address() as AddressInfo).port;
+  });
+
+  afterAll(() => {
+    server.close();
+  });
+
+  beforeEach(() => {
+    requestBodies = [];
+  });
+
+  it("prints the created notification id for takode notify needs-input", async () => {
+    const result = await runTakode(["notify", "needs-input", "Need", "approval", "--port", String(port)], {
+      ...process.env,
+      COMPANION_SESSION_ID: "worker-7",
+      COMPANION_AUTH_TOKEN: "auth-7",
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("Notification sent (needs-input, id 7)");
+    expect(requestBodies[0]).toEqual({ category: "needs-input", summary: "Need approval" });
+  });
+
+  it("lists unresolved same-session needs-input notifications", async () => {
+    const result = await runTakode(["notify", "list", "--port", String(port)], {
+      ...process.env,
+      COMPANION_SESSION_ID: "worker-7",
+      COMPANION_AUTH_TOKEN: "auth-7",
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("Unresolved same-session needs-input notifications: 2. Resolved: 3.");
+    expect(result.stdout).toContain("2. Need rollout decision");
+    expect(result.stdout).toContain("7. Need config confirmation");
+  });
+
+  it("treats resolving an already-resolved notification as a successful no-op", async () => {
+    const result = await runTakode(["notify", "resolve", "7", "--port", String(port)], {
+      ...process.env,
+      COMPANION_SESSION_ID: "worker-7",
+      COMPANION_AUTH_TOKEN: "auth-7",
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("Needs-input notification 7 was already resolved.");
+    expect(requestBodies[0]).toEqual({});
   });
 });
 

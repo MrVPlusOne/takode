@@ -36,6 +36,7 @@ async function runQuest(
   args: string[],
   env: Record<string, string | undefined>,
   cwd = process.cwd(),
+  stdinText?: string,
 ): Promise<{
   status: number | null;
   stdout: string;
@@ -47,12 +48,14 @@ async function runQuest(
     // Keep Bun's package cache on the real home directory even when tests
     // override HOME to isolate the quest store under a temp directory.
     BUN_INSTALL_CACHE_DIR:
-      env.BUN_INSTALL_CACHE_DIR || process.env.BUN_INSTALL_CACHE_DIR || join(process.env.HOME || "", ".bun/install/cache"),
+      env.BUN_INSTALL_CACHE_DIR ||
+      process.env.BUN_INSTALL_CACHE_DIR ||
+      join(process.env.HOME || "", ".bun/install/cache"),
   };
   const child = spawn(process.execPath, [questPath, ...args], {
     env: childEnv,
     cwd,
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ["pipe", "pipe", "pipe"],
   });
 
   let stdout = "";
@@ -64,14 +67,20 @@ async function runQuest(
     stderr += String(chunk);
   });
 
+  if (stdinText !== undefined) {
+    child.stdin?.write(stdinText);
+  }
+  child.stdin?.end();
+
   const [code] = await once(child, "close");
   return { status: code as number | null, stdout, stderr };
 }
 
 describe("quest CLI help", () => {
-  it("documents search tips for list filtering vs grep snippets", async () => {
+  it("documents search tips and safer rich-text input paths", async () => {
     // Guard the user-facing `quest --help` copy so the grep discoverability
-    // wording stays aligned with the CLI entrypoint, not just generated docs.
+    // wording and safer-input guidance stay aligned with the CLI entrypoint,
+    // not just generated docs.
     const result = await runQuest(["--help"], { ...process.env });
 
     expect(result.status).toBe(0);
@@ -82,6 +91,807 @@ describe("quest CLI help", () => {
     expect(result.stdout).toContain(
       'quest grep "foo|bar"      Search inside quest text/comments with contextual snippets',
     );
+    expect(result.stdout).toContain("quest create --title-file title.txt --desc-file body.md");
+    expect(result.stdout).toContain("quest edit q-1 --desc-file body.md");
+    expect(result.stdout).toContain("quest feedback q-1 --text-file note.md");
+    expect(result.stdout).toContain("quest complete q-1 --items-file items.txt");
+    expect(result.stdout).toContain("quest done q-1 --notes-file closeout.md");
+
+    const lines = result.stdout.split("\n");
+    expect(lines).toContain(
+      `  printf '%s\\n' 'Copied \`$(snippet)\` stays literal' | quest create "Quest title" --desc-file -`,
+    );
+    expect(lines).toContain("  printf '%s\\n' 'Line 1' '`$(nope)`' | quest feedback q-1 --text-file -");
+    expect(lines).toContain(
+      `  printf '%s\\n' 'Review comma-heavy item, "quotes", {braces}' | quest complete q-1 --items-file -`,
+    );
+    expect(lines).toContain(
+      `  printf '%s\\n' 'Superseded by q-2 with copied \`$(note)\` text' | quest cancel q-1 --notes-file -`,
+    );
+  });
+});
+
+describe("quest CLI safer rich-text inputs", () => {
+  it("reads feedback text from --text-file and preserves shell-like payloads literally", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "quest-feedback-text-file-"));
+    const authDir = getSessionAuthDir(tmp);
+    mkdirSync(authDir, { recursive: true });
+    const authPath = centralAuthPath(tmp, tmp);
+    const textPath = join(tmp, "feedback.txt");
+    const payload = [
+      "Refreshed summary: literal backticks `!#tag` should survive.",
+      'Copied log: excluding: "artifact $(rm -rf /tmp/nope)"',
+      'Quotes and braces stay literal: {"mode":"safe","ok":true}',
+    ].join("\n");
+    writeFileSync(textPath, payload, "utf-8");
+
+    const seenBodies: JsonObject[] = [];
+    const server = createServer(async (req, res) => {
+      if (req.method === "POST" && req.url === "/api/quests/q-1/feedback") {
+        seenBodies.push(await readJson(req));
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ questId: "q-1", title: "Quest", status: "in_progress", feedback: [] }));
+        return;
+      }
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    writeFileSync(
+      authPath,
+      JSON.stringify({ sessionId: "session-file", authToken: "file-token", port, serverId: "test-server-id" }),
+      "utf-8",
+    );
+
+    try {
+      const result = await runQuest(
+        ["feedback", "q-1", "--text-file", textPath, "--json"],
+        {
+          ...process.env,
+          COMPANION_SESSION_ID: undefined,
+          COMPANION_AUTH_TOKEN: undefined,
+          COMPANION_PORT: undefined,
+          HOME: tmp,
+        },
+        tmp,
+      );
+
+      expect(result.status).toBe(0);
+      expect(seenBodies[0]).toMatchObject({
+        text: payload,
+        author: "agent",
+        sessionId: "session-file",
+      });
+    } finally {
+      server.close();
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("reads feedback text from stdin via --text-file -", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "quest-feedback-stdin-"));
+    const authDir = getSessionAuthDir(tmp);
+    mkdirSync(authDir, { recursive: true });
+    const authPath = centralAuthPath(tmp, tmp);
+    const payload = [
+      "Addressed: copied shell transcript stays literal.",
+      "Treat `foo` and $(bar) as text, not shell.",
+      'Final line keeps commas, quotes "yes", and braces {ok:true}.',
+    ].join("\n");
+
+    const seenBodies: JsonObject[] = [];
+    const server = createServer(async (req, res) => {
+      if (req.method === "POST" && req.url === "/api/quests/q-1/feedback") {
+        seenBodies.push(await readJson(req));
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ questId: "q-1", title: "Quest", status: "in_progress", feedback: [] }));
+        return;
+      }
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    writeFileSync(
+      authPath,
+      JSON.stringify({ sessionId: "session-file", authToken: "file-token", port, serverId: "test-server-id" }),
+      "utf-8",
+    );
+
+    try {
+      const result = await runQuest(
+        ["feedback", "q-1", "--text-file", "-", "--json"],
+        {
+          ...process.env,
+          COMPANION_SESSION_ID: undefined,
+          COMPANION_AUTH_TOKEN: undefined,
+          COMPANION_PORT: undefined,
+          HOME: tmp,
+        },
+        tmp,
+        payload,
+      );
+
+      expect(result.status).toBe(0);
+      expect(seenBodies[0]).toMatchObject({
+        text: payload,
+        author: "agent",
+        sessionId: "session-file",
+      });
+    } finally {
+      server.close();
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects mixing --text with --text-file", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "quest-feedback-mixed-input-"));
+    const textPath = join(tmp, "feedback.txt");
+    writeFileSync(textPath, "literal payload", "utf-8");
+
+    try {
+      const result = await runQuest(
+        ["feedback", "q-1", "--text", "inline", "--text-file", textPath],
+        {
+          ...process.env,
+          COMPANION_PORT: undefined,
+          COMPANION_SESSION_ID: "session-inline",
+          COMPANION_AUTH_TOKEN: "token-inline",
+          HOME: tmp,
+        },
+        tmp,
+      );
+
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain("Use either --text or --text-file, not both");
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("reads create title/description from --title-file and --desc-file literally", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "quest-create-rich-text-files-"));
+    const titlePath = join(tmp, "title.txt");
+    const descPath = join(tmp, "description.md");
+    const title = 'Quest title with `!#tag`, "$(echo nope)", and {braces}';
+    const description = [
+      "Description should preserve copied shell-like content literally.",
+      'Keep `quest create` and "$(echo nope)" as plain text.',
+      'Quotes, commas, and braces stay intact: {"safe":true,"ok":"yes"}',
+    ].join("\n");
+    writeFileSync(titlePath, title, "utf-8");
+    writeFileSync(descPath, description, "utf-8");
+
+    try {
+      const result = await runQuest(
+        ["create", "--title-file", titlePath, "--desc-file", descPath, "--json"],
+        {
+          ...process.env,
+          COMPANION_PORT: undefined,
+          COMPANION_SESSION_ID: undefined,
+          COMPANION_AUTH_TOKEN: undefined,
+          HOME: tmp,
+        },
+        tmp,
+      );
+
+      expect(result.status).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        title,
+        description,
+      });
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("reads create description from stdin via --desc-file -", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "quest-create-rich-text-stdin-"));
+    const description = [
+      "stdin description keeps copied snippets literal.",
+      'Treat `foo`, "$(bar)", and {json:true} as plain text.',
+    ].join("\n");
+
+    try {
+      const result = await runQuest(
+        ["create", "Rich text quest", "--desc-file", "-", "--json"],
+        {
+          ...process.env,
+          COMPANION_PORT: undefined,
+          COMPANION_SESSION_ID: undefined,
+          COMPANION_AUTH_TOKEN: undefined,
+          HOME: tmp,
+        },
+        tmp,
+        description,
+      );
+
+      expect(result.status).toBe(0);
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        title: "Rich text quest",
+        description,
+      });
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("reads edit title/description from file inputs literally", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "quest-edit-rich-text-files-"));
+    const titlePath = join(tmp, "title.txt");
+    const descPath = join(tmp, "description.md");
+    const title = 'Edited `title` with "$(echo nope)" and {braces}';
+    const description = [
+      "Edited description keeps literal backticks and command text.",
+      'Keep `quest edit` and "$(echo nope)" as text, not shell.',
+    ].join("\n");
+    writeFileSync(titlePath, title, "utf-8");
+    writeFileSync(descPath, description, "utf-8");
+
+    try {
+      const created = await runQuest(
+        ["create", "Original title", "--json"],
+        {
+          ...process.env,
+          COMPANION_PORT: undefined,
+          COMPANION_SESSION_ID: undefined,
+          COMPANION_AUTH_TOKEN: undefined,
+          HOME: tmp,
+        },
+        tmp,
+      );
+      const quest = JSON.parse(created.stdout) as { questId: string };
+
+      const result = await runQuest(
+        ["edit", quest.questId, "--title-file", titlePath, "--desc-file", descPath, "--json"],
+        {
+          ...process.env,
+          COMPANION_PORT: undefined,
+          COMPANION_SESSION_ID: undefined,
+          COMPANION_AUTH_TOKEN: undefined,
+          HOME: tmp,
+        },
+        tmp,
+      );
+
+      expect(result.status).toBe(0);
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        questId: quest.questId,
+        title,
+        description,
+      });
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("reads transition description from --desc-file literally", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "quest-transition-rich-text-file-"));
+    const descPath = join(tmp, "transition-description.md");
+    const description = [
+      "Transition description update should keep copied snippets literal.",
+      'Keep `quest transition` and "$(echo nope)" as text.',
+    ].join("\n");
+    writeFileSync(descPath, description, "utf-8");
+
+    try {
+      const created = await runQuest(
+        ["create", "Transition me", "--json"],
+        {
+          ...process.env,
+          COMPANION_PORT: undefined,
+          COMPANION_SESSION_ID: undefined,
+          COMPANION_AUTH_TOKEN: undefined,
+          HOME: tmp,
+        },
+        tmp,
+      );
+      const quest = JSON.parse(created.stdout) as { questId: string };
+
+      const result = await runQuest(
+        ["transition", quest.questId, "--status", "refined", "--desc-file", descPath, "--json"],
+        {
+          ...process.env,
+          COMPANION_PORT: undefined,
+          COMPANION_SESSION_ID: undefined,
+          COMPANION_AUTH_TOKEN: undefined,
+          HOME: tmp,
+        },
+        tmp,
+      );
+
+      expect(result.status).toBe(0);
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        questId: quest.questId,
+        status: "refined",
+        description,
+      });
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects mixing create/edit inline and file rich-text flags", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "quest-create-edit-mixed-rich-text-"));
+    const descPath = join(tmp, "description.md");
+    const titlePath = join(tmp, "title.txt");
+    writeFileSync(descPath, "literal description", "utf-8");
+    writeFileSync(titlePath, "literal title", "utf-8");
+
+    try {
+      const createResult = await runQuest(
+        ["create", "Quest title", "--desc", "inline", "--desc-file", descPath],
+        {
+          ...process.env,
+          COMPANION_PORT: undefined,
+          COMPANION_SESSION_ID: undefined,
+          COMPANION_AUTH_TOKEN: undefined,
+          HOME: tmp,
+        },
+        tmp,
+      );
+
+      expect(createResult.status).not.toBe(0);
+      expect(createResult.stderr).toContain("Use either --desc or --desc-file, not both");
+
+      const created = await runQuest(
+        ["create", "Original title", "--json"],
+        {
+          ...process.env,
+          COMPANION_PORT: undefined,
+          COMPANION_SESSION_ID: undefined,
+          COMPANION_AUTH_TOKEN: undefined,
+          HOME: tmp,
+        },
+        tmp,
+      );
+      const quest = JSON.parse(created.stdout) as { questId: string };
+
+      const editResult = await runQuest(
+        ["edit", quest.questId, "--title", "inline", "--title-file", titlePath],
+        {
+          ...process.env,
+          COMPANION_PORT: undefined,
+          COMPANION_SESSION_ID: undefined,
+          COMPANION_AUTH_TOKEN: undefined,
+          HOME: tmp,
+        },
+        tmp,
+      );
+
+      expect(editResult.status).not.toBe(0);
+      expect(editResult.stderr).toContain("Use either --title or --title-file, not both");
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects reading multiple rich-text options from stdin in one command", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "quest-multiple-stdin-rich-text-"));
+
+    try {
+      const result = await runQuest(
+        ["create", "--title-file", "-", "--desc-file", "-", "--json"],
+        {
+          ...process.env,
+          COMPANION_PORT: undefined,
+          COMPANION_SESSION_ID: undefined,
+          COMPANION_AUTH_TOKEN: undefined,
+          HOME: tmp,
+        },
+        tmp,
+        "shared stdin payload",
+      );
+
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain("Only one option can read from stdin per command");
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("reads done notes from --notes-file literally", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "quest-done-notes-file-"));
+    const notesPath = join(tmp, "closeout.txt");
+    const notes = [
+      "Closed after keeping copied shell-like text literal.",
+      'Keep `quest done`, "$(echo nope)", and {json:true} as text.',
+    ].join("\n");
+    writeFileSync(notesPath, notes, "utf-8");
+
+    try {
+      const created = await runQuest(
+        ["create", "Quest to close", "--json"],
+        {
+          ...process.env,
+          COMPANION_PORT: undefined,
+          COMPANION_SESSION_ID: undefined,
+          COMPANION_AUTH_TOKEN: undefined,
+          HOME: tmp,
+        },
+        tmp,
+      );
+      const quest = JSON.parse(created.stdout) as { questId: string };
+
+      const refined = await runQuest(
+        ["transition", quest.questId, "--status", "refined", "--desc", "Ready for closeout", "--json"],
+        {
+          ...process.env,
+          COMPANION_PORT: undefined,
+          COMPANION_SESSION_ID: undefined,
+          COMPANION_AUTH_TOKEN: undefined,
+          HOME: tmp,
+        },
+        tmp,
+      );
+      expect(refined.status).toBe(0);
+
+      const result = await runQuest(
+        ["done", quest.questId, "--notes-file", notesPath, "--json"],
+        {
+          ...process.env,
+          COMPANION_PORT: undefined,
+          COMPANION_SESSION_ID: undefined,
+          COMPANION_AUTH_TOKEN: undefined,
+          HOME: tmp,
+        },
+        tmp,
+      );
+
+      expect(result.status).toBe(0);
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        questId: quest.questId,
+        status: "done",
+        notes,
+      });
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("reads cancel notes from stdin via --notes-file - literally", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "quest-cancel-notes-stdin-"));
+    const notes = [
+      "Superseded after preserving copied shell-like text literally.",
+      'Keep `quest cancel`, "$(echo nope)", and {json:true} as text.',
+    ].join("\n");
+
+    try {
+      const created = await runQuest(
+        ["create", "Quest to cancel", "--json"],
+        {
+          ...process.env,
+          COMPANION_PORT: undefined,
+          COMPANION_SESSION_ID: undefined,
+          COMPANION_AUTH_TOKEN: undefined,
+          HOME: tmp,
+        },
+        tmp,
+      );
+      const quest = JSON.parse(created.stdout) as { questId: string };
+
+      const result = await runQuest(
+        ["cancel", quest.questId, "--notes-file", "-", "--json"],
+        {
+          ...process.env,
+          COMPANION_PORT: undefined,
+          COMPANION_SESSION_ID: undefined,
+          COMPANION_AUTH_TOKEN: undefined,
+          HOME: tmp,
+        },
+        tmp,
+        notes,
+      );
+
+      expect(result.status).toBe(0);
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        questId: quest.questId,
+        status: "done",
+        cancelled: true,
+        notes,
+      });
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects mixing inline notes and --notes-file", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "quest-notes-mixed-input-"));
+    const notesPath = join(tmp, "closeout.txt");
+    writeFileSync(notesPath, "literal notes", "utf-8");
+
+    try {
+      const created = await runQuest(
+        ["create", "Quest title", "--json"],
+        {
+          ...process.env,
+          COMPANION_PORT: undefined,
+          COMPANION_SESSION_ID: undefined,
+          COMPANION_AUTH_TOKEN: undefined,
+          HOME: tmp,
+        },
+        tmp,
+      );
+      const quest = JSON.parse(created.stdout) as { questId: string };
+
+      const doneResult = await runQuest(
+        ["done", quest.questId, "--notes", "inline", "--notes-file", notesPath],
+        {
+          ...process.env,
+          COMPANION_PORT: undefined,
+          COMPANION_SESSION_ID: undefined,
+          COMPANION_AUTH_TOKEN: undefined,
+          HOME: tmp,
+        },
+        tmp,
+      );
+      expect(doneResult.status).not.toBe(0);
+      expect(doneResult.stderr).toContain("Use either --notes or --notes-file, not both");
+
+      const cancelResult = await runQuest(
+        ["cancel", quest.questId, "--notes", "inline", "--notes-file", notesPath],
+        {
+          ...process.env,
+          COMPANION_PORT: undefined,
+          COMPANION_SESSION_ID: undefined,
+          COMPANION_AUTH_TOKEN: undefined,
+          HOME: tmp,
+        },
+        tmp,
+      );
+      expect(cancelResult.status).not.toBe(0);
+      expect(cancelResult.stderr).toContain("Use either --notes or --notes-file, not both");
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("reads verification items from --items-file line input with shell-fragile characters", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "quest-complete-items-file-"));
+    const authDir = getSessionAuthDir(tmp);
+    mkdirSync(authDir, { recursive: true });
+    const authPath = centralAuthPath(tmp, tmp);
+    const itemsPath = join(tmp, "items.txt");
+    const items = [
+      "Confirm copied log line `excluding:` stays literal and readable",
+      'Confirm `!#tag`, $(dont-run), and "quotes" survive untouched',
+      "Confirm commas, braces {ok:true}, and copied snippets remain one checklist item",
+    ];
+    writeFileSync(itemsPath, `${items.join("\n")}\n`, "utf-8");
+
+    const seenBodies: JsonObject[] = [];
+    const server = createServer(async (req, res) => {
+      if (req.method === "POST" && req.url === "/api/quests/q-1/complete") {
+        seenBodies.push(await readJson(req));
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ questId: "q-1", title: "Quest", status: "needs_verification" }));
+        return;
+      }
+      if (req.method === "POST" && req.url === "/api/quests/_notify") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true }));
+        return;
+      }
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    writeFileSync(
+      authPath,
+      JSON.stringify({ sessionId: "session-file", authToken: "file-token", port, serverId: "test-server-id" }),
+      "utf-8",
+    );
+
+    try {
+      const result = await runQuest(
+        ["complete", "q-1", "--items-file", itemsPath, "--json"],
+        {
+          ...process.env,
+          COMPANION_SESSION_ID: undefined,
+          COMPANION_AUTH_TOKEN: undefined,
+          COMPANION_PORT: undefined,
+          HOME: tmp,
+        },
+        tmp,
+      );
+
+      expect(result.status).toBe(0);
+      expect(seenBodies[0]).toMatchObject({
+        verificationItems: items.map((text) => ({ text, checked: false })),
+      });
+    } finally {
+      server.close();
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("reads verification items from stdin via --items-file - using JSON array input", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "quest-complete-items-stdin-"));
+    const authDir = getSessionAuthDir(tmp);
+    mkdirSync(authDir, { recursive: true });
+    const authPath = centralAuthPath(tmp, tmp);
+    const items = [
+      "Confirm JSON array input keeps `backticks` literal",
+      'Confirm "$(echo nope)" and braces {"safe":true} stay in one item',
+    ];
+    const stdinJson = JSON.stringify(items);
+
+    const seenBodies: JsonObject[] = [];
+    const server = createServer(async (req, res) => {
+      if (req.method === "POST" && req.url === "/api/quests/q-1/complete") {
+        seenBodies.push(await readJson(req));
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ questId: "q-1", title: "Quest", status: "needs_verification" }));
+        return;
+      }
+      if (req.method === "POST" && req.url === "/api/quests/_notify") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true }));
+        return;
+      }
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    writeFileSync(
+      authPath,
+      JSON.stringify({ sessionId: "session-file", authToken: "file-token", port, serverId: "test-server-id" }),
+      "utf-8",
+    );
+
+    try {
+      const result = await runQuest(
+        ["complete", "q-1", "--items-file", "-", "--json"],
+        {
+          ...process.env,
+          COMPANION_SESSION_ID: undefined,
+          COMPANION_AUTH_TOKEN: undefined,
+          COMPANION_PORT: undefined,
+          HOME: tmp,
+        },
+        tmp,
+        stdinJson,
+      );
+
+      expect(result.status).toBe(0);
+      expect(seenBodies[0]).toMatchObject({
+        verificationItems: items.map((text) => ({ text, checked: false })),
+      });
+    } finally {
+      server.close();
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("reads verification items from --items-file JSON object arrays", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "quest-complete-items-object-json-"));
+    const authDir = getSessionAuthDir(tmp);
+    mkdirSync(authDir, { recursive: true });
+    const authPath = centralAuthPath(tmp, tmp);
+    const itemsPath = join(tmp, "items.json");
+    writeFileSync(
+      itemsPath,
+      JSON.stringify([
+        { text: "Confirm object-array input keeps `backticks` literal" },
+        { text: ' Confirm "$(echo nope)" and braces {"safe":true} stay in one item ' },
+      ]),
+      "utf-8",
+    );
+
+    const seenBodies: JsonObject[] = [];
+    const server = createServer(async (req, res) => {
+      if (req.method === "POST" && req.url === "/api/quests/q-1/complete") {
+        seenBodies.push(await readJson(req));
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ questId: "q-1", title: "Quest", status: "needs_verification" }));
+        return;
+      }
+      if (req.method === "POST" && req.url === "/api/quests/_notify") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true }));
+        return;
+      }
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    writeFileSync(
+      authPath,
+      JSON.stringify({ sessionId: "session-file", authToken: "file-token", port, serverId: "test-server-id" }),
+      "utf-8",
+    );
+
+    try {
+      const result = await runQuest(
+        ["complete", "q-1", "--items-file", itemsPath, "--json"],
+        {
+          ...process.env,
+          COMPANION_SESSION_ID: undefined,
+          COMPANION_AUTH_TOKEN: undefined,
+          COMPANION_PORT: undefined,
+          HOME: tmp,
+        },
+        tmp,
+      );
+
+      expect(result.status).toBe(0);
+      expect(seenBodies[0]).toMatchObject({
+        verificationItems: [
+          { text: "Confirm object-array input keeps `backticks` literal", checked: false },
+          { text: 'Confirm "$(echo nope)" and braces {"safe":true} stay in one item', checked: false },
+        ],
+      });
+    } finally {
+      server.close();
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects invalid JSON object items in --items-file", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "quest-complete-invalid-object-json-"));
+    const itemsPath = join(tmp, "items.json");
+    writeFileSync(itemsPath, JSON.stringify([{ label: "missing text" }, { text: "ok" }]), "utf-8");
+
+    try {
+      const result = await runQuest(
+        ["complete", "q-1", "--items-file", itemsPath],
+        {
+          ...process.env,
+          COMPANION_PORT: undefined,
+          COMPANION_SESSION_ID: "session-inline",
+          COMPANION_AUTH_TOKEN: "token-inline",
+          HOME: tmp,
+        },
+        tmp,
+      );
+
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain(
+        "--items-file item 1 must be a non-empty string or object with a non-empty text field",
+      );
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects mixing --items with --items-file", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "quest-complete-mixed-input-"));
+    const itemsPath = join(tmp, "items.txt");
+    writeFileSync(itemsPath, "literal item", "utf-8");
+
+    try {
+      const result = await runQuest(
+        ["complete", "q-1", "--items", "inline item", "--items-file", itemsPath],
+        {
+          ...process.env,
+          COMPANION_PORT: undefined,
+          COMPANION_SESSION_ID: "session-inline",
+          COMPANION_AUTH_TOKEN: "token-inline",
+          HOME: tmp,
+        },
+        tmp,
+      );
+
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain("Use either --items or --items-file, not both");
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });
 
@@ -713,9 +1523,15 @@ describe("quest CLI completion reminder", () => {
 
       expect(result.status).toBe(0);
       expect(result.stdout).toContain('Completed q-1 "Quest" with 1 verification items');
-      expect(result.stdout).toContain("Reminder: keep one substantive quest summary comment up to date");
-      expect(result.stdout).toContain('quest feedback q-1 --text "Summary: <what was done>"');
+      expect(result.stdout).toContain("Reminder: keep one substantive user-oriented quest summary comment up to date");
+      expect(result.stdout).toContain(
+        'quest feedback q-1 --text "Summary: <what changed, why it matters, and what verification passed>"',
+      );
+      expect(result.stdout).toContain("Avoid review/rework timelines unless essential");
       expect(result.stdout).toContain("Use `--commit/--commits` structured metadata for routine port info");
+      expect(result.stdout).toContain(
+        "including docs, skills, prompts, templates, and other text-only tracked-file commits",
+      );
     } finally {
       server.close();
       rmSync(tmp, { recursive: true, force: true });
@@ -777,6 +1593,7 @@ describe("quest CLI completion reminder", () => {
         verificationItems: [{ text: "Review artifact", checked: false }],
       });
       expect(result.stdout).toContain("You used `--no-code` for this local CLI handoff");
+      expect(result.stdout).toContain("Only use `--no-code` when the quest produced zero git-tracked changes");
       expect(result.stdout).not.toContain("Use `--commit/--commits` structured metadata for routine port info");
     } finally {
       server.close();
@@ -785,9 +1602,12 @@ describe("quest CLI completion reminder", () => {
   });
 
   it("rejects combining --no-code with commit metadata", async () => {
-    const result = await runQuest(["complete", "q-1", "--items", "Review artifact", "--no-code", "--commit", "abc1234"], {
-      ...process.env,
-    });
+    const result = await runQuest(
+      ["complete", "q-1", "--items", "Review artifact", "--no-code", "--commit", "abc1234"],
+      {
+        ...process.env,
+      },
+    );
 
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain("--no-code cannot be combined with --commit/--commits");
@@ -898,8 +1718,11 @@ describe("quest CLI completion reminder", () => {
 
       expect(result.status).toBe(0);
       expect(result.stdout).toContain('Completed q-1 "Quest" with 1 verification items');
-      expect(result.stdout).toContain("Reminder: keep one substantive quest summary comment up to date");
-      expect(result.stdout).toContain('quest feedback q-1 --text "Summary: <what was done>"');
+      expect(result.stdout).toContain("Reminder: keep one substantive user-oriented quest summary comment up to date");
+      expect(result.stdout).toContain(
+        'quest feedback q-1 --text "Summary: <what changed, why it matters, and what verification passed>"',
+      );
+      expect(result.stdout).toContain("Avoid review/rework timelines unless essential");
       expect(result.stdout).toContain("Use `--commit/--commits` structured metadata for routine port info");
     } finally {
       rmSync(tmp, { recursive: true, force: true });

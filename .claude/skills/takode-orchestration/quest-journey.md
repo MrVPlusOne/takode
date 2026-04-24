@@ -1,6 +1,6 @@
 # Quest Journey Lifecycle
 
-Every dispatched task follows the Quest Journey lifecycle. The work board (`takode board show`) tracks each quest's stage and shows the next required leader action. **Do not skip stages -- no exceptions, regardless of change size.** If a change is too small to justify the full journey, it's too small to need a quest. Every quest gets the full lifecycle.
+Every dispatched task follows the Quest Journey lifecycle. The work board (`takode board show`) tracks each quest's stage and shows the next required leader action. Quests that modify git-tracked files do not skip stages, even when the change is docs, skills, prompts, templates, or other text-only guidance. The only exception is a true zero-code quest with zero git-tracked changes that has passed skeptic review and was explicitly marked with `takode board set <quest-id> --no-code`: it may then use `takode board advance-no-groom <quest-id>` to complete without reviewer-groom or porting.
 
 ## Stage Overview
 
@@ -9,7 +9,7 @@ Every dispatched task follows the Quest Journey lifecycle. The work board (`tako
 | `QUEUED` | Quest is ready, waiting for dispatch | Dispatch to a worker |
 | `PLANNING` | Worker is planning | Wait for the plan via `permission_request` or plain-text `turn_end`, then review it |
 | `IMPLEMENTING` | Worker is implementing | Wait for `turn_end`, then spawn skeptic reviewer |
-| `SKEPTIC_REVIEWING` | Skeptic reviewer is evaluating | Wait for reviewer ACCEPT; skeptic-review dispatches must explicitly say `Use the installed /skeptic-review workflow for this review.` |
+| `SKEPTIC_REVIEWING` | Skeptic reviewer is evaluating | Wait for reviewer ACCEPT; skeptic-review dispatches must explicitly say `Use the installed /skeptic-review workflow for this review.` True zero-code quests with zero git-tracked changes that were explicitly marked `--no-code` may then use `takode board advance-no-groom <quest-id>` instead of entering groom review. |
 | `GROOM_REVIEWING` | Reviewer owns the quality pass and follow-up judgment | Wait for reviewer ACCEPT on the worker's response, then send a separate explicit port instruction when ready |
 | `PORTING` | Worker is porting to main repo | Wait for port confirmation, then remove from board |
 
@@ -17,24 +17,26 @@ Every dispatched task follows the Quest Journey lifecycle. The work board (`tako
 
 **Update the board immediately.** When a herd event arrives that changes quest state (turn_end, permission_request, etc.), update the board as your FIRST action -- before reviewing content, reading messages, or composing responses. The board must always reflect real-time state.
 
-**Mandatory stages:** Skeptic review and groom review are mandatory for ALL quests with code changes -- no exceptions for "small" or "trivial" changes. The default groom path is reviewer-owned via `/reviewer-groom`. `/self-groom` is an escalation path, not the default. Investigation or other no-code quests may skip reviewer-groom only when they truly produce zero code changes, but they still need a clear explicit completion path and must not grow fake port noise.
+**Mandatory stages:** Skeptic review and groom review are mandatory for ALL quests with git-tracked changes -- no exceptions for "small", "trivial", docs-only, skill-only, prompt-only, or template-only changes. The default groom path is reviewer-owned via `/reviewer-groom`. `/self-groom` is an escalation path, not the default. Investigation or other no-code quests may skip reviewer-groom only when they truly produce zero git-tracked changes; first mark the board row with `takode board set <quest-id> --no-code`, then use the explicit board command `takode board advance-no-groom <quest-id>` from `SKEPTIC_REVIEWING`, and complete without porting or fake port noise.
 
 ## Stage-Explicit Worker Steering
 
 - **Authorize one stage at a time.** Every leader-to-worker message should say what the worker is allowed to do now and what must wait.
 - **Initial dispatch = planning only.** The worker returns a plan and stops. Do not imply implementation is approved.
 - **Quest ownership stays with the worker.** The worker doing the job claims and completes the quest. The leader coordinates the journey but does not claim the quest on the worker's behalf.
-- **Plan approval = implement, keep one substantive quest summary comment current, and stop.** Tell the worker to implement, add or refresh the final quest summary comment, report back, and wait. Do not let the worker infer review, porting, or quest transitions.
-- **Review/rework = do the named work, refresh that same summary comment, and stop.** If you send reviewer findings, also tell the worker to refresh the quest summary comment before reporting back and waiting. Do not imply porting is authorized.
+- **Plan approval = implement, keep one substantive user-oriented quest summary comment current, and stop.** Tell the worker to implement, add or refresh the final quest summary comment for the human reader, report back, and wait. The summary should state what changed, why it matters, and what verification passed; it should not become a review/rework timeline. If the same update also addresses human feedback, tell the worker to consolidate that explanation into the summary instead of adding a near-duplicate second comment. Do not let the worker infer review, porting, or quest transitions.
+- **Review/rework = do the named work, refresh that same summary comment, and stop.** If you send reviewer findings, also tell the worker to refresh the user-oriented quest summary comment before reporting back and waiting. When the rework addresses human feedback, one consolidated summary/addressing comment is preferred when it remains clear; separate comments are only for materially different updates or readability. When the rework needs more code changes, tell the worker to commit the current worktree state first and make the follow-up fixes in a separate commit so the reviewer can inspect only the new diff. Do not imply porting is authorized.
 - **Porting requires an explicit instruction.** Only tell the worker to run `/port-changes` after the reviewer ACCEPTs and you are ready for porting.
 - **Investigation/design/no-code quests still need explicit boundaries.** Tell the worker what artifact to produce, have them stop afterward, and choose the next step yourself. Do not assume the worker should self-complete, self-transition, or self-port.
-- **Zero-code quests complete without porting.** If the accepted result is an investigation/report/design artifact with zero code changes, complete it directly with artifact-focused verification items. Do not invent synced SHA lines or port-summary comments. If you use `quest complete ... --no-code`, treat it only as a local CLI reminder switch, not durable quest metadata.
+- **Zero-code quests complete without porting.** If the accepted result is an investigation/report/design artifact with zero git-tracked changes, complete it directly with artifact-focused verification items. Do not invent synced SHA lines or port-summary comments. If the accepted result changed docs, skills, prompts, templates, or any other git-tracked file, it is not zero-code for handoff purposes and still needs normal porting plus structured commit metadata. If you use `quest complete ... --no-code`, treat it only as a local CLI reminder switch, not durable quest metadata.
 
 ## Refine (before QUEUED)
 
 - If no quest exists or it's in `idea` state, work with the user first to gather requirements
 - Ask clarifying questions until the WHAT and WHY are unambiguous
-- Create or update the quest with a clear description containing the full context a worker needs
+- Before creating a quest or refining an `idea` quest into worker-ready scope, invoke `/quest-design` and wait for user confirmation or correction
+- A user-approved plan that explicitly covers the quest text can count as this confirmation; routine feedback, claims, board updates, verification inbox moves, and already-approved lifecycle transitions do not need a separate round
+- Create or refine the quest with a clear description containing the full context a worker needs only after that `/quest-design` confirmation round is complete
 - Do NOT dispatch until the quest is refined -- a vague quest produces vague work
 
 ## QUEUED -> PLANNING
@@ -75,7 +77,9 @@ Every dispatched task follows the Quest Journey lifecycle. The work board (`tako
 ### Spawn Command
 
 ```bash
-takode spawn --reviewer <session-number> --message 'Load skills first: /takode-orchestration, /quest, /skeptic-review. Use the installed /skeptic-review workflow for this review. Then skeptic review session #X / quest q-Y. Read changes: takode peek X --from N --show-tools'
+takode spawn --reviewer <session-number> --message-file - <<'EOF'
+Load skills first: /takode-orchestration, /quest, /skeptic-review. Use the installed /skeptic-review workflow for this review. Then skeptic review session #X / quest q-Y. Read changes: takode peek X --from N --show-tools
+EOF
 ```
 
 The `--reviewer` flag automatically:
@@ -99,7 +103,8 @@ The `--reviewer` flag automatically:
 
 - **This stage is iterative.** Do not advance until the reviewer issues ACCEPT.
 - If the reviewer CHALLENGEs: send findings to the worker for rework, then send the reworked result back to the reviewer. Repeat until ACCEPT.
-- If you send rework, tell the worker to address the findings, report back, and stop again. Do not imply porting is authorized.
+- If you send rework that needs more code changes, tell the worker to commit the current worktree state first, then make the fixes in a separate follow-up commit, refresh the user-oriented quest summary comment, report back, and stop again. If that same update addresses human feedback, the refreshed summary should also explain how it was addressed instead of adding a duplicate comment. Do not imply porting is authorized.
+- **True zero-code exception:** if the skeptic reviewer ACCEPTs a quest that produced zero git-tracked changes, mark the board row with `takode board set <quest-id> --no-code` if it is not already marked, then use `takode board advance-no-groom <quest-id>` to complete the board row directly. Unmarked rows and tracked-file-changing quests must continue into `GROOM_REVIEWING`.
 - On ACCEPT: send the same reviewer a concise review request, then have the reviewer self-invoke `/reviewer-groom "<scope>"`.
 - The best scope strings usually identify the quest, the worker, and the worker message range that contains the follow-up being reviewed.
 - Example scope: `Review [q-324](quest:q-324) for reviewer-groom follow-up after worker #469's update in [#469 msg 723](session:469:723) through [#469 msg 746](session:469:746)`.
@@ -114,7 +119,7 @@ The `--reviewer` flag automatically:
 - **ALWAYS** send the worker's response back to the same reviewer for compliance check. The reviewer verifies that no important Critical or Recommended suggestion was skipped without justification.
 - **This stage is iterative.** Do not advance until the reviewer ACCEPTs.
 - If CHALLENGE: send findings back to the worker, have them address the issues, then re-send to reviewer. Repeat until ACCEPT.
-- Keep the worker waiting while the reviewer checks compliance. If more changes are needed, tell the worker exactly what to do and to stop again afterward.
+- Keep the worker waiting while the reviewer checks compliance. If more changes are needed and they require code edits, tell the worker to checkpoint the current worktree state in a commit before starting the fixes, then make the follow-up changes separately and stop again afterward.
 - On reviewer ACCEPT: tell the worker to port changes using `/port-changes`. Porting must be a separate, explicit instruction, and the worker's report-back must include `Synced SHAs: sha1,sha2` with the ordered synced SHAs from the main repo.
 - `takode board advance <quest-id>`
 - **NEVER combine "reviewer-groom/rework" and "port" in the same instruction to the worker.** Each is a separate gate.
@@ -122,8 +127,10 @@ The `--reviewer` flag automatically:
 ## PORTING -> (removed)
 
 - Tell the worker to run `/port-changes` only when you are explicitly ready for porting. Do not assume they will self-port once review is done.
-- Zero-code quests do not enter `PORTING`. After the accepted artifact is ready, complete them directly with verification items about the artifact/result and without `/port-changes`, synced SHAs, or port-summary noise. If you pass `--no-code`, use it only to suppress the local CLI's port reminder noise.
-- Wait for the worker to confirm sync is complete (commits landed, tests passed, pushed to remote) **and include the ordered synced SHAs from the main repo as a dedicated `Synced SHAs: sha1,sha2` line**
+- Zero-code quests do not enter `PORTING`. After the accepted artifact is ready, complete them directly with verification items about the artifact/result and without `/port-changes`, synced SHAs, or port-summary noise. This applies only when the quest produced zero git-tracked changes; docs, skills, prompts, templates, and other text-only tracked-file edits must still be ported and attached with `quest complete ... --commit/--commits`. On the board, that means explicitly marking the row with `takode board set <quest-id> --no-code` and then using `takode board advance-no-groom <quest-id>` from `SKEPTIC_REVIEWING` rather than advancing into `GROOM_REVIEWING` or `PORTING`. If you pass `--no-code`, use it only to suppress the local CLI's port reminder noise.
+- Wait for the worker to confirm sync is complete (commits landed, required post-port verification passed, pushed to remote) **and include the ordered synced SHAs from the main repo as a dedicated `Synced SHAs: sha1,sha2` line**
+- For refactor quests, the required post-port verification gate is `cd web && bun run typecheck`, `cd web && bun run test`, and `cd web && bun run format:check`. `format:check` is the current lint/format-equivalent gate in this repo; there is no separate `lint` script right now. If a full run is infeasible, the exception must be documented explicitly in the worker's report-back.
+- If the required post-port verification run fails, dispatch a suitable worker to fix `main` immediately rather than waiting for the human to notice or ask.
 - Only after port is confirmed: transition the quest to `needs_verification` and attach those SHAs explicitly with `quest complete q-N --items "..." --commits "sha1,sha2"`. Structured commit metadata should carry routine port information; add a second prose port comment only when something exceptional about the port is materially worth noting.
 - `takode board advance <quest-id>` -- this removes the row from the board
 - Do **not** run `takode notify review` for quest completion -- when the work board item is completed, Takode already fires the review notification automatically. Sending another one duplicates the quest-completion notification.
@@ -132,7 +139,7 @@ The `--reviewer` flag automatically:
 
 When new human feedback lands on a quest:
 
-1. **Record the feedback**: `quest feedback <id> --text "..." --author human` (attach screenshots with `--image <path>`)
+1. **Record the feedback**: `quest feedback <id> --text "..." --author human` for short notes, or `quest feedback <id> --text-file - --author human` when recording copied logs or shell-like text (attach screenshots with `--image <path>`)
 2. **Decide whether the quest status itself must move backward**:
    - If the quest is currently in `needs_verification` or `done`, run `quest transition <id> --status refined` first. Those statuses describe a completed review handoff, so the quest itself must re-open before the fresh cycle begins.
    - If the quest is already active (`refined` or `in_progress`), do **not** transition it backward just because new feedback arrived. The quest is already open; the coordination fix is to reset the board row, not to create another status transition.
@@ -141,6 +148,7 @@ When new human feedback lands on a quest:
 5. **Dispatch for full quest journey from that reset point**: treat the rework as a fresh cycle. The quest goes through PLANNING -> IMPLEMENTING -> SKEPTIC_REVIEWING -> GROOM_REVIEWING -> PORTING again from the reset stage, ensuring rework gets the same review rigor as the original implementation. Never skip review steps for "small" feedback fixes.
 6. **Prefer the original worker** if still available -- it has the most context from the first implementation. Check `takode list` for idle/disconnected workers with matching quest history.
 7. **Use the rework dispatch template** from `/leader-dispatch`, which explicitly tells the worker to check and address feedback and return a fresh plan before implementing.
-8. **The worker must mark each feedback entry as addressed**: `quest address <id> <index>` after fixing each item. This is a hard requirement -- the leader should verify via `quest show <id>` that all feedback entries are marked addressed before accepting the rework.
+8. **The worker must mark each feedback entry as addressed**: `quest address <id> <index>` after fixing each item. This is a hard requirement -- the leader should verify via `quest show <id>` that all feedback entries are marked addressed before accepting the rework. Also verify that the worker did not leave a trail of duplicated or overly similar comments; one consolidated summary/addressing comment is preferred when it clearly covers the fix and the human feedback.
+9. **If the old-scope worker is still actively generating, interrupt before re-steering.** After resetting the board for fresh human feedback, use `takode interrupt <N>` before sending the new planning/rework instruction. A normal queued correction can arrive too late and let stale old-scope work keep running.
 
 This loop can repeat multiple times. Each round is a full quest journey.

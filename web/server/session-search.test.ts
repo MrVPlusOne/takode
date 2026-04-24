@@ -164,4 +164,190 @@ describe("searchSessionDocuments", () => {
     expect(out.results[0].matchedField).toBe("user_message");
     expect(out.results[1].matchedField).toBe("compact_marker");
   });
+
+  it("matches multi-word queries with non-consecutive words", () => {
+    // "run dev" should match a session named "Run current-main dev-server E2E sanity"
+    // even though "run" and "dev" aren't adjacent
+    const docs: SessionSearchDocument[] = [
+      {
+        sessionId: "s-match",
+        archived: false,
+        createdAt: 100,
+        name: "Run current-main dev-server E2E sanity before prod restart",
+      },
+      {
+        sessionId: "s-nomatch",
+        archived: false,
+        createdAt: 200,
+        name: "Deploy production hotfix",
+      },
+    ];
+
+    const out = searchSessionDocuments(docs, { query: "run dev" });
+    expect(out.totalMatches).toBe(1);
+    expect(out.results[0].sessionId).toBe("s-match");
+  });
+
+  it("searches archived sessions via searchExcerpts when messageHistory is empty", () => {
+    // Simulates search-data-only archived session: no messageHistory, only excerpts
+    const docs: SessionSearchDocument[] = [
+      {
+        sessionId: "s-archived",
+        archived: true,
+        createdAt: 100,
+        messageHistory: [],
+        searchExcerpts: [
+          { type: "user_message", content: "deploy the new auth service", timestamp: 1000 },
+          { type: "compact_marker", content: "Session discussed auth deployment strategy", timestamp: 2000 },
+        ],
+      },
+      {
+        sessionId: "s-active",
+        archived: false,
+        createdAt: 200,
+        messageHistory: [{ type: "user_message", content: "deploy the new auth service", timestamp: 3000 }],
+      },
+    ];
+
+    const out = searchSessionDocuments(docs, { query: "auth" });
+    expect(out.totalMatches).toBe(2);
+    const ids = out.results.map((r) => r.sessionId);
+    expect(ids).toContain("s-archived");
+    expect(ids).toContain("s-active");
+  });
+
+  it("prefers messageHistory over searchExcerpts when both are present", () => {
+    const docs: SessionSearchDocument[] = [
+      {
+        sessionId: "s-both",
+        archived: false,
+        createdAt: 100,
+        messageHistory: [{ type: "user_message", content: "real message about deploy", timestamp: 5000 }],
+        searchExcerpts: [{ type: "user_message", content: "excerpt about deploy", timestamp: 1000 }],
+      },
+    ];
+
+    const out = searchSessionDocuments(docs, { query: "deploy" });
+    expect(out.totalMatches).toBe(1);
+    // Should use messageHistory match (timestamp 5000), not excerpt
+    expect(out.results[0].messageMatch?.timestamp).toBe(5000);
+  });
+
+  it("returns no message match when archived session has no excerpts and no history", () => {
+    // Pre-existing archived session without backfilled excerpts
+    const docs: SessionSearchDocument[] = [
+      {
+        sessionId: "s-old-archived",
+        archived: true,
+        createdAt: 50,
+        name: "old session about deploy",
+        messageHistory: [],
+        searchExcerpts: [],
+      },
+    ];
+
+    const out = searchSessionDocuments(docs, { query: "deploy" });
+    expect(out.totalMatches).toBe(1);
+    // Should match on name, not message
+    expect(out.results[0].matchedField).toBe("name");
+  });
+
+  it("searches assistant text responses in full history", () => {
+    const docs: SessionSearchDocument[] = [
+      {
+        sessionId: "s-assistant",
+        archived: false,
+        createdAt: 100,
+        messageHistory: [
+          {
+            type: "assistant",
+            message: {
+              id: "a1",
+              role: "assistant",
+              type: "message",
+              model: "test",
+              content: [{ type: "text", text: "The fibonacci sequence implementation looks correct" }],
+              stop_reason: "end_turn",
+              usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+            },
+            parent_tool_use_id: null,
+            timestamp: 2000,
+          },
+        ],
+      },
+    ];
+
+    const out = searchSessionDocuments(docs, { query: "fibonacci" });
+    expect(out.totalMatches).toBe(1);
+    expect(out.results[0].matchedField).toBe("assistant");
+    expect(out.results[0].messageMatch?.snippet).toContain("fibonacci");
+  });
+
+  it("searches assistant text via excerpts for search-data-only sessions", () => {
+    const docs: SessionSearchDocument[] = [
+      {
+        sessionId: "s-archived-assistant",
+        archived: true,
+        createdAt: 100,
+        messageHistory: [],
+        searchExcerpts: [
+          {
+            type: "assistant",
+            content: "The fibonacci sequence implementation looks correct",
+            timestamp: 2000,
+            id: "a1",
+          },
+          { type: "user_message", content: "check the algorithm", timestamp: 1000, id: "m1" },
+        ],
+      },
+    ];
+
+    const out = searchSessionDocuments(docs, { query: "fibonacci" });
+    expect(out.totalMatches).toBe(1);
+    expect(out.results[0].matchedField).toBe("assistant");
+  });
+
+  it("ranks user_message above assistant above compact_marker", () => {
+    const docs: SessionSearchDocument[] = [
+      {
+        sessionId: "s-user",
+        archived: false,
+        createdAt: 100,
+        messageHistory: [{ type: "user_message", content: "query about deploy", timestamp: 1000 }],
+      },
+      {
+        sessionId: "s-assistant",
+        archived: false,
+        createdAt: 100,
+        messageHistory: [
+          {
+            type: "assistant",
+            message: {
+              id: "a1",
+              role: "assistant",
+              type: "message",
+              model: "test",
+              content: [{ type: "text", text: "deploy completed successfully" }],
+              stop_reason: "end_turn",
+              usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+            },
+            parent_tool_use_id: null,
+            timestamp: 1000,
+          },
+        ],
+      },
+      {
+        sessionId: "s-compact",
+        archived: false,
+        createdAt: 100,
+        messageHistory: [{ type: "compact_marker", summary: "discussed deploy strategy", timestamp: 1000 }],
+      },
+    ];
+
+    const out = searchSessionDocuments(docs, { query: "deploy" });
+    expect(out.totalMatches).toBe(3);
+    expect(out.results[0].matchedField).toBe("user_message");
+    expect(out.results[1].matchedField).toBe("assistant");
+    expect(out.results[2].matchedField).toBe("compact_marker");
+  });
 });

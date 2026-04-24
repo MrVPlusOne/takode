@@ -75,10 +75,13 @@ vi.mock("./git-utils.js", () => ({
   checkoutBranch: vi.fn(),
   checkoutBranchAsync: vi.fn(async () => {}),
   removeWorktree: vi.fn(),
+  removeWorktreeAsync: vi.fn(async () => ({ removed: true })),
   isWorktreeDirty: vi.fn(() => false),
   isWorktreeDirtyAsync: vi.fn(async () => false),
+  archiveBranchAsync: vi.fn(async () => true),
   resolveDefaultBranch: vi.fn(() => "main"),
   getBranchStatus: vi.fn(() => ({ ahead: 0, behind: 0 })),
+  deleteArchivedRefAsync: vi.fn(async () => {}),
 }));
 
 vi.mock("./session-names.js", () => ({
@@ -170,7 +173,7 @@ import { Hono } from "hono";
 import { execSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { access, mkdtemp, readFile, rm, stat } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildOrchestratorSystemPrompt, createRoutes } from "./routes.js";
 import { _resetModelCache } from "./routes/system.js";
@@ -202,6 +205,7 @@ function createMockLauncher() {
     listSessions: vi.fn(() => []),
     getSession: vi.fn(),
     setArchived: vi.fn(),
+    setWorktreeCleanupState: vi.fn(),
     updateWorktree: vi.fn(),
     removeSession: vi.fn(),
     getOrchestratorGuardrails: vi.fn(() => "# Takode — Cross-Session Orchestration\n..."),
@@ -218,30 +222,47 @@ function createMockLauncher() {
 
 function createMockBridge() {
   return {
+    _sessions: {} as Record<string, any>,
     _vscodeSelectionState: null as any,
     _vscodeWindows: [] as any[],
     closeSession: vi.fn(),
-    getSession: vi.fn(() => null),
+    getSession: vi.fn(function (this: any, sessionId: string) {
+      if (sessionId in this._sessions) return this._sessions[sessionId];
+      const stateEntries = this.getAllSessions();
+      const stateEntry = Array.isArray(stateEntries)
+        ? stateEntries.find((entry: any) => entry?.session_id === sessionId || entry?.sessionId === sessionId)
+        : null;
+      const messageHistory = this.getMessageHistory(sessionId) ?? [];
+      if (!stateEntry && messageHistory.length === 0) {
+        return null;
+      }
+      return {
+        id: sessionId,
+        state: stateEntry?.state ?? stateEntry ?? {},
+        messageHistory,
+        notifications: [],
+        pendingPermissions: new Map(),
+        taskHistory: [],
+        keywords: [],
+        lastReadAt: 0,
+        attentionReason: null,
+        isGenerating: false,
+      };
+    }),
     getOrCreateSession: vi.fn(),
     getAllSessions: vi.fn(() => []),
     refreshWorktreeGitStateForSnapshot: vi.fn(async () => null),
     getLastUserMessage: vi.fn(() => undefined),
     isBackendConnected: vi.fn(() => false),
-    getCodexRateLimits: vi.fn(() => null),
-    refreshCodexSkills: vi.fn(async () => ({ ok: true, skills: [] })),
-    markContainerized: vi.fn(),
     markWorktree: vi.fn(),
-    setInitialCwd: vi.fn(),
+    applyInitialSessionState: vi.fn(),
     setDiffBaseBranch: vi.fn(() => true),
     refreshGitInfoPublic: vi.fn(async () => true),
     onSessionArchived: vi.fn(),
     onSessionUnarchived: vi.fn(),
-    setInitialAskPermission: vi.fn(),
-    markResumedFromExternal: vi.fn(),
-    broadcastSessionUpdate: vi.fn(),
+    persistSessionById: vi.fn(),
     broadcastToSession: vi.fn(),
     broadcastGlobal: vi.fn(),
-    broadcastNameUpdate: vi.fn(),
     getVsCodeSelectionState: vi.fn(function (this: any) {
       return this._vscodeSelectionState;
     }),
@@ -264,45 +285,44 @@ function createMockBridge() {
     pollVsCodeOpenFileCommands: vi.fn(() => []),
     resolveVsCodeOpenFileResult: vi.fn(() => true),
     requestVsCodeOpenFile: vi.fn(async () => ({ sourceId: "window-a", commandId: "cmd-1" })),
-    setSessionClaimedQuest: vi.fn(),
     addTaskEntry: vi.fn(),
     updateQuestTaskEntries: vi.fn(),
     removeBoardRowFromAll: vi.fn(),
-    getBoard: vi.fn(() => []),
-    getBoardRow: vi.fn(() => null),
-    getBoardQueueWarnings: vi.fn(() => []),
-    getBoardWorkerSlotUsage: vi.fn(() => ({ used: 0, limit: 5 })),
-    getCompletedBoard: vi.fn(() => []),
-    getCompletedBoardCount: vi.fn(() => 0),
-    upsertBoardRow: vi.fn(() => []),
-    removeBoardRows: vi.fn(() => []),
-    advanceBoardRow: vi.fn(() => null),
     prepareSessionForRevert: vi.fn(
       (sessionId: string, truncateIdx: number, options?: { clearCodexState?: boolean }) => {
         const session = bridge.getOrCreateSession.mock.results.at(-1)?.value;
         if (!session) return null;
         session.messageHistory = session.messageHistory.slice(0, truncateIdx);
         session.frozenCount = Math.min(session.frozenCount ?? 0, session.messageHistory.length);
+        session.assistantAccumulator?.clear?.();
+        session.pendingMessages = [];
+        session.lastOutboundUserNdjson = null;
+        session.userMessageIdsThisTurn = [];
+        session.queuedTurnStarts = 0;
+        session.queuedTurnReasons = [];
+        session.queuedTurnUserMessageIds = [];
+        session.queuedTurnInterruptSources = [];
+        session.interruptedDuringTurn = false;
+        session.interruptSourceDuringTurn = null;
+        session.isGenerating = false;
+        session.generationStartedAt = null;
+        session.disconnectWasGenerating = false;
+        session.seamlessReconnect = false;
+        session.toolStartTimes?.clear?.();
+        session.toolProgressOutput?.clear?.();
+        session.dropReplayHistoryAfterRevert = session.backendType === "claude" || session.backendType === "claude-sdk";
         session.pendingPermissions?.clear?.();
         session.eventBuffer = [];
         session.awaitingCompactSummary = false;
+        session.claudeCompactBoundarySeen = false;
         session.compactedDuringTurn = false;
+        session.forceCompactPending = false;
         if (session.state) session.state.is_compacting = false;
         if (options?.clearCodexState) {
           session.pendingCodexTurns = [];
           session.pendingCodexInputs = [];
-          session.pendingMessages = [];
           session.pendingCodexRollback = null;
           session.pendingCodexRollbackError = null;
-          session.userMessageIdsThisTurn = [];
-          session.queuedTurnStarts = 0;
-          session.queuedTurnReasons = [];
-          session.queuedTurnUserMessageIds = [];
-          session.queuedTurnInterruptSources = [];
-          session.interruptedDuringTurn = false;
-          session.interruptSourceDuringTurn = null;
-          session.isGenerating = false;
-          session.generationStartedAt = null;
           if (session.optimisticRunningTimer) session.optimisticRunningTimer = null;
           bridge.broadcastToSession(sessionId, { type: "codex_pending_inputs", inputs: [] });
         }
@@ -331,24 +351,32 @@ function createMockBridge() {
       },
     ),
     persistSessionSync: vi.fn(),
-    getSessionAttentionState: vi.fn(() => null),
-    getSessionTaskHistory: vi.fn(() => []),
-    getSessionKeywords: vi.fn(() => []),
     getMessageHistory: vi.fn(() => []),
     getToolResult: vi.fn(() => null),
-    markSessionRead: vi.fn(() => true),
-    markSessionUnread: vi.fn(() => true),
-    markAllSessionsRead: vi.fn(),
     injectUserMessage: vi.fn(() => "sent" as const),
     emitTakodeEvent: vi.fn(),
     subscribeTakodeEvents: vi.fn(() => () => {}),
     routeExternalPermissionResponse: vi.fn(),
     routeExternalInterrupt: vi.fn(async () => {}),
-    notifyUser: vi.fn(() => ({ ok: true, anchoredMessageId: "msg-123" })),
-    markNotificationDone: vi.fn(() => true),
-    markAllNotificationsDone: vi.fn(() => 0),
-    getNotifications: vi.fn(() => []),
-    isSessionBusy: vi.fn(() => false),
+    routeBrowserMessage: vi.fn(function (this: any, session: any, msg: any) {
+      if (msg?.type === "permission_response") {
+        return this.routeExternalPermissionResponse(
+          session,
+          {
+            type: "permission_response",
+            request_id: msg.request_id,
+            behavior: msg.behavior,
+            ...(msg.updated_input ? { updated_input: msg.updated_input } : {}),
+            ...(msg.message ? { message: msg.message } : {}),
+          },
+          msg.actorSessionId,
+        );
+      }
+      if (msg?.type === "interrupt") {
+        return this.routeExternalInterrupt(session, msg.interruptSource);
+      }
+      return undefined;
+    }),
     getTrafficStatsSnapshot: vi.fn(() => ({
       windowStartedAt: 1000,
       capturedAt: 2000,
@@ -373,6 +401,27 @@ function createMockBridge() {
     })),
     resetTrafficStats: vi.fn(),
   } as any;
+}
+
+function ensureBridgeSession(
+  bridge: ReturnType<typeof createMockBridge>,
+  sessionId: string,
+  overrides: Record<string, unknown> = {},
+) {
+  return (bridge._sessions[sessionId] = {
+    id: sessionId,
+    state: {},
+    browserSockets: new Set(),
+    messageHistory: [],
+    notifications: [],
+    pendingPermissions: new Map(),
+    taskHistory: [],
+    keywords: [],
+    lastReadAt: 0,
+    attentionReason: null,
+    isGenerating: false,
+    ...overrides,
+  });
 }
 
 function createMockStore() {
@@ -1320,8 +1369,18 @@ describe("GET /api/sessions", () => {
   it("reports generating sessions as running when the bridge is active", async () => {
     launcher.listSessions.mockReturnValue([{ sessionId: "s1", state: "connected", cwd: "/a" }]);
     vi.mocked(sessionNames.getAllNames).mockReturnValue({});
-    bridge.getAllSessions.mockReturnValue([{ session_id: "s1" }]);
-    bridge.getSession.mockReturnValue({ isGenerating: true } as any);
+    bridge.getSession.mockReturnValue({
+      id: "s1",
+      state: { session_id: "s1" },
+      pendingPermissions: new Map(),
+      messageHistory: [],
+      notifications: [],
+      taskHistory: [],
+      keywords: [],
+      lastReadAt: 0,
+      attentionReason: null,
+      isGenerating: true,
+    } as any);
     bridge.isBackendConnected.mockReturnValue(true);
 
     const res = await app.request("/api/sessions", { method: "GET" });
@@ -1380,6 +1439,13 @@ describe("GET /api/sessions", () => {
         total_lines_added: 777,
         total_lines_removed: 55,
       },
+      pendingPermissions: new Map(),
+      messageHistory: [],
+      notifications: [],
+      taskHistory: [],
+      keywords: [],
+      lastReadAt: 0,
+      attentionReason: null,
       isGenerating: false,
     };
     launcher.listSessions.mockReturnValue(sessions);
@@ -1425,6 +1491,13 @@ describe("GET /api/sessions", () => {
         total_lines_added: 777,
         total_lines_removed: 55,
       },
+      pendingPermissions: new Map(),
+      messageHistory: [],
+      notifications: [],
+      taskHistory: [],
+      keywords: [],
+      lastReadAt: 0,
+      attentionReason: null,
       isGenerating: false,
     };
     launcher.listSessions.mockReturnValue(sessions);
@@ -1718,8 +1791,8 @@ describe("DELETE /api/sessions/:id", () => {
       createdAt: 1000,
     });
     tracker.isWorktreeInUse.mockReturnValue(false);
-    vi.mocked(gitUtils.isWorktreeDirty).mockReturnValue(false);
-    vi.mocked(gitUtils.removeWorktree).mockReturnValue({ removed: true });
+    vi.mocked(gitUtils.isWorktreeDirtyAsync).mockResolvedValue(false);
+    vi.mocked(gitUtils.removeWorktreeAsync).mockResolvedValue({ removed: true });
 
     const res = await app.request("/api/sessions/s1", { method: "DELETE" });
 
@@ -1731,7 +1804,7 @@ describe("DELETE /api/sessions/:id", () => {
     expect(launcher.removeSession).toHaveBeenCalledWith("s1");
     expect(bridge.closeSession).toHaveBeenCalledWith("s1");
     expect(tracker.removeBySession).toHaveBeenCalledWith("s1");
-    expect(gitUtils.removeWorktree).toHaveBeenCalledWith("/repo", "/wt/feat", {
+    expect(gitUtils.removeWorktreeAsync).toHaveBeenCalledWith("/repo", "/wt/feat", {
       force: false,
       branchToDelete: undefined,
     });
@@ -1747,13 +1820,13 @@ describe("DELETE /api/sessions/:id", () => {
       createdAt: 1000,
     });
     tracker.isWorktreeInUse.mockReturnValue(false);
-    vi.mocked(gitUtils.isWorktreeDirty).mockReturnValue(false);
-    vi.mocked(gitUtils.removeWorktree).mockReturnValue({ removed: true });
+    vi.mocked(gitUtils.isWorktreeDirtyAsync).mockResolvedValue(false);
+    vi.mocked(gitUtils.removeWorktreeAsync).mockResolvedValue({ removed: true });
 
     const res = await app.request("/api/sessions/s1", { method: "DELETE" });
 
     expect(res.status).toBe(200);
-    expect(gitUtils.removeWorktree).toHaveBeenCalledWith("/repo", "/wt/feat", {
+    expect(gitUtils.removeWorktreeAsync).toHaveBeenCalledWith("/repo", "/wt/feat", {
       force: false,
       branchToDelete: "feat-wt-1234",
     });
@@ -1822,6 +1895,52 @@ describe("POST /api/sessions/:id/archive", () => {
     expect(launcher.kill).toHaveBeenCalledWith("s1");
     expect(launcher.setArchived).toHaveBeenCalledWith("s1", true);
     expect(sessionStore.setArchived).toHaveBeenCalledWith("s1", true);
+  });
+
+  it("returns immediately while archived worktree cleanup continues in the background", async () => {
+    tracker.getBySession.mockReturnValue({
+      sessionId: "s1",
+      repoRoot: "/repo",
+      branch: "feat",
+      actualBranch: "feat-wt-1234",
+      worktreePath: "/wt/feat",
+      createdAt: 1000,
+    });
+    tracker.isWorktreeInUse.mockReturnValue(false);
+    vi.mocked(gitUtils.isWorktreeDirtyAsync).mockResolvedValue(false);
+    vi.mocked(gitUtils.archiveBranchAsync).mockResolvedValue(true);
+
+    let resolveCleanup = (_value: { removed: boolean; reason?: string }) => {};
+    vi.mocked(gitUtils.removeWorktreeAsync).mockImplementation(
+      () =>
+        new Promise<{ removed: boolean; reason?: string }>((resolve) => {
+          resolveCleanup = resolve;
+        }),
+    );
+
+    const res = await app.request("/api/sessions/s1/archive", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.worktree).toEqual({ status: "pending", path: "/wt/feat" });
+    expect(launcher.setArchived).toHaveBeenCalledWith("s1", true);
+    expect(launcher.setWorktreeCleanupState).toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({ status: "pending", startedAt: expect.any(Number) }),
+    );
+
+    resolveCleanup({ removed: true });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(launcher.setWorktreeCleanupState).toHaveBeenLastCalledWith(
+      "s1",
+      expect.objectContaining({ status: "done", finishedAt: expect.any(Number) }),
+    );
   });
 
   it("auto-stops and archives reviewer sessions when parent is archived", async () => {
@@ -2128,6 +2247,60 @@ describe("POST /api/sessions/:id/unarchive", () => {
     expect(launcher.relaunch).toHaveBeenCalledWith("s1");
   });
 
+  it("rejects unarchive while archived worktree cleanup is still pending", async () => {
+    const sessionInfo = {
+      sessionId: "s1",
+      state: "exited",
+      cwd: "/repo/wt",
+      createdAt: Date.now(),
+      archived: false,
+      isWorktree: true,
+      repoRoot: "/repo",
+      branch: "feat",
+      actualBranch: "feat-wt-1234",
+    };
+    launcher.getSession.mockImplementation(() => sessionInfo as any);
+    launcher.setArchived.mockImplementation((_id: string, archived: boolean) => {
+      sessionInfo.archived = archived;
+    });
+    launcher.setWorktreeCleanupState.mockImplementation((_id: string, updates: any) => {
+      Object.assign(sessionInfo, {
+        worktreeCleanupStatus: updates.status,
+        worktreeCleanupError: updates.error,
+        worktreeCleanupStartedAt: updates.startedAt,
+        worktreeCleanupFinishedAt: updates.finishedAt,
+      });
+    });
+    tracker.getBySession.mockReturnValue({
+      sessionId: "s1",
+      repoRoot: "/repo",
+      branch: "feat",
+      actualBranch: "feat-wt-1234",
+      worktreePath: "/repo/wt",
+      createdAt: 1000,
+    });
+    tracker.isWorktreeInUse.mockReturnValue(false);
+    vi.mocked(gitUtils.isWorktreeDirtyAsync).mockResolvedValue(false);
+    vi.mocked(gitUtils.archiveBranchAsync).mockResolvedValue(true);
+    vi.mocked(gitUtils.removeWorktreeAsync).mockImplementation(
+      () => new Promise(() => {}) as Promise<{ removed: boolean; reason?: string }>,
+    );
+
+    const archiveRes = await app.request("/api/sessions/s1/archive", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    expect(archiveRes.status).toBe(200);
+
+    const res = await app.request("/api/sessions/s1/unarchive", { method: "POST" });
+
+    expect(res.status).toBe(409);
+    const json = await res.json();
+    expect(json.error).toContain("Worktree cleanup is still running");
+    expect(launcher.relaunch).not.toHaveBeenCalled();
+  });
+
   it("returns 404 when session not found", async () => {
     launcher.getSession.mockReturnValue(undefined);
 
@@ -2270,36 +2443,36 @@ describe("GET /api/traffic/stats", () => {
     const res = await app.request("/api/traffic/stats", { method: "GET" });
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({
-      snapshot: {
-        windowStartedAt: 1000,
-        capturedAt: 2000,
-        totals: { messages: 1, payloadBytes: 10, wireBytes: 10 },
-        buckets: [],
+    const json = await res.json();
+    expect(json.recording).toEqual({
+      available: true,
+      recordingsDir: "/tmp/companion-recordings",
+      globalEnabled: true,
+      maxLines: 500000,
+    });
+    expect(json.snapshot).toMatchObject({
+      totals: { messages: 0, payloadBytes: 0, wireBytes: 0 },
+      buckets: [],
+      sessions: {},
+      historySyncBreakdown: {
+        totals: {
+          requests: 0,
+          frozenDeltaBytes: 0,
+          hotMessagesBytes: 0,
+          frozenDeltaMessages: 0,
+          hotMessagesCount: 0,
+        },
         sessions: {},
-        historySyncBreakdown: {
-          totals: {
-            requests: 0,
-            frozenDeltaBytes: 0,
-            hotMessagesBytes: 0,
-            frozenDeltaMessages: 0,
-            hotMessagesCount: 0,
-          },
-          sessions: {},
-        },
-        toolResultFetches: {
-          totals: { requests: 0, repeatedRequests: 0, payloadBytes: 0, errorRequests: 0 },
-          sessions: {},
-          topRepeated: [],
-        },
       },
-      recording: {
-        available: true,
-        recordingsDir: "/tmp/companion-recordings",
-        globalEnabled: true,
-        maxLines: 500000,
+      toolResultFetches: {
+        totals: { requests: 0, repeatedRequests: 0, payloadBytes: 0, errorRequests: 0 },
+        sessions: {},
+        topRepeated: [],
       },
     });
+    expect(json.snapshot.windowStartedAt).toEqual(expect.any(Number));
+    expect(json.snapshot.capturedAt).toEqual(expect.any(Number));
+    expect(json.snapshot.capturedAt).toBeGreaterThanOrEqual(json.snapshot.windowStartedAt);
   });
 });
 
@@ -2308,32 +2481,31 @@ describe("POST /api/traffic/stats/reset", () => {
     const res = await app.request("/api/traffic/stats/reset", { method: "POST" });
 
     expect(res.status).toBe(200);
-    expect(bridge.resetTrafficStats).toHaveBeenCalledTimes(1);
-    expect(await res.json()).toEqual({
-      ok: true,
-      snapshot: {
-        windowStartedAt: 1000,
-        capturedAt: 2000,
-        totals: { messages: 1, payloadBytes: 10, wireBytes: 10 },
-        buckets: [],
+    const json = await res.json();
+    expect(json.ok).toBe(true);
+    expect(json.snapshot).toMatchObject({
+      totals: { messages: 0, payloadBytes: 0, wireBytes: 0 },
+      buckets: [],
+      sessions: {},
+      historySyncBreakdown: {
+        totals: {
+          requests: 0,
+          frozenDeltaBytes: 0,
+          hotMessagesBytes: 0,
+          frozenDeltaMessages: 0,
+          hotMessagesCount: 0,
+        },
         sessions: {},
-        historySyncBreakdown: {
-          totals: {
-            requests: 0,
-            frozenDeltaBytes: 0,
-            hotMessagesBytes: 0,
-            frozenDeltaMessages: 0,
-            hotMessagesCount: 0,
-          },
-          sessions: {},
-        },
-        toolResultFetches: {
-          totals: { requests: 0, repeatedRequests: 0, payloadBytes: 0, errorRequests: 0 },
-          sessions: {},
-          topRepeated: [],
-        },
+      },
+      toolResultFetches: {
+        totals: { requests: 0, repeatedRequests: 0, payloadBytes: 0, errorRequests: 0 },
+        sessions: {},
+        topRepeated: [],
       },
     });
+    expect(json.snapshot.windowStartedAt).toEqual(expect.any(Number));
+    expect(json.snapshot.capturedAt).toEqual(expect.any(Number));
+    expect(json.snapshot.capturedAt).toBeGreaterThanOrEqual(json.snapshot.windowStartedAt);
   });
 });
 
@@ -2457,6 +2629,39 @@ describe("POST /api/vscode/selection", () => {
         sourceType: "vscode-window",
         sourceLabel: "VS Code A",
       },
+    });
+  });
+
+  it("accepts a cursor-only single-line VSCode location payload", async () => {
+    const res = await app.request("/api/vscode/selection", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        selection: {
+          absolutePath: "/repo/src/app.ts",
+          startLine: 42,
+          endLine: 42,
+          lineCount: 1,
+        },
+        updatedAt: 2500,
+        sourceId: "window-a",
+        sourceType: "vscode-window",
+        sourceLabel: "VS Code A",
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(bridge.updateVsCodeSelectionState).toHaveBeenCalledWith({
+      selection: {
+        absolutePath: "/repo/src/app.ts",
+        startLine: 42,
+        endLine: 42,
+        lineCount: 1,
+      },
+      updatedAt: 2500,
+      sourceId: "window-a",
+      sourceType: "vscode-window",
+      sourceLabel: "VS Code A",
     });
   });
 
@@ -2875,7 +3080,7 @@ describe("POST /api/transcribe", () => {
     expect((uploadedFile as File).name).toBe("recording.mp4");
   });
 
-  it("records pre-stream upload time separately from STT timing", async () => {
+  it("records pre-stream upload time separately from STT timing for raw dictation uploads", async () => {
     vi.mocked(settingsManager.getSettings).mockReturnValue({
       serverName: "",
       serverId: "",
@@ -2913,11 +3118,14 @@ describe("POST /api/transcribe", () => {
       }),
     );
 
-    const form = new FormData();
-    form.append("audio", new File([new Uint8Array([0x52, 0x49, 0x46, 0x46])], "recording.wav", { type: "audio/wav" }));
-    form.append("backend", "openai");
-
-    const res = await app.request("/api/transcribe", { method: "POST", body: form });
+    const res = await app.request("/api/transcribe?backend=openai&mode=dictation", {
+      method: "POST",
+      headers: {
+        "Content-Type": "audio/wav",
+        "X-Companion-Audio-Filename": "recording.wav",
+      },
+      body: new Uint8Array([0x52, 0x49, 0x46, 0x46]),
+    });
 
     expect(res.status).toBe(200);
     await res.text();
@@ -2928,9 +3136,16 @@ describe("POST /api/transcribe", () => {
         rawTranscript: "timed transcript",
       }),
     );
+
+    const [, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    const outboundForm = init.body as FormData;
+    const uploadedFile = outboundForm.get("file");
+    expect(uploadedFile).toBeInstanceOf(File);
+    expect((uploadedFile as File).type).toBe("audio/wav");
+    expect((uploadedFile as File).name).toBe("recording.wav");
   });
 
-  it("emits an early phase ack before stt_complete so uploading can end before STT finishes", async () => {
+  it("emits an early phase ack before stt_complete so the pre-STT state can end before STT finishes", async () => {
     vi.mocked(settingsManager.getSettings).mockReturnValue({
       serverName: "",
       serverId: "",
@@ -3016,8 +3231,10 @@ describe("POST /api/transcribe", () => {
       updatedAt: 123,
     });
     vi.mocked(sessionNames.getName).mockReturnValue("Voice edit session");
-    bridge.getSessionTaskHistory.mockReturnValue([{ title: "Fix reconnect bug" }]);
-    bridge.getMessageHistory.mockReturnValue([{ type: "user_message", content: "Please rewrite this update" }]);
+    bridge.getSession.mockReturnValue({
+      taskHistory: [{ title: "Fix reconnect bug" }],
+      messageHistory: [{ type: "user_message", content: "Please rewrite this update" }],
+    } as any);
 
     vi.mocked(fetch)
       .mockResolvedValueOnce(
@@ -4420,6 +4637,86 @@ describe("GET /api/images/:sessionId/:imageId/thumb", () => {
   });
 });
 
+describe("POST /api/sessions/:id/images/prepare-user-message", () => {
+  it("stores uploaded images and returns canonical refs plus attachment annotation", async () => {
+    const imageStore = {
+      store: vi.fn().mockResolvedValue({ imageId: "img-1", media_type: "image/png" }),
+    } as any;
+
+    const imageApp = new Hono();
+    imageApp.route(
+      "/api",
+      createRoutes(
+        launcher,
+        bridge,
+        sessionStore,
+        tracker,
+        { getInfo: () => null, spawn: () => "", kill: () => {} } as any,
+        undefined,
+        recorder,
+        undefined,
+        timerManager,
+        imageStore,
+      ),
+    );
+
+    const sid = "sess-upload-1";
+    bridge.getOrCreateSession(sid, "codex");
+
+    const res = await imageApp.request(`/api/sessions/${sid}/images/prepare-user-message`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        images: [{ mediaType: "image/png", data: "abc123base64" }],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(imageStore.store).toHaveBeenCalledWith(sid, "abc123base64", "image/png");
+    const json = await res.json();
+    expect(json.imageRefs).toEqual([{ imageId: "img-1", media_type: "image/png" }]);
+    expect(json.paths).toEqual([join(homedir(), ".companion", "images", sid, "img-1.orig.png")]);
+    expect(json.attachmentAnnotation).toContain(
+      `Attachment 1: ${join(homedir(), ".companion", "images", sid, "img-1.orig.png")}`,
+    );
+  });
+
+  it("deletes a prepared image when the composer discards it before send", async () => {
+    const imageStore = {
+      store: vi.fn(),
+      removeImage: vi.fn().mockResolvedValue(undefined),
+    } as any;
+
+    const imageApp = new Hono();
+    imageApp.route(
+      "/api",
+      createRoutes(
+        launcher,
+        bridge,
+        sessionStore,
+        tracker,
+        { getInfo: () => null, spawn: () => "", kill: () => {} } as any,
+        undefined,
+        recorder,
+        undefined,
+        timerManager,
+        imageStore,
+      ),
+    );
+
+    const sid = "sess-upload-2";
+    bridge.getOrCreateSession(sid, "codex");
+
+    const res = await imageApp.request(`/api/sessions/${sid}/images/img-stale`, {
+      method: "DELETE",
+    });
+
+    expect(res.status).toBe(200);
+    expect(imageStore.removeImage).toHaveBeenCalledWith(sid, "img-stale");
+    await expect(res.json()).resolves.toEqual({ ok: true });
+  });
+});
+
 // ─── Git ─────────────────────────────────────────────────────────────────────
 
 describe("GET /api/git/repo-info", () => {
@@ -5385,7 +5682,9 @@ describe("buildOrchestratorSystemPrompt", () => {
     expect(prompt).toContain("takode-orchestration");
     expect(prompt).toContain("quest");
     expect(prompt).toContain("wait for the user's instructions");
-    expect(prompt).toContain("Use the orchestration instructions already loaded in this session as your source of truth");
+    expect(prompt).toContain(
+      "Use the orchestration instructions already loaded in this session as your source of truth",
+    );
     expect(prompt).toContain("repo-local docs still mention deprecated leader reply tags");
     // These were moved to system prompt and should NOT appear in user message
     expect(prompt).not.toContain("Delegation principle");
@@ -5423,7 +5722,10 @@ describe("POST /api/sessions/create permission mode resolution", () => {
 
     expect(res.status).toBe(200);
     expect(launcher.launch).toHaveBeenCalledWith(expect.objectContaining({ permissionMode: "plan" }));
-    expect(bridge.setInitialAskPermission).toHaveBeenCalledWith("session-1", true, "plan");
+    expect(bridge.applyInitialSessionState).toHaveBeenCalledWith(
+      "session-1",
+      expect.objectContaining({ cwd: "/test", askPermission: true, uiMode: "plan" }),
+    );
   });
 
   it("launches Claude session with 'bypassPermissions' when askPermission is false", async () => {
@@ -5437,7 +5739,10 @@ describe("POST /api/sessions/create permission mode resolution", () => {
 
     expect(res.status).toBe(200);
     expect(launcher.launch).toHaveBeenCalledWith(expect.objectContaining({ permissionMode: "bypassPermissions" }));
-    expect(bridge.setInitialAskPermission).toHaveBeenCalledWith("session-1", false, "agent");
+    expect(bridge.applyInitialSessionState).toHaveBeenCalledWith(
+      "session-1",
+      expect.objectContaining({ cwd: "/test", askPermission: false, uiMode: "agent" }),
+    );
   });
 
   it("defaults to 'plan' permission mode when askPermission is omitted", async () => {
@@ -5461,7 +5766,10 @@ describe("POST /api/sessions/create permission mode resolution", () => {
 
     expect(res.status).toBe(200);
     expect(launcher.launch).toHaveBeenCalledWith(expect.objectContaining({ permissionMode: "suggest" }));
-    expect(bridge.setInitialAskPermission).toHaveBeenCalledWith("session-1", true, "agent");
+    expect(bridge.applyInitialSessionState).toHaveBeenCalledWith(
+      "session-1",
+      expect.objectContaining({ cwd: "/test", askPermission: true, uiMode: "agent" }),
+    );
   });
 
   it("uses 'bypassPermissions' permission mode for codex sessions when askPermission is false", async () => {
@@ -5473,7 +5781,10 @@ describe("POST /api/sessions/create permission mode resolution", () => {
 
     expect(res.status).toBe(200);
     expect(launcher.launch).toHaveBeenCalledWith(expect.objectContaining({ permissionMode: "bypassPermissions" }));
-    expect(bridge.setInitialAskPermission).toHaveBeenCalledWith("session-1", false, "agent");
+    expect(bridge.applyInitialSessionState).toHaveBeenCalledWith(
+      "session-1",
+      expect.objectContaining({ cwd: "/test", askPermission: false, uiMode: "agent" }),
+    );
   });
 
   it("forwards explicit codex permissionMode to launcher", async () => {
@@ -5494,7 +5805,10 @@ describe("POST /api/sessions/create permission mode resolution", () => {
         permissionMode: "bypassPermissions",
       }),
     );
-    expect(bridge.setInitialAskPermission).toHaveBeenCalledWith("session-1", false, "agent");
+    expect(bridge.applyInitialSessionState).toHaveBeenCalledWith(
+      "session-1",
+      expect.objectContaining({ cwd: "/test", askPermission: false, uiMode: "agent" }),
+    );
   });
 
   it("keeps codex plan mode when askPermission is false", async () => {
@@ -5511,7 +5825,10 @@ describe("POST /api/sessions/create permission mode resolution", () => {
         permissionMode: "plan",
       }),
     );
-    expect(bridge.setInitialAskPermission).toHaveBeenCalledWith("session-1", false, "plan");
+    expect(bridge.applyInitialSessionState).toHaveBeenCalledWith(
+      "session-1",
+      expect.objectContaining({ cwd: "/test", askPermission: false, uiMode: "plan" }),
+    );
   });
 });
 
@@ -5539,10 +5856,14 @@ describe("GET /api/sessions/:id/usage-limits", () => {
   });
 
   it("returns mapped Codex rate limits for a codex session", async () => {
-    bridge.getSession.mockReturnValue({ backendType: "codex" });
-    bridge.getCodexRateLimits.mockReturnValue({
-      primary: { usedPercent: 25, windowDurationMins: 300, resetsAt: 1730947200 },
-      secondary: { usedPercent: 10, windowDurationMins: 10080, resetsAt: 1731552000 },
+    bridge.getSession.mockReturnValue({
+      backendType: "codex",
+      codexAdapter: {
+        getRateLimits: () => ({
+          primary: { usedPercent: 25, windowDurationMins: 300, resetsAt: 1730947200 },
+          secondary: { usedPercent: 10, windowDurationMins: 10080, resetsAt: 1731552000 },
+        }),
+      },
     });
 
     const res = await app.request("/api/sessions/s1/usage-limits", { method: "GET" });
@@ -5562,8 +5883,7 @@ describe("GET /api/sessions/:id/usage-limits", () => {
   });
 
   it("returns empty limits when codex session has no rate limits yet", async () => {
-    bridge.getSession.mockReturnValue({ backendType: "codex" });
-    bridge.getCodexRateLimits.mockReturnValue(null);
+    bridge.getSession.mockReturnValue({ backendType: "codex", codexAdapter: { getRateLimits: () => null } });
 
     const res = await app.request("/api/sessions/s1/usage-limits", { method: "GET" });
 
@@ -5573,10 +5893,14 @@ describe("GET /api/sessions/:id/usage-limits", () => {
   });
 
   it("handles codex rate limits with null secondary", async () => {
-    bridge.getSession.mockReturnValue({ backendType: "codex" });
-    bridge.getCodexRateLimits.mockReturnValue({
-      primary: { usedPercent: 50, windowDurationMins: 300, resetsAt: 0 },
-      secondary: null,
+    bridge.getSession.mockReturnValue({
+      backendType: "codex",
+      codexAdapter: {
+        getRateLimits: () => ({
+          primary: { usedPercent: 50, windowDurationMins: 300, resetsAt: 0 },
+          secondary: null,
+        }),
+      },
     });
 
     const res = await app.request("/api/sessions/s1/usage-limits", { method: "GET" });
@@ -5589,10 +5913,14 @@ describe("GET /api/sessions/:id/usage-limits", () => {
 
   it("accepts codex reset timestamps in milliseconds", async () => {
     const resetMs = 1730947200 * 1000;
-    bridge.getSession.mockReturnValue({ backendType: "codex" });
-    bridge.getCodexRateLimits.mockReturnValue({
-      primary: { usedPercent: 25, windowDurationMins: 300, resetsAt: resetMs },
-      secondary: null,
+    bridge.getSession.mockReturnValue({
+      backendType: "codex",
+      codexAdapter: {
+        getRateLimits: () => ({
+          primary: { usedPercent: 25, windowDurationMins: 300, resetsAt: resetMs },
+          secondary: null,
+        }),
+      },
     });
 
     const res = await app.request("/api/sessions/s1/usage-limits", { method: "GET" });
@@ -5624,14 +5952,14 @@ describe("GET /api/sessions/:id/usage-limits", () => {
 
 describe("POST /api/sessions/:id/skills/refresh", () => {
   it("refreshes Codex skills for a codex session", async () => {
-    bridge.getSession.mockReturnValue({ backendType: "codex" });
-    bridge.refreshCodexSkills.mockResolvedValue({ ok: true, skills: ["review", "fix"] });
+    const refreshSkills = vi.fn(async () => ["review", "fix"]);
+    bridge.getSession.mockReturnValue({ backendType: "codex", codexAdapter: { refreshSkills } });
 
     const res = await app.request("/api/sessions/s1/skills/refresh", { method: "POST" });
 
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toEqual({ ok: true, skills: ["review", "fix"] });
-    expect(bridge.refreshCodexSkills).toHaveBeenCalledWith("s1", true);
+    expect(refreshSkills).toHaveBeenCalledWith(true);
   });
 
   it("rejects skill refresh for non-codex sessions", async () => {
@@ -5772,6 +6100,98 @@ describe("POST /api/sessions/create-stream", () => {
     expect(steps).toContain("launching_cli");
     // Should NOT have fetch/checkout/pull since it uses worktree
     expect(steps).not.toContain("fetching_git");
+  });
+
+  it("keeps create-stream progress alive during slow worktree setup", async () => {
+    // Protects the original q-362 failure mode: very large repos can make
+    // worktree creation stall long enough that the UI looks dead or failed.
+    vi.useFakeTimers();
+    try {
+      vi.mocked(gitUtils.getRepoInfoAsync).mockResolvedValueOnce({
+        repoRoot: "/test",
+        currentBranch: "main",
+        defaultBranch: "main",
+      } as any);
+
+      let resolveWorktree = (_value: { worktreePath: string; actualBranch: string; created?: boolean }) => {};
+      vi.mocked(gitUtils.ensureWorktreeAsync).mockImplementationOnce(
+        () =>
+          new Promise<any>((resolve) => {
+            resolveWorktree = resolve;
+          }) as Promise<any>,
+      );
+
+      const response = await app.request("/api/sessions/create-stream", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cwd: "/test", branch: "feat/auth", useWorktree: true }),
+      });
+      const eventsPromise = parseSSE(response);
+
+      await vi.advanceTimersByTimeAsync(10_500);
+      resolveWorktree({ worktreePath: "/test-wt-keepalive", actualBranch: "feat/auth" });
+      await vi.runAllTimersAsync();
+
+      const events = await eventsPromise;
+      const launchProgress = events
+        .filter((e) => e.event === "progress")
+        .map((e) => JSON.parse(e.data))
+        .filter((event) => event.step === "creating_worktree");
+      const creatingWorktreeEvents = launchProgress.filter((event) => event.status === "in_progress");
+
+      expect(creatingWorktreeEvents.length).toBeGreaterThan(1);
+      expect(creatingWorktreeEvents.at(-1)?.detail).toContain("Still preparing feat/auth");
+      expect(launchProgress.at(-1)?.status).toBe("done");
+      expect(events.find((e) => e.event === "done")).toBeDefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps create-stream progress alive during slow launch and does not regress launching_cli back to in-progress", async () => {
+    // Protects the second long-running path added in the fix: launch can also
+    // be slow, and a late heartbeat must not overwrite the final done state.
+    vi.useFakeTimers();
+    try {
+      let resolveLaunch = (_session: { sessionId: string; state: string; cwd: string; createdAt: number }) => {};
+      launcher.launch.mockImplementationOnce(
+        () =>
+          new Promise<any>((resolve) => {
+            resolveLaunch = resolve;
+          }),
+      );
+
+      const response = await app.request("/api/sessions/create-stream", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cwd: "/test" }),
+      });
+      const eventsPromise = parseSSE(response);
+
+      await vi.advanceTimersByTimeAsync(10_500);
+      resolveLaunch({
+        sessionId: "session-1",
+        state: "starting",
+        cwd: "/test",
+        createdAt: Date.now(),
+      });
+      await vi.runAllTimersAsync();
+
+      const events = await eventsPromise;
+      const launchingCliProgress = events
+        .filter((e) => e.event === "progress")
+        .map((e) => JSON.parse(e.data))
+        .filter((event) => event.step === "launching_cli");
+
+      expect(launchingCliProgress.filter((event) => event.status === "in_progress").length).toBeGreaterThan(1);
+      expect(launchingCliProgress.at(-2)?.detail).toContain("Still launching CLI");
+      expect(launchingCliProgress.at(-1)?.status).toBe("done");
+      expect(
+        launchingCliProgress.slice(launchingCliProgress.findIndex((event) => event.status === "done") + 1),
+      ).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("uses current branch for worktree create-stream when branch is omitted", async () => {
@@ -6119,6 +6539,7 @@ describe("POST /api/sessions/:id/revert", () => {
     launcher.getSession.mockReturnValue(sessionInfo);
 
     const mockSession: any = {
+      backendType: sessionInfo.backendType,
       messageHistory: [
         { type: "user_message", id: "user-msg-1", content: "Hello" },
         {
@@ -6192,6 +6613,49 @@ describe("POST /api/sessions/:id/revert", () => {
       type: "message_history",
       messages: mockSession.messageHistory,
     });
+  });
+
+  it("clears stale Claude replay state so reverted input cannot be resent after relaunch", async () => {
+    const { mockSession } = setupRevertSession();
+    mockSession.pendingMessages = [JSON.stringify({ type: "user_message", content: "stale queued follow-up" })];
+    mockSession.lastOutboundUserNdjson = JSON.stringify({ type: "user_message", content: "stale in-flight prompt" });
+    mockSession.assistantAccumulator = new Map([["asst-msg-2", { contentBlockIds: new Set(["tool-1"]) }]]);
+    mockSession.userMessageIdsThisTurn = [2];
+    mockSession.queuedTurnStarts = 1;
+    mockSession.queuedTurnReasons = ["follow_up"];
+    mockSession.queuedTurnUserMessageIds = [[2]];
+    mockSession.queuedTurnInterruptSources = ["user"];
+    mockSession.interruptedDuringTurn = true;
+    mockSession.interruptSourceDuringTurn = "user";
+    mockSession.isGenerating = true;
+    mockSession.generationStartedAt = 123;
+    mockSession.disconnectWasGenerating = true;
+    mockSession.toolStartTimes = new Map([["tool-1", 123]]);
+    mockSession.toolProgressOutput = new Map([["tool-1", "running"]]);
+
+    const res = await app.request("/api/sessions/session-1/revert", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messageId: "user-msg-2" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockSession.pendingMessages).toEqual([]);
+    expect(mockSession.lastOutboundUserNdjson).toBeNull();
+    expect(mockSession.assistantAccumulator.size).toBe(0);
+    expect(mockSession.userMessageIdsThisTurn).toEqual([]);
+    expect(mockSession.queuedTurnStarts).toBe(0);
+    expect(mockSession.queuedTurnReasons).toEqual([]);
+    expect(mockSession.queuedTurnUserMessageIds).toEqual([]);
+    expect(mockSession.queuedTurnInterruptSources).toEqual([]);
+    expect(mockSession.interruptedDuringTurn).toBe(false);
+    expect(mockSession.interruptSourceDuringTurn).toBeNull();
+    expect(mockSession.isGenerating).toBe(false);
+    expect(mockSession.generationStartedAt).toBeNull();
+    expect(mockSession.disconnectWasGenerating).toBe(false);
+    expect(mockSession.toolStartTimes.size).toBe(0);
+    expect(mockSession.toolProgressOutput.size).toBe(0);
+    expect(mockSession.dropReplayHistoryAfterRevert).toBe(true);
   });
 
   // Reverting to the first user message (no preceding assistant) should
@@ -6626,6 +7090,10 @@ describe("POST /api/sessions/:id/revert", () => {
 
 describe("PATCH /api/quests/:questId", () => {
   it("syncs claimed session name when in-progress quest title is updated", async () => {
+    ensureBridgeSession(bridge, "session-1", {
+      state: { claimedQuestId: "q-1", claimedQuestTitle: "Old title", claimedQuestStatus: "in_progress" },
+      taskHistory: [{ source: "quest", questId: "q-1", title: "Old title" }],
+    });
     vi.spyOn(questStore, "patchQuest").mockReturnValueOnce({
       id: "q-1-v2",
       questId: "q-1",
@@ -6635,7 +7103,6 @@ describe("PATCH /api/quests/:questId", () => {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     } as any);
-
     const res = await app.request("/api/quests/q-1", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -6643,21 +7110,28 @@ describe("PATCH /api/quests/:questId", () => {
     });
 
     expect(res.status).toBe(200);
-    // setSessionClaimedQuest now handles broadcastNameUpdate source:quest and
-    // persisting the name via its onSessionNamedByQuest callback internally,
-    // so we only verify it was called with the right args.
-    expect(bridge.setSessionClaimedQuest).toHaveBeenCalledWith("session-1", {
-      id: "q-1",
-      title: "Updated quest title",
-      status: "in_progress",
+    expect(bridge._sessions["session-1"].state).toMatchObject({
+      claimedQuestId: "q-1",
+      claimedQuestTitle: "Updated quest title",
+      claimedQuestStatus: "in_progress",
     });
-    expect(bridge.updateQuestTaskEntries).toHaveBeenCalledWith("session-1", "q-1", "Updated quest title");
+    expect(bridge.broadcastToSession).toHaveBeenCalledWith(
+      "session-1",
+      expect.objectContaining({
+        type: "session_task_history",
+        tasks: expect.arrayContaining([expect.objectContaining({ questId: "q-1", title: "Updated quest title" })]),
+      }),
+    );
+    expect(bridge.persistSessionById).toHaveBeenCalledWith("session-1");
     expect(bridge.broadcastGlobal).toHaveBeenCalledWith(expect.objectContaining({ type: "quest_list_updated" }));
   });
 });
 
 describe("POST /api/quests/:questId/transition", () => {
   it("clears claimed quest from the pre-transition active owner when moved to done", async () => {
+    ensureBridgeSession(bridge, "session-1", {
+      state: { claimedQuestId: "q-1", claimedQuestTitle: "Quest", claimedQuestStatus: "needs_verification" },
+    });
     vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
       id: "q-1-v2",
       questId: "q-1",
@@ -6688,10 +7162,15 @@ describe("POST /api/quests/:questId/transition", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(bridge.setSessionClaimedQuest).toHaveBeenCalledWith("session-1", null);
+    expect(bridge._sessions["session-1"].state).toMatchObject({
+      claimedQuestId: undefined,
+      claimedQuestTitle: undefined,
+      claimedQuestStatus: undefined,
+    });
   });
 
   it("broadcasts claimed quest to the target active session for in_progress transitions", async () => {
+    ensureBridgeSession(bridge, "session-2");
     vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
       id: "q-1-v1",
       questId: "q-1",
@@ -6718,10 +7197,10 @@ describe("POST /api/quests/:questId/transition", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(bridge.setSessionClaimedQuest).toHaveBeenCalledWith("session-2", {
-      id: "q-1",
-      title: "Quest",
-      status: "in_progress",
+    expect(bridge._sessions["session-2"].state).toMatchObject({
+      claimedQuestId: "q-1",
+      claimedQuestTitle: "Quest",
+      claimedQuestStatus: "in_progress",
     });
   });
 });
@@ -6964,6 +7443,10 @@ describe("POST /api/quests/:questId/claim", () => {
     } as any);
 
     bridge.getSession.mockReturnValue({
+      id: "session-2",
+      state: {},
+      browserSockets: new Set(),
+      taskHistory: [],
       messageHistory: [{ type: "user_message", id: "u-1", content: "claim", timestamp: Date.now() }],
     } as any);
 
@@ -6974,15 +7457,84 @@ describe("POST /api/quests/:questId/claim", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(bridge.addTaskEntry).toHaveBeenCalledWith(
+    expect(bridge.broadcastToSession).toHaveBeenCalledWith(
       "session-2",
+      expect.objectContaining({
+        type: "session_task_history",
+        tasks: expect.arrayContaining([
+          expect.objectContaining({
+            title: "Quest",
+            source: "quest",
+            questId: "q-1",
+            triggerMessageId: "u-1",
+          }),
+        ]),
+      }),
+    );
+    expect(bridge.persistSessionById).toHaveBeenCalledWith("session-2");
+  });
+
+  it("does not duplicate quest task history on repeated same-session claims", async () => {
+    // Regression: a same-session re-claim is idempotent at the quest-store layer
+    // and must not append another identical quest pill to session task history.
+    vi.spyOn(questStore, "claimQuest").mockResolvedValue({
+      id: "q-1-v3",
+      questId: "q-1",
+      title: "Quest",
+      status: "in_progress",
+      sessionId: "session-2",
+      createdAt: Date.now(),
+      claimedAt: Date.now(),
+      description: "Ready",
+    } as any);
+
+    launcher.getSession.mockReturnValue({
+      sessionId: "session-2",
+      state: "running",
+      cwd: "/test",
+      archived: false,
+    } as any);
+
+    const trackedSession = {
+      id: "session-2",
+      state: {},
+      browserSockets: new Set(),
+      taskHistory: [],
+      messageHistory: [{ type: "user_message", id: "u-1", content: "claim", timestamp: Date.now() }],
+    } as any;
+    bridge.getSession.mockReturnValue(trackedSession);
+
+    const first = await app.request("/api/quests/q-1/claim", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId: "session-2" }),
+    });
+    expect(first.status).toBe(200);
+
+    const second = await app.request("/api/quests/q-1/claim", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId: "session-2" }),
+    });
+    expect(second.status).toBe(200);
+
+    expect(trackedSession.taskHistory).toEqual([
       expect.objectContaining({
         title: "Quest",
         source: "quest",
         questId: "q-1",
         triggerMessageId: "u-1",
       }),
-    );
+    ]);
+    expect(
+      bridge.broadcastToSession.mock.calls.filter(
+        ([sid, msg]: [string, { type?: string; tasks?: unknown[] }]) =>
+          sid === "session-2" &&
+          msg.type === "session_task_history" &&
+          Array.isArray(msg.tasks) &&
+          msg.tasks.length === 1,
+      ),
+    ).toHaveLength(1);
   });
 });
 
@@ -7549,6 +8101,9 @@ describe("DELETE /api/quests/:questId/feedback/:index", () => {
 
 describe("POST /api/quests/:questId/done", () => {
   it("clears claimed quest from the pre-transition active owner", async () => {
+    ensureBridgeSession(bridge, "session-1", {
+      state: { claimedQuestId: "q-1", claimedQuestTitle: "Quest", claimedQuestStatus: "needs_verification" },
+    });
     vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
       id: "q-1-v2",
       questId: "q-1",
@@ -7580,12 +8135,19 @@ describe("POST /api/quests/:questId/done", () => {
 
     expect(res.status).toBe(200);
     expect(questStore.transitionQuest).toHaveBeenCalledWith("q-1", expect.objectContaining({ status: "done" }));
-    expect(bridge.setSessionClaimedQuest).toHaveBeenCalledWith("session-1", null);
+    expect(bridge._sessions["session-1"].state).toMatchObject({
+      claimedQuestId: undefined,
+      claimedQuestTitle: undefined,
+      claimedQuestStatus: undefined,
+    });
   });
 });
 
 describe("POST /api/quests/:questId/cancel", () => {
   it("clears claimed quest from the pre-transition active owner", async () => {
+    ensureBridgeSession(bridge, "session-1", {
+      state: { claimedQuestId: "q-1", claimedQuestTitle: "Quest", claimedQuestStatus: "in_progress" },
+    });
     vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
       id: "q-1-v2",
       questId: "q-1",
@@ -7616,7 +8178,11 @@ describe("POST /api/quests/:questId/cancel", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(bridge.setSessionClaimedQuest).toHaveBeenCalledWith("session-1", null);
+    expect(bridge._sessions["session-1"].state).toMatchObject({
+      claimedQuestId: undefined,
+      claimedQuestTitle: undefined,
+      claimedQuestStatus: undefined,
+    });
   });
 });
 
@@ -7728,6 +8294,27 @@ describe("Takode server-authoritative auth", () => {
     launcher.verifySessionAuthToken.mockImplementation(
       (id: string, token: string) => id === "orch-1" && token === "tok-1",
     );
+    bridge._sessions = Object.fromEntries(
+      Object.keys(sessions).map((sessionId) => [
+        sessionId,
+        {
+          id: sessionId,
+          state: {},
+          board: new Map(),
+          completedBoard: new Map(),
+          boardDispatchStates: new Map(),
+          messageHistory: [],
+          notifications: [],
+          pendingPermissions: new Map(),
+          taskHistory: [],
+          keywords: [],
+          lastReadAt: 0,
+          attentionReason: null,
+          isGenerating: false,
+        },
+      ]),
+    );
+    bridge.getSession.mockImplementation((sessionId: string) => bridge._sessions[sessionId] ?? null);
     return sessions;
   }
 
@@ -7781,6 +8368,13 @@ describe("Takode server-authoritative auth", () => {
         total_lines_added: 777,
         total_lines_removed: 55,
       },
+      pendingPermissions: new Map(),
+      messageHistory: [],
+      notifications: [],
+      taskHistory: [],
+      keywords: [],
+      lastReadAt: 0,
+      attentionReason: null,
       isGenerating: false,
     };
     bridge.getSession.mockImplementation((id: string) => (id === "worker-1" ? bridgeSession : null));
@@ -7813,6 +8407,13 @@ describe("Takode server-authoritative auth", () => {
         total_lines_added: 777,
         total_lines_removed: 55,
       },
+      pendingPermissions: new Map(),
+      messageHistory: [],
+      notifications: [],
+      taskHistory: [],
+      keywords: [],
+      lastReadAt: 0,
+      attentionReason: null,
       isGenerating: false,
     };
     bridge.getSession.mockImplementation((id: string) => (id === "worker-1" ? bridgeSession : null));
@@ -8010,8 +8611,7 @@ describe("Takode server-authoritative auth", () => {
     expect(res.status).toBe(400);
     const json = await res.json();
     expect(json.error).toBe("summary is required");
-    // notifyUser should not be called when summary is missing
-    expect(bridge.notifyUser).not.toHaveBeenCalled();
+    expect(bridge._sessions["orch-1"].notifications).toEqual([]);
   });
 
   it("passes summary string through to notifyUser", async () => {
@@ -8024,7 +8624,15 @@ describe("Takode server-authoritative auth", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(bridge.notifyUser).toHaveBeenCalledWith("orch-1", "needs-input", "Need decision on auth approach");
+    expect(await res.json()).toMatchObject({
+      ok: true,
+      category: "needs-input",
+      notificationId: 1,
+      rawNotificationId: "n-1",
+    });
+    expect(bridge._sessions["orch-1"].notifications).toMatchObject([
+      { category: "needs-input", summary: "Need decision on auth approach", done: false },
+    ]);
   });
 
   it("rejects whitespace-only summary", async () => {
@@ -8039,7 +8647,7 @@ describe("Takode server-authoritative auth", () => {
     expect(res.status).toBe(400);
     const json = await res.json();
     expect(json.error).toBe("summary is required");
-    expect(bridge.notifyUser).not.toHaveBeenCalled();
+    expect(bridge._sessions["orch-1"].notifications).toEqual([]);
   });
 
   it("rejects notify with invalid category", async () => {
@@ -8067,24 +8675,103 @@ describe("Takode server-authoritative auth", () => {
     expect(res.status).toBe(403);
   });
 
-  // ── Notification Inbox ────────────────────────────────────────────
-
-  // Tests that GET /sessions/:id/notifications returns the notification list
   it("returns notification list via GET /sessions/:id/notifications", async () => {
     setupTakodeSessions();
     const mockNotifs = [{ id: "n-1", category: "review", timestamp: 1000, messageId: "mock-msg-5", done: false }];
-    bridge.getNotifications.mockReturnValue(mockNotifs);
+    bridge._sessions["orch-1"].notifications = mockNotifs;
 
     const res = await app.request("/api/sessions/orch-1/notifications");
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json).toEqual(mockNotifs);
-    expect(bridge.getNotifications).toHaveBeenCalledWith("orch-1");
   });
 
-  // Tests that POST .../notifications/:notifId/done toggles done state
+  it("lists only unresolved same-session needs-input notifications with resolved count", async () => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].notifications = [
+      { id: "n-1", category: "needs-input", summary: "Still open", timestamp: 1000, messageId: "m-1", done: false },
+      { id: "n-2", category: "needs-input", summary: "Already handled", timestamp: 1001, messageId: "m-2", done: true },
+      { id: "n-3", category: "review", summary: "Ignore review", timestamp: 1002, messageId: "m-3", done: false },
+    ];
+
+    const res = await app.request("/api/sessions/orch-1/notifications/needs-input/self", {
+      headers: authHeaders("orch-1", "tok-1"),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      notifications: [
+        {
+          notificationId: 1,
+          rawNotificationId: "n-1",
+          summary: "Still open",
+          timestamp: 1000,
+          messageId: "m-1",
+        },
+      ],
+      resolvedCount: 1,
+    });
+  });
+
+  it("rejects inspecting another session's self notifications", async () => {
+    setupTakodeSessions();
+
+    const res = await app.request("/api/sessions/worker-1/notifications/needs-input/self", {
+      headers: authHeaders("orch-1", "tok-1"),
+    });
+
+    expect(res.status).toBe(403);
+  });
+
+  it("resolves a same-session needs-input notification by numeric id", async () => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].notifications = [
+      { id: "n-4", category: "needs-input", summary: "Resolve me", timestamp: 1000, messageId: null, done: false },
+    ];
+
+    const res = await app.request("/api/sessions/orch-1/notifications/needs-input/4/resolve", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({}),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      ok: true,
+      notificationId: 4,
+      rawNotificationId: "n-4",
+      changed: true,
+    });
+    expect(bridge._sessions["orch-1"].notifications[0].done).toBe(true);
+  });
+
+  it("treats resolving an already-resolved notification as a no-op", async () => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].notifications = [
+      { id: "n-5", category: "needs-input", summary: "Already done", timestamp: 1000, messageId: null, done: true },
+    ];
+
+    const res = await app.request("/api/sessions/orch-1/notifications/needs-input/5/resolve", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({}),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      ok: true,
+      notificationId: 5,
+      rawNotificationId: "n-5",
+      changed: false,
+    });
+    expect(bridge._sessions["orch-1"].notifications[0].done).toBe(true);
+  });
+
   it("marks notification as done via POST", async () => {
     setupTakodeSessions();
+    bridge._sessions["orch-1"].notifications = [
+      { id: "n-1", category: "review", summary: "Done", timestamp: 1000, messageId: null, done: false },
+    ];
 
     const res = await app.request("/api/sessions/orch-1/notifications/n-1/done", {
       method: "POST",
@@ -8093,12 +8780,14 @@ describe("Takode server-authoritative auth", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(bridge.markNotificationDone).toHaveBeenCalledWith("orch-1", "n-1", true);
+    expect(bridge._sessions["orch-1"].notifications[0].done).toBe(true);
   });
 
-  // Tests that mark-done defaults to true when body.done is omitted
   it("mark-done defaults to true when done field is omitted", async () => {
     setupTakodeSessions();
+    bridge._sessions["orch-1"].notifications = [
+      { id: "n-1", category: "review", summary: "Done", timestamp: 1000, messageId: null, done: false },
+    ];
 
     const res = await app.request("/api/sessions/orch-1/notifications/n-1/done", {
       method: "POST",
@@ -8107,13 +8796,14 @@ describe("Takode server-authoritative auth", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(bridge.markNotificationDone).toHaveBeenCalledWith("orch-1", "n-1", true);
+    expect(bridge._sessions["orch-1"].notifications[0].done).toBe(true);
   });
 
-  // Tests that mark-done returns 404 for unknown notification
   it("returns 404 for unknown notification ID", async () => {
     setupTakodeSessions();
-    bridge.markNotificationDone.mockReturnValue(false);
+    bridge._sessions["orch-1"].notifications = [
+      { id: "n-1", category: "review", summary: "Done", timestamp: 1000, messageId: null, done: false },
+    ];
 
     const res = await app.request("/api/sessions/orch-1/notifications/n-999/done", {
       method: "POST",
@@ -8126,7 +8816,11 @@ describe("Takode server-authoritative auth", () => {
 
   it("marks all notifications done via POST", async () => {
     setupTakodeSessions();
-    bridge.markAllNotificationsDone.mockReturnValue(3);
+    bridge._sessions["orch-1"].notifications = [
+      { id: "n-1", category: "review", summary: "One", timestamp: 1000, messageId: null, done: false },
+      { id: "n-2", category: "review", summary: "Two", timestamp: 1001, messageId: null, done: false },
+      { id: "n-3", category: "needs-input", summary: "Three", timestamp: 1002, messageId: null, done: false },
+    ];
 
     const res = await app.request("/api/sessions/orch-1/notifications/done-all", {
       method: "POST",
@@ -8136,7 +8830,7 @@ describe("Takode server-authoritative auth", () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, count: 3 });
-    expect(bridge.markAllNotificationsDone).toHaveBeenCalledWith("orch-1", true);
+    expect(bridge._sessions["orch-1"].notifications.every((notif: any) => notif.done)).toBe(true);
   });
 
   it("includes active needs-input notifications in takode pending output", async () => {
@@ -8144,7 +8838,14 @@ describe("Takode server-authoritative auth", () => {
     bridge.getSession.mockReturnValue({
       pendingPermissions: new Map(),
       notifications: [
-        { id: "n-1", category: "needs-input", summary: "Need decision on rollout", timestamp: 1000, messageId: "asst-1", done: false },
+        {
+          id: "n-1",
+          category: "needs-input",
+          summary: "Need decision on rollout",
+          timestamp: 1000,
+          messageId: "asst-1",
+          done: false,
+        },
       ],
       messageHistory: [{ type: "assistant", message: { id: "asst-1" } }],
     });
@@ -8175,7 +8876,14 @@ describe("Takode server-authoritative auth", () => {
     bridge.getSession.mockReturnValue({
       pendingPermissions: new Map(),
       notifications: [
-        { id: "n-1", category: "needs-input", summary: "Need decision on rollout", timestamp: 1000, messageId: "asst-1", done: false },
+        {
+          id: "n-1",
+          category: "needs-input",
+          summary: "Need decision on rollout",
+          timestamp: 1000,
+          messageId: "asst-1",
+          done: false,
+        },
       ],
       messageHistory: [{ type: "assistant", message: { id: "asst-1" } }],
     });
@@ -8199,7 +8907,7 @@ describe("Takode server-authoritative auth", () => {
       sessionId: "orch-1",
       sessionLabel: "#7",
     });
-    expect(bridge.markNotificationDone).toHaveBeenCalledWith("worker-1", "n-1", true);
+    expect(bridge.getSession("worker-1")?.notifications[0]?.done).toBe(true);
   });
 
   it("requires an explicit selector when multiple pending prompts exist", async () => {
@@ -8212,12 +8920,21 @@ describe("Takode server-authoritative auth", () => {
             request_id: "req-1",
             tool_name: "AskUserQuestion",
             timestamp: 1000,
-            input: { questions: [{ question: "Which rollout?", options: [{ label: "Staged" }, { label: "Immediate" }] }] },
+            input: {
+              questions: [{ question: "Which rollout?", options: [{ label: "Staged" }, { label: "Immediate" }] }],
+            },
           },
         ],
       ]),
       notifications: [
-        { id: "n-1", category: "needs-input", summary: "Need decision on logging", timestamp: 1100, messageId: "asst-2", done: false },
+        {
+          id: "n-1",
+          category: "needs-input",
+          summary: "Need decision on logging",
+          timestamp: 1100,
+          messageId: "asst-2",
+          done: false,
+        },
       ],
       messageHistory: [
         { type: "permission_request", request: { request_id: "req-1" } },
@@ -8249,7 +8966,9 @@ describe("Takode server-authoritative auth", () => {
             request_id: "req-older",
             tool_name: "AskUserQuestion",
             timestamp: 1000,
-            input: { questions: [{ question: "Which rollout?", options: [{ label: "Staged" }, { label: "Immediate" }] }] },
+            input: {
+              questions: [{ question: "Which rollout?", options: [{ label: "Staged" }, { label: "Immediate" }] }],
+            },
           },
         ],
         [
@@ -8258,7 +8977,9 @@ describe("Takode server-authoritative auth", () => {
             request_id: "req-target",
             tool_name: "AskUserQuestion",
             timestamp: 1100,
-            input: { questions: [{ question: "Which logger?", options: [{ label: "Structured" }, { label: "Plain" }] }] },
+            input: {
+              questions: [{ question: "Which logger?", options: [{ label: "Structured" }, { label: "Plain" }] }],
+            },
           },
         ],
       ]),
@@ -8292,6 +9013,104 @@ describe("Takode server-authoritative auth", () => {
           questions: [{ question: "Which logger?", options: [{ label: "Structured" }, { label: "Plain" }] }],
           answers: { "0": "Plain" },
         },
+      },
+      "orch-1",
+    );
+  });
+
+  it("takode answer fills every AskUserQuestion answer slot when the leader replies with free text", async () => {
+    setupTakodeSessions();
+    bridge.getSession.mockReturnValue({
+      pendingPermissions: new Map([
+        [
+          "req-multi-question",
+          {
+            request_id: "req-multi-question",
+            tool_name: "AskUserQuestion",
+            timestamp: 1000,
+            input: {
+              questions: [{ question: "Which rollout?" }, { question: "Which logger?" }],
+            },
+          },
+        ],
+      ]),
+      notifications: [],
+      messageHistory: [{ type: "permission_request", request: { request_id: "req-multi-question" } }],
+    });
+
+    const res = await app.request("/api/sessions/worker-1/answer", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ response: "Use staged rollout with structured logs." }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      ok: true,
+      kind: "permission",
+      tool_name: "AskUserQuestion",
+      answer: "Use staged rollout with structured logs.",
+    });
+    expect(bridge.routeExternalPermissionResponse).toHaveBeenCalledWith(
+      expect.objectContaining({ pendingPermissions: expect.any(Map) }),
+      {
+        type: "permission_response",
+        request_id: "req-multi-question",
+        behavior: "allow",
+        updated_input: {
+          questions: [{ question: "Which rollout?" }, { question: "Which logger?" }],
+          answers: {
+            "0": "Use staged rollout with structured logs.",
+            "1": "Use staged rollout with structured logs.",
+          },
+        },
+      },
+      "orch-1",
+    );
+  });
+
+  // Verifies the takode answer route correctly routes an ExitPlanMode approval
+  // through routeBrowserMessage for claude-sdk sessions. This covers the bug
+  // where stale pendingPermissions entries from adapter disconnects caused
+  // takode answer to resolve the wrong request_id.
+  it("takode answer approves ExitPlanMode and routes the permission response", async () => {
+    setupTakodeSessions();
+    bridge.getSession.mockReturnValue({
+      pendingPermissions: new Map([
+        [
+          "req-exit-plan",
+          {
+            request_id: "req-exit-plan",
+            tool_name: "ExitPlanMode",
+            timestamp: 2000,
+            input: { plan: "Step 1: do X\nStep 2: do Y", allowedPrompts: [] },
+          },
+        ],
+      ]),
+      notifications: [],
+      messageHistory: [{ type: "permission_request", request: { request_id: "req-exit-plan" } }],
+    });
+
+    const res = await app.request("/api/sessions/worker-1/answer", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ response: "approve" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      ok: true,
+      kind: "permission",
+      tool_name: "ExitPlanMode",
+      action: "approved",
+    });
+    expect(bridge.routeExternalPermissionResponse).toHaveBeenCalledWith(
+      expect.objectContaining({ pendingPermissions: expect.any(Map) }),
+      {
+        type: "permission_response",
+        request_id: "req-exit-plan",
+        behavior: "allow",
+        updated_input: { plan: "Step 1: do X\nStep 2: do Y", allowedPrompts: [] },
       },
       "orch-1",
     );
@@ -8362,12 +9181,13 @@ describe("Takode server-authoritative auth", () => {
     launcher.getSession.mockImplementation((id: string) => sessions[id]);
     launcher.getSessionNum.mockImplementation((id: string) => sessions[id]?.sessionNum);
     bridge.isBackendConnected.mockImplementation((id: string) => id === "worker-1" || id === "reviewer-1");
-    bridge.getBoard.mockReturnValue([
-      { questId: "q-1", worker: "worker-1", workerNum: 11, status: "IMPLEMENTING", createdAt: 1, updatedAt: 1 },
-      { questId: "q-2", worker: "worker-2", workerNum: 22, status: "PLANNING", createdAt: 2, updatedAt: 2 },
+    bridge._sessions["orch-1"].board = new Map([
+      [
+        "q-1",
+        { questId: "q-1", worker: "worker-1", workerNum: 11, status: "IMPLEMENTING", createdAt: 1, updatedAt: 1 },
+      ],
+      ["q-2", { questId: "q-2", worker: "worker-2", workerNum: 22, status: "PLANNING", createdAt: 2, updatedAt: 2 }],
     ]);
-    bridge.getBoardQueueWarnings.mockReturnValue([]);
-    bridge.getBoardWorkerSlotUsage.mockReturnValue({ used: 2, limit: 5 });
 
     const res = await app.request("/api/sessions/orch-1/board?resolve=true", {
       method: "GET",
@@ -8381,7 +9201,7 @@ describe("Takode server-authoritative auth", () => {
         { questId: "q-2", worker: "worker-2", workerNum: 22, status: "PLANNING" },
       ],
       queueWarnings: [],
-      workerSlotUsage: { used: 2, limit: 5 },
+      workerSlotUsage: { used: 1, limit: 5 },
       rowSessionStatuses: {
         "q-1": {
           worker: { sessionId: "worker-1", sessionNum: 11, status: "running" },
@@ -8410,6 +9230,92 @@ describe("Takode server-authoritative auth", () => {
     });
   });
 
+  it("completes a true zero-code board row via advance-no-groom from skeptic review", async () => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].board = new Map([
+      [
+        "q-9",
+        {
+          questId: "q-9",
+          title: "Investigate board lifecycle",
+          noCode: true,
+          status: "SKEPTIC_REVIEWING",
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    ]);
+
+    const res = await app.request("/api/sessions/orch-1/board/q-9/advance-no-groom", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      removed: true,
+      previousState: "SKEPTIC_REVIEWING",
+      skippedStates: ["GROOM_REVIEWING", "PORTING"],
+      board: [],
+      completedCount: 1,
+    });
+  });
+
+  it("rejects advance-no-groom outside skeptic review", async () => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].board = new Map([
+      [
+        "q-9",
+        {
+          questId: "q-9",
+          title: "Implement board lifecycle",
+          status: "IMPLEMENTING",
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    ]);
+
+    const res = await app.request("/api/sessions/orch-1/board/q-9/advance-no-groom", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+    });
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({
+      error: expect.stringContaining("only allowed from SKEPTIC_REVIEWING"),
+      previousState: "IMPLEMENTING",
+    });
+  });
+
+  it("rejects advance-no-groom for a code-changing quest already in skeptic review", async () => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].board = new Map([
+      [
+        "q-9",
+        {
+          questId: "q-9",
+          title: "Implement board lifecycle",
+          noCode: false,
+          status: "SKEPTIC_REVIEWING",
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    ]);
+
+    const res = await app.request("/api/sessions/orch-1/board/q-9/advance-no-groom", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+    });
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({
+      error: expect.stringContaining("explicitly marked no-code"),
+      previousState: "SKEPTIC_REVIEWING",
+    });
+  });
+
   it("prefers launcher permissionMode over bridge default in takode info", async () => {
     const sessions = setupTakodeSessions();
     sessions["worker-1"].backendType = "codex";
@@ -8424,7 +9330,6 @@ describe("Takode server-authoritative auth", () => {
       },
     ]);
     bridge.isBackendConnected.mockReturnValue(false);
-    bridge.isSessionBusy.mockReturnValue(false);
 
     const res = await app.request("/api/sessions/worker-1/info", {
       method: "GET",
@@ -8454,8 +9359,6 @@ describe("Takode server-authoritative auth", () => {
   });
 
   it("includes pendingTimerCount in takode message views", async () => {
-    // Verifies the shared message-view payload carries timer counts for the
-    // default peek path, which both CLI state surfaces and tests rely on.
     setupTakodeSessions();
     timerManager.listTimers.mockImplementation((sessionId: string) => (sessionId === "worker-1" ? [{ id: "t2" }] : []));
     bridge.getMessageHistory.mockReturnValue([]);
@@ -8471,8 +9374,6 @@ describe("Takode server-authoritative auth", () => {
   });
 
   it("includes pendingTimerCount in takode scan message views", async () => {
-    // Verifies the scan=turns branch preserves timer counts too, so takode scan
-    // cannot regress independently from the default message-view path.
     setupTakodeSessions();
     timerManager.listTimers.mockImplementation((sessionId: string) => (sessionId === "worker-1" ? [{ id: "t4" }] : []));
     bridge.getMessageHistory.mockReturnValue([]);
@@ -8491,7 +9392,7 @@ describe("Takode server-authoritative auth", () => {
     // The CLI probes scan=turns with turnCount=0 to learn totalTurns before it
     // requests the real page. That metadata-only request must return cleanly.
     setupTakodeSessions();
-    bridge.getMessageHistory.mockReturnValue([
+    bridge._sessions["worker-1"].messageHistory = [
       {
         type: "user_message",
         content: "first turn",
@@ -8508,7 +9409,7 @@ describe("Takode server-authoritative auth", () => {
         is_error: false,
         timestamp: 1_350,
       },
-    ]);
+    ];
 
     const res = await app.request("/api/sessions/worker-1/messages?scan=turns&fromTurn=0&turnCount=0", {
       method: "GET",
@@ -8542,7 +9443,33 @@ describe("Takode server-authoritative auth", () => {
       { session_id: "worker-2", git_branch: "docs/timers", backend_type: "codex" },
     ]);
     bridge.getSession.mockImplementation((sessionId: string) =>
-      sessionId === "worker-1" ? ({ isGenerating: true } as any) : null,
+      sessionId === "worker-1"
+        ? ({
+            id: "worker-1",
+            state: { session_id: "worker-1", git_branch: "fix/build", backend_type: "claude" },
+            pendingPermissions: new Map(),
+            messageHistory: [],
+            notifications: [],
+            taskHistory: [],
+            keywords: [],
+            lastReadAt: 0,
+            attentionReason: null,
+            isGenerating: true,
+          } as any)
+        : sessionId === "worker-2"
+          ? ({
+              id: "worker-2",
+              state: { session_id: "worker-2", git_branch: "docs/timers", backend_type: "codex" },
+              pendingPermissions: new Map(),
+              messageHistory: [],
+              notifications: [],
+              taskHistory: [],
+              keywords: [],
+              lastReadAt: 0,
+              attentionReason: null,
+              isGenerating: false,
+            } as any)
+          : null,
     );
     bridge.isBackendConnected.mockImplementation((sessionId: string) => sessionId !== "worker-2");
     timerManager.listTimers.mockImplementation((sessionId: string) => {
@@ -8835,17 +9762,14 @@ describe("Takode server-authoritative auth", () => {
   });
 
   it("takode info endpoint includes diffBaseBranch in response", async () => {
-    const sessions = setupTakodeSessions();
-    bridge.getAllSessions.mockReturnValue([
-      {
-        session_id: "worker-1",
-        git_branch: "feature/x",
-        git_default_branch: "origin/jiayi",
-        diff_base_branch: "origin/main",
-      },
-    ]);
+    setupTakodeSessions();
+    bridge._sessions["worker-1"].state = {
+      session_id: "worker-1",
+      git_branch: "feature/x",
+      git_default_branch: "origin/jiayi",
+      diff_base_branch: "origin/main",
+    };
     bridge.isBackendConnected.mockReturnValue(true);
-    bridge.isSessionBusy.mockReturnValue(false);
 
     const res = await app.request("/api/sessions/worker-1/info", {
       method: "GET",

@@ -4,13 +4,11 @@ import { resolveBinary, expandTilde } from "../path-resolver.js";
 import { readFile, writeFile, stat, readdir, access as accessAsync } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { homedir } from "node:os";
-import { existsSync } from "node:fs";
 import type { CliLauncher, LaunchOptions } from "../cli-launcher.js";
 import * as envManager from "../env-manager.js";
 import * as gitUtils from "../git-utils.js";
 import * as sessionNames from "../session-names.js";
 import * as treeGroupStore from "../tree-group-store.js";
-import { recreateWorktreeIfMissing } from "../migration.js";
 import { containerManager, ContainerManager, type ContainerConfig, type ContainerInfo } from "../container-manager.js";
 import type { CreationStepId, TakodeSessionArchivedEventData } from "../session-types.js";
 import { hasContainerClaudeAuth } from "../claude-container-auth.js";
@@ -21,21 +19,40 @@ import { ensureAssistantWorkspace, ASSISTANT_DIR } from "../assistant-workspace.
 import { trafficStats } from "../traffic-stats.js";
 import { generateUniqueSessionName } from "../../src/utils/names.js";
 import { GIT_CMD_TIMEOUT } from "../constants.js";
-import { getDefaultModelForBackend } from "../../shared/backend-defaults.js";
 import type { HerdSessionsResponse } from "../../shared/herd-types.js";
 import type { RouteContext, OptionalAuthResult } from "./context.js";
-
-/** Extract the caller's session ID from an optional auth result, if available. */
-function getActorSessionId(auth: OptionalAuthResult): string | undefined {
-  return auth && "callerId" in auth ? auth.callerId : undefined;
-}
-
-function getArchiveSource(actorSessionId?: string): TakodeSessionArchivedEventData["archive_source"] {
-  return actorSessionId ? "leader" : "user";
-}
+import { resolveSessionCreateModel } from "./session-create-model.js";
+import {
+  applyInitialSessionState as applyInitialSessionStateController,
+  clearAttentionAndMarkRead as clearAttentionAndMarkReadController,
+  countPendingUserPermissions,
+  markSessionUnread as markSessionUnreadController,
+  summarizePendingPermissions,
+} from "../bridge/session-registry-controller.js";
+import {
+  refreshGitInfoPublic as refreshGitInfoPublicController,
+  setDiffBaseBranch as setDiffBaseBranchController,
+} from "../bridge/session-git-state.js";
+import {
+  SessionBackend,
+  SessionPreparationError,
+  SessionPreparationStatus,
+  applyDefaultClaudeBackend,
+  computeCodexRevertPlan,
+  getActorSessionId,
+  getArchiveSource,
+  markOrchestratorSessionAfterConnect,
+  resolveBackend,
+  throwPreparationError,
+} from "./sessions-helpers.js";
+import { registerSessionsArchiveRoutes } from "./sessions-archive-routes.js";
+import { withProgressHeartbeat } from "./progress-heartbeat.js";
+import { deriveAttachmentPaths, formatAttachmentPathAnnotation } from "../attachment-paths.js";
+import { createArchivedWorktreeCleanupQueue } from "./worktree-cleanup.js";
 
 export function createSessionsRoutes(ctx: RouteContext) {
   const api = new Hono();
+  const bridgeAny = ctx.wsBridge as any;
   const {
     launcher,
     wsBridge,
@@ -52,25 +69,60 @@ export function createSessionsRoutes(ctx: RouteContext) {
     buildOrchestratorSystemPrompt,
     resolveInitialModeState,
   } = ctx;
-
   // ─── Worktree cleanup helper ────────────────────────────────────
+  type WorktreeCleanupResult = { cleaned?: boolean; dirty?: boolean; path?: string; reason?: string } | undefined;
+  const pendingWorktreeCleanups = new Map<string, Promise<void>>();
+  const sessionAttentionDeps = {
+    broadcastToBrowsers: (session: NonNullable<ReturnType<typeof wsBridge.getSession>>, msg: unknown) =>
+      wsBridge.broadcastToSession(session.id, msg as any),
+    persistSession: (session: NonNullable<ReturnType<typeof wsBridge.getSession>>) =>
+      wsBridge.persistSessionById(session.id),
+  };
+  const sessionUnreadDeps = {
+    ...sessionAttentionDeps,
+    isHerdedWorkerSession: (session: NonNullable<ReturnType<typeof wsBridge.getSession>>) =>
+      !!launcher.getSession(session.id)?.herdedBy,
+  };
+  const getSessionGitDeps = () => bridgeAny.getSessionGitStateDeps?.();
+  const setDiffBaseBranch = (sessionId: string, branch: string): boolean => {
+    const session = wsBridge.getSession(sessionId);
+    const deps = getSessionGitDeps();
+    if (session && deps) {
+      setDiffBaseBranchController(session as any, branch, deps);
+      return true;
+    }
+    return bridgeAny.setDiffBaseBranch?.(sessionId, branch) ?? false;
+  };
+  const applyInitialSessionState = (
+    sessionId: string,
+    options: Parameters<typeof applyInitialSessionStateController>[1],
+  ): void => {
+    const session = wsBridge.getOrCreateSession(sessionId);
+    const prefill = bridgeAny.prefillSlashCommands;
+    if (session && typeof prefill === "function") {
+      applyInitialSessionStateController(session as any, options, {
+        persistSession: (targetSession) => wsBridge.persistSessionById((targetSession as any).id),
+        prefillSlashCommands: (targetSession) => prefill.call(bridgeAny, targetSession),
+      });
+      return;
+    }
+    bridgeAny.applyInitialSessionState?.(sessionId, options);
+  };
 
-  function cleanupWorktree(
+  async function cleanupWorktree(
     sessionId: string,
     force?: boolean,
     options?: { archiveBranch?: boolean },
-  ): { cleaned?: boolean; dirty?: boolean; path?: string } | undefined {
+  ): Promise<WorktreeCleanupResult> {
     const mapping = worktreeTracker.getBySession(sessionId);
     if (!mapping) return undefined;
 
-    // Check if other sessions still use this worktree
     if (worktreeTracker.isWorktreeInUse(mapping.worktreePath, sessionId)) {
       worktreeTracker.removeBySession(sessionId);
       return { cleaned: false, path: mapping.worktreePath };
     }
 
-    // Auto-remove if clean, or force-remove if requested
-    const dirty = gitUtils.isWorktreeDirty(mapping.worktreePath);
+    const dirty = await gitUtils.isWorktreeDirtyAsync(mapping.worktreePath);
     if (dirty && !force) {
       return { cleaned: false, dirty: true, path: mapping.worktreePath };
     }
@@ -78,80 +130,35 @@ export function createSessionsRoutes(ctx: RouteContext) {
     const managedBranch =
       mapping.actualBranch && mapping.actualBranch !== mapping.branch ? mapping.actualBranch : undefined;
 
-    // Archive path (q-329): save the branch tip as a lightweight ref under
-    // refs/companion/archived/ so it doesn't appear in `git branch` output
-    // but can be restored on unarchive. Then delete the branch normally.
     if (options?.archiveBranch && managedBranch) {
-      gitUtils.archiveBranch(mapping.repoRoot, managedBranch);
-      // archiveBranch already deleted the branch, so skip branchToDelete
-      const result = gitUtils.removeWorktree(mapping.repoRoot, mapping.worktreePath, {
+      await gitUtils.archiveBranchAsync(mapping.repoRoot, managedBranch);
+      const result = await gitUtils.removeWorktreeAsync(mapping.repoRoot, mapping.worktreePath, {
         force: dirty,
       });
       if (result.removed) {
         worktreeTracker.removeBySession(sessionId);
       }
-      return { cleaned: result.removed, path: mapping.worktreePath };
+      return { cleaned: result.removed, path: mapping.worktreePath, reason: result.reason };
     }
 
-    // Permanent delete: remove worktree and delete the branch
-    const result = gitUtils.removeWorktree(mapping.repoRoot, mapping.worktreePath, {
+    const result = await gitUtils.removeWorktreeAsync(mapping.repoRoot, mapping.worktreePath, {
       force: dirty,
       branchToDelete: managedBranch,
     });
     if (result.removed) {
       worktreeTracker.removeBySession(sessionId);
     }
-    return { cleaned: result.removed, path: mapping.worktreePath };
+    return { cleaned: result.removed, path: mapping.worktreePath, reason: result.reason };
   }
 
-  function buildCodexTurnSegments(
-    messageHistory: Array<{ type: string; id?: string }>,
-  ): Array<{ startIdx: number; userMessageIds: string[] }> {
-    const segments: Array<{ startIdx: number; userMessageIds: string[] }> = [];
-    let startIdx: number | null = null;
-    let userMessageIds: string[] = [];
+  const queueArchivedWorktreeCleanup = createArchivedWorktreeCleanupQueue({
+    launcher,
+    pendingWorktreeCleanups,
+    worktreeTracker,
+  });
 
-    for (let idx = 0; idx < messageHistory.length; idx++) {
-      const msg = messageHistory[idx];
-      if (msg.type === "user_message") {
-        if (startIdx === null) startIdx = idx;
-        if (typeof msg.id === "string") userMessageIds.push(msg.id);
-      }
-      if (msg.type === "result" && startIdx !== null) {
-        segments.push({ startIdx, userMessageIds: [...userMessageIds] });
-        startIdx = null;
-        userMessageIds = [];
-      }
-    }
-
-    if (startIdx !== null) {
-      segments.push({ startIdx, userMessageIds: [...userMessageIds] });
-    }
-
-    return segments;
-  }
-
-  function computeCodexRevertPlan(
-    session: {
-      messageHistory: Array<{ type: string; id?: string }>;
-    },
-    messageId: string,
-  ): { truncateIdx: number; numTurns: number; exactTurnBoundary: boolean } | null {
-    const segments = buildCodexTurnSegments(session.messageHistory);
-    const targetTurnIndex = segments.findIndex((segment) => segment.userMessageIds.includes(messageId));
-    if (targetTurnIndex < 0) return null;
-
-    const targetSegment = segments[targetTurnIndex]!;
-    return {
-      truncateIdx: targetSegment.startIdx,
-      numTurns: segments.length - targetTurnIndex,
-      exactTurnBoundary: targetSegment.userMessageIds[0] === messageId,
-    };
-  }
   // ─── SDK Sessions (--sdk-url) ─────────────────────────────────────
-  type SessionBackend = "claude" | "codex" | "claude-sdk";
   type CreationProgressStatus = "in_progress" | "done" | "error";
-  type SessionPreparationStatus = 400 | 503;
   type EmitCreationProgress = (
     step: CreationStepId,
     label: string,
@@ -185,50 +192,8 @@ export function createSessionsRoutes(ctx: RouteContext) {
     resumeCliSessionId?: string;
   }
 
-  class SessionPreparationError extends Error {
-    constructor(
-      message: string,
-      public status: SessionPreparationStatus,
-      public step?: CreationStepId,
-    ) {
-      super(message);
-      this.name = "SessionPreparationError";
-    }
-  }
-
-  const resolveBackend = (raw: unknown): SessionBackend | null => {
-    if (raw === "claude" || raw === "codex" || raw === "claude-sdk") return raw;
-    return null;
-  };
-
-  /** Resolve "claude" to the user's configured default (WebSocket or SDK). */
-  const applyDefaultClaudeBackend = (backend: SessionBackend): SessionBackend => {
-    if (backend !== "claude") return backend;
-    const configured = getSettings().defaultClaudeBackend;
-    return configured === "claude-sdk" ? "claude-sdk" : "claude";
-  };
-
-  const throwPreparationError = (message: string, status: SessionPreparationStatus, step?: CreationStepId): never => {
-    throw new SessionPreparationError(message, status, step);
-  };
-
-  const markOrchestratorSession = (sessionId: string, backend: SessionBackend) => {
-    // Fire-and-forget: wait for CLI to connect, then send identity message
-    (async () => {
-      const maxWait = 30_000;
-      const pollMs = 200;
-      const start = Date.now();
-      while (Date.now() - start < maxWait) {
-        const info = launcher.getSession(sessionId);
-        if (info && (info.state === "connected" || info.state === "running")) {
-          wsBridge.injectUserMessage(sessionId, buildOrchestratorSystemPrompt(backend));
-          return;
-        }
-        if (info?.state === "exited") return; // CLI crashed, don't inject
-        await new Promise((r) => setTimeout(r, pollMs));
-      }
-    })().catch((e) => console.error(`[routes] Failed to inject orchestrator message:`, e));
-  };
+  const markOrchestratorSession = (sessionId: string, backend: SessionBackend) =>
+    markOrchestratorSessionAfterConnect({ launcher, wsBridge }, sessionId, buildOrchestratorSystemPrompt(backend));
 
   const applySessionPostLaunch = (
     session: Awaited<ReturnType<CliLauncher["launch"]>>,
@@ -236,17 +201,9 @@ export function createSessionsRoutes(ctx: RouteContext) {
   ) => {
     if (sessionConfig.containerInfo) {
       containerManager.retrack(sessionConfig.containerInfo.containerId, session.sessionId);
-      wsBridge.markContainerized(session.sessionId, sessionConfig.initialCwd);
     }
 
     if (sessionConfig.worktreeInfo) {
-      wsBridge.markWorktree(
-        session.sessionId,
-        sessionConfig.worktreeInfo.repoRoot,
-        sessionConfig.initialCwd,
-        sessionConfig.worktreeInfo.defaultBranch,
-        sessionConfig.worktreeInfo.branch,
-      );
       worktreeTracker.addMapping({
         sessionId: session.sessionId,
         repoRoot: sessionConfig.worktreeInfo.repoRoot,
@@ -257,15 +214,22 @@ export function createSessionsRoutes(ctx: RouteContext) {
       });
     }
 
-    wsBridge.setInitialCwd(session.sessionId, sessionConfig.initialCwd);
-    wsBridge.setInitialAskPermission(
-      session.sessionId,
-      sessionConfig.initialModeState.askPermission,
-      sessionConfig.initialModeState.uiMode,
-    );
-    if (sessionConfig.resumeCliSessionId) {
-      wsBridge.markResumedFromExternal(session.sessionId);
-    }
+    applyInitialSessionState(session.sessionId, {
+      ...(sessionConfig.containerInfo ? { containerizedHostCwd: sessionConfig.initialCwd } : {}),
+      cwd: sessionConfig.initialCwd,
+      askPermission: sessionConfig.initialModeState.askPermission,
+      uiMode: sessionConfig.initialModeState.uiMode,
+      ...(sessionConfig.resumeCliSessionId ? { resumedFromExternal: true } : {}),
+      ...(sessionConfig.worktreeInfo
+        ? {
+            worktree: {
+              repoRoot: sessionConfig.worktreeInfo.repoRoot,
+              defaultBranch: sessionConfig.worktreeInfo.defaultBranch,
+              diffBaseBranch: sessionConfig.worktreeInfo.branch,
+            },
+          }
+        : {}),
+    });
 
     if (sessionConfig.isAssistantMode) {
       session.isAssistant = true;
@@ -438,11 +402,20 @@ export function createSessionsRoutes(ctx: RouteContext) {
         if (!targetBranch) {
           throwPreparationError("Unable to determine branch for worktree session", 400, "creating_worktree");
         }
-        const result = await gitUtils.ensureWorktreeAsync(repoInfo.repoRoot, targetBranch, {
-          baseBranch: repoInfo.defaultBranch,
-          createBranch: body.createBranch,
-          forceNew: true,
-        });
+        const result = await withProgressHeartbeat(
+          emit,
+          {
+            step: "creating_worktree",
+            label: "Creating worktree...",
+            detail: `Still preparing ${targetBranch}...`,
+          },
+          () =>
+            gitUtils.ensureWorktreeAsync(repoInfo.repoRoot, targetBranch, {
+              baseBranch: repoInfo.defaultBranch,
+              createBranch: body.createBranch,
+              forceNew: true,
+            }),
+        );
         cwd = result.worktreePath;
         worktreeInfo = {
           isWorktree: true,
@@ -654,20 +627,17 @@ export function createSessionsRoutes(ctx: RouteContext) {
 
     const askPermissionRequested = body.askPermission !== false;
     const initialModeState = resolveInitialModeState(backend, body.permissionMode, askPermissionRequested);
-    const requestedModel = typeof body.model === "string" ? body.model.trim() : "";
-    // Resolve model: for Claude backends with no explicit model ("Default" selected),
-    // read the user's ~/.claude/settings.json model and pass it explicitly. Without
-    // this, the CLI subprocess uses project-level settings that may override the
-    // user's intended default model.
-    const model =
-      requestedModel ||
-      (backend === "codex" ? getDefaultModelForBackend("codex") : undefined) ||
-      (backend === "claude" || backend === "claude-sdk" ? (await getClaudeUserDefaultModel()) || undefined : undefined);
+    const model = await resolveSessionCreateModel({
+      backend,
+      createdBy: body.createdBy,
+      getClaudeUserDefaultModel,
+      launcher,
+      requestedModel: body.model,
+    });
     const codexReasoningEffort =
       backend === "codex" && typeof body.codexReasoningEffort === "string"
         ? body.codexReasoningEffort.trim() || undefined
         : undefined;
-    // Orchestrator guardrails are injected via system prompt, not file writes
     const orchestratorGuardrails = isOrchestrator ? launcher.getOrchestratorGuardrails(backend) : undefined;
 
     const initialCwd = cwd || process.cwd();
@@ -707,7 +677,6 @@ export function createSessionsRoutes(ctx: RouteContext) {
       containerInfo,
     };
   };
-
   api.post("/sessions/create", async (c) => {
     const body = await c.req.json().catch(() => ({}));
     try {
@@ -745,9 +714,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
       return c.json({ error: msg }, 500);
     }
   });
-
   // ─── SSE Session Creation (with progress streaming) ─────────────────────
-
   api.post("/sessions/create-stream", async (c) => {
     const body = await c.req.json().catch(() => ({}));
 
@@ -788,7 +755,15 @@ export function createSessionsRoutes(ctx: RouteContext) {
           "in_progress",
         );
 
-        const session = await launcher.launch(sessionConfig.launchOptions);
+        const session = await withProgressHeartbeat(
+          (step, label, status, detail) => emitProgress(stream, step, label, status, detail),
+          {
+            step: "launching_cli",
+            label: sessionConfig.resumeCliSessionId ? "Resuming CLI session..." : "Launching Claude Code...",
+            detail: sessionConfig.worktreeInfo ? "Finishing worktree setup..." : "Still launching CLI...",
+          },
+          () => launcher.launch(sessionConfig.launchOptions),
+        );
         applySessionPostLaunch(session, sessionConfig);
 
         await emitProgress(
@@ -825,9 +800,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
       }
     });
   });
-
   // ─── CLI Session Discovery (for resume) ──────────────────────────────────
-
   api.get("/cli-sessions", async (c) => {
     try {
       const backendFilter = c.req.query("backend") as "claude" | "codex" | undefined;
@@ -1009,14 +982,22 @@ export function createSessionsRoutes(ctx: RouteContext) {
   const buildEnrichedSessions = async (filterFn?: (s: ReturnType<CliLauncher["listSessions"]>[number]) => boolean) => {
     const sessions = launcher.listSessions();
     const names = sessionNames.getAllNames();
-    const bridgeStates = wsBridge.getAllSessions();
-    const bridgeMap = new Map(bridgeStates.map((state) => [state.session_id, state]));
     const pool = filterFn ? sessions.filter(filterFn) : sessions;
     const heavyRepoModeEnabled = getSettings().heavyRepoModeEnabled;
     return Promise.all(
       pool.map(async (s) => {
         const pendingTimerCount = ctx.timerManager?.listTimers(s.sessionId).length ?? 0;
         try {
+          if (s.worktreeCleanupStatus === "pending" && !pendingWorktreeCleanups.has(s.sessionId)) {
+            launcher.setWorktreeCleanupState(s.sessionId, {
+              status: "failed",
+              error: s.worktreeCleanupError || "Cleanup was interrupted before completion.",
+              startedAt: s.worktreeCleanupStartedAt,
+              finishedAt: Date.now(),
+            });
+            s = launcher.getSession(s.sessionId) ?? s;
+          }
+
           const { sessionAuthToken: _token, injectedSystemPrompt: _prompt, ...safeSession } = s;
           const bridgeSession = wsBridge.getSession(s.sessionId);
           if (bridgeSession?.state?.is_worktree && !safeSession.archived && !heavyRepoModeEnabled) {
@@ -1025,9 +1006,18 @@ export function createSessionsRoutes(ctx: RouteContext) {
               notifyPoller: true,
             });
           }
-          const bridge = wsBridge.getSession(s.sessionId)?.state ?? bridgeMap.get(s.sessionId);
+          const currentBridgeSession = wsBridge.getSession(s.sessionId) ?? bridgeSession;
+          const bridge = currentBridgeSession?.state;
+          const attention = currentBridgeSession
+            ? {
+                lastReadAt: currentBridgeSession.lastReadAt,
+                attentionReason: currentBridgeSession.attentionReason,
+                pendingPermissionCount: countPendingUserPermissions(currentBridgeSession),
+                pendingPermissionSummary: summarizePendingPermissions(currentBridgeSession),
+              }
+            : null;
           const cliConnected = wsBridge.isBackendConnected(s.sessionId);
-          const effectiveState = cliConnected && bridgeSession?.isGenerating ? "running" : safeSession.state;
+          const effectiveState = cliConnected && currentBridgeSession?.isGenerating ? "running" : safeSession.state;
           let gitAhead = bridge?.git_ahead || 0;
           let gitBehind = bridge?.git_behind || 0;
           // Worktree sessions are force-refreshed above so external git resets
@@ -1054,14 +1044,14 @@ export function createSessionsRoutes(ctx: RouteContext) {
             codexRetainedPayloadBytes: bridge?.codex_retained_payload_bytes || 0,
             ...(bridge?.codex_token_details ? { codexTokenDetails: bridge.codex_token_details } : {}),
             ...(bridge?.claude_token_details ? { claudeTokenDetails: bridge.claude_token_details } : {}),
-            lastMessagePreview: wsBridge.getLastUserMessage(s.sessionId) || "",
+            lastMessagePreview: currentBridgeSession?.lastUserMessage || "",
             cliConnected,
-            taskHistory: wsBridge.getSessionTaskHistory(s.sessionId),
-            keywords: wsBridge.getSessionKeywords(s.sessionId),
+            taskHistory: currentBridgeSession?.taskHistory ?? [],
+            keywords: currentBridgeSession?.keywords ?? [],
             claimedQuestId: bridge?.claimedQuestId ?? null,
             claimedQuestStatus: bridge?.claimedQuestStatus ?? null,
             pendingTimerCount,
-            ...(wsBridge.getSessionAttentionState(s.sessionId) ?? {}),
+            ...(attention ?? {}),
             // Worktree liveness status for archived worktree sessions
             // Only check existence (one async access() call), skip expensive git status
             ...(s.isWorktree && s.archived
@@ -1102,12 +1092,10 @@ export function createSessionsRoutes(ctx: RouteContext) {
     const inferred = await gitUtils.getRepoInfoAsync(info.cwd);
     if (inferred?.repoRoot) info.repoRoot = inferred.repoRoot;
   };
-
   api.get("/sessions", async (c) => {
     const enriched = await buildEnrichedSessions();
     return c.json(enriched);
   });
-
   api.get("/sessions/search", (c) => {
     const rawQuery = (c.req.query("q") || "").trim();
     if (!rawQuery) {
@@ -1127,23 +1115,23 @@ export function createSessionsRoutes(ctx: RouteContext) {
     const startedAt = Date.now();
     const sessions = launcher.listSessions();
     const names = sessionNames.getAllNames();
-    const bridgeStates = wsBridge.getAllSessions();
-    const bridgeMap = new Map(bridgeStates.map((s) => [s.session_id, s]));
 
     const docs: SessionSearchDocument[] = sessions.map((s) => {
-      const bridge = bridgeMap.get(s.sessionId);
+      const bridgeSession = wsBridge.getSession(s.sessionId);
+      const bridge = bridgeSession?.state;
       return {
         sessionId: s.sessionId,
         archived: !!s.archived,
         createdAt: s.createdAt || 0,
         lastActivityAt: s.lastActivityAt,
         name: names[s.sessionId] ?? s.name ?? "",
-        taskHistory: wsBridge.getSessionTaskHistory(s.sessionId),
-        keywords: wsBridge.getSessionKeywords(s.sessionId),
+        taskHistory: bridgeSession?.taskHistory ?? [],
+        keywords: bridgeSession?.keywords ?? [],
         gitBranch: bridge?.git_branch || "",
         cwd: bridge?.cwd || s.cwd || "",
         repoRoot: bridge?.repo_root || s.repoRoot || "",
-        messageHistory: wsBridge.getMessageHistory(s.sessionId) || [],
+        messageHistory: bridgeSession?.messageHistory || [],
+        searchExcerpts: bridgeSession?.searchExcerpts ?? [],
       };
     });
 
@@ -1161,16 +1149,16 @@ export function createSessionsRoutes(ctx: RouteContext) {
       results,
     });
   });
-
   api.get("/sessions/:id", (c) => {
     const id = resolveId(c.req.param("id"));
     if (!id) return c.json({ error: "Session not found" }, 404);
     const session = launcher.getSession(id);
     if (!session) return c.json({ error: "Session not found" }, 404);
+    const bridgeSession = wsBridge.getSession(id);
     const { injectedSystemPrompt: _prompt, ...rest } = session;
     return c.json({
       ...rest,
-      isGenerating: wsBridge.isSessionBusy(id),
+      isGenerating: !!(bridgeSession?.isGenerating || bridgeSession?.pendingPermissions.size),
     });
   });
 
@@ -1182,7 +1170,6 @@ export function createSessionsRoutes(ctx: RouteContext) {
     if (!session) return c.json({ error: "Session not found" }, 404);
     return c.json({ prompt: session.injectedSystemPrompt ?? null });
   });
-
   api.patch("/sessions/:id/name", async (c) => {
     const id = resolveId(c.req.param("id"));
     if (!id) return c.json({ error: "Session not found" }, 404);
@@ -1193,23 +1180,25 @@ export function createSessionsRoutes(ctx: RouteContext) {
     const session = launcher.getSession(id);
     if (!session) return c.json({ error: "Session not found" }, 404);
     sessionNames.setName(id, body.name.trim());
-    wsBridge.broadcastSessionUpdate(id, { name: body.name.trim() });
+    wsBridge.broadcastToSession(id, { type: "session_update", session: { name: body.name.trim() } } as any);
     return c.json({ ok: true, name: body.name.trim() });
   });
-
   // ─── Tree Groups (herd-centric grouping) ─────────────────────────────
 
   /** Helper: broadcast current tree group state to all browsers. */
   async function broadcastTreeGroups() {
     const tgs = await treeGroupStore.getState();
-    wsBridge.broadcastTreeGroupsUpdate(tgs.groups, tgs.assignments, tgs.nodeOrder);
+    wsBridge.broadcastGlobal({
+      type: "tree_groups_update",
+      treeGroups: tgs.groups,
+      treeAssignments: tgs.assignments,
+      treeNodeOrder: tgs.nodeOrder,
+    } as any);
   }
-
   api.get("/tree-groups", async (c) => {
     const state = await treeGroupStore.getState();
     return c.json(state);
   });
-
   api.put("/tree-groups", async (c) => {
     const body = await c.req.json().catch(() => ({}));
     if (!body || typeof body !== "object") {
@@ -1219,7 +1208,6 @@ export function createSessionsRoutes(ctx: RouteContext) {
     await broadcastTreeGroups();
     return c.json({ ok: true });
   });
-
   api.post("/tree-groups/groups", async (c) => {
     const body = await c.req.json().catch(() => ({}));
     const name = typeof body.name === "string" ? body.name.trim() : "";
@@ -1230,7 +1218,6 @@ export function createSessionsRoutes(ctx: RouteContext) {
     await broadcastTreeGroups();
     return c.json({ ok: true, group });
   });
-
   api.patch("/tree-groups/groups/:id", async (c) => {
     const id = c.req.param("id");
     const body = await c.req.json().catch(() => ({}));
@@ -1243,7 +1230,6 @@ export function createSessionsRoutes(ctx: RouteContext) {
     await broadcastTreeGroups();
     return c.json({ ok: true });
   });
-
   api.delete("/tree-groups/groups/:id", async (c) => {
     const id = c.req.param("id");
     const ok = await treeGroupStore.deleteGroup(id);
@@ -1251,7 +1237,6 @@ export function createSessionsRoutes(ctx: RouteContext) {
     await broadcastTreeGroups();
     return c.json({ ok: true });
   });
-
   api.patch("/tree-groups/assign", async (c) => {
     const body = await c.req.json().catch(() => ({}));
     const sessionId = typeof body.sessionId === "string" ? body.sessionId : "";
@@ -1263,7 +1248,6 @@ export function createSessionsRoutes(ctx: RouteContext) {
     await broadcastTreeGroups();
     return c.json({ ok: true });
   });
-
   api.patch("/tree-groups/node-order", async (c) => {
     const body = await c.req.json().catch(() => ({}));
     const groupId = typeof body.groupId === "string" ? body.groupId : "";
@@ -1275,41 +1259,40 @@ export function createSessionsRoutes(ctx: RouteContext) {
     await broadcastTreeGroups();
     return c.json({ ok: true });
   });
-
   api.patch("/sessions/:id/diff-base", async (c) => {
     const id = resolveId(c.req.param("id"));
     if (!id) return c.json({ error: "Session not found" }, 404);
     const body = await c.req.json().catch(() => ({}));
     const branch = typeof body.branch === "string" ? body.branch : "";
-    if (!wsBridge.setDiffBaseBranch(id, branch)) {
+    if (!setDiffBaseBranch(id, branch)) {
       return c.json({ error: "Session not found" }, 404);
     }
     return c.json({ ok: true, diff_base_branch: branch });
   });
-
   api.patch("/sessions/:id/read", (c) => {
     const id = resolveId(c.req.param("id"));
     if (!id) return c.json({ error: "Session not found" }, 404);
-    if (!wsBridge.markSessionRead(id)) {
-      return c.json({ error: "Session not found" }, 404);
-    }
+    const session = wsBridge.getSession(id);
+    if (!session) return c.json({ error: "Session not found" }, 404);
+    clearAttentionAndMarkReadController(session, sessionAttentionDeps);
     return c.json({ ok: true });
   });
-
   api.patch("/sessions/:id/unread", (c) => {
     const id = resolveId(c.req.param("id"));
     if (!id) return c.json({ error: "Session not found" }, 404);
-    if (!wsBridge.markSessionUnread(id)) {
-      return c.json({ error: "Session not found" }, 404);
+    const session = wsBridge.getSession(id);
+    if (!session) return c.json({ error: "Session not found" }, 404);
+    markSessionUnreadController(session, sessionUnreadDeps);
+    return c.json({ ok: true });
+  });
+  api.post("/sessions/mark-all-read", (c) => {
+    for (const info of launcher.listSessions()) {
+      const session = wsBridge.getSession(info.sessionId);
+      if (!session) continue;
+      clearAttentionAndMarkReadController(session, sessionAttentionDeps);
     }
     return c.json({ ok: true });
   });
-
-  api.post("/sessions/mark-all-read", (c) => {
-    wsBridge.markAllSessionsRead();
-    return c.json({ ok: true });
-  });
-
   api.post("/sessions/:id/kill", async (c) => {
     const id = resolveId(c.req.param("id"));
     if (!id) return c.json({ error: "Session not found" }, 404);
@@ -1370,7 +1353,11 @@ export function createSessionsRoutes(ctx: RouteContext) {
     }
 
     const targetSession = session || wsBridge.getOrCreateSession(id, workerInfo.backendType || "claude");
-    await wsBridge.routeExternalInterrupt(targetSession, "leader");
+    if (typeof bridgeAny.routeBrowserMessage === "function") {
+      await bridgeAny.routeBrowserMessage(targetSession, { type: "interrupt", interruptSource: "leader" });
+    } else {
+      await bridgeAny.routeExternalInterrupt?.(targetSession, "leader");
+    }
 
     return c.json({ ok: true, sessionId: id, interruptedBy: callerSessionId });
   };
@@ -1410,7 +1397,6 @@ export function createSessionsRoutes(ctx: RouteContext) {
 
     return c.json(result as HerdSessionsResponse);
   });
-
   api.post("/sessions/:id/relaunch", async (c) => {
     const id = resolveId(c.req.param("id"));
     if (!id) return c.json({ error: "Session not found" }, 404);
@@ -1428,7 +1414,10 @@ export function createSessionsRoutes(ctx: RouteContext) {
         const wt = await gitUtils.ensureWorktreeAsync(info.repoRoot, info.branch, { forceNew: true });
         info.cwd = wt.worktreePath;
         info.actualBranch = wt.actualBranch;
-        wsBridge.markWorktree(id, info.repoRoot, wt.worktreePath, undefined, info.branch);
+        applyInitialSessionState(id, {
+          cwd: wt.worktreePath,
+          worktree: { repoRoot: info.repoRoot, defaultBranch: undefined, diffBaseBranch: info.branch },
+        });
         worktreeTracker.addMapping({
           sessionId: id,
           repoRoot: info.repoRoot,
@@ -1458,7 +1447,6 @@ export function createSessionsRoutes(ctx: RouteContext) {
     }
     return c.json({ ok: true });
   });
-
   // ─── Transport Upgrade: WebSocket → SDK ───────────────────────
   api.post("/sessions/:id/upgrade-transport", async (c) => {
     const id = resolveId(c.req.param("id"));
@@ -1480,13 +1468,12 @@ export function createSessionsRoutes(ctx: RouteContext) {
     if (bridgeSession) {
       bridgeSession.backendType = "claude-sdk";
       bridgeSession.state.backend_type = "claude-sdk";
-      wsBridge.broadcastSessionUpdate(id, { backend_type: "claude-sdk" });
+      wsBridge.broadcastToSession(id, { type: "session_update", session: { backend_type: "claude-sdk" } } as any);
     }
 
     console.log(`[transport] Upgrade complete for ${id.slice(0, 8)}`);
     return c.json(result);
   });
-
   // ─── Transport Downgrade: SDK → WebSocket ─────────────────────
   api.post("/sessions/:id/downgrade-transport", async (c) => {
     const id = resolveId(c.req.param("id"));
@@ -1507,13 +1494,12 @@ export function createSessionsRoutes(ctx: RouteContext) {
     if (bridgeSession) {
       bridgeSession.backendType = "claude";
       bridgeSession.state.backend_type = "claude";
-      wsBridge.broadcastSessionUpdate(id, { backend_type: "claude" });
+      wsBridge.broadcastToSession(id, { type: "session_update", session: { backend_type: "claude" } } as any);
     }
 
     console.log(`[transport] Downgrade complete for ${id.slice(0, 8)}`);
     return c.json(result);
   });
-
   api.post("/sessions/:id/force-compact", async (c) => {
     const id = resolveId(c.req.param("id"));
     if (!id) return c.json({ error: "Session not found" }, 404);
@@ -1531,7 +1517,6 @@ export function createSessionsRoutes(ctx: RouteContext) {
     }
     return c.json({ ok: true });
   });
-
   api.post("/sessions/:id/skills/refresh", async (c) => {
     const id = resolveId(c.req.param("id"));
     if (!id) return c.json({ error: "Session not found" }, 404);
@@ -1540,14 +1525,16 @@ export function createSessionsRoutes(ctx: RouteContext) {
     if (session.backendType !== "codex")
       return c.json({ error: "Skill refresh is only supported for Codex sessions" }, 400);
 
-    const result = await wsBridge.refreshCodexSkills(id, true);
-    if (!result.ok) {
-      const status = result.error === "Session not found" ? 404 : 503;
-      return c.json({ error: result.error || "Failed to refresh skills" }, status);
+    if (!session.codexAdapter?.refreshSkills) {
+      return c.json({ error: "Codex adapter unavailable" }, 503);
     }
-    return c.json({ ok: true, skills: result.skills ?? [] });
+    try {
+      const skills = await session.codexAdapter.refreshSkills(true);
+      return c.json({ ok: true, skills });
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : String(err) || "Failed to refresh skills" }, 503);
+    }
   });
-
   api.post("/sessions/:id/revert", async (c) => {
     const id = resolveId(c.req.param("id"));
     if (!id) return c.json({ error: "Session not found" }, 404);
@@ -1706,7 +1693,6 @@ export function createSessionsRoutes(ctx: RouteContext) {
     console.log(`[revert] === REVERT COMPLETE === session=${id.slice(0, 8)}`);
     return c.json({ ok: true });
   });
-
   api.delete("/sessions/:id", async (c) => {
     const id = resolveId(c.req.param("id"));
     if (!id) return c.json({ error: "Session not found" }, 404);
@@ -1725,10 +1711,10 @@ export function createSessionsRoutes(ctx: RouteContext) {
     // Clean up container if any
     containerManager.removeContainer(id);
 
-    const worktreeResult = cleanupWorktree(id, true);
+    const worktreeResult = await cleanupWorktree(id, true);
     // Clean up any stale archived ref from a previous archive cycle (q-329)
     if (sessionInfo?.isWorktree && sessionInfo.repoRoot && sessionInfo.actualBranch) {
-      gitUtils.deleteArchivedRef(sessionInfo.repoRoot, sessionInfo.actualBranch);
+      await gitUtils.deleteArchivedRefAsync(sessionInfo.repoRoot, sessionInfo.actualBranch);
     }
     prPoller?.unwatch(id);
     launcher.removeSession(id);
@@ -1744,186 +1730,27 @@ export function createSessionsRoutes(ctx: RouteContext) {
     });
     return c.json({ ok: true, worktree: worktreeResult });
   });
-
-  // Shared helper: archive a single session (kill, cleanup, persist).
-  // Used by both /archive and /archive-group endpoints.
-  async function archiveSingleSession(id: string, actorSessionId?: string) {
-    // Emit herd event before killing -- the leader needs to know a worker was archived.
-    const archivedSessionInfo = launcher.getSession(id);
-    if (archivedSessionInfo?.herdedBy) {
-      wsBridge.emitTakodeEvent(
-        id,
-        "session_archived",
-        { archive_source: getArchiveSource(actorSessionId) },
-        actorSessionId,
-      );
-    }
-
-    await launcher.kill(id);
-
-    // Clean up container if any
-    containerManager.removeContainer(id);
-
-    // Stop PR polling for this session
-    prPoller?.unwatch(id);
-
-    // Force-delete the worktree directory on archive. The branch tip is saved
-    // as an archived ref (refs/companion/archived/) so committed work can be
-    // restored on unarchive without polluting the active branch list (q-329).
-    const worktreeResult = cleanupWorktree(id, true, { archiveBranch: true });
-    launcher.setArchived(id, true);
-    await sessionStore.setArchived(id, true);
-
-    // Cancel all session-scoped timers when archiving.
-    if (ctx.timerManager) {
-      void ctx.timerManager.cancelAllTimers(id);
-    }
-
-    // Auto-stop reviewer sessions tied to this parent.
-    // Reviewer sessions are temporary quality gates -- when the parent worker is
-    // archived, the reviewer is no longer useful and should be cleaned up.
-    // listSessions() returns a new array (Array.from), and kill() only mutates
-    // session.state without removing from the sessions map, so iteration is safe.
-    const archivedNum = launcher.getSessionNum(id);
-    if (archivedNum !== undefined) {
-      const allSessions = launcher.listSessions();
-      for (const s of allSessions) {
-        if (s.reviewerOf === archivedNum && !s.archived) {
-          console.log(`[routes] Auto-stopping reviewer session ${s.sessionId} (reviewerOf=#${archivedNum})`);
-          await launcher.kill(s.sessionId);
-          containerManager.removeContainer(s.sessionId);
-          cleanupWorktree(s.sessionId, true);
-          launcher.setArchived(s.sessionId, true);
-          await sessionStore.setArchived(s.sessionId, true);
-          // Emit after kill so the leader doesn't query a still-alive session
-          if (s.herdedBy) {
-            wsBridge.emitTakodeEvent(s.sessionId, "session_archived", { archive_source: "cascade" });
-          }
-        }
-      }
-    }
-    return worktreeResult;
-  }
-
-  api.post("/sessions/:id/archive", async (c) => {
-    const id = resolveId(c.req.param("id"));
-    if (!id) return c.json({ error: "Session not found" }, 404);
-    await c.req.json().catch(() => ({}));
-
-    const actorId = getActorSessionId(authenticateCompanionCallerOptional(c));
-    const worktreeResult = await archiveSingleSession(id, actorId);
-    return c.json({ ok: true, worktree: worktreeResult });
+  registerSessionsArchiveRoutes(api, {
+    resolveId,
+    authenticateCompanionCallerOptional,
+    launcher,
+    wsBridge,
+    sessionStore,
+    worktreeTracker,
+    prPoller,
+    pathExists,
+    timerManager: ctx.timerManager,
+    queueArchivedWorktreeCleanup,
+    pendingWorktreeCleanups,
+    applyInitialSessionState,
   });
-
-  api.post("/sessions/:id/archive-group", async (c) => {
-    const id = resolveId(c.req.param("id"));
-    if (!id) return c.json({ error: "Session not found" }, 404);
-
-    const leader = launcher.getSession(id);
-    if (!leader) return c.json({ error: "Session not found" }, 404);
-    if (!leader.isOrchestrator) {
-      return c.json({ error: "Session is not an orchestrator" }, 400);
-    }
-
-    const actorId = getActorSessionId(authenticateCompanionCallerOptional(c));
-
-    // Find all non-archived herded workers
-    const workers = launcher.getHerdedSessions(id).filter((s) => !s.archived);
-
-    const results: Array<{ sessionId: string; ok: boolean; error?: string }> = [];
-
-    // Archive workers first, then the leader (avoids herd events to a dead leader)
-    for (const w of workers) {
-      try {
-        await archiveSingleSession(w.sessionId, actorId);
-        results.push({ sessionId: w.sessionId, ok: true });
-      } catch (e) {
-        results.push({
-          sessionId: w.sessionId,
-          ok: false,
-          error: e instanceof Error ? e.message : String(e),
-        });
-      }
-    }
-
-    // Archive the leader itself
-    try {
-      await archiveSingleSession(id);
-      results.push({ sessionId: id, ok: true });
-    } catch (e) {
-      results.push({
-        sessionId: id,
-        ok: false,
-        error: e instanceof Error ? e.message : String(e),
-      });
-    }
-
-    const anyFailed = results.some((r) => !r.ok);
-    return c.json({
-      ok: !anyFailed,
-      archived: results.filter((r) => r.ok).length,
-      failed: results.filter((r) => !r.ok).length,
-      results,
-    });
-  });
-
-  api.post("/sessions/:id/unarchive", async (c) => {
-    const id = resolveId(c.req.param("id"));
-    if (!id) return c.json({ error: "Session not found" }, 404);
-    const info = launcher.getSession(id);
-    if (!info) return c.json({ error: "Session not found" }, 404);
-
-    launcher.setArchived(id, false);
-    await sessionStore.setArchived(id, false);
-
-    // For worktree sessions: recreate the worktree if it was deleted during archiving
-    let worktreeRecreated = false;
-    if (info.isWorktree && info.repoRoot && info.branch) {
-      if (!(await pathExists(info.cwd))) {
-        try {
-          const result = await recreateWorktreeIfMissing(id, info, { launcher, worktreeTracker, wsBridge });
-          if (result.error) {
-            return c.json({ ok: false, error: `Failed to recreate worktree: ${result.error}` }, 500);
-          }
-          worktreeRecreated = result.recreated;
-        } catch (e) {
-          console.error(`[routes] Failed to recreate worktree for session ${id}:`, e);
-          return c.json(
-            {
-              ok: false,
-              error: `Failed to recreate worktree: ${e instanceof Error ? e.message : String(e)}`,
-            },
-            500,
-          );
-        }
-      } else {
-        // Worktree still exists — re-register tracker and bridge state
-        worktreeTracker.addMapping({
-          sessionId: id,
-          repoRoot: info.repoRoot,
-          branch: info.branch,
-          actualBranch: info.actualBranch || info.branch,
-          worktreePath: info.cwd,
-          createdAt: Date.now(),
-        });
-        wsBridge.markWorktree(id, info.repoRoot, info.cwd, undefined, info.branch);
-      }
-    }
-
-    // Auto-relaunch the CLI so the session is immediately usable
-    const relaunchResult = await launcher.relaunch(id);
-
-    return c.json({ ok: true, worktreeRecreated, relaunch: relaunchResult });
-  });
-
   // ─── Task History (table of contents) ──────────────────────
-
   api.get("/sessions/:id/tasks", (c) => {
     const sessionId = resolveId(c.req.param("id"));
     if (!sessionId) return c.json({ error: "Session not found" }, 404);
 
-    const taskHistory = wsBridge.getSessionTaskHistory(sessionId);
-    const messageHistory = wsBridge.getMessageHistory(sessionId);
+    const taskHistory = wsBridge.getSession(sessionId)?.taskHistory ?? [];
+    const messageHistory = wsBridge.getSession(sessionId)?.messageHistory ?? null;
     if (!messageHistory) return c.json({ error: "Session not found in bridge" }, 404);
 
     const sessionNum = launcher.getSessionNum(sessionId) ?? -1;
@@ -1972,9 +1799,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
       tasks,
     });
   });
-
   // ─── Tool result lazy fetch ────────────────────────────────
-
   api.get("/sessions/:id/tool-result/:toolUseId", (c) => {
     const sessionId = resolveId(c.req.param("id"));
     if (!sessionId) return c.json({ error: "Session not found" }, 404);
@@ -1994,9 +1819,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
 
     return c.json(result);
   });
-
   // ─── Background agent output file ────────────────────────────
-
   api.get("/sessions/:id/agent-output", async (c) => {
     const filePath = c.req.query("path");
     if (!filePath) return c.text("Missing path parameter", 400);
@@ -2009,9 +1832,46 @@ export function createSessionsRoutes(ctx: RouteContext) {
       return c.text("File not found", 404);
     }
   });
-
   // ─── Image serving ─────────────────────────────────────────
+  api.post("/sessions/:id/images/prepare-user-message", async (c) => {
+    if (!imageStore) return c.json({ error: "Image store not configured" }, 503);
+    const id = resolveId(c.req.param("id"));
+    if (!id) return c.json({ error: "Session not found" }, 404);
 
+    const body = await c.req.json().catch(() => null);
+    const images = Array.isArray((body as { images?: unknown[] } | null)?.images)
+      ? ((body as { images: Array<{ mediaType?: unknown; data?: unknown }> }).images ?? [])
+      : [];
+    if (images.length === 0) {
+      return c.json({ error: "images must be a non-empty array" }, 400);
+    }
+
+    const invalidImage = images.find(
+      (img) => typeof img?.mediaType !== "string" || typeof img?.data !== "string" || !img.mediaType || !img.data,
+    );
+    if (invalidImage) {
+      return c.json({ error: "Each image must include mediaType and data" }, 400);
+    }
+
+    const imageRefs = await Promise.all(
+      images.map((img) => imageStore.store(id, img.data as string, img.mediaType as string)),
+    );
+    const paths = deriveAttachmentPaths(id, imageRefs);
+    return c.json({
+      imageRefs,
+      paths,
+      attachmentAnnotation: formatAttachmentPathAnnotation(paths),
+    });
+  });
+  api.delete("/sessions/:id/images/:imageId", async (c) => {
+    if (!imageStore) return c.json({ error: "Image store not configured" }, 503);
+    const id = resolveId(c.req.param("id"));
+    if (!id) return c.json({ error: "Session not found" }, 404);
+    const imageId = c.req.param("imageId");
+    if (!imageId) return c.json({ error: "Missing imageId" }, 400);
+    await imageStore.removeImage(id, imageId);
+    return c.json({ ok: true });
+  });
   api.get("/images/:sessionId/:imageId/thumb", async (c) => {
     if (!imageStore) return c.json({ error: "Image store not configured" }, 503);
     const { sessionId, imageId } = c.req.param();
@@ -2027,7 +1887,6 @@ export function createSessionsRoutes(ctx: RouteContext) {
       },
     });
   });
-
   api.get("/images/:sessionId/:imageId/full", async (c) => {
     if (!imageStore) return c.json({ error: "Image store not configured" }, 503);
     const { sessionId, imageId } = c.req.param();
@@ -2041,6 +1900,5 @@ export function createSessionsRoutes(ctx: RouteContext) {
       },
     });
   });
-
   return api;
 }

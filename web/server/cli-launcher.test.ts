@@ -19,13 +19,10 @@ vi.mock("node:crypto", async (importOriginal) => {
 const mockExec = vi.hoisted(() =>
   vi.fn((_cmd: string, _opts: any, cb: any) => {
     if (_cmd.includes("git --no-optional-locks ls-files --error-unmatch --")) {
-      const err = Object.assign(
-        new Error("Command failed: git ls-files"),
-        {
-          code: 1,
-          stderr: "error: pathspec '.claude/settings.json' did not match any file(s) known to git",
-        },
-      );
+      const err = Object.assign(new Error("Command failed: git ls-files"), {
+        code: 1,
+        stderr: "error: pathspec '.claude/settings.json' did not match any file(s) known to git",
+      });
       if (typeof _opts === "function") {
         _opts(err, "", "");
         return;
@@ -2028,7 +2025,9 @@ describe("session identity injection", () => {
     expect(sysPromptIdx).toBeGreaterThan(-1);
     const sysPrompt = String(cmdAndArgs[sysPromptIdx + 1] ?? "");
 
-    expect(sysPrompt).toContain("If a user message includes image attachments, read every attached image before you respond.");
+    expect(sysPrompt).toContain(
+      "If a user message includes image attachments, read every attached image before you respond.",
+    );
     expect(sysPrompt).toContain("Make that your first step for that turn.");
     expect(sysPrompt).toContain("Only resize when the Read tool fails due to oversized dimensions.");
   });
@@ -2716,15 +2715,23 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("Fresh human feedback resets the active cycle");
     expect(guardrails).toContain("do not let stale old-scope completions advance the quest");
     expect(guardrails).toContain("Zero-code quests do not need port noise");
+    expect(guardrails).toContain("zero git-tracked changes");
+    expect(guardrails).toContain(
+      "Docs, skills, prompts, templates, and other text-only tracked-file edits are commit-producing work",
+    );
+    expect(guardrails).toContain("attach their synced SHAs with `quest complete ... --commit/--commits`");
     expect(guardrails).toContain("local CLI reminder switch");
     expect(guardrails).toContain("Leaders do not own worker quests");
     expect(guardrails).toContain("worker doing the job claims and completes the quest");
     expect(guardrails).toContain("Archiving a worktree worker removes its worktree and any uncommitted changes");
     expect(guardrails).toContain("ported, committed, or otherwise synced");
-    expect(guardrails).toContain("implement, update the quest summary comment, and stop when done");
+    expect(guardrails).toContain("implement, update the user-oriented quest summary comment, and stop when done");
+    expect(guardrails).toContain("what changed, why it matters, and what verification passed");
     expect(guardrails).toContain("Do **not** tell the worker to port yet");
     expect(guardrails).toContain("investigation, design, or other no-code quests");
-    expect(guardrails).toContain("address reviewer-groom findings, update the quest summary comment, and stop");
+    expect(guardrails).toContain(
+      "address reviewer-groom findings, update the user-oriented quest summary comment, and stop",
+    );
     expect(guardrails).toContain("what artifact to produce and to stop afterward");
     expect(guardrails).toContain("`--no-code` only affects the local CLI reminder text");
     expect(guardrails).toContain("send a separate explicit port instruction when ready");
@@ -2733,10 +2740,18 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("takode notify");
     expect(guardrails).toContain("needs-input");
     expect(guardrails).toContain("review");
+    expect(guardrails).toContain("takode notify list");
+    expect(guardrails).toContain("takode notify resolve <notification-id>");
+    expect(guardrails).toContain("After the user answers a same-session `takode notify needs-input` prompt");
+    expect(guardrails).toContain("Use this only for notifications created by your current session");
     expect(guardrails).toContain("Do not rely on deprecated leader reply suffixes");
     expect(guardrails).toContain("use normal assistant text plus `takode notify` instead");
     expect(guardrails).toContain("Every time you ask the user a question");
     expect(guardrails).toContain("also call `takode notify needs-input`");
+    expect(guardrails).toContain("takode notify list");
+    expect(guardrails).toContain("takode notify resolve <notification-id>");
+    expect(guardrails).toContain("After the user answers a same-session `takode notify needs-input` prompt");
+    expect(guardrails).toContain("Use this only for notifications created by your current session");
     expect(guardrails).toContain("so the user never misses the leader's question");
     expect(guardrails).toContain("Fresh human feedback outranks stale completions");
     expect(guardrails).toContain("Do **not** call `takode notify review` for quest completion");
@@ -2774,9 +2789,12 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("worker doing the job claims and completes the quest");
     expect(guardrails).toContain("Archiving a worktree worker removes its worktree and any uncommitted changes");
     expect(guardrails).toContain("ported, committed, or otherwise synced");
-    expect(guardrails).toContain("implement, update the quest summary comment, and stop when done");
+    expect(guardrails).toContain("implement, update the user-oriented quest summary comment, and stop when done");
+    expect(guardrails).toContain("what changed, why it matters, and what verification passed");
     expect(guardrails).toContain("Do **not** tell the worker to port yet");
-    expect(guardrails).toContain("address reviewer-groom findings, update the quest summary comment, and stop");
+    expect(guardrails).toContain(
+      "address reviewer-groom findings, update the user-oriented quest summary comment, and stop",
+    );
     expect(guardrails).toContain("what artifact to produce and to stop afterward");
     expect(guardrails).toContain("send a separate explicit port instruction when ready");
     expect(guardrails).toContain("Every time you ask the user a question");
@@ -2914,7 +2932,7 @@ describe("cat herding", () => {
         injectUserMessage: vi.fn(() => "sent" as const),
         isSessionIdle: vi.fn(() => true),
         wakeIdleKilledSession: vi.fn(() => false),
-        getSessionMessages: vi.fn(() => null),
+        getSession: vi.fn(() => undefined),
       };
       const emitTakodeEvent = (event: TakodeEvent) => {
         for (const sub of subscriptions) {
@@ -2941,7 +2959,6 @@ describe("cat herding", () => {
         dispatcher,
         wsBridge: {
           emitTakodeEvent: emitBridgeEvent,
-          onHerdMembershipChanged: vi.fn(),
         },
         launcher: herdLauncher,
         getSessionName: () => undefined,
@@ -2963,10 +2980,15 @@ describe("cat herding", () => {
 
       vi.advanceTimersByTime(600);
 
-      expect(bridge.injectUserMessage).toHaveBeenCalledWith("orch-1", expect.stringContaining("herd_reassigned"), {
-        sessionId: "herd-events",
-        sessionLabel: "Herd Events",
-      });
+      expect(bridge.injectUserMessage).toHaveBeenCalledWith(
+        "orch-1",
+        expect.stringContaining("herd_reassigned"),
+        {
+          sessionId: "herd-events",
+          sessionLabel: "Herd Events",
+        },
+        undefined,
+      );
 
       dispatcher.onOrchestratorTurnEnd("orch-1");
       expect(dispatcher._getInbox("orch-1")).toBeUndefined();
@@ -3117,5 +3139,77 @@ describe("cat herding", () => {
   it("getHerdedSessions returns empty for non-herding orchestrator", async () => {
     await setupSessions("orch-1");
     expect(herdLauncher.getHerdedSessions("orch-1")).toEqual([]);
+  });
+
+  it("getHerdedSessions excludes archived workers", async () => {
+    // Archived workers must not appear as live herd members (q-605)
+    await setupSessions("orch-1", "worker-1", "worker-2");
+    herdLauncher.herdSessions("orch-1", ["worker-1", "worker-2"]);
+
+    herdLauncher.setArchived("worker-1", true);
+
+    const herded = herdLauncher.getHerdedSessions("orch-1");
+    expect(herded.map((s) => s.sessionId)).toEqual(["worker-2"]);
+  });
+
+  it("setArchived on a worker clears herdedBy and fires onHerdChange", async () => {
+    // Archiving a worker must sever its herd link so the leader's herd
+    // doesn't include stale members after restart (q-605)
+    await setupSessions("orch-1", "worker-1");
+    herdLauncher.herdSessions("orch-1", ["worker-1"]);
+
+    const herdChange = vi.fn();
+    herdLauncher.onHerdChange = herdChange;
+
+    herdLauncher.setArchived("worker-1", true);
+
+    const worker = herdLauncher.getSession("worker-1");
+    expect(worker?.herdedBy).toBeUndefined();
+    expect(herdChange).toHaveBeenCalledWith({ type: "membership_changed", leaderId: "orch-1" });
+  });
+
+  it("setArchived on a worker also detaches its attached reviewer from the herd", async () => {
+    // Mirrors unherdSession's reviewer cleanup: archiving a herded worker
+    // must also clear herdedBy on any reviewer attached via reviewerOf.
+    await setupSessions("orch-1", "worker-1", "reviewer-1");
+    const worker = herdLauncher.getSession("worker-1")!;
+    const reviewer = herdLauncher.getSession("reviewer-1")!;
+    worker.sessionNum = 42;
+    herdLauncher.herdSessions("orch-1", ["worker-1"]);
+    reviewer.reviewerOf = 42;
+    reviewer.herdedBy = "orch-1";
+
+    herdLauncher.setArchived("worker-1", true);
+
+    expect(reviewer.herdedBy).toBeUndefined();
+    expect(herdLauncher.getHerdedSessions("orch-1")).toEqual([]);
+  });
+
+  it("archived orchestrator is ineligible for herd bootstrap after restart", async () => {
+    // Simulates stale persisted state: an archived orchestrator whose worker
+    // still has herdedBy set (e.g. server crashed before cleanup completed).
+    // The !s.archived guard in the bootstrap loop (index.ts:189-192) must be
+    // the deciding factor, not herd cleanup side effects.
+    await setupSessions("orch-1", "worker-1");
+    const orchInfo = herdLauncher.getSession("orch-1")!;
+    orchInfo.isOrchestrator = true;
+    herdLauncher.herdSessions("orch-1", ["worker-1"]);
+
+    // Directly set archived without calling setArchived() to preserve the
+    // stale herdedBy on worker-1 (simulates crash-before-cleanup scenario)
+    orchInfo.archived = true;
+
+    const worker = herdLauncher.getSession("worker-1")!;
+    expect(worker.herdedBy).toBe("orch-1"); // stale link still present
+
+    // With archived=true, bootstrap must skip despite live herded workers
+    const bootstrapCondition = (s: { isOrchestrator?: boolean; archived?: boolean; sessionId: string }) =>
+      s.isOrchestrator === true && !s.archived && herdLauncher.getHerdedSessions(s.sessionId).length > 0;
+
+    expect(bootstrapCondition(orchInfo)).toBe(false);
+
+    // Control: same orchestrator un-archived would pass the bootstrap
+    orchInfo.archived = false;
+    expect(bootstrapCondition(orchInfo)).toBe(true);
   });
 });

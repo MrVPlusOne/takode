@@ -27,6 +27,7 @@ This skill covers leader discipline and the step-by-step dispatch process. Invok
 - **Ask, don't assume.** If the user's instruction is ambiguous or underspecified, ask a quick follow-up question before dispatching. Every interaction with the user is an opportunity to clarify. Workers can figure out implementation details themselves -- you don't need to fill in gaps with guesses.
 - **Never hallucinate user intent.** If the user says "fix the sidebar bug", don't turn it into "fix the sidebar bug by adjusting the CSS grid layout and adding a media query for mobile breakpoints". Pass through what the user said and let the worker investigate.
 - **Added details need confirmation.** If you want to add specifics to make instructions more actionable (e.g. suggesting an approach, naming specific files, or scoping the fix), confirm with the user first. An over-specified instruction based on wrong assumptions wastes more time than a brief clarifying question.
+- **Use `/quest-design` before quest creation/refinement.** Before creating a quest or refining an `idea` quest into worker-ready scope, invoke `/quest-design` and wait for user confirmation or correction. A user-approved plan that explicitly covers the quest text counts as this confirmation. Routine feedback, claims, completion, verification checks, board updates, and already-approved stage transitions do not need a separate confirmation round.
 - **Treat worker/reviewer confusion as a blocking signal.** When a herded worker or reviewer raises a clarification question, answer it from existing context if you can. If not, ask the user via plain text plus `takode notify needs-input` and keep that quest blocked until the ambiguity is resolved.
 
 ## Dispatch Steps
@@ -101,31 +102,37 @@ Do not leave a quest in `QUEUED` just because `takode list` says `Worker slots u
 **Spawn fresh** when there is no strong context advantage for reuse, or when the context can be recovered safely from artifacts and history. Point the new worker to relevant quests or past sessions for context:
 
 ```bash
-takode spawn --message "<dispatch>"
+takode spawn --message-file - <<'EOF'
+<dispatch>
+EOF
 ```
 
-**Shell quoting safety.** Do not paste complex text payloads inline inside double quotes if they may contain backticks, `$(...)`, quotes, braces, copied CLI output, or other shell-sensitive content. Your shell can execute or corrupt that text locally before the target command receives it. This applies to `takode send`, `takode spawn --message`, `quest feedback`, and any other shell command carrying arbitrary text. For multi-line or shell-like payloads, compose the text with a single-quoted heredoc and pass the variable instead:
+**Shell quoting safety.** Do not paste complex text payloads inline inside double quotes if they may contain backticks, `$(...)`, quotes, braces, copied CLI output, or other shell-sensitive content. Your shell can execute or corrupt that text locally before the target command receives it. Use Takode's non-inline input paths instead: `takode send --stdin` for sent messages, and `takode spawn --message-file <path>` or `--message-file -` for spawn dispatches.
 
 ```bash
-msg=$(cat <<'EOF'
+takode spawn --message-file - <<'EOF'
 Work on [q-XX](quest:q-XX). Read the quest and claim it: `quest show q-XX && quest claim q-XX`.
 If logs include `$(...)` or backticks, treat them as literal text.
 Return a plan for approval before implementing. After you send the plan, stop and wait for approval.
 EOF
-)
-takode spawn --message "$msg"
-takode send 2 "$msg"
+takode send 2 --stdin <<'EOF'
+Work on [q-XX](quest:q-XX). Read the quest and claim it: `quest show q-XX && quest claim q-XX`.
+If logs include `$(...)` or backticks, treat them as literal text.
+Return a plan for approval before implementing. After you send the plan, stop and wait for approval.
+EOF
 ```
 
-Use the same pattern for quest comments and port summaries:
+For quest comments or port summaries, prefer the quest CLI's safer rich-text path instead of inline shell quoting:
 
 ```bash
-msg=$(cat <<'EOF'
+cat >/tmp/quest-feedback.txt <<'EOF'
 Port summary: commit abc123 ...
 Treat `foo $(bar)` as literal text, not shell.
 EOF
-)
-quest feedback q-123 --text "$msg"
+quest feedback q-123 --text-file /tmp/quest-feedback.txt
+
+printf '%s\n' 'Port summary: commit abc123 ...' 'Treat `foo $(bar)` as literal text, not shell.' | \
+  quest feedback q-123 --text-file -
 ```
 
 **Never use `--no-worktree` unless the user explicitly asks for it** or the project's repo instructions require it. All workers get worktrees by default -- including investigation and debugging tasks, since they almost always lead to code changes. Don't use `--fixed-name` for regular workers -- they auto-name from their quest.
@@ -141,11 +148,11 @@ Maintain at most **5 worker slots** in your herd. Reviewer sessions do **not** u
 **Use this exact template. Do not add extra context, file paths, or investigation instructions.**
 
 ```
-Work on [q-XX](quest:q-XX). Read the quest and claim it: `quest show q-XX && quest claim q-XX`.
+Work on [q-XX](quest:q-XX). Load the quest skill first, then read the quest and claim it: `quest show q-XX && quest claim q-XX`.
 Return a plan for approval before implementing. After you send the plan, stop and wait for approval.
 ```
 
-When sending this template through the shell, prefer the heredoc pattern above over inline double quotes if you might include shell-like text or multi-line additions.
+When sending this template through the shell, prefer `takode spawn --message-file -` or `takode spawn --message-file <path>` over inline `--message` if you might include shell-like text or multi-line additions.
 
 If the worker needs additional context (related sessions, rejected approaches, user decisions), add it to the quest description before dispatching. Workers have the same tools and skills you do -- they run `quest show q-XX` themselves.
 
@@ -154,22 +161,24 @@ If the worker needs additional context (related sessions, rejected approaches, u
 **Make every follow-up message stage-explicit.**
 - **Initial dispatch**: planning only. The worker returns a plan and stops.
 - **Plan approval**: say "implement now, then stop and report back." Do not imply review, porting, or quest transitions are authorized.
-- **Review or rework follow-up**: say exactly what the worker should do now, then tell them to report back and wait. Do not imply porting is authorized.
-- **Porting**: send a separate, explicit `/port-changes` instruction only after reviewer ACCEPT. Require the worker's report-back to include a dedicated `Synced SHAs: sha1,sha2` line with the ordered synced SHAs from the main repo.
-- **Investigation/design/no-code quests**: say what artifact to produce, then tell the worker to stop and report back. Do not assume the worker should self-complete or self-transition the quest.
+- **Review or rework follow-up**: say exactly what the worker should do now, then tell them to report back and wait. Tell the worker to refresh the existing quest summary/comment as a user-oriented outcome note covering what changed, why it matters, and what verification passed. Consolidate feedback-addressing details into that same comment when clear instead of adding near-duplicate quest comments. Do not imply porting is authorized.
+- **If review follow-up needs more code changes**: tell the worker to commit the current worktree state first, then make the fixes in a separate follow-up commit so the reviewer can inspect a clean diff of only the new work.
+- **Porting**: send a separate, explicit `/port-changes` instruction only after reviewer ACCEPT. Require the worker's report-back to include a dedicated `Synced SHAs: sha1,sha2` line with the ordered synced SHAs from the main repo and the status of required post-port verification. For refactor quests, that gate is `cd web && bun run typecheck`, `cd web && bun run test`, and `cd web && bun run format:check`. `format:check` is the current lint/format-equivalent gate in this repo; there is no separate `lint` script right now. If a full run is infeasible, the worker must document the exception explicitly. If the required post-port verification run fails, dispatch a suitable worker to fix `main` immediately rather than waiting.
+- **Docs/skills/prompts/templates still count when tracked**: if a worker changes git-tracked docs, skill files, prompts, templates, or other text-only files, treat it as commit-producing work. It must go through normal review, porting, and `quest complete ... --commit/--commits` structured metadata after sync.
+- **Investigation/design/no-code quests**: say what artifact to produce, then tell the worker to stop and report back. This path is only for quests that produce zero git-tracked changes; do not use it for text-only tracked-file edits. Do not assume the worker should self-complete or self-transition the quest.
 
 **Use explicit phrasing when steering between stages.** Good defaults:
 
 ```
-Implement the approved plan, then stop and report back. Do not run /reviewer-groom, /self-groom, /port-changes, or change the quest status yourself.
+Implement the approved plan, add or refresh the consolidated quest summary comment for the human reader, then stop and report back. The summary should state what changed, why it matters, and what verification passed, without turning into a review/rework timeline. If this also addresses human feedback, explain that in the same comment when it remains clear. Do not run /reviewer-groom, /self-groom, /port-changes, or change the quest status yourself.
 ```
 
 ```
-Address the reviewer findings, then stop and report back. Do not port yet.
+Address the reviewer findings, add or refresh the consolidated user-oriented quest summary comment, then stop and report back. Do not port yet.
 ```
 
 ```
-Address the reviewer-groom findings, then stop and report back. Do not port yet.
+Address the reviewer-groom findings. If you need more code changes, first commit the current worktree state, then make the fixes in a separate follow-up commit. Add or refresh the consolidated user-oriented quest summary comment, then stop and report back. Do not port yet.
 ```
 
 ```
@@ -179,17 +188,19 @@ Port now using /port-changes, then report back when sync is complete. Include a 
 **For feedback rework dispatches**, use this extended template instead:
 
 ```
-Work on [q-XX](quest:q-XX). Read the quest and check unaddressed feedback: `quest show q-XX && quest claim q-XX`.
-Address all unaddressed feedback items. After fixing each item, mark it as addressed: `quest address q-XX <index>`.
+Work on [q-XX](quest:q-XX). Load the quest skill first, then read the quest and claim it: `quest show q-XX && quest claim q-XX`.
+The quest has unaddressed human feedback -- read it carefully and factor it into your plan.
 Return a plan for approval before implementing. After you send the plan, stop and wait for approval.
 ```
 
-This ensures workers know about pending feedback and explicitly mark each item as addressed after fixing it.
+This ensures workers load the quest skill (so CLI commands work), read pending feedback before planning, and stop at the planning boundary. Feedback addressing happens during implementation, not planning.
 
 **Feedback rework resets the board cycle.** When new human feedback arrives for a quest that is already on the board, immediately reset that row to the earliest valid stage for the new cycle before doing anything else with stale worker/reviewer completions:
 
 - `PLANNING` if the same worker is still the intended owner and should produce a fresh plan
 - `QUEUED` if you need to choose a worker again or the prior ownership is no longer valid
+
+**Interrupt before redirecting active stale work.** If the old-scope worker is still actively generating when fresh human feedback or an urgent correction changes the source of truth, interrupt it first with `takode interrupt <N>`. Then send the corrected instruction as a fresh message. Do not rely on a queued correction to outrun the old turn.
 
 Do not let a stale review acceptance, stale port confirmation, or any other old-scope completion advance the board after that reset. Those completions are now historical context, not the active quest state.
 

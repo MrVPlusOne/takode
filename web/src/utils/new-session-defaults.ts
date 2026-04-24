@@ -64,7 +64,7 @@ function normalizeMode(
 
 function normalizeModel(backend: NewSessionBackend, rawModel: string | null | undefined): string {
   if (backend === "codex") {
-    return rawModel ?? getDefaultModel(backend);
+    return rawModel ?? "";
   }
 
   const models = getModelsForBackend(backend);

@@ -33,6 +33,18 @@ function firstNonEmptyString(obj: Record<string, unknown>, keys: string[]): stri
   return "";
 }
 
+function isWriteLikeChangeKind(change: Record<string, unknown>): boolean {
+  const kind = typeof change.kind === "string" ? change.kind : typeof change.type === "string" ? change.type : "";
+  const normalizedKind = kind.trim().toLowerCase();
+  return (
+    normalizedKind === "create" || normalizedKind === "created" || normalizedKind === "add" || normalizedKind === "new"
+  );
+}
+
+function extractChangeContent(change: Record<string, unknown>): string {
+  return firstNonEmptyString(change, ["content", "text", "new_string", "newText", "new_content", "newContent"]);
+}
+
 function extractNewTextFromPatch(patch: string): string {
   if (!patch.trim()) return "";
 
@@ -96,10 +108,9 @@ export function parseEditToolInput(
   ]);
   const createChangeContent = changes
     .map((change) => {
-      const kind = typeof change.kind === "string" ? change.kind : typeof change.type === "string" ? change.type : "";
-      if (kind !== "create") return "";
+      if (!isWriteLikeChangeKind(change)) return "";
       if (getChangePatch(change)) return "";
-      return firstNonEmptyString(change, ["content", "text", "new_string", "newText", "new_content", "newContent"]);
+      return extractChangeContent(change);
     })
     .find(Boolean);
   const newText = String(input.new_string || "") || topLevelContent || createChangeContent || "";
@@ -121,7 +132,16 @@ export function parseWriteToolInput(input: Record<string, unknown>): ParsedWrite
     .map((change) => getChangePatch(change))
     .filter(Boolean)
     .join("\n");
-  const rawContent = typeof input.content === "string" ? input.content : "";
+  const rawContent =
+    firstNonEmptyString(input, ["content", "text", "new_string", "newText", "new_content", "newContent"]) ||
+    changes
+      .map((change) => {
+        if (!isWriteLikeChangeKind(change)) return "";
+        if (getChangePatch(change)) return "";
+        return extractChangeContent(change);
+      })
+      .find(Boolean) ||
+    "";
 
   return {
     filePath,

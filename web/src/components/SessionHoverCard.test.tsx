@@ -431,6 +431,57 @@ describe("SessionHoverCard", () => {
     expect(screen.getByTestId("session-hover-path-repo-tail")).toHaveTextContent("companion");
   });
 
+  it("shows pending archived worktree cleanup status", () => {
+    // Protects hover-card diagnostics for the async archive path: pending work
+    // should read as intentional background cleanup, not a missing worktree state.
+    render(
+      <SessionHoverCard
+        session={makeSession({
+          archived: true,
+          isWorktree: true,
+          worktreeExists: true,
+          worktreeCleanupStatus: "pending",
+        })}
+        sessionName="Archived worker"
+        sessionPreview={undefined}
+        taskHistory={undefined}
+        sessionState={undefined}
+        cliSessionId="cli-1"
+        anchorRect={new DOMRect(120, 80, 200, 40)}
+        onMouseEnter={() => {}}
+        onMouseLeave={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("Worktree cleanup in progress")).toBeInTheDocument();
+  });
+
+  it("shows failed archived worktree cleanup status", () => {
+    // Protects the post-archive debugging path so users can see the cleanup
+    // error directly from the hover card when background deletion fails.
+    render(
+      <SessionHoverCard
+        session={makeSession({
+          archived: true,
+          isWorktree: true,
+          worktreeExists: true,
+          worktreeCleanupStatus: "failed",
+          worktreeCleanupError: "git worktree remove failed",
+        })}
+        sessionName="Archived worker"
+        sessionPreview={undefined}
+        taskHistory={undefined}
+        sessionState={undefined}
+        cliSessionId="cli-1"
+        anchorRect={new DOMRect(120, 80, 200, 40)}
+        onMouseEnter={() => {}}
+        onMouseLeave={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("git worktree remove failed")).toBeInTheDocument();
+  });
+
   it("shows concise herding chips for leader sessions in the hover card", () => {
     mockStoreState.sdkSessions = [
       {

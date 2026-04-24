@@ -18,6 +18,17 @@ import { ensureAssistantWorkspace, ASSISTANT_DIR } from "../assistant-workspace.
 import { getLegacyCodexHome } from "../codex-home.js";
 import { getTranscriptionLogIndex, getTranscriptionLogEntry } from "../transcription-enhancer.js";
 import type { RouteContext } from "./context.js";
+import {
+  getVsCodeSelectionState as getVsCodeSelectionStateController,
+  getVsCodeWindowStates as getVsCodeWindowStatesController,
+  pollVsCodeOpenFileCommands as pollVsCodeOpenFileCommandsController,
+  requestVsCodeOpenFile as requestVsCodeOpenFileController,
+  resolveVsCodeOpenFileResult as resolveVsCodeOpenFileResultController,
+  updateVsCodeSelectionState as updateVsCodeSelectionStateController,
+  upsertVsCodeWindowState as upsertVsCodeWindowStateController,
+} from "../bridge/browser-transport-controller.js";
+import type { VsCodeSelectionState, VsCodeWindowState } from "../session-types.js";
+import { trafficStats } from "../traffic-stats.js";
 
 function getCodexModelVariantRank(slug: string): number {
   if (slug.includes("-codex-spark")) return 2;
@@ -222,6 +233,9 @@ export function createSystemRoutes(ctx: RouteContext) {
     pathExists,
     resolveId,
   } = ctx;
+  const bridgeAny = wsBridge as any;
+  const browserTransportState = () => bridgeAny.getBrowserTransportState?.() ?? bridgeAny.browserTransportState;
+  const browserTransportDeps = () => bridgeAny.getBrowserTransportDeps?.();
 
   // ─── Health ─────────────────────────────────────────────────────────
 
@@ -229,7 +243,7 @@ export function createSystemRoutes(ctx: RouteContext) {
 
   api.get("/traffic/stats", (c) => {
     return c.json({
-      snapshot: wsBridge.getTrafficStatsSnapshot(),
+      snapshot: trafficStats.snapshot(),
       recording: recorder
         ? {
             available: true,
@@ -242,16 +256,18 @@ export function createSystemRoutes(ctx: RouteContext) {
   });
 
   api.post("/traffic/stats/reset", (c) => {
-    wsBridge.resetTrafficStats();
+    trafficStats.reset();
     return c.json({
       ok: true,
-      snapshot: wsBridge.getTrafficStatsSnapshot(),
+      snapshot: trafficStats.snapshot(),
     });
   });
 
   api.get("/vscode/selection", (c) => {
     return c.json({
-      state: wsBridge.getVsCodeSelectionState(),
+      state: browserTransportState()
+        ? getVsCodeSelectionStateController(browserTransportState()!)
+        : bridgeAny.getVsCodeSelectionState?.(),
     });
   });
 
@@ -309,7 +325,7 @@ export function createSystemRoutes(ctx: RouteContext) {
       }
     }
 
-    wsBridge.updateVsCodeSelectionState({
+    const nextState: VsCodeSelectionState = {
       selection:
         selectionRecord === null
           ? null
@@ -323,17 +339,27 @@ export function createSystemRoutes(ctx: RouteContext) {
       sourceId,
       sourceType,
       ...(typeof sourceLabel === "string" ? { sourceLabel } : {}),
-    });
+    };
+    if (browserTransportState() && browserTransportDeps()) {
+      updateVsCodeSelectionStateController(browserTransportState()!, nextState, browserTransportDeps()!);
+    } else {
+      bridgeAny.updateVsCodeSelectionState?.(nextState);
+    }
 
     return c.json({
       ok: true,
-      state: wsBridge.getVsCodeSelectionState(),
+      state: browserTransportState()
+        ? getVsCodeSelectionStateController(browserTransportState()!)
+        : bridgeAny.getVsCodeSelectionState?.(),
     });
   });
 
   api.get("/vscode/windows", (c) => {
     return c.json({
-      windows: wsBridge.getVsCodeWindowStates(),
+      windows:
+        browserTransportState() && browserTransportDeps()
+          ? getVsCodeWindowStatesController(browserTransportState()!, browserTransportDeps()!)
+          : bridgeAny.getVsCodeWindowStates?.(),
     });
   });
 
@@ -373,14 +399,17 @@ export function createSystemRoutes(ctx: RouteContext) {
       return c.json({ error: "lastActivityAt must be a number when provided" }, 400);
     }
 
-    const window = wsBridge.upsertVsCodeWindowState({
+    const nextState: Omit<VsCodeWindowState, "lastSeenAt"> = {
       sourceId,
-      sourceType,
+      sourceType: "vscode-window",
       ...(typeof sourceLabel === "string" ? { sourceLabel } : {}),
       workspaceRoots: workspaceRoots as string[],
       updatedAt: Number(updatedAt),
       lastActivityAt: Number.isFinite(lastActivityAt) ? Number(lastActivityAt) : Number(updatedAt),
-    });
+    };
+    const window = browserTransportState()
+      ? upsertVsCodeWindowStateController(browserTransportState()!, nextState)
+      : bridgeAny.upsertVsCodeWindowState?.(nextState);
 
     return c.json({
       ok: true,
@@ -390,7 +419,9 @@ export function createSystemRoutes(ctx: RouteContext) {
 
   api.get("/vscode/windows/:sourceId/commands", (c) => {
     const sourceId = c.req.param("sourceId");
-    const commands = wsBridge.pollVsCodeOpenFileCommands(sourceId);
+    const commands = browserTransportState()
+      ? pollVsCodeOpenFileCommandsController(browserTransportState()!, sourceId)
+      : bridgeAny.pollVsCodeOpenFileCommands?.(sourceId);
     return c.json({ commands });
   });
 
@@ -413,10 +444,15 @@ export function createSystemRoutes(ctx: RouteContext) {
       return c.json({ error: "error must be a string when provided" }, 400);
     }
 
-    const handled = wsBridge.resolveVsCodeOpenFileResult(c.req.param("sourceId"), c.req.param("commandId"), {
-      ok: record.ok,
-      ...(typeof record.error === "string" ? { error: record.error } : {}),
-    });
+    const result = { ok: record.ok, ...(typeof record.error === "string" ? { error: record.error } : {}) };
+    const handled = browserTransportState()
+      ? resolveVsCodeOpenFileResultController(
+          browserTransportState()!,
+          c.req.param("sourceId"),
+          c.req.param("commandId"),
+          result,
+        )
+      : bridgeAny.resolveVsCodeOpenFileResult?.(c.req.param("sourceId"), c.req.param("commandId"), result);
     if (!handled) {
       return c.json({ error: "VSCode open-file command not found" }, 404);
     }
@@ -457,12 +493,16 @@ export function createSystemRoutes(ctx: RouteContext) {
     }
 
     try {
-      const dispatched = await wsBridge.requestVsCodeOpenFile({
+      const target = {
         absolutePath,
         ...(Number.isFinite(line) ? { line: Number(line) } : {}),
         ...(Number.isFinite(column) ? { column: Number(column) } : {}),
         ...(Number.isFinite(endLine) ? { endLine: Number(endLine) } : {}),
-      });
+      };
+      const dispatched =
+        browserTransportState() && browserTransportDeps()
+          ? await requestVsCodeOpenFileController(browserTransportState()!, target, browserTransportDeps()!)
+          : await bridgeAny.requestVsCodeOpenFile?.(target);
       return c.json({ ok: true, ...dispatched });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -500,10 +540,39 @@ export function createSystemRoutes(ctx: RouteContext) {
   api.get("/backends/:id/models", async (c) => {
     const backendId = c.req.param("id");
 
-    // Try fetching from LiteLLM proxy first (shared cache across backends)
-    const proxyModels = await fetchLitellmModels();
-
     if (backendId === "codex") {
+      // Prefer Codex CLI's local models cache. It reflects the actual models
+      // the installed Codex client knows about, which may diverge from any
+      // ambient LiteLLM proxy running elsewhere on the machine.
+      const cachePath = join(getLegacyCodexHome(), "models_cache.json");
+      if (await pathExists(cachePath)) {
+        try {
+          const raw = await readFile(cachePath, "utf-8");
+          const cache = JSON.parse(raw) as {
+            models: Array<{
+              slug: string;
+              display_name?: string;
+              description?: string;
+              visibility?: string;
+              priority?: number;
+            }>;
+          };
+          const models = cache.models
+            .filter((m) => m.visibility === "list")
+            .filter((m) => !m.slug.startsWith("gpt-5.2") && !m.slug.startsWith("gpt-5.1"))
+            .sort((a, b) => compareCodexModelSlugs(a.slug, b.slug))
+            .map((m) => ({
+              value: m.slug,
+              label: m.display_name || m.slug,
+              description: m.description || "",
+            }));
+          if (models.length > 0) return c.json(models);
+        } catch {
+          return c.json({ error: "Failed to parse Codex models cache" }, 500);
+        }
+      }
+
+      const proxyModels = await fetchLitellmModels();
       if (proxyModels) {
         const models = proxyModels
           .filter(isCodexModelId)
@@ -513,36 +582,11 @@ export function createSystemRoutes(ctx: RouteContext) {
         if (models.length > 0) return c.json(models);
       }
 
-      // Fallback: read from Codex CLI's local models cache
-      const cachePath = join(getLegacyCodexHome(), "models_cache.json");
-      if (!(await pathExists(cachePath))) {
-        return c.json({ error: "Codex models cache not found. Run codex once to populate it." }, 404);
-      }
-      try {
-        const raw = await readFile(cachePath, "utf-8");
-        const cache = JSON.parse(raw) as {
-          models: Array<{
-            slug: string;
-            display_name?: string;
-            description?: string;
-            visibility?: string;
-            priority?: number;
-          }>;
-        };
-        const models = cache.models
-          .filter((m) => m.visibility === "list")
-          .filter((m) => !m.slug.startsWith("gpt-5.2") && !m.slug.startsWith("gpt-5.1"))
-          .sort((a, b) => compareCodexModelSlugs(a.slug, b.slug))
-          .map((m) => ({
-            value: m.slug,
-            label: m.display_name || m.slug,
-            description: m.description || "",
-          }));
-        return c.json(models);
-      } catch {
-        return c.json({ error: "Failed to parse Codex models cache" }, 500);
-      }
+      return c.json({ error: "Codex models cache not found. Run codex once to populate it." }, 404);
     }
+
+    // Try fetching from LiteLLM proxy first (shared cache across backends)
+    const proxyModels = await fetchLitellmModels();
 
     if (backendId === "claude" || backendId === "claude-sdk") {
       if (proxyModels) {
@@ -705,7 +749,7 @@ export function createSystemRoutes(ctx: RouteContext) {
     const empty = { five_hour: null, seven_day: null, extra_usage: null };
 
     if (session?.backendType === "codex") {
-      const rl = wsBridge.getCodexRateLimits(sessionId);
+      const rl = session.codexAdapter?.getRateLimits?.() ?? null;
       if (!rl) return c.json(empty);
       const toEpochMs = (value: number): number => {
         // Codex has historically sent seconds; guard for future millisecond payloads.

@@ -30,6 +30,7 @@ Read these files or invoke these skills when performing the corresponding operat
 - **Never implement non-trivial changes yourself.** Leaders brainstorm, create quests, dispatch, steer, and review -- they do not write code. Investigation and research are also work to delegate.
 - **Never run `quest claim` yourself.** Workers claim quests when dispatched. Leaders coordinate, workers claim.
 - **Leaders do not become the quest owner for implementation work.** The worker doing the job claims and completes the quest; the leader only dispatches, reviews, and coordinates later stages.
+- **Use `/quest-design` before quest creation/refinement.** Before creating a quest or refining an `idea` quest into worker-ready scope, invoke `/quest-design` and wait for user confirmation or correction. A user-approved plan that explicitly covers the quest text counts as this confirmation. Routine feedback, claims, completion, verification checks, board updates, and already-approved lifecycle transitions do not need another round.
 - **Before dispatching any quest, *ALWAYS* invoke `/leader-dispatch`.** The dispatch message to the worker must use the standardized template. Do not add extra context, file paths, or investigation instructions -- add any extra information into the quest itself before dispatching.
 - **Events are push-based.** Herd events arrive as `[Herd]` user messages when idle. No polling.
 - **Reference, don't relay.** Point to source messages instead of paraphrasing.
@@ -37,7 +38,7 @@ Read these files or invoke these skills when performing the corresponding operat
 - **One task at a time per worker.** Mid-task steering is fine; unrelated new tasks queue.
 - **User feedback triggers full rework.** When a user reports issues with a completed quest, record feedback, set the quest back to `refined`, and dispatch for a full quest journey. Never skip review steps for "small" fixes. New human feedback becomes the source of truth for that quest: reset the board to the earliest valid stage for the fresh cycle and do not let stale in-flight review/port completions from the older scope keep advancing it. See [quest-journey.md](quest-journey.md).
 - **Don't echo board state as prose.** `takode board` commands display the board in the terminal with a special UI, and the user already sees the live board state in the Takode Chat UI. Never repeat current board rows as markdown tables or summaries -- just run the command and move on unless the user explicitly asks for a text summary.
-- **Never skip quest journey stages.** Every quest gets the full lifecycle: PLANNING → IMPLEMENTING → SKEPTIC_REVIEWING → GROOM_REVIEWING → PORTING. No exceptions for "small" changes.
+- **Do not skip quest journey stages for git-tracked changes.** The normal lifecycle is PLANNING → IMPLEMENTING → SKEPTIC_REVIEWING → GROOM_REVIEWING → PORTING for code changes and for git-tracked docs, skills, prompts, templates, or other text-only edits. These tracked-file changes require normal review, porting, and `quest complete ... --commit/--commits` metadata after sync. The only explicit exception is a true zero-code quest with zero git-tracked changes that has passed skeptic review and was explicitly marked with `takode board set <quest-id> --no-code`; only then may leaders use `takode board advance-no-groom <quest-id>` to skip reviewer-groom and porting.
 - **Never use `AskUserQuestion` or `EnterPlanMode`.** These block your turn and prevent herd event processing. Ask clarifying questions in plain text output instead. Every time you ask the user a question, also call `takode notify needs-input` so the user never misses the leader's question.
 - **Use `takode notify` at these moments:** `needs-input` every time you ask the user a question or need a decision before work can continue, because that keeps the user from missing the leader's question; `review` only for significant non-quest deliverables that are ready for the user's eyes, not for quest completion.
 - **Prefer plain-text inspection by default.** When using `takode info`, `takode peek`, `takode scan`, or `quest show` to read for judgment, scanability, or general situational awareness, use the normal plain-text output first. It is usually more token-efficient and easier to reason about than `--json`.
@@ -286,27 +287,30 @@ takode send 2 "Please also add tests for the edge cases"
 takode send 2 "Actually, skip the auth tests" --correction
 ```
 
-**Shell quoting safety.** Do not put complex text payloads directly inside double quotes if they may contain backticks, `$(...)`, quotes, braces, copied CLI output, or other shell-sensitive content. Your shell can execute or corrupt that text locally before the target command receives it. This applies to `takode send`, `takode spawn --message`, `quest feedback`, and any other shell command that carries arbitrary text. For multi-line or shell-like text, build the payload with a single-quoted heredoc and pass the variable instead:
+**Shell quoting safety.** Do not put complex text payloads directly inside double quotes if they may contain backticks, `$(...)`, quotes, braces, copied CLI output, or other shell-sensitive content. Your shell can execute or corrupt that text locally before the target command receives it. Use Takode's non-inline input paths instead: `takode send --stdin` for sent messages, and `takode spawn --message-file <path>` or `--message-file -` for spawn dispatches.
 
 ```bash
-msg=$(cat <<'EOF'
+takode send 2 --stdin <<'EOF'
 Investigate the failing path.
 Treat `foo $(bar)` as literal text, not shell.
 EOF
-)
-takode send 2 "$msg"
-takode spawn --message "$msg"
+takode spawn --message-file - <<'EOF'
+Investigate the failing path.
+Treat `foo $(bar)` as literal text, not shell.
+EOF
 ```
 
-For quest comments or summaries, use the same pattern:
+For quest comments or summaries, prefer the quest CLI's safer rich-text path instead of inline shell quoting:
 
 ```bash
-msg=$(cat <<'EOF'
+cat >/tmp/quest-feedback.txt <<'EOF'
 Port summary: commit abc123 ...
 Treat `foo $(bar)` as literal text, not shell.
 EOF
-)
-quest feedback q-123 --text "$msg"
+quest feedback q-123 --text-file /tmp/quest-feedback.txt
+
+printf '%s\n' 'Port summary: commit abc123 ...' 'Treat `foo $(bar)` as literal text, not shell.' | \
+  quest feedback q-123 --text-file -
 ```
 
 ### `takode herd <session> [<session> ...]`
@@ -317,17 +321,18 @@ Claim worker sessions under your orchestrator. Each session can only have one le
 takode herd 2 3 5
 ```
 
-### `takode spawn [--backend claude|codex] [--count N] [--message "..."] [--cwd DIR] [--no-worktree] [--fixed-name "..."] [--reviewer <session>] [--json]`
+### `takode spawn [--backend claude|codex] [--count N] [--message "..."] [--message-file <path>|-] [--cwd DIR] [--no-worktree] [--fixed-name "..."] [--reviewer <session>] [--json]`
 
 Create worker sessions and auto-herd them to yourself. **Sessions always use worktrees by default.** Never pass `--no-worktree` unless the user explicitly asks for it or the project's repo instructions require it -- even investigation and debugging tasks should get worktrees since they almost always lead to code changes. Use `--fixed-name` only for reviewer sessions (regular workers get auto-named from their quest). Use `--reviewer <session>` to create a reviewer session linked to a parent worker.
 
 ```bash
 takode spawn                                                    # worktree session (default)
 takode spawn --backend claude --count 3 --cwd ~/repos/app --message "Run tests"
-takode spawn --reviewer 5 --no-worktree --fixed-name "Skeptic review of #5" --message "Review session #5 / quest q-42."
+takode spawn --message-file /tmp/dispatch.txt
+takode spawn --reviewer 5 --no-worktree --fixed-name "Skeptic review of #5" --message-file /tmp/reviewer-dispatch.txt
 ```
 
-The same shell quoting rule applies to `--message`: avoid inline double-quoted dispatch bodies when the text may contain shell-like content. Use the heredoc pattern above instead.
+Use `--message` only for short inline text. For multiline or shell-like dispatch bodies, prefer `--message-file <path>` or `--message-file -`.
 
 ### `takode rename <session> <name>`
 

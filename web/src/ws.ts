@@ -5,6 +5,7 @@ import { createWsMessageHandler, resolveSessionFilePath } from "./ws-handlers.js
 import { HISTORY_WINDOW_SECTION_TURN_COUNT, HISTORY_WINDOW_VISIBLE_SECTION_COUNT } from "../shared/history-window.js";
 
 let handleIncomingMessage: ((sessionId: string, data: BrowserIncomingMessage) => void) | null = null;
+let pendingVsCodeSelectionUpdate: Extract<BrowserOutgoingMessage, { type: "vscode_selection_update" }> | null = null;
 
 const transport = createWsTransport({
   hasLocalMessages: (sessionId) => {
@@ -23,6 +24,7 @@ const transport = createWsTransport({
     const store = useStore.getState();
     if (store.pendingScrollToMessageIndex.get(sessionId) != null) return null;
     if (store.scrollToTurnId.get(sessionId)) return null;
+    if (store.pendingScrollToMessageId.get(sessionId)) return null;
     return {
       sectionTurnCount: HISTORY_WINDOW_SECTION_TURN_COUNT,
       visibleSectionCount: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
@@ -33,6 +35,12 @@ const transport = createWsTransport({
   },
   onConnected: (sessionId) => {
     useStore.getState().setConnectionStatus(sessionId, "connected");
+    if (pendingVsCodeSelectionUpdate) {
+      const delivered = transport.sendGlobalMessage(pendingVsCodeSelectionUpdate, sessionId);
+      if (delivered) {
+        pendingVsCodeSelectionUpdate = null;
+      }
+    }
   },
   onDisconnected: (sessionId) => {
     useStore.getState().setConnectionStatus(sessionId, "disconnected");
@@ -88,7 +96,11 @@ export function sendVsCodeSelectionUpdate(
   update: Extract<BrowserOutgoingMessage, { type: "vscode_selection_update" }>,
 ): boolean {
   const preferredSessionId = useStore.getState().currentSessionId;
-  return transport.sendGlobalMessage(update, preferredSessionId);
+  const delivered = transport.sendGlobalMessage(update, preferredSessionId);
+  if (!delivered) {
+    pendingVsCodeSelectionUpdate = update;
+  }
+  return delivered;
 }
 
 export function sendMcpGetStatus(sessionId: string) {
