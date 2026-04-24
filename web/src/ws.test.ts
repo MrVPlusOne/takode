@@ -1404,6 +1404,53 @@ describe("handleMessage: result", () => {
     expect(state.messageFrozenCounts.get("s1")).toBe(2);
   });
 
+  it("clears synthetic Codex /status streaming state when the terminal result arrives", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "codex" } });
+
+    vi.setSystemTime(new Date(1700000000000));
+    fireMessage({
+      type: "assistant",
+      timestamp: 1000,
+      message: {
+        id: "status-msg-1",
+        type: "message",
+        role: "assistant",
+        model: "gpt-5.5",
+        content: [{ type: "text", text: "Codex status\n\n- Session: idle" }],
+        stop_reason: null,
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+    });
+
+    expect(useStore.getState().streamingStartedAt.get("s1")).toBe(1700000000000);
+    expect(useStore.getState().sessionStatus.get("s1")).toBe("running");
+
+    fireMessage({
+      type: "result",
+      data: {
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        duration_ms: 0,
+        duration_api_ms: 0,
+        num_turns: 4,
+        total_cost_usd: 0.25,
+        stop_reason: "end_turn",
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        uuid: "synthetic-status-result",
+        session_id: "s1",
+      },
+    });
+
+    const state = useStore.getState();
+    expect(state.streamingStartedAt.has("s1")).toBe(false);
+    expect(state.sessionStatus.get("s1")).toBe("idle");
+    expect(state.sessions.get("s1")?.num_turns).toBe(4);
+    expect(state.sessions.get("s1")?.total_cost_usd).toBe(0.25);
+  });
+
   it("clears transient todo state when a turn completes", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
