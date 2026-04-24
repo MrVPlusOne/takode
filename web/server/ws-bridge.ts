@@ -1705,14 +1705,17 @@ export class WsBridge {
     handleBrowserOpenController(session, ws, this.getBrowserTransportDeps());
   }
 
-  handleBrowserMessage(ws: ServerWebSocket<SocketData>, raw: string | Buffer) {
+  async handleBrowserMessage(ws: ServerWebSocket<SocketData>, raw: string | Buffer) {
     const perfStart = this.perfTracer ? performance.now() : 0;
     const data = typeof raw === "string" ? raw : raw.toString("utf-8");
     const sessionId = (ws.data as BrowserSocketData).sessionId;
     const session = this.sessions.get(sessionId);
     if (!session) return;
     this.syncBackendTypeFromLauncher(session, "browser_message");
-    const messageType = handleBrowserMessageTransportController(session, data, ws, this.getBrowserTransportDeps());
+    const { messageType, completion } = handleBrowserMessageTransportController(session, data, ws, this.getBrowserTransportDeps());
+    if (completion) {
+      await completion;
+    }
 
     if (this.perfTracer) {
       const perfMs = performance.now() - perfStart;
