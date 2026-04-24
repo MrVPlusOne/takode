@@ -1,5 +1,21 @@
 # Takode Changelog
 
+## 2026-04-24
+
+### Added
+
+- **Codex status command support** -- Codex sessions now support `/status` turns without leaving stale active-turn state behind
+- **Interactive session model controls** -- Session info now includes model and reasoning-effort selectors, with worker sessions inheriting leader model choices
+- **Message and navigation improvements** -- Stable message links, route-safe playground navigation, and better multi-word session search make it easier to find and share context
+- **Questmaster workflow polish** -- Quest search, view mode, commit metadata, feedback, and summary guidance are preserved more consistently across navigation and status transitions
+
+### Fixed
+
+- **Codex safety and MCP handling** -- Restored safe heredoc auto-approval patterns, MCP elicitation approvals, Codex config model defaults, and committed user-message IDs
+- **Permission approval routing** -- Plan approvals, sensitive auto-approval bypasses, oversized staged-file checks, and stale pending permission state now behave more reliably
+- **VS Code context sync** -- Editor selection context now survives restarts, forwarded URLs, closed panels, background updates, and mobile composer layout constraints
+- **Herd and notification reliability** -- Archived sessions are skipped during restart bootstrap, reviewer sessions detach cleanly, notification chips are scoped correctly, and stale stall injections are reduced
+
 ## 2026-04-21
 
 ### Fixed
