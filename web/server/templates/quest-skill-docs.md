@@ -32,6 +32,32 @@ These are completely different systems. Do NOT confuse them.
 - **Working on an existing quest**: Use the exact quest ID provided by the user or from `quest list`/`quest mine` output. Before running `quest edit q-N`, always run `quest show q-N` first to confirm the quest title matches what you expect. If the title doesn't match, STOP — you have the wrong quest ID.
 - **Do NOT assume sequential IDs.** If you see `q-3` in the list, the next quest is NOT necessarily `q-4` — IDs may have gaps. Always let `quest create` assign the ID.
 
+## Required `/quest-design` before quest creation or refinement
+
+Before any agent creates a new quest or refines an `idea` quest into a worker-ready quest, invoke `/quest-design` and complete its confirmation round with the user. This applies to normal sessions, leader sessions, and worker sessions.
+
+Use `/quest-design` before:
+- `quest create`
+- `quest edit` or `quest transition --status refined` when refining an `idea` quest
+- materially rewriting title, description, or tags as part of quest refinement
+
+The `/quest-design` confirmation must be concise and include:
+- **Intended goal/scope**: what the quest or update will ask for.
+- **Major assumptions**: important interpretation choices the agent is making.
+- **Non-goals** when relevant: what should stay out of scope.
+- **Highest-leverage clarification questions**: ask only questions that could materially change the quest.
+
+Then stop and wait for the user to confirm or correct the understanding before creating or refining the quest. If the user corrects the understanding and ambiguity remains, do another short `/quest-design` round before writing the quest. If the user has already approved a plan that explicitly covers the quest creation or refinement text, that plan approval can count as the confirmation round.
+
+Operations that do not require `/quest-design`:
+- Read-only commands: `quest show`, `quest list`, `quest grep`, `quest history`, and `quest tags`.
+- Ownership and already-approved workflow bookkeeping: `quest claim`, `quest later`, `quest inbox`, and board operations.
+- Routine progress bookkeeping after approved work: `quest complete`, `quest check`, `quest address`, and `quest feedback` entries that summarize completed work or address already-provided feedback.
+- Adding human or agent feedback to an existing quest.
+- Status transitions that are explicitly required by an already-confirmed workflow step, such as moving an assigned quest to `in_progress` after claim or reopening a completed quest to `refined` after the user has clearly provided rework feedback.
+
+When in doubt about whether a change is quest creation/refinement or routine bookkeeping, invoke `/quest-design` before writing quest title, description, or tag changes.
+
 ## Commands (Quick Reference)
 
 ```
@@ -280,7 +306,8 @@ When the user asks you to work on a quest — whether via the Companion "Assign"
    - Ask the user clarifying questions if the quest is ambiguous or underspecified.
    - If the quest is in `refined` or any later state (`in_progress`, `needs_verification`, `done`), enforce a short title before proceeding.
    - Run `quest tags` to reuse existing tags.
-   - Apply updates with `quest edit q-N --title "..." --desc "..." --tags "t1,t2"`.
+   - If metadata changes are part of creating or refining the quest, invoke `/quest-design` before applying them unless the user's approved plan already covered those exact updates.
+   - Apply confirmed updates with `quest edit q-N --title "..." --desc "..." --tags "t1,t2"`.
    - Immediately re-run `quest show q-N` and verify the final title/description/tags are clean.
    - Title rule: concise, **less than 10 words**. Move details to description.
    - Reuse existing tags. Only create new tags when no existing tag fits.
@@ -330,11 +357,14 @@ idea → refined → in_progress → needs_verification → done
 **Title rule for refined and later:** Whenever a quest is `refined`, `in_progress`, `needs_verification`, or `done`, the title must be **less than 10 words**. If not, shorten it first with `quest edit` before other updates.
 
 ### idea → refined
-**Must polish the quest.** Ask the user clarifying questions if ambiguous, then:
+**Must polish the quest.** Follow this order:
+- Ask clarifying questions until the goal, scope, and non-goals are clear enough to draft.
+- Draft the refined title, description, and tags, then invoke `/quest-design`.
+- Wait for user confirmation or correction. If the user corrects the draft and ambiguity remains, repeat `/quest-design` before writing the quest.
 - Title: concise, less than 10 words. Move detail to description.
 - Description: clear, actionable. Define what "done" looks like.
 - Tags: run `quest tags`, reuse existing tags. Every quest needs at least one tag.
-- Apply via `quest edit <id> --title "..." --desc "..." --tags "t1,t2"`
+- Apply confirmed updates via `quest edit <id> --title "..." --desc "..." --tags "t1,t2"`
 
 ### refined → in_progress
 - The quest should already be claimed (claiming is always the first step when assigned).
