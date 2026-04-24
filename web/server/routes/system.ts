@@ -234,7 +234,7 @@ export function createSystemRoutes(ctx: RouteContext) {
     resolveId,
   } = ctx;
   const bridgeAny = wsBridge as any;
-  const browserTransportState = () => bridgeAny.getBrowserTransportState?.();
+  const browserTransportState = () => bridgeAny.getBrowserTransportState?.() ?? bridgeAny.browserTransportState;
   const browserTransportDeps = () => bridgeAny.getBrowserTransportDeps?.();
 
   // ─── Health ─────────────────────────────────────────────────────────
