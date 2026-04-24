@@ -34,7 +34,9 @@ Every dispatched task follows the Quest Journey lifecycle. The work board (`tako
 
 - If no quest exists or it's in `idea` state, work with the user first to gather requirements
 - Ask clarifying questions until the WHAT and WHY are unambiguous
-- Create or update the quest with a clear description containing the full context a worker needs
+- Before creating a quest or refining an `idea` quest into worker-ready scope, invoke `/quest-design` and wait for user confirmation or correction
+- A user-approved plan that explicitly covers the quest text can count as this confirmation; routine feedback, claims, board updates, verification inbox moves, and already-approved lifecycle transitions do not need a separate round
+- Create or refine the quest with a clear description containing the full context a worker needs only after that `/quest-design` confirmation round is complete
 - Do NOT dispatch until the quest is refined -- a vague quest produces vague work
 
 ## QUEUED -> PLANNING

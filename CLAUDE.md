@@ -19,6 +19,7 @@ The Takode server symlinks project skills into global skill directories at start
 |-------|--------|---------|
 | `takode-orchestration` | `.claude/skills/takode-orchestration/` | Cross-session orchestration: CLI reference, quest journey, board, herd events |
 | `leader-dispatch` | `.claude/skills/leader-dispatch/` | Leader dispatch workflow: worker selection, templates, discipline rules |
+| `quest-design` | `.claude/skills/quest-design/` | Confirmation workflow before creating or refining quests |
 | `self-groom` | `.claude/skills/self-groom/` | Multi-perspective self-review via parallel subagents |
 | `reviewer-groom` | `.claude/skills/reviewer-groom/` | Reviewer-owned quality review for another agent's change |
 | `skeptic-review` | `.claude/skills/skeptic-review/` | Adversarial work integrity review of worker output |

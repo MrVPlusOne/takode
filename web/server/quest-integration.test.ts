@@ -80,6 +80,36 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("separate commit so the reviewer can inspect only the new diff");
   });
 
+  it("requires quest-design before quest creation or refinement only", async () => {
+    await ensureQuestmasterIntegration(3456, "/repo/web");
+
+    const codexSkillWrite = fsMocks.writeFileSync.mock.calls.find(
+      (call) => call[0] === "/home/tester/.codex/skills/quest/SKILL.md",
+    );
+    expect(codexSkillWrite).toBeDefined();
+
+    const skill = String(codexSkillWrite?.[1] ?? "");
+    expect(skill).toContain("Required `/quest-design` before quest creation or refinement");
+    expect(skill).toContain("invoke `/quest-design` and complete its confirmation round");
+    expect(skill).toContain("Before any agent creates a new quest or refines an `idea` quest");
+    expect(skill).toContain("Use `/quest-design` before:");
+    expect(skill).toContain("`quest create`");
+    expect(skill).toContain("`quest edit` or `quest transition --status refined` when refining an `idea` quest");
+    expect(skill).toContain("Intended goal/scope");
+    expect(skill).toContain("Major assumptions");
+    expect(skill).toContain("Non-goals");
+    expect(skill).toContain("Highest-leverage clarification questions");
+    expect(skill).toContain("Operations that do not require `/quest-design`");
+    expect(skill).toContain("Adding human or agent feedback to an existing quest");
+    expect(skill).toContain("Routine progress bookkeeping after approved work");
+    expect(skill).toContain("invoke `/quest-design` before applying them");
+    expect(skill).toContain("Ask clarifying questions until the goal, scope, and non-goals are clear enough");
+    expect(skill).toContain("Draft the refined title, description, and tags, then invoke `/quest-design`");
+    expect(skill).toContain("Wait for user confirmation or correction");
+    expect(skill).not.toContain("Before any agent creates a quest or materially updates/refines an existing quest");
+    expect(skill).not.toContain("When in doubt, treat the change as material and confirm first");
+  });
+
   it("requires titles under 10 words for refined and later stages", async () => {
     await ensureQuestmasterIntegration(3456, "/repo/web");
 
