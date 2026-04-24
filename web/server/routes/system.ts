@@ -540,10 +540,39 @@ export function createSystemRoutes(ctx: RouteContext) {
   api.get("/backends/:id/models", async (c) => {
     const backendId = c.req.param("id");
 
-    // Try fetching from LiteLLM proxy first (shared cache across backends)
-    const proxyModels = await fetchLitellmModels();
-
     if (backendId === "codex") {
+      // Prefer Codex CLI's local models cache. It reflects the actual models
+      // the installed Codex client knows about, which may diverge from any
+      // ambient LiteLLM proxy running elsewhere on the machine.
+      const cachePath = join(getLegacyCodexHome(), "models_cache.json");
+      if (await pathExists(cachePath)) {
+        try {
+          const raw = await readFile(cachePath, "utf-8");
+          const cache = JSON.parse(raw) as {
+            models: Array<{
+              slug: string;
+              display_name?: string;
+              description?: string;
+              visibility?: string;
+              priority?: number;
+            }>;
+          };
+          const models = cache.models
+            .filter((m) => m.visibility === "list")
+            .filter((m) => !m.slug.startsWith("gpt-5.2") && !m.slug.startsWith("gpt-5.1"))
+            .sort((a, b) => compareCodexModelSlugs(a.slug, b.slug))
+            .map((m) => ({
+              value: m.slug,
+              label: m.display_name || m.slug,
+              description: m.description || "",
+            }));
+          if (models.length > 0) return c.json(models);
+        } catch {
+          return c.json({ error: "Failed to parse Codex models cache" }, 500);
+        }
+      }
+
+      const proxyModels = await fetchLitellmModels();
       if (proxyModels) {
         const models = proxyModels
           .filter(isCodexModelId)
@@ -553,36 +582,11 @@ export function createSystemRoutes(ctx: RouteContext) {
         if (models.length > 0) return c.json(models);
       }
 
-      // Fallback: read from Codex CLI's local models cache
-      const cachePath = join(getLegacyCodexHome(), "models_cache.json");
-      if (!(await pathExists(cachePath))) {
-        return c.json({ error: "Codex models cache not found. Run codex once to populate it." }, 404);
-      }
-      try {
-        const raw = await readFile(cachePath, "utf-8");
-        const cache = JSON.parse(raw) as {
-          models: Array<{
-            slug: string;
-            display_name?: string;
-            description?: string;
-            visibility?: string;
-            priority?: number;
-          }>;
-        };
-        const models = cache.models
-          .filter((m) => m.visibility === "list")
-          .filter((m) => !m.slug.startsWith("gpt-5.2") && !m.slug.startsWith("gpt-5.1"))
-          .sort((a, b) => compareCodexModelSlugs(a.slug, b.slug))
-          .map((m) => ({
-            value: m.slug,
-            label: m.display_name || m.slug,
-            description: m.description || "",
-          }));
-        return c.json(models);
-      } catch {
-        return c.json({ error: "Failed to parse Codex models cache" }, 500);
-      }
+      return c.json({ error: "Codex models cache not found. Run codex once to populate it." }, 404);
     }
+
+    // Try fetching from LiteLLM proxy first (shared cache across backends)
+    const proxyModels = await fetchLitellmModels();
 
     if (backendId === "claude" || backendId === "claude-sdk") {
       if (proxyModels) {

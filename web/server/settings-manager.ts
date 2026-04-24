@@ -553,6 +553,20 @@ export function _getSecretsPathForTest(customSettingsPath?: string): string {
   return deriveSecretsPath(customSettingsPath || filePath);
 }
 
+function parseTopLevelTomlString(raw: string, key: string): string {
+  const matcher = new RegExp(`^${key}\\s*=\\s*"((?:[^"\\\\]|\\\\.)*)"\\s*(?:#.*)?$`);
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    if (/^\[.*\]$/.test(trimmed)) break;
+    const match = matcher.exec(trimmed);
+    if (match?.[1]) {
+      return match[1].replace(/\\"/g, '"');
+    }
+  }
+  return "";
+}
+
 /**
  * Read the user's configured default model from ~/.claude/settings.json.
  * Returns empty string if the file doesn't exist, isn't valid JSON, or
@@ -567,6 +581,21 @@ export async function getClaudeUserDefaultModel(): Promise<string> {
     if (typeof parsed.model === "string") return parsed.model;
   } catch {
     // File doesn't exist or isn't valid JSON
+  }
+  return "";
+}
+
+/**
+ * Read the user's configured default model from ~/.codex/config.toml.
+ * Returns empty string if the file doesn't exist, has no top-level model
+ * entry, or can't be parsed conservatively.
+ */
+export async function getCodexUserDefaultModel(): Promise<string> {
+  try {
+    const raw = await readFile(join(homedir(), ".codex", "config.toml"), "utf-8");
+    return parseTopLevelTomlString(raw, "model");
+  } catch {
+    // File doesn't exist or isn't readable
   }
   return "";
 }

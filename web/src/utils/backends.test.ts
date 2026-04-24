@@ -109,6 +109,7 @@ describe("getDefaultMode", () => {
 describe("static model/mode lists", () => {
   it("has codex models with GPT-5.x slugs", () => {
     for (const m of CODEX_MODELS) {
+      if (m.value === "") continue; // "Default" uses Codex config / server default
       expect(m.value).toMatch(/^gpt-5/);
     }
   });

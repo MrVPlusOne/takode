@@ -102,6 +102,7 @@ describe("new-session-defaults", () => {
 
     expect(getGlobalNewSessionDefaults()).toMatchObject({
       backend: "codex",
+      model: "",
       mode: "agent",
       askPermission: false,
       cwd: "",
