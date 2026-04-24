@@ -85,6 +85,7 @@ cd web && bun run format:check
 
 - Files must stay at or under 2000 lines.
 - If a change would push a file over 2000 lines, split the file before committing instead of extending it further.
+- Do not try to satisfy the file-size limit with superficial line-count tricks such as collapsing formatting, removing useful whitespace/comments, or otherwise making the file harder to read. When a file is over the limit, reduce it with a real refactor or extraction that improves structure.
 - The pre-commit limit is enforced against staged file contents only, so exactly 2000 lines is allowed and anything over 2000 lines fails the commit.
 
 ## Verification
