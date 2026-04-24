@@ -69,10 +69,12 @@ describe("ensureQuestmasterIntegration", () => {
     // Validates the pre-submission checklist includes feedback-addressing, summary, and consolidation requirements.
     expect(skill).toContain("Address all human feedback");
     expect(skill).toContain("Both steps are required");
-    expect(skill).toContain("Add or refresh a summary comment");
+    expect(skill).toContain("Add or refresh a user-oriented summary comment");
+    expect(skill).toContain("what changed, why it matters, and what verification passed");
+    expect(skill).toContain("Write the summary as an outcome note, not a review or rework timeline");
     expect(skill).toContain("Prefer one consolidated feedback entry");
     expect(skill).toContain("This summary may also be the explanation for addressed human feedback");
-    expect(skill).toContain("Avoid leaving multiple duplicated or overly similar worker comments");
+    expect(skill).toContain("Avoid review-process timelines, duplicate near-identical comments");
     expect(skill).toContain("required worker deliverable");
     expect(skill).toContain("first commit the current worktree state");
     expect(skill).toContain("separate commit so the reviewer can inspect only the new diff");
@@ -109,6 +111,7 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("Do not rely on log parsing or memory");
     expect(skill).toContain("Do not leave commit info only in comments");
     expect(skill).toContain("one substantive quest-level prose summary");
+    expect(skill).toContain("what changed, why it matters to the user or project, and what verification passed");
     expect(skill).toContain("Re-running the same summary-style feedback (`Summary:` or `Refreshed summary:`)");
     expect(skill).toContain("Only add a second port-specific comment");
     expect(skill).toContain("pass `quest complete ... --no-code`");

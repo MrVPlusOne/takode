@@ -976,10 +976,10 @@ async function cmdComplete(): Promise<void> {
 
 function formatCompletionReminder(questId: string, options: { noCode: boolean }): string {
   const summaryLine =
-    `Reminder: keep one substantive quest summary comment up to date with ` +
-    `\`quest feedback ${questId} --text "Summary: <what was done>"\`` +
+    `Reminder: keep one substantive user-oriented quest summary comment up to date with ` +
+    `\`quest feedback ${questId} --text "Summary: <what changed, why it matters, and what verification passed>"\`` +
     ` before reporting that the quest is ready. Use \`--text-file <path>\` or \`--text-file -\`` +
-    ` when that summary includes copied logs, backticks, or other shell-like text.`;
+    ` when that summary includes copied logs, backticks, or other shell-like text. Avoid review/rework timelines unless essential.`;
   if (options.noCode) {
     return (
       summaryLine +

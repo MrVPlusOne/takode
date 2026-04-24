@@ -361,16 +361,17 @@ idea → refined → in_progress → needs_verification → done
    - Both steps are required -- an explanation without marking, or marking without explaining, is incomplete
    - Do not claim feedback was addressed unless both happened
 
-2. **Add or refresh a summary comment.** Before submitting, keep a final feedback entry summarizing the work:
-   - `quest feedback q-N --text "Summary: <what was done>"`
-   - Briefly describe the changes made and why
+2. **Add or refresh a user-oriented summary comment.** Before submitting, keep a final feedback entry summarizing the outcome for the human reader:
+   - `quest feedback q-N --text "Summary: <what changed, why it matters, and what verification passed>"`
+   - Briefly describe what changed, why it matters to the user or project, and what verification passed
    - This should be the one substantive quest-level prose summary by default
+   - Write the summary as an outcome note, not a review or rework timeline
    - This summary may also be the explanation for addressed human feedback when it clearly names what feedback was handled and how
    - Re-running the same summary-style feedback (`Summary:` or `Refreshed summary:`) updates the latest agent summary comment instead of appending another near-duplicate summary entry
    - Before adding a new agent feedback entry, check whether the latest summary or worker update can be refreshed instead
    - If the work was ported normally, rely on structured metadata (`commitShas` via `quest complete ... --commit/--commits ...`) for routine port information instead of adding a second long prose port comment
    - Only add a second port-specific comment when the porting itself was exceptional and materially worth noting
-   - Avoid leaving multiple duplicated or overly similar worker comments on the quest
+   - Avoid review-process timelines, duplicate near-identical comments, and excessive commit-by-commit narration unless that detail is essential to understand the result
    - The goal: someone reading only the quest (not the session conversation) should understand what happened
    - Treat this as a required worker deliverable before you report back that the quest is ready
 

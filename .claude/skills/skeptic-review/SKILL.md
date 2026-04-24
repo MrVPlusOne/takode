@@ -90,11 +90,12 @@ pass/fail items. If any fail, the verdict is **CHALLENGE**.
    - If any human feedback is unaddressed or has no explanatory agent feedback, CHALLENGE: "Human feedback entry #N is not addressed -- explain how it was handled in a quest comment and mark it addressed"
 
 2. **Summary comment present?** Look for a final agent feedback entry that:
-   - Summarizes what was done (not just "done" or "completed")
-   - Includes commit hashes or PR links if changes were ported
+   - Summarizes what changed, why it matters, and what verification passed (not just "done" or "completed")
+   - Is written for the human reader as an outcome note, not a review/rework timeline
+   - Includes PR links if changes were ported; routine commit hashes should usually be attached as structured quest metadata
    - Avoids duplicating another recent worker comment; prefer one consolidated summary/addressing comment when the content would otherwise be near-duplicate
    - This should already be part of the worker's normal completion flow; the skeptic review is confirming it happened, not inventing a new requirement
-   - If missing, CHALLENGE: "Add or refresh the required quest summary comment describing what was done and any relevant commit/PR links"
+   - If missing, CHALLENGE: "Add or refresh the required quest summary comment describing what changed, why it matters, and what verification passed"
    - If the quest has multiple near-duplicated worker comments, CHALLENGE: "Consolidate the duplicated quest comments so the quest remains readable while preserving how human feedback was addressed"
 
 3. **Verification items are human-only?** Check each verification item in the quest:
