@@ -134,21 +134,11 @@ export function isSensitiveBashCommand(command: string): boolean {
   return sensitive.some((p) => command.includes(p));
 }
 
-function shouldModeAutoApprove(
-  permissionMode: string | undefined,
-  toolName: string,
-  input: Record<string, unknown>,
-): boolean {
-  const isFileEdit =
-    toolName === "Edit" || toolName === "Write" || toolName === "MultiEdit" || toolName === "NotebookEdit";
-  const filePath = isFileEdit ? String(input.file_path ?? "") : "";
+function shouldModeAutoApprove(permissionMode: string | undefined, toolName: string): boolean {
   return (
     !NEVER_AUTO_APPROVE.has(toolName) &&
     (permissionMode === "bypassPermissions" ||
-      (permissionMode === "acceptEdits" &&
-        toolName !== "Bash" &&
-        ACCEPT_EDITS_AUTO_APPROVE.has(toolName) &&
-        !(isFileEdit && isSensitiveConfigPath(filePath))))
+      (permissionMode === "acceptEdits" && toolName !== "Bash" && ACCEPT_EDITS_AUTO_APPROVE.has(toolName)))
   );
 }
 
@@ -243,7 +233,7 @@ export function handlePermissionRequest<S extends PermissionPipelineSession>(
     return { kind: "pending_human", request: perm };
   };
 
-  if (modeAutoApproveEnabled && shouldModeAutoApprove(session.state.permissionMode, toolName, input)) {
+  if (modeAutoApproveEnabled && shouldModeAutoApprove(session.state.permissionMode, toolName)) {
     return { kind: "mode_auto_approved", request: perm };
   }
 
