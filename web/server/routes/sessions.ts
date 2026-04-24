@@ -14,12 +14,12 @@ import type { CreationStepId, TakodeSessionArchivedEventData } from "../session-
 import { hasContainerClaudeAuth } from "../claude-container-auth.js";
 import { hasContainerCodexAuth } from "../codex-container-auth.js";
 import { getSettings, getClaudeUserDefaultModel } from "../settings-manager.js";
+import { getDefaultModelForBackend } from "../../shared/backend-defaults.js";
 import { searchSessionDocuments, type SessionSearchDocument } from "../session-search.js";
 import { ensureAssistantWorkspace, ASSISTANT_DIR } from "../assistant-workspace.js";
 import { trafficStats } from "../traffic-stats.js";
 import { generateUniqueSessionName } from "../../src/utils/names.js";
 import { GIT_CMD_TIMEOUT } from "../constants.js";
-import { getDefaultModelForBackend } from "../../shared/backend-defaults.js";
 import type { HerdSessionsResponse } from "../../shared/herd-types.js";
 import type { RouteContext, OptionalAuthResult } from "./context.js";
 import {
@@ -46,6 +46,7 @@ import {
   throwPreparationError,
 } from "./sessions-helpers.js";
 import { registerSessionsArchiveRoutes } from "./sessions-archive-routes.js";
+import { withProgressHeartbeat } from "./progress-heartbeat.js";
 import { deriveAttachmentPaths, formatAttachmentPathAnnotation } from "../attachment-paths.js";
 
 export function createSessionsRoutes(ctx: RouteContext) {
@@ -128,13 +129,11 @@ export function createSessionsRoutes(ctx: RouteContext) {
     const mapping = worktreeTracker.getBySession(sessionId);
     if (!mapping) return undefined;
 
-    // Check if other sessions still use this worktree
     if (worktreeTracker.isWorktreeInUse(mapping.worktreePath, sessionId)) {
       worktreeTracker.removeBySession(sessionId);
       return { cleaned: false, path: mapping.worktreePath };
     }
 
-    // Auto-remove if clean, or force-remove if requested
     const dirty = await gitUtils.isWorktreeDirtyAsync(mapping.worktreePath);
     if (dirty && !force) {
       return { cleaned: false, dirty: true, path: mapping.worktreePath };
@@ -143,12 +142,8 @@ export function createSessionsRoutes(ctx: RouteContext) {
     const managedBranch =
       mapping.actualBranch && mapping.actualBranch !== mapping.branch ? mapping.actualBranch : undefined;
 
-    // Archive path (q-329): save the branch tip as a lightweight ref under
-    // refs/companion/archived/ so it doesn't appear in `git branch` output
-    // but can be restored on unarchive. Then delete the branch normally.
     if (options?.archiveBranch && managedBranch) {
       await gitUtils.archiveBranchAsync(mapping.repoRoot, managedBranch);
-      // archiveBranch already deleted the branch, so skip branchToDelete
       const result = await gitUtils.removeWorktreeAsync(mapping.repoRoot, mapping.worktreePath, {
         force: dirty,
       });
@@ -158,7 +153,6 @@ export function createSessionsRoutes(ctx: RouteContext) {
       return { cleaned: result.removed, path: mapping.worktreePath, reason: result.reason };
     }
 
-    // Permanent delete: remove worktree and delete the branch
     const result = await gitUtils.removeWorktreeAsync(mapping.repoRoot, mapping.worktreePath, {
       force: dirty,
       branchToDelete: managedBranch,
@@ -224,42 +218,6 @@ export function createSessionsRoutes(ctx: RouteContext) {
     return { status: "pending", path: mapping.worktreePath };
   };
 
-  const withProgressHeartbeat = async <T>(
-    emit:
-      | ((
-          step: CreationStepId,
-          label: string,
-          status: "in_progress" | "done" | "error",
-          detail?: string,
-        ) => Promise<void>)
-      | undefined,
-    config: { step: CreationStepId; label: string; detail: string },
-    run: () => Promise<T>,
-  ): Promise<T> => {
-    if (!emit) return run();
-
-    let stopped = false;
-    let stopWaiting = () => {};
-    const stopSignal = new Promise<void>((resolve) => {
-      stopWaiting = resolve;
-    });
-
-    const heartbeatLoop = (async () => {
-      while (!stopped) {
-        await Promise.race([new Promise<void>((resolve) => setTimeout(resolve, 5_000)), stopSignal]);
-        if (stopped) break;
-        await emit(config.step, config.label, "in_progress", config.detail);
-      }
-    })();
-
-    try {
-      return await run();
-    } finally {
-      stopped = true;
-      stopWaiting();
-      await heartbeatLoop;
-    }
-  };
   // ─── SDK Sessions (--sdk-url) ─────────────────────────────────────
   type CreationProgressStatus = "in_progress" | "done" | "error";
   type EmitCreationProgress = (
@@ -731,10 +689,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
     const askPermissionRequested = body.askPermission !== false;
     const initialModeState = resolveInitialModeState(backend, body.permissionMode, askPermissionRequested);
     const requestedModel = typeof body.model === "string" ? body.model.trim() : "";
-    // Resolve model: for Claude backends with no explicit model ("Default" selected),
-    // read the user's ~/.claude/settings.json model and pass it explicitly. Without
-    // this, the CLI subprocess uses project-level settings that may override the
-    // user's intended default model.
+    // For Claude "Default", pass the user's ~/.claude/settings.json model explicitly.
     const model =
       requestedModel ||
       (backend === "codex" ? getDefaultModelForBackend("codex") : undefined) ||
@@ -743,7 +698,6 @@ export function createSessionsRoutes(ctx: RouteContext) {
       backend === "codex" && typeof body.codexReasoningEffort === "string"
         ? body.codexReasoningEffort.trim() || undefined
         : undefined;
-    // Orchestrator guardrails are injected via system prompt, not file writes
     const orchestratorGuardrails = isOrchestrator ? launcher.getOrchestratorGuardrails(backend) : undefined;
 
     const initialCwd = cwd || process.cwd();

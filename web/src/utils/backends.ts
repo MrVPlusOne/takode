@@ -49,7 +49,10 @@ export const CLAUDE_MODELS: ModelOption[] = [
   { value: "claude-haiku-4-5-20251001", label: "Haiku 4.5 [200K]", icon: "\u26A1" },
 ];
 
-export const CODEX_MODELS: ModelOption[] = [{ value: "gpt-5.4", label: "GPT-5.4", icon: "\u2733" }];
+export const CODEX_MODELS: ModelOption[] = [
+  { value: "", label: "Default", icon: "\u25C6" },
+  { value: "gpt-5.4", label: "GPT-5.4", icon: "\u2733" },
+];
 
 export const CLAUDE_MODES: ModeOption[] = [
   { value: "agent", label: "Agent" },

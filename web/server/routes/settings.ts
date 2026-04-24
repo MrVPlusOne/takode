@@ -9,6 +9,7 @@ import {
   setServerName,
   getServerId,
   getClaudeUserDefaultModel,
+  getCodexUserDefaultModel,
   STT_MODELS,
   type NamerConfig,
   type TranscriptionConfig,
@@ -201,6 +202,11 @@ export function createSettingsRoutes(ctx: RouteContext) {
     const settings = getSettings();
     const claudeDefaultModel = await getClaudeUserDefaultModel();
     return c.json(buildSettingsResponse(settings, { claudeDefaultModel, includeRuntimeInfo: true }));
+  });
+
+  api.get("/settings/codex-default-model", async (c) => {
+    const model = await getCodexUserDefaultModel();
+    return c.json({ model });
   });
 
   api.put("/settings", async (c) => {

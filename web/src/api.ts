@@ -860,6 +860,7 @@ export const api = {
 
   // Settings
   getSettings: () => get<AppSettings>("/settings"),
+  getCodexDefaultModel: () => get<{ model: string }>("/settings/codex-default-model"),
   getLogs: (query?: LogQuery) => {
     const qs = query ? encodeLogQuery(query) : "";
     return get<LogQueryResponse>(`/logs${qs ? `?${qs}` : ""}`);

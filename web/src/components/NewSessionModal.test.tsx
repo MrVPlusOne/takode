@@ -10,6 +10,7 @@ const mockSaveGroupNewSessionDefaults = vi.fn();
 
 const mockApi = {
   getHome: vi.fn(),
+  getCodexDefaultModel: vi.fn(),
   listEnvs: vi.fn(),
   getBackends: vi.fn(),
   getBackendModels: vi.fn(),
@@ -22,6 +23,7 @@ const mockApi = {
 vi.mock("../api.js", () => ({
   api: {
     getHome: (...args: unknown[]) => mockApi.getHome(...args),
+    getCodexDefaultModel: (...args: unknown[]) => mockApi.getCodexDefaultModel(...args),
     listEnvs: (...args: unknown[]) => mockApi.listEnvs(...args),
     getBackends: (...args: unknown[]) => mockApi.getBackends(...args),
     getBackendModels: (...args: unknown[]) => mockApi.getBackendModels(...args),
@@ -91,6 +93,7 @@ describe("NewSessionModal", () => {
       codexReasoningEffort: "high",
     });
     mockApi.getHome.mockResolvedValue({ home: "/Users/test", cwd: "/tmp/project" });
+    mockApi.getCodexDefaultModel.mockResolvedValue({ model: "gpt-5.5" });
     mockApi.listEnvs.mockResolvedValue([]);
     mockApi.getBackends.mockResolvedValue([
       { id: "claude", name: "Claude Code", available: true },
@@ -186,5 +189,55 @@ describe("NewSessionModal", () => {
         treeGroupId: "team-alpha",
       }),
     );
+  });
+
+  it("shows the Codex config default in the model picker when using Default", async () => {
+    const user = userEvent.setup();
+    mockGetGlobalNewSessionDefaults.mockReturnValue({
+      backend: "codex",
+      model: "",
+      mode: "agent",
+      askPermission: true,
+      envSlug: "",
+      cwd: "",
+      useWorktree: true,
+      codexInternetAccess: true,
+      codexReasoningEffort: "high",
+    });
+
+    render(<NewSessionModal open={true} onClose={() => {}} />);
+
+    await user.click(await screen.findByRole("button", { name: "Codex" }));
+
+    expect(await screen.findByText("Default (gpt-5.5)")).toBeInTheDocument();
+  });
+
+  it("passes the Codex config default as the explicit model when creating from Default", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    mockGetGlobalNewSessionDefaults.mockReturnValue({
+      backend: "codex",
+      model: "",
+      mode: "agent",
+      askPermission: true,
+      envSlug: "",
+      cwd: "",
+      useWorktree: true,
+      codexInternetAccess: true,
+      codexReasoningEffort: "high",
+    });
+
+    render(<NewSessionModal open={true} onClose={onClose} />);
+
+    await user.click(await screen.findByRole("button", { name: "Create Session" }));
+
+    await waitFor(() => {
+      expect(mockQueuePendingSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          backend: "codex",
+          createOpts: expect.objectContaining({ model: "gpt-5.5" }),
+        }),
+      );
+    });
   });
 });
