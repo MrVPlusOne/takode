@@ -28,9 +28,11 @@ function makeSession(): AdapterBrowserRoutingSessionLike {
       cwd: "/tmp/session",
       is_compacting: false,
       model: "sonnet",
+      num_turns: 0,
       permissionMode: "acceptEdits",
       session_id: "cli-s1",
       slash_commands: [],
+      total_cost_usd: 0,
       uiMode: "agent",
     },
     messageHistory: [],
@@ -788,6 +790,8 @@ describe("permission response handling in browser routing", () => {
     session.state.cwd = "/repo/project";
     session.state.context_used_percent = 41;
     session.state.codex_reasoning_effort = "high";
+    session.state.num_turns = 7;
+    session.state.total_cost_usd = 1.25;
     session.state.codex_token_details = {
       inputTokens: 1_150_000,
       outputTokens: 50_000,
@@ -816,7 +820,7 @@ describe("permission response handling in browser routing", () => {
       deps,
     );
 
-    expect(session.messageHistory.map((entry) => entry.type)).toEqual(["user_message", "assistant"]);
+    expect(session.messageHistory.map((entry) => entry.type)).toEqual(["user_message", "assistant", "result"]);
     expect(deps.broadcastToBrowsers).toHaveBeenNthCalledWith(
       1,
       session,
@@ -846,6 +850,17 @@ describe("permission response handling in browser routing", () => {
     expect(statusText).toContain("Tokens: 1.1M input, 930.0k cached, 50.0k output, 2.0k reasoning");
     expect(statusText).toContain("Rate limits: primary 62% of 5h window");
     expect(statusText).toContain("Reasoning effort: high");
+    expect(session.messageHistory[2]).toEqual(
+      expect.objectContaining({
+        type: "result",
+        data: expect.objectContaining({
+          subtype: "success",
+          is_error: false,
+          num_turns: 7,
+          total_cost_usd: 1.25,
+        }),
+      }),
+    );
     expect(deps.queueCodexPendingStartBatch).not.toHaveBeenCalled();
     expect(session.codexAdapter.sendBrowserMessage).not.toHaveBeenCalled();
   });
