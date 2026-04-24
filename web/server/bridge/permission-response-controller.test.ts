@@ -864,4 +864,54 @@ describe("permission response handling in browser routing", () => {
     expect(deps.queueCodexPendingStartBatch).not.toHaveBeenCalled();
     expect(session.codexAdapter.sendBrowserMessage).not.toHaveBeenCalled();
   });
+
+  it("does not emit a synthetic terminal result for Codex /status during an active turn", async () => {
+    const session = makeSession();
+    session.backendType = "codex";
+    session.isGenerating = true;
+    session.state.model = "gpt-5.5";
+    session.state.cwd = "/repo/project";
+    session.state.context_used_percent = 41;
+    session.codexAdapter = {
+      sendBrowserMessage: vi.fn(() => true),
+      getCurrentTurnId: vi.fn(() => "turn-live"),
+      isConnected: vi.fn(() => true),
+    };
+    const deps = makeDeps();
+
+    await routeBrowserMessage(
+      session as any,
+      {
+        type: "user_message",
+        content: "/status",
+      },
+      undefined,
+      deps,
+    );
+
+    expect(session.messageHistory.map((entry) => entry.type)).toEqual(["user_message", "assistant"]);
+    expect(deps.broadcastToBrowsers).toHaveBeenNthCalledWith(
+      1,
+      session,
+      expect.objectContaining({
+        type: "user_message",
+        content: "/status",
+      }),
+    );
+    expect(deps.broadcastToBrowsers).toHaveBeenNthCalledWith(
+      2,
+      session,
+      expect.objectContaining({
+        type: "assistant",
+      }),
+    );
+    expect(deps.broadcastToBrowsers).not.toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({
+        type: "result",
+      }),
+    );
+    expect(deps.setGenerating).not.toHaveBeenCalled();
+    expect(session.codexAdapter.sendBrowserMessage).not.toHaveBeenCalled();
+  });
 });
