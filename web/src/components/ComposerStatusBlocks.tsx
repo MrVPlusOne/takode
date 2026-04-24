@@ -1,5 +1,7 @@
+import { useEffect, useRef, useState } from "react";
 import { DiffViewer } from "./DiffViewer.js";
 import { ReplyChip } from "./ReplyChip.js";
+import { useStore } from "../store.js";
 
 export function ComposerStatusBlocks({
   isPreparing,
@@ -53,6 +55,32 @@ export function ComposerStatusBlocks({
   onSetVoiceModeAppend: () => void;
 }) {
   const VOICE_BAR_THRESHOLDS = [0.03, 0.08, 0.15, 0.24, 0.36] as const;
+  const vscodeSelectionFullPath = useStore((state) => state.vscodeSelectionContext?.selection?.absolutePath ?? null);
+  const vscodeSelectionPathRef = useRef<HTMLDivElement>(null);
+  const [vscodeSelectionPathOpen, setVscodeSelectionPathOpen] = useState(false);
+
+  useEffect(() => {
+    if (!vscodeSelectionPathOpen) return;
+
+    function handlePointerDown(event: PointerEvent) {
+      if (!vscodeSelectionPathRef.current?.contains(event.target as Node)) {
+        setVscodeSelectionPathOpen(false);
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setVscodeSelectionPathOpen(false);
+      }
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [vscodeSelectionPathOpen]);
 
   return (
     <>
@@ -221,22 +249,50 @@ export function ComposerStatusBlocks({
       )}
       {replyContext && <ReplyChip previewText={replyContext.previewText} onDismiss={onDismissReply} />}
       {vscodeSelectionLabel && vscodeSelectionSummary && (
-        <div className="mb-2 flex">
+        <div className="mb-2 flex min-w-0 px-4 pt-2">
           <div
-            className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-cc-border/80 bg-cc-hover/70 px-2 py-1 text-[11px] text-cc-muted"
+            data-testid="vscode-selection-chip"
+            className="inline-flex max-w-full min-w-0 items-center gap-1.5 rounded-lg border border-cc-border/80 bg-cc-hover/70 px-2 py-1 text-[11px] text-cc-muted"
             title={vscodeSelectionTitle ?? undefined}
           >
             <svg viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 shrink-0 opacity-70">
               <path d="M3.75 1.5A2.25 2.25 0 001.5 3.75v8.5A2.25 2.25 0 003.75 14.5h8.5a2.25 2.25 0 002.25-2.25v-5a.75.75 0 00-1.5 0v5A.75.75 0 0112.25 13h-8.5a.75.75 0 01-.75-.75v-8.5A.75.75 0 013.75 3h5a.75.75 0 000-1.5h-5z" />
               <path d="M9.53 1.47a.75.75 0 011.06 0l3.94 3.94a.75.75 0 010 1.06l-5.5 5.5a.75.75 0 01-.33.2l-2.5.63a.75.75 0 01-.91-.91l.63-2.5a.75.75 0 01.2-.33l5.5-5.5z" />
             </svg>
-            <span className="truncate font-mono-code">{vscodeSelectionLabel}</span>
+            <div
+              ref={vscodeSelectionPathRef}
+              className="relative min-w-0"
+              onMouseEnter={() => setVscodeSelectionPathOpen(true)}
+              onMouseLeave={() => setVscodeSelectionPathOpen(false)}
+            >
+              <button
+                type="button"
+                data-testid="vscode-selection-path-trigger"
+                className="block min-w-0 max-w-full truncate rounded px-0.5 text-left font-mono-code text-cc-muted hover:text-cc-fg focus:outline-none focus:ring-1 focus:ring-cc-primary/40 cursor-pointer"
+                aria-expanded={vscodeSelectionPathOpen}
+                aria-label="Show full VS Code selection path"
+                onClick={() => setVscodeSelectionPathOpen(true)}
+              >
+                {vscodeSelectionLabel}
+              </button>
+              {vscodeSelectionPathOpen && vscodeSelectionFullPath && (
+                <div
+                  role="tooltip"
+                  data-testid="vscode-selection-path-popover"
+                  className="absolute left-0 bottom-full z-20 mb-2 w-max max-w-[min(32rem,calc(100vw-2rem))] rounded-lg border border-cc-border bg-cc-card px-3 py-2 text-[11px] text-cc-fg shadow-lg"
+                >
+                  <div className="font-mono-code break-all leading-snug">{vscodeSelectionFullPath}</div>
+                </div>
+              )}
+            </div>
             <span className="text-cc-muted/60">&middot;</span>
-            <span className="truncate">{vscodeSelectionSummary}</span>
+            <span className="shrink-0">{vscodeSelectionSummary}</span>
             <button
               type="button"
+              data-testid="vscode-selection-dismiss"
               className="shrink-0 rounded p-0.5 hover:bg-cc-border/60 cursor-pointer"
               title="Dismiss selection"
+              aria-label="Dismiss VS Code selection"
               onClick={onDismissVsCodeSelection}
             >
               <svg

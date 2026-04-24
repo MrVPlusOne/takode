@@ -28,16 +28,16 @@ export function PlaygroundInteractiveSections() {
         <div className="max-w-3xl">
           <Card label="Connected — code mode">
             <div className="border-t border-cc-border bg-cc-card px-4 py-3">
-              <div className="bg-cc-input-bg border border-cc-border rounded-[14px] overflow-hidden">
+              <div className="bg-cc-input-bg border border-cc-border rounded-[14px] overflow-visible">
                 <div className="px-4 pt-3 pb-2">
-                  <div className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-cc-border/80 bg-cc-hover/70 px-2 py-1 text-[11px] text-cc-muted">
+                  <div className="inline-flex max-w-full min-w-0 items-center gap-1.5 rounded-lg border border-cc-border/80 bg-cc-hover/70 px-2 py-1 text-[11px] text-cc-muted">
                     <svg viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 shrink-0 opacity-70">
                       <path d="M3.75 1.5A2.25 2.25 0 001.5 3.75v8.5A2.25 2.25 0 003.75 14.5h8.5a2.25 2.25 0 002.25-2.25v-5a.75.75 0 00-1.5 0v5A.75.75 0 0112.25 13h-8.5a.75.75 0 01-.75-.75v-8.5A.75.75 0 013.75 3h5a.75.75 0 000-1.5h-5z" />
                       <path d="M9.53 1.47a.75.75 0 011.06 0l3.94 3.94a.75.75 0 010 1.06l-5.5 5.5a.75.75 0 01-.33.2l-2.5.63a.75.75 0 01-.91-.91l.63-2.5a.75.75 0 01.2-.33l5.5-5.5z" />
                     </svg>
-                    <span className="font-mono-code">Composer.tsx:438-444</span>
+                    <span className="min-w-0 truncate rounded px-0.5 font-mono-code">OverflowTarget.tsx:438-444</span>
                     <span className="text-cc-muted/60">&middot;</span>
-                    <span>7 lines selected</span>
+                    <span className="shrink-0">7 lines selected</span>
                     <button
                       type="button"
                       className="shrink-0 rounded p-0.5 hover:bg-cc-border/60 cursor-pointer"
@@ -114,16 +114,23 @@ export function PlaygroundInteractiveSections() {
           <div className="mt-4" />
           <Card label="Connected — VS Code preview only">
             <div className="border-t border-cc-border bg-cc-card px-4 py-3">
-              <div className="bg-cc-input-bg border border-cc-border rounded-[14px] overflow-hidden">
+              <div className="bg-cc-input-bg border border-cc-border rounded-[14px] overflow-visible">
                 <div className="px-4 pt-3 pb-2">
-                  <div className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-cc-border/80 bg-cc-hover/70 px-2 py-1 text-[11px] text-cc-muted">
+                  <div className="inline-flex max-w-full min-w-0 items-center gap-1.5 rounded-lg border border-cc-border/80 bg-cc-hover/70 px-2 py-1 text-[11px] text-cc-muted">
                     <svg viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 shrink-0 opacity-70">
                       <path d="M3.75 1.5A2.25 2.25 0 001.5 3.75v8.5A2.25 2.25 0 003.75 14.5h8.5a2.25 2.25 0 002.25-2.25v-5a.75.75 0 00-1.5 0v5A.75.75 0 0112.25 13h-8.5a.75.75 0 01-.75-.75v-8.5A.75.75 0 013.75 3h5a.75.75 0 000-1.5h-5z" />
                       <path d="M9.53 1.47a.75.75 0 011.06 0l3.94 3.94a.75.75 0 010 1.06l-5.5 5.5a.75.75 0 01-.33.2l-2.5.63a.75.75 0 01-.91-.91l.63-2.5a.75.75 0 01.2-.33l5.5-5.5z" />
                     </svg>
-                    <span className="font-mono-code">App.tsx:58</span>
+                    <span className="relative min-w-0">
+                      <span className="block truncate rounded px-0.5 font-mono-code text-cc-fg">App.tsx:58</span>
+                      <span className="absolute left-0 bottom-full z-20 mb-2 w-max max-w-[min(32rem,calc(100vw-2rem))] rounded-lg border border-cc-border bg-cc-card px-3 py-2 text-[11px] text-cc-fg shadow-lg">
+                        <span className="block font-mono-code break-all leading-snug">
+                          /Users/stan/Dev/project/web/src/App.tsx
+                        </span>
+                      </span>
+                    </span>
                     <span className="text-cc-muted/60">&middot;</span>
-                    <span>1 line selected</span>
+                    <span className="shrink-0">1 line selected</span>
                   </div>
                 </div>
                 <textarea
