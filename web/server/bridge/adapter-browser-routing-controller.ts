@@ -1701,31 +1701,30 @@ function handleCodexStatusCommand(
   session.messageHistory.push(assistantMessage);
   deps.broadcastToBrowsers(session, assistantMessage);
 
-  const resultMessage: Extract<BrowserIncomingMessage, { type: "result" }> = {
-    type: "result",
-    data: {
-      type: "result",
-      subtype: "success",
-      is_error: false,
-      duration_ms: 0,
-      duration_api_ms: 0,
-      num_turns: session.state.num_turns ?? 0,
-      total_cost_usd: session.state.total_cost_usd ?? 0,
-      stop_reason: "end_turn",
-      usage: {
-        input_tokens: 0,
-        output_tokens: 0,
-        cache_creation_input_tokens: 0,
-        cache_read_input_tokens: 0,
-      },
-      uuid: randomUUID(),
-      session_id: session.state.session_id || session.id,
-    },
-  };
-  session.messageHistory.push(resultMessage);
-  deps.broadcastToBrowsers(session, resultMessage);
-
   if (!wasGenerating) {
+    const resultMessage: Extract<BrowserIncomingMessage, { type: "result" }> = {
+      type: "result",
+      data: {
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        duration_ms: 0,
+        duration_api_ms: 0,
+        num_turns: session.state.num_turns ?? 0,
+        total_cost_usd: session.state.total_cost_usd ?? 0,
+        stop_reason: "end_turn",
+        usage: {
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+        },
+        uuid: randomUUID(),
+        session_id: session.state.session_id || session.id,
+      },
+    };
+    session.messageHistory.push(resultMessage);
+    deps.broadcastToBrowsers(session, resultMessage);
     deps.setGenerating(session, false, "codex_status_command");
   }
   deps.persistSession(session);
