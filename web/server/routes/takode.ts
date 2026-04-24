@@ -36,7 +36,7 @@ import {
   setDiffBaseBranch as setDiffBaseBranchController,
 } from "../bridge/session-git-state.js";
 import { getSettings } from "../settings-manager.js";
-import { QUEST_JOURNEY_STATES } from "../session-types.js";
+import { QUEST_JOURNEY_STATES, type BrowserOutgoingMessage } from "../session-types.js";
 import { isSessionIdleRuntime } from "../herd-event-dispatcher.js";
 import type { RouteContext } from "./context.js";
 
@@ -80,6 +80,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
     | { kind: "oldest" }
     | { kind: "msg_index"; msg_index: number }
     | { kind: "target_id"; target_id: string };
+  type LeaderPermissionResponse = Extract<BrowserOutgoingMessage, { type: "permission_response" }>;
 
   const resolveReportedPermissionMode = (
     launcherMode: string | undefined,
@@ -95,6 +96,24 @@ export function createTakodeRoutes(ctx: RouteContext) {
   };
   const isBridgeSessionBusy = (session: BridgeSession | null | undefined): boolean =>
     !!session && (session.isGenerating || session.pendingPermissions.size > 0);
+  const routeLeaderPermissionResponse = async (
+    session: BridgeSession,
+    msg: LeaderPermissionResponse,
+    actorSessionId: string,
+  ): Promise<boolean> => {
+    if (typeof bridgeAny.routeExternalPermissionResponse === "function") {
+      await bridgeAny.routeExternalPermissionResponse(session, msg, actorSessionId);
+      return true;
+    }
+    if (typeof bridgeAny.routeBrowserMessage === "function") {
+      await bridgeAny.routeBrowserMessage(session, {
+        ...msg,
+        actorSessionId,
+      });
+      return true;
+    }
+    return false;
+  };
   const notificationRouteDeps = {
     isHerdedWorkerSession: (session: BridgeSession) => !!launcher.getSession(session.id)?.herdedBy,
     broadcastToBrowsers: (session: BridgeSession, msg: unknown) => wsBridge.broadcastToSession(session.id, msg as any),
@@ -938,76 +957,49 @@ export function createTakodeRoutes(ctx: RouteContext) {
         answers[String(i)] = answerValue;
       }
 
-      if (typeof bridgeAny.routeBrowserMessage === "function") {
-        await bridgeAny.routeBrowserMessage(session, {
+      const routed = await routeLeaderPermissionResponse(
+        session,
+        {
           type: "permission_response",
           request_id: target.request_id,
           behavior: "allow",
           updated_input: { ...target.input, answers },
-          actorSessionId: auth.callerId,
-        });
-      } else {
-        bridgeAny.routeExternalPermissionResponse?.(
-          session,
-          {
-            type: "permission_response",
-            request_id: target.request_id,
-            behavior: "allow",
-            updated_input: { ...target.input, answers },
-          },
-          auth.callerId,
-        );
-      }
+        },
+        auth.callerId,
+      );
+      if (!routed) return c.json({ error: "Permission response routing unavailable" }, 500);
       return c.json({ ok: true, kind: "permission", tool_name: target.tool_name, answer: answerValue });
     }
 
     if (target.tool_name === "ExitPlanMode") {
       const isApprove = response.toLowerCase().startsWith("approve");
       if (isApprove) {
-        if (typeof bridgeAny.routeBrowserMessage === "function") {
-          await bridgeAny.routeBrowserMessage(session, {
+        const routed = await routeLeaderPermissionResponse(
+          session,
+          {
             type: "permission_response",
             request_id: target.request_id,
             behavior: "allow",
             updated_input: target.input,
-            actorSessionId: auth.callerId,
-          });
-        } else {
-          bridgeAny.routeExternalPermissionResponse?.(
-            session,
-            {
-              type: "permission_response",
-              request_id: target.request_id,
-              behavior: "allow",
-              updated_input: target.input,
-            },
-            auth.callerId,
-          );
-        }
+          },
+          auth.callerId,
+        );
+        if (!routed) return c.json({ error: "Permission response routing unavailable" }, 500);
         return c.json({ ok: true, kind: "permission", tool_name: target.tool_name, action: "approved" });
       } else {
         // "reject" or "reject: feedback text"
         const feedback = response.replace(/^reject:?\s*/i, "").trim() || "Rejected by leader";
-        if (typeof bridgeAny.routeBrowserMessage === "function") {
-          await bridgeAny.routeBrowserMessage(session, {
+        const routed = await routeLeaderPermissionResponse(
+          session,
+          {
             type: "permission_response",
             request_id: target.request_id,
             behavior: "deny",
             message: feedback,
-            actorSessionId: auth.callerId,
-          });
-        } else {
-          bridgeAny.routeExternalPermissionResponse?.(
-            session,
-            {
-              type: "permission_response",
-              request_id: target.request_id,
-              behavior: "deny",
-              message: feedback,
-            },
-            auth.callerId,
-          );
-        }
+          },
+          auth.callerId,
+        );
+        if (!routed) return c.json({ error: "Permission response routing unavailable" }, 500);
         return c.json({ ok: true, kind: "permission", tool_name: target.tool_name, action: "rejected", feedback });
       }
     }
