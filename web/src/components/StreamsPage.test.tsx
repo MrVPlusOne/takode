@@ -129,6 +129,7 @@ describe("StreamsPage", () => {
     expect(screen.getByText("pf-2 / superseded / superseded by pf-1")).toBeInTheDocument();
     expect(screen.getByText("Artifacts: /tmp/judge-report.json")).toBeInTheDocument();
     expect(screen.getByText("Outputs flat in one lane")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "session:989:99" })).toHaveAttribute("href", "#/session/989/msg/99");
     await waitFor(() =>
       expect(mockGetStreamDetail).toHaveBeenCalledWith("server-test:session-group:ml", "judge-lane-monitor"),
     );

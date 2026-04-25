@@ -89,4 +89,35 @@ describe("stream routes", () => {
     expect(json.stream.id).toBe(parent.id);
     expect(json.children.map((stream: { id: string }) => stream.id)).toEqual([child.id]);
   });
+
+  it("filters group listings by query and can include archived streams", async () => {
+    // Verifies the route forwards postmortem/search controls to the stream store,
+    // including archived stream visibility only when explicitly requested.
+    const treeGroups = await import("../tree-group-store.js");
+    const streamStore = await import("../stream-store.js");
+    treeGroups._resetForTest(join(home, "tree-groups.json"));
+    const group = await treeGroups.createGroup("Debug");
+    const scope = streamStore.streamScopeForSessionGroup(group.id, "server-test");
+    await streamStore.createStream({ title: "Active stream", scope, summary: "Runner is healthy" });
+    const archived = await streamStore.createStream({
+      title: "Postmortem stream",
+      scope,
+      summary: "Archived postmortem",
+    });
+    await streamStore.archiveStream(archived.slug, scope, "covered by route test");
+
+    const app = await makeApp();
+    const defaultRes = await app.request("/streams/groups?q=postmortem");
+    const defaultJson = await defaultRes.json();
+    const defaultGroup = defaultJson.groups.find((item: { group: { id: string } }) => item.group.id === group.id);
+    expect(defaultGroup.streams).toEqual([]);
+    expect(defaultGroup.counts).toMatchObject({ total: 0, archived: 0 });
+
+    const archivedRes = await app.request("/streams/groups?includeArchived=1&q=postmortem");
+    const archivedJson = await archivedRes.json();
+    const archivedGroup = archivedJson.groups.find((item: { group: { id: string } }) => item.group.id === group.id);
+    expect(archivedJson).toMatchObject({ includeArchived: true, query: "postmortem" });
+    expect(archivedGroup.streams.map((stream: { title: string }) => stream.title)).toEqual(["Postmortem stream"]);
+    expect(archivedGroup.counts).toMatchObject({ total: 1, archived: 1 });
+  });
 });

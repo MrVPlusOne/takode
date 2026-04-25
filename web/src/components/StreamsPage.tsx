@@ -80,6 +80,34 @@ function newestFirst(entries: StreamTimelineEntry[]): StreamTimelineEntry[] {
   return [...entries].sort((a, b) => b.ts - a.ts);
 }
 
+function sourceHref(source: string): string | undefined {
+  const ref = source.trim();
+  if (!ref) return undefined;
+  if (/^https?:\/\//.test(ref)) return ref;
+
+  const sessionMatch = /^session:([^:\s]+)(?::([^:\s]+))?$/i.exec(ref);
+  if (sessionMatch) {
+    const [, sessionId, messageId] = sessionMatch;
+    if (messageId) {
+      return `#/session/${encodeURIComponent(sessionId)}/msg/${encodeURIComponent(messageId)}`;
+    }
+    return `#/session/${encodeURIComponent(sessionId)}`;
+  }
+
+  const messageMatch = /^message:([^:\s]+):([^:\s]+)$/i.exec(ref);
+  if (messageMatch) {
+    const [, sessionId, messageId] = messageMatch;
+    return `#/session/${encodeURIComponent(sessionId)}/msg/${encodeURIComponent(messageId)}`;
+  }
+
+  const questMatch = /^(?:quest:)?(q-\d+)$/i.exec(ref);
+  if (questMatch) {
+    return `#/questmaster?quest=${encodeURIComponent(questMatch[1].toLowerCase())}`;
+  }
+
+  return undefined;
+}
+
 function linkHref(link: StreamLink): string | undefined {
   if (link.type === "quest" && /^q-\d+$/i.test(link.ref)) {
     return `#/questmaster?quest=${encodeURIComponent(link.ref.toLowerCase())}`;
@@ -93,8 +121,18 @@ function linkHref(link: StreamLink): string | undefined {
       return `#/session/${encodeURIComponent(sessionId)}/msg/${encodeURIComponent(messageId)}`;
     }
   }
-  if (link.type === "source" && /^https?:\/\//.test(link.ref)) return link.ref;
+  if (link.type === "source") return sourceHref(link.ref);
   return undefined;
+}
+
+function SourceRef({ source }: { source: string }) {
+  const href = sourceHref(source);
+  if (!href) return <span>{source}</span>;
+  return (
+    <a href={href} className="text-cc-primary hover:underline">
+      {source}
+    </a>
+  );
 }
 
 function StreamLinks({ links }: { links: StreamLink[] | undefined }) {
@@ -296,7 +334,12 @@ function StreamDetail({ stream, children }: { stream: StreamRecord | null; child
                     <div>{fact.text}</div>
                     <div className="mt-1 text-[10px] opacity-75">
                       {fact.id} / {fact.status}
-                      {fact.source ? ` / ${fact.source}` : ""}
+                      {fact.source ? (
+                        <>
+                          {" / "}
+                          <SourceRef source={fact.source} />
+                        </>
+                      ) : null}
                       {fact.supersededBy ? ` / superseded by ${fact.supersededBy}` : ""}
                     </div>
                   </div>
@@ -329,7 +372,7 @@ function StreamDetail({ stream, children }: { stream: StreamRecord | null; child
                   <div className="flex flex-wrap items-center gap-2 text-[11px] text-cc-muted">
                     <span className="rounded bg-cc-hover px-1.5 py-0.5 text-cc-fg">{entry.type}</span>
                     <span>{formatDate(entry.ts)}</span>
-                    {entry.source ? <span>{entry.source}</span> : null}
+                    {entry.source ? <SourceRef source={entry.source} /> : null}
                     {entry.confidence ? <span>{entry.confidence}</span> : null}
                   </div>
                   <p className="mt-2 text-xs leading-relaxed text-cc-fg">{entry.text}</p>
