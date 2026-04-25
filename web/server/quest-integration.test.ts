@@ -188,9 +188,17 @@ describe("ensureQuestmasterIntegration", () => {
       expect.anything(),
       "utf-8",
     );
+
+    const streamWrite = fsMocks.writeFileSync.mock.calls.find(
+      (call) => call[0] === "/home/tester/.companion/bin/stream",
+    );
+    expect(streamWrite).toBeDefined();
+    const streamWrapper = String(streamWrite?.[1] ?? "");
+    expect(streamWrapper).toContain('exec bun "/repo/web/bin/stream.ts" "$@"');
+    expect(streamWrapper).not.toContain("/repo/worktrees/wt-1/web/bin/stream.ts");
   });
 
-  it("writes a ~/.local/bin/quest shim that delegates to ~/.companion/bin/quest", async () => {
+  it("writes ~/.local/bin quest and stream shims that delegate to ~/.companion/bin", async () => {
     await ensureQuestmasterIntegration(3456, "/repo/web");
 
     expect(fsMocks.mkdirSync).toHaveBeenCalledWith("/home/tester/.local/bin", { recursive: true });
@@ -200,6 +208,12 @@ describe("ensureQuestmasterIntegration", () => {
       "utf-8",
     );
     expect(fsMocks.chmodSync).toHaveBeenCalledWith("/home/tester/.local/bin/quest", 0o755);
+    expect(fsMocks.writeFileSync).toHaveBeenCalledWith(
+      "/home/tester/.local/bin/stream",
+      expect.stringContaining('exec "$HOME/.companion/bin/stream" "$@"'),
+      "utf-8",
+    );
+    expect(fsMocks.chmodSync).toHaveBeenCalledWith("/home/tester/.local/bin/stream", 0o755);
   });
 
   it("writes a ~/.local/bin/rg compatibility shim", async () => {

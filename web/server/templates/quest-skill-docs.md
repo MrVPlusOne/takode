@@ -368,6 +368,35 @@ Quests can have attached images at `~/.companion/questmaster/images/`.
 - Only if `quest` is missing, use the full path fallback: `~/.companion/bin/quest`
 - Do not prepend to `PATH` proactively; only if `bun` is missing, check `$HOME/.bun/bin/bun` and prepend `$HOME/.bun/bin` before retrying
 
+## Stream Memory CLI
+
+The `stream` CLI manages durable operational/project context that does not live cleanly in code or a single quest. Use streams when work touches live external state, long-running validation, artifact paths, cross-quest project memory, handoffs, or war-room status. Do **not** create stream ceremony for ordinary app-development quests where Questmaster already carries enough context.
+
+Common commands:
+
+```bash
+stream create "AI judging" --summary "4-lane monitor active" --tags "ml,judging"
+stream list
+stream show ai-judging
+stream update ai-judging --type decision --entry "Use four judging lanes" --source session:989:3202
+stream update ai-judging --type artifact --entry "Canonical output path recorded" --artifact /mnt/vast/path/output.lance
+stream archive ai-judging --reason "Project complete"
+stream search "Nebius schema"
+stream dashboard 23b-war-room
+stream handoff ai-judging
+```
+
+Important stream concepts:
+- By default, `stream` uses the current Takode session group when `COMPANION_SESSION_ID` is available. Outside Takode/session context, it falls back to a collision-resistant git project scope that maps linked worktrees together, then to the current directory name. Use `--scope` only for deliberate isolation or migration.
+- `stream show` is current-state-first: summary, health, ownership, pinned facts, links, then timeline.
+- Timeline entries are typed: `state-change`, `decision`, `artifact`, `metric`, `alert`, `contradiction`, `supersession`, `handoff`, `ownership`, `verification`, or `note`.
+- Use `--source session:N:M`, `--quest q-N`, `--session N`, `--worker N`, and `--artifact <path>` to preserve provenance and links.
+- Use `--pin <fact>` for durable facts like canonical artifact paths or known-bad configs.
+- Use `--stale <fact-id-or-text>` plus `--supersedes <new-fact>` when an old fact becomes dangerous to repeat.
+- Use `--owner <session>` and `--steering-mode leader-steered|user-steered|monitor-only|blocked` to avoid accidental interference with directly steered workers.
+- Use `stream handoff <stream>` before handing work to another leader/worker.
+- Pass `--json` to any `stream` command for machine-readable output.
+
 ## Writing style
 
 Be concise. Quest titles, descriptions, verification items, and closure notes should be short and scannable. Avoid verbose text — write for someone skimming quickly.
