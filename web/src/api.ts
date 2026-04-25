@@ -1391,7 +1391,7 @@ export const api = {
         ts: number;
         content: string;
         rawMessage?: BrowserIncomingMessage;
-      }>(`/takode/sessions/${encodeURIComponent(sessionId)}/messages/${messageIndex}?limit=1000`);
+      }>(`/sessions/${encodeURIComponent(sessionId)}/messages/${messageIndex}/preview`);
 
       if (data.rawMessage) {
         const normalized = normalizeHistoryMessageToChatMessages(data.rawMessage, messageIndex, {

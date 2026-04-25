@@ -15,6 +15,7 @@ import { hasContainerClaudeAuth } from "../claude-container-auth.js";
 import { hasContainerCodexAuth } from "../codex-container-auth.js";
 import { getSettings, getClaudeUserDefaultModel } from "../settings-manager.js";
 import { searchSessionDocuments, type SessionSearchDocument } from "../session-search.js";
+import { buildReadResponse } from "../takode-messages.js";
 import { ensureAssistantWorkspace, ASSISTANT_DIR } from "../assistant-workspace.js";
 import { trafficStats } from "../traffic-stats.js";
 import { generateUniqueSessionName } from "../../src/utils/names.js";
@@ -1160,6 +1161,32 @@ export function createSessionsRoutes(ctx: RouteContext) {
       ...rest,
       isGenerating: !!(bridgeSession?.isGenerating || bridgeSession?.pendingPermissions.size),
     });
+  });
+
+  api.get("/sessions/:id/messages/:idx/preview", (c) => {
+    const sessionId = resolveId(c.req.param("id"));
+    if (!sessionId) return c.json({ error: "Session not found" }, 404);
+
+    const idx = Number.parseInt(c.req.param("idx"), 10);
+    if (Number.isNaN(idx)) return c.json({ error: "Invalid message index" }, 400);
+
+    const history = wsBridge.getSession(sessionId)?.messageHistory ?? null;
+    if (!history) return c.json({ error: "Session not found in bridge" }, 404);
+
+    const result = buildReadResponse(
+      history,
+      idx,
+      {
+        limit: 1000,
+        getToolResult: (toolUseId) => wsBridge.getToolResult(sessionId, toolUseId),
+      },
+      sessionId,
+    );
+    if (!result) {
+      return c.json({ error: `Message index ${idx} out of range (0-${history.length - 1})` }, 404);
+    }
+
+    return c.json(result);
   });
 
   // Dedicated endpoint for the injected system prompt (fetched on-demand by Session Info panel)
