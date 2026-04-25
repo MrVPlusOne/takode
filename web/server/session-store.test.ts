@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { vi } from "vitest";
 import { SessionStore, type PersistedSession } from "./session-store.js";
 
 let tempDir: string;
@@ -102,6 +103,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   rmSync(tempDir, { recursive: true, force: true });
 });
 
@@ -359,6 +361,66 @@ describe("loadAll", () => {
   it("returns an empty array for an empty directory", async () => {
     const all = await store.loadAll();
     expect(all).toEqual([]);
+  });
+
+  it("logs startup restore metrics while sanitizing active sessions", async () => {
+    // Startup uses loadAll(), not direct load(); cover active cleanup, archived
+    // search-only restore, corrupt-file skips, and launcher-state metric output together.
+    const activeSession = makeSession("active-metrics", {
+      messageHistory: [{ type: "user_message", content: "active", timestamp: 1 }],
+      eventBuffer: [
+        { seq: 1, message: { type: "backend_connected" } },
+        {
+          seq: 2,
+          message: {
+            type: "tree_groups_update",
+            treeGroups: [{ id: "default", name: "Default" }],
+            treeAssignments: { "active-metrics": "default" },
+            treeNodeOrder: { default: ["active-metrics"] },
+          },
+        },
+      ] as PersistedSession["eventBuffer"],
+      nextEventSeq: 3,
+      lastAckSeq: 1,
+    });
+    const archivedSession = makeSession("archived-metrics", {
+      archived: true,
+      archivedAt: 1700000000000,
+      messageHistory: [{ type: "user_message", content: "archived", timestamp: 2 }],
+      _searchExcerpts: [{ type: "user_message", content: "archived", timestamp: 2 }],
+    });
+
+    store.saveSync(activeSession);
+    store.saveSync(archivedSession);
+    store.saveLauncher([
+      { sessionId: "active-metrics", state: "connected", cwd: "/tmp", createdAt: 1 },
+      { sessionId: "archived-metrics", state: "exited", cwd: "/tmp", createdAt: 2 },
+      { sessionId: "other-running", state: "running", cwd: "/tmp", createdAt: 3 },
+    ]);
+    await store.flushAll();
+    writeFileSync(join(tempDir, "corrupt.json"), "{not-json", "utf-8");
+
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    const all = await store.loadAll();
+    await store.flushAll();
+
+    expect(all.map((session) => session.id).sort()).toEqual(["active-metrics", "archived-metrics"]);
+    expect(all.find((session) => session.id === "active-metrics")!.eventBuffer).toEqual([
+      { seq: 1, message: { type: "backend_connected" } },
+    ]);
+    expect(all.find((session) => session.id === "archived-metrics")!._searchDataOnly).toBe(true);
+
+    const log = infoSpy.mock.calls.map(([message]) => String(message)).join("\n");
+    expect(log).toContain("Restored 2 session(s)");
+    expect(log).toContain("(active=1, searchOnly=1, skipped=1)");
+    expect(log).toContain("launcherStates=[connected:1, exited:1, running:1]");
+    expect(log).toContain("historyMsgs=1");
+    expect(log).toContain("eventBuffer 2->1");
+    expect(log).toContain("dropped=1/");
+    expect(log).toContain("[tree_groups_update:1/");
+
+    const repairedHot = JSON.parse(readFileSync(join(tempDir, "active-metrics.json"), "utf-8"));
+    expect(repairedHot.eventBuffer).toEqual([{ seq: 1, message: { type: "backend_connected" } }]);
   });
 });
 

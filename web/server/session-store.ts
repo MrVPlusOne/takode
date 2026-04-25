@@ -155,6 +155,7 @@ interface SessionRestoreMetrics {
   droppedEventCount: number;
   droppedEventBytes: number;
   droppedEventTypes: Map<string, { count: number; bytes: number }>;
+  launcherStateCounts: Map<string, number>;
 }
 
 interface EventBufferSanitizeResult {
@@ -162,8 +163,18 @@ interface EventBufferSanitizeResult {
   changed: boolean;
 }
 
+interface LauncherRestoreInfo {
+  sessionId?: unknown;
+  state?: unknown;
+}
+
 function formatBytes(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
+}
+
+function serializedJsonArrayBytes(itemBytes: number, itemCount: number): number {
+  if (itemCount === 0) return 2;
+  return itemBytes + itemCount + 1;
 }
 
 /**
@@ -232,6 +243,7 @@ export class SessionStore {
       droppedEventCount: 0,
       droppedEventBytes: 0,
       droppedEventTypes: new Map(),
+      launcherStateCounts: new Map(),
     };
   }
 
@@ -254,28 +266,30 @@ export class SessionStore {
   ): EventBufferSanitizeResult {
     if (!Array.isArray(eventBuffer)) return { eventBuffer, changed: false };
 
-    const beforeBytes = Buffer.byteLength(JSON.stringify(eventBuffer));
     const sanitized: BufferedBrowserEvent[] = [];
+    let beforeItemBytes = 0;
+    let afterItemBytes = 0;
     let droppedBytes = 0;
     let droppedCount = 0;
 
     for (const event of eventBuffer) {
+      const bytes = metrics ? Buffer.byteLength(JSON.stringify(event)) : 0;
+      if (metrics) beforeItemBytes += bytes;
       if (isReplayableBufferedEvent(event)) {
         sanitized.push(event);
       } else {
-        const bytes = Buffer.byteLength(JSON.stringify(event));
-        droppedBytes += bytes;
+        if (metrics) droppedBytes += bytes;
         droppedCount++;
         this.recordDroppedBufferedEvent(metrics, event, bytes);
       }
     }
 
-    const afterBytes = Buffer.byteLength(JSON.stringify(sanitized));
     if (metrics) {
+      afterItemBytes = beforeItemBytes - droppedBytes;
       metrics.eventBufferBeforeCount += eventBuffer.length;
       metrics.eventBufferAfterCount += sanitized.length;
-      metrics.eventBufferBeforeBytes += beforeBytes;
-      metrics.eventBufferAfterBytes += afterBytes;
+      metrics.eventBufferBeforeBytes += serializedJsonArrayBytes(beforeItemBytes, eventBuffer.length);
+      metrics.eventBufferAfterBytes += serializedJsonArrayBytes(afterItemBytes, sanitized.length);
       metrics.droppedEventCount += droppedCount;
       metrics.droppedEventBytes += droppedBytes;
       if (droppedCount > 0) metrics.sanitizedSessions++;
@@ -287,6 +301,23 @@ export class SessionStore {
     };
   }
 
+  private async recordLauncherRestoreMetrics(metrics: SessionRestoreMetrics): Promise<void> {
+    const launcherSessions = await this.loadLauncher<LauncherRestoreInfo[]>();
+    if (!Array.isArray(launcherSessions)) return;
+
+    for (const session of launcherSessions) {
+      const state = typeof session?.state === "string" ? session.state : "unknown";
+      metrics.launcherStateCounts.set(state, (metrics.launcherStateCounts.get(state) ?? 0) + 1);
+    }
+  }
+
+  private formatCountMap(counts: Map<string, number>): string {
+    return [...counts.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([key, value]) => `${key}:${value}`)
+      .join(", ");
+  }
+
   private logRestoreMetrics(metrics: SessionRestoreMetrics): void {
     const elapsedMs = performance.now() - metrics.startedAt;
     const memory = process.memoryUsage();
@@ -295,10 +326,12 @@ export class SessionStore {
       .slice(0, 8)
       .map(([type, value]) => `${type}:${value.count}/${formatBytes(value.bytes)}`)
       .join(", ");
+    const launcherStates = this.formatCountMap(metrics.launcherStateCounts);
 
     console.info(
       `[session-store] Restored ${metrics.totalSessions} session(s) in ${elapsedMs.toFixed(0)}ms ` +
         `(active=${metrics.activeSessions}, searchOnly=${metrics.searchOnlySessions}, skipped=${metrics.skippedSessions}); ` +
+        `${launcherStates ? `launcherStates=[${launcherStates}]; ` : ""}` +
         `loaded hot=${formatBytes(metrics.activeHotJsonBytes)}, searchOnlyHot=${formatBytes(metrics.searchOnlyHotJsonBytes)}, ` +
         `frozen=${formatBytes(metrics.frozenLogBytes)}, historyMsgs=${metrics.restoredHistoryMessages}, ` +
         `toolResults=${metrics.restoredToolResults}; eventBuffer ${metrics.eventBufferBeforeCount}->${metrics.eventBufferAfterCount} ` +
@@ -842,6 +875,7 @@ export class SessionStore {
     const sessions: PersistedSession[] = [];
     const metrics = this.createRestoreMetrics();
     try {
+      await this.recordLauncherRestoreMetrics(metrics);
       const files = (await readdir(this.dir)).filter((f) => f.endsWith(".json") && f !== "launcher.json");
       for (const file of files) {
         const sessionId = file.replace(/\.json$/, "");
