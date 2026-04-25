@@ -859,4 +859,127 @@ describe("POST /api/quests/:questId/complete", () => {
     expect(res.status).toBe(403);
     expect(completeSpy).not.toHaveBeenCalled();
   });
+
+  it("allows an authenticated owner to complete without a body sessionId", async () => {
+    // The normal claimed-quest path omits sessionId so the store preserves the
+    // current owner instead of treating the authenticated caller as an override.
+    vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
+      id: "q-1-v3",
+      questId: "q-1",
+      title: "Quest",
+      status: "in_progress",
+      sessionId: "session-1",
+      createdAt: Date.now(),
+      claimedAt: Date.now(),
+      description: "Ready",
+    } as any);
+    vi.spyOn(questStore, "completeQuest").mockResolvedValueOnce({
+      id: "q-1-v4",
+      questId: "q-1",
+      title: "Quest",
+      status: "needs_verification",
+      sessionId: "session-1",
+      createdAt: Date.now(),
+      claimedAt: Date.now(),
+      description: "Ready",
+      verificationItems: [{ text: "Verify handoff", checked: false }],
+      verificationInboxUnread: true,
+    } as any);
+    launcher.getSession.mockImplementation((sid: string) =>
+      sid === "session-1" ? { sessionId: "session-1", state: "running", cwd: "/test", archived: false } : undefined,
+    );
+    launcher.verifySessionAuthToken.mockImplementation(
+      (sid: string, token: string) => sid === "session-1" && token === "tok-1",
+    );
+
+    const res = await app.request("/api/quests/q-1/complete", {
+      method: "POST",
+      headers: companionAuthHeaders("session-1", "tok-1"),
+      body: JSON.stringify({
+        verificationItems: [{ text: "Verify handoff", checked: false }],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(questStore.completeQuest).toHaveBeenCalledWith("q-1", [{ text: "Verify handoff", checked: false }], {
+      commitShas: undefined,
+    });
+  });
+
+  it("rejects non-owner completion when body sessionId is omitted", async () => {
+    vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
+      id: "q-1-v3",
+      questId: "q-1",
+      title: "Quest",
+      status: "in_progress",
+      sessionId: "worker-1",
+      createdAt: Date.now(),
+      claimedAt: Date.now(),
+      description: "Ready",
+    } as any);
+    const completeSpy = vi.spyOn(questStore, "completeQuest");
+    launcher.getSession.mockImplementation((sid: string) =>
+      sid === "session-1" ? { sessionId: "session-1", state: "running", cwd: "/test", archived: false } : undefined,
+    );
+    launcher.verifySessionAuthToken.mockImplementation(
+      (sid: string, token: string) => sid === "session-1" && token === "tok-1",
+    );
+
+    const res = await app.request("/api/quests/q-1/complete", {
+      method: "POST",
+      headers: companionAuthHeaders("session-1", "tok-1"),
+      body: JSON.stringify({
+        verificationItems: [{ text: "Verify handoff", checked: false }],
+      }),
+    });
+
+    expect(res.status).toBe(403);
+    expect(completeSpy).not.toHaveBeenCalled();
+  });
+
+  it("does not rewrite ownership when an authenticated leader omits body sessionId", async () => {
+    vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
+      id: "q-1-v3",
+      questId: "q-1",
+      title: "Quest",
+      status: "in_progress",
+      sessionId: "worker-1",
+      createdAt: Date.now(),
+      claimedAt: Date.now(),
+      description: "Ready",
+    } as any);
+    vi.spyOn(questStore, "completeQuest").mockResolvedValueOnce({
+      id: "q-1-v4",
+      questId: "q-1",
+      title: "Quest",
+      status: "needs_verification",
+      sessionId: "worker-1",
+      createdAt: Date.now(),
+      claimedAt: Date.now(),
+      description: "Ready",
+      verificationItems: [{ text: "Verify handoff", checked: false }],
+      verificationInboxUnread: true,
+    } as any);
+    launcher.getSession.mockImplementation((sid: string) =>
+      sid === "leader-1"
+        ? { sessionId: "leader-1", state: "running", cwd: "/test", archived: false, isOrchestrator: true }
+        : undefined,
+    );
+    launcher.verifySessionAuthToken.mockImplementation(
+      (sid: string, token: string) => sid === "leader-1" && token === "leader-token",
+    );
+
+    const res = await app.request("/api/quests/q-1/complete", {
+      method: "POST",
+      headers: companionAuthHeaders("leader-1", "leader-token"),
+      body: JSON.stringify({
+        verificationItems: [{ text: "Verify handoff", checked: false }],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(questStore.completeQuest).toHaveBeenCalledWith("q-1", [{ text: "Verify handoff", checked: false }], {
+      commitShas: undefined,
+    });
+  });
 });

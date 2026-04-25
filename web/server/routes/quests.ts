@@ -405,15 +405,24 @@ export function createQuestRoutes(ctx: RouteContext) {
     if (authSessionId && bodySessionId && bodySessionId !== authSessionId && !authIsOrchestrator) {
       return c.json({ error: "sessionId does not match authenticated caller" }, 403);
     }
-    const sessionId = bodySessionId || authSessionId;
-    if (sessionId && !launcher.getSession(sessionId)) {
+    const targetSessionId = bodySessionId;
+    if (targetSessionId && !launcher.getSession(targetSessionId)) {
       return c.json({ error: "sessionId does not belong to a known companion session" }, 400);
     }
     try {
+      if (authSessionId && !targetSessionId) {
+        const currentQuest = await questStore.getQuest(c.req.param("questId"));
+        if (!currentQuest) return c.json({ error: "Quest not found" }, 404);
+        const currentOwnerSessionId =
+          "sessionId" in currentQuest && typeof currentQuest.sessionId === "string" ? currentQuest.sessionId : "";
+        if (currentOwnerSessionId && currentOwnerSessionId !== authSessionId && !authIsOrchestrator) {
+          return c.json({ error: "Only leader sessions can complete a quest owned by another session" }, 403);
+        }
+      }
       const commitShas = Array.isArray(body.commitShas) ? body.commitShas : undefined;
       const quest = await questStore.completeQuest(c.req.param("questId"), items, {
         commitShas,
-        ...(sessionId ? { sessionId } : {}),
+        ...(targetSessionId ? { sessionId: targetSessionId } : {}),
       });
       if (!quest) return c.json({ error: "Quest not found" }, 404);
       broadcastQuestUpdate(wsBridge);
