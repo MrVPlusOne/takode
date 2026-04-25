@@ -179,6 +179,7 @@ cd web && bun run build && bun run start
 
 ## Documentation
 
+- [Changelog](CHANGELOG.md)
 - [WebSocket Protocol Reference](WEBSOCKET_PROTOCOL_REVERSED.md)
 - [Architecture & Contributor Guide](CLAUDE.md)
 
