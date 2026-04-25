@@ -191,6 +191,58 @@ describe("saveSync / load", () => {
     expect(loaded!.processedClientMessageIds).toEqual(["client-msg-1", "client-msg-2"]);
   });
 
+  it("removes legacy non-replayable eventBuffer entries on load and rewrites hot JSON", async () => {
+    // Legacy persisted replay buffers can contain global snapshots that current
+    // runtime buffering rejects; loading should scrub them and persist the repair.
+    const session = makeSession("legacy-buffer", {
+      eventBuffer: [
+        { seq: 1, message: { type: "backend_connected" } },
+        {
+          seq: 2,
+          message: {
+            type: "tree_groups_update",
+            treeGroups: [{ id: "default", name: "Default" }],
+            treeAssignments: { "session-1": "default" },
+            treeNodeOrder: { default: ["session-1"] },
+          },
+        },
+        { seq: 3, message: { type: "session_name_update", name: "Old Name" } },
+        { seq: 4, message: { type: "event_replay", events: [] } },
+      ] as PersistedSession["eventBuffer"],
+      nextEventSeq: 5,
+      lastAckSeq: 1,
+    });
+    writeFileSync(join(tempDir, "legacy-buffer.json"), JSON.stringify(session), "utf-8");
+
+    const freshStore = new SessionStore(tempDir);
+    const loaded = await freshStore.load("legacy-buffer");
+
+    expect(loaded!.eventBuffer).toEqual([{ seq: 1, message: { type: "backend_connected" } }]);
+    expect(loaded!.nextEventSeq).toBe(5);
+    expect(loaded!.lastAckSeq).toBe(1);
+
+    await freshStore.flushAll();
+    const hotRaw = JSON.parse(readFileSync(join(tempDir, "legacy-buffer.json"), "utf-8"));
+    expect(hotRaw.eventBuffer).toEqual([{ seq: 1, message: { type: "backend_connected" } }]);
+  });
+
+  it("keeps replayable legacy eventBuffer entries when sanitizing persisted buffers", async () => {
+    // The sanitizer is intentionally narrow: normal replayable events remain
+    // persisted so browser reconnect semantics do not change in this pass.
+    const session = makeSession("replayable-buffer", {
+      eventBuffer: [
+        { seq: 1, message: { type: "quest_list_updated" } },
+        { seq: 2, message: { type: "pr_status_update", pr: null, available: false } },
+        { seq: 3, message: { type: "session_created", session_id: "created-session" } },
+      ] as PersistedSession["eventBuffer"],
+    });
+    writeFileSync(join(tempDir, "replayable-buffer.json"), JSON.stringify(session), "utf-8");
+
+    const loaded = await store.load("replayable-buffer");
+
+    expect(loaded!.eventBuffer).toEqual(session.eventBuffer);
+  });
+
   it("saveSync/load preserves codexFreshTurnRequiredUntilTurnId", async () => {
     const session = makeSession("s2-codex-fresh-turn", {
       codexFreshTurnRequiredUntilTurnId: "turn-plan-1",

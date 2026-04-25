@@ -2,6 +2,7 @@ import { mkdirSync } from "node:fs";
 import { readdir, readFile, writeFile, unlink, appendFile } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { isReplayableBufferedEvent } from "./bridge/replay-buffer-policy.js";
 import type {
   SessionState,
   BrowserIncomingMessage,
@@ -135,6 +136,36 @@ export interface PersistedSession {
 
 const DEFAULT_BASE_DIR = join(homedir(), ".companion", "sessions");
 
+interface SessionRestoreMetrics {
+  startedAt: number;
+  totalSessions: number;
+  activeSessions: number;
+  searchOnlySessions: number;
+  skippedSessions: number;
+  activeHotJsonBytes: number;
+  searchOnlyHotJsonBytes: number;
+  frozenLogBytes: number;
+  restoredHistoryMessages: number;
+  restoredToolResults: number;
+  eventBufferBeforeCount: number;
+  eventBufferAfterCount: number;
+  eventBufferBeforeBytes: number;
+  eventBufferAfterBytes: number;
+  sanitizedSessions: number;
+  droppedEventCount: number;
+  droppedEventBytes: number;
+  droppedEventTypes: Map<string, { count: number; bytes: number }>;
+}
+
+interface EventBufferSanitizeResult {
+  eventBuffer: BufferedBrowserEvent[] | undefined;
+  changed: boolean;
+}
+
+function formatBytes(bytes: number): string {
+  return `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
+}
+
 /**
  * Session persistence with two-tier storage:
  *
@@ -179,6 +210,103 @@ export class SessionStore {
 
   private frozenLogPath(sessionId: string): string {
     return join(this.dir, `${sessionId}.history.jsonl`);
+  }
+
+  private createRestoreMetrics(): SessionRestoreMetrics {
+    return {
+      startedAt: performance.now(),
+      totalSessions: 0,
+      activeSessions: 0,
+      searchOnlySessions: 0,
+      skippedSessions: 0,
+      activeHotJsonBytes: 0,
+      searchOnlyHotJsonBytes: 0,
+      frozenLogBytes: 0,
+      restoredHistoryMessages: 0,
+      restoredToolResults: 0,
+      eventBufferBeforeCount: 0,
+      eventBufferAfterCount: 0,
+      eventBufferBeforeBytes: 0,
+      eventBufferAfterBytes: 0,
+      sanitizedSessions: 0,
+      droppedEventCount: 0,
+      droppedEventBytes: 0,
+      droppedEventTypes: new Map(),
+    };
+  }
+
+  private recordDroppedBufferedEvent(metrics: SessionRestoreMetrics | undefined, event: unknown, bytes: number): void {
+    if (!metrics) return;
+    const type =
+      event && typeof event === "object" && "message" in event
+        ? ((event as { message?: { type?: unknown } }).message?.type ?? "malformed")
+        : "malformed";
+    const key = typeof type === "string" ? type : "malformed";
+    const current = metrics.droppedEventTypes.get(key) ?? { count: 0, bytes: 0 };
+    current.count++;
+    current.bytes += bytes;
+    metrics.droppedEventTypes.set(key, current);
+  }
+
+  private sanitizePersistedEventBuffer(
+    eventBuffer: PersistedSession["eventBuffer"],
+    metrics?: SessionRestoreMetrics,
+  ): EventBufferSanitizeResult {
+    if (!Array.isArray(eventBuffer)) return { eventBuffer, changed: false };
+
+    const beforeBytes = Buffer.byteLength(JSON.stringify(eventBuffer));
+    const sanitized: BufferedBrowserEvent[] = [];
+    let droppedBytes = 0;
+    let droppedCount = 0;
+
+    for (const event of eventBuffer) {
+      if (isReplayableBufferedEvent(event)) {
+        sanitized.push(event);
+      } else {
+        const bytes = Buffer.byteLength(JSON.stringify(event));
+        droppedBytes += bytes;
+        droppedCount++;
+        this.recordDroppedBufferedEvent(metrics, event, bytes);
+      }
+    }
+
+    const afterBytes = Buffer.byteLength(JSON.stringify(sanitized));
+    if (metrics) {
+      metrics.eventBufferBeforeCount += eventBuffer.length;
+      metrics.eventBufferAfterCount += sanitized.length;
+      metrics.eventBufferBeforeBytes += beforeBytes;
+      metrics.eventBufferAfterBytes += afterBytes;
+      metrics.droppedEventCount += droppedCount;
+      metrics.droppedEventBytes += droppedBytes;
+      if (droppedCount > 0) metrics.sanitizedSessions++;
+    }
+
+    return {
+      eventBuffer: sanitized,
+      changed: droppedCount > 0,
+    };
+  }
+
+  private logRestoreMetrics(metrics: SessionRestoreMetrics): void {
+    const elapsedMs = performance.now() - metrics.startedAt;
+    const memory = process.memoryUsage();
+    const droppedTypes = [...metrics.droppedEventTypes.entries()]
+      .sort((a, b) => b[1].bytes - a[1].bytes)
+      .slice(0, 8)
+      .map(([type, value]) => `${type}:${value.count}/${formatBytes(value.bytes)}`)
+      .join(", ");
+
+    console.info(
+      `[session-store] Restored ${metrics.totalSessions} session(s) in ${elapsedMs.toFixed(0)}ms ` +
+        `(active=${metrics.activeSessions}, searchOnly=${metrics.searchOnlySessions}, skipped=${metrics.skippedSessions}); ` +
+        `loaded hot=${formatBytes(metrics.activeHotJsonBytes)}, searchOnlyHot=${formatBytes(metrics.searchOnlyHotJsonBytes)}, ` +
+        `frozen=${formatBytes(metrics.frozenLogBytes)}, historyMsgs=${metrics.restoredHistoryMessages}, ` +
+        `toolResults=${metrics.restoredToolResults}; eventBuffer ${metrics.eventBufferBeforeCount}->${metrics.eventBufferAfterCount} ` +
+        `(${formatBytes(metrics.eventBufferBeforeBytes)}->${formatBytes(metrics.eventBufferAfterBytes)}), ` +
+        `dropped=${metrics.droppedEventCount}/${formatBytes(metrics.droppedEventBytes)} ` +
+        `across ${metrics.sanitizedSessions} session(s)${droppedTypes ? ` [${droppedTypes}]` : ""}; ` +
+        `rss=${formatBytes(memory.rss)}, heapUsed=${formatBytes(memory.heapUsed)}, external=${formatBytes(memory.external)}`,
+    );
   }
 
   // ─── Freeze logic ───────────────────────────────────────────────────────
@@ -343,6 +471,7 @@ export class SessionStore {
   private async readFrozenLog(sessionId: string): Promise<{
     messages: BrowserIncomingMessage[];
     toolResults: [string, { content: string; is_error: boolean; timestamp: number }][];
+    rawBytes: number;
   }> {
     const messages: BrowserIncomingMessage[] = [];
     const toolResults: [string, { content: string; is_error: boolean; timestamp: number }][] = [];
@@ -351,7 +480,7 @@ export class SessionStore {
     try {
       raw = await readFile(this.frozenLogPath(sessionId), "utf-8");
     } catch {
-      return { messages, toolResults };
+      return { messages, toolResults, rawBytes: 0 };
     }
 
     const lines = raw.split("\n");
@@ -380,7 +509,7 @@ export class SessionStore {
       }
     }
 
-    return { messages, toolResults };
+    return { messages, toolResults, rawBytes: Buffer.byteLength(raw) };
   }
 
   // ─── Public API ─────────────────────────────────────────────────────────
@@ -562,13 +691,24 @@ export class SessionStore {
   }
 
   /** Load a single session from disk, combining frozen log + hot state. */
-  async load(sessionId: string): Promise<PersistedSession | null> {
+  async load(sessionId: string, restoreMetrics?: SessionRestoreMetrics): Promise<PersistedSession | null> {
     let hot: PersistedSession;
+    let raw: string;
     try {
-      const raw = await readFile(this.filePath(sessionId), "utf-8");
+      raw = await readFile(this.filePath(sessionId), "utf-8");
       hot = JSON.parse(raw) as PersistedSession;
     } catch {
       return null;
+    }
+
+    if (restoreMetrics) {
+      restoreMetrics.activeSessions++;
+      restoreMetrics.activeHotJsonBytes += Buffer.byteLength(raw);
+    }
+
+    const sanitizedBuffer = this.sanitizePersistedEventBuffer(hot.eventBuffer, restoreMetrics);
+    if (sanitizedBuffer.changed) {
+      hot = { ...hot, eventBuffer: sanitizedBuffer.eventBuffer };
     }
 
     const expectedFrozenMsgs = hot._frozenCount ?? 0;
@@ -579,12 +719,22 @@ export class SessionStore {
     if (expectedFrozenMsgs === 0) {
       this.frozenCounts.set(sessionId, 0);
       this.frozenToolResultCounts.set(sessionId, 0);
+      if (restoreMetrics) {
+        restoreMetrics.restoredHistoryMessages += hot.messageHistory.length;
+        restoreMetrics.restoredToolResults += hot.toolResults?.length ?? 0;
+      }
+      if (sanitizedBuffer.changed) {
+        this.writeHotJson(hot, hot.messageHistory, hot.toolResults ?? [], 0, expectedFrozenToolResults);
+      }
       return hot;
     }
 
     // Read the frozen JSONL log
     const frozen = await this.readFrozenLog(sessionId);
     const actualFrozenMsgs = frozen.messages.length;
+    if (restoreMetrics) {
+      restoreMetrics.frozenLogBytes += frozen.rawBytes;
+    }
 
     // Crash recovery: JSONL may have more lines than the hot JSON expects
     // (crash between JSONL append and hot JSON write). Trim overlap from
@@ -622,6 +772,8 @@ export class SessionStore {
         `[session-store] Repaired ${cleanedHistory.removedCount} duplicate replay-generated tool_result_preview messages ` +
           `from persisted hot tail for session ${sessionId.slice(0, 8)}`,
       );
+    }
+    if (cleanedHistory.removedCount > 0 || sanitizedBuffer.changed) {
       this.writeHotJson(
         {
           ...hot,
@@ -637,6 +789,10 @@ export class SessionStore {
 
     this.frozenCounts.set(sessionId, actualFrozenMsgs);
     this.frozenToolResultCounts.set(sessionId, frozen.toolResults.length);
+    if (restoreMetrics) {
+      restoreMetrics.restoredHistoryMessages += cleanedHistory.messages.length;
+      restoreMetrics.restoredToolResults += mergedToolResults.length;
+    }
 
     return {
       ...hot,
@@ -684,6 +840,7 @@ export class SessionStore {
   /** Load all sessions from disk. */
   async loadAll(): Promise<PersistedSession[]> {
     const sessions: PersistedSession[] = [];
+    const metrics = this.createRestoreMetrics();
     try {
       const files = (await readdir(this.dir)).filter((f) => f.endsWith(".json") && f !== "launcher.json");
       for (const file of files) {
@@ -694,11 +851,15 @@ export class SessionStore {
           try {
             raw = await readFile(this.filePath(sessionId), "utf-8");
           } catch {
+            metrics.skippedSessions++;
             continue;
           }
           const hot = JSON.parse(raw) as PersistedSession;
+          metrics.totalSessions++;
 
           if (hot.archived) {
+            metrics.searchOnlySessions++;
+            metrics.searchOnlyHotJsonBytes += Buffer.byteLength(raw);
             // Search-data-only: skip JSONL frozen log entirely
             sessions.push({
               id: hot.id,
@@ -723,15 +884,19 @@ export class SessionStore {
               _frozenToolResultCount: 0,
             });
           } else {
-            const session = await this.load(sessionId);
+            const session = await this.load(sessionId, metrics);
             if (session) sessions.push(session);
           }
         } catch {
           // Skip corrupt files
+          metrics.skippedSessions++;
         }
       }
     } catch {
       // Dir doesn't exist yet
+    }
+    if (metrics.totalSessions > 0 || metrics.skippedSessions > 0) {
+      this.logRestoreMetrics(metrics);
     }
     return sessions;
   }

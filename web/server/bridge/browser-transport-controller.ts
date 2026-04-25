@@ -5,6 +5,7 @@ import { getHistoryWindowTurnCount } from "../../shared/history-window.js";
 import { sessionTag } from "../session-tag.js";
 import { findTurnBoundaries } from "../takode-messages.js";
 import { getTrafficMessageType, trafficStats } from "../traffic-stats.js";
+import { shouldBufferForReplay } from "./replay-buffer-policy.js";
 import type {
   BrowserIncomingMessage,
   BrowserOutgoingMessage,
@@ -918,18 +919,6 @@ function enqueueSessionRoute(
   });
   deps.setRouteChain(sessionId, tracked);
   return tracked;
-}
-
-function shouldBufferForReplay(msg: BrowserIncomingMessage): msg is ReplayableBrowserIncomingMessage {
-  return (
-    msg.type !== "session_init" &&
-    msg.type !== "message_history" &&
-    msg.type !== "event_replay" &&
-    msg.type !== "leader_group_idle" &&
-    msg.type !== "session_quest_claimed" &&
-    msg.type !== "session_name_update" &&
-    msg.type !== "tree_groups_update"
-  );
 }
 
 function sequenceEvent(
