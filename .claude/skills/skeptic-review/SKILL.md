@@ -83,13 +83,31 @@ Evaluate against these criteria:
 ### Submission Quality Checks
 
 In addition to the work integrity criteria above, check these three concrete
-pass/fail items. If any fail, the verdict is **CHALLENGE**.
+hygiene items.
+
+For clear quest hygiene issues that you know how to fix, fix them directly
+instead of bouncing the quest back through leader -> worker -> reviewer. Report
+the fix in your verdict. Examples:
+
+- If worker evidence clearly addressed human feedback but the feedback entry is
+  still unaddressed, run `quest address <quest_id> <index>`.
+- If the quest is missing a concise user-oriented summary and the worker's
+  report gives you enough evidence, add or refresh it with
+  `quest feedback add <quest_id> --text "Summary: ..."`.
+- If a verification checklist item is already self-verified by evidence you
+  inspected, check it with `quest check <quest_id> <index>`.
+
+Only **CHALLENGE** on hygiene when the issue is ambiguous, unsupported by
+evidence, not fixable with available Quest CLI commands, or tied to a
+substantive problem such as an intention mismatch, missing/dishonest work, or a
+critical worker misunderstanding.
 
 1. **Human feedback addressed?** Run `quest feedback list <quest_id> --author human --unaddressed` and check:
    - Every human feedback entry should be marked `addressed`
    - Each addressed entry should have a corresponding agent feedback comment explaining HOW it was addressed
    - One consolidated agent comment may satisfy this for multiple human feedback entries, and may also be the final summary, if it clearly explains what changed and which feedback it addressed
-   - If any human feedback is unaddressed or has no explanatory agent feedback, CHALLENGE: "Human feedback entry #N is not addressed -- explain how it was handled in a quest comment and mark it addressed"
+   - If worker evidence clearly shows feedback was handled and only the addressed flag is stale, run `quest address <quest_id> <index>` yourself and mention that hygiene fix in the verdict
+   - If the handling is unclear or no explanatory agent feedback exists, CHALLENGE: "Human feedback entry #N is not addressed -- explain how it was handled in a quest comment and mark it addressed"
 
 2. **Summary comment present?** Look for a final agent feedback entry that:
    - Summarizes what changed, why it matters, and what verification passed (not just "done" or "completed")
@@ -97,26 +115,33 @@ pass/fail items. If any fail, the verdict is **CHALLENGE**.
    - Includes PR links if changes were ported; routine commit hashes should usually be attached as structured quest metadata
    - Avoids duplicating another recent worker comment; prefer one consolidated summary/addressing comment when the content would otherwise be near-duplicate
    - This should already be part of the worker's normal completion flow; the skeptic review is confirming it happened, not inventing a new requirement
-   - If missing, CHALLENGE: "Add or refresh the required quest summary comment describing what changed, why it matters, and what verification passed"
+   - If missing but the worker report and diff give enough evidence, add or refresh it yourself with `quest feedback add <quest_id> --text "Summary: ..."` and mention that hygiene fix in the verdict
+   - If missing and you cannot write it without guessing, CHALLENGE: "Add or refresh the required quest summary comment describing what changed, why it matters, and what verification passed"
    - If the quest has multiple near-duplicated worker comments, CHALLENGE: "Consolidate the duplicated quest comments so the quest remains readable while preserving how human feedback was addressed"
 
 3. **Verification items are human-only?** Check each verification item in the quest:
    - Items like "tests pass", "typecheck clean", "no regressions", "code compiles" should NOT be in the checklist -- the agent can verify those itself
    - Only items requiring human judgment belong: UI appearance, UX feel, behavioral verification in browser, edge cases needing manual testing
-   - If self-verifiable items are present, CHALLENGE: "Verification item #N ('tests pass') can be verified by the agent -- remove it and only keep items requiring human judgment"
+   - If an item is self-verifiable and you have verified it, check it with `quest check <quest_id> <index>` yourself and mention that hygiene fix in the verdict
+   - If the checklist needs rewriting or you cannot verify the item yourself, CHALLENGE: "Verification item #N ('tests pass') can be verified by the agent -- remove it and only keep items requiring human judgment"
 
 ### Step 3: Deliver Verdict
 
 Respond with exactly one of:
 
 **ACCEPT**: The work is thorough and the claims are honest.
-[1-2 sentence justification]
+[1-2 sentence justification. Include `Hygiene fixes: ...` if you directly
+updated quest feedback, addressed flags, checklist checks, commit metadata, or
+other quest bookkeeping; otherwise say `Hygiene fixes: none`.]
 
 **CHALLENGE**: The work has gaps or the claims are questionable.
 [List specific questions the leader should send back to the worker, e.g.:
 - "You said the test passes, but did you run it in the full suite?"
 - "Your diff doesn't touch X, but the task asked for X -- why?"
-- "You investigated for 2 minutes on a complex task -- what did you check?"]
+- "You investigated for 2 minutes on a complex task -- what did you check?"
+Include `Hygiene fixes: ...` if you directly updated quest feedback, addressed
+flags, checklist checks, commit metadata, or other quest bookkeeping; otherwise
+say `Hygiene fixes: none`.]
 
 ## Important Notes
 

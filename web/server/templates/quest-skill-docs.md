@@ -410,7 +410,7 @@ idea → refined → in_progress → needs_verification → done
 - **If a leader controls the handoff:** report the ordered synced SHAs explicitly on a dedicated `Synced SHAs: sha1,sha2` line so the later `quest complete` call can attach them. Do not rely on log parsing or memory.
 - **Do not leave commit info only in comments:** summary comments and quest feedback can describe the port, but the verification handoff must still attach those SHAs as structured commit metadata with `--commit`/`--commits`.
 
-**Pre-submission checklist (all three required -- the skeptic reviewer will verify each one and CHALLENGE if any are missing):**
+**Pre-submission checklist (all three required -- the skeptic reviewer will verify each one. Reviewers may directly fix clear quest hygiene they know how to fix, but will CHALLENGE ambiguous or substantive misses):**
 
 1. **Address all human feedback.** For each human feedback entry on the quest:
    - Add or refresh an explicit agent feedback entry explaining HOW you addressed it: `quest feedback q-N --text "Summary: fixed mobile layout with flex-wrap; addressed feedback #0 by preserving the compact breakpoint"` for short replies, or `quest feedback q-N --text-file -` when quoting logs or shell-like text
@@ -458,6 +458,17 @@ When you verify a quest (either your own or another agent's), you **MUST** check
 4. Add feedback explaining what you verified and how: `quest feedback q-N --text "Verified item 0: ..."`; combine related verified items into one concise comment when that is clearer than several near-duplicate entries
 
 **Never leave verification items unchecked if you have evidence they pass.** Attaching feedback alone is not enough — you must also check off the corresponding items.
+
+### Reviewer-owned quest hygiene
+
+When you are reviewing another agent's quest, directly fix straightforward quest hygiene issues you can verify and safely perform with Quest CLI commands instead of bouncing them back through leader -> worker -> reviewer. Examples:
+
+- Use `quest address q-N <index>` when worker evidence clearly addressed a human feedback entry but the addressed flag is stale.
+- Use `quest feedback latest/list/show` and `quest feedback add q-N --text "Summary: ..."` to add or refresh a concise user-oriented summary when the worker report and diff give enough evidence.
+- Use `quest check q-N <index>` when you personally verified a checklist item.
+- Report every hygiene fix you made in your ACCEPT/CHALLENGE output.
+
+Still escalate substantive failures and ambiguity. Do not guess about user intent, do not hide missing or dishonest work behind bookkeeping, and do not perform unsupported quest mutations just to avoid a CHALLENGE.
 
 ### needs_verification → done
 - **Only the human marks quests as done.** Never transition to `done` yourself unless the human explicitly asks you to.

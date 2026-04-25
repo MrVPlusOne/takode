@@ -9,8 +9,8 @@ Every dispatched task follows the Quest Journey lifecycle. The work board (`tako
 | `QUEUED` | Quest is ready, waiting for dispatch | Dispatch to a worker |
 | `PLANNING` | Worker is planning | Wait for the plan via `permission_request` or plain-text `turn_end`, then review it |
 | `IMPLEMENTING` | Worker is implementing | Wait for `turn_end`, then spawn skeptic reviewer |
-| `SKEPTIC_REVIEWING` | Skeptic reviewer is evaluating | Wait for reviewer ACCEPT; skeptic-review dispatches must explicitly say `Use the installed /skeptic-review workflow for this review.` True zero-code quests with zero git-tracked changes that were explicitly marked `--no-code` may then use `takode board advance-no-groom <quest-id>` instead of entering groom review. |
-| `GROOM_REVIEWING` | Reviewer owns the quality pass and follow-up judgment | Wait for reviewer ACCEPT on the worker's response, then send a separate explicit port instruction when ready |
+| `SKEPTIC_REVIEWING` | Skeptic reviewer is evaluating work integrity and clear quest hygiene | Wait for reviewer ACCEPT; skeptic-review dispatches must explicitly say `Use the installed /skeptic-review workflow for this review.` True zero-code quests with zero git-tracked changes that were explicitly marked `--no-code` may then use `takode board advance-no-groom <quest-id>` instead of entering groom review. |
+| `GROOM_REVIEWING` | Reviewer owns the quality pass, follow-up judgment, and clear quest hygiene fixes | Wait for reviewer ACCEPT on the worker's response, then send a separate explicit port instruction when ready |
 | `PORTING` | Worker is porting to main repo | Wait for port confirmation, then remove from board |
 
 **Board advances only after completed actions.** Do not advance the board anticipating what will happen next. Only advance after the action for that stage is actually done.
@@ -104,6 +104,8 @@ The `--reviewer` flag automatically:
 - **This stage is iterative.** Do not advance until the reviewer issues ACCEPT.
 - If the reviewer CHALLENGEs: send findings to the worker for rework, then send the reworked result back to the reviewer. Repeat until ACCEPT.
 - If you send rework that needs more code changes, tell the worker to commit the current worktree state first, then make the fixes in a separate follow-up commit, refresh the user-oriented quest summary comment, report back, and stop again. If that same update addresses human feedback, the refreshed summary should also explain how it was addressed instead of adding a duplicate comment. Do not imply porting is authorized.
+- The skeptic reviewer may directly fix clear quest hygiene issues they know how to fix, such as stale addressed flags, missing/refreshable summaries, or verification checklist checks they personally verified. They must report those hygiene fixes in the ACCEPT/CHALLENGE output.
+- Do not send a worker back only for reviewer-fixed hygiene. Do send substantive failures, critical intention mismatches, missing or dishonest work, and ambiguous user-intent questions back through the normal rework loop.
 - **True zero-code exception:** if the skeptic reviewer ACCEPTs a quest that produced zero git-tracked changes, mark the board row with `takode board set <quest-id> --no-code` if it is not already marked, then use `takode board advance-no-groom <quest-id>` to complete the board row directly. Unmarked rows and tracked-file-changing quests must continue into `GROOM_REVIEWING`.
 - On ACCEPT: send the same reviewer a concise review request, then have the reviewer self-invoke `/reviewer-groom "<scope>"`.
 - The best scope strings usually identify the quest, the worker, and the worker message range that contains the follow-up being reviewed.
@@ -119,6 +121,8 @@ The `--reviewer` flag automatically:
 - **ALWAYS** send the worker's response back to the same reviewer for compliance check. The reviewer verifies that no important Critical or Recommended suggestion was skipped without justification.
 - **This stage is iterative.** Do not advance until the reviewer ACCEPTs.
 - If CHALLENGE: send findings back to the worker, have them address the issues, then re-send to reviewer. Repeat until ACCEPT.
+- The reviewer may directly fix clear quest hygiene they can verify and safely perform with Quest CLI commands. Treat reported hygiene fixes as part of the review result; do not bounce those bookkeeping-only items back to the worker.
+- Keep escalating ambiguity and substantive problems. A reviewer-owned hygiene fix is not a substitute for worker rework when the code, intent, or evidence is wrong or unclear.
 - Keep the worker waiting while the reviewer checks compliance. If more changes are needed and they require code edits, tell the worker to checkpoint the current worktree state in a commit before starting the fixes, then make the follow-up changes separately and stop again afterward.
 - On reviewer ACCEPT: tell the worker to port changes using `/port-changes`. Porting must be a separate, explicit instruction, and the worker's report-back must include `Synced SHAs: sha1,sha2` with the ordered synced SHAs from the main repo.
 - `takode board advance <quest-id>`
