@@ -103,4 +103,6 @@ If a leader controls the quest transition, report back with the ordered synced S
 
 Documentation, skill, prompt, template, and other text-only tracked-file edits still count as commit-producing work. If they produced commits, they must be ported and attached to the quest with `quest complete ... --commit/--commits`; the zero-code/no-code path is only for quests that produced no git-tracked changes at all.
 
+Do not put port status, synced SHAs, or automated post-port verification results into `quest complete --items`. Verification items are for human-checkable acceptance checks only; port details and automated verification belong in the worker report and the consolidated quest summary comment.
+
 The quest should usually keep one substantive prose summary comment for the human reader: what changed, why it matters, and what verification passed. Structured commit metadata should carry routine port information, so do not add a second long port-summary or commit-by-commit timeline unless the porting itself was exceptional and materially worth calling out. The later verification handoff should attach those SHAs with `quest complete ... --commits ...`, not leave them only in feedback comments.

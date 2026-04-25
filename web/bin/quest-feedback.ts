@@ -14,6 +14,15 @@ export type FeedbackFilterOptions = {
 
 const SUMMARY_FEEDBACK_PREFIXES = ["summary:", "refreshed summary:"];
 const COMMIT_SHA_RE = /\b[0-9a-f]{7,40}\b/i;
+const IMPLEMENTATION_DETAIL_RE = new RegExp(
+  [
+    "\\bsynced commit\\b",
+    "\\bcommit\\s+[0-9a-f]{7,40}\\b.*\\b(?:pushed|synced)\\b",
+    "\\bpushed\\s+to\\s+origin/",
+    "\\bpost[- ]port\\b",
+  ].join("|"),
+  "i",
+);
 const SELF_VERIFIABLE_RE = new RegExp(
   [
     "\\btypecheck\\b",
@@ -123,7 +132,15 @@ export function completionHygieneWarnings(
     .filter(({ item }) => SELF_VERIFIABLE_RE.test(item.text));
   if (selfVerifiableItems.length > 0) {
     warnings.push(
-      `verification item(s) ${selfVerifiableItems.map(({ index }) => index).join(", ")} look self-verifiable; run automated checks yourself and reserve quest verification items for human judgment.`,
+      `verification item(s) ${selfVerifiableItems.map(({ index }) => index).join(", ")} look self-verifiable; put automated verification results in the consolidated Summary: feedback comment and reserve quest verification items for human judgment.`,
+    );
+  }
+  const implementationDetailItems = items
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => IMPLEMENTATION_DETAIL_RE.test(item.text));
+  if (implementationDetailItems.length > 0) {
+    warnings.push(
+      `verification item(s) ${implementationDetailItems.map(({ index }) => index).join(", ")} look like implementation details or port metadata; put them in the consolidated Summary: feedback comment and use structured --commit/--commits metadata for synced SHAs.`,
     );
   }
   return warnings;

@@ -120,7 +120,8 @@ critical worker misunderstanding.
    - If the quest has multiple near-duplicated worker comments, CHALLENGE: "Consolidate the duplicated quest comments so the quest remains readable while preserving how human feedback was addressed"
 
 3. **Verification items are human-only?** Check each verification item in the quest:
-   - Items like "tests pass", "typecheck clean", "no regressions", "code compiles" should NOT be in the checklist -- the agent can verify those itself
+   - Items like "synced commit was pushed", "post-port typecheck passed", "tests pass", "typecheck clean", "no regressions", "code compiles" should NOT be in the checklist -- they are implementation details or checks the agent can verify itself
+   - Implementation details, synced SHAs, port status, and automated verification results belong in the consolidated `Summary:` quest feedback comment and structured commit metadata, not in verification items
    - Only items requiring human judgment belong: UI appearance, UX feel, behavioral verification in browser, edge cases needing manual testing
    - If an item is self-verifiable and you have verified it, check it with `quest check <quest_id> <index>` yourself and mention that hygiene fix in the verdict
    - If the checklist needs rewriting or you cannot verify the item yourself, CHALLENGE: "Verification item #N ('tests pass') can be verified by the agent -- remove it and only keep items requiring human judgment"

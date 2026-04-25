@@ -259,6 +259,7 @@ describe("quest CLI feedback inspection", () => {
       expect(result.stderr).toContain("latest human feedback is newer than the latest agent summary");
       expect(result.stderr).toContain("commit-like SHA text exists");
       expect(result.stderr).toContain("verification item(s) 0 look self-verifiable");
+      expect(result.stderr).toContain("automated verification results in the consolidated Summary: feedback comment");
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }
@@ -293,6 +294,45 @@ describe("quest CLI feedback inspection", () => {
       expect(result.stderr).not.toContain("commit-like SHA text exists");
       expect(result.stderr).toContain("verification item(s) 1 look self-verifiable");
       expect(result.stderr).not.toContain("verification item(s) 0 look self-verifiable");
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("warns when verification items are implementation logs instead of human acceptance items", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "quest-complete-implementation-log-items-"));
+    seedQuest(tmp, {
+      id: "q-7-v2",
+      questId: "q-7",
+      version: 2,
+      title: "Implementation log checklist",
+      createdAt: Date.now() - 60_000,
+      status: "in_progress",
+      description: "Implementation details belong in Summary feedback.",
+      sessionId: "session-test",
+      claimedAt: Date.now() - 30_000,
+      feedback: [{ author: "agent", text: "Summary: implementation details recorded", ts: 20 }],
+    });
+
+    try {
+      const result = await runQuest(
+        [
+          "complete",
+          "q-7",
+          "--items",
+          "Synced commit 72e1a401159f3c71105e8b80536a5fb77e44a5c8 was pushed to origin/jiayi,User can confirm the workflow copy reads clearly",
+          "--json",
+        ],
+        baseEnv(tmp),
+        tmp,
+      );
+      const parsed = JSON.parse(result.stdout);
+
+      expect(result.status).toBe(0);
+      expect(parsed).toMatchObject({ questId: "q-7", status: "needs_verification" });
+      expect(result.stderr).toContain("verification item(s) 0 look like implementation details or port metadata");
+      expect(result.stderr).toContain("use structured --commit/--commits metadata for synced SHAs");
+      expect(result.stderr).not.toContain("verification item(s) 1 look like implementation details");
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }

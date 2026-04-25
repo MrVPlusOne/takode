@@ -1528,6 +1528,9 @@ describe("quest CLI completion reminder", () => {
       expect(result.stdout).toContain(
         'quest feedback q-1 --text "Summary: <what changed, why it matters, and what verification passed>"',
       );
+      expect(result.stdout).toContain(
+        "Put implementation details and automated verification results in that summary, not in `quest complete --items`",
+      );
       expect(result.stdout).toContain("Avoid review/rework timelines unless essential");
       expect(result.stdout).toContain("Use `--commit/--commits` structured metadata for routine port info");
       expect(result.stdout).toContain(

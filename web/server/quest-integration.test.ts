@@ -146,12 +146,16 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("Only add a second port-specific comment");
     expect(skill).toContain("pass `quest complete ... --no-code`");
     expect(skill).toContain("only a local reminder switch");
-    expect(skill).toContain("no placeholder port notes or synced SHA lines");
+    expect(skill).toContain("no placeholder port notes, synced SHA lines, or automated-check results in the checklist");
     expect(skill).toContain("zero git-tracked changes");
     expect(skill).toContain(
       "Docs, skills, prompts, templates, and other text-only tracked-file edits are commit-producing work",
     );
     expect(skill).toContain("Do not use `--no-code` for these quests");
+    expect(skill).toContain("Verification items must be human-checkable acceptance items only");
+    expect(skill).toContain(
+      "Put what changed, why it matters, synced/ported status, and automated verification results",
+    );
   });
 
   it("instructs agents to use quest directly before PATH fallbacks", async () => {
