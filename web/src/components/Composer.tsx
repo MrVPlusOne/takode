@@ -44,6 +44,12 @@ import {
   type ReferenceSuggestion,
   type ReferenceTriggerMatch,
 } from "./composer-reference-utils.js";
+import {
+  findAutocompleteTokenEnd,
+  isCaretInsideAutocompleteRange,
+  replaceAutocompleteRange,
+  type ActiveAutocompleteRange,
+} from "./composer-autocomplete-ranges.js";
 import type { FailedTranscription, VoiceEditProposal } from "./composer-voice-types.js";
 import { useVoiceInput } from "../hooks/useVoiceInput.js";
 import { api } from "../api.js";
@@ -155,6 +161,10 @@ export function Composer({ sessionId }: { sessionId: string }) {
   const slashAnchorRef = useRef<number>(-1);
   const dollarAnchorRef = useRef<number>(-1);
   const referenceAnchorRef = useRef<number>(-1);
+  const slashRangeRef = useRef<ActiveAutocompleteRange | null>(null);
+  const dollarRangeRef = useRef<ActiveAutocompleteRange | null>(null);
+  const referenceRangeRef = useRef<ActiveAutocompleteRange | null>(null);
+  const mentionRangeRef = useRef<ActiveAutocompleteRange | null>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
   const codexReasoningDropdownRef = useRef<HTMLDivElement>(null);
   const askConfirmRef = useRef<HTMLDivElement>(null);
@@ -687,6 +697,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
       if (allCommands.length === 0) {
         setSlashMenuOpen(false);
         slashAnchorRef.current = -1;
+        slashRangeRef.current = null;
         return;
       }
 
@@ -706,10 +717,13 @@ export function Composer({ sessionId }: { sessionId: string }) {
       if (slashPos === -1) {
         setSlashMenuOpen(false);
         slashAnchorRef.current = -1;
+        slashRangeRef.current = null;
         return;
       }
 
+      const tokenEnd = findAutocompleteTokenEnd(inputText, slashPos);
       slashAnchorRef.current = slashPos;
+      slashRangeRef.current = { replaceStart: slashPos, tokenStart: slashPos, replaceEnd: tokenEnd };
       if (!slashMenuOpen) {
         setSlashMenuIndex(0);
       }
@@ -762,6 +776,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
         setDollarMenuOpen(false);
         setDollarQuery("");
         dollarAnchorRef.current = -1;
+        dollarRangeRef.current = null;
         return;
       }
 
@@ -777,16 +792,20 @@ export function Composer({ sessionId }: { sessionId: string }) {
         }
       }
 
+      const tokenEnd = dollarPos === -1 ? -1 : findAutocompleteTokenEnd(inputText, dollarPos);
       const query = dollarPos === -1 ? "" : inputText.slice(dollarPos + 1, cursorPos);
-      const shouldOpen = dollarPos !== -1 && (query === "" || DOLLAR_QUERY_PATTERN.test(query));
+      const fullQuery = dollarPos === -1 ? "" : inputText.slice(dollarPos + 1, tokenEnd);
+      const shouldOpen = dollarPos !== -1 && (fullQuery === "" || DOLLAR_QUERY_PATTERN.test(fullQuery));
       if (!shouldOpen) {
         setDollarMenuOpen(false);
         dollarAnchorRef.current = -1;
+        dollarRangeRef.current = null;
         setDollarQuery("");
         return;
       }
 
       dollarAnchorRef.current = dollarPos;
+      dollarRangeRef.current = { replaceStart: dollarPos, tokenStart: dollarPos, replaceEnd: tokenEnd };
       setDollarMenuIndex(0);
       setDollarQuery(query);
       setDollarMenuOpen(true);
@@ -897,10 +916,30 @@ export function Composer({ sessionId }: { sessionId: string }) {
       setReferenceKind(null);
       setReferenceQuery("");
       referenceAnchorRef.current = -1;
+      referenceRangeRef.current = null;
+      return;
+    }
+
+    const tokenStart =
+      inputText[match.replacementStart] === "[" ||
+      inputText[match.replacementStart] === "(" ||
+      inputText[match.replacementStart] === "{"
+        ? match.replacementStart + 1
+        : match.replacementStart;
+    const tokenEnd = findAutocompleteTokenEnd(inputText, tokenStart);
+    const fullQuery =
+      match.kind === "quest" ? inputText.slice(tokenStart + 2, tokenEnd) : inputText.slice(tokenStart + 1, tokenEnd);
+    if (!/^\d*$/.test(fullQuery)) {
+      setReferenceMenuOpen(false);
+      setReferenceKind(null);
+      setReferenceQuery("");
+      referenceAnchorRef.current = -1;
+      referenceRangeRef.current = null;
       return;
     }
 
     referenceAnchorRef.current = match.replacementStart;
+    referenceRangeRef.current = { replaceStart: match.replacementStart, tokenStart, replaceEnd: tokenEnd };
     setReferenceKind(match.kind);
     setReferenceQuery(match.query);
     setReferenceMenuIndex(0);
@@ -975,11 +1014,15 @@ export function Composer({ sessionId }: { sessionId: string }) {
           setMentionMenuOpen(false);
           setMentionResults([]);
         }
+        mentionAnchorRef.current = -1;
+        mentionRangeRef.current = null;
         return;
       }
 
       const query = inputText.slice(atPos + 1, cursorPos);
+      const tokenEnd = findAutocompleteTokenEnd(inputText, atPos);
       mentionAnchorRef.current = atPos;
+      mentionRangeRef.current = { replaceStart: atPos, tokenStart: atPos, replaceEnd: tokenEnd };
       setMentionQuery(query);
 
       // Show menu immediately (with hint), but only search after 3+ chars
@@ -1067,21 +1110,25 @@ export function Composer({ sessionId }: { sessionId: string }) {
 
   const selectMention = useCallback(
     (result: { relativePath: string }) => {
-      const anchor = mentionAnchorRef.current;
-      if (anchor === -1) return;
-      const cursorPos = textareaRef.current?.selectionStart ?? text.length;
-      // Replace @query with @relativePath
-      const before = text.slice(0, anchor);
-      const after = text.slice(cursorPos);
-      const inserted = `@${result.relativePath} `;
-      setText(before + inserted + after);
+      const selectionStart = textareaRef.current?.selectionStart ?? text.length;
+      const selectionEnd = textareaRef.current?.selectionEnd ?? selectionStart;
+      const activeRange = mentionRangeRef.current;
+      if (!isCaretInsideAutocompleteRange(selectionStart, selectionEnd, activeRange)) {
+        setMentionMenuOpen(false);
+        setMentionResults([]);
+        mentionAnchorRef.current = -1;
+        mentionRangeRef.current = null;
+        return;
+      }
+      const replacement = replaceAutocompleteRange(text, activeRange, `@${result.relativePath}`);
+      setText(replacement.nextText);
       setMentionMenuOpen(false);
       setMentionResults([]);
       mentionAnchorRef.current = -1;
+      mentionRangeRef.current = null;
       // Restore cursor position after the inserted path
       requestAnimationFrame(() => {
-        const newPos = anchor + inserted.length;
-        textareaRef.current?.setSelectionRange(newPos, newPos);
+        textareaRef.current?.setSelectionRange(replacement.cursorPos, replacement.cursorPos);
         textareaRef.current?.focus();
       });
     },
@@ -1116,20 +1163,26 @@ export function Composer({ sessionId }: { sessionId: string }) {
 
   const selectReference = useCallback(
     (suggestion: ReferenceSuggestion) => {
-      const anchor = referenceAnchorRef.current;
-      if (anchor === -1) return;
-      const cursorPos = textareaRef.current?.selectionStart ?? text.length;
-      const before = text.slice(0, anchor);
-      const after = text.slice(cursorPos);
-      const inserted = `${suggestion.insertText} `;
-      setText(before + inserted + after);
+      const selectionStart = textareaRef.current?.selectionStart ?? text.length;
+      const selectionEnd = textareaRef.current?.selectionEnd ?? selectionStart;
+      const activeRange = referenceRangeRef.current;
+      if (!isCaretInsideAutocompleteRange(selectionStart, selectionEnd, activeRange)) {
+        setReferenceMenuOpen(false);
+        setReferenceKind(null);
+        setReferenceQuery("");
+        referenceAnchorRef.current = -1;
+        referenceRangeRef.current = null;
+        return;
+      }
+      const replacement = replaceAutocompleteRange(text, activeRange, suggestion.insertText);
+      setText(replacement.nextText);
       setReferenceMenuOpen(false);
       setReferenceKind(null);
       setReferenceQuery("");
       referenceAnchorRef.current = -1;
+      referenceRangeRef.current = null;
       requestAnimationFrame(() => {
-        const newPos = before.length + inserted.length;
-        textareaRef.current?.setSelectionRange(newPos, newPos);
+        textareaRef.current?.setSelectionRange(replacement.cursorPos, replacement.cursorPos);
         textareaRef.current?.focus();
       });
     },
@@ -1139,35 +1192,45 @@ export function Composer({ sessionId }: { sessionId: string }) {
   const selectCommand = useCallback(
     (cmd: CommandItem) => {
       if (cmd.trigger === "$") {
-        const anchor = dollarAnchorRef.current;
-        if (anchor === -1) return;
-        const cursorPos = textareaRef.current?.selectionStart ?? text.length;
-        const before = text.slice(0, anchor);
-        const after = text.slice(cursorPos);
-        const inserted = `${cmd.insertText} `;
-        setText(before + inserted + after);
+        const selectionStart = textareaRef.current?.selectionStart ?? text.length;
+        const selectionEnd = textareaRef.current?.selectionEnd ?? selectionStart;
+        const activeRange = dollarRangeRef.current;
+        if (!isCaretInsideAutocompleteRange(selectionStart, selectionEnd, activeRange)) {
+          setDollarMenuOpen(false);
+          setDollarQuery("");
+          dollarAnchorRef.current = -1;
+          dollarRangeRef.current = null;
+          return;
+        }
+        const replacement = replaceAutocompleteRange(text, activeRange, cmd.insertText);
+        setText(replacement.nextText);
         setDollarMenuOpen(false);
         setDollarQuery("");
         dollarAnchorRef.current = -1;
+        dollarRangeRef.current = null;
         requestAnimationFrame(() => {
-          const newPos = before.length + inserted.length;
-          textareaRef.current?.setSelectionRange(newPos, newPos);
+          textareaRef.current?.setSelectionRange(replacement.cursorPos, replacement.cursorPos);
           textareaRef.current?.focus();
         });
         return;
       }
 
-      const anchor = slashAnchorRef.current;
-      const cursorPos = textareaRef.current?.selectionStart ?? text.length;
-      const before = text.slice(0, anchor);
-      const after = text.slice(cursorPos);
-      const inserted = `${cmd.insertText} `;
-      setText(before + inserted + after);
+      const selectionStart = textareaRef.current?.selectionStart ?? text.length;
+      const selectionEnd = textareaRef.current?.selectionEnd ?? selectionStart;
+      const activeRange = slashRangeRef.current;
+      if (!isCaretInsideAutocompleteRange(selectionStart, selectionEnd, activeRange)) {
+        setSlashMenuOpen(false);
+        slashAnchorRef.current = -1;
+        slashRangeRef.current = null;
+        return;
+      }
+      const replacement = replaceAutocompleteRange(text, activeRange, cmd.insertText);
+      setText(replacement.nextText);
       setSlashMenuOpen(false);
       slashAnchorRef.current = -1;
+      slashRangeRef.current = null;
       requestAnimationFrame(() => {
-        const newPos = before.length + inserted.length;
-        textareaRef.current?.setSelectionRange(newPos, newPos);
+        textareaRef.current?.setSelectionRange(replacement.cursorPos, replacement.cursorPos);
         textareaRef.current?.focus();
       });
     },
@@ -1616,6 +1679,35 @@ export function Composer({ sessionId }: { sessionId: string }) {
     detectSlashQuery(newText, cursorPos);
     detectDollarQuery(newText, cursorPos);
     detectReferenceQuery(newText, cursorPos);
+  }
+
+  function handleSelectionChange(e: React.SyntheticEvent<HTMLTextAreaElement>) {
+    const target = e.currentTarget;
+    if (target.selectionStart !== target.selectionEnd) {
+      setSlashMenuOpen(false);
+      slashAnchorRef.current = -1;
+      slashRangeRef.current = null;
+      setDollarMenuOpen(false);
+      setDollarQuery("");
+      dollarAnchorRef.current = -1;
+      dollarRangeRef.current = null;
+      setReferenceMenuOpen(false);
+      setReferenceKind(null);
+      setReferenceQuery("");
+      referenceAnchorRef.current = -1;
+      referenceRangeRef.current = null;
+      setMentionMenuOpen(false);
+      setMentionResults([]);
+      mentionAnchorRef.current = -1;
+      mentionRangeRef.current = null;
+      return;
+    }
+
+    const cursorPos = target.selectionStart;
+    detectMentionQuery(target.value, cursorPos);
+    detectSlashQuery(target.value, cursorPos);
+    detectDollarQuery(target.value, cursorPos);
+    detectReferenceQuery(target.value, cursorPos);
   }
 
   function handleInterrupt() {
@@ -2125,6 +2217,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
           textareaRef={textareaRef}
           text={text}
           handleInput={handleInput}
+          handleSelectionChange={handleSelectionChange}
           handleKeyDown={handleKeyDown}
           handlePaste={handlePaste}
           placeholder={

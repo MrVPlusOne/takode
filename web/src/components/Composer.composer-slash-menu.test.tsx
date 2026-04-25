@@ -734,4 +734,64 @@ describe("Composer slash menu", () => {
 
     expect(textarea.value).toBe("please run /clear ");
   });
+
+  it("closes the slash menu when the caret leaves the active slash word", () => {
+    setupMockStore({
+      session: {
+        slash_commands: [],
+        skills: ["confirm"],
+      },
+    });
+    const { container } = render(<Composer sessionId="s1" />);
+    const textarea = container.querySelector("textarea")! as HTMLTextAreaElement;
+    const activeWordEnd = "/confirm".length;
+    const fullText = "/confirm I want to";
+
+    fireEvent.change(textarea, { target: { value: fullText, selectionStart: activeWordEnd } });
+    expect(screen.getByText("/confirm")).toBeTruthy();
+
+    textarea.setSelectionRange(fullText.length, fullText.length);
+    fireEvent.select(textarea);
+
+    expect(screen.queryByText("/confirm")).toBeNull();
+  });
+
+  it("does not accept a stale slash suggestion after the caret leaves the active word", () => {
+    setupMockStore({
+      session: {
+        slash_commands: [],
+        skills: ["confirm"],
+      },
+    });
+    const { container } = render(<Composer sessionId="s1" />);
+    const textarea = container.querySelector("textarea")! as HTMLTextAreaElement;
+    const activeWordEnd = "/confirm".length;
+    const fullText = "/confirm I want to";
+
+    fireEvent.change(textarea, { target: { value: fullText, selectionStart: activeWordEnd } });
+    textarea.setSelectionRange(fullText.length, fullText.length);
+    fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" });
+
+    expect(textarea.value).toBe(fullText);
+    expect(mockSendToSession).not.toHaveBeenCalled();
+  });
+
+  it("does not add a duplicate trailing space when accepting before existing whitespace", () => {
+    setupMockStore({
+      session: {
+        slash_commands: [],
+        skills: ["confirm"],
+      },
+    });
+    const { container } = render(<Composer sessionId="s1" />);
+    const textarea = container.querySelector("textarea")! as HTMLTextAreaElement;
+    const activeWordEnd = "/con".length;
+
+    fireEvent.change(textarea, {
+      target: { value: "/con later", selectionStart: activeWordEnd, selectionEnd: activeWordEnd },
+    });
+    fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" });
+
+    expect(textarea.value).toBe("/confirm later");
+  });
 });

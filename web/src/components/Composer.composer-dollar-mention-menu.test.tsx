@@ -614,6 +614,52 @@ describe("Composer dollar mention menu", () => {
     expect(textarea.value).toBe("Run [$review](/Users/test/.codex/skills/review/SKILL.md) ");
   });
 
+  it("does not add a duplicate trailing space when accepting a skill mention before existing whitespace", () => {
+    setupMockStore({
+      session: {
+        backend_type: "codex",
+        skills: ["review"],
+        skill_metadata: [
+          {
+            name: "review",
+            path: "/Users/test/.codex/skills/review/SKILL.md",
+            description: "Review code changes",
+          },
+        ],
+      },
+    });
+    const { container } = render(<Composer sessionId="s1" />);
+    const textarea = container.querySelector("textarea")! as HTMLTextAreaElement;
+    const activeWordEnd = "Run $rev".length;
+
+    fireEvent.change(textarea, {
+      target: { value: "Run $rev now", selectionStart: activeWordEnd, selectionEnd: activeWordEnd },
+    });
+    fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" });
+
+    expect(textarea.value).toBe("Run [$review](/Users/test/.codex/skills/review/SKILL.md) now");
+  });
+
+  it("does not accept a stale skill mention after the caret leaves the active word", () => {
+    setupMockStore({
+      session: {
+        backend_type: "codex",
+        skills: ["review"],
+      },
+    });
+    const { container } = render(<Composer sessionId="s1" />);
+    const textarea = container.querySelector("textarea")! as HTMLTextAreaElement;
+    const activeWordEnd = "Run $rev".length;
+    const fullText = "Run $rev after this";
+
+    fireEvent.change(textarea, { target: { value: fullText, selectionStart: activeWordEnd } });
+    textarea.setSelectionRange(fullText.length, fullText.length);
+    fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" });
+
+    expect(textarea.value).toBe(fullText);
+    expect(mockSendToSession).not.toHaveBeenCalled();
+  });
+
   it("inserts an app mention link when selecting an app", () => {
     // Validates app mentions serialize to the `app://` markdown form understood by Codex.
     setupMockStore({

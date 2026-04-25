@@ -121,6 +121,7 @@ export function ComposerInputSurface({
   textareaRef,
   text,
   handleInput,
+  handleSelectionChange,
   handleKeyDown,
   handlePaste,
   placeholder,
@@ -152,6 +153,7 @@ export function ComposerInputSurface({
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   text: string;
   handleInput: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
+  handleSelectionChange: (e: React.SyntheticEvent<HTMLTextAreaElement>) => void;
   handleKeyDown: (e: React.KeyboardEvent) => void;
   handlePaste: (e: React.ClipboardEvent) => void;
   placeholder: string;
@@ -265,6 +267,9 @@ export function ComposerInputSurface({
             ref={textareaRef}
             value={text}
             onChange={handleInput}
+            onSelect={handleSelectionChange}
+            onMouseUp={handleSelectionChange}
+            onKeyUp={handleSelectionChange}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             spellCheck={false}

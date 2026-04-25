@@ -604,6 +604,58 @@ describe("Composer quest/session reference autocomplete", () => {
     expect(textarea.value).toBe("[#687](session:687) ");
   });
 
+  it("closes quest autocomplete when the caret leaves the active reference word", () => {
+    setupMockStore({
+      quests: [makeQuest({ questId: "q-659", title: "Autocomplete stale menu fix" })],
+    });
+    const { container } = render(<Composer sessionId="s1" />);
+    const textarea = container.querySelector("textarea")! as HTMLTextAreaElement;
+    const activeWordEnd = "See q-6".length;
+    const fullText = "See q-6 later";
+
+    fireEvent.change(textarea, { target: { value: fullText, selectionStart: activeWordEnd } });
+    expect(screen.getByText("q-659")).toBeTruthy();
+
+    textarea.setSelectionRange(fullText.length, fullText.length);
+    fireEvent.select(textarea);
+
+    expect(screen.queryByText("q-659")).toBeNull();
+  });
+
+  it("closes session autocomplete when the selection spans outside the active reference word", () => {
+    setupMockStore({
+      sdkSessions: [makeSdkSession({ sessionId: "worker-1", sessionNum: 687 })],
+      sessionNames: new Map([["worker-1", "Frontend worker"]]),
+    });
+    const { container } = render(<Composer sessionId="s1" />);
+    const textarea = container.querySelector("textarea")! as HTMLTextAreaElement;
+    const activeWordEnd = "Ask #6".length;
+    const fullText = "Ask #6 about this";
+
+    fireEvent.change(textarea, { target: { value: fullText, selectionStart: activeWordEnd } });
+    expect(screen.getByText("#687")).toBeTruthy();
+
+    fireEvent.select(textarea, { target: { selectionStart: 2, selectionEnd: activeWordEnd + 2 } });
+
+    expect(screen.queryByText("#687")).toBeNull();
+  });
+
+  it("does not add a duplicate trailing space when accepting a quest reference before existing whitespace", () => {
+    setupMockStore({
+      quests: [makeQuest({ questId: "q-659", title: "Autocomplete stale menu fix" })],
+    });
+    const { container } = render(<Composer sessionId="s1" />);
+    const textarea = container.querySelector("textarea")! as HTMLTextAreaElement;
+    const activeWordEnd = "See q-6".length;
+
+    fireEvent.change(textarea, {
+      target: { value: "See q-6 later", selectionStart: activeWordEnd, selectionEnd: activeWordEnd },
+    });
+    fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" });
+
+    expect(textarea.value).toBe("See [q-659](quest:q-659) later");
+  });
+
   it("boosts recently mentioned quests above newer ids", () => {
     setupMockStore({
       quests: [
