@@ -128,7 +128,9 @@ export function buildSidebarVisibleSessions(input: SidebarVisibleSessionsInput):
     })
     .sort((a, b) => b.createdAt - a.createdAt);
 
-  const activeSessions = allSessionList.filter((session) => !session.archived && !session.cronJobId && session.reviewerOf === undefined);
+  const activeSessions = allSessionList.filter(
+    (session) => !session.archived && !session.cronJobId && session.reviewerOf === undefined,
+  );
   const activeReviewers = allSessionList.filter((session) => !session.archived && session.reviewerOf !== undefined);
   const cronSessions = allSessionList.filter((session) => !session.archived && !!session.cronJobId);
   const archivedSessions = allSessionList

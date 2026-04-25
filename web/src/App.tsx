@@ -388,9 +388,7 @@ export default function App() {
 
   useEffect(() => {
     const previewSessionId =
-      searchPreviewSessionId &&
-      !isPendingId(searchPreviewSessionId) &&
-      searchPreviewSessionId !== currentSessionId
+      searchPreviewSessionId && !isPendingId(searchPreviewSessionId) && searchPreviewSessionId !== currentSessionId
         ? searchPreviewSessionId
         : null;
 

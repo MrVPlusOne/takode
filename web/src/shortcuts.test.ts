@@ -14,7 +14,15 @@ import {
 
 describe("shortcuts", () => {
   it("stays disabled by default", () => {
-    expect(getMatchingShortcutAction(DEFAULT_SHORTCUT_SETTINGS, { key: "f", metaKey: true, ctrlKey: false, altKey: false, shiftKey: false })).toBeNull();
+    expect(
+      getMatchingShortcutAction(DEFAULT_SHORTCUT_SETTINGS, {
+        key: "f",
+        metaKey: true,
+        ctrlKey: false,
+        altKey: false,
+        shiftKey: false,
+      }),
+    ).toBeNull();
     expect(getShortcutHint(DEFAULT_SHORTCUT_SETTINGS, "search_session", "MacIntel")).toBeNull();
   });
 

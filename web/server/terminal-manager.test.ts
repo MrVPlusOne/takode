@@ -5,7 +5,11 @@ type SpawnTerminalOptions = Parameters<typeof Bun.spawn>[1];
 
 describe("TerminalManager", () => {
   let spawnOptions: SpawnTerminalOptions | undefined;
-  let fakeTerminal: { write: ReturnType<typeof vi.fn>; resize: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn> };
+  let fakeTerminal: {
+    write: ReturnType<typeof vi.fn>;
+    resize: ReturnType<typeof vi.fn>;
+    close: ReturnType<typeof vi.fn>;
+  };
   let fakeProc: {
     pid: number;
     exitCode: number;

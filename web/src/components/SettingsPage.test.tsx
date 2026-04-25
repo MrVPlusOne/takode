@@ -180,7 +180,9 @@ describe("SettingsPage", () => {
     const shortcutsHeading = screen.getByText("Shortcuts");
     const shortcutsSection = shortcutsHeading.closest("section") ?? shortcutsHeading.parentElement?.parentElement;
     expect(within(shortcutsSection as HTMLElement).getByText("Off")).toBeInTheDocument();
-    expect(within(shortcutsSection as HTMLElement).getByText("Enable shortcuts to edit presets and bindings.")).toBeInTheDocument();
+    expect(
+      within(shortcutsSection as HTMLElement).getByText("Enable shortcuts to edit presets and bindings."),
+    ).toBeInTheDocument();
     expect(within(shortcutsSection as HTMLElement).queryByLabelText("Preset")).not.toBeInTheDocument();
     expect(within(shortcutsSection as HTMLElement).queryByText("Search Current Session")).not.toBeInTheDocument();
   });

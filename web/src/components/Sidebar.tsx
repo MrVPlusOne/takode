@@ -634,45 +634,44 @@ export function Sidebar() {
     }
   }, []);
 
-  const { allSessionList, activeSessions, activeReviewers, cronSessions, archivedSessions, treeViewGroups } =
-    useMemo(
-      () =>
-        buildSidebarVisibleSessions({
-          sessions,
-          sdkSessions,
-          cliConnected,
-          cliDisconnectReason,
-          sessionStatus,
-          pendingPermissions,
-          askPermission: askPermissionMap ?? new Map(),
-          diffFileStats,
-          treeGroups,
-          treeAssignments,
-          treeNodeOrder,
-          collapsedTreeGroups,
-          expandedHerdNodes,
-          sessionAttention,
-          sessionSortMode,
-          countUserPermissions,
-        }),
-      [
+  const { allSessionList, activeSessions, activeReviewers, cronSessions, archivedSessions, treeViewGroups } = useMemo(
+    () =>
+      buildSidebarVisibleSessions({
         sessions,
         sdkSessions,
         cliConnected,
         cliDisconnectReason,
         sessionStatus,
         pendingPermissions,
-        askPermissionMap,
+        askPermission: askPermissionMap ?? new Map(),
         diffFileStats,
         treeGroups,
         treeAssignments,
         treeNodeOrder,
-        sessionAttention,
         collapsedTreeGroups,
         expandedHerdNodes,
+        sessionAttention,
         sessionSortMode,
-      ],
-    );
+        countUserPermissions,
+      }),
+    [
+      sessions,
+      sdkSessions,
+      cliConnected,
+      cliDisconnectReason,
+      sessionStatus,
+      pendingPermissions,
+      askPermissionMap,
+      diffFileStats,
+      treeGroups,
+      treeAssignments,
+      treeNodeOrder,
+      sessionAttention,
+      collapsedTreeGroups,
+      expandedHerdNodes,
+      sessionSortMode,
+    ],
+  );
 
   // Map: parentSessionNum → active reviewer SessionItem (for inline badge on parent row)
   const activeReviewerByParent = useMemo(() => {
@@ -1004,7 +1003,9 @@ export function Sidebar() {
                   }
                   if (e.key === "ArrowUp") {
                     e.preventDefault();
-                    setActiveSearchResultIndex((prev) => (prev - 1 + filteredSessions.length) % filteredSessions.length);
+                    setActiveSearchResultIndex(
+                      (prev) => (prev - 1 + filteredSessions.length) % filteredSessions.length,
+                    );
                     return;
                   }
                   if (e.key === "Enter") {
@@ -1278,12 +1279,7 @@ export function Sidebar() {
         <SidebarUsageBar />
         <div className="flex items-center justify-around">
           <button
-            title={getShortcutTitle(
-              "Terminal",
-              shortcutSettings,
-              "open_terminal",
-              shortcutPlatform,
-            )}
+            title={getShortcutTitle("Terminal", shortcutSettings, "open_terminal", shortcutPlatform)}
             onClick={() => {
               if (!isTerminalPage) {
                 const state = useStore.getState();

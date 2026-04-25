@@ -10,10 +10,7 @@ import {
   type PushoverEventFilters,
 } from "../api.js";
 import { useStore, COLOR_THEMES } from "../store.js";
-import {
-  recordShortcutBindingFromEvent,
-  type ShortcutActionId,
-} from "../shortcuts.js";
+import { recordShortcutBindingFromEvent, type ShortcutActionId } from "../shortcuts.js";
 import { NamerDebugPanel } from "./NamerDebugPanel.js";
 import { AutoApprovalDebugPanel } from "./AutoApprovalDebugPanel.js";
 import { TranscriptionDebugPanel } from "./TranscriptionDebugPanel.js";

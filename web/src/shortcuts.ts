@@ -253,7 +253,9 @@ export function isModifierOnlyKey(key: string): boolean {
   return ["SHIFT", "CONTROL", "CTRL", "ALT", "META", "CMD"].includes(key.toUpperCase());
 }
 
-export function recordShortcutBindingFromEvent(event: Pick<KeyboardEvent, "key" | "altKey" | "ctrlKey" | "metaKey" | "shiftKey">): ShortcutBinding | null {
+export function recordShortcutBindingFromEvent(
+  event: Pick<KeyboardEvent, "key" | "altKey" | "ctrlKey" | "metaKey" | "shiftKey">,
+): ShortcutBinding | null {
   const key = keyFromKeyboardEvent(event);
   if (isModifierOnlyKey(key)) return null;
 
@@ -266,10 +268,7 @@ export function recordShortcutBindingFromEvent(event: Pick<KeyboardEvent, "key" 
   return tokens.join("+");
 }
 
-function bindingMatchesEventKey(
-  bindingKey: string,
-  event: Pick<KeyboardEvent, "key"> & { code?: string },
-): boolean {
+function bindingMatchesEventKey(bindingKey: string, event: Pick<KeyboardEvent, "key"> & { code?: string }): boolean {
   const eventKey = keyFromKeyboardEvent(event);
   if (bindingKey === eventKey) return true;
 
@@ -420,7 +419,12 @@ export function shouldBlurVimEscape(
   target: EventTarget | null,
 ): boolean {
   const resolved = settings ?? DEFAULT_SHORTCUT_SETTINGS;
-  return resolved.enabled && resolved.preset === "vim-light" && event.key === "Escape" && isShortcutEventTargetEditable(target);
+  return (
+    resolved.enabled &&
+    resolved.preset === "vim-light" &&
+    event.key === "Escape" &&
+    isShortcutEventTargetEditable(target)
+  );
 }
 
 export function isAppGlobalShortcutAction(actionId: ShortcutActionId): boolean {
@@ -434,8 +438,10 @@ export function matchesShortcutEvent(
   const parsed = parseBinding(binding);
   if (!parsed.key || !bindingMatchesEventKey(parsed.key, event)) return false;
 
-  const expectsCtrl = parsed.ctrl || (parsed.mod && !platformIsMac(typeof navigator !== "undefined" ? navigator.platform : undefined));
-  const expectsMeta = parsed.meta || (parsed.mod && platformIsMac(typeof navigator !== "undefined" ? navigator.platform : undefined));
+  const expectsCtrl =
+    parsed.ctrl || (parsed.mod && !platformIsMac(typeof navigator !== "undefined" ? navigator.platform : undefined));
+  const expectsMeta =
+    parsed.meta || (parsed.mod && platformIsMac(typeof navigator !== "undefined" ? navigator.platform : undefined));
 
   return (
     event.altKey === parsed.alt &&
@@ -475,10 +481,7 @@ export function getShortcutSessions(sessions: ShortcutSessionSummary[]): Shortcu
     });
 }
 
-function getAnchorSessionIndex(
-  sessions: ShortcutSessionSummary[],
-  currentSessionId: string | null,
-): number {
+function getAnchorSessionIndex(sessions: ShortcutSessionSummary[], currentSessionId: string | null): number {
   if (!currentSessionId) return 0;
   const index = sessions.findIndex((session) => session.sessionId === currentSessionId);
   return index >= 0 ? index : 0;
@@ -560,7 +563,9 @@ export function performShortcutAction(actionId: ShortcutActionId, runtime: Short
       return true;
     }
     case "new_session":
-      runtime.openNewSessionModal(resolveShortcutNewSessionContext(runtime.currentSessionCwd, runtime.lastNewSessionContext));
+      runtime.openNewSessionModal(
+        resolveShortcutNewSessionContext(runtime.currentSessionCwd, runtime.lastNewSessionContext),
+      );
       return true;
     default:
       return false;
