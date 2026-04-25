@@ -190,6 +190,7 @@ export function Sidebar() {
   const isTerminalPage = route.page === "terminal";
   const isScheduledPage = route.page === "scheduled";
   const isQuestmasterPage = route.page === "questmaster";
+  const isStreamsPage = route.page === "streams";
   const isDesktopLayout = isDesktopShellLayout(zoomLevel);
   const shortcutPlatform = typeof navigator === "undefined" ? undefined : navigator.platform;
 
@@ -1326,6 +1327,33 @@ export function Sidebar() {
           >
             <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
               <path d="M8 2a6 6 0 100 12A6 6 0 008 2zM0 8a8 8 0 1116 0A8 8 0 010 8zm9-3a1 1 0 10-2 0v3a1 1 0 00.293.707l2 2a1 1 0 001.414-1.414L9 7.586V5z" />
+            </svg>
+          </button>
+          <button
+            title="Streams"
+            onClick={() => {
+              if (isStreamsPage) {
+                const sessionId = useStore.getState().currentSessionId;
+                if (sessionId) {
+                  navigateToSession(sessionId);
+                } else {
+                  navigateToMostRecentSession();
+                }
+              } else {
+                window.location.hash = "#/streams";
+              }
+              if (!isDesktopLayout) {
+                useStore.getState().setSidebarOpen(false);
+              }
+            }}
+            className={`p-2 rounded-lg transition-colors cursor-pointer ${
+              isStreamsPage ? "bg-cc-active text-cc-fg" : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
+            }`}
+          >
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
+              <path d="M3 4.5h4.5M8.5 4.5H13M3 8h10M3 11.5h3.5M7.5 11.5H13" strokeLinecap="round" />
+              <circle cx="8" cy="4.5" r="1" fill="currentColor" stroke="none" />
+              <circle cx="7" cy="11.5" r="1" fill="currentColor" stroke="none" />
             </svg>
           </button>
           <button

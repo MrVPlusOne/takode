@@ -304,10 +304,16 @@ export async function defaultStreamScope(
   const session = sessionId?.trim();
   if (session) {
     const groupId = await getGroupForSession(session);
-    if (groupId) return [server, "session-group", groupId].join(":");
+    if (groupId) return streamScopeForSessionGroup(groupId, server);
   }
   const project = (await resolveGitProjectScopeComponent(cwd)) ?? basename(resolve(cwd)) ?? "project";
   return [server, "project", project].join(":");
+}
+
+export function streamScopeForSessionGroup(groupId: string, serverId = process.env.COMPANION_SERVER_ID): string {
+  const server = serverId?.trim() || "local";
+  const group = groupId.trim() || "default";
+  return [server, "session-group", group].join(":");
 }
 
 function resolveStream(data: StreamScopeFile, ref: string): StreamRecord | null {

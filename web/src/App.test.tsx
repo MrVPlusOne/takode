@@ -222,6 +222,10 @@ vi.mock("./components/ActiveTimersPage.js", () => ({
   ActiveTimersPage: () => <div data-testid="active-timers-page" />,
 }));
 
+vi.mock("./components/StreamsPage.js", () => ({
+  StreamsPage: () => <div data-testid="streams-page" />,
+}));
+
 vi.mock("./components/TerminalPage.js", () => ({
   TerminalPage: () => <div data-testid="terminal-page" />,
 }));
@@ -285,6 +289,15 @@ describe("App hidden panels", () => {
     render(<App />);
 
     expect(screen.getByTestId("active-timers-page")).toBeInTheDocument();
+    expect(screen.queryByTestId("chat-view")).toBeNull();
+  });
+
+  it("mounts StreamsPage on the streams route", () => {
+    window.location.hash = "#/streams";
+
+    render(<App />);
+
+    expect(screen.getByTestId("streams-page")).toBeInTheDocument();
     expect(screen.queryByTestId("chat-view")).toBeNull();
   });
 

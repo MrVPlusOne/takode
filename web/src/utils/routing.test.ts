@@ -55,6 +55,10 @@ describe("parseHash", () => {
     expect(parseHash("#/scheduled")).toEqual({ page: "scheduled" });
   });
 
+  it("parses streams route", () => {
+    expect(parseHash("#/streams")).toEqual({ page: "streams" });
+  });
+
   it("parses playground route", () => {
     expect(parseHash("#/playground")).toEqual({ page: "playground" });
   });

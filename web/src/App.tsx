@@ -25,6 +25,7 @@ import { SettingsPage } from "./components/SettingsPage.js";
 import { LogsPage } from "./components/LogsPage.js";
 import { EnvManager } from "./components/EnvManager.js";
 import { ActiveTimersPage } from "./components/ActiveTimersPage.js";
+import { StreamsPage } from "./components/StreamsPage.js";
 import { TerminalPage } from "./components/TerminalPage.js";
 import { SessionCreationView } from "./components/SessionCreationView.js";
 import { NewSessionModal } from "./components/NewSessionModal.js";
@@ -148,6 +149,7 @@ export default function App() {
   const isEnvironmentsPage = route.page === "environments";
   const isScheduledPage = route.page === "scheduled";
   const isQuestmasterPage = route.page === "questmaster";
+  const isStreamsPage = route.page === "streams";
   const isSessionView = route.page === "session" || route.page === "home";
   const isDesktopShell = isDesktopShellLayout(zoomLevel);
   const isDesktopTaskPanel = isDesktopTaskPanelLayout(zoomLevel);
@@ -549,6 +551,12 @@ export default function App() {
           {isQuestmasterPage && (
             <div className="absolute inset-0">
               <QuestmasterPage isActive={true} />
+            </div>
+          )}
+
+          {isStreamsPage && (
+            <div className="absolute inset-0">
+              <StreamsPage embedded />
             </div>
           )}
 

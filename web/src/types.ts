@@ -57,6 +57,17 @@ export type {
   SessionNotification,
 };
 export type { TreeGroup, TreeGroupState } from "../server/tree-group-store.js";
+export type {
+  StreamCurrentState,
+  StreamEntryType,
+  StreamFactStatus,
+  StreamLink,
+  StreamOwner,
+  StreamPinnedFact,
+  StreamRecord,
+  StreamStatus,
+  StreamTimelineEntry,
+} from "../server/stream-types.js";
 export { assertNever, isClaudeFamily };
 export type {
   QuestmasterTask,

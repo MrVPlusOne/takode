@@ -1,4 +1,4 @@
-import type { SdkSessionInfo, TreeGroup, ChatMessage, BrowserIncomingMessage } from "./types.js";
+import type { SdkSessionInfo, TreeGroup, ChatMessage, BrowserIncomingMessage, StreamRecord } from "./types.js";
 import { encodeLogQuery, type LogQuery, type LogQueryResponse } from "../shared/logging.js";
 import type { HerdSessionsResponse } from "../shared/herd-types.js";
 import { normalizeHistoryMessageToChatMessages } from "./utils/history-message-normalization.js";
@@ -152,6 +152,35 @@ export interface CloudProviderPlan {
   cwd: string;
   mappedPorts: Array<{ containerPort: number; hostPort: number }>;
   commandPreview: string;
+}
+
+export interface StreamGroupView {
+  group: TreeGroup;
+  scope: string;
+  streams: StreamRecord[];
+  counts: {
+    total: number;
+    active: number;
+    archived: number;
+    blocked: number;
+    risk: number;
+    alerts: number;
+    contradictions: number;
+    handoffs: number;
+  };
+}
+
+export interface StreamGroupsResponse {
+  serverId: string;
+  includeArchived: boolean;
+  query: string;
+  groups: StreamGroupView[];
+}
+
+export interface StreamDetailResponse {
+  scope: string;
+  stream: StreamRecord;
+  children: StreamRecord[];
 }
 
 export interface CreateSessionOpts {
@@ -803,6 +832,21 @@ export const api = {
 
   updateTreeNodeOrder: (groupId: string, orderedIds: string[]) =>
     patch<{ ok: boolean }>("/tree-groups/node-order", { groupId, orderedIds }),
+
+  // Streams (session-group observability/debugging)
+  listStreamGroups: (opts?: { includeArchived?: boolean; query?: string }) => {
+    const params = new URLSearchParams();
+    if (opts?.includeArchived) params.set("includeArchived", "1");
+    const query = opts?.query?.trim();
+    if (query) params.set("q", query);
+    const qs = params.toString();
+    return get<StreamGroupsResponse>(`/streams/groups${qs ? `?${qs}` : ""}`);
+  },
+
+  getStreamDetail: (scope: string, ref: string) => {
+    const params = new URLSearchParams({ scope });
+    return get<StreamDetailResponse>(`/streams/${encodeURIComponent(ref)}?${params.toString()}`);
+  },
 
   getHerdDiagnostics: (sessionId: string) =>
     get<Record<string, unknown>>(`/sessions/${encodeURIComponent(sessionId)}/herd-diagnostics`),

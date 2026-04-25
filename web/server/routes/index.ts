@@ -22,6 +22,7 @@ import { createQuestRoutes } from "./quests.js";
 import { createRecordingsRoutes } from "./recordings.js";
 import { createSystemRoutes } from "./system.js";
 import { createTimerRoutes } from "./timers.js";
+import { createStreamRoutes } from "./streams.js";
 import { createLogsRoutes } from "./logs.js";
 import type { InitialModeState, RouteContext } from "./context.js";
 
@@ -245,6 +246,7 @@ export function createRoutes(
   api.route("/", createGitRoutes(ctx));
   api.route("/", createQuestRoutes(ctx));
   api.route("/", createTimerRoutes(ctx));
+  api.route("/", createStreamRoutes(ctx));
 
   return api;
 }
