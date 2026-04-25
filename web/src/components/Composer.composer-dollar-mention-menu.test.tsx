@@ -614,6 +614,29 @@ describe("Composer dollar mention menu", () => {
     expect(textarea.value).toBe("Run [$review](/Users/test/.codex/skills/review/SKILL.md) ");
   });
 
+  it("accepts the highlighted skill after arrow navigation and keyup selection refresh", () => {
+    // Regression: ArrowDown selection must survive the keyup selection handler
+    // so the second `$` menu item is accepted instead of resetting to the first.
+    setupMockStore({
+      session: {
+        backend_type: "codex",
+        skills: ["review", "recap"],
+      },
+    });
+    const { container } = render(<Composer sessionId="s1" />);
+    const textarea = container.querySelector("textarea")! as HTMLTextAreaElement;
+
+    fireEvent.change(textarea, { target: { value: "Run $r", selectionStart: "Run $r".length } });
+    expect(screen.getByText("$review")).toBeTruthy();
+    expect(screen.getByText("$recap")).toBeTruthy();
+
+    fireEvent.keyDown(textarea, { key: "ArrowDown", code: "ArrowDown" });
+    fireEvent.keyUp(textarea, { key: "ArrowDown", code: "ArrowDown" });
+    fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" });
+
+    expect(textarea.value).toBe("Run $recap ");
+  });
+
   it("does not add a duplicate trailing space when accepting a skill mention before existing whitespace", () => {
     setupMockStore({
       session: {

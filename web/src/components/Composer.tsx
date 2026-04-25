@@ -29,31 +29,11 @@ import {
   nextPendingUploadId,
   readFileAsBase64,
 } from "./composer-image-utils.js";
-import {
-  DOLLAR_QUERY_PATTERN,
-  REFERENCE_MENU_LIMIT,
-  buildQuestLinkInsertText,
-  buildSessionLinkInsertText,
-  computeRecentReferenceBoosts,
-  detectReferenceTrigger,
-  getSessionSuggestionPreview,
-  parseCodexModeSlashCommand,
-  toAppMentionInsertText,
-  toSkillMentionInsertText,
-  type CommandItem,
-  type ReferenceSuggestion,
-  type ReferenceTriggerMatch,
-} from "./composer-reference-utils.js";
-import {
-  findAutocompleteTokenEnd,
-  isCaretInsideAutocompleteRange,
-  replaceAutocompleteRange,
-  type ActiveAutocompleteRange,
-} from "./composer-autocomplete-ranges.js";
+import { parseCodexModeSlashCommand } from "./composer-reference-utils.js";
+import { useComposerAutocomplete } from "./use-composer-autocomplete.js";
 import type { FailedTranscription, VoiceEditProposal } from "./composer-voice-types.js";
 import { useVoiceInput } from "../hooks/useVoiceInput.js";
 import { api } from "../api.js";
-import { CODEX_LOCAL_SLASH_COMMANDS } from "../../shared/codex-slash-commands.js";
 import {
   buildVsCodeSelectionPrompt,
   formatVsCodeSelectionAttachmentLabel,
@@ -71,8 +51,6 @@ import type {
   CodexSkillReference,
   ComposerDraftImage,
   PendingUserUpload,
-  QuestmasterTask,
-  SdkSessionInfo,
 } from "../types.js";
 import {
   abortPendingUserUpload,
@@ -87,9 +65,6 @@ const EMPTY_SKILL_REFERENCES: CodexSkillReference[] = [];
 const EMPTY_APP_REFERENCES: CodexAppReference[] = [];
 const EMPTY_CHAT_MESSAGES: ChatMessage[] = [];
 const EMPTY_PENDING_USER_UPLOADS: PendingUserUpload[] = [];
-const EMPTY_QUESTS: QuestmasterTask[] = [];
-const EMPTY_SDK_SESSIONS: SdkSessionInfo[] = [];
-const EMPTY_SESSION_NAMES = new Map<string, string>();
 const EMPTY_COMPOSER_IMAGES: ComposerDraftImage[] = [];
 
 export function Composer({ sessionId }: { sessionId: string }) {
@@ -119,15 +94,6 @@ export function Composer({ sessionId }: { sessionId: string }) {
     [sessionId],
   );
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
-  const [slashMenuOpen, setSlashMenuOpen] = useState(false);
-  const [slashMenuIndex, setSlashMenuIndex] = useState(0);
-  const [dollarMenuOpen, setDollarMenuOpen] = useState(false);
-  const [dollarMenuIndex, setDollarMenuIndex] = useState(0);
-  const [dollarQuery, setDollarQuery] = useState("");
-  const [referenceMenuOpen, setReferenceMenuOpen] = useState(false);
-  const [referenceMenuIndex, setReferenceMenuIndex] = useState(0);
-  const [referenceQuery, setReferenceQuery] = useState("");
-  const [referenceKind, setReferenceKind] = useState<"quest" | "session" | null>(null);
   const [showModelDropdown, setShowModelDropdown] = useState(false);
   const [showCodexReasoningDropdown, setShowCodexReasoningDropdown] = useState(false);
   const [showAskConfirm, setShowAskConfirm] = useState(false);
@@ -139,36 +105,14 @@ export function Composer({ sessionId }: { sessionId: string }) {
   const [voiceEditProposal, setVoiceEditProposal] = useState<VoiceEditProposal | null>(null);
   const zoomLevel = useStore((s) => s.zoomLevel);
 
-  const [mentionMenuOpen, setMentionMenuOpen] = useState(false);
-  const [mentionQuery, setMentionQuery] = useState("");
-  const [mentionIndex, setMentionIndex] = useState(0);
-  const [mentionResults, setMentionResults] = useState<
-    Array<{ relativePath: string; absolutePath: string; fileName: string }>
-  >([]);
-  const [mentionLoading, setMentionLoading] = useState(false);
-  const mentionAnchorRef = useRef<number>(-1);
-  const mentionAbortRef = useRef<AbortController | null>(null);
-  const mentionDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const mentionMenuRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageDragDepthRef = useRef(0);
   const startedImageUploadsRef = useRef(new Set<string>());
   const draftImageSourceFilesRef = useRef(new Map<string, File>());
-  const menuRef = useRef<HTMLDivElement>(null);
-  const dollarMenuRef = useRef<HTMLDivElement>(null);
-  const referenceMenuRef = useRef<HTMLDivElement>(null);
-  const slashAnchorRef = useRef<number>(-1);
-  const dollarAnchorRef = useRef<number>(-1);
-  const referenceAnchorRef = useRef<number>(-1);
-  const slashRangeRef = useRef<ActiveAutocompleteRange | null>(null);
-  const dollarRangeRef = useRef<ActiveAutocompleteRange | null>(null);
-  const referenceRangeRef = useRef<ActiveAutocompleteRange | null>(null);
-  const mentionRangeRef = useRef<ActiveAutocompleteRange | null>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
   const codexReasoningDropdownRef = useRef<HTMLDivElement>(null);
   const askConfirmRef = useRef<HTMLDivElement>(null);
-  const requestedCodexSkillRefreshSessionRef = useRef<string | null>(null);
   const voiceCaptureModeRef = useRef<"dictation" | "edit" | "append">("dictation");
   const voiceEditBaseTextRef = useRef("");
   const preferredVoiceModeRef = useRef<"edit" | "append">("edit");
@@ -486,26 +430,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
     }),
   );
   const vscodeSelectionState = useStore((s) => s.vscodeSelectionContext);
-  const quests = useStore((s) =>
-    referenceMenuOpen && referenceKind === "quest" ? (s.quests ?? EMPTY_QUESTS) : EMPTY_QUESTS,
-  );
-  const sessionReferenceData = useStore(
-    useShallow((s) => {
-      if (!referenceMenuOpen || referenceKind !== "session") {
-        return {
-          sdkSessions: EMPTY_SDK_SESSIONS,
-          sessionNames: EMPTY_SESSION_NAMES,
-        };
-      }
-      return {
-        sdkSessions: s.sdkSessions ?? EMPTY_SDK_SESSIONS,
-        sessionNames: s.sessionNames,
-      };
-    }),
-  );
-  const sessionMessages = useStore((s) =>
-    referenceMenuOpen ? (s.messages.get(sessionId) ?? EMPTY_CHAT_MESSAGES) : EMPTY_CHAT_MESSAGES,
-  );
+  const sessionMessages = useStore((s) => s.messages.get(sessionId) ?? EMPTY_CHAT_MESSAGES);
 
   const isConnected = sessionView.isConnected;
   const currentMode = sessionView.permissionMode;
@@ -543,9 +468,45 @@ export function Composer({ sessionId }: { sessionId: string }) {
     vscodeSelectionState?.selection && currentVsCodeSelectionKey !== dismissedVsCodeSelectionKey
       ? resolveVsCodeSelectionForSession(vscodeSelectionState.selection, sessionSelectionRoot)
       : null;
-  const sdkSessions = sessionReferenceData.sdkSessions;
-  const sessionNames = sessionReferenceData.sessionNames;
-  const recentReferenceBoosts = useMemo(() => computeRecentReferenceBoosts(sessionMessages), [sessionMessages]);
+  const autocomplete = useComposerAutocomplete({
+    text,
+    setText,
+    textareaRef,
+    sessionId,
+    isCodex,
+    isConnected,
+    sessionView,
+    messages: sessionMessages,
+  });
+  const {
+    slashMenuOpen,
+    filteredCommands,
+    menuRef,
+    slashMenuIndex,
+    selectCommand,
+    dollarMenuOpen,
+    filteredDollarCommands,
+    dollarMenuRef,
+    dollarMenuIndex,
+    referenceMenuOpen,
+    filteredReferenceSuggestions,
+    referenceMenuRef,
+    referenceMenuIndex,
+    referenceKind,
+    referenceQuery,
+    selectReference,
+    mentionMenuOpen,
+    mentionResults,
+    mentionMenuRef,
+    mentionIndex,
+    mentionQuery,
+    mentionLoading,
+    selectMention,
+    handleAutocompleteInput,
+    handleAutocompleteSelectionChange,
+    handleAutocompleteKeyDown,
+    closeAutocompleteMenus,
+  } = autocomplete;
 
   useEffect(() => {
     if (!isCodex) return;
@@ -600,541 +561,6 @@ export function Composer({ sessionId }: { sessionId: string }) {
     };
   }, [isCodex, loadPersistedSettings]);
 
-  // Build slash-command menu items from session data
-  const allCommands = useMemo<CommandItem[]>(() => {
-    const cmds: CommandItem[] = [];
-    const seen = new Set<string>();
-    const pushCommand = (name: string, type: "command" | "skill") => {
-      const normalized = name.trim();
-      if (!normalized || seen.has(normalized)) return;
-      seen.add(normalized);
-      cmds.push({
-        name: normalized,
-        type,
-        trigger: "/",
-        insertText: `/${normalized}`,
-      });
-    };
-    if (isCodex) {
-      for (const cmd of CODEX_LOCAL_SLASH_COMMANDS) {
-        pushCommand(cmd, "command");
-      }
-    }
-    for (const cmd of sessionView.slashCommands) {
-      pushCommand(cmd, "command");
-    }
-    for (const skill of sessionView.skills) {
-      pushCommand(skill, "skill");
-    }
-    return cmds;
-  }, [isCodex, sessionView.skills, sessionView.slashCommands]);
-
-  const dollarCommands = useMemo<CommandItem[]>(() => {
-    if (!isCodex) return [];
-    const cmds: CommandItem[] = [];
-    const seen = new Set<string>();
-    const skillMetadataByName = new Map<string, CodexSkillReference>();
-    for (const skill of sessionView.skillMetadata) {
-      const name = skill.name.trim();
-      if (name && !skillMetadataByName.has(name)) skillMetadataByName.set(name, skill);
-    }
-
-    const pushSkill = (name: string, skill?: CodexSkillReference) => {
-      const normalized = name.trim();
-      if (!normalized || seen.has(`skill:${normalized}`)) return;
-      seen.add(`skill:${normalized}`);
-      cmds.push({
-        name: normalized,
-        type: "skill",
-        trigger: "$",
-        insertText: toSkillMentionInsertText(
-          skill ?? {
-            name: normalized,
-            path: "",
-          },
-        ),
-        ...(skill?.description ? { description: skill.description } : {}),
-      });
-    };
-
-    const pushApp = (app: CodexAppReference) => {
-      const id = app.id.trim();
-      const name = app.name.trim();
-      if (!id || !name || seen.has(`app:${id}`)) return;
-      seen.add(`app:${id}`);
-      cmds.push({
-        name,
-        type: "app",
-        trigger: "$",
-        insertText: toAppMentionInsertText(app),
-        ...(app.description ? { description: app.description } : {}),
-      });
-    };
-
-    for (const skill of sessionView.skills) {
-      pushSkill(skill, skillMetadataByName.get(skill.trim()));
-    }
-    for (const skill of skillMetadataByName.values()) {
-      pushSkill(skill.name, skill);
-    }
-    for (const app of sessionView.apps) {
-      pushApp(app);
-    }
-    return cmds;
-  }, [isCodex, sessionView.apps, sessionView.skillMetadata, sessionView.skills]);
-
-  useEffect(() => {
-    if (!isCodex || !isConnected) return;
-    if (sessionView.skillMetadata.length > 0 || sessionView.apps.length > 0) return;
-    if (requestedCodexSkillRefreshSessionRef.current === sessionId) return;
-    requestedCodexSkillRefreshSessionRef.current = sessionId;
-    api.refreshSessionSkills(sessionId).catch(() => {});
-  }, [isCodex, isConnected, sessionId, sessionView.apps, sessionView.skillMetadata]);
-
-  // Detect slash command trigger at cursor position (mirrors dollar detection)
-  const detectSlashQuery = useCallback(
-    (inputText: string, cursorPos: number) => {
-      if (allCommands.length === 0) {
-        setSlashMenuOpen(false);
-        slashAnchorRef.current = -1;
-        slashRangeRef.current = null;
-        return;
-      }
-
-      // Scan backward from cursor to find a `/` preceded by start-of-string or whitespace
-      let slashPos = -1;
-      for (let i = cursorPos - 1; i >= 0; i--) {
-        const ch = inputText[i];
-        if (ch === " " || ch === "\n" || ch === "\t") break;
-        if (ch === "/") {
-          if (i === 0 || /\s/.test(inputText[i - 1])) {
-            slashPos = i;
-          }
-          break;
-        }
-      }
-
-      if (slashPos === -1) {
-        setSlashMenuOpen(false);
-        slashAnchorRef.current = -1;
-        slashRangeRef.current = null;
-        return;
-      }
-
-      const tokenEnd = findAutocompleteTokenEnd(inputText, slashPos);
-      slashAnchorRef.current = slashPos;
-      slashRangeRef.current = { replaceStart: slashPos, tokenStart: slashPos, replaceEnd: tokenEnd };
-      if (!slashMenuOpen) {
-        setSlashMenuIndex(0);
-      }
-      setSlashMenuOpen(true);
-    },
-    [allCommands.length, slashMenuOpen],
-  );
-
-  useEffect(() => {
-    const cursorPos = textareaRef.current?.selectionStart ?? text.length;
-    detectSlashQuery(text, cursorPos);
-  }, [detectSlashQuery, text]);
-
-  // Filter commands based on what the user typed after /
-  const filteredCommands = useMemo(() => {
-    if (!slashMenuOpen || slashAnchorRef.current === -1) return [];
-    const cursorPos = textareaRef.current?.selectionStart ?? text.length;
-    const query = text.slice(slashAnchorRef.current + 1, cursorPos).toLowerCase();
-    if (query === "") return allCommands;
-    return allCommands.filter((cmd) => cmd.name.toLowerCase().includes(query));
-  }, [text, slashMenuOpen, allCommands]);
-
-  // Keep selected index in bounds
-  useEffect(() => {
-    if (slashMenuIndex >= filteredCommands.length) {
-      setSlashMenuIndex(Math.max(0, filteredCommands.length - 1));
-    }
-  }, [filteredCommands.length, slashMenuIndex]);
-
-  // Scroll selected item into view
-  useEffect(() => {
-    if (!menuRef.current || !slashMenuOpen) return;
-    const items = menuRef.current.querySelectorAll("[data-cmd-index]");
-    const selected = items[slashMenuIndex];
-    if (selected) {
-      selected.scrollIntoView({ block: "nearest" });
-    }
-  }, [slashMenuIndex, slashMenuOpen]);
-
-  const filteredDollarCommands = useMemo(() => {
-    if (!dollarMenuOpen) return [];
-    const query = dollarQuery.toLowerCase();
-    if (query === "") return dollarCommands;
-    return dollarCommands.filter((cmd) => cmd.name.toLowerCase().includes(query));
-  }, [dollarCommands, dollarMenuOpen, dollarQuery]);
-
-  const detectDollarQuery = useCallback(
-    (inputText: string, cursorPos: number) => {
-      if (!isCodex || dollarCommands.length === 0) {
-        setDollarMenuOpen(false);
-        setDollarQuery("");
-        dollarAnchorRef.current = -1;
-        dollarRangeRef.current = null;
-        return;
-      }
-
-      let dollarPos = -1;
-      for (let i = cursorPos - 1; i >= 0; i--) {
-        const ch = inputText[i];
-        if (ch === " " || ch === "\n" || ch === "\t") break;
-        if (ch === "$") {
-          if (i === 0 || /[\s({]/.test(inputText[i - 1])) {
-            dollarPos = i;
-          }
-          break;
-        }
-      }
-
-      const tokenEnd = dollarPos === -1 ? -1 : findAutocompleteTokenEnd(inputText, dollarPos);
-      const query = dollarPos === -1 ? "" : inputText.slice(dollarPos + 1, cursorPos);
-      const fullQuery = dollarPos === -1 ? "" : inputText.slice(dollarPos + 1, tokenEnd);
-      const shouldOpen = dollarPos !== -1 && (fullQuery === "" || DOLLAR_QUERY_PATTERN.test(fullQuery));
-      if (!shouldOpen) {
-        setDollarMenuOpen(false);
-        dollarAnchorRef.current = -1;
-        dollarRangeRef.current = null;
-        setDollarQuery("");
-        return;
-      }
-
-      dollarAnchorRef.current = dollarPos;
-      dollarRangeRef.current = { replaceStart: dollarPos, tokenStart: dollarPos, replaceEnd: tokenEnd };
-      setDollarMenuIndex(0);
-      setDollarQuery(query);
-      setDollarMenuOpen(true);
-    },
-    [dollarCommands.length, isCodex],
-  );
-
-  useEffect(() => {
-    const cursorPos = textareaRef.current?.selectionStart ?? text.length;
-    detectDollarQuery(text, cursorPos);
-  }, [detectDollarQuery, text]);
-
-  useEffect(() => {
-    if (dollarMenuIndex >= filteredDollarCommands.length) {
-      setDollarMenuIndex(Math.max(0, filteredDollarCommands.length - 1));
-    }
-  }, [dollarMenuIndex, filteredDollarCommands.length]);
-
-  useEffect(() => {
-    if (!dollarMenuRef.current || !dollarMenuOpen) return;
-    const items = dollarMenuRef.current.querySelectorAll("[data-dollar-index]");
-    const selected = items[dollarMenuIndex];
-    if (selected) {
-      selected.scrollIntoView({ block: "nearest" });
-    }
-  }, [dollarMenuIndex, dollarMenuOpen]);
-
-  useEffect(() => {
-    if (!dollarMenuOpen) return;
-    function handlePointerDown(e: PointerEvent) {
-      if (dollarMenuRef.current && !dollarMenuRef.current.contains(e.target as Node)) {
-        setDollarMenuOpen(false);
-        setDollarQuery("");
-        dollarAnchorRef.current = -1;
-      }
-    }
-    document.addEventListener("pointerdown", handlePointerDown);
-    return () => document.removeEventListener("pointerdown", handlePointerDown);
-  }, [dollarMenuOpen]);
-
-  const filteredReferenceSuggestions = useMemo<ReferenceSuggestion[]>(() => {
-    if (!referenceMenuOpen || referenceKind == null) return [];
-
-    if (referenceKind === "quest") {
-      const fullQuery = `q-${referenceQuery}`.toLowerCase();
-      return quests
-        .filter((quest) => referenceQuery === "" || quest.questId.toLowerCase().startsWith(fullQuery))
-        .map((quest) => ({
-          key: quest.questId,
-          kind: "quest" as const,
-          rawRef: quest.questId,
-          preview: quest.title,
-          insertText: buildQuestLinkInsertText(quest.questId),
-          searchText: `${quest.questId} ${quest.title}`.toLowerCase(),
-          recentBoost: recentReferenceBoosts.questBoosts.get(quest.questId.toLowerCase()) ?? 0,
-          tieBreaker: Number.parseInt(quest.questId.replace(/^q-/, ""), 10) || 0,
-        }))
-        .sort((left, right) => {
-          const leftExact = Number(left.rawRef.toLowerCase() === fullQuery);
-          const rightExact = Number(right.rawRef.toLowerCase() === fullQuery);
-          if (leftExact !== rightExact) return rightExact - leftExact;
-          if (left.recentBoost !== right.recentBoost) return right.recentBoost - left.recentBoost;
-          return right.tieBreaker - left.tieBreaker;
-        })
-        .slice(0, REFERENCE_MENU_LIMIT);
-    }
-
-    const seenSessionNums = new Set<number>();
-    const normalizedQuery = referenceQuery.toLowerCase();
-    return sdkSessions
-      .filter((session) => session.sessionNum != null)
-      .filter((session) => {
-        const sessionNum = session.sessionNum!;
-        if (seenSessionNums.has(sessionNum)) return false;
-        seenSessionNums.add(sessionNum);
-        return true;
-      })
-      .map((session) => {
-        const sessionNum = session.sessionNum!;
-        const rawRef = `#${sessionNum}`;
-        const preview = getSessionSuggestionPreview(session, sessionNames.get(session.sessionId));
-        return {
-          key: session.sessionId,
-          kind: "session" as const,
-          rawRef,
-          preview,
-          insertText: buildSessionLinkInsertText(sessionNum),
-          searchText: `${rawRef} ${preview}`.toLowerCase(),
-          recentBoost: recentReferenceBoosts.sessionBoosts.get(sessionNum) ?? 0,
-          tieBreaker: session.lastActivityAt ?? session.createdAt ?? sessionNum,
-        };
-      })
-      .filter((session) => normalizedQuery === "" || session.rawRef.slice(1).startsWith(normalizedQuery))
-      .sort((left, right) => {
-        const leftExact = Number(left.rawRef.slice(1).toLowerCase() === normalizedQuery);
-        const rightExact = Number(right.rawRef.slice(1).toLowerCase() === normalizedQuery);
-        if (leftExact !== rightExact) return rightExact - leftExact;
-        if (left.recentBoost !== right.recentBoost) return right.recentBoost - left.recentBoost;
-        return right.tieBreaker - left.tieBreaker;
-      })
-      .slice(0, REFERENCE_MENU_LIMIT);
-  }, [quests, recentReferenceBoosts, referenceKind, referenceMenuOpen, referenceQuery, sdkSessions, sessionNames]);
-
-  const detectReferenceQuery = useCallback((inputText: string, cursorPos: number) => {
-    const match = detectReferenceTrigger(inputText, cursorPos);
-    if (!match) {
-      setReferenceMenuOpen(false);
-      setReferenceKind(null);
-      setReferenceQuery("");
-      referenceAnchorRef.current = -1;
-      referenceRangeRef.current = null;
-      return;
-    }
-
-    const tokenStart =
-      inputText[match.replacementStart] === "[" ||
-      inputText[match.replacementStart] === "(" ||
-      inputText[match.replacementStart] === "{"
-        ? match.replacementStart + 1
-        : match.replacementStart;
-    const tokenEnd = findAutocompleteTokenEnd(inputText, tokenStart);
-    const fullQuery =
-      match.kind === "quest" ? inputText.slice(tokenStart + 2, tokenEnd) : inputText.slice(tokenStart + 1, tokenEnd);
-    if (!/^\d*$/.test(fullQuery)) {
-      setReferenceMenuOpen(false);
-      setReferenceKind(null);
-      setReferenceQuery("");
-      referenceAnchorRef.current = -1;
-      referenceRangeRef.current = null;
-      return;
-    }
-
-    referenceAnchorRef.current = match.replacementStart;
-    referenceRangeRef.current = { replaceStart: match.replacementStart, tokenStart, replaceEnd: tokenEnd };
-    setReferenceKind(match.kind);
-    setReferenceQuery(match.query);
-    setReferenceMenuIndex(0);
-    setReferenceMenuOpen(true);
-  }, []);
-
-  useEffect(() => {
-    const cursorPos = textareaRef.current?.selectionStart ?? text.length;
-    detectReferenceQuery(text, cursorPos);
-  }, [detectReferenceQuery, text]);
-
-  useEffect(() => {
-    if (referenceMenuIndex >= filteredReferenceSuggestions.length) {
-      setReferenceMenuIndex(Math.max(0, filteredReferenceSuggestions.length - 1));
-    }
-  }, [filteredReferenceSuggestions.length, referenceMenuIndex]);
-
-  useEffect(() => {
-    if (!referenceMenuRef.current || !referenceMenuOpen) return;
-    const items = referenceMenuRef.current.querySelectorAll("[data-reference-index]");
-    const selected = items[referenceMenuIndex];
-    if (selected) {
-      selected.scrollIntoView({ block: "nearest" });
-    }
-  }, [referenceMenuIndex, referenceMenuOpen]);
-
-  useEffect(() => {
-    if (!referenceMenuOpen) return;
-    function handlePointerDown(e: PointerEvent) {
-      if (referenceMenuRef.current && !referenceMenuRef.current.contains(e.target as Node)) {
-        setReferenceMenuOpen(false);
-        setReferenceKind(null);
-        setReferenceQuery("");
-        referenceAnchorRef.current = -1;
-      }
-    }
-    document.addEventListener("pointerdown", handlePointerDown);
-    return () => document.removeEventListener("pointerdown", handlePointerDown);
-  }, [referenceMenuOpen]);
-
-  // ─── @ mention file search ─────────────────────────────────────
-
-  // Derive the search root from session state (repo_root preferred, cwd fallback)
-  const mentionSearchRoot = useMemo(() => {
-    const cwd = sessionView.cwd;
-    const repoRoot = sessionView.repoRoot;
-    if (repoRoot && cwd?.startsWith(repoRoot + "/")) return repoRoot;
-    return cwd || repoRoot || null;
-  }, [sessionView.cwd, sessionView.repoRoot]);
-
-  // Detect `@` at cursor position and extract query for file search.
-  // Called from handleInput — scans backward from cursor to find `@`.
-  const detectMentionQuery = useCallback(
-    (inputText: string, cursorPos: number) => {
-      // Scan backward from cursor to find an unescaped `@` that starts a mention
-      let atPos = -1;
-      for (let i = cursorPos - 1; i >= 0; i--) {
-        const ch = inputText[i];
-        // Stop at whitespace, newline — the `@` must be at word boundary or start
-        if (ch === " " || ch === "\n" || ch === "\t") break;
-        if (ch === "@") {
-          // Must be at start of text or preceded by whitespace
-          if (i === 0 || /\s/.test(inputText[i - 1])) {
-            atPos = i;
-          }
-          break;
-        }
-      }
-
-      if (atPos === -1) {
-        if (mentionMenuOpen) {
-          setMentionMenuOpen(false);
-          setMentionResults([]);
-        }
-        mentionAnchorRef.current = -1;
-        mentionRangeRef.current = null;
-        return;
-      }
-
-      const query = inputText.slice(atPos + 1, cursorPos);
-      const tokenEnd = findAutocompleteTokenEnd(inputText, atPos);
-      mentionAnchorRef.current = atPos;
-      mentionRangeRef.current = { replaceStart: atPos, tokenStart: atPos, replaceEnd: tokenEnd };
-      setMentionQuery(query);
-
-      // Show menu immediately (with hint), but only search after 3+ chars
-      if (!mentionMenuOpen) {
-        setMentionMenuOpen(true);
-        setMentionIndex(0);
-      }
-
-      if (query.length < 3) {
-        // Cancel any in-flight search
-        mentionAbortRef.current?.abort();
-        if (mentionDebounceRef.current) clearTimeout(mentionDebounceRef.current);
-        setMentionResults([]);
-        setMentionLoading(false);
-        return;
-      }
-
-      // Debounced search — 150ms
-      if (mentionDebounceRef.current) clearTimeout(mentionDebounceRef.current);
-      mentionAbortRef.current?.abort();
-
-      setMentionLoading(true);
-      mentionDebounceRef.current = setTimeout(async () => {
-        if (!mentionSearchRoot) {
-          setMentionLoading(false);
-          return;
-        }
-        const controller = new AbortController();
-        mentionAbortRef.current = controller;
-        try {
-          const { results } = await api.searchFiles(mentionSearchRoot, query, controller.signal);
-          if (!controller.signal.aborted) {
-            setMentionResults(results);
-            setMentionIndex(0);
-            setMentionLoading(false);
-          }
-        } catch (e: unknown) {
-          if (e instanceof DOMException && e.name === "AbortError") return;
-          if (!controller.signal.aborted) {
-            setMentionResults([]);
-            setMentionLoading(false);
-          }
-        }
-      }, 150);
-    },
-    [mentionMenuOpen, mentionSearchRoot],
-  );
-
-  // Close mention menu on outside click
-  useEffect(() => {
-    if (!mentionMenuOpen) return;
-    function handlePointerDown(e: PointerEvent) {
-      if (mentionMenuRef.current && !mentionMenuRef.current.contains(e.target as Node)) {
-        setMentionMenuOpen(false);
-      }
-    }
-    document.addEventListener("pointerdown", handlePointerDown);
-    return () => document.removeEventListener("pointerdown", handlePointerDown);
-  }, [mentionMenuOpen]);
-
-  // Keep mention index in bounds
-  useEffect(() => {
-    if (mentionIndex >= mentionResults.length) {
-      setMentionIndex(Math.max(0, mentionResults.length - 1));
-    }
-  }, [mentionResults.length, mentionIndex]);
-
-  // Scroll selected mention item into view
-  useEffect(() => {
-    if (!mentionMenuRef.current || !mentionMenuOpen) return;
-    const items = mentionMenuRef.current.querySelectorAll("[data-mention-index]");
-    const selected = items[mentionIndex];
-    if (selected) {
-      selected.scrollIntoView({ block: "nearest" });
-    }
-  }, [mentionIndex, mentionMenuOpen]);
-
-  // Clean up debounce/abort on unmount
-  useEffect(() => {
-    return () => {
-      if (mentionDebounceRef.current) clearTimeout(mentionDebounceRef.current);
-      mentionAbortRef.current?.abort();
-    };
-  }, []);
-
-  const selectMention = useCallback(
-    (result: { relativePath: string }) => {
-      const selectionStart = textareaRef.current?.selectionStart ?? text.length;
-      const selectionEnd = textareaRef.current?.selectionEnd ?? selectionStart;
-      const activeRange = mentionRangeRef.current;
-      if (!isCaretInsideAutocompleteRange(selectionStart, selectionEnd, activeRange)) {
-        setMentionMenuOpen(false);
-        setMentionResults([]);
-        mentionAnchorRef.current = -1;
-        mentionRangeRef.current = null;
-        return;
-      }
-      const replacement = replaceAutocompleteRange(text, activeRange, `@${result.relativePath}`);
-      setText(replacement.nextText);
-      setMentionMenuOpen(false);
-      setMentionResults([]);
-      mentionAnchorRef.current = -1;
-      mentionRangeRef.current = null;
-      // Restore cursor position after the inserted path
-      requestAnimationFrame(() => {
-        textareaRef.current?.setSelectionRange(replacement.cursorPos, replacement.cursorPos);
-        textareaRef.current?.focus();
-      });
-    },
-    [text, setText],
-  );
-
   // Close mode dropdown on outside click
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -1160,82 +586,6 @@ export function Composer({ sessionId }: { sessionId: string }) {
     document.addEventListener("pointerdown", handlePointerDown);
     return () => document.removeEventListener("pointerdown", handlePointerDown);
   }, [showAskConfirm]);
-
-  const selectReference = useCallback(
-    (suggestion: ReferenceSuggestion) => {
-      const selectionStart = textareaRef.current?.selectionStart ?? text.length;
-      const selectionEnd = textareaRef.current?.selectionEnd ?? selectionStart;
-      const activeRange = referenceRangeRef.current;
-      if (!isCaretInsideAutocompleteRange(selectionStart, selectionEnd, activeRange)) {
-        setReferenceMenuOpen(false);
-        setReferenceKind(null);
-        setReferenceQuery("");
-        referenceAnchorRef.current = -1;
-        referenceRangeRef.current = null;
-        return;
-      }
-      const replacement = replaceAutocompleteRange(text, activeRange, suggestion.insertText);
-      setText(replacement.nextText);
-      setReferenceMenuOpen(false);
-      setReferenceKind(null);
-      setReferenceQuery("");
-      referenceAnchorRef.current = -1;
-      referenceRangeRef.current = null;
-      requestAnimationFrame(() => {
-        textareaRef.current?.setSelectionRange(replacement.cursorPos, replacement.cursorPos);
-        textareaRef.current?.focus();
-      });
-    },
-    [setText, text],
-  );
-
-  const selectCommand = useCallback(
-    (cmd: CommandItem) => {
-      if (cmd.trigger === "$") {
-        const selectionStart = textareaRef.current?.selectionStart ?? text.length;
-        const selectionEnd = textareaRef.current?.selectionEnd ?? selectionStart;
-        const activeRange = dollarRangeRef.current;
-        if (!isCaretInsideAutocompleteRange(selectionStart, selectionEnd, activeRange)) {
-          setDollarMenuOpen(false);
-          setDollarQuery("");
-          dollarAnchorRef.current = -1;
-          dollarRangeRef.current = null;
-          return;
-        }
-        const replacement = replaceAutocompleteRange(text, activeRange, cmd.insertText);
-        setText(replacement.nextText);
-        setDollarMenuOpen(false);
-        setDollarQuery("");
-        dollarAnchorRef.current = -1;
-        dollarRangeRef.current = null;
-        requestAnimationFrame(() => {
-          textareaRef.current?.setSelectionRange(replacement.cursorPos, replacement.cursorPos);
-          textareaRef.current?.focus();
-        });
-        return;
-      }
-
-      const selectionStart = textareaRef.current?.selectionStart ?? text.length;
-      const selectionEnd = textareaRef.current?.selectionEnd ?? selectionStart;
-      const activeRange = slashRangeRef.current;
-      if (!isCaretInsideAutocompleteRange(selectionStart, selectionEnd, activeRange)) {
-        setSlashMenuOpen(false);
-        slashAnchorRef.current = -1;
-        slashRangeRef.current = null;
-        return;
-      }
-      const replacement = replaceAutocompleteRange(text, activeRange, cmd.insertText);
-      setText(replacement.nextText);
-      setSlashMenuOpen(false);
-      slashAnchorRef.current = -1;
-      slashRangeRef.current = null;
-      requestAnimationFrame(() => {
-        textareaRef.current?.setSelectionRange(replacement.cursorPos, replacement.cursorPos);
-        textareaRef.current?.focus();
-      });
-    },
-    [setText, text],
-  );
 
   const acceptVoiceEdit = useCallback(() => {
     if (!voiceEditProposal) return;
@@ -1282,15 +632,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
       });
       store.removePermission(sessionId, pendingAskUserPerm.request_id);
       store.clearComposerDraft(sessionId);
-      setSlashMenuOpen(false);
-      slashAnchorRef.current = -1;
-      setDollarMenuOpen(false);
-      setDollarQuery("");
-      dollarAnchorRef.current = -1;
-      setReferenceMenuOpen(false);
-      setReferenceKind(null);
-      setReferenceQuery("");
-      referenceAnchorRef.current = -1;
+      closeAutocompleteMenus();
       if (textareaRef.current) textareaRef.current.style.height = "auto";
       if (isTouchDevice()) textareaRef.current?.blur();
       else textareaRef.current?.focus();
@@ -1320,15 +662,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
         const switched = sendToSession(sessionId, { type: "set_permission_mode", mode: cliMode });
         if (!switched) return;
         store.clearComposerDraft(sessionId);
-        setSlashMenuOpen(false);
-        slashAnchorRef.current = -1;
-        setDollarMenuOpen(false);
-        setDollarQuery("");
-        dollarAnchorRef.current = -1;
-        setReferenceMenuOpen(false);
-        setReferenceKind(null);
-        setReferenceQuery("");
-        referenceAnchorRef.current = -1;
+        closeAutocompleteMenus();
         if (textareaRef.current) textareaRef.current.style.height = "auto";
         if (isTouchDevice()) textareaRef.current?.blur();
         else textareaRef.current?.focus();
@@ -1343,17 +677,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
       : msg;
 
     const clearComposerUi = () => {
-      setSlashMenuOpen(false);
-      slashAnchorRef.current = -1;
-      setDollarMenuOpen(false);
-      setDollarQuery("");
-      dollarAnchorRef.current = -1;
-      setReferenceMenuOpen(false);
-      setReferenceKind(null);
-      setReferenceQuery("");
-      referenceAnchorRef.current = -1;
-      setMentionMenuOpen(false);
-      setMentionResults([]);
+      closeAutocompleteMenus();
       if (textareaRef.current) {
         textareaRef.current.style.height = "auto";
       }
@@ -1516,131 +840,8 @@ export function Composer({ sessionId }: { sessionId: string }) {
     voiceEditProposal,
   ]);
 
-  function handleKeyDown(e: React.KeyboardEvent) {
-    // Slash menu navigation
-    if (slashMenuOpen && filteredCommands.length > 0) {
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        setSlashMenuIndex((i) => (i + 1) % filteredCommands.length);
-        return;
-      }
-      if (e.key === "ArrowUp") {
-        e.preventDefault();
-        setSlashMenuIndex((i) => (i - 1 + filteredCommands.length) % filteredCommands.length);
-        return;
-      }
-      if (e.key === "Tab" && !e.shiftKey) {
-        e.preventDefault();
-        selectCommand(filteredCommands[slashMenuIndex]);
-        return;
-      }
-      if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && e.nativeEvent.keyCode !== 229) {
-        e.preventDefault();
-        selectCommand(filteredCommands[slashMenuIndex]);
-        return;
-      }
-      if (e.key === "Escape") {
-        e.preventDefault();
-        setSlashMenuOpen(false);
-        slashAnchorRef.current = -1;
-        return;
-      }
-    }
-
-    // `$` skill/app mention menu navigation
-    if (dollarMenuOpen && filteredDollarCommands.length > 0) {
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        setDollarMenuIndex((i) => (i + 1) % filteredDollarCommands.length);
-        return;
-      }
-      if (e.key === "ArrowUp") {
-        e.preventDefault();
-        setDollarMenuIndex((i) => (i - 1 + filteredDollarCommands.length) % filteredDollarCommands.length);
-        return;
-      }
-      if (e.key === "Tab" && !e.shiftKey) {
-        e.preventDefault();
-        selectCommand(filteredDollarCommands[dollarMenuIndex]);
-        return;
-      }
-      if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        selectCommand(filteredDollarCommands[dollarMenuIndex]);
-        return;
-      }
-    }
-    if (dollarMenuOpen && e.key === "Escape") {
-      e.preventDefault();
-      setDollarMenuOpen(false);
-      setDollarQuery("");
-      dollarAnchorRef.current = -1;
-      return;
-    }
-
-    // Quest/session reference menu navigation
-    if (referenceMenuOpen && filteredReferenceSuggestions.length > 0) {
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        setReferenceMenuIndex((i) => (i + 1) % filteredReferenceSuggestions.length);
-        return;
-      }
-      if (e.key === "ArrowUp") {
-        e.preventDefault();
-        setReferenceMenuIndex(
-          (i) => (i - 1 + filteredReferenceSuggestions.length) % filteredReferenceSuggestions.length,
-        );
-        return;
-      }
-      if (e.key === "Tab" && !e.shiftKey) {
-        e.preventDefault();
-        selectReference(filteredReferenceSuggestions[referenceMenuIndex]);
-        return;
-      }
-      if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && e.nativeEvent.keyCode !== 229) {
-        e.preventDefault();
-        selectReference(filteredReferenceSuggestions[referenceMenuIndex]);
-        return;
-      }
-    }
-    if (referenceMenuOpen && e.key === "Escape") {
-      e.preventDefault();
-      setReferenceMenuOpen(false);
-      setReferenceKind(null);
-      setReferenceQuery("");
-      referenceAnchorRef.current = -1;
-      return;
-    }
-
-    // @ mention menu navigation
-    if (mentionMenuOpen && mentionResults.length > 0) {
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        setMentionIndex((i) => (i + 1) % mentionResults.length);
-        return;
-      }
-      if (e.key === "ArrowUp") {
-        e.preventDefault();
-        setMentionIndex((i) => (i - 1 + mentionResults.length) % mentionResults.length);
-        return;
-      }
-      if (e.key === "Tab" && !e.shiftKey) {
-        e.preventDefault();
-        selectMention(mentionResults[mentionIndex]);
-        return;
-      }
-      if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && e.nativeEvent.keyCode !== 229) {
-        e.preventDefault();
-        selectMention(mentionResults[mentionIndex]);
-        return;
-      }
-    }
-    if (mentionMenuOpen && e.key === "Escape") {
-      e.preventDefault();
-      setMentionMenuOpen(false);
-      setMentionResults([]);
-      return;
-    }
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (handleAutocompleteKeyDown(e)) return;
 
     if (e.key === "Tab" && e.shiftKey) {
       e.preventDefault();
@@ -1674,40 +875,11 @@ export function Composer({ sessionId }: { sessionId: string }) {
     const ta = e.target;
     ta.style.height = "auto";
     ta.style.height = Math.min(ta.scrollHeight, 200) + "px";
-    // Trigger @ mention detection at current cursor position
-    detectMentionQuery(newText, cursorPos);
-    detectSlashQuery(newText, cursorPos);
-    detectDollarQuery(newText, cursorPos);
-    detectReferenceQuery(newText, cursorPos);
+    handleAutocompleteInput(newText, cursorPos);
   }
 
   function handleSelectionChange(e: React.SyntheticEvent<HTMLTextAreaElement>) {
-    const target = e.currentTarget;
-    if (target.selectionStart !== target.selectionEnd) {
-      setSlashMenuOpen(false);
-      slashAnchorRef.current = -1;
-      slashRangeRef.current = null;
-      setDollarMenuOpen(false);
-      setDollarQuery("");
-      dollarAnchorRef.current = -1;
-      dollarRangeRef.current = null;
-      setReferenceMenuOpen(false);
-      setReferenceKind(null);
-      setReferenceQuery("");
-      referenceAnchorRef.current = -1;
-      referenceRangeRef.current = null;
-      setMentionMenuOpen(false);
-      setMentionResults([]);
-      mentionAnchorRef.current = -1;
-      mentionRangeRef.current = null;
-      return;
-    }
-
-    const cursorPos = target.selectionStart;
-    detectMentionQuery(target.value, cursorPos);
-    detectSlashQuery(target.value, cursorPos);
-    detectDollarQuery(target.value, cursorPos);
-    detectReferenceQuery(target.value, cursorPos);
+    handleAutocompleteSelectionChange(e);
   }
 
   function handleInterrupt() {

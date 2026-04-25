@@ -656,6 +656,31 @@ describe("Composer quest/session reference autocomplete", () => {
     expect(textarea.value).toBe("See [q-659](quest:q-659) later");
   });
 
+  it("accepts the highlighted quest after arrow navigation and keyup selection refresh", () => {
+    // Regression: ArrowDown selection must survive the keyup selection handler
+    // so the second reference suggestion is accepted instead of resetting to the first.
+    setupMockStore({
+      quests: [
+        makeQuest({ questId: "q-12", title: "Second selected quest" }),
+        makeQuest({ questId: "q-13", title: "First listed quest" }),
+      ],
+    });
+    const { container } = render(<Composer sessionId="s1" />);
+    const textarea = container.querySelector("textarea")! as HTMLTextAreaElement;
+
+    fireEvent.change(textarea, {
+      target: { value: "See q-1", selectionStart: "See q-1".length },
+    });
+    expect(screen.getByText("q-13")).toBeTruthy();
+    expect(screen.getByText("q-12")).toBeTruthy();
+
+    fireEvent.keyDown(textarea, { key: "ArrowDown", code: "ArrowDown" });
+    fireEvent.keyUp(textarea, { key: "ArrowDown", code: "ArrowDown" });
+    fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" });
+
+    expect(textarea.value).toBe("See [q-12](quest:q-12) ");
+  });
+
   it("boosts recently mentioned quests above newer ids", () => {
     setupMockStore({
       quests: [
