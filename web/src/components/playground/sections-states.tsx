@@ -333,10 +333,21 @@ export function PlaygroundStateSections() {
             <div className="border-t border-cc-border bg-cc-card px-4 py-3">
               <div className="bg-cc-input-bg border border-cc-border rounded-[14px] overflow-hidden">
                 {/* Recording indicator with mode toggle */}
-                <div className="flex items-center gap-2 px-4 pt-2 text-[11px] text-red-500">
+                <div
+                  data-testid="playground-recording-mode-row-edit"
+                  className="flex items-center gap-2 px-4 pt-2 text-[11px] text-red-500"
+                >
+                  <div
+                    data-testid="playground-recording-mode-toggle-edit"
+                    className="flex items-center gap-0.5 rounded-full bg-cc-bg-secondary p-0.5"
+                  >
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-cc-primary text-white">
+                      Edit
+                    </span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-medium text-cc-muted">Append</span>
+                  </div>
                   <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" />
                   <span className="shrink-0">Recording</span>
-                  {/* Volume bars mock */}
                   <div className="flex items-center gap-[2px] h-3">
                     {[0, 0.15, 0.3, 0.45, 0.6].map((_, i) => (
                       <div
@@ -348,13 +359,6 @@ export function PlaygroundStateSections() {
                         }}
                       />
                     ))}
-                  </div>
-                  {/* Mode toggle */}
-                  <div className="ml-auto flex items-center gap-0.5 rounded-full bg-cc-bg-secondary p-0.5">
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-cc-primary text-white">
-                      Edit
-                    </span>
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-medium text-cc-muted">Append</span>
                   </div>
                 </div>
                 <textarea
@@ -408,7 +412,19 @@ export function PlaygroundStateSections() {
             <div className="border-t border-cc-border bg-cc-card px-4 py-3">
               <div className="bg-cc-input-bg border border-cc-border rounded-[14px] overflow-hidden">
                 {/* Recording indicator with append mode active */}
-                <div className="flex items-center gap-2 px-4 pt-2 text-[11px] text-red-500">
+                <div
+                  data-testid="playground-recording-mode-row-append"
+                  className="flex items-center gap-2 px-4 pt-2 text-[11px] text-red-500"
+                >
+                  <div
+                    data-testid="playground-recording-mode-toggle-append"
+                    className="flex items-center gap-0.5 rounded-full bg-cc-bg-secondary p-0.5"
+                  >
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-medium text-cc-muted">Edit</span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-cc-primary text-white">
+                      Append
+                    </span>
+                  </div>
                   <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" />
                   <span className="shrink-0">Recording</span>
                   <div className="flex items-center gap-[2px] h-3">
@@ -422,13 +438,6 @@ export function PlaygroundStateSections() {
                         }}
                       />
                     ))}
-                  </div>
-                  {/* Mode toggle — append selected */}
-                  <div className="ml-auto flex items-center gap-0.5 rounded-full bg-cc-bg-secondary p-0.5">
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-medium text-cc-muted">Edit</span>
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-cc-primary text-white">
-                      Append
-                    </span>
                   </div>
                 </div>
                 <textarea

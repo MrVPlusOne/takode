@@ -35,4 +35,18 @@ describe("Playground", () => {
     // Streaming text from MessageFeed mock state should also be rendered.
     expect(within(realChat).getByText("I'm updating tests and then I'll run the full suite.")).toBeTruthy();
   });
+
+  it("shows the voice mode selector before the recording label in Playground composer states", () => {
+    render(<Playground />);
+
+    const editRow = screen.getByTestId("playground-recording-mode-row-edit");
+    const editToggle = within(editRow).getByTestId("playground-recording-mode-toggle-edit");
+    const editRecordingLabel = within(editRow).getByText("Recording");
+    expect(editToggle.compareDocumentPosition(editRecordingLabel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    const appendRow = screen.getByTestId("playground-recording-mode-row-append");
+    const appendToggle = within(appendRow).getByTestId("playground-recording-mode-toggle-append");
+    const appendRecordingLabel = within(appendRow).getByText("Recording");
+    expect(appendToggle.compareDocumentPosition(appendRecordingLabel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
 });

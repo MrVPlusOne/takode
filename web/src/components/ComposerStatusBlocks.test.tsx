@@ -56,6 +56,30 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+describe("ComposerStatusBlocks voice recording controls", () => {
+  it("shows the edit/append selector immediately before the recording label and wires both actions", async () => {
+    // q-453: the current voice mode needs to be visible next to the active
+    // recording label so users can catch edit-vs-append mistakes before speaking.
+    const props = renderStatusBlocks({
+      isRecording: true,
+      voiceCaptureMode: "edit",
+      vscodeSelectionLabel: null,
+      vscodeSelectionSummary: null,
+      vscodeSelectionTitle: null,
+    });
+
+    const modeToggle = screen.getByTestId("voice-capture-mode-toggle");
+    const recordingLabel = screen.getByText("Recording");
+    expect(modeToggle.compareDocumentPosition(recordingLabel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    await userEvent.click(screen.getByRole("button", { name: "Edit" }));
+    await userEvent.click(screen.getByRole("button", { name: "Append" }));
+
+    expect(props.onSetVoiceModeEdit).toHaveBeenCalledTimes(1);
+    expect(props.onSetVoiceModeAppend).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("ComposerStatusBlocks VS Code selection chip", () => {
   it("keeps the chip label compact while showing the full path on hover", async () => {
     // Regression coverage for long paths: the visible label should be the basename/range

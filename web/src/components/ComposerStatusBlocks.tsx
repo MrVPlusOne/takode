@@ -92,22 +92,11 @@ export function ComposerStatusBlocks({
       )}
       {isRecording && (
         <div className="flex items-center gap-2 px-4 pt-2 text-[11px] text-red-500">
-          <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" />
-          <span className="shrink-0">Recording</span>
-          <div className="flex items-center gap-[2px] h-3">
-            {VOICE_BAR_THRESHOLDS.map((threshold, i) => (
-              <div
-                key={i}
-                className="w-[3px] rounded-full transition-all duration-75"
-                style={{
-                  height: volumeLevel > threshold ? `${Math.min(12, 4 + (volumeLevel - threshold) * 20)}px` : "3px",
-                  backgroundColor: volumeLevel > threshold ? "rgb(239 68 68)" : "rgb(239 68 68 / 0.3)",
-                }}
-              />
-            ))}
-          </div>
           {voiceCaptureMode !== "dictation" && (
-            <div className="ml-auto flex items-center gap-0.5 rounded-full bg-cc-bg-secondary p-0.5">
+            <div
+              data-testid="voice-capture-mode-toggle"
+              className="flex items-center gap-0.5 rounded-full bg-cc-bg-secondary p-0.5"
+            >
               <button
                 type="button"
                 onClick={onSetVoiceModeEdit}
@@ -130,6 +119,20 @@ export function ComposerStatusBlocks({
               </button>
             </div>
           )}
+          <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" />
+          <span className="shrink-0">Recording</span>
+          <div className="flex items-center gap-[2px] h-3">
+            {VOICE_BAR_THRESHOLDS.map((threshold, i) => (
+              <div
+                key={i}
+                className="w-[3px] rounded-full transition-all duration-75"
+                style={{
+                  height: volumeLevel > threshold ? `${Math.min(12, 4 + (volumeLevel - threshold) * 20)}px` : "3px",
+                  backgroundColor: volumeLevel > threshold ? "rgb(239 68 68)" : "rgb(239 68 68 / 0.3)",
+                }}
+              />
+            ))}
+          </div>
         </div>
       )}
       {isTranscribing && !isRecording && (
