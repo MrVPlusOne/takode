@@ -30,6 +30,9 @@ const mockApi = {
   archiveSession: vi.fn().mockResolvedValue({}),
   archiveGroup: vi.fn().mockResolvedValue({ ok: true, archived: 1, failed: 0 }),
   unarchiveSession: vi.fn().mockResolvedValue({}),
+  createTreeGroup: vi.fn().mockResolvedValue({ ok: true, group: { id: "group-2", name: "Group 2" } }),
+  assignSessionToTreeGroup: vi.fn().mockResolvedValue({ ok: true }),
+  assignSessionsToTreeGroup: vi.fn().mockResolvedValue({ ok: true }),
   herdWorkerToLeader: vi
     .fn()
     .mockResolvedValue({ herded: ["worker-1"], notFound: [], conflicts: [], reassigned: [], leaders: [] }),
@@ -48,6 +51,9 @@ vi.mock("../api.js", () => ({
     archiveSession: (...args: unknown[]) => mockApi.archiveSession(...args),
     archiveGroup: (...args: unknown[]) => mockApi.archiveGroup(...args),
     unarchiveSession: (...args: unknown[]) => mockApi.unarchiveSession(...args),
+    createTreeGroup: (...args: unknown[]) => mockApi.createTreeGroup(...args),
+    assignSessionToTreeGroup: (...args: unknown[]) => mockApi.assignSessionToTreeGroup(...args),
+    assignSessionsToTreeGroup: (...args: unknown[]) => mockApi.assignSessionsToTreeGroup(...args),
     herdWorkerToLeader: (...args: unknown[]) => mockApi.herdWorkerToLeader(...args),
     getSettings: (...args: unknown[]) => mockApi.getSettings(...args),
     updateSettings: (...args: unknown[]) => mockApi.updateSettings(...args),
@@ -1510,6 +1516,59 @@ describe("Sidebar", { timeout: 10000 }, () => {
     expect(screen.getByLabelText("Create session in Takode")).toBeInTheDocument();
     // But the session inside it should be hidden
     expect(screen.queryByText("hidden-model")).not.toBeInTheDocument();
+  });
+
+  it("supports bulk session assignment from a group header", async () => {
+    const session1 = makeSession("s1", { cwd: "/home/user/project-a", model: "Session One" });
+    const session2 = makeSession("s2", { cwd: "/home/user/project-a", model: "Session Two" });
+    const session3 = makeSession("s3", { cwd: "/home/user/project-b", model: "Session Three" });
+    const sdk1 = makeSdkSession("s1", { cwd: "/home/user/project-a" });
+    const sdk2 = makeSdkSession("s2", { cwd: "/home/user/project-a" });
+    const sdk3 = makeSdkSession("s3", { cwd: "/home/user/project-b" });
+    const groups = [
+      { id: "alpha", name: "Alpha" },
+      { id: "beta", name: "Beta" },
+    ];
+    mockState = createMockState({
+      sessions: new Map([
+        ["s1", session1],
+        ["s2", session2],
+        ["s3", session3],
+      ]),
+      sdkSessions: [sdk1, sdk2, sdk3],
+      treeGroups: groups,
+      treeAssignments: new Map([
+        ["s1", "alpha"],
+        ["s2", "alpha"],
+        ["s3", "beta"],
+      ]),
+    });
+    mockApi.getTreeGroups
+      .mockResolvedValueOnce({
+        groups,
+        assignments: { s1: "alpha", s2: "alpha", s3: "beta" },
+        nodeOrder: {},
+      })
+      .mockResolvedValueOnce({
+        groups,
+        assignments: { s1: "beta", s2: "beta", s3: "beta" },
+        nodeOrder: {},
+      });
+
+    render(<Sidebar />);
+
+    fireEvent.click(screen.getByLabelText("Bulk assign sessions in Alpha"));
+    fireEvent.click(screen.getByText("All"));
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "beta" } });
+    fireEvent.click(screen.getByRole("button", { name: "Assign" }));
+
+    await waitFor(() => {
+      expect(mockApi.assignSessionsToTreeGroup).toHaveBeenCalledWith(expect.arrayContaining(["s1", "s2"]), "beta");
+    });
+    expect((mockApi.assignSessionsToTreeGroup.mock.calls[0]?.[0] as string[]) ?? []).toHaveLength(2);
+    await waitFor(() => {
+      expect(mockState.setTreeGroups).toHaveBeenCalledWith(groups, { s1: "beta", s2: "beta", s3: "beta" }, {});
+    });
   });
 
   it("context menu supports copy actions and confirms delete", async () => {

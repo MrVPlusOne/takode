@@ -47,6 +47,18 @@ interface TreeViewGroupProps {
   sessionAttention?: Map<string, "action" | "error" | "review" | null>;
   herdHoverHighlights?: Map<string, "leader" | "worker">;
   herdGroupBadgeThemes?: Map<string, HerdGroupBadgeTheme>;
+  bulkSelectionActive?: boolean;
+  bulkSelectedSessionIds?: Set<string>;
+  bulkTargetGroupId?: string;
+  bulkAssigning?: boolean;
+  availableBulkTargetGroups?: Array<{ id: string; name: string }>;
+  onStartBulkSelection?: (groupId: string, sessionIds: string[]) => void;
+  onCancelBulkSelection?: () => void;
+  onToggleBulkSession?: (sessionId: string) => void;
+  onToggleBulkSelectAll?: (sessionIds: string[]) => void;
+  onBulkTargetGroupChange?: (groupId: string) => void;
+  onApplyBulkAssignment?: () => void;
+  onCreateGroupForBulkAssignment?: () => void;
   groupDragHandleProps?: {
     listeners?: Record<string, unknown>;
     attributes?: Record<string, unknown>;
@@ -122,6 +134,18 @@ export function TreeViewGroup({
   sessionAttention,
   herdHoverHighlights,
   herdGroupBadgeThemes,
+  bulkSelectionActive,
+  bulkSelectedSessionIds,
+  bulkTargetGroupId,
+  bulkAssigning,
+  availableBulkTargetGroups,
+  onStartBulkSelection,
+  onCancelBulkSelection,
+  onToggleBulkSession,
+  onToggleBulkSelectAll,
+  onBulkTargetGroupChange,
+  onApplyBulkAssignment,
+  onCreateGroupForBulkAssignment,
   groupDragHandleProps,
   groupDragging,
   onMobileReorderHandleActiveChange,
@@ -131,7 +155,7 @@ export function TreeViewGroup({
   const expandedHerdNodes = useStore((s) => s.expandedHerdNodes);
   const toggleHerdNodeExpand = useStore((s) => s.toggleHerdNodeExpand);
   const touchDevice = isTouchDevice();
-  const isDraggable = sessionSortMode !== "activity";
+  const isDraggable = sessionSortMode !== "activity" && !bulkSelectionActive;
 
   const [editingGroupName, setEditingGroupName] = useState(false);
   const [groupNameDraft, setGroupNameDraft] = useState("");
@@ -194,6 +218,8 @@ export function TreeViewGroup({
 
   // Root node IDs for drag-and-drop (leaders and standalone sessions)
   const rootNodeIds = group.nodes.map((n) => n.leader.id);
+  const bulkSelectedCount = rootNodeIds.filter((id) => bulkSelectedSessionIds?.has(id)).length;
+  const allSelectableSessionsSelected = rootNodeIds.length > 0 && bulkSelectedCount === rootNodeIds.length;
 
   // Shared session item props
   const sessionItemProps = {
@@ -278,6 +304,36 @@ export function TreeViewGroup({
     const hasReviewersOnly = !hasWorkers && node.reviewers.length > 0;
     const childSessions = hasWorkers ? [...node.workers, ...node.reviewers] : [];
     const childSummary = hasWorkers ? computeChildSessionSummary(childSessions) : undefined;
+    const leaderLabel = sessionNames.get(node.leader.id) || node.leader.model || node.leader.id;
+    const isBulkSelected = bulkSelectedSessionIds?.has(node.leader.id) ?? false;
+
+    const wrapBulkSelectableNode = (content: React.ReactNode) => {
+      if (!bulkSelectionActive) return content;
+      return (
+        <div className="flex items-start gap-2">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleBulkSession?.(node.leader.id);
+            }}
+            aria-label={`${isBulkSelected ? "Deselect" : "Select"} session ${leaderLabel}`}
+            className={`mt-2 shrink-0 w-4 h-4 rounded border transition-colors cursor-pointer ${
+              isBulkSelected
+                ? "border-cc-primary bg-cc-primary/20 text-cc-primary"
+                : "border-cc-border text-transparent hover:border-cc-primary/70"
+            }`}
+          >
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" className="w-3 h-3 m-0.5">
+              <path d="M3.5 8.5l2.5 2.5 6-6" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+          <div className={`min-w-0 flex-1 rounded-lg ${isBulkSelected ? "ring-1 ring-cc-primary/50" : ""}`}>
+            {content}
+          </div>
+        </div>
+      );
+    };
 
     // Herded nodes (leader with workers): collapsible container pattern
     if (hasWorkers) {
@@ -291,7 +347,7 @@ export function TreeViewGroup({
           ? `${node.workers.length} worker${node.workers.length !== 1 ? "s" : ""}, ${reviewerCount} reviewer${reviewerCount !== 1 ? "s" : ""}`
           : `${node.workers.length} worker${node.workers.length !== 1 ? "s" : ""}`;
 
-      return (
+      return wrapBulkSelectableNode(
         <div
           key={node.leader.id}
           className="border border-cc-border/40 rounded-lg overflow-hidden bg-cc-card/20 border-l-[3px] border-l-cc-primary/30"
@@ -337,25 +393,25 @@ export function TreeViewGroup({
               })}
             </div>
           )}
-        </div>
+        </div>,
       );
     }
 
     // Standalone node with only reviewers (no workers): show reviewer as inline chip
     if (hasReviewersOnly) {
       const leaderReviewer = node.reviewers.find((r) => r.reviewerOf === node.leader.sessionNum);
-      return (
+      return wrapBulkSelectableNode(
         <div key={node.leader.id} className="border border-cc-border/20 rounded-lg">
           {renderSessionItem(node.leader, { reviewerSession: leaderReviewer })}
-        </div>
+        </div>,
       );
     }
 
     // Standalone node (no workers, no reviewers): plain session chip
-    return (
+    return wrapBulkSelectableNode(
       <div key={node.leader.id} className="border border-cc-border/20 rounded-lg">
         {renderSessionItem(node.leader)}
-      </div>
+      </div>,
     );
   }
 
@@ -427,6 +483,29 @@ export function TreeViewGroup({
             <path d="M8 3.5v9M3.5 8h9" strokeLinecap="round" />
           </svg>
         </button>
+        {group.nodes.length > 0 && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (bulkSelectionActive) onCancelBulkSelection?.();
+              else onStartBulkSelection?.(group.id, rootNodeIds);
+            }}
+            className={`shrink-0 px-1.5 h-5 inline-flex items-center justify-center rounded text-[10px] font-medium transition-colors cursor-pointer ${
+              bulkSelectionActive
+                ? "bg-cc-primary/15 text-cc-primary"
+                : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
+            }`}
+            title={
+              bulkSelectionActive ? `Cancel bulk assignment in ${group.name}` : `Bulk assign sessions in ${group.name}`
+            }
+            aria-label={
+              bulkSelectionActive ? `Cancel bulk assignment in ${group.name}` : `Bulk assign sessions in ${group.name}`
+            }
+          >
+            Bulk
+          </button>
+        )}
         {groupDragHandleProps && (
           <button
             type="button"
@@ -443,6 +522,53 @@ export function TreeViewGroup({
           </button>
         )}
       </div>
+
+      {bulkSelectionActive && !isGroupCollapsed && (
+        <div className="mx-2 mt-1 px-2 py-1.5 rounded-md border border-cc-border/60 bg-cc-card/40">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-[10px] font-medium text-cc-fg/85">{bulkSelectedCount} selected</span>
+            <button
+              type="button"
+              onClick={() => onToggleBulkSelectAll?.(rootNodeIds)}
+              className="px-1.5 py-0.5 rounded text-[10px] text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
+            >
+              {allSelectableSessionsSelected ? "Clear" : "All"}
+            </button>
+            <label className="sr-only" htmlFor={`bulk-target-${group.id}`}>
+              Bulk target group
+            </label>
+            <select
+              id={`bulk-target-${group.id}`}
+              value={bulkTargetGroupId || ""}
+              onChange={(e) => onBulkTargetGroupChange?.(e.target.value)}
+              className="min-w-0 flex-1 px-2 py-1 rounded-md text-[10px] text-cc-fg bg-cc-input-bg border border-cc-border focus:outline-none focus:border-cc-primary/60"
+            >
+              <option value="">Choose target group</option>
+              {(availableBulkTargetGroups ?? []).map((candidate) => (
+                <option key={candidate.id} value={candidate.id}>
+                  {candidate.name}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => onCreateGroupForBulkAssignment?.()}
+              className="px-1.5 py-0.5 rounded text-[10px] text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
+              title="Create a new target group"
+            >
+              New
+            </button>
+            <button
+              type="button"
+              onClick={() => onApplyBulkAssignment?.()}
+              disabled={bulkAssigning || bulkSelectedCount === 0 || !bulkTargetGroupId}
+              className="px-2 py-1 rounded-md text-[10px] font-medium bg-cc-primary/15 text-cc-primary disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+            >
+              {bulkAssigning ? "Assigning..." : "Assign"}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Tree node list -- DndContext lives in Sidebar for cross-group support */}
       {!isGroupCollapsed && group.nodes.length > 0 && (

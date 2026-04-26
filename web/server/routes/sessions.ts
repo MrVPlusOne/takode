@@ -1402,27 +1402,39 @@ export function createSessionsRoutes(ctx: RouteContext) {
   api.patch("/tree-groups/assign", async (c) => {
     const body = await c.req.json().catch(() => ({}));
     const sessionId = typeof body.sessionId === "string" ? body.sessionId.trim() : "";
+    const sessionIds = Array.isArray(body.sessionIds)
+      ? [
+          ...new Set(
+            body.sessionIds.map((value: unknown) => (typeof value === "string" ? value.trim() : "")).filter(Boolean),
+          ),
+        ]
+      : [];
     const groupId = typeof body.groupId === "string" ? body.groupId.trim() : "";
-    if (!sessionId || !groupId) {
-      return c.json({ error: "sessionId and groupId are required" }, 400);
+    const targetSessionIds = sessionIds.length > 0 ? sessionIds : sessionId ? [sessionId] : [];
+    if (targetSessionIds.length === 0 || !groupId) {
+      return c.json({ error: "sessionId/sessionIds and groupId are required" }, 400);
     }
     const treeState = await treeGroupStore.getState();
     if (!treeState.groups.some((group) => group.id === groupId)) {
       return c.json({ error: "Group not found" }, 404);
     }
-    const sourceGroupId = await getCurrentSessionTreeGroupId(sessionId);
-    if (
-      sourceGroupId &&
-      sourceGroupId !== groupId &&
-      shouldMigrateSourceGroupStreamsOnReassign(treeState, sessionId, sourceGroupId)
-    ) {
-      await migrateStreamsForTreeGroupChange(
-        sourceGroupId,
-        groupId,
-        getTreeGroupDisplayName(treeState.groups, sourceGroupId),
-      );
+    for (const targetSessionId of targetSessionIds) {
+      const latestTreeState = await treeGroupStore.getState();
+      const sourceGroupId = await getCurrentSessionTreeGroupId(targetSessionId);
+      if (
+        sourceGroupId &&
+        sourceGroupId !== groupId &&
+        shouldMigrateSourceGroupStreamsOnReassign(latestTreeState, targetSessionId, sourceGroupId)
+      ) {
+        await migrateStreamsForTreeGroupChange(
+          sourceGroupId,
+          groupId,
+          getTreeGroupDisplayName(latestTreeState.groups, sourceGroupId),
+        );
+      }
+      await assignDurableSessionTreeGroup(targetSessionId, groupId, { broadcastTreeGroups: false });
     }
-    await assignDurableSessionTreeGroup(sessionId, groupId);
+    await broadcastTreeGroups();
     return c.json({ ok: true });
   });
   api.patch("/tree-groups/node-order", async (c) => {

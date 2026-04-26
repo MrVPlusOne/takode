@@ -638,6 +638,33 @@ describe("POST /api/sessions/create", () => {
     ).toEqual(["Default-Shared memory", "Shared memory"]);
   });
 
+  it("syncs session metadata and assignment index on bulk reassignment", async () => {
+    const group = await treeGroupStore.createGroup("Bulk Reassigned");
+    ensureBridgeSession(bridge, "s1", { state: { treeGroupId: "default" } });
+    ensureBridgeSession(bridge, "s2", { state: { treeGroupId: "default" } });
+    await treeGroupStore.assignSession("s1", "default");
+    await treeGroupStore.assignSession("s2", "default");
+
+    const res = await app.request("/api/tree-groups/assign", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionIds: ["s1", "s2"], groupId: group.id }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(bridge._sessions["s1"].state.treeGroupId).toBe(group.id);
+    expect(bridge._sessions["s2"].state.treeGroupId).toBe(group.id);
+    expect(bridge.persistSessionById).toHaveBeenCalledWith("s1");
+    expect(bridge.persistSessionById).toHaveBeenCalledWith("s2");
+    expect(await treeGroupStore.getGroupForSession("s1")).toBe(group.id);
+    expect(await treeGroupStore.getGroupForSession("s2")).toBe(group.id);
+    await treeGroupStore._flushForTest();
+
+    treeGroupStore._resetForTest(join(treeGroupTempDir, "tree-groups.json"));
+    expect(await treeGroupStore.getGroupForSession("s1")).toBe(group.id);
+    expect(await treeGroupStore.getGroupForSession("s2")).toBe(group.id);
+  });
+
   it("keeps existing shared-group streams in the source group when another session remains", async () => {
     const group = await treeGroupStore.createGroup("Reassigned");
     ensureBridgeSession(bridge, "s1", { state: { treeGroupId: "default" } });

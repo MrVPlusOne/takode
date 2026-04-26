@@ -832,6 +832,9 @@ export const api = {
   assignSessionToTreeGroup: (sessionId: string, groupId: string) =>
     patch<{ ok: boolean }>("/tree-groups/assign", { sessionId, groupId }),
 
+  assignSessionsToTreeGroup: (sessionIds: string[], groupId: string) =>
+    patch<{ ok: boolean }>("/tree-groups/assign", { sessionIds, groupId }),
+
   updateTreeNodeOrder: (groupId: string, orderedIds: string[]) =>
     patch<{ ok: boolean }>("/tree-groups/node-order", { groupId, orderedIds }),
 

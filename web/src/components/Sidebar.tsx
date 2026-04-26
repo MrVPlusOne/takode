@@ -183,6 +183,10 @@ export function Sidebar() {
   const [searchResults, setSearchResults] = useState<SessionSearchResult[] | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [activeSearchResultIndex, setActiveSearchResultIndex] = useState(0);
+  const [bulkSelectionGroupId, setBulkSelectionGroupId] = useState<string | null>(null);
+  const [bulkSelectedSessionIds, setBulkSelectedSessionIds] = useState<Set<string>>(new Set());
+  const [bulkTargetGroupId, setBulkTargetGroupId] = useState("");
+  const [bulkAssigning, setBulkAssigning] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const sessionScrollerRef = useRef<HTMLDivElement>(null);
   const route = parseHash(hash);
@@ -193,6 +197,19 @@ export function Sidebar() {
   const isStreamsPage = route.page === "streams";
   const isDesktopLayout = isDesktopShellLayout(zoomLevel);
   const shortcutPlatform = typeof navigator === "undefined" ? undefined : navigator.platform;
+
+  const refreshTreeGroups = useCallback(async () => {
+    const tgs = await api.getTreeGroups();
+    useStore.getState().setTreeGroups(tgs.groups, tgs.assignments, tgs.nodeOrder ?? {});
+    return tgs;
+  }, []);
+
+  const nextAutoGroupName = useCallback(() => {
+    const existing = new Set(treeGroups.map((g) => g.name));
+    let n = 1;
+    while (existing.has(`Group ${n}`)) n++;
+    return `Group ${n}`;
+  }, [treeGroups]);
 
   // Poll for SDK sessions on mount
   useEffect(() => {
@@ -269,15 +286,14 @@ export function Sidebar() {
   // Hydrate tree groups on mount so sidebar renders correct grouping immediately.
   // After this initial fetch, WebSocket tree_groups_update keeps groups in sync.
   useEffect(() => {
-    api
-      .getTreeGroups()
+    refreshTreeGroups()
       .then((tgs) => {
-        useStore.getState().setTreeGroups(tgs.groups, tgs.assignments, tgs.nodeOrder ?? {});
+        return tgs;
       })
       .catch((e) => {
         console.warn("[sidebar] tree group hydration failed:", e);
       });
-  }, []);
+  }, [refreshTreeGroups]);
 
   // Fetch server settings (name + ID) on mount
   useEffect(() => {
@@ -440,12 +456,67 @@ export function Sidebar() {
   }
 
   function handleCreateTreeGroup() {
-    // Auto-increment: "Group 1", "Group 2", etc.
-    const existing = new Set(treeGroups.map((g) => g.name));
-    let n = 1;
-    while (existing.has(`Group ${n}`)) n++;
-    api.createTreeGroup(`Group ${n}`).catch(console.error);
+    api
+      .createTreeGroup(nextAutoGroupName())
+      .then(() => refreshTreeGroups())
+      .catch(console.error);
   }
+
+  const startBulkSelection = useCallback(
+    (groupId: string, _sessionIds?: string[]) => {
+      setBulkSelectionGroupId(groupId);
+      setBulkSelectedSessionIds(new Set());
+      const firstTarget = treeGroups.find((group) => group.id !== groupId)?.id || "";
+      setBulkTargetGroupId(firstTarget);
+    },
+    [treeGroups],
+  );
+
+  const cancelBulkSelection = useCallback(() => {
+    setBulkSelectionGroupId(null);
+    setBulkSelectedSessionIds(new Set());
+    setBulkTargetGroupId("");
+    setBulkAssigning(false);
+  }, []);
+
+  const toggleBulkSession = useCallback((sessionId: string) => {
+    setBulkSelectedSessionIds((current) => {
+      const next = new Set(current);
+      if (next.has(sessionId)) next.delete(sessionId);
+      else next.add(sessionId);
+      return next;
+    });
+  }, []);
+
+  const toggleBulkSelectAll = useCallback((sessionIds: string[]) => {
+    setBulkSelectedSessionIds((current) => {
+      const allSelected = sessionIds.length > 0 && sessionIds.every((sessionId) => current.has(sessionId));
+      return allSelected ? new Set() : new Set(sessionIds);
+    });
+  }, []);
+
+  const createGroupForBulkAssignment = useCallback(async () => {
+    try {
+      const created = await api.createTreeGroup(nextAutoGroupName());
+      await refreshTreeGroups();
+      setBulkTargetGroupId(created.group.id);
+    } catch (err) {
+      console.warn("[sidebar] failed to create bulk target group:", err);
+    }
+  }, [nextAutoGroupName, refreshTreeGroups]);
+
+  const applyBulkAssignment = useCallback(async () => {
+    if (!bulkSelectionGroupId || bulkSelectedSessionIds.size === 0 || !bulkTargetGroupId) return;
+    setBulkAssigning(true);
+    try {
+      await api.assignSessionsToTreeGroup([...bulkSelectedSessionIds], bulkTargetGroupId);
+      await refreshTreeGroups();
+      cancelBulkSelection();
+    } catch (err) {
+      console.warn("[sidebar] failed to bulk assign sessions:", err);
+      setBulkAssigning(false);
+    }
+  }, [bulkSelectedSessionIds, bulkSelectionGroupId, bulkTargetGroupId, cancelBulkSelection, refreshTreeGroups]);
 
   // Focus edit input when entering edit mode
   useEffect(() => {
@@ -1125,17 +1196,19 @@ export function Sidebar() {
             )}
 
             <DndContext
-              sensors={sessionSortMode === "activity" ? [] : groupSensors}
+              sensors={sessionSortMode === "activity" || bulkSelectionGroupId ? [] : groupSensors}
               collisionDetection={closestCenter}
-              onDragEnd={sessionSortMode === "activity" ? undefined : handleTreeGroupDragEnd}
+              onDragEnd={sessionSortMode === "activity" || bulkSelectionGroupId ? undefined : handleTreeGroupDragEnd}
               modifiers={[restrictToVerticalAxis]}
             >
               <SortableContext items={treeGroupIds} strategy={verticalListSortingStrategy}>
                 {/* Session-level DndContext enables cross-group drag-and-drop */}
                 <DndContext
-                  sensors={sessionSortMode === "activity" ? [] : sessionSensors}
+                  sensors={sessionSortMode === "activity" || bulkSelectionGroupId ? [] : sessionSensors}
                   collisionDetection={closestCenter}
-                  onDragEnd={sessionSortMode === "activity" ? undefined : handleTreeSessionDragEnd}
+                  onDragEnd={
+                    sessionSortMode === "activity" || bulkSelectionGroupId ? undefined : handleTreeSessionDragEnd
+                  }
                   modifiers={[restrictToVerticalAxis]}
                 >
                   <SortableContext items={allTreeSessionIds} strategy={verticalListSortingStrategy}>
@@ -1159,7 +1232,7 @@ export function Sidebar() {
                               groupDragging={isDragging}
                               onMobileReorderHandleActiveChange={setMobileReorderHandleActive}
                               groupDragHandleProps={
-                                treeViewGroups.length > 1 && sessionSortMode !== "activity"
+                                treeViewGroups.length > 1 && sessionSortMode !== "activity" && !bulkSelectionGroupId
                                   ? {
                                       listeners: listeners as Record<string, unknown> | undefined,
                                       attributes: attributes as unknown as Record<string, unknown>,
@@ -1167,6 +1240,18 @@ export function Sidebar() {
                                   : undefined
                               }
                               herdGroupBadgeThemes={herdGroupBadgeThemes}
+                              bulkSelectionActive={bulkSelectionGroupId === group.id}
+                              bulkSelectedSessionIds={bulkSelectedSessionIds}
+                              bulkTargetGroupId={bulkTargetGroupId}
+                              bulkAssigning={bulkAssigning}
+                              availableBulkTargetGroups={treeGroups.filter((candidate) => candidate.id !== group.id)}
+                              onStartBulkSelection={startBulkSelection}
+                              onCancelBulkSelection={cancelBulkSelection}
+                              onToggleBulkSession={toggleBulkSession}
+                              onToggleBulkSelectAll={toggleBulkSelectAll}
+                              onBulkTargetGroupChange={setBulkTargetGroupId}
+                              onApplyBulkAssignment={applyBulkAssignment}
+                              onCreateGroupForBulkAssignment={createGroupForBulkAssignment}
                               {...sessionItemProps}
                             />
                           </div>
