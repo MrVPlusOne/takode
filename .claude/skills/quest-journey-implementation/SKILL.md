@@ -1,10 +1,10 @@
 name: quest-journey-implementation
-description: "Legacy compatibility alias. New work should use quest-journey-implement."
+description: "Installed legacy compatibility alias. New work should use quest-journey-implement."
 ---
 
 # Legacy Quest Journey Alias: Implementation
 
-This file exists only as a compatibility pointer for older references.
+This installed alias exists only for backward compatibility with older references.
 
 - Preferred phase/skill: `/quest-journey-implement`
 - Canonical board state: `IMPLEMENTING`

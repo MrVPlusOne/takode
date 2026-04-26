@@ -6,7 +6,9 @@ import {
   getQuestJourneyPhaseForState,
   getWaitForRefKind,
   normalizeQuestJourneyPlan,
+  normalizeQuestJourneyPhaseIds,
   type BoardQueueWarning,
+  type QuestJourneyPhaseId,
 } from "../../shared/quest-journey.js";
 import { HERD_WORKER_SLOT_LIMIT } from "../../shared/takode-constants.js";
 import type { BoardRow, TakodeEvent, TakodeHerdBatchSnapshot } from "../session-types.js";
@@ -66,6 +68,12 @@ export interface WorkBoardStateDeps {
 }
 
 type BoardSessionsLike = Map<string, SessionLike>;
+
+const LEGACY_NO_CODE_COMPAT_PHASE_IDS = [
+  "planning",
+  "implement",
+  "code-review",
+] as const satisfies readonly QuestJourneyPhaseId[];
 
 export function getBoard(session: SessionLike): BoardRow[] {
   return Array.from(session.board.values() as Iterable<BoardRow>).sort((a, b) => a.createdAt - b.createdAt);
@@ -156,6 +164,25 @@ export function buildBoardCompletionSummary(rows: BoardRow[]): string {
   return `${rows.length} quests ready for review: ${rows.map((row) => row.questId).join(", ")}`;
 }
 
+function getBoardRowPhaseIds(row: Pick<BoardRow, "journey" | "noCode">): QuestJourneyPhaseId[] {
+  const explicitPhaseIds = normalizeQuestJourneyPhaseIds(row.journey?.phaseIds);
+  if (explicitPhaseIds.length > 0) return explicitPhaseIds;
+  return row.noCode === true ? [...LEGACY_NO_CODE_COMPAT_PHASE_IDS] : [...DEFAULT_QUEST_JOURNEY_PHASE_IDS];
+}
+
+function normalizeBoardRowJourneyPlan(
+  row: Pick<BoardRow, "journey" | "noCode">,
+  status?: string,
+): NonNullable<BoardRow["journey"]> {
+  return normalizeQuestJourneyPlan(
+    {
+      ...row.journey,
+      phaseIds: getBoardRowPhaseIds(row),
+    },
+    status,
+  );
+}
+
 function completeBoardRow(
   session: SessionLike,
   questId: string,
@@ -225,6 +252,7 @@ export function upsertBoardRow(
   const clearingWorker = row.worker !== undefined && !row.worker;
   const now = Date.now();
   const status = mergeStr(row.status, existing?.status);
+  const noCode = row.noCode !== undefined ? row.noCode : existing?.noCode;
   const baseJourney =
     row.journey || existing?.journey
       ? {
@@ -243,7 +271,8 @@ export function upsertBoardRow(
     title: mergeStr(row.title, existing?.title),
     worker: mergeStr(row.worker, existing?.worker),
     workerNum: clearingWorker ? undefined : (row.workerNum ?? existing?.workerNum),
-    journey: normalizeQuestJourneyPlan(baseJourney, status),
+    noCode,
+    journey: normalizeBoardRowJourneyPlan({ journey: baseJourney, noCode }, status),
     status,
     waitFor: row.waitFor !== undefined ? (row.waitFor.length > 0 ? row.waitFor : undefined) : existing?.waitFor,
     createdAt: existing?.createdAt ?? now,
@@ -328,7 +357,7 @@ export function advanceBoardRow(
 
   const currentIdx = states.indexOf(row.status ?? "");
   const previousState = row.status;
-  const plannedPhaseIds = row.journey?.phaseIds?.length ? row.journey.phaseIds : DEFAULT_QUEST_JOURNEY_PHASE_IDS;
+  const plannedPhaseIds = getBoardRowPhaseIds(row);
   const currentPhaseId =
     row.journey?.currentPhaseId && plannedPhaseIds.includes(row.journey.currentPhaseId)
       ? row.journey.currentPhaseId
@@ -345,14 +374,17 @@ export function advanceBoardRow(
     const nextPhase = getQuestJourneyPhase(nextPhaseId);
     if (nextPhase) {
       row.status = nextPhase.state;
-      row.journey = normalizeQuestJourneyPlan(
+      row.journey = normalizeBoardRowJourneyPlan(
         {
-          presetId: row.journey?.presetId,
-          phaseIds: plannedPhaseIds,
-          currentPhaseId: nextPhase.id,
-          revisionReason: row.journey?.revisionReason,
-          revisedAt: row.journey?.revisedAt,
-          revisionCount: row.journey?.revisionCount,
+          noCode: row.noCode,
+          journey: {
+            presetId: row.journey?.presetId,
+            phaseIds: plannedPhaseIds,
+            currentPhaseId: nextPhase.id,
+            revisionReason: row.journey?.revisionReason,
+            revisedAt: row.journey?.revisedAt,
+            revisionCount: row.journey?.revisionCount,
+          },
         },
         nextPhase.state,
       );
@@ -370,7 +402,7 @@ export function advanceBoardRow(
   }
 
   row.status = currentIdx === -1 ? states[0] : states[currentIdx + 1];
-  row.journey = normalizeQuestJourneyPlan(row.journey, row.status);
+  row.journey = normalizeBoardRowJourneyPlan(row, row.status);
   if (row.status !== "QUEUED") row.waitFor = undefined;
   row.updatedAt = Date.now();
   session.board.set(questId, row);

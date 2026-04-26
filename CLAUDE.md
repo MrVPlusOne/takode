@@ -36,6 +36,7 @@ The Takode server symlinks project skills into global skill directories at start
 | `playwright-e2e-tester` | `.claude/skills/playwright-e2e-tester/` | E2E browser testing via Playwright MCP |
 
 Additionally, `quest-integration.ts` generates and installs the `quest` skill docs (from `web/server/templates/quest-skill-docs.md`) into both Claude and Codex skill directories at startup.
+Legacy compatibility aliases also remain installed for older references: `quest-journey-implementation`, `quest-journey-skeptic-review`, `quest-journey-reviewer-groom`, and `quest-journey-porting`. New work should use the canonical phase skills above.
 
 ## Development Commands
 

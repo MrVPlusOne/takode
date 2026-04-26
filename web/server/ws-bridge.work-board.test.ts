@@ -1235,6 +1235,47 @@ describe("work board", () => {
     ]);
   });
 
+  it("advanceBoardRow treats legacy noCode rows without explicit phases as port-free compatibility plans", () => {
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    bridge.upsertBoardRow("s1", {
+      questId: "q-1",
+      title: "Legacy zero-change quest",
+      noCode: true,
+      status: "CODE_REVIEWING",
+    });
+
+    expect(bridge.getBoard("s1")).toEqual([
+      expect.objectContaining({
+        questId: "q-1",
+        noCode: true,
+        journey: expect.objectContaining({
+          phaseIds: ["planning", "implement", "code-review"],
+          currentPhaseId: "code-review",
+        }),
+        status: "CODE_REVIEWING",
+      }),
+    ]);
+
+    const result = bridge.advanceBoardRow("s1", "q-1");
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        removed: true,
+        previousState: "CODE_REVIEWING",
+      }),
+    );
+    expect(bridge.getBoard("s1")).toHaveLength(0);
+    expect(bridge.getCompletedBoard("s1")).toEqual([
+      expect.objectContaining({
+        questId: "q-1",
+        noCode: true,
+        status: "CODE_REVIEWING",
+      }),
+    ]);
+  });
+
   it("advanceBoardRowNoGroom returns migration guidance without mutating the board", () => {
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");

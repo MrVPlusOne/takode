@@ -1,10 +1,10 @@
 name: quest-journey-reviewer-groom
-description: "Legacy compatibility alias. New work should use quest-journey-code-review."
+description: "Installed legacy compatibility alias. New work should use quest-journey-code-review."
 ---
 
 # Legacy Quest Journey Alias: Reviewer-Groom
 
-This file exists only as a compatibility pointer for older references.
+This installed alias exists only for backward compatibility with older references.
 
 - Preferred phase/skill: `/quest-journey-code-review`
 - Legacy board state `GROOM_REVIEWING` normalizes to `CODE_REVIEWING`

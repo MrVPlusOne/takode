@@ -1,10 +1,10 @@
 name: quest-journey-porting
-description: "Legacy compatibility alias. New work should use quest-journey-port."
+description: "Installed legacy compatibility alias. New work should use quest-journey-port."
 ---
 
 # Legacy Quest Journey Alias: Porting
 
-This file exists only as a compatibility pointer for older references.
+This installed alias exists only for backward compatibility with older references.
 
 - Preferred phase/skill: `/quest-journey-port`
 - Canonical board state: `PORTING`

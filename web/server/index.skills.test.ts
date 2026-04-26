@@ -7,7 +7,7 @@ const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const INDEX_PATH = join(SERVER_DIR, "index.ts");
 
 describe("index startup skill registration", () => {
-  it("does not register missing repo-only skills in ensureSkillSymlinks", async () => {
+  it("registers canonical Journey skills plus legacy compatibility aliases", async () => {
     // q-275: if a nonexistent project skill is reintroduced here, startup will
     // recreate warning spam and potentially broken symlink state. Guard the
     // actual ensureSkillSymlinks(...) registration list in index.ts directly.
@@ -29,10 +29,10 @@ describe("index startup skill registration", () => {
     expect(registered).toContain("quest-journey-outcome-review");
     expect(registered).toContain("quest-journey-bookkeeping");
     expect(registered).toContain("quest-journey-port");
-    expect(registered).not.toContain("quest-journey-implementation");
-    expect(registered).not.toContain("quest-journey-skeptic-review");
-    expect(registered).not.toContain("quest-journey-reviewer-groom");
-    expect(registered).not.toContain("quest-journey-porting");
+    expect(registered).toContain("quest-journey-implementation");
+    expect(registered).toContain("quest-journey-skeptic-review");
+    expect(registered).toContain("quest-journey-reviewer-groom");
+    expect(registered).toContain("quest-journey-porting");
     expect(registered).toContain("self-groom");
     expect(registered).toContain("reviewer-groom");
     expect(registered).toContain("skeptic-review");
