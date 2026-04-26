@@ -1571,6 +1571,43 @@ describe("Sidebar", { timeout: 10000 }, () => {
     });
   });
 
+  it("auto-expands a collapsed group when bulk mode starts", () => {
+    const session1 = makeSession("s1", { cwd: "/home/user/project-a", model: "Session One" });
+    const session2 = makeSession("s2", { cwd: "/home/user/project-a", model: "Session Two" });
+    const sdk1 = makeSdkSession("s1", { cwd: "/home/user/project-a" });
+    const sdk2 = makeSdkSession("s2", { cwd: "/home/user/project-a" });
+    const groups = [
+      { id: "alpha", name: "Alpha" },
+      { id: "beta", name: "Beta" },
+    ];
+    mockState = createMockState({
+      sessions: new Map([
+        ["s1", session1],
+        ["s2", session2],
+      ]),
+      sdkSessions: [sdk1, sdk2],
+      treeGroups: groups,
+      treeAssignments: new Map([
+        ["s1", "alpha"],
+        ["s2", "alpha"],
+      ]),
+      collapsedTreeGroups: new Set(["alpha"]),
+    });
+    mockState.toggleTreeGroupCollapse.mockImplementation((groupId: string) => {
+      const next = new Set(mockState.collapsedTreeGroups);
+      next.delete(groupId);
+      mockState.collapsedTreeGroups = next;
+    });
+
+    render(<Sidebar />);
+
+    fireEvent.click(screen.getByLabelText("Bulk assign sessions in Alpha"));
+
+    expect(mockState.toggleTreeGroupCollapse).toHaveBeenCalledWith("alpha");
+    expect(screen.getByText("0 selected")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Assign" })).toBeInTheDocument();
+  });
+
   it("context menu supports copy actions and confirms delete", async () => {
     const createdAt = 1700000000000;
     const session = makeSession("s1");

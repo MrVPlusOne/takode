@@ -464,12 +464,15 @@ export function Sidebar() {
 
   const startBulkSelection = useCallback(
     (groupId: string, _sessionIds?: string[]) => {
+      if (collapsedTreeGroups.has(groupId)) {
+        toggleTreeGroupCollapse(groupId);
+      }
       setBulkSelectionGroupId(groupId);
       setBulkSelectedSessionIds(new Set());
       const firstTarget = treeGroups.find((group) => group.id !== groupId)?.id || "";
       setBulkTargetGroupId(firstTarget);
     },
-    [treeGroups],
+    [collapsedTreeGroups, toggleTreeGroupCollapse, treeGroups],
   );
 
   const cancelBulkSelection = useCallback(() => {
