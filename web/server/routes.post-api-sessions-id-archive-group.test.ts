@@ -1,4 +1,4 @@
-import { vi, describe, it, expect, beforeEach } from "vitest";
+import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 
 // Mock env-manager and git-utils modules before any imports
 vi.mock("./env-manager.js", () => ({
@@ -171,7 +171,7 @@ vi.mock("./usage-limits.js", () => ({
 
 import { Hono } from "hono";
 import { execSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { access, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -186,6 +186,7 @@ import * as questStore from "./quest-store.js";
 import * as sessionNames from "./session-names.js";
 import * as settingsManager from "./settings-manager.js";
 import * as transcriptionEnhancer from "./transcription-enhancer.js";
+import * as treeGroupStore from "./tree-group-store.js";
 import { containerManager } from "./container-manager.js";
 
 // ─── Mock factories ──────────────────────────────────────────────────────────
@@ -471,6 +472,7 @@ let sessionStore: ReturnType<typeof createMockStore>;
 let tracker: ReturnType<typeof createMockTracker>;
 let recorder: ReturnType<typeof createMockRecorder>;
 let timerManager: ReturnType<typeof createMockTimerManager>;
+let treeGroupTempDir: string;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -490,6 +492,8 @@ beforeEach(() => {
   tracker = createMockTracker();
   recorder = createMockRecorder();
   timerManager = createMockTimerManager();
+  treeGroupTempDir = mkdtempSync(join(tmpdir(), "routes-archive-tree-groups-"));
+  treeGroupStore._resetForTest(join(treeGroupTempDir, "tree-groups.json"));
   app = new Hono();
   const terminalManager = { getInfo: () => null, spawn: () => "", kill: () => {} } as any;
   app.route(
@@ -510,6 +514,11 @@ beforeEach(() => {
   // Default no-op mocks for container workspace isolation (called during container session creation)
   vi.spyOn(containerManager, "copyWorkspaceToContainer").mockResolvedValue(undefined);
   vi.spyOn(containerManager, "reseedGitAuth").mockImplementation(() => {});
+});
+
+afterEach(async () => {
+  await treeGroupStore._flushForTest();
+  rmSync(treeGroupTempDir, { recursive: true, force: true });
 });
 
 // ─── Sessions ────────────────────────────────────────────────────────────────
@@ -535,6 +544,28 @@ async function parseSSE(res: Response): Promise<{ event: string; data: string }[
 }
 
 describe("POST /api/sessions/:id/archive-group", () => {
+  it("retains tree group assignments for archived sessions", async () => {
+    const group = await treeGroupStore.createGroup("Archive Me");
+    await treeGroupStore.assignSession("leader-1", group.id);
+    await treeGroupStore.assignSession("worker-1", group.id);
+    ensureBridgeSession(bridge, "leader-1", { state: { treeGroupId: group.id } });
+    ensureBridgeSession(bridge, "worker-1", { state: { treeGroupId: group.id } });
+    launcher.getSession.mockImplementation((sessionId: string) =>
+      sessionId === "leader-1"
+        ? { sessionId: "leader-1", state: "connected", cwd: "/test", isOrchestrator: true, archived: false }
+        : { sessionId: "worker-1", state: "connected", cwd: "/test", herdedBy: "leader-1", archived: false },
+    );
+    launcher.getHerdedSessions.mockReturnValue([
+      { sessionId: "worker-1", state: "connected", cwd: "/test", herdedBy: "leader-1", archived: false },
+    ]);
+
+    const res = await app.request("/api/sessions/leader-1/archive-group", { method: "POST" });
+
+    expect(res.status).toBe(200);
+    expect(await treeGroupStore.getGroupForSession("leader-1")).toBe(group.id);
+    expect(await treeGroupStore.getGroupForSession("worker-1")).toBe(group.id);
+  });
+
   it("archives leader and all herded workers", async () => {
     // Leader session with isOrchestrator flag
     launcher.getSession.mockReturnValue({

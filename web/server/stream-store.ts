@@ -304,7 +304,7 @@ export async function defaultStreamScope(
   const session = sessionId?.trim();
   if (session) {
     const groupId = await getGroupForSession(session);
-    if (groupId) return streamScopeForSessionGroup(groupId, server);
+    return streamScopeForSessionGroup(groupId ?? "default", server);
   }
   const project = (await resolveGitProjectScopeComponent(cwd)) ?? basename(resolve(cwd)) ?? "project";
   return [server, "project", project].join(":");

@@ -222,10 +222,76 @@ export function createSessionsRoutes(ctx: RouteContext) {
     return trimmed || undefined;
   };
 
+  const normalizeDurableTreeGroupId = (value: unknown): string => normalizeTreeGroupId(value) || "default";
+
+  const validateRequestedTreeGroupId = async (value: unknown): Promise<string | undefined> => {
+    const requestedGroupId = normalizeTreeGroupId(value);
+    if (!requestedGroupId || requestedGroupId === "default") return requestedGroupId;
+    const treeState = await treeGroupStore.getState();
+    if (!treeState.groups.some((group) => group.id === requestedGroupId)) {
+      throwPreparationError(`Tree group not found: ${requestedGroupId}`, 400, "resolving_env");
+    }
+    return requestedGroupId;
+  };
+
+  const updateSessionTreeGroupMetadata = async (
+    sessionId: string,
+    groupId: string,
+    options?: { broadcastSession?: boolean; persist?: boolean },
+  ): Promise<void> => {
+    const session = wsBridge.getSession(sessionId);
+    if (!session) return;
+    const normalizedGroupId = normalizeDurableTreeGroupId(groupId);
+    if (session.state.treeGroupId === normalizedGroupId) return;
+    session.state.treeGroupId = normalizedGroupId;
+    if (options?.persist !== false) {
+      if ((session as any).searchDataOnly) {
+        const persisted = await sessionStore.load(sessionId);
+        if (persisted) {
+          persisted.state.treeGroupId = normalizedGroupId;
+          sessionStore.saveSync(persisted);
+        }
+      } else {
+        wsBridge.persistSessionById(sessionId);
+      }
+    }
+    if (options?.broadcastSession !== false) {
+      wsBridge.broadcastToSession(sessionId, {
+        type: "session_update",
+        session: { treeGroupId: normalizedGroupId },
+      } as any);
+    }
+  };
+
+  const assignDurableSessionTreeGroup = async (
+    sessionId: string,
+    groupId: string,
+    options?: { broadcastSession?: boolean; broadcastTreeGroups?: boolean; persist?: boolean },
+  ): Promise<string> => {
+    const normalizedGroupId = normalizeDurableTreeGroupId(groupId);
+    await treeGroupStore.assignSession(sessionId, normalizedGroupId);
+    await updateSessionTreeGroupMetadata(sessionId, normalizedGroupId, {
+      broadcastSession: options?.broadcastSession,
+      persist: options?.persist,
+    });
+    if (options?.broadcastTreeGroups !== false) {
+      await broadcastTreeGroups();
+    }
+    return normalizedGroupId;
+  };
+
+  const syncRestoredSessionMetadataFromAssignments = async (): Promise<void> => {
+    const treeState = await treeGroupStore.getState();
+    for (const info of launcher.listSessions()) {
+      await updateSessionTreeGroupMetadata(info.sessionId, treeState.assignments[info.sessionId] || "default");
+    }
+  };
+
   const applySessionPostLaunch = async (
     session: Awaited<ReturnType<CliLauncher["launch"]>>,
     sessionConfig: SessionConfig,
   ) => {
+    const initialTreeGroupId = normalizeDurableTreeGroupId(sessionConfig.treeGroupId);
     if (sessionConfig.containerInfo) {
       containerManager.retrack(sessionConfig.containerInfo.containerId, session.sessionId);
     }
@@ -244,6 +310,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
     applyInitialSessionState(session.sessionId, {
       ...(sessionConfig.containerInfo ? { containerizedHostCwd: sessionConfig.initialCwd } : {}),
       cwd: sessionConfig.initialCwd,
+      treeGroupId: initialTreeGroupId,
       askPermission: sessionConfig.initialModeState.askPermission,
       uiMode: sessionConfig.initialModeState.uiMode,
       ...(sessionConfig.resumeCliSessionId ? { resumedFromExternal: true } : {}),
@@ -281,10 +348,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
       sessionNames.setName(session.sessionId, generateUniqueSessionName(existingNames));
     }
 
-    if (sessionConfig.treeGroupId && sessionConfig.treeGroupId !== "default") {
-      await treeGroupStore.assignSession(session.sessionId, sessionConfig.treeGroupId);
-      await broadcastTreeGroups();
-    }
+    await assignDurableSessionTreeGroup(session.sessionId, initialTreeGroupId, { broadcastSession: false });
 
     if (sessionConfig.createdBy) {
       const creatorId = resolveId(String(sessionConfig.createdBy));
@@ -292,20 +356,15 @@ export function createSessionsRoutes(ctx: RouteContext) {
       if (creator?.isOrchestrator) {
         launcher.herdSessions(creator.sessionId, [session.sessionId]);
         // Auto-assign new worker to leader's tree group
-        treeGroupStore
-          .getGroupForSession(creator.sessionId)
+        Promise.resolve(wsBridge.getSession(creator.sessionId)?.state.treeGroupId)
+          .then((leaderGroupFromState) => leaderGroupFromState || treeGroupStore.getGroupForSession(creator.sessionId))
           .then((leaderGroup) => {
-            if (leaderGroup) {
-              treeGroupStore
-                .assignSession(session.sessionId, leaderGroup)
-                .then(() => broadcastTreeGroups())
-                .catch((err) => {
-                  console.warn("[tree-group] failed to assign worker to leader group:", err);
-                });
-            }
+            return assignDurableSessionTreeGroup(session.sessionId, leaderGroup || "default", {
+              broadcastSession: false,
+            });
           })
           .catch((err) => {
-            console.warn("[tree-group] failed to lookup leader group:", err);
+            console.warn("[tree-group] failed to assign worker to leader group:", err);
           });
       }
     }
@@ -351,6 +410,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
       };
       const initialCwd = body.cwd ? resolve(expandTilde(body.cwd)) : process.cwd();
       const binarySettings = getSettings();
+      const requestedTreeGroupId = await validateRequestedTreeGroupId(body.treeGroupId);
       const launchOptions: LaunchOptions = {
         cwd: initialCwd,
         claudeBinary: body.claudeBinary || binarySettings.claudeBinary || undefined,
@@ -370,7 +430,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
         envSlug: body.envSlug,
         createdBy: body.createdBy,
         resumeCliSessionId: body.resumeCliSessionId,
-        treeGroupId: normalizeTreeGroupId(body.treeGroupId),
+        treeGroupId: requestedTreeGroupId,
       };
     }
 
@@ -659,6 +719,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
     }
 
     const askPermissionRequested = body.askPermission !== false;
+    const requestedTreeGroupId = await validateRequestedTreeGroupId(body.treeGroupId);
     const initialModeState = resolveInitialModeState(backend, body.permissionMode, askPermissionRequested);
     const model = await resolveSessionCreateModel({
       backend,
@@ -706,7 +767,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
       noAutoName: body.noAutoName === true,
       fixedName: typeof body.fixedName === "string" ? body.fixedName.trim() : undefined,
       reviewerOf: typeof body.reviewerOf === "number" ? body.reviewerOf : undefined,
-      treeGroupId: normalizeTreeGroupId(body.treeGroupId),
+      treeGroupId: requestedTreeGroupId,
       worktreeInfo,
       containerInfo,
     };
@@ -1260,6 +1321,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
       return c.json({ error: "Invalid body" }, 400);
     }
     await treeGroupStore.setState(body);
+    await syncRestoredSessionMetadataFromAssignments();
     await broadcastTreeGroups();
     return c.json({ ok: true });
   });
@@ -1289,6 +1351,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
     const id = c.req.param("id");
     const ok = await treeGroupStore.deleteGroup(id);
     if (!ok) return c.json({ error: "Cannot delete default group" }, 400);
+    await syncRestoredSessionMetadataFromAssignments();
     await broadcastTreeGroups();
     return c.json({ ok: true });
   });
@@ -1299,8 +1362,11 @@ export function createSessionsRoutes(ctx: RouteContext) {
     if (!sessionId || !groupId) {
       return c.json({ error: "sessionId and groupId are required" }, 400);
     }
-    await treeGroupStore.assignSession(sessionId, groupId);
-    await broadcastTreeGroups();
+    const treeState = await treeGroupStore.getState();
+    if (!treeState.groups.some((group) => group.id === groupId)) {
+      return c.json({ error: "Group not found" }, 404);
+    }
+    await assignDurableSessionTreeGroup(sessionId, groupId);
     return c.json({ ok: true });
   });
   api.patch("/tree-groups/node-order", async (c) => {

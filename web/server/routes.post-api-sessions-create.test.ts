@@ -559,6 +559,21 @@ describe("POST /api/sessions/create", () => {
     );
   });
 
+  it("persists explicit default tree group metadata during session creation", async () => {
+    const res = await app.request("/api/sessions/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cwd: "/test" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(bridge.applyInitialSessionState).toHaveBeenCalledWith(
+      "session-1",
+      expect.objectContaining({ treeGroupId: "default" }),
+    );
+    expect(await treeGroupStore.getGroupForSession("session-1")).toBe("default");
+  });
+
   it("persists tree group assignment during session creation", async () => {
     // The server must persist group membership as part of creation so a restart
     // cannot drop a newly-created grouped session back into Default.
@@ -571,11 +586,46 @@ describe("POST /api/sessions/create", () => {
     });
 
     expect(res.status).toBe(200);
+    expect(bridge.applyInitialSessionState).toHaveBeenCalledWith(
+      "session-1",
+      expect.objectContaining({ treeGroupId: group.id }),
+    );
     expect(await treeGroupStore.getGroupForSession("session-1")).toBe(group.id);
     await treeGroupStore._flushForTest();
 
     treeGroupStore._resetForTest(join(treeGroupTempDir, "tree-groups.json"));
     expect(await treeGroupStore.getGroupForSession("session-1")).toBe(group.id);
+  });
+
+  it("syncs session metadata and assignment index on manual reassignment", async () => {
+    const group = await treeGroupStore.createGroup("Reassigned");
+    ensureBridgeSession(bridge, "s1", { state: { treeGroupId: "default" } });
+
+    const res = await app.request("/api/tree-groups/assign", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId: "s1", groupId: group.id }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(bridge._sessions["s1"].state.treeGroupId).toBe(group.id);
+    expect(bridge.persistSessionById).toHaveBeenCalledWith("s1");
+    expect(await treeGroupStore.getGroupForSession("s1")).toBe(group.id);
+  });
+
+  it("reassigns affected sessions to explicit default when deleting a group", async () => {
+    const group = await treeGroupStore.createGroup("To Delete");
+    ensureBridgeSession(bridge, "s1", { state: { treeGroupId: group.id } });
+    launcher.listSessions.mockReturnValue([{ sessionId: "s1" }]);
+    await treeGroupStore.assignSession("s1", group.id);
+
+    const res = await app.request(`/api/tree-groups/groups/${group.id}`, {
+      method: "DELETE",
+    });
+
+    expect(res.status).toBe(200);
+    expect(bridge._sessions["s1"].state.treeGroupId).toBe("default");
+    expect(await treeGroupStore.getGroupForSession("s1")).toBe("default");
   });
 
   it("injects environment variables when envSlug is provided", async () => {

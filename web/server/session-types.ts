@@ -705,6 +705,8 @@ export interface CodexOutboundTurn {
 
 export interface SessionState {
   session_id: string;
+  /** Durable Takode session-group identity. Explicitly set to "default" when ungrouped. */
+  treeGroupId?: string;
   /** Whether this session is an orchestrator/leader session. */
   isOrchestrator?: boolean;
   backend_type?: BackendType;

@@ -199,6 +199,7 @@ export function applyInitialSessionState(
   options: {
     containerizedHostCwd?: string;
     cwd?: string;
+    treeGroupId?: string;
     askPermission?: boolean;
     uiMode?: "plan" | "agent";
     resumedFromExternal?: boolean;
@@ -210,12 +211,21 @@ export function applyInitialSessionState(
   },
   deps: { persistSession: (session: SessionLike) => void; prefillSlashCommands: (session: SessionLike) => void },
 ): void {
+  let shouldPersist = false;
+
   if (options.containerizedHostCwd) {
     session.state.is_containerized = true;
     session.state.cwd = options.containerizedHostCwd;
   }
   if (options.cwd && !session.state.cwd) {
     session.state.cwd = options.cwd;
+  }
+  if (typeof options.treeGroupId === "string") {
+    const normalizedTreeGroupId = options.treeGroupId.trim() || "default";
+    if (session.state.treeGroupId !== normalizedTreeGroupId) {
+      session.state.treeGroupId = normalizedTreeGroupId;
+      shouldPersist = true;
+    }
   }
   if (options.worktree) {
     session.state.is_worktree = true;
@@ -232,10 +242,13 @@ export function applyInitialSessionState(
   if (options.askPermission !== undefined) {
     session.state.askPermission = options.askPermission;
     session.state.uiMode = options.uiMode ?? "plan";
-    deps.persistSession(session);
+    shouldPersist = true;
   }
   if (options.resumedFromExternal) {
     session.resumedFromExternal = true;
+  }
+  if (shouldPersist) {
+    deps.persistSession(session);
   }
   deps.prefillSlashCommands(session);
 }

@@ -158,7 +158,7 @@ describe("stream store", () => {
 
     expect(mainScope).toMatch(/^scope-review:project:companion-[a-f0-9]{8}$/);
     expect(worktreeScope).toBe(mainScope);
-    expect(unknownSessionScope).toBe(mainScope);
+    expect(unknownSessionScope).toBe("scope-review:session-group:default");
   });
 
   it("keeps fallback project scopes distinct for unrelated repos with the same basename", async () => {

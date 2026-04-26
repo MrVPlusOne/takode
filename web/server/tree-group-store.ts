@@ -18,6 +18,23 @@ export interface TreeGroupState {
   nodeOrder: Record<string, string[]>; // groupId -> ordered root session IDs
 }
 
+export interface SessionTreeGroupSnapshot {
+  sessionId: string;
+  treeGroupId?: string | null;
+}
+
+export interface ReconcileSessionTreeGroupsResult {
+  changed: boolean;
+  importedLegacyGroups: string[];
+  importedLegacyAssignments: string[];
+  resolvedGroups: Record<string, string>;
+  sessionMetadataUpdates: Array<{
+    sessionId: string;
+    treeGroupId: string;
+    source: "metadata" | "scoped_assignment" | "legacy_assignment" | "default";
+  }>;
+}
+
 const DEFAULT_GROUP: TreeGroup = { id: "default", name: "Default" };
 const LEGACY_PATH = join(homedir(), ".companion", "tree-groups.json");
 const DEFAULT_SCOPED_DIR = join(homedir(), ".companion", "tree-groups");
@@ -97,6 +114,23 @@ function sanitizeNodeOrder(input: unknown, validGroupIds: Set<string>): Record<s
   return out;
 }
 
+function normalizeSessionGroupId(value: string | null | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function cloneState(input: TreeGroupState): TreeGroupState {
+  const nodeOrder: Record<string, string[]> = {};
+  for (const [groupId, order] of Object.entries(input.nodeOrder)) {
+    nodeOrder[groupId] = [...order];
+  }
+  return {
+    groups: input.groups.map((group) => ({ ...group })),
+    assignments: { ...input.assignments },
+    nodeOrder,
+  };
+}
+
 // ─── Load / Persist ──────────────────────────────────────────────────────────
 
 function sanitizeServerIdForPath(serverId: string): string {
@@ -123,24 +157,32 @@ function shouldUseLegacyFallback(): boolean {
   return !explicitFilePath && currentPort() === DEFAULT_PORT_PROD;
 }
 
+async function readStateFromPath(path: string): Promise<TreeGroupState | null> {
+  try {
+    const raw = await readFile(path, "utf-8");
+    return sanitizeState(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
+
 async function ensureLoaded(): Promise<void> {
   if (loaded) return;
-  try {
-    const raw = await readFile(currentFilePath(), "utf-8");
-    state = sanitizeState(JSON.parse(raw));
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
-    if (code === "ENOENT" && shouldUseLegacyFallback()) {
-      try {
-        const raw = await readFile(legacyPath, "utf-8");
-        state = sanitizeState(JSON.parse(raw));
-      } catch {
-        state = { groups: [{ ...DEFAULT_GROUP }], assignments: {}, nodeOrder: {} };
-      }
-    } else {
-      state = { groups: [{ ...DEFAULT_GROUP }], assignments: {}, nodeOrder: {} };
+  const scoped = await readStateFromPath(currentFilePath());
+  if (scoped) {
+    state = scoped;
+    loaded = true;
+    return;
+  }
+  if (shouldUseLegacyFallback()) {
+    const legacy = await readStateFromPath(legacyPath);
+    if (legacy) {
+      state = legacy;
+      loaded = true;
+      return;
     }
   }
+  state = { groups: [{ ...DEFAULT_GROUP }], assignments: {}, nodeOrder: {} };
   loaded = true;
 }
 
@@ -162,13 +204,7 @@ function persist(): void {
 /** Get the full tree group state. */
 export async function getState(): Promise<TreeGroupState> {
   await ensureLoaded();
-  const nodeOrderCopy: Record<string, string[]> = {};
-  for (const [k, v] of Object.entries(state.nodeOrder)) nodeOrderCopy[k] = [...v];
-  return {
-    groups: state.groups.map((g) => ({ ...g })),
-    assignments: { ...state.assignments },
-    nodeOrder: nodeOrderCopy,
-  };
+  return cloneState(state);
 }
 
 /** Replace full state (for reorder/batch operations). */
@@ -261,6 +297,96 @@ export async function setNodeOrder(groupId: string, orderedIds: string[]): Promi
 export async function getGroupForSession(sessionId: string): Promise<string | undefined> {
   await ensureLoaded();
   return state.assignments[sessionId];
+}
+
+export async function reconcileSessionTreeGroups(
+  sessions: SessionTreeGroupSnapshot[],
+): Promise<ReconcileSessionTreeGroupsResult> {
+  await ensureLoaded();
+
+  const scopedState = cloneState(state);
+  const nextState = cloneState(state);
+  const legacyState = await readStateFromPath(legacyPath);
+  const nextGroupIds = new Set(nextState.groups.map((group) => group.id));
+  const legacyGroups = new Map((legacyState?.groups ?? []).map((group) => [group.id, group]));
+  const localSessionIds = new Set(
+    sessions.map((candidate) => candidate.sessionId.trim()).filter((sessionId) => sessionId.length > 0),
+  );
+  const processedSessionIds = new Set<string>();
+  const importedLegacyGroups = new Set<string>();
+  const importedLegacyAssignments = new Set<string>();
+  const resolvedGroups: Record<string, string> = {};
+  const sessionMetadataUpdates: ReconcileSessionTreeGroupsResult["sessionMetadataUpdates"] = [];
+
+  const ensureGroupExists = (groupId: string): boolean => {
+    if (nextGroupIds.has(groupId)) return true;
+    const legacyGroup = legacyGroups.get(groupId);
+    if (!legacyGroup) return false;
+    nextState.groups.push({ ...legacyGroup });
+    nextGroupIds.add(groupId);
+    importedLegacyGroups.add(groupId);
+    return true;
+  };
+
+  for (const candidate of sessions) {
+    const sessionId = candidate.sessionId.trim();
+    if (!sessionId || processedSessionIds.has(sessionId)) continue;
+    processedSessionIds.add(sessionId);
+
+    const metadataGroup = normalizeSessionGroupId(candidate.treeGroupId);
+    const scopedAssignment = normalizeSessionGroupId(scopedState.assignments[sessionId]);
+    const legacyAssignment = normalizeSessionGroupId(legacyState?.assignments[sessionId]);
+    let resolvedGroup = metadataGroup;
+    let source: ReconcileSessionTreeGroupsResult["sessionMetadataUpdates"][number]["source"] = "metadata";
+
+    if (!resolvedGroup) {
+      if (scopedAssignment) {
+        resolvedGroup = scopedAssignment;
+        source = "scoped_assignment";
+      } else if (legacyAssignment) {
+        resolvedGroup = legacyAssignment;
+        source = "legacy_assignment";
+      } else {
+        resolvedGroup = "default";
+        source = "default";
+      }
+    }
+
+    if (!ensureGroupExists(resolvedGroup)) {
+      resolvedGroup = "default";
+      source = "default";
+    }
+
+    resolvedGroups[sessionId] = resolvedGroup;
+    if (source === "legacy_assignment") {
+      importedLegacyAssignments.add(sessionId);
+      const legacyOrder = legacyState?.nodeOrder[resolvedGroup];
+      if (legacyOrder && !nextState.nodeOrder[resolvedGroup]) {
+        const filtered = legacyOrder.filter((id) => localSessionIds.has(id));
+        if (filtered.length > 0) nextState.nodeOrder[resolvedGroup] = filtered;
+      }
+    }
+
+    nextState.assignments[sessionId] = resolvedGroup;
+    if (metadataGroup !== resolvedGroup) {
+      sessionMetadataUpdates.push({ sessionId, treeGroupId: resolvedGroup, source });
+    }
+  }
+
+  const sanitizedNextState = sanitizeState(nextState);
+  const changed = JSON.stringify(scopedState) !== JSON.stringify(sanitizedNextState);
+  if (changed) {
+    state = sanitizedNextState;
+    persist();
+  }
+
+  return {
+    changed,
+    importedLegacyGroups: [...importedLegacyGroups],
+    importedLegacyAssignments: [...importedLegacyAssignments],
+    resolvedGroups,
+    sessionMetadataUpdates,
+  };
 }
 
 export function initTreeGroupStoreForServer(options: { serverId: string; port: number }): void {

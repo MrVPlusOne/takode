@@ -70,7 +70,7 @@ const packageRoot = process.env.__COMPANION_PACKAGE_ROOT || resolve(__dirname, "
 
 import { DEFAULT_PORT_DEV, DEFAULT_PORT_PROD, RESTART_EXIT_CODE } from "./constants.js";
 import { createLogger, flushServerLogger, initServerLogger } from "./server-logger.js";
-import { initTreeGroupStoreForServer } from "./tree-group-store.js";
+import { initTreeGroupStoreForServer, reconcileSessionTreeGroups } from "./tree-group-store.js";
 
 const defaultPort = process.env.NODE_ENV === "production" ? DEFAULT_PORT_PROD : DEFAULT_PORT_DEV;
 const port = Number(process.env.PORT) || defaultPort;
@@ -154,6 +154,7 @@ wsBridge.imageStore = imageStore;
 wsBridge.timerManager = timerManager;
 wsBridge.pushoverNotifier = pushoverNotifier;
 wsBridge.launcher = launcher;
+const bridgeAny = wsBridge as any;
 wsBridge.sessionNameGetter = (sessionId) => sessionNames.getName(sessionId) || sessionId.slice(0, 8);
 wsBridge.resolveQuestTitle = async (questId) => (await getQuest(questId))?.title ?? null;
 wsBridge.resolveQuestStatus = async (questId) => (await getQuest(questId))?.status ?? null;
@@ -165,10 +166,39 @@ launcher.setEnvResolver(async (slug) => {
 });
 await launcher.restoreFromDisk();
 await wsBridge.restoreFromDisk();
+{
+  const restoredSessions = (
+    Array.from(bridgeAny.sessions.values()) as Array<{
+      id: string;
+      state: { treeGroupId?: string };
+    }>
+  ).map((session) => ({
+    sessionId: session.id,
+    treeGroupId: session.state.treeGroupId,
+  }));
+  const reconciliation = await reconcileSessionTreeGroups(restoredSessions);
+  for (const update of reconciliation.sessionMetadataUpdates) {
+    const session = wsBridge.getSession(update.sessionId);
+    if (session) {
+      session.state.treeGroupId = update.treeGroupId;
+    }
+    const persisted = await sessionStore.load(update.sessionId);
+    if (!persisted) continue;
+    persisted.state.treeGroupId = update.treeGroupId;
+    sessionStore.saveSync(persisted);
+  }
+  if (reconciliation.changed || reconciliation.sessionMetadataUpdates.length > 0) {
+    serverLog.info(
+      `Reconciled session tree groups for ${restoredSessions.length} session(s): ` +
+        `metadataUpdates=${reconciliation.sessionMetadataUpdates.length}, ` +
+        `legacyAssignments=${reconciliation.importedLegacyAssignments.length}, ` +
+        `legacyGroups=${reconciliation.importedLegacyGroups.length}`,
+    );
+  }
+}
 containerManager.restoreState(CONTAINER_STATE_PATH);
 
 // Push-based herd event delivery: wire dispatcher after bridge + launcher are ready
-const bridgeAny = wsBridge as any;
 const herdEventDispatcher = new HerdEventDispatcher(wsBridge, launcher, {
   requestCliRelaunch: (sessionId) => wsBridge.onCLIRelaunchNeeded?.(sessionId),
   getSessionNum: (sessionId) => launcher.getSessionNum(sessionId),
