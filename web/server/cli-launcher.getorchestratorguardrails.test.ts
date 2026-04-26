@@ -425,7 +425,7 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("Initial dispatch authorizes **planning only**");
     expect(guardrails).toContain("Fresh human feedback resets the active cycle");
     expect(guardrails).toContain("do not let stale old-scope completions advance the quest");
-    expect(guardrails).toContain("Zero-code quests do not need port noise");
+    expect(guardrails).toContain("Zero-tracked-change quests still use explicit Journey phases");
     expect(guardrails).toContain("zero git-tracked changes");
     expect(guardrails).toContain(
       "Docs, skills, prompts, templates, and other text-only tracked-file edits are commit-producing work",
@@ -441,11 +441,11 @@ describe("getOrchestratorGuardrails", () => {
     );
     expect(guardrails).toContain("what changed, why it matters, and what verification passed");
     expect(guardrails).toContain("Do **not** tell the worker to port yet");
-    expect(guardrails).toContain("investigation, design, or other no-code quests");
+    expect(guardrails).toContain("investigation, design, or other zero-tracked-change quests");
     expect(guardrails).toContain("address code-review findings");
     expect(guardrails).toContain("Leaders may revise the remaining Journey");
     expect(guardrails).toContain("what artifact to produce and to stop afterward");
-    expect(guardrails).toContain("`--no-code` only affects the local CLI reminder text");
+    expect(guardrails).toContain("omit `port` from the Journey instead of using a separate board shortcut");
     expect(guardrails).toContain("send an explicit **port now** instruction");
     expect(guardrails).toContain("prefer `quest grep <pattern>` over manually scanning many `quest show` results");
     expect(guardrails).toContain("Use `quest list --text` for broad list filtering and `quest grep`");

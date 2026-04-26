@@ -439,7 +439,7 @@ export interface BoardRow {
   worker?: string;
   /** Session number of the assigned worker (optional, cached for display). */
   workerNum?: number;
-  /** True when the leader explicitly marked this row as a zero-code / no-code quest. */
+  /** Legacy metadata from the removed board no-code path. Ignored by active workflow logic. */
   noCode?: boolean;
   /** Active Quest Journey phase plan for this board row. */
   journey?: import("../shared/quest-journey.js").QuestJourneyPlanState;

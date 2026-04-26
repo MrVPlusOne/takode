@@ -718,7 +718,7 @@ Categories:
   review       Ready for user review
 `;
 
-const BOARD_HELP = `Usage: takode board [show|set|advance|advance-no-groom|rm] ...
+const BOARD_HELP = `Usage: takode board [show|set|advance|rm] ...
 
 Quest Journey work board for the current leader session.
 
@@ -726,24 +726,22 @@ Subcommands:
   show                    Show the board (default)
   set <quest-id>          Add or update a board row
   advance <quest-id>      Move a quest to the next Journey state
-  advance-no-groom <quest-id>  Complete a true zero-code quest from code review
   rm <quest-id> [...]     Remove quests from the active board
 
 Examples:
   takode board show
   takode board set q-12 --status PLANNING
-  takode board set q-12 --no-code
   takode board set q-12 --phases planning,implement,code-review,port --preset full-code
+  takode board set q-12 --phases planning,explore,outcome-review --preset investigation
   takode board set q-12 --phases implement,outcome-review,code-review,port --preset cli-rollout --revise-reason "Need outcome evidence before final code review"
   takode board set q-12 --status QUEUED --wait-for ${FREE_WORKER_WAIT_FOR_TOKEN}
   takode board set q-12 --worker 5 --wait-for q-7,#9
   takode board advance q-12
-  takode board advance-no-groom q-12
   takode board rm q-12
 `;
 
-const BOARD_SET_HELP = `Usage: takode board set <quest-id> [--worker <session>] [--status <state>] [--title <title>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--phases <ids>] [--preset <id>] [--revise-reason <text>] [--no-code|--code-change] [--json]
-       takode board add <quest-id> [--worker <session>] [--status <state>] [--title <title>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--phases <ids>] [--preset <id>] [--revise-reason <text>] [--no-code|--code-change] [--json]
+const BOARD_SET_HELP = `Usage: takode board set <quest-id> [--worker <session>] [--status <state>] [--title <title>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--phases <ids>] [--preset <id>] [--revise-reason <text>] [--json]
+       takode board add <quest-id> [--worker <session>] [--status <state>] [--title <title>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--phases <ids>] [--preset <id>] [--revise-reason <text>] [--json]
 
 Add or update a board row for a quest.
 
@@ -751,17 +749,13 @@ Quest Journey phases:
   --phases planning,explore,implement,code-review,mental-simulation,execute,outcome-review,bookkeeping,port
   --preset <id> labels the planned phase sequence; use with --phases
   --revise-reason <text> records why an active Journey's remaining phases changed
+
+Zero-tracked-change work uses the same board model: choose explicit phases that omit \`port\` instead of using a special no-code board flag.
 `;
 
 const BOARD_ADVANCE_HELP = `Usage: takode board advance <quest-id> [--json]
 
-Advance a quest to the next Quest Journey state.
-`;
-
-const BOARD_ADVANCE_NO_GROOM_HELP = `Usage: takode board advance-no-groom <quest-id> [--json]
-
-Explicitly complete a true zero-code quest from CODE_REVIEWING, skipping porting.
-This narrow exception is only valid after review accepts a quest with zero git-tracked changes and the board row has already been marked with \`takode board set <quest-id> --no-code\`. Git-tracked docs, skills, prompts, templates, and other text-only edits do not qualify for this path.
+Advance a quest to the next Quest Journey state. Advancing from the final planned phase removes the row, even when that Journey never included \`port\`.
 `;
 
 const BOARD_RM_HELP = `Usage: takode board rm <quest-id> [<quest-id> ...] [--json]
@@ -901,7 +895,9 @@ function printCommandHelp(command: string, argv: string[]): boolean {
       } else if (sub === "advance") {
         console.log(BOARD_ADVANCE_HELP);
       } else if (sub === "advance-no-groom") {
-        console.log(BOARD_ADVANCE_NO_GROOM_HELP);
+        console.log(
+          "`takode board advance-no-groom` was removed. Use an explicit phase plan that omits `port`, then advance with `takode board advance`.",
+        );
       } else if (sub === "rm") {
         console.log(BOARD_RM_HELP);
       } else {
@@ -3474,12 +3470,14 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
     const questId = args[1];
     if (!questId)
       err(
-        `Usage: takode board ${sub} <quest-id> [--worker <session>] [--status "..."] [--title "..."] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--phases <ids>] [--preset <id>] [--revise-reason <text>] [--no-code|--code-change] [--json]`,
+        `Usage: takode board ${sub} <quest-id> [--worker <session>] [--status "..."] [--title "..."] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--phases <ids>] [--preset <id>] [--revise-reason <text>] [--json]`,
       );
     if (!isValidQuestId(questId)) err(`Invalid quest ID "${questId}": must match q-NNN format (e.g., q-1, q-42)`);
     const flags = parseFlags(args.slice(2));
-    if (flags["no-code"] === true && flags["code-change"] === true) {
-      err("Use either --no-code or --code-change, not both.");
+    if (flags["no-code"] === true || flags["code-change"] === true) {
+      err(
+        "Board no-code flags were removed. Model zero-tracked-change work with an explicit phase plan that omits `port`.",
+      );
     }
 
     const body: Record<string, unknown> = { questId };
@@ -3512,8 +3510,6 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
       }
       body.revisionReason = flags["revise-reason"];
     }
-    if (flags["no-code"] === true) body.noCode = true;
-    if (flags["code-change"] === true) body.noCode = false;
     if (typeof flags["wait-for"] === "string") {
       const waitFor = flags["wait-for"]
         .split(",")
@@ -3571,12 +3567,15 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
     return;
   }
 
-  if (sub === "advance" || sub === "advance-no-groom") {
+  if (sub === "advance-no-groom") {
+    err(
+      "`takode board advance-no-groom` was removed. Use an explicit phase plan that omits `port`, then advance with `takode board advance`.",
+    );
+  }
+
+  if (sub === "advance") {
     const questId = args[1];
-    const usage =
-      sub === "advance"
-        ? "Usage: takode board advance <quest-id> [--json]"
-        : "Usage: takode board advance-no-groom <quest-id> [--json]";
+    const usage = "Usage: takode board advance <quest-id> [--json]";
     if (!questId) err(usage);
     if (!isValidQuestId(questId)) err(`Invalid quest ID "${questId}": must match q-NNN format (e.g., q-1, q-42)`);
     const flags = parseFlags(args.slice(2));
@@ -3599,14 +3598,8 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
 
     let operation: string;
     if (result.removed) {
-      if (sub === "advance-no-groom") {
-        const skipped = result.skippedStates?.join(" and ") ?? "PORTING";
-        console.log(`${questId}: completed via no-code path (skipped ${skipped})`);
-        operation = `completed ${questId} via no-code skip-groom path`;
-      } else {
-        console.log(`${questId}: completed (moved to history)`);
-        operation = `completed ${questId}`;
-      }
+      console.log(`${questId}: completed (moved to history)`);
+      operation = `completed ${questId}`;
     } else if (result.previousState && result.newState) {
       console.log(`${questId}: ${result.previousState} -> ${result.newState}`);
       operation = `advanced ${questId} to ${result.newState}`;
@@ -3653,7 +3646,7 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
     return;
   }
 
-  err(`Unknown board subcommand: ${sub}\nUsage: takode board [show|set|advance|advance-no-groom|rm] ...`);
+  err(`Unknown board subcommand: ${sub}\nUsage: takode board [show|set|advance|rm] ...`);
 }
 
 async function handleRefreshBranch(base: string, args: string[]): Promise<void> {
@@ -4236,7 +4229,7 @@ Commands:
   refresh-branch Refresh git branch info for a session after checkout/rebase
   branch         Branch info and management for the current session
   notify         Alert the user (e.g. takode notify review "ready for verification")
-  board          Quest Journey work board (e.g. takode board show, takode board advance-no-groom q-12)
+  board          Quest Journey work board (e.g. takode board show, takode board advance q-12)
   timer          Session-scoped timers (create, list, cancel)
   help           Show detailed help for a command or nested subcommand
 
@@ -4281,7 +4274,7 @@ Examples:
   takode branch status
   takode branch set-base origin/main
   takode board --help
-  takode board advance-no-groom q-12
+  takode board advance q-12
   takode help timer create
 `);
 }

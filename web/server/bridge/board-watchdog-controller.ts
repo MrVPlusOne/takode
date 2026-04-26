@@ -1,5 +1,4 @@
 import {
-  canonicalizeQuestJourneyState,
   DEFAULT_QUEST_JOURNEY_PHASE_IDS,
   FREE_WORKER_WAIT_FOR_TOKEN,
   formatWaitForRefLabel,
@@ -244,7 +243,6 @@ export function upsertBoardRow(
     title: mergeStr(row.title, existing?.title),
     worker: mergeStr(row.worker, existing?.worker),
     workerNum: clearingWorker ? undefined : (row.workerNum ?? existing?.workerNum),
-    noCode: row.noCode !== undefined ? row.noCode : existing?.noCode,
     journey: normalizeQuestJourneyPlan(baseJourney, status),
     status,
     waitFor: row.waitFor !== undefined ? (row.waitFor.length > 0 ? row.waitFor : undefined) : existing?.waitFor,
@@ -383,36 +381,19 @@ export function advanceBoardRow(
 export function advanceBoardRowNoGroom(
   session: SessionLike,
   questId: string,
-  deps: WorkBoardStateDeps,
+  _deps: WorkBoardStateDeps,
 ):
-  | { board: BoardRow[]; removed: true; previousState?: string; newState?: undefined; skippedStates: string[] }
+  | { board: BoardRow[]; removed: boolean; previousState?: string; newState?: string; skippedStates?: string[] }
   | { error: string; previousState?: string }
   | null {
   const row = session.board.get(questId);
   if (!row) return null;
 
   const previousState = row.status;
-  if (canonicalizeQuestJourneyState(previousState) !== "CODE_REVIEWING") {
-    return {
-      error: "No-code skip-groom is only allowed from CODE_REVIEWING after a true zero-code quest has passed review.",
-      previousState,
-    };
-  }
-  if (row.noCode !== true) {
-    return {
-      error:
-        "No-code skip-groom requires the board row to be explicitly marked no-code before use and is not allowed for code-changing quests.",
-      previousState,
-    };
-  }
-
-  const { board } = completeBoardRow(session, questId, deps);
   return {
-    board,
-    removed: true,
+    error:
+      "The no-code board shortcut was removed. Model zero-tracked-change work with an explicit Quest Journey that omits `port`, then use standard board advance.",
     previousState,
-    newState: undefined,
-    skippedStates: ["PORTING"],
   };
 }
 

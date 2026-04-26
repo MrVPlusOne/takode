@@ -29,10 +29,10 @@ describe("index startup skill registration", () => {
     expect(registered).toContain("quest-journey-outcome-review");
     expect(registered).toContain("quest-journey-bookkeeping");
     expect(registered).toContain("quest-journey-port");
-    expect(registered).toContain("quest-journey-implementation");
-    expect(registered).toContain("quest-journey-skeptic-review");
-    expect(registered).toContain("quest-journey-reviewer-groom");
-    expect(registered).toContain("quest-journey-porting");
+    expect(registered).not.toContain("quest-journey-implementation");
+    expect(registered).not.toContain("quest-journey-skeptic-review");
+    expect(registered).not.toContain("quest-journey-reviewer-groom");
+    expect(registered).not.toContain("quest-journey-porting");
     expect(registered).toContain("self-groom");
     expect(registered).toContain("reviewer-groom");
     expect(registered).toContain("skeptic-review");

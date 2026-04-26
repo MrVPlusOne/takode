@@ -71,15 +71,17 @@ Use the review phase that matches the evidence you need:
 
 Do not default to a generic skeptic-review framing for new work. Legacy board rows or saved phrases may still mention `skeptic-review`, `reviewer-groom`, or `stream-update`; treat those as compatibility aliases rather than the preferred vocabulary.
 
-## Zero-Code Exception
+## Zero-Tracked-Change Journeys
 
-True zero-code quests still need an explicit accepted outcome. If a quest produced zero git-tracked changes and the row was explicitly marked `--no-code`, leaders may use:
+Zero-tracked-change quests use the same phase-based Journey model as any other quest. Do not use a separate board flag or shortcut command.
 
-```bash
-takode board advance-no-groom q-12
-```
+Choose explicit phases that match the evidence you need and simply omit `port` when nothing will be synced. Examples:
 
-This completes the board row without porting. Git-tracked docs, skills, prompts, templates, and other text-only edits do **not** qualify.
+- `planning -> explore -> outcome-review`
+- `planning -> explore -> bookkeeping`
+- `planning -> mental-simulation -> outcome-review`
+
+Advancing from the final planned phase removes the row from the board. Git-tracked docs, skills, prompts, templates, and other text-only edits still count as tracked-change work and should include `port`.
 
 ## Feedback Rework Loop
 

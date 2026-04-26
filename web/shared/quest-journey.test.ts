@@ -98,7 +98,7 @@ describe("phase alias compatibility", () => {
 });
 
 describe("QUEST_JOURNEY_HINTS", () => {
-  it("keeps the explicit no-code skip-groom path available through code review", () => {
+  it("describes the normal phase-driven review and port actions", () => {
     expect(QUEST_JOURNEY_HINTS.CODE_REVIEWING).toContain("reviewer result");
     expect(QUEST_JOURNEY_HINTS.PORTING).toContain("sync confirmation");
   });

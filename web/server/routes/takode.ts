@@ -33,7 +33,6 @@ import {
 } from "../bridge/session-registry-controller.js";
 import {
   advanceBoardRow as advanceBoardRowController,
-  advanceBoardRowNoGroom as advanceBoardRowNoGroomController,
   getBoard as getBoardController,
   getBoardQueueWarnings as getBoardQueueWarningsController,
   getBoardWorkerSlotUsage as getBoardWorkerSlotUsageController,
@@ -1333,6 +1332,15 @@ export function createTakodeRoutes(ctx: RouteContext) {
     if (!isValidQuestId(questId)) {
       return c.json({ error: `Invalid quest ID "${questId}": must match q-NNN format (e.g., q-1, q-42)` }, 400);
     }
+    if (typeof body.noCode === "boolean") {
+      return c.json(
+        {
+          error:
+            "Board no-code markers were removed. Model zero-tracked-change work with explicit phases that omit `port` instead.",
+        },
+        400,
+      );
+    }
 
     // Auto-populate title from quest store if not explicitly provided
     let title: string | undefined = typeof body.title === "string" ? body.title : undefined;
@@ -1454,12 +1462,6 @@ export function createTakodeRoutes(ctx: RouteContext) {
       );
     }
 
-    const noCode =
-      typeof body.noCode === "boolean"
-        ? body.noCode
-        : existingRow && "noCode" in existingRow
-          ? existingRow.noCode
-          : undefined;
     const statusForUpsert =
       typeof body.status === "string"
         ? body.status
@@ -1475,7 +1477,6 @@ export function createTakodeRoutes(ctx: RouteContext) {
             title,
             worker: typeof body.worker === "string" ? body.worker : undefined,
             workerNum: typeof body.workerNum === "number" ? body.workerNum : undefined,
-            noCode,
             journey,
             status: statusForUpsert,
             waitFor,
@@ -1551,39 +1552,6 @@ export function createTakodeRoutes(ctx: RouteContext) {
       ? advanceBoardRowController(bridgeSession, questId, QUEST_JOURNEY_STATES, workBoardStateDeps)
       : null;
     if (!result) return c.json({ error: "Quest not found on board" }, 404);
-    return c.json({
-      ...result,
-      completedCount: bridgeSession?.completedBoard.size ?? 0,
-      rowSessionStatuses: await buildBoardRowSessionStatuses(result.board),
-      queueWarnings: bridgeSession ? getBoardQueueWarningsController(bridgeSession, boardWatchdogDeps) : [],
-      workerSlotUsage: getBoardWorkerSlotUsageController(id, boardWatchdogDeps),
-      resolvedSessionDeps: resolveSessionDeps(result.board),
-    });
-  });
-
-  api.post("/sessions/:id/board/:questId/advance-no-groom", async (c) => {
-    const auth = authenticateTakodeCaller(c);
-    if ("response" in auth) return auth.response;
-
-    const id = resolveId(c.req.param("id"));
-    if (!id) return c.json({ error: "Session not found" }, 404);
-    if (id !== auth.callerId) {
-      return c.json({ error: "Can only modify your own board" }, 403);
-    }
-
-    const questId = c.req.param("questId").trim();
-    if (!questId) return c.json({ error: "questId is required" }, 400);
-    if (!isValidQuestId(questId)) {
-      return c.json({ error: `Invalid quest ID "${questId}": must match q-NNN format (e.g., q-1, q-42)` }, 400);
-    }
-
-    const bridgeSession = wsBridge.getSession(id);
-    const result = bridgeSession ? advanceBoardRowNoGroomController(bridgeSession, questId, workBoardStateDeps) : null;
-    if (!result) return c.json({ error: "Quest not found on board" }, 404);
-    if ("error" in result) {
-      return c.json({ error: result.error, previousState: result.previousState }, 409);
-    }
-
     return c.json({
       ...result,
       completedCount: bridgeSession?.completedBoard.size ?? 0,

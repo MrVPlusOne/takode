@@ -20,10 +20,14 @@ The Takode server symlinks project skills into global skill directories at start
 | `takode-orchestration` | `.claude/skills/takode-orchestration/` | Cross-session orchestration: CLI reference, quest journey, board, herd events |
 | `leader-dispatch` | `.claude/skills/leader-dispatch/` | Leader dispatch workflow: worker selection, templates, discipline rules |
 | `quest-journey-planning` | `.claude/skills/quest-journey-planning/` | Quest Journey phase: planning-only worker dispatch |
-| `quest-journey-implementation` | `.claude/skills/quest-journey-implementation/` | Quest Journey phase: implementation after plan approval |
-| `quest-journey-skeptic-review` | `.claude/skills/quest-journey-skeptic-review/` | Quest Journey phase: work-integrity skeptic review |
-| `quest-journey-reviewer-groom` | `.claude/skills/quest-journey-reviewer-groom/` | Quest Journey phase: reviewer-groom quality review |
-| `quest-journey-porting` | `.claude/skills/quest-journey-porting/` | Quest Journey phase: reviewed work porting |
+| `quest-journey-explore` | `.claude/skills/quest-journey-explore/` | Quest Journey phase: evidence gathering before deciding the next action |
+| `quest-journey-implement` | `.claude/skills/quest-journey-implement/` | Quest Journey phase: approved code/docs/prompt/config/artifact changes |
+| `quest-journey-code-review` | `.claude/skills/quest-journey-code-review/` | Quest Journey phase: tracked artifact quality and landing-risk review |
+| `quest-journey-mental-simulation` | `.claude/skills/quest-journey-mental-simulation/` | Quest Journey phase: scenario-based workflow/design replay |
+| `quest-journey-execute` | `.claude/skills/quest-journey-execute/` | Quest Journey phase: high-stakes or externally consequential execution |
+| `quest-journey-outcome-review` | `.claude/skills/quest-journey-outcome-review/` | Quest Journey phase: external-result review |
+| `quest-journey-bookkeeping` | `.claude/skills/quest-journey-bookkeeping/` | Quest Journey phase: durable shared-state updates |
+| `quest-journey-port` | `.claude/skills/quest-journey-port/` | Quest Journey phase: sync accepted tracked changes back to main |
 | `quest-design` | `.claude/skills/quest-design/` | Confirmation workflow before creating or refining quests |
 | `self-groom` | `.claude/skills/self-groom/` | Multi-perspective self-review via parallel subagents |
 | `reviewer-groom` | `.claude/skills/reviewer-groom/` | Reviewer-owned quality review for another agent's change |

@@ -15,7 +15,7 @@ Leader actions:
 
 Worker-visible boundary:
 - The worker ports or syncs the accepted work and reports synced SHAs plus verification.
-- The worker should not invent no-code port summaries for true zero-code work.
+- The worker should not invent port summaries for zero-tracked-change quests whose explicit Journey omitted `port`.
 
 Exit evidence:
 - Ordered synced SHAs from the main repo and required post-port verification results.

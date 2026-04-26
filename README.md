@@ -73,7 +73,7 @@ Takode's most powerful workflow is optional, not required. One session can act a
 1. It turns your request into one or more refined quests
 2. It dispatches workers, usually in isolated **git worktrees**
 3. It reacts to worker updates as work finishes, gets blocked, or needs review
-4. It pushes each quest through planning, implementation, review, and porting
+4. It pushes each quest through a phase-based journey: planning, quest-specific execution/review phases, and porting when needed
 
 That makes Takode feel much closer to working with a small engineering team than with a single coding chat.
 
@@ -85,9 +85,9 @@ That makes Takode feel much closer to working with a small engineering team than
 
 Takode is built around a quest journey, not just “agent says done”:
 
-`PLANNING → IMPLEMENTING → SKEPTIC REVIEW → GROOM REVIEW → PORTING → NEEDS VERIFICATION`
+`PLANNING → IMPLEMENTING → CODE REVIEW → PORTING`
 
-In plain terms: one worker does the change, a reviewer pressure-tests it, a final quality pass checks follow-up fixes, and only then does the change get ported back. That gives user feedback and rework a real place in the workflow.
+In plain terms: leaders assemble the Journey from reusable phases like explore, implement, code-review, mental-simulation, execute, outcome-review, bookkeeping, and port. Zero-tracked-change quests use the same model and simply omit `port` from the planned phases.
 
 ### You can actually see what your agents are doing
 

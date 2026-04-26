@@ -101,7 +101,7 @@ quest complete q-N --items "..." --commits "sha1,sha2"
 
 If a leader controls the quest transition, report back with the ordered synced SHAs explicitly so the later handoff can attach them. Put them on a dedicated `Synced SHAs: sha1,sha2` line so the later `quest complete` call can copy them directly. Do **not** rely on `/port-changes` logs being parsed after the fact.
 
-Documentation, skill, prompt, template, and other text-only tracked-file edits still count as commit-producing work. If they produced commits, they must be ported and attached to the quest with `quest complete ... --commit/--commits`; the zero-code/no-code path is only for quests that produced no git-tracked changes at all.
+Documentation, skill, prompt, template, and other text-only tracked-file edits still count as commit-producing work. If they produced commits, they must be ported and attached to the quest with `quest complete ... --commit/--commits`; zero-tracked-change quests simply omit `port` from their explicit Journey plan when nothing was synced.
 
 Do not put port status, synced SHAs, or automated post-port verification results into `quest complete --items`. Verification items are for human-checkable acceptance checks only; port details and automated verification belong in the worker report and the consolidated quest summary comment.
 

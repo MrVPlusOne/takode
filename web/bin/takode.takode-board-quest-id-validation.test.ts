@@ -125,7 +125,11 @@ describe("takode board quest ID validation", () => {
     expect(result.stderr).toContain("q-NNN");
   });
 
-  it.each(["foo", "123", "q-"])("board advance-no-groom rejects invalid quest ID: %j", async (badId) => {
+  it.each([
+    "foo",
+    "123",
+    "q-",
+  ])("board advance-no-groom reports removal before quest-id validation: %j", async (badId) => {
     const result = await runTakode(["board", "advance-no-groom", badId, "--port", String(port)], {
       ...process.env,
       COMPANION_SESSION_ID: "leader-1",
@@ -133,7 +137,7 @@ describe("takode board quest ID validation", () => {
     });
 
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain("q-NNN");
+    expect(result.stderr).toContain("was removed");
   });
 
   it.each(["foo", "q-abc"])("board rm rejects invalid quest ID: %j", async (badId) => {

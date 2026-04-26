@@ -163,28 +163,28 @@ describe("takode board set --worker auto-clears waitFor", () => {
     expect(capturedBodies[0].waitFor).toEqual([]);
   });
 
-  it("sends noCode: true when --no-code is provided", async () => {
+  it("rejects removed --no-code flag", async () => {
     const result = await runTakode(["board", "set", "q-1", "--no-code", "--port", String(port)], {
       ...process.env,
       COMPANION_SESSION_ID: "leader-1",
       COMPANION_AUTH_TOKEN: "auth-1",
     });
 
-    expect(result.status).toBe(0);
-    expect(capturedBodies).toHaveLength(1);
-    expect(capturedBodies[0].noCode).toBe(true);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Board no-code flags were removed");
+    expect(capturedBodies).toHaveLength(0);
   });
 
-  it("sends noCode: false when --code-change is provided", async () => {
+  it("rejects removed --code-change flag", async () => {
     const result = await runTakode(["board", "set", "q-1", "--code-change", "--port", String(port)], {
       ...process.env,
       COMPANION_SESSION_ID: "leader-1",
       COMPANION_AUTH_TOKEN: "auth-1",
     });
 
-    expect(result.status).toBe(0);
-    expect(capturedBodies).toHaveLength(1);
-    expect(capturedBodies[0].noCode).toBe(false);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Board no-code flags were removed");
+    expect(capturedBodies).toHaveLength(0);
   });
 
   it("sends planned Quest Journey phases and preset metadata", async () => {
@@ -241,7 +241,7 @@ describe("takode board set --worker auto-clears waitFor", () => {
     expect(capturedBodies).toHaveLength(0);
   });
 
-  it("rejects --no-code and --code-change together", async () => {
+  it("rejects removed no-code flags even when both are supplied", async () => {
     const result = await runTakode(["board", "set", "q-1", "--no-code", "--code-change", "--port", String(port)], {
       ...process.env,
       COMPANION_SESSION_ID: "leader-1",
@@ -249,6 +249,6 @@ describe("takode board set --worker auto-clears waitFor", () => {
     });
 
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain("Use either --no-code or --code-change");
+    expect(result.stderr).toContain("Board no-code flags were removed");
   });
 });

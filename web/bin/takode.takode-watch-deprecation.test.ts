@@ -108,10 +108,10 @@ describe("takode watch deprecation", () => {
   });
 
   it.each([
-    [["board", "--help"], "Usage: takode board [show|set|advance|advance-no-groom|rm] ..."],
+    [["board", "--help"], "Usage: takode board [show|set|advance|rm] ..."],
     [["board", "set", "--help"], "Usage: takode board set <quest-id>"],
     [["board", "advance", "--help"], "Usage: takode board advance <quest-id>"],
-    [["board", "advance-no-groom", "--help"], "Usage: takode board advance-no-groom <quest-id>"],
+    [["board", "advance-no-groom", "--help"], "`takode board advance-no-groom` was removed."],
     [["branch", "--help"], "Usage: takode branch <status|set-base> ..."],
     [["branch", "status", "--help"], "Usage: takode branch status [--json]"],
     [["branch", "set-base", "--help"], "Usage: takode branch set-base <branch> [--json]"],
@@ -138,7 +138,7 @@ describe("takode watch deprecation", () => {
     expect(result.stdout).not.toContain("Cannot connect to Companion server");
   });
 
-  it("documents advance-no-groom as only for zero git-tracked changes", async () => {
+  it("documents that advance-no-groom was removed", async () => {
     const result = await runTakode(["board", "advance-no-groom", "--help"], {
       ...process.env,
       COMPANION_SESSION_ID: undefined,
@@ -148,10 +148,8 @@ describe("takode watch deprecation", () => {
     });
 
     expect(result.status).toBe(0);
-    expect(result.stdout).toContain("zero git-tracked changes");
-    expect(result.stdout).toContain(
-      "Git-tracked docs, skills, prompts, templates, and other text-only edits do not qualify",
-    );
+    expect(result.stdout).toContain("was removed");
+    expect(result.stdout).toContain("omits `port`");
   });
 
   it("keeps unknown commands with --help as an error", async () => {

@@ -65,7 +65,7 @@ async function runTakode(
 }
 
 describe("takode board advance-no-groom", () => {
-  it("calls the dedicated no-code endpoint and prints the explicit skip-groom completion message", async () => {
+  it("fails fast with migration guidance and does not call the server endpoint", async () => {
     const requests: string[] = [];
     const server = createServer(async (req, res) => {
       const url = req.url || "";
@@ -76,20 +76,6 @@ describe("takode board advance-no-groom", () => {
         res.end(JSON.stringify({ sessionId: "leader-board", isOrchestrator: true }));
         return;
       }
-      if (req.method === "POST" && url === "/api/sessions/leader-board/board/q-1/advance-no-groom") {
-        res.writeHead(200, { "content-type": "application/json" });
-        res.end(
-          JSON.stringify({
-            board: [],
-            removed: true,
-            previousState: "CODE_REVIEWING",
-            skippedStates: ["PORTING"],
-            completedCount: 1,
-          }),
-        );
-        return;
-      }
-
       res.writeHead(404, { "content-type": "application/json" });
       res.end(JSON.stringify({ error: "not found" }));
     });
@@ -105,10 +91,9 @@ describe("takode board advance-no-groom", () => {
         COMPANION_AUTH_TOKEN: "auth-1",
       });
 
-      expect(result.status).toBe(0);
-      expect(result.stdout).toContain("q-1: completed via no-code path");
-      expect(result.stdout).toContain("skipped PORTING");
-      expect(requests).toContain("POST /api/sessions/leader-board/board/q-1/advance-no-groom");
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("advance-no-groom` was removed");
+      expect(requests).not.toContain("POST /api/sessions/leader-board/board/q-1/advance-no-groom");
     } finally {
       server.close();
     }

@@ -854,7 +854,7 @@ describe("Takode server-authoritative auth", () => {
     });
   });
 
-  it("completes a true zero-code board row via advance-no-groom from code review", async () => {
+  it("completes a zero-tracked-change Journey via standard advance from its final planned phase", async () => {
     setupTakodeSessions();
     bridge._sessions["orch-1"].board = new Map([
       [
@@ -862,15 +862,19 @@ describe("Takode server-authoritative auth", () => {
         {
           questId: "q-9",
           title: "Investigate board lifecycle",
-          noCode: true,
-          status: "CODE_REVIEWING",
+          journey: {
+            presetId: "investigation",
+            phaseIds: ["planning", "explore", "outcome-review"],
+            currentPhaseId: "outcome-review",
+          },
+          status: "OUTCOME_REVIEWING",
           createdAt: 1,
           updatedAt: 1,
         },
       ],
     ]);
 
-    const res = await app.request("/api/sessions/orch-1/board/q-9/advance-no-groom", {
+    const res = await app.request("/api/sessions/orch-1/board/q-9/advance", {
       method: "POST",
       headers: authHeaders("orch-1", "tok-1"),
     });
@@ -878,14 +882,13 @@ describe("Takode server-authoritative auth", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({
       removed: true,
-      previousState: "CODE_REVIEWING",
-      skippedStates: ["PORTING"],
+      previousState: "OUTCOME_REVIEWING",
       board: [],
       completedCount: 1,
     });
   });
 
-  it("rejects advance-no-groom outside skeptic review", async () => {
+  it("returns 404 for the removed advance-no-groom route", async () => {
     setupTakodeSessions();
     bridge._sessions["orch-1"].board = new Map([
       [
@@ -905,38 +908,26 @@ describe("Takode server-authoritative auth", () => {
       headers: authHeaders("orch-1", "tok-1"),
     });
 
-    expect(res.status).toBe(409);
-    expect(await res.json()).toMatchObject({
-      error: expect.stringContaining("only allowed from CODE_REVIEWING"),
-      previousState: "IMPLEMENTING",
-    });
+    expect(res.status).toBe(404);
   });
 
-  it("rejects advance-no-groom for a code-changing quest already in code review", async () => {
+  it("rejects removed noCode markers on board updates", async () => {
     setupTakodeSessions();
-    bridge._sessions["orch-1"].board = new Map([
-      [
-        "q-9",
-        {
-          questId: "q-9",
-          title: "Implement board lifecycle",
-          noCode: false,
-          status: "CODE_REVIEWING",
-          createdAt: 1,
-          updatedAt: 1,
-        },
-      ],
-    ]);
-
-    const res = await app.request("/api/sessions/orch-1/board/q-9/advance-no-groom", {
+    const res = await app.request("/api/sessions/orch-1/board", {
       method: "POST",
-      headers: authHeaders("orch-1", "tok-1"),
+      headers: {
+        ...authHeaders("orch-1", "tok-1"),
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        questId: "q-9",
+        noCode: true,
+      }),
     });
 
-    expect(res.status).toBe(409);
+    expect(res.status).toBe(400);
     expect(await res.json()).toMatchObject({
-      error: expect.stringContaining("explicitly marked no-code"),
-      previousState: "CODE_REVIEWING",
+      error: expect.stringContaining("Board no-code markers were removed"),
     });
   });
 });

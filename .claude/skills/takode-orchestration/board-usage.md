@@ -8,7 +8,7 @@ The work board (`takode board show`) is your primary coordination tool. It track
 
 Display the board with phase boundaries and next-action hints.
 
-### `takode board set <quest-id> [--worker N] [--status STATE] [--wait-for q-X,#Y,free-worker] [--phases phase-a,phase-b] [--preset preset-id] [--revise-reason "why"] [--no-code|--code-change]`
+### `takode board set <quest-id> [--worker N] [--status STATE] [--wait-for q-X,#Y,free-worker] [--phases phase-a,phase-b] [--preset preset-id] [--revise-reason "why"]`
 
 Add or update a row.
 
@@ -19,8 +19,6 @@ Add or update a row.
 - `--phases` assembles the row's active Journey from built-in phase IDs
 - `--preset` labels the planned phase sequence
 - `--revise-reason` records why an existing Journey's remaining phases changed
-- `--no-code` marks a true zero-code quest that may later skip porting
-- `--code-change` clears that marker
 
 Built-in phase IDs are:
 
@@ -36,6 +34,8 @@ Examples:
   `takode board set q-12 --worker 5 --phases planning,implement,code-review,port --preset full-code`
 - Investigation before action:
   `takode board set q-12 --worker 5 --phases planning,explore,execute,outcome-review --preset ops-investigation`
+- Zero-tracked-change investigation:
+  `takode board set q-12 --worker 5 --phases planning,explore,outcome-review --preset investigation`
 - Revise the remaining Journey:
   `takode board set q-12 --phases implement,outcome-review,code-review,port --preset cli-rollout --revise-reason "Need real outcome evidence before final review"`
 
@@ -43,11 +43,7 @@ When `--phases` is supplied for a new active row and `--status` is omitted, the 
 
 ### `takode board advance <quest-id>`
 
-Advance a quest to the next phase in that row's planned Journey. At the final planned phase, `advance` removes the row from the board.
-
-### `takode board advance-no-groom <quest-id>`
-
-Explicitly complete a true zero-code quest from review without porting. Use this only after the accepted result produced zero git-tracked changes and the row was already marked `--no-code`.
+Advance a quest to the next phase in that row's planned Journey. At the final planned phase, `advance` removes the row from the board, even when the Journey never included `port`.
 
 ### `takode board rm <quest-id> [<quest-id> ...]`
 

@@ -1154,39 +1154,42 @@ describe("work board", () => {
     expect(notifUpdates).toHaveLength(0);
   });
 
-  it("advanceBoardRowNoGroom completes a true zero-code quest from CODE_REVIEWING", () => {
+  it("advanceBoardRow completes a zero-tracked-change Journey from its final non-port phase", () => {
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
 
     const session = (bridge as any).sessions.get("s1");
     session.messageHistory.push({
       type: "assistant",
-      message: { id: "asst-no-groom", content: [{ type: "text", text: "Investigation finished" }] },
+      message: { id: "asst-final-phase", content: [{ type: "text", text: "Investigation finished" }] },
       timestamp: Date.now(),
     });
 
     bridge.upsertBoardRow("s1", {
       questId: "q-1",
       title: "Investigate flaky session auth",
-      noCode: true,
-      status: "CODE_REVIEWING",
+      journey: {
+        presetId: "investigation",
+        phaseIds: ["planning", "explore", "outcome-review"],
+        currentPhaseId: "outcome-review",
+      },
+      status: "OUTCOME_REVIEWING",
     });
     browser.send.mockClear();
 
-    const result = bridge.advanceBoardRowNoGroom("s1", "q-1");
+    const result = bridge.advanceBoardRow("s1", "q-1");
 
     expect(result).toEqual(
       expect.objectContaining({
         removed: true,
-        previousState: "CODE_REVIEWING",
-        skippedStates: ["PORTING"],
+        previousState: "OUTCOME_REVIEWING",
       }),
     );
     expect(result?.board).toHaveLength(0);
     expect(bridge.getCompletedBoard("s1")).toEqual([
       expect.objectContaining({
         questId: "q-1",
-        status: "CODE_REVIEWING",
+        status: "OUTCOME_REVIEWING",
       }),
     ]);
     expect(session.notifications).toHaveLength(1);
@@ -1194,12 +1197,12 @@ describe("work board", () => {
       expect.objectContaining({
         category: "review",
         summary: "q-1 ready for review: Investigate flaky session auth",
-        messageId: "asst-no-groom",
+        messageId: "asst-final-phase",
       }),
     );
   });
 
-  it("advanceBoardRowNoGroom rejects non-review phases even for explicitly marked no-code rows", () => {
+  it("advanceBoardRow ignores legacy noCode metadata when explicit phases omit port", () => {
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
 
@@ -1207,27 +1210,32 @@ describe("work board", () => {
       questId: "q-1",
       title: "Investigate board command",
       noCode: true,
-      status: "IMPLEMENTING",
+      journey: {
+        presetId: "investigation",
+        phaseIds: ["planning", "explore", "outcome-review"],
+        currentPhaseId: "outcome-review",
+      },
+      status: "OUTCOME_REVIEWING",
     });
 
-    const result = bridge.advanceBoardRowNoGroom("s1", "q-1");
+    const result = bridge.advanceBoardRow("s1", "q-1");
 
     expect(result).toEqual(
       expect.objectContaining({
-        error: expect.stringContaining("only allowed from CODE_REVIEWING"),
-        previousState: "IMPLEMENTING",
+        removed: true,
+        previousState: "OUTCOME_REVIEWING",
       }),
     );
-    expect(bridge.getBoard("s1")).toEqual([
+    expect(bridge.getBoard("s1")).toHaveLength(0);
+    expect(bridge.getCompletedBoard("s1")).toEqual([
       expect.objectContaining({
         questId: "q-1",
-        status: "IMPLEMENTING",
+        status: "OUTCOME_REVIEWING",
       }),
     ]);
-    expect(bridge.getCompletedBoard("s1")).toHaveLength(0);
   });
 
-  it("advanceBoardRowNoGroom rejects a code-changing quest already in CODE_REVIEWING", () => {
+  it("advanceBoardRowNoGroom returns migration guidance without mutating the board", () => {
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
 
@@ -1242,14 +1250,13 @@ describe("work board", () => {
 
     expect(result).toEqual(
       expect.objectContaining({
-        error: expect.stringContaining("explicitly marked no-code"),
+        error: expect.stringContaining("no-code board shortcut was removed"),
         previousState: "CODE_REVIEWING",
       }),
     );
     expect(bridge.getBoard("s1")).toEqual([
       expect.objectContaining({
         questId: "q-1",
-        noCode: false,
         status: "CODE_REVIEWING",
       }),
     ]);
