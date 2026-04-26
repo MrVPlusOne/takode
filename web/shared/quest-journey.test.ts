@@ -181,7 +181,7 @@ describe("Quest Journey phases", () => {
       expect.objectContaining({
         phaseIds: ["planning", "explore", "outcome-review"],
         currentPhaseId: "planning",
-        nextLeaderAction: expect.stringContaining("planning phase skill"),
+        nextLeaderAction: getQuestJourneyPhase("planning")?.nextLeaderAction,
       }),
     );
   });

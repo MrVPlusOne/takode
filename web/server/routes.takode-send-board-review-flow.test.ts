@@ -861,7 +861,7 @@ describe("Takode server-authoritative auth", () => {
             presetId: "investigation",
             phaseIds: ["planning", "explore", "outcome-review"],
             currentPhaseId: "planning",
-            nextLeaderAction: expect.stringContaining("planning phase skill"),
+            nextLeaderAction: expect.stringContaining("planning leader brief"),
           },
         },
       ],
