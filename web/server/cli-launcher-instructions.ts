@@ -2,17 +2,29 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import type { BackendType } from "./session-types.js";
 import { TAKODE_LINK_SYNTAX_INSTRUCTIONS } from "./link-syntax.js";
+import { QUEST_JOURNEY_PHASES } from "../shared/quest-journey.js";
 
 export function getClaudeSdkDebugLogPath(port: number, sessionId: string): string {
   return join(homedir(), ".companion", "logs", `claude-sdk-${port}-${sessionId}.log`);
 }
 
-export function buildCompanionInstructions(opts?: {
+export interface CompanionInstructionBuildOptions {
   sessionNum?: number;
   worktree?: { branch: string; repoRoot: string; parentBranch?: string };
   extraInstructions?: string;
   backend?: BackendType;
-}): string {
+}
+
+export interface InjectedSystemPromptDebugOptions extends CompanionInstructionBuildOptions {
+  /**
+   * Include the same orchestrator guardrails that session creation injects for
+   * leader sessions. This lets workers inspect prompt construction offline,
+   * before starting or attaching to a live server.
+   */
+  isOrchestrator?: boolean;
+}
+
+export function buildCompanionInstructions(opts?: CompanionInstructionBuildOptions): string {
   const parts: string[] = [];
 
   if (opts?.sessionNum !== undefined) {
@@ -136,12 +148,24 @@ function getCodexOrchestratorGuardrailCopy(): OrchestratorGuardrailCopy {
   };
 }
 
+function renderBuiltInQuestJourneyPhaseTable(): string {
+  const rows = QUEST_JOURNEY_PHASES.map((phase) => {
+    return `| ${phase.label} | \`${phase.state}\` | \`/${phase.skill}\` | ${phase.nextAction} |`;
+  });
+
+  return [
+    "| Built-in phase | Board state | Skill | Next leader action |",
+    "|----------------|-------------|-------|--------------------|",
+    ...rows,
+  ].join("\n");
+}
+
 function renderOrchestratorGuardrails(copy: OrchestratorGuardrailCopy): string {
   return `# Takode -- Cross-Session Orchestration
 
 You are an **orchestrator ${copy.orchestratorRole}**. You coordinate multiple worker sessions, monitor their progress, and decide when to intervene, send follow-up instructions, or notify the human.
 
-The \`takode-orchestration\`, \`leader-dispatch\`, and \`quest\` skills are loaded on startup with full CLI references. Use them as your source of truth for command syntax and detailed workflows. The \`takode-orchestration\` skill covers CLI commands, herd events, quest journey lifecycle, and the work board. The \`leader-dispatch\` skill covers the dispatch decision tree, worker selection, and dispatch templates -- invoke it before every dispatch. When spawning workers, default to your own backend type unless the user specifies otherwise. If your session uses \`bypassPermissions\` (auto mode), spawned workers inherit auto mode.
+The \`takode-orchestration\`, \`leader-dispatch\`, and \`quest\` skills are loaded on startup with full CLI references. Use them as your source of truth for command syntax and detailed workflows. The \`takode-orchestration\` skill covers CLI commands, herd events, the phase-based Quest Journey, and the work board. The \`leader-dispatch\` skill covers the dispatch decision tree, worker selection, and dispatch templates -- invoke it before every dispatch. When spawning workers, default to your own backend type unless the user specifies otherwise. If your session uses \`bypassPermissions\` (auto mode), spawned workers inherit auto mode.
 
 ## Quests as the Unit of Work
 
@@ -167,16 +191,11 @@ The \`takode-orchestration\` skill has the full event type table and reaction ru
 
 ## Quest Journey
 
-Every dispatched task follows the **Quest Journey** lifecycle. The work board (\`takode board show\`) tracks each quest's current phase and shows the next required leader action. Do not skip phases.
+Every dispatched task follows a **Quest Journey** assembled from phases. The work board (\`takode board show\`) tracks the planned phases, current phase, and next required leader action. Do not skip planned phases.
 
-| Phase | Board state | What's happening | Next action |
-|-------|-------------|------------------|-------------|
-| Queued | \`QUEUED\` | Waiting for dispatch | Dispatch to a worker |
-| Planning | \`PLANNING\` | Worker is planning | Invoke \`/quest-journey-planning\`; review plan, approve/reject |
-| Implementation | \`IMPLEMENTING\` | Worker is implementing | Invoke \`/quest-journey-implementation\`; spawn skeptic reviewer on turn_end |
-| Skeptic review | \`SKEPTIC_REVIEWING\` | Reviewer evaluating | Invoke \`/quest-journey-skeptic-review\`; wait for ACCEPT; skeptic-review dispatches must explicitly say "Use the installed /skeptic-review workflow for this review." |
-| Reviewer-groom | \`GROOM_REVIEWING\` | Reviewer checking worker response to reviewer-groom | Invoke \`/quest-journey-reviewer-groom\`; wait for ACCEPT after the checklist-driven reviewer-groom follow-up. If more code changes are needed, have the worker checkpoint the current state in a commit before the fixes. Then send a separate explicit port instruction when ready |
-| Porting | \`PORTING\` | Worker porting to main | Invoke \`/quest-journey-porting\`; wait for confirmation, then remove |
+\`QUEUED\` is a pre-phase waiting state for work that is intentionally blocked before dispatch. Once active, the built-in full-code Quest Journey uses these phases:
+
+${renderBuiltInQuestJourneyPhaseTable()}
 
 **Board advances only after completed actions.** Do not advance anticipating what will happen next.
 
@@ -228,7 +247,7 @@ Do not rely on deprecated leader reply suffixes like \`@to(user)\` or \`@to(self
 - **Unresolved ambiguity blocks quest advancement.** If a worker/reviewer question exposes ambiguity you cannot resolve from existing context, ask the user with plain text plus \`takode notify needs-input\`, then stop advancing that quest until the ambiguity is resolved.
 - **Fresh human feedback outranks stale completions.** If new human feedback lands while an older review or port step is still in flight, reset the quest to the earliest valid board phase for a fresh rework cycle and ignore/stop stale old-scope completions instead of letting them keep advancing the quest.
 - **Do not treat reclaimable completed workers as real capacity blockers.** When a quest is \`QUEUED\`, compare the active board to the herd. If it has no unresolved \`--wait-for\` blocker and the only thing keeping worker slots at \`5/5\` is completed or off-board work sitting in \`needs_verification\`, archive one of those completed workers and dispatch immediately. Alternatively, if the work would significantly benefit from the context of an existing busy worker, keep it queued only with an explicit \`--wait-for #N\` or \`--wait-for q-N\` dependency.
-- **Never skip Quest Journey phases.** Every quest goes through the full journey: PLANNING → IMPLEMENTING → SKEPTIC_REVIEWING → GROOM_REVIEWING → PORTING. No exceptions for "small" or "trivial" changes. If a change doesn't warrant review, it doesn't warrant a quest.
+- **Never skip Quest Journey phases.** Run the phases planned on the board. Git-tracked full-code work uses the built-in full-code Quest Journey unless the board explicitly carries a different phase plan. No exceptions for "small" or "trivial" changes. If a change doesn't warrant review, it doesn't warrant a quest.
 - **After updating the board, do not restate current board rows in chat.** The user already sees the live board state in the Takode Chat UI, so repeating it adds noise. Report only the action you took or the next blocking item unless the user explicitly asks for a text summary.
 - **Use \`takode notify\` at these moments:**
   - \`needs-input\`: Every time you ask the user a question or need a user decision before work can continue. Always pair the question with \`takode notify needs-input\` so the user never misses it.
@@ -242,4 +261,28 @@ export function getOrchestratorGuardrails(backend: BackendType = "claude"): stri
   return backend === "codex"
     ? renderOrchestratorGuardrails(getCodexOrchestratorGuardrailCopy())
     : renderOrchestratorGuardrails(getClaudeOrchestratorGuardrailCopy());
+}
+
+/**
+ * Offline debug helper for inspecting the full Takode-injected system prompt.
+ *
+ * This intentionally does not call the live server. Run from `web/` with:
+ *
+ *   bun -e 'import { buildInjectedSystemPromptForDebug } from "./server/cli-launcher-instructions.ts"; console.log(buildInjectedSystemPromptForDebug({ sessionNum: 1, backend: "claude", isOrchestrator: true }))'
+ */
+export function buildInjectedSystemPromptForDebug(opts: InjectedSystemPromptDebugOptions = {}): string {
+  const backend = opts.backend ?? "claude";
+  const extraInstructions = [
+    opts.isOrchestrator ? getOrchestratorGuardrails(backend) : undefined,
+    opts.extraInstructions,
+  ]
+    .filter((value): value is string => Boolean(value))
+    .join("\n\n");
+
+  return buildCompanionInstructions({
+    sessionNum: opts.sessionNum,
+    worktree: opts.worktree,
+    backend,
+    extraInstructions: extraInstructions || undefined,
+  });
 }

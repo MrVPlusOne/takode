@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildCompanionInstructions, getOrchestratorGuardrails } from "./cli-launcher-instructions.js";
+import {
+  buildCompanionInstructions,
+  buildInjectedSystemPromptForDebug,
+  getOrchestratorGuardrails,
+} from "./cli-launcher-instructions.js";
 
 describe("buildCompanionInstructions", () => {
   it("includes the leader-reply rule for Claude sessions", () => {
@@ -60,6 +64,34 @@ describe("getOrchestratorGuardrails", () => {
   it("returns codex-flavored guardrails for codex backend", () => {
     const result = getOrchestratorGuardrails("codex");
     expect(result).toContain("orchestrator leader session");
-    expect(result).toContain("checkpoint the current state in a commit before the fixes");
+    expect(result).toContain("commit the current worktree state first");
+  });
+});
+
+describe("buildInjectedSystemPromptForDebug", () => {
+  it("builds a full offline leader prompt without a live server", () => {
+    const result = buildInjectedSystemPromptForDebug({
+      sessionNum: 7,
+      backend: "claude",
+      isOrchestrator: true,
+      worktree: { branch: "jiayi-wt-1234", repoRoot: "/repo", parentBranch: "jiayi" },
+    });
+
+    expect(result).toContain("You are Takode session #7.");
+    expect(result).toContain("Worktree Session");
+    expect(result).toContain("Takode -- Cross-Session Orchestration");
+    expect(result).toContain("Every dispatched task follows a **Quest Journey** assembled from phases");
+    expect(result).toContain("| Built-in phase | Board state | Skill | Next leader action |");
+    expect(result).toContain("`/quest-journey-planning`");
+    expect(result).not.toContain("Every dispatched task follows the **Quest Journey** lifecycle");
+    expect(result).not.toContain("Every quest goes through the full journey");
+  });
+
+  it("builds a worker prompt without orchestrator guardrails unless requested", () => {
+    const result = buildInjectedSystemPromptForDebug({ sessionNum: 8, backend: "codex" });
+
+    expect(result).toContain("You are Takode session #8.");
+    expect(result).not.toContain("Takode -- Cross-Session Orchestration");
+    expect(result).not.toContain("leader-dispatch");
   });
 });

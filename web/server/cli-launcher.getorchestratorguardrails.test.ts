@@ -444,7 +444,7 @@ describe("getOrchestratorGuardrails", () => {
     );
     expect(guardrails).toContain("what artifact to produce and to stop afterward");
     expect(guardrails).toContain("`--no-code` only affects the local CLI reminder text");
-    expect(guardrails).toContain("send a separate explicit port instruction when ready");
+    expect(guardrails).toContain("send an explicit **port now** instruction");
     expect(guardrails).toContain("prefer `quest grep <pattern>` over manually scanning many `quest show` results");
     expect(guardrails).toContain("Use `quest list --text` for broad list filtering and `quest grep`");
     expect(guardrails).toContain("takode notify");
@@ -506,7 +506,7 @@ describe("getOrchestratorGuardrails", () => {
       "address reviewer-groom findings, update the user-oriented quest summary comment, and stop",
     );
     expect(guardrails).toContain("what artifact to produce and to stop afterward");
-    expect(guardrails).toContain("send a separate explicit port instruction when ready");
+    expect(guardrails).toContain("send an explicit **port now** instruction");
     expect(guardrails).toContain("Every time you ask the user a question");
     expect(guardrails).toContain("also call `takode notify needs-input`");
     expect(guardrails).toContain("so the user never misses the leader's question");
