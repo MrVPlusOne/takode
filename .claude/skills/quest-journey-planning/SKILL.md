@@ -14,10 +14,10 @@ Leader actions:
 
 Worker-visible boundary:
 - The worker may inspect context and propose a plan.
-- The worker must not implement, review, port, or change quest status.
+- The worker must not explore, implement, review, execute, port, or change quest status.
 
 Exit evidence:
 - A reviewable worker plan is available through `ExitPlanMode` or plain text.
 
 Advance when:
-- The leader approves the plan and sends an implementation-only instruction.
+- The leader approves the plan and sends the next phase-specific instruction.

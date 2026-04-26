@@ -27,10 +27,10 @@ describe("BoardBlock", () => {
   it("formats embedded quest journey enum labels in the operation header", () => {
     const board: BoardRowData[] = [{ questId: "q-42", title: "Quest", updatedAt: 1 }];
 
-    render(<BoardBlock board={board} operation="advanced q-42 to SKEPTIC_REVIEWING" />);
+    render(<BoardBlock board={board} operation="advanced q-42 to CODE_REVIEWING" />);
 
-    expect(screen.getByText("-- advanced q-42 to Addressing Skeptic")).toBeInTheDocument();
-    expect(screen.queryByText(/SKEPTIC_REVIEWING/)).toBeNull();
+    expect(screen.getByText("-- advanced q-42 to Code Review")).toBeInTheDocument();
+    expect(screen.queryByText(/CODE_REVIEWING/)).toBeNull();
   });
 
   it("renders queue warnings when present", () => {

@@ -940,7 +940,7 @@ describe("relaunch", () => {
     const relaunchSysPrompt = relaunchCmd[relaunchSysPromptIdx + 1] as string;
     expect(relaunchSysPrompt).toContain("Takode");
     expect(relaunchSysPrompt).toContain("Quest Journey");
-    expect(relaunchSysPrompt).toContain("Skeptic Review");
+    expect(relaunchSysPrompt).toContain("Code Review");
   });
 
   it("does not inject orchestrator guardrails for non-orchestrator sessions on relaunch", async () => {
@@ -975,6 +975,6 @@ describe("relaunch", () => {
     expect(sysPromptIdx).toBeGreaterThan(-1);
     const sysPrompt = relaunchCmd[sysPromptIdx + 1] as string;
     expect(sysPrompt).not.toContain("Quest Journey");
-    expect(sysPrompt).not.toContain("Skeptic Review");
+    expect(sysPrompt).not.toContain("Code Review");
   });
 });

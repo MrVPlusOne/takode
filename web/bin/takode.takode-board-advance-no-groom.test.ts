@@ -82,8 +82,8 @@ describe("takode board advance-no-groom", () => {
           JSON.stringify({
             board: [],
             removed: true,
-            previousState: "SKEPTIC_REVIEWING",
-            skippedStates: ["GROOM_REVIEWING", "PORTING"],
+            previousState: "CODE_REVIEWING",
+            skippedStates: ["PORTING"],
             completedCount: 1,
           }),
         );
@@ -107,7 +107,7 @@ describe("takode board advance-no-groom", () => {
 
       expect(result.status).toBe(0);
       expect(result.stdout).toContain("q-1: completed via no-code path");
-      expect(result.stdout).toContain("skipped GROOM_REVIEWING and PORTING");
+      expect(result.stdout).toContain("skipped PORTING");
       expect(requests).toContain("POST /api/sessions/leader-board/board/q-1/advance-no-groom");
     } finally {
       server.close();

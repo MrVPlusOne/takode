@@ -157,11 +157,11 @@ When sending this template through the shell, prefer `takode spawn --message-fil
 
 If the worker needs additional context (related sessions, rejected approaches, user decisions), add it to the quest description before dispatching. Workers have the same tools and skills you do -- they run `quest show q-XX` themselves.
 
-**Workers must stop after each phase boundary.** The dispatch message only authorizes planning. After plan approval, the worker implements. After implementation, the worker STOPS and waits -- it does NOT self-review, run `/reviewer-groom`, run `/self-groom`, or self-port. The leader advances the quest through Quest Journey phases.
+**Workers must stop after each phase boundary.** The dispatch message only authorizes planning. After plan approval, the worker implements. After implementation, the worker STOPS and waits -- it does NOT self-review, run review skills on its own, run `/self-groom`, or self-port. The leader advances the quest through Quest Journey phases.
 
 **Make every follow-up message phase-explicit.**
 - **Initial dispatch**: invoke the planning phase. The worker returns a plan and stops.
-- **Plan approval**: invoke the implementation phase; say "implement now, then stop and report back." Do not imply review, porting, or quest transitions are authorized.
+- **Plan approval**: invoke the implement phase; say "implement now, then stop and report back." Do not imply review, porting, or quest transitions are authorized.
 - **Review or rework follow-up**: say exactly what the worker should do now, then tell them to report back and wait. Tell the worker to refresh the existing quest summary/comment as a user-oriented outcome note covering what changed, why it matters, and what verification passed. Consolidate feedback-addressing details into that same comment when clear instead of adding near-duplicate quest comments. Do not imply porting is authorized.
 - **Reviewer-owned quest hygiene**: reviewers may directly fix clear quest hygiene issues they know how to fix, including stale addressed flags, missing/refreshable summaries, and verification checklist checks backed by evidence. Expect reviewers to report those fixes in ACCEPT/CHALLENGE output. Do not send the worker rework for hygiene the reviewer already fixed; do send substantive failures, critical intention mismatches, missing or dishonest work, and ambiguity back through the normal review loop.
 - **If review follow-up needs more code changes**: tell the worker to commit the current worktree state first, then make the fixes in a separate follow-up commit so the reviewer can inspect a clean diff of only the new work.
@@ -172,7 +172,7 @@ If the worker needs additional context (related sessions, rejected approaches, u
 **Use explicit phrasing when steering between phase boundaries.** Good defaults:
 
 ```
-Implement the approved plan, add or refresh the consolidated quest summary comment for the human reader, then stop and report back. The summary should state what changed, why it matters, and what verification passed, without turning into a review/rework timeline. If this also addresses human feedback, explain that in the same comment when it remains clear. Do not run /reviewer-groom, /self-groom, /port-changes, or change the quest status yourself.
+Implement the approved plan, add or refresh the consolidated quest summary comment for the human reader, then stop and report back. The summary should state what changed, why it matters, and what verification passed, without turning into a review/rework timeline. If this also addresses human feedback, explain that in the same comment when it remains clear. Do not run review workflows on your own, run /self-groom, run /port-changes, or change the quest status yourself.
 ```
 
 ```
@@ -180,7 +180,7 @@ Address the reviewer findings, add or refresh the consolidated user-oriented que
 ```
 
 ```
-Address the reviewer-groom findings. If you need more code changes, first commit the current worktree state, then make the fixes in a separate follow-up commit. Add or refresh the consolidated user-oriented quest summary comment, then stop and report back. Do not port yet.
+Address the review findings. If you need more code changes, first commit the current worktree state, then make the fixes in a separate follow-up commit. Add or refresh the consolidated user-oriented quest summary comment, then stop and report back. Do not port yet.
 ```
 
 ```

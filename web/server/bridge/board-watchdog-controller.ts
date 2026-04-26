@@ -1,4 +1,5 @@
 import {
+  canonicalizeQuestJourneyState,
   DEFAULT_QUEST_JOURNEY_PHASE_IDS,
   FREE_WORKER_WAIT_FOR_TOKEN,
   formatWaitForRefLabel,
@@ -225,7 +226,19 @@ export function upsertBoardRow(
   const clearingWorker = row.worker !== undefined && !row.worker;
   const now = Date.now();
   const status = mergeStr(row.status, existing?.status);
-  const baseJourney = row.journey ?? existing?.journey;
+  const baseJourney =
+    row.journey || existing?.journey
+      ? {
+          ...existing?.journey,
+          ...row.journey,
+          ...(row.journey?.revisionReason !== undefined
+            ? {
+                revisedAt: row.journey.revisedAt ?? now,
+                revisionCount: (existing?.journey?.revisionCount ?? 0) + 1,
+              }
+            : {}),
+        }
+      : undefined;
   const merged: BoardRow = {
     questId: row.questId,
     title: mergeStr(row.title, existing?.title),
@@ -339,6 +352,9 @@ export function advanceBoardRow(
           presetId: row.journey?.presetId,
           phaseIds: plannedPhaseIds,
           currentPhaseId: nextPhase.id,
+          revisionReason: row.journey?.revisionReason,
+          revisedAt: row.journey?.revisedAt,
+          revisionCount: row.journey?.revisionCount,
         },
         nextPhase.state,
       );
@@ -376,10 +392,9 @@ export function advanceBoardRowNoGroom(
   if (!row) return null;
 
   const previousState = row.status;
-  if (previousState !== "SKEPTIC_REVIEWING") {
+  if (canonicalizeQuestJourneyState(previousState) !== "CODE_REVIEWING") {
     return {
-      error:
-        "No-code skip-groom is only allowed from SKEPTIC_REVIEWING after a true zero-code quest has passed skeptic review.",
+      error: "No-code skip-groom is only allowed from CODE_REVIEWING after a true zero-code quest has passed review.",
       previousState,
     };
   }
@@ -397,7 +412,7 @@ export function advanceBoardRowNoGroom(
     removed: true,
     previousState,
     newState: undefined,
-    skippedStates: ["GROOM_REVIEWING", "PORTING"],
+    skippedStates: ["PORTING"],
   };
 }
 
@@ -738,7 +753,14 @@ function buildBoardStallCandidate(
   const stalledSinceFrom = (...times: number[]) => Math.max(row.updatedAt, ...times, 0);
   const title = row.title?.trim() || undefined;
 
-  if (stage === "PLANNING" || stage === "IMPLEMENTING" || stage === "PORTING") {
+  if (
+    stage === "PLANNING" ||
+    stage === "EXPLORING" ||
+    stage === "IMPLEMENTING" ||
+    stage === "EXECUTING" ||
+    stage === "BOOKKEEPING" ||
+    stage === "PORTING"
+  ) {
     if (!workerSessionId || workerRuntime.hasActiveTimer || workerRuntime.status === "running") return null;
     return {
       signature: `${row.questId}|${stage}|${workerRuntime.status}`,
@@ -753,13 +775,19 @@ function buildBoardStallCandidate(
       action:
         stage === "PLANNING"
           ? "inspect worker; review plan or re-dispatch"
-          : stage === "IMPLEMENTING"
-            ? "inspect worker; resume or re-dispatch before review"
-            : "inspect worker; resume port or remove if already synced",
+          : stage === "EXPLORING"
+            ? "inspect worker; review findings or revise the Journey"
+            : stage === "IMPLEMENTING"
+              ? "inspect worker; resume or re-dispatch before review"
+              : stage === "EXECUTING"
+                ? "inspect worker; review monitor state or stop conditions"
+                : stage === "BOOKKEEPING"
+                  ? "inspect worker; refresh shared state or re-dispatch"
+                  : "inspect worker; resume port or remove if already synced",
     };
   }
 
-  if (stage === "SKEPTIC_REVIEWING" || stage === "GROOM_REVIEWING") {
+  if (stage === "CODE_REVIEWING" || stage === "MENTAL_SIMULATING" || stage === "OUTCOME_REVIEWING") {
     if (reviewerSessionId) {
       if (reviewerRuntime.hasActiveTimer || reviewerRuntime.status === "running") return null;
       return {
@@ -773,9 +801,11 @@ function buildBoardStallCandidate(
         stalledSince: stalledSinceFrom(workerRuntime.lastActivityAt, reviewerRuntime.lastActivityAt),
         reason: `reviewer ${reviewerRuntime.status}`,
         action:
-          stage === "SKEPTIC_REVIEWING"
-            ? "inspect reviewer; re-dispatch skeptic review if needed"
-            : "inspect reviewer; re-dispatch groom review if needed",
+          stage === "CODE_REVIEWING"
+            ? "inspect reviewer; re-dispatch code review if needed"
+            : stage === "MENTAL_SIMULATING"
+              ? "inspect reviewer; re-dispatch mental simulation if needed"
+              : "inspect reviewer; re-dispatch outcome review if needed",
       };
     }
     if (!workerSessionId || workerRuntime.hasActiveTimer || workerRuntime.status === "running") return null;
@@ -789,7 +819,12 @@ function buildBoardStallCandidate(
       reviewerStatus: "missing",
       stalledSince: stalledSinceFrom(workerRuntime.lastActivityAt),
       reason: "reviewer missing",
-      action: stage === "SKEPTIC_REVIEWING" ? "attach skeptic reviewer" : "attach groom reviewer",
+      action:
+        stage === "CODE_REVIEWING"
+          ? "attach code reviewer"
+          : stage === "MENTAL_SIMULATING"
+            ? "attach mental-simulation reviewer"
+            : "attach outcome reviewer",
     };
   }
 

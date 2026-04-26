@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   FREE_WORKER_WAIT_FOR_TOKEN,
+  canonicalizeQuestJourneyPhaseId,
+  canonicalizeQuestJourneyState,
   formatQuestJourneyText,
   formatWaitForRefLabel,
   getQuestJourneyPhase,
@@ -8,6 +10,7 @@ import {
   getWaitForRefKind,
   isValidQuestId,
   isValidWaitForRef,
+  normalizeQuestJourneyPhaseIds,
   normalizeQuestJourneyPlan,
   QUEST_JOURNEY_PHASES,
   DEFAULT_QUEST_JOURNEY_PHASE_IDS,
@@ -25,12 +28,10 @@ describe("isValidQuestId", () => {
 });
 
 describe("isValidWaitForRef", () => {
-  // Quest refs (q-N)
   it.each(["q-1", "q-42", "q-999", "Q-1"])("accepts valid quest ref: %j", (ref) => {
     expect(isValidWaitForRef(ref)).toBe(true);
   });
 
-  // Session refs (#N)
   it.each(["#1", "#42", "#332"])("accepts valid session ref: %j", (ref) => {
     expect(isValidWaitForRef(ref)).toBe(true);
   });
@@ -39,7 +40,6 @@ describe("isValidWaitForRef", () => {
     expect(isValidWaitForRef(ref)).toBe(true);
   });
 
-  // Invalid refs
   it.each(["42", "foo", "q-", "#", "#abc", "session-5", "", "q-1,#5"])("rejects invalid wait-for ref: %j", (ref) => {
     expect(isValidWaitForRef(ref)).toBe(false);
   });
@@ -66,8 +66,8 @@ describe("formatWaitForRefLabel", () => {
 
 describe("formatQuestJourneyText", () => {
   it("replaces embedded enum tokens with human-facing quest journey labels", () => {
-    expect(formatQuestJourneyText("advanced q-42 to SKEPTIC_REVIEWING")).toBe("advanced q-42 to Addressing Skeptic");
-    expect(formatQuestJourneyText("moved from GROOM_REVIEWING to PORTING")).toBe("moved from Grooming to Porting");
+    expect(formatQuestJourneyText("advanced q-42 to CODE_REVIEWING")).toBe("advanced q-42 to Code Review");
+    expect(formatQuestJourneyText("moved from SKEPTIC_REVIEWING to PORTING")).toBe("moved from Code Review to Port");
   });
 
   it("leaves unrelated text unchanged", () => {
@@ -75,52 +75,107 @@ describe("formatQuestJourneyText", () => {
   });
 });
 
+describe("phase alias compatibility", () => {
+  it("maps legacy phase names and bookkeeping candidates to canonical ids", () => {
+    expect(canonicalizeQuestJourneyPhaseId("implementation")).toBe("implement");
+    expect(canonicalizeQuestJourneyPhaseId("skeptic-review")).toBe("code-review");
+    expect(canonicalizeQuestJourneyPhaseId("reviewer-groom")).toBe("code-review");
+    expect(canonicalizeQuestJourneyPhaseId("state-update")).toBe("bookkeeping");
+    expect(canonicalizeQuestJourneyPhaseId("stream-update")).toBe("bookkeeping");
+    expect(canonicalizeQuestJourneyPhaseId("porting")).toBe("port");
+  });
+
+  it("maps legacy review states to the canonical review state", () => {
+    expect(canonicalizeQuestJourneyState("SKEPTIC_REVIEWING")).toBe("CODE_REVIEWING");
+    expect(canonicalizeQuestJourneyState("GROOM_REVIEWING")).toBe("CODE_REVIEWING");
+  });
+
+  it("normalizes legacy phase sequences into the new library", () => {
+    expect(
+      normalizeQuestJourneyPhaseIds(["planning", "implementation", "skeptic-review", "reviewer-groom", "porting"]),
+    ).toEqual(["planning", "implement", "code-review", "port"]);
+  });
+});
+
 describe("QUEST_JOURNEY_HINTS", () => {
-  it("documents the explicit no-code skip-groom path at skeptic review", () => {
-    expect(QUEST_JOURNEY_HINTS.SKEPTIC_REVIEWING).toContain("advance-no-groom");
-    expect(QUEST_JOURNEY_HINTS.SKEPTIC_REVIEWING).toContain("explicitly marked");
+  it("keeps the explicit no-code skip-groom path available through code review", () => {
+    expect(QUEST_JOURNEY_HINTS.CODE_REVIEWING).toContain("reviewer result");
+    expect(QUEST_JOURNEY_HINTS.PORTING).toContain("sync confirmation");
   });
 });
 
 describe("Quest Journey phases", () => {
-  it("represents the existing fixed journey as built-in phases without human verification", () => {
-    expect(DEFAULT_QUEST_JOURNEY_PHASE_IDS).toEqual([
+  it("represents the new durable phase library without human verification", () => {
+    expect(DEFAULT_QUEST_JOURNEY_PHASE_IDS).toEqual(["planning", "implement", "code-review", "port"]);
+    expect(QUEST_JOURNEY_PHASES.map((phase) => phase.id)).toEqual([
       "planning",
-      "implementation",
-      "skeptic-review",
-      "reviewer-groom",
-      "porting",
+      "explore",
+      "implement",
+      "code-review",
+      "mental-simulation",
+      "execute",
+      "outcome-review",
+      "bookkeeping",
+      "port",
     ]);
     expect(QUEST_JOURNEY_PHASES.map((phase) => phase.skill)).toEqual([
       "quest-journey-planning",
-      "quest-journey-implementation",
-      "quest-journey-skeptic-review",
-      "quest-journey-reviewer-groom",
-      "quest-journey-porting",
+      "quest-journey-explore",
+      "quest-journey-implement",
+      "quest-journey-code-review",
+      "quest-journey-mental-simulation",
+      "quest-journey-execute",
+      "quest-journey-outcome-review",
+      "quest-journey-bookkeeping",
+      "quest-journey-port",
     ]);
-    expect(QUEST_JOURNEY_PHASES.map((phase) => phase.id)).not.toContain("human-verification");
   });
 
   it("maps board states to current phases and next leader actions", () => {
-    expect(getQuestJourneyPhaseForState("IMPLEMENTING")?.id).toBe("implementation");
-    expect(getQuestJourneyPhase("reviewer-groom")?.state).toBe("GROOM_REVIEWING");
+    expect(getQuestJourneyPhaseForState("IMPLEMENTING")?.id).toBe("implement");
+    expect(getQuestJourneyPhaseForState("SKEPTIC_REVIEWING")?.id).toBe("code-review");
+    expect(getQuestJourneyPhase("bookkeeping")?.state).toBe("BOOKKEEPING");
     expect(normalizeQuestJourneyPlan(undefined, "PORTING")).toEqual(
       expect.objectContaining({
         phaseIds: DEFAULT_QUEST_JOURNEY_PHASE_IDS,
-        currentPhaseId: "porting",
-        nextLeaderAction: expect.stringContaining("port confirmation"),
+        currentPhaseId: "port",
+        nextLeaderAction: expect.stringContaining("sync confirmation"),
       }),
     );
   });
 
   it("keeps custom planned phases while deriving the current phase from board state", () => {
     expect(
-      normalizeQuestJourneyPlan({ presetId: "lightweight", phaseIds: ["planning", "implementation"] }, "PLANNING"),
+      normalizeQuestJourneyPlan({ presetId: "ops", phaseIds: ["planning", "explore", "execute"] }, "PLANNING"),
     ).toEqual(
       expect.objectContaining({
-        presetId: "lightweight",
-        phaseIds: ["planning", "implementation"],
+        presetId: "ops",
+        phaseIds: ["planning", "explore", "execute"],
         currentPhaseId: "planning",
+      }),
+    );
+  });
+
+  it("preserves revision metadata on normalized plans", () => {
+    expect(
+      normalizeQuestJourneyPlan(
+        {
+          presetId: "cli-rollout",
+          phaseIds: ["implement", "outcome-review", "code-review", "port"],
+          currentPhaseId: "implement",
+          revisionReason: "Need outcome evidence before final review",
+          revisedAt: 123,
+          revisionCount: 2,
+        },
+        "IMPLEMENTING",
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        phaseIds: ["implement", "outcome-review", "code-review", "port"],
+        currentPhaseId: "implement",
+        revisionReason: "Need outcome evidence before final review",
+        revisedAt: 123,
+        revisionCount: 2,
       }),
     );
   });

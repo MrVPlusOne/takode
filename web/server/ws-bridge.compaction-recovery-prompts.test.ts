@@ -395,7 +395,18 @@ function attachBoardFacade(bridge: WsBridge): TestBridge {
       ? advanceBoardRowController(
           bridge.getSession(sessionId)!,
           questId,
-          ["QUEUED", "PLANNING", "IMPLEMENTING", "SKEPTIC_REVIEWING", "GROOM_REVIEWING", "PORTING"],
+          [
+            "QUEUED",
+            "PLANNING",
+            "EXPLORING",
+            "IMPLEMENTING",
+            "CODE_REVIEWING",
+            "MENTAL_SIMULATING",
+            "EXECUTING",
+            "OUTCOME_REVIEWING",
+            "BOOKKEEPING",
+            "PORTING",
+          ],
           workBoardStateDeps,
         )
       : null;
@@ -608,10 +619,10 @@ describe("Compaction recovery prompts", () => {
     expect(recoveryCalls[0][1]).toContain("takode scan <your-session-number>");
     expect(recoveryCalls[0][1]).toContain("recover enough earlier context");
     expect(recoveryCalls[0][1]).toContain("Inspect your own session history with Takode tools before resuming");
-    expect(recoveryCalls[0][1]).toContain("stage-explicit");
+    expect(recoveryCalls[0][1]).toContain("phase-explicit");
     expect(recoveryCalls[0][1]).toContain("plan only");
-    expect(recoveryCalls[0][1]).toContain("implement and stop");
-    expect(recoveryCalls[0][1]).toContain("reviewer-groom/rework and report back");
+    expect(recoveryCalls[0][1]).toContain("approved next phase and stop");
+    expect(recoveryCalls[0][1]).toContain("review/rework and report back");
     expect(recoveryCalls[0][1]).toContain("port only when explicitly told");
   });
 

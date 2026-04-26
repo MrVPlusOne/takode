@@ -396,7 +396,8 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("Quest Journey");
     expect(guardrails).toContain("QUEUED");
     expect(guardrails).toContain("IMPLEMENTING");
-    expect(guardrails).toContain("Skeptic Review");
+    expect(guardrails).toContain("Code Review");
+    expect(guardrails).toContain("BOOKKEEPING");
     expect(guardrails).toContain("Work Board");
     // Spawn backend default note
     expect(guardrails).toContain("default to your own backend type");
@@ -435,13 +436,14 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("worker doing the job claims and completes the quest");
     expect(guardrails).toContain("Archiving a worktree worker removes its worktree and any uncommitted changes");
     expect(guardrails).toContain("ported, committed, or otherwise synced");
-    expect(guardrails).toContain("implement, update the user-oriented quest summary comment, and stop when done");
+    expect(guardrails).toContain(
+      "perform exactly the approved next phase, update the user-oriented quest summary comment when appropriate, and stop when done",
+    );
     expect(guardrails).toContain("what changed, why it matters, and what verification passed");
     expect(guardrails).toContain("Do **not** tell the worker to port yet");
     expect(guardrails).toContain("investigation, design, or other no-code quests");
-    expect(guardrails).toContain(
-      "address reviewer-groom findings, update the user-oriented quest summary comment, and stop",
-    );
+    expect(guardrails).toContain("address code-review findings");
+    expect(guardrails).toContain("Leaders may revise the remaining Journey");
     expect(guardrails).toContain("what artifact to produce and to stop afterward");
     expect(guardrails).toContain("`--no-code` only affects the local CLI reminder text");
     expect(guardrails).toContain("send an explicit **port now** instruction");
@@ -485,7 +487,7 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("quest-journey.md");
     // Quest Journey phase table inline as quick reference
     expect(guardrails).toContain("Quest Journey");
-    expect(guardrails).toContain("Skeptic Review");
+    expect(guardrails).toContain("Code Review");
     // CLI reference delegated to skill
     expect(guardrails).toContain("takode-orchestration");
     expect(guardrails).toContain("default to your own backend type");
@@ -499,12 +501,13 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("worker doing the job claims and completes the quest");
     expect(guardrails).toContain("Archiving a worktree worker removes its worktree and any uncommitted changes");
     expect(guardrails).toContain("ported, committed, or otherwise synced");
-    expect(guardrails).toContain("implement, update the user-oriented quest summary comment, and stop when done");
+    expect(guardrails).toContain(
+      "perform exactly the approved next phase, update the user-oriented quest summary comment when appropriate, and stop when done",
+    );
     expect(guardrails).toContain("what changed, why it matters, and what verification passed");
     expect(guardrails).toContain("Do **not** tell the worker to port yet");
-    expect(guardrails).toContain(
-      "address reviewer-groom findings, update the user-oriented quest summary comment, and stop",
-    );
+    expect(guardrails).toContain("address code-review findings");
+    expect(guardrails).toContain("Leaders may revise the remaining Journey");
     expect(guardrails).toContain("what artifact to produce and to stop afterward");
     expect(guardrails).toContain("send an explicit **port now** instruction");
     expect(guardrails).toContain("Every time you ask the user a question");

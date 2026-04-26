@@ -12,8 +12,8 @@ export const LEADER_COMPACTION_RECOVERY_PROMPT = `Context was compacted. Before 
    - Use \`takode spawn\` to create workers (never Agent tool)
    - Invoke /leader-dispatch before every dispatch
    - Follow quest-journey.md for lifecycle transitions
-   - Update the board (\`takode board set/advance\`) at every stage transition
-   - Make worker instructions stage-explicit: plan only, implement and stop, reviewer-groom/rework and report back, port only when explicitly told
+   - Update the board (\`takode board set/advance\`) at every phase transition
+   - Make worker instructions phase-explicit: plan only, perform the approved next phase and stop, review/rework and report back, port only when explicitly told
    - Never implement non-trivial changes yourself -- delegate to workers`;
 
 // Injected into non-leader Takode sessions after context compaction so they

@@ -395,7 +395,18 @@ function attachBoardFacade(bridge: WsBridge): TestBridge {
       ? advanceBoardRowController(
           bridge.getSession(sessionId)!,
           questId,
-          ["QUEUED", "PLANNING", "IMPLEMENTING", "SKEPTIC_REVIEWING", "GROOM_REVIEWING", "PORTING"],
+          [
+            "QUEUED",
+            "PLANNING",
+            "EXPLORING",
+            "IMPLEMENTING",
+            "CODE_REVIEWING",
+            "MENTAL_SIMULATING",
+            "EXECUTING",
+            "OUTCOME_REVIEWING",
+            "BOOKKEEPING",
+            "PORTING",
+          ],
           workBoardStateDeps,
         )
       : null;
@@ -576,7 +587,7 @@ describe("board stall warnings", () => {
 
   function setupBoardStallHarness(opts?: {
     reviewer?: boolean;
-    reviewStage?: "SKEPTIC_REVIEWING" | "GROOM_REVIEWING";
+    reviewStage?: "CODE_REVIEWING" | "MENTAL_SIMULATING" | "OUTCOME_REVIEWING";
     workerHasTimer?: boolean;
     blocked?: boolean;
     workerLiveState?: "idle" | "running";
@@ -671,7 +682,7 @@ describe("board stall warnings", () => {
       title: "Investigate stall warning",
       worker: workerId,
       workerNum: 2,
-      status: opts?.reviewer ? (opts.reviewStage ?? "SKEPTIC_REVIEWING") : "IMPLEMENTING",
+      status: opts?.reviewer ? (opts.reviewStage ?? "CODE_REVIEWING") : "IMPLEMENTING",
       ...(opts?.blocked ? { waitFor: ["#9"] } : {}),
       updatedAt: now - 5 * 60_000,
     });
@@ -1219,16 +1230,16 @@ describe("board stall warnings", () => {
     );
     expect(herdCalls).toHaveLength(1);
     expect(herdCalls[0][1]).toContain("reviewer disconnected");
-    expect(herdCalls[0][1]).toContain("re-dispatch skeptic review");
+    expect(herdCalls[0][1]).toContain("re-dispatch code review");
 
     injectSpy.mockRestore();
     dispatcher.destroy();
   });
 
-  it("classifies a live groom reviewer as idle instead of disconnected", async () => {
+  it("classifies a live outcome reviewer as idle instead of disconnected", async () => {
     const { leaderId, dispatcher } = setupBoardStallHarness({
       reviewer: true,
-      reviewStage: "GROOM_REVIEWING",
+      reviewStage: "OUTCOME_REVIEWING",
       reviewerLiveState: "idle",
     });
     const injectSpy = vi.spyOn(bridge, "injectUserMessage");
@@ -1254,7 +1265,7 @@ describe("board stall warnings", () => {
 
     const leaderSession = bridge.getSession(leaderId)!;
     const row = leaderSession.board.get("q-1")!;
-    row.status = "SKEPTIC_REVIEWING";
+    row.status = "CODE_REVIEWING";
     row.updatedAt = Date.now() - 5 * 60_000;
     leaderSession.board.set("q-1", row);
 
@@ -1267,7 +1278,7 @@ describe("board stall warnings", () => {
     );
     expect(herdCalls).toHaveLength(1);
     expect(herdCalls[0][1]).toContain("reviewer missing");
-    expect(herdCalls[0][1]).toContain("attach skeptic reviewer");
+    expect(herdCalls[0][1]).toContain("attach code reviewer");
 
     injectSpy.mockRestore();
     dispatcher.destroy();

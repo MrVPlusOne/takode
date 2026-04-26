@@ -18,7 +18,7 @@ describe("boardSummary", () => {
       { questId: "q-1", status: "IMPLEMENTING", updatedAt: 1 },
       { questId: "q-2", status: "IMPLEMENTING", updatedAt: 2 },
     ];
-    expect(boardSummary(board, 0)).toEqual([{ text: "2 Executing Plan", className: "text-green-400" }]);
+    expect(boardSummary(board, 0)).toEqual([{ text: "2 Implement", className: "text-green-400" }]);
   });
 
   it("summarises current Quest Journey phases when phase bookkeeping exists", () => {
@@ -28,27 +28,27 @@ describe("boardSummary", () => {
         status: "IMPLEMENTING",
         journey: {
           presetId: "full-code",
-          phaseIds: ["planning", "implementation", "skeptic-review", "reviewer-groom", "porting"],
-          currentPhaseId: "implementation",
+          phaseIds: ["planning", "implement", "code-review", "port"],
+          currentPhaseId: "implement",
         },
         updatedAt: 1,
       },
     ];
-    expect(boardSummary(board, 0)).toEqual([{ text: "1 Implementation", className: "text-green-400" }]);
+    expect(boardSummary(board, 0)).toEqual([{ text: "1 Implement", className: "text-green-400" }]);
   });
 
   it("summarises multiple statuses with distinct colors", () => {
     const board: BoardRowData[] = [
       { questId: "q-1", status: "PORTING", updatedAt: 1 },
-      { questId: "q-2", status: "SKEPTIC_REVIEWING", updatedAt: 2 },
+      { questId: "q-2", status: "CODE_REVIEWING", updatedAt: 2 },
       { questId: "q-3", status: "IMPLEMENTING", updatedAt: 3 },
       { questId: "q-4", status: "IMPLEMENTING", updatedAt: 4 },
     ];
     const result = boardSummary(board, 0);
     expect(result).toEqual([
-      { text: "1 Porting", className: "text-blue-400" },
-      { text: "1 Addressing Skeptic", className: "text-violet-500" },
-      { text: "2 Executing Plan", className: "text-green-400" },
+      { text: "1 Port", className: "text-blue-400" },
+      { text: "1 Code Review", className: "text-violet-500" },
+      { text: "2 Implement", className: "text-green-400" },
     ]);
   });
 
@@ -68,7 +68,7 @@ describe("boardSummary", () => {
   it("includes completed count as muted segment", () => {
     const board: BoardRowData[] = [{ questId: "q-1", status: "IMPLEMENTING", updatedAt: 1 }];
     expect(boardSummary(board, 3)).toEqual([
-      { text: "1 Executing Plan", className: "text-green-400" },
+      { text: "1 Implement", className: "text-green-400" },
       { text: "3 done", className: "text-cc-muted" },
     ]);
   });
@@ -161,7 +161,7 @@ describe("WorkBoardBar", () => {
     });
     const { getByText } = render(<WorkBoardBar sessionId="s1" />);
     // Each status segment renders separately with its color class
-    expect(getByText("1 Executing Plan")).toBeInTheDocument();
+    expect(getByText("1 Implement")).toBeInTheDocument();
     expect(getByText("1 Queued")).toBeInTheDocument();
     // Item count should show total
     expect(getByText("2 items")).toBeInTheDocument();

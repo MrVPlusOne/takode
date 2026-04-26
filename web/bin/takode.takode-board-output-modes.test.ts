@@ -86,7 +86,7 @@ describe("takode board output modes", () => {
                 title: "Recover reviewer visibility",
                 worker: "worker-558",
                 workerNum: 558,
-                status: "SKEPTIC_REVIEWING",
+                status: "CODE_REVIEWING",
                 waitFor: ["#560"],
                 createdAt: 1,
                 updatedAt: 2,

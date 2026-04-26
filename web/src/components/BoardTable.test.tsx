@@ -81,20 +81,26 @@ describe("BoardTable", () => {
     const board: BoardRowData[] = [
       { questId: "q-1", status: "QUEUED", updatedAt: 1 },
       { questId: "q-2", status: "PLANNING", updatedAt: 2 },
-      { questId: "q-3", status: "IMPLEMENTING", updatedAt: 3 },
-      { questId: "q-4", status: "SKEPTIC_REVIEWING", updatedAt: 4 },
-      { questId: "q-5", status: "GROOM_REVIEWING", updatedAt: 5 },
-      { questId: "q-6", status: "PORTING", updatedAt: 6 },
+      { questId: "q-3", status: "EXPLORING", updatedAt: 3 },
+      { questId: "q-4", status: "IMPLEMENTING", updatedAt: 4 },
+      { questId: "q-5", status: "CODE_REVIEWING", updatedAt: 5 },
+      { questId: "q-6", status: "MENTAL_SIMULATING", updatedAt: 6 },
+      { questId: "q-7", status: "OUTCOME_REVIEWING", updatedAt: 7 },
+      { questId: "q-8", status: "BOOKKEEPING", updatedAt: 8 },
+      { questId: "q-9", status: "PORTING", updatedAt: 9 },
     ];
 
     render(<BoardTable board={board} />);
 
     expect(screen.getByText("Queued")).toHaveClass("text-cc-muted");
     expect(screen.getByText("Planning")).toHaveClass("text-green-400");
-    expect(screen.getByText("Executing Plan")).toHaveClass("text-green-400");
-    expect(screen.getByText("Addressing Skeptic")).toHaveClass("text-violet-500");
-    expect(screen.getByText("Grooming")).toHaveClass("text-violet-500");
-    expect(screen.getByText("Porting")).toHaveClass("text-blue-400");
+    expect(screen.getByText("Explore")).toHaveClass("text-amber-400");
+    expect(screen.getByText("Implement")).toHaveClass("text-green-400");
+    expect(screen.getByText("Code Review")).toHaveClass("text-violet-500");
+    expect(screen.getByText("Mental Simulation")).toHaveClass("text-fuchsia-400");
+    expect(screen.getByText("Outcome Review")).toHaveClass("text-cyan-400");
+    expect(screen.getByText("Bookkeeping")).toHaveClass("text-yellow-300");
+    expect(screen.getByText("Port")).toHaveClass("text-blue-400");
   });
 
   it("falls back to the raw status for unknown values", () => {
@@ -112,8 +118,9 @@ describe("BoardTable", () => {
         status: "IMPLEMENTING",
         journey: {
           presetId: "full-code",
-          phaseIds: ["planning", "implementation", "skeptic-review", "reviewer-groom", "porting"],
-          currentPhaseId: "implementation",
+          phaseIds: ["planning", "implement", "code-review", "port"],
+          currentPhaseId: "implement",
+          revisionReason: "Need code review before port",
         },
         updatedAt: 1,
       },
@@ -121,9 +128,13 @@ describe("BoardTable", () => {
 
     render(<BoardTable board={board} />);
 
-    expect(screen.getByText("Implementation")).toHaveAttribute(
+    expect(screen.getByText("Implement")).toHaveAttribute(
       "title",
-      expect.stringContaining("Planning -> Implementation -> Skeptic Review"),
+      expect.stringContaining("Planning -> Implement -> Code Review -> Port"),
+    );
+    expect(screen.getByText("Implement")).toHaveAttribute(
+      "title",
+      expect.stringContaining("revised: Need code review before port"),
     );
   });
 

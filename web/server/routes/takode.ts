@@ -6,9 +6,11 @@ import type { HerdSessionsResponse } from "../../shared/herd-types.js";
 import {
   FREE_WORKER_WAIT_FOR_TOKEN,
   getQuestJourneyPhase,
+  getQuestJourneyPhaseForState,
   getInvalidQuestJourneyPhaseIds,
   isValidQuestId,
   isValidWaitForRef,
+  normalizeQuestJourneyPhaseIds,
   type QuestJourneyPhaseId,
   type QuestJourneyPlanState,
 } from "../../shared/quest-journey.js";
@@ -1365,6 +1367,14 @@ export function createTakodeRoutes(ctx: RouteContext) {
     const existingRow = bridgeSession?.board.get(questId) ?? null;
     let journey: QuestJourneyPlanState | undefined;
     let firstPlannedPhaseState: string | undefined;
+    const revisionReason =
+      typeof body.revisionReason === "string" && body.revisionReason.trim() ? body.revisionReason.trim() : undefined;
+    if (typeof body.revisionReason === "string" && !revisionReason) {
+      return c.json({ error: "Journey revision reason must not be empty" }, 400);
+    }
+    if (revisionReason && !Array.isArray(body.phases)) {
+      return c.json({ error: "Journey revision reason requires --phases / phases so the revision is explicit" }, 400);
+    }
     if (Array.isArray(body.phases)) {
       const phaseIds = body.phases
         .filter((s: unknown) => typeof s === "string" && s.trim())
@@ -1376,11 +1386,51 @@ export function createTakodeRoutes(ctx: RouteContext) {
       if (invalid.length > 0) {
         return c.json({ error: `Invalid Quest Journey phase(s): ${invalid.join(", ")}` }, 400);
       }
-      const typedPhaseIds = phaseIds as QuestJourneyPhaseId[];
+      const typedPhaseIds = normalizeQuestJourneyPhaseIds(phaseIds) as QuestJourneyPhaseId[];
       firstPlannedPhaseState = getQuestJourneyPhase(typedPhaseIds[0])?.state;
+      const existingPhaseIds = normalizeQuestJourneyPhaseIds(existingRow?.journey?.phaseIds ?? []);
+      const phasesChanged =
+        typedPhaseIds.length !== existingPhaseIds.length ||
+        typedPhaseIds.some((phaseId, index) => phaseId !== existingPhaseIds[index]);
+      if (existingRow && phasesChanged && !revisionReason) {
+        return c.json(
+          {
+            error:
+              "Updating an active Quest Journey requires a revision reason. Re-run with --revise-reason / revisionReason.",
+          },
+          400,
+        );
+      }
+      const existingCurrentPhaseId =
+        existingRow?.journey?.currentPhaseId ?? getQuestJourneyPhaseForState(existingRow?.status)?.id;
+      if (
+        existingCurrentPhaseId &&
+        !typedPhaseIds.includes(existingCurrentPhaseId) &&
+        typeof body.status !== "string"
+      ) {
+        return c.json(
+          {
+            error:
+              "Revised phases must include the current phase unless you also set an explicit status for the new active boundary.",
+          },
+          400,
+        );
+      }
+      const explicitStatusPhase = getQuestJourneyPhaseForState(
+        typeof body.status === "string" ? body.status : null,
+      )?.id;
+      if (explicitStatusPhase && !typedPhaseIds.includes(explicitStatusPhase)) {
+        return c.json(
+          {
+            error: `Status ${body.status} does not match the revised phase plan. Include its phase in --phases or change --status.`,
+          },
+          400,
+        );
+      }
       journey = {
         presetId: typeof body.presetId === "string" && body.presetId.trim() ? body.presetId.trim() : "custom",
         phaseIds: typedPhaseIds,
+        ...(revisionReason ? { revisionReason } : {}),
       };
     }
     const implicitQueuedStatus =
@@ -1411,7 +1461,11 @@ export function createTakodeRoutes(ctx: RouteContext) {
           ? existingRow.noCode
           : undefined;
     const statusForUpsert =
-      typeof body.status === "string" ? body.status : (implicitQueuedStatus ?? firstPlannedPhaseState);
+      typeof body.status === "string"
+        ? body.status
+        : existingRow?.status
+          ? implicitQueuedStatus
+          : (implicitQueuedStatus ?? firstPlannedPhaseState);
 
     const board = bridgeSession
       ? upsertBoardRowController(

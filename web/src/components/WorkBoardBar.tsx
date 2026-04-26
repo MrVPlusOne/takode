@@ -24,7 +24,7 @@ export interface BoardSummarySegment {
 
 /**
  * Build a compact status summary for the collapsed board bar.
- * Returns colored segments for rendering, e.g. [{text:"2 Executing Plan", className:"text-green-400"}, ...].
+ * Returns colored segments for rendering, e.g. [{text:"2 Implement", className:"text-green-400"}, ...].
  */
 export function boardSummary(board: BoardRowData[], completedCount: number): BoardSummarySegment[] {
   if (board.length === 0 && completedCount === 0) return [{ text: "Empty", className: "text-cc-muted" }];

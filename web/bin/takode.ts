@@ -7,24 +7,34 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { getDefaultModelForBackend } from "../shared/backend-defaults.js";
-import type { HerdSessionsResponse } from "../shared/herd-types.js";
+import type { HerdSessionsResponse } from "../shared/herd-types.ts";
 import {
   encodeLogQuery,
   parseLogLevels,
   parseLogTime,
   type LogQueryResponse,
   type ServerLogEntry,
-} from "../shared/logging.js";
-import { HERD_WORKER_SLOT_LIMIT, TAKODE_PEEK_CONTENT_LIMIT, formatQuotedContent } from "../shared/takode-constants.js";
+} from "../shared/logging.ts";
+import { HERD_WORKER_SLOT_LIMIT, TAKODE_PEEK_CONTENT_LIMIT, formatQuotedContent } from "../shared/takode-constants.ts";
 import {
   getSessionAuthDir,
   getSessionAuthFilePrefixes,
   parseSessionAuthFileData,
   type SessionAuthFileData,
-} from "../shared/session-auth.js";
+} from "../shared/session-auth.ts";
 
 const DEFAULT_PORT = 3456;
+const DEFAULT_CODEX_MODEL = "gpt-5.4";
+
+function getCliDefaultModelForBackend(backend: "claude" | "claude-sdk" | "codex"): string {
+  switch (backend) {
+    case "claude":
+    case "claude-sdk":
+      return "";
+    case "codex":
+      return DEFAULT_CODEX_MODEL;
+  }
+}
 
 function getRequestedPort(argv: string[]): number | undefined {
   const idx = argv.indexOf("--port");
@@ -716,14 +726,15 @@ Subcommands:
   show                    Show the board (default)
   set <quest-id>          Add or update a board row
   advance <quest-id>      Move a quest to the next Journey state
-  advance-no-groom <quest-id>  Complete a true zero-code quest from skeptic review
+  advance-no-groom <quest-id>  Complete a true zero-code quest from code review
   rm <quest-id> [...]     Remove quests from the active board
 
 Examples:
   takode board show
   takode board set q-12 --status PLANNING
   takode board set q-12 --no-code
-  takode board set q-12 --phases planning,implementation,skeptic-review --preset lightweight-code
+  takode board set q-12 --phases planning,implement,code-review,port --preset full-code
+  takode board set q-12 --phases implement,outcome-review,code-review,port --preset cli-rollout --revise-reason "Need outcome evidence before final code review"
   takode board set q-12 --status QUEUED --wait-for ${FREE_WORKER_WAIT_FOR_TOKEN}
   takode board set q-12 --worker 5 --wait-for q-7,#9
   takode board advance q-12
@@ -731,14 +742,15 @@ Examples:
   takode board rm q-12
 `;
 
-const BOARD_SET_HELP = `Usage: takode board set <quest-id> [--worker <session>] [--status <state>] [--title <title>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--phases <ids>] [--preset <id>] [--no-code|--code-change] [--json]
-       takode board add <quest-id> [--worker <session>] [--status <state>] [--title <title>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--phases <ids>] [--preset <id>] [--no-code|--code-change] [--json]
+const BOARD_SET_HELP = `Usage: takode board set <quest-id> [--worker <session>] [--status <state>] [--title <title>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--phases <ids>] [--preset <id>] [--revise-reason <text>] [--no-code|--code-change] [--json]
+       takode board add <quest-id> [--worker <session>] [--status <state>] [--title <title>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--phases <ids>] [--preset <id>] [--revise-reason <text>] [--no-code|--code-change] [--json]
 
 Add or update a board row for a quest.
 
 Quest Journey phases:
-  --phases planning,implementation,skeptic-review,reviewer-groom,porting
+  --phases planning,explore,implement,code-review,mental-simulation,execute,outcome-review,bookkeeping,port
   --preset <id> labels the planned phase sequence; use with --phases
+  --revise-reason <text> records why an active Journey's remaining phases changed
 `;
 
 const BOARD_ADVANCE_HELP = `Usage: takode board advance <quest-id> [--json]
@@ -748,8 +760,8 @@ Advance a quest to the next Quest Journey state.
 
 const BOARD_ADVANCE_NO_GROOM_HELP = `Usage: takode board advance-no-groom <quest-id> [--json]
 
-Explicitly complete a true zero-code quest from SKEPTIC_REVIEWING, skipping reviewer-groom and porting.
-This narrow exception is only valid after skeptic review accepts a quest with zero git-tracked changes and the board row has already been marked with \`takode board set <quest-id> --no-code\`. Git-tracked docs, skills, prompts, templates, and other text-only edits do not qualify for this path.
+Explicitly complete a true zero-code quest from CODE_REVIEWING, skipping porting.
+This narrow exception is only valid after review accepts a quest with zero git-tracked changes and the board row has already been marked with \`takode board set <quest-id> --no-code\`. Git-tracked docs, skills, prompts, templates, and other text-only edits do not qualify for this path.
 `;
 
 const BOARD_RM_HELP = `Usage: takode board rm <quest-id> [<quest-id> ...] [--json]
@@ -2572,7 +2584,7 @@ async function handleSpawn(base: string, args: string[]): Promise<void> {
           leaderSessionId,
           leaderPermissionMode: leader.permissionMode || null,
           inheritedAskPermission: askOverride === undefined && inheritBypass ? false : null,
-          defaultModel: backendRaw === "codex" && !model ? getDefaultModelForBackend("codex") : null,
+          defaultModel: backendRaw === "codex" && !model ? getCliDefaultModelForBackend("codex") : null,
           message: message || null,
           sessions: spawned,
           ...(herdWarning ? { herdWarning } : {}),
@@ -3199,18 +3211,21 @@ import {
   formatWaitForRefLabel,
   type BoardQueueWarning,
   getInvalidQuestJourneyPhaseIds,
+  normalizeQuestJourneyPhaseIds,
   QUEST_JOURNEY_STATES,
   QUEST_JOURNEY_HINTS,
   getWaitForRefKind,
   isValidQuestId,
   isValidWaitForRef,
-} from "../shared/quest-journey.js";
+  type QuestJourneyPlanState,
+} from "../shared/quest-journey.ts";
 
 interface BoardRow {
   questId: string;
   title?: string;
   worker?: string;
   workerNum?: number;
+  journey?: QuestJourneyPlanState;
   status?: string;
   waitFor?: string[];
   createdAt: number;
@@ -3356,7 +3371,10 @@ function printBoardText(
     } else if (blockedDeps.length > 0) {
       nextAction = `wait for ${blockedDeps.map((dep) => formatWaitForRefLabel(dep)).join(", ")}`;
     } else {
-      nextAction = QUEST_JOURNEY_HINTS[row.status || ""] || "--";
+      nextAction = row.journey?.nextLeaderAction ?? (QUEST_JOURNEY_HINTS[row.status || ""] || "--");
+      if (row.journey?.revisionReason) {
+        nextAction = `revised: ${row.journey.revisionReason}; ${nextAction}`;
+      }
     }
 
     console.log(`${quest} ${title} ${owner} ${state} ${waitForDisplay} ${nextAction}`);
@@ -3456,7 +3474,7 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
     const questId = args[1];
     if (!questId)
       err(
-        `Usage: takode board ${sub} <quest-id> [--worker <session>] [--status "..."] [--title "..."] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--phases <ids>] [--preset <id>] [--no-code|--code-change] [--json]`,
+        `Usage: takode board ${sub} <quest-id> [--worker <session>] [--status "..."] [--title "..."] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--phases <ids>] [--preset <id>] [--revise-reason <text>] [--no-code|--code-change] [--json]`,
       );
     if (!isValidQuestId(questId)) err(`Invalid quest ID "${questId}": must match q-NNN format (e.g., q-1, q-42)`);
     const flags = parseFlags(args.slice(2));
@@ -3478,15 +3496,21 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
       const invalid = getInvalidQuestJourneyPhaseIds(phases);
       if (invalid.length > 0) {
         err(
-          `Invalid Quest Journey phase(s): ${invalid.join(", ")} -- use planning, implementation, skeptic-review, reviewer-groom, or porting`,
+          `Invalid Quest Journey phase(s): ${invalid.join(", ")} -- use planning, explore, implement, code-review, mental-simulation, execute, outcome-review, bookkeeping, or port`,
         );
       }
-      body.phases = phases;
+      body.phases = normalizeQuestJourneyPhaseIds(phases);
       if (typeof flags.preset === "string" && flags.preset.trim()) {
         body.presetId = flags.preset.trim();
       }
     } else if (typeof flags.preset === "string") {
       err("Use --preset only with --phases so the planned Quest Journey is explicit.");
+    }
+    if (typeof flags["revise-reason"] === "string") {
+      if (!("phases" in body)) {
+        err("Use --revise-reason only with --phases so the Journey revision is explicit.");
+      }
+      body.revisionReason = flags["revise-reason"];
     }
     if (flags["no-code"] === true) body.noCode = true;
     if (flags["code-change"] === true) body.noCode = false;
@@ -3576,7 +3600,7 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
     let operation: string;
     if (result.removed) {
       if (sub === "advance-no-groom") {
-        const skipped = result.skippedStates?.join(" and ") ?? "reviewer-groom and porting";
+        const skipped = result.skippedStates?.join(" and ") ?? "PORTING";
         console.log(`${questId}: completed via no-code path (skipped ${skipped})`);
         operation = `completed ${questId} via no-code skip-groom path`;
       } else {

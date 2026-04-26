@@ -346,7 +346,7 @@ function StatusCell({ row }: { row: BoardRowData }) {
   const currentPhase = getQuestJourneyPhase(row.journey?.currentPhaseId);
   const plannedPhases = row.journey?.phaseIds.map((phaseId) => getQuestJourneyPhase(phaseId)?.label ?? phaseId);
   const title = plannedPhases?.length
-    ? `Quest Journey phases: ${plannedPhases.join(" -> ")}${currentPhase ? `; current phase: ${currentPhase.label}` : ""}`
+    ? `Quest Journey phases: ${plannedPhases.join(" -> ")}${currentPhase ? `; current phase: ${currentPhase.label}` : ""}${row.journey?.revisionReason ? `; revised: ${row.journey.revisionReason}` : ""}`
     : undefined;
   return (
     <span title={title} className={`block max-w-full truncate ${presentation?.textClassName ?? "text-cc-muted"}`}>

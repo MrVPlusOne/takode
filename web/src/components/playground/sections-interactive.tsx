@@ -943,7 +943,7 @@ export function PlaygroundInteractiveSections() {
                       title: "Add dark mode toggle",
                       worker: "def456",
                       workerNum: 8,
-                      status: "SKEPTIC_REVIEWING",
+                      status: "CODE_REVIEWING",
                       waitFor: ["#5"],
                       updatedAt: Date.now() - 30000,
                     },

@@ -196,7 +196,7 @@ describe("takode board set --worker auto-clears waitFor", () => {
         "--worker",
         "3",
         "--phases",
-        "planning,implementation,skeptic-review",
+        "planning,implement,code-review",
         "--preset",
         "lightweight-code",
         "--port",
@@ -213,7 +213,7 @@ describe("takode board set --worker auto-clears waitFor", () => {
     expect(capturedBodies).toHaveLength(1);
     expect(capturedBodies[0].worker).toBe("worker-session-abc");
     expect(capturedBodies[0].workerNum).toBe(3);
-    expect(capturedBodies[0].phases).toEqual(["planning", "implementation", "skeptic-review"]);
+    expect(capturedBodies[0].phases).toEqual(["planning", "implement", "code-review"]);
     expect(capturedBodies[0].presetId).toBe("lightweight-code");
   });
 

@@ -720,7 +720,7 @@ describe("Takode server-authoritative auth", () => {
       body: JSON.stringify({
         questId: "q-9",
         status: "PLANNING",
-        phases: ["planning", "implementation", "porting"],
+        phases: ["planning", "implement", "port"],
         presetId: "lightweight",
       }),
     });
@@ -733,7 +733,7 @@ describe("Takode server-authoritative auth", () => {
           status: "PLANNING",
           journey: {
             presetId: "lightweight",
-            phaseIds: ["planning", "implementation", "porting"],
+            phaseIds: ["planning", "implement", "port"],
             currentPhaseId: "planning",
             nextLeaderAction: expect.stringContaining("planning phase skill"),
           },
@@ -752,7 +752,7 @@ describe("Takode server-authoritative auth", () => {
         questId: "q-9",
         worker: "worker-1",
         workerNum: 11,
-        phases: ["planning", "implementation", "skeptic-review"],
+        phases: ["planning", "implement", "code-review"],
         presetId: "lightweight-code",
       }),
     });
@@ -767,8 +767,57 @@ describe("Takode server-authoritative auth", () => {
           status: "PLANNING",
           journey: {
             presetId: "lightweight-code",
-            phaseIds: ["planning", "implementation", "skeptic-review"],
+            phaseIds: ["planning", "implement", "code-review"],
             currentPhaseId: "planning",
+          },
+        },
+      ],
+    });
+  });
+
+  it("preserves the active phase and records a revision reason when revising remaining phases", async () => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].board = new Map([
+      [
+        "q-9",
+        {
+          questId: "q-9",
+          title: "Implement board lifecycle",
+          status: "IMPLEMENTING",
+          createdAt: 1,
+          updatedAt: 1,
+          journey: {
+            presetId: "full-code",
+            phaseIds: ["planning", "implement", "code-review", "port"],
+            currentPhaseId: "implement",
+          },
+        },
+      ],
+    ]);
+
+    const res = await app.request("/api/sessions/orch-1/board", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({
+        questId: "q-9",
+        phases: ["implement", "outcome-review", "code-review", "port"],
+        presetId: "cli-rollout",
+        revisionReason: "Need real outcome evidence before final review",
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      board: [
+        {
+          questId: "q-9",
+          status: "IMPLEMENTING",
+          journey: {
+            presetId: "cli-rollout",
+            phaseIds: ["implement", "outcome-review", "code-review", "port"],
+            currentPhaseId: "implement",
+            revisionReason: "Need real outcome evidence before final review",
+            revisionCount: 1,
           },
         },
       ],
@@ -805,7 +854,7 @@ describe("Takode server-authoritative auth", () => {
     });
   });
 
-  it("completes a true zero-code board row via advance-no-groom from skeptic review", async () => {
+  it("completes a true zero-code board row via advance-no-groom from code review", async () => {
     setupTakodeSessions();
     bridge._sessions["orch-1"].board = new Map([
       [
@@ -814,7 +863,7 @@ describe("Takode server-authoritative auth", () => {
           questId: "q-9",
           title: "Investigate board lifecycle",
           noCode: true,
-          status: "SKEPTIC_REVIEWING",
+          status: "CODE_REVIEWING",
           createdAt: 1,
           updatedAt: 1,
         },
@@ -829,8 +878,8 @@ describe("Takode server-authoritative auth", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({
       removed: true,
-      previousState: "SKEPTIC_REVIEWING",
-      skippedStates: ["GROOM_REVIEWING", "PORTING"],
+      previousState: "CODE_REVIEWING",
+      skippedStates: ["PORTING"],
       board: [],
       completedCount: 1,
     });
@@ -858,12 +907,12 @@ describe("Takode server-authoritative auth", () => {
 
     expect(res.status).toBe(409);
     expect(await res.json()).toMatchObject({
-      error: expect.stringContaining("only allowed from SKEPTIC_REVIEWING"),
+      error: expect.stringContaining("only allowed from CODE_REVIEWING"),
       previousState: "IMPLEMENTING",
     });
   });
 
-  it("rejects advance-no-groom for a code-changing quest already in skeptic review", async () => {
+  it("rejects advance-no-groom for a code-changing quest already in code review", async () => {
     setupTakodeSessions();
     bridge._sessions["orch-1"].board = new Map([
       [
@@ -872,7 +921,7 @@ describe("Takode server-authoritative auth", () => {
           questId: "q-9",
           title: "Implement board lifecycle",
           noCode: false,
-          status: "SKEPTIC_REVIEWING",
+          status: "CODE_REVIEWING",
           createdAt: 1,
           updatedAt: 1,
         },
@@ -887,7 +936,7 @@ describe("Takode server-authoritative auth", () => {
     expect(res.status).toBe(409);
     expect(await res.json()).toMatchObject({
       error: expect.stringContaining("explicitly marked no-code"),
-      previousState: "SKEPTIC_REVIEWING",
+      previousState: "CODE_REVIEWING",
     });
   });
 });

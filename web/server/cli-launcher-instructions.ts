@@ -200,27 +200,28 @@ ${renderBuiltInQuestJourneyPhaseTable()}
 **Board advances only after completed actions.** Do not advance anticipating what will happen next.
 
 **Fresh human feedback resets the active cycle.** If new human feedback lands while a quest is still on the board or while an older review/port turn is still completing, treat that feedback as the new source of truth. Reset the board row to the earliest valid phase for the fresh cycle and do not let stale old-scope completions advance the quest.
-**Zero-code quests do not need port noise.** Skeptic review still applies, but if the accepted result truly produced zero git-tracked changes, finish it without \`/port-changes\`, synced SHA placeholders, or fake port-summary comments. Docs, skills, prompts, templates, and other text-only tracked-file edits are commit-producing work: port them normally and attach their synced SHAs with \`quest complete ... --commit/--commits\`. If you use \`quest complete ... --no-code\`, treat it only as a local CLI reminder switch, not durable quest metadata.
+**Zero-code quests do not need port noise.** If the accepted result truly produced zero git-tracked changes, finish it without \`/port-changes\`, synced SHA placeholders, or fake port-summary comments. Docs, skills, prompts, templates, and other text-only tracked-file edits are commit-producing work: port them normally and attach their synced SHAs with \`quest complete ... --commit/--commits\`. If you use \`quest complete ... --no-code\`, treat it only as a local CLI reminder switch, not durable quest metadata.
+**Leaders may revise the remaining Journey.** When risk, evidence needs, external-state impact, user steering, or the next action changes, update the row with \`takode board set ... --phases ... --revise-reason "..."\` and keep the current phase explicit.
 
 **Make every worker instruction phase-explicit.**
-- Initial dispatch authorizes **planning only**. Tell the worker to return a plan and stop; do not imply implementation is approved yet.
-- After plan approval, tell the worker to **implement, update the user-oriented quest summary comment, and stop when done**. The summary should state what changed, why it matters, and what verification passed. The worker must not self-transition the quest, run \`/reviewer-groom\`, run \`/self-groom\`, self-port, or self-complete.
-- During review/rework, tell the worker exactly what to do **for this phase only**. For example: address reviewer-groom findings, update the user-oriented quest summary comment, and stop. Do **not** tell the worker to port yet.
+- Initial dispatch authorizes **planning only**. Tell the worker to return a plan and stop; do not imply implement/explore/execute approval yet.
+- After plan approval, tell the worker to perform exactly the approved next phase, update the user-oriented quest summary comment when appropriate, and stop when done. The summary should state what changed, why it matters, and what verification passed. The worker must not self-transition the quest, self-review, run \`/self-groom\`, self-port, or self-complete.
+- During review/rework, tell the worker exactly what to do **for this phase only**. For example: address code-review findings, refresh the user-oriented quest summary comment, and stop. Do **not** tell the worker to port yet.
 - If reviewer-driven rework needs more code changes, tell the worker to commit the current worktree state first and make the fixes in a separate follow-up commit so the reviewer can inspect only the new diff.
 - Only after reviewer ACCEPT should you send an explicit **port now** instruction. Never assume the worker will self-port because review is complete.
 - For investigation, design, or other no-code quests, explicitly tell the worker what artifact to produce and to stop afterward. Do not assume the worker should self-complete, self-transition, or self-port. If the accepted result has zero git-tracked changes, complete it without porting or synced-SHA commentary; \`--no-code\` only affects the local CLI reminder text.
 
-Read \`quest-journey.md\` from the \`takode-orchestration\` skill for full phase transition details, rules, dispatch templates, and skeptic review workflow.
+Read \`quest-journey.md\` from the \`takode-orchestration\` skill for full phase transition details, Journey revision rules, dispatch templates, and review-phase guidance.
 
 ## Worker Selection
 
 Before dispatching any quest, invoke \`/leader-dispatch\`. It is the source of truth for reuse-vs-spawn decisions. Fresh worker is the default; reuse requires a real context advantage. Queue work on the board yourself with \`--wait-for\` when you intentionally want a busy worker's context later.
 Use the worker-slot summary from \`takode list\` / \`takode spawn\` directly. The 5-slot limit applies to workers only; reviewers do not use worker slots, and archiving reviewers does not free worker-slot capacity.
 
-## Skeptic Review
+## Review Phases
 
 Spawn reviewers with: \`takode spawn --reviewer <session-number> --message-file <path>\` (or \`--message-file -\` for stdin)
-Keep spawn messages minimal -- provide context pointers only (quest ID, session reference, message range) plus the explicit sentence \`Use the installed /skeptic-review workflow for this review.\` Full workflow details are in the skeptic review phase of \`quest-journey.md\`.
+Keep spawn messages minimal -- provide context pointers only (quest ID, session reference, message range, and the specific review phase or evidence expected). Full workflow details are in \`quest-journey.md\`.
 
 ## Work Board
 

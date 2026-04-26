@@ -395,7 +395,18 @@ function attachBoardFacade(bridge: WsBridge): TestBridge {
       ? advanceBoardRowController(
           bridge.getSession(sessionId)!,
           questId,
-          ["QUEUED", "PLANNING", "IMPLEMENTING", "SKEPTIC_REVIEWING", "GROOM_REVIEWING", "PORTING"],
+          [
+            "QUEUED",
+            "PLANNING",
+            "EXPLORING",
+            "IMPLEMENTING",
+            "CODE_REVIEWING",
+            "MENTAL_SIMULATING",
+            "EXECUTING",
+            "OUTCOME_REVIEWING",
+            "BOOKKEEPING",
+            "PORTING",
+          ],
           workBoardStateDeps,
         )
       : null;
@@ -1143,7 +1154,7 @@ describe("work board", () => {
     expect(notifUpdates).toHaveLength(0);
   });
 
-  it("advanceBoardRowNoGroom completes a true zero-code quest from SKEPTIC_REVIEWING", () => {
+  it("advanceBoardRowNoGroom completes a true zero-code quest from CODE_REVIEWING", () => {
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
 
@@ -1158,7 +1169,7 @@ describe("work board", () => {
       questId: "q-1",
       title: "Investigate flaky session auth",
       noCode: true,
-      status: "SKEPTIC_REVIEWING",
+      status: "CODE_REVIEWING",
     });
     browser.send.mockClear();
 
@@ -1167,15 +1178,15 @@ describe("work board", () => {
     expect(result).toEqual(
       expect.objectContaining({
         removed: true,
-        previousState: "SKEPTIC_REVIEWING",
-        skippedStates: ["GROOM_REVIEWING", "PORTING"],
+        previousState: "CODE_REVIEWING",
+        skippedStates: ["PORTING"],
       }),
     );
     expect(result?.board).toHaveLength(0);
     expect(bridge.getCompletedBoard("s1")).toEqual([
       expect.objectContaining({
         questId: "q-1",
-        status: "SKEPTIC_REVIEWING",
+        status: "CODE_REVIEWING",
       }),
     ]);
     expect(session.notifications).toHaveLength(1);
@@ -1188,7 +1199,7 @@ describe("work board", () => {
     );
   });
 
-  it("advanceBoardRowNoGroom rejects non-skeptic phases even for explicitly marked no-code rows", () => {
+  it("advanceBoardRowNoGroom rejects non-review phases even for explicitly marked no-code rows", () => {
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
 
@@ -1203,7 +1214,7 @@ describe("work board", () => {
 
     expect(result).toEqual(
       expect.objectContaining({
-        error: expect.stringContaining("only allowed from SKEPTIC_REVIEWING"),
+        error: expect.stringContaining("only allowed from CODE_REVIEWING"),
         previousState: "IMPLEMENTING",
       }),
     );
@@ -1216,7 +1227,7 @@ describe("work board", () => {
     expect(bridge.getCompletedBoard("s1")).toHaveLength(0);
   });
 
-  it("advanceBoardRowNoGroom rejects a code-changing quest already in SKEPTIC_REVIEWING", () => {
+  it("advanceBoardRowNoGroom rejects a code-changing quest already in CODE_REVIEWING", () => {
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
 
@@ -1224,7 +1235,7 @@ describe("work board", () => {
       questId: "q-1",
       title: "Implement board command",
       noCode: false,
-      status: "SKEPTIC_REVIEWING",
+      status: "CODE_REVIEWING",
     });
 
     const result = bridge.advanceBoardRowNoGroom("s1", "q-1");
@@ -1232,14 +1243,14 @@ describe("work board", () => {
     expect(result).toEqual(
       expect.objectContaining({
         error: expect.stringContaining("explicitly marked no-code"),
-        previousState: "SKEPTIC_REVIEWING",
+        previousState: "CODE_REVIEWING",
       }),
     );
     expect(bridge.getBoard("s1")).toEqual([
       expect.objectContaining({
         questId: "q-1",
         noCode: false,
-        status: "SKEPTIC_REVIEWING",
+        status: "CODE_REVIEWING",
       }),
     ]);
     expect(bridge.getCompletedBoard("s1")).toHaveLength(0);
@@ -1308,7 +1319,7 @@ describe("work board", () => {
       "",
       "QUEST    TITLE                WORKER / REVIEWER               STATE              WAIT-FOR         ACTION",
       "--------------------------------------------------------------------------------------------------------------",
-      "q-460    Re-unroll Frank d…   #618 running / #647 idle       IMPLEMENTING       --               wait for turn_end, then spawn skeptic reviewer",
+      "q-460    Re-unroll Frank d…   #618 running / #647 idle       IMPLEMENTING       --               wait for the worker report, then choose the next review or bookkeeping phase",
       "q-461    Launch Nex AGI da…   #618 running / #647 idle       QUEUED             wait q-460       wait for q-460",
       "",
       "1 quest completed",
@@ -1341,9 +1352,8 @@ describe("work board", () => {
     const expectedTransitions = [
       ["QUEUED", "PLANNING"],
       ["PLANNING", "IMPLEMENTING"],
-      ["IMPLEMENTING", "SKEPTIC_REVIEWING"],
-      ["SKEPTIC_REVIEWING", "GROOM_REVIEWING"],
-      ["GROOM_REVIEWING", "PORTING"],
+      ["IMPLEMENTING", "CODE_REVIEWING"],
+      ["CODE_REVIEWING", "PORTING"],
     ];
 
     for (const [from, to] of expectedTransitions) {
@@ -1371,7 +1381,7 @@ describe("work board", () => {
         status: "PLANNING",
         journey: expect.objectContaining({
           presetId: "full-code",
-          phaseIds: ["planning", "implementation", "skeptic-review", "reviewer-groom", "porting"],
+          phaseIds: ["planning", "implement", "code-review", "port"],
           currentPhaseId: "planning",
           nextLeaderAction: expect.stringContaining("planning phase skill"),
         }),
@@ -1388,7 +1398,7 @@ describe("work board", () => {
       status: "PLANNING",
       journey: {
         presetId: "lightweight",
-        phaseIds: ["planning", "implementation", "porting"],
+        phaseIds: ["planning", "implement", "port"],
         currentPhaseId: "planning",
       },
     });
@@ -1397,8 +1407,8 @@ describe("work board", () => {
     expect(implementation?.newState).toBe("IMPLEMENTING");
     expect(implementation?.board[0].journey).toEqual(
       expect.objectContaining({
-        phaseIds: ["planning", "implementation", "porting"],
-        currentPhaseId: "implementation",
+        phaseIds: ["planning", "implement", "port"],
+        currentPhaseId: "implement",
       }),
     );
 
@@ -1406,8 +1416,8 @@ describe("work board", () => {
     expect(porting?.newState).toBe("PORTING");
     expect(porting?.board[0].journey).toEqual(
       expect.objectContaining({
-        currentPhaseId: "porting",
-        nextLeaderAction: expect.stringContaining("port confirmation"),
+        currentPhaseId: "port",
+        nextLeaderAction: expect.stringContaining("sync confirmation"),
       }),
     );
 
