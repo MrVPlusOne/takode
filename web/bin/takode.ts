@@ -980,6 +980,42 @@ function truncate(s: string, max: number): string {
   return escaped.slice(0, max) + ` [+${escaped.length - max} chars]`;
 }
 
+type TakodeMessageSourceLike = {
+  agent?: { sessionId: string; sessionLabel?: string };
+};
+
+type TakodeUserMessageSourceKind = "user" | "herd" | "agent";
+
+const TAKODE_SCAN_USER_CONTENT_LIMITS: Record<TakodeUserMessageSourceKind, number> = {
+  user: 320,
+  herd: 90,
+  agent: 180,
+};
+
+const TAKODE_PEEK_USER_CONTENT_LIMITS: Record<TakodeUserMessageSourceKind, number> = {
+  user: TAKODE_PEEK_CONTENT_LIMIT,
+  herd: 180,
+  agent: 280,
+};
+
+function takodeUserMessageSourceKind(msg: TakodeMessageSourceLike): TakodeUserMessageSourceKind {
+  if (!msg.agent) return "user";
+  if (msg.agent.sessionId === "herd-events") return "herd";
+  return "agent";
+}
+
+function userSourceLabel(msg: TakodeMessageSourceLike): string {
+  const sourceKind = takodeUserMessageSourceKind(msg);
+  if (sourceKind === "user") return "user";
+  if (sourceKind === "herd") return "herd";
+  return `agent${msg.agent?.sessionLabel ? ` ${formatInlineText(msg.agent.sessionLabel)}` : ""}`;
+}
+
+function formatTakodeUserContent(content: string, msg: TakodeMessageSourceLike, surface: "scan" | "peek"): string {
+  const limits = surface === "scan" ? TAKODE_SCAN_USER_CONTENT_LIMITS : TAKODE_PEEK_USER_CONTENT_LIMITS;
+  return formatQuotedContent(content, limits[takodeUserMessageSourceKind(msg)]);
+}
+
 /** Collapse consecutive tool calls with the same name into groups.
  *  e.g. [Read, Read, Grep, Edit, Edit] → [{Read, 2}, {Grep, 1}, {Edit, 2}] */
 interface CollapsedToolGroup {
@@ -1669,14 +1705,7 @@ type PeekDetailResponse = {
 
 // ─── Peek rendering helpers ──────────────────────────────────────────────────
 
-/** Derive a source label for user messages: [User], [Herd], or [Agent #N name]. */
-function userSourceLabel(msg: PeekMessage): string {
-  if (!msg.agent) return "user";
-  if (msg.agent.sessionId === "herd-events") return "herd";
-  return `agent${msg.agent.sessionLabel ? ` ${formatInlineText(msg.agent.sessionLabel)}` : ""}`;
-}
-
-function formatCollapsedTurn(turn: CollapsedTurn): string {
+function formatCollapsedTurn(turn: CollapsedTurn, surface: "scan" | "peek"): string {
   const endIdx = turn.ei >= 0 ? turn.ei : turn.si; // in-progress turns use si as fallback
   const msgRange = `[${turn.si}]-[${endIdx}]`;
   const startTime = formatTimeShort(turn.start);
@@ -1693,19 +1722,19 @@ function formatCollapsedTurn(turn: CollapsedTurn): string {
 
   const header = `Turn ${turn.turn} · ${msgRange} · ${startTime}-${endTime}${durationPart}${statStr} · ${icon}`;
 
-  const sourceLabel = turn.agent ? "herd" : "user";
+  const sourceLabel = userSourceLabel(turn);
   const hasUser = !!turn.user;
   const hasResult = !!turn.result;
 
   // Single-message turn or only one side exists: compact format
   if (!hasUser && !hasResult) return header;
   if (!hasUser) return `${header}\n  ${formatQuotedContent(turn.result, TAKODE_PEEK_CONTENT_LIMIT)}`;
-  if (!hasResult) return `${header}\n  ${sourceLabel}: ${formatQuotedContent(turn.user, TAKODE_PEEK_CONTENT_LIMIT)}`;
+  if (!hasResult) return `${header}\n  ${sourceLabel}: ${formatTakodeUserContent(turn.user, turn, surface)}`;
 
   // Multi-message turn: show source prompt, ellipsis, and assistant response (no asst: tag)
   return [
     header,
-    `  ${sourceLabel}: ${formatQuotedContent(turn.user, TAKODE_PEEK_CONTENT_LIMIT)}`,
+    `  ${sourceLabel}: ${formatTakodeUserContent(turn.user, turn, surface)}`,
     `  ...`,
     `  ${formatQuotedContent(turn.result, TAKODE_PEEK_CONTENT_LIMIT)}`,
   ].join("\n");
@@ -1723,7 +1752,7 @@ function printExpandedMessages(messages: PeekMessage[]): void {
     switch (msg.type) {
       case "user":
         console.log(
-          `  ${idx.padEnd(7)} ${time}  ${userSourceLabel(msg)}  ${formatQuotedContent(msg.content, TAKODE_PEEK_CONTENT_LIMIT)}`,
+          `  ${idx.padEnd(7)} ${time}  ${userSourceLabel(msg)}  ${formatTakodeUserContent(msg.content, msg, "peek")}`,
         );
         break;
       case "assistant": {
@@ -1826,7 +1855,7 @@ function printPeekDefault(d: PeekDefaultResponse, sessionRef: string): void {
       console.log(`── ${formatDate(turn.start)} ──`);
       lastDate = turnDate;
     }
-    console.log(formatCollapsedTurn(turn));
+    console.log(formatCollapsedTurn(turn, "peek"));
   }
 
   // Expanded turn (the last turn, shown in detail)
@@ -1907,7 +1936,7 @@ function printPeekRange(d: PeekRangeResponse, sessionRef: string, count: number)
     switch (msg.type) {
       case "user":
         console.log(
-          `  ${idx.padEnd(7)} ${time}  ${userSourceLabel(msg)}  ${formatQuotedContent(msg.content, TAKODE_PEEK_CONTENT_LIMIT)}`,
+          `  ${idx.padEnd(7)} ${time}  ${userSourceLabel(msg)}  ${formatTakodeUserContent(msg.content, msg, "peek")}`,
         );
         break;
       case "assistant": {
@@ -3836,7 +3865,7 @@ async function handleScan(base: string, args: string[]): Promise<void> {
       console.log(`── ${formatDate(turn.start)} ──`);
       lastDate = turnDate;
     }
-    console.log(formatCollapsedTurn(turn));
+    console.log(formatCollapsedTurn(turn, "scan"));
   }
 
   console.log("");
