@@ -478,6 +478,7 @@ beforeEach(() => {
   _resetServerLoggerForTest();
   // Reset the LiteLLM model cache so each test starts clean.
   _resetModelCache();
+  vi.spyOn(questStore, "getQuest").mockResolvedValue(null);
   // Stub global fetch to prevent LiteLLM proxy calls in tests.
   // Model endpoint tests exercise the fallback path (models_cache.json).
   vi.stubGlobal(
