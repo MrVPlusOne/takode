@@ -34,10 +34,12 @@ Examples:
 
 - Default tracked-code Journey:
   `takode board set q-12 --worker 5 --phases planning,implement,code-review,port --preset full-code`
-- Investigation before action:
+- Expensive or approval-gated run:
   `takode board set q-12 --worker 5 --phases planning,explore,execute,outcome-review --preset ops-investigation`
-- Zero-tracked-change investigation:
+- Zero-tracked-change evidence review:
   `takode board set q-12 --worker 5 --phases planning,explore,outcome-review --preset investigation`
+- Scenario/design replay:
+  `takode board set q-12 --worker 5 --phases planning,mental-simulation --preset design-validation`
 - Revise the remaining Journey:
   `takode board set q-12 --phases implement,outcome-review,code-review,port --preset cli-rollout --revise-reason "Need real outcome evidence before final review"`
 

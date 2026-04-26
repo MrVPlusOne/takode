@@ -156,6 +156,30 @@ describe("Quest Journey phases", () => {
     );
   });
 
+  it("encodes the implement, execute, and outcome-review responsibility split", () => {
+    expect(getQuestJourneyPhase("implement")).toEqual(
+      expect.objectContaining({
+        assigneeRole: "worker",
+        contract: expect.stringContaining("cheap, local, reversible evidence"),
+        nextLeaderAction: expect.stringContaining("next review, execute, or bookkeeping phase"),
+      }),
+    );
+    expect(getQuestJourneyPhase("execute")).toEqual(
+      expect.objectContaining({
+        assigneeRole: "worker",
+        contract: expect.stringContaining("approval-gated operations"),
+        nextLeaderAction: expect.stringContaining("more execute work"),
+      }),
+    );
+    expect(getQuestJourneyPhase("outcome-review")).toEqual(
+      expect.objectContaining({
+        assigneeRole: "reviewer",
+        contract: expect.stringContaining("Reviewer-owned acceptance judgment"),
+        nextLeaderAction: expect.stringContaining("route to implement, execute, planning"),
+      }),
+    );
+  });
+
   it("keeps custom planned phases while deriving the current phase from board state", () => {
     expect(
       normalizeQuestJourneyPlan({ presetId: "ops", phaseIds: ["planning", "explore", "execute"] }, "PLANNING"),

@@ -15,6 +15,7 @@ Leader actions:
 Reviewer-visible boundary:
 - Replay the proposal against realistic examples and identify friction, missing primitives, or likely failure modes.
 - Do not reduce this to a generic diff review.
+- Use this when the question is whether the design or workflow makes sense under replayed scenarios, not whether externally executed evidence is already sufficient.
 
 Exit evidence:
 - A scenario-grounded review with concrete examples, risks, and recommendations.

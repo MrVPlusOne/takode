@@ -21,11 +21,11 @@ Leaders should read `leader.md` themselves and point the target session to the m
 |-------|-------------|--------------|----------------|----------|--------------------|
 | Planning | `PLANNING` | `planning/leader.md` | `planning/assignee.md` | Align goal, constraints, success criteria, escalation triggers, and next-phase plan | read the planning leader brief, send the planning-only instruction, then review the worker plan for leader approval or necessary user escalation |
 | Explore | `EXPLORING` | `explore/leader.md` | `explore/assignee.md` | Gather unknown information without making the target-state change | read the explore leader brief, then wait for the evidence summary and decide whether to revise the Journey or advance |
-| Implement | `IMPLEMENTING` | `implement/leader.md` | `implement/assignee.md` | Make approved code/docs/prompts/config/artifact changes and low-risk local actions | read the implement leader brief, then wait for the worker report and choose the next review or bookkeeping phase |
+| Implement | `IMPLEMENTING` | `implement/leader.md` | `implement/assignee.md` | Make approved code/docs/prompts/config/artifact changes and gather cheap, local, reversible evidence when that stays within the approved scope | read the implement leader brief, then wait for the worker report and choose the next review, execute, or bookkeeping phase |
 | Code Review | `CODE_REVIEWING` | `code-review/leader.md` | `code-review/assignee.md` | Review tracked code or tracked artifacts for correctness, maintainability, tests, security, and regression risk | read the code-review leader brief, then wait for the reviewer result and either send rework or advance |
 | Mental Simulation | `MENTAL_SIMULATING` | `mental-simulation/leader.md` | `mental-simulation/assignee.md` | Replay a design, workflow, or implementation against concrete scenarios | read the mental-simulation leader brief, then wait for the scenario review and decide whether the Journey needs revision |
-| Execute | `EXECUTING` | `execute/leader.md` | `execute/assignee.md` | Run high-stakes, long-running, costly, or externally consequential operations | read the execute leader brief, track monitor and stop conditions, then wait for the execution report before advancing |
-| Outcome Review | `OUTCOME_REVIEWING` | `outcome-review/leader.md` | `outcome-review/assignee.md` | Judge external or non-code outcomes such as metrics, logs, artifacts, prompt behavior, or UX trial notes | read the outcome-review leader brief, then wait for external-result evidence and decide whether to continue, revise, or conclude |
+| Execute | `EXECUTING` | `execute/leader.md` | `execute/assignee.md` | Run approved expensive, risky, long-running, externally consequential, or approval-gated operations | read the execute leader brief, track monitor and stop conditions, then wait for the execution report and decide whether outcome review, more execute work, or a Journey revision is needed |
+| Outcome Review | `OUTCOME_REVIEWING` | `outcome-review/leader.md` | `outcome-review/assignee.md` | Reviewer-owned acceptance judgment over external or non-code outcomes such as metrics, logs, artifacts, prompt behavior, or UX trial notes | read the outcome-review leader brief, then wait for the reviewer judgment and route to implement, execute, planning, or conclusion |
 | Bookkeeping | `BOOKKEEPING` | `bookkeeping/leader.md` | `bookkeeping/assignee.md` | Record durable shared external state such as quest updates, stream updates, artifact locations, handoff facts, and superseded facts | read the bookkeeping leader brief, record the durable shared state update, then advance when the facts and handoff state are current |
 | Port | `PORTING` | `port/leader.md` | `port/assignee.md` | Sync accepted tracked changes back to the main repo | read the port leader brief, then wait for sync confirmation and post-port verification before removing the row |
 
@@ -40,9 +40,9 @@ This preserves a small normal path for common repo work while allowing leaders t
 Examples:
 
 - Straight tracked-code work: `planning -> implement -> code-review -> port`
-- Investigation before action: `planning -> explore -> execute -> outcome-review`
-- Design validation: `planning -> implement -> mental-simulation -> outcome-review`
-- Hybrid code plus external validation: `planning -> implement -> outcome-review -> code-review -> port`
+- Expensive or approval-gated run: `planning -> explore -> execute -> outcome-review`
+- Design or workflow validation: `planning -> implement -> mental-simulation -> code-review -> port`
+- Cheap local evidence followed by acceptance review: `planning -> implement -> outcome-review -> code-review -> port`
 
 ## Journey Revision
 
@@ -82,8 +82,16 @@ Rules:
 Use the review phase that matches the evidence you need:
 
 - **`code-review`** for tracked code/artifact quality and landing risk.
-- **`mental-simulation`** for scenario-driven workflow or design replay.
-- **`outcome-review`** for external behavior, metrics, artifacts, or operational outcomes.
+- **`mental-simulation`** for scenario-driven workflow, design, or responsibility-split replay.
+- **`outcome-review`** for reviewer-owned acceptance over external behavior, metrics, artifacts, prompt behavior, or operational outcomes that already exist.
+- **`execute`** when more evidence requires expensive, risky, long-running, externally consequential, or approval-gated runs rather than a reviewer acceptance pass.
+
+Guidance:
+
+- Use **`mental-simulation`** when the question is whether a design or workflow makes sense under replayed scenarios. This is about plausibility and failure modes, not externally executed sufficiency.
+- Use **`outcome-review`** when the worker has usually already produced the evidence and a reviewer should decide whether that evidence is sufficient. The reviewer may do only small bounded reruns or repros needed for acceptance.
+- Use **`execute`** when the worker needs more than cheap local evidence gathering and the next step is an approved run with monitors, stop conditions, risk controls, or external consequences.
+- If outcome evidence is insufficient, route back deliberately: **`implement`** when behavior or code must change, **`execute`** when more approved runs are needed, and **`planning`** when success criteria, scope, or experiment design changed.
 
 Do not default to a generic skeptic-review framing for new work. Legacy board rows or saved phrases may still mention `skeptic-review`, `reviewer-groom`, or `stream-update`; treat those as compatibility aliases rather than the preferred vocabulary.
 
@@ -95,7 +103,7 @@ Choose explicit phases that match the evidence you need and simply omit `port` w
 
 - `planning -> explore -> outcome-review`
 - `planning -> explore -> bookkeeping`
-- `planning -> mental-simulation -> outcome-review`
+- `planning -> mental-simulation`
 
 Advancing from the final planned phase removes the row from the board. Git-tracked docs, skills, prompts, templates, and other text-only edits still count as tracked-change work and should include `port`.
 

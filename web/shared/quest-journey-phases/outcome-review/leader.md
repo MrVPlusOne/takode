@@ -4,6 +4,8 @@ Use this phase when the right evidence lives in outcomes rather than source diff
 
 Leader actions:
 - Keep the board row in `OUTCOME_REVIEWING`.
+- Use this as a reviewer-owned acceptance phase after the worker has usually produced the outcome evidence first.
 - Point the reviewer to the exact logs, metrics, artifacts, behaviors, or UX evidence to judge.
 - Ask for an outcome judgment tied to concrete evidence.
-- Revise the Journey if the outcome evidence changes the remaining work.
+- Keep the reviewer scoped to judging sufficiency of the existing evidence, with only small bounded reruns or repros when needed for acceptance.
+- If the evidence is insufficient, route back to `IMPLEMENTING` when behavior or code must change, to `EXECUTING` when more approved runs are needed, or to `PLANNING` when the success criteria, scope, or experiment design changed.

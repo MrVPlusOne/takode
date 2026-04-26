@@ -455,6 +455,12 @@ describe("getOrchestratorGuardrails", () => {
     );
     expect(guardrails).toContain("what changed, why it matters, and what verification passed");
     expect(guardrails).toContain("Do **not** tell the worker to port yet");
+    expect(guardrails).toContain(
+      "Use `mental-simulation` when the question is whether a design, workflow, or responsibility split makes sense",
+    );
+    expect(guardrails).toContain("reviewers may do only small bounded reruns or repros");
+    expect(guardrails).toContain("approval-gated runs rather than a reviewer acceptance pass");
+    expect(guardrails).toContain("route back deliberately: `implement`");
     expect(guardrails).toContain("investigation, design, or other zero-tracked-change quests");
     expect(guardrails).toContain("address code-review findings");
     expect(guardrails).toContain("Leaders may revise the remaining Journey");
@@ -532,6 +538,9 @@ describe("getOrchestratorGuardrails", () => {
     );
     expect(guardrails).toContain("what changed, why it matters, and what verification passed");
     expect(guardrails).toContain("Do **not** tell the worker to port yet");
+    expect(guardrails).toContain("Use `outcome-review` when a reviewer should make an acceptance judgment");
+    expect(guardrails).toContain("small bounded reruns or repros");
+    expect(guardrails).toContain("approval-gated runs rather than a reviewer acceptance pass");
     expect(guardrails).toContain("address code-review findings");
     expect(guardrails).toContain("Leaders may revise the remaining Journey");
     expect(guardrails).toContain("what artifact to produce and to stop afterward");

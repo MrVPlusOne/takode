@@ -63,6 +63,12 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("Escalate planning back to the user only");
     expect(result).toContain("commit the current worktree state first");
     expect(result).toContain("separate follow-up commit");
+    expect(result).toContain(
+      "Use `mental-simulation` when the question is whether a design, workflow, or responsibility split makes sense",
+    );
+    expect(result).toContain("reviewers may do only small bounded reruns or repros");
+    expect(result).toContain("approval-gated runs");
+    expect(result).toContain("route back deliberately: `implement`");
   });
 
   it("returns codex-flavored guardrails for codex backend", () => {
@@ -73,6 +79,9 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("Planning approval is leader-owned by default");
     expect(result).toContain("Escalate planning back to the user only");
     expect(result).toContain("commit the current worktree state first");
+    expect(result).toContain("Use `outcome-review` when a reviewer should make an acceptance judgment");
+    expect(result).toContain("small bounded reruns or repros");
+    expect(result).toContain("approval-gated runs");
   });
 });
 
@@ -96,6 +105,15 @@ describe("buildInjectedSystemPromptForDebug", () => {
     expect(result).toContain("not a routine second user-approval gate");
     expect(result).toContain("Planning approval is leader-owned by default");
     expect(result).toContain("significant ambiguity, scope change, Journey revision, user-visible tradeoff");
+    expect(result).toContain(
+      "Use `mental-simulation` when the question is whether a design, workflow, or responsibility split makes sense under replayed scenarios.",
+    );
+    expect(result).toContain(
+      "a reviewer should make an acceptance judgment on external evidence the worker has usually already produced",
+    );
+    expect(result).toContain("reviewers may do only small bounded reruns or repros");
+    expect(result).toContain("approval-gated runs rather than a reviewer acceptance pass");
+    expect(result).toContain("route back deliberately: `implement` for behavior/code changes");
     expect(result).toContain("| Built-in phase | Board state | Leader brief | Assignee brief | Next leader action |");
     expect(result).toContain("~/.companion/quest-journey-phases/<phase-id>/");
     expect(result).toContain("`planning/leader.md`");

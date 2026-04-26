@@ -66,4 +66,25 @@ describe("Quest Journey phase directory loading", () => {
 
     expect(refreshed).toBe(canonical);
   });
+
+  it("seeds phase briefs with the execute and outcome-review responsibility boundaries", async () => {
+    const companionHome = await makeCompanionHome();
+    await ensureBuiltInQuestJourneyPhaseData({ packageRoot: PACKAGE_ROOT, companionHome });
+
+    const phases = await loadBuiltInQuestJourneyPhases({ companionHome });
+    const implementPhase = phases.find((phase) => phase.id === "implement");
+    const executePhase = phases.find((phase) => phase.id === "execute");
+    const outcomeReviewPhase = phases.find((phase) => phase.id === "outcome-review");
+
+    expect(implementPhase?.leaderBrief).toContain("cheap, local, reversible outcome evidence");
+    expect(implementPhase?.assigneeBrief).toContain("those belong in `EXECUTING`");
+    expect(executePhase?.leaderBrief).toContain("Use `EXECUTING` instead of `IMPLEMENTING`");
+    expect(executePhase?.assigneeBrief).toContain(
+      "Do not turn this phase into the main implementation or debugging loop",
+    );
+    expect(outcomeReviewPhase?.leaderBrief).toContain("reviewer-owned acceptance phase");
+    expect(outcomeReviewPhase?.leaderBrief).toContain("route back to `IMPLEMENTING`");
+    expect(outcomeReviewPhase?.assigneeBrief).toContain("small bounded checks or repros");
+    expect(outcomeReviewPhase?.assigneeBrief).toContain("do not become the primary experiment owner");
+  });
 });

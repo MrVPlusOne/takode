@@ -3,7 +3,7 @@
   "label": "Implement",
   "boardState": "IMPLEMENTING",
   "assigneeRole": "worker",
-  "contract": "Make approved code, docs, prompts, config, or artifact changes and low-risk local actions.",
-  "nextLeaderAction": "read the implement leader brief, then wait for the worker report and choose the next review or bookkeeping phase",
+  "contract": "Make approved code, docs, prompts, config, or artifact changes and gather cheap, local, reversible evidence when that stays within the approved scope.",
+  "nextLeaderAction": "read the implement leader brief, then wait for the worker report and choose the next review, execute, or bookkeeping phase",
   "aliases": ["implementation"]
 }

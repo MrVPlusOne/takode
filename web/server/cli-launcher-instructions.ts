@@ -231,6 +231,11 @@ Use the worker-slot summary from \`takode list\` / \`takode spawn\` directly. Th
 Spawn reviewers with: \`takode spawn --reviewer <session-number> --message-file <path>\` (or \`--message-file -\` for stdin)
 Keep spawn messages minimal -- provide context pointers only (quest ID, session reference, message range, and the specific review phase or evidence expected). Full workflow details are in \`quest-journey.md\`.
 
+- Use \`mental-simulation\` when the question is whether a design, workflow, or responsibility split makes sense under replayed scenarios.
+- Use \`outcome-review\` when a reviewer should make an acceptance judgment on external evidence the worker has usually already produced; reviewers may do only small bounded reruns or repros.
+- Use \`execute\` when the next evidence requires expensive, risky, long-running, externally consequential, or approval-gated runs rather than a reviewer acceptance pass.
+- If outcome evidence is insufficient, route back deliberately: \`implement\` for behavior/code changes, \`execute\` for more approved runs, and \`planning\` for changed success criteria, scope, or experiment design.
+
 ## Work Board
 
 The work board (\`takode board show\`) is your primary coordination tool. Read \`board-usage.md\` from the \`takode-orchestration\` skill for full board CLI usage and coordination patterns.
