@@ -41,6 +41,20 @@ const VALID_ENTRY_TYPES = new Set<StreamEntryType>([
   "note",
 ]);
 
+export interface SessionGroupStreamMigrationInput {
+  sourceGroupId: string;
+  destinationGroupId: string;
+  sourceGroupName?: string;
+  serverId?: string;
+}
+
+export interface SessionGroupStreamMigrationResult {
+  sourceScope: string;
+  destinationScope: string;
+  migratedCount: number;
+  renamedCount: number;
+}
+
 function scopeFileName(scope: string): string {
   const digest = createHash("sha1").update(scope).digest("hex").slice(0, 16);
   return `${digest}.json`;
@@ -76,6 +90,25 @@ function uniqueSlug(title: string, streams: StreamRecord[], ignoreId?: string): 
     suffix += 1;
   }
   return slug;
+}
+
+function uniqueMigratedTitle(title: string, existingTitles: Set<string>, sourceGroupName: string): string {
+  const normalizedTitle = title.trim() || "Stream";
+  if (!existingTitles.has(normalizedTitle)) {
+    existingTitles.add(normalizedTitle);
+    return normalizedTitle;
+  }
+
+  const prefix = sourceGroupName.trim() || "default";
+  const base = `${prefix}-${normalizedTitle}`;
+  let candidate = base;
+  let suffix = 2;
+  while (existingTitles.has(candidate)) {
+    candidate = `${base}-${suffix}`;
+    suffix += 1;
+  }
+  existingTitles.add(candidate);
+  return candidate;
 }
 
 function streamMatchesRef(stream: StreamRecord, ref: string): boolean {
@@ -463,6 +496,74 @@ export async function getStreamDashboard(
     (candidate) => candidate.parentId === stream.id || candidate.parentId === stream.slug,
   );
   return { stream, children };
+}
+
+export async function migrateSessionGroupStreams(
+  input: SessionGroupStreamMigrationInput,
+): Promise<SessionGroupStreamMigrationResult> {
+  const sourceScope = streamScopeForSessionGroup(input.sourceGroupId, input.serverId);
+  const destinationScope = streamScopeForSessionGroup(input.destinationGroupId, input.serverId);
+  if (sourceScope === destinationScope) {
+    return { sourceScope, destinationScope, migratedCount: 0, renamedCount: 0 };
+  }
+
+  const sourceData = await loadScopeFile(sourceScope);
+  if (sourceData.streams.length === 0) {
+    return { sourceScope, destinationScope, migratedCount: 0, renamedCount: 0 };
+  }
+
+  const destinationData = await loadScopeFile(destinationScope);
+  const sourceGroupName = input.sourceGroupName?.trim() || input.sourceGroupId.trim() || "default";
+  const existingTitles = new Set(destinationData.streams.map((stream) => stream.title));
+  const idMap = new Map<string, string>();
+  const slugMap = new Map<string, string>();
+  const migratedStreams: StreamRecord[] = [];
+  let renamedCount = 0;
+
+  for (const sourceStream of sourceData.streams) {
+    const migrated = structuredClone(sourceStream) as StreamRecord;
+    migrated.id = `s-${destinationData.nextId}`;
+    destinationData.nextId += 1;
+
+    migrated.title = uniqueMigratedTitle(migrated.title, existingTitles, sourceGroupName);
+    if (migrated.title !== sourceStream.title) renamedCount += 1;
+
+    migrated.scope = destinationScope;
+    migrated.slug = uniqueSlug(migrated.title, [...destinationData.streams, ...migratedStreams]);
+    idMap.set(sourceStream.id, migrated.id);
+    slugMap.set(sourceStream.slug, migrated.slug);
+    migratedStreams.push(migrated);
+  }
+
+  const remapStreamRef = (ref: string | undefined): string | undefined => {
+    if (!ref) return ref;
+    return idMap.get(ref) || slugMap.get(ref) || ref;
+  };
+
+  for (const migrated of migratedStreams) {
+    migrated.parentId = remapStreamRef(migrated.parentId);
+    migrated.childIds = migrated.childIds?.map((childId) => remapStreamRef(childId) || childId);
+    migrated.links = migrated.links?.map((link) =>
+      link.type === "stream" ? { ...link, ref: remapStreamRef(link.ref) || link.ref } : link,
+    );
+    migrated.timeline = migrated.timeline.map((entry) => ({
+      ...entry,
+      links: entry.links?.map((link) =>
+        link.type === "stream" ? { ...link, ref: remapStreamRef(link.ref) || link.ref } : link,
+      ),
+    }));
+  }
+
+  destinationData.streams.push(...migratedStreams);
+  sourceData.streams = [];
+  await saveScopeFile(destinationData);
+  await saveScopeFile(sourceData);
+  return {
+    sourceScope,
+    destinationScope,
+    migratedCount: migratedStreams.length,
+    renamedCount,
+  };
 }
 
 export function getStreamsDir(): string {

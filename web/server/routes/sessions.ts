@@ -13,7 +13,7 @@ import { containerManager, ContainerManager, type ContainerConfig, type Containe
 import type { CreationStepId, TakodeSessionArchivedEventData } from "../session-types.js";
 import { hasContainerClaudeAuth } from "../claude-container-auth.js";
 import { hasContainerCodexAuth } from "../codex-container-auth.js";
-import { getSettings, getClaudeUserDefaultModel } from "../settings-manager.js";
+import { getSettings, getClaudeUserDefaultModel, getServerId } from "../settings-manager.js";
 import { searchSessionDocuments, type SessionSearchDocument } from "../session-search.js";
 import { buildReadResponse } from "../takode-messages.js";
 import { ensureAssistantWorkspace, ASSISTANT_DIR } from "../assistant-workspace.js";
@@ -285,6 +285,34 @@ export function createSessionsRoutes(ctx: RouteContext) {
     for (const info of launcher.listSessions()) {
       await updateSessionTreeGroupMetadata(info.sessionId, treeState.assignments[info.sessionId] || "default");
     }
+  };
+
+  const getTreeGroupDisplayName = (groups: Array<{ id: string; name: string }>, groupId: string): string =>
+    groups.find((group) => group.id === groupId)?.name || (groupId === "default" ? "Default" : groupId);
+
+  const getCurrentSessionTreeGroupId = async (sessionId: string): Promise<string | undefined> => {
+    const session = wsBridge.getSession(sessionId);
+    const metadataGroupId = normalizeTreeGroupId(session?.state.treeGroupId);
+    if (metadataGroupId) return metadataGroupId;
+    const assignedGroupId = await treeGroupStore.getGroupForSession(sessionId);
+    return normalizeTreeGroupId(assignedGroupId);
+  };
+
+  const migrateStreamsForTreeGroupChange = async (
+    sourceGroupId: string,
+    destinationGroupId: string,
+    sourceGroupName?: string,
+  ): Promise<void> => {
+    const normalizedSourceGroupId = normalizeDurableTreeGroupId(sourceGroupId);
+    const normalizedDestinationGroupId = normalizeDurableTreeGroupId(destinationGroupId);
+    if (normalizedSourceGroupId === normalizedDestinationGroupId) return;
+    const { migrateSessionGroupStreams } = await import("../stream-store.js");
+    await migrateSessionGroupStreams({
+      serverId: getServerId(),
+      sourceGroupId: normalizedSourceGroupId,
+      destinationGroupId: normalizedDestinationGroupId,
+      sourceGroupName,
+    });
   };
 
   const applySessionPostLaunch = async (
@@ -1349,6 +1377,12 @@ export function createSessionsRoutes(ctx: RouteContext) {
   });
   api.delete("/tree-groups/groups/:id", async (c) => {
     const id = c.req.param("id");
+    const treeState = await treeGroupStore.getState();
+    const group = treeState.groups.find((candidate) => candidate.id === id);
+    if (!group && id !== "default") {
+      return c.json({ error: "Group not found" }, 404);
+    }
+    await migrateStreamsForTreeGroupChange(id, "default", group?.name);
     const ok = await treeGroupStore.deleteGroup(id);
     if (!ok) return c.json({ error: "Cannot delete default group" }, 400);
     await syncRestoredSessionMetadataFromAssignments();
@@ -1357,14 +1391,22 @@ export function createSessionsRoutes(ctx: RouteContext) {
   });
   api.patch("/tree-groups/assign", async (c) => {
     const body = await c.req.json().catch(() => ({}));
-    const sessionId = typeof body.sessionId === "string" ? body.sessionId : "";
-    const groupId = typeof body.groupId === "string" ? body.groupId : "";
+    const sessionId = typeof body.sessionId === "string" ? body.sessionId.trim() : "";
+    const groupId = typeof body.groupId === "string" ? body.groupId.trim() : "";
     if (!sessionId || !groupId) {
       return c.json({ error: "sessionId and groupId are required" }, 400);
     }
     const treeState = await treeGroupStore.getState();
     if (!treeState.groups.some((group) => group.id === groupId)) {
       return c.json({ error: "Group not found" }, 404);
+    }
+    const sourceGroupId = await getCurrentSessionTreeGroupId(sessionId);
+    if (sourceGroupId) {
+      await migrateStreamsForTreeGroupChange(
+        sourceGroupId,
+        groupId,
+        getTreeGroupDisplayName(treeState.groups, sourceGroupId),
+      );
     }
     await assignDurableSessionTreeGroup(sessionId, groupId);
     return c.json({ ok: true });

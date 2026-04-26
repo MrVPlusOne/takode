@@ -104,6 +104,53 @@ describe("stream store", () => {
     expect((await searchStreams("canonical artifact", scope))[0]?.id).toBe(stream.id);
   });
 
+  it("migrates group-scoped streams into the destination scope and prefixes collisions", async () => {
+    const treeGroups = await import("./tree-group-store.js");
+    treeGroups._resetForTest(join(home, "tree-groups.json"));
+    const sourceGroup = await treeGroups.createGroup("Alpha Team");
+    const destinationGroup = await treeGroups.createGroup("Beta Team");
+
+    const { createStream, getStreamDashboard, listStreams, migrateSessionGroupStreams, streamScopeForSessionGroup } =
+      await import("./stream-store.js");
+    const sourceScope = streamScopeForSessionGroup(sourceGroup.id, "server-test");
+    const destinationScope = streamScopeForSessionGroup(destinationGroup.id, "server-test");
+
+    const parent = await createStream({ title: "Shared memory", scope: sourceScope, summary: "Source parent" });
+    await createStream({
+      title: "Worker note",
+      scope: sourceScope,
+      parent: parent.slug,
+      summary: "Child still follows migrated parent",
+    });
+    await createStream({
+      title: "Shared memory",
+      scope: destinationScope,
+      summary: "Destination collision",
+    });
+
+    const result = await migrateSessionGroupStreams({
+      serverId: "server-test",
+      sourceGroupId: sourceGroup.id,
+      sourceGroupName: sourceGroup.name,
+      destinationGroupId: destinationGroup.id,
+    });
+
+    expect(result).toMatchObject({ migratedCount: 2, renamedCount: 1 });
+    expect(await listStreams({ scope: sourceScope, includeArchived: true })).toEqual([]);
+
+    const destinationStreams = await listStreams({ scope: destinationScope, includeArchived: true });
+    expect(destinationStreams.map((stream) => stream.title).sort()).toEqual([
+      "Alpha Team-Shared memory",
+      "Shared memory",
+      "Worker note",
+    ]);
+
+    const renamedParent = destinationStreams.find((stream) => stream.title === "Alpha Team-Shared memory");
+    expect(renamedParent?.slug).toBe("alpha-team-shared-memory");
+    const dashboard = await getStreamDashboard(renamedParent?.slug || "", destinationScope);
+    expect(dashboard?.children.map((stream) => stream.title)).toEqual(["Worker note"]);
+  });
+
   function initRepo(repo: string): void {
     mkdirSync(repo);
     execFileSync("git", ["--no-optional-locks", "-C", repo, "init"], { stdio: "ignore" });
