@@ -445,7 +445,7 @@ async function ensureCodexSessionConfig(
   codexHome: string,
   envVars: string[],
   options?: { leaderContextWindowOverrideTokens?: number },
-): Promise<void> {
+): Promise<string> {
   const configPath = join(codexHome, "config.toml");
   let current = "";
   try {
@@ -464,6 +464,19 @@ async function ensureCodexSessionConfig(
   if (next !== current) {
     await writeFile(configPath, next, "utf-8");
   }
+  return next;
+}
+
+function renderContainerCodexConfigWrite(configToml: string): string {
+  const normalizedConfig = configToml.replace(/\r\n/g, "\n");
+  const configBody = normalizedConfig.endsWith("\n") ? normalizedConfig.slice(0, -1) : normalizedConfig;
+  const heredocMarker = "__COMPANION_CODEX_CONFIG__";
+  return [
+    "mkdir -p /root/.codex",
+    `cat > /root/.codex/config.toml <<'${heredocMarker}'`,
+    configBody,
+    heredocMarker,
+  ].join("\n");
 }
 
 async function resolveHostCodexLaunchBinary(
@@ -535,12 +548,19 @@ export async function prepareCodexSpawn(
   const shellEnvVars = Object.keys(options.env || {}).filter(
     (name) => name.startsWith("COMPANION_") || name.startsWith("TAKODE_"),
   );
+  const leaderContextWindowOverrideTokens =
+    info.isOrchestrator === true ? options.codexLeaderContextWindowOverrideTokens : undefined;
+  let containerLeaderConfigToml: string | undefined;
 
   if (!isContainerized) {
     await prepareCodexHome(codexHome, options.resumeCliSessionId || info.cliSessionId);
     await ensureCodexSessionConfig(codexHome, shellEnvVars, {
-      leaderContextWindowOverrideTokens:
-        info.isOrchestrator === true ? options.codexLeaderContextWindowOverrideTokens : undefined,
+      leaderContextWindowOverrideTokens,
+    });
+  } else if (leaderContextWindowOverrideTokens && leaderContextWindowOverrideTokens > 0) {
+    await prepareCodexHome(codexHome, options.resumeCliSessionId || info.cliSessionId);
+    containerLeaderConfigToml = await ensureCodexSessionConfig(codexHome, shellEnvVars, {
+      leaderContextWindowOverrideTokens,
     });
   }
 
@@ -555,7 +575,12 @@ export async function prepareCodexSpawn(
     dockerArgs.push("-e", "CODEX_HOME=/root/.codex");
     dockerArgs.push(options.containerId!);
     const innerCmd = [binary, ...args].map((arg) => `'${arg.replace(/'/g, "'\\''")}'`).join(" ");
-    dockerArgs.push("bash", "-lc", innerCmd);
+    const shellCommands: string[] = [];
+    if (containerLeaderConfigToml) {
+      shellCommands.push(renderContainerCodexConfigWrite(containerLeaderConfigToml));
+    }
+    shellCommands.push(`exec ${innerCmd}`);
+    dockerArgs.push("bash", "-lc", shellCommands.join("\n"));
 
     return {
       spawnCmd: dockerArgs,

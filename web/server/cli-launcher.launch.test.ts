@@ -894,6 +894,58 @@ describe("launch", () => {
     }
   });
 
+  it("applies the context-window override to containerized Codex leaders only", async () => {
+    const customHome = mkdtempSync(join(tmpdir(), "codex-container-home-test-"));
+
+    try {
+      mockSpawn.mockReturnValueOnce(createMockCodexProc());
+      const workerInfo = await launcher.launch({
+        backendType: "codex",
+        cwd: "/tmp/project",
+        codexSandbox: "workspace-write",
+        codexHome: customHome,
+        codexLeaderContextWindowOverrideTokens: 1_000_000,
+        containerId: "abc123def456",
+        containerName: "companion-session-1",
+        containerImage: "ubuntu:22.04",
+      });
+      await waitForSpawnCalls(1);
+
+      let [cmdAndArgs] = mockSpawn.mock.calls[0]!;
+      expect(cmdAndArgs).toContain("docker");
+      expect(cmdAndArgs).toContain("exec");
+      expect(cmdAndArgs).toContain("CODEX_HOME=/root/.codex");
+      let bashIndex = cmdAndArgs.indexOf("-lc");
+      expect(bashIndex).toBeGreaterThan(-1);
+      let innerScript = cmdAndArgs[bashIndex + 1];
+      expect(innerScript).not.toContain("model_context_window = 1000000");
+      expect(innerScript).not.toContain("model_auto_compact_token_limit = 1000000");
+
+      (launcher.getSession(workerInfo.sessionId) as any).isOrchestrator = true;
+      launcher.setSettingsGetter(() => ({
+        claudeBinary: "",
+        codexBinary: "codex",
+        codexLeaderContextWindowOverrideTokens: 1_000_000,
+      }));
+      mockSpawn.mockReturnValueOnce(createMockCodexProc(12346));
+      const relaunch = await launcher.relaunch(workerInfo.sessionId);
+      expect(relaunch.ok).toBe(true);
+      await waitForSpawnCalls(2);
+
+      [cmdAndArgs] = mockSpawn.mock.calls[1]!;
+      expect(cmdAndArgs).toContain("CODEX_HOME=/root/.codex");
+      bashIndex = cmdAndArgs.indexOf("-lc");
+      expect(bashIndex).toBeGreaterThan(-1);
+      innerScript = cmdAndArgs[bashIndex + 1];
+      expect(innerScript).toContain("cat > /root/.codex/config.toml <<'__COMPANION_CODEX_CONFIG__'");
+      expect(innerScript).toContain("model_context_window = 1000000");
+      expect(innerScript).toContain("model_auto_compact_token_limit = 1000000");
+      expect(innerScript).toContain("exec 'codex' '-a'");
+    } finally {
+      rmSync(customHome, { recursive: true, force: true });
+    }
+  });
+
   it("records Codex leader recycle lineage across fresh-thread swaps", async () => {
     mockResolveBinary.mockReturnValue("/opt/fake/codex");
     mockSpawn.mockReturnValueOnce(createMockCodexProc());
