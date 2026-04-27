@@ -11,8 +11,8 @@ import {
   readdir,
   stat,
 } from "node:fs/promises";
-import { join, resolve, relative, dirname, basename } from "node:path";
-import { homedir, hostname } from "node:os";
+import { join, resolve, relative, dirname } from "node:path";
+import { homedir } from "node:os";
 import { getLegacyCodexHome, resolveCompanionCodexHome, resolveCompanionCodexSessionHome } from "./codex-home.js";
 import { resolveBinary, getEnrichedPath, captureUserShellEnv } from "./path-resolver.js";
 import { sessionTag } from "./session-tag.js";
@@ -25,17 +25,8 @@ const dotslashShebang = "#!/usr/bin/env dotslash";
 const codexBootstrapCacheMarker = 'CACHE_DIR = os.path.expanduser("~/.cache/codex")';
 const nodeShebangRe = /^#!.*\bnode(?:\s|$)/;
 const hostCodexShellEnvVars = ["LITELLM_API_KEY", "LITELLM_PROXY_URL", "LITELLM_BASE_URL"] as const;
-const maiWrapperRootMarker = ".mai-agents-root";
-const maiWrapperDefaultModel = "gpt-5.4";
-const maiWrapperDefaultReasoningEffort = "high";
 
 type HostCodexBinaryKind = "native" | "dotslash" | "bootstrap";
-
-interface HostCodexWrapperLaunchSpec {
-  binary: string;
-  extraArgs: string[];
-  extraEnv: Record<string, string>;
-}
 
 export class MissingCodexBinaryError extends Error {}
 
@@ -129,118 +120,8 @@ function mergePathStrings(paths: Array<string | undefined>): string {
   return merged.join(":");
 }
 
-function normalizeMaiHostname(input: string): string {
-  let normalized = input.replace(/[^A-Za-z0-9._-]/g, "-");
-  while (normalized.length > 0 && /^[._-]/.test(normalized)) normalized = normalized.slice(1);
-  while (normalized.length > 0 && /[._-]$/.test(normalized)) normalized = normalized.slice(0, -1);
-  if (normalized.length > 64) {
-    normalized = normalized.slice(0, 64);
-    while (normalized.length > 0 && /[._-]$/.test(normalized)) normalized = normalized.slice(0, -1);
-  }
-  return normalized || "host";
-}
-
-function parseShellEnvValue(contents: string, key: string): string | undefined {
-  const line = contents.split(/\r?\n/).find((entry) => entry.startsWith(`${key}=`));
-  if (!line) return undefined;
-  const raw = line.slice(key.length + 1).trim();
-  if (raw.length >= 2) {
-    if ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'"))) {
-      return raw.slice(1, -1);
-    }
-  }
-  return raw || undefined;
-}
-
-function escapeCodexConfigString(value: string): string {
-  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-}
-
 function isCodexLeaderLaunch(info: CodexLaunchInfo, options: CodexLaunchOptions): boolean {
   return info.isOrchestrator === true || options.env?.TAKODE_ROLE === "orchestrator";
-}
-
-async function readMaiWrapperHostEnv(wrapperRoot: string): Promise<string> {
-  const currentHostname = hostname();
-  const shortHostname = currentHostname.split(".")[0] || currentHostname;
-  const candidates = Array.from(
-    new Set([normalizeMaiHostname(currentHostname), normalizeMaiHostname(shortHostname)]).values(),
-  ).filter(Boolean);
-
-  for (const candidate of candidates) {
-    const hostEnvPath = join(wrapperRoot, ".run", `.env-${candidate}`);
-    const hostEnvRaw = await readFile(hostEnvPath, "utf-8").catch(() => "");
-    if (hostEnvRaw) return hostEnvRaw;
-  }
-  return "";
-}
-
-async function resolveHostCodexWrapperLaunchSpec(
-  binary: string,
-  options: CodexLaunchOptions,
-): Promise<HostCodexWrapperLaunchSpec | null> {
-  if (basename(binary) !== "codex.sh") return null;
-
-  let resolvedBinary = binary;
-  try {
-    resolvedBinary = await realpath(binary);
-  } catch {
-    resolvedBinary = binary;
-  }
-
-  const wrapperRoot = dirname(resolvedBinary);
-  if (!(await fileExists(join(wrapperRoot, maiWrapperRootMarker)))) {
-    return null;
-  }
-
-  const rawCodexBinary = resolveBinary("codex");
-  if (!rawCodexBinary) {
-    throw new MissingCodexBinaryError('Binary "codex" not found in PATH for MAI Codex wrapper launch');
-  }
-
-  const hostEnvRaw = await readMaiWrapperHostEnv(wrapperRoot);
-  const litellmApiKey =
-    options.env?.LITELLM_API_KEY ||
-    parseShellEnvValue(hostEnvRaw, "LITELLM_API_KEY") ||
-    process.env.LITELLM_API_KEY ||
-    "";
-  const litellmProxyUrl =
-    options.env?.LITELLM_PROXY_URL ||
-    parseShellEnvValue(hostEnvRaw, "LITELLM_PROXY_URL") ||
-    process.env.LITELLM_PROXY_URL ||
-    "";
-  const litellmBaseUrl =
-    options.env?.LITELLM_BASE_URL ||
-    parseShellEnvValue(hostEnvRaw, "LITELLM_BASE_URL") ||
-    process.env.LITELLM_BASE_URL ||
-    "";
-  if (!litellmApiKey || !litellmProxyUrl) {
-    return null;
-  }
-
-  const extraArgs = [
-    "-c",
-    "model_provider=litellm",
-    "-c",
-    `model=${maiWrapperDefaultModel}`,
-    "-c",
-    `model_providers.litellm={ name = "LiteLLM", base_url="${escapeCodexConfigString(litellmProxyUrl)}", env_key="LITELLM_API_KEY", wire_api="responses" }`,
-    "-c",
-    "web_search=disabled",
-  ];
-  if (!options.codexReasoningEffort) {
-    extraArgs.push("-c", `model_reasoning_effort=${maiWrapperDefaultReasoningEffort}`);
-  }
-
-  return {
-    binary: rawCodexBinary,
-    extraArgs,
-    extraEnv: {
-      ...(litellmApiKey ? { LITELLM_API_KEY: litellmApiKey } : {}),
-      ...(litellmProxyUrl ? { LITELLM_PROXY_URL: litellmProxyUrl } : {}),
-      ...(litellmBaseUrl ? { LITELLM_BASE_URL: litellmBaseUrl } : {}),
-    },
-  };
 }
 
 function upsertShellEnvironmentIncludeOnly(configToml: string, requiredVars: string[]): string {
@@ -683,18 +564,8 @@ export async function prepareCodexSpawn(
     });
   }
 
-  const hostWrapperLaunchSpec =
-    !isContainerized && leaderLaunch ? await resolveHostCodexWrapperLaunchSpec(binary, options) : null;
-  if (hostWrapperLaunchSpec) {
-    binary = hostWrapperLaunchSpec.binary;
-  }
-
   const args: string[] = [];
-  if (hostWrapperLaunchSpec) {
-    args.push(...hostWrapperLaunchSpec.extraArgs);
-  } else {
-    args.push("-c", `tools.webSearch=${options.codexInternetAccess === true ? "true" : "false"}`);
-  }
+  args.push("-c", `tools.webSearch=${options.codexInternetAccess === true ? "true" : "false"}`);
   if (options.codexReasoningEffort) {
     args.push("-c", `model_reasoning_effort=${options.codexReasoningEffort}`);
   }
@@ -756,7 +627,6 @@ export async function prepareCodexSpawn(
       ...shellEnv,
       CLAUDECODE: undefined,
       MAI_CODEX_DEBUG_WRAPPER: "1",
-      ...(hostWrapperLaunchSpec?.extraEnv || {}),
       ...options.env,
       CODEX_HOME: codexHome,
       ...(dotslashCache ? { DOTSLASH_CACHE: dotslashCache } : {}),
