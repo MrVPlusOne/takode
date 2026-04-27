@@ -3,7 +3,6 @@ import { mkdir, writeFile, readdir, rm, access } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { randomBytes } from "node:crypto";
-import sharp from "sharp";
 
 export interface ImageRef {
   imageId: string;
@@ -41,6 +40,26 @@ const JPEG_ELIGIBLE_MIMES = new Set(["image/png", "image/bmp", "image/tiff"]);
  */
 export const STORE_MAX_DIM = 1920;
 
+export const SHARP_UNAVAILABLE_MESSAGE =
+  "Image processing unavailable because sharp failed to load its native runtime.";
+
+export class SharpUnavailableError extends Error {
+  constructor(feature: string) {
+    super(`${SHARP_UNAVAILABLE_MESSAGE} (${feature})`);
+    this.name = "SharpUnavailableError";
+  }
+}
+
+export function isSharpUnavailableError(error: unknown): error is SharpUnavailableError {
+  return error instanceof SharpUnavailableError;
+}
+
+export function setSharpLoaderForTest(loader: (() => Promise<SharpModule>) | null): void {
+  sharpLoader = loader ?? defaultSharpLoader;
+  sharpModulePromise = null;
+  sharpLoadFailureLogged = false;
+}
+
 /**
  * Downscale raster images that would exceed the Read tool's 2000px limit.
  * SVG images pass through unchanged. Falls back to the original buffer
@@ -48,6 +67,44 @@ export const STORE_MAX_DIM = 1920;
  */
 export async function resizeForStore(data: Buffer, mimeType: string, maxDim = STORE_MAX_DIM): Promise<Buffer> {
   if (mimeType === "image/svg+xml") return data;
+  const sharp = await requireSharp("resize images");
+  return resizeRasterForStore(data, sharp, maxDim);
+}
+
+export function resetSharpLoaderForTest(): void {
+  setSharpLoaderForTest(null);
+}
+
+interface SharpMetadata {
+  width?: number;
+  height?: number;
+}
+
+interface SharpPipeline {
+  metadata(): Promise<SharpMetadata>;
+  rotate(): SharpPipeline;
+  resize(options: { width: number; height: number; fit: "inside"; withoutEnlargement?: boolean }): SharpPipeline;
+  jpeg(options: { quality: number }): SharpPipeline;
+  toBuffer(): Promise<Buffer>;
+  toFile(path: string): Promise<unknown>;
+}
+
+type SharpModule = (input: Buffer) => SharpPipeline;
+
+const defaultSharpLoader = async (): Promise<SharpModule> => {
+  const module = (await import("sharp")) as { default?: SharpModule };
+  const sharp = module.default;
+  if (!sharp) {
+    throw new Error("sharp module did not expose a default export");
+  }
+  return sharp;
+};
+
+let sharpLoader: () => Promise<SharpModule> = defaultSharpLoader;
+let sharpModulePromise: Promise<SharpModule | null> | null = null;
+let sharpLoadFailureLogged = false;
+
+async function resizeRasterForStore(data: Buffer, sharp: SharpModule, maxDim = STORE_MAX_DIM): Promise<Buffer> {
   try {
     const meta = await sharp(data).metadata();
     if (!meta.width || !meta.height) return data;
@@ -60,6 +117,27 @@ export async function resizeForStore(data: Buffer, mimeType: string, maxDim = ST
     console.warn("[image-store] Failed to resize image, saving original:", err);
     return data;
   }
+}
+
+async function loadSharp(): Promise<SharpModule | null> {
+  if (!sharpModulePromise) {
+    sharpModulePromise = sharpLoader().catch((err) => {
+      if (!sharpLoadFailureLogged) {
+        sharpLoadFailureLogged = true;
+        console.warn("[image-store] sharp unavailable, image processing disabled:", err);
+      }
+      return null;
+    });
+  }
+  return sharpModulePromise;
+}
+
+async function requireSharp(feature: string): Promise<SharpModule> {
+  const sharp = await loadSharp();
+  if (!sharp) {
+    throw new SharpUnavailableError(feature);
+  }
+  return sharp;
 }
 
 export class ImageStore {
@@ -83,6 +161,7 @@ export class ImageStore {
    * differ from the input when lossless-to-JPEG conversion succeeds.
    */
   async store(sessionId: string, base64Data: string, mediaType: string): Promise<ImageRef> {
+    const sharp = await requireSharp("store session images");
     const dir = this.sessionDir(sessionId);
     await mkdir(dir, { recursive: true });
 
@@ -91,7 +170,7 @@ export class ImageStore {
     const thumbPath = join(dir, `${imageId}.thumb.jpeg`);
 
     const raw = Buffer.from(base64Data, "base64");
-    let buffer = await resizeForStore(raw, mediaType);
+    let buffer = mediaType === "image/svg+xml" ? raw : await resizeRasterForStore(raw, sharp, STORE_MAX_DIM);
 
     // Convert lossless formats (PNG, BMP, TIFF) to JPEG for ~22% size savings
     if (JPEG_ELIGIBLE_MIMES.has(mediaType)) {
@@ -114,7 +193,7 @@ export class ImageStore {
       .resize({ width: THUMB_MAX_DIM, height: THUMB_MAX_DIM, fit: "inside" })
       .jpeg({ quality: THUMB_QUALITY })
       .toFile(thumbPath)
-      .catch((err) => {
+      .catch((err: unknown) => {
         console.warn(`[image-store] Failed to generate thumbnail for ${imageId}:`, err);
       });
 

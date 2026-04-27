@@ -50,6 +50,7 @@ import { registerSessionsArchiveRoutes } from "./sessions-archive-routes.js";
 import { withProgressHeartbeat } from "./progress-heartbeat.js";
 import { deriveAttachmentPaths, formatAttachmentPathAnnotation } from "../attachment-paths.js";
 import { createArchivedWorktreeCleanupQueue } from "./worktree-cleanup.js";
+import { isSharpUnavailableError, SHARP_UNAVAILABLE_MESSAGE } from "../image-store.js";
 
 export function createSessionsRoutes(ctx: RouteContext) {
   const api = new Hono();
@@ -2054,9 +2055,17 @@ export function createSessionsRoutes(ctx: RouteContext) {
       return c.json({ error: "Each image must include mediaType and data" }, 400);
     }
 
-    const imageRefs = await Promise.all(
-      images.map((img) => imageStore.store(id, img.data as string, img.mediaType as string)),
-    );
+    let imageRefs;
+    try {
+      imageRefs = await Promise.all(
+        images.map((img) => imageStore.store(id, img.data as string, img.mediaType as string)),
+      );
+    } catch (error) {
+      if (isSharpUnavailableError(error)) {
+        return c.json({ error: SHARP_UNAVAILABLE_MESSAGE }, 503);
+      }
+      throw error;
+    }
     const paths = deriveAttachmentPaths(id, imageRefs);
     return c.json({
       imageRefs,

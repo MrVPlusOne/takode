@@ -3,7 +3,13 @@ import { mkdtempSync, existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { rmSync } from "node:fs";
-import { ImageStore, resizeForStore } from "./image-store.js";
+import {
+  ImageStore,
+  resetSharpLoaderForTest,
+  resizeForStore,
+  setSharpLoaderForTest,
+  SharpUnavailableError,
+} from "./image-store.js";
 
 let store: ImageStore;
 let tempDir: string;
@@ -18,6 +24,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  resetSharpLoaderForTest();
   rmSync(tempDir, { recursive: true, force: true });
 });
 
@@ -43,6 +50,17 @@ async function waitForValue<T>(getter: () => Promise<T | null>, timeoutMs = 1000
 }
 
 describe("ImageStore", () => {
+  it("constructor does not load sharp during startup", () => {
+    let loadCount = 0;
+    setSharpLoaderForTest(async () => {
+      loadCount += 1;
+      throw new Error("sharp should not load during ImageStore construction");
+    });
+
+    expect(() => new ImageStore(tempDir)).not.toThrow();
+    expect(loadCount).toBe(0);
+  });
+
   // Tests that store() saves original (as JPEG for PNG input) and thumbnail files to disk,
   // returning a valid ImageRef with a unique imageId and converted media_type.
   it("store() converts PNG to JPEG and writes original and thumbnail files", async () => {
@@ -212,7 +230,15 @@ describe("ImageStore", () => {
 
   // Tests that removeSession is safe to call on nonexistent sessions
   it("removeSession() is safe for nonexistent session", async () => {
-    await expect(store.removeSession("nonexistent")).resolves.not.toThrow();
+    await expect(store.removeSession("nonexistent")).resolves.toBeUndefined();
+  });
+
+  it("store() throws a clear error when sharp is unavailable", async () => {
+    setSharpLoaderForTest(async () => {
+      throw new Error("missing native module");
+    });
+
+    await expect(store.store("sess-1", TINY_PNG_BASE64, "image/png")).rejects.toBeInstanceOf(SharpUnavailableError);
   });
 
   // Tests that corrupt base64 data still saves the original and that

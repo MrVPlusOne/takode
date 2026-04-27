@@ -6,6 +6,7 @@ import sharp from "sharp";
 
 let tempDir: string;
 let questStore: typeof import("./quest-store.js");
+let imageStoreModule: typeof import("./image-store.js");
 
 const mockHomedir = vi.hoisted(() => {
   let dir = "";
@@ -30,9 +31,11 @@ beforeEach(async () => {
   mockHomedir.set(tempDir);
   vi.resetModules();
   questStore = await import("./quest-store.js");
+  imageStoreModule = await import("./image-store.js");
 });
 
 afterEach(() => {
+  imageStoreModule.resetSharpLoaderForTest();
   rmSync(tempDir, { recursive: true, force: true });
 });
 
@@ -1918,6 +1921,21 @@ describe("counter reconciliation", () => {
 // saveQuestImage — auto-resize for Read tool compatibility
 // ===========================================================================
 describe("saveQuestImage", () => {
+  it("fails clearly for raster uploads when sharp is unavailable", async () => {
+    imageStoreModule.setSharpLoaderForTest(async () => {
+      throw new Error("missing native module");
+    });
+    const image = await sharp({
+      create: { width: 800, height: 600, channels: 4, background: { r: 0, g: 0, b: 255, alpha: 1 } },
+    })
+      .png()
+      .toBuffer();
+
+    await expect(questStore.saveQuestImage("small.png", image, "image/png")).rejects.toBeInstanceOf(
+      imageStoreModule.SharpUnavailableError,
+    );
+  });
+
   it("resizes images exceeding 1920px to fit within the limit", async () => {
     // Claude Code's Read tool rejects images >2000x2000px. saveQuestImage
     // should downscale at upload time so workers can read quest screenshots.

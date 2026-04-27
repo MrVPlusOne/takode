@@ -9,6 +9,7 @@ import {
 } from "../bridge/session-registry-controller.js";
 import { broadcastQuestUpdate } from "./quest-helpers.js";
 import type { RouteContext } from "./context.js";
+import { isSharpUnavailableError, SHARP_UNAVAILABLE_MESSAGE } from "../image-store.js";
 
 const DIFF_MAX_BUFFER = 10 * 1024 * 1024;
 const MAX_DIFF_BYTES = 512 * 1024;
@@ -107,6 +108,9 @@ export function createQuestRoutes(ctx: RouteContext) {
       const image = await questStore.saveQuestImage(file.name, buf, file.type);
       return c.json(image, 201);
     } catch (e: unknown) {
+      if (isSharpUnavailableError(e)) {
+        return c.json({ error: SHARP_UNAVAILABLE_MESSAGE }, 503);
+      }
       return c.json({ error: e instanceof Error ? e.message : String(e) }, 500);
     }
   });
@@ -663,6 +667,9 @@ export function createQuestRoutes(ctx: RouteContext) {
       broadcastQuestUpdate(wsBridge);
       return c.json(quest);
     } catch (e: unknown) {
+      if (isSharpUnavailableError(e)) {
+        return c.json({ error: SHARP_UNAVAILABLE_MESSAGE }, 503);
+      }
       return c.json({ error: e instanceof Error ? e.message : String(e) }, 500);
     }
   });
