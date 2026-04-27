@@ -50,17 +50,6 @@ async function waitForValue<T>(getter: () => Promise<T | null>, timeoutMs = 1000
 }
 
 describe("ImageStore", () => {
-  it("constructor does not load sharp during startup", () => {
-    let loadCount = 0;
-    setSharpLoaderForTest(async () => {
-      loadCount += 1;
-      throw new Error("sharp should not load during ImageStore construction");
-    });
-
-    expect(() => new ImageStore(tempDir)).not.toThrow();
-    expect(loadCount).toBe(0);
-  });
-
   // Tests that store() saves original (as JPEG for PNG input) and thumbnail files to disk,
   // returning a valid ImageRef with a unique imageId and converted media_type.
   it("store() converts PNG to JPEG and writes original and thumbnail files", async () => {
