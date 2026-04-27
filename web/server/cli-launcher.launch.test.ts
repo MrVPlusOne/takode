@@ -1065,6 +1065,91 @@ describe("launch", () => {
     }
   });
 
+  it("writes a session-local model catalog override for MAI-wrapper-backed Codex leaders", async () => {
+    const customHome = mkdtempSync(join(tmpdir(), "codex-home-test-"));
+    const hostCodexHome = mkdtempSync(join(tmpdir(), "codex-host-home-test-"));
+    const sessionHome = join(customHome, "test-session-id");
+    const configPath = join(sessionHome, "config.toml");
+    const catalogPath = join(sessionHome, "takode-leader-model-catalog.json");
+    const { root, wrapperPath } = createMaiWrapperFixture({ hostCodexHome });
+    const { readFileSync: realReadFileSync } = require("node:fs");
+
+    try {
+      writeFileSync(
+        join(hostCodexHome, "config.toml"),
+        [
+          'model = "gpt-5.5"',
+          "model_context_window = 1000000",
+          "model_auto_compact_token_limit = 750000",
+          "",
+        ].join("\n"),
+      );
+      writeFileSync(
+        join(hostCodexHome, "models_cache.json"),
+        JSON.stringify(
+          {
+            models: [
+              {
+                slug: "gpt-5.5",
+                context_window: 272000,
+                max_context_window: 272000,
+                auto_compact_token_limit: null,
+                effective_context_window_percent: 95,
+              },
+              {
+                slug: "gpt-5.4",
+                context_window: 272000,
+                max_context_window: 1000000,
+                auto_compact_token_limit: null,
+                effective_context_window_percent: 95,
+              },
+            ],
+          },
+          null,
+          2,
+        ),
+      );
+
+      mockResolveBinary.mockImplementation((name: string): string | null => {
+        if (name === wrapperPath) return wrapperPath;
+        return "/usr/bin/claude";
+      });
+      mockCaptureUserShellEnv.mockReturnValue({});
+      mockSpawn.mockReturnValueOnce(createMockCodexProc());
+
+      await launcher.launch({
+        backendType: "codex",
+        cwd: "/tmp/project",
+        codexSandbox: "workspace-write",
+        codexBinary: wrapperPath,
+        codexHome: customHome,
+        codexLeaderContextWindowOverrideTokens: 1_000_000,
+        env: {
+          TAKODE_ROLE: "orchestrator",
+        },
+      });
+      await waitForSpawnCalls(1);
+
+      const config = realReadFileSync(configPath, "utf-8");
+      expect(config).toContain(`model_catalog_json = ${JSON.stringify(catalogPath)}`);
+
+      const catalog = JSON.parse(realReadFileSync(catalogPath, "utf-8"));
+      const overridden = catalog.models.find((entry: any) => entry.slug === "gpt-5.5");
+      expect(overridden.context_window).toBe(1_052_632);
+      expect(overridden.max_context_window).toBe(1_052_632);
+      expect(overridden.auto_compact_token_limit).toBe(1_000_000);
+
+      const untouched = catalog.models.find((entry: any) => entry.slug === "gpt-5.4");
+      expect(untouched.context_window).toBe(272000);
+      expect(untouched.max_context_window).toBe(1000000);
+      expect(untouched.auto_compact_token_limit).toBeNull();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(customHome, { recursive: true, force: true });
+      rmSync(hostCodexHome, { recursive: true, force: true });
+    }
+  });
+
   it("launches MAI-wrapper-backed Codex workers without installing the wrapper CODEX_HOME overlay", async () => {
     const customHome = mkdtempSync(join(tmpdir(), "codex-home-test-"));
     const sessionHome = join(customHome, "test-session-id");
@@ -1228,7 +1313,7 @@ describe("launch", () => {
       bashIndex = cmdAndArgs.indexOf("-lc");
       expect(bashIndex).toBeGreaterThan(-1);
       innerScript = cmdAndArgs[bashIndex + 1];
-      expect(innerScript).toContain("cat > /root/.codex/config.toml <<'__COMPANION_CODEX_CONFIG__'");
+      expect(innerScript).toContain('cat > "/root/.codex/config.toml" <<\'__COMPANION_CODEX_CONFIG__\'');
       expect(innerScript).toContain("model_context_window = 1000000");
       expect(innerScript).toContain("model_auto_compact_token_limit = 1000000");
       expect(innerScript).toContain("exec 'codex' '-c' 'tools.webSearch=false' '-a'");

@@ -54,6 +54,7 @@ interface CodexLaunchInfo {
 }
 
 interface CodexLaunchOptions {
+  model?: string;
   codexBinary?: string;
   permissionMode?: string;
   askPermission?: boolean;
@@ -365,6 +366,119 @@ function upsertTopLevelNumberSetting(configToml: string, key: string, value: num
   return out.join("\n") + (endsWithNewline || configToml.length === 0 ? "\n" : "");
 }
 
+function readTopLevelStringSetting(configToml: string, key: string): string | undefined {
+  const lines = configToml.split("\n");
+  const keyPattern = new RegExp(`^\\s*${escapeRegExp(key)}\\s*=\\s*(.+?)\\s*$`);
+
+  for (const line of lines) {
+    if (/^\s*\[[^\]]+\]\s*$/.test(line)) break;
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const match = line.match(keyPattern);
+    if (!match?.[1]) continue;
+    const value = match[1].trim();
+    if (value.startsWith('"') && value.endsWith('"')) {
+      try {
+        return JSON.parse(value);
+      } catch {
+        return value.slice(1, -1);
+      }
+    }
+    if (value.startsWith("'") && value.endsWith("'")) {
+      return value.slice(1, -1).replace(/'\\\\''/g, "'");
+    }
+    return value;
+  }
+
+  return undefined;
+}
+
+function upsertTopLevelStringSetting(configToml: string, key: string, value: string): string {
+  const endsWithNewline = configToml.endsWith("\n");
+  const lines = configToml.split("\n");
+  if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+
+  const renderedLine = `${key} = ${JSON.stringify(value)}`;
+  const keyPattern = new RegExp(`^\\s*${escapeRegExp(key)}\\s*=`);
+  let insertAt = lines.length;
+
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    if (/^\s*\[[^\]]+\]\s*$/.test(lines[i])) {
+      insertAt = i;
+      break;
+    }
+    if (keyPattern.test(lines[i])) {
+      const out = [...lines];
+      out[i] = renderedLine;
+      return out.join("\n") + (endsWithNewline || configToml.length === 0 ? "\n" : "");
+    }
+  }
+
+  const out = [...lines];
+  out.splice(insertAt, 0, renderedLine);
+  return out.join("\n") + (endsWithNewline || configToml.length === 0 ? "\n" : "");
+}
+
+function resolveConfigPathValue(configDir: string, rawPath: string): string {
+  if (rawPath.startsWith("~/")) {
+    return join(homedir(), rawPath.slice(2));
+  }
+  return resolve(configDir, rawPath);
+}
+
+function coercePositiveNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+async function ensureCodexLeaderModelCatalogOverride(
+  codexHome: string,
+  configToml: string,
+  leaderContextWindowOverrideTokens: number,
+  options?: { model?: string; modelCatalogConfigPath?: string },
+): Promise<{ catalogJson?: string; configToml: string }> {
+  const modelSlug = options?.model || readTopLevelStringSetting(configToml, "model");
+  if (!modelSlug) return { configToml };
+
+  const existingCatalogPathValue = readTopLevelStringSetting(configToml, "model_catalog_json");
+  const sourceCatalogPath = existingCatalogPathValue
+    ? resolveConfigPathValue(codexHome, existingCatalogPathValue)
+    : join(codexHome, "models_cache.json");
+  if (!(await fileExists(sourceCatalogPath))) return { configToml };
+
+  let parsedCatalog: any;
+  try {
+    parsedCatalog = JSON.parse(await readFile(sourceCatalogPath, "utf-8"));
+  } catch (error) {
+    console.warn(`[cli-launcher] Failed to parse Codex model catalog ${sourceCatalogPath}:`, error);
+    return { configToml };
+  }
+
+  const modelEntries = Array.isArray(parsedCatalog?.models) ? parsedCatalog.models : null;
+  if (!modelEntries) return { configToml };
+
+  const modelEntry = modelEntries.find((entry: any) => entry?.slug === modelSlug);
+  if (!modelEntry || typeof modelEntry !== "object") return { configToml };
+
+  const effectivePercent = coercePositiveNumber(modelEntry.effective_context_window_percent) || 95;
+  const rawContextWindow = Math.ceil((leaderContextWindowOverrideTokens * 100) / effectivePercent);
+  modelEntry.context_window = rawContextWindow;
+  modelEntry.max_context_window = rawContextWindow;
+  modelEntry.auto_compact_token_limit = leaderContextWindowOverrideTokens;
+
+  const catalogJson = JSON.stringify(parsedCatalog, null, 2) + "\n";
+  const catalogPath = join(codexHome, "takode-leader-model-catalog.json");
+  await writeFile(catalogPath, catalogJson, "utf-8");
+
+  const nextConfigToml = upsertTopLevelStringSetting(
+    configToml,
+    "model_catalog_json",
+    options?.modelCatalogConfigPath || catalogPath,
+  );
+  return { configToml: nextConfigToml, catalogJson };
+}
+
 async function readFilePrefix(path: string, maxBytes = 4096): Promise<string> {
   let handle: Awaited<ReturnType<typeof open>> | null = null;
   try {
@@ -608,8 +722,8 @@ async function prepareCodexHome(
 async function ensureCodexSessionConfig(
   codexHome: string,
   envVars: string[],
-  options?: { leaderContextWindowOverrideTokens?: number },
-): Promise<string> {
+  options?: { leaderContextWindowOverrideTokens?: number; model?: string; modelCatalogConfigPath?: string },
+): Promise<{ configToml: string; leaderModelCatalogJson?: string }> {
   const configPath = join(codexHome, "config.toml");
   let current = "";
   try {
@@ -621,26 +735,36 @@ async function ensureCodexSessionConfig(
   let next = upsertBooleanSettingInSection(current, codexFeaturesHeader, codexMultiAgentFeature, true);
   next = upsertShellEnvironmentIncludeOnly(next, ["PATH", ...envVars]);
   const leaderContextWindowOverrideTokens = options?.leaderContextWindowOverrideTokens;
+  let leaderModelCatalogJson: string | undefined;
   if (leaderContextWindowOverrideTokens && leaderContextWindowOverrideTokens > 0) {
+    const override = await ensureCodexLeaderModelCatalogOverride(codexHome, next, leaderContextWindowOverrideTokens, {
+      model: options?.model,
+      modelCatalogConfigPath: options?.modelCatalogConfigPath,
+    });
+    next = override.configToml;
+    leaderModelCatalogJson = override.catalogJson;
     next = upsertTopLevelNumberSetting(next, "model_context_window", leaderContextWindowOverrideTokens);
     next = upsertTopLevelNumberSetting(next, "model_auto_compact_token_limit", leaderContextWindowOverrideTokens);
   }
   if (next !== current) {
     await writeFile(configPath, next, "utf-8");
   }
-  return next;
+  return { configToml: next, leaderModelCatalogJson };
+}
+
+function renderContainerCodexFileWrite(path: string, contents: string, heredocMarker: string): string {
+  const normalizedContents = contents.replace(/\r\n/g, "\n");
+  const fileBody = normalizedContents.endsWith("\n") ? normalizedContents.slice(0, -1) : normalizedContents;
+  return [
+    `mkdir -p ${JSON.stringify(dirname(path))}`,
+    `cat > ${JSON.stringify(path)} <<'${heredocMarker}'`,
+    fileBody,
+    heredocMarker,
+  ].join("\n");
 }
 
 function renderContainerCodexConfigWrite(configToml: string): string {
-  const normalizedConfig = configToml.replace(/\r\n/g, "\n");
-  const configBody = normalizedConfig.endsWith("\n") ? normalizedConfig.slice(0, -1) : normalizedConfig;
-  const heredocMarker = "__COMPANION_CODEX_CONFIG__";
-  return [
-    "mkdir -p /root/.codex",
-    `cat > /root/.codex/config.toml <<'${heredocMarker}'`,
-    configBody,
-    heredocMarker,
-  ].join("\n");
+  return renderContainerCodexFileWrite("/root/.codex/config.toml", configToml, "__COMPANION_CODEX_CONFIG__");
 }
 
 async function resolveHostCodexLaunchBinary(
@@ -711,6 +835,8 @@ export async function prepareCodexSpawn(
   );
   const leaderContextWindowOverrideTokens = leaderLaunch ? options.codexLeaderContextWindowOverrideTokens : undefined;
   let containerLeaderConfigToml: string | undefined;
+  let containerLeaderModelCatalogJson: string | undefined;
+  const containerLeaderModelCatalogPath = "/root/.codex/takode-leader-model-catalog.json";
 
   if (!isContainerized) {
     await prepareCodexHome(
@@ -720,12 +846,17 @@ export async function prepareCodexSpawn(
     );
     await ensureCodexSessionConfig(codexHome, shellEnvVars, {
       leaderContextWindowOverrideTokens,
+      model: options.model,
     });
   } else if (leaderContextWindowOverrideTokens && leaderContextWindowOverrideTokens > 0) {
     await prepareCodexHome(codexHome, options.resumeCliSessionId || info.cliSessionId);
-    containerLeaderConfigToml = await ensureCodexSessionConfig(codexHome, shellEnvVars, {
+    const containerLeaderConfig = await ensureCodexSessionConfig(codexHome, shellEnvVars, {
       leaderContextWindowOverrideTokens,
+      model: options.model,
+      modelCatalogConfigPath: containerLeaderModelCatalogPath,
     });
+    containerLeaderConfigToml = containerLeaderConfig.configToml;
+    containerLeaderModelCatalogJson = containerLeaderConfig.leaderModelCatalogJson;
   }
 
   const maiWrapperLaunchSpec =
@@ -751,6 +882,15 @@ export async function prepareCodexSpawn(
     dockerArgs.push(options.containerId!);
     const innerCmd = [binary, ...args].map((arg) => `'${arg.replace(/'/g, "'\\''")}'`).join(" ");
     const shellCommands: string[] = [];
+    if (containerLeaderModelCatalogJson) {
+      shellCommands.push(
+        renderContainerCodexFileWrite(
+          containerLeaderModelCatalogPath,
+          containerLeaderModelCatalogJson,
+          "__COMPANION_CODEX_MODEL_CATALOG__",
+        ),
+      );
+    }
     if (containerLeaderConfigToml) {
       shellCommands.push(renderContainerCodexConfigWrite(containerLeaderConfigToml));
     }
