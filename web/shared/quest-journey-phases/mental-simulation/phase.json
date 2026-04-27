@@ -3,7 +3,7 @@
   "label": "Mental Simulation",
   "boardState": "MENTAL_SIMULATING",
   "assigneeRole": "reviewer",
-  "contract": "Replay a design, workflow, or implementation against concrete scenarios.",
+  "contract": "Review a new design, workflow, or implementation against concrete scenarios or historical data.",
   "nextLeaderAction": "read the mental-simulation leader brief, then wait for the scenario review and decide whether the Journey needs revision",
   "aliases": []
 }
