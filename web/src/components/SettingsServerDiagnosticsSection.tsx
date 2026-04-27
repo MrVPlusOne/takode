@@ -1,5 +1,25 @@
+import { useState } from "react";
+import { api, type InterruptRestartBlockersResponse, type ServerInterruptResultItem } from "../api.js";
 import { CollapsibleSection } from "./CollapsibleSection.js";
 import type { SettingsSearchResults, SettingsSectionId } from "./settings-search.js";
+
+function ResultList({ items, emptyText }: { items: ServerInterruptResultItem[]; emptyText: string }) {
+  if (items.length === 0) {
+    return <p className="text-xs text-cc-muted">{emptyText}</p>;
+  }
+
+  return (
+    <ul className="space-y-2 text-xs text-cc-fg">
+      {items.map((item) => (
+        <li key={item.sessionId} className="rounded-lg border border-cc-border bg-cc-hover/40 px-3 py-2">
+          <div className="font-medium">{item.label}</div>
+          <div className="mt-0.5 text-cc-muted">{item.reasons.join(", ")}</div>
+          {item.detail && <div className="mt-1 text-cc-muted">{item.detail}</div>}
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 export function SettingsServerDiagnosticsSection({
   logFile,
@@ -19,6 +39,32 @@ export function SettingsServerDiagnosticsSection({
     id: SettingsSectionId;
   };
 }) {
+  const [interrupting, setInterrupting] = useState(false);
+  const [interruptError, setInterruptError] = useState("");
+  const [interruptResult, setInterruptResult] = useState<InterruptRestartBlockersResponse | null>(null);
+
+  async function onInterruptRestartBlockers() {
+    if (
+      !window.confirm(
+        "Interrupt all restart-blocking sessions? This will stop active work and clear pending permission blockers so the server can be restarted safely.",
+      )
+    ) {
+      return;
+    }
+
+    setInterrupting(true);
+    setInterruptError("");
+    setInterruptResult(null);
+    try {
+      const result = await api.interruptRestartBlockers();
+      setInterruptResult(result);
+    } catch (error) {
+      setInterruptError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setInterrupting(false);
+    }
+  }
+
   return (
     <CollapsibleSection
       id="server"
@@ -57,7 +103,8 @@ export function SettingsServerDiagnosticsSection({
 
         <div className="border-t border-cc-border pt-3 space-y-3">
           <p className="text-xs text-cc-muted">
-            Restart the server process. Useful after pulling new code. Sessions will reconnect automatically.
+            Restart the server process. Useful after pulling new code. Sessions will reconnect automatically. If restart
+            readiness is blocked by active turns or pending permission dialogs, interrupt those blockers here first.
           </p>
 
           {!restartSupported && (
@@ -68,24 +115,75 @@ export function SettingsServerDiagnosticsSection({
             </div>
           )}
 
+          {interruptError && (
+            <div className="px-3 py-2 rounded-lg bg-cc-error/10 border border-cc-error/20 text-xs text-cc-error">
+              {interruptError}
+            </div>
+          )}
+
           {restartError && (
             <div className="px-3 py-2 rounded-lg bg-cc-error/10 border border-cc-error/20 text-xs text-cc-error">
               {restartError}
             </div>
           )}
 
-          <button
-            type="button"
-            onClick={onRestartServer}
-            disabled={restarting || !restartSupported}
-            className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-              restarting || !restartSupported
-                ? "bg-cc-hover text-cc-muted cursor-not-allowed"
-                : "bg-cc-primary hover:bg-cc-primary-hover text-white cursor-pointer"
-            }`}
-          >
-            {restarting ? "Restarting..." : "Restart Server"}
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={onRestartServer}
+              disabled={restarting || interrupting || !restartSupported}
+              className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                restarting || interrupting || !restartSupported
+                  ? "bg-cc-hover text-cc-muted cursor-not-allowed"
+                  : "bg-cc-primary hover:bg-cc-primary-hover text-white cursor-pointer"
+              }`}
+            >
+              {restarting ? "Restarting..." : "Restart Server"}
+            </button>
+
+            <button
+              type="button"
+              onClick={onInterruptRestartBlockers}
+              disabled={interrupting || restarting}
+              className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                interrupting || restarting
+                  ? "bg-cc-hover text-cc-muted cursor-not-allowed"
+                  : "bg-amber-500/15 text-amber-700 dark:text-amber-300 hover:bg-amber-500/25 cursor-pointer"
+              }`}
+            >
+              {interrupting ? "Interrupting..." : "Interrupt Restart Blockers"}
+            </button>
+          </div>
+
+          {interruptResult && (
+            <div className="space-y-3 rounded-lg border border-cc-border bg-cc-hover/30 px-3 py-3">
+              <div>
+                <p className="text-sm font-medium text-cc-fg">Interrupt Result</p>
+                <p className="mt-0.5 text-xs text-cc-muted">
+                  {interruptResult.interrupted.length === 0 &&
+                  interruptResult.skipped.length === 0 &&
+                  interruptResult.failures.length === 0
+                    ? "No restart-blocking sessions were active."
+                    : "Sessions were targeted using the same blocker rules as the restart safety check."}
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-xs font-medium uppercase tracking-wide text-cc-muted">Interrupted</p>
+                <ResultList items={interruptResult.interrupted} emptyText="No sessions needed interruption." />
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-xs font-medium uppercase tracking-wide text-cc-muted">Skipped</p>
+                <ResultList items={interruptResult.skipped} emptyText="No sessions were skipped." />
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-xs font-medium uppercase tracking-wide text-cc-muted">Failures</p>
+                <ResultList items={interruptResult.failures} emptyText="No interrupt failures." />
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </CollapsibleSection>

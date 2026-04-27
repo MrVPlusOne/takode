@@ -668,6 +668,20 @@ export async function createSessionStream(
   return result;
 }
 
+export interface ServerInterruptResultItem {
+  sessionId: string;
+  label: string;
+  reasons: string[];
+  detail?: string;
+}
+
+export interface InterruptRestartBlockersResponse {
+  ok: boolean;
+  interrupted: ServerInterruptResultItem[];
+  skipped: ServerInterruptResultItem[];
+  failures: ServerInterruptResultItem[];
+}
+
 export const api = {
   createSession: (opts?: CreateSessionOpts) =>
     post<{ sessionId: string; state: string; cwd: string }>("/sessions/create", opts),
@@ -911,6 +925,7 @@ export const api = {
 
   // Server control
   restartServer: () => post<{ ok: boolean }>("/server/restart", {}),
+  interruptRestartBlockers: () => post<InterruptRestartBlockersResponse>("/server/interrupt-all", {}),
 
   openVsCodeRemoteFile: (target: VsCodeRemoteOpenFileTarget) =>
     post<VsCodeRemoteOpenFileResponse>("/vscode/open-file", target),

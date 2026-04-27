@@ -166,7 +166,10 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
     aliases: ["logs", "restart", "diagnostics", "server"],
     items: [
       { id: "logs", text: "Log Viewer structured server runtime logs filtering Takode CLI" },
-      { id: "restart", text: "Restart Server process reconnect sessions" },
+      {
+        id: "restart",
+        text: "Restart Server process reconnect sessions interrupt restart blockers pending permission",
+      },
     ],
   },
 ];

@@ -27,32 +27,140 @@ export function createSettingsRoutes(ctx: RouteContext) {
   const { launcher, wsBridge, options, pushoverNotifier } = ctx;
   const execPromise = promisify(execCb);
 
+  interface RestartBlockingSession {
+    sessionId: string;
+    label: string;
+    herdedBy: string | null;
+    reasons: string[];
+    originalIndex: number;
+  }
+
+  function getRestartBlockingSessions(): RestartBlockingSession[] {
+    return launcher.listSessions().flatMap((sessionInfo, originalIndex) => {
+      if (sessionInfo.state === "exited") return [];
+      const bridgeSession = wsBridge.getSession(sessionInfo.sessionId);
+      if (!bridgeSession) return [];
+
+      const reasons: string[] = [];
+      if (bridgeSession.isGenerating) reasons.push("running");
+      const pendingPermissionCount = bridgeSession.pendingPermissions.size;
+      if (pendingPermissionCount > 0) {
+        reasons.push(
+          pendingPermissionCount === 1 ? "1 pending permission" : `${pendingPermissionCount} pending permissions`,
+        );
+      }
+      if (reasons.length === 0) return [];
+
+      const sessionNum =
+        typeof launcher.getSessionNum === "function" ? launcher.getSessionNum(sessionInfo.sessionId) : null;
+      const label = sessionInfo.name || (sessionNum != null ? `#${sessionNum}` : sessionInfo.sessionId.slice(0, 8));
+      return [
+        {
+          sessionId: sessionInfo.sessionId,
+          label,
+          herdedBy: sessionInfo.herdedBy ?? null,
+          reasons,
+          originalIndex,
+        },
+      ];
+    });
+  }
+
+  function sortInterruptSessionsByDependency(blockers: RestartBlockingSession[]): RestartBlockingSession[] {
+    const blockerById = new Map(blockers.map((blocker) => [blocker.sessionId, blocker]));
+    const depthMemo = new Map<string, number>();
+
+    const getDepth = (sessionId: string): number => {
+      const cached = depthMemo.get(sessionId);
+      if (cached !== undefined) return cached;
+
+      let depth = 0;
+      const seen = new Set<string>([sessionId]);
+      let parentId = blockerById.get(sessionId)?.herdedBy ?? null;
+      while (parentId) {
+        const parent = blockerById.get(parentId);
+        if (!parent || seen.has(parentId)) break;
+        seen.add(parentId);
+        depth += 1;
+        parentId = parent.herdedBy;
+      }
+      depthMemo.set(sessionId, depth);
+      return depth;
+    };
+
+    return [...blockers].sort((left, right) => {
+      const depthDiff = getDepth(right.sessionId) - getDepth(left.sessionId);
+      if (depthDiff !== 0) return depthDiff;
+      return left.originalIndex - right.originalIndex;
+    });
+  }
+
   // ─── Server restart ───────────────────────────────────────────────
 
   api.post("/server/restart", (c) => {
     if (!options?.requestRestart) {
       return c.json({ error: "Restart not supported in this mode" }, 503);
     }
-    // Block restart while sessions are actively running to prevent stuck sessions
-    const busySessions = launcher.listSessions().filter((s) => {
-      if (s.state === "exited") return false;
-      const bridgeSession = wsBridge.getSession(s.sessionId);
-      return !!(bridgeSession?.isGenerating || bridgeSession?.pendingPermissions.size);
-    });
+    // Block restart while sessions are still holding the restart readiness gate.
+    const busySessions = getRestartBlockingSessions();
     if (busySessions.length > 0) {
-      const names = busySessions.map((s) => {
-        const num = launcher.getSessionNum(s.sessionId);
-        return s.name || (num != null ? `#${num}` : s.sessionId.slice(0, 8));
-      });
       return c.json(
         {
-          error: `Cannot restart while ${busySessions.length} session(s) are running. Please stop them first: ${names.join(", ")}`,
+          error: `Cannot restart while ${busySessions.length} session(s) are still blocking restart readiness. Please stop them first: ${busySessions
+            .map((session) => session.label)
+            .join(", ")}`,
         },
         409,
       );
     }
     options.requestRestart();
     return c.json({ ok: true });
+  });
+
+  api.post("/server/interrupt-all", async (c) => {
+    const blockers = sortInterruptSessionsByDependency(getRestartBlockingSessions());
+    const bridgeAny = wsBridge as any;
+    const interrupted: Array<{ sessionId: string; label: string; reasons: string[] }> = [];
+    const skipped: Array<{ sessionId: string; label: string; reasons: string[]; detail: string }> = [];
+    const failures: Array<{ sessionId: string; label: string; reasons: string[]; detail: string }> = [];
+
+    for (const blocker of blockers) {
+      const bridgeSession = wsBridge.getSession(blocker.sessionId);
+      if (!bridgeSession) {
+        skipped.push({
+          sessionId: blocker.sessionId,
+          label: blocker.label,
+          reasons: blocker.reasons,
+          detail: "Session was no longer loaded when interrupts were dispatched.",
+        });
+        continue;
+      }
+      try {
+        if (typeof bridgeAny.routeBrowserMessage !== "function") {
+          throw new Error("Interrupt routing unavailable");
+        }
+        await bridgeAny.routeBrowserMessage(bridgeSession, { type: "interrupt", interruptSource: "user" });
+        interrupted.push({
+          sessionId: blocker.sessionId,
+          label: blocker.label,
+          reasons: blocker.reasons,
+        });
+      } catch (error) {
+        failures.push({
+          sessionId: blocker.sessionId,
+          label: blocker.label,
+          reasons: blocker.reasons,
+          detail: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    return c.json({
+      ok: failures.length === 0,
+      interrupted,
+      skipped,
+      failures,
+    });
   });
 
   // ─── Settings (~/.companion/settings-{port}.json; migrates legacy settings.json) ────────────────────────
