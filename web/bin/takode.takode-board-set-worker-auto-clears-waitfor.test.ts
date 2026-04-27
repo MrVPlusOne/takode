@@ -72,6 +72,7 @@ describe("takode board set --worker auto-clears waitFor", () => {
   let server: ReturnType<typeof createServer>;
   let port: number;
   let capturedBodies: JsonObject[];
+  let nextBoardResponse: JsonObject | null;
 
   beforeAll(async () => {
     capturedBodies = [];
@@ -86,7 +87,12 @@ describe("takode board set --worker auto-clears waitFor", () => {
         const body = await readJson(req);
         capturedBodies.push(body);
         res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ board: [{ questId: body.questId, status: body.status ?? "PLANNING" }] }));
+        res.end(
+          JSON.stringify({
+            board: [{ questId: body.questId, status: body.status ?? "PLANNING" }],
+            ...(nextBoardResponse ?? {}),
+          }),
+        );
         return;
       }
       // Worker info lookup -- return a resolved session
@@ -109,6 +115,7 @@ describe("takode board set --worker auto-clears waitFor", () => {
 
   beforeEach(() => {
     capturedBodies = [];
+    nextBoardResponse = null;
   });
 
   it("sends waitFor: [] when --worker is provided without --wait-for", async () => {
@@ -283,6 +290,42 @@ describe("takode board set --worker auto-clears waitFor", () => {
       questId: "q-1",
       phaseNoteEdits: [{ index: 3, note: "Inspect only the follow-up diff" }],
     });
+  });
+
+  it("prints explicit warnings when a Journey revision drops rebased notes", async () => {
+    nextBoardResponse = {
+      phaseNoteRebaseWarnings: [
+        {
+          previousIndex: 4,
+          previousPhaseId: "mental-simulation",
+          previousOccurrence: 1,
+          note: "Replay turns 116/120/121/122-123 before dispatching this phase",
+        },
+      ],
+    };
+
+    const result = await runTakode(
+      [
+        "board",
+        "set",
+        "q-1",
+        "--phases",
+        "alignment,implement,code-review,implement,port",
+        "--revise-reason",
+        "Simulation is no longer needed after the narrowed fix",
+        "--port",
+        String(port),
+      ],
+      {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-1",
+        COMPANION_AUTH_TOKEN: "auth-1",
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("Mental Simulation occurrence 1 was dropped during revision");
+    expect(result.stdout).toContain("Replay turns 116/120/121/122-123 before dispatching this phase");
   });
 
   it("rejects unknown planned Quest Journey phase IDs before posting", async () => {

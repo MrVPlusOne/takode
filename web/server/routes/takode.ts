@@ -13,8 +13,10 @@ import {
   isValidQuestId,
   isValidWaitForRef,
   normalizeQuestJourneyPhaseIds,
+  rebaseQuestJourneyPhaseNotes,
   type QuestJourneyLifecycleMode,
   type QuestJourneyPhaseId,
+  type QuestJourneyPhaseNoteRebaseWarning,
   type QuestJourneyPlanState,
 } from "../../shared/quest-journey.js";
 import {
@@ -81,24 +83,6 @@ function normalizePhaseNoteEdits(value: unknown): PhaseNoteEdit[] | null {
     edits.push(note ? { index, note } : { index });
   }
   return edits;
-}
-
-function rebasePhaseNotesForRevisedPlan(
-  existingNotes: Record<string, string> | undefined,
-  previousPhaseIds: readonly QuestJourneyPhaseId[],
-  nextPhaseIds: readonly QuestJourneyPhaseId[],
-): Record<string, string> | undefined {
-  if (!existingNotes) return undefined;
-  const nextEntries = Object.entries(existingNotes)
-    .map(([rawIndex, note]) => {
-      const index = Number.parseInt(rawIndex, 10);
-      if (!Number.isInteger(index) || index < 0 || index >= nextPhaseIds.length) return null;
-      if (previousPhaseIds[index] !== nextPhaseIds[index]) return null;
-      const trimmed = note.trim();
-      return trimmed ? [String(index), trimmed] : null;
-    })
-    .filter((entry): entry is [string, string] => entry !== null);
-  return nextEntries.length > 0 ? Object.fromEntries(nextEntries) : undefined;
 }
 
 function applyPhaseNoteEdits(
@@ -1678,10 +1662,13 @@ export function createTakodeRoutes(ctx: RouteContext) {
       );
     }
 
-    let phaseNotes =
-      typedPhaseIds && existingJourney
-        ? rebasePhaseNotesForRevisedPlan(existingJourney.phaseNotes, existingPhaseIds, typedPhaseIds)
-        : existingJourney?.phaseNotes;
+    let phaseNoteRebaseWarnings: QuestJourneyPhaseNoteRebaseWarning[] = [];
+    let phaseNotes = existingJourney?.phaseNotes;
+    if (typedPhaseIds && existingJourney) {
+      const rebaseResult = rebaseQuestJourneyPhaseNotes(existingJourney.phaseNotes, existingPhaseIds, typedPhaseIds);
+      phaseNotes = rebaseResult.phaseNotes;
+      phaseNoteRebaseWarnings = rebaseResult.warnings;
+    }
     if (phaseNoteEdits) {
       try {
         phaseNotes = applyPhaseNoteEdits(phaseNotes, phaseNoteEdits, resolvedPhaseIds.length);
@@ -1818,6 +1805,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
       queueWarnings: bridgeSession ? getBoardQueueWarningsController(bridgeSession, boardWatchdogDeps) : [],
       workerSlotUsage: getBoardWorkerSlotUsageController(id, boardWatchdogDeps),
       resolvedSessionDeps: resolveSessionDeps(board),
+      ...(phaseNoteRebaseWarnings.length > 0 ? { phaseNoteRebaseWarnings } : {}),
     });
   });
 

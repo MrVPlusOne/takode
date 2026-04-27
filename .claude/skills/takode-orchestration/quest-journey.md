@@ -85,7 +85,8 @@ Rules:
 - Revising an active Journey requires `--revise-reason`.
 - When revising an active row without changing `--status`, include the current phase in `--phases`.
 - Repeated phases are first-class. Insert or append them directly instead of pretending the Journey reset to an earlier abstract state.
-- Indexed phase notes belong to the occurrence position. After a phase-list revision, refresh notes deliberately when their intended occurrence changed.
+- Indexed phase notes rebase by phase occurrence, not raw index. If the same occurrence still exists after a phase-list revision, the note follows it even when its position shifts.
+- If a revision removes the intended occurrence, `takode board set` / `takode board propose` warns about the dropped note so the leader can reattach or rewrite it deliberately.
 - If the active boundary itself changes, set an explicit `--status` that matches the revised phase plan.
 - `takode board advance` always follows the row's planned phases, not a hard-coded global order.
 

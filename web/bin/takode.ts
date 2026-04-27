@@ -3345,6 +3345,7 @@ import {
   getWaitForRefKind,
   isValidQuestId,
   isValidWaitForRef,
+  type QuestJourneyPhaseNoteRebaseWarning,
   type QuestJourneyPlanState,
 } from "../shared/quest-journey.ts";
 
@@ -3422,6 +3423,14 @@ function formatBoardQueueWarnings(queueWarnings: BoardQueueWarning[] | undefined
   );
 }
 
+function formatBoardPhaseNoteRebaseWarnings(warnings: QuestJourneyPhaseNoteRebaseWarning[] | undefined): string[] {
+  if (!warnings || warnings.length === 0) return [];
+  return warnings.map((warning) => {
+    const phaseLabel = getQuestJourneyPhase(warning.previousPhaseId)?.label ?? warning.previousPhaseId;
+    return `- note[${warning.previousIndex + 1}] ${phaseLabel} occurrence ${warning.previousOccurrence} was dropped during revision: ${warning.note}`;
+  });
+}
+
 function formatBoardPhaseNoteLines(row: BoardRow): string[] {
   const entries = Object.entries(row.journey?.phaseNotes ?? {})
     .map(([rawIndex, note]) => {
@@ -3444,16 +3453,26 @@ function formatBoardOutput(
     completedBoard?: BoardRow[];
     rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
     queueWarnings?: BoardQueueWarning[];
+    phaseNoteRebaseWarnings?: QuestJourneyPhaseNoteRebaseWarning[];
     workerSlotUsage?: { used: number; limit: number };
   },
 ): string {
-  const { operation, completedCount, completedBoard, rowSessionStatuses, queueWarnings, workerSlotUsage } = opts ?? {};
+  const {
+    operation,
+    completedCount,
+    completedBoard,
+    rowSessionStatuses,
+    queueWarnings,
+    phaseNoteRebaseWarnings,
+    workerSlotUsage,
+  } = opts ?? {};
   return JSON.stringify(
     {
       __takode_board__: true,
       board,
       ...(rowSessionStatuses ? { rowSessionStatuses } : {}),
       ...(queueWarnings ? { queueWarnings } : {}),
+      ...(phaseNoteRebaseWarnings ? { phaseNoteRebaseWarnings } : {}),
       ...(workerSlotUsage ? { workerSlotUsage } : {}),
       ...(operation ? { operation } : {}),
       ...(completedCount != null ? { completedCount } : {}),
@@ -3568,6 +3587,7 @@ function outputBoard(
     completedBoard?: BoardRow[];
     rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
     queueWarnings?: BoardQueueWarning[];
+    phaseNoteRebaseWarnings?: QuestJourneyPhaseNoteRebaseWarning[];
     workerSlotUsage?: { used: number; limit: number };
   },
 ): void {
@@ -3578,6 +3598,7 @@ function outputBoard(
     completedBoard,
     rowSessionStatuses,
     queueWarnings,
+    phaseNoteRebaseWarnings,
     workerSlotUsage,
   } = opts ?? {};
   if (jsonMode) {
@@ -3588,6 +3609,7 @@ function outputBoard(
         completedBoard,
         rowSessionStatuses,
         queueWarnings,
+        phaseNoteRebaseWarnings,
         workerSlotUsage,
       }),
     );
@@ -3609,6 +3631,9 @@ function outputBoard(
   // Always show a footer count when completed items exist
   if (completedCount && completedCount > 0 && !completedBoard) {
     console.log(`${completedCount} quest${completedCount === 1 ? "" : "s"} completed`);
+  }
+  for (const line of formatBoardPhaseNoteRebaseWarnings(phaseNoteRebaseWarnings)) {
+    console.log(line);
   }
   for (const line of formatBoardQueueWarnings(queueWarnings)) {
     console.log(line);
@@ -3798,6 +3823,7 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
       resolvedSessionDeps?: string[];
       rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
       queueWarnings?: BoardQueueWarning[];
+      phaseNoteRebaseWarnings?: QuestJourneyPhaseNoteRebaseWarning[];
       workerSlotUsage?: { used: number; limit: number };
     };
     const resolved = new Set(result.resolvedSessionDeps ?? []);
@@ -3806,6 +3832,7 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
       resolvedSessionDeps: resolved,
       rowSessionStatuses: result.rowSessionStatuses,
       queueWarnings: result.queueWarnings,
+      phaseNoteRebaseWarnings: result.phaseNoteRebaseWarnings,
       workerSlotUsage: result.workerSlotUsage,
     });
     return;
@@ -3842,6 +3869,7 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
       resolvedSessionDeps?: string[];
       rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
       queueWarnings?: BoardQueueWarning[];
+      phaseNoteRebaseWarnings?: QuestJourneyPhaseNoteRebaseWarning[];
       workerSlotUsage?: { used: number; limit: number };
     };
     const resolved = new Set(result.resolvedSessionDeps ?? []);
@@ -3850,6 +3878,7 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
       resolvedSessionDeps: resolved,
       rowSessionStatuses: result.rowSessionStatuses,
       queueWarnings: result.queueWarnings,
+      phaseNoteRebaseWarnings: result.phaseNoteRebaseWarnings,
       workerSlotUsage: result.workerSlotUsage,
     });
     return;

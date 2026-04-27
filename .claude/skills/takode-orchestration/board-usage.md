@@ -40,6 +40,7 @@ Add or update a row.
 - `--phases` assembles the row's Journey from built-in phase IDs; repeated phases are allowed
 - `--preset` labels the planned phase sequence
 - `--revise-reason` records why an existing Journey's remaining phases changed
+- phase notes rebase by phase occurrence during revisions; when a revision removes the target occurrence, the CLI warns so the leader can reattach the dropped reminder explicitly
 
 Built-in phase IDs are:
 

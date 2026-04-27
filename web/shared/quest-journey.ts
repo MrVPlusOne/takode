@@ -195,6 +195,18 @@ export interface QuestJourneyPlanState {
   revisionCount?: number;
 }
 
+export interface QuestJourneyPhaseNoteRebaseWarning {
+  previousIndex: number;
+  previousPhaseId: QuestJourneyPhaseId;
+  previousOccurrence: number;
+  note: string;
+}
+
+export interface QuestJourneyPhaseNoteRebaseResult {
+  phaseNotes?: Record<string, string>;
+  warnings: QuestJourneyPhaseNoteRebaseWarning[];
+}
+
 export const QUEST_JOURNEY_PHASE_BY_ID: Record<QuestJourneyPhaseId, QuestJourneyPhase> = Object.fromEntries(
   QUEST_JOURNEY_PHASES.map((phase) => [phase.id, phase]),
 ) as Record<QuestJourneyPhaseId, QuestJourneyPhase>;
@@ -247,6 +259,69 @@ export function getQuestJourneyPhase(phaseId?: string | null): QuestJourneyPhase
 export function getQuestJourneyPhaseForState(status?: string | null): QuestJourneyPhase | null {
   const canonical = canonicalizeQuestJourneyState(status);
   return canonical ? getQuestJourneyPhase(QUEST_JOURNEY_PHASE_ID_BY_STATE[canonical] ?? null) : null;
+}
+
+export function rebaseQuestJourneyPhaseNotes(
+  existingNotes: Record<string, string> | undefined,
+  previousPhaseIds: readonly QuestJourneyPhaseId[],
+  nextPhaseIds: readonly QuestJourneyPhaseId[],
+): QuestJourneyPhaseNoteRebaseResult {
+  if (!existingNotes) return { warnings: [] };
+
+  const nextPhaseOccurrenceIndices = new Map<QuestJourneyPhaseId, number[]>();
+  for (const [index, phaseId] of nextPhaseIds.entries()) {
+    const indices = nextPhaseOccurrenceIndices.get(phaseId) ?? [];
+    indices.push(index);
+    nextPhaseOccurrenceIndices.set(phaseId, indices);
+  }
+
+  const previousPhaseOccurrencesByIndex = new Map<number, number>();
+  const previousOccurrenceCounts = new Map<QuestJourneyPhaseId, number>();
+  for (const [index, phaseId] of previousPhaseIds.entries()) {
+    const occurrence = (previousOccurrenceCounts.get(phaseId) ?? 0) + 1;
+    previousOccurrenceCounts.set(phaseId, occurrence);
+    previousPhaseOccurrencesByIndex.set(index, occurrence);
+  }
+
+  const nextEntries: Array<readonly [string, string]> = [];
+  const warnings: QuestJourneyPhaseNoteRebaseWarning[] = [];
+
+  for (const [rawIndex, rawNote] of Object.entries(existingNotes).sort(
+    (a, b) => Number.parseInt(a[0], 10) - Number.parseInt(b[0], 10),
+  )) {
+    const index = Number.parseInt(rawIndex, 10);
+    if (!Number.isInteger(index) || index < 0 || index >= previousPhaseIds.length) continue;
+    const trimmedNote = rawNote.trim();
+    if (!trimmedNote) continue;
+
+    const phaseId = previousPhaseIds[index];
+    const occurrence = previousPhaseOccurrencesByIndex.get(index);
+    if (occurrence === undefined) continue;
+
+    const targetIndex = nextPhaseOccurrenceIndices.get(phaseId)?.[occurrence - 1];
+    if (targetIndex === undefined) {
+      warnings.push({
+        previousIndex: index,
+        previousPhaseId: phaseId,
+        previousOccurrence: occurrence,
+        note: trimmedNote,
+      });
+      continue;
+    }
+
+    nextEntries.push([String(targetIndex), trimmedNote]);
+  }
+
+  return {
+    ...(nextEntries.length > 0
+      ? {
+          phaseNotes: Object.fromEntries(
+            nextEntries.sort((a, b) => Number.parseInt(a[0], 10) - Number.parseInt(b[0], 10)),
+          ),
+        }
+      : {}),
+    warnings,
+  };
 }
 
 function normalizeQuestJourneyPhaseNotes(

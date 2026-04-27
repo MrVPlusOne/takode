@@ -18,6 +18,7 @@ import {
   QUEST_JOURNEY_PHASES,
   DEFAULT_QUEST_JOURNEY_PHASE_IDS,
   QUEST_JOURNEY_HINTS,
+  rebaseQuestJourneyPhaseNotes,
   type QuestJourneyPhaseId,
 } from "./quest-journey.js";
 
@@ -367,5 +368,60 @@ describe("Quest Journey phases", () => {
         },
       }),
     );
+  });
+
+  it("rebases phase notes by phase occurrence instead of raw index", () => {
+    expect(
+      rebaseQuestJourneyPhaseNotes(
+        {
+          "4": "Replay turns 116/120/121/122-123 before dispatching this phase",
+        },
+        ["alignment", "implement", "code-review", "implement", "mental-simulation", "port"],
+        ["alignment", "implement", "code-review", "implement", "code-review", "mental-simulation", "port"],
+      ),
+    ).toEqual({
+      phaseNotes: {
+        "5": "Replay turns 116/120/121/122-123 before dispatching this phase",
+      },
+      warnings: [],
+    });
+  });
+
+  it("surfaces dropped phase notes when a revised Journey removes the target occurrence", () => {
+    expect(
+      rebaseQuestJourneyPhaseNotes(
+        {
+          "4": "Replay turns 116/120/121/122-123 before dispatching this phase",
+        },
+        ["alignment", "implement", "code-review", "implement", "mental-simulation", "port"],
+        ["alignment", "implement", "code-review", "implement", "port"],
+      ),
+    ).toEqual({
+      warnings: [
+        {
+          previousIndex: 4,
+          previousPhaseId: "mental-simulation",
+          previousOccurrence: 1,
+          note: "Replay turns 116/120/121/122-123 before dispatching this phase",
+        },
+      ],
+    });
+  });
+
+  it("keeps notes attached to the matching repeated-phase occurrence", () => {
+    expect(
+      rebaseQuestJourneyPhaseNotes(
+        {
+          "4": "Inspect only the follow-up diff",
+        },
+        ["alignment", "implement", "code-review", "implement", "code-review", "port"],
+        ["alignment", "implement", "code-review", "implement", "mental-simulation", "code-review", "port"],
+      ),
+    ).toEqual({
+      phaseNotes: {
+        "5": "Inspect only the follow-up diff",
+      },
+      warnings: [],
+    });
   });
 });

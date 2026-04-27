@@ -1219,6 +1219,121 @@ describe("Takode server-authoritative auth", () => {
     });
   });
 
+  it("rebases phase notes by phase occurrence when revising a Journey", async () => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].board = new Map([
+      [
+        "q-9",
+        {
+          questId: "q-9",
+          title: "Implement board lifecycle",
+          status: "PROPOSED",
+          createdAt: 1,
+          updatedAt: 1,
+          journey: {
+            presetId: "rework-loop",
+            mode: "proposed",
+            phaseIds: ["alignment", "implement", "code-review", "implement", "mental-simulation", "port"],
+            phaseNotes: {
+              "4": "Replay turns 116/120/121/122-123 before dispatching this phase",
+            },
+          },
+        },
+      ],
+    ]);
+
+    const res = await app.request("/api/sessions/orch-1/board", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({
+        questId: "q-9",
+        phases: ["alignment", "implement", "code-review", "implement", "code-review", "mental-simulation", "port"],
+        presetId: "rework-loop",
+        revisionReason: "Add a second review pass before simulation",
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      board: [
+        {
+          questId: "q-9",
+          status: "PROPOSED",
+          journey: {
+            phaseIds: [
+              "alignment",
+              "implement",
+              "code-review",
+              "implement",
+              "code-review",
+              "mental-simulation",
+              "port",
+            ],
+            phaseNotes: {
+              "5": "Replay turns 116/120/121/122-123 before dispatching this phase",
+            },
+          },
+        },
+      ],
+    });
+  });
+
+  it("returns explicit warnings when a Journey revision drops unmappable phase notes", async () => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].board = new Map([
+      [
+        "q-9",
+        {
+          questId: "q-9",
+          title: "Implement board lifecycle",
+          status: "PROPOSED",
+          createdAt: 1,
+          updatedAt: 1,
+          journey: {
+            presetId: "rework-loop",
+            mode: "proposed",
+            phaseIds: ["alignment", "implement", "code-review", "implement", "mental-simulation", "port"],
+            phaseNotes: {
+              "4": "Replay turns 116/120/121/122-123 before dispatching this phase",
+            },
+          },
+        },
+      ],
+    ]);
+
+    const res = await app.request("/api/sessions/orch-1/board", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({
+        questId: "q-9",
+        phases: ["alignment", "implement", "code-review", "implement", "port"],
+        presetId: "rework-loop",
+        revisionReason: "Simulation is no longer needed after the narrowed fix",
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      board: [
+        {
+          questId: "q-9",
+          status: "PROPOSED",
+          journey: {
+            phaseIds: ["alignment", "implement", "code-review", "implement", "port"],
+          },
+        },
+      ],
+      phaseNoteRebaseWarnings: [
+        {
+          previousIndex: 4,
+          previousPhaseId: "mental-simulation",
+          previousOccurrence: 1,
+          note: "Replay turns 116/120/121/122-123 before dispatching this phase",
+        },
+      ],
+    });
+  });
+
   it("promotes a proposed Journey into active execution without redefining phases", async () => {
     setupTakodeSessions();
     bridge._sessions["orch-1"].board = new Map([
